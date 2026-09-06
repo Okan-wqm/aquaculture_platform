@@ -64,6 +64,7 @@ import { Invitation, InvitationStatus } from '../entities/invitation.entity';
 import { RefreshToken } from '../entities/refresh-token.entity';
 import { ActionTokenResolver, type ActionLinkLock } from './action-token-resolver.service';
 import { User } from '../entities/user.entity';
+import { WebAuthnCredential } from '../entities/webauthn-credential.entity';
 
 import { MfaService } from './mfa.service';
 import { DurableAccessTokenInvalidationService } from './durable-access-token-invalidation.service';
@@ -125,6 +126,17 @@ export function decodeRefreshTokenTransport(token: string): string {
   }
 }
 
+/**
+ * SEC-MEDIUM-113 (2026-08-23 scan №58): a benign two-tab refresh race (both
+ * tabs fire refresh with the same pre-rotation cookie) previously landed in
+ * reuse CONTAINMENT — all-session logout plus a false CRITICAL alert. A
+ * short tolerance window lets the loser re-mint from the same family once;
+ * the re-mint flips the reason to 'Token refreshed (grace)' so a second
+ * presentation of the same row still contains. A stolen-token replay inside
+ * the window gains exactly one mint — the inherent, bounded cost of grace.
+ */
+const REFRESH_ROTATION_GRACE_MS = 60_000;
+
 @Injectable()
 export class AuthenticationService {
   private readonly logger = new Logger(AuthenticationService.name);
@@ -155,6 +167,11 @@ export class AuthenticationService {
     private readonly actionTokenRepository: Repository<ActionToken>,
     @InjectRepository(Tenant)
     private readonly tenantRepository: Repository<Tenant>,
+    // ADR-046: the MFA-enrollment gate treats a registered WebAuthn credential
+    // as satisfying tenant MFA enforcement, so the gate must be able to count
+    // the user's passkeys / security keys.
+    @InjectRepository(WebAuthnCredential)
+    private readonly webAuthnCredentialRepository: Repository<WebAuthnCredential>,
     private readonly dataSource: DataSource,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
@@ -163,7 +180,7 @@ export class AuthenticationService {
     // platform-level SUPER_ADMIN (tenantId NULL), so they route through the
     // allowlisted best-effort path rather than the raw event bus.
     private readonly bestEffort: BestEffortEventPublisher,
-    // SEC-HIGH-057: PasswordResetRequested is the only signal that delivers a
+    // SEC-HIGH-159: PasswordResetRequested is the only signal that delivers a
     // recovery e-mail; it commits with the token row through the outbox.
     private readonly outboxPublisher: OutboxPublisher,
     private readonly actionTokenResolver: ActionTokenResolver,
@@ -469,8 +486,11 @@ export class AuthenticationService {
       // allow-list (ACTIVE only) owned by the tenant-status machine — a new
       // non-operational status is blocked by default, not by remembering to
       // add it here. SUPER_ADMIN users (tenantId null) are exempt.
+      // The row is hoisted out of this block because it also drives the
+      // ADR-046 enforcement point below: the MFA-enrollment login gate.
+      let tenant: Tenant | null = null;
       if (user.tenantId) {
-        const tenant = await this.tenantRepository.findOne({ where: { id: user.tenantId } });
+        tenant = await this.tenantRepository.findOne({ where: { id: user.tenantId } });
         if (tenant && !isLoginAllowed(tenant.status)) {
           await this.ensureMinDuration(startTime);
           this.logger.debug(`Login failed: tenant ${user.tenantId} is ${tenant.status}`);
@@ -582,6 +602,31 @@ export class AuthenticationService {
           mfaRequired: true,
           mfaToken: mfaChallenge.mfaToken,
         };
+      }
+
+      // ----------------------------------------------------------------
+      // ADR-046 MFA-ENFORCEMENT GATE (ADMIN-HIGH-014):
+      // the tenant requires MFA but this user has NEITHER TOTP nor a
+      // registered WebAuthn credential. resolveMfaEnrollmentGate is the single
+      // shared assertion every password-backed token-minting caller funnels
+      // through (login / acceptInvitation / resetPassword): it hands back a
+      // completable enrollment outcome (mfaSetupRequired + a 10-minute
+      // mfa_setup token, no access/refresh) instead of a lockout, and FAILS
+      // CLOSED (throw + CRITICAL audit) when MFA is unavailable so enforcement
+      // never depends on a boot-time env heuristic. A user who ALREADY
+      // satisfies enforcement (TOTP above, or a WebAuthn passkey) returns null
+      // here and proceeds to a full session.
+      // ----------------------------------------------------------------
+      const enrollmentGate = await this.resolveMfaEnrollmentGate(user, tenant, {
+        ipAddress,
+        userAgent,
+      });
+      if (enrollmentGate) {
+        // Persist the reset failed-attempt counters, but NOT lastLoginAt —
+        // like the MFA-challenge branch, this is not yet a completed login.
+        await this.userRepository.save(user);
+        await this.ensureMinDuration(startTime);
+        return enrollmentGate;
       }
 
       // No MFA — proceed with full login.
@@ -733,7 +778,7 @@ export class AuthenticationService {
   ): Promise<AuthPayload> {
     // Execute all reads + validation + writes inside a single transaction
     const result = await this.dataSource.transaction(async (manager) => {
-      // SEC-HIGH-056: the URL segment is resolved through the ONE resolver
+      // SEC-HIGH-158: the URL segment is resolved through the ONE resolver
       // (ActionToken row id first, legacy raw token second) — the same path
       // validateInvitation reads, so the two can no longer disagree.
       const { actionToken, invitation } = await this.loadInvitationForSegment(
@@ -821,6 +866,21 @@ export class AuthenticationService {
       ),
     ]);
 
+    // ADR-046 MFA-ENFORCEMENT GATE (ADMIN-HIGH-014): gate token ISSUANCE on MFA
+    // enrollment through the same shared assertion login uses. The invitation
+    // is already accepted and the password committed above — only issuance is
+    // gated. A freshly-onboarded user has no factor, so an enforcing tenant
+    // gets the completable mfaSetupRequired outcome instead of a full session;
+    // a user who satisfies enforcement mints normally (the session-TTL clamp
+    // is applied inside generateTokens either way).
+    const invitationTenant = await this.resolveTenantForUser(result.tenantId);
+    const invitationEnrollmentGate = await this.resolveMfaEnrollmentGate(result, invitationTenant, {
+      ipAddress,
+    });
+    if (invitationEnrollmentGate) {
+      return invitationEnrollmentGate;
+    }
+
     return this.tokenService.generateTokens(result, ipAddress);
   }
 
@@ -835,7 +895,7 @@ export class AuthenticationService {
     lastName?: string;
     expired?: boolean;
   }> {
-    // SEC-HIGH-056: read through the SAME resolution acceptInvitation uses.
+    // SEC-HIGH-158: read through the SAME resolution acceptInvitation uses.
     // The e-mailed segment is the ActionToken row id; hashing it and looking
     // it up as an invitation token (the old body) could never match, so every
     // invitation rendered the generic "invalid" screen while accept would have
@@ -1143,6 +1203,46 @@ export class AuthenticationService {
     if (token.isRevoked) {
       if (token.expiresAt.getTime() <= Date.now()) {
         return {};
+      }
+      // SEC-MEDIUM-113 (№58): one grace re-mint for a JUST-rotated token
+      // (reason 'Token refreshed', within the window). The re-mint flips the
+      // reason to the grace marker, so a second presentation of the SAME row
+      // falls through to containment below.
+      const revokedAtMs = token.revokedAt?.getTime();
+      const rotatedWithinGrace =
+        token.revokedReason === 'Token refreshed' &&
+        revokedAtMs !== undefined &&
+        Date.now() - revokedAtMs <= REFRESH_ROTATION_GRACE_MS;
+      if (rotatedWithinGrace) {
+        const claimed = await this.preTenantAuthRepository(manager, RefreshToken).update(
+          { id: token.id, revokedReason: 'Token refreshed' },
+          { revokedReason: 'Token refreshed (grace)' },
+        );
+        if (claimed.affected === 1) {
+          this.logger.warn(
+            JSON.stringify({
+              event: 'refresh_token_grace_replay',
+              tokenId: token.id,
+              familyId: token.familyId ?? undefined,
+            }),
+          );
+          if (!user.isActive) {
+            throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
+          }
+          await this.assertTenantOperationalForRefresh(manager, user);
+          const payload = await this.tokenService.generateTokens(
+            user,
+            token.ipAddress ?? undefined,
+            token.userAgent ?? undefined,
+            {
+              familyId: token.familyId ?? undefined,
+              rememberMe: token.rememberMe,
+              manager,
+              establishSession: false,
+            },
+          );
+          return { payload };
+        }
       }
       const containment = await this.containRefreshTokenReuse(manager, token);
       return containment ? { containment } : {};
@@ -1566,7 +1666,7 @@ export class AuthenticationService {
    * - If user not found, performs dummy hash to match timing and returns silently
    * - Enqueues PasswordResetRequestedEvent through the durable outbox, in the
    *   same transaction as the token row, for the notification service to send
-   *   the e-mail (platform-scoped for a super admin — SEC-HIGH-057)
+   *   the e-mail (platform-scoped for a super admin — SEC-HIGH-159)
    */
   async initiatePasswordReset(email: string, ipAddress?: string): Promise<void> {
     const startTime = Date.now();
@@ -1597,7 +1697,7 @@ export class AuthenticationService {
       const resetTokenHash = crypto.createHash('sha256').update(resetToken).digest('hex');
       const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
 
-      // SEC-HIGH-057: the scope is derived from the principal, never spelled
+      // SEC-HIGH-159: the scope is derived from the principal, never spelled
       // here. A super admin (tenantId NULL) is a platform-scoped event that
       // routes on the reserved segment; the notification consumer branches on
       // that scope instead of dropping it.
@@ -1693,7 +1793,7 @@ export class AuthenticationService {
       const actionTokenRepository = this.preTenantAuthRepository(manager, ActionToken);
       const userRepository = this.preTenantAuthRepository(manager, User);
       const refreshTokenRepository = this.preTenantAuthRepository(manager, RefreshToken);
-      // SEC-HIGH-056: one resolver for every emailed link segment.
+      // SEC-HIGH-158: one resolver for every emailed link segment.
       const resolution = await this.actionTokenResolver.resolve(
         token,
         ActionTokenPurpose.PASSWORD_RESET,
@@ -1737,6 +1837,14 @@ export class AuthenticationService {
         actionToken.consumedAt = new Date();
         await actionTokenRepository.save(actionToken);
       }
+
+      // SEC-CRITICAL-002 (2026-08-23 scan №38): a password reset invalidates
+      // every second factor bound to the previous credential set. WebAuthn
+      // credentials deleted here cannot survive the victim rotating their
+      // password, closing the "biometric backdoor outlives reset" chain.
+      // Same transaction as the password write — no window where the new
+      // password is live while old biometric credentials still authenticate.
+      await manager.delete(WebAuthnCredential, { userId: user.id });
 
       const invalidatedAt = new Date();
       await refreshTokenRepository.update(
@@ -1795,7 +1903,145 @@ export class AuthenticationService {
       ),
     ]);
 
+    // ADR-046 MFA-ENFORCEMENT GATE (ADMIN-HIGH-014): gate token ISSUANCE on MFA
+    // enrollment through the same shared assertion login/acceptInvitation use.
+    // The password reset AND the session revocation above have already
+    // committed; if the tenant enforces MFA and this user has neither TOTP nor
+    // a WebAuthn credential, hand back the completable mfaSetupRequired
+    // outcome instead of a session. Without this gate a signed-out user could
+    // self-serve a reset back into an MFA-free session, durably defeating the
+    // revocation-on-flip.
+    const resetTenant = await this.resolveTenantForUser(user.tenantId);
+    const resetEnrollmentGate = await this.resolveMfaEnrollmentGate(user, resetTenant, {
+      ipAddress,
+      userAgent,
+    });
+    if (resetEnrollmentGate) {
+      return resetEnrollmentGate;
+    }
+
     // Generate new tokens so user is immediately logged in
     return this.tokenService.generateTokens(user, ipAddress, userAgent);
+  }
+
+  // ==========================================================================
+  // ADR-046 — tenant MFA enforcement (ADMIN-HIGH-014)
+  // ==========================================================================
+
+  /**
+   * Load the user's tenant row for the MFA-enrollment gate on the
+   * password-backed token-minting paths (acceptInvitation, resetPassword).
+   * `auth.tenants` is cross-tenant by design (D14) and readable without a
+   * tenant context — the same direct read login performs for its tenant-status
+   * gate. Platform users (tenantId NULL) have no tenant.
+   */
+  private async resolveTenantForUser(tenantId: string | null | undefined): Promise<Tenant | null> {
+    if (!tenantId) {
+      return null;
+    }
+    return this.tenantRepository.findOne({ where: { id: tenantId } });
+  }
+
+  /**
+   * ADR-046: a user SATISFIES tenant MFA enforcement when they have TOTP MFA
+   * enrolled (`mfaEnabled`) OR at least one registered WebAuthn credential.
+   * WebAuthn is a first-class second factor, so a passkey / security-key user
+   * must NOT be forced onto TOTP as well — and, symmetrically, a WebAuthn-only
+   * user does not bypass the gate. The credential read only runs for non-TOTP
+   * users (short-circuit) and only the gate calls it, so a tenant that does not
+   * enforce MFA never pays for it.
+   */
+  private async userSatisfiesMfaEnforcement(user: User): Promise<boolean> {
+    if (user.mfaEnabled) {
+      return true;
+    }
+    const credentialCount = await this.webAuthnCredentialRepository.count({
+      where: { userId: user.id },
+    });
+    return credentialCount > 0;
+  }
+
+  /**
+   * ADR-046 MFA-ENFORCEMENT GATE (ADMIN-HIGH-014) — the single shared
+   * assertion every password-backed token-minting caller funnels through
+   * (login, acceptInvitation, resetPassword). Returns:
+   *
+   *   - `null` → the caller MAY mint a full session: the tenant does not
+   *     enforce MFA, or the user already satisfies enforcement (TOTP OR a
+   *     WebAuthn credential).
+   *   - an `AuthPayload` carrying `mfaSetupRequired` + a 10-minute `mfa_setup`
+   *     token (no access/refresh) → the tenant enforces MFA, the user has
+   *     NEITHER factor, and MFA is available: a completable enrollment path,
+   *     not a lockout.
+   *
+   * THROWS (fail-closed) when the tenant enforces MFA, the user is unenrolled
+   * AND the MFA service is unavailable: enrollment is impossible, so a full
+   * session must NEVER be issued, and a CRITICAL security-audit event records
+   * it. Enforcement therefore never depends on a boot-time env heuristic.
+   *
+   * WHY the assertion lives here and NOT inside the generateTokens clamp
+   * chokepoint: producing the graceful `mfaSetupRequired` outcome requires
+   * minting an `mfa_setup` token via MfaService, and TokenService cannot
+   * depend on MfaService without reintroducing the exact
+   * TokenService ↔ MfaService cycle TokenService was extracted to break. So
+   * enforcement is one shared, greppable helper rather than an in-chokepoint
+   * throw. The session-TTL clamp — which needs no MfaService — DOES live in
+   * the chokepoint.
+   */
+  private async resolveMfaEnrollmentGate(
+    user: User,
+    tenant: Tenant | null,
+    audit: { ipAddress?: string; userAgent?: string },
+  ): Promise<AuthPayload | null> {
+    if (!tenant || tenant.enforceMfa !== true) {
+      return null;
+    }
+    if (await this.userSatisfiesMfaEnforcement(user)) {
+      return null;
+    }
+
+    if (!this.mfaService?.isMfaAvailable()) {
+      // Fail closed: no MFA key → the user CANNOT enroll, so a full session
+      // must not be issued. Deny + CRITICAL audit — mirrors the
+      // enrolled-but-unavailable branch in login().
+      await this.logSecurityEvent(
+        'LOGIN_BLOCKED_MFA_UNAVAILABLE',
+        {
+          userId: user.id,
+          email: user.email,
+          tenantId: user.tenantId,
+          ipAddress: audit.ipAddress,
+          userAgent: audit.userAgent,
+          success: false,
+          reason:
+            'Tenant enforces MFA, user has no factor enrolled, and the MFA service is unavailable',
+        },
+        AuditLogSeverity.CRITICAL,
+      );
+      throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
+    }
+
+    const mfaSetupToken = this.mfaService.generateMfaSetupToken(user);
+
+    await this.logSecurityEvent('LOGIN_MFA_SETUP_REQUIRED', {
+      userId: user.id,
+      email: user.email,
+      tenantId: user.tenantId,
+      ipAddress: audit.ipAddress,
+      userAgent: audit.userAgent,
+      success: true,
+      reason: 'Password valid; tenant enforces MFA and the user has no factor enrolled',
+    });
+
+    return {
+      accessToken: '',
+      refreshToken: '',
+      user,
+      expiresIn: 0,
+      tokenType: 'Bearer',
+      redirectUrl: '',
+      mfaSetupRequired: true,
+      mfaSetupToken,
+    };
   }
 }

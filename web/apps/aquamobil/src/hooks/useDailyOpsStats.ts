@@ -4,19 +4,16 @@ import { useMemo } from 'react';
 
 import { useTodaysAttendance } from './useAttendance';
 import { useAuth } from './useAuth';
+import { useTodaysDayPlans } from './useTodaysDayPlans';
 
-import type { FeedingDayPlansQuery, GetTodaysDailyOpsCountsQuery } from '@/generated/graphql';
-import { GET_FEEDING_DAY_PLANS, GET_TASK_STATS, GET_TODAYS_DAILY_OPS_COUNTS } from '@/graphql/operations';
+import type { GetTodaysDailyOpsCountsQuery } from '@/generated/graphql';
+import { GET_TASK_STATS, GET_TODAYS_DAILY_OPS_COUNTS } from '@/graphql/operations';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { DailyOpsStats, TaskStats } from '@/types';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
-// MOB-HIGH-019: the day-plan slice is the generated result of the SAME document
-// RecordFeedingPage reads (Faz 6 öğün cutover'ı — sayım aggregate ile aynı
-// semantik: fed|skipped / iptal-dışı). Meal status is the generated
-// FeedingMealStatus enum, so the comparisons below are checked against the
-// wire vocabulary instead of a `string`.
-type FeedingDayPlanSlice = FeedingDayPlansQuery['feedingDayPlans'][number];
+// MOB-HIGH-022: the counts slice is the generated result of the document
+// below, so the field names are checked against the wire contract.
 type DailyOpsCountsResponse = GetTodaysDailyOpsCountsQuery['todaysDailyOpsCounts'];
 
 /**
@@ -32,24 +29,15 @@ export function useDailyOpsStats(): { stats: DailyOpsStats; isLoading: boolean }
   // Source 1: Clock-in status (React Query, already migrated)
   const { data: todaysAttendance, isLoading: attendanceLoading } = useTodaysAttendance();
 
-  // Source 2: Feeding plan progress
-  const todayStr = useMemo(() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  }, []);
-
-  const { data: dayPlans, isLoading: feedingLoading } = useQuery<FeedingDayPlanSlice[]>({
-    queryKey: createTenantQueryKey(tenantId, 'feedingDayPlans', tenantId, todayStr),
-    queryFn: async () => {
-      const result = await graphqlRequest(
-        GET_FEEDING_DAY_PLANS, { planDate: todayStr },
-      );
-      return result.feedingDayPlans;
-    },
-    enabled: isAuthenticated && !!tenantId,
-    staleTime: 1000 * 60 * 5, // WHY 5min: feeding plan changes infrequently
-    gcTime: 1000 * 60 * 30,
-  });
+  // Source 2: Feeding plan progress.
+  //
+  // W8/FARM-LOW-281: paylaşılan hook. Bu hook ve RecordFeedingPage AYNI React
+  // Query anahtarını kullanıyordu ama İKİ ayrı `queryFn` ile; anahtar
+  // paylaşıldığı için yalnız ilk mount edenin fonksiyonu koşuyor ve ana sayfa
+  // hemen her zaman önce mount ettiği için RecordFeedingPage'in çevrimdışı
+  // `cacheData` yazımı HİÇ çalışmıyordu. Tek okuyucu = tek queryFn = mount
+  // sırası davranışı değiştiremez.
+  const { plans: dayPlans, isLoading: feedingLoading } = useTodaysDayPlans();
 
   // Source 3: Task stats (totalToday, completedToday)
   const { data: taskStats, isLoading: taskStatsLoading } = useQuery<TaskStats>({

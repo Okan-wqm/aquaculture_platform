@@ -17,7 +17,6 @@ import {
   BadRequestException,
   ForbiddenException,
   Logger,
-  Res,
   Req,
   StreamableFile,
 } from '@nestjs/common';
@@ -25,7 +24,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { Type, Transform } from 'class-transformer';
 import { IsOptional, IsNumber, IsString, IsIn, IsObject, Matches } from 'class-validator';
-import { Response, Request } from 'express';
+import { Request } from 'express';
 import { DataSource } from 'typeorm';
 import type { AuditLogInput } from '../../audit/audit.service';
 import { AuditLogService } from '../../audit/audit.service';
@@ -34,6 +33,7 @@ import { getAuthUser } from '../../shared/authenticated-request';
 
 import { ThrottleSensitive, ThrottleExport } from '@aquaculture/backend-common/security';
 import { MODULE_SCHEMAS, DEFAULT_TENANT_MODULES } from '@aquaculture/backend-common/database';
+import { expectedTotalPages } from '@platform/pagination-contracts';
 // ============================================================================
 // Module Table Access Control
 // ============================================================================
@@ -481,7 +481,10 @@ export class DatabaseExplorerController {
         `SELECT COUNT(*) as count FROM "${schema}"."${table}"`,
       );
       const totalRows = parseInt(countResult[0]?.count || '0', 10);
-      const totalPages = Math.ceil(totalRows / limit);
+      // The row browser carries column metadata alongside its page, so it
+      // cannot BE a `PaginationResultV1`; it takes its page arithmetic from
+      // the same authority instead of deriving a second answer.
+      const totalPages = expectedTotalPages(totalRows, limit);
 
       // Verileri al - SECURITY: Use parameterized queries for LIMIT and OFFSET
       let dataQuery = `SELECT * FROM "${schema}"."${table}"`;
@@ -546,8 +549,7 @@ export class DatabaseExplorerController {
     @Param('schema') schema: string,
     @Param('table') table: string,
     @Query() query: ExportQueryDto,
-    @Res({ passthrough: true }) res: Response,
-  ): Promise<StreamableFile | Record<string, unknown>[]> {
+  ): Promise<StreamableFile> {
     if (!this.isValidIdentifier(schema) || !this.isValidIdentifier(table)) {
       throw new BadRequestException('Invalid schema or table name');
     }
@@ -603,12 +605,16 @@ export class DatabaseExplorerController {
       });
 
       if (format === 'json') {
-        res.setHeader('Content-Type', 'application/json');
-        res.setHeader(
-          'Content-Disposition',
-          `attachment; filename="${table}_export.json"`,
-        );
-        return rows;
+        // A StreamableFile, not a bare array: the global ResponseInterceptor
+        // maps every ordinary handler return into `{success,data,meta}`, so the
+        // JSON export downloaded the envelope under the attachment filename
+        // instead of the rows. The interceptor's binary passthrough streams
+        // this untouched.
+        const jsonBuffer = Buffer.from(JSON.stringify(rows), 'utf-8');
+        return new StreamableFile(jsonBuffer, {
+          type: 'application/json',
+          disposition: `attachment; filename="${table}_export.json"`,
+        });
       }
 
       // CSV format
@@ -634,13 +640,13 @@ export class DatabaseExplorerController {
       const csvContent = [csvHeader, ...csvRows].join('\n');
       const buffer = Buffer.from(csvContent, 'utf-8');
 
-      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-      res.setHeader(
-        'Content-Disposition',
-        `attachment; filename="${table}_export.csv"`,
-      );
-
-      return new StreamableFile(buffer);
+      // Headers travel with the StreamableFile so the response never needs the
+      // `@Res` escape hatch — which is what made the two formats diverge in the
+      // first place.
+      return new StreamableFile(buffer, {
+        type: 'text/csv; charset=utf-8',
+        disposition: `attachment; filename="${table}_export.csv"`,
+      });
     } finally {
       await queryRunner.release();
     }

@@ -68,17 +68,18 @@ function run(cmd: string, args: readonly string[]): string {
 }
 
 /**
- * Every target whose specs call `bootPostgresContainer()`. The prewarm follows
- * the TARGET it serves, not one of them: `test:integration` (farm-service,
- * auth-service — INFRA-MEDIUM-142) boots the same image as `test` does in
- * db-migrate and the harness, and used to be covered only because those two
- * projects also declare `test`.
+ * Every test-family target whose suites may boot a container. `test` alone was
+ * not enough: `farm-service` keeps its Testcontainers suites under a separate
+ * `test:integration` target, and it only got prewarmed because it happens to
+ * ALSO declare `test`. A project that declared just the integration target
+ * would silently miss the pull and pay a multi-GB download inside a Jest
+ * beforeAll — the exact failure mode INFRA-HIGH-011 fixed for db-migrate.
  */
-const TESTCONTAINER_TARGETS = ['test', 'test:integration'] as const;
+const CONTAINER_BOOTING_TARGETS = ['test', 'test:integration'] as const;
 
 function affectedTestProjects(base: string, head: string): Set<string> {
-  const affected = new Set<string>();
-  for (const target of TESTCONTAINER_TARGETS) {
+  const projects = new Set<string>();
+  for (const target of CONTAINER_BOOTING_TARGETS) {
     // --json explicitly: without it nx emits newline-separated names on a
     // TTY but a single-line JSON array when piped — sniffing the shape
     // would be fragile across nx versions.
@@ -94,9 +95,11 @@ function affectedTestProjects(base: string, head: string): Set<string> {
       `--with-target=${target}`,
       '--json',
     ]);
-    for (const project of JSON.parse(out) as string[]) affected.add(project);
+    for (const project of JSON.parse(out) as string[]) {
+      projects.add(project);
+    }
   }
-  return affected;
+  return projects;
 }
 
 /** Reverse transitive closure: every project that depends on `root`. */

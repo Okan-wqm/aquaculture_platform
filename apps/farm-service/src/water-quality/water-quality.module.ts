@@ -69,6 +69,8 @@ import { WaterQualityParameterConfigSeederService } from './services/water-quali
 // onboarding-owning module gets pulled in via a module import.
 import { TenantOnboardingEventHandler } from './event-handlers/tenant-onboarding.event-handler';
 import { SpeciesModule } from '../species/species.module';
+import { FeedingProtocolV2 } from '../feeding-protocol/entities/feeding-protocol-v2.entity';
+import { FeedingReadinessCheckerService } from '../feeding-protocol/services/feeding-readiness-checker.service';
 import { FeedModule } from '../feed/feed.module';
 import { RegulatoryModule } from '../regulatory/regulatory.module';
 import { EquipmentModule } from '../equipment/equipment.module';
@@ -96,6 +98,8 @@ const CommandHandlers = [
       Equipment,
       SensorTemperatureLatest,
       SensorTemperatureDaily,
+      // W8/FARM-MEDIUM-284 — onboarding fan-out'undaki v2 hazırlık kontrolü.
+      FeedingProtocolV2,
     ]),
     // Onboarding handler fans out to sibling seeders. Each source
     // module re-exports its seeder service so the handler can
@@ -115,6 +119,9 @@ const CommandHandlers = [
     DayPlanRecalcService,
     // Etkin sıcaklık zinciri (sensör→manuel→none) — effectiveUnitTemperatures sorgusu okur.
     WaterTemperatureService,
+    // W8/FARM-MEDIUM-284 — stateless checker (ProtocolRateService emsali):
+    // FeedingProtocolModule'ü import etmek modül döngüsü riski taşır.
+    FeedingReadinessCheckerService,
     // SEC-HIGH-051 / SEC-HIGH-052: site authz SSoT + mobile-feature guard.
     SiteAuthorizationService,
     MobileFeatureGuard,

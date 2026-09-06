@@ -13,14 +13,14 @@ jest.mock('@aquaculture/backend-common/http', () => ({
 }));
 
 /**
- * SEC-HIGH-057 — a super admin's password-reset e-mail was acknowledged and
+ * SEC-HIGH-159 — a super admin's password-reset e-mail was acknowledged and
  * never sent: the handler guarded `tenantId` with a UUID regex and returned
  * on the platform segment. These tests pin the scope-aware delivery path:
  * tenant events bind the tenant id into the signed internal call, platform
  * events bind the explicit non-tenant identity, UserInvited refuses the
  * platform scope, and a malformed scope throws to the bus.
  */
-describe('AuthEventHandler — PasswordResetRequested / UserInvited tenancy scope (SEC-HIGH-057)', () => {
+describe('AuthEventHandler — PasswordResetRequested / UserInvited tenancy scope (SEC-HIGH-159)', () => {
   const TENANT = '11111111-1111-4111-8111-111111111111';
   const ACTION_TOKEN_ID = '22222222-2222-4222-8222-222222222222';
   const mockSignedFetch = signedFetch as jest.MockedFunction<typeof signedFetch>;

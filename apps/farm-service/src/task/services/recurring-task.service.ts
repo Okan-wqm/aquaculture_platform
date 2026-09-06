@@ -74,7 +74,7 @@ export class RecurringTaskService {
     const template = this.templateRepository.create({
       ...input,
       // Stored canonical (stable ids) so the read-path normaliser is a no-op
-      // for rows this service wrote (FARM-HIGH-301).
+      // for rows this service wrote (FARM-HIGH-320).
       checklistItems: TaskService.normaliseChecklistItems(input.checklistItems),
       tenantId,
       isActive: true,

@@ -1,8 +1,18 @@
 import { Roles, Role, ModuleUserOrHigher, AuditLog, RequiresMobileFeature } from '@aquaculture/backend-common/decorators';
 import { MobileFeatureGuard } from '@aquaculture/backend-common/guards';
 import { mobileCommandEnvelopeFromInput } from '@aquaculture/backend-common/mobile-command';
-import { StandardPaginatedResponse, IStandardPaginatedResult, fromCqrsPaginated } from '@aquaculture/backend-common/pagination';
-import { UnauthorizedException, ForbiddenException, NotFoundException, UseGuards } from '@nestjs/common';
+import {
+  StandardPaginatedResponse,
+  IStandardPaginatedResult,
+  fromCqrsPaginated,
+} from '@aquaculture/backend-common/pagination';
+import type { PaginatedQueryResult } from '@platform/cqrs';
+import {
+  UnauthorizedException,
+  ForbiddenException,
+  NotFoundException,
+  UseGuards,
+} from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { Resolver, Query, Mutation, Args, ID, Context, Int, Float, ObjectType } from '@nestjs/graphql';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -61,18 +71,6 @@ interface GraphQLContext {
       sub: string;
       tenantId: string;
     };
-  };
-}
-
-interface CqrsPaginatedResult<T> {
-  data: T[];
-  pagination: {
-    page: number;
-    limit: number;
-    total: number;
-    totalPages: number;
-    hasNextPage: boolean;
-    hasPreviousPage: boolean;
   };
 }
 
@@ -206,7 +204,7 @@ export class LeaveResolver {
     const tenantId = this.getTenantId(context);
     const result = await this.queryBus.execute<
       GetLeaveRequestsQuery,
-      CqrsPaginatedResult<LeaveRequest>
+      PaginatedQueryResult<LeaveRequest>
     >(
       new GetLeaveRequestsQuery(
         tenantId,
@@ -234,7 +232,7 @@ export class LeaveResolver {
     const employeeId = await this.resolveEmployeeId(userId, tenantId);
     const result = await this.queryBus.execute<
       GetLeaveRequestsQuery,
-      CqrsPaginatedResult<LeaveRequest>
+      PaginatedQueryResult<LeaveRequest>
     >(
       new GetLeaveRequestsQuery(
         tenantId,
@@ -269,10 +267,8 @@ export class LeaveResolver {
     const employeeId = employee?.id ?? null;
     const result = await this.queryBus.execute<
       GetPendingApprovalsQuery,
-      CqrsPaginatedResult<LeaveRequest>
-    >(
-      new GetPendingApprovalsQuery(tenantId, employeeId, departmentId, limit, page),
-    );
+      PaginatedQueryResult<LeaveRequest>
+    >(new GetPendingApprovalsQuery(tenantId, employeeId, departmentId, limit, page));
     return fromCqrsPaginated(result);
   }
 

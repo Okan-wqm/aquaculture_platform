@@ -36,11 +36,14 @@ const GATE = join(REPO_ROOT, 'scripts', 'ci', 'npm-audit-gate.mjs');
 const REGISTRY = join(REPO_ROOT, 'docs', 'reviews', '_registry', 'findings.jsonl');
 
 /**
- * RATCHET — only ever goes DOWN. One entry today: GHSA-528h-pc64-c93x
- * (minio@8.0.7 -> stream-json@1.9.1), which has no remediation that keeps minio
- * working; see the entry's own reason.
+ * RATCHET — only ever goes DOWN. Zero entries today. The one it was born with,
+ * GHSA-528h-pc64-c93x (minio@8.0.7 -> stream-json@1.9.1), left with minio when
+ * libs/storage moved to @aws-sdk/client-s3 (SUPPLY-MEDIUM-008) — exactly the
+ * re-review condition the entry's own reason named. The mechanism stays: the
+ * next advisory with no safe remediation gets a dated, reviewed entry and the
+ * ratchet moves to 1 in the same commit, never silently.
  */
-const MAX_EXCEPTIONS = 1;
+const MAX_EXCEPTIONS = 0;
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const ADVISORY_ID = /^GHSA-[0-9a-z]{4}-[0-9a-z]{4}-[0-9a-z]{4}$/;

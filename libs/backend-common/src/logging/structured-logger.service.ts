@@ -206,6 +206,19 @@ export class StructuredLoggerService implements LoggerService {
       }
     }
 
+    // `logger.error(err)` puts the Error in `message`, not in optionalParams,
+    // so the loop above never sees it and the stack was dropped — the entry
+    // carried `err.message` (the `message instanceof Error` branch below proves
+    // the shape was expected) with no `stack` field at all. Every callsite that
+    // logs a caught error directly lost its trace.
+    //
+    // Filled in only when the loop did not already find one, so an explicitly
+    // supplied stack still wins and the existing param-driven behaviour is
+    // unchanged.
+    if (!stack && message instanceof Error) {
+      stack = message.stack;
+    }
+
     const hoistedBootSignal =
       extra && typeof extra['bootSignal'] === 'string' ? extra : undefined;
 

@@ -102,7 +102,7 @@ describe('AuthEventHandler — UserAccountLocked (ORPHAN-MEDIUM-320)', () => {
     expect(emailService.sendEmail).not.toHaveBeenCalled();
   });
 
-  it('SEC-HIGH-057: a platform-scoped lockout (super admin) resolves PII through the platform-scope identity', async () => {
+  it('SEC-HIGH-159: a platform-scoped lockout (super admin) resolves PII through the platform-scope identity', async () => {
     mockSignedFetch.mockResolvedValue({
       ok: true,
       json: () => Promise.resolve({ email: 'root@example.test', firstName: 'Root' }),
@@ -118,7 +118,7 @@ describe('AuthEventHandler — UserAccountLocked (ORPHAN-MEDIUM-320)', () => {
     expect(emailService.sendEmail.mock.calls[0]?.[0]).toBe('root@example.test');
   });
 
-  it('SEC-HIGH-057: a malformed tenancy scope throws to the bus instead of being acknowledged', async () => {
+  it('SEC-HIGH-159: a malformed tenancy scope throws to the bus instead of being acknowledged', async () => {
     await expect(handler.handle(lockEvent({ tenantId: 'not-a-tenant' }))).rejects.toThrow(
       InvalidEventTenantScopeError,
     );

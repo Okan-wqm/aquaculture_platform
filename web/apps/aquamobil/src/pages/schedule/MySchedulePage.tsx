@@ -12,7 +12,7 @@ import type { WeeklyPlanEntry } from '@/hooks/useMySchedule';
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const DAY_NAMES_FULL = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
-// MOB-HIGH-019: keyed by the generated enum (wire NAMES). The old record was
+// MOB-HIGH-022: keyed by the generated enum (wire NAMES). The old record was
 // keyed by lowercase strings, so every lookup missed and each day rendered as
 // "Day Off"; a total Record makes a missing entry type a compile error.
 const ENTRY_TYPE_CONFIG: Record<WeeklyPlanEntryType, { icon: typeof Clock; label: string; bgColor: string; textColor: string }> = {

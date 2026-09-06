@@ -16,6 +16,10 @@ import {
   AnnouncementStatus,
   AnnouncementTarget,
 } from '../entities/support.entity';
+import {
+  createStandardPaginatedResult,
+  type PaginationResultV1,
+} from '@platform/pagination-contracts';
 
 // ============================================================================
 // Service
@@ -197,12 +201,7 @@ export class AnnouncementService {
     limit?: number;
     status?: AnnouncementStatus;
     type?: AnnouncementType;
-  }): Promise<{
-    data: Announcement[];
-    total: number;
-    page: number;
-    limit: number;
-  }> {
+  }): Promise<PaginationResultV1<Announcement>> {
     const { page = 1, limit = 20, status, type } = options;
 
     const where: Record<string, unknown> = {};
@@ -216,7 +215,7 @@ export class AnnouncementService {
       take: limit,
     });
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult<Announcement>(data, total, page, limit);
   }
 
   /**

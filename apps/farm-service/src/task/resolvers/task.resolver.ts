@@ -107,7 +107,7 @@ export class TaskResolver {
 
   /**
    * The wire `checklistItems` is the CANONICAL shape, never the stored one
-   * (FARM-HIGH-301): every row passes through the same normaliser the write
+   * (FARM-HIGH-320): every row passes through the same normaliser the write
    * path uses, so a legacy `{ text, completed }` item reads as
    * `{ id, text, isCompleted }` instead of an unticked, id-less object each
    * client has to repair for itself.

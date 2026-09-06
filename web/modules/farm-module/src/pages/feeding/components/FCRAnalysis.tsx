@@ -39,7 +39,7 @@ interface Batch {
 interface FCRAnalysisProps {
   siteId: string;
   batchId: string;
-  batches: Batch[];
+  batches: readonly Batch[];
 }
 
 export const FCRAnalysis: React.FC<FCRAnalysisProps> = ({ batches }) => {

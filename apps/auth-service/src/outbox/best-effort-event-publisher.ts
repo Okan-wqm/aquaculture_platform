@@ -72,7 +72,7 @@ export class BestEffortEventPublisher {
     // NOT on this list, deliberately: 'PasswordResetRequested'. A user who
     // cannot log in has no second channel to notice a lost e-mail, so that
     // event commits with its ActionToken row through the durable outbox
-    // (AuthenticationService.initiatePasswordReset, SEC-HIGH-057).
+    // (AuthenticationService.initiatePasswordReset, SEC-HIGH-159).
   ]);
 
   constructor(@Inject('EVENT_BUS') private readonly eventBus: EventPublishPort) {}

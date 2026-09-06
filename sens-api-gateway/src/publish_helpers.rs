@@ -71,7 +71,53 @@ async fn publish_routed(
     retain: bool,
     legacy_label: &str,
 ) {
-    let payload_bytes = match serde_json::to_vec(payload) {
+    // EDGE-CRITICAL-004: stamp every telemetry-class envelope with a stable
+    // (device_id, edge_seq) idempotency key BEFORE the direct-vs-queue fork,
+    // so a store-and-forward replay carries the SAME key as its first
+    // delivery and a backend consumer can dedup it. The seq is minted here —
+    // the single publish chokepoint — so telemetry / io_data / alarms / status
+    // are stamped uniformly. edge_seq is allocated only when the offline queue
+    // is enabled (its SQLite backs the persisted monotonic counter, and it is
+    // also the only replay source); device_id makes the payload self-contained
+    // rather than relying on topic parsing.
+    let mut value = match serde_json::to_value(payload) {
+        Ok(v) => v,
+        Err(e) => {
+            warn!(
+                "publish_helpers: serialize failed for {}: {}",
+                legacy_label, e
+            );
+            return;
+        }
+    };
+    if let Some(obj) = value.as_object_mut() {
+        if let Some(ref mqtt) = state.mqtt_client {
+            obj.insert(
+                "device_id".to_string(),
+                serde_json::Value::String(mqtt.device_id().to_string()),
+            );
+        }
+        if let Some(ref queue) = state.offline_queue {
+            match queue.alloc_edge_seq().await {
+                Ok(seq) => {
+                    obj.insert("edge_seq".to_string(), serde_json::json!(seq));
+                }
+                Err(e) => {
+                    warn!(
+                        "publish_helpers: edge_seq allocation failed for {}: {}",
+                        legacy_label, e
+                    );
+                }
+            }
+        }
+    } else {
+        warn!(
+            "publish_helpers: payload for {} is not a JSON object — cannot \
+             stamp (device_id, edge_seq) idempotency key",
+            legacy_label
+        );
+    }
+    let payload_bytes = match serde_json::to_vec(&value) {
         Ok(b) => b,
         Err(e) => {
             warn!(

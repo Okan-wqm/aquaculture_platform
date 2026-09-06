@@ -95,7 +95,7 @@ describe('ListTenantsHandler - Pagination', () => {
       expect(mockQueryBuilder.take).toHaveBeenCalledWith(20);
       expect(result.page).toBe(1);
       expect(result.limit).toBe(20);
-      expect(result.data).toHaveLength(20);
+      expect(result.items).toHaveLength(20);
       expect(result.total).toBe(50);
       expect(result.totalPages).toBe(3);
     });
@@ -157,7 +157,7 @@ describe('ListTenantsHandler - Pagination', () => {
         new ListTenantsQuery(undefined, { page: 100, limit: 20 }),
       );
 
-      expect(result.data).toEqual([]);
+      expect(result.items).toEqual([]);
       expect(result.total).toBe(50);
       expect(result.page).toBe(100);
       expect(result.totalPages).toBe(3);
@@ -299,7 +299,7 @@ describe('ListTenantsHandler - Pagination', () => {
       expect(mockQueryBuilder.andWhere).toHaveBeenCalledTimes(2);
       expect(mockQueryBuilder.skip).toHaveBeenCalledWith(5);
       expect(mockQueryBuilder.take).toHaveBeenCalledWith(5);
-      expect(result.data).toHaveLength(5);
+      expect(result.items).toHaveLength(5);
       expect(result.total).toBe(15);
       expect(result.totalPages).toBe(3);
     });
@@ -318,12 +318,12 @@ describe('ListTenantsHandler - Pagination', () => {
         new ListTenantsQuery(),
       );
 
-      expect(result).toHaveProperty('data');
+      expect(result).toHaveProperty('items');
       expect(result).toHaveProperty('total');
       expect(result).toHaveProperty('page');
       expect(result).toHaveProperty('limit');
       expect(result).toHaveProperty('totalPages');
-      expect(Array.isArray(result.data)).toBe(true);
+      expect(Array.isArray(result.items)).toBe(true);
       expect(typeof result.total).toBe('number');
       expect(typeof result.page).toBe('number');
       expect(typeof result.limit).toBe('number');
@@ -337,7 +337,9 @@ describe('ListTenantsHandler - Pagination', () => {
         new ListTenantsQuery(undefined, { page: 1, limit: 10 }),
       );
 
-      expect(result.totalPages).toBe(0); // Math.ceil(0 / 10) = 0
+      // Bound to the authority: expectedTotalPages(0, 10) is 1, because an
+      // empty page is page 1 of 1. The old `0` was the duplicate contract.
+      expect(result.totalPages).toBe(1);
     });
 
     it('should calculate totalPages correctly for exact page boundary', async () => {

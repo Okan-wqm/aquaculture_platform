@@ -13,6 +13,7 @@ import {
   type ComputeDayPlanInput,
 } from '../services/meal-plan-generator.service';
 import { ProtocolRateService } from '../services/protocol-rate.service';
+import { ProtocolResolutionService } from '../services/protocol-resolution.service';
 import { FeedingDayPlanStatus } from '../entities/feeding-day-plan.entity';
 import {
   FcrResolvedSource,
@@ -65,7 +66,11 @@ const PROTOCOL = {
 const TEMP_NONE: EffectiveTemperature = { celsius: null, source: 'none' };
 const TEMP_COLD: EffectiveTemperature = { celsius: 8, source: 'sensor', sensorId: 's1' };
 
-const service = new MealPlanGeneratorService(new ProtocolRateService());
+const generatorRateService = new ProtocolRateService();
+const service = new MealPlanGeneratorService(
+  generatorRateService,
+  new ProtocolResolutionService(generatorRateService),
+);
 
 const baseInput = (): ComputeDayPlanInput => ({
   assignment: { overrides: {}, suspensions: [], currentFeedId: undefined },

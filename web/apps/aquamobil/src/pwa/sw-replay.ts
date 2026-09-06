@@ -133,7 +133,7 @@ async function postGraphQL(
   const result = (await response.json()) as GraphQLEnvelope;
   if (result.errors && result.errors.length > 0) {
     // Same classification as the foreground lane: the server's code decides
-    // whether the queue retries (MOB-CRITICAL-018 class).
+    // whether the queue retries (MOB-CRITICAL-021 class).
     throw GraphQLReplayError.fromEnvelope(result.errors);
   }
   return result.data;

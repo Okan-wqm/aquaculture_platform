@@ -18,3 +18,4 @@ export * from './users';
 export * from './modules';
 export * from './audit';
 export * from './billing';
+export * from './messaging';

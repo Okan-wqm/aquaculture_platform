@@ -59,13 +59,14 @@ GRANT shared_schema_owner TO observability_service;
 GRANT shared_schema_owner TO event_store_service;
 GRANT shared_schema_owner TO config_service;
 
-GRANT USAGE ON SCHEMA shared TO PUBLIC;
-
--- Every service needs DML on every shared table. Grant broad READ + WRITE;
--- RLS enforces tenant isolation at the row level.
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA shared TO PUBLIC;
+-- SEC-MEDIUM-110 (2026-08-23 scan №55): grants enumerate ROLES, never PUBLIC.
+-- A PUBLIC grant hands the shared audit/GDPR/consent tables to ANY login the
+-- cluster ever grows (including future non-platform roles); the explicit
+-- shared_schema_owner membership list above is the complete consumer set.
+GRANT USAGE ON SCHEMA shared TO shared_schema_owner;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA shared TO shared_schema_owner;
 ALTER DEFAULT PRIVILEGES IN SCHEMA shared
-  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO PUBLIC;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO shared_schema_owner;
 
 -- ──────────────────────────────────────────────────────────────────────────
 -- Live-DB migration path: tables previously in `public` move to `shared`

@@ -343,6 +343,15 @@ function extractRpcUsage(appDir: string, constants: Map<string, string>): RpcUsa
   const resolveRef = (ref: string): string | undefined => {
     const literal = /^'([^']+)'$/.exec(ref);
     if (literal) return literal[1];
+    // SEC-MEDIUM-103 (2026-08-23 scan №48): resolve NESTED member access —
+    // sendAuthCommand(AUTH_PUBLIC_COMMAND_SUBJECTS.RESET_PASSWORD, ...)
+    // indirections the flat OBJECT.CONST regex below could not see, which is
+    // exactly how the public password-reset subjects escaped RPC coverage.
+    const nested = /^[A-Za-z0-9_$]+\.([A-Z][A-Z0-9_]+)\.([A-Z][A-Z0-9_]+)$/.exec(ref);
+    if (nested) {
+      const container = constants.get(`${nested[1]}.${nested[2]}`);
+      if (container) return container;
+    }
     const constRef =
       /^[A-Za-z0-9_$]+\.([A-Z][A-Z0-9_]+)$/.exec(ref) ?? /^([A-Z][A-Z0-9_]+)$/.exec(ref);
     if (constRef) return constants.get(constRef[1]);
@@ -451,6 +460,64 @@ describe('NATS SSoT Invariants (ADR-015 cert-is-identity + ORPHAN-HIGH-317 subje
       }
     },
   );
+
+  it('universal _INBOX.> SUBSCRIBE grants are banned — reply inboxes are per-service scoped (SEC-HIGH-098, 2026-08-23 scan №43)', () => {
+    for (const svc of servicesDoc.services) {
+      const sub = svc.subscribe ?? [];
+      const universal = sub.filter((entry) => entry === '_INBOX.>');
+      if (universal.length > 0) {
+        throw new Error(
+          `${svc.name}: subscribe list still carries the universal _INBOX.> grant — ` +
+            `a compromised cert on ANY service receives every other service's ` +
+            `request-reply replies. Replace with _INBOX${(svc.name ?? 'UNKNOWN').toUpperCase()}.> ` +
+            `(the connection factory sets the matching inboxPrefix).`,
+        );
+      }
+      // Every service MUST have its own scoped inbox in subscribe (it needs to
+      // receive ITS OWN replies).
+      const expected = `_INBOX${(svc.name ?? 'UNKNOWN').toUpperCase().replace(/-/g, '_')}.>`;
+      if (!sub.includes(expected)) {
+        throw new Error(
+          `${svc.name}: subscribe list is missing its own scoped inbox ${expected} — ` +
+            `the service cannot receive request-reply responses.`,
+        );
+      }
+    }
+  });
+
+  it('bare $JS.API.> grants are banned — JetStream rights are enumerated per service (Task 2, SENSOR-HIGH-092)', () => {
+    // Pull-consumer delivery is NOT gated by subscribe ACLs, so narrowing
+    // loses nothing — while the bare root handed every service stream and
+    // consumer CRUD over EVERY stream (including AQUACULTURE_DLQ
+    // destruction, i.e. destroying forensic evidence of an intrusion).
+    const offenders: string[] = [];
+    for (const svc of servicesDoc.services) {
+      for (const s of [...svc.publish, ...svc.subscribe]) {
+        if (s === '$JS.API.>') offenders.push(`${svc.name}: ${s}`);
+      }
+    }
+    if (authBlock.includes("'$JS.API.>'")) offenders.push('nats.conf GENERATED block');
+    expect(offenders).toEqual([]);
+  });
+
+  it('high-rate telemetry types carry a telemetry-root publish grant wherever they are published (Task 2)', () => {
+    // SensorReading/SensorMetricIngested route to AQUACULTURE_TELEMETRY;
+    // every identity allowed to publish them on the events root must ALSO
+    // hold the telemetry-root grant, or the routed publish fails with a
+    // Permissions Violation at runtime.
+    const HIGH_RATE = ['SensorReading', 'SensorMetricIngested'];
+    const offenders: string[] = [];
+    for (const svc of servicesDoc.services) {
+      for (const type of HIGH_RATE) {
+        const hasEvents = svc.publish.includes(`events.*.${type}`);
+        const hasTelemetry = svc.publish.includes(`telemetry.*.${type}`);
+        if (hasEvents && !hasTelemetry) {
+          offenders.push(`${svc.name}: events.*.${type} without telemetry.*.${type}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
 
   it('legacy AQUACULTURE_EVENTS subject grants are banned (stream name ≠ subject prefix)', () => {
     // The schema already rejects the prefix structurally; this assertion

@@ -26,7 +26,7 @@ export class DurableAccessTokenInvalidationService {
   ) {}
 
   async enqueue(manager: EntityManager, intent: AccessTokenInvalidationIntent): Promise<void> {
-    // SEC-HIGH-057: scope derived from the principal, routed by kind.
+    // SEC-HIGH-159: scope derived from the principal, routed by kind.
     const scope = tenantScopeOf(intent.tenantId);
     const systemRouted = scope.kind === 'platform';
     const expiresAtEpochSeconds = Math.floor(intent.expiresAt.getTime() / 1000);

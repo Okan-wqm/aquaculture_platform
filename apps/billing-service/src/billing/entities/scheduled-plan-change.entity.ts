@@ -26,6 +26,10 @@ import { PlanLimits, PlanPricing } from './subscription.entity';
  */
 export enum ScheduledChangeStatus {
   PENDING = 'PENDING',
+  /** Saga lease state — a worker owns the operation while Stripe traffic runs. */
+  PROCESSING = 'PROCESSING',
+  /** Post-apply verification failed; the row awaits reconciliation. */
+  RECONCILIATION_REQUIRED = 'RECONCILIATION_REQUIRED',
   APPLIED = 'APPLIED',
   CANCELLED = 'CANCELLED',
 }
@@ -59,9 +63,11 @@ export class ScheduledPlanChange {
 
   // ── Current plan (snapshot at scheduling time) ──────────────────────────
 
-  @Field()
-  @Column({ type: 'uuid' })
-  currentPlanId!: string;
+  /** Nullable per the saga migration (1802100000000): plan-change operations
+   * can exist without a resolved current-plan FK (pre-saga rows, lateral
+   * moves) — currentPlanName is the NOT NULL display anchor instead. */
+  @Column({ type: 'uuid', nullable: true })
+  currentPlanId!: string | null;
 
   // DBR-MEDIUM-002 cure: FK to billing.plans for the snapshot at
   // scheduling time. RESTRICT keeps audit history intact — deleting
@@ -110,6 +116,45 @@ export class ScheduledPlanChange {
   @Field()
   @Column({ type: 'enum', enum: ScheduledChangeStatus, default: ScheduledChangeStatus.PENDING })
   status!: ScheduledChangeStatus;
+
+  // ── Plan-change operation saga (SEC-MEDIUM-089, migration
+  // 1802100000000): the durable journal for BOTH immediate and scheduled
+  // plan changes — the pro-rata credit lives HERE, never only in a log line.
+  /** Subscription version the operation expects (optimistic concurrency). */
+  @Column({ type: 'int' })
+  expectedSubscriptionVersion!: number;
+
+  /** Plan name at operation creation (NOT NULL per saga migration). */
+  @Column({ type: 'varchar', length: 255 })
+  currentPlanName!: string;
+
+  /** Resolved Stripe price for the target plan + cycle (null: no Stripe sync). */
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  targetStripePriceId!: string | null;
+
+  /** Unbilled remainder credited for the current period (numeric 19,4). */
+  @Column({ type: 'numeric', precision: 19, scale: 4, default: 0 })
+  proRataCredit!: number;
+
+  /** True when the operation raises the tier (immediate apply semantics). */
+  @Column({ type: 'boolean', default: false })
+  isUpgrade!: boolean;
+
+  /** Lease start while a worker runs Stripe traffic. */
+  @Column({ type: 'timestamptz', nullable: true })
+  processingStartedAt!: Date | null;
+
+  /** Lease token — the holder may retry with the row id as idempotency key. */
+  @Column({ type: 'uuid', nullable: true })
+  processingToken!: string | null;
+
+  /** Delivery attempts (>= 0, CHECK-constrained). */
+  @Column({ type: 'int', default: 0 })
+  attemptCount!: number;
+
+  /** Last attempt's error code, for reconciliation triage. */
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  lastAttemptErrorCode!: string | null;
 
   @Field()
   @Column({ type: 'timestamptz' })

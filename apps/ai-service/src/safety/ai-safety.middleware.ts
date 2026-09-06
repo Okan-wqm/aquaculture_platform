@@ -33,10 +33,7 @@ import {
   SsrfValidationResult,
 } from '@aquaculture/backend-common/ai-safety';
 import { InstructionHierarchyService } from './instruction-hierarchy.service';
-import {
-  ToolSchemaValidatorService,
-  ToolValidationResult,
-} from './tool-schema-validator.service';
+import { ToolSchemaValidatorService, ToolValidationResult } from './tool-schema-validator.service';
 
 // ── Configuration ──
 
@@ -123,9 +120,7 @@ export class AiSafetyMiddleware {
    */
   configure(partial: Partial<AiSafetyConfig>): void {
     this.config = { ...this.config, ...partial };
-    this.logger.log(
-      `AI Safety pipeline configured: ${JSON.stringify(this.config)}`,
-    );
+    this.logger.log(`AI Safety pipeline configured: ${JSON.stringify(this.config)}`);
   }
 
   /**
@@ -176,12 +171,11 @@ export class AiSafetyMiddleware {
 
     // ── Stage 2: Instruction hierarchy ──
     if (this.config.instructionHierarchyEnabled) {
-      result.hardenedSystemPrompt =
-        this.instructionHierarchy.buildHardenedSystemPrompt(
-          personaName,
-          baseSystemPrompt,
-          tenantCustomPrompt,
-        );
+      result.hardenedSystemPrompt = this.instructionHierarchy.buildHardenedSystemPrompt(
+        personaName,
+        baseSystemPrompt,
+        tenantCustomPrompt,
+      );
     }
 
     return result;
@@ -197,6 +191,22 @@ export class AiSafetyMiddleware {
    * @param tenantId - Tenant identifier for audit
    * @returns PostProcessResult with (possibly redacted) text
    */
+  /**
+   * SEC-LOW-088 (2026-08-23 scan №33): scan-only gate for UNTRUSTED CONTEXT
+   * strings bound for the model — replayed conversation history and tool
+   * results. preProcess runs the full pipeline on the USER message only;
+   * these surfaces previously entered the prompt unfiltered, an indirect
+   * prompt-injection lane (tenant-editable strings like tank names riding
+   * stored data). Scanning is non-destructive: the CALLER decides the
+   * containment (drop the history entry / replace the tool payload).
+   */
+  scanUntrustedContext(text: string, tenantId: string): boolean {
+    if (!this.config.inputFilterEnabled) {
+      return true;
+    }
+    return this.inputFilter.scanInput(text, tenantId).safe;
+  }
+
   postProcess(outputText: string, tenantId: string): PostProcessResult {
     const result: PostProcessResult = {
       outputText,
@@ -206,10 +216,7 @@ export class AiSafetyMiddleware {
     // ── Stage 1: PII scan ──
     if (this.config.outputPiiScanEnabled) {
       if (this.config.outputPiiAutoRedact) {
-        const redactResult: PiiRedactResult = this.outputPiiScanner.redact(
-          outputText,
-          tenantId,
-        );
+        const redactResult: PiiRedactResult = this.outputPiiScanner.redact(outputText, tenantId);
         result.outputText = redactResult.redactedText;
         result.piiScan = redactResult.scanResult;
         result.piiRedacted = redactResult.scanResult.hasPii;
@@ -244,11 +251,7 @@ export class AiSafetyMiddleware {
 
     // ── Stage 1: Schema validation ──
     if (this.config.toolSchemaValidationEnabled) {
-      const schemaResult = this.toolSchemaValidator.validate(
-        toolName,
-        params,
-        schema,
-      );
+      const schemaResult = this.toolSchemaValidator.validate(toolName, params, schema);
       result.schemaValidation = schemaResult;
 
       if (!schemaResult.valid) {

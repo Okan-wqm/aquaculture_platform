@@ -9,7 +9,7 @@
  * to a tenant. Wildcards are only emitted by the explicit subscription helpers.
  *
  * The platform segment is spelled once, in the event contract
- * (`PLATFORM_EVENT_TENANT_ID`, SEC-HIGH-057); this module aliases it.
+ * (`PLATFORM_EVENT_TENANT_ID`, SEC-HIGH-159); this module aliases it.
  */
 import { PLATFORM_EVENT_TENANT_ID } from '@platform/event-contracts';
 

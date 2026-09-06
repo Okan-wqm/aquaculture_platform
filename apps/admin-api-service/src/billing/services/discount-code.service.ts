@@ -17,6 +17,10 @@ import {
   DiscountAppliesTo,
   DiscountDuration,
 } from '../entities/discount-code.entity';
+import {
+  createStandardPaginatedResult,
+  type PaginationResultV1,
+} from '@platform/pagination-contracts';
 
 export interface CreateDiscountCodeDto {
   code: string;
@@ -111,7 +115,7 @@ export class DiscountCodeService {
     includeExpired?: boolean;
     page?: number;
     limit?: number;
-  }): Promise<{ data: DiscountCode[]; total: number; page: number; limit: number }> {
+  }): Promise<PaginationResultV1<DiscountCode>> {
     const page = options?.page || 1;
     const limit = options?.limit || 50;
     const query = this.discountCodeRepo.createQueryBuilder('dc');
@@ -126,10 +130,7 @@ export class DiscountCodeService {
 
     if (!options?.includeExpired) {
       const now = new Date();
-      query.andWhere(
-        '(dc.validUntil IS NULL OR dc.validUntil > :now)',
-        { now }
-      );
+      query.andWhere('(dc.validUntil IS NULL OR dc.validUntil > :now)', { now });
     }
 
     query.orderBy('dc.createdAt', 'DESC');
@@ -138,7 +139,7 @@ export class DiscountCodeService {
 
     const [data, total] = await query.getManyAndCount();
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult<DiscountCode>(data, total, page, limit);
   }
 
   /**
@@ -330,12 +331,7 @@ export class DiscountCodeService {
       currency?: string;
     } = {},
   ): Promise<ApplyDiscountResult> {
-    const validation = await this.validateCode(
-      code,
-      tenantId,
-      options.planId,
-      originalAmount,
-    );
+    const validation = await this.validateCode(code, tenantId, options.planId, originalAmount);
 
     if (!validation.valid || !validation.discountCode) {
       return {
@@ -407,7 +403,7 @@ export class DiscountCodeService {
   async getTenantRedemptions(
     tenantId: string,
     options: { page?: number; limit?: number } = {},
-  ): Promise<{ data: DiscountRedemption[]; total: number; page: number; limit: number }> {
+  ): Promise<PaginationResultV1<DiscountRedemption>> {
     const { page = 1, limit = 20 } = options;
 
     const [data, total] = await this.redemptionRepo.findAndCount({
@@ -417,7 +413,7 @@ export class DiscountCodeService {
       take: limit,
     });
 
-    return { data, total, page, limit };
+    return createStandardPaginatedResult<DiscountRedemption>(data, total, page, limit);
   }
 
   /**
@@ -466,7 +462,7 @@ export class DiscountCodeService {
       expiredCodes,
       totalRedemptions: parseInt(redemptionStats?.totalRedemptions || '0', 10),
       totalDiscountAmount: parseFloat(redemptionStats?.totalDiscountAmount || '0'),
-      topCodes: topCodes.map(tc => ({
+      topCodes: topCodes.map((tc) => ({
         code: tc.code,
         redemptions: parseInt(tc.redemptions, 10),
         totalDiscount: parseFloat(tc.totalDiscount),
@@ -536,8 +532,10 @@ export class DiscountCodeService {
         return Math.min(discountCode.discountValue, orderAmount);
 
       case DiscountType.FREE_MONTHS:
-        // This would need context about monthly price
-        // For now, return 0 - handled differently in subscription
+        // Free months are not an order-amount discount: the subscription
+        // service applies them by shifting the billing period, and it owns the
+        // monthly price this function does not receive. Zero is the correct
+        // order-amount contribution, not a placeholder.
         return 0;
 
       case DiscountType.FREE_TRIAL_EXTENSION:

@@ -18,3 +18,4 @@ identities:
   - observability_service
   - config_service
   - event_store_service
+  - dlq_replayer

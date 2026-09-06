@@ -8,7 +8,7 @@
  * Until 2026-09-04 this file was `src/__tests__/e2e/p0-fixes-verification.e2e-spec.ts`,
  * a name no Jest config matched (the unit lane ignores `src/__tests__/e2e/`,
  * the e2e config matches `test/**`), so none of it had run in CI
- * (INFRA-MEDIUM-142). It is a unit spec and lives in the unit lane. The two
+ * (INFRA-MEDIUM-158). It is a unit spec and lives in the unit lane. The two
  * blocks that tests/invariants already owns repo-wide were dropped rather
  * than kept as copies: the `@Headers('x-tenant-id')` ban
  * (farm-rest-cqrs-ssot.spec.ts) and the frozen `@nestjs/cqrs` importer set
@@ -45,8 +45,13 @@ describe('Fix 1: @Roles Authorization on Mutations', () => {
 
   it.each(resolversToCheck)('should have Roles import in %s', (resolverPath) => {
     const content = readFile(resolverPath);
+    // backend-common ÇİFT alias'lı (`@aquaculture/…` birincil, `@platform/…`
+    // ikincil) ve dekoratörler `/decorators` alt yolundan geliyor. Bu assert
+    // eskiden TEK bir alias'ı, alt yolsuz, pinliyordu; kod kanonik yola
+    // taşınınca 12 resolver'da kırmızıya döndü ve kimse görmedi. Önemli olan
+    // `Roles`'un backend-common'dan gelmesi — hangi alias/alt yol olduğu değil.
     expect(content).toMatch(
-      /import\s+\{[^}]*Roles[^}]*\}\s+from\s+'@aquaculture\/backend-common\/decorators'/,
+      /import\s+\{[^}]*\bRoles\b[^}]*\}\s+from\s+'@(?:aquaculture|platform)\/backend-common(?:\/[\w-]+)?'/,
     );
   });
 
@@ -54,13 +59,12 @@ describe('Fix 1: @Roles Authorization on Mutations', () => {
     const content = readFile(resolverPath);
     const lines = content.split('\n');
 
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i]?.includes('@Mutation(')) {
-        // Check that @Roles appears in the 1-3 lines BEFORE this @Mutation
-        const precedingLines = lines.slice(Math.max(0, i - 3), i).join('\n');
-        expect(precedingLines).toMatch(/@Roles\(/);
-      }
-    }
+    lines.forEach((line, index) => {
+      if (!line.includes('@Mutation(')) return;
+      // Check that @Roles appears in the 1-3 lines BEFORE this @Mutation
+      const precedingLines = lines.slice(Math.max(0, index - 3), index).join('\n');
+      expect(precedingLines).toMatch(/@Roles\(/);
+    });
   });
 
   it('keeps CDSE credentials off the public GraphQL surface', () => {

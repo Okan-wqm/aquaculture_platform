@@ -1140,6 +1140,12 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
     timeZone: 'Europe/Istanbul',
   })
   async weeklyFeedForecast(): Promise<void> {
+    if (!legacyFeedingEngineEnabled()) {
+      this.logger.log(
+        'K-5 cutover: legacy weekly forecast (v2 07:00 coverage sweep owns it) gated off.',
+      );
+      return;
+    }
     this.logger.log('Generating weekly feed consumption forecast');
     const startTime = Date.now();
 

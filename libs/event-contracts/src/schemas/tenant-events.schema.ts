@@ -216,6 +216,9 @@ export const TENANT_EVENT_SCHEMAS = {
     plan: STRING,
     status: STRING,
     maxUsers: NON_NEGATIVE_INT,
+    // W5: tenant lokalizasyonu — yalnız lokalizasyon değişiminde dolu.
+    timezone: STRING,
+    locale: STRING,
   }),
   TenantStatusChanged: tenantEventSchema(
     'TenantStatusChanged',

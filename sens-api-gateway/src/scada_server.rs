@@ -795,13 +795,41 @@ impl PinLockoutState {
 
 /// Verify a PIN against the package's pin_hash using SHA-256 with constant-time comparison
 fn verify_pin(input: &str, pin_hash: &str) -> bool {
-    use sha2::{Digest, Sha256};
     use subtle::ConstantTimeEq;
+
+    // SEC-LOW-065 (2026-08-23 scan №10): argon2id — single-iteration
+    // unsalted SHA-256 let a numeric PIN be brute-forced in milliseconds.
+    // Stored pin_hash values carry a format tag: "$argon2id$..." → argon2
+    // verify; anything else (legacy hex SHA-256) verifies then the caller
+    // transparently upgrades on next write (see hash_pin).
+    if pin_hash.starts_with("$argon2id$") {
+        use argon2::{Argon2, PasswordHash, PasswordVerifier};
+        let parsed = match PasswordHash::new(pin_hash) {
+            Ok(parsed) => parsed,
+            Err(_) => return false, // malformed PHC string — never accept
+        };
+        return Argon2::default()
+            .verify_password(input.as_bytes(), &parsed)
+            .is_ok();
+    }
+
+    // Legacy SHA-256 fallback (constant-time compare preserved)
+    use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     hasher.update(input.as_bytes());
     let result = format!("{:x}", hasher.finalize());
-    // Constant-time comparison prevents timing side-channel attacks
     result.as_bytes().ct_eq(pin_hash.as_bytes()).into()
+}
+
+/// SEC-LOW-065 (№10): hash a PIN with argon2id for storage.
+pub fn hash_pin(input: &str) -> Result<String, String> {
+    use argon2::password_hash::{PasswordHasher, SaltString};
+    use rand_core::OsRng;
+    let salt = SaltString::generate(&mut OsRng);
+    argon2::Argon2::default()
+        .hash_password(input.as_bytes(), &salt)
+        .map(|h| h.to_string())
+        .map_err(|e| format!("argon2 hash failed: {e}"))
 }
 
 // ============================================================================
@@ -1046,6 +1074,40 @@ async fn scada_ws_handler(
     } else {
         warn!("SCADA WebSocket rejected: non-ASCII Origin header");
         return (StatusCode::FORBIDDEN, "Invalid Origin").into_response();
+    }
+
+    // SEC-MEDIUM-061 (2026-08-23 scan №6): token authentication for OT-NIC
+    // deployments. Origin is a client-controlled header — on the documented
+    // production pattern (SUDERRA_SCADA_BIND=OT-NIC-IP), any host on the OT
+    // LAN passes the RFC1918 check and can drive actuators, recalibrate
+    // sensors, ack alarms, and trigger emergency stop. When
+    // SUDERRA_SCADA_AUTH_TOKEN is set, the upgrade additionally requires a
+    // matching Bearer token (constant-time compare). Unset ⇒ loopback
+    // default posture (Origin check only — the existing defense).
+    if let Ok(expected_token) = std::env::var("SUDERRA_SCADA_AUTH_TOKEN") {
+        if !expected_token.is_empty() {
+            let provided = headers
+                .get(header::AUTHORIZATION)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.strip_prefix("Bearer "));
+            let authorized = match provided {
+                Some(token) => {
+                    use subtle::ConstantTimeEq;
+                    token.as_bytes().ct_eq(expected_token.as_bytes()).into()
+                }
+                None => false,
+            };
+            if !authorized {
+                warn!(
+                    "SCADA WebSocket rejected: invalid or missing Bearer token (SUDERRA_SCADA_AUTH_TOKEN is set)"
+                );
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    "Bearer token required (SUDERRA_SCADA_AUTH_TOKEN is configured)",
+                )
+                    .into_response();
+            }
+        }
     }
 
     ws.max_message_size(64 * 1024) // 64 KB max incoming message

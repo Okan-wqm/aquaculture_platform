@@ -34,6 +34,7 @@ import { Server, Socket } from 'socket.io';
 import * as promClient from 'prom-client';
 import { enforceAccessTokenType, getJwtVerifyOptions } from '@aquaculture/backend-common/auth';
 import { buildWsCorsConfig } from '@aquaculture/backend-common/websocket';
+import { TenantConnectionLimiter, WsTokenRevalidator } from '@aquaculture/backend-common/websocket';
 
 /** Per-client state tracked by the gateway. */
 interface FarmClient {
@@ -110,6 +111,9 @@ export class FarmGateway
   constructor(
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    // SEC-MEDIUM-073/082 (2026-08-23 scan №26/№18): shared socket guards
+    private readonly connectionLimiter: TenantConnectionLimiter,
+    private readonly tokenRevalidator: WsTokenRevalidator,
   ) {
     this.isProduction = this.configService.get<string>('NODE_ENV') === 'production';
     // CORS allowlist validity is enforced at module-load time by
@@ -145,10 +149,34 @@ export class FarmGateway
       }
 
       const tenantId = payload.tenantId;
+      const userId = typeof payload.sub === 'string' ? payload.sub : undefined;
+
+      // SEC-MEDIUM-073 (№26): per-tenant connection ceiling — a single valid
+      // token previously held unlimited sockets (FD exhaustion).
+      if (!this.connectionLimiter.register(tenantId, client.id)) {
+        this.logger.warn(`Tenant ${tenantId} exceeded its WS connection ceiling`);
+        client.emit('error', { message: 'Too many connections for this tenant' });
+        client.disconnect();
+        return;
+      }
+
       this.clients.set(client.id, {
         socket: client,
         tenantId,
-        userId: typeof payload.sub === 'string' ? payload.sub : undefined,
+        userId,
+      });
+
+      // SEC-MEDIUM-082 (№18): re-check the handshake credential every cycle —
+      // logout/suspension now bounds a live socket to one revalidation interval.
+      this.tokenRevalidator.register(client.id, {
+        tenantId,
+        userId: userId ?? 'unknown',
+        jti: typeof payload.jti === 'string' ? payload.jti : '',
+        issuedAt: typeof payload.iat === 'number' ? payload.iat : undefined,
+        disconnect: (reason) => {
+          this.logger.warn(`Farm socket ${client.id} disconnected: ${reason}`);
+          client.disconnect(true);
+        },
       });
 
       // Auto-join tenant room — all farm events for this tenant land here.
@@ -173,6 +201,10 @@ export class FarmGateway
   handleDisconnect(client: Socket): void {
     const clientData = this.clients.get(client.id);
     this.clients.delete(client.id);
+    this.tokenRevalidator.unregister(client.id);
+    if (clientData) {
+      this.connectionLimiter.release(clientData.tenantId, client.id);
+    }
     if (clientData) {
       // Decrement the per-tenant gauge. Skipping the gauge update when
       // clientData is missing prevents double-decrement if the same socket

@@ -96,6 +96,8 @@ import { AiOutbox } from './outbox/ai-outbox.entity';
 // Per-process cache for GraphQL complexity results keyed by document hash.
 // This avoids recomputing complexity for identical operations on every request.
 const complexityCache = new Map<string, number>();
+/** SEC-LOW-091: LRU-ish ceiling for the complexity cache (insert-order eviction). */
+const COMPLEXITY_CACHE_MAX_ENTRIES = 1000;
 
 type QueryComplexityOperationContext = {
   request: {
@@ -209,6 +211,12 @@ type QueryComplexityOperationContext = {
                     .update(opName)
                     .digest('hex');
 
+                  // SEC-LOW-091 (2026-08-23 scan №36): bounded cache — unique
+                  // query strings used to grow the Map indefinitely.
+                  if (complexityCache.size >= COMPLEXITY_CACHE_MAX_ENTRIES) {
+                    const oldest = complexityCache.keys().next().value;
+                    if (oldest !== undefined) complexityCache.delete(oldest);
+                  }
                   let complexity = complexityCache.get(cacheKey);
                   if (complexity === undefined) {
                     complexity = getComplexity({

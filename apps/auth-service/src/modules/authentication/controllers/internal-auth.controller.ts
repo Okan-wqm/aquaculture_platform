@@ -36,6 +36,9 @@ export class InternalAuthController {
     configService: ConfigService,
     private readonly actionTokenResolver: ActionTokenResolver,
   ) {
+    // DEPLOY-HIGH-016: resolved once, at boot. Reading it per request meant a
+    // misconfigured deployment surfaced as a wrong link in somebody's inbox
+    // rather than as a service that refuses to start.
     this.frontendUrl = parseFrontendUrl(configService);
   }
 
@@ -46,7 +49,7 @@ export class InternalAuthController {
   ): Promise<{ email: string; firstName?: string; lastName?: string }> {
     const scope = this.requireNotificationService(request);
     const user = await this.userRepository.findOne({ where: { id: userId } });
-    // SEC-HIGH-057: a tenant-bound caller sees only its tenant's users; a
+    // SEC-HIGH-159: a tenant-bound caller sees only its tenant's users; a
     // platform-scoped caller sees only platform principals (super admins with
     // no tenant). Neither can read across the boundary.
     const visible =
@@ -85,12 +88,12 @@ export class InternalAuthController {
     @Req() request: TenantRequest,
   ): Promise<{ actionUrl: string }> {
     const scope = this.requireNotificationService(request);
-    // SEC-HIGH-056: the link carries the ActionToken row id and nothing else.
+    // SEC-HIGH-158: the link carries the ActionToken row id and nothing else.
     // The legacy branch that treated this id as a token HASH and rotated a
     // fresh raw token into the URL is gone: every producer now mints an
     // ActionToken row (tenant provisioning, admin invite, createUser, password
     // reset), and the resolver on the redemption side reads that id back.
-    // SEC-HIGH-057: the lookup is bound to the caller's scope — a tenant's
+    // SEC-HIGH-159: the lookup is bound to the caller's scope — a tenant's
     // rows for a tenant-bound caller, NULL-tenant rows (a super admin's
     // reset) for a platform-scoped caller. A token can never be resolved
     // from the wrong side.
@@ -114,7 +117,7 @@ export class InternalAuthController {
   /**
    * The caller's tenancy scope, from the HMAC-verified internal identity.
    *
-   * SEC-HIGH-057: the signed identity binds either a tenant id or the explicit
+   * SEC-HIGH-159: the signed identity binds either a tenant id or the explicit
    * non-tenant opt-out (`tenantId: ''`, see signedFetch). The empty binding is
    * the PLATFORM scope — the notification service resolving a super admin's
    * recovery e-mail — not a missing binding. Anything that is neither a UUID

@@ -48,6 +48,7 @@ import {
   ForecastMortalityAssumption,
   ForecastPerFeed,
   ForecastPerUnit,
+  ForecastPoolScope,
   ForecastUnitTransition,
 } from '../entities/feeding-forecast-snapshot.entity';
 import { collectFeedSourceFeedIds } from './feed-fcr-source.util';
@@ -88,6 +89,13 @@ export function dailySurvivalRateFromCyclePercent(cycleSurvivalPercent: unknown)
 export const REORDER_WINDOW_DAYS = 30;
 /** D-9 belgeli tenant-geneli fallback kapsam anahtarı. */
 export const TENANT_SCOPE_KEY = 'tenant';
+/**
+ * Snapshot bayatlık eşiği (W6, FARM-LOW-266). Forecast günde bir (07:00
+ * yerel) hesaplanır; 26 saat bir koşuluk kaçırmayı kapsayan en dar penceredir.
+ * Bayat satır silinmez — okuyucular `stale` bayrağıyla sunar, çünkü "veri yok"
+ * ile "veri eski" operatör için farklı kararlardır.
+ */
+export const FORECAST_STALE_AFTER_MS = 26 * 60 * 60 * 1000;
 
 // ============================================================================
 // SAF GİRDİ ŞEKİLLERİ
@@ -105,10 +113,7 @@ export interface ForecastUnitInput {
   temperatureC: number | null;
   rateAdjustmentPercent?: number;
   fcrOverrides?: { feedId: string; expectedFcr: number }[];
-  protocol: Pick<
-    FeedingProtocolV2,
-    'bands' | 'temperatureAdjustments' | 'settings' | 'fcrMatrix'
-  >;
+  protocol: Pick<FeedingProtocolV2, 'bands' | 'temperatureAdjustments' | 'settings' | 'fcrMatrix'>;
   /** Günlük hayatta-kalma çarpanı (1.0 = ölümsüz varsayım). */
   dailySurvivalRate: number;
   /** Gün → o gün üniteden çıkan biyokütle ORANI [0..1] (hasat planları, C-14). */
@@ -135,6 +140,8 @@ export interface ForecastComputeInput {
 
 export interface ForecastScopeResult {
   scopeKey: string;
+  /** `TENANT` = kapsama/alarm otoritesi; `SITE` = bilgilendirici (W6). */
+  poolScope: ForecastPoolScope;
   perFeed: ForecastPerFeed[];
   perUnit: ForecastPerUnit[];
   alerts: ForecastAlert[];
@@ -167,17 +174,22 @@ export class ProtocolFeedForecastService {
     // scopeKey → feedId → günlük tüketim serisi
     const consumption = new Map<string, Map<string, number[]>>();
     const perUnitByScope = new Map<string, ForecastPerUnit[]>();
-    let survivalApplied = false;
+    const survivalByScope = new Map<string, boolean>();
 
     for (const unit of input.units) {
       const transitions: ForecastUnitTransition[] = [];
       let avgWeightG = unit.avgWeightG;
       let count = unit.fishCount;
       let biomassKg = unit.biomassKg;
+      /** Ufuk sonunda ulaşılan yem (simülasyonun yürüyen bandı). */
+      let terminalFeedId: string | null = null;
+      /** Ünitenin BUGÜNKÜ yemi — gün-0 bandı (FARM-LOW-265). */
       let currentFeedId: string | null = null;
-      if (unit.dailySurvivalRate < 1) survivalApplied = true;
 
-      const scopeSeries = mapGet(consumption, unit.scopeKey, () => new Map<string, number[]>());
+      // Ünitenin tüketimi ÖNCE kendi defterine yazılır, sonra kapsamlara
+      // fan-out edilir: aynı seri hem otorite (tenant havuzu) hem
+      // bilgilendirici (site) deftere girer, ama tek kez simüle edilir.
+      const unitSeries = new Map<string, number[]>();
 
       for (let day = 0; day < horizon; day++) {
         count *= unit.dailySurvivalRate;
@@ -194,16 +206,17 @@ export class ProtocolFeedForecastService {
         if (!resolved) break;
         const band = resolved.band;
 
-        if (band.feedId !== currentFeedId) {
-          if (currentFeedId !== null) {
+        if (day === 0) currentFeedId = band.feedId;
+        if (band.feedId !== terminalFeedId) {
+          if (terminalFeedId !== null) {
             transitions.push({
-              fromFeedId: currentFeedId,
+              fromFeedId: terminalFeedId,
               toFeedId: band.feedId,
               estimatedDate: addDays(input.startDate, day),
               daysFromNow: day,
             });
           }
-          currentFeedId = band.feedId;
+          terminalFeedId = band.feedId;
         }
 
         const tempMultiplier = this.rateService.temperatureMultiplier(
@@ -219,7 +232,7 @@ export class ProtocolFeedForecastService {
         });
         const dailyKg = (biomassKg * ratePercent) / 100;
 
-        const series = mapGet(scopeSeries, band.feedId, () => new Array<number>(horizon).fill(0));
+        const series = mapGet(unitSeries, band.feedId, () => new Array<number>(horizon).fill(0));
         series[day] = (series[day] ?? 0) + dailyKg;
 
         const fcr = this.rateService.resolveExpectedFcr({
@@ -235,33 +248,109 @@ export class ProtocolFeedForecastService {
         avgWeightG = (biomassKg * 1000) / count;
       }
 
-      mapGet(perUnitByScope, unit.scopeKey, () => [] as ForecastPerUnit[]).push({
+      const perUnitEntry: ForecastPerUnit = {
         unitId: unit.unitId,
         unitName: unit.unitName,
         unitCode: unit.unitCode,
         currentFeedId,
+        terminalFeedId,
         transitions,
-      });
+      };
+
+      // Kullanıcı kararı 1: havuz TEK tenant havuzudur. Her ünite otorite
+      // deftere (TENANT) yazar; deposu olan bir sitenin ünitesi AYRICA
+      // sitenin bilgilendirici defterine yazar. Deposuz ünitede iki anahtar
+      // aynıdır, çift yazım olmaz.
+      const scopeKeys =
+        unit.scopeKey === TENANT_SCOPE_KEY ? [TENANT_SCOPE_KEY] : [TENANT_SCOPE_KEY, unit.scopeKey];
+      for (const scopeKey of scopeKeys) {
+        const scopeSeries = mapGet(consumption, scopeKey, () => new Map<string, number[]>());
+        for (const [feedId, series] of unitSeries) {
+          const target = mapGet(scopeSeries, feedId, () => new Array<number>(horizon).fill(0));
+          for (let day = 0; day < horizon; day++) {
+            target[day] = (target[day] ?? 0) + (series[day] ?? 0);
+          }
+        }
+        mapGet(perUnitByScope, scopeKey, () => [] as ForecastPerUnit[]).push(perUnitEntry);
+        // Varsayım KAPSAM BAŞINA (FARM-LOW-272): ölüm oranı uygulanmamış bir
+        // sitenin satırı `applied: true` damgası taşıyamaz.
+        if (unit.dailySurvivalRate < 1) survivalByScope.set(scopeKey, true);
+      }
     }
 
-    const mortalityAssumption: ForecastMortalityAssumption = {
-      applied: survivalApplied,
-      source: survivalApplied ? 'species_survival_rate' : 'none',
-    };
-
-    return [...consumption.entries()].map(([scopeKey, feedSeries]) => {
+    // Otorite kapsam ÖNCE hesaplanır: site satırlarının "taşıma gerekli"
+    // sinyali, havuzun gerçekten iyi olup olmadığını bilmek zorundadır.
+    const buildScope = (scopeKey: string): ForecastScopeResult => {
+      const feedSeries = consumption.get(scopeKey) ?? new Map<string, number[]>();
       const perFeed = [...feedSeries.entries()].map(([feedId, series]) =>
         this.buildPerFeed(feedId, series, feedById.get(feedId), scopeKey, input.startDate),
       );
-      const perUnit = perUnitByScope.get(scopeKey) ?? [];
+      const survivalApplied = survivalByScope.get(scopeKey) === true;
       return {
         scopeKey,
+        poolScope: scopeKey === TENANT_SCOPE_KEY ? 'TENANT' : 'SITE',
         perFeed,
-        perUnit,
-        alerts: this.buildAlerts(perFeed, perUnit, input.startDate),
-        mortalityAssumption,
+        perUnit: perUnitByScope.get(scopeKey) ?? [],
+        alerts: [],
+        mortalityAssumption: {
+          applied: survivalApplied,
+          source: survivalApplied ? 'species_survival_rate' : 'none',
+        },
       };
-    });
+    };
+
+    const results: ForecastScopeResult[] = [];
+    if (consumption.has(TENANT_SCOPE_KEY)) {
+      const tenantScope = buildScope(TENANT_SCOPE_KEY);
+      tenantScope.alerts = this.buildAlerts(
+        tenantScope.perFeed,
+        tenantScope.perUnit,
+        input.startDate,
+      );
+      results.push(tenantScope);
+
+      // Havuzda GERÇEKTEN sıkıntı olan yemler: site satırı bunlar için
+      // "taşıma" demez — satın alma sinyali zaten otorite kapsamda verildi.
+      const pooledShortfall = new Set(
+        tenantScope.perFeed
+          .filter(
+            (feed) => feed.daysOfCover !== null && feed.daysOfCover < feed.procurementLeadTimeDays,
+          )
+          .map((feed) => feed.feedId),
+      );
+      for (const scopeKey of consumption.keys()) {
+        if (scopeKey === TENANT_SCOPE_KEY) continue;
+        const siteScope = buildScope(scopeKey);
+        siteScope.alerts = this.buildSiteTransferAlerts(siteScope.perFeed, pooledShortfall);
+        results.push(siteScope);
+      }
+    }
+    return results;
+  }
+
+  /**
+   * Site kapsamının TEK alarm sınıfı (W6): havuz iyi ama sitenin YEREL stoğu
+   * tedarik süresi boyunca kendi tüketimini karşılamıyor → yem satın alınmaz,
+   * TAŞINIR. Kapsama kararı tenant havuzundan verildiği için bu ihtiyaç aksi
+   * hâlde hiçbir yerde görünmezdi.
+   */
+  private buildSiteTransferAlerts(
+    perFeed: ForecastPerFeed[],
+    pooledShortfall: ReadonlySet<string>,
+  ): ForecastAlert[] {
+    const alerts: ForecastAlert[] = [];
+    for (const feed of perFeed) {
+      if (feed.daysOfCover === null) continue;
+      if (pooledShortfall.has(feed.feedId)) continue;
+      if (feed.daysOfCover >= feed.procurementLeadTimeDays) continue;
+      alerts.push({
+        type: 'SITE_TRANSFER_NEEDED',
+        feedId: feed.feedId,
+        days: feed.daysOfCover,
+        atDay: feed.daysOfCover,
+      });
+    }
+    return alerts;
   }
 
   private buildPerFeed(
@@ -341,9 +430,20 @@ export class ProtocolFeedForecastService {
 
     for (const feed of perFeed) {
       if (feed.daysOfCover !== null) {
-        alerts.push({ type: 'STOCKOUT_FORECAST', feedId: feed.feedId, days: feed.daysOfCover });
+        alerts.push({
+          type: 'STOCKOUT_FORECAST',
+          feedId: feed.feedId,
+          days: feed.daysOfCover,
+          atDay: feed.daysOfCover,
+        });
         if (feed.reorderDate !== null && feed.reorderDate <= startDate) {
-          alerts.push({ type: 'REORDER_NOW', feedId: feed.feedId, days: feed.daysOfCover });
+          // Sipariş BUGÜN verilmeli — dilimleme birimi gün indeksidir (0).
+          alerts.push({
+            type: 'REORDER_NOW',
+            feedId: feed.feedId,
+            days: feed.daysOfCover,
+            atDay: 0,
+          });
         }
       }
     }
@@ -362,7 +462,10 @@ export class ProtocolFeedForecastService {
             type: 'TRANSITION_COVERAGE_GAP',
             feedId: transition.toFeedId,
             unitId: unit.unitId,
+            // `days` EKSİK GÜN büyüklüğüdür; dilimleme `atDay` (geçişin
+            // gerçekleştiği gün indeksi) üzerinden yapılır (FARM-LOW-266).
             days: required - stockoutDay,
+            atDay: transition.daysFromNow,
           });
         }
       }
@@ -384,20 +487,24 @@ export class ProtocolFeedForecastService {
         where: { tenantId, status: ProtocolAssignmentStatus.ACTIVE },
         order: { id: 'ASC' },
       });
-      if (assignments.length === 0) return 0;
+      // Erken çıkışlar da BUDAR (FARM-LOW-266): son ataması kalkan bir
+      // tenant'ın fosil kapsamı aksi hâlde sonsuza dek okunur ve
+      // `computedAt` bayat olsa bile "kapsama var" iddia ederdi.
+      if (assignments.length === 0) return this.pruneScopes(manager, tenantId, new Set());
 
       const protocolIds = [...new Set(assignments.map((a) => a.protocolId))];
       const unitIds = assignments.map((a) => a.unitId);
-      const [protocols, tankBatches, temperatures, sitesWithStorage, stockRows] =
-        await Promise.all([
+      const [protocols, tankBatches, temperatures, sitesWithStorage, stockRows] = await Promise.all(
+        [
           manager.find(FeedingProtocolV2, {
             where: { tenantId, id: In(protocolIds), status: FeedingProtocolStatus.ACTIVE },
           }),
           manager.find(TankBatch, { where: { tenantId, tankId: In(unitIds) } }),
           this.temperatureService.getEffectiveTemperaturesForUnits(tenantId, unitIds),
-          this.loadSitesWithStorage(manager),
-          this.loadFeedStock(manager),
-        ]);
+          this.loadSitesWithStorage(manager, tenantId),
+          this.loadFeedStock(manager, tenantId),
+        ],
+      );
       const protocolById = new Map(protocols.map((p) => [p.id, p]));
       const tankBatchByUnit = new Map(tankBatches.map((tb) => [tb.tankId, tb]));
       const dailySurvivalBySpecies = await this.loadDailySurvivalRates(
@@ -425,9 +532,7 @@ export class ProtocolFeedForecastService {
           unitId: assignment.unitId,
           unitName: assignment.unitName,
           unitCode: assignment.unitCode,
-          scopeKey: sitesWithStorage.has(assignment.siteId)
-            ? assignment.siteId
-            : TENANT_SCOPE_KEY,
+          scopeKey: sitesWithStorage.has(assignment.siteId) ? assignment.siteId : TENANT_SCOPE_KEY,
           avgWeightG: Number(tankBatch.avgWeightG || 0),
           fishCount,
           biomassKg,
@@ -439,7 +544,7 @@ export class ProtocolFeedForecastService {
             (protocol.speciesId && dailySurvivalBySpecies.get(protocol.speciesId)) || 1.0,
         });
       }
-      if (units.length === 0) return 0;
+      if (units.length === 0) return this.pruneScopes(manager, tenantId, new Set());
 
       // Gün-0 KONTRATI (belgeli): forecast takvimi UTC günüdür — snapshot tüm
       // sitelerin kapsamlarını tek hesapta taşır, tek takvim tabanı gerekir.
@@ -456,7 +561,10 @@ export class ProtocolFeedForecastService {
 
       const computedAt = new Date();
       for (const result of results) {
-        if (options.emitCoverageEvents) {
+        // Durable kapsama sinyalleri YALNIZ otorite kapsamdan (W6): site
+        // satırları bilgilendiricidir ve aynı tükenişi site sayısı kadar
+        // tekrar yayarlardı.
+        if (options.emitCoverageEvents && result.poolScope === 'TENANT') {
           await this.emitCoverageEvents(queryRunner.manager, tenantId, result);
         }
         await manager.upsert(
@@ -464,6 +572,7 @@ export class ProtocolFeedForecastService {
           {
             tenantId,
             siteScopeKey: result.scopeKey,
+            poolScope: result.poolScope,
             horizonDays: FORECAST_MAX_HORIZON_DAYS,
             computedAt,
             perFeed: result.perFeed,
@@ -474,11 +583,42 @@ export class ProtocolFeedForecastService {
           ['tenantId', 'siteScopeKey'],
         );
       }
+      // Bu koşuda ÜRETİLMEYEN kapsamlar aynı transaction'da silinir: site
+      // kapatıldığında ya da son ünitesi boşaldığında fosil satır canlı
+      // veriye tercih edilemez (FARM-LOW-266).
+      await this.pruneScopes(manager, tenantId, new Set(results.map((r) => r.scopeKey)));
       this.logger.log(
         `Forecast snapshot yenilendi: tenant=${tenantId} kapsam=${results.length} ünite=${units.length}`,
       );
       return results.length;
     });
+  }
+
+  /**
+   * Bu koşuda üretilmeyen kapsam satırlarını siler ve üretilen sayıyı döner.
+   * Snapshot upsert'üyle AYNI transaction'da koşar — yarıda kesilen bir
+   * yenileme yarım budanmış bir tabloyla kalmaz.
+   */
+  private async pruneScopes(
+    manager: EntityManager,
+    tenantId: string,
+    keepScopeKeys: ReadonlySet<string>,
+  ): Promise<number> {
+    const stale = await manager.find(FeedingForecastSnapshot, {
+      where: { tenantId },
+      select: ['id', 'siteScopeKey'],
+    });
+    const removable = stale.filter((row) => !keepScopeKeys.has(row.siteScopeKey));
+    if (removable.length > 0) {
+      await manager.delete(
+        FeedingForecastSnapshot,
+        removable.map((row) => row.id),
+      );
+      this.logger.log(
+        `Forecast snapshot budandı: tenant=${tenantId} silinen kapsam=${removable.length}`,
+      );
+    }
+    return keepScopeKeys.size;
   }
 
   /**
@@ -564,24 +704,43 @@ export class ProtocolFeedForecastService {
     return rates;
   }
 
-  private async loadSitesWithStorage(manager: EntityManager): Promise<Set<string>> {
+  private async loadSitesWithStorage(
+    manager: EntityManager,
+    tenantId: string,
+  ): Promise<Set<string>> {
     const rows: Array<{ siteId: string }> = await manager.query(
-      `SELECT DISTINCT site_id AS "siteId" FROM storage_locations WHERE is_deleted = false`,
+      `SELECT DISTINCT site_id AS "siteId"
+         FROM storage_locations
+        WHERE tenant_id = $1 AND is_deleted = false`,
+      [tenantId],
     );
     return new Set(rows.map((r) => r.siteId));
   }
 
-  /** Tek ledger okuması (P-10): site × feed stok toplamları. */
+  /**
+   * Tek ledger okuması (P-10): site × feed stok toplamları.
+   *
+   * `is_deleted` ve `tenant_id` predikatları ZORUNLU (FARM-MEDIUM-293):
+   * kapatılan bir deponun envanter satırları silinmez, lokasyonu soft-delete
+   * edilir — filtresiz toplam o stoğu hâlâ "mevcut" sayıyor ve tükeniş
+   * uyarısını geciktiriyordu. search_path tenant'ı yönlendirse de yazılı
+   * predikat tek başına savunma değil, okunabilir sözleşmedir.
+   */
   private async loadFeedStock(
     manager: EntityManager,
+    tenantId: string,
   ): Promise<Array<{ siteId: string; feedId: string; totalKg: number }>> {
     const rows: Array<{ siteId: string; feedId: string; totalKg: string }> = await manager.query(
       `SELECT sl.site_id AS "siteId", si.item_id AS "feedId",
               COALESCE(SUM(si.quantity), 0) AS "totalKg"
        FROM storage_inventory si
-       JOIN storage_locations sl ON sl.id = si.storage_location_id
-       WHERE si.item_type = 'feed'
+       JOIN storage_locations sl
+         ON sl.id = si.storage_location_id
+        AND sl.tenant_id = si.tenant_id
+        AND sl.is_deleted = false
+       WHERE si.item_type = 'feed' AND si.tenant_id = $1
        GROUP BY sl.site_id, si.item_id`,
+      [tenantId],
     );
     return rows.map((r) => ({ siteId: r.siteId, feedId: r.feedId, totalKg: Number(r.totalKg) }));
   }

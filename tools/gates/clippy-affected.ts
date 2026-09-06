@@ -560,6 +560,78 @@ function rangeForPrePushRef(
 }
 
 /**
+ * Intersect two per-file affected-line maps: a line survives only when BOTH
+ * ranges mark it as new. Files whose intersection is empty are dropped, so the
+ * result is usable as the gate's affected set directly.
+ */
+function intersectAffectedLines(
+  left: Map<string, Set<number>>,
+  right: Map<string, Set<number>>,
+): Map<string, Set<number>> {
+  const result = new Map<string, Set<number>>();
+  for (const [file, lines] of left) {
+    const other = right.get(file);
+    if (!other) continue;
+    const shared = new Set<number>();
+    for (const line of lines) {
+      if (other.has(line)) shared.add(line);
+    }
+    if (shared.size > 0) result.set(file, shared);
+  }
+  return result;
+}
+
+/** `git rev-parse --verify` for a ref name; null when it does not resolve. */
+function resolveRef(ref: string): string | null {
+  try {
+    return execFileSync('git', ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], {
+      cwd: REPO_ROOT,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The integration base whose lines a push must NOT be gated for
+ * (PROC-MEDIUM-027).
+ *
+ * `<remote_sha>...<local_sha>` names every line that is new on the BRANCH
+ * since its last push — which, when the push carries a merge from
+ * `origin/main`, includes every Rust line main itself added in the meantime.
+ * Those lines are main's, they passed main's own gates, and this branch did
+ * not write them; re-gating them refused a merge commit on 2026-09-05 for two
+ * clippy findings in code the branch never touched, with no honest way
+ * through short of a hook bypass.
+ *
+ * So `gateRange` intersects the branch-side range with
+ * `<integration base>...<head>`: a line is gated only when it is new relative
+ * to the remote tip AND new relative to the integration base. The three-dot
+ * form measures from the merge-base, so this holds whether the branch merged
+ * main's tip or an older main.
+ *
+ * The integration base is `origin/main` unless `SUDERRA_PREPUSH_BASE_REF`
+ * names a stacked parent (the same override `rangeForPrePushRef` honours for
+ * a first push). Returns null when no candidate resolves, or when the
+ * candidate IS the range base already (the intersection would be the
+ * identity).
+ */
+function integrationBaseFor(base: string): string | null {
+  const candidates = [process.env.SUDERRA_PREPUSH_BASE_REF, 'origin/main'].filter(
+    (ref): ref is string => typeof ref === 'string' && ref.length > 0,
+  );
+  const baseSha = resolveRef(base);
+  for (const ref of candidates) {
+    const sha = resolveRef(ref);
+    if (!sha) continue;
+    return baseSha !== null && sha === baseSha ? null : ref;
+  }
+  return null;
+}
+
+/**
  * Run the per-LINE clippy gate over a single
  * `<base>...<head>` range. Returns the count of
  * error-level diagnostics found on affected lines (0 =
@@ -588,7 +660,32 @@ function gateRange(base: string, head: string, label: string): number {
     return 0;
   }
 
-  const lineRanges = affectedLineRanges(base, head, affected);
+  let lineRanges = affectedLineRanges(base, head, affected);
+  const integrationBase = integrationBaseFor(base);
+  if (integrationBase !== null) {
+    const branchOnly = intersectAffectedLines(
+      lineRanges,
+      affectedLineRanges(integrationBase, head, affected),
+    );
+    const countLines = (ranges: Map<string, Set<number>>): number =>
+      Array.from(ranges.values()).reduce((sum, set) => sum + set.size, 0);
+    const excluded = countLines(lineRanges) - countLines(branchOnly);
+    if (excluded > 0) {
+      emitLine(
+        `clippy-affected[${label}]: ${excluded} line(s) in ${base}...${head} are already on ${integrationBase} (merged in, not written here); gating only lines new to both.`,
+      );
+    }
+    lineRanges = branchOnly;
+    for (const file of Array.from(affected)) {
+      if (!lineRanges.has(file)) affected.delete(file);
+    }
+    if (affected.size === 0) {
+      emitLine(
+        `clippy-affected[${label}]: every Rust line in ${base}...${head} is already on ${integrationBase}; gate skipped.`,
+      );
+      return 0;
+    }
+  }
   const totalAffectedLines = Array.from(lineRanges.values()).reduce(
     (sum, set) => sum + set.size,
     0,
@@ -749,6 +846,7 @@ if (require.main === module) {
 export {
   affectedFiles,
   affectedLineRanges,
+  intersectAffectedLines,
   isPreservationRef,
   parseDiffHunkLines,
   parsePrePushStdin,

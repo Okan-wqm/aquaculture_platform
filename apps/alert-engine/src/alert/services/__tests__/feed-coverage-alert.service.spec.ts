@@ -9,16 +9,13 @@ import type {
 } from '@platform/event-contracts';
 
 import { AlertSeverity } from '../../../database/entities/alert-rule.entity';
+import { stub } from '@aquaculture/testing';
 import {
   FeedCoverageAlertService,
   stockoutSeverityFor,
 } from '../feed-coverage-alert.service';
 
 const TENANT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-
-function mock<T>(impl: Partial<T>): T {
-  return impl as T;
-}
 
 function stockoutEvent(
   overrides: Partial<FeedStockoutForecastEvent> = {},
@@ -75,7 +72,7 @@ describe('FeedCoverageAlertService', () => {
   const create = jest.fn().mockImplementation((row: object) => row);
   const ensureIncident = jest.fn().mockResolvedValue(undefined);
   const service = new FeedCoverageAlertService(
-    mock<ConstructorParameters<typeof FeedCoverageAlertService>[0]>({
+    stub<ConstructorParameters<typeof FeedCoverageAlertService>[0]>({
       save,
       create,
     } as Partial<ConstructorParameters<typeof FeedCoverageAlertService>[0]>),

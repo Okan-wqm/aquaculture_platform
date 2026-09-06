@@ -1,6 +1,6 @@
 /**
  * ActionTokenResolver — the ONE way an emailed link segment becomes a token
- * lookup (SEC-HIGH-056).
+ * lookup (SEC-HIGH-158).
  *
  * WHY: the invitation e-mail carries `/accept-invitation/{actionToken.id}`
  * (a row PK minted by InternalAuthController), but `validateInvitation`
@@ -20,7 +20,7 @@
  *     ActionToken indirection shipped (invitations live 7 days, resets 1 h).
  *     It resolves to its SHA-256 for the legacy `Invitation.token` /
  *     `User.passwordResetToken` lookups. This branch is retired under
- *     SEC-LOW-060 once those links have expired.
+ *     SEC-LOW-160 once those links have expired.
  *   - anything else is `unresolvable` without touching the database.
  */
 import { createHash } from 'crypto';

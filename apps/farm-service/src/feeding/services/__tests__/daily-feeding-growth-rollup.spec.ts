@@ -30,10 +30,7 @@ import { BilinearInterpolationService } from '../bilinear-interpolation.service'
 import { WaterTemperatureService } from '../../../water-quality/services/water-temperature.service';
 import { BatchDomainService } from '../../../batch/services/batch-domain.service';
 import { FeedingLedgerService } from '../feeding-ledger.service';
-
-function mock<T>(impl: Partial<T>): T {
-  return impl as T;
-}
+import { stub } from '@aquaculture/testing';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 
@@ -43,13 +40,13 @@ function execFixture(
   fcr: number,
   over: Partial<DailyFeedingExecution> = {},
 ): DailyFeedingExecution {
-  return mock<DailyFeedingExecution>({
+  return stub<DailyFeedingExecution>({
     id,
     equipmentId: 'tank-1',
     status: ExecutionStatus.COMPLETED,
     actualFeedKg: fedKg,
     executionDate: new Date('2026-07-04T00:00:00.000Z'),
-    calculations: mock<DailyFeedingExecution['calculations']>({ expectedFCR: fcr }),
+    calculations: stub<DailyFeedingExecution['calculations']>({ expectedFCR: fcr }),
     ...over,
   });
 }
@@ -68,7 +65,7 @@ function makeManager(
     if (entity === TankBatch) return Promise.resolve(tankBatch);
     return Promise.resolve(null); // no primary Batch, no Tank row → skipped
   });
-  const manager = mock<EntityManager>({
+  const manager = stub<EntityManager>({
     find: jest.fn().mockResolvedValue(pending),
     findOne,
     save: jest.fn().mockResolvedValue(undefined),
@@ -78,7 +75,7 @@ function makeManager(
 }
 
 function makeService(): DailyFeedingExecutionService {
-  const repo = <T extends ObjectLiteral>(): Repository<T> => mock<Repository<T>>({});
+  const repo = <T extends ObjectLiteral>(): Repository<T> => stub<Repository<T>>({});
   return new DailyFeedingExecutionService(
     repo(),
     repo(),
@@ -87,13 +84,13 @@ function makeService(): DailyFeedingExecutionService {
     repo<Batch>(),
     repo<Tank>(),
     repo(),
-    mock<BilinearInterpolationService>({}),
-    mock<WaterTemperatureService>({}),
-    mock<DataSource>({}),
-    mock<BatchDomainService>({}),
-    mock<FeedingLedgerService>({}),
-    mock<MobileCommandReceiptService>({}),
-    mock<SiteAuthorizationService>({}),
+    stub<BilinearInterpolationService>({}),
+    stub<WaterTemperatureService>({}),
+    stub<DataSource>({}),
+    stub<BatchDomainService>({}),
+    stub<FeedingLedgerService>({}),
+    stub<MobileCommandReceiptService>({}),
+    stub<SiteAuthorizationService>({}),
   );
 }
 
@@ -105,7 +102,7 @@ describe('DailyFeedingExecutionService.applyPendingDailyGrowth', () => {
   it("sums each tank's pending growth into ONE weight update on the morning biomass", async () => {
     // fed 10kg @ FCR 2.0 → 5kg; fed 6kg @ FCR 1.5 → 4kg; total 9kg on 100kg / 1000 fish.
     const pending = [execFixture('e1', 10, 2.0), execFixture('e2', 6, 1.5)];
-    const tankBatch = mock<TankBatch>({
+    const tankBatch = stub<TankBatch>({
       tankId: 'tank-1',
       totalQuantity: 1000,
       currentBiomassKg: 100,
@@ -149,10 +146,10 @@ describe('DailyFeedingExecutionService.applyPendingDailyGrowth', () => {
   it('evaluates the held-back feed transition against the rolled-up weight (DAILY)', async () => {
     const markFeedTransition = jest.fn();
     const withProgram = execFixture('e1', 10, 2.0, {
-      feedingProgram: mock<DailyFeedingExecution['feedingProgram']>({ id: 'prog-1' }),
+      feedingProgram: stub<DailyFeedingExecution['feedingProgram']>({ id: 'prog-1' }),
       markFeedTransition,
     });
-    const tankBatch = mock<TankBatch>({
+    const tankBatch = stub<TankBatch>({
       tankId: 'tank-1',
       totalQuantity: 1000,
       currentBiomassKg: 100,
@@ -179,7 +176,7 @@ describe('DailyFeedingExecutionService.applyPendingDailyGrowth', () => {
 
   it('stamps zero-fed (skipped-but-completed) executions without a weight update', async () => {
     const pending = [execFixture('e1', 0, 2.0)];
-    const tankBatch = mock<TankBatch>({
+    const tankBatch = stub<TankBatch>({
       tankId: 'tank-1',
       totalQuantity: 1000,
       currentBiomassKg: 100,

@@ -22,7 +22,7 @@
  * cannot be correct under any working directory, and that is exactly the class of
  * defect this was written after.
  *
- * NX TARGETS ARE THE SAME SEAM (2026-09-04, INFRA-HIGH-141). A workflow step
+ * NX TARGETS ARE THE SAME SEAM (2026-09-04, INFRA-HIGH-152). A workflow step
  * that fans out over an Nx target (`affected-target-policy.sh --target X`,
  * `nx affected -t X`, `nx run-many --target=X`, `nx run <project>:<target>`)
  * references a declaration that lives in some project.json or package.json —
@@ -80,7 +80,7 @@ function targetsNamedByScripts(scriptNames: ReadonlySet<string>): Set<string> {
  * The inverse of the phantom-target check: a test lane a project DECLARES in
  * its project.json must be INVOKED by something. `test:integration` sat on
  * farm-service and auth-service for months with no workflow naming it
- * (INFRA-MEDIUM-142). Scope is the `test` family whose declaration is an
+ * (INFRA-MEDIUM-158). Scope is the `test` family whose declaration is an
  * explicit executor; a target that exists only because a package.json script
  * was inferred (`test:watch`, a focused `test:water-chemistry`) is a developer
  * entry point, not a lane declaration, and stays out.

@@ -100,10 +100,10 @@ describe('INVARIANT — migration-immutability (shipped migrations are append-on
    * about what it decides, and what it decided was wider than any reviewer would
    * grant: the waiver matched the BASENAME, and fourteen services name their
    * first migration `1800000000000-Baseline.ts`, so one line waived all fourteen
-   * — including services the PR never touched (PROC-MEDIUM-021). These exercise
+   * — including services the PR never touched (PROC-MEDIUM-026). These exercise
    * the decision itself.
    */
-  describe('waiver scope (PROC-MEDIUM-021)', () => {
+  describe('waiver scope (PROC-MEDIUM-026)', () => {
     const AMBIGUOUS = new Map<string, readonly string[]>([
       [
         '1800000000000-Baseline.ts',

@@ -7,6 +7,7 @@ import { UserFilters } from '../components/users/UserFilters';
 import { BulkActions } from '../components/users/BulkActions';
 import { UserListSection, type DisplayUser } from '../components/users/UserListSection';
 import { SiteAccessModal } from '../components/users/SiteAccessModal';
+import { EffectivePermissionsModal } from '../components/users/EffectivePermissionsModal';
 import { useTenantRoles } from '../hooks/useTenantRoles';
 import { canManageUserSiteAccess } from '../hooks/useUserSiteAccess';
 import {
@@ -15,9 +16,13 @@ import {
   useUpdateTenantUser,
   useDeleteTenantUser,
   useDeactivateTenantUser,
+  useActivateTenantUser,
+  useUnlockTenantUser,
+  useBulkAssignUserRole,
   tenantKeys,
+  type BulkAssignRoleResult,
 } from '../hooks/useTenantData';
-import { logError } from '../utils/error-handling';
+import { logError, sanitizeErrorMessage } from '../utils/error-handling';
 import { formatRelativeTime } from '../utils/date-utils';
 import { DeleteConfirmModal } from '../components/common';
 
@@ -34,6 +39,7 @@ interface ApiUser {
   isActive?: boolean;
   isEmailVerified?: boolean;
   lastLoginAt?: string;
+  lockedUntil?: string | null;
   createdAt: string;
 }
 
@@ -52,6 +58,10 @@ function transformUser(apiUser: ApiUser): DisplayUser {
     email: apiUser.email,
     role: apiUser.role,
     status,
+    // Locked ⟺ lockedUntil is in the future — the same predicate User.isLocked
+    // uses server-side, so the row action appears exactly when the lockout is
+    // real rather than whenever the column is merely non-null.
+    isLocked: Boolean(apiUser.lockedUntil) && new Date(apiUser.lockedUntil ?? 0) > new Date(),
     lastLogin: formatRelativeTime(apiUser.lastLoginAt || null),
   };
 }
@@ -100,6 +110,15 @@ const TenantUsers: React.FC = () => {
   const [deletingUser, setDeletingUser] = useState<DisplayUser | null>(null);
   const [siteAccessUser, setSiteAccessUser] = useState<DisplayUser | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [activatingUser, setActivatingUser] = useState<DisplayUser | null>(null);
+  const [unlockingUser, setUnlockingUser] = useState<DisplayUser | null>(null);
+  const [permissionsUser, setPermissionsUser] = useState<DisplayUser | null>(null);
+  // Two distinct surfaces: an open confirm modal owns its own failure text,
+  // while the page banner reports outcomes of operations that have no modal
+  // left open. Rendering one message in both places was just duplication.
+  const [lifecycleModalError, setLifecycleModalError] = useState<string | null>(null);
+  const [lifecycleError, setLifecycleError] = useState<string | null>(null);
+  const [lifecycleNotice, setLifecycleNotice] = useState<string | null>(null);
 
   // Roles
   const { data: roles = [], isLoading: rolesLoading } = useTenantRoles();
@@ -140,6 +159,9 @@ const TenantUsers: React.FC = () => {
   const updateUserMutation = useUpdateTenantUser();
   const deleteUserMutation = useDeleteTenantUser();
   const deactivateUserMutation = useDeactivateTenantUser();
+  const activateUserMutation = useActivateTenantUser();
+  const unlockUserMutation = useUnlockTenantUser();
+  const bulkAssignRoleMutation = useBulkAssignUserRole();
 
   const isSaving = createUserMutation.isPending || updateUserMutation.isPending;
   const isDeleting = deleteUserMutation.isPending;
@@ -188,6 +210,61 @@ const TenantUsers: React.FC = () => {
       await deactivateUserMutation.mutateAsync(userId);
     },
     [deactivateUserMutation],
+  );
+
+  const handleConfirmActivate = useCallback(async () => {
+    if (!activatingUser) return;
+    setLifecycleModalError(null);
+    try {
+      await activateUserMutation.mutateAsync(activatingUser.id);
+      setLifecycleNotice(`${activatingUser.name} can sign in again.`);
+      setActivatingUser(null);
+    } catch (err) {
+      logError('TenantUsers.handleActivate', err);
+      // Keep the modal open carrying the reason — the operation did not happen.
+      setLifecycleModalError(sanitizeErrorMessage(err));
+    }
+  }, [activatingUser, activateUserMutation]);
+
+  const handleConfirmUnlock = useCallback(async () => {
+    if (!unlockingUser) return;
+    setLifecycleModalError(null);
+    try {
+      await unlockUserMutation.mutateAsync(unlockingUser.id);
+      setLifecycleNotice(`The login lockout for ${unlockingUser.name} has been cleared.`);
+      setUnlockingUser(null);
+    } catch (err) {
+      logError('TenantUsers.handleUnlock', err);
+      setLifecycleModalError(sanitizeErrorMessage(err));
+    }
+  }, [unlockingUser, unlockUserMutation]);
+
+  const handleBulkAssignRole = useCallback(
+    async (roleId: string): Promise<BulkAssignRoleResult> => {
+      setLifecycleError(null);
+      try {
+        const result = await bulkAssignRoleMutation.mutateAsync({
+          userIds: selectedUsers,
+          roleId,
+        });
+        // Partial success is a REAL outcome of this mutation, so report both
+        // halves rather than declaring a blanket success.
+        if (result.failed.length === 0) {
+          setLifecycleNotice(`Role assigned to ${result.success.length} user(s).`);
+        } else {
+          setLifecycleNotice(null);
+          setLifecycleError(
+            `${result.success.length} user(s) updated, ${result.failed.length} failed.`,
+          );
+        }
+        return result;
+      } catch (err) {
+        logError('TenantUsers.handleBulkAssignRole', err);
+        setLifecycleError(sanitizeErrorMessage(err));
+        throw err;
+      }
+    },
+    [bulkAssignRoleMutation, selectedUsers],
   );
 
   const handleRefresh = () =>
@@ -284,12 +361,29 @@ const TenantUsers: React.FC = () => {
         currentFilters={{ search: searchQuery, status: statusFilter, role: roleFilter }}
       />
 
+      {(lifecycleNotice || lifecycleError) && (
+        <div
+          role="status"
+          className={
+            lifecycleError
+              ? 'rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700'
+              : 'rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700'
+          }
+        >
+          {lifecycleError ?? lifecycleNotice}
+        </div>
+      )}
+
       <BulkActions
         selectedUsers={selectedUsers}
         onDeactivate={handleDeactivateUser}
+        onAssignRole={handleBulkAssignRole}
         onClearSelection={() => setSelectedUsers([])}
         isDeactivating={deactivateUserMutation.isPending}
+        isAssigningRole={bulkAssignRoleMutation.isPending}
+        roles={roles}
         canDeactivateUsers={canDeactivateUsers}
+        canAssignRoles={canEditUsers}
       />
 
       <UserListSection
@@ -310,6 +404,19 @@ const TenantUsers: React.FC = () => {
           setDeleteError(null);
         }}
         onManageSiteAccess={setSiteAccessUser}
+        onActivateUser={(user) => {
+          setLifecycleModalError(null);
+          setLifecycleError(null);
+          setLifecycleNotice(null);
+          setActivatingUser(user);
+        }}
+        onUnlockUser={(user) => {
+          setLifecycleModalError(null);
+          setLifecycleError(null);
+          setLifecycleNotice(null);
+          setUnlockingUser(user);
+        }}
+        onViewPermissions={setPermissionsUser}
         canEditUsers={canEditUsers}
         canDeactivateUsers={canDeactivateUsers}
         canManageSiteAccess={canManageSiteAccess}
@@ -347,6 +454,42 @@ const TenantUsers: React.FC = () => {
           isLoading={isDeleting}
         />
       )}
+
+      {activatingUser && (
+        <DeleteConfirmModal
+          isOpen={activatingUser !== null}
+          onClose={() => setActivatingUser(null)}
+          onConfirm={handleConfirmActivate}
+          title="Activate User"
+          message={`Activate "${activatingUser.name}"? The user will be able to sign in again.`}
+          warningMessage={lifecycleModalError ?? undefined}
+          confirmLabel="Activate"
+          cancelLabel="Cancel"
+          variant="warning"
+          isLoading={activateUserMutation.isPending}
+        />
+      )}
+
+      {unlockingUser && (
+        <DeleteConfirmModal
+          isOpen={unlockingUser !== null}
+          onClose={() => setUnlockingUser(null)}
+          onConfirm={handleConfirmUnlock}
+          title="Unlock User"
+          message={`Unlock "${unlockingUser.name}"? This clears the failed-login lockout so the user can sign in immediately.`}
+          warningMessage={lifecycleModalError ?? undefined}
+          confirmLabel="Unlock"
+          cancelLabel="Cancel"
+          variant="warning"
+          isLoading={unlockUserMutation.isPending}
+        />
+      )}
+
+      <EffectivePermissionsModal
+        isOpen={permissionsUser !== null}
+        onClose={() => setPermissionsUser(null)}
+        user={permissionsUser}
+      />
     </div>
   );
 };

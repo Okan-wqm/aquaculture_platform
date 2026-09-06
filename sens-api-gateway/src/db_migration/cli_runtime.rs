@@ -293,10 +293,12 @@ impl CeremonyRuntime for BootstrappedCeremonyRuntime {
 /// CREATES on missing — see module doc for why the
 /// migration path MUST be read-only.
 fn read_secret_key_for_migration() -> Result<Vec<u8>, BootstrapError> {
-    let path: PathBuf = match std::env::var_os("SUDERRA_DB_KEY_PATH") {
-        Some(v) => PathBuf::from(v),
-        None => PathBuf::from("/etc/suderra/db.key"),
-    };
+    // Path resolution is `db_secret`'s, not ours: the ceremony must read the
+    // SAME file the consumers encrypted under, so a second copy of the
+    // env-override + default pair here could only ever drift from it. What
+    // stays local is the READ-ONLY semantics below — the ceremony fail-closes
+    // on a missing file instead of creating a fresh secret.
+    let path: PathBuf = crate::db_secret::secret_key_path();
 
     if !path.exists() {
         return Err(BootstrapError::SecretKeyMissing { path });
@@ -307,7 +309,7 @@ fn read_secret_key_for_migration() -> Result<Vec<u8>, BootstrapError> {
         reason: format!("{e}"),
     })?;
 
-    if bytes.len() < 16 {
+    if bytes.len() < crate::db_secret::MIN_SECRET_KEY_LEN {
         return Err(BootstrapError::SecretKeyTooShort {
             path,
             len: bytes.len(),

@@ -2,7 +2,7 @@ import type { BaseEvent } from './base-event';
 import { UUID_PATTERN, UUID_SCHEMA } from './schemas/common.schema';
 
 /**
- * Tenancy scope of an event — an explicit contract value (SEC-HIGH-057).
+ * Tenancy scope of an event — an explicit contract value (SEC-HIGH-159).
  *
  * # Why
  *

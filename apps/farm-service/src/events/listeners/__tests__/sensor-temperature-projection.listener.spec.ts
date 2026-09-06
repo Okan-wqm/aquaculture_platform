@@ -26,6 +26,8 @@ jest.mock('@aquaculture/backend-common/database', () => ({
   ) => runInTenantTransaction(ds, schema, tenantId, cb),
 }));
 
+import { deriveEventId } from '@platform/event-contracts';
+
 import { SensorTemperatureProjectionListener } from '../sensor-temperature-projection.listener';
 
 const TENANT = 'aaaaaaaa-1111-4222-8333-444444444444';
@@ -61,27 +63,53 @@ describe('SensorTemperatureProjectionListener', () => {
     expect(sql).toContain('INSERT INTO "sensor_temperature_latest"');
     expect(sql).toContain('ON CONFLICT ("tenantId", "sensorId") DO UPDATE');
     expect(sql).toContain('"sensor_temperature_latest"."measuredAt" < EXCLUDED."measuredAt"');
-    expect(params).toEqual([TENANT, SENSOR, 13.2, new Date('2026-07-04T10:00:00.000Z')]);
+    // Equal-millisecond distinct events still advance (identity tie-break).
+    expect(sql).toContain('IS DISTINCT FROM EXCLUDED."lastEventId"');
+    expect(params).toEqual([
+      TENANT,
+      SENSOR,
+      13.2,
+      new Date('2026-07-04T10:00:00.000Z'),
+      expect.any(String),
+    ]);
   });
 
-  it('accumulates the daily rollup with a watermark guard for idempotency (RPT-005)', async () => {
+  it('deduplicates by EVENT IDENTITY, not just time (Task 1.5)', async () => {
+    const event = makeEvent({ eventId: deriveEventId('tenant\u0000sensor\u0000ts\u0000sha') });
+    await listener.handle(event);
+
+    const latestSql = String(managerQuery.mock.calls[0]![0]);
+    const dailySql = String(managerQuery.mock.calls[1]![0]);
+    // Identity watermark: a redelivered event (same eventId) is a no-op; a
+    // DIFFERENT event at the same millisecond still counts.
+    expect(latestSql).toContain('"lastEventId"');
+    expect(latestSql).toContain('IS DISTINCT FROM EXCLUDED."lastEventId"');
+    expect(dailySql).toContain(
+      '"sensor_temperature_daily"."lastEventId" IS DISTINCT FROM EXCLUDED."lastEventId"',
+    );
+    expect(managerQuery.mock.calls[1]![1]).toContain((event as SensorReadingEvent).eventId);
+  });
+
+  it('accumulates the daily rollup with an event-identity watermark (RPT-005 / Task 1.5)', async () => {
     await listener.handle(makeEvent({}));
     const [sql, params] = managerQuery.mock.calls[1] as [string, unknown[]];
     expect(sql).toContain('INSERT INTO "sensor_temperature_daily"');
     expect(sql).toContain('"sampleCount" = "sensor_temperature_daily"."sampleCount" + 1');
     expect(sql).toContain('LEAST("sensor_temperature_daily"."minC", EXCLUDED."minC")');
     expect(sql).toContain('GREATEST("sensor_temperature_daily"."maxC", EXCLUDED."maxC")');
-    // Watermark: only advance on a strictly newer reading (redelivery-safe).
+    // Identity watermark (Task 1.5): the same eventId never counts twice.
     expect(sql).toContain(
-      '"sensor_temperature_daily"."lastMeasuredAt" < EXCLUDED."lastMeasuredAt"',
+      '"sensor_temperature_daily"."lastEventId" IS DISTINCT FROM EXCLUDED."lastEventId"',
     );
-    // day bucket is the UTC date of the reading; value + measuredAt follow.
+    // day bucket is the UTC date of the reading; value + measuredAt + the
+    // event's own deterministic identity follow.
     expect(params).toEqual([
       TENANT,
       SENSOR,
       '2026-07-04',
       13.2,
       new Date('2026-07-04T10:00:00.000Z'),
+      expect.any(String),
     ]);
   });
 

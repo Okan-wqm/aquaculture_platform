@@ -42,7 +42,7 @@ describe('GetWarehouseSummaryHandler', () => {
     expect(qb.where).toHaveBeenCalledWith('f.tenantId = :tenantId', { tenantId });
   });
 
-  it('labels every low-stock row with the StorageItemType enum member (FARM-HIGH-300)', async () => {
+  it('labels every low-stock row with the StorageItemType enum member (FARM-HIGH-319)', async () => {
     const { mockDataSource, mockManager } = createMockDataSource();
     const lowStockRow = { id: 'i1', name: 'Item', quantity: 1, minStock: 5, unit: 'kg' };
     mockManager.createQueryBuilder = jest

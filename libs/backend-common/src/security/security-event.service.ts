@@ -218,6 +218,10 @@ export class SecurityEventService {
         securityEventType,
         ip: opts.ip,
         userAgent: opts.userAgent,
+        // SEC-MEDIUM-104 (2026-08-23 scan №49): publisher attribution from
+        // THIS process's identity — never from the event payload (a
+        // compromised caller must not forge the source stamp).
+        sourceService: process.env['SERVICE_NAME'] ?? 'unknown',
         ...flatFields,
         version: 1,
       };

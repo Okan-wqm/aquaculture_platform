@@ -548,16 +548,19 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     nxProject: 'sensor-ingestion',
     imageTarget: 'sensor-ingestion',
     buildKind: 'rust-sidecar',
-    deploymentStatus: 'inactive',
-    deployTarget: 'unsupported',
-    deployProfiles: [],
-    criticality: 'ignored',
+    // Task 3 honesty flip: the real pipeline is wired (per-tenant COPY +
+    // outbox + awaited PubAck), so the sidecar deploys on the droplet as
+    // the second ingest backend under the ADR-031 policy switch. Not
+    // 'critical': the NestJS writer remains the seed backend and the
+    // policy kill-switch drains the sidecar without data loss.
+    deploymentStatus: 'active',
+    deployTarget: 'droplet',
+    deployProfiles: ['droplet'],
+    criticality: 'required',
     classification: 'internal-service',
-    // Inactive sidecar (not deployed to droplet) — nominal budget; the
-    // validator only enforces > 0 for active services.
-    startupBudgetSeconds: 30,
+    startupBudgetSeconds: 90,
     privilegeMode: 'none',
-    requiredSignals: [],
+    requiredSignals: ['nats_auth_mode_mtls'],
     requiredEnv: [],
   }),
   buildEntry({
@@ -981,6 +984,36 @@ export const PLATFORM_SERVICE_CATALOG: readonly ServiceCatalogEntry[] = [
     requiredSignals: [],
     requiredEnv: [],
   }),
+  // NATS exporter — monitoring plane (scrapes the broker's /jsz+metrics
+  // port for stream depth, PubAck rejections and consumer lag). Same
+  // 'ignored' precedent as the scrapers above: it loses visibility, not
+  // availability.
+  buildEntry({
+    serviceId: 'nats-exporter',
+    deploymentStatus: 'active',
+    deployTarget: 'droplet',
+    criticality: 'ignored',
+    classification: 'infra',
+    startupBudgetSeconds: 15,
+    privilegeMode: 'none',
+    requiredSignals: [],
+    requiredEnv: [],
+  }),
+  // redis-auth — the password-protected Redis instance backing
+  // auth-session state (REDIS_AUTH_URL consumers). Distinct from the main
+  // `redis` (cache): losing it breaks login sessions, not stored data,
+  // so 'required' (roll-back-worthy) rather than 'critical'.
+  buildEntry({
+    serviceId: 'redis-auth',
+    deploymentStatus: 'active',
+    deployTarget: 'droplet',
+    criticality: 'required',
+    classification: 'infra',
+    startupBudgetSeconds: 30,
+    privilegeMode: 'none',
+    requiredSignals: [],
+    requiredEnv: ['REDIS_AUTH_PASSWORD'],
+  }),
   ...[
     'nginx',
     'shell',
@@ -1136,10 +1169,14 @@ export function sharedImageRestartServices(): readonly SharedImageRestartService
 }
 
 export function imageBuildTargets(): readonly string[] {
-  return activeDropletServices()
-    .filter((entry) => entry.buildKind !== 'infra')
-    .map((entry) => entry.imageTarget)
-    .filter((target): target is string => typeof target === 'string');
+  return (
+    activeDropletServices()
+      // 'rust-sidecar' images come prebuilt from GHCR (Task 3 image
+      // workflow) — the droplet deploy shell never builds them locally.
+      .filter((entry) => entry.buildKind !== 'infra' && entry.buildKind !== 'rust-sidecar')
+      .map((entry) => entry.imageTarget)
+      .filter((target): target is string => typeof target === 'string')
+  );
 }
 
 export function backendImageBuildTargets(): readonly string[] {

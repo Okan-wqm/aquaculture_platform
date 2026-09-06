@@ -1,4 +1,4 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { ConflictException, Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -61,8 +61,20 @@ export class VfdParameterWriterService {
   async applyChangeSet(changeSet: VfdChangeSet): Promise<VfdChangeSet> {
     const deadline = Date.now() + TOTAL_TIMEOUT_MS;
 
+    // SEC-MEDIUM-083 (2026-08-23 scan №28): ATOMIC APPROVED→APPLYING claim.
+    // The scheduler and the 'vfd.changeset.approved' event handler can race
+    // onto the same set; a read-modify-write here let both proceed. The
+    // conditional UPDATE admits exactly one applier.
+    const claim = await this.changeSetRepo.update(
+      { id: changeSet.id, tenantId: changeSet.tenantId, status: VfdChangeSetStatus.APPROVED },
+      { status: VfdChangeSetStatus.APPLYING },
+    );
+    if (!claim.affected) {
+      throw new ConflictException(
+        `Change set ${changeSet.id} was already claimed for application (or cancelled)`,
+      );
+    }
     changeSet.status = VfdChangeSetStatus.APPLYING;
-    await this.changeSetRepo.save(changeSet);
 
     const device = await this.vfdDeviceService.findById(changeSet.vfdDeviceId, changeSet.tenantId);
 

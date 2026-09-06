@@ -40,7 +40,7 @@ const defaultForm: FeatureToggleForm = {
 
 export const FeatureTogglesPage: React.FC = () => {
   // State
-  const [toggles, setToggles] = useState<FeatureToggle[]>([]);
+  const [toggles, setToggles] = useState<readonly FeatureToggle[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -70,21 +70,11 @@ export const FeatureTogglesPage: React.FC = () => {
         category: filterCategory !== 'all' ? filterCategory : undefined,
         search: searchTerm || undefined,
       });
-      // Normalise the API response shape to a flat array (BUG-014)
-      type FeatureToggleListResponse = FeatureToggle[] | { data: FeatureToggle[] } | { items: FeatureToggle[]; total?: number };
-      const r = response as unknown as FeatureToggleListResponse;
-      let toggleList: FeatureToggle[];
-      if (Array.isArray(r)) {
-        toggleList = r;
-      } else if ('items' in r && Array.isArray(r.items)) {
-        toggleList = r.items;
-      } else if ('data' in r && Array.isArray(r.data)) {
-        toggleList = r.data;
-      } else {
-        console.error('API returned unexpected format for feature toggles', r);
-        toggleList = [];
-      }
-      setToggles(toggleList);
+      // BUG-014 used to sniff three possible response shapes here because the
+      // endpoint really did return a different one from its neighbours. It is
+      // a `PaginatedResult` now, like every other list, so there is one shape
+      // to read and nothing to normalise.
+      setToggles(response.data);
     } catch (err) {
       console.error('Failed to load feature toggles:', err);
       setError('Failed to load feature toggles');

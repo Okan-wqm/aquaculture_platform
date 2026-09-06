@@ -34,7 +34,7 @@ export function MyLeavesPage(): JSX.Element {
   });
   const { cancel, loading: cancelling } = useCancelLeaveRequest();
   // The HR LeaveBalance type carries only leaveTypeId; the display type is
-  // joined client-side against the leaveTypes list (MOB-HIGH-019 — the old
+  // joined client-side against the leaveTypes list (MOB-HIGH-022 — the old
   // `balance.leaveType` read a field the schema never had).
   const { data: leaveTypes = [] } = useLeaveTypes();
   const leaveTypeById = new Map(leaveTypes.map((type) => [type.id, type]));

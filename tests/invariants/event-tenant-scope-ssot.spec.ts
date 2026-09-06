@@ -8,7 +8,7 @@ import { stripComments } from './helpers/ts-source';
  * INVARIANT: event tenancy scope is parsed through the contract, never a
  * hand-rolled UUID guard, and the platform segment is spelled once.
  *
- * SEC-HIGH-057 root cause: `BaseEvent.tenantId` is the routing segment, so a
+ * SEC-HIGH-159 root cause: `BaseEvent.tenantId` is the routing segment, so a
  * platform-level event (a super admin's password reset) needs a segment too.
  * Three libraries each spelled it, every auth publisher fell back to it with
  * `?? 'system'`, and the notification handler guarded the field with a v4-UUID
@@ -22,7 +22,7 @@ import { stripComments } from './helpers/ts-source';
  *  2. No producer in apps/ spells the platform segment or falls back to it —
  *     createBaseEvent receives a scope (tenantScopeOf) or a real tenant id.
  *  3. The auth-event handler parses through the contract, and the handlers
- *     that still hand-roll a guard are exactly the PLAT-MEDIUM-905 burn-down
+ *     that still hand-roll a guard are exactly the PLAT-MEDIUM-910 burn-down
  *     list: a file that stops matching must leave the list, and the list
  *     cannot outlive the finding.
  */
@@ -36,7 +36,7 @@ const AUTH_EVENT_HANDLER =
   'apps/notification-service/src/notification/event-handlers/auth-event.handler.ts';
 
 /**
- * PLAT-MEDIUM-905 (owner @okan-wqm, deadline 2026-11-15): NATS handlers that
+ * PLAT-MEDIUM-910 (owner @okan-wqm, deadline 2026-11-15): NATS handlers that
  * still hand-roll a tenantId UUID guard and return (ack) on a miss. Each is a
  * latent copy of the super-admin drop. The list only shrinks — migrate a
  * handler to requireTenantScope / eventTenantScope and delete its line.
@@ -68,7 +68,7 @@ const HAND_ROLLED_GUARD_BURN_DOWN: ReadonlySet<string> = new Set([
   'apps/notification-service/src/notification/event-handlers/task-event.handler.ts',
   'libs/backend-common/src/database/tenant-schema-cache/tenant-schema-cache-invalidation.subscriber.ts',
 ]);
-const BURN_DOWN_FINDING_ID = 'PLAT-MEDIUM-905';
+const BURN_DOWN_FINDING_ID = 'PLAT-MEDIUM-910';
 
 /** A hand-rolled tenancy guard: a UUID test on the event's tenantId. */
 const HAND_ROLLED_GUARD =
@@ -133,7 +133,7 @@ function appSourceFiles(): SourceFile[] {
   );
 }
 
-describe('INVARIANT: event tenancy scope is an explicit contract value (SEC-HIGH-057)', () => {
+describe('INVARIANT: event tenancy scope is an explicit contract value (SEC-HIGH-159)', () => {
   it('the platform segment is spelled once, in the contract, and aliased by event-bus and outbox', () => {
     const contract = stripComments(readRepoFile(CONTRACT));
     expect(contract).toContain("export const PLATFORM_EVENT_TENANT_ID = 'system' as const;");
@@ -180,7 +180,7 @@ describe('INVARIANT: event tenancy scope is an explicit contract value (SEC-HIGH
     expect(handler).not.toMatch(HAND_ROLLED_GUARD);
   });
 
-  it('handlers that still hand-roll a tenancy guard are exactly the PLAT-MEDIUM-905 burn-down list', () => {
+  it('handlers that still hand-roll a tenancy guard are exactly the PLAT-MEDIUM-910 burn-down list', () => {
     const measured = appSourceFiles()
       .filter(({ code }) => isNatsEventHandler(code) && HAND_ROLLED_GUARD.test(code))
       .map(({ relativePath }) => relativePath)

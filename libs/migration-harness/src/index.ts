@@ -25,11 +25,13 @@
  */
 export {
   DEFAULT_POSTGRES_IMAGE,
+  EXTERNAL_POSTGRES_ENV,
   bootPostgresContainer,
+  resolveExternalPostgres,
   shutdownHarness,
   withEphemeralSchema,
 } from './setup';
-export type { BootOptions, HarnessContext } from './setup';
+export type { BootOptions, ExternalPostgresTarget, HarnessBackend, HarnessContext } from './setup';
 
 export { defineMigrationTest } from './define-migration-test';
 export type {
@@ -39,8 +41,5 @@ export type {
   PriorStateCallback,
 } from './define-migration-test';
 
-export {
-  expectNoDriftAgainst,
-  registerDriftMatcher,
-} from './expect-no-drift';
+export { expectNoDriftAgainst, registerDriftMatcher } from './expect-no-drift';
 export type { DriftClass, DriftReport } from './expect-no-drift';

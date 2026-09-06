@@ -284,7 +284,7 @@ type VariablesArg<TVars> = [TVars] extends [Record<string, never>]
 /**
  * Execute a GraphQL operation through the authenticated fetch pipeline.
  *
- * S1-CODEGEN / MOB-HIGH-019: ONE call shape. `document` must be a codegen
+ * S1-CODEGEN / MOB-HIGH-022: ONE call shape. `document` must be a codegen
  * `TypedDocumentNode<TResult, TVars>` (every document under src/ is a codegen
  * source), so BOTH the result AND the variable types flow from the document
  * and a query/result/variable drift is a COMPILE error. There is no

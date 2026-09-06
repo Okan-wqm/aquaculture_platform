@@ -7,7 +7,7 @@
  * (mortality/cull/harvest/feeding/transfer/clockIn/clockOut/createLeave)
  * Faz 6'da silindi; bu spec sınıfın geri dönüşünü kilitler.
  *
- * MOB-HIGH-019: registry artık codegen'in kaynağı (`/* GraphQL *\/` sihirli
+ * MOB-HIGH-022: registry artık codegen'in kaynağı (`/* GraphQL *\/` sihirli
  * yorumu), yani her registry dokümanının üretilmiş `<Name>Document`'ı var ve
  * online yol ONU import eder — metni yeniden yazmaz. Tarama `src/**` (generated
  * ve testler hariç): su kalitesi ve stok sayfaları bir zamanlar kendi

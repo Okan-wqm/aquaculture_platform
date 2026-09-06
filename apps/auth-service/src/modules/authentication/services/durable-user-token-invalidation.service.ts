@@ -38,7 +38,7 @@ export class DurableUserTokenInvalidationService {
   ) {}
 
   async enqueue(manager: EntityManager, intent: UserTokenInvalidationIntent): Promise<void> {
-    // SEC-HIGH-057: scope derived from the principal, routed by kind.
+    // SEC-HIGH-159: scope derived from the principal, routed by kind.
     const scope = tenantScopeOf(intent.tenantId);
     const systemRouted = scope.kind === 'platform';
     const event: UserAccessTokenInvalidationRequestedEvent = {

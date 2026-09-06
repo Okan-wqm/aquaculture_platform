@@ -11,7 +11,7 @@ import {
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111';
 
-describe('event tenancy scope (SEC-HIGH-057)', () => {
+describe('event tenancy scope (SEC-HIGH-159)', () => {
   it('a nullable principal tenantId becomes a platform scope, a UUID a tenant scope', () => {
     expect(tenantScopeOf(null)).toEqual({ kind: 'platform' });
     expect(tenantScopeOf(undefined)).toEqual({ kind: 'platform' });

@@ -78,6 +78,7 @@ import {
   findNonCanonicalFindingEvidence,
   requiresCanonicalFindingEvidence,
 } from './finding-evidence-shape';
+import { loadCanonicalToAliases } from './finding-id-aliases';
 import {
   atomicWriteFileWithRegistryLease,
   atomicWriteRegistryFile,
@@ -89,8 +90,14 @@ import {
   type RegistryLockLease,
   withRegistryFileLock,
 } from './finding-registry-store';
-import { commitHasFindingCloseTrailer } from './finding-traceability';
-import { commitReachableFrom } from './git-reachability';
+import {
+  closureAdmissible,
+  commitHasFindingCloseTrailer,
+  commitMessageClosesFindingExactly,
+  findingRejectsClosure,
+  type FindingTrailerTarget,
+} from './finding-traceability';
+import { commitReachableFrom, repoPinnedEnv } from './git-reachability';
 
 const Ajv2020 = (Ajv2020Mod as unknown as { default?: typeof Ajv2020Mod }).default ?? Ajv2020Mod;
 
@@ -239,6 +246,8 @@ export interface Finding {
   created_at: string;
   closed_at: string | null;
   closing_commits: string[];
+  /** Closers an override reopen rejected; see `closureAdmissible`. */
+  rejected_closing_commits?: string[];
   deadline: string | null;
   owner_user: string | null;
   override_of: string | null;
@@ -976,9 +985,16 @@ function cmdClose(id: string, shortSha: string, lease: RegistryLockLease): numbe
     return 1;
   }
 
-  const traceability = commitHasFindingCloseTrailer(REPO_ROOT, shortSha, id);
+  const [target] = withFindingAliases(REPO_ROOT, [entry]);
+  const traceability = commitHasFindingCloseTrailer(REPO_ROOT, shortSha, target ?? entry);
   if (!traceability.ok) {
     process.stderr.write(`close refused: ${traceability.reason}\n\n`);
+    return 1;
+  }
+
+  const admission = closureAdmissible(entry, shortSha);
+  if (!admission.ok) {
+    process.stderr.write(`close refused: ${admission.reason}\n\n`);
     return 1;
   }
 
@@ -1020,7 +1036,106 @@ function cmdClose(id: string, shortSha: string, lease: RegistryLockLease): numbe
  * heavier decision), restitches the chain exactly like close, and refuses to
  * write if verification fails.
  */
-function cmdReopen(id: string, lease: RegistryLockLease): number {
+/** `reopen --reject-closure=<sha> --reason=<why>`: the override decision, made explicit. */
+export interface ClosureRejection {
+  readonly shas: readonly string[];
+  readonly reason: string;
+  /** ISO-8601 timestamp recorded in the note; injectable for tests. */
+  readonly now?: string;
+}
+
+export interface ClosureRejectionOutcome {
+  readonly ok: boolean;
+  readonly reason?: string;
+}
+
+/**
+ * Override reopen — the inverse of a ceremony close.
+ *
+ * A closing commit's trailer is permanent history, and `reconcile` re-derives
+ * RESOLVED from it on every run. Reopening a ceremonially-closed finding
+ * therefore cannot mean "clear the fields": the same commit would close it
+ * again at the next derivation (PLAT-MEDIUM-901, 2026-09-04 — a free-text
+ * "[REOPENED …]" note was all that stood between the finding and its old
+ * closer). The override instead REJECTS the closer: the SHA moves from
+ * `closing_commits` to `rejected_closing_commits`, where `close`, `reconcile`
+ * and the closure-drift gate refuse it, and only a NEW closing commit can
+ * resolve the finding again. Every current closer must be rejected in the
+ * same decision — a finding still closed by another commit is still closed.
+ */
+export function applyClosureRejection(
+  entry: Finding,
+  rejection: ClosureRejection,
+): ClosureRejectionOutcome {
+  if (rejection.reason.trim().length === 0) {
+    return {
+      ok: false,
+      reason: 'override reopen requires --reason=<why the closer did not close it>',
+    };
+  }
+  if (rejection.shas.length === 0) {
+    return { ok: false, reason: 'override reopen requires at least one --reject-closure=<sha>' };
+  }
+  if (entry.state !== 'RESOLVED' && entry.state !== 'OPEN' && entry.state !== 'IN-PROGRESS') {
+    return {
+      ok: false,
+      reason: `${entry.id} is ${entry.state}; reject its closers from OPEN/IN-PROGRESS/RESOLVED`,
+    };
+  }
+  const rejects = (closer: string): boolean =>
+    rejection.shas.some((sha) =>
+      findingRejectsClosure({ id: entry.id, rejected_closing_commits: [sha] }, closer),
+    );
+  // A RESOLVED row is still closed by every closer the decision leaves standing.
+  const remaining = entry.closing_commits.filter((closer) => !rejects(closer));
+  if (remaining.length > 0) {
+    return {
+      ok: false,
+      reason:
+        `${entry.id} would still be closed by ${remaining.join(', ')}; reject every current closer ` +
+        'in the same decision or leave the finding RESOLVED',
+    };
+  }
+
+  const already = entry.rejected_closing_commits ?? [];
+  const fromRow = entry.closing_commits.filter((closer) => !already.includes(closer));
+  const extra = rejection.shas.filter(
+    (sha) =>
+      !fromRow.some((closer) =>
+        findingRejectsClosure({ id: entry.id, rejected_closing_commits: [sha] }, closer),
+      ) &&
+      !already.some((closer) =>
+        findingRejectsClosure({ id: entry.id, rejected_closing_commits: [sha] }, closer),
+      ),
+  );
+  const rejected = [...fromRow, ...extra];
+  entry.rejected_closing_commits = [...already, ...rejected];
+  entry.closing_commits = [];
+  entry.state = entry.state === 'RESOLVED' ? 'OPEN' : entry.state;
+  entry.closed_at = null;
+  const stamp = (rejection.now ?? new Date().toISOString()).slice(0, 10);
+  entry.notes =
+    String(entry.notes ?? '') +
+    ` [override reopen ${stamp}: closer ${rejected.map((sha) => sha.slice(0, 12)).join(', ')} rejected — ${rejection.reason.trim()}]`;
+  return { ok: true };
+}
+
+/** Resolve a user-supplied SHA prefix to the full commit id, or explain why not. */
+function resolveFullSha(repoRoot: string, sha: string): { sha?: string; reason?: string } {
+  try {
+    const full = execFileSync('git', ['-C', repoRoot, 'rev-parse', '--verify', `${sha}^{commit}`], {
+      encoding: 'utf8',
+      env: repoPinnedEnv(),
+    }).trim();
+    return /^[0-9a-f]{40}$/.test(full)
+      ? { sha: full }
+      : { reason: `${sha} did not resolve to a commit` };
+  } catch (err) {
+    return { reason: `${sha} is not a readable commit: ${(err as Error).message}` };
+  }
+}
+
+function cmdReopen(id: string, lease: RegistryLockLease, rejection?: ClosureRejection): number {
   const entries = loadRegistry();
   const index = entries.findIndex((e) => e.id === id);
   if (index === -1) {
@@ -1032,24 +1147,64 @@ function cmdReopen(id: string, lease: RegistryLockLease): number {
     process.stderr.write(`Finding at index ${index} is undefined — registry corruption?\n`);
     return 1;
   }
-  if (entry.state !== 'RESOLVED') {
-    process.stdout.write(`No-op: ${id} is already ${entry.state}.\n`);
-    return 0;
-  }
-  if (entry.closing_commits.length > 0) {
-    process.stderr.write(
-      `reopen refused: ${id} carries closing_commits (${entry.closing_commits.join(', ')}) — ` +
-        'it was closed through the ceremony; reopening a ceremonially-closed finding is an ' +
-        'override decision, not a registration repair.\n',
-    );
-    return 1;
-  }
+  if (rejection !== undefined) {
+    // Every rejected SHA must be a real commit whose own trailer names this
+    // finding (or a closer the ceremony already recorded): rejecting anything
+    // else is a typo, not a decision.
+    const shas: string[] = [];
+    const [target = entry] = withFindingAliases(REPO_ROOT, [entry]);
+    for (const given of rejection.shas) {
+      const resolved = resolveFullSha(REPO_ROOT, given);
+      if (resolved.sha === undefined) {
+        process.stderr.write(`reopen refused: ${resolved.reason}\n`);
+        return 1;
+      }
+      const recorded = entry.closing_commits.some((closer) =>
+        closer.startsWith(resolved.sha ?? ''),
+      );
+      const trailer = commitHasFindingCloseTrailer(REPO_ROOT, resolved.sha, target);
+      if (!recorded && !trailer.ok) {
+        process.stderr.write(`reopen refused: ${trailer.reason}\n`);
+        return 1;
+      }
+      shas.push(resolved.sha);
+    }
+    const outcome = applyClosureRejection(entry, { ...rejection, shas });
+    if (!outcome.ok) {
+      process.stderr.write(`reopen refused: ${outcome.reason}\n`);
+      return 1;
+    }
+    // Fail closed: a reopen that leaves an unrejected closer on origin/main is
+    // undone by the next reconcile, so it is not persisted at all.
+    const standing = listMergedClosers(REPO_ROOT, 'origin/main', entry);
+    if (standing.length > 0) {
+      process.stderr.write(
+        `reopen refused: origin/main still closes ${id} through ${standing
+          .map((sha) => sha.slice(0, 12))
+          .join(', ')} — add --reject-closure=<sha> for each, in the same decision.\n`,
+      );
+      return 1;
+    }
+  } else {
+    if (entry.state !== 'RESOLVED') {
+      process.stdout.write(`No-op: ${id} is already ${entry.state}.\n`);
+      return 0;
+    }
+    if (entry.closing_commits.length > 0) {
+      process.stderr.write(
+        `reopen refused: ${id} carries closing_commits (${entry.closing_commits.join(', ')}) — ` +
+          'it was closed through the ceremony; reopening a ceremonially-closed finding is an ' +
+          'override decision: reopen <id> --reject-closure=<sha> --reason=<why>.\n',
+      );
+      return 1;
+    }
 
-  entry.state = 'OPEN';
-  entry.closed_at = null;
-  entry.notes =
-    String(entry.notes ?? '') +
-    ' [governed reopen: was registered RESOLVED at birth in error — the close ceremony runs post-merge via `close` with the main-reachable fix SHA.]';
+    entry.state = 'OPEN';
+    entry.closed_at = null;
+    entry.notes =
+      String(entry.notes ?? '') +
+      ' [governed reopen: was registered RESOLVED at birth in error — the close ceremony runs post-merge via `close` with the main-reachable fix SHA.]';
+  }
   rechain(entries, index);
   const post = verify(entries);
   if (!post.ok) {
@@ -1203,6 +1358,292 @@ function cmdSweep(args: string[], lease: RegistryLockLease): number {
   const tip = entries.length === 0 ? ZERO_HASH : (entries[entries.length - 1]?.content_hash ?? '');
   console.log('');
   console.log(`Applied ${actions.length} transitions. Chain tip: ${tip}`);
+  return 0;
+}
+
+/**
+ * Stdout writer for new code in this file.
+ *
+ * `no-console` is an error-level lint rule; this file's existing `console.*`
+ * calls are baseline-grandfathered, but lines added after that baseline use the
+ * stream API (the same rule `cmdClose` follows for stderr).
+ */
+function writeOut(message: string): void {
+  process.stdout.write(`${message}\n`);
+}
+
+/**
+ * Read-only registry access for gates.
+ *
+ * Exported rather than duplicating the parse: `loadRegistry` already handles the
+ * file's line format and ordering, and a spec that re-implemented it could
+ * disagree with the tool about what the registry contains — which is exactly the
+ * split this whole reconciliation exists to close.
+ */
+export function loadRegistryForInspection(registryPath = REGISTRY_PATH): readonly Finding[] {
+  return loadRegistry(registryPath);
+}
+
+/** A merged commit that closes a finding, as read from git history. */
+export interface MergedClosure {
+  readonly findingId: string;
+  /** Full SHA of the commit whose message carries the `Closes:` trailer. */
+  readonly sha: string;
+}
+
+/** Record/unit separators — safe inside commit bodies, unlike newlines. */
+const LOG_RECORD_SEP = '';
+const LOG_FIELD_SEP = '';
+
+interface MergedCommit {
+  readonly sha: string;
+  readonly message: string;
+}
+
+/** Every commit reachable from `ref`, OLDEST first, with its full message. */
+function readMergedCommits(repoRoot: string, ref: string): MergedCommit[] {
+  const raw = execFileSync(
+    'git',
+    ['-C', repoRoot, 'log', ref, `--pretty=format:%H${LOG_FIELD_SEP}%B${LOG_RECORD_SEP}`],
+    { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, env: repoPinnedEnv() },
+  );
+
+  // `git log` walks newest-first; reverse so the OLDEST closure is recorded.
+  return raw
+    .split(LOG_RECORD_SEP)
+    .map((record) => record.trim())
+    .filter((record) => record.length > 0)
+    .map((record) => {
+      const cut = record.indexOf(LOG_FIELD_SEP);
+      return { sha: record.slice(0, cut).trim(), message: record.slice(cut + 1) };
+    })
+    .reverse();
+}
+
+/**
+ * EVERY commit reachable from `ref` whose trailer closes `candidate`, oldest
+ * first, rejected closers excluded. `collectMergedClosures` records only the
+ * oldest; an override reopen must see all of them, because each one the
+ * reopen leaves unrejected would close the finding again at the next
+ * derivation.
+ */
+export function listMergedClosers(
+  repoRoot: string,
+  ref: string,
+  candidate: FindingTrailerTarget,
+): string[] {
+  return readMergedCommits(repoRoot, ref)
+    .filter((commit) => /^[0-9a-f]{40}$/i.test(commit.sha))
+    .filter((commit) => commit.message.includes('Closes:'))
+    .filter((commit) => !findingRejectsClosure(candidate, commit.sha))
+    .filter((commit) => commitMessageClosesFindingExactly(commit.message, candidate))
+    .map((commit) => commit.sha);
+}
+
+/**
+ * Finding IDs named by `Closes:` trailers on commits reachable from `ref`.
+ *
+ * The commit trailer is the ONLY closure signal the platform actually enforces:
+ * `commit-msg-validator` refuses a fix/security/refactor commit without one, and
+ * validates the ID against this registry. The registry's `state` field, by
+ * contrast, is maintained by a manual post-merge ceremony. Two records of the
+ * same fact, one enforced and one not — so the unenforced one drifted, and it is
+ * the one the dashboards and sweeps read.
+ *
+ * This makes the enforced record the source: state is DERIVED from merged
+ * history rather than remembered.
+ *
+ * Oldest closure wins when several commits close the same finding: it is the one
+ * that made the finding true, and later commits are follow-ups.
+ */
+/**
+ * Attach every alias the sidecar records for each candidate's canonical id.
+ *
+ * The ONE place aliases join a finding, used by the derivation
+ * (`collectMergedClosures`, the drift gate) AND the admission guard in every
+ * ceremony (`close`, `reopen --reject-closure`, `reconcile`) — a trailer naming
+ * a renumbered finding's historical id resolves to the ledger row that tracks
+ * it wherever the question is asked. When only the derivation knew the aliases,
+ * `reconcile` planned a closure from an aliased trailer and then refused the
+ * same commit at admission (PROC-MEDIUM-024).
+ */
+export function withFindingAliases<T extends FindingTrailerTarget>(
+  repoRoot: string,
+  candidates: readonly T[],
+): T[] {
+  const aliasesByCanonical = loadCanonicalToAliases(repoRoot);
+  return candidates.map((candidate) => {
+    const aliases = aliasesByCanonical.get(candidate.id);
+    return aliases === undefined ? candidate : { ...candidate, aliases };
+  });
+}
+
+export function collectMergedClosures(
+  repoRoot: string,
+  ref: string,
+  candidates: readonly FindingTrailerTarget[],
+): MergedClosure[] {
+  const commits = readMergedCommits(repoRoot, ref);
+  const targets = withFindingAliases(repoRoot, candidates);
+
+  const found = new Map<string, string>();
+  for (const commit of commits) {
+    if (!/^[0-9a-f]{40}$/i.test(commit.sha)) continue;
+    if (!commit.message.includes('Closes:')) continue;
+    for (const candidate of targets) {
+      if (found.has(candidate.id)) continue;
+      // A closer an override reopen rejected is not evidence, however old it
+      // is; the finding closes only through a commit made after the reopen.
+      if (findingRejectsClosure(candidate, commit.sha)) continue;
+      // Derivation is stricter than admission: the commit-msg gate's matcher
+      // accepts a BACKLOG-* trailer for any id (fine when recording one commit
+      // against one finding), but read back over the whole of merged history
+      // it would close every finding at once and let a reused id be closed by
+      // a commit that cited another review file. The exact matcher binds the
+      // id and, when the trailer carries an anchor, the finding's review_file.
+      if (commitMessageClosesFindingExactly(commit.message, candidate)) {
+        found.set(candidate.id, commit.sha);
+      }
+    }
+  }
+
+  return [...found].map(([findingId, sha]) => ({ findingId, sha }));
+}
+
+/** A registry entry whose state contradicts merged history. */
+export interface ClosureDrift {
+  readonly findingId: string;
+  readonly sha: string;
+  readonly currentState: Finding['state'];
+}
+
+/**
+ * Findings that merged history says are closed but the registry does not.
+ *
+ * Shared by `reconcile` (which fixes them) and the closure-drift invariant
+ * (which fails the build when any remain) — one definition of "drift", so the
+ * gate can never disagree with the repair.
+ */
+export function planClosureReconciliation(
+  entries: readonly Finding[],
+  closures: readonly MergedClosure[],
+): ClosureDrift[] {
+  const byId = new Map(entries.map((entry) => [entry.id, entry]));
+  const drift: ClosureDrift[] = [];
+  for (const closure of closures) {
+    const entry = byId.get(closure.findingId);
+    if (!entry) continue; // ORPHAN-*/ARIA ids live outside this registry by design.
+    // An already-RESOLVED finding contradicts nothing, even when the oldest
+    // trailer names a different commit than the one the ceremony recorded.
+    // Appending that commit would not be reconciliation — it would be this tool
+    // second-guessing a completed ceremony about which change actually closed
+    // the finding, which is a judgement it has no evidence to make.
+    if (entry.state === 'RESOLVED') continue;
+    drift.push({ findingId: closure.findingId, sha: closure.sha, currentState: entry.state });
+  }
+  return drift;
+}
+
+/**
+ * `reconcile` — derive RESOLVED state from merged history.
+ *
+ * The close ceremony (`close <id> <sha>`) is correct in every constraint it
+ * imposes: the SHA must be reachable from `origin/main`, and that commit's own
+ * message must carry the matching trailer. What it lacked was a driver — a human
+ * had to remember to run it, once per finding, after every merge. At the time
+ * this was written, 136 findings closed by commits already on main were still
+ * OPEN or IN-PROGRESS, and the daily `sweep` was on course to relabel that
+ * completed work as STALE.
+ *
+ * Every planned transition is re-validated through the SAME two guards `close`
+ * uses. They hold by construction here — the pairs were read out of that very
+ * history — but routing through them means there is ONE definition of a legal
+ * closure. A guard tightened for `close` tightens for `reconcile` automatically.
+ */
+function cmdReconcile(args: string[], lease: RegistryLockLease): number {
+  const dryRun = args.includes('--dry-run');
+  const refArg = args.find((a) => a.startsWith('--ref='));
+  const ref = refArg ? refArg.replace('--ref=', '') : 'origin/main';
+
+  const entries = loadRegistry();
+
+  let closures: MergedClosure[];
+  try {
+    closures = collectMergedClosures(REPO_ROOT, ref, entries);
+  } catch (err) {
+    process.stderr.write(
+      `reconcile refused: cannot read history of "${ref}" — ${(err as Error).message}\n` +
+        'Fetch the ref first; certifying closures against an unreadable history is worse ' +
+        'than leaving them open.\n',
+    );
+    return 1;
+  }
+
+  const drift = planClosureReconciliation(entries, closures);
+  if (drift.length === 0) {
+    writeOut(
+      `Reconcile clean: registry agrees with ${ref} (${closures.length} merged closures, ` +
+        `${entries.length} entries).`,
+    );
+    return 0;
+  }
+
+  writeOut(`Reconcile plan (${drift.length} findings closed on ${ref} but not RESOLVED):`);
+  for (const item of drift) {
+    writeOut(
+      `  ${item.findingId}: ${item.currentState} → RESOLVED  (commit ${item.sha.slice(0, 12)})`,
+    );
+  }
+
+  if (dryRun) {
+    writeOut('');
+    writeOut('--dry-run: no mutations written.');
+    return 0;
+  }
+
+  let minIndex = entries.length;
+  for (const item of drift) {
+    const reachability = commitReachableFrom(REPO_ROOT, item.sha, ref);
+    if (!reachability.ok) {
+      process.stderr.write(`reconcile refused for ${item.findingId}: ${reachability.reason}\n`);
+      return 1;
+    }
+    const index = entries.findIndex((entry) => entry.id === item.findingId);
+    const entry = entries[index];
+    if (index === -1 || !entry) continue;
+    // Admission reads the SAME aliased target the derivation matched — the
+    // plan above came from an alias-aware read of history, so an alias-blind
+    // guard here would refuse its own evidence (PROC-MEDIUM-024).
+    const [target = entry] = withFindingAliases(REPO_ROOT, [entry]);
+    const traceability = commitHasFindingCloseTrailer(REPO_ROOT, item.sha, target);
+    if (!traceability.ok) {
+      process.stderr.write(`reconcile refused for ${item.findingId}: ${traceability.reason}\n`);
+      return 1;
+    }
+    const admission = closureAdmissible(entry, item.sha);
+    if (!admission.ok) {
+      process.stderr.write(`reconcile refused for ${item.findingId}: ${admission.reason}\n`);
+      return 1;
+    }
+    entry.state = 'RESOLVED';
+    entry.closed_at = entry.closed_at ?? new Date().toISOString();
+    if (!entry.closing_commits.includes(item.sha)) {
+      entry.closing_commits = [...entry.closing_commits, item.sha];
+    }
+    if (index < minIndex) minIndex = index;
+  }
+
+  rechain(entries, minIndex);
+  const post = verify(entries);
+  if (!post.ok) {
+    process.stderr.write(`Post-reconcile integrity check FAILED: ${post.reason}\n`);
+    return 1;
+  }
+
+  writeRegistry(entries, lease);
+  const tip = entries.length === 0 ? ZERO_HASH : (entries[entries.length - 1]?.content_hash ?? '');
+  writeOut('');
+  writeOut(`Resolved ${drift.length} findings from ${ref}. Chain tip: ${tip}`);
   return 0;
 }
 
@@ -1525,6 +1966,11 @@ function main(): void {
     console.error(
       '  list [--state <CSV>] [--severity <CSV>] [--owner <name>] [--format table|id-only|json]',
     );
+    // Stream API, not console.*: the surrounding usage lines predate the
+    // no-console baseline; new ones do not get to inherit the exemption.
+    process.stderr.write(
+      '  reconcile [--dry-run] [--ref=<ref>]  — derive RESOLVED from merged Closes: trailers\n',
+    );
     console.error('  rechain-from <N>   — post-merge integrity repair (see docblock)');
     console.error('  dedupe [--dry-run] — one-time duplicate-id cleanup (see docblock)');
     process.exit(2);
@@ -1574,10 +2020,20 @@ function main(): void {
   } else if (sub === 'reopen') {
     const id = args[0];
     if (!id) {
-      process.stderr.write('reopen requires id: finding-registry reopen <id>\n');
+      process.stderr.write(
+        'reopen requires id: finding-registry reopen <id> [--reject-closure=<sha> ...] [--reason=<why>]\n',
+      );
       process.exit(2);
     }
-    exitCode = runRegistryMutation((lease) => cmdReopen(id, lease));
+    const rejectedShas = args
+      .filter((a) => a.startsWith('--reject-closure='))
+      .map((a) => a.slice('--reject-closure='.length));
+    const reasonArg = args.find((a) => a.startsWith('--reason='));
+    const rejection: ClosureRejection | undefined =
+      rejectedShas.length > 0
+        ? { shas: rejectedShas, reason: reasonArg ? reasonArg.slice('--reason='.length) : '' }
+        : undefined;
+    exitCode = runRegistryMutation((lease) => cmdReopen(id, lease, rejection));
   } else if (sub === 'export') {
     const format = args[0];
     if (!format) {
@@ -1587,6 +2043,8 @@ function main(): void {
     exitCode = cmdExport(format);
   } else if (sub === 'sweep') {
     exitCode = runRegistryMutation((lease) => cmdSweep(args, lease));
+  } else if (sub === 'reconcile') {
+    exitCode = runRegistryMutation((lease) => cmdReconcile(args, lease));
   } else if (sub === 'list') {
     exitCode = cmdList(args);
   } else if (sub === 'rechain-from') {

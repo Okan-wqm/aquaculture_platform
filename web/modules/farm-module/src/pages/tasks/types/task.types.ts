@@ -29,7 +29,7 @@ export type AutoRuleTrigger =
   | 'LICENSE_EXPIRY'
   | 'WATER_PARAM_ALERT';
 
-/** Mirrors the farm-service `TaskChecklistItem` object type (FARM-HIGH-301). */
+/** Mirrors the farm-service `TaskChecklistItem` object type (FARM-HIGH-320). */
 export interface ChecklistItem {
   id: string;
   text: string;

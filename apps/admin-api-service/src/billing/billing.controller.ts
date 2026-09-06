@@ -65,6 +65,7 @@ import {
 import {
   PaymentFilters,
   PaymentManagementService,
+  PaymentStats,
   RecordPaymentDto,
   RefundPaymentDto,
 } from './services/payment-management.service';
@@ -740,6 +741,16 @@ export class BillingController {
   // ============================================================================
   // Payments
   // ============================================================================
+
+  /**
+   * Payment statistics for the billing dashboard (ADMIN-HIGH-008). A read-only
+   * AGGREGATE, not a list — it carries no items array, so it is outside the
+   * paginated-result contract that governs this controller's list endpoints.
+   */
+  @Get('payments/stats')
+  async getPaymentStats(): Promise<PaymentStats> {
+    return this.paymentService.getPaymentStats();
+  }
 
   @Get('payments')
   async getPayments(

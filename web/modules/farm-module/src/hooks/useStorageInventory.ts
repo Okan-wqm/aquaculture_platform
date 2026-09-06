@@ -2,7 +2,13 @@
  * Storage Inventory & Stock Movements hooks for farm-module
  */
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, graphqlClient, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
+import {
+  useAuth,
+  graphqlClient,
+  createTenantQueryKey,
+  createTenantInvalidationKey,
+} from '@aquaculture/shared-ui';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 
 // Types
 export enum StorageItemType {
@@ -138,13 +144,7 @@ export interface TransferStockInput {
   reason?: string;
 }
 
-interface PaginatedMovementsResponse {
-  items: StockMovement[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
+type PaginatedMovementsResponse = PaginationResultV1<StockMovement>;
 
 // Queries
 const STORAGE_INVENTORY_QUERY = `
@@ -233,6 +233,8 @@ const STOCK_MOVEMENTS_QUERY = `
       page
       limit
       totalPages
+      hasNextPage
+      hasPreviousPage
     }
   }
 `;

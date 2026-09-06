@@ -63,7 +63,10 @@ pub const PRODUCER_TS_MIN_MS: i64 = 1_704_067_200_000;
 /// into the JSON cannot pass.
 pub const PRODUCER_TS_MAX_MS: i64 = 4_102_444_800_000;
 
-/// First code in the OPC-UA DA "uncertain" band.
+/// First code in the OPC-UA DA "uncertain" band. Test-only today: the
+/// ingestion path persists every band (filtering is a reader concern), so
+/// this bound only pins the band taxonomy the tests assert against.
+#[cfg(test)]
 pub const QUALITY_UNCERTAIN_MIN: u8 = 64;
 
 /// Last code in the OPC-UA DA "uncertain" band.
@@ -128,8 +131,11 @@ impl QualityCode {
     }
 
     /// Whether the sample is in the GOOD band — the same predicate every
-    /// SQL consumer spells as `quality_code >= 192`.
+    /// SQL consumer spells as `quality_code >= 192`. Test-only today: the
+    /// sidecar writes every band, so only the tests exercise the reader's
+    /// classification contract.
     #[must_use]
+    #[cfg(test)]
     pub const fn is_good(self) -> bool {
         self.0 >= QUALITY_GOOD_MIN
     }

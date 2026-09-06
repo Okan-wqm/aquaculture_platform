@@ -133,6 +133,14 @@ pub fn new_cell() -> LifecycleHandlesCell {
     Arc::new(OnceLock::new())
 }
 
+/// Whether the health/lifecycle HTTP server is bound to a loopback address,
+/// layered as a request extension by `start_health_server`. Lets the
+/// state-mutating `confirm-active` POST apply the SAME fail-closed rule the
+/// observability GETs use (PR935-HIGH-005): a keyless request is refused on a
+/// non-loopback bind so no network peer can drive the A/B firmware lifecycle.
+#[derive(Clone, Copy, Debug)]
+pub struct HealthBindIsLoopback(pub bool);
+
 /// `POST /lifecycle/confirm-active` handler.
 ///
 /// Resolves the CURRENT active slot from PartitionStore,
@@ -151,6 +159,7 @@ pub fn new_cell() -> LifecycleHandlesCell {
 ///   other than idempotent no-op).
 pub async fn confirm_active_handler(
     Extension(cell): Extension<LifecycleHandlesCell>,
+    Extension(bind_is_loopback): Extension<HealthBindIsLoopback>,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse {
     let Some(handles) = cell.get() else {
@@ -169,8 +178,9 @@ pub async fn confirm_active_handler(
     // Batch 129 Sprint 6.6: HMAC auth gate. When auth_key
     // is Some (auth_mode=HmacToken), verify the per-request
     // HMAC before any state work. When None (auth_mode=
-    // Disabled or systemd-creds not loaded), skip — HC-1
-    // backward compat.
+    // Disabled or systemd-creds not loaded) the request is
+    // only accepted on a loopback bind — see the keyless
+    // branch below (PR935-HIGH-005).
     if let Some(auth_key) = handles.auth_key.as_ref() {
         let hmac_header = headers.get(HEADER_HMAC).and_then(|v| v.to_str().ok());
         let ts_header = headers.get(HEADER_TIMESTAMP).and_then(|v| v.to_str().ok());
@@ -233,6 +243,28 @@ pub async fn confirm_active_handler(
                 })),
             );
         }
+    } else if !bind_is_loopback.0 {
+        // PR935-HIGH-005: no HMAC key configured AND the server is bound to a
+        // non-loopback address. Refuse the state-mutating confirm anonymously,
+        // exactly as the observability GETs do — a network peer must not be
+        // able to drive the A/B firmware lifecycle (confirm a bad slot /
+        // suppress rollback). Loopback keyless access stays allowed (HC-1
+        // backward compat for the systemd post-boot timer on localhost).
+        warn!(
+            "lifecycle confirm_active: REFUSED — keyless request on a non-loopback bind; \
+             configure an HMAC auth key to allow remote confirm-active"
+        );
+        if let Some(hs) = handles.health_state.as_ref() {
+            hs.inc_lifecycle_auth_rejected(false);
+        }
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(json!({
+                "error": "auth_required_for_external_bind",
+                "reason": "confirm-active refuses anonymous access on a non-loopback bind \
+                           without a configured HMAC auth key",
+            })),
+        );
     }
 
     // Pre-exec audit emit — matches the Batch 113 watchdog
@@ -557,9 +589,13 @@ mod tests {
     #[tokio::test]
     async fn confirm_active_returns_503_when_cell_empty() {
         let cell: LifecycleHandlesCell = new_cell();
-        let resp = confirm_active_handler(Extension(cell), axum::http::HeaderMap::new())
-            .await
-            .into_response();
+        let resp = confirm_active_handler(
+            Extension(cell),
+            Extension(HealthBindIsLoopback(true)),
+            axum::http::HeaderMap::new(),
+        )
+        .await
+        .into_response();
         assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
     }
 
@@ -598,9 +634,13 @@ mod tests {
         let cell: LifecycleHandlesCell = new_cell();
         cell.set(build_handles(store.clone())).ok();
 
-        let resp = confirm_active_handler(Extension(cell), axum::http::HeaderMap::new())
-            .await
-            .into_response();
+        let resp = confirm_active_handler(
+            Extension(cell),
+            Extension(HealthBindIsLoopback(true)),
+            axum::http::HeaderMap::new(),
+        )
+        .await
+        .into_response();
         assert_eq!(resp.status(), StatusCode::OK);
 
         let _ = std::fs::remove_file(&path);
@@ -627,6 +667,7 @@ mod tests {
 
         let resp = confirm_active_handler(
             Extension(cell),
+            Extension(HealthBindIsLoopback(true)),
             axum::http::HeaderMap::new(), // no auth headers
         )
         .await
@@ -668,9 +709,13 @@ mod tests {
             axum::http::HeaderValue::from_str(&"00".repeat(32)).unwrap(),
         );
 
-        let resp = confirm_active_handler(Extension(cell), headers)
-            .await
-            .into_response();
+        let resp = confirm_active_handler(
+            Extension(cell),
+            Extension(HealthBindIsLoopback(true)),
+            headers,
+        )
+        .await
+        .into_response();
         assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
 
         let _ = std::fs::remove_file(&path);
@@ -727,9 +772,13 @@ mod tests {
             axum::http::HeaderValue::from_str(&"11".repeat(32)).unwrap(),
         );
 
-        let resp = confirm_active_handler(Extension(cell), headers)
-            .await
-            .into_response();
+        let resp = confirm_active_handler(
+            Extension(cell),
+            Extension(HealthBindIsLoopback(true)),
+            headers,
+        )
+        .await
+        .into_response();
         assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
 
         let metrics = health.metrics_prometheus();
@@ -780,9 +829,13 @@ mod tests {
         .ok();
 
         // Empty headers — auth enabled → MissingHmacHeader.
-        let resp = confirm_active_handler(Extension(cell), axum::http::HeaderMap::new())
-            .await
-            .into_response();
+        let resp = confirm_active_handler(
+            Extension(cell),
+            Extension(HealthBindIsLoopback(true)),
+            axum::http::HeaderMap::new(),
+        )
+        .await
+        .into_response();
         assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
 
         let metrics = health.metrics_prometheus();
@@ -803,6 +856,75 @@ mod tests {
 
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(&lock_path);
+    }
+
+    #[tokio::test]
+    async fn keyless_confirm_active_fails_closed_on_non_loopback_bind() {
+        // PR935-HIGH-005: with no HMAC key configured, a non-loopback bind
+        // must REFUSE confirm-active (401) — a network peer must not drive the
+        // A/B firmware lifecycle. A loopback bind still accepts it (HC-1).
+        let path = tmp_partition_path();
+        let _ = std::fs::remove_file(&path);
+        let store = Arc::new(PartitionStore::open(Some(&path)).expect("open"));
+        let health = crate::health::HealthState::new();
+
+        let make_cell = || {
+            let cell: LifecycleHandlesCell = new_cell();
+            cell.set(LifecycleHandles {
+                partition_store: store.clone(),
+                bootloader: Arc::new(NoopBootloaderHandle),
+                audit_sink: None,
+                device_id: "test-dev".into(),
+                tenant: TenantId::new_from_verified([0u8; 16]),
+                auth_key: None, // keyless (auth_mode=Disabled)
+                health_state: Some(health.clone()),
+                clock_authority: None,
+            })
+            .ok();
+            cell
+        };
+
+        // Non-loopback bind + keyless → fail closed.
+        let external = confirm_active_handler(
+            Extension(make_cell()),
+            Extension(HealthBindIsLoopback(false)),
+            axum::http::HeaderMap::new(),
+        )
+        .await
+        .into_response();
+        assert_eq!(
+            external.status(),
+            StatusCode::UNAUTHORIZED,
+            "keyless confirm-active on a non-loopback bind must be refused"
+        );
+        // The rejection must bump the lifecycle-auth-rejected total.
+        let total = health
+            .metrics_prometheus()
+            .lines()
+            .find(|l| l.starts_with("suderra_lifecycle_auth_rejected_total"))
+            .map(|l| l.ends_with(" 1"))
+            .unwrap_or(false);
+        assert!(
+            total,
+            "keyless external refusal must bump the rejected metric"
+        );
+
+        // Loopback bind + keyless → NOT a 401 (proceeds; a fresh store yields a
+        // 409 idempotent no-op, never UNAUTHORIZED).
+        let loopback = confirm_active_handler(
+            Extension(make_cell()),
+            Extension(HealthBindIsLoopback(true)),
+            axum::http::HeaderMap::new(),
+        )
+        .await
+        .into_response();
+        assert_ne!(
+            loopback.status(),
+            StatusCode::UNAUTHORIZED,
+            "keyless confirm-active on a loopback bind must still be accepted (HC-1)"
+        );
+
+        let _ = std::fs::remove_file(&path);
     }
 
     #[tokio::test]
@@ -838,9 +960,13 @@ mod tests {
         cell.set(build_handles_with_health(store.clone(), health.clone()))
             .ok();
 
-        let resp = confirm_active_handler(Extension(cell), axum::http::HeaderMap::new())
-            .await
-            .into_response();
+        let resp = confirm_active_handler(
+            Extension(cell),
+            Extension(HealthBindIsLoopback(true)),
+            axum::http::HeaderMap::new(),
+        )
+        .await
+        .into_response();
         assert_eq!(resp.status(), StatusCode::OK);
 
         let metrics = health.metrics_prometheus();
@@ -930,9 +1056,13 @@ mod tests {
             axum::http::HeaderValue::from_str(&hmac_hex).unwrap(),
         );
 
-        let resp = confirm_active_handler(Extension(cell), headers)
-            .await
-            .into_response();
+        let resp = confirm_active_handler(
+            Extension(cell),
+            Extension(HealthBindIsLoopback(true)),
+            headers,
+        )
+        .await
+        .into_response();
         assert_eq!(resp.status(), StatusCode::OK);
 
         let _ = std::fs::remove_file(&path);
@@ -967,9 +1097,13 @@ mod tests {
         let cell: LifecycleHandlesCell = new_cell();
         cell.set(build_handles(store.clone())).ok();
 
-        let resp = confirm_active_handler(Extension(cell), axum::http::HeaderMap::new())
-            .await
-            .into_response();
+        let resp = confirm_active_handler(
+            Extension(cell),
+            Extension(HealthBindIsLoopback(true)),
+            axum::http::HeaderMap::new(),
+        )
+        .await
+        .into_response();
         assert_eq!(resp.status(), StatusCode::OK);
 
         let snap = store.snapshot().expect("snap");

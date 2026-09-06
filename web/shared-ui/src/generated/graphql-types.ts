@@ -350,6 +350,7 @@ export type AlertHistory = {
   ruleName: Scalars['String']['output'];
   sensorId?: Maybe<Scalars['String']['output']>;
   severity: AlertSeverity;
+  sourceEventId?: Maybe<Scalars['String']['output']>;
   tenantId: Scalars['String']['output'];
   triggeredAt: Scalars['DateTime']['output'];
   triggeringData: Scalars['JSON']['output'];
@@ -833,6 +834,8 @@ export type AuthPayload = {
   accessToken: Scalars['String']['output'];
   expiresIn: Scalars['Int']['output'];
   mfaRequired?: Maybe<Scalars['Boolean']['output']>;
+  mfaSetupRequired?: Maybe<Scalars['Boolean']['output']>;
+  mfaSetupToken?: Maybe<Scalars['String']['output']>;
   mfaToken?: Maybe<Scalars['String']['output']>;
   redirectUrl: Scalars['String']['output'];
   /**
@@ -1213,12 +1216,19 @@ export type BatchInputType =
   | 'SMOLT';
 
 export type BatchListResponse = {
+  /** Whether there is a next page */
   hasNextPage: Scalars['Boolean']['output'];
+  /** Whether there is a previous page */
   hasPreviousPage: Scalars['Boolean']['output'];
+  /** Array of items */
   items: Array<Batch>;
+  /** Items per page */
   limit: Scalars['Int']['output'];
+  /** Current page number */
   page: Scalars['Int']['output'];
+  /** Total count of items matching the query */
   total: Scalars['Int']['output'];
+  /** Total number of pages */
   totalPages: Scalars['Int']['output'];
 };
 
@@ -6027,26 +6037,6 @@ export type FeedAssignmentInput = {
   priority?: Scalars['Int']['input'];
 };
 
-export type FeedConsumptionBatchInfo = {
-  batchCode: Scalars['String']['output'];
-  batchId: Scalars['ID']['output'];
-  consumption: Scalars['Float']['output'];
-};
-
-export type FeedConsumptionByTypeResponse = {
-  batches: Array<FeedConsumptionBatchInfo>;
-  currentStock: Scalars['Float']['output'];
-  dailyConsumption: Array<Scalars['Float']['output']>;
-  daysUntilStockout: Scalars['Int']['output'];
-  feedCode: Scalars['String']['output'];
-  feedId: Scalars['ID']['output'];
-  feedName: Scalars['String']['output'];
-  reorderDate?: Maybe<Scalars['DateTime']['output']>;
-  reorderQuantity: Scalars['Float']['output'];
-  stockoutDate?: Maybe<Scalars['DateTime']['output']>;
-  totalConsumption: Scalars['Float']['output'];
-};
-
 export type FeedDocumentInput = {
   name: Scalars['String']['input'];
   type: Scalars['String']['input'];
@@ -6077,35 +6067,6 @@ export type FeedFilterInput = {
   supplierId?: InputMaybe<Scalars['ID']['input']>;
   targetSpecies?: InputMaybe<Scalars['String']['input']>;
   type?: InputMaybe<FeedType>;
-};
-
-export type FeedForecastAlert = {
-  daysUntilStockout: Scalars['Int']['output'];
-  feedCode: Scalars['String']['output'];
-  feedId: Scalars['ID']['output'];
-  message: Scalars['String']['output'];
-  type: Scalars['String']['output'];
-};
-
-export type FeedForecastInput = {
-  /** Number of days to forecast */
-  forecastDays?: Scalars['Int']['input'];
-  /** Lead time before stockout to recommend reorder */
-  leadTimeDays?: InputMaybe<Scalars['Int']['input']>;
-  /** Safety stock days to maintain */
-  safetyStockDays?: InputMaybe<Scalars['Int']['input']>;
-  /** Filter by site */
-  siteId?: InputMaybe<Scalars['ID']['input']>;
-};
-
-export type FeedForecastResponse = {
-  alerts: Array<FeedForecastAlert>;
-  byFeedType: Array<FeedConsumptionByTypeResponse>;
-  endDate: Scalars['DateTime']['output'];
-  forecastDays: Scalars['Int']['output'];
-  startDate: Scalars['DateTime']['output'];
-  totalConsumption: Scalars['Float']['output'];
-  totalCurrentStock: Scalars['Float']['output'];
 };
 
 /** Yemleme için büyüme aşaması */
@@ -6319,6 +6280,7 @@ export type FeedingDayPlan = {
   feedId: Scalars['ID']['output'];
   feedName: Scalars['String']['output'];
   fishCount: Scalars['Int']['output'];
+  growthApplicationMode: Scalars['String']['output'];
   id: Scalars['ID']['output'];
   meals?: Maybe<Array<FeedingMeal>>;
   mealsPlanned: Scalars['Int']['output'];
@@ -6326,8 +6288,13 @@ export type FeedingDayPlan = {
   planDate: Scalars['String']['output'];
   plannedTotalKg: Scalars['Float']['output'];
   protocolId: Scalars['ID']['output'];
+  recalcCount: Scalars['Int']['output'];
   recalcLog: Scalars['JSON']['output'];
+  resolution: Scalars['JSON']['output'];
   rollupAppliedAt?: Maybe<Scalars['DateTime']['output']>;
+  rollupAppliedKg: Scalars['Float']['output'];
+  rollupGrowthKg: Scalars['Float']['output'];
+  rollupLastRunAt?: Maybe<Scalars['DateTime']['output']>;
   siteId: Scalars['ID']['output'];
   skipReason?: Maybe<Scalars['String']['output']>;
   snapshot: Scalars['JSON']['output'];
@@ -6402,13 +6369,14 @@ export type FeedingMeal = {
   fedAt?: Maybe<Scalars['DateTime']['output']>;
   fedBy?: Maybe<Scalars['ID']['output']>;
   feedId: Scalars['ID']['output'];
-  feedingMethod?: Maybe<Scalars['String']['output']>;
+  feedingMethod?: Maybe<FeedingMethod>;
   id: Scalars['ID']['output'];
   mealIndex: Scalars['Int']['output'];
   notes?: Maybe<Scalars['String']['output']>;
   percentOfDaily: Scalars['Float']['output'];
   plannedKg: Scalars['Float']['output'];
   pours: Scalars['JSON']['output'];
+  readiness?: Maybe<Scalars['JSON']['output']>;
   recalculatedAt?: Maybe<Scalars['DateTime']['output']>;
   scheduledAt: Scalars['DateTime']['output'];
   siteId: Scalars['ID']['output'];
@@ -6810,6 +6778,22 @@ export type FeedingUnitType =
   | 'CAGE'
   | 'POND'
   | 'TANK';
+
+export type FinalizeMealInput = {
+  /** Stable client command UUID generated before first submission */
+  clientCommandId?: InputMaybe<Scalars['String']['input']>;
+  /** ISO timestamp when the mobile client created the command */
+  clientCreatedAt?: InputMaybe<Scalars['String']['input']>;
+  /** Stable per-installation device identifier */
+  deviceId?: InputMaybe<Scalars['String']['input']>;
+  mealId: Scalars['ID']['input'];
+  /** Mobile operation type, e.g. recordMortality or transferStock */
+  operationType?: InputMaybe<Scalars['String']['input']>;
+  /** SHA-256 hash of the command payload before envelope fields are added */
+  payloadHash?: InputMaybe<Scalars['String']['input']>;
+  /** Optional mobile command payload schema version */
+  schemaVersion?: InputMaybe<Scalars['String']['input']>;
+};
 
 export type FinalizeReviewInput = {
   calibrationNotes?: InputMaybe<Scalars['String']['input']>;
@@ -9640,6 +9624,7 @@ export type Mutation = {
   dismissReportDraft: RegulatoryReportDraft;
   duplicateProcess: ProcessResultType;
   editMessage: Message;
+  emergencyRollbackVfdChangeSet: VfdChangeSet;
   emergencyStopVfd: VfdCommandResult;
   /** End quarantine for a health event */
   endHealthEventQuarantine: HealthEvent;
@@ -9655,6 +9640,7 @@ export type Mutation = {
   /** Export all tenant message history (async, returns job handle). */
   exportTenantMessages: ExportJobType;
   finalizeInvoice: Invoice;
+  finalizeMeal: MealFeedingResult;
   finalizeReview: PerformanceReview;
   forgotPassword: Scalars['Boolean']['output'];
   forwardMessage: Message;
@@ -10013,7 +9999,9 @@ export type Mutation = {
   updateTankStatus: Tank;
   updateTask: Task;
   updateTenant: Tenant;
+  updateTenantLocalization: TenantLocalizationSettings;
   updateTenantRole: TenantRole;
+  updateTenantSecurityPolicy: TenantSecurityPolicy;
   updateTenantUser: User;
   updateTicketStatus: SupportTicket;
   updateTrainingCourse: TrainingCourse;
@@ -11559,6 +11547,11 @@ export type MutationEditMessageArgs = {
 };
 
 
+export type MutationEmergencyRollbackVfdChangeSetArgs = {
+  input: RollbackVfdChangeSetInput;
+};
+
+
 export type MutationEmergencyStopVfdArgs = {
   vfdDeviceId: Scalars['ID']['input'];
 };
@@ -11610,6 +11603,11 @@ export type MutationExportTenantMessagesArgs = {
 
 export type MutationFinalizeInvoiceArgs = {
   id: Scalars['ID']['input'];
+};
+
+
+export type MutationFinalizeMealArgs = {
+  input: FinalizeMealInput;
 };
 
 
@@ -12375,6 +12373,11 @@ export type MutationSetVfdSpeedArgs = {
 };
 
 
+export type MutationSetupMfaArgs = {
+  mfaSetupToken?: InputMaybe<Scalars['String']['input']>;
+};
+
+
 export type MutationSkipDailyFeedingArgs = {
   input: SkipDailyFeedingInput;
 };
@@ -13118,9 +13121,19 @@ export type MutationUpdateTenantArgs = {
 };
 
 
+export type MutationUpdateTenantLocalizationArgs = {
+  input: UpdateTenantLocalizationInput;
+};
+
+
 export type MutationUpdateTenantRoleArgs = {
   input: UpdateTenantRoleInput;
   roleId: Scalars['ID']['input'];
+};
+
+
+export type MutationUpdateTenantSecurityPolicyArgs = {
+  input: UpdateTenantSecurityPolicyInput;
 };
 
 
@@ -14862,6 +14875,7 @@ export type ProtocolAssignment = {
   endedAt?: Maybe<Scalars['DateTime']['output']>;
   id: Scalars['ID']['output'];
   lastTransitionAt?: Maybe<Scalars['DateTime']['output']>;
+  manualBandIndex?: Maybe<Scalars['Int']['output']>;
   overrides: Scalars['JSON']['output'];
   protocolId: Scalars['ID']['output'];
   siteId: Scalars['ID']['output'];
@@ -15001,10 +15015,13 @@ export type ProtocolFeedForecast = {
   mortalityAssumption: ProtocolFeedForecastMortalityAssumption;
   perFeed: Array<ProtocolFeedForecastPerFeed>;
   perUnit: Array<ProtocolFeedForecastPerUnit>;
+  poolScope: Scalars['String']['output'];
   siteScopeKey: Scalars['String']['output'];
+  stale: Scalars['Boolean']['output'];
 };
 
 export type ProtocolFeedForecastAlert = {
+  atDay: Scalars['Int']['output'];
   days: Scalars['Int']['output'];
   feedId: Scalars['ID']['output'];
   type: Scalars['String']['output'];
@@ -15035,6 +15052,7 @@ export type ProtocolFeedForecastPerFeed = {
 
 export type ProtocolFeedForecastPerUnit = {
   currentFeedId?: Maybe<Scalars['ID']['output']>;
+  terminalFeedId?: Maybe<Scalars['ID']['output']>;
   transitions: Array<ProtocolFeedForecastTransition>;
   unitCode: Scalars['String']['output'];
   unitId: Scalars['ID']['output'];
@@ -15393,8 +15411,6 @@ export type Query = {
   farmStockInventory: FarmStockInventoryConnection;
   farms: Array<Farm>;
   feed?: Maybe<FeedResponse>;
-  /** Forecast feed consumption and stockout dates */
-  feedConsumptionForecast: FeedForecastResponse;
   feedSuppliers: Array<SupplierResponse>;
   feedTypes: Array<FeedTypeResponse>;
   feederCalibrations: Array<FeederCalibrationResponse>;
@@ -15555,6 +15571,7 @@ export type Query = {
   mySupportThreads: Array<SupportThreadListItem>;
   myTasks: Array<Task>;
   myTenant: Tenant;
+  myTenantLocalization: TenantLocalizationSettings;
   myTenantModules: Array<TenantModule>;
   myTickets: Array<TicketListItem>;
   myTodaysAttendance: Array<AttendanceRecord>;
@@ -15753,6 +15770,7 @@ export type Query = {
   tenantProvisioningKeys: Array<TenantProvisioningKey>;
   tenantRole?: Maybe<TenantRole>;
   tenantRoles: Array<TenantRole>;
+  tenantSecurityPolicy: TenantSecurityPolicy;
   tenantStats: TenantStats;
   tenantTables: Array<TenantTableInfo>;
   tenantUsers: Array<User>;
@@ -16483,11 +16501,6 @@ export type QueryFarmsArgs = {
 
 export type QueryFeedArgs = {
   id: Scalars['ID']['input'];
-};
-
-
-export type QueryFeedConsumptionForecastArgs = {
-  input?: InputMaybe<FeedForecastInput>;
 };
 
 
@@ -18417,7 +18430,7 @@ export type RecordMealFeedingInput = {
   clientCreatedAt?: InputMaybe<Scalars['String']['input']>;
   /** Stable per-installation device identifier */
   deviceId?: InputMaybe<Scalars['String']['input']>;
-  feedingMethod?: InputMaybe<Scalars['String']['input']>;
+  feedingMethod?: InputMaybe<FeedingMethod>;
   finalize?: Scalars['Boolean']['input'];
   mealId: Scalars['ID']['input'];
   notes?: InputMaybe<Scalars['String']['input']>;
@@ -20143,7 +20156,7 @@ export type SiteResponse = {
   siteManager?: Maybe<Scalars['String']['output']>;
   status: SiteStatus;
   tenantId: Scalars['ID']['output'];
-  timezone: Scalars['String']['output'];
+  timezone?: Maybe<Scalars['String']['output']>;
   totalArea?: Maybe<Scalars['Float']['output']>;
   type: SiteType;
   updatedAt: Scalars['DateTime']['output'];
@@ -21977,6 +21990,11 @@ export type TenantKeyResponse = {
   maxDevices?: Maybe<Scalars['Int']['output']>;
 };
 
+export type TenantLocalizationSettings = {
+  locale?: Maybe<Scalars['String']['output']>;
+  timezone: Scalars['String']['output'];
+};
+
 export type TenantModule = {
   activatedAt: Scalars['DateTime']['output'];
   assignedBy: Scalars['String']['output'];
@@ -22053,6 +22071,11 @@ export type TenantRolePermissions = {
   panelPermissions: Scalars['JSON']['output'];
   resourcePermissions: Array<Scalars['String']['output']>;
   roleId: Scalars['ID']['output'];
+};
+
+export type TenantSecurityPolicy = {
+  enforceMfa: Scalars['Boolean']['output'];
+  sessionTimeoutMinutes?: Maybe<Scalars['Int']['output']>;
 };
 
 export type TenantStats = {
@@ -22423,8 +22446,6 @@ export type TransferBatchInput = {
   quantity: Scalars['Int']['input'];
   /** Optional mobile command payload schema version */
   schemaVersion?: InputMaybe<Scalars['String']['input']>;
-  /** Kapasite kontrolünü atla */
-  skipCapacityCheck?: InputMaybe<Scalars['Boolean']['input']>;
   sourceTankId: Scalars['ID']['input'];
   transferReason?: InputMaybe<Scalars['String']['input']>;
   transferredAt?: InputMaybe<Scalars['DateTime']['input']>;
@@ -24027,6 +24048,11 @@ export type UpdateTenantInput = {
   taxId?: InputMaybe<Scalars['String']['input']>;
 };
 
+export type UpdateTenantLocalizationInput = {
+  locale?: InputMaybe<Scalars['String']['input']>;
+  timezone: Scalars['String']['input'];
+};
+
 export type UpdateTenantRoleInput = {
   color?: InputMaybe<Scalars['String']['input']>;
   description?: InputMaybe<Scalars['String']['input']>;
@@ -24035,6 +24061,11 @@ export type UpdateTenantRoleInput = {
   level?: InputMaybe<Scalars['Int']['input']>;
   name?: InputMaybe<Scalars['String']['input']>;
   panelPermissions?: InputMaybe<Scalars['JSON']['input']>;
+};
+
+export type UpdateTenantSecurityPolicyInput = {
+  enforceMfa?: InputMaybe<Scalars['Boolean']['input']>;
+  sessionTimeoutMinutes?: InputMaybe<Scalars['Int']['input']>;
 };
 
 export type UpdateTenantUserInput = {
@@ -24415,6 +24446,8 @@ export type VerifyMfaLoginInput = {
 
 export type VerifyMfaSetupInput = {
   code: Scalars['String']['input'];
+  /** MFA setup token from login (mfaSetupRequired=true) — identifies the user when no authenticated session exists */
+  mfaSetupToken?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type VerifyMfaSetupResponse = {
@@ -25034,6 +25067,7 @@ export type WarehouseFeedCoverage = {
   feedCode: Scalars['String']['output'];
   feedId: Scalars['ID']['output'];
   feedName: Scalars['String']['output'];
+  stale: Scalars['Boolean']['output'];
   stockoutDate?: Maybe<Scalars['String']['output']>;
 };
 
@@ -25302,19 +25336,23 @@ export type WebAuthnLoginChallengeResponse = {
 };
 
 export type WebAuthnRegisterCredentialInput = {
+  /** Base64url-encoded attestation object (contains the signed authenticator data and the COSE public key) */
+  attestationObject: Scalars['String']['input'];
+  /** Base64url-encoded authenticator data (present on some platforms) */
+  authenticatorData?: InputMaybe<Scalars['String']['input']>;
   /** Challenge string that was used during registration */
   challenge: Scalars['String']['input'];
   /** Base64url-encoded attestation client data JSON */
   clientDataJSON: Scalars['String']['input'];
   /** Base64url-encoded credential ID from navigator.credentials.create() */
   credentialId: Scalars['String']['input'];
+  /** Current account password (re-authentication required to add a biometric credential) */
+  currentPassword: Scalars['String']['input'];
   /** Device name for this credential */
   deviceName?: InputMaybe<Scalars['String']['input']>;
-  /** Origin of the request (e.g., https://example.com) */
-  origin: Scalars['String']['input'];
-  /** Base64url-encoded raw public key (COSE format) */
-  publicKey: Scalars['String']['input'];
-  /** Supported transports (usb, nfc, ble, internal) */
+  /** COSE algorithm identifier the authenticator chose (e.g. -7 ES256, -257 RS256) */
+  publicKeyAlgorithm: Scalars['Int']['input'];
+  /** Supported transports (usb, nfc, ble, internal, hybrid, smart-card) */
   transports?: InputMaybe<Array<Scalars['String']['input']>>;
 };
 
@@ -25356,10 +25394,10 @@ export type WebAuthnVerifyLoginInput = {
   clientDataJSON: Scalars['String']['input'];
   /** Base64url-encoded credential ID */
   credentialId: Scalars['String']['input'];
-  /** Origin of the request */
-  origin: Scalars['String']['input'];
   /** Base64url-encoded signature */
   signature: Scalars['String']['input'];
+  /** Base64url-encoded user handle (what the authenticator stored) */
+  userHandle?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type WeekDay =

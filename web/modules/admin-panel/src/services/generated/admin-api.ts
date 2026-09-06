@@ -7457,6 +7457,8 @@ export interface components {
             billingCycle: "monthly" | "quarterly" | "semi_annual" | "annual";
             discountCode?: string;
             taxRate?: string;
+            negotiatedDiscountPercent?: string;
+            negotiatedDiscountAmount?: string;
         };
         ModuleQuoteLineItemDto: {
             /** @enum {string} */
@@ -7490,6 +7492,7 @@ export interface components {
             discountAmount: string;
             /** @enum {string} */
             discountReason?: "upgrades_only" | "new_subscriptions_only" | "unknown_code" | "inactive" | "not_yet_valid" | "expired" | "redemption_limit_reached" | "tenant_limit_reached" | "plan_not_eligible" | "below_minimum_order";
+            negotiatedDiscountAmount: string;
             tax: string;
             taxRate: string;
             total: string;
@@ -7532,6 +7535,78 @@ export interface components {
             percentDifference: string;
             recommendation: string;
         };
+        CustomPlanQuantitiesDto: {
+            users?: number;
+            farms?: number;
+            ponds?: number;
+            sensors?: number;
+            employees?: number;
+            devices?: number;
+            storageGb?: number;
+            apiCalls?: number;
+            alerts?: number;
+            reports?: number;
+            integrations?: number;
+        };
+        CustomPlanLineItemResponseDto: {
+            /** @enum {string} */
+            metric: "base_price" | "per_user" | "per_farm" | "per_pond" | "per_sensor" | "per_device" | "per_gb_storage" | "per_gb_transfer" | "per_api_call" | "per_alert" | "per_report" | "per_sms" | "per_email" | "per_integration" | "per_workflow";
+            metricLabel: string;
+            quantity: number;
+            unitPrice: string;
+            total: string;
+        };
+        CustomPlanModuleResponseDto: {
+            moduleId: string;
+            moduleCode: string;
+            moduleName: string;
+            quantities: components["schemas"]["CustomPlanQuantitiesDto"];
+            lineItems: components["schemas"]["CustomPlanLineItemResponseDto"][];
+            subtotal: string;
+        };
+        CustomPlanResponseDto: {
+            id: string;
+            tenantId: string;
+            name: string;
+            description?: string;
+            basePlanId?: string;
+            /** @enum {string} */
+            tier: "free" | "starter" | "professional" | "enterprise" | "custom";
+            /** @enum {string} */
+            billingCycle: "monthly" | "quarterly" | "semi_annual" | "annual";
+            modules: components["schemas"]["CustomPlanModuleResponseDto"][];
+            monthlySubtotal: string;
+            discountPercent: string;
+            discountAmount: string;
+            discountReason?: string;
+            monthlyTotal: string;
+            currency: string;
+            /** @enum {string} */
+            status: "draft" | "pending_approval" | "approved" | "expired" | "active" | "rejected";
+            validFrom: string;
+            validTo?: string;
+            approvedBy?: string;
+            approvedAt?: string;
+            rejectionReason?: string;
+            notes?: string;
+            subscriptionId?: string;
+            unpricedModuleCodes: string[];
+            createdAt: string;
+            updatedAt: string;
+            createdBy?: string;
+            updatedBy?: string;
+        };
+        CustomPlanPageDto: {
+            data: components["schemas"]["CustomPlanResponseDto"][];
+            total: number;
+            page: number;
+            limit: number;
+            totalPages: number;
+        };
+        CustomPlanLookupDto: {
+            found: boolean;
+            customPlan?: components["schemas"]["CustomPlanResponseDto"];
+        };
         CustomPlanModuleDto: {
             /** Format: uuid */
             moduleId: string;
@@ -7554,12 +7629,11 @@ export interface components {
             /** @enum {string} */
             billingCycle?: "monthly" | "quarterly" | "semi_annual" | "annual";
             modules: components["schemas"]["CustomPlanModuleDto"][];
-            discountPercent?: number;
-            discountAmount?: number;
+            discountPercent?: string;
+            discountAmount?: string;
             discountReason?: string;
-            /** Format: date-time */
+            currency?: string;
             validFrom: string;
-            /** Format: date-time */
             validTo?: string;
             notes?: string;
         };
@@ -7567,17 +7641,21 @@ export interface components {
             name?: string;
             description?: string;
             modules?: components["schemas"]["CustomPlanModuleDto"][];
-            discountPercent?: number;
-            discountAmount?: number;
+            /** @enum {string} */
+            billingCycle?: "monthly" | "quarterly" | "semi_annual" | "annual";
+            discountPercent?: string;
+            discountAmount?: string;
             discountReason?: string;
-            /** Format: date-time */
+            currency?: string;
             validFrom?: string;
-            /** Format: date-time */
             validTo?: string;
             notes?: string;
         };
         RejectCustomPlanDto: {
             reason: string;
+        };
+        DeletedCustomPlanDto: {
+            success: boolean;
         };
         CloneCustomPlanDto: {
             /** Format: uuid */
@@ -8320,7 +8398,7 @@ export interface components {
             /** @enum {string} */
             requestType: "access" | "deletion" | "portability" | "rectification" | "restriction";
             /** @enum {string} */
-            status: "expired" | "pending" | "completed" | "rejected" | "in_progress";
+            status: "expired" | "rejected" | "pending" | "completed" | "in_progress";
             /** @enum {string} */
             complianceFramework: "gdpr" | "ccpa" | "hipaa" | "pci_dss" | "sox" | "iso27001";
             tenantId: string;
@@ -8369,7 +8447,7 @@ export interface components {
         };
         UpdateDataRequestDto: {
             /** @enum {string} */
-            status?: "expired" | "pending" | "completed" | "rejected" | "in_progress";
+            status?: "expired" | "rejected" | "pending" | "completed" | "in_progress";
             assignedTo?: string;
             assignedToName?: string;
             completionNotes?: string;
@@ -12186,7 +12264,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["CustomPlanPageDto"];
                 };
             };
         };
@@ -12209,7 +12287,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["CustomPlanResponseDto"];
                 };
             };
         };
@@ -12230,7 +12308,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["CustomPlanResponseDto"];
                 };
             };
         };
@@ -12255,7 +12333,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["CustomPlanResponseDto"];
                 };
             };
         };
@@ -12276,7 +12354,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["DeletedCustomPlanDto"];
                 };
             };
         };
@@ -12295,7 +12373,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["CustomPlanLookupDto"];
                 };
             };
         };
@@ -12316,7 +12394,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["CustomPlanResponseDto"];
                 };
             };
         };
@@ -12337,7 +12415,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["CustomPlanResponseDto"];
                 };
             };
         };
@@ -12362,7 +12440,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["CustomPlanResponseDto"];
                 };
             };
         };
@@ -12383,7 +12461,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["CustomPlanResponseDto"];
                 };
             };
         };
@@ -12408,7 +12486,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["CustomPlanResponseDto"];
                 };
             };
         };
@@ -16607,7 +16685,7 @@ export interface operations {
                 limit?: number;
                 tenantId?: string;
                 requestType?: "access" | "deletion" | "portability" | "rectification" | "restriction";
-                status?: "expired" | "pending" | "completed" | "rejected" | "in_progress";
+                status?: "expired" | "rejected" | "pending" | "completed" | "in_progress";
                 complianceFramework?: "gdpr" | "ccpa" | "hipaa" | "pci_dss" | "sox" | "iso27001";
                 startDate?: string;
                 endDate?: string;

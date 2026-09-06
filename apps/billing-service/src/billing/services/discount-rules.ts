@@ -9,7 +9,7 @@
  * `apply` acts on it, which is why the message a customer sees and the money
  * actually taken off can no longer disagree.
  */
-import { getCurrencyScale } from '@aquaculture/backend-common/monetary';
+import { roundToCurrency } from '@aquaculture/backend-common/monetary';
 import type {
   BillingDiscountRejectionReason,
   BillingDiscountSubscriptionChange,
@@ -62,15 +62,6 @@ const REJECTION_MESSAGES: Record<BillingDiscountRejectionReason, string> = {
 
 export function reject(reason: BillingDiscountRejectionReason): DiscountEvaluation {
   return { valid: false, reason, message: REJECTION_MESSAGES[reason] };
-}
-
-/**
- * Round to the currency's own minor unit — a 33.33% discount on €10.00 is
- * €3.33, not €3.333, and on ¥1000 it is ¥333, not ¥333.33. Half-up is the
- * direction that favours the customer holding the code.
- */
-export function roundToCurrency(amount: Decimal, currency: string): Decimal {
-  return amount.toDecimalPlaces(getCurrencyScale(currency), Decimal.ROUND_HALF_UP);
 }
 
 /**

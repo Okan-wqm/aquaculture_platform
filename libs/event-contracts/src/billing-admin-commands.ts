@@ -44,6 +44,17 @@ export const BILLING_ADMIN_COMMAND_SUBJECTS = {
   CREATE_PLAN: 'request.billing.admin.createPlan',
   UPDATE_PLAN: 'request.billing.admin.updatePlan',
   DEPRECATE_PLAN: 'request.billing.admin.deprecatePlan',
+  // Custom plans (ADR-0013 / BILLING-CRITICAL-002). A negotiated per-tenant
+  // plan prices a subscription, so it lives with the prices and the lifecycle
+  // that spends them; admin-panel stays the builder UI.
+  CREATE_CUSTOM_PLAN: 'request.billing.admin.createCustomPlan',
+  UPDATE_CUSTOM_PLAN: 'request.billing.admin.updateCustomPlan',
+  SUBMIT_CUSTOM_PLAN: 'request.billing.admin.submitCustomPlan',
+  APPROVE_CUSTOM_PLAN: 'request.billing.admin.approveCustomPlan',
+  REJECT_CUSTOM_PLAN: 'request.billing.admin.rejectCustomPlan',
+  ACTIVATE_CUSTOM_PLAN: 'request.billing.admin.activateCustomPlan',
+  CLONE_CUSTOM_PLAN: 'request.billing.admin.cloneCustomPlan',
+  DELETE_CUSTOM_PLAN: 'request.billing.admin.deleteCustomPlan',
 } as const;
 
 export interface BillingAdminCommandMeta {
@@ -671,6 +682,19 @@ export interface BillingAdminQuoteModuleSelectionCommand extends BillingAdminCom
   subscriptionChange?: BillingDiscountSubscriptionChange;
   /** Exact decimal string percentage, 0-100. */
   taxRate?: string;
+  /**
+   * A negotiated discount the operator is entering by hand, as opposed to a
+   * code: the percentage comes off the subtotal, then the fixed amount comes
+   * off what is left, and the result is floored at zero.
+   *
+   * A custom plan is priced through this, so the total the builder previews
+   * and the total the plan stores are the SAME number from the SAME code —
+   * the admin-panel used to recompute it in the browser in floats, and its
+   * annual figure applied the fixed discount twelve times where the server
+   * applies it once.
+   */
+  negotiatedDiscountPercent?: string;
+  negotiatedDiscountAmount?: string;
 }
 
 export interface BillingModuleQuoteLineItem {
@@ -708,6 +732,8 @@ export interface BillingModuleQuote {
   discountDescription?: string;
   discountAmount: string;
   discountReason?: BillingDiscountRejectionReason;
+  /** What the negotiated discount took off, if one was quoted. */
+  negotiatedDiscountAmount: string;
   tax: string;
   taxRate: string;
   total: string;
@@ -900,6 +926,184 @@ export interface BillingAdminDeprecatePlanCommand extends BillingAdminCommandMet
 export interface BillingAdminPlanCommandResult {
   success: boolean;
   plan?: BillingPlanSnapshot;
+  errorCode?: BillingAdminCommandErrorCode;
+  error?: string;
+}
+
+// ============================================================================
+// Custom plans (ADR-0013 / BILLING-CRITICAL-002)
+//
+// A custom plan is a negotiated per-tenant price: a module selection, a
+// discount and a validity window that together decide what a subscription
+// costs. `admin.custom_plans` held the whole of it — the per-module subtotal
+// and every line item's unit price — inside one `jsonb` column of IEEE-754
+// numbers, and priced it in admin with float arithmetic beside billing's own.
+// The rows are `billing.custom_plans` + `custom_plan_modules` +
+// `custom_plan_line_items` now, every amount a `numeric` column, and billing
+// prices the plan with the same code that will price its invoice.
+// ============================================================================
+
+export type BillingCustomPlanStatus =
+  | 'draft'
+  | 'pending_approval'
+  | 'approved'
+  | 'active'
+  | 'expired'
+  | 'rejected';
+
+/** Enumerable at runtime, for the same reason as `BILLING_CYCLES`. */
+export const BILLING_CUSTOM_PLAN_STATUSES = [
+  'draft',
+  'pending_approval',
+  'approved',
+  'active',
+  'expired',
+  'rejected',
+] as const;
+
+export type BillingCustomPlanStatusRuntimeParity =
+  BillingCustomPlanStatus extends (typeof BILLING_CUSTOM_PLAN_STATUSES)[number]
+    ? (typeof BILLING_CUSTOM_PLAN_STATUSES)[number] extends BillingCustomPlanStatus
+      ? true
+      : never
+    : never;
+
+/** A module the operator put on the plan. What it COSTS is billing's answer. */
+export interface BillingCustomPlanModuleSelection {
+  moduleId: string;
+  moduleCode: string;
+  moduleName: string;
+  quantities: Omit<BillingModuleQuantities, 'moduleId'>;
+}
+
+/** One priced line of one module, as billing computed it. Exact decimals. */
+export interface BillingCustomPlanLineItem {
+  metric: BillingPricingMetricType;
+  metricLabel: string;
+  quantity: number;
+  unitPrice: string;
+  total: string;
+}
+
+export interface BillingCustomPlanModule {
+  moduleId: string;
+  moduleCode: string;
+  moduleName: string;
+  quantities: Omit<BillingModuleQuantities, 'moduleId'>;
+  lineItems: BillingCustomPlanLineItem[];
+  /** Exact decimal string. */
+  subtotal: string;
+}
+
+export interface BillingCustomPlanInput {
+  tenantId: string;
+  name: string;
+  description?: string;
+  /** A `billing.plans` id this was derived from, if any. */
+  basePlanId?: string;
+  tier?: BillingPlanTier;
+  billingCycle?: BillingCycle;
+  modules: BillingCustomPlanModuleSelection[];
+  /** Exact decimal string in [0, 100]. */
+  discountPercent?: string;
+  /** Exact decimal string, >= 0, in the plan's currency. */
+  discountAmount?: string;
+  discountReason?: string;
+  /** ISO-4217, upper-case. */
+  currency?: string;
+  /** ISO-8601 dates. `validTo` absent means the plan does not expire. */
+  validFrom: string;
+  validTo?: string;
+  notes?: string;
+}
+
+/**
+ * A revision of a plan that has not been approved yet. `modules` is the whole
+ * selection, never a partial one: billing reprices the plan from it, and half
+ * a selection would be priced as the whole plan.
+ */
+export type BillingCustomPlanUpdateInput = Partial<
+  Omit<BillingCustomPlanInput, 'tenantId' | 'basePlanId' | 'tier'>
+>;
+
+export interface BillingCustomPlanSnapshot {
+  id: string;
+  tenantId: string;
+  name: string;
+  description?: string | null;
+  basePlanId?: string | null;
+  tier: BillingPlanTier;
+  billingCycle: BillingCycle;
+  modules: BillingCustomPlanModule[];
+  /** Exact decimal strings. */
+  monthlySubtotal: string;
+  discountPercent: string;
+  discountAmount: string;
+  discountReason?: string | null;
+  monthlyTotal: string;
+  currency: string;
+  status: BillingCustomPlanStatus;
+  validFrom: string;
+  validTo?: string | null;
+  approvedBy?: string | null;
+  approvedAt?: string | null;
+  rejectionReason?: string | null;
+  notes?: string | null;
+  subscriptionId?: string | null;
+  /**
+   * Module codes the plan selected that carry no active price sheet. A plan
+   * whose total silently omits a module the operator chose is a lie.
+   */
+  unpricedModuleCodes: string[];
+  /**
+   * The plan's modules in the shape the provisioning command wants, with the
+   * plan-level discount already allocated across them in exact decimals.
+   *
+   * billing computes this because billing owns the money: the caller copies
+   * the strings verbatim into `moduleItems` and multiplies nothing. admin-api
+   * used to allocate the discount itself, in floats, over amounts it had read
+   * out of a jsonb column.
+   */
+  provisioningModuleItems: BillingProvisioningModuleItem[];
+  createdAt: string;
+  updatedAt: string;
+  createdBy?: string | null;
+  updatedBy?: string | null;
+}
+
+export interface BillingAdminCreateCustomPlanCommand extends BillingAdminCommandMeta {
+  input: BillingCustomPlanInput;
+}
+
+export interface BillingAdminUpdateCustomPlanCommand extends BillingAdminCommandMeta {
+  customPlanId: string;
+  input: BillingCustomPlanUpdateInput;
+}
+
+export interface BillingAdminCustomPlanTransitionCommand extends BillingAdminCommandMeta {
+  customPlanId: string;
+}
+
+export interface BillingAdminRejectCustomPlanCommand extends BillingAdminCommandMeta {
+  customPlanId: string;
+  reason: string;
+}
+
+export interface BillingAdminCloneCustomPlanCommand extends BillingAdminCommandMeta {
+  customPlanId: string;
+  targetTenantId: string;
+}
+
+export interface BillingAdminCustomPlanCommandResult {
+  success: boolean;
+  customPlan?: BillingCustomPlanSnapshot;
+  errorCode?: BillingAdminCommandErrorCode;
+  error?: string;
+}
+
+export interface BillingAdminDeleteCustomPlanResult {
+  success: boolean;
+  deleted?: boolean;
   errorCode?: BillingAdminCommandErrorCode;
   error?: string;
 }

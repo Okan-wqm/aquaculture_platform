@@ -54,10 +54,13 @@ const CATALOGUE_TABLES = [
   'module_prices',
   'module_price_metrics',
   'module_price_tier_multipliers',
+  'custom_plans',
+  'custom_plan_modules',
+  'custom_plan_line_items',
 ] as const;
 
 /** Already moved under ADR-0013 — nothing may declare them in `admin` again. */
-const MIGRATED_FROM_ADMIN = ['discount_codes', 'discount_redemptions'] as const;
+const MIGRATED_FROM_ADMIN = ['discount_codes', 'discount_redemptions', 'custom_plans'] as const;
 
 /**
  * Admin table names ADR-0013 retired outright — no entity may declare them at

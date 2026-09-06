@@ -12,9 +12,10 @@ import {
   billingApi,
   CustomPlan,
   CustomPlanStatus,
-  PaginatedCustomPlans,
+  CustomPlanPage,
   PlanTier,
 } from '../services/adminApi';
+import { formatCurrencyAmount } from '../utils/money';
 
 // ============================================================================
 // Constants
@@ -30,7 +31,6 @@ const STATUS_CONFIG: Record<
   [CustomPlanStatus.REJECTED]: { label: 'Rejected', variant: 'error' },
   [CustomPlanStatus.ACTIVE]: { label: 'Active', variant: 'success' },
   [CustomPlanStatus.EXPIRED]: { label: 'Expired', variant: 'default' },
-  [CustomPlanStatus.CANCELLED]: { label: 'Cancelled', variant: 'default' },
 };
 
 const TIER_LABELS: Record<PlanTier, string> = {
@@ -49,7 +49,6 @@ const STATUS_FILTERS: { value: CustomPlanStatus | 'all'; label: string }[] = [
   { value: CustomPlanStatus.ACTIVE, label: 'Active' },
   { value: CustomPlanStatus.REJECTED, label: 'Rejected' },
   { value: CustomPlanStatus.EXPIRED, label: 'Expired' },
-  { value: CustomPlanStatus.CANCELLED, label: 'Cancelled' },
 ];
 
 // ============================================================================
@@ -88,13 +87,13 @@ const CustomPlansListPage: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const result: PaginatedCustomPlans = await billingApi.getCustomPlans({
+      const result: CustomPlanPage = await billingApi.getCustomPlans({
         status: statusFilter !== 'all' ? statusFilter : undefined,
         search: searchQuery || undefined,
         page,
         limit,
       });
-      setPlans(result.items || []);
+      setPlans(result.data || []);
       setTotal(result.total || 0);
     } catch (err) {
       console.error('Failed to load custom plans:', err);
@@ -136,7 +135,7 @@ const CustomPlansListPage: React.FC = () => {
     setActionLoading(planId);
     setError(null);
     try {
-      await billingApi.approveCustomPlan(planId, 'admin');
+      await billingApi.approveCustomPlan(planId);
       setSuccess('Plan approved successfully.');
       loadPlans();
     } catch (err) {
@@ -155,7 +154,7 @@ const CustomPlansListPage: React.FC = () => {
     setActionLoading(rejectModal.planId);
     setError(null);
     try {
-      await billingApi.rejectCustomPlan(rejectModal.planId, rejectReason.trim(), 'admin');
+      await billingApi.rejectCustomPlan(rejectModal.planId, rejectReason.trim());
       setSuccess(`Plan "${rejectModal.planName}" rejected.`);
       setRejectModal(null);
       setRejectReason('');
@@ -224,13 +223,9 @@ const CustomPlansListPage: React.FC = () => {
   // Helpers
   // ============================================================================
 
-  const formatCurrency = (amount: number) =>
-    new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 2,
-    }).format(amount);
+  // ADR-0013: money arrives as an exact decimal string, and the plan carries
+  // its own currency. The previous helper hardcoded USD and
+  // `minimumFractionDigits: 0`, so a $19.99 plan rendered as "$20".
 
   const formatDate = (dateStr?: string) => {
     if (!dateStr) return '-';
@@ -432,9 +427,9 @@ const CustomPlansListPage: React.FC = () => {
                       {/* Monthly Total */}
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm font-semibold text-gray-900">
-                          {formatCurrency(plan.monthlyTotal)}
+                          {formatCurrencyAmount(plan.monthlyTotal, plan.currency)}
                         </div>
-                        {plan.discountPercent > 0 && (
+                        {Number(plan.discountPercent) > 0 && (
                           <div className="text-xs text-green-600">
                             -{plan.discountPercent}% discount
                           </div>

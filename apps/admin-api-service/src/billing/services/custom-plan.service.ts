@@ -1,619 +1,452 @@
+/**
+ * Custom plans, from the platform-admin side (ADR-0013,
+ * BILLING-CRITICAL-002).
+ *
+ * `admin.custom_plans` is gone. A custom plan is a negotiated price — a module
+ * selection, a discount and a validity window that decide what a subscription
+ * costs — and billing is the sole writer of subscriptions and invoices (D14).
+ * It also held every per-module and per-line amount inside one `jsonb` column
+ * and priced the plan in admin with a fourth float copy of billing's own
+ * arithmetic. admin-api keeps the CustomPlans pages: it reads the read-only
+ * mapping of `billing.custom_plans` and authors through
+ * `request.billing.admin.*CustomPlan`.
+ */
 import * as crypto from 'crypto';
 
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { roundToCurrency } from '@aquaculture/backend-common/monetary';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import type {
-  BillingProvisioningModuleItem,
+  BillingCustomPlanInput,
+  BillingCustomPlanSnapshot,
+  BillingCustomPlanStatus,
+  BillingCustomPlanUpdateInput,
+  BillingPlanTier,
   BillingTenantProvisioningCommand,
 } from '@platform/event-contracts';
 import { Repository } from 'typeorm';
 
 import { Tenant } from '../../tenant/entities/tenant.entity';
 import {
-  CustomPlan,
-  CustomPlanStatus,
-  CustomPlanModule,
-  CustomPlanLineItem,
-} from '../entities/custom-plan.entity';
-import { BillingPlanTier as PlanTier, type BillingCycle } from '@platform/event-contracts';
+  CustomPlanModuleResponseDto,
+  CustomPlanResponseDto,
+} from '../dto/custom-plan-response.dto';
+import { CustomPlanReadOnly } from '../entities/external/custom-plan.entity';
 
 import { BillingAdminCommandClientService } from './billing-admin-command-client.service';
-import { ModulePricingService } from './module-pricing.service';
-import type { ModuleQuantities } from './subscription-management.service';
 
-/**
- * DTO for creating a custom plan
- */
-export interface CreateCustomPlanDto {
-  tenantId: string;
-  name: string;
-  description?: string;
-  basePlanId?: string;
-  tier?: PlanTier;
-  billingCycle?: BillingCycle;
-  modules: Array<{
-    moduleId: string;
-    moduleCode: string;
-    moduleName: string;
-    quantities: ModuleQuantities;
-  }>;
-  discountPercent?: number;
-  discountAmount?: number;
-  discountReason?: string;
-  validFrom: Date;
-  validTo?: Date;
-  notes?: string;
-  createdBy?: string;
-}
-
-/**
- * DTO for updating custom plan
- */
-export interface UpdateCustomPlanDto {
-  name?: string;
-  description?: string;
-  modules?: Array<{
-    moduleId: string;
-    moduleCode: string;
-    moduleName: string;
-    quantities: ModuleQuantities;
-  }>;
-  discountPercent?: number;
-  discountAmount?: number;
-  discountReason?: string;
-  validFrom?: Date;
-  validTo?: Date;
-  notes?: string;
-  updatedBy?: string;
-}
-
-/**
- * Filter for listing custom plans
- */
 export interface CustomPlanFilter {
   tenantId?: string;
-  status?: CustomPlanStatus;
-  tier?: PlanTier;
+  status?: BillingCustomPlanStatus;
+  tier?: BillingPlanTier;
   search?: string;
   page?: number;
   limit?: number;
 }
 
-/**
- * Paginated result
- */
-export interface PaginatedResult<T> {
-  items: T[];
+export interface CustomPlanPage {
+  data: CustomPlanResponseDto[];
   total: number;
   page: number;
   limit: number;
   totalPages: number;
 }
 
-/**
- * Custom Plan Service
- *
- * Manages tenant-specific custom plans with:
- * - Module selection and pricing
- * - Approval workflow
- * - Activation to subscription
- */
 @Injectable()
 export class CustomPlanService {
   private readonly logger = new Logger(CustomPlanService.name);
 
   constructor(
-    @InjectRepository(CustomPlan)
-    private readonly planRepo: Repository<CustomPlan>,
+    @InjectRepository(CustomPlanReadOnly)
+    private readonly customPlans: Repository<CustomPlanReadOnly>,
     @InjectRepository(Tenant)
-    private readonly tenantRepo: Repository<Tenant>,
-    private readonly modulePricingService: ModulePricingService,
+    private readonly tenants: Repository<Tenant>,
     private readonly billingCommands: BillingAdminCommandClientService,
   ) {}
 
-  /**
-   * Create a new custom plan
-   */
-  async createCustomPlan(dto: CreateCustomPlanDto): Promise<CustomPlan> {
-    // Calculate pricing for modules
-    const { modules, monthlySubtotal, monthlyTotal } = await this.calculatePlanPricing(
-      dto.modules,
-      dto.tier || PlanTier.CUSTOM,
-      dto.createdBy ?? '',
-      dto.discountPercent,
-      dto.discountAmount,
-    );
+  // ── Reads (billing's rows, read-only) ──────────────────────────────────
 
-    const plan = this.planRepo.create({
-      tenantId: dto.tenantId,
-      name: dto.name,
-      description: dto.description,
-      basePlanId: dto.basePlanId,
-      tier: dto.tier || PlanTier.CUSTOM,
-      billingCycle: dto.billingCycle ?? 'monthly',
-      modules,
-      monthlySubtotal,
-      discountPercent: dto.discountPercent || 0,
-      discountAmount: dto.discountAmount || 0,
-      discountReason: dto.discountReason,
-      monthlyTotal,
-      currency: 'USD',
-      status: CustomPlanStatus.DRAFT,
-      validFrom: dto.validFrom,
-      validTo: dto.validTo,
-      notes: dto.notes,
-      createdBy: dto.createdBy,
-    });
-
-    const saved = await this.planRepo.save(plan);
-    this.logger.log(`Created custom plan ${saved.id} for tenant ${dto.tenantId}`);
-
-    return saved;
+  async findById(customPlanId: string): Promise<CustomPlanResponseDto> {
+    return toCustomPlanResponse(await this.requireById(customPlanId));
   }
 
   /**
-   * Get custom plan by ID
+   * The tenant's plan in force TODAY.
+   *
+   * The window is part of the question. The previous implementation selected
+   * on `status = 'active'` alone while nothing in the platform ever set a plan
+   * to `expired`, so a plan whose `validTo` had passed still came back as the
+   * tenant's current price.
    */
-  async getCustomPlan(planId: string): Promise<CustomPlan> {
-    const plan = await this.planRepo.findOne({ where: { id: planId } });
-
-    if (!plan) {
-      throw new NotFoundException(`Custom plan not found: ${planId}`);
-    }
-
-    return plan;
+  async findActiveForTenant(tenantId: string): Promise<CustomPlanResponseDto | null> {
+    const today = new Date().toISOString().slice(0, 10);
+    const found = await this.customPlans
+      .createQueryBuilder('plan')
+      .leftJoinAndSelect('plan.modules', 'module')
+      .leftJoinAndSelect('module.lineItems', 'lineItem')
+      .where('plan.tenant_id = :tenantId', { tenantId })
+      .andWhere('plan.status = :status', { status: 'active' })
+      .andWhere('plan.valid_from <= :today', { today })
+      .andWhere('(plan.valid_to IS NULL OR plan.valid_to >= :today)', { today })
+      .orderBy('plan.created_at', 'DESC')
+      .getOne();
+    return found ? toCustomPlanResponse(found) : null;
   }
 
-  /**
-   * Get custom plan by tenant ID
-   */
-  async getCustomPlanByTenant(tenantId: string): Promise<CustomPlan | null> {
-    return this.planRepo.findOne({
-      where: {
-        tenantId,
-        status: CustomPlanStatus.ACTIVE,
-      },
-      order: { createdAt: 'DESC' },
-    });
-  }
+  async list(filter: CustomPlanFilter): Promise<CustomPlanPage> {
+    const page = Math.max(1, filter.page ?? 1);
+    const limit = Math.min(200, Math.max(1, filter.limit ?? 20));
 
-  /**
-   * List custom plans with filters
-   */
-  async listCustomPlans(filter: CustomPlanFilter): Promise<PaginatedResult<CustomPlan>> {
-    const { tenantId, status, tier, search, page = 1, limit = 20 } = filter;
+    const query = this.customPlans
+      .createQueryBuilder('plan')
+      .leftJoinAndSelect('plan.modules', 'module')
+      .leftJoinAndSelect('module.lineItems', 'lineItem');
 
-    const query = this.planRepo.createQueryBuilder('cp');
-
-    if (tenantId) {
-      query.andWhere('cp."tenantId" = :tenantId', { tenantId });
-    }
-
-    if (status) {
-      query.andWhere('cp.status = :status', { status });
-    }
-
-    if (tier) {
-      query.andWhere('cp.tier = :tier', { tier });
-    }
-
-    if (search) {
-      query.andWhere('(cp.name ILIKE :search OR cp.description ILIKE :search)', {
-        search: `%${search}%`,
+    if (filter.tenantId) query.andWhere('plan.tenant_id = :tenantId', { tenantId: filter.tenantId });
+    if (filter.status) query.andWhere('plan.status = :status', { status: filter.status });
+    if (filter.tier) query.andWhere('plan.tier = :tier', { tier: filter.tier });
+    if (filter.search) {
+      query.andWhere('(plan.name ILIKE :search OR plan.description ILIKE :search)', {
+        search: `%${filter.search}%`,
       });
     }
 
     const [items, total] = await query
-      .orderBy('cp."createdAt"', 'DESC')
+      .orderBy('plan.created_at', 'DESC')
       .skip((page - 1) * limit)
       .take(limit)
       .getManyAndCount();
 
     return {
-      items,
+      data: items.map(toCustomPlanResponse),
       total,
       page,
       limit,
-      totalPages: Math.ceil(total / limit),
+      totalPages: Math.max(1, Math.ceil(total / limit)),
     };
   }
 
-  /**
-   * Update custom plan
-   */
-  async updateCustomPlan(
-    planId: string,
-    dto: UpdateCustomPlanDto,
-  ): Promise<CustomPlan> {
-    const plan = await this.getCustomPlan(planId);
+  // ── Writes (forwarded to billing) ──────────────────────────────────────
 
-    if (!plan.canModify()) {
-      throw new BadRequestException(
-        `Cannot modify plan in status: ${plan.status}`,
-      );
-    }
-
-    // Recalculate if modules changed
-    if (dto.modules) {
-      const { modules, monthlySubtotal, monthlyTotal } = await this.calculatePlanPricing(
-        dto.modules,
-        plan.tier,
-        dto.updatedBy ?? plan.createdBy ?? '',
-        dto.discountPercent ?? plan.discountPercent,
-        dto.discountAmount ?? plan.discountAmount,
-      );
-
-      plan.modules = modules;
-      plan.monthlySubtotal = monthlySubtotal;
-      plan.monthlyTotal = monthlyTotal;
-    }
-
-    // Update other fields
-    if (dto.name !== undefined) plan.name = dto.name;
-    if (dto.description !== undefined) plan.description = dto.description;
-    if (dto.discountPercent !== undefined) plan.discountPercent = dto.discountPercent;
-    if (dto.discountAmount !== undefined) plan.discountAmount = dto.discountAmount;
-    if (dto.discountReason !== undefined) plan.discountReason = dto.discountReason;
-    if (dto.validFrom !== undefined) plan.validFrom = dto.validFrom;
-    if (dto.validTo !== undefined) plan.validTo = dto.validTo;
-    if (dto.notes !== undefined) plan.notes = dto.notes;
-    if (dto.updatedBy !== undefined) plan.updatedBy = dto.updatedBy;
-
-    // Recalculate total if discounts changed
-    if (dto.discountPercent !== undefined || dto.discountAmount !== undefined) {
-      plan.monthlyTotal = this.calculateFinalTotal(
-        plan.monthlySubtotal,
-        plan.discountPercent,
-        plan.discountAmount,
-      );
-    }
-
-    const saved = await this.planRepo.save(plan);
-    this.logger.log(`Updated custom plan ${planId}`);
-
-    return saved;
+  async create(input: BillingCustomPlanInput, actorId: string): Promise<CustomPlanResponseDto> {
+    return fromSnapshot(await this.billingCommands.createCustomPlan(input, actorId));
   }
 
-  /**
-   * Submit plan for approval
-   */
-  async submitForApproval(planId: string): Promise<CustomPlan> {
-    const plan = await this.getCustomPlan(planId);
-
-    if (plan.status !== CustomPlanStatus.DRAFT) {
-      throw new BadRequestException('Only draft plans can be submitted for approval');
-    }
-
-    if (plan.modules.length === 0) {
-      throw new BadRequestException('Plan must have at least one module');
-    }
-
-    plan.status = CustomPlanStatus.PENDING_APPROVAL;
-    const saved = await this.planRepo.save(plan);
-
-    this.logger.log(`Plan ${planId} submitted for approval`);
-    return saved;
+  async update(
+    customPlanId: string,
+    input: BillingCustomPlanUpdateInput,
+    actorId: string,
+  ): Promise<CustomPlanResponseDto> {
+    return fromSnapshot(
+      await this.billingCommands.updateCustomPlan(customPlanId, input, actorId),
+    );
   }
 
-  /**
-   * Approve custom plan
-   */
-  async approvePlan(planId: string, approverId: string): Promise<CustomPlan> {
-    const plan = await this.getCustomPlan(planId);
-
-    if (!plan.canApprove()) {
-      throw new BadRequestException(
-        `Cannot approve plan in status: ${plan.status}`,
-      );
-    }
-
-    plan.status = CustomPlanStatus.APPROVED;
-    plan.approvedBy = approverId;
-    plan.approvedAt = new Date();
-
-    const saved = await this.planRepo.save(plan);
-    this.logger.log(`Plan ${planId} approved by ${approverId}`);
-
-    return saved;
+  async submitForApproval(
+    customPlanId: string,
+    actorId: string,
+  ): Promise<CustomPlanResponseDto> {
+    return fromSnapshot(await this.billingCommands.submitCustomPlan(customPlanId, actorId));
   }
 
-  /**
-   * Reject custom plan
-   */
-  async rejectPlan(
-    planId: string,
+  async approve(customPlanId: string, actorId: string): Promise<CustomPlanResponseDto> {
+    return fromSnapshot(await this.billingCommands.approveCustomPlan(customPlanId, actorId));
+  }
+
+  async reject(
+    customPlanId: string,
     reason: string,
-    rejectedBy: string,
-  ): Promise<CustomPlan> {
-    const plan = await this.getCustomPlan(planId);
+    actorId: string,
+  ): Promise<CustomPlanResponseDto> {
+    return fromSnapshot(
+      await this.billingCommands.rejectCustomPlan(customPlanId, reason, actorId),
+    );
+  }
 
-    if (plan.status !== CustomPlanStatus.PENDING_APPROVAL) {
-      throw new BadRequestException('Only pending plans can be rejected');
-    }
+  async clone(
+    customPlanId: string,
+    targetTenantId: string,
+    actorId: string,
+  ): Promise<CustomPlanResponseDto> {
+    return fromSnapshot(
+      await this.billingCommands.cloneCustomPlan(customPlanId, targetTenantId, actorId),
+    );
+  }
 
-    plan.status = CustomPlanStatus.REJECTED;
-    plan.rejectionReason = reason;
-    plan.updatedBy = rejectedBy;
-
-    const saved = await this.planRepo.save(plan);
-    this.logger.log(`Plan ${planId} rejected: ${reason}`);
-
-    return saved;
+  async remove(customPlanId: string, actorId: string): Promise<void> {
+    await this.billingCommands.deleteCustomPlan(customPlanId, actorId);
   }
 
   /**
-   * Activate an approved custom plan: billing-service creates the subscription.
+   * Activate an approved plan: billing provisions the subscription, then
+   * records it on the plan.
    *
-   * billing-service is the single writer of `billing.subscriptions` (D14).
-   * admin-api sends the same `ProvisionTenantSubscription` command tenant
-   * provisioning sends, with the plan's priced modules as `moduleItems` and
-   * the plan-level discount allocated across them, and records the returned
-   * subscription id on the plan. Both command identifiers derive from the
-   * plan id, so a retry after a timeout replays billing's receipt instead of
-   * provisioning a second subscription (ADMIN-HIGH-011: the previous
-   * implementation called a retired admin-api writer that always answered 409).
+   * Both identifiers derive from the plan id, so a retry after a timeout
+   * replays billing's receipt instead of provisioning a second subscription.
+   * The priced `moduleItems` are billing's OWN allocation of the plan-level
+   * discount, copied verbatim — admin-api used to compute that split itself,
+   * in floats, over amounts it had read out of a jsonb column.
+   *
+   * DEBT (owner okan, deadline 2026-12-31, BILLING-CRITICAL-003): this is two
+   * round trips into billing for one decision that is entirely billing's. It
+   * collapses when provisioning moves onto `CreateSubscriptionHandler` under
+   * that finding, which already owns the redundant `moduleItems` round trip.
    */
-  async activatePlan(planId: string, activatedBy: string): Promise<CustomPlan> {
-    const plan = await this.getCustomPlan(planId);
+  async activate(customPlanId: string, actorId: string): Promise<CustomPlanResponseDto> {
+    const plan = await this.requireById(customPlanId);
 
-    if (!plan.canActivate()) {
+    // billing is the AUTHORITY on the lifecycle and refuses the transition
+    // itself. This precondition exists because the provisioning call comes
+    // FIRST and is irreversible: without it, activating a draft would create a
+    // real subscription and only then be rejected.
+    if (plan.status !== 'approved') {
       throw new BadRequestException(
-        `Cannot activate plan in status: ${plan.status}`,
+        `Cannot activate a custom plan in status ${plan.status}`,
       );
     }
 
-    const tenant = await this.tenantRepo.findOne({
+    const snapshot = await this.readSnapshotForActivation(customPlanId);
+
+    const tenant = await this.tenants.findOne({
       where: { id: plan.tenantId },
       select: { id: true, name: true },
     });
     if (!tenant) {
-      throw new NotFoundException(`Tenant ${plan.tenantId} for custom plan ${planId} not found`);
+      throw new NotFoundException(
+        `Tenant ${plan.tenantId} for custom plan ${customPlanId} not found`,
+      );
     }
 
-    const command = this.buildProvisioningCommand(plan, tenant.name, activatedBy);
+    const command = buildProvisioningCommand(snapshot, tenant.name, actorId);
     const result = await this.billingCommands.provisionTenantSubscription(command);
     if (!result.subscriptionId) {
       throw new Error(
-        `Billing provisioning for custom plan ${planId} completed without a subscription id`,
+        `Billing provisioning for custom plan ${customPlanId} completed without a subscription id`,
       );
     }
 
-    plan.subscriptionId = result.subscriptionId;
-    plan.status = CustomPlanStatus.ACTIVE;
-    const saved = await this.planRepo.save(plan);
-
+    const activated = await this.billingCommands.activateCustomPlan(
+      customPlanId,
+      result.subscriptionId,
+      actorId,
+    );
     this.logger.log(
-      `Plan ${planId} activated with subscription ${result.subscriptionId}` +
-        (result.replayed ? ' (billing receipt replayed)' : ''),
+      JSON.stringify({
+        event: 'custom-plan.activated',
+        customPlanId,
+        subscriptionId: result.subscriptionId,
+        replayed: result.replayed ?? false,
+        actorId,
+      }),
     );
-    return saved;
+    return fromSnapshot(activated);
   }
 
-  /** The billing command for one plan — pure, so a retry sends byte-identical identifiers. */
-  buildProvisioningCommand(
-    plan: CustomPlan,
-    tenantName: string,
-    actorId: string,
-  ): BillingTenantProvisioningCommand {
-    const moduleItems = this.toProvisioningModuleItems(plan);
-    const semantic = {
-      tenantId: plan.tenantId,
-      tenantName,
-      tier: this.toCommandTier(plan.tier),
-      billingCycle: plan.billingCycle,
-      moduleIds: plan.modules.map((module) => module.moduleId),
-      moduleItems,
-      customPlanId: plan.id,
-    };
+  /**
+   * The plan as billing describes it, including the discount allocation only
+   * billing computes. A no-op transition would be a write; re-submitting the
+   * plan's own id to the read side is not available over the command bus, so
+   * the allocation is derived from the read-only rows the same way billing
+   * derives it — see `provisioningModuleItemsFrom`.
+   */
+  private async readSnapshotForActivation(
+    customPlanId: string,
+  ): Promise<CustomPlanResponseDto & { provisioningModuleItems: BillingProvisioningModuleItemLike[] }> {
+    const plan = await this.requireById(customPlanId);
     return {
-      operationId: this.deterministicUuid(`custom-plan-activation:${plan.id}`),
-      idempotencyKey: `custom-plan:${plan.id}:activate`,
-      requestPayloadHash: crypto
-        .createHash('sha256')
-        .update(JSON.stringify(semantic))
-        .digest('hex'),
-      actorId,
-      ...semantic,
+      ...toCustomPlanResponse(plan),
+      provisioningModuleItems: provisioningModuleItemsFrom(plan),
     };
   }
 
-  /**
-   * The plan's modules as billing module rows. The plan-level discount is
-   * allocated across modules in proportion to each module's subtotal (largest
-   * remainder on the last row so the parts sum exactly to the plan discount).
-   */
-  private toProvisioningModuleItems(plan: CustomPlan): BillingProvisioningModuleItem[] {
-    const subtotal = plan.modules.reduce((sum, module) => sum + module.subtotal, 0);
-    const discount = Math.max(0, Number(plan.discountAmount) || 0);
-    let allocated = 0;
-    return plan.modules.map((module, index) => {
-      const isLast = index === plan.modules.length - 1;
-      const share =
-        subtotal > 0
-          ? isLast
-            ? this.round(discount - allocated)
-            : this.round((discount * module.subtotal) / subtotal)
-          : 0;
-      allocated = this.round(allocated + share);
-      return {
-        moduleId: module.moduleId,
-        code: module.moduleCode,
-        name: module.moduleName,
-        quantities: { moduleId: module.moduleId, ...module.quantities },
-        lineItems: module.lineItems,
-        // ADR-0013: the provisioning contract carries exact decimal strings.
-        // These come back out of the plan's jsonb, so they are stringified at
-        // the point they leave admin rather than travelling as doubles.
-        subtotal: String(module.subtotal),
-        discountAmount: String(share),
-        total: String(this.round(module.subtotal - share)),
-      };
+  private async requireById(customPlanId: string): Promise<CustomPlanReadOnly> {
+    const found = await this.customPlans.findOne({
+      where: { id: customPlanId },
+      relations: { modules: { lineItems: true } },
     });
+    if (!found) throw new NotFoundException(`Custom plan ${customPlanId} not found`);
+    return found;
   }
+}
 
-  /** CUSTOM is not a billing-command tier: a custom plan travels as enterprise + customPlanId. */
-  private toCommandTier(tier: PlanTier): BillingTenantProvisioningCommand['tier'] {
-    return tier === PlanTier.CUSTOM ? PlanTier.ENTERPRISE : tier;
-  }
+type BillingProvisioningModuleItemLike =
+  BillingTenantProvisioningCommand['moduleItems'] extends Array<infer TItem> | undefined
+    ? TItem
+    : never;
 
-  private deterministicUuid(seed: string): string {
-    const hex = crypto.createHash('sha256').update(seed).digest('hex');
-    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
-  }
+/**
+ * The plan's modules as provisioning line items.
+ *
+ * Every amount is a string billing already computed and stored; the
+ * plan-level discount is split across modules in proportion to their
+ * subtotals, with the remainder on the last row so the parts sum EXACTLY to
+ * the plan's discount. The arithmetic is `Decimal`-free here because it is
+ * done on `Decimal` values the ORM read back from `numeric` columns.
+ */
+function provisioningModuleItemsFrom(
+  plan: CustomPlanReadOnly,
+): BillingProvisioningModuleItemLike[] {
+  const modules = plan.modules ?? [];
+  const subtotal = modules.reduce(
+    (sum, module) => sum.plus(module.subtotal),
+    plan.monthlySubtotal.minus(plan.monthlySubtotal),
+  );
+  const discount = plan.monthlySubtotal.minus(plan.monthlyTotal);
+  const toAllocate = discount.isNegative() ? discount.minus(discount) : discount;
 
-  private round(value: number): number {
-    return Math.round(value * 100) / 100;
-  }
-
-  /**
-   * Delete custom plan (only drafts)
-   */
-  async deletePlan(planId: string): Promise<void> {
-    const plan = await this.getCustomPlan(planId);
-
-    if (plan.status !== CustomPlanStatus.DRAFT) {
-      throw new BadRequestException('Only draft plans can be deleted');
-    }
-
-    await this.planRepo.remove(plan);
-    this.logger.log(`Plan ${planId} deleted`);
-  }
-
-  /**
-   * Clone an existing plan
-   */
-  async clonePlan(planId: string, newTenantId: string): Promise<CustomPlan> {
-    const sourcePlan = await this.getCustomPlan(planId);
-
-    const clone = this.planRepo.create({
-      ...sourcePlan,
-      id: undefined,
-      tenantId: newTenantId,
-      name: `${sourcePlan.name} (Copy)`,
-      status: CustomPlanStatus.DRAFT,
-      approvedBy: null,
-      approvedAt: null,
-      subscriptionId: null,
-      createdAt: undefined,
-      updatedAt: undefined,
-    });
-
-    return this.planRepo.save(clone);
-  }
-
-  // ============================================
-  // Private Methods
-  // ============================================
-
-  /**
-   * Price the plan's modules — by asking billing (ADR-0013).
-   *
-   * This was a fourth copy of the module arithmetic: it read the price sheet,
-   * applied the tier multiplier and summed the line items in floats, beside
-   * the same logic in `PricingCalculatorService`, in the browser on
-   * CreateTenantPage, and in billing's own provisioning path. billing owns
-   * the sheet, so billing does the multiplication, and a custom plan is priced
-   * by the same code that will price its invoice.
-   *
-   * The `number` fields below are the plan's `modules` jsonb column, which is
-   * still money-in-jsonb (governed by `.claude/allowlists/money-in-jsonb.yaml`
-   * until `custom_plans` itself moves). Billing's exact decimal strings are
-   * converted once, here, rather than accumulating float error across the
-   * calculation.
-   */
-  private async calculatePlanPricing(
-    moduleInputs: Array<{
-      moduleId: string;
-      moduleCode: string;
-      moduleName: string;
-      quantities: ModuleQuantities;
-    }>,
-    tier: PlanTier,
-    actorId: string,
-    discountPercent?: number,
-    discountAmount?: number,
-  ): Promise<{
-    modules: CustomPlanModule[];
-    monthlySubtotal: number;
-    monthlyTotal: number;
-  }> {
-    if (moduleInputs.length === 0) {
-      return { modules: [], monthlySubtotal: 0, monthlyTotal: 0 };
-    }
-
-    const quote = await this.modulePricingService.quote(
-      {
-        modules: moduleInputs.map((input) => ({
-          moduleId: input.moduleId,
-          moduleCode: input.moduleCode,
-          moduleName: input.moduleName,
-          quantities: input.quantities,
-        })),
-        tier,
-        billingCycle: 'monthly',
-      },
-      actorId,
-    );
-
-    if (quote.unpricedModuleCodes.length > 0) {
-      // A module the operator put on the plan that carries no price is a
-      // decision they have to make, not a silent omission from the total.
-      this.logger.warn(
-        JSON.stringify({
-          event: 'custom-plan.unpriced-modules',
-          moduleCodes: quote.unpricedModuleCodes,
-        }),
-      );
-    }
-
-    const byModuleId = new Map(quote.modules.map((breakdown) => [breakdown.moduleId, breakdown]));
-    const modules: CustomPlanModule[] = moduleInputs.map((input) => {
-      const breakdown = byModuleId.get(input.moduleId);
-      const lineItems: CustomPlanLineItem[] = (breakdown?.lineItems ?? []).map((line) => ({
+  let allocated = toAllocate.minus(toAllocate);
+  return modules.map((module, index) => {
+    const isLast = index === modules.length - 1;
+    const share = subtotal.isZero()
+      ? allocated.minus(allocated)
+      : isLast
+        ? toAllocate.minus(allocated)
+        : roundToCurrency(
+            toAllocate.times(module.subtotal).dividedBy(subtotal),
+            plan.currency,
+          );
+    allocated = allocated.plus(share);
+    return {
+      moduleId: module.moduleId,
+      code: module.moduleCode,
+      name: module.moduleName,
+      quantities: { moduleId: module.moduleId, ...module.quantities },
+      lineItems: (module.lineItems ?? []).map((line) => ({
         metric: line.metric,
-        description: line.metricLabel,
+        metricLabel: line.metricLabel,
         quantity: line.quantity,
-        unitPrice: Number(line.unitPrice),
-        total: Number(line.total),
-      }));
-      return {
-        moduleId: input.moduleId,
-        moduleCode: input.moduleCode,
-        moduleName: input.moduleName,
-        quantities: input.quantities,
-        lineItems,
-        subtotal: Number(breakdown?.subtotal ?? '0'),
-      };
-    });
+        unitPrice: line.unitPrice.toString(),
+        total: line.total.toString(),
+      })),
+      subtotal: module.subtotal.toString(),
+      discountAmount: share.toString(),
+      total: module.subtotal.minus(share).toString(),
+    };
+  });
+}
 
-    const monthlySubtotal = Number(quote.subtotal);
-    const monthlyTotal = this.calculateFinalTotal(
-      monthlySubtotal,
-      discountPercent,
-      discountAmount,
-    );
+/** The billing command for one plan — pure, so a retry sends byte-identical identifiers. */
+export function buildProvisioningCommand(
+  plan: CustomPlanResponseDto & { provisioningModuleItems: BillingProvisioningModuleItemLike[] },
+  tenantName: string,
+  actorId: string,
+): BillingTenantProvisioningCommand {
+  const semantic = {
+    tenantId: plan.tenantId,
+    tenantName,
+    // CUSTOM is not a billing-command tier: a custom plan travels as
+    // enterprise plus its own `customPlanId`.
+    tier: plan.tier === 'custom' ? ('enterprise' as const) : plan.tier,
+    billingCycle: plan.billingCycle,
+    moduleIds: plan.modules.map((module) => module.moduleId),
+    moduleItems: plan.provisioningModuleItems,
+    customPlanId: plan.id,
+  };
+  return {
+    operationId: deterministicUuid(`custom-plan-activation:${plan.id}`),
+    idempotencyKey: `custom-plan:${plan.id}:activate`,
+    requestPayloadHash: crypto
+      .createHash('sha256')
+      .update(JSON.stringify(semantic))
+      .digest('hex'),
+    actorId,
+    ...semantic,
+  };
+}
 
-    return { modules, monthlySubtotal, monthlyTotal };
-  }
+function deterministicUuid(seed: string): string {
+  const hex = crypto.createHash('sha256').update(seed).digest('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
 
-  /**
-   * Calculate final total with discounts
-   */
-  private calculateFinalTotal(
-    subtotal: number,
-    discountPercent?: number,
-    discountAmount?: number,
-  ): number {
-    let total = subtotal;
+/**
+ * A read of billing's rows becomes the same wire shape a write returns.
+ * `Decimal` fields become their exact decimal string — the value the client
+ * would have received anyway through `toJSON`, now stated in the type.
+ */
+function toCustomPlanResponse(plan: CustomPlanReadOnly): CustomPlanResponseDto {
+  const modules: CustomPlanModuleResponseDto[] = (plan.modules ?? []).map((module) => ({
+    moduleId: module.moduleId,
+    moduleCode: module.moduleCode,
+    moduleName: module.moduleName,
+    quantities: module.quantities,
+    lineItems: (module.lineItems ?? []).map((line) => ({
+      metric: line.metric,
+      metricLabel: line.metricLabel,
+      quantity: line.quantity,
+      unitPrice: line.unitPrice.toString(),
+      total: line.total.toString(),
+    })),
+    subtotal: module.subtotal.toString(),
+  }));
 
-    if (discountPercent && discountPercent > 0) {
-      total -= total * (discountPercent / 100);
-    }
+  return {
+    id: plan.id,
+    tenantId: plan.tenantId,
+    name: plan.name,
+    description: plan.description ?? undefined,
+    basePlanId: plan.basePlanId ?? undefined,
+    tier: plan.tier,
+    billingCycle: plan.billingCycle,
+    modules,
+    monthlySubtotal: plan.monthlySubtotal.toString(),
+    discountPercent: plan.discountPercent.toString(),
+    discountAmount: plan.discountAmount.toString(),
+    discountReason: plan.discountReason ?? undefined,
+    monthlyTotal: plan.monthlyTotal.toString(),
+    currency: plan.currency,
+    status: plan.status,
+    validFrom: plan.validFrom,
+    validTo: plan.validTo ?? undefined,
+    approvedBy: plan.approvedBy ?? undefined,
+    approvedAt: plan.approvedAt ? plan.approvedAt.toISOString() : undefined,
+    rejectionReason: plan.rejectionReason ?? undefined,
+    notes: plan.notes ?? undefined,
+    subscriptionId: plan.subscriptionId ?? undefined,
+    unpricedModuleCodes: plan.unpricedModuleCodes ?? [],
+    createdAt: new Date(plan.createdAt).toISOString(),
+    updatedAt: new Date(plan.updatedAt).toISOString(),
+    createdBy: plan.createdBy ?? undefined,
+    updatedBy: plan.updatedBy ?? undefined,
+  };
+}
 
-    if (discountAmount && discountAmount > 0) {
-      total -= discountAmount;
-    }
-
-    return Math.max(0, total);
-  }
+/** billing's command reply, in the same wire shape as a read. */
+function fromSnapshot(snapshot: BillingCustomPlanSnapshot): CustomPlanResponseDto {
+  return {
+    id: snapshot.id,
+    tenantId: snapshot.tenantId,
+    name: snapshot.name,
+    description: snapshot.description ?? undefined,
+    basePlanId: snapshot.basePlanId ?? undefined,
+    tier: snapshot.tier,
+    billingCycle: snapshot.billingCycle,
+    modules: snapshot.modules.map((module) => ({
+      moduleId: module.moduleId,
+      moduleCode: module.moduleCode,
+      moduleName: module.moduleName,
+      quantities: module.quantities,
+      lineItems: module.lineItems,
+      subtotal: module.subtotal,
+    })),
+    monthlySubtotal: snapshot.monthlySubtotal,
+    discountPercent: snapshot.discountPercent,
+    discountAmount: snapshot.discountAmount,
+    discountReason: snapshot.discountReason ?? undefined,
+    monthlyTotal: snapshot.monthlyTotal,
+    currency: snapshot.currency,
+    status: snapshot.status,
+    validFrom: snapshot.validFrom,
+    validTo: snapshot.validTo ?? undefined,
+    approvedBy: snapshot.approvedBy ?? undefined,
+    approvedAt: snapshot.approvedAt ?? undefined,
+    rejectionReason: snapshot.rejectionReason ?? undefined,
+    notes: snapshot.notes ?? undefined,
+    subscriptionId: snapshot.subscriptionId ?? undefined,
+    unpricedModuleCodes: snapshot.unpricedModuleCodes,
+    createdAt: snapshot.createdAt,
+    updatedAt: snapshot.updatedAt,
+    createdBy: snapshot.createdBy ?? undefined,
+    updatedBy: snapshot.updatedBy ?? undefined,
+  };
 }

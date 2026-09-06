@@ -38,8 +38,9 @@ interface PlanConfig {
   tier: PlanTier;
   billingCycle: BillingCycle;
   modules: SelectedModule[];
-  discountPercent: number;
-  discountAmount: number;
+  /** Exact decimal strings — the shape billing stores and the API accepts. */
+  discountPercent: string;
+  discountAmount: string;
   discountReason: string;
   validFrom: string;
   validTo: string;
@@ -110,8 +111,8 @@ const CustomPlanBuilderPage: React.FC = () => {
     tier: PlanTier.PROFESSIONAL,
     billingCycle: BillingCycle.MONTHLY,
     modules: [],
-    discountPercent: 0,
-    discountAmount: 0,
+    discountPercent: '0',
+    discountAmount: '0',
     discountReason: '',
     validFrom: new Date().toISOString().split('T')[0],
     validTo: '',
@@ -154,6 +155,12 @@ const CustomPlanBuilderPage: React.FC = () => {
         })),
         tier: config.tier,
         billingCycle: config.billingCycle,
+        // ADR-0013: billing applies the negotiated discount, so the total
+        // previewed here is the total the plan will store. The browser used to
+        // subtract it itself in floats — and took the fixed amount off twelve
+        // times for the annual figure, where the server takes it off once.
+        negotiatedDiscountPercent: config.discountPercent || '0',
+        negotiatedDiscountAmount: config.discountAmount || '0',
       });
       setPricing(result);
       setPricingError(null);
@@ -169,7 +176,13 @@ const CustomPlanBuilderPage: React.FC = () => {
     } finally {
       setCalculating(false);
     }
-  }, [config.modules, config.tier, config.billingCycle]);
+  }, [
+    config.modules,
+    config.tier,
+    config.billingCycle,
+    config.discountPercent,
+    config.discountAmount,
+  ]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -533,10 +546,9 @@ const CustomPlanBuilderPage: React.FC = () => {
                   type="number"
                   min={0}
                   max={100}
+                  step="0.01"
                   value={config.discountPercent}
-                  onChange={(e) =>
-                    setConfig({ ...config, discountPercent: parseFloat(e.target.value) || 0 })
-                  }
+                  onChange={(e) => setConfig({ ...config, discountPercent: e.target.value })}
                 />
               </div>
               <div>
@@ -544,10 +556,9 @@ const CustomPlanBuilderPage: React.FC = () => {
                 <Input
                   type="number"
                   min={0}
+                  step="0.01"
                   value={config.discountAmount}
-                  onChange={(e) =>
-                    setConfig({ ...config, discountAmount: parseFloat(e.target.value) || 0 })
-                  }
+                  onChange={(e) => setConfig({ ...config, discountAmount: e.target.value })}
                 />
               </div>
               <div>
@@ -610,21 +621,10 @@ const CustomPlanBuilderPage: React.FC = () => {
                           <span>-{formatCurrency(Number(pricing.tierDiscount))}</span>
                         </div>
                       )}
-                      {config.discountPercent > 0 && (
+                      {Number(pricing.negotiatedDiscountAmount) > 0 && (
                         <div className="flex justify-between text-sm text-green-600">
-                          <span>Custom Discount ({config.discountPercent}%)</span>
-                          <span>
-                            -
-                            {formatCurrency(
-                              (Number(pricing.monthlyTotal) * config.discountPercent) / 100,
-                            )}
-                          </span>
-                        </div>
-                      )}
-                      {config.discountAmount > 0 && (
-                        <div className="flex justify-between text-sm text-green-600">
-                          <span>Fixed Discount</span>
-                          <span>-{formatCurrency(config.discountAmount)}</span>
+                          <span>Negotiated Discount</span>
+                          <span>-{formatCurrency(Number(pricing.negotiatedDiscountAmount))}</span>
                         </div>
                       )}
                     </>
@@ -635,29 +635,12 @@ const CustomPlanBuilderPage: React.FC = () => {
                   <div className="flex justify-between items-center">
                     <span className="text-lg font-semibold">Monthly Total</span>
                     <span className="text-2xl font-bold text-blue-600">
-                      {pricing
-                        ? formatCurrency(
-                            Math.max(
-                              0,
-                              Number(pricing.monthlyTotal) -
-                                (Number(pricing.monthlyTotal) * config.discountPercent) / 100 -
-                                config.discountAmount,
-                            ),
-                          )
-                        : '-'}
+                      {pricing ? formatCurrency(Number(pricing.monthlyTotal)) : '-'}
                     </span>
                   </div>
                   {pricing && (
                     <div className="text-sm text-gray-500 text-right">
-                      {formatCurrency(
-                        Math.max(
-                          0,
-                          Number(pricing.annualTotal) -
-                            (Number(pricing.annualTotal) * config.discountPercent) / 100 -
-                            config.discountAmount * 12,
-                        ),
-                      )}{' '}
-                      /year
+                      {formatCurrency(Number(pricing.annualTotal))} /year
                     </div>
                   )}
                 </div>

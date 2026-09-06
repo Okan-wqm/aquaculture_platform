@@ -7,7 +7,6 @@ import { InvoiceReadOnly } from '../analytics/entities/external/invoice.entity';
 import { Tenant } from '../tenant/entities/tenant.entity';
 
 import { BillingController } from './billing.controller';
-import { CustomPlan } from './entities/custom-plan.entity';
 import {
   DiscountCodeReadOnly,
   DiscountRedemptionReadOnly,
@@ -17,6 +16,11 @@ import {
   ModulePriceReadOnly,
   ModulePriceTierMultiplierReadOnly,
 } from './entities/external/module-price.entity';
+import {
+  CustomPlanLineItemReadOnly,
+  CustomPlanModuleReadOnly,
+  CustomPlanReadOnly,
+} from './entities/external/custom-plan.entity';
 import {
   PlanAddOnReadOnly,
   PlanCyclePriceReadOnly,
@@ -57,7 +61,9 @@ import { UsageMeteringManagementService } from './services/usage-metering-manage
       PlanCyclePriceReadOnly,
       PlanAddOnReadOnly,
       PlanModuleAssignment,
-      CustomPlan,
+      CustomPlanReadOnly,
+      CustomPlanModuleReadOnly,
+      CustomPlanLineItemReadOnly,
       InvoiceReadOnly,
       UsageAggregationReadOnly,
       Tenant,

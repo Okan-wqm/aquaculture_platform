@@ -102,15 +102,24 @@ export const PricingMetricType = {
   PER_WORKFLOW: 'per_workflow',
 } as const satisfies Record<string, PricingMetricType>;
 
-export enum CustomPlanStatus {
-  DRAFT = 'draft',
-  PENDING_APPROVAL = 'pending_approval',
-  APPROVED = 'approved',
-  REJECTED = 'rejected',
-  ACTIVE = 'active',
-  EXPIRED = 'expired',
-  CANCELLED = 'cancelled',
-}
+/**
+ * ADR-0013: the lifecycle billing enforces, derived from the contract.
+ *
+ * The hand-written enum carried a seventh member, `cancelled`, that the
+ * backend never had — no column, no transition, no row could ever hold it —
+ * so the list page offered a filter that always returned nothing and a badge
+ * that could never render.
+ */
+export type CustomPlanStatus = ApiSchema<'CustomPlanResponseDto'>['status'];
+
+export const CustomPlanStatus = {
+  DRAFT: 'draft',
+  PENDING_APPROVAL: 'pending_approval',
+  APPROVED: 'approved',
+  REJECTED: 'rejected',
+  ACTIVE: 'active',
+  EXPIRED: 'expired',
+} as const satisfies Record<string, CustomPlanStatus>;
 
 // ============================================================================
 // Plan Types
@@ -377,51 +386,22 @@ export interface SubscriptionModuleConfig {
 // Custom Plan Types
 // ============================================================================
 
-export interface CustomPlanLineItem {
-  metric: string;
-  description: string;
-  quantity: number;
-  unitPrice: number;
-  total: number;
-}
-
-export interface CustomPlanModule {
-  moduleId: string;
-  moduleCode: string;
-  moduleName: string;
-  quantities: ModuleQuantities;
-  lineItems: CustomPlanLineItem[];
-  subtotal: number;
-}
-
-export interface CustomPlan {
-  id: string;
-  tenantId: string;
-  name: string;
-  description?: string;
-  basePlanId?: string;
-  tier: PlanTier;
-  billingCycle: BillingCycle;
-  modules: CustomPlanModule[];
-  monthlySubtotal: number;
-  discountPercent: number;
-  discountAmount: number;
-  discountReason?: string;
-  monthlyTotal: number;
-  currency: string;
-  status: CustomPlanStatus;
-  validFrom: string;
-  validTo?: string;
-  notes?: string;
-  approvedBy?: string;
-  approvedAt?: string;
-  rejectionReason?: string;
-  subscriptionId?: string;
-  createdBy?: string;
-  updatedBy?: string;
-  createdAt: string;
-  updatedAt: string;
-}
+/**
+ * ADR-0013 / CONTRACT-CRITICAL-003: `billing.custom_plans` and its two child
+ * tables are the plan; these are the backend contract's shapes, generated.
+ *
+ * The hand-written versions typed every amount as an IEEE-754 `number` — the
+ * plan's own totals AND every module subtotal and line-item price inside what
+ * used to be a single jsonb column. They are `numeric(19,4)` columns now and
+ * cross the wire as exact decimal strings.
+ */
+export type CustomPlan = ApiSchema<'CustomPlanResponseDto'>;
+export type CustomPlanModule = ApiSchema<'CustomPlanModuleResponseDto'>;
+export type CustomPlanLineItem = ApiSchema<'CustomPlanLineItemResponseDto'>;
+export type CustomPlanPage = ApiSchema<'CustomPlanPageDto'>;
+export type CustomPlanLookup = ApiSchema<'CustomPlanLookupDto'>;
+export type CreateCustomPlanDto = ApiSchema<'CreateCustomPlanDto'>;
+export type UpdateCustomPlanDto = ApiSchema<'UpdateCustomPlanDto'>;
 
 export interface CustomPlanFilter {
   tenantId?: string;
@@ -431,20 +411,6 @@ export interface CustomPlanFilter {
   page?: number;
   limit?: number;
 }
-
-export interface PaginatedCustomPlans {
-  items: CustomPlan[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
-
-/** Generated from the backend contract (CONTRACT-CRITICAL-003). */
-export type CreateCustomPlanDto = ApiSchema<'CreateCustomPlanDto'>;
-
-/** Generated from the backend contract (CONTRACT-CRITICAL-003). */
-export type UpdateCustomPlanDto = ApiSchema<'UpdateCustomPlanDto'>;
 
 // ============================================================================
 // Usage Metering Types

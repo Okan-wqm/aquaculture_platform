@@ -6,6 +6,7 @@
  * here. admin-api reaches it over `request.billing.admin.*Discount*`; nothing
  * else writes these two tables.
  */
+import { roundToCurrency } from '@aquaculture/backend-common/monetary';
 import { randomInt } from 'node:crypto';
 
 import {
@@ -38,7 +39,6 @@ import {
   evaluateDiscount,
   grantOf,
   reject,
-  roundToCurrency,
   type DiscountEvaluation,
   type DiscountGrant,
 } from './discount-rules';

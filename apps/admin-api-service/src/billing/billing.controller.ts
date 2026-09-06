@@ -22,6 +22,9 @@ import {
   BILLING_CYCLES,
   BillingPlanTier,
   type BillingAdminCreateInvoiceInput,
+  type BillingCustomPlanInput,
+  type BillingCustomPlanStatus,
+  type BillingCustomPlanUpdateInput,
   type BillingCycle,
   type BillingDiscountCodeInput,
   type BillingModulePriceInput,
@@ -68,6 +71,12 @@ import {
   VoidInvoiceDto,
 } from './dto/billing.dto';
 import {
+  CustomPlanLookupDto,
+  CustomPlanPageDto,
+  CustomPlanResponseDto,
+  DeletedCustomPlanDto,
+} from './dto/custom-plan-response.dto';
+import {
   PlanComparisonResponseDto,
   PlanLimitsResponseDto,
   PlanResponseDto,
@@ -91,7 +100,6 @@ import {
   DiscountValidationResponseDto,
   GeneratedDiscountCodeDto,
 } from './dto/discount-response.dto';
-import { CustomPlanStatus } from './entities/custom-plan.entity';
 import { AggregationPeriod, MeterType } from './entities/usage-aggregation-readonly.entity';
 import { BillingAdminCommandClientService } from './services/billing-admin-command-client.service';
 import { CustomPlanFilter, CustomPlanService } from './services/custom-plan.service';
@@ -654,11 +662,11 @@ export class BillingController {
   @Get('custom-plans')
   async listCustomPlans(
     @TenantParam('query', { optional: true, allow: 'any' }) tenantId?: string,
-    @Query('status') status?: CustomPlanStatus,
+    @Query('status') status?: BillingCustomPlanStatus,
     @Query('tier') tier?: BillingPlanTier,
     @Query('search') search?: string,
     @Query() pagination?: PaginationQueryDto,
-  ): Promise<unknown> {
+  ): Promise<CustomPlanPageDto> {
     const filter: CustomPlanFilter = {
       tenantId,
       status,
@@ -667,17 +675,26 @@ export class BillingController {
       page: pagination?.page,
       limit: pagination?.limit,
     };
-    return this.customPlanService.listCustomPlans(filter);
+    return this.customPlanService.list(filter);
   }
 
   @Get('custom-plans/:planId')
-  async getCustomPlan(@Param('planId') planId: string): Promise<unknown> {
-    return this.customPlanService.getCustomPlan(planId);
+  async getCustomPlan(
+    @Param('planId', ParseUUIDPipe) planId: string,
+  ): Promise<CustomPlanResponseDto> {
+    return this.customPlanService.findById(planId);
   }
 
+  /**
+   * The tenant's plan in force TODAY. `found` is explicit because a tenant
+   * with no custom plan is an answer, not a 404.
+   */
   @Get('custom-plans/tenant/:tenantId')
-  async getCustomPlanByTenant(@TenantParam('param', { allow: 'any' }) tenantId: string): Promise<unknown> {
-    return this.customPlanService.getCustomPlanByTenant(tenantId);
+  async getCustomPlanByTenant(
+    @TenantParam('param', { allow: 'any' }) tenantId: string,
+  ): Promise<CustomPlanLookupDto> {
+    const customPlan = await this.customPlanService.findActiveForTenant(tenantId);
+    return customPlan ? { found: true, customPlan } : { found: false };
   }
 
   @AuditedOperation({ resource: 'CustomPlan', action: 'CREATE' })
@@ -687,75 +704,78 @@ export class BillingController {
     @TenantParam('body', { allow: 'any' }) tenantId: string,
     @Body() dto: CreateCustomPlanDto,
     @Req() req: Request,
-  ): Promise<unknown> {
-    const userId = getAuthUserId(req);
-    if (!userId) throw new UnauthorizedException('Authentication required to create a custom plan');
-    return this.customPlanService.createCustomPlan({ ...dto, tenantId, createdBy: userId });
+  ): Promise<CustomPlanResponseDto> {
+    const userId = requireActor(req, 'create a custom plan');
+    return this.customPlanService.create(toCustomPlanInput(dto, tenantId), userId);
   }
 
   @AuditedOperation({ resource: 'CustomPlan', action: 'UPDATE' })
   @RequiresCapability('billing-ops')
   @Put('custom-plans/:planId')
   async updateCustomPlan(
-    @Param('planId') planId: string,
+    @Param('planId', ParseUUIDPipe) planId: string,
     @Body() dto: UpdateCustomPlanDto,
     @Req() req: Request,
-  ): Promise<unknown> {
-    const userId = getAuthUserId(req);
-    if (!userId) throw new UnauthorizedException('Authentication required to update a custom plan');
-    return this.customPlanService.updateCustomPlan(planId, { ...dto, updatedBy: userId });
+  ): Promise<CustomPlanResponseDto> {
+    const userId = requireActor(req, 'update a custom plan');
+    return this.customPlanService.update(planId, toCustomPlanUpdateInput(dto), userId);
   }
 
   @AuditedOperation({ resource: 'CustomPlanForApproval', action: 'SUBMIT' })
   @RequiresCapability('billing-ops')
   @Post('custom-plans/:planId/submit')
-  async submitCustomPlanForApproval(@Param('planId') planId: string): Promise<unknown> {
-    return this.customPlanService.submitForApproval(planId);
+  async submitCustomPlanForApproval(
+    @Param('planId', ParseUUIDPipe) planId: string,
+    @Req() req: Request,
+  ): Promise<CustomPlanResponseDto> {
+    const userId = requireActor(req, 'submit a custom plan for approval');
+    return this.customPlanService.submitForApproval(planId, userId);
   }
 
   @AuditedOperation({ resource: 'CustomPlan', action: 'APPROVE' })
   @RequiresCapability('billing-ops')
   @Post('custom-plans/:planId/approve')
   async approveCustomPlan(
-    @Param('planId') planId: string,
+    @Param('planId', ParseUUIDPipe) planId: string,
     @Req() req: Request,
-  ): Promise<unknown> {
-    const userId = getAuthUserId(req);
-    if (!userId) throw new UnauthorizedException('Authentication required to approve a custom plan');
-    return this.customPlanService.approvePlan(planId, userId);
+  ): Promise<CustomPlanResponseDto> {
+    const userId = requireActor(req, 'approve a custom plan');
+    return this.customPlanService.approve(planId, userId);
   }
 
   @AuditedOperation({ resource: 'CustomPlan', action: 'REJECT' })
   @RequiresCapability('billing-ops')
   @Post('custom-plans/:planId/reject')
   async rejectCustomPlan(
-    @Param('planId') planId: string,
+    @Param('planId', ParseUUIDPipe) planId: string,
     @Body() dto: RejectCustomPlanDto,
     @Req() req: Request,
-  ): Promise<unknown> {
-    const userId = getAuthUserId(req);
-    if (!userId) throw new UnauthorizedException('Authentication required to reject a custom plan');
-    return this.customPlanService.rejectPlan(planId, dto.reason, userId);
+  ): Promise<CustomPlanResponseDto> {
+    const userId = requireActor(req, 'reject a custom plan');
+    return this.customPlanService.reject(planId, dto.reason, userId);
   }
 
   @AuditedOperation({ resource: 'CustomPlan', action: 'ACTIVATE' })
   @RequiresCapability('billing-ops')
   @Post('custom-plans/:planId/activate')
   async activateCustomPlan(
-    @Param('planId') planId: string,
+    @Param('planId', ParseUUIDPipe) planId: string,
     @Req() req: Request,
-  ): Promise<unknown> {
-    const userId = getAuthUserId(req);
-    if (!userId) throw new UnauthorizedException('Authentication required to activate a custom plan');
-    return this.customPlanService.activatePlan(planId, userId);
+  ): Promise<CustomPlanResponseDto> {
+    const userId = requireActor(req, 'activate a custom plan');
+    return this.customPlanService.activate(planId, userId);
   }
 
   @AuditedOperation({ resource: 'CustomPlan', action: 'DELETE' })
   @Destructive()
   @RequiresCapability('billing-ops')
   @Delete('custom-plans/:planId')
-  async deleteCustomPlan(@Param('planId') planId: string): Promise<unknown> {
-    await this.customPlanService.deletePlan(planId);
+  async deleteCustomPlan(
+    @Param('planId', ParseUUIDPipe) planId: string,
+    @Req() req: Request,
+  ): Promise<DeletedCustomPlanDto> {
+    const userId = requireActor(req, 'delete a custom plan');
+    await this.customPlanService.remove(planId, userId);
     return { success: true };
   }
 
@@ -763,10 +783,12 @@ export class BillingController {
   @RequiresCapability('billing-ops')
   @Post('custom-plans/:planId/clone')
   async cloneCustomPlan(
-    @Param('planId') planId: string,
+    @Param('planId', ParseUUIDPipe) planId: string,
     @Body() dto: CloneCustomPlanDto,
-  ): Promise<unknown> {
-    return this.customPlanService.clonePlan(planId, dto.newTenantId);
+    @Req() req: Request,
+  ): Promise<CustomPlanResponseDto> {
+    const userId = requireActor(req, 'clone a custom plan');
+    return this.customPlanService.clone(planId, dto.newTenantId, userId);
   }
 
   // ============================================================================
@@ -1175,6 +1197,64 @@ function toStripePriceIds(
   return record;
 }
 
+/**
+ * The authored selection becomes the contract command's input (ADR-0013).
+ *
+ * The tenant id comes from `@TenantParam('body')` — the verified value — not
+ * from the body's whitelisted carrier key, which is always `undefined`.
+ */
+function toCustomPlanInput(dto: CreateCustomPlanDto, tenantId: string): BillingCustomPlanInput {
+  return {
+    tenantId,
+    name: dto.name,
+    description: dto.description,
+    basePlanId: dto.basePlanId,
+    tier: dto.tier,
+    billingCycle: dto.billingCycle,
+    modules: dto.modules.map((module) => ({
+      moduleId: module.moduleId,
+      moduleCode: module.moduleCode,
+      moduleName: module.moduleName,
+      quantities: module.quantities,
+    })),
+    discountPercent: dto.discountPercent,
+    discountAmount: dto.discountAmount,
+    discountReason: dto.discountReason,
+    currency: dto.currency,
+    validFrom: dto.validFrom,
+    validTo: dto.validTo,
+    notes: dto.notes,
+  };
+}
+
+/**
+ * An update revises a subset, so an ABSENT key stays absent — spreading a
+ * `undefined` through would clear the column instead of leaving it alone.
+ * `modules` is the whole selection when present: billing reprices from it.
+ */
+function toCustomPlanUpdateInput(dto: UpdateCustomPlanDto): BillingCustomPlanUpdateInput {
+  const input: BillingCustomPlanUpdateInput = {};
+  if (dto.name !== undefined) input.name = dto.name;
+  if (dto.description !== undefined) input.description = dto.description;
+  if (dto.billingCycle !== undefined) input.billingCycle = dto.billingCycle;
+  if (dto.modules !== undefined) {
+    input.modules = dto.modules.map((module) => ({
+      moduleId: module.moduleId,
+      moduleCode: module.moduleCode,
+      moduleName: module.moduleName,
+      quantities: module.quantities,
+    }));
+  }
+  if (dto.discountPercent !== undefined) input.discountPercent = dto.discountPercent;
+  if (dto.discountAmount !== undefined) input.discountAmount = dto.discountAmount;
+  if (dto.discountReason !== undefined) input.discountReason = dto.discountReason;
+  if (dto.currency !== undefined) input.currency = dto.currency;
+  if (dto.validFrom !== undefined) input.validFrom = dto.validFrom;
+  if (dto.validTo !== undefined) input.validTo = dto.validTo;
+  if (dto.notes !== undefined) input.notes = dto.notes;
+  return input;
+}
+
 /** The DTO's flat sheet becomes the contract's metric and multiplier rows. */
 function toModulePriceInput(
   dto: SetModulePricingDto,
@@ -1227,6 +1307,8 @@ function toQuoteRequest(
     tenantId,
     discountCode: request.discountCode,
     taxRate: request.taxRate,
+    negotiatedDiscountPercent: request.negotiatedDiscountPercent,
+    negotiatedDiscountAmount: request.negotiatedDiscountAmount,
   };
 }
 

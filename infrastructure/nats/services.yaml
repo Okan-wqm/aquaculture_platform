@@ -327,6 +327,16 @@ services:
       - 'request.billing.admin.createPlan'
       - 'request.billing.admin.updatePlan'
       - 'request.billing.admin.deprecatePlan'
+      # ADR-0013: a custom plan is a negotiated price, so it lives with the
+      # prices; admin-panel keeps the builder UI.
+      - 'request.billing.admin.createCustomPlan'
+      - 'request.billing.admin.updateCustomPlan'
+      - 'request.billing.admin.submitCustomPlan'
+      - 'request.billing.admin.approveCustomPlan'
+      - 'request.billing.admin.rejectCustomPlan'
+      - 'request.billing.admin.activateCustomPlan'
+      - 'request.billing.admin.cloneCustomPlan'
+      - 'request.billing.admin.deleteCustomPlan'
       - 'request.billing.tenant.provisionSubscription'
       - 'request.auth.admin.createUser'
       - 'request.auth.admin.resetUserPassword'

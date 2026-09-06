@@ -840,6 +840,13 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       // catalogue tables, like the plan they belong to.
       'plan_cycle_prices',
       'plan_add_ons',
+      // ADR-0013 / BILLING-CRITICAL-002: `admin.custom_plans` moved here with
+      // its priced selection expanded into rows. Unlike the rest of the
+      // catalogue these ARE tenant-scoped — a custom plan belongs to one
+      // tenant — so erasure deletes them by `tenant_id`.
+      'custom_plans',
+      'custom_plan_modules',
+      'custom_plan_line_items',
     ],
   },
   {
@@ -878,10 +885,10 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'tenant_activities',
       'tenant_notes',
       'tenant_billing_info',
-      // discount_redemptions retired 2026-09-05 (ADR-0013 / BILLING-CRITICAL-002):
-      // moved to billing.discount_redemptions with billing.discount_codes —
-      // billing is the sole writer of anything that prices a subscription.
-      'custom_plans',
+      // discount_redemptions retired 2026-09-05 and custom_plans 2026-09-06
+      // (ADR-0013 / BILLING-CRITICAL-002): moved to billing alongside
+      // billing.discount_codes and billing.plans — billing is the sole writer
+      // of anything that prices a subscription.
       'message_threads',
       'messages',
       'announcement_acknowledgments',

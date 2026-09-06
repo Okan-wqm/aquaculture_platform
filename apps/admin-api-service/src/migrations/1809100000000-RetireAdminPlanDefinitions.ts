@@ -23,8 +23,15 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  *
  * ID REMAP: the merge UPDATES a billing plan whose name matches, so a matched
  * definition's own id does NOT survive. Two admin tables referenced it —
- * `plan_module_assignments.plan_id` and `custom_plans.base_plan_id` — and both
+ * `plan_module_assignments.plan_id` and `custom_plans."basePlanId"` — and both
  * are re-pointed at the surviving `billing.plans.id` here, BEFORE the drop.
+ *
+ * `admin.custom_plans` carries TWO columns for the same reference: the entity
+ * declared `@Column('uuid') basePlanId` (camel-cased by TypeORM, and the one
+ * the ORM actually wrote) alongside a `@JoinColumn({ name: 'base_plan_id' })`
+ * that the FK was built on and nothing ever populated. Both are re-pointed,
+ * each guarded by a column probe, so neither a deployment that has only one
+ * nor one that has both is left with a dangling id.
  * Their FK constraints go with the table: since the catalogue is billing's, an
  * admin FK onto `billing.plans` would let admin DDL block billing from
  * retiring a plan row, so both columns become soft references (matching the
@@ -113,11 +120,29 @@ export class RetireAdminPlanDefinitions1809100000000 implements MigrationInterfa
           JOIN "billing"."plans" p ON p."name" = d."name"
          WHERE a."plan_id" = d."id" AND p."id" <> d."id";
 
-        UPDATE "admin"."custom_plans" c
-           SET "base_plan_id" = p."id"
-          FROM "admin"."plan_definitions" d
-          JOIN "billing"."plans" p ON p."name" = d."name"
-         WHERE c."base_plan_id" = d."id" AND p."id" <> d."id";
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns
+           WHERE table_schema = 'admin' AND table_name = 'custom_plans'
+             AND column_name = 'basePlanId'
+        ) THEN
+          UPDATE "admin"."custom_plans" c
+             SET "basePlanId" = p."id"
+            FROM "admin"."plan_definitions" d
+            JOIN "billing"."plans" p ON p."name" = d."name"
+           WHERE c."basePlanId" = d."id" AND p."id" <> d."id";
+        END IF;
+
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns
+           WHERE table_schema = 'admin' AND table_name = 'custom_plans'
+             AND column_name = 'base_plan_id'
+        ) THEN
+          UPDATE "admin"."custom_plans" c
+             SET "base_plan_id" = p."id"
+            FROM "admin"."plan_definitions" d
+            JOIN "billing"."plans" p ON p."name" = d."name"
+           WHERE c."base_plan_id" = d."id" AND p."id" <> d."id";
+        END IF;
       END $$;
     `);
 

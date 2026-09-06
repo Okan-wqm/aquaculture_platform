@@ -13,7 +13,7 @@
 # The discount catalogue contributes NO entries: it is the first table set
 # moved under ADR-0013, and it holds every amount in its own numeric column.
 version: 1
-ceiling: 23
+ceiling: 22
 entries:
   - site: 'apps/admin-api-service/src/analytics/entities/external/subscription.entity.ts#PlanPricing.basePrice'
     owner: okan
@@ -35,11 +35,6 @@ entries:
     expiry: 2026-12-31
     findingId: BILLING-CRITICAL-003
     reason: read-only mapping of billing.subscriptions.pricing; normalising it means normalising the billing-side column first
-  - site: 'apps/admin-api-service/src/billing/entities/custom-plan.entity.ts#CustomPlanModule.subtotal'
-    owner: okan
-    expiry: 2026-12-31
-    findingId: BILLING-CRITICAL-002
-    reason: admin.custom_plans moves to billing in W4b; the per-module subtotal becomes a numeric column on the child row
   - site: 'apps/billing-service/src/billing/entities/invoice.entity.ts#InvoiceLineItem.amount'
     owner: okan
     expiry: 2026-12-31

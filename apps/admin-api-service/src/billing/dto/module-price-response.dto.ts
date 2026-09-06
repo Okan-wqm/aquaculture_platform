@@ -107,6 +107,8 @@ export class ModuleQuoteResponseDto {
   discountAmount!: string;
   /** Present when a discount code was offered and refused. */
   discountReason?: BillingDiscountRejectionReason;
+  /** What a negotiated (hand-entered) discount took off, if one was quoted. */
+  negotiatedDiscountAmount!: string;
   tax!: string;
   taxRate!: string;
   total!: string;

@@ -8,6 +8,7 @@
  * Used by Money.toMinorUnits() to convert decimal amounts to the
  * integer representation expected by payment processors like Stripe.
  */
+import Decimal from 'decimal.js';
 
 /** @internal */
 const CURRENCY_SCALE_MAP: ReadonlyMap<string, number> = new Map<string, number>([
@@ -88,4 +89,19 @@ export function getCurrencyScale(currency: string): number {
  */
 export function isSupportedCurrency(currency: string): boolean {
   return CURRENCY_SCALE_MAP.has(currency.toUpperCase());
+}
+
+/**
+ * Round an amount to its currency's own minor unit.
+ *
+ * A 33.33% discount on €10.00 is €3.33, not €3.333, and on ¥1000 it is ¥333,
+ * not ¥333.33. Half-up is the direction that favours the customer.
+ *
+ * This lives beside `getCurrencyScale` because it is the only correct way to
+ * use it: two byte-identical copies had grown inside billing-service
+ * (`discount-rules.ts` and `module-quote.ts`), which is how a rounding rule
+ * drifts between the quote a customer is shown and the invoice they receive.
+ */
+export function roundToCurrency(amount: Decimal, currency: string): Decimal {
+  return amount.toDecimalPlaces(getCurrencyScale(currency), Decimal.ROUND_HALF_UP);
 }

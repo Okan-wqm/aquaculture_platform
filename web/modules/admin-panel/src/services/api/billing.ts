@@ -43,7 +43,8 @@ import type {
   PricingComparisonResult,
   CustomPlan,
   CustomPlanFilter,
-  PaginatedCustomPlans,
+  CustomPlanPage,
+  CustomPlanLookup,
   CreateCustomPlanDto,
   UpdateCustomPlanDto,
   UsageSummaryStats,
@@ -321,11 +322,14 @@ export const billingApi = {
 
   // Custom Plans
   getCustomPlans: (filter?: CustomPlanFilter) =>
-    apiFetch<PaginatedCustomPlans>(`/billing/custom-plans?${buildQueryString((filter || {}) as Record<string, unknown>)}`),
+    apiFetch<CustomPlanPage>(`/billing/custom-plans?${buildQueryString((filter || {}) as Record<string, unknown>)}`),
   getCustomPlan: (planId: string) =>
     apiFetch<CustomPlan>(`/billing/custom-plans/${planId}`),
+  // A tenant with no plan in force today is an answer, not a 404, so the
+  // response says so explicitly rather than sending a bare `null` body the
+  // client has to guess at.
   getCustomPlanByTenant: (tenantId: string) =>
-    apiFetch<CustomPlan | null>(`/billing/custom-plans/tenant/${tenantId}`),
+    apiFetch<CustomPlanLookup>(`/billing/custom-plans/tenant/${tenantId}`),
   // The actor is never a body property: the server reads it from the verified
   // principal and REFUSES a body that claims one (ADMIN-CRITICAL-008).
   createCustomPlan: (data: CreateCustomPlanDto) =>
@@ -334,9 +338,9 @@ export const billingApi = {
     apiFetch<CustomPlan>(`/billing/custom-plans/${planId}`, { method: 'PUT', body: JSON.stringify(data) }),
   submitCustomPlanForApproval: (planId: string) =>
     apiFetch<CustomPlan>(`/billing/custom-plans/${planId}/submit`, { method: 'POST' }),
-  approveCustomPlan: (planId: string, _approverId?: string) =>
+  approveCustomPlan: (planId: string) =>
     apiFetch<CustomPlan>(`/billing/custom-plans/${planId}/approve`, { method: 'POST' }),
-  rejectCustomPlan: (planId: string, reason: string, _rejectedBy?: string) =>
+  rejectCustomPlan: (planId: string, reason: string) =>
     apiFetch<CustomPlan>(`/billing/custom-plans/${planId}/reject`, { method: 'POST', body: JSON.stringify({ reason }) }),
   activateCustomPlan: (planId: string) =>
     apiFetch<CustomPlan>(`/billing/custom-plans/${planId}/activate`, { method: 'POST' }),

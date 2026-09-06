@@ -98,17 +98,17 @@ const mockPricingCalculator = {
 };
 
 const mockCustomPlanService = {
-  listCustomPlans: jest.fn().mockResolvedValue({ data: [], total: 0 }),
-  getCustomPlan: jest.fn().mockResolvedValue({}),
-  getCustomPlanByTenant: jest.fn().mockResolvedValue({}),
-  createCustomPlan: jest.fn().mockResolvedValue({ id: 'cp-new' }),
-  updateCustomPlan: jest.fn().mockResolvedValue({ id: 'cp-1' }),
+  list: jest.fn().mockResolvedValue({ data: [], total: 0, page: 1, limit: 20, totalPages: 1 }),
+  findById: jest.fn().mockResolvedValue({}),
+  findActiveForTenant: jest.fn().mockResolvedValue(null),
+  create: jest.fn().mockResolvedValue({ id: 'cp-new' }),
+  update: jest.fn().mockResolvedValue({ id: 'cp-1' }),
   submitForApproval: jest.fn().mockResolvedValue({}),
-  approvePlan: jest.fn().mockResolvedValue({}),
-  rejectPlan: jest.fn().mockResolvedValue({}),
-  activatePlan: jest.fn().mockResolvedValue({}),
-  deletePlan: jest.fn().mockResolvedValue(undefined),
-  clonePlan: jest.fn().mockResolvedValue({}),
+  approve: jest.fn().mockResolvedValue({}),
+  reject: jest.fn().mockResolvedValue({}),
+  activate: jest.fn().mockResolvedValue({}),
+  remove: jest.fn().mockResolvedValue(undefined),
+  clone: jest.fn().mockResolvedValue({}),
 };
 
 const mockInvoiceService = {
@@ -698,6 +698,7 @@ describe('BillingController', () => {
   // ==========================================================================
 
   describe('Custom plan JWT identity overrides', () => {
+    const CUSTOM_PLAN_ID = '9c2e5f10-1a2b-4c3d-8e4f-5a6b7c8d9e0f';
     const validCustomPlanDto = {
       tenantId: '11111111-1111-4111-8111-111111111111',
       name: 'Enterprise Custom',
@@ -709,7 +710,9 @@ describe('BillingController', () => {
           quantities: { users: 10, farms: 2 },
         },
       ],
-      validFrom: '2026-09-05T00:00:00.000Z',
+      // ADR-0013: a plan's validity is a DAY, not an instant — the column is
+      // `date`, so an ISO timestamp is no longer accepted.
+      validFrom: '2026-09-05',
     };
 
     it('POST /billing/custom-plans refuses a body that claims an actor', async () => {
@@ -718,51 +721,96 @@ describe('BillingController', () => {
         .send({ ...validCustomPlanDto, createdBy: 'attacker-id' });
 
       expect(res.status).toBe(HttpStatus.BAD_REQUEST);
-      expect(mockCustomPlanService.createCustomPlan).not.toHaveBeenCalled();
+      expect(mockCustomPlanService.create).not.toHaveBeenCalled();
     });
 
-    it('POST /billing/custom-plans should use JWT createdBy', async () => {
+    it('refuses a discount that is not an exact decimal string', async () => {
+      const res = await request(httpServer())
+        .post('/billing/custom-plans')
+        .send({ ...validCustomPlanDto, discountAmount: 33.33 });
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST);
+      expect(mockCustomPlanService.create).not.toHaveBeenCalled();
+    });
+
+    it('refuses a discount above 100 percent', async () => {
+      // `admin.custom_plans.discountPercent` was an unbounded `number`, so 400
+      // was storable and floored the plan's total to zero.
+      const res = await request(httpServer())
+        .post('/billing/custom-plans')
+        .send({ ...validCustomPlanDto, discountPercent: '400' });
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST);
+      expect(mockCustomPlanService.create).not.toHaveBeenCalled();
+    });
+
+    it('POST /billing/custom-plans passes the JWT actor beside the plan input', async () => {
       await request(httpServer()).post('/billing/custom-plans').send(validCustomPlanDto);
 
-      expect(mockCustomPlanService.createCustomPlan).toHaveBeenCalledWith(
+      expect(mockCustomPlanService.create).toHaveBeenCalledWith(
         expect.objectContaining({
           tenantId: validCustomPlanDto.tenantId,
-          createdBy: authenticatedUser.id,
+          name: 'Enterprise Custom',
+          validFrom: '2026-09-05',
         }),
-      );
-    });
-
-    it('PUT /billing/custom-plans/:planId should use JWT updatedBy', async () => {
-      await request(httpServer())
-        .put('/billing/custom-plans/cp-1')
-        .send({ name: 'Updated Custom' });
-
-      expect(mockCustomPlanService.updateCustomPlan).toHaveBeenCalledWith(
-        'cp-1',
-        expect.objectContaining({
-          updatedBy: authenticatedUser.id,
-        }),
-      );
-    });
-
-    it('POST /billing/custom-plans/:planId/approve should use JWT approvedBy', async () => {
-      await request(httpServer())
-        .post('/billing/custom-plans/cp-1/approve');
-
-      expect(mockCustomPlanService.approvePlan).toHaveBeenCalledWith(
-        'cp-1',
         authenticatedUser.id,
       );
     });
 
-    it('POST /billing/custom-plans/:planId/reject should use JWT rejectedBy', async () => {
+    it('PUT /billing/custom-plans/:planId omits an absent field instead of clearing it', async () => {
       await request(httpServer())
-        .post('/billing/custom-plans/cp-1/reject')
+        .put(`/billing/custom-plans/${CUSTOM_PLAN_ID}`)
+        .send({ name: 'Updated Custom' });
+
+      expect(mockCustomPlanService.update).toHaveBeenCalledWith(
+        CUSTOM_PLAN_ID,
+        { name: 'Updated Custom' },
+        authenticatedUser.id,
+      );
+    });
+
+    it('POST /billing/custom-plans/:planId/approve should use the JWT actor', async () => {
+      await request(httpServer()).post(`/billing/custom-plans/${CUSTOM_PLAN_ID}/approve`);
+
+      expect(mockCustomPlanService.approve).toHaveBeenCalledWith(
+        CUSTOM_PLAN_ID,
+        authenticatedUser.id,
+      );
+    });
+
+    it('POST /billing/custom-plans/:planId/submit should use the JWT actor', async () => {
+      // The actor was missing entirely: `submitForApproval` took no actor, so
+      // the transition was recorded against nobody.
+      await request(httpServer()).post(`/billing/custom-plans/${CUSTOM_PLAN_ID}/submit`);
+
+      expect(mockCustomPlanService.submitForApproval).toHaveBeenCalledWith(
+        CUSTOM_PLAN_ID,
+        authenticatedUser.id,
+      );
+    });
+
+    it('POST /billing/custom-plans/:planId/reject should use the JWT actor', async () => {
+      await request(httpServer())
+        .post(`/billing/custom-plans/${CUSTOM_PLAN_ID}/reject`)
         .send({ reason: 'Pricing too low' });
 
-      expect(mockCustomPlanService.rejectPlan).toHaveBeenCalledWith(
-        'cp-1',
+      expect(mockCustomPlanService.reject).toHaveBeenCalledWith(
+        CUSTOM_PLAN_ID,
         'Pricing too low',
+        authenticatedUser.id,
+      );
+    });
+
+    it('POST /billing/custom-plans/:planId/clone should use the JWT actor', async () => {
+      // The clone used to be credited to whoever wrote the ORIGINAL plan: the
+      // route took no actor and the service spread the source row wholesale.
+      await request(httpServer())
+        .post(`/billing/custom-plans/${CUSTOM_PLAN_ID}/clone`)
+        .send({ newTenantId: '11111111-1111-4111-8111-111111111111' });
+
+      expect(mockCustomPlanService.clone).toHaveBeenCalledWith(
+        CUSTOM_PLAN_ID,
+        '11111111-1111-4111-8111-111111111111',
         authenticatedUser.id,
       );
     });

@@ -252,6 +252,9 @@ export class ModulePricingService {
       discountCode?: string;
       subscriptionChange?: 'new' | 'upgrade' | 'other';
       taxRate?: string;
+      /** A hand-entered negotiated discount; billing applies it (ADR-0013). */
+      negotiatedDiscountPercent?: string;
+      negotiatedDiscountAmount?: string;
     },
     actorId: string,
   ): Promise<BillingModuleQuote> {

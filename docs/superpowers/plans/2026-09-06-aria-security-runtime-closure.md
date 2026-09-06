@@ -86,9 +86,26 @@ Kapanış, yalnız ilgili kod main'e ulaşıp gerekli canlı kanıt oluşunca ya
 
 6 Eylül yeniden kontrolünde watchdog sweep sonucunun JSON'a çevrilmesi için
 `961eaf847` düzeltmesi main'dedir. Bu iş yeniden uygulanmaz; test ve çalışma kanıtı doğrulanır.
-State, security ve merge sahipleri önceki incelemeden beri değişmemiştir. İkinci compaction da
-158 eksik referansı gidermemiştir; eksiklerin neden korunduğu henüz kanıtlanmış kök neden
-değildir.
+State, security ve merge sahipleri önceki incelemeden beri değişmemiştir.
+
+Sonraki Git-ağaç incelemesi 158 eksik referansın kök nedenini doğruladı:
+`aria/state@f5bcb194d34ece144abd1d54c4281c6fd5acaf4e` (31 Ağustos manuel compaction),
+parent `523dd8c704233da5db454ee2022715309baf9296` üzerindeki 158 hot artifact blobunu silmiş;
+manifest ve inventory bunları göstermeye devam etmiştir. Sabit `e5709b087` ağacında canlı
+artifact index ve mevcut blob sayısı 18'dir; global manifest ve inventory 176'şar satırdır.
+5 Eylül compactor'ı yalnız index'i uzlaştırmıştır. Yanlış kök dizin çözümü değildir; mevcut
+ve eksik URI'ler aynı tree-relative biçimdedir. Parent Git ağacındaki 158 blobun tamamı
+SHA-256 ve byte boyutu bakımından tarihi index ve güncel manifest/inventory ile eşleşmiştir.
+Bu pasif doğrulama kurtarılabilirliği kanıtlar; canlı state henüz geri yüklenmemiştir.
+Mevcut restore API'si güncel index ve retention arşivi ister; Git geçmişinden kurtarma
+yolu P02 kapsamında kaynak kimliğine bağlı ve denetlenebilir biçimde uygulanmalıdır.
+P02, üç görünümün birlikte uzlaştırılmasını ve kayıpların açık saklama/kurtarma kararını
+gerektirir; bir listeyi kısaltmak veya tek verifier'ı yeşile çevirmek kabul değildir.
+
+Plan entegrasyonu sırasında `main@2efee0eb4b5bb8f87e1222a25e82dff7f35ffb0e` tekrar incelendi.
+Bu main güncellemesi ARIA runtime sahiplerini değiştirmedi; altı eski bulgunun canonical
+kapanışlarını ve WebAuthn biçim düzeltmesini zaten içerdiği için plan PR'ında tekrar
+değiştirilmez. P14/P15 kaynak iddiaları yukarıda sabitlenen kod sürümüne bağlı kalır.
 
 ### GitHub Actions başarısızlıkları ve kapanış eşlemesi
 

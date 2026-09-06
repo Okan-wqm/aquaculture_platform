@@ -93,6 +93,62 @@ function readJson(path, field) {
   return parsed;
 }
 
+/**
+ * Read a record this tool itself wrote, and refuse anything but the exact bytes
+ * it would have written.
+ *
+ * `readJson` only proves the file PARSES. A run record is the signer's input,
+ * so a file that parses is not enough: `{...record, "unsigned_payload": "x"}`
+ * parses, a pretty-printed copy parses, and a duplicated key parses with
+ * last-one-wins. Each of those is a record the signer would accept while a
+ * downstream reader sees something else. Re-serialising the parsed value and
+ * comparing bytes rejects all three at once — extra fields, reformatting,
+ * duplicate keys, a missing or doubled trailing newline, a BOM — because
+ * `writeExclusive` is the only thing that legitimately produces these files and
+ * it emits exactly `JSON.stringify(value) + '\n'`.
+ *
+ * NOT for GitHub API responses: those are not ours to canonicalise.
+ */
+function readCanonicalJson(path, field) {
+  let bytes;
+  try {
+    bytes = readFileSync(path);
+  } catch (error) {
+    fail(`${field} cannot be read: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(bytes.toString('utf8'));
+  } catch (error) {
+    fail(`${field} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    fail(`${field} must contain one JSON object`);
+  }
+  if (!bytes.equals(Buffer.from(`${JSON.stringify(parsed)}\n`, 'utf8'))) {
+    fail(`${field} must be the canonical one-line JSON this tool writes`);
+  }
+  return parsed;
+}
+
+/**
+ * Close the schema: a validator that only checks the fields it knows about
+ * accepts every field it does not.
+ */
+function requireExactKeys(record, keys, label) {
+  const expected = new Set(keys);
+  const unexpected = Object.keys(record)
+    .filter((key) => !expected.has(key))
+    .sort();
+  if (unexpected.length > 0) {
+    fail(`${label} carries unexpected field(s): ${unexpected.join(', ')}`);
+  }
+  const missing = keys.filter((key) => !Object.prototype.hasOwnProperty.call(record, key));
+  if (missing.length > 0) {
+    fail(`${label} is missing field(s): ${missing.join(', ')}`);
+  }
+}
+
 function writeExclusive(path, value) {
   writeFileSync(path, `${JSON.stringify(value)}\n`, {
     encoding: 'utf8',
@@ -107,6 +163,31 @@ function workflowContract(workflow) {
   return contract;
 }
 
+/** Exactly what `createRun` writes — the closed schema `validateWorkflowRecord` enforces. */
+const RUN_RECORD_KEYS = [
+  'schema_version',
+  'record_type',
+  'authority',
+  'record_id',
+  'repository',
+  'repository_id',
+  'workflow',
+  'mode',
+  'job_result',
+  'issued_at',
+];
+
+const RUN_RECORD_WORKFLOW_KEYS = [
+  'file',
+  'name',
+  'repository',
+  'ref',
+  'sha',
+  'run_id',
+  'run_attempt',
+  'event_name',
+];
+
 function validateWorkflowRecord(record) {
   if (record.schema_version !== 2 || record.record_type !== 'workflow_run') {
     fail('run record must be a schema-v2 workflow_run');
@@ -114,10 +195,12 @@ function validateWorkflowRecord(record) {
   if (record.authority !== 'github_actions_oidc_rekor') {
     fail('run record authority must be github_actions_oidc_rekor');
   }
+  requireExactKeys(record, RUN_RECORD_KEYS, 'run record');
   const workflow = record.workflow;
   if (!workflow || typeof workflow !== 'object' || Array.isArray(workflow)) {
     fail('run record workflow must be an object');
   }
+  requireExactKeys(workflow, RUN_RECORD_WORKFLOW_KEYS, 'run record workflow');
   const contract = workflowContract(workflow.file);
   if (workflow.name !== contract.name) fail('workflow name/file contract mismatch');
   if (workflow.repository !== record.repository) fail('workflow repository mismatch');
@@ -208,7 +291,10 @@ function validateEvidenceGate(evidence, evidenceType) {
     fail(`evidence must be a schema-v1 ${evidenceType} record`);
   }
   if (evidence.status !== 'success') fail('only successful evidence may be promoted');
-  if (!SHA_RE.test(evidence.source_image_revision ?? '') || evidence.source_image_revision === ZERO_SHA) {
+  if (
+    !SHA_RE.test(evidence.source_image_revision ?? '') ||
+    evidence.source_image_revision === ZERO_SHA
+  ) {
     fail('successful evidence must bind a nonzero source image Git revision');
   }
   if (!SHA256_RE.test(evidence.source_postgres_dr_contract_sha256 ?? '')) {
@@ -255,7 +341,7 @@ function createEvidence(options) {
   const allowed = new Set(['output', 'run-record', 'evidence']);
   rejectUnknown(options, allowed);
   const output = required(options, 'output');
-  const runRecord = readJson(required(options, 'run-record'), 'run-record');
+  const runRecord = readCanonicalJson(required(options, 'run-record'), 'run-record');
   const { workflow, contract } = validateWorkflowRecord(runRecord);
   if (runRecord.job_result !== 'success') fail('failed workflow jobs cannot promote evidence');
   if (
@@ -349,13 +435,63 @@ function validateApiRun(apiRun, apiWorkflow, workflow, issuedAt) {
 function verifyRun(options) {
   const allowed = new Set(['run-record', 'api-run', 'api-workflow']);
   rejectUnknown(options, allowed);
-  const runRecord = readJson(required(options, 'run-record'), 'run-record');
+  const runRecord = readCanonicalJson(required(options, 'run-record'), 'run-record');
   const { workflow } = validateWorkflowRecord(runRecord);
   const apiRun = readJson(required(options, 'api-run'), 'api-run');
   const apiWorkflow = readJson(required(options, 'api-workflow'), 'api-workflow');
   validateApiRun(apiRun, apiWorkflow, workflow, runRecord.issued_at);
   if (apiRun.status !== 'completed' || apiRun.conclusion !== runRecord.job_result) {
     fail('GitHub API conclusion does not match the signed job result');
+  }
+  process.stdout.write(
+    `${JSON.stringify({ ok: true, mode: runRecord.mode, result: runRecord.job_result })}\n`,
+  );
+}
+
+/**
+ * Prove a run record describes THIS run before the signer is asked to sign it.
+ *
+ * `verify-run` compares the record against the GitHub API, which needs a token
+ * and a network round trip. The signing job already holds the authoritative
+ * context in its own environment, so it can reject a substituted or stale
+ * record locally, first — the cheap check that closes the window between
+ * `create-run` writing the file and the signer reading it back.
+ */
+function verifyLocalRun(options) {
+  const allowed = new Set([
+    'run-record',
+    'workflow',
+    'workflow-name',
+    'repository',
+    'ref',
+    'sha',
+    'run-id',
+    'run-attempt',
+    'event-name',
+    'job-result',
+    'mode',
+  ]);
+  rejectUnknown(options, allowed);
+  const runRecord = readCanonicalJson(required(options, 'run-record'), 'run-record');
+  const { workflow } = validateWorkflowRecord(runRecord);
+  const expected = {
+    file: required(options, 'workflow'),
+    name: required(options, 'workflow-name'),
+    repository: required(options, 'repository'),
+    ref: required(options, 'ref'),
+    sha: required(options, 'sha'),
+    run_id: parsePositiveInteger(required(options, 'run-id'), 'run-id'),
+    run_attempt: parsePositiveInteger(required(options, 'run-attempt'), 'run-attempt'),
+    event_name: required(options, 'event-name'),
+  };
+  if (JSON.stringify(workflow) !== JSON.stringify(expected)) {
+    fail('run record does not match the live signer workflow context');
+  }
+  if (
+    runRecord.job_result !== required(options, 'job-result') ||
+    runRecord.mode !== required(options, 'mode')
+  ) {
+    fail('run record result/mode does not match the live signer workflow context');
   }
   process.stdout.write(
     `${JSON.stringify({ ok: true, mode: runRecord.mode, result: runRecord.job_result })}\n`,
@@ -373,7 +509,7 @@ function extractEvidence(options) {
   ) {
     fail('attestation must be a schema-v2 backup_evidence record');
   }
-  const runRecord = readJson(required(options, 'run-record'), 'run-record');
+  const runRecord = readCanonicalJson(required(options, 'run-record'), 'run-record');
   const { workflow, contract } = validateWorkflowRecord(runRecord);
   const apiRun = readJson(required(options, 'api-run'), 'api-run');
   const apiWorkflow = readJson(required(options, 'api-workflow'), 'api-workflow');
@@ -431,6 +567,7 @@ export function main(argv = process.argv.slice(2)) {
   if (command === 'create-run') createRun(options);
   else if (command === 'create-evidence') createEvidence(options);
   else if (command === 'verify-run') verifyRun(options);
+  else if (command === 'verify-local-run') verifyLocalRun(options);
   else if (command === 'extract-evidence') extractEvidence(options);
   else fail(`unknown command: ${command}`);
 }

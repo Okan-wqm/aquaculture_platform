@@ -4,6 +4,7 @@ import { federation } from '@module-federation/vite';
 import svgr from 'vite-plugin-svgr';
 import { resolve } from 'path';
 import { getSharedConfigWithReactFlowAndRecharts } from '../../shared-ui/src/federation/federationSharedConfig';
+import { resolveSharedUiAlias } from '../../shared-ui/src/federation/sharedUiAlias';
 import createVitestTestPolicy from '@aquaculture/testing/vitest';
 
 /**
@@ -14,10 +15,7 @@ import createVitestTestPolicy from '@aquaculture/testing/vitest';
  * Uses getSharedConfigWithReactFlow() for SCADA builder reactflow support.
  */
 export default defineConfig(({ mode }) => {
-  const sharedUiAlias =
-    mode === 'test'
-      ? resolve(__dirname, '../../shared-ui/src')
-      : resolve(__dirname, '../../shared-ui/dist');
+  const sharedUiAlias = resolveSharedUiAlias(resolve(__dirname, '../../shared-ui'), mode);
 
   return {
     plugins: [

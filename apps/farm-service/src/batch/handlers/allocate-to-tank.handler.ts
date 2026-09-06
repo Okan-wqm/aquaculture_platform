@@ -15,6 +15,7 @@
  *
  * @module Batch/Handlers
  */
+import { numberOrUndefined } from '@aquaculture/backend-common/database';
 import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-command';
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { Injectable, NotFoundException, BadRequestException, Logger, ConflictException } from '@nestjs/common';
@@ -398,7 +399,7 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
         freeboard: tank.freeboard,
       },
       volume: Number(tank.volume),
-      waterVolume: tank.waterVolume ? Number(tank.waterVolume) : undefined,
+      waterVolume: numberOrUndefined(tank.waterVolume),
       maxBiomass: Number(tank.maxBiomass),
       maxDensity: Number(tank.maxDensity),
       waterFlow: tank.waterFlow,

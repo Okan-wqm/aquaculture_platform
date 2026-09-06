@@ -304,6 +304,7 @@ describe('platform service catalog parity', () => {
     for (const name of [
       'CONFIG_SERVICE_DB_PASS',
       'EVENT_STORE_SERVICE_DB_PASS',
+      'FRONTEND_URL',
       'SERVICE_IDENTITY_KEYRING',
       'SPACES_ENDPOINT',
       'SPACES_REGION',

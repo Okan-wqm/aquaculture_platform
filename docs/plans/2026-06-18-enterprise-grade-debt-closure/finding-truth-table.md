@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `a798a8841cd16e68b49a6f1341470ac67bbbd59a6df9a927e7a57af37932ce50`
+Registry tip: `7180aa6c9b14643a3d5f981fbcf229ec76c64cbf97d4468fd6b9c45c63d8742d`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -245,7 +245,6 @@ Allowed truth buckets:
 | `INFRA-CRITICAL-098`  | OPEN           | 2026-07-19   | security-reviewer          | real-open                 |
 | `INFRA-CRITICAL-100`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
 | `ADMIN-CRITICAL-087`  | OPEN           | 2026-09-04   | admin-expert               | real-open                 |
-| `MOB-CRITICAL-021`    | OPEN           | 2026-09-05   | form-write-auditor         | already-fixed-needs-close |
 | `SENSOR-CRITICAL-111` | OPEN           | 2026-09-05   | sensor-expert              | real-open                 |
 | `DEPLOY-CRITICAL-017` | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
 
@@ -396,6 +395,10 @@ The 2026-06-20 registry close follow-up left no OTHER active CRITICAL in
 
 ## Resolved Evidence
 
+- `MOB-CRITICAL-021`: registry state is `RESOLVED` with closing commit `ff643ac84`
+  ("Merge branch 'main' into claude/mobile-graphql-contract-0jj9jg"), derived by
+  `finding-registry reconcile` once PR #1424 (`411c86835`) made it reachable from `main`.
+  Left the active table from bucket `already-fixed-needs-close`.
 - `INFRA-CRITICAL-149`: registry state is `RESOLVED` with closing commit `381e06271`
   ("fix(db-migrate): stamp a tenant ledger only when the schema can back it"), derived by
   `finding-registry reconcile` against `origin/main`. Left the active table from

@@ -24,6 +24,7 @@
 import { isValidUUID, runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { IEventBus, IEventHandler } from '@platform/event-bus';
+import { requireTenantScope } from '@platform/event-contracts';
 import type { BaseEvent, FeedingWindowReadinessEvent } from '@platform/event-contracts';
 import { DataSource } from 'typeorm';
 
@@ -58,13 +59,11 @@ export class FeedingWindowReadinessListener implements IEventHandler<BaseEvent>,
   }
 
   async handle(event: BaseEvent): Promise<void> {
-    if (!event.tenantId || !isValidUUID(event.tenantId)) {
-      this.logger.error(
-        'FeedingWindowReadiness has missing/invalid tenantId — skipping to prevent ' +
-          'cross-tenant read-model corruption.',
-      );
-      return;
-    }
+    // PLAT-MEDIUM-910: the tenancy scope is PARSED, not guarded. Skipping on a
+    // malformed tenantId acked a poison message — the projection stayed stale
+    // and nothing said so. `requireTenantScope` throws instead, so redelivery
+    // (and the dead-letter lane behind it) sees the contract violation.
+    const { tenantId } = requireTenantScope(event);
 
     const verdict = event as FeedingWindowReadinessEvent;
     if (!isValidUUID(verdict.mealId)) {
@@ -81,7 +80,7 @@ export class FeedingWindowReadinessListener implements IEventHandler<BaseEvent>,
       evaluatedAt: event.timestamp,
     };
 
-    await runInTenantTransaction(this.dataSource, 'farm', event.tenantId, async (queryRunner) => {
+    await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       await queryRunner.query(
         `UPDATE "feeding_meals"
               SET "readiness" = $1::jsonb,
@@ -93,7 +92,7 @@ export class FeedingWindowReadinessListener implements IEventHandler<BaseEvent>,
                     "readiness" IS NULL
                  OR ("readiness"->>'evaluatedAt') < $4
                   )`,
-        [JSON.stringify(readiness), verdict.mealId, event.tenantId, readiness.evaluatedAt],
+        [JSON.stringify(readiness), verdict.mealId, tenantId, readiness.evaluatedAt],
       );
     });
   }

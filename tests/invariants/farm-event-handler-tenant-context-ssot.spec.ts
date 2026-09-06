@@ -38,6 +38,8 @@
 import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import { resolve, relative, normalize, join, sep } from 'node:path';
 
+import { isNatsEventHandler } from './helpers/nats-event-handler';
+
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const FARM_SRC = resolve(REPO_ROOT, 'apps/farm-service/src');
 
@@ -114,7 +116,11 @@ function findTsFiles(dir: string): string[] {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const fullPath = join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (entry.name === '__tests__' || entry.name === 'node_modules' || entry.name.startsWith('.')) {
+      if (
+        entry.name === '__tests__' ||
+        entry.name === 'node_modules' ||
+        entry.name.startsWith('.')
+      ) {
         continue;
       }
       files.push(...findTsFiles(fullPath));
@@ -155,17 +161,6 @@ interface EventHandlerFile {
   readonly code: string;
 }
 
-/**
- * A NATS event handler: implements `IEventHandler` (or carries an inline
- * `IEventHandler<...>` shape) AND registers on the NATS event bus. The bus
- * registration is what distinguishes it from an in-process `@OnEvent` listener.
- */
-function isNatsEventHandler(code: string): boolean {
-  const isHandler = /\bimplements\s+[^{]*\bIEventHandler\b/.test(code) || /\bIEventHandler</.test(code);
-  const subscribesOnBus = /\.subscribeWildcard\s*\(/.test(code) || /\.subscribe\s*\(/.test(code);
-  return isHandler && subscribesOnBus;
-}
-
 function natsEventHandlers(): EventHandlerFile[] {
   return findTsFiles(FARM_SRC)
     .map((file) => ({
@@ -177,14 +172,21 @@ function natsEventHandlers(): EventHandlerFile[] {
 
 function hasDbAccess(code: string): boolean {
   return (
-    DIRECT_DB_ACCESS.some((re) => re.test(code)) ||
-    DELEGATED_DB_ACCESS.some((re) => re.test(code))
+    DIRECT_DB_ACCESS.some((re) => re.test(code)) || DELEGATED_DB_ACCESS.some((re) => re.test(code))
   );
 }
 
 function establishesContext(code: string): boolean {
   return CONTEXT_ESTABLISHING.some((re) => re.test(code));
 }
+
+/**
+ * A handler that refuses to touch a tenant-scoped row on an untrustworthy
+ * tenantId — either by testing it or by parsing it through the event-contract
+ * scope helper, which throws on anything that is not a tenant UUID.
+ */
+const TENANT_IDENTITY_FAIL_CLOSED =
+  /isValidUUID\(\s*event\.tenantId\s*\)|requireTenantScope\(\s*event\s*\)/;
 
 describe('INVARIANT: farm NATS event handlers establish a tenant context before DB access', () => {
   it('every DB-touching NATS event handler references withTenantContext (or runInTenant*/explicit search_path pin)', () => {
@@ -237,15 +239,26 @@ describe('INVARIANT: farm NATS event handlers establish a tenant context before 
       }
       // (a) every statement qualified into the source schema.
       if (!/\bfarm\.[a-z_]+/.test(code)) {
-        stale.push(`${relativePath} (no farm.<table> qualification — it now depends on search_path)`);
+        stale.push(
+          `${relativePath} (no farm.<table> qualification — it now depends on search_path)`,
+        );
       }
       // (b) no repository token (repositories route through search_path).
       if (/@InjectRepository\b/.test(code)) {
         stale.push(`${relativePath} (injects a repository — must establish a tenant context)`);
       }
-      // (c) fail-closed tenant identity.
-      if (!/isValidUUID\(\s*event\.tenantId\s*\)/.test(code)) {
-        stale.push(`${relativePath} (does not validate event.tenantId — cross-tenant row corruption vector)`);
+      // (c) fail-closed tenant identity. Two spellings are accepted, and only
+      // two: the hand-rolled `isValidUUID(event.tenantId)` guard, and the
+      // canonical `requireTenantScope(event)` parser that supersedes it
+      // (SEC-HIGH-159 / PLAT-MEDIUM-910). The parser is the stronger of the
+      // pair — it THROWS on a malformed or platform-scoped tenantId instead of
+      // logging and returning, so a poison message is redelivered rather than
+      // silently acked — so a handler that has migrated must not read here as
+      // one that dropped its guard.
+      if (!TENANT_IDENTITY_FAIL_CLOSED.test(code)) {
+        stale.push(
+          `${relativePath} (does not validate event.tenantId — cross-tenant row corruption vector)`,
+        );
       }
     }
 

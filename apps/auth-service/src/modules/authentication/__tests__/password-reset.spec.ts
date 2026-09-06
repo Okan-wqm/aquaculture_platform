@@ -13,6 +13,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { OutboxPublisher } from '@platform/outbox';
 import { DataSource, SelectQueryBuilder } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
@@ -24,6 +25,7 @@ import { RefreshToken } from '../entities/refresh-token.entity';
 import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
 import { User } from '../entities/user.entity';
 import { WebAuthnCredential } from '../entities/webauthn-credential.entity';
+import { ActionTokenResolver } from '../services/action-token-resolver.service';
 import { AuthenticationService } from '../services/authentication.service';
 import { DurableAccessTokenInvalidationService } from '../services/durable-access-token-invalidation.service';
 import { DurableUserTokenInvalidationService } from '../services/durable-user-token-invalidation.service';
@@ -33,11 +35,34 @@ import { TokenService } from '../services/token.service';
 interface PasswordResetRequestedEvent {
   eventType: string;
   version: number;
+  tenantId: string;
   userId: string;
   actionTokenId: string;
   cryptoShredKeyId: string;
   email?: unknown;
   resetToken?: unknown;
+}
+
+interface OutboxEnqueueOptions {
+  aggregateId?: string;
+  idempotencyKey?: string;
+  routingScope?: 'tenant' | 'system';
+}
+
+/** The single PasswordResetRequested enqueue of a test, with its options. */
+function enqueuedPasswordResetRequested(): {
+  event: PasswordResetRequestedEvent;
+  manager: unknown;
+  options: OutboxEnqueueOptions;
+} {
+  const calls = mockOutboxPublisher.enqueue.mock.calls as readonly (readonly unknown[])[];
+  expect(calls).toHaveLength(1);
+  const [event, manager, options] = calls[0] ?? [];
+  return {
+    event: event as PasswordResetRequestedEvent,
+    manager,
+    options: options as OutboxEnqueueOptions,
+  };
 }
 
 interface PasswordResetCompletedEvent {
@@ -58,7 +83,7 @@ const createMockUser = (overrides: Partial<User> = {}): User => {
     firstName: 'Test',
     lastName: 'User',
     role: Role.MODULE_USER,
-    tenantId: 'tenant-uuid-123',
+    tenantId: '11111111-1111-4111-8111-111111111111',
     isActive: true,
     isEmailVerified: true,
     failedLoginAttempts: 0,
@@ -211,6 +236,8 @@ const mockSessionManager = {
   revokeAllSessions: jest.fn().mockResolvedValue(undefined),
 };
 
+const mockOutboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
+
 describe('AuthenticationService - Password Reset Flow', () => {
   let service: AuthenticationService;
 
@@ -244,6 +271,7 @@ describe('AuthenticationService - Password Reset Flow', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthenticationService,
+        ActionTokenResolver,
         { provide: getRepositoryToken(User), useValue: mockUserRepository },
         { provide: getRepositoryToken(RefreshToken), useValue: mockRefreshTokenRepository },
         { provide: getRepositoryToken(Invitation), useValue: mockInvitationRepository },
@@ -268,6 +296,7 @@ describe('AuthenticationService - Password Reset Flow', () => {
           provide: BestEffortEventPublisher,
           useValue: new BestEffortEventPublisher(mockEventBus),
         },
+        { provide: OutboxPublisher, useValue: mockOutboxPublisher },
         { provide: AuditLogService, useValue: mockAuditLogService },
         { provide: TokenService, useValue: mockTokenService },
         {
@@ -343,18 +372,26 @@ describe('AuthenticationService - Password Reset Flow', () => {
       expect(expiresAt ?? 0).toBeLessThanOrEqual(after + 60 * 60 * 1000 + 5000);
     });
 
-    it('should publish a PII-free PasswordResetRequested event (opaque references only)', async () => {
+    it('should enqueue a PII-free PasswordResetRequested event through the durable outbox (opaque references only)', async () => {
       const user = createMockUser();
       mockUserRepository.findOne.mockResolvedValue(user);
       mockUserRepository.save.mockResolvedValue(user);
 
       await service.initiatePasswordReset('test@example.com');
 
-      expect(mockEventBus.publish).toHaveBeenCalledTimes(1);
-      const publishCalls = mockEventBus.publish.mock.calls as readonly (readonly unknown[])[];
-      const event = publishCalls[0]?.[0] as PasswordResetRequestedEvent;
+      // SEC-HIGH-159: the delivery trigger is durable and commits with the
+      // token row — never the lossy best-effort path.
+      expect(mockEventBus.publish).not.toHaveBeenCalled();
+      const { event, manager, options } = enqueuedPasswordResetRequested();
+      expect(manager).toBe(mockTransactionManager);
+      expect(mockDataSource.transaction).toHaveBeenCalledTimes(1);
+      expect(options).toEqual({
+        aggregateId: 'user-uuid-123',
+        idempotencyKey: 'password-reset-requested:action-token-id',
+      });
       expect(event.eventType).toBe('PasswordResetRequested');
       expect(event.version).toBe(2);
+      expect(event.tenantId).toBe(user.tenantId);
       expect(event.userId).toBe('user-uuid-123');
       // WHAT: actionTokenId is the persisted ActionToken row id (the
       // command-receipt ledger design that landed with the enterprise
@@ -371,6 +408,36 @@ describe('AuthenticationService - Password Reset Flow', () => {
       expect(event.resetToken).toBeUndefined();
     });
 
+    it('SEC-HIGH-159: a super admin (no tenant) gets a platform-scoped, system-routed durable event', async () => {
+      const superAdmin = createMockUser({
+        id: 'super-admin-uuid',
+        role: Role.SUPER_ADMIN,
+        tenantId: null,
+      });
+      mockUserRepository.findOne.mockResolvedValue(superAdmin);
+      mockUserRepository.save.mockResolvedValue(superAdmin);
+
+      await service.initiatePasswordReset('test@example.com');
+
+      const { event, options } = enqueuedPasswordResetRequested();
+      expect(event.tenantId).toBe('system');
+      expect(event.userId).toBe('super-admin-uuid');
+      expect(event.actionTokenId).toBe('action-token-id');
+      expect(options).toEqual({
+        aggregateId: 'super-admin-uuid',
+        idempotencyKey: 'password-reset-requested:action-token-id',
+        routingScope: 'system',
+      });
+      // The token row keeps the NULL tenant of a platform principal.
+      const [actionTokenRow] = mockActionTokenRepository.create.mock.calls[0] as [
+        { tenantId: string | null; userId: string },
+      ];
+      expect(actionTokenRow).toEqual(
+        expect.objectContaining({ tenantId: null, userId: 'super-admin-uuid' }),
+      );
+      expect(mockEventBus.publish).not.toHaveBeenCalled();
+    });
+
     it('should silently return without error when user is not found (enumeration prevention)', async () => {
       mockUserRepository.findOne.mockResolvedValue(null);
 
@@ -380,6 +447,7 @@ describe('AuthenticationService - Password Reset Flow', () => {
       ).resolves.toBeUndefined();
 
       // Should NOT save or publish anything
+      expect(mockOutboxPublisher.enqueue).not.toHaveBeenCalled();
       expect(mockUserRepository.save).not.toHaveBeenCalled();
       expect(mockEventBus.publish).not.toHaveBeenCalled();
     });
@@ -559,7 +627,7 @@ describe('AuthenticationService - Password Reset Flow', () => {
         mockTransactionManager,
         expect.objectContaining({
           userId: 'user-uuid-123',
-          tenantId: 'tenant-uuid-123',
+          tenantId: '11111111-1111-4111-8111-111111111111',
           invalidatedAt: expect.any(Date),
           reason: 'password_reset',
         }),

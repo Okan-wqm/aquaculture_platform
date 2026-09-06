@@ -2,13 +2,14 @@
  * Event Bus Interfaces - Abstractions for event-driven communication
  * Supports multiple implementations (NATS, Kafka, RabbitMQ)
  */
+import type { EventId } from '@platform/event-contracts';
 
 /**
  * Base event interface
  * Matches BaseEvent from event-contracts for compatibility
  */
 export interface IEvent {
-  eventId: string | import('@platform/event-contracts').EventId;
+  eventId: string | EventId;
   eventType: string;
   /**
    * ISO 8601 timestamp string.

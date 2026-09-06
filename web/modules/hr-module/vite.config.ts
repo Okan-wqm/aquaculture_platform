@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react';
 import { federation } from '@module-federation/vite';
 import { resolve } from 'path';
 import { getCoreSharedConfig } from '../../shared-ui/src/federation/federationSharedConfig';
+import { resolveSharedUiAlias } from '../../shared-ui/src/federation/sharedUiAlias';
 import createVitestTestPolicy from '@aquaculture/testing/vitest';
 
 /**
@@ -11,7 +12,7 @@ import createVitestTestPolicy from '@aquaculture/testing/vitest';
  * FE-HIGH-004: Shared deps imported from federationSharedConfig.ts — single
  * source of truth with strictVersion:true enforced on ALL entries.
  */
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [
     react(),
     federation({
@@ -30,7 +31,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
-      '@aquaculture/shared-ui': resolve(__dirname, '../../shared-ui/dist'),
+      '@aquaculture/shared-ui': resolveSharedUiAlias(resolve(__dirname, '../../shared-ui'), mode),
       '@platform/pagination-contracts': resolve(
         __dirname,
         '../../../platform/libs/pagination-contracts/src/index.ts',
@@ -55,4 +56,4 @@ export default defineConfig({
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
     ...createVitestTestPolicy(),
   },
-});
+}));

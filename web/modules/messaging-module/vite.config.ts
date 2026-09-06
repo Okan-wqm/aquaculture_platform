@@ -12,6 +12,7 @@ import { defineConfig } from 'vitest/config';
 // vite.config does the same (the nx-boundary is relaxed for vite configs in
 // eslint.config.mjs, since a build config cannot go through the npm scope).
 import { getSharedConfigWithLucide } from '../../shared-ui/src/federation/federationSharedConfig';
+import { resolveSharedUiAlias } from '../../shared-ui/src/federation/sharedUiAlias';
 
 /**
  * Vite config — Messaging Panel microfrontend.
@@ -21,7 +22,7 @@ import { getSharedConfigWithLucide } from '../../shared-ui/src/federation/federa
  * shell's AuthContext / TenantContext / QueryClient are the ONE instance).
  * socket.io-client is a local dep (independent connections; not a singleton).
  */
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [
     react(),
     federation({
@@ -37,7 +38,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
-      '@aquaculture/shared-ui': resolve(__dirname, '../../shared-ui/dist'),
+      '@aquaculture/shared-ui': resolveSharedUiAlias(resolve(__dirname, '../../shared-ui'), mode),
     },
   },
   base: '/remotes/messaging-module/',
@@ -54,4 +55,4 @@ export default defineConfig({
     strictPort: true,
     cors: true,
   },
-});
+}));

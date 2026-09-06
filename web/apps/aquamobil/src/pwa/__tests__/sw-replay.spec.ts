@@ -61,9 +61,9 @@ vi.mock('@/utils/logger', () => ({
 vi.stubGlobal('crypto', webcrypto);
 
 import { getPendingOperations, queueOperation } from '../offline-queue';
+import { handleBackgroundSyncEvent, type BackgroundSyncScope } from '../sw-replay';
 
 import type { QueuedPayload } from '@/types';
-import { handleBackgroundSyncEvent, type BackgroundSyncScope } from '../sw-replay';
 
 // --------------------------------------------------------------------------
 // Fake SW global

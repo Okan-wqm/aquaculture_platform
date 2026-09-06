@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { hashPassword } from '@aquaculture/backend-common/auth';
 import { Role } from '@aquaculture/backend-common/decorators';
 import { bootPostgresContainer, HarnessContext, shutdownHarness } from '@platform/migration-harness';
-import { DataSource, FindOneOptions, QueryRunner, Repository, ObjectLiteral } from 'typeorm';
+import { DataSource, EntityManager, FindOneOptions, QueryRunner, Repository, ObjectLiteral } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import { applyTenantRlsToSchema, applyInfrastructureLedgerRls, getInfrastructureAuditLedgers, createRlsConnectionBootstrap, BypassRlsService } from '@aquaculture/backend-common/database';
 import { requestContextStorage } from '@aquaculture/backend-common/logging';
@@ -40,6 +40,7 @@ import { TokenService, OriginatingAccessSession, JwtPayload } from '../../module
 import { WebAuthnRegisterCredentialInput, WebAuthnVerifyLoginInput } from '../../modules/authentication/dto/webauthn.dto';
 
 import { Tenant, TenantStatus } from '../../modules/tenant/entities/tenant.entity';
+import { TenantProvisioningCommandService } from '../../modules/tenant/services/tenant-provisioning-command.service';
 import { RefreshToken } from '../../modules/authentication/entities/refresh-token.entity';
 import { User } from '../../modules/authentication/entities/user.entity';
 import { LockedAuthContext, snapshotCredentialProof } from '../../modules/authentication/services/credential-state';
@@ -196,19 +197,22 @@ describe.each(['fresh', 'populated'] as const)('authentication state: %s databas
     expect(current.credentialVersion).toBe(1);
   });
 
-  async function authenticationStack(hashed: boolean): Promise<{
+  async function authenticationStack(hashed: boolean, maxSessions = 3): Promise<{
     authentication: AuthenticationService;
     account: AccountService;
     tokens: TokenService;
     jwt: JwtService;
     audit: AuditLogService;
     invalidation: DurableUserTokenInvalidationService;
+    accessInvalidation: DurableAccessTokenInvalidationService;
+    lifecycle: TenantProvisioningCommandService;
     mfa: MfaService;
   }> {
     const keyPair = generateKeyPairSync('rsa', { modulusLength: 2048,
       publicKeyEncoding: { type: 'spki', format: 'pem' },
       privateKeyEncoding: { type: 'pkcs8', format: 'pem' } });
     const config = new ConfigService({ HASH_REFRESH_TOKENS: hashed, MIN_LOGIN_DURATION_MS: 0,
+      MAX_SESSIONS_PER_USER: maxSessions,
       JWT_PRIVATE_KEY: keyPair.privateKey, JWT_PUBLIC_KEY: keyPair.publicKey,
       JWT_KEY_ID: 'authentication-contract', JWT_EXPIRES_IN: '15m', MFA_ENCRYPTION_KEY: '11'.repeat(32),
       JWT_AUDIENCE: 'aquaculture-platform', JWT_ISSUER: 'aquaculture-platform' });
@@ -219,7 +223,7 @@ describe.each(['fresh', 'populated'] as const)('authentication state: %s databas
       UserSiteAssignment, Module, MobileUserSettings, ActionToken, Invitation, AuditLog];
     const module = await Test.createTestingModule({ providers: [
       AuthenticationService, AccountService, TokenService, AuditLogService, MobileSettingsService, MfaService,
-      DurableUserTokenInvalidationService, DurableAccessTokenInvalidationService, BypassRlsService,
+      DurableUserTokenInvalidationService, DurableAccessTokenInvalidationService, BypassRlsService, TenantProvisioningCommandService,
       ...repositories.map((entity) => ({ provide: getRepositoryToken(entity), useValue: new Repository<ObjectLiteral>(entity, orm.manager) })),
       { provide: DataSource, useValue: orm }, { provide: ConfigService, useValue: config },
       { provide: JwtService, useValue: jwt },
@@ -231,7 +235,8 @@ describe.each(['fresh', 'populated'] as const)('authentication state: %s databas
     ] }).compile();
     return { authentication: module.get(AuthenticationService), account: module.get(AccountService), tokens: module.get(TokenService),
       jwt, audit: module.get(AuditLogService), invalidation: module.get(DurableUserTokenInvalidationService),
-      mfa: module.get(MfaService) };
+      accessInvalidation: module.get(DurableAccessTokenInvalidationService),
+      lifecycle: module.get(TenantProvisioningCommandService), mfa: module.get(MfaService) };
   }
 
   async function principal(role: Role): Promise<User> {
@@ -405,13 +410,203 @@ describe.each(['fresh', 'populated'] as const)('authentication state: %s databas
     if (!backend) throw new Error('Missing blocker backend PID');
     const { pid } = backend;
     // Observe PostgreSQL's actual lock graph, not elapsed wall-clock sleeps.
-    for (let attempt = 0; attempt < 200; attempt += 1) {
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
       const rows = await migrator.query<Array<{ blocked: boolean }>>(
         `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))) AS blocked`, [pid]);
       if (rows[0]?.blocked) return;
     }
-    throw new Error('The competing authentication transaction never waited for the User lock');
+    throw new Error('The competing authentication transaction never waited for the identity lock');
   }
+
+  interface TransactionPause {
+    ready: Promise<QueryRunner>;
+    hold: (manager: EntityManager) => Promise<void>;
+    release: () => void;
+    restore: () => void;
+  }
+
+  function transactionPause(): TransactionPause {
+    let identify: (runner: QueryRunner) => void = () => { throw new Error('Pause was not initialized'); };
+    const ready = new Promise<QueryRunner>((resolve) => { identify = resolve; });
+    const gate = signal();
+    return { ready, release: gate.release, restore: () => undefined,
+      hold: async (manager) => {
+        if (!manager.queryRunner || !manager.queryRunner.isTransactionActive) {
+          throw new Error('Pause requires a live transaction manager');
+        }
+        identify(manager.queryRunner);
+        await gate.promise;
+      } };
+  }
+
+  function pauseAudit(audit: AuditLogService, action: string): TransactionPause {
+    const pause = transactionPause();
+    const append = audit.log.bind(audit);
+    const spy = jest.spyOn(audit, 'log').mockImplementation(async (dto, manager) => {
+      const result = await append(dto, manager);
+      if (dto.action === action) {
+        if (!(manager instanceof EntityManager)) throw new Error('Audit is outside its mutation transaction');
+        await pause.hold(manager);
+      }
+      return result;
+    });
+    return { ...pause, restore: () => spy.mockRestore() };
+  }
+
+  function pauseUserInvalidation(service: DurableUserTokenInvalidationService): TransactionPause {
+    const pause = transactionPause();
+    const enqueue = service.enqueue.bind(service);
+    const spy = jest.spyOn(service, 'enqueue').mockImplementation(async (manager, intent) => {
+      await enqueue(manager, intent);
+      await pause.hold(manager);
+    });
+    return { ...pause, restore: () => spy.mockRestore() };
+  }
+
+  function pauseAccessInvalidation(service: DurableAccessTokenInvalidationService): TransactionPause {
+    const pause = transactionPause();
+    const enqueue = service.enqueue.bind(service);
+    const spy = jest.spyOn(service, 'enqueue').mockImplementation(async (manager, intent) => {
+      await enqueue(manager, intent);
+      await pause.hold(manager);
+    });
+    return { ...pause, restore: () => spy.mockRestore() };
+  }
+
+  function observe<T>(operation: Promise<T>): Promise<PromiseSettledResult<T>> {
+    return operation.then((value) => ({ status: 'fulfilled' as const, value }), (reason: unknown) => ({ status: 'rejected' as const, reason }));
+  }
+
+  function valueOf<T>(outcome: PromiseSettledResult<T>): T {
+    if (outcome.status === 'rejected') throw outcome.reason;
+    return outcome.value;
+  }
+
+  async function orderedRace<T, U>(
+    first: () => Promise<T>, pause: TransactionPause, second: () => Promise<U>,
+  ): Promise<[PromiseSettledResult<T>, PromiseSettledResult<U>]> {
+    const leading = observe(first());
+    let competing: Promise<PromiseSettledResult<U>> | undefined;
+    try {
+      const blocker = await Promise.race([pause.ready, leading.then((outcome) => {
+        if (outcome.status === 'rejected') throw outcome.reason;
+        throw new Error('Leading transaction finished before the lock barrier');
+      })]);
+      competing = observe(second());
+      await waitForBlockedUserLock(blocker);
+      pause.release();
+      return await Promise.all([leading, competing]);
+    } finally {
+      pause.release();
+      await leading;
+      if (competing) await competing;
+      pause.restore();
+    }
+  }
+
+  it('a login that wins the User lock commits first and reset terminally revokes its complete family', async () => {
+    const user = await principal(Role.TENANT_ADMIN);
+    const action = await seedResetAction(user);
+    const { authentication, audit, jwt } = await authenticationStack(false);
+    const [login, reset] = await orderedRace(
+      () => authentication.login({ email: user.email, password }), pauseAudit(audit, 'LOGIN_SUCCESS'),
+      () => authentication.resetPassword(action.id, 'Reset-Racing-Credential-91!'));
+    const issued = valueOf(login);
+    expect(valueOf(reset)).toEqual({ success: true, loginRequired: true });
+    const claims = await jwt.verifyAsync<JwtPayload>(issued.accessToken);
+    const current = await orm.manager.findOneByOrFail(User, { id: user.id });
+    expect(current.accessTokenInvalidBeforeEpochSeconds).toBeGreaterThanOrEqual(claims.iat ?? 0);
+    expect(await migrator.query('SELECT "isRevoked", "revokedReason" FROM auth.refresh_tokens WHERE "userId" = $1', [user.id]))
+      .toEqual([{ isRevoked: true, revokedReason: 'Password reset' }]);
+    await expect(authentication.refreshToken(issued.refreshToken)).rejects.toThrow();
+  });
+
+  it('a reset that wins the User lock rejects a login authenticated against the old password', async () => {
+    const user = await principal(Role.TENANT_ADMIN);
+    const action = await seedResetAction(user);
+    const { authentication, audit } = await authenticationStack(false);
+    const [reset, login] = await orderedRace(
+      () => authentication.resetPassword(action.id, 'Reset-Racing-Credential-91!'), pauseAudit(audit, 'PASSWORD_RESET_SUCCESS'),
+      () => authentication.login({ email: user.email, password }));
+    expect(valueOf(reset)).toEqual({ success: true, loginRequired: true });
+    expect(login).toEqual({ status: 'rejected', reason: expect.objectContaining({ message: expect.stringContaining('credentials changed') }) });
+    expect(await migrator.query('SELECT id FROM auth.refresh_tokens WHERE "userId" = $1', [user.id])).toHaveLength(0);
+    expect(await migrator.query('SELECT status FROM auth.action_tokens WHERE id = $1', [action.id]))
+      .toEqual([{ status: ActionTokenStatus.CONSUMED }]);
+  });
+
+  it('suspension waits for the winning login, retries its serializable snapshot and revokes that committed family', async () => {
+    const user = await principal(Role.TENANT_ADMIN);
+    if (!user.tenantId) throw new Error('Missing tenant fixture');
+    const tenantId = user.tenantId;
+    const { authentication, lifecycle, audit, jwt } = await authenticationStack(false);
+    const command = { operationId: randomUUID(), tenantId, actor: { id: randomUUID(), type: 'user' as const }, reason: 'Authentication lock contract' };
+    const [login, suspension] = await orderedRace(
+      () => authentication.login({ email: user.email, password }), pauseAudit(audit, 'LOGIN_SUCCESS'),
+      () => lifecycle.suspendTenant(command));
+    const issued = valueOf(login);
+    expect(valueOf(suspension)).toMatchObject({ status: TenantStatus.SUSPENDED });
+    const claims = await jwt.verifyAsync<JwtPayload>(issued.accessToken);
+    expect((await orm.manager.findOneByOrFail(User, { id: user.id })).accessTokenInvalidBeforeEpochSeconds)
+      .toBeGreaterThanOrEqual(claims.iat ?? 0);
+    expect(await migrator.query('SELECT "isRevoked", "revokedReason" FROM auth.refresh_tokens WHERE "userId" = $1', [user.id]))
+      .toEqual([{ isRevoked: true, revokedReason: `Tenant ${TenantStatus.SUSPENDED}` }]);
+    expect(await migrator.query('SELECT status FROM auth.tenant_command_receipts WHERE "operationId" = $1', [command.operationId]))
+      .toEqual([{ status: 'SUCCEEDED' }]);
+    await expect(authentication.refreshToken(issued.refreshToken)).rejects.toThrow();
+  });
+
+  it('a suspension that wins the Tenant lock prevents a waiting login from minting', async () => {
+    const user = await principal(Role.TENANT_ADMIN);
+    if (!user.tenantId) throw new Error('Missing tenant fixture');
+    const tenantId = user.tenantId;
+    const { authentication, lifecycle, invalidation } = await authenticationStack(false);
+    const [suspension, login] = await orderedRace(
+      () => lifecycle.suspendTenant({ operationId: randomUUID(), tenantId,
+        actor: { id: randomUUID(), type: 'user' }, reason: 'Authentication lock contract' }),
+      pauseUserInvalidation(invalidation), () => authentication.login({ email: user.email, password }));
+    expect(valueOf(suspension)).toMatchObject({ status: TenantStatus.SUSPENDED });
+    expect(login).toMatchObject({ status: 'rejected' });
+    expect(await migrator.query('SELECT id FROM auth.refresh_tokens WHERE "userId" = $1', [user.id])).toHaveLength(0);
+  });
+
+  it('family admission that wins the User lock is included in the waiting logout terminal update', async () => {
+    const user = await principal(Role.TENANT_ADMIN);
+    const { authentication, audit, jwt } = await authenticationStack(false, 1);
+    const original = await authentication.login({ email: user.email, password });
+    const origin = await verifiedSession(jwt, original.accessToken);
+    const [login, logout] = await orderedRace(
+      () => authentication.login({ email: user.email, password }), pauseAudit(audit, 'LOGIN_SUCCESS'),
+      () => authentication.logout(origin));
+    const admitted = valueOf(login);
+    expect(valueOf(logout)).toBe(true);
+    const history = await migrator.query<Array<{ isRevoked: boolean; revokedReason: string }>>(
+      'SELECT "isRevoked", "revokedReason" FROM auth.refresh_tokens WHERE "userId" = $1', [user.id]);
+    expect(history).toHaveLength(2);
+    expect(history.every((row) => row.isRevoked && row.revokedReason === 'User logged out')).toBe(true);
+    await expect(authentication.refreshToken(original.refreshToken)).rejects.toThrow();
+    await expect(authentication.refreshToken(admitted.refreshToken)).rejects.toThrow();
+  });
+
+  it('logout that wins the User lock closes old history while a later password login establishes one new family', async () => {
+    const user = await principal(Role.TENANT_ADMIN);
+    const { authentication, accessInvalidation, jwt } = await authenticationStack(false, 1);
+    const original = await authentication.login({ email: user.email, password });
+    const origin = await verifiedSession(jwt, original.accessToken);
+    const [logout, login] = await orderedRace(() => authentication.logout(origin), pauseAccessInvalidation(accessInvalidation),
+      () => authentication.login({ email: user.email, password }));
+    expect(valueOf(logout)).toBe(true);
+    const admitted = valueOf(login);
+    await expect(authentication.refreshToken(original.refreshToken)).rejects.toThrow();
+    const history = await migrator.query<Array<{ familyId: string; isRevoked: boolean; revokedReason: string }>>(
+      'SELECT "familyId", "isRevoked", "revokedReason" FROM auth.refresh_tokens WHERE "userId" = $1', [user.id]);
+    expect(history).toHaveLength(2);
+    expect(new Set(history.map((row) => row.familyId)).size).toBe(2);
+    expect(history.filter((row) => !row.isRevoked)).toHaveLength(1);
+    expect(history.find((row) => row.isRevoked)?.revokedReason).toBe('User logged out');
+    await expect(authentication.refreshToken(admitted.refreshToken)).resolves.toMatchObject({ accessToken: expect.any(String) });
+  });
 
   async function webAuthnServiceFor(user: User, challenge: string,
     type: 'registration' | 'authentication', tokenService?: TokenService, auditService?: AuditLogService,

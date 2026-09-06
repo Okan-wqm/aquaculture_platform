@@ -46,7 +46,10 @@ describe('proof-owned pre-auth RLS context', () => {
       expect(getRequestContext()).toMatchObject({ userId: user.id,
         tenantId: user.tenantId ?? undefined, bypassRls: role === Role.SUPER_ADMIN });
     });
-    jest.spyOn(runner, 'startTransaction').mockImplementation(async () => { jest.replaceProperty(runner, 'isTransactionActive', true); });
+    jest.spyOn(runner, 'startTransaction').mockImplementation(async () => {
+      await runner.connect();
+      jest.replaceProperty(runner, 'isTransactionActive', true);
+    });
     jest.spyOn(runner, 'commitTransaction').mockImplementation(async () => { jest.replaceProperty(runner, 'isTransactionActive', false); });
     jest.spyOn(runner, 'rollbackTransaction').mockResolvedValue(undefined);
     jest.spyOn(runner, 'release').mockResolvedValue(undefined);

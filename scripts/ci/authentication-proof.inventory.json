@@ -113,7 +113,12 @@
         "--outputFile=../../artifacts/authentication-proof/shell.json"
       ],
       "cwd": "web/shell",
-      "report": "artifacts/authentication-proof/shell.json"
+      "report": "artifacts/authentication-proof/shell.json",
+      "required_files": [
+        "web/shell/src/pages/auth/__tests__/LoginForm.spec.tsx",
+        "web/shell/src/pages/auth/__tests__/AuthFormShell.spec.tsx",
+        "web/shell/src/layouts/__tests__/AuthLayout.spec.tsx"
+      ]
     },
     {
       "id": "mobile",
@@ -126,7 +131,15 @@
         "--outputFile=../../../artifacts/authentication-proof/mobile.json"
       ],
       "cwd": "web/apps/aquamobil",
-      "report": "artifacts/authentication-proof/mobile.json"
+      "report": "artifacts/authentication-proof/mobile.json",
+      "required_files": [
+        "web/apps/aquamobil/src/__tests__/react-runtime.spec.tsx",
+        "web/apps/aquamobil/src/components/__tests__/BarcodeScanButton.spec.tsx",
+        "web/apps/aquamobil/src/hooks/__tests__/useAuth-logout-wipe.spec.tsx",
+        "web/apps/aquamobil/src/hooks/__tests__/useOfflineQueue-sync-auth-lane.spec.tsx",
+        "web/apps/aquamobil/src/services/__tests__/authenticated-fetch-single-flight.spec.ts",
+        "web/apps/aquamobil/src/services/__tests__/auth-ready-barrier-reset.spec.ts"
+      ]
     },
     {
       "id": "auth-app",

@@ -36069,6 +36069,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/zcode/2026-09-06-mobile-asset-fail-closed.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/zcode/2026-09-06-one-rule-two-implementations.md",
       "prettier_managed": true
     },
@@ -45495,6 +45501,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/mobile-csp-headers.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/mobile-static-asset-fail-closed.spec.ts",
       "prettier_managed": true
     },
     {

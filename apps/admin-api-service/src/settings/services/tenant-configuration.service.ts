@@ -320,6 +320,9 @@ export class TenantConfigurationService {
     this.throwLegacyGone();
   }
 
+  // ADR-046: the summary no longer carries `mfaRequired` — tenant
+  // MFA-enforcement is owned and enforced by auth-service; this adapter must
+  // not fabricate a value for it (ADMIN-HIGH-010).
   getConfigurationSummary(tenantId: string): {
     userLimits: { current: number; max: number };
     storage: { used: number; total: number };
@@ -327,7 +330,6 @@ export class TenantConfigurationService {
     apiKeyCount: number;
     webhookCount: number;
     customDomain: string | null;
-    mfaRequired: boolean;
     enabledModules: string[];
   } {
     const config = this.defaultConfiguration(tenantId);
@@ -341,7 +343,6 @@ export class TenantConfigurationService {
       apiKeyCount: 0,
       webhookCount: 0,
       customDomain: null,
-      mfaRequired: config.securityConfig.mfaRequired,
       enabledModules: config.featureFlags.enabledModules,
     };
   }

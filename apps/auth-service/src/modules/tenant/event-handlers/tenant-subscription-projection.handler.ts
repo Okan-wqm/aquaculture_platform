@@ -5,6 +5,7 @@ import { TenantPlan, type TenantSubscriptionChangedEvent } from '@platform/event
 import { Repository } from 'typeorm';
 
 import { Tenant } from '../entities/tenant.entity';
+import { EventDedupService } from '@aquaculture/backend-common/event-dedup';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -39,6 +40,8 @@ export class TenantSubscriptionProjectionHandler
     @Optional()
     @Inject('EVENT_BUS')
     private readonly eventBus: IEventBus | undefined,
+    // SEC-MEDIUM-101 (2026-08-23 scan №46): shared dedup + apply-if-newer
+    private readonly eventDedup?: EventDedupService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -61,6 +64,42 @@ export class TenantSubscriptionProjectionHandler
   }
 
   async handle(event: TenantSubscriptionChangedEvent): Promise<HandlerOutcome> {
+    // SEC-MEDIUM-101 (№46): at-least-once delivery makes redelivery normal;
+    // claim the eventId so a replayed duplicate is a no-op.
+    if (this.eventDedup && event.eventId) {
+      const claimed = await this.eventDedup.claimEventId(
+        'auth:subscription-projection',
+        event.eventId,
+        event.tenantId,
+      );
+      if (!claimed) {
+        this.logger.log(
+          `TenantSubscriptionChanged eventId=${event.eventId} already projected — skipping`,
+        );
+        // PLAT-HIGH-902: a duplicate is DONE, not swallowed — the ack says so.
+        return HandlerOutcome.ack('duplicate eventId already projected');
+      }
+    }
+
+    // SEC-MEDIUM-101 (№46) apply-if-newer: a STALE event arriving after a
+    // newer projection must not regress the tenant's plan (the JWT planLevel
+    // claim reads the projected columns). The event's server-clock timestamp
+    // is compared against the last-accepted timestamp, tracked per tenant in
+    // the dedup service's Redis.
+    if (this.eventDedup && event.tenantId && event.timestamp) {
+      const isNewer = await this.eventDedup.isNewerAndRecord(
+        'auth:subscription-projection',
+        event.tenantId,
+        event.timestamp,
+      );
+      if (!isNewer) {
+        this.logger.log(
+          `TenantSubscriptionChanged for ${event.tenantId} is STALE (event=${event.timestamp}) — skipping to avoid regression`,
+        );
+        return HandlerOutcome.ack('stale event, a newer projection already applied');
+      }
+    }
+
     if (!event.tenantId || !UUID_REGEX.test(event.tenantId)) {
       this.logger.error(
         `TenantSubscriptionChanged has an invalid/missing tenantId ('${event.tenantId}') — projection skipped to avoid a cross-tenant write.`,

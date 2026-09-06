@@ -17,7 +17,7 @@
  *   expires_on  — the forcing function; the gate fails CLOSED the day it passes
  *   finding_id  — the registry row that tracks the real fix
  *
- * PROC-MEDIUM-020 is what this shape is for: nineteen `test` projects sat
+ * PROC-MEDIUM-025 is what this shape is for: nineteen `test` projects sat
  * downgraded to warnings for four months behind bare strings with no owner, no
  * clock and no finding.
  */

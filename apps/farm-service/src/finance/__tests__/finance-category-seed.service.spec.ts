@@ -38,26 +38,22 @@ import {
 } from '../services/finance-category-seed.service';
 import { DERIVED_COST_SOURCES } from '../services/derived-cost-sources';
 import type { FinanceCategory } from '../entities/finance-category.entity';
+import { stub } from '@aquaculture/testing';
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111';
-
-/** Fully-typed partial double (same helper pattern as the feeding spec). */
-function mock<T>(impl: Partial<T>): T {
-  return impl as T;
-}
 
 let sharedManager: EntityManager;
 
 describe('FinanceCategorySeedService', () => {
   function makeService() {
     const query = jest.fn().mockResolvedValue(undefined);
-    const manager = mock<EntityManager>({ query });
+    const manager = stub<EntityManager>({ query });
     sharedManager = manager;
-    const repository = mock<Repository<FinanceCategory>>({
+    const repository = stub<Repository<FinanceCategory>>({
       find: jest.fn().mockResolvedValue([]),
       manager,
     });
-    const dataSource = mock<DataSource>({});
+    const dataSource = stub<DataSource>({});
     const service = new FinanceCategorySeedService(repository);
     return { service, dataSource, manager, query };
   }

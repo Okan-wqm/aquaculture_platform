@@ -44,16 +44,32 @@ const REPO_ROOT = resolve(__dirname, '..', '..');
 const FARM_SRC = resolve(REPO_ROOT, 'apps/farm-service/src');
 
 /**
- * NATS event handlers that are LEGITIMATELY context-free (pure ack / no
- * tenant-scoped DB access). Keep this SMALL — every entry is justified inline.
- * Paths are POSIX-relative to apps/farm-service/src. Currently EMPTY: every NATS
- * event handler in farm-service does tenant-scoped DB work and already
- * establishes a context, so there is nothing to exempt. A future pure-ack
- * handler (e.g. one that only logs / publishes a follow-up with no DB access)
- * would be added here with a one-line reason.
+ * NATS event handlers that are LEGITIMATELY context-free (pure ack / no DB
+ * access at all). Keep this SMALL — every entry is justified inline. Paths are
+ * POSIX-relative to apps/farm-service/src. Currently EMPTY.
  */
 const CONTEXT_FREE_ALLOWLIST = new Set<string>([
   // (intentionally empty — see docstring)
+]);
+
+/**
+ * Handlers whose ONLY DB target is a CROSS-TENANT source-schema ledger,
+ * addressed with an explicit `farm.<table>` qualification.
+ *
+ * There the tenant is a COLUMN, not a schema: `withTenantContext` would pin a
+ * search_path the statement never consults — a misleading wrapper, not a
+ * safety control. What DOES protect those rows is the tenantId discriminator,
+ * so an entry here must (a) qualify every statement with `farm.`, (b) inject
+ * no repository token (which would route through search_path), and (c) fail
+ * closed on an invalid/absent `event.tenantId`. The staleness test below
+ * enforces all three — this is a narrow structural exemption, not a waiver.
+ */
+const CROSS_TENANT_LEDGER_ALLOWLIST = new Set<string>([
+  // W5 tenant-localization projection: the single write is
+  // `INSERT INTO farm.tenant_localization ... ON CONFLICT ("tenantId")`, a
+  // cross-tenant infrastructure ledger (MODULE_SCHEMAS['farm']
+  // .infrastructureTables) that is never cloned into tenant schemas.
+  'feeding-protocol/listeners/tenant-localization-projection.listener.ts',
 ]);
 
 /**
@@ -164,10 +180,19 @@ function establishesContext(code: string): boolean {
   return CONTEXT_ESTABLISHING.some((re) => re.test(code));
 }
 
+/**
+ * A handler that refuses to touch a tenant-scoped row on an untrustworthy
+ * tenantId — either by testing it or by parsing it through the event-contract
+ * scope helper, which throws on anything that is not a tenant UUID.
+ */
+const TENANT_IDENTITY_FAIL_CLOSED =
+  /isValidUUID\(\s*event\.tenantId\s*\)|requireTenantScope\(\s*event\s*\)/;
+
 describe('INVARIANT: farm NATS event handlers establish a tenant context before DB access', () => {
   it('every DB-touching NATS event handler references withTenantContext (or runInTenant*/explicit search_path pin)', () => {
     const violations = natsEventHandlers()
       .filter(({ relativePath }) => !CONTEXT_FREE_ALLOWLIST.has(relativePath))
+      .filter(({ relativePath }) => !CROSS_TENANT_LEDGER_ALLOWLIST.has(relativePath))
       .filter(({ code }) => hasDbAccess(code))
       .filter(({ code }) => !establishesContext(code))
       .map(({ relativePath }) => relativePath);
@@ -191,6 +216,48 @@ describe('INVARIANT: farm NATS event handlers establish a tenant context before 
       if (hasDbAccess(code)) {
         stale.push(
           `${relativePath} (now performs DB access — it must establish a tenant context; remove from allowlist)`,
+        );
+      }
+    }
+
+    expect(stale).toEqual([]);
+  });
+
+  it('keeps the cross-tenant-ledger allowlist honest — schema-qualified, repository-free, tenantId fail-closed', () => {
+    const stale: string[] = [];
+    for (const relativePath of CROSS_TENANT_LEDGER_ALLOWLIST) {
+      const absolute = resolve(FARM_SRC, relativePath);
+      if (!existsSync(absolute)) {
+        stale.push(`${relativePath} (file no longer exists)`);
+        continue;
+      }
+      const raw = readFileSync(absolute, 'utf-8');
+      const code = stripComments(raw);
+      if (!isNatsEventHandler(code)) {
+        stale.push(`${relativePath} (no longer a NATS event handler)`);
+        continue;
+      }
+      // (a) every statement qualified into the source schema.
+      if (!/\bfarm\.[a-z_]+/.test(code)) {
+        stale.push(
+          `${relativePath} (no farm.<table> qualification — it now depends on search_path)`,
+        );
+      }
+      // (b) no repository token (repositories route through search_path).
+      if (/@InjectRepository\b/.test(code)) {
+        stale.push(`${relativePath} (injects a repository — must establish a tenant context)`);
+      }
+      // (c) fail-closed tenant identity. Two spellings are accepted, and only
+      // two: the hand-rolled `isValidUUID(event.tenantId)` guard, and the
+      // canonical `requireTenantScope(event)` parser that supersedes it
+      // (SEC-HIGH-159 / PLAT-MEDIUM-910). The parser is the stronger of the
+      // pair — it THROWS on a malformed or platform-scoped tenantId instead of
+      // logging and returning, so a poison message is redelivered rather than
+      // silently acked — so a handler that has migrated must not read here as
+      // one that dropped its guard.
+      if (!TENANT_IDENTITY_FAIL_CLOSED.test(code)) {
+        stale.push(
+          `${relativePath} (does not validate event.tenantId — cross-tenant row corruption vector)`,
         );
       }
     }

@@ -7,6 +7,10 @@ import {
   isValidUUID,
 } from '@aquaculture/backend-common/database';
 import { RedisService } from '@aquaculture/backend-common/redis';
+import {
+  createStandardPaginatedResult,
+  type PaginationResultV1,
+} from '@platform/pagination-contracts';
 import { Repository, ILike, MoreThan, Between, FindOptionsWhere, DataSource } from 'typeorm';
 
 import { TenantListItemDto } from '../dto/tenant-detail.dto';
@@ -71,13 +75,11 @@ export class GetTenantBySlugHandler
   }
 }
 
-export interface PaginatedResult<T> {
-  data: T[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
+/**
+ * Re-exported from the platform authority so the admin tenant list and every
+ * other paginated surface hold the same contract.
+ */
+export type PaginatedResult<T> = PaginationResultV1<T>;
 
 /** Per-tenant resource counts sourced from the tenant's own schema (the SSoT). */
 interface TenantResourceCounts {
@@ -158,15 +160,14 @@ export class ListTenantsHandler
     // pair for the whole page, never per-tenant queries.
     const counts = await this.countTenantResources(tenants.map((tenant) => tenant.id));
 
-    return {
-      data: tenants.map((tenant) =>
+    return createStandardPaginatedResult<TenantListItemDto>(
+      tenants.map((tenant) =>
         this.toTenantListItem(tenant, counts.get(tenant.id) ?? { farmCount: 0, sensorCount: 0 }),
       ),
       total,
       page,
       limit,
-      totalPages: Math.ceil(total / limit),
-    };
+    );
   }
 
   private toTenantListItem(tenant: Tenant, resources: TenantResourceCounts): TenantListItemDto {

@@ -24,6 +24,7 @@ import { Invitation } from '../entities/invitation.entity';
 import { RefreshToken } from '../entities/refresh-token.entity';
 import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
 import { User } from '../entities/user.entity';
+import { WebAuthnCredential } from '../entities/webauthn-credential.entity';
 import { ActionTokenResolver } from '../services/action-token-resolver.service';
 import { AuthenticationService } from '../services/authentication.service';
 import { DurableAccessTokenInvalidationService } from '../services/durable-access-token-invalidation.service';
@@ -194,6 +195,9 @@ const mockTransactionManager = {
     if (entity === Tenant) return mockTenantRepository;
     return {};
   }),
+  // SEC-CRITICAL-002 (№38b): resetPassword deletes WebAuthn credentials
+  // inside the transaction via manager.delete
+  delete: jest.fn().mockResolvedValue({ affected: 0 }),
 };
 
 const mockDataSource = {
@@ -277,6 +281,13 @@ describe('AuthenticationService - Password Reset Flow', () => {
           useValue: mockUserModuleAssignmentRepository,
         },
         { provide: getRepositoryToken(Tenant), useValue: mockTenantRepository },
+        // ADR-046: the MFA-enrollment gate counts the user's registered
+        // WebAuthn credentials, so AuthenticationService injects the repo.
+        // Zero credentials keeps these suites on their existing paths.
+        {
+          provide: getRepositoryToken(WebAuthnCredential),
+          useValue: { count: jest.fn().mockResolvedValue(0) },
+        },
         { provide: DataSource, useValue: mockDataSource },
         { provide: JwtService, useValue: mockJwtService },
         { provide: ConfigService, useValue: mockConfigService },
@@ -368,7 +379,7 @@ describe('AuthenticationService - Password Reset Flow', () => {
 
       await service.initiatePasswordReset('test@example.com');
 
-      // SEC-HIGH-057: the delivery trigger is durable and commits with the
+      // SEC-HIGH-159: the delivery trigger is durable and commits with the
       // token row — never the lossy best-effort path.
       expect(mockEventBus.publish).not.toHaveBeenCalled();
       const { event, manager, options } = enqueuedPasswordResetRequested();
@@ -397,7 +408,7 @@ describe('AuthenticationService - Password Reset Flow', () => {
       expect(event.resetToken).toBeUndefined();
     });
 
-    it('SEC-HIGH-057: a super admin (no tenant) gets a platform-scoped, system-routed durable event', async () => {
+    it('SEC-HIGH-159: a super admin (no tenant) gets a platform-scoped, system-routed durable event', async () => {
       const superAdmin = createMockUser({
         id: 'super-admin-uuid',
         role: Role.SUPER_ADMIN,
@@ -624,6 +635,27 @@ describe('AuthenticationService - Password Reset Flow', () => {
       const intent = mockDurableUserTokenInvalidation.enqueue.mock.calls[0]?.[1];
       expect(mockDurableUserTokenInvalidation.applyImmediately).toHaveBeenCalledWith(intent);
       expect(mockSessionManager.revokeAllSessions).toHaveBeenCalledWith('user-uuid-123');
+    });
+
+    it('should delete all WebAuthn credentials after password reset (SEC-CRITICAL-002 №38b)', async () => {
+      const user = createMockUser({
+        passwordResetToken: tokenHash,
+        passwordResetExpires: new Date(Date.now() + 60 * 60 * 1000),
+      });
+      (mockQueryBuilder.getOne as jest.Mock).mockResolvedValue(user);
+      mockUserRepository.save.mockResolvedValue(user);
+      mockRefreshTokenRepository.update.mockResolvedValue({ affected: 0 });
+      mockRefreshTokenRepository.create.mockReturnValue({ id: 'rt-1' });
+      mockRefreshTokenRepository.save.mockResolvedValue({ id: 'rt-1' });
+      mockUserModuleAssignmentRepository.find.mockResolvedValue([]);
+
+      await service.resetPassword(plainToken, 'NewPass123!');
+
+      // A biometric credential planted with a stolen token must NOT survive
+      // the victim rotating their password.
+      expect(mockTransactionManager.delete).toHaveBeenCalledWith(WebAuthnCredential, {
+        userId: 'user-uuid-123',
+      });
     });
 
     it('fails closed before commit when password-reset invalidation cannot be enqueued', async () => {

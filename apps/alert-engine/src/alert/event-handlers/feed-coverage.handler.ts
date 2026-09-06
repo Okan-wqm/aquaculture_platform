@@ -8,6 +8,7 @@
  */
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
 import { IEventBus, IEventHandler, HandlerOutcome, outcomeForError } from '@platform/event-bus';
+import { requiresDurableDelivery } from '@platform/event-contracts';
 import type {
   BaseEvent,
   FeedStockoutForecastEvent,
@@ -77,7 +78,12 @@ export class FeedCoverageEventHandler implements IEventHandler<BaseEvent>, OnMod
         `Error creating feed-coverage incident: ${(error as Error).message}`,
         (error as Error).stack,
       );
-      return outcomeForError('feed-coverage', error);
+      // `FeedStockoutForecast` + `FeedTransitionUpcoming` registry'de
+      // `reproducible` — ertesi 07:00 süpürmesi snapshot'ı yeniden hesaplayıp
+      // hâlâ geçerli olan sinyali yeniden yayar (W7 / D-B5).
+      return outcomeForError('feed-coverage', error, {
+        reproducible: !requiresDurableDelivery(event.eventType),
+      });
     }
   }
 }

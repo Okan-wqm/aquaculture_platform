@@ -6,6 +6,8 @@ import {
   type TenantSubscriptionChangedEvent,
 } from '@platform/event-contracts';
 
+import { EventDedupService } from '@aquaculture/backend-common/event-dedup';
+
 import { Tenant } from '../../entities/tenant.entity';
 import { TenantSubscriptionProjectionHandler } from '../tenant-subscription-projection.handler';
 
@@ -37,6 +39,13 @@ describe('TenantSubscriptionProjectionHandler (DATA-LOW-001)', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TenantSubscriptionProjectionHandler,
+        {
+          provide: EventDedupService,
+          useValue: {
+            claimEventId: jest.fn().mockResolvedValue(true),
+            isNewerAndRecord: jest.fn().mockResolvedValue(true),
+          },
+        },
         { provide: getRepositoryToken(Tenant), useValue: { update } },
         { provide: 'EVENT_BUS', useValue: { subscribeWildcard } },
       ],

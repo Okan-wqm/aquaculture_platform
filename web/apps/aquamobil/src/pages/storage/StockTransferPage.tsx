@@ -242,7 +242,7 @@ export function StockTransferPage(): JSX.Element {
     };
 
     try {
-      // Queue-first (MOB-CRITICAL-018): online, addToQueue drains immediately;
+      // Queue-first (MOB-CRITICAL-021): online, addToQueue drains immediately;
       // offline, the transfer waits for reconnect. The success screen shows the
       // op's real sync status either way.
       const result = await addToQueue('transferStock', input);
@@ -261,14 +261,37 @@ export function StockTransferPage(): JSX.Element {
 
   // ---- Success screen ------------------------------------------------------
 
+  // -- Queued screen ---------------------------------------------------------
+  // Queue-first (MOB-CRITICAL-021): a write is on the device until the queue
+  // drains it, online or not. QueuedStatusBadge reports the operation's real
+  // state, so a rejection during sync surfaces as "Sync Failed" instead of
+  // hiding behind a tick the user already left; a deduped double-tap renders
+  // "Already recorded" (FE-HIGH-050).
   if (queuedOperationId !== '') {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-amber-50 dark:bg-amber-900/10">
+      <div className="flex flex-col items-center justify-center min-h-screen bg-amber-50 dark:bg-amber-900/10 px-6">
         {wasDuplicate ? (
           <AlreadyRecordedNotice />
         ) : (
-          <QueuedStatusBadge operationId={queuedOperationId} />
+          <>
+            <div className="w-20 h-20 bg-amber-100 dark:bg-amber-900/30 rounded-full flex items-center justify-center mb-4">
+              <Package size={48} className="text-amber-600" />
+            </div>
+            <h2 className="text-xl font-bold text-amber-700 dark:text-amber-300">Saved to device</h2>
+            <p className="text-amber-600 dark:text-amber-400 text-sm mt-1 text-center">
+              This transfer is not recorded until it reaches the server.
+            </p>
+            <div className="mt-4">
+              <QueuedStatusBadge operationId={queuedOperationId} />
+            </div>
+          </>
         )}
+        <button
+          onClick={() => navigate('/storage')}
+          className="mt-6 px-5 py-2.5 rounded-xl bg-amber-600 text-white font-medium touch-feedback"
+        >
+          Back to storage
+        </button>
       </div>
     );
   }

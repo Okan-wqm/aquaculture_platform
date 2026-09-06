@@ -21,6 +21,9 @@
       "@/*": ["src/*"],
       "@aquaculture/shared-ui": ["../../shared-ui/src"],
       "@platform/shared-ui/*": ["../../shared-ui/src/*"],
+      "@platform/pagination-contracts": [
+        "../../../platform/libs/pagination-contracts/src/index.ts"
+      ],
       "@aquaculture/farm-shared": ["../../../libs/farm-shared/src"],
       "@platform/aquaculture-engines": ["../../../libs/aquaculture-engines/src/index.ts"]
     }

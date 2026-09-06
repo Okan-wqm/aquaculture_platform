@@ -64,7 +64,7 @@ describe('dropSchemaCreatedByFailedProvision (INFRA-HIGH-150)', () => {
   });
 
   it('leaves a schema that pre-existed this run untouched', async () => {
-    // A retry after ADMIN-HIGH-009 meets the schema its first attempt left;
+    // A retry after ADMIN-HIGH-094 meets the schema its first attempt left;
     // the ledger-driven fan-out resumes it, so it must not be dropped.
     const { executor, issued } = scriptedExecutor();
 

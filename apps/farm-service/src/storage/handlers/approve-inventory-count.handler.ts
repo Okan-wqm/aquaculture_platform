@@ -20,17 +20,23 @@ import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { ApproveInventoryCountCommand } from '../commands/approve-inventory-count.command';
 import { InventoryCount, InventoryCountStatus } from '../entities/inventory-count.entity';
 import { InventoryCountItem } from '../entities/inventory-count-item.entity';
-import { StorageInventory } from '../entities/storage-inventory.entity';
-import { StockMovement, MovementType } from '../entities/stock-movement.entity';
+import { StorageItemType } from '../entities/storage-inventory.entity';
+import { StockMovementService } from '../services/stock-movement.service';
+import { MovementType } from '../entities/stock-movement.entity';
 
 @CommandHandler(ApproveInventoryCountCommand)
-export class ApproveInventoryCountHandler implements ICommandHandler<ApproveInventoryCountCommand, InventoryCount> {
+export class ApproveInventoryCountHandler
+  implements ICommandHandler<ApproveInventoryCountCommand, InventoryCount>
+{
   private readonly logger = new Logger(ApproveInventoryCountHandler.name);
 
   constructor(
     @InjectRepository(InventoryCount)
     private readonly countRepository: Repository<InventoryCount>,
     private readonly dataSource: DataSource,
+    // Kanonik envanter mutasyon sink'i — roll-up, düşük-stok sinyali,
+    // outbox ve idempotency onun sözleşmesinde (FARM-HIGH-239).
+    private readonly stockMovementService: StockMovementService,
   ) {}
 
   async execute(command: ApproveInventoryCountCommand): Promise<InventoryCount> {
@@ -48,7 +54,7 @@ export class ApproveInventoryCountHandler implements ICommandHandler<ApproveInve
     if (count.status !== InventoryCountStatus.COMPLETED) {
       throw new BadRequestException(
         `Cannot approve a count with status "${count.status}". ` +
-        `Only COMPLETED counts can be approved.`,
+          `Only COMPLETED counts can be approved.`,
       );
     }
 
@@ -59,86 +65,41 @@ export class ApproveInventoryCountHandler implements ICommandHandler<ApproveInve
     if (count.performedBy === userId) {
       throw new ForbiddenException(
         'Separation of duties violation: the approver must be a different user ' +
-        'than the person who performed the count (SOC2 CC3.4).',
+          'than the person who performed the count (SOC2 CC3.4).',
       );
     }
 
     return this.dataSource.transaction(async (manager) => {
       const countRepo = tenantManagerRepo(manager, InventoryCount, tenantId);
-      const inventoryRepo = tenantManagerRepo(manager, StorageInventory, tenantId);
-      const movementRepo = tenantManagerRepo(manager, StockMovement, tenantId);
 
-      // Process each item with a non-zero variance
+      // Sayım farkları KANONİK mutasyon sink'inden geçer (FARM-MEDIUM-267 /
+      // FARM-HIGH-239). Elle yazılan hareket + projeksiyon ikilisi
+      // `recordMovement`'ın yaptığı her şeyi atlıyordu: `Feed.quantity`
+      // roll-up'ı güncellenmiyor (forecast fantom stokla çalışıyor),
+      // `LowStockDetected` doğmuyor (sayım kaynaklı düşüş alarm üretmiyor),
+      // outbox event'i ve idempotency yazılmıyordu.
       for (const item of count.items) {
         const variance = Number(item.variance ?? 0);
         if (variance === 0) continue;
 
-        const actualQuantity = Number(item.actualQuantity ?? 0);
-
-        // Create an ADJUSTMENT stock movement for the audit trail.
-        // Positive variance (surplus) -> adjustment IN to the location.
-        // Negative variance (shrinkage) -> adjustment OUT from the location.
-        const movement = movementRepo.create({
-          tenantId,
-          movementType: MovementType.ADJUSTMENT,
-          itemType: item.itemType,
-          itemId: item.itemId,
-          itemName: item.itemName,
-          quantity: Math.abs(variance),
-          unit: item.unit,
-          // For surplus: stock appears at the location (toLocationId).
-          // For shrinkage: stock disappears from the location (fromLocationId).
-          fromLocationId: variance < 0 ? count.storageLocationId : undefined,
-          toLocationId: variance > 0 ? count.storageLocationId : undefined,
-          reference: `IC:${count.countNumber}`,
-          reason: `Inventory count adjustment: variance=${variance} ${item.unit}`,
-          lotNumber: item.lotNumber,
-          performedBy: userId,
-          performedByName: userName,
-          performedAt: new Date(),
-        });
-        await movementRepo.save(movement);
-
-        // Update storage_inventory to match the physical count.
-        // Find the specific inventory row for this item+lot+location combination.
-        const inventory = await inventoryRepo.findOne({
-          where: {
-            tenantId,
-            storageLocationId: count.storageLocationId,
-            itemType: item.itemType,
+        await this.stockMovementService.recordMovement(
+          manager,
+          {
+            movementType: MovementType.ADJUSTMENT,
+            itemType: item.itemType as StorageItemType,
             itemId: item.itemId,
-            lotNumber: item.lotNumber ?? undefined,
-          },
-        });
-
-        if (inventory) {
-          if (actualQuantity <= 0) {
-            // Physical count shows zero — remove the inventory row entirely.
-            // Keeping zero-quantity rows clutters inventory views and confuses
-            // future counts with "ghost" items.
-            await inventoryRepo.remove(inventory);
-          } else {
-            inventory.quantity = actualQuantity;
-            inventory.updatedBy = userId;
-            await inventoryRepo.save(inventory);
-          }
-        } else if (actualQuantity > 0) {
-          // Item was found physically but has no system record — create one.
-          // This handles edge cases where inventory was manually placed in a
-          // location without going through the normal stock movement process.
-          const newInventory = inventoryRepo.create({
-            tenantId,
-            storageLocationId: count.storageLocationId,
-            itemType: item.itemType,
-            itemId: item.itemId,
-            quantity: actualQuantity,
-            unit: item.unit,
+            quantity: Math.abs(variance),
+            // Fazla (surplus) lokasyona GİRER, eksik (shrinkage) lokasyondan ÇIKAR.
+            fromLocationId: variance < 0 ? count.storageLocationId : undefined,
+            toLocationId: variance > 0 ? count.storageLocationId : undefined,
             lotNumber: item.lotNumber,
-            createdBy: userId,
-            updatedBy: userId,
-          });
-          await inventoryRepo.save(newInventory);
-        }
+            reference: `IC:${count.countNumber}`,
+            reason: `Inventory count adjustment: variance=${variance} ${item.unit}`,
+            // Onayın tekrarı çift düzeltme yazamaz.
+            idempotencyKey: `ic-approve-${count.id}-${item.id}`,
+          },
+          { tenantId, userId, userName },
+        );
       }
 
       // Finalize the count record
@@ -151,8 +112,8 @@ export class ApproveInventoryCountHandler implements ICommandHandler<ApproveInve
 
       this.logger.log(
         `Inventory count ${count.countNumber} approved by ${userId}, ` +
-        `${count.items.filter(i => Number(i.variance ?? 0) !== 0).length} adjustments applied, ` +
-        `tenant ${tenantId}`,
+          `${count.items.filter((i) => Number(i.variance ?? 0) !== 0).length} adjustments applied, ` +
+          `tenant ${tenantId}`,
       );
 
       return savedCount;

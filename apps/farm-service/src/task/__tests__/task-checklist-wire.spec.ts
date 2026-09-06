@@ -1,5 +1,5 @@
 /**
- * Task checklist wire shape (FARM-HIGH-301).
+ * Task checklist wire shape (FARM-HIGH-320).
  *
  * `checklistItems` used to be a `JSON` scalar that echoed whatever the JSONB
  * row held — including rows written by the retired `toggleChecklistItem` flip
@@ -22,7 +22,7 @@ const taskService: Pick<TaskService, never> = {};
 const recurringTaskService: Pick<RecurringTaskService, never> = {};
 const queryBus: Pick<QueryBus, never> = {};
 
-describe('checklistItems wire shape (FARM-HIGH-301)', () => {
+describe('checklistItems wire shape (FARM-HIGH-320)', () => {
   const taskResolver = new TaskResolver(taskService as TaskService, queryBus as QueryBus);
   const templateResolver = new RecurringTemplateResolver(
     recurringTaskService as RecurringTaskService,

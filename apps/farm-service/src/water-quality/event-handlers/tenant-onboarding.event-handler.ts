@@ -68,6 +68,7 @@ import {
 import { WaterQualityParameterConfigSeederService } from '../services/water-quality-parameter-config-seeder.service';
 import { SpeciesSeederService } from '../../species/services/species-seeder.service';
 import { FeedingProtocolSeederService } from '../../feed/services/feeding-protocol-seeder.service';
+import { FeedingReadinessCheckerService } from '../../feeding-protocol/services/feeding-readiness-checker.service';
 import { RegulatorySettingsSeederService } from '../../regulatory/services/regulatory-settings-seeder.service';
 import { EquipmentTypeCatalogCheckerService } from '../../equipment/services/equipment-type-catalog-checker.service';
 import { FinanceCategorySeedService } from '../../finance/services/finance-category-seed.service';
@@ -92,6 +93,7 @@ export class TenantOnboardingEventHandler
     private readonly wqSeeder: WaterQualityParameterConfigSeederService,
     private readonly speciesSeeder: SpeciesSeederService,
     private readonly feedingProtocolSeeder: FeedingProtocolSeederService,
+    private readonly feedingReadinessChecker: Pick<FeedingReadinessCheckerService, 'check'>,
     private readonly regulatorySettingsSeeder: RegulatorySettingsSeederService,
     private readonly equipmentTypeChecker: EquipmentTypeCatalogCheckerService,
     private readonly financeCategorySeeder: FinanceCategorySeedService,
@@ -155,6 +157,18 @@ export class TenantOnboardingEventHandler
       summaries.push(
         await this.runSeeder('feeding-protocols', () =>
           this.feedingProtocolSeeder.seedDefaults(event.tenantId),
+        ),
+      );
+
+      // W8/FARM-MEDIUM-284 — v2 yemleme hazırlığı KONTROLÜ (satır yazmaz).
+      // Yukarıdaki v1 protokol tohumlaması cutover'dan sonra motorun OKUMADIĞI
+      // bir tabloyu doldurur; bu kontrol tenant'ın FİİLEN yemleyip
+      // yemleyemeyeceğini (≥1 ACTIVE v2 protokol) ölçer ve boşluğu
+      // provisioning anında yüksek sesle raporlar — ilk stoklamayı ve 06:00
+      // UnfedUnitDetected'ı beklemeden.
+      summaries.push(
+        await this.runSeeder('feeding-readiness-v2', () =>
+          this.feedingReadinessChecker.check(event.tenantId),
         ),
       );
 

@@ -202,7 +202,7 @@ import {
   isPermanentlyFailed,
 } from '../offline-queue';
 
-// MOB-HIGH-019: the queued payload is the generated RecordMortalityInput minus the
+// MOB-HIGH-022: the queued payload is the generated RecordMortalityInput minus the
 // envelope, and the server requires `observedAt` — a fixture without it no longer
 // type-checks, which is the point.
 const OBSERVED_AT = '2026-01-01T00:00:00.000Z';
@@ -989,7 +989,7 @@ describe('Offline Queue', () => {
       expect(updated.lastError.length).toBeLessThanOrEqual(200);
     });
 
-    // MOB-CRITICAL-018 class: the server's extensions.code classifies a replay
+    // MOB-CRITICAL-021 class: the server's extensions.code classifies a replay
     // failure. A permanent code is final after ONE attempt; a transport error
     // (no code) and an unknown code keep retrying; a legacy row without a code
     // still falls back to the message heuristics.

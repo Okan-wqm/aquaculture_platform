@@ -11,6 +11,9 @@ export type { ButtonProps } from './Button';
 export { Card, CardGrid, MetricCard } from './Card';
 export type { CardProps, CardGridProps, MetricCardProps } from './Card';
 
+export { Avatar } from './Avatar';
+export type { AvatarProps } from './Avatar';
+
 // Table
 export { Table } from './Table';
 export type { TableProps, TableColumn } from './Table';

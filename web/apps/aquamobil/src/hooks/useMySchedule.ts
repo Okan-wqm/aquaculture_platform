@@ -25,7 +25,7 @@ export interface ShiftInfo {
   colorCode: string | null;
 }
 
-// MOB-HIGH-019: derived from the generated result of MY_WEEKLY_PLAN_QUERY. The
+// MOB-HIGH-022: derived from the generated result of MY_WEEKLY_PLAN_QUERY. The
 // hand-written mirror declared `entryType: 'work' | 'off' | …` and
 // `status: 'draft' | 'published'` while the HR subgraph serializes the enum
 // NAMES ('WORK', 'PUBLISHED') — every `entryType === 'work'` comparison on the

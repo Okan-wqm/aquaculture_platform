@@ -1,6 +1,6 @@
 /**
  * ActionTokenResolver — the one way an emailed link segment becomes a token
- * lookup (SEC-HIGH-056). These tests pin the resolution rules, not a DB.
+ * lookup (SEC-HIGH-158). These tests pin the resolution rules, not a DB.
  */
 import { EntityManager } from 'typeorm';
 
@@ -82,7 +82,7 @@ describe('ActionTokenResolver', () => {
     expect(resolution).toEqual({ kind: 'unresolvable' });
   });
 
-  it('resolves a 64-hex segment to raw-token with its sha256 (pre-deploy links, SEC-LOW-060)', async () => {
+  it('resolves a 64-hex segment to raw-token with its sha256 (pre-deploy links, SEC-LOW-160)', async () => {
     const resolution = await resolver.resolve(
       RAW_TOKEN,
       ActionTokenPurpose.INVITATION,

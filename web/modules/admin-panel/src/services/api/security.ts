@@ -13,6 +13,7 @@ import type {
   SecurityEventStatus,
   BackendActivityLog,
   BackendAuditLog,
+  BackendComplianceCheckResult,
   BackendComplianceReport,
   BackendDataSubjectRequest,
   BackendSecurityEvent,
@@ -183,5 +184,5 @@ export const securityApi = {
 
   // Compliance Checks
   getComplianceChecks: (framework: string) =>
-    apiFetch<Array<{ id: string; category: string; requirement: string; description: string; status: string; evidence?: string; lastChecked: string; nextReview: string }>>(`/security/compliance/checks/${framework}`, platformScope),
+    apiFetch<BackendComplianceCheckResult[]>(`/security/compliance/checks/${framework}`, platformScope),
 };

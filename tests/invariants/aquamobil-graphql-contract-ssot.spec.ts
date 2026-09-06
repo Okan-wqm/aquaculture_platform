@@ -1,7 +1,7 @@
 /**
  * AquaMobil GraphQL contract SSoT — the client's write and read shapes come
- * from graphql-codegen, never from a hand-maintained mirror (MOB-HIGH-019,
- * MOB-CRITICAL-018).
+ * from graphql-codegen, never from a hand-maintained mirror (MOB-HIGH-022,
+ * MOB-CRITICAL-021).
  *
  * WHY: the water-quality form failed on every submit for weeks because a
  * hand-written `CreateWaterQualityInput` carried a `parameters` field the
@@ -23,6 +23,16 @@
  *   (f) every registry mutation has a generated `<Name>Document`;
  *   (g) `graphqlRequest` has no `DocumentNode` overload;
  *   (h) the codegen CI gate runs on every `web/apps/aquamobil/src/**` change.
+ *
+ * SUPERSEDES `tests/invariants/aquamobil-input-mirror-parity.spec.ts` (deleted
+ * in this PR). That gate compared each hand-written mirror against the
+ * farm-service subgraph and required at least eleven of them to exist, so it
+ * was a tier-3 backstop for a mirror set this branch removes entirely. With
+ * zero mirrors its own coverage floor fails, and keeping it green would mean
+ * re-introducing the very declarations (a) forbids. Its reach — a mirror may
+ * not carry a field the input lacks, nor omit a required one — is subsumed by
+ * deriving the payload from `*MutationVariables` in (d): the compiler now
+ * rejects both at the callsite rather than a spec reporting them afterwards.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
@@ -127,7 +137,7 @@ const NON_GRAPHQL_PAYLOADS_ALLOWED: ReadonlyMap<string, string> = new Map([
 /** A *Payload alias is derived when its RHS reaches the queue contract. */
 const DERIVED_PAYLOAD_RX = /QueuedPayload<|QueuedPayloadByType\[|OperationPayload<|QueueInput</;
 
-describe('AquaMobil GraphQL contract SSoT (MOB-HIGH-019 / MOB-CRITICAL-018)', () => {
+describe('AquaMobil GraphQL contract SSoT (MOB-HIGH-022 / MOB-CRITICAL-021)', () => {
   const decls = declarations();
 
   it('(a) declares no hand-written *Input type under src — inputs are generated', () => {

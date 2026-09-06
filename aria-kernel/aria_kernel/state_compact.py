@@ -83,6 +83,12 @@ def compact_state(
     # the CLI and the lane (ARIA-AUDIT-001).
     now = datetime.now(timezone.utc)
     results["hot_artifacts_removed"] = _strip_hot_artifacts(root, cutoff, dry_run)
+    # ORPHAN-CRITICAL-805 — the index has to follow the files it describes.
+    # Deleting a cycle's artifacts and leaving its index rows behind makes
+    # verify_artifacts report `run_artifact_missing` forever, which turns
+    # every future cycle's runtime_status into integrity_failed no matter
+    # how the night actually went.
+    results["artifact_index_rows_dropped"] = _compact_artifact_index(root, dry_run)
     results["fates_removed"] = _strip_discovery_fates(root, now, dry_run)
 
     if not dry_run:
@@ -154,6 +160,56 @@ def _strip_hot_artifacts(root: Path, cutoff: datetime, dry_run: bool) -> int:
                 shutil.rmtree(item, ignore_errors=True)
             removed += 1
     return removed
+
+
+def _compact_artifact_index(root: Path, dry_run: bool) -> int:
+    """Drop index rows whose artifact file is no longer on disk.
+
+    WHY this exists (ORPHAN-CRITICAL-805). `_strip_hot_artifacts` rmtree's
+    whole cycle directories, and nothing updated
+    `run-artifacts/artifact-index.jsonl`. The index therefore grew without
+    bound while the files were kept to a window, and `verify_artifacts`
+    walks the INDEX: 158 rows across 19 pruned cycles against 18 files
+    across 2 live ones, measured on the runner's store 2026-09-04. Every
+    row it cannot open is a `run_artifact_missing` issue, the verdict comes
+    back `valid: False`, and `cycle._runtime_status` reads that as
+    `integrity_failed`. That is why the nightly cycle had not reported
+    success since 2026-08-19 while its adapters were green: the failure
+    described the store's bookkeeping, not the night's work.
+
+    Presence on disk is the predicate rather than the retention cutoff,
+    because it is the same question `verify_artifacts` asks. That also
+    heals an index that a previous compaction already stranded, instead of
+    only preventing the next one. Dropped rows go to the archive like every
+    other surface: compaction's contract is that nothing is lost.
+    """
+    from .runtime_artifacts import artifact_index_path, run_artifacts_root
+
+    path = artifact_index_path(root)
+    if not path.exists():
+        return 0
+    rows = load_declared_jsonl(path, expected_surface="runtime_artifact_index")
+    artifacts_root = run_artifacts_root(root)
+    kept: list[dict[str, Any]] = []
+    dropped: list[dict[str, Any]] = []
+    for row in rows:
+        uri = str(row.get("current_uri") or "")
+        # A row with no uri cannot name a file and cannot be verified; it is
+        # already an issue in verify_artifacts, so it goes with the rest.
+        if uri and (artifacts_root.parent / uri).is_file():
+            kept.append(row)
+        else:
+            dropped.append(row)
+    if not dropped or dry_run:
+        return len(dropped)
+    _archive_stripped(root, "artifact_index", dropped)
+    rewrite_declared_jsonl(
+        path,
+        kept,
+        expected_surface="runtime_artifact_index",
+        migration_id=f"compact_artifact_index_{utc_now()}",
+    )
+    return len(dropped)
 
 
 def _strip_discovery_fates(root: Path, now: datetime, dry_run: bool) -> int:

@@ -7,6 +7,8 @@ const mockRedisEval = jest.fn<
 >();
 const mockRedisGet = jest.fn();
 const mockRedisMget = jest.fn();
+const mockRedisIncrby = jest.fn();
+const mockRedisExpire = jest.fn();
 const mockRedisQuit = jest.fn();
 
 jest.mock('ioredis', () =>
@@ -18,6 +20,8 @@ jest.mock('ioredis', () =>
     eval: mockRedisEval,
     get: mockRedisGet,
     mget: mockRedisMget,
+    incrby: mockRedisIncrby,
+    expire: mockRedisExpire,
   })),
 );
 
@@ -31,12 +35,16 @@ describe('RedisService key prefixing', () => {
     mockRedisEval.mockReset();
     mockRedisGet.mockReset();
     mockRedisMget.mockReset();
+    mockRedisIncrby.mockReset();
+    mockRedisExpire.mockReset();
     mockRedisQuit.mockReset();
     mockRedisSet.mockResolvedValue('OK');
     mockRedisSetex.mockResolvedValue('OK');
     mockRedisEval.mockResolvedValue(1_000_000);
     mockRedisGet.mockResolvedValue(null);
     mockRedisMget.mockResolvedValue([null, null]);
+    mockRedisIncrby.mockResolvedValue(1);
+    mockRedisExpire.mockResolvedValue(true);
   });
 
   it('preserves an explicit empty keyPrefix', async () => {

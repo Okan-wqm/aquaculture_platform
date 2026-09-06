@@ -6,7 +6,9 @@
  * - onModuleInit subscribes via the cross-tenant wildcard
  * - events with missing/invalid tenantId are rejected before any write
  * - the per-tenant AsyncLocalStorage context carries the derived schemaName
- * - service errors are swallowed (no NATS poison-message redelivery loop)
+ * - service errors are RETHROWN: `WaterQualityCritical` is a one-shot signal
+ *   (W7 / FARM-MEDIUM-260), so the message must reach the platform dead-letter stream (AQUACULTURE_DLQ)
+ *   rather than being dropped
  */
 
 // Mock the logging subpath BEFORE importing the handler so the context spy is
@@ -102,7 +104,19 @@ describe('WaterQualityCriticalEventHandler', () => {
     expect(service.recordCriticalWaterQuality).toHaveBeenCalledWith(event);
   });
 
-  it('reports a service failure as a retry outcome (the bus owns redelivery and dead-lettering)', async () => {
+  /**
+   * W7 / FARM-MEDIUM-260 + PLAT-HIGH-902 — the OPPOSITE of the behaviour this
+   * spec used to pin, expressed as a value rather than a throw.
+   *
+   * `WaterQualityCritical` is classified `one_shot`: farm emits it per critical
+   * measurement, at write time, and no sweep re-raises it. Swallowing a handler
+   * error therefore deleted a life-safety signal outright. The handler now
+   * returns a `retry` outcome, so the bus NAKs, backs off, and shelves the
+   * message in the platform dead-letter stream when the budget is spent — the
+   * same delivery the rethrow bought, minus the ambiguity of an exception that
+   * could also mean "the handler itself is broken".
+   */
+  it('reports a service failure as a retry outcome so the one-shot signal reaches the dead-letter shelf', async () => {
     const { handler, service } = makeHandler();
     service.recordCriticalWaterQuality.mockRejectedValueOnce(new Error('db down'));
 

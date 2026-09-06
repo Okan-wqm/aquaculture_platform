@@ -27,6 +27,8 @@ import {
 import { ObjectType, Field, ID, Int, Float, registerEnumType } from '@nestjs/graphql';
 import GraphQLJSON from 'graphql-type-json';
 
+import { FeedingMethod } from '../../feeding/entities/feeding-record.entity';
+
 // ============================================================================
 // ENUMS
 // ============================================================================
@@ -51,13 +53,40 @@ registerEnumType(FeedingMealStatus, {
 // JSONB VALUE OBJECTS
 // ============================================================================
 
+/**
+ * Öğün öncesi oksijen doğrulaması (W7 — FARM-MEDIUM-271).
+ *
+ * sensor-service, 15 dk'lık pencere tick'inde ünitenin çözünmüş oksijenini
+ * protokolün `minDissolvedOxygen` tabanıyla karşılaştırır ve YALNIZ olumsuz
+ * verdikti `FeedingWindowReadiness` olarak yayar; farm bunu öğüne damgalar.
+ * Böylece protokoldeki oksijen koruması operatörün öğün kartında GÖRÜNÜR olur
+ * — daha önce alan tele yazılıp hiç okunmuyordu.
+ *
+ * `null` = "bu öğün için olumsuz verdikt gelmedi" (ya oksijen yeterli, ya
+ * ünitenin DO sensörü yok, ya da protokolde taban tanımlı değil). Rozet
+ * yalnız damga varken gösterilir; yokluğu "her şey yolunda" diye SUNULMAZ.
+ */
+export interface MealReadiness {
+  status: 'low_oxygen' | 'no_reading';
+  /** Protokol tabanı (mg/L). */
+  minDissolvedOxygen: number;
+  /** Ölçüm varsa gözlenen değer (mg/L). */
+  observedDissolvedOxygen?: number;
+  /** Ölçümün ISO zamanı. */
+  observedAt?: string;
+  /** Protokolün düşük-oksijende önerdiği azaltma yüzdesi. */
+  lowOxygenReductionPercent?: number;
+  /** Verdiktin üretildiği ISO an — bayat damgayı ayırt etmek için. */
+  evaluatedAt: string;
+}
+
 /** Tek döküm — kümülatif actualKg'nin denetlenebilir parçası. */
 export interface MealPour {
   pourIndex: number;
   kg: number;
   at: string; // ISO timestamp
   by: string; // userId
-  feedingMethod?: string;
+  feedingMethod?: FeedingMethod;
   // ── correctMealPour denetim izi (C-11) — düzeltme geçmişi kaybolmaz ──
   /** İLK kayıttaki kg (yalnız düzeltilmiş dökümlerde set). */
   originalKg?: number;
@@ -75,8 +104,14 @@ export interface MealPour {
 @Entity('feeding_meals')
 @Index(['dayPlanId', 'mealIndex'], { unique: true })
 @Index(['tenantId', 'dayPlanId'])
-@Index(['tenantId', 'scheduledAt'], {
-  where: `"status" = 'scheduled' AND "windowNotifiedAt" IS NULL`,
+// 15 dk'lık pencere süpürmesinin indeksi. `windowNotifiedAt IS NULL` predikattan
+// ÇIKTI (FARM-MEDIUM-271): süpürme artık pencere içindeki öğünü yeniden
+// bildiriyor, yani yeniden-bildirim adayları — tam da sorgunun aradığı satırlar —
+// eski predikatın dışında kalıyordu. Kolon indekslenen alanlara taşındı ki
+// "şu kadar dakikadır bildirilmedi" karşılaştırması da indeksten karşılansın.
+// Migration: 1810100000000.
+@Index(['tenantId', 'scheduledAt', 'windowNotifiedAt'], {
+  where: `"status" = 'scheduled'`,
 })
 @Index(['tenantId', 'unitId', 'scheduledAt'])
 export class FeedingMeal {
@@ -154,10 +189,14 @@ export class FeedingMeal {
   @Column('uuid', { nullable: true })
   fedBy?: string;
 
-  /** P-24: kayıt yolundan düşürülmez — hem burada hem FeedingRecord'da persist. */
-  @Field({ nullable: true })
-  @Column({ length: 50, nullable: true })
-  feedingMethod?: string;
+  /**
+   * P-24: kayıt yolundan düşürülmez — hem burada hem FeedingRecord'da persist.
+   * FARM-MEDIUM-257: kolon PG ENUM'dur; geçersiz bir değer GraphQL kapısını
+   * baypas etse bile YAZILAMAZ.
+   */
+  @Field(() => FeedingMethod, { nullable: true })
+  @Column({ type: 'enum', enum: FeedingMethod, nullable: true })
+  feedingMethod?: FeedingMethod;
 
   @Field({ nullable: true })
   @Column({ type: 'timestamptz', nullable: true })
@@ -166,6 +205,14 @@ export class FeedingMeal {
   /** MealWindowUpcoming bildirimi idempotency damgası. */
   @Column({ type: 'timestamptz', nullable: true })
   windowNotifiedAt?: Date;
+
+  /**
+   * sensor-service'in öğün öncesi oksijen verdikti (W7 — FARM-MEDIUM-271).
+   * Yalnız OLUMSUZ verdiktte dolar; MealBoard rozeti bunu okur.
+   */
+  @Field(() => GraphQLJSON, { nullable: true })
+  @Column({ type: 'jsonb', nullable: true })
+  readiness?: MealReadiness;
 
   @Field({ nullable: true })
   @Column({ type: 'text', nullable: true })

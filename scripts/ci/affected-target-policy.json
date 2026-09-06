@@ -9,73 +9,73 @@
           "owner": "@okan-wqm",
           "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
           "expires_on": "2026-10-31",
-          "finding_id": "INFRA-MEDIUM-144"
+          "finding_id": "INFRA-MEDIUM-154"
         },
         "@aquaculture/aquamobil": {
           "owner": "@okan-wqm",
           "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
           "expires_on": "2026-10-31",
-          "finding_id": "INFRA-MEDIUM-144"
+          "finding_id": "INFRA-MEDIUM-154"
         },
         "@aquaculture/e2e-tests": {
           "owner": "@okan-wqm",
           "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
           "expires_on": "2026-10-31",
-          "finding_id": "INFRA-MEDIUM-144"
+          "finding_id": "INFRA-MEDIUM-154"
         },
         "@aquaculture/farm-shared": {
           "owner": "@okan-wqm",
           "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
           "expires_on": "2026-10-31",
-          "finding_id": "INFRA-MEDIUM-144"
+          "finding_id": "INFRA-MEDIUM-154"
         },
         "@aquaculture/node-components": {
           "owner": "@okan-wqm",
           "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
           "expires_on": "2026-10-31",
-          "finding_id": "INFRA-MEDIUM-144"
+          "finding_id": "INFRA-MEDIUM-154"
         },
         "@platform/mcp-farm-management": {
           "owner": "@okan-wqm",
           "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
           "expires_on": "2026-10-31",
-          "finding_id": "INFRA-MEDIUM-144"
+          "finding_id": "INFRA-MEDIUM-154"
         },
         "admin-api-service": {
           "owner": "@okan-wqm",
           "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
           "expires_on": "2026-10-31",
-          "finding_id": "INFRA-MEDIUM-144"
+          "finding_id": "INFRA-MEDIUM-154"
         },
         "admin-panel": {
           "owner": "@okan-wqm",
           "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
           "expires_on": "2026-10-31",
-          "finding_id": "INFRA-MEDIUM-144"
+          "finding_id": "INFRA-MEDIUM-154"
         },
         "ai-service": {
           "owner": "@okan-wqm",
           "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
           "expires_on": "2026-10-31",
-          "finding_id": "INFRA-MEDIUM-144"
+          "finding_id": "INFRA-MEDIUM-154"
         },
         "alert-engine": {
           "owner": "@okan-wqm",
           "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
           "expires_on": "2026-10-31",
-          "finding_id": "INFRA-MEDIUM-144"
+          "finding_id": "INFRA-MEDIUM-154"
         },
         "aqua-scripts": {
           "owner": "@okan-wqm",
           "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
           "expires_on": "2026-10-31",
-          "finding_id": "INFRA-MEDIUM-144"
+          "finding_id": "INFRA-MEDIUM-154"
         },
         "auth-service": {
           "owner": "@okan-wqm",
           "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
           "expires_on": "2026-10-31",
-          "finding_id": "INFRA-MEDIUM-144"
+          "finding_id": "INFRA-MEDIUM-154"
         },
         "backend-common": {
           "owner": "@okan-wqm",
@@ -87,25 +87,25 @@
           "owner": "@okan-wqm",
           "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
           "expires_on": "2026-10-31",
-          "finding_id": "INFRA-MEDIUM-144"
+          "finding_id": "INFRA-MEDIUM-154"
         },
         "config-service": {
           "owner": "@okan-wqm",
           "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
           "expires_on": "2026-10-31",
-          "finding_id": "INFRA-MEDIUM-144"
+          "finding_id": "INFRA-MEDIUM-154"
         },
         "dashboard": {
           "owner": "@okan-wqm",
           "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
           "expires_on": "2026-10-31",
-          "finding_id": "INFRA-MEDIUM-144"
+          "finding_id": "INFRA-MEDIUM-154"
         },
         "db-migrate": {
           "owner": "@okan-wqm",
           "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
           "expires_on": "2026-10-31",
-          "finding_id": "INFRA-MEDIUM-144"
+          "finding_id": "INFRA-MEDIUM-154"
         },
         "event-bus": {
           "owner": "@okan-wqm",
@@ -117,91 +117,91 @@
           "owner": "@okan-wqm",
           "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
           "expires_on": "2026-10-31",
-          "finding_id": "INFRA-MEDIUM-144"
+          "finding_id": "INFRA-MEDIUM-154"
         },
         "event-store-service": {
           "owner": "@okan-wqm",
           "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
           "expires_on": "2026-10-31",
-          "finding_id": "INFRA-MEDIUM-144"
+          "finding_id": "INFRA-MEDIUM-154"
         },
         "farm-module": {
           "owner": "@okan-wqm",
           "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
           "expires_on": "2026-10-31",
-          "finding_id": "INFRA-MEDIUM-144"
+          "finding_id": "INFRA-MEDIUM-154"
         },
         "farm-service": {
           "owner": "@okan-wqm",
           "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
           "expires_on": "2026-10-31",
-          "finding_id": "INFRA-MEDIUM-144"
+          "finding_id": "INFRA-MEDIUM-154"
         },
         "gateway-api": {
           "owner": "@okan-wqm",
           "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
           "expires_on": "2026-10-31",
-          "finding_id": "INFRA-MEDIUM-144"
+          "finding_id": "INFRA-MEDIUM-154"
         },
         "hr-module": {
           "owner": "@okan-wqm",
           "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
           "expires_on": "2026-10-31",
-          "finding_id": "INFRA-MEDIUM-144"
+          "finding_id": "INFRA-MEDIUM-154"
         },
         "hr-service": {
           "owner": "@okan-wqm",
           "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
           "expires_on": "2026-10-31",
-          "finding_id": "INFRA-MEDIUM-144"
+          "finding_id": "INFRA-MEDIUM-154"
         },
         "hydroponics-module": {
           "owner": "@okan-wqm",
           "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
           "expires_on": "2026-10-31",
-          "finding_id": "INFRA-MEDIUM-144"
+          "finding_id": "INFRA-MEDIUM-154"
         },
         "hydroponics-service": {
           "owner": "@okan-wqm",
           "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
           "expires_on": "2026-10-31",
-          "finding_id": "INFRA-MEDIUM-144"
+          "finding_id": "INFRA-MEDIUM-154"
         },
         "invariants": {
           "owner": "@okan-wqm",
           "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
           "expires_on": "2026-10-31",
-          "finding_id": "INFRA-MEDIUM-144"
+          "finding_id": "INFRA-MEDIUM-154"
         },
         "messaging-service": {
           "owner": "@okan-wqm",
           "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
           "expires_on": "2026-10-31",
-          "finding_id": "INFRA-MEDIUM-144"
+          "finding_id": "INFRA-MEDIUM-154"
         },
         "migration-harness": {
           "owner": "@okan-wqm",
           "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
           "expires_on": "2026-10-31",
-          "finding_id": "INFRA-MEDIUM-144"
+          "finding_id": "INFRA-MEDIUM-154"
         },
         "node-red-project": {
           "owner": "@okan-wqm",
           "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
           "expires_on": "2026-10-31",
-          "finding_id": "INFRA-MEDIUM-144"
+          "finding_id": "INFRA-MEDIUM-154"
         },
         "notification-service": {
           "owner": "@okan-wqm",
           "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
           "expires_on": "2026-10-31",
-          "finding_id": "INFRA-MEDIUM-144"
+          "finding_id": "INFRA-MEDIUM-154"
         },
         "observability-service": {
           "owner": "@okan-wqm",
           "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
           "expires_on": "2026-10-31",
-          "finding_id": "INFRA-MEDIUM-144"
+          "finding_id": "INFRA-MEDIUM-154"
         },
         "outbox": {
           "owner": "@okan-wqm",
@@ -213,25 +213,25 @@
           "owner": "@okan-wqm",
           "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
           "expires_on": "2026-10-31",
-          "finding_id": "INFRA-MEDIUM-144"
+          "finding_id": "INFRA-MEDIUM-154"
         },
         "sensor-service": {
           "owner": "@okan-wqm",
           "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
           "expires_on": "2026-10-31",
-          "finding_id": "INFRA-MEDIUM-144"
+          "finding_id": "INFRA-MEDIUM-154"
         },
         "shared-ui": {
           "owner": "@okan-wqm",
           "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
           "expires_on": "2026-10-31",
-          "finding_id": "INFRA-MEDIUM-144"
+          "finding_id": "INFRA-MEDIUM-154"
         },
         "shell": {
           "owner": "@okan-wqm",
           "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
           "expires_on": "2026-10-31",
-          "finding_id": "INFRA-MEDIUM-144"
+          "finding_id": "INFRA-MEDIUM-154"
         },
         "storage": {
           "owner": "@okan-wqm",
@@ -243,12 +243,17 @@
           "owner": "@okan-wqm",
           "reason": "Pre-existing eslint debt quarantined since CI run 26116890061; paid down per project under the umbrella finding.",
           "expires_on": "2026-10-31",
-          "finding_id": "INFRA-MEDIUM-144"
+          "finding_id": "INFRA-MEDIUM-154"
         }
       }
     },
     "test:contract": {
-      "knownUnstableProjects": {}
+      "knownUnstableProjects": {},
+      "notes": "No quarantine. Admin route contract is a hard gate."
+    },
+    "test:integration": {
+      "knownUnstableProjects": {},
+      "notes": "STRICT, AND IT MUST STAY THAT WAY. farm-service:test is already quarantined below, so this is the ONLY strict farm-service gate in ci-affected. Seeding farm-service here would leave the service with no blocking test gate at all and would re-create the dead-lane condition (FARM-MEDIUM-301) this target was wired up to end. If an integration suite is failing, fix the suite or the code it caught — do not quarantine the target."
     },
     "test:integration": {
       "knownUnstableProjects": {}

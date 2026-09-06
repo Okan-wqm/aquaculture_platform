@@ -55,9 +55,13 @@ export const en = {
   'feeding.notes.placeholder': 'Additional observations...',
   'feeding.record': 'Record Feeding',
   'feeding.recordKg': 'Record {kg} kg',
+  // W8/FARM-MEDIUM-269 — close a partially-fed meal without inventing a pour.
+  'feeding.finalizeOnly': 'Finish meal (no more feed)',
   'feeding.recording': 'Recording...',
   'feeding.recorded': 'Recorded!',
   'feeding.queuedForSync': 'Queued for sync',
+  'feeding.savedToDevice': 'Saved to device',
+  'common.backToHome': 'Back to home',
   'feeding.offlineWillSync': 'Offline - will sync when connected',
   'feeding.errors.amountRequired': 'Amount must be greater than 0',
   'feeding.errors.amountMax': 'Amount cannot exceed 10000 kg',

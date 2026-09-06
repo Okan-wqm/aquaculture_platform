@@ -1,5 +1,5 @@
 /**
- * Invitation + reset links redeem through ONE resolution (SEC-HIGH-056).
+ * Invitation + reset links redeem through ONE resolution (SEC-HIGH-158).
  *
  * The e-mailed link carries `/accept-invitation/{actionToken.id}`. Before
  * this, validateInvitation hashed that segment and looked it up as an
@@ -36,6 +36,7 @@ import { Invitation, InvitationStatus } from '../entities/invitation.entity';
 import { RefreshToken } from '../entities/refresh-token.entity';
 import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
 import { User } from '../entities/user.entity';
+import { WebAuthnCredential } from '../entities/webauthn-credential.entity';
 import { ActionTokenResolver } from '../services/action-token-resolver.service';
 import { AuthenticationService } from '../services/authentication.service';
 import { DurableAccessTokenInvalidationService } from '../services/durable-access-token-invalidation.service';
@@ -114,7 +115,7 @@ function invitationQueryBuilder(row: Invitation | null): {
 
 const mockOutboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
 
-describe('invitation links resolve through ActionTokenResolver (SEC-HIGH-056)', () => {
+describe('invitation links resolve through ActionTokenResolver (SEC-HIGH-158)', () => {
   const actionTokenRepository = { findOne: jest.fn(), save: jest.fn() };
   const invitationRepository = { createQueryBuilder: jest.fn(), findOne: jest.fn() };
   const userRepository = { findOne: jest.fn(), save: jest.fn(), createQueryBuilder: jest.fn() };
@@ -160,6 +161,13 @@ describe('invitation links resolve through ActionTokenResolver (SEC-HIGH-056)', 
         { provide: getRepositoryToken(ActionToken), useValue: actionTokenRepository },
         { provide: getRepositoryToken(UserModuleAssignment), useValue: { find: jest.fn() } },
         { provide: getRepositoryToken(Tenant), useValue: { findOne: jest.fn() } },
+        // Password login refuses a password when the account has enrolled
+        // WebAuthn credentials, so AuthenticationService injects the repo.
+        // Zero credentials keeps this suite on the link-resolution path.
+        {
+          provide: getRepositoryToken(WebAuthnCredential),
+          useValue: { count: jest.fn().mockResolvedValue(0) },
+        },
         { provide: DataSource, useValue: dataSource },
         { provide: JwtService, useValue: { signAsync: jest.fn().mockResolvedValue('t') } },
         {
@@ -281,7 +289,7 @@ describe('invitation links resolve through ActionTokenResolver (SEC-HIGH-056)', 
       expect(invitationRepository.findOne).not.toHaveBeenCalled();
     });
 
-    it('still honours a raw 64-hex token from a pre-deploy e-mail (SEC-LOW-060)', async () => {
+    it('still honours a raw 64-hex token from a pre-deploy e-mail (SEC-LOW-160)', async () => {
       invitationRepository.createQueryBuilder.mockReturnValue(
         invitationQueryBuilder(invitation({ token: resolver.hashRawToken(RAW_TOKEN) })),
       );

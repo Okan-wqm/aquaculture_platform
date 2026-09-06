@@ -23,7 +23,7 @@ import { GetStockEventsSummaryQuery } from '../queries/get-stock-events-summary.
  * The tank operations that ARE stock events, and the wire enum member each one
  * becomes. One closed table drives both the SQL filter and the mapping, so an
  * operation type cannot be queried without a mapping nor mapped without being
- * queried (FARM-HIGH-300 — the old `toUpperCase()` fallback could mint a
+ * queried (FARM-HIGH-319 — the old `toUpperCase()` fallback could mint a
  * value the schema never declared).
  */
 const STOCK_EVENT_TYPE_BY_OPERATION = {

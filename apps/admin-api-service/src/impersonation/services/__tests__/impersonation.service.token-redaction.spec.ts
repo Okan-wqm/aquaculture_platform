@@ -158,21 +158,27 @@ describe('ImpersonationService — read paths never serialize tokens', () => {
     expect(result.id).toBe('session-1');
   });
 
-  it('getImpersonationStats strips token columns from recentSessions', async () => {
-    const statsQb = {
+  // The all-time `getImpersonationStats` folded into the windowed
+  // `getAuditSummary`; the redaction guarantee it carried moves with it, since
+  // the recent-session block is still the one place raw entities reach a
+  // response body.
+  it('getAuditSummary strips token columns from the recent-session block', async () => {
+    const summaryQb = {
       select: jest.fn().mockReturnThis(),
       addSelect: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
       groupBy: jest.fn().mockReturnThis(),
       addGroupBy: jest.fn().mockReturnThis(),
       orderBy: jest.fn().mockReturnThis(),
       limit: jest.fn().mockReturnThis(),
       getRawMany: jest.fn().mockResolvedValue([]),
+      getRawOne: jest.fn().mockResolvedValue({ actions: '0' }),
     };
-    sessionRepo.createQueryBuilder.mockReturnValue(statsQb);
+    sessionRepo.createQueryBuilder.mockReturnValue(summaryQb);
     sessionRepo.find.mockResolvedValueOnce([withSecrets(), withSecrets({ id: 'session-2' })]);
 
-    const stats = await service.getImpersonationStats();
-    expect(stats.recentSessions).toHaveLength(2);
-    for (const s of stats.recentSessions) expectNoSecrets(s);
+    const summary = await service.getAuditSummary();
+    expect(summary.recentSessionsInWindow).toHaveLength(2);
+    for (const s of summary.recentSessionsInWindow) expectNoSecrets(s);
   });
 });

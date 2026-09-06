@@ -1,6 +1,12 @@
 import 'reflect-metadata';
 
+import { collaborator, stub } from '@aquaculture/testing';
+
+import { AuditLogService } from '../../../audit/audit-log.service';
+import { Tenant, TenantPlan, TenantStatus } from '../../tenant/entities/tenant.entity';
 import { TenantResolver } from '../../tenant/resolvers/tenant.resolver';
+import { TenantProvisioningCommandService } from '../../tenant/services/tenant-provisioning-command.service';
+import { TenantService } from '../../tenant/services/tenant.service';
 import { AuthResolver } from '../resolvers/auth.resolver';
 
 /**
@@ -27,18 +33,30 @@ describe('Public surface contract (SEC-CRITICAL-001 / MT-LOW-001)', () => {
   });
 
   it('tenantBySlug implementation returns only name/slug/logoUrl keys', async () => {
-    const tenantServiceStub = {
-      findBySlug: jest.fn().mockResolvedValue({
-        id: 'internal-uuid-must-not-leak',
-        name: 'Acme Farms',
-        slug: 'acme',
-        logoUrl: null,
-        status: 'ACTIVE',
-        plan: 'ENTERPRISE',
-      }),
-    };
-    const auditStub = { findByTenant: jest.fn() };
-    const resolver = new TenantResolver(tenantServiceStub as never, auditStub as never);
+    // The leaky row the resolver must NOT forward: a full tenant entity whose
+    // `id`/`status`/`plan` are exactly the fields MT-LOW-001 removed from the
+    // public payload. `stub<Tenant>` keeps those field names checked against
+    // the real entity, so a rename cannot quietly turn this into a fixture
+    // that proves nothing.
+    const leakyTenant = stub<Tenant>({
+      id: 'internal-uuid-must-not-leak',
+      name: 'Acme Farms',
+      slug: 'acme',
+      logoUrl: null,
+      status: TenantStatus.ACTIVE,
+      plan: TenantPlan.ENTERPRISE,
+    });
+    const resolver = new TenantResolver(
+      collaborator<TenantService>(
+        { findBySlug: jest.fn(() => Promise.resolve(leakyTenant)) },
+        'TenantService',
+      ),
+      // The audit and command collaborators are unreachable from the public
+      // query; an empty `collaborator` makes any future call to them a named
+      // failure instead of a silent `undefined is not a function`.
+      collaborator<AuditLogService>({}, 'AuditLogService'),
+      collaborator<TenantProvisioningCommandService>({}, 'TenantProvisioningCommandService'),
+    );
 
     const result = await resolver.tenantBySlug('acme');
 

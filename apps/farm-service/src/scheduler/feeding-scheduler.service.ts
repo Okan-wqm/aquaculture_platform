@@ -29,12 +29,7 @@ import {
   DataSource,
   QueryRunner,
 } from 'typeorm';
-import {
-  listTenantSchemas,
-  tenantManagerRepo,
-  TenantContextError,
-  TenantScopedRepository,
-} from '@aquaculture/backend-common/database';
+import { TenantContextError, TenantScopedRepository, listTenantSchemas, numberOrUndefined, tenantManagerRepo } from '@aquaculture/backend-common/database';
 import {
   clearManagedTimer,
   createManagedInterval,
@@ -1140,6 +1135,12 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
     timeZone: 'Europe/Istanbul',
   })
   async weeklyFeedForecast(): Promise<void> {
+    if (!legacyFeedingEngineEnabled()) {
+      this.logger.log(
+        'K-5 cutover: legacy weekly forecast (v2 07:00 coverage sweep owns it) gated off.',
+      );
+      return;
+    }
     this.logger.log('Generating weekly feed consumption forecast');
     const startTime = Date.now();
 
@@ -1783,7 +1784,7 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
       record.tenantId,
       record.batchId,
       actualQuantity,
-      record.feedCost ? Number(record.feedCost) : undefined,
+      numberOrUndefined(record.feedCost),
     );
   }
 

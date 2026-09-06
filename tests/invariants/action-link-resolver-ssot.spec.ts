@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 /**
  * INVARIANT: every e-mailed action link resolves through ActionTokenResolver.
  *
- * SEC-HIGH-056 root cause: three consumers (validateInvitation, acceptInvitation,
+ * SEC-HIGH-158 root cause: three consumers (validateInvitation, acceptInvitation,
  * resetPassword) and one URL builder (InternalAuthController.getActionTokenUrl)
  * each hand-rolled how a link segment becomes a database lookup. One of them
  * sha256-hashed the ActionToken ROW ID the link carried and searched for it as a
@@ -25,7 +25,7 @@ import { resolve } from 'node:path';
  *     UserInvited publisher lives next to the code that mints the row it names.
  *
  * Raw-token (64-hex) segments are still admitted by the resolver for links
- * e-mailed before this change; that branch retires under SEC-LOW-060.
+ * e-mailed before this change; that branch retires under SEC-LOW-160.
  */
 
 const REPO_ROOT = resolve(__dirname, '..', '..');

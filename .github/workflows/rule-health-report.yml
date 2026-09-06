@@ -53,7 +53,7 @@ jobs:
 
       - uses: ./.github/actions/setup-aria-kernel
 
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22'
 
@@ -193,9 +193,15 @@ jobs:
             fi
 
             # Inline tier-4 overrides (// auditor-override: ... pattern)
-            OVERRIDE_COUNT=$(grep -rE "// auditor-override:" \
+            # grep exits 1 for "no match", which is a legitimate zero count, and
+            # >=2 for a real error. Under `set -o pipefail` the old
+            # `... | wc -l || echo 0` form printed wc's 0 AND the fallback 0 on a
+            # clean tree ("**0\n0**" in the 2026-08 report). Accept exit 1 inside
+            # the group so wc is the only writer; any other grep failure still
+            # fails the step loudly instead of being masked.
+            OVERRIDE_COUNT=$({ grep -rE "// auditor-override:" \
               --include="*.ts" --include="*.tsx" \
-              apps/ libs/ web/ platform/ 2>/dev/null | wc -l || echo 0)
+              apps/ libs/ web/ platform/ || [ "$?" -eq 1 ]; } | wc -l)
             echo "- Inline \`// auditor-override:\` comments in source: **$OVERRIDE_COUNT**"
             echo ""
 
@@ -239,13 +245,17 @@ jobs:
         run: |
           set -euo pipefail
           BODY_FILE="$RUNNER_TEMP/rule-health-pr-body.md"
-          cat > "$BODY_FILE" <<EOF
+          # Quoted delimiter: the body is literal text. The unquoted form let
+          # the backticked report path be command-substituted by the shell
+          # (the path was executed, not printed). Every value the body needs
+          # is expanded by Actions before the shell runs.
+          cat > "$BODY_FILE" <<'EOF'
           Monthly rule-health aggregate for **${{ steps.window.outputs.month_label }}**.
 
           Covers: finding-registry state by severity + owner, override count,
           agent dispatch frequency, and rule-firing rate skeleton data.
 
-          Generated report: `${REPORT_PATH}`.
+          Generated report: `${{ steps.generate.outputs.path }}`.
 
           CODEOWNERS review is required before merge.
           EOF

@@ -194,7 +194,7 @@ describe('UserLifecycleService', () => {
           getRepository: jest.fn().mockReturnValue(mockUserRepo),
           withRepository: jest.fn((repository: unknown) => repository),
           // createUser writes its User row through the transactional manager
-          // (SEC-HIGH-056: user + invitation + action token commit together);
+          // (SEC-HIGH-158: user + invitation + action token commit together);
           // route the User shape to the injected repo mock so userRepository
           // assertions still observe the write.
           create: jest.fn(<T>(entity: unknown, data: T) =>
@@ -347,11 +347,11 @@ describe('UserLifecycleService', () => {
       );
     });
 
-    // SEC-HIGH-056: the e-mailed link names an ActionToken ROW ID. Before this
+    // SEC-HIGH-158: the e-mailed link names an ActionToken ROW ID. Before this
     // fix createUser wrote no Invitation/ActionToken row at all and published a
     // token HASH under `actionTokenId`, so the notification service could never
     // resolve the row and the invitee's link was dead on arrival.
-    it('SEC-HIGH-056: mints Invitation + ActionToken in the user transaction and publishes the row id', async () => {
+    it('SEC-HIGH-158: mints Invitation + ActionToken in the user transaction and publishes the row id', async () => {
       tenantRepository.findOne.mockResolvedValue(createMockTenant());
       userRepository.findOne.mockResolvedValue(null);
       const savedUser = createMockUser({ email: 'newuser@tenant.com' });
@@ -411,7 +411,7 @@ describe('UserLifecycleService', () => {
       expect(JSON.stringify(publishedEvent)).not.toContain('newuser@tenant.com');
     });
 
-    it('SEC-HIGH-056: a password-created user gets no invitation rows and no UserInvited', async () => {
+    it('SEC-HIGH-158: a password-created user gets no invitation rows and no UserInvited', async () => {
       tenantRepository.findOne.mockResolvedValue(createMockTenant());
       userRepository.findOne.mockResolvedValue(null);
       userRepository.save.mockResolvedValue(createMockUser({ email: 'newuser@tenant.com' }));
@@ -432,7 +432,7 @@ describe('UserLifecycleService', () => {
       expect(result.invitationSent).toBe(false);
     });
 
-    it('SEC-HIGH-056: sendInvitation=false mints nothing and publishes nothing', async () => {
+    it('SEC-HIGH-158: sendInvitation=false mints nothing and publishes nothing', async () => {
       tenantRepository.findOne.mockResolvedValue(createMockTenant());
       userRepository.findOne.mockResolvedValue(null);
       userRepository.save.mockResolvedValue(createMockUser({ email: 'newuser@tenant.com' }));

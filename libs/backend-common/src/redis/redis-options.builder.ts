@@ -37,7 +37,9 @@ export function buildRedisOptions(
   const hasHostStyleConfig = host !== undefined || password !== undefined || hasPort || hasDb;
 
   if (url && hasHostStyleConfig) {
-    throw new Error('REDIS_URL cannot be combined with REDIS_HOST/REDIS_PORT/REDIS_PASSWORD/REDIS_DB');
+    throw new Error(
+      'REDIS_URL cannot be combined with REDIS_HOST/REDIS_PORT/REDIS_PASSWORD/REDIS_DB',
+    );
   }
 
   const isProduction = config.get<string>('NODE_ENV') === 'production';
@@ -46,8 +48,11 @@ export function buildRedisOptions(
   }
 
   const keyPrefix = `${serviceName}:`;
+  // SEC-HIGH-108 (2026-08-23 scan №53): dedicated noeviction instance for the
+  // authorization namespace — optional; unset keeps the shared-client shape.
+  const authorizationUrl = readConfigString(config, 'REDIS_AUTH_URL');
   if (url) {
-    return { url, keyPrefix };
+    return { url, keyPrefix, ...(authorizationUrl ? { authorizationUrl } : {}) };
   }
 
   return {

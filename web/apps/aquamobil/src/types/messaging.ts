@@ -80,12 +80,12 @@ export type MessageStatus = 'pending' | 'sent' | 'failed';
 // ENTITIES
 // ============================================================================
 
-// MOB-HIGH-019: every entity below is DERIVED from the generated operation
+// MOB-HIGH-022: every entity below is DERIVED from the generated operation
 // result types (the `MessageFields` / `ChannelFields` fragments the read
 // documents select), never re-typed by hand. A field the server drops or
 // renames — or one the client used to claim that the server never sent, like
 // `MessageUser.avatarUrl`/`displayName` and `Message.metadata` before
-// MSG-HIGH-078 — is a compile error at the consumer, not a silent `undefined`.
+// MSG-HIGH-080 — is a compile error at the consumer, not a silent `undefined`.
 
 /**
  * A message sender / channel member as the federated `PublicUserProfile`
@@ -205,7 +205,7 @@ export interface ReadReceiptEvent {
 // INPUT TYPES — match ADR-012 section 6.2 GraphQL Input types
 // ============================================================================
 
-// MOB-HIGH-019: the write payloads are the GENERATED input types — the schema
+// MOB-HIGH-022: the write payloads are the GENERATED input types — the schema
 // is the SSoT, not a hand-maintained mirror. `CreateChannelInput.type` is the
 // generated `ChannelType` enum union (the SDL KEYS 'DIRECT' | 'GROUP' | 'AI'),
 // which is what makes posting the lowercase internal value a compile error

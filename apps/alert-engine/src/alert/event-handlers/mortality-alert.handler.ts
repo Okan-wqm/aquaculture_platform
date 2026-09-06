@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
 import { IEventBus, IEventHandler, HandlerOutcome, outcomeForError } from '@platform/event-bus';
+import { requiresDurableDelivery } from '@platform/event-contracts';
 import type { MortalityAlertRaisedEvent } from '@platform/event-contracts';
 import { getTenantSchemaName, isValidUUID } from '@aquaculture/backend-common/database';
 import { requestContextStorage, RequestContext } from '@aquaculture/backend-common/logging';
@@ -81,7 +82,13 @@ export class MortalityAlertEventHandler
         `Error creating mortality incident: ${(error as Error).message}`,
         (error as Error).stack,
       );
-      return outcomeForError('MortalityAlertRaised', error);
+      // W7/D-B5: `MortalityAlertRaised` is `one_shot` — the mortality-recorded
+      // listener raises it once, at write time, and no sweep re-raises it.
+      // Swallowing here deletes a welfare event. Rethrow → NAK + backoff →
+      // the platform dead-letter stream (AQUACULTURE_DLQ) once retries are exhausted.
+      return outcomeForError('MortalityAlertRaised', error, {
+        reproducible: !requiresDurableDelivery(event.eventType),
+      });
     }
   }
 }

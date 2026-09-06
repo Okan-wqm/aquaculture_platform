@@ -16,6 +16,28 @@
 > `id` pattern in `docs/reviews/_registry/findings.jsonl.schema.json`, so these findings
 > cannot be registered at all — see `PROC-MEDIUM-016` in the cycle report.
 
+## Ledger ids
+
+`PRODUCT-FORM-CRITICAL-001` was registered on the Faz 3 branch (PR #1424) as
+`MOB-CRITICAL-018` before `main` allocated that sequence to its own water-quality
+finding (the same defect, fixed independently by the feeding W0–W8 cycle). The
+allocator treats the sequence as the identity, so the branch's row was
+re-registered when the branch took main — twice, because main's #1431/#1443
+round then allocated sequence 020 to `MOB-HIGH-020` as well. The fix commits
+(`ffa4c1025`, `3c45bf790`) still name `MOB-CRITICAL-018` in their `Closes:`
+trailers and the first merge commit (`ff643ac84`) names `MOB-CRITICAL-020`.
+`MOB-CRITICAL-018` names a live sibling on main and cannot be an alias, so it
+closes through the merge ceremony commit's trailer; `MOB-CRITICAL-020` is not a
+live ledger id and is recorded as an alias.
+
+| Review id (headings, trailers) | Ledger id (findings.jsonl) |
+| ------------------------------ | -------------------------- |
+| `MOB-CRITICAL-018`             | `MOB-CRITICAL-021`         |
+| `MOB-CRITICAL-020` (1st merge) | `MOB-CRITICAL-021`         |
+
+- **MOB-CRITICAL-020** — recorded in `docs/reviews/_registry/finding-id-aliases.yaml` as an alias of
+  `MOB-CRITICAL-021`.
+
 ## Scope
 
 Read every create/edit form surface
@@ -68,7 +90,7 @@ every measurement is rejected, and the offline lane still claims success
 **State:** OPEN
 **Raised as:** `PRODUCT-FORM-CRITICAL-001` by `form-write-auditor` in
 cycle `2026-08-16-farm-mobile-agent-audit`
-**Registered as:** `MOB-CRITICAL-018` (2026-09-05). `PRODUCT-*` is not a registry
+**Registered as:** `MOB-CRITICAL-021` (2026-09-05). `PRODUCT-*` is not a registry
 domain, so the finding — together with `PRODUCT-MOBILE-CRITICAL-001`, the same
 root cause filed by `mobile-app-auditor` — lives in the registry under `MOB`.
 **Verification:** CONFIRMED by an independent refute-by-default verifier

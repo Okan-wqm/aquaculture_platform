@@ -1,7 +1,7 @@
 /**
  * GraphQL replay error — carries the server's `extensions.code` so the offline
  * queue can classify a failed replay by CONTRACT instead of by message text
- * (MOB-CRITICAL-018 class).
+ * (MOB-CRITICAL-021 class).
  *
  * WHY: the queue used to see only `Error(message)`. `isRetryableError` then
  * pattern-matched the text ('validation', 'bad request', …), and a variable

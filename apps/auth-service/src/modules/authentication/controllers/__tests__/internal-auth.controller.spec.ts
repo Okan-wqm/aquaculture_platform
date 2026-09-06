@@ -1,6 +1,6 @@
 /**
  * InternalAuthController — the notification-service's window into auth-service
- * (SEC-HIGH-056). The action-token URL endpoint is where the emailed link is
+ * (SEC-HIGH-158). The action-token URL endpoint is where the emailed link is
  * minted; these tests pin that the link carries the ActionToken row id and
  * nothing else, that a token of another tenant or an inactive token is 404,
  * and that only notification-service with a tenant binding may ask.
@@ -158,9 +158,9 @@ describe('InternalAuthController', () => {
     });
   });
 
-  // SEC-HIGH-057: the empty tenant binding is the PLATFORM scope — the
+  // SEC-HIGH-159: the empty tenant binding is the PLATFORM scope — the
   // notification service delivering a super admin's recovery e-mail.
-  describe('platform-scoped internal identity (SEC-HIGH-057)', () => {
+  describe('platform-scoped internal identity (SEC-HIGH-159)', () => {
     const platformIdentity = (): VerifiedServiceIdentity =>
       identity({ tenantId: '', effectiveTenantId: '' });
 

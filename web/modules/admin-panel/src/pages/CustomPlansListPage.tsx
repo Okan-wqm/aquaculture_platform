@@ -15,6 +15,7 @@ import {
   PaginatedCustomPlans,
   PlanTier,
 } from '../services/adminApi';
+import { expectedTotalPages } from '@platform/pagination-contracts';
 
 // ============================================================================
 // Constants
@@ -59,7 +60,7 @@ const STATUS_FILTERS: { value: CustomPlanStatus | 'all'; label: string }[] = [
 const CustomPlansListPage: React.FC = () => {
   const navigate = useNavigate();
 
-  const [plans, setPlans] = useState<CustomPlan[]>([]);
+  const [plans, setPlans] = useState<readonly CustomPlan[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -94,7 +95,7 @@ const CustomPlansListPage: React.FC = () => {
         page,
         limit,
       });
-      setPlans(result.items || []);
+      setPlans(result.data);
       setTotal(result.total || 0);
     } catch (err) {
       console.error('Failed to load custom plans:', err);
@@ -249,7 +250,7 @@ const CustomPlansListPage: React.FC = () => {
     return counts;
   };
 
-  const totalPages = Math.ceil(total / limit);
+  const totalPages = expectedTotalPages(total, limit);
 
   // ============================================================================
   // Render

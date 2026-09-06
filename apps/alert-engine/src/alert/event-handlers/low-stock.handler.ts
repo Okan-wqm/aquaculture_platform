@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
 import { IEventBus, IEventHandler, HandlerOutcome, outcomeForError } from '@platform/event-bus';
+import { requiresDurableDelivery } from '@platform/event-contracts';
 import type { LowStockDetectedEvent } from '@platform/event-contracts';
 import { getTenantSchemaName, isValidUUID } from '@aquaculture/backend-common/database';
 import { requestContextStorage, RequestContext } from '@aquaculture/backend-common/logging';
@@ -79,7 +80,14 @@ export class LowStockEventHandler implements IEventHandler<LowStockDetectedEvent
         `Error creating low-stock incident: ${(error as Error).message}`,
         (error as Error).stack,
       );
-      return outcomeForError('LowStockDetected', error);
+      // W7 / D-B5: `LowStockDetected` is `one_shot` — the stock ledger emits it
+      // the moment a movement crosses the threshold and NOTHING re-derives it.
+      // If no further movement happens (which is precisely what "we ran out"
+      // looks like), swallowing here means the depletion is never signalled
+      // again. Rethrow → NAK + backoff → the platform dead-letter stream (AQUACULTURE_DLQ) once exhausted.
+      return outcomeForError('LowStockDetected', error, {
+        reproducible: !requiresDurableDelivery(event.eventType),
+      });
     }
   }
 }

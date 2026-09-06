@@ -9,6 +9,25 @@ import { DataSource, EntityManager } from 'typeorm';
 import { SensorMetricInput } from '../database/entities/sensor-metric.entity';
 
 /**
+ * The durable outcome of one enqueued metric's batch, settled per owning
+ * tenant: a row's promise resolves ONLY after its tenant's batch committed
+ * (ack-after-commit), and rejects when its tenant failed both the write and
+ * the single bounded retry — source redelivery then owns later attempts
+ * (SENSOR-CRITICAL-087, plan Task 1 Step 1.3).
+ */
+export interface WriteOutcome {
+  tenantId: string;
+  committedRows: number;
+}
+
+/** A pending enqueue() promise, settled by the flush that owns its row. */
+interface FlushWaiter {
+  tenantId: string;
+  resolve: (outcome: WriteOutcome) => void;
+  reject: (error: Error) => void;
+}
+
+/**
  * Sensor Metric Writer Service
  *
  * SENSOR-MEDIUM-068 (reading-store convergence, Phase 2B): the SINGLE writer for
@@ -61,6 +80,9 @@ export class SensorMetricWriterService implements OnModuleInit, OnModuleDestroy 
   private readonly logger = new Logger(SensorMetricWriterService.name);
 
   private readonly buffer: SensorMetricInput[] = [];
+  private readonly waiters: FlushWaiter[] = [];
+  /** Serializes flushes so the timer and eager size-trigger never overlap. */
+  private flushChain: Promise<void> = Promise.resolve();
   private flushTimer: ReturnType<typeof setInterval> | null = null;
 
   private static readonly FLUSH_INTERVAL_MS = 500;
@@ -72,6 +94,15 @@ export class SensorMetricWriterService implements OnModuleInit, OnModuleDestroy 
     Math.floor(SensorMetricWriterService.MAX_PG_PARAMS / SensorMetricWriterService.PARAMS_PER_ROW),
     1000,
   );
+  /**
+   * Transaction-scoped server timeouts for every buffered/immediate tenant
+   * batch (plan Task 1 Step 1.3): a hung statement must fail fast so the
+   * bounded retry (and then source redelivery) can take over instead of
+   * stalling the flush loop past any sane ack_wait. Simple-protocol
+   * multi-statement string — no parameters.
+   */
+  private static readonly TX_TIMEOUT_SQL =
+    "SET LOCAL statement_timeout = '5s'; SET LOCAL lock_timeout = '1s'";
 
   constructor(
     @InjectDataSource()
@@ -98,44 +129,128 @@ export class SensorMetricWriterService implements OnModuleInit, OnModuleDestroy 
       clearInterval(this.flushTimer);
       this.flushTimer = null;
     }
-    // Final flush on shutdown so buffered rows are not lost.
-    await this.flush();
+    // Final flush on shutdown so buffered rows are not lost. Waiters are
+    // settled inside the flush; a failing tenant must not break the rest of
+    // shutdown, so the error is surfaced as a log (each affected waiter has
+    // already been rejected with the same error).
+    try {
+      await this.flush();
+    } catch (error) {
+      this.logger.error(
+        `Final metric flush failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
     this.logger.log('SensorMetricWriterService stopped');
   }
 
   /**
-   * Enqueue a metric for buffered batch insertion. If the buffer reaches
+   * Enqueue a metric for buffered batch insertion and return its durable
+   * outcome. The promise resolves only after the row's tenant batch COMMITTED
+   * (so a caller may safely ack its source afterwards), or rejects once that
+   * tenant failed the write and the single bounded retry — the source's
+   * redelivery then owns later attempts. A structurally invalid row is a
+   * poison skip: it settles immediately as a zero-row discard, never buffers,
+   * and never blocks the rest of the batch. If the buffer reaches
    * MAX_BUFFER_SIZE the flush is triggered immediately.
    */
-  enqueue(metric: SensorMetricInput): void {
-    this.buffer.push(metric);
-    if (this.buffer.length >= SensorMetricWriterService.MAX_BUFFER_SIZE) {
-      this.flush().catch((err) =>
-        this.logger.error(
-          `Eager metric flush failed: ${err instanceof Error ? err.message : String(err)}`,
-        ),
+  enqueue(metric: SensorMetricInput): Promise<WriteOutcome> {
+    if (this.filterValid([metric]).length === 0) {
+      return Promise.resolve({ tenantId: metric.tenantId, committedRows: 0 });
+    }
+    return new Promise<WriteOutcome>((resolve, reject) => {
+      this.waiters.push({ tenantId: metric.tenantId, resolve, reject });
+      this.buffer.push(metric);
+      if (this.buffer.length >= SensorMetricWriterService.MAX_BUFFER_SIZE) {
+        this.flush().catch((err) =>
+          this.logger.error(
+            `Eager metric flush failed: ${err instanceof Error ? err.message : String(err)}`,
+          ),
+        );
+      }
+    });
+  }
+
+  /** Enqueue multiple metrics at once; resolves when every row settled. */
+  enqueueBatch(metrics: SensorMetricInput[]): Promise<WriteOutcome[]> {
+    return Promise.all(metrics.map((m) => this.enqueue(m)));
+  }
+
+  /**
+   * Drain the buffer. Flushes are serialized: concurrent calls (timer,
+   * eager size trigger, shutdown) chain onto the same in-flight drain, and
+   * each call's promise reflects its own drain's outcome.
+   */
+  flush(): Promise<void> {
+    const run = this.flushChain.then(() => this.drainBuffer());
+    this.flushChain = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  private async drainBuffer(): Promise<void> {
+    if (this.buffer.length === 0) return;
+    const batch = this.buffer.splice(0, this.buffer.length);
+    const waiters = this.waiters.splice(0, this.waiters.length);
+    await this.writeBuffered(batch, waiters);
+  }
+
+  /**
+   * Write one drained buffer snapshot. Per owning tenant: one write attempt
+   * plus a single bounded retry; on success that tenant's waiters resolve
+   * with their WriteOutcome, on failure they reject — nobody's waiter is ever
+   * silently dropped (the old splice-and-log behavior lost exactly these
+   * rows, SENSOR-CRITICAL-087).
+   */
+  private async writeBuffered(metrics: SensorMetricInput[], waiters: FlushWaiter[]): Promise<void> {
+    const valid = this.filterValid(metrics);
+    if (valid.length === 0) return;
+
+    const byTenant = this.groupByTenant(valid);
+    const failures: string[] = [];
+    let written = 0;
+    for (const [tenantId, rows] of byTenant) {
+      let committed = false;
+      let lastError: unknown;
+      for (let attempt = 0; attempt < 2 && !committed; attempt++) {
+        try {
+          await this.insertTenantRows(tenantId, rows);
+          committed = true;
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      if (committed) {
+        written += rows.length;
+        this.settleTenant(waiters, tenantId, { tenantId, committedRows: rows.length });
+      } else {
+        const message = `${this.tenantLabel(tenantId)}: ${
+          lastError instanceof Error ? lastError.message : String(lastError)
+        }`;
+        failures.push(message);
+        this.rejectTenant(
+          waiters,
+          tenantId,
+          new Error(`sensor_metrics write failed for ${message}`),
+        );
+      }
+    }
+
+    this.logger.debug(`Wrote ${written} metrics across ${byTenant.size} tenant(s)`);
+
+    if (failures.length > 0) {
+      throw new Error(
+        `sensor_metrics write failed for ${failures.length} tenant(s): ${failures.join('; ')}`,
       );
     }
   }
 
-  /** Enqueue multiple metrics at once for buffered insertion. */
-  enqueueBatch(metrics: SensorMetricInput[]): void {
-    for (const m of metrics) {
-      this.enqueue(m);
-    }
-  }
-
-  /** Drain the buffer and write all accumulated metrics. */
-  async flush(): Promise<void> {
-    if (this.buffer.length === 0) return;
-    const batch = this.buffer.splice(0, this.buffer.length);
-    await this.writeImmediate(batch);
-  }
-
   /**
    * Write metrics now on the service's own connection (background paths that do
-   * not participate in a caller transaction). Chunked to stay within
-   * PostgreSQL's 65 535 parameter limit.
+   * not participate in a caller transaction). Each tenant batch runs inside a
+   * transaction bounded by statement/lock timeouts and is chunked to stay
+   * within PostgreSQL's 65 535 parameter limit.
    */
   async writeImmediate(metrics: SensorMetricInput[]): Promise<void> {
     const valid = this.filterValid(metrics);
@@ -144,13 +259,12 @@ export class SensorMetricWriterService implements OnModuleInit, OnModuleDestroy 
     // Background path: attempt EVERY tenant even if one fails, so a single bad
     // tenant cannot discard other tenants' telemetry — then surface every
     // failure. Failures are never swallowed; the caller sees an aggregate error.
+    const byTenant = this.groupByTenant(valid);
     const failures: string[] = [];
     let written = 0;
-    for (const [tenantId, rows] of this.groupByTenant(valid)) {
+    for (const [tenantId, rows] of byTenant) {
       try {
-        await this.insertForTenant(tenantId, rows, (sql, params) =>
-          this.dataSource.query(sql, params),
-        );
+        await this.insertTenantRows(tenantId, rows);
         written += rows.length;
       } catch (error) {
         failures.push(
@@ -159,15 +273,25 @@ export class SensorMetricWriterService implements OnModuleInit, OnModuleDestroy 
       }
     }
 
-    this.logger.debug(
-      `Wrote ${written} metrics across ${this.groupByTenant(valid).size} tenant(s)`,
-    );
+    this.logger.debug(`Wrote ${written} metrics across ${byTenant.size} tenant(s)`);
 
     if (failures.length > 0) {
       throw new Error(
         `sensor_metrics write failed for ${failures.length} tenant(s): ${failures.join('; ')}`,
       );
     }
+  }
+
+  /**
+   * One tenant's rows, in one timeout-bounded transaction on the service's
+   * own connection: SET LOCAL timeouts (transaction-scoped, auto-reverted,
+   * never leaking onto other pool users) then the chunked INSERTs.
+   */
+  private async insertTenantRows(tenantId: string, rows: SensorMetricInput[]): Promise<void> {
+    await this.dataSource.transaction(async (manager) => {
+      await manager.query(SensorMetricWriterService.TX_TIMEOUT_SQL);
+      await this.insertForTenant(tenantId, rows, (sql, params) => manager.query(sql, params));
+    });
   }
 
   /**
@@ -229,6 +353,24 @@ export class SensorMetricWriterService implements OnModuleInit, OnModuleDestroy 
     return getTenantSchemaName(tenantId);
   }
 
+  /** Resolve exactly the waiters belonging to a committed tenant. */
+  private settleTenant(waiters: FlushWaiter[], tenantId: string, outcome: WriteOutcome): void {
+    for (const waiter of waiters) {
+      if (waiter.tenantId === tenantId) {
+        waiter.resolve(outcome);
+      }
+    }
+  }
+
+  /** Reject exactly the waiters belonging to a failed tenant. */
+  private rejectTenant(waiters: FlushWaiter[], tenantId: string, error: Error): void {
+    for (const waiter of waiters) {
+      if (waiter.tenantId === tenantId) {
+        waiter.reject(error);
+      }
+    }
+  }
+
   /**
    * The single INSERT statement for a tenant's `sensor_metrics` (N value rows).
    * Preserves the re-publish-updates-the-row contract via ON CONFLICT DO UPDATE.
@@ -257,7 +399,9 @@ export class SensorMetricWriterService implements OnModuleInit, OnModuleDestroy 
        ON CONFLICT (time, sensor_id, channel_id) DO UPDATE SET
          value        = EXCLUDED.value,
          raw_value    = EXCLUDED.raw_value,
-         quality_code = EXCLUDED.quality_code`;
+         quality_code = EXCLUDED.quality_code
+       WHERE COALESCE(EXCLUDED.source_timestamp, EXCLUDED.time)
+           >= COALESCE(sensor_metrics.source_timestamp, sensor_metrics.time)`;
   }
 
   /** The single 19-column-per-row parameter marshalling for `sensor.sensor_metrics`. */

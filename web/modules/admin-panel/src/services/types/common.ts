@@ -2,13 +2,17 @@
  * Common/shared types used across multiple domain APIs
  */
 
-export interface PaginatedResult<T> {
-  data: T[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
+import type { PaginatedDataResultV1 } from '@platform/pagination-contracts';
+
+/**
+ * The decoded browser projection of a server page.
+ *
+ * ADMIN-HIGH-004: this used to be a local interface that agreed with neither
+ * the producers (`items`) nor the envelope (which never carried
+ * `hasNextPage`). It IS the authority type now, so a field added to the page
+ * contract is a compile error on this tier instead of a missing key at runtime.
+ */
+export type PaginatedResult<T> = PaginatedDataResultV1<T>;
 
 export interface PaginationParams {
   page?: number;

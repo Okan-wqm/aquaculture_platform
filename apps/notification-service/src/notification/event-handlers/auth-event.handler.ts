@@ -46,7 +46,7 @@ interface ResolvedActionInfo {
  * The tenant binding of an internal call for a scope: the tenant id, or the
  * explicit non-tenant opt-out (`''`) that signedFetch documents for proven
  * non-tenant paths. auth-service reads the empty binding as the platform
- * scope and resolves NULL-tenant principals only (SEC-HIGH-057).
+ * scope and resolves NULL-tenant principals only (SEC-HIGH-159).
  */
 function signedTenantBinding(scope: EventTenantScope): string {
   return scope.kind === 'tenant' ? scope.tenantId : '';
@@ -62,7 +62,7 @@ function signedTenantBinding(scope: EventTenantScope): string {
  * This handler resolves user details, tenant info, and action URLs at
  * delivery time via authenticated internal API calls to auth-service.
  *
- * Tenancy (SEC-HIGH-057): the event's scope is parsed through the contract
+ * Tenancy (SEC-HIGH-159): the event's scope is parsed through the contract
  * (eventTenantScope), never a hand-rolled UUID guard. A platform-scoped
  * event — a super admin's password reset or lockout — is delivered through
  * the platform-scope internal identity (signedFetch `tenantId: ''`), which
@@ -431,7 +431,7 @@ export class AuthEventHandler
    */
   private async handleUserInvited(event: UserInvitedEvent): Promise<HandlerOutcome> {
     // An invitation always targets a tenant; a platform-scoped UserInvited is
-    // a contract violation and throws (SEC-HIGH-057).
+    // a contract violation and throws (SEC-HIGH-159).
     const scope = requireTenantScope(event);
 
     // SECURITY: Reject legacy events carrying raw PII

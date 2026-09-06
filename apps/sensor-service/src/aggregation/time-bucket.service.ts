@@ -2,16 +2,21 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
+import {
+  getTenantSchemaName,
+  validateTenantSchemaName,
+} from '@aquaculture/backend-common/database';
+
 /**
  * Granularity tiers for time-bucketed queries.
  * Mirrors the continuous-aggregate views created by
  * 1735900001000-CreateContinuousAggregates.ts.
  */
 export enum TimeBucketGranularity {
-  RAW    = 'sensor_metrics',
-  MIN_1  = 'metrics_1min',
+  RAW = 'sensor_metrics',
+  MIN_1 = 'metrics_1min',
   HOUR_1 = 'metrics_1hour',
-  DAY_1  = 'metrics_1day',
+  DAY_1 = 'metrics_1day',
 }
 
 /**
@@ -54,20 +59,20 @@ export class TimeBucketService {
    * reach the SQL query. A missing entry throws instead of injecting.
    */
   private static readonly TIER_TABLE_MAP: ReadonlyMap<TimeBucketGranularity, string> = new Map([
-    [TimeBucketGranularity.RAW,    'sensor_metrics'],
-    [TimeBucketGranularity.MIN_1,  'metrics_1min'],
+    [TimeBucketGranularity.RAW, 'sensor_metrics'],
+    [TimeBucketGranularity.MIN_1, 'metrics_1min'],
     [TimeBucketGranularity.HOUR_1, 'metrics_1hour'],
-    [TimeBucketGranularity.DAY_1,  'metrics_1day'],
+    [TimeBucketGranularity.DAY_1, 'metrics_1day'],
   ]);
 
   /** Boundaries for automatic tier selection */
   private static readonly TIER_THRESHOLDS = {
     /** Use raw data for spans up to 2 hours */
-    RAW_MAX_MS:    2  * 60 * 60 * 1000,
+    RAW_MAX_MS: 2 * 60 * 60 * 1000,
     /** Use 1-min aggregates for spans up to 7 days */
-    MIN1_MAX_MS:   7  * 24 * 60 * 60 * 1000,
+    MIN1_MAX_MS: 7 * 24 * 60 * 60 * 1000,
     /** Use 1-hour aggregates for spans up to 90 days */
-    HOUR1_MAX_MS:  90 * 24 * 60 * 60 * 1000,
+    HOUR1_MAX_MS: 90 * 24 * 60 * 60 * 1000,
     // Beyond 90 days → metrics_1day
   };
 
@@ -77,14 +82,25 @@ export class TimeBucketService {
   ) {}
 
   /**
+   * The tenant's schema, via the platform SSoT — identical resolution to
+   * SensorMetricWriterService, so bucketed reads target the tenant schema the
+   * writer populates. `validateTenantSchemaName` enforces the
+   * `tenant_<16 hex>` shape before the identifier reaches any SQL
+   * (CRITICAL-003).
+   */
+  private resolveTenantSchema(tenantId: string): string {
+    return validateTenantSchemaName(getTenantSchemaName(tenantId));
+  }
+
+  /**
    * Select the optimal aggregate tier for the given time range.
    */
   selectTier(startTime: Date, endTime: Date): TimeBucketGranularity {
     const spanMs = endTime.getTime() - startTime.getTime();
     const t = TimeBucketService.TIER_THRESHOLDS;
 
-    if (spanMs <= t.RAW_MAX_MS)   return TimeBucketGranularity.RAW;
-    if (spanMs <= t.MIN1_MAX_MS)  return TimeBucketGranularity.MIN_1;
+    if (spanMs <= t.RAW_MAX_MS) return TimeBucketGranularity.RAW;
+    if (spanMs <= t.MIN1_MAX_MS) return TimeBucketGranularity.MIN_1;
     if (spanMs <= t.HOUR1_MAX_MS) return TimeBucketGranularity.HOUR_1;
     return TimeBucketGranularity.DAY_1;
   }
@@ -120,7 +136,16 @@ export class TimeBucketService {
       return this.queryRaw(tenantId, sensorId, channelId, tankId, startTime, endTime, limit);
     }
 
-    return this.queryAggregate(tableName, tenantId, sensorId, channelId, tankId, startTime, endTime, limit);
+    return this.queryAggregate(
+      tableName,
+      tenantId,
+      sensorId,
+      channelId,
+      tankId,
+      startTime,
+      endTime,
+      limit,
+    );
   }
 
   private async queryRaw(
@@ -133,6 +158,7 @@ export class TimeBucketService {
     limit: number,
   ): Promise<TimeBucketRow[]> {
     const params: unknown[] = [tenantId, startTime, endTime];
+    const schema = this.resolveTenantSchema(tenantId);
     let sql = `
       SELECT
         time AS bucket,
@@ -143,13 +169,22 @@ export class TimeBucketService {
         value AS "maxValue",
         1 AS "sampleCount",
         CASE WHEN quality_code >= 192 THEN 100.0 ELSE 0.0 END AS "qualityPct"
-      FROM sensor.sensor_metrics
+      FROM "${schema}".sensor_metrics
       WHERE tenant_id = $1 AND time >= $2 AND time <= $3
     `;
     let p = 4;
-    if (sensorId)  { sql += ` AND sensor_id  = $${p++}`; params.push(sensorId);  }
-    if (channelId) { sql += ` AND channel_id = $${p++}`; params.push(channelId); }
-    if (tankId)    { sql += ` AND tank_id    = $${p++}`; params.push(tankId);    }
+    if (sensorId) {
+      sql += ` AND sensor_id  = $${p++}`;
+      params.push(sensorId);
+    }
+    if (channelId) {
+      sql += ` AND channel_id = $${p++}`;
+      params.push(channelId);
+    }
+    if (tankId) {
+      sql += ` AND tank_id    = $${p++}`;
+      params.push(tankId);
+    }
     sql += ` ORDER BY time DESC LIMIT $${p}`;
     params.push(Math.min(Math.max(1, limit), 10000));
 
@@ -175,6 +210,7 @@ export class TimeBucketService {
     limit: number,
   ): Promise<TimeBucketRow[]> {
     const params: unknown[] = [tenantId, startTime, endTime];
+    const schema = this.resolveTenantSchema(tenantId);
     // SECURITY: safeTableName comes from TIER_TABLE_MAP whitelist, not user input
     let sql = `
       SELECT
@@ -186,13 +222,22 @@ export class TimeBucketService {
         max_value  AS "maxValue",
         sample_count AS "sampleCount",
         quality_pct  AS "qualityPct"
-      FROM sensor.${safeTableName}
+      FROM "${schema}".${safeTableName}
       WHERE tenant_id = $1 AND bucket >= $2 AND bucket <= $3
     `;
     let p = 4;
-    if (sensorId)  { sql += ` AND sensor_id  = $${p++}`; params.push(sensorId);  }
-    if (channelId) { sql += ` AND channel_id = $${p++}`; params.push(channelId); }
-    if (tankId)    { sql += ` AND tank_id    = $${p++}`; params.push(tankId);    }
+    if (sensorId) {
+      sql += ` AND sensor_id  = $${p++}`;
+      params.push(sensorId);
+    }
+    if (channelId) {
+      sql += ` AND channel_id = $${p++}`;
+      params.push(channelId);
+    }
+    if (tankId) {
+      sql += ` AND tank_id    = $${p++}`;
+      params.push(tankId);
+    }
     sql += ` ORDER BY bucket DESC LIMIT $${p}`;
     params.push(Math.min(Math.max(1, limit), 10000));
 

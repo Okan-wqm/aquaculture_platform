@@ -53,6 +53,7 @@ import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 
 import {
+  intersectAffectedLines,
   isPreservationRef,
   parseArgs,
   parseDiffHunkLines,
@@ -61,6 +62,42 @@ import {
   repoRelativeFromClippyPath,
   type PrePushRef,
 } from './clippy-affected';
+
+// ---------------------------------------------------------
+// intersectAffectedLines (merge-from-main scoping, PROC-MEDIUM-027)
+// ---------------------------------------------------------
+
+void test('intersectAffectedLines: keeps only lines new in BOTH ranges', () => {
+  const branch = new Map([['sens-api-gateway/src/main.rs', new Set([10, 11, 12, 5905, 5911])]]);
+  const sinceMain = new Map([['sens-api-gateway/src/main.rs', new Set([10, 12])]]);
+  const result = intersectAffectedLines(branch, sinceMain);
+  assert.deepStrictEqual(Array.from(result.keys()), ['sens-api-gateway/src/main.rs']);
+  assert.deepStrictEqual(
+    Array.from(result.get('sens-api-gateway/src/main.rs') ?? []).sort((a, b) => a - b),
+    [10, 12],
+  );
+});
+
+void test('intersectAffectedLines: a file whose lines all came from main is dropped', () => {
+  const branch = new Map([
+    ['sens-api-gateway/src/main.rs', new Set([5905, 5911])],
+    ['sens-api-gateway/src/db_secret.rs', new Set([40])],
+  ]);
+  const sinceMain = new Map([['sens-api-gateway/src/db_secret.rs', new Set([40])]]);
+  const result = intersectAffectedLines(branch, sinceMain);
+  assert.deepStrictEqual(Array.from(result.keys()), ['sens-api-gateway/src/db_secret.rs']);
+});
+
+void test('intersectAffectedLines: identical ranges are the identity', () => {
+  const lines = new Map([['sens-api-gateway/src/main.rs', new Set([1, 2, 3])]]);
+  const result = intersectAffectedLines(lines, new Map(lines));
+  assert.deepStrictEqual(Array.from(result.get('sens-api-gateway/src/main.rs') ?? []), [1, 2, 3]);
+});
+
+void test('intersectAffectedLines: empty inputs yield an empty map', () => {
+  assert.strictEqual(intersectAffectedLines(new Map(), new Map()).size, 0);
+  assert.strictEqual(intersectAffectedLines(new Map([['a.rs', new Set([1])]]), new Map()).size, 0);
+});
 
 // ---------------------------------------------------------
 // isPreservationRef (rescue/ namespace prepush skip)

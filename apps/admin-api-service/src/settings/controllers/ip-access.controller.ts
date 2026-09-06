@@ -18,10 +18,27 @@ import { Request } from 'express';
 import { getAuthUserId } from '../../shared/authenticated-request';
 
 import {
+  createStandardPaginatedResult,
+  type PaginationResultV1,
+} from '@platform/pagination-contracts';
+
+import {
   IpAccessService,
   CreateIpAccessRuleDto,
   UpdateIpAccessRuleDto,
+  type IpAccessRuleResponse,
 } from '../services/ip-access.service';
+
+/**
+ * Query-string page coordinates arrive as strings and may be absent, empty or
+ * unparseable. Anything that is not a positive safe integer falls back to the
+ * caller-supplied default rather than reaching the pagination authority as NaN.
+ */
+function positiveIntOr(raw: string | undefined, fallback: number): number {
+  if (raw === undefined || raw === '') return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isSafeInteger(parsed) && parsed >= 1 ? parsed : fallback;
+}
 
 class CheckIpAccessDto {
   @IsIP()
@@ -64,21 +81,24 @@ export class IpAccessController {
     @Query('tenantId') tenantId?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
-  ) {
+  ): Promise<PaginationResultV1<IpAccessRuleResponse>> {
     const rules = await this.ipAccessService.getAllRules(tenantId);
-    const pageNum = page ? parseInt(page, 10) : 1;
-    const limitNum = limit ? parseInt(limit, 10) : rules.length;
+    // A page size of zero is not a page, and neither is a page size of NaN.
+    // The old `Math.ceil(rules.length / limitNum) || 1` hid both: with no rules
+    // and no explicit limit it divided by zero, and an unparseable `?limit=`
+    // produced NaN that the `|| 1` swallowed. The coordinates are coerced to
+    // something the authority can honour before it ever sees them.
+    const pageNum = positiveIntOr(page, 1);
+    const limitNum = positiveIntOr(limit, Math.max(1, rules.length));
     const startIndex = (pageNum - 1) * limitNum;
-    const endIndex = startIndex + limitNum;
-    const paginatedRules = rules.slice(startIndex, endIndex);
+    const paginatedRules = rules.slice(startIndex, startIndex + limitNum);
 
-    return {
-      data: paginatedRules,
-      total: rules.length,
-      page: pageNum,
-      limit: limitNum,
-      totalPages: Math.ceil(rules.length / limitNum) || 1,
-    };
+    return createStandardPaginatedResult<IpAccessRuleResponse>(
+      paginatedRules,
+      rules.length,
+      pageNum,
+      limitNum,
+    );
   }
 
   /**

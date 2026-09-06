@@ -32,12 +32,19 @@ const MAX_SUMMARY_RECIPIENTS = 100;
  * serviste yoktur ve burada icat edilmez; rol-bazlı yönlendirme gerektiğinde
  * alert-engine eskalasyon politikaları kullanılır.
  *
- * İDEMPOTENCY: push, komut-makbuzlu dispatcher üzerinden deterministik
- * deliveryId (`feeding-summary:{tenant}:{planDate}:{user}`) ile gider — NATS
- * at-least-once yeniden teslimi çift push ÜRETEMEZ; in-app satırı yalnız makbuz
- * TAZE (replayed=false) iken yazılır. Push gönderimi hata verirse in-app yine
- * yazılır (özet kullanıcının zil kutusuna düşmek zorunda) ve push denemesini
- * dispatcher'ın retry makinesi devralır.
+ * İDEMPOTENCY (W7 — FARM-LOW-282): push, komut-makbuzlu dispatcher üzerinden
+ * deterministik deliveryId (`feeding-summary:{tenant}:{planDate}:{user}`) ile
+ * gider. İn-app satırı AYNI deliveryId'yi taşır ve `(tenant, alıcı,
+ * deliveryId)` kısmi unique index'i üzerinden yazılır — böylece "push başarısız
+ * oldu → in-app yazıldı → yeniden teslimde push bu kez başarılı (replayed=false)
+ * → in-app İKİNCİ kez yazıldı" penceresi kapanır. Kopya artık handler'ın
+ * dikkatine değil, veritabanı kısıtına bağlı.
+ *
+ * HATA POLİTİKASI (W7 / D-B5): `FeedingDailySummary` registry'de `one_shot` —
+ * farm tarafındaki `feeding_job_runs` claim'i tenant'ın yerel gününde ikinci
+ * bir özet üretilmesini ENGELLER, dolayısıyla teslim kaybı özetin kendisini
+ * kaybeder. Bu yüzden alıcıların hiçbirine ulaşılamadığında hata yutulmaz:
+ * yeniden fırlatılır → NAK + backoff → tükenince the platform dead-letter stream (AQUACULTURE_DLQ).
  */
 @Injectable()
 export class FeedingDailySummaryEventHandler
@@ -95,16 +102,19 @@ export class FeedingDailySummaryEventHandler
       (event.underfedUnitCount > 0 ? `, ${event.underfedUnitCount} ünite az beslendi` : '') +
       (event.missedMealCount > 0 ? `, ${event.missedMealCount} öğün kaçırıldı` : '');
 
+    const inAppFailures: string[] = [];
+
     for (const { userId, token } of recipients) {
-      let pushReplayed = false;
+      const deliveryId = `feeding-summary:${event.tenantId}:${event.planDate}:${userId}`;
+
       try {
-        const { replayed } = await this.dispatcher.dispatchCommandNotification({
+        await this.dispatcher.dispatchCommandNotification({
           tenantId: event.tenantId,
           channel: NotificationChannel.PUSH,
           recipient: token,
           recipientLogRef: `userId:${userId}`,
-          deliveryId: `feeding-summary:${event.tenantId}:${event.planDate}:${userId}`,
-          requestReference: `feeding-summary:${event.tenantId}:${event.planDate}:${userId}`,
+          deliveryId,
+          requestReference: deliveryId,
           source: 'notification-service.feeding-daily-summary-handler',
           subject: title,
           message: body,
@@ -112,36 +122,56 @@ export class FeedingDailySummaryEventHandler
           // oturum açıksa SW push'u düşürür.
           pushData: { userId },
         });
-        pushReplayed = replayed;
       } catch (error) {
         // Push denemesini dispatcher'ın retry makinesi devralır; in-app aşağıda
-        // yine yazılır.
+        // yine yazılır — özet kullanıcının zil kutusuna düşmek zorunda.
         this.logger.warn(
           `Daily summary push dispatch failed for user ${userId.substring(0, 8)}...: ` +
             `${(error as Error).message}`,
         );
       }
 
-      if (pushReplayed) continue; // Yeniden teslim — in-app satırı zaten yazıldı.
-
       try {
-        await this.inAppService.createNotification(event.tenantId, userId, title, body, {
-          type: 'FeedingDailySummary',
-          planDate: event.planDate,
-          unitsPlanned: event.unitsPlanned,
-          unitsCompleted: event.unitsCompleted,
-          unitsSkipped: event.unitsSkipped,
-          plannedTotalKg: event.plannedTotalKg,
-          actualTotalKg: event.actualTotalKg,
-          underfedUnitCount: event.underfedUnitCount,
-          missedMealCount: event.missedMealCount,
-        });
+        // `replayed` bayrağına göre atlamak YOK: in-app yazımı kendi makbuzunu
+        // (deliveryId) taşıyor, kopya DB kısıtıyla imkânsız. Push'un yeniden
+        // teslim durumu artık in-app satırının yazılıp yazılmayacağını
+        // belirlemiyor — iki kanalın idempotency'si birbirinden bağımsız.
+        await this.inAppService.createNotification(
+          event.tenantId,
+          userId,
+          title,
+          body,
+          {
+            type: 'FeedingDailySummary',
+            planDate: event.planDate,
+            unitsPlanned: event.unitsPlanned,
+            unitsCompleted: event.unitsCompleted,
+            unitsSkipped: event.unitsSkipped,
+            plannedTotalKg: event.plannedTotalKg,
+            actualTotalKg: event.actualTotalKg,
+            underfedUnitCount: event.underfedUnitCount,
+            missedMealCount: event.missedMealCount,
+          },
+          { deliveryId },
+        );
       } catch (error) {
         this.logger.error(
           `Daily summary in-app write failed for user ${userId.substring(0, 8)}...: ` +
             `${(error as Error).message}`,
         );
+        inAppFailures.push(`${userId.substring(0, 8)}: ${(error as Error).message}`);
       }
+    }
+
+    if (inAppFailures.length === recipients.length) {
+      // Hiçbir alıcıya ulaşılamadı ve özet yeniden ÜRETİLMEYECEK (job-run
+      // claim'i tenant'ın yerel gününde tek koşu garanti eder) — yut, ve gün
+      // sessizce kaybolsun DEĞİL: fırlat, event-bus yeniden dener, tükenirse
+      // platform dead-letter akışına (AQUACULTURE_DLQ) düşer.
+      throw new Error(
+        `FeedingDailySummary in-app fan-out failed for all ${recipients.length} recipient(s): ` +
+          inAppFailures.join(' | '),
+      );
     }
 
     this.logger.debug(

@@ -136,10 +136,10 @@ services:
     environment:
       NODE_OPTIONS: '--max-old-space-size=256'
       CORS_ORIGINS: ${CORS_ORIGINS:-https://staging.suderra.com}
+      FRONTEND_URL: ${FRONTEND_URL:-https://staging.suderra.com}
       WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-staging.suderra.com}
       WEBAUTHN_RP_NAME: ${WEBAUTHN_RP_NAME:-AquaCulture Platform (Staging)}
       # DEPLOY-HIGH-016: origin of every e-mailed invitation / password-reset link.
-      FRONTEND_URL: ${FRONTEND_URL:-https://staging.suderra.com}
     deploy:
       resources:
         limits:

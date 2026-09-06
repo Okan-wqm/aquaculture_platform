@@ -1,5 +1,5 @@
 /**
- * StockMovementPage — queue-first two-phase UX (MOB-CRITICAL-018 class).
+ * StockMovementPage — queue-first two-phase UX (MOB-CRITICAL-021 class).
  *
  * The wizard used to submit directly online (falling back to the queue on a
  * transport error) and render an unconditional green success. It now enqueues

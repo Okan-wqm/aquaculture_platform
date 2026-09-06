@@ -135,12 +135,10 @@ export class SpeciesResolver {
    */
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
   @Query(() => [Species], { name: 'activeSpecies' })
-  async getActiveSpecies(
-    @CurrentTenant() tenantId: string,
-  ): Promise<Species[]> {
-    const result = await this.queryBus.execute(
+  async getActiveSpecies(@CurrentTenant() tenantId: string): Promise<readonly Species[]> {
+    const result = (await this.queryBus.execute(
       new ListSpeciesQuery(tenantId, { isActive: true, limit: 100 }),
-    ) as PaginatedQueryResult<Species>;
+    )) as PaginatedQueryResult<Species>;
     return fromCqrsPaginated(result).items;
   }
 

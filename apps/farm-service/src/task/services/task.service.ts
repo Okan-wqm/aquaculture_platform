@@ -75,7 +75,7 @@ export class TaskService {
   /**
    * Public because it is ALSO the read path: the `checklistItems` field
    * resolvers on Task and RecurringTemplate serve every row through it, so the
-   * wire never carries the permissive stored shape (FARM-HIGH-301).
+   * wire never carries the permissive stored shape (FARM-HIGH-320).
    */
   static normaliseChecklistItems(
     raw: Partial<StoredTaskChecklistItem>[] | undefined,

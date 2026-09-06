@@ -16,7 +16,7 @@
  * literal set; opaque token/key references validate as bounded strings (they may
  * be a UUID or a SHA-256 hash, never raw PII).
  *
- * Tenancy (SEC-HIGH-057): events about a principal whose tenantId is nullable
+ * Tenancy (SEC-HIGH-159): events about a principal whose tenantId is nullable
  * (super admins live in auth.users with tenantId NULL) are PLATFORM-CAPABLE and
  * admit the reserved platform segment on `tenantId` via
  * TENANT_OR_PLATFORM_TENANT_ID_SCHEMA. UserInvited is structurally tenant-bound

@@ -31,7 +31,14 @@
 import { HttpException } from '@nestjs/common';
 
 export type HandlerOutcome =
-  | { readonly kind: 'ack' }
+  /**
+   * `reason` is present when the ack is a DECISION rather than a plain
+   * success — a guard that does not apply, or a transient failure on a
+   * reproducible signal. It is what keeps such an ack out of the "silently
+   * swallowed" class the bus can no longer express (PLAT-HIGH-902): the
+   * disposition is still ack, but it says why.
+   */
+  | { readonly kind: 'ack'; readonly reason?: string }
   | { readonly kind: 'retry'; readonly reason: string; readonly cause?: unknown }
   | { readonly kind: 'terminate'; readonly reason: string; readonly cause?: unknown };
 
@@ -39,8 +46,8 @@ const ACK: HandlerOutcome = Object.freeze({ kind: 'ack' as const });
 
 /** Constructors + guard, merged with the type so `HandlerOutcome.ack()` reads naturally. */
 export const HandlerOutcome = {
-  ack(): HandlerOutcome {
-    return ACK;
+  ack(reason?: string): HandlerOutcome {
+    return reason === undefined ? ACK : { kind: 'ack', reason };
   },
   retry(reason: string, cause?: unknown): HandlerOutcome {
     return cause === undefined ? { kind: 'retry', reason } : { kind: 'retry', reason, cause };
@@ -186,10 +193,38 @@ export function isTerminalHandlerError(error: unknown): boolean {
   return error instanceof Error && error.name === 'ValidationError';
 }
 
-/** `terminate` for an error redelivery cannot fix, `retry` otherwise. */
-export function outcomeForError(context: string, error: unknown): HandlerOutcome {
+/**
+ * `terminate` for an error redelivery cannot fix, `retry` otherwise — unless
+ * the SIGNAL itself is reproducible.
+ *
+ * The two questions are independent and both have an owner. Whether an error
+ * can ever succeed on redelivery is a property of the ERROR, answered here by
+ * `isTerminalHandlerError`. Whether a lost delivery loses the FACT is a
+ * property of the EVENT, answered by the event contract's delivery semantics
+ * (`requiresDurableDelivery`) — a `one_shot` signal is raised once at write
+ * time and nothing re-derives it, while a `reproducible` one is re-emitted by
+ * the sweep that computes it.
+ *
+ * Retrying a reproducible signal buys nothing and costs a redelivery storm on
+ * the platform's highest-volume subjects, so its transient failures are
+ * acknowledged — but as an explicit `ack` carrying the reason, never as a
+ * silent `return` (PLAT-HIGH-902). A terminal error is dead-lettered either
+ * way: a payload the handler can never accept has to be visible.
+ */
+export function outcomeForError(
+  context: string,
+  error: unknown,
+  options: { readonly reproducible?: boolean } = {},
+): HandlerOutcome {
   const message = error instanceof Error ? error.message : String(error);
-  return isTerminalHandlerError(error)
-    ? HandlerOutcome.terminate(`${context}: ${message}`, error)
-    : HandlerOutcome.retry(`${context}: ${message}`, error);
+  if (isTerminalHandlerError(error)) {
+    return HandlerOutcome.terminate(`${context}: ${message}`, error);
+  }
+  if (options.reproducible === true) {
+    return HandlerOutcome.ack(
+      `${context}: ${message} — acknowledged, the signal is reproducible and its next ` +
+        'emission re-raises it; retrying would only storm the subject',
+    );
+  }
+  return HandlerOutcome.retry(`${context}: ${message}`, error);
 }

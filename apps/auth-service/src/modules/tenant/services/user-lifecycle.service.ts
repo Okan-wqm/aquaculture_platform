@@ -240,7 +240,7 @@ export class UserLifecycleService {
     const userAccessType = input.accessType ?? AccessType.BOTH;
     const normalisedEmail = input.email.toLowerCase();
 
-    // SEC-HIGH-056: User, Invitation and ActionToken commit together. A user
+    // SEC-HIGH-158: User, Invitation and ActionToken commit together. A user
     // whose e-mailed link has no ActionToken row behind it cannot exist — the
     // previous shape published a token HASH under `actionTokenId`, which the
     // link resolver could never turn into a row.
@@ -1248,7 +1248,7 @@ export class UserLifecycleService {
    * Fresh invitation secret. 256 random bits are hashed and the raw value is
    * discarded: nothing e-mails it. The hash is the correlation key between
    * User.invitationToken, Invitation.token and ActionToken.tokenHash, and the
-   * e-mailed link names the ActionToken row id instead (SEC-HIGH-056).
+   * e-mailed link names the ActionToken row id instead (SEC-HIGH-158).
    */
   private newInvitationSecret(): InvitationSecret {
     const rawToken = crypto.randomBytes(32).toString('hex');

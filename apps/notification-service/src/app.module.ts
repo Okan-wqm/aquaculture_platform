@@ -58,6 +58,10 @@ import { NotificationLogDeadLetterSink } from './notification/services/notificat
 import { NotificationOutboxModule } from './outbox/notification-outbox.module';
 import { HealthModule } from './health/health.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
+import { subgraphComplexityPlugin, subgraphFormatError } from '@aquaculture/backend-common/graphql';
+
+/** Shared subgraph complexity ceiling (SEC-LOW-116). */
+const GRAPHQL_MAX_COMPLEXITY = 1000;
 
 @Module({
   imports: [
@@ -134,6 +138,14 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
          * that causes exponential resource consumption on the server.
          */
         validationRules: [depthLimit(10)],
+        /**
+         * SEC-MEDIUM-077 / SEC-LOW-116 (2026-08-23 scan №22/№61): shared subgraph
+         * hardening preset — production error masking (raw TypeORM/driver text must
+         * never reach clients through the gateway's message passthrough) and the
+         * complexity cap for direct-access defense-in-depth.
+         */
+        formatError: subgraphFormatError(process.env['NODE_ENV'] === 'production'),
+        plugins: [subgraphComplexityPlugin(GRAPHQL_MAX_COMPLEXITY)],
         /**
          * 2026-04-30: Deprecated GraphQL Playground is not enabled at runtime.
          * WHY: notification subgraph developer UI must not rely on deprecated Apollo Playground behavior.

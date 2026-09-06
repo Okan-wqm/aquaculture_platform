@@ -12,6 +12,27 @@ and the gates that are supposed to keep that replay honest.
 2026-08-15 deadline and blocks the pilot's super-admin flow. Planning its fix
 surfaced two further defects of the same class and one gate-precision defect.
 
+## Ledger ids
+
+Five findings in this document were registered on the PR #1420 branch before `main` allocated the
+same sequence numbers to other findings. The allocator treats the sequence as the identity, so the
+branch's rows were re-registered under the right-hand ids when the branch took main. The merged
+`Closes:` trailers still name the left column; the ids with no live sibling on main are also
+recorded in `docs/reviews/_registry/finding-id-aliases.yaml`. `PROC-MEDIUM-021` names an unrelated
+finding on main and cannot be aliased: its fix commit (`add2a56ae`) closes `PROC-MEDIUM-026`.
+`ADMIN-HIGH-009` (the phantom-tenant PR, #1427) is the same case: main's `ADMIN-HIGH-009` is an
+unrelated finding, so the retry defect below is `ADMIN-HIGH-094` in the ledger and its fix commit
+(`cb75f3505`) closes that row. `INFRA-CRITICAL-149` and `INFRA-HIGH-150` kept their ids.
+
+| Review id (headings, trailers) | Ledger id (findings.jsonl) |
+| ------------------------------ | -------------------------- |
+| `INFRA-HIGH-145`               | `INFRA-HIGH-155`           |
+| `INFRA-HIGH-146`               | `INFRA-HIGH-156`           |
+| `PROC-MEDIUM-021`              | `PROC-MEDIUM-026`          |
+| `ADMIN-CRITICAL-008`           | `ADMIN-CRITICAL-093`       |
+| `SENSOR-CRITICAL-105`          | `SENSOR-CRITICAL-110`      |
+| `ADMIN-HIGH-009`               | `ADMIN-HIGH-094`           |
+
 ## Executive summary
 
 Provisioning a tenant is migration **replay**: the orchestrator pins
@@ -135,6 +156,11 @@ so an override breaks minio's CommonJS
 `require("stream-json/jsonl/Parser.js")`. Verified by unpacking 3.6.0 rather
 than inferred. npm's own remediation is a major downgrade to `minio@7.1.3`, and
 8.0.7 is the latest published release.
+
+_2026-09-05 update:_ main replaced the minio client with `@aws-sdk/client-s3`
+(SUPPLY-MEDIUM-008, `3c3856970`), so minio and stream-json left the tree and the
+exception below was retired when this branch took main; the gate keeps its
+mechanism with an empty exceptions file and the ratchet at 0.
 
 `security-audit` is required for `merge-gate`, so it stays red for a reason
 nobody can act on — and a permanently red required check stops being read, at
@@ -303,7 +329,9 @@ fourteen schemas that omitted `config`. Deriving it from 008's own
 `jsonb_to_recordset` table — done earlier in this same programme — added the
 fifteenth, and the first run against a migrated database failed on it.
 
-**Fixed** by `1807400000000-RestoreConfigSchemaOwnerRole`: the SCHEMA returns to
+**Fixed** by `1807400000000-RestoreConfigSchemaOwnerBoundary` — main landed the same
+schema-ownership return independently; the branch's own `RestoreConfigSchemaOwnerRole`
+migration, which shared the timestamp, was dropped in the merge in its favour: the SCHEMA returns to
 `config_schema_owner`; tables, types, sequences and the `USAGE, CREATE` grant
 stay with `config_service`. A CREATE grant lets the service add objects without
 conferring DROP over the ones already there — that difference is the whole fix.

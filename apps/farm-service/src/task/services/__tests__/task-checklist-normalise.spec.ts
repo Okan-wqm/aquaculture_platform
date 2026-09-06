@@ -52,7 +52,7 @@ describe('TaskService.normaliseChecklistItem', () => {
     // The legacy `completed` field is NOT re-emitted — the canonical
     // shape is `isCompleted` only.
     // The canonical TaskChecklistItem has no `completed` member at all
-    // (FARM-HIGH-301): the legacy flag cannot be re-emitted, only read.
+    // (FARM-HIGH-320): the legacy flag cannot be re-emitted, only read.
     expect(out).not.toHaveProperty('completed');
     expect(out.completedAt).toBe('2026-04-01T00:00:00Z');
   });

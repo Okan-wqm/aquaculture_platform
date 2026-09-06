@@ -16,6 +16,33 @@
 > `id` pattern in `docs/reviews/_registry/findings.jsonl.schema.json`, so these findings
 > cannot be registered at all — see `PROC-MEDIUM-016` in the cycle report.
 
+## Ledger ids
+
+The six lane-truthfulness findings below were registered on the PR #1420 branch before `main`
+allocated the same sequence numbers to other findings. The allocator treats the sequence as the
+identity, so the branch's rows were re-registered under the right-hand ids when the branch took
+main. The merged `Closes:` trailers still name the left column — they cannot be amended without
+rewriting published history — so both ids are listed here; the ids with no live sibling on main are
+also recorded in `docs/reviews/_registry/finding-id-aliases.yaml`, which every id-resolving gate
+reads. `INFRA-HIGH-141` and `INFRA-MEDIUM-143` name unrelated findings on main and cannot be
+aliased: their fix commits close the right-hand row, never main's.
+
+| Review id (headings, trailers) | Ledger id (findings.jsonl) |
+| ------------------------------ | -------------------------- |
+| `INFRA-HIGH-140`               | `INFRA-HIGH-157`           |
+| `INFRA-HIGH-141`               | `INFRA-HIGH-152`           |
+| `INFRA-MEDIUM-142`             | `INFRA-MEDIUM-158`         |
+| `INFRA-MEDIUM-143`             | `INFRA-MEDIUM-153`         |
+| `INFRA-MEDIUM-144`             | `INFRA-MEDIUM-154`         |
+| `PROC-MEDIUM-020`              | `PROC-MEDIUM-025`          |
+
+Alias anchors (the ids the sidecar resolves; each names the finding raised under that id above):
+
+- **INFRA-HIGH-140** → `INFRA-HIGH-157` — AquaMobil declared no Nx `test` target.
+- **INFRA-MEDIUM-142** → `INFRA-MEDIUM-158` — `test:integration` targets invoked by no workflow.
+- **INFRA-MEDIUM-144** → `INFRA-MEDIUM-154` — the 36-project lint quarantine umbrella.
+- **PROC-MEDIUM-020** → `PROC-MEDIUM-025` — the untracked affected-lane test quarantine.
+
 ## Scope
 
 Read apps/farm-service in full breadth: jest.config.ts, jest.integration.config.ts,

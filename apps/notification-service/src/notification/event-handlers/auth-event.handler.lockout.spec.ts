@@ -123,7 +123,7 @@ describe('AuthEventHandler — UserAccountLocked (ORPHAN-MEDIUM-320)', () => {
     expect(emailService.sendEmail).not.toHaveBeenCalled();
   });
 
-  it('SEC-HIGH-057: a platform-scoped lockout (super admin) resolves PII through the platform-scope identity', async () => {
+  it('SEC-HIGH-159: a platform-scoped lockout (super admin) resolves PII through the platform-scope identity', async () => {
     mockSignedFetch.mockResolvedValue({
       ok: true,
       status: 200,

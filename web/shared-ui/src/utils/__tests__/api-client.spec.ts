@@ -771,7 +771,10 @@ describe('api-client', () => {
 
   describe('silentRefresh', () => {
     it('times out a stalled response body and releases the shared refresh lock', async () => {
-      vi.useFakeTimers();
+      // shouldAdvanceTime: the refresh path mixes faked timers with
+      // microtask-driven state (lease + lock + abort listener), and a
+      // fully-frozen clock can stall the chain before the abort window.
+      vi.useFakeTimers({ shouldAdvanceTime: true });
       let firstSignal: AbortSignal | null | undefined;
       mockFetch
         .mockImplementationOnce((_url: string, init: RequestInit) => {

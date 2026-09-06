@@ -22,6 +22,7 @@ import { Invitation } from '../entities/invitation.entity';
 import { RefreshToken } from '../entities/refresh-token.entity';
 import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
 import { User } from '../entities/user.entity';
+import { WebAuthnCredential } from '../entities/webauthn-credential.entity';
 import { ActionTokenResolver } from '../services/action-token-resolver.service';
 import { AuthenticationService } from '../services/authentication.service';
 import { DurableAccessTokenInvalidationService } from '../services/durable-access-token-invalidation.service';
@@ -211,6 +212,13 @@ describe('AuthenticationService refresh-token reuse containment', () => {
         { provide: getRepositoryToken(ActionToken), useValue: {} },
         { provide: getRepositoryToken(UserModuleAssignment), useValue: {} },
         { provide: getRepositoryToken(Tenant), useValue: {} },
+        // ADR-046: the MFA-enrollment gate counts the user's registered
+        // WebAuthn credentials, so AuthenticationService injects the repo.
+        // Zero credentials keeps these suites on their existing paths.
+        {
+          provide: getRepositoryToken(WebAuthnCredential),
+          useValue: { count: jest.fn().mockResolvedValue(0) },
+        },
         { provide: DataSource, useValue: dataSource },
         { provide: JwtService, useValue: {} },
         { provide: ConfigService, useValue: config },
@@ -354,6 +362,50 @@ describe('AuthenticationService refresh-token reuse containment', () => {
     expect(durableUserInvalidation.applyImmediately).toHaveBeenCalledTimes(1);
     expect(sessionManager.revokeAllSessions).toHaveBeenCalledTimes(1);
     expect(securityEvents.publishSuspiciousActivity).toHaveBeenCalledTimes(1);
+  });
+
+  // ─── SEC-MEDIUM-113 (2026-08-23 scan №58): rotation grace window ─────
+
+  it('grace: a JUST-rotated token re-mints once instead of triggering containment', async () => {
+    exactToken = Object.assign(new RefreshToken(), suspectToken, {
+      id: '55555555-5555-5555-8555-555555555555',
+      revokedAt: new Date(Date.now() - 1_000),
+      revokedReason: 'Token refreshed',
+    });
+    tokenService.generateTokens.mockResolvedValue({ accessToken: 'fresh' });
+
+    const result = await service.refreshToken(V2_TRANSPORT);
+
+    expect(result.accessToken).toBe('fresh');
+    // The grace claim flipped the reason — the one-shot semantic
+    expect(refreshUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ revokedReason: 'Token refreshed' }),
+      expect.objectContaining({ revokedReason: 'Token refreshed (grace)' }),
+    );
+    // NO containment effects fired for a benign two-tab race
+    expect(durableUserInvalidation.enqueue).not.toHaveBeenCalled();
+    expect(sessionManager.revokeAllSessions).not.toHaveBeenCalled();
+  });
+
+  it('grace is one-shot: a second presentation of the same row contains', async () => {
+    exactToken = Object.assign(new RefreshToken(), suspectToken, {
+      id: '66666666-6666-6666-8666-666666666666',
+      revokedAt: new Date(Date.now() - 1_000),
+      revokedReason: 'Token refreshed (grace)',
+    });
+
+    await expect(service.refreshToken(V2_TRANSPORT)).rejects.toThrow(UnauthorizedException);
+
+    expect(durableUserInvalidation.enqueue).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ reason: 'refresh_token_reuse' }),
+    );
+  });
+
+  it('an OLD rotation (outside the window) still contains immediately', async () => {
+    // revokedAt 2026-06-10 fixture default — far outside the 60s window
+    await expect(service.refreshToken(V2_TRANSPORT)).rejects.toThrow(UnauthorizedException);
+    expect(tokenService.generateTokens).not.toHaveBeenCalled();
   });
 
   it('does not contain an expired revoked token', async () => {

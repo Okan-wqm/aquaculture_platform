@@ -12,6 +12,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Button, Badge } from '@aquaculture/shared-ui';
 import { messagingApi, type MessagingAuditEntry } from '../../services/adminApi';
 import type { ApiError } from '../../services/http-client';
+import { expectedTotalPages } from '@platform/pagination-contracts';
 
 // ============================================================================
 // Types
@@ -65,7 +66,7 @@ const PAGE_SIZE = 25;
 // ============================================================================
 
 const MessagingAuditPage: React.FC = () => {
-  const [entries, setEntries] = useState<MessagingAuditEntry[]>([]);
+  const [entries, setEntries] = useState<readonly MessagingAuditEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filters, setFilters] = useState<AuditFilters>(INITIAL_FILTERS);
@@ -137,7 +138,7 @@ const MessagingAuditPage: React.FC = () => {
     URL.revokeObjectURL(url);
   }, [entries]);
 
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const totalPages = expectedTotalPages(total, PAGE_SIZE);
 
   return (
     <div className="space-y-6">

@@ -25,6 +25,10 @@ import {
   type AdminUpdateUserCommand,
   type AdminUpdateUserResult,
 } from '@platform/event-contracts';
+import {
+  createStandardPaginatedResult,
+  type PaginationResultV1,
+} from '@platform/pagination-contracts';
 import { catchError, firstValueFrom, throwError, timeout } from 'rxjs';
 import { DataSource } from 'typeorm';
 
@@ -56,13 +60,8 @@ export interface UserDto {
   updatedAt: Date;
 }
 
-export interface PaginatedUsers {
-  data: UserDto[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
-}
+/** The page shape is the platform authority's, not a local copy. */
+export type PaginatedUsers = PaginationResultV1<UserDto>;
 
 export interface UserStats {
   totalUsers: number;
@@ -214,13 +213,7 @@ export class UsersService {
 
       const total = parseInt(countResult[0]?.total || '0', 10);
 
-      return {
-        data: users,
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-      };
+      return createStandardPaginatedResult<UserDto>(users, total, page, limit);
     } catch (error) {
       this.logger.error(`Failed to list users: ${(error as Error).message}`);
       throw error;

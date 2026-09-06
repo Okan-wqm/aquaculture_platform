@@ -72,9 +72,15 @@ describe('compliance-attestation-coverage gate', () => {
   });
 
   it('ignores OPEN / IN-PROGRESS findings', () => {
-    // The registry currently holds only RESOLVED entries (33 of 53 are
-    // CRITICAL/HIGH, and 20 are RESOLVED). Past cutoff should surface
-    // ONLY RESOLVED ones — not every CRITICAL/HIGH entry.
+    // Past cutoff must surface ONLY RESOLVED CRITICAL/HIGH entries.
+    //
+    // This used to assert `id` matched /-(CRITICAL|HIGH)-/, reading severity
+    // out of the ID TEXT. That is not where severity lives — the gate itself
+    // filters on `e.severity`, and the ID convention `{DOMAIN}-{SEVERITY}-{N}`
+    // is a convention, not a schema. `RUST-CVE-001` is a legitimately-shaped
+    // registry entry with `"severity":"HIGH"` and no severity segment in its
+    // ID, so the regex failed a finding the gate had classified correctly.
+    // Assert against the registry field the gate actually reads.
     const r = runCoverageCheck({ cutoffIso: '2026-04-15T00:00:00Z' });
     // Severity is registry data, not an ID naming convention. Legacy IDs such
     // as RUST-CVE-001 are valid HIGH findings even though the severity is not

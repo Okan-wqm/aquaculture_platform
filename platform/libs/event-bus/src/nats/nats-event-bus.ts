@@ -35,7 +35,7 @@ import {
   Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { EventUpcasterRegistry } from '@platform/event-contracts';
+import { EventUpcasterRegistry, validateEventBySubject } from '@platform/event-contracts';
 
 import {
   EVENT_DEAD_LETTER_SINK,
@@ -51,7 +51,12 @@ import {
   PublishOptions,
   EventMetadata,
 } from '../interfaces/event-bus.interface';
-import { HandlerOutcome, foldHandlerOutcomes } from '../interfaces/handler-outcome';
+import {
+  HandlerOutcome,
+  foldHandlerOutcomes,
+  outcomeForError,
+  redeliveryBackoffMs,
+} from '../interfaces/handler-outcome';
 import {
   buildSystemEventSubject,
   buildTenantEventSubject,
@@ -59,8 +64,17 @@ import {
   assertSubjectMatchesEvent,
 } from '../subjects/tenant-event-subject';
 
+import { buildDlqEnvelope } from './dlq-envelope';
 import { DEFAULT_NATS_URL, DEFAULT_NATS_STREAM_NAME } from './event-bus-config.factory';
 import { EventBusDeliveryMetrics } from './event-bus-delivery-metrics';
+import {
+  DEFAULT_TELEMETRY_STREAM_NAME,
+  buildRoutedSubject,
+  buildRoutedTenantWildcardSubject,
+  buildRoutedWildcardSubject,
+  streamNameForSubject,
+  subjectRootForEventType,
+} from './event-route-registry';
 import type { EventBusModuleOptions } from './nats.module';
 
 export interface CoreNatsConnectionSnapshot {
@@ -171,6 +185,12 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
   // source-of-truth drift this refactor eliminates.
   private readonly natsUrl: string;
   private readonly streamName: string;
+  /** Task 1.6: the dead-letter stream every terminal failure routes into. */
+  private readonly dlqStreamName: string;
+  /** Deliveries before a failing message is dead-lettered (default 5). */
+  private readonly dlqAfterDeliveries: number;
+  /** Task 2: the stream owning the telemetry. subject root. */
+  private readonly telemetryStreamName: string;
   private readonly streamReplicas: number;
   private readonly clientId: string;
   private reconnectPolicy: NatsReconnectPolicy | null = null;
@@ -202,6 +222,12 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
     this.requireBroker = moduleOptions?.required ?? false;
     this.natsUrl = this.configService.get<string>('NATS_URL', DEFAULT_NATS_URL);
     this.streamName = this.configService.get<string>('NATS_STREAM_NAME', DEFAULT_NATS_STREAM_NAME);
+    this.dlqStreamName = this.configService.get<string>('NATS_DLQ_STREAM_NAME', 'AQUACULTURE_DLQ');
+    this.dlqAfterDeliveries = Number(this.configService.get('NATS_DLQ_AFTER_DELIVERIES', 5));
+    this.telemetryStreamName = this.configService.get<string>(
+      'NATS_TELEMETRY_STREAM_NAME',
+      DEFAULT_TELEMETRY_STREAM_NAME,
+    );
     // JetStream replica count is a property of the NATS DEPLOYMENT TOPOLOGY
     // (how many nodes the cluster has), NOT of the application environment.
     // Coupling it to NODE_ENV/AQUA_ENV (production ⇒ 3) was an architectural
@@ -354,11 +380,7 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
     // A live @nats-io connection owns its own internal reconnect loop. Do not
     // open a second mTLS connection while it is reconnecting; retain exactly
     // one outer timer so a terminal close still converges on recovery.
-    if (
-      this.connectPromise === null &&
-      this.connection !== null &&
-      !this.connection.isClosed()
-    ) {
+    if (this.connectPromise === null && this.connection !== null && !this.connection.isClosed()) {
       this.scheduleReconnect();
       return;
     }
@@ -865,7 +887,9 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
     if (!event.tenantId) {
       return buildSystemEventSubject(event.eventType);
     }
-    return buildTenantEventSubject(event.tenantId, event.eventType);
+    // Task 2 (SENSOR-HIGH-092): high-rate telemetry types publish onto the
+    // telemetry root → AQUACULTURE_TELEMETRY; domain events keep events.
+    return buildRoutedSubject(event.tenantId, event.eventType);
   }
 
   async publish<TEvent extends IEvent>(event: TEvent, options?: PublishOptions): Promise<void> {
@@ -955,7 +979,8 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
     handler: IEventHandler<TEvent>,
     options?: SubscriptionOptions,
   ): Promise<void> {
-    const subject = buildWildcardEventSubject(eventType);
+    // Task 2: wildcard subscriptions route by the same registry as publish.
+    const subject = buildRoutedWildcardSubject(eventType);
     await this.subscribeTo(subject, handler, options);
   }
 
@@ -987,7 +1012,11 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
     tenantId: string,
     handler: IEventHandler<TEvent>,
   ): Promise<void> {
-    const subject = buildTenantEventSubject(tenantId, eventType);
+    // Task 2: per-tenant subscriptions route by the same registry.
+    const subject =
+      subjectRootForEventType(eventType) === 'telemetry'
+        ? buildRoutedTenantWildcardSubject(tenantId).replace('.>', `.${eventType}`)
+        : buildTenantEventSubject(tenantId, eventType);
     await this.subscribeTo(subject, handler);
   }
 
@@ -1147,6 +1176,84 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
       });
       this.logger.log(`Created stream ${this.streamName}`);
     }
+
+    // Task 1.6 (SENSOR-HIGH-093): the dead-letter stream must exist before
+    // any consumer can terminal-route a poisoned message into it. Same
+    // create-or-update discipline as the main stream (ARCH-031).
+    const dlqConfig = this.getDlqStreamConfig();
+    try {
+      await this.jetStreamManager.streams.info(this.dlqStreamName);
+      await this.jetStreamManager.streams.update(this.dlqStreamName, dlqConfig);
+    } catch {
+      await this.jetStreamManager.streams.add({
+        name: this.dlqStreamName,
+        ...dlqConfig,
+      });
+      this.logger.log(`Created stream ${this.dlqStreamName}`);
+    }
+
+    // Task 2 (SENSOR-HIGH-092): the telemetry stream owns the telemetry.
+    // subject root. Boot provisions it with the same create-or-update
+    // discipline — a missing stream at first publish would fail loudly,
+    // but a missing stream at BOOT is the failure you want to see at boot.
+    const telemetryConfig = this.getTelemetryStreamConfig();
+    try {
+      await this.jetStreamManager.streams.info(this.telemetryStreamName);
+      await this.jetStreamManager.streams.update(this.telemetryStreamName, telemetryConfig);
+    } catch {
+      await this.jetStreamManager.streams.add({
+        name: this.telemetryStreamName,
+        ...telemetryConfig,
+      });
+      this.logger.log(`Created stream ${this.telemetryStreamName}`);
+    }
+  }
+
+  /**
+   * Task 2 (SENSOR-HIGH-092): AQUACULTURE_TELEMETRY — the 60-minute outage
+   * buffer for high-rate telemetry, sized by the locked 2K msg/s envelope
+   * (2.000 × ~600-750 B × 3.600 s × 1.2 headroom ≈ 5.2-6.5 GiB; default
+   * 6 GiB until the Task 0.4 measurement replaces the placeholder).
+   *
+   * Discard New on purpose: when the buffer is full the PUBACK fails and
+   * the sidecar/edge backpressure engages — exactly the designed
+   * behaviour. Discard Old would silently evict the OLDEST buffered
+   * readings, converting a visible outage into silent loss.
+   */
+  private getTelemetryStreamConfig(): Partial<StreamConfig> {
+    return {
+      subjects: ['telemetry.>'],
+      retention: RetentionPolicy.Limits,
+      storage: StorageType.File,
+      max_age: 90 * 60 * 1_000_000_000, // 90 minutes in nanoseconds
+      max_bytes: Number(this.configService.get('NATS_TELEMETRY_MAX_BYTES', 6 * 1024 * 1024 * 1024)),
+      max_msg_size: 1024 * 1024,
+      discard: DiscardPolicy.New,
+      duplicate_window: 2 * 60 * 1_000_000_000,
+      num_replicas: 1,
+    };
+  }
+
+  /**
+   * Task 1.6 (SENSOR-HIGH-093): AQUACULTURE_DLQ — bounded forensic store
+   * for terminal failures. Discard New on purpose: a FULL DLQ makes the
+   * dead-letter hop fail loudly, so the original message is NAK'd and
+   * retried instead of being silently evicted (Discard Old would destroy
+   * the OLDEST evidence exactly when a tenant floods). Sizing default is a
+   * placeholder floor until the Task 0.4 measurement replaces it.
+   */
+  private getDlqStreamConfig(): Partial<StreamConfig> {
+    return {
+      subjects: ['dlq.>'],
+      retention: RetentionPolicy.Limits,
+      storage: StorageType.File,
+      max_age: 72 * 60 * 60 * 1_000_000_000, // 72h in nanoseconds
+      max_bytes: Number(this.configService.get('NATS_DLQ_MAX_BYTES', 256 * 1024 * 1024)),
+      max_msg_size: 2 * 1024 * 1024,
+      discard: DiscardPolicy.New,
+      duplicate_window: 2 * 60 * 1_000_000_000,
+      num_replicas: 1,
+    };
   }
 
   /**
@@ -1186,7 +1293,11 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
         deliver_policy: options?.startFrom === 'beginning' ? DeliverPolicy.All : DeliverPolicy.New,
         ack_policy: AckPolicy.Explicit,
         ack_wait: (options?.ackWait ?? 30) * 1000000000, // Convert to nanoseconds
-        max_deliver: options?.maxRetries ?? 3,
+        // Task 1.6: unlimited by default — TERMINATION is decided by the
+        // dead-letter route (deliveryCount >= dlqAfterDeliveries → DLQ +
+        // ack), not by a broker-side cap that would silently strand the
+        // message after max_deliver with no trace (SENSOR-HIGH-093).
+        max_deliver: options?.maxRetries ?? -1,
         filter_subject: subject,
       };
 
@@ -1194,10 +1305,18 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
       // Previous approach deleted and recreated, losing ack position on every restart.
       // With stable consumer names (SERVICE_NAME-based), the same durable consumer
       // survives across restarts and scaled replicas share it for load-balanced delivery.
-      await this.jetStreamManager.consumers.add(this.streamName, consumerConfig);
+      //
+      // Task 2: the durable lives on the stream that OWNS the subject —
+      // telemetry.* subscriptions on AQUACULTURE_TELEMETRY, everything else
+      // on the main events stream.
+      const owningStream = streamNameForSubject(subject, {
+        main: this.streamName,
+        telemetry: this.telemetryStreamName,
+      });
+      await this.jetStreamManager.consumers.add(owningStream, consumerConfig);
 
       // Get the consumer and create a pull subscription
-      const consumer = await this.jetStream.consumers.get(this.streamName, consumerName);
+      const consumer = await this.jetStream.consumers.get(owningStream, consumerName);
 
       // Store consumer reference
       this.consumers.set(subject, consumer);
@@ -1246,17 +1365,49 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Consumer `max_deliver` for a subject as registered by createSubscription:
-   * `maxRetries` (default 3); `<= 0` is unlimited.
+   * The delivery budget for a subject — ONE number, so the fold's
+   * `retryExhausted` verdict and the dead-letter route's threshold cannot
+   * disagree.
+   *
+   * Task 1.6 (SENSOR-HIGH-093) deliberately leaves the broker-side
+   * `max_deliver` unlimited so a stranded message always leaves a trace;
+   * termination is decided here instead. A subscription may narrow the
+   * budget with `maxRetries`; otherwise the bus-wide
+   * `NATS_DLQ_AFTER_DELIVERIES` applies. `<= 0` is unlimited.
+   *
+   * PLAT-HIGH-902 + SENSOR-HIGH-093: two independently-defaulted budgets
+   * (3 here, 5 on the DLQ route) would have dead-lettered on one count and
+   * kept redelivering on the other.
    */
   private maxDeliverFor(subject: string): number {
-    return this.subscriptionOptions.get(subject)?.maxRetries ?? 3;
+    return this.subscriptionOptions.get(subject)?.maxRetries ?? this.dlqAfterDeliveries;
   }
 
   private async processConsumerMessage(subject: string, msg: JsMsg): Promise<void> {
     try {
       // v3: msg.string() replaces StringCodec.decode(msg.data) — same UTF-8 bytes.
       const event = this.deserializeEvent(msg.string());
+
+      // SEC-HIGH-100 (2026-08-23 scan №45): trust-boundary schema validation,
+      // anchored to the SERVER-STAMPED subject (never the payload's
+      // self-declared eventType). Events without a compiled schema pass
+      // through (see validateEventBySubject docblock); malformed known
+      // events dead-letter instead of reaching handlers.
+      const validation = validateEventBySubject(subject, event);
+      if (!validation.valid) {
+        this.logger.warn(
+          `Schema validation failed for ${subject}: ${validation.errors} — dead-lettering`,
+        );
+        await this.handleMessageFailure(
+          subject,
+          msg,
+          event,
+          'schema-validation-failure',
+          new Error(validation.errors),
+        );
+        return;
+      }
+
       const handlers = this.handlers.get(subject) ?? [];
 
       // PLAT-HIGH-902: every handler reports a delivery outcome; the bus folds
@@ -1268,11 +1419,14 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
         try {
           outcomes.push(await handler.handle(event));
         } catch (handlerError) {
-          this.logger.error(
-            `Handler error for ${event.eventType} — folded as retry`,
-            handlerError,
-          );
-          outcomes.push(HandlerOutcome.retry('handler threw', handlerError));
+          // A handler that THROWS is classified by exactly the rule that
+          // classifies one that RETURNS: an error redelivery cannot fix
+          // (a permanent failure class, a 400/409/422, a validation error)
+          // terminates, everything else retries. Folding every throw into a
+          // retry would burn the whole delivery budget on a poison message
+          // before dead-lettering it.
+          this.logger.error(`Handler error for ${event.eventType}`, handlerError);
+          outcomes.push(outcomeForError('handler threw', handlerError));
         }
       }
 
@@ -1293,19 +1447,124 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
           );
           msg.nak(disposition.backoffMs);
           return;
-        case 'term':
+        case 'term': {
+          // SENSOR-HIGH-093 ordering, kept for the outcome path: the DLQ copy
+          // must be durably PubAck'd BEFORE the original stops being
+          // redeliverable. If the hop itself fails the original is NAK'd —
+          // a message is never finished into loss.
+          const preserved = await this.preserveOnDeadLetterStream(
+            msg,
+            event,
+            'handler-failure',
+            disposition.cause ?? new Error(disposition.reason),
+            deliveryCount,
+          );
+          if (!preserved) {
+            msg.nak(redeliveryBackoffMs(deliveryCount));
+            return;
+          }
           await this.deadLetter(subject, event, disposition, deliveryCount, maxDeliver);
+          // PLAT-HIGH-902: `term`, not `ack`. The envelope is durably stored,
+          // so redelivery must stop — but spelling that as an ack is the very
+          // conflation of success and failure this finding closes. `term`
+          // raises the MSG_TERMINATED advisory an operator can alert on.
           msg.term(disposition.reason);
           return;
+        }
       }
     } catch (error) {
       this.logger.error(`Message processing error on ${subject}`, error);
-      // Exponential backoff on NAK: redelivery delay doubles per attempt.
-      // v3 deliveryCount = number of times delivered (v2's deprecated
-      // redeliveryCount alias, same value) — backoff math unchanged.
-      const deliveryCount = msg.info?.deliveryCount ?? 0;
-      const backoffMs = Math.min(1000 * Math.pow(2, deliveryCount), 30000);
-      msg.nak(backoffMs);
+      await this.handleMessageFailure(subject, msg, undefined, 'processing-failure', error);
+    }
+  }
+
+  /**
+   * Task 1.6 (SENSOR-HIGH-093): bounded-redelivery terminal routing.
+   * Under the delivery threshold → NAK with exponential backoff. At/over
+   * it → DEAD-LETTER: the envelope must be durably PubAck'd on the DLQ
+   * stream BEFORE the original is acked; if the dead-letter hop itself
+   * fails, the original is NAK'd — the chain never acks a message into
+   * loss.
+   */
+  private async handleMessageFailure(
+    subject: string,
+    msg: JsMsg,
+    event: { tenantId?: string; eventId?: string; eventType?: string } | undefined,
+    failureClass: string,
+    error: unknown,
+  ): Promise<void> {
+    const deliveryCount = msg.info?.deliveryCount ?? 0;
+
+    if (deliveryCount < this.maxDeliverFor(subject)) {
+      msg.nak(redeliveryBackoffMs(deliveryCount));
+      return;
+    }
+
+    const preserved = await this.preserveOnDeadLetterStream(
+      msg,
+      event,
+      failureClass,
+      error,
+      deliveryCount,
+    );
+    if (!preserved) {
+      msg.nak(redeliveryBackoffMs(deliveryCount));
+      return;
+    }
+    msg.term(failureClass);
+  }
+
+  /**
+   * Publish the durable DLQ envelope for a message that will not be
+   * redelivered, and report whether it was PubAck'd.
+   *
+   * This is the ONLY writer of the dead-letter stream: both the folded
+   * handler outcome (PLAT-HIGH-902) and a pre-handler processing failure
+   * (SENSOR-HIGH-093) preserve the message the same way, so the envelope a
+   * replay tool reads has one shape and one ordering guarantee. `false`
+   * means the caller must NOT finish the message — the copy does not exist
+   * yet, so the original is still the only one.
+   */
+  private async preserveOnDeadLetterStream(
+    msg: JsMsg,
+    event: { tenantId?: string; eventId?: string; eventType?: string } | undefined,
+    failureClass: string,
+    error: unknown,
+    deliveryCount: number,
+  ): Promise<boolean> {
+    if (!this.jetStream) {
+      return false;
+    }
+    try {
+      const payload = msg.string();
+      const { subject: dlqSubject, envelope } = buildDlqEnvelope({
+        tenantId: event?.tenantId,
+        eventType: event?.eventType,
+        eventId: event?.eventId,
+        originalStream: this.streamName,
+        originalSubject: msg.subject,
+        originalSequence: msg.seq,
+        payload,
+        failureClass,
+        error,
+        deliveryCount,
+      });
+      await this.jetStream.publish(dlqSubject, JSON.stringify(envelope), {
+        // Identity-preserving: replay tooling + dedup key off this.
+        msgID: `${this.streamName}.${msg.seq ?? 0}`,
+        timeout: 5_000,
+      });
+      this.logger.error(
+        `Dead-lettered ${envelope.originalSubject} to ${dlqSubject} after ` +
+          `${deliveryCount} deliveries (${failureClass}): ${envelope.errorDigest}`,
+      );
+      return true;
+    } catch (dlqError) {
+      this.logger.error(
+        `DLQ publish FAILED for ${msg.subject} — original NAK'd, not finished into ` +
+          `loss: ${dlqError instanceof Error ? dlqError.message : String(dlqError)}`,
+      );
+      return false;
     }
   }
 
@@ -1402,13 +1661,14 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
     if (
       topic.startsWith('events.') ||
       topic.startsWith('commands.') ||
-      topic.startsWith('queries.')
+      topic.startsWith('queries.') ||
+      topic.startsWith('telemetry.')
     ) {
       return topic;
     }
 
     throw new Error(
-      `NATS subject must be canonical and start with events., commands., or queries.; ` +
+      `NATS subject must be canonical and start with events., commands., queries., or telemetry.; ` +
         `got ${JSON.stringify(topic)}`,
     );
   }

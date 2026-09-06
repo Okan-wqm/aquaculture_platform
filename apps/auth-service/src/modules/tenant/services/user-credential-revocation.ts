@@ -12,7 +12,11 @@ export type UserCredentialInvalidationOperation =
   | 'admin-user-deactivate'
   | 'admin-user-authorization-update'
   | 'admin-force-logout'
-  | 'tenant-user-deactivate';
+  | 'tenant-user-deactivate'
+  // ADR-046: a tenant turning MFA enforcement on terminates the sessions of
+  // its users that carry no second factor, so their next login walks the
+  // enrollment gate instead of resuming an unenrolled session.
+  | 'tenant-mfa-enforcement-enabled';
 
 /**
  * Canonical transaction fence for tenant-owned credential mutations.

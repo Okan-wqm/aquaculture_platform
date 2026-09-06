@@ -24,6 +24,7 @@ const h = vi.hoisted(() => ({
   cacheData: vi.fn<(...args: unknown[]) => Promise<void>>(),
   getCachedData: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
   addToQueue: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
+  syncStatus: 'pending',
 }));
 
 vi.mock('react-router-dom', () => ({
@@ -36,7 +37,15 @@ vi.mock('@/hooks/useAuth', () => ({
 }));
 
 vi.mock('@/hooks/useOfflineQueue', () => ({
-  useOfflineQueue: () => ({ addToQueue: h.addToQueue, isOnline: h.isOnline }),
+  useOfflineQueue: () => ({
+    addToQueue: h.addToQueue,
+    isOnline: h.isOnline,
+    // QueuedStatusBadge reads the operation's real state through this hook;
+    // the queued screen renders it, so the double must answer it.
+    getSyncStatus: () => h.syncStatus,
+    isSyncing: false,
+    syncNow: vi.fn(),
+  }),
 }));
 
 vi.mock('@/services/authenticated-fetch', () => ({
@@ -126,7 +135,9 @@ describe('RecordFeedingPage — öğün cutover (Faz 6)', () => {
     vi.clearAllMocks();
     h.isOnline = true;
     h.getCachedData.mockResolvedValue(null);
-    h.addToQueue.mockResolvedValue({ status: 'queued', id: 'op-1' });
+    // addToQueue returns the operation id the queued screen holds on to.
+    h.addToQueue.mockResolvedValue({ id: 'op-1', status: 'queued' });
+    h.syncStatus = 'pending';
     client = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
@@ -190,10 +201,19 @@ describe('RecordFeedingPage — öğün cutover (Faz 6)', () => {
       mealId: 'meal-1',
       pourKg: 6,
       finalize: true,
-      feedingMethod: 'manual',
+      feedingMethod: 'MANUAL',
     });
-    // Two-phase success: the badge tracks the queued op, no unconditional green.
-    expect((await screen.findByTestId('queued-status-badge')).textContent).toBe('op-1');
+
+    // MOB: the write reached the DEVICE QUEUE, not the database. The screen
+    // must say so and keep reporting the operation's real state — the old
+    // screen showed a green "Recorded!" tick and navigated home after 1.5s,
+    // so a record the server later rejected looked exactly like one it took.
+    await waitFor(() => expect(screen.getByText(/saved to device/i)).toBeTruthy());
+    expect(screen.queryByText(/^Recorded!$/)).toBeNull();
+    // Both the screen's own line and the badge say "queued" — the badge is the
+    // one that keeps reporting after this render, so more than one match here
+    // is the correct outcome, not an ambiguity to narrow away.
+    expect(screen.getAllByText(/queued/i).length).toBeGreaterThan(0);
   });
 
   it('shows the no-plans hint when the day has no generated plans', async () => {

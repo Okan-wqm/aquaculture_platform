@@ -28,6 +28,9 @@ export * from './timing-safe';
 // IP Validation (X-Forwarded-For, Proxy Support)
 export * from './ip-validation';
 
+// Safe Regex (ReDoS prevention for user-supplied patterns)
+export * from './safe-regex';
+
 // Validators (Input Validation, IDOR Protection)
 export * from './validators';
 

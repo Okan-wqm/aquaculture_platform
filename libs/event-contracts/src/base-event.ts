@@ -189,7 +189,7 @@ export type BillingCycle = 'monthly' | 'quarterly' | 'semi_annual' | 'annual';
  *
  * `tenantId` is either the tenant UUID or an {@link EventTenantScope}: an event
  * about a principal whose tenantId is nullable passes `tenantScopeOf(user.tenantId)`
- * and never spells the platform routing segment itself (SEC-HIGH-057).
+ * and never spells the platform routing segment itself (SEC-HIGH-159).
  *
  * Usage:
  * ```typescript
@@ -206,7 +206,13 @@ export function createBaseEvent<T extends BaseEvent>(
   overrides?: Partial<
     Pick<
       BaseEvent,
-      'correlationId' | 'causationId' | 'userId' | 'version' | 'aggregateId' | 'aggregateType'
+      | 'eventId'
+      | 'correlationId'
+      | 'causationId'
+      | 'userId'
+      | 'version'
+      | 'aggregateId'
+      | 'aggregateType'
     >
   >,
 ): Pick<
@@ -226,6 +232,148 @@ export function createBaseEvent<T extends BaseEvent>(
     BaseEvent,
     'eventId' | 'timestamp' | 'tenantId' | 'version' | 'aggregateId' | 'aggregateType'
   > & { eventType: T['eventType'] } & Partial<BaseEvent>;
+}
+
+/**
+ * Platform namespace for derived (deterministic) event identities.
+ *
+ * A fixed, RFC 4122-shaped UUID that is deliberately NOT one of the RFC's
+ * own namespaces (DNS/URL/OID/X500): derived platform event ids must never
+ * collide with ids minted by generic v5 tooling in other systems.
+ */
+export const AQUA_EVENT_ID_NAMESPACE = 'a10c35ff-7d3a-4c1e-b2a4-9f60c8d5e7b1';
+
+/**
+ * Pure-TS SHA-1 (FIPS 180-1) — 20-byte digest.
+ *
+ * WHY not node:crypto: this library is written environment-neutral
+ * (createBaseEvent already uses the global WebCrypto `crypto.randomUUID`);
+ * importing node:crypto would pull the contract library out of any
+ * non-Node consumer. SHA-1 here is NOT a security primitive — UUIDv5 uses
+ * it purely as the deterministic mixing function RFC 4122 §4.3 prescribes,
+ * which is why its cryptographic weakness is irrelevant for this use.
+ */
+function sha1Digest(bytes: Uint8Array): Uint8Array {
+  let h0 = 0x67452301;
+  let h1 = 0xefcdab89;
+  let h2 = 0x98badcfe;
+  let h3 = 0x10325476;
+  let h4 = 0xc3d2e1f0;
+
+  const bitLength = bytes.length * 8;
+  const padded = new Uint8Array((((bytes.length + 8) >> 6) << 6) + 64);
+  padded.set(bytes);
+  padded[bytes.length] = 0x80;
+  const view = new DataView(padded.buffer);
+  view.setUint32(padded.length - 8, Math.floor(bitLength / 0x100000000), false);
+  view.setUint32(padded.length - 4, bitLength >>> 0, false);
+
+  const rotl = (value: number, shift: number): number =>
+    ((value << shift) | (value >>> (32 - shift))) >>> 0;
+
+  const w = new Uint32Array(80);
+  for (let offset = 0; offset < padded.length; offset += 64) {
+    for (let i = 0; i < 16; i++) {
+      w[i] = view.getUint32(offset + i * 4, false);
+    }
+    for (let i = 16; i < 80; i++) {
+      w[i] = rotl((w[i - 3] ?? 0) ^ (w[i - 8] ?? 0) ^ (w[i - 14] ?? 0) ^ (w[i - 16] ?? 0), 1);
+    }
+
+    let a = h0;
+    let b = h1;
+    let c = h2;
+    let d = h3;
+    let e = h4;
+
+    for (let i = 0; i < 80; i++) {
+      let f: number;
+      let k: number;
+      if (i < 20) {
+        f = (b & c) | (~b & d);
+        k = 0x5a827999;
+      } else if (i < 40) {
+        f = b ^ c ^ d;
+        k = 0x6ed9eba1;
+      } else if (i < 60) {
+        f = (b & c) | (b & d) | (c & d);
+        k = 0x8f1bbcdc;
+      } else {
+        f = b ^ c ^ d;
+        k = 0xca62c1d6;
+      }
+      const temp = (rotl(a, 5) + f + e + k + (w[i] ?? 0)) >>> 0;
+      e = d;
+      d = c;
+      c = rotl(b, 30);
+      b = a;
+      a = temp;
+    }
+
+    h0 = (h0 + a) >>> 0;
+    h1 = (h1 + b) >>> 0;
+    h2 = (h2 + c) >>> 0;
+    h3 = (h3 + d) >>> 0;
+    h4 = (h4 + e) >>> 0;
+  }
+
+  const digest = new Uint8Array(20);
+  const out = new DataView(digest.buffer);
+  out.setUint32(0, h0, false);
+  out.setUint32(4, h1, false);
+  out.setUint32(8, h2, false);
+  out.setUint32(12, h3, false);
+  out.setUint32(16, h4, false);
+  return digest;
+}
+
+/**
+ * Deterministic EventId factory (plan Task 1.4): RFC 4122 §4.3 UUIDv5 over
+ * the platform namespace and the caller's seed.
+ *
+ * Same seed → same EventId, forever and everywhere. This is the identity
+ * that makes redelivery idempotent: the event-bus stamps `Nats-Msg-Id` from
+ * `eventId`, so JetStream's duplicate window and downstream uniqueness keys
+ * collapse re-emissions of the SAME source reading into one logical event.
+ *
+ * The caller owns seed construction and MUST fold in every dimension that
+ * distinguishes two legitimate events (tenant, sensor, producer timestamp,
+ * payload digest — or a parent eventId + discriminator for child events).
+ * Join parts with '\u0000' so no delimiter injection can alias two seeds.
+ */
+export function deriveEventId(seed: string, namespace: string = AQUA_EVENT_ID_NAMESPACE): EventId {
+  if (seed.length === 0) {
+    throw new Error(
+      'deriveEventId: empty seed — a deterministic identity requires the caller to ' +
+        'supply the source parts (tenant/sensor/producerTs/payload, or parent eventId)',
+    );
+  }
+
+  const hexToBytes = (hex: string): Uint8Array => {
+    const clean = hex.replace(/-/g, '');
+    const out = new Uint8Array(clean.length / 2);
+    for (let i = 0; i < out.length; i++) {
+      out[i] = parseInt(clean.substring(i * 2, i * 2 + 2), 16);
+    }
+    return out;
+  };
+
+  const namespaceBytes = hexToBytes(namespace);
+  const seedBytes = new TextEncoder().encode(seed);
+  const input = new Uint8Array(namespaceBytes.length + seedBytes.length);
+  input.set(namespaceBytes);
+  input.set(seedBytes, namespaceBytes.length);
+
+  const digest = sha1Digest(input);
+
+  // RFC 4122 §4.3: version 5, RFC variant.
+  digest[6] = ((digest[6] ?? 0) & 0x0f) | 0x50;
+  digest[8] = ((digest[8] ?? 0) & 0x3f) | 0x80;
+
+  const hex = Array.from(digest.subarray(0, 16), (byte) => byte.toString(16).padStart(2, '0')).join(
+    '',
+  );
+  return `${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20)}` as EventId;
 }
 
 /**

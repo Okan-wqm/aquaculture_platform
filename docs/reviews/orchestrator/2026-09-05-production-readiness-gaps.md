@@ -9,18 +9,48 @@ operator-evidence gap, not a code gap.
 
 | #   | Claim                                          | Verdict                                   | Registry                     |
 | --- | ---------------------------------------------- | ----------------------------------------- | ---------------------------- |
-| 1a  | Invite link cannot be validated                | CONFIRMED (mechanism corrected)           | `SEC-HIGH-056`               |
+| 1a  | Invite link cannot be validated                | CONFIRMED (mechanism corrected)           | `SEC-HIGH-158`               |
 | 1b  | auth-service has no `FRONTEND_URL`             | CONFIRMED (droplet, prod **and** staging) | `DEPLOY-HIGH-016`            |
-| 2   | Super-admin password recovery silently dropped | CONFIRMED (+ second blocker)              | `SEC-HIGH-057`               |
+| 2   | Super-admin password recovery silently dropped | CONFIRMED (+ second blocker)              | `SEC-HIGH-159`               |
 | 3   | Notification handler acks failures             | CONFIRMED (+ null-returning resolvers)    | `PLAT-HIGH-902`              |
-| 4   | MQTT reading vs alarm evaluation diverge       | CONFIRMED (scope half is the worse)       | `SENSOR-CRITICAL-106`        |
+| 4   | MQTT reading vs alarm evaluation diverge       | CONFIRMED (scope half is the worse)       | `SENSOR-CRITICAL-111`        |
 | 5   | Full deploy breaks the monitoring stack        | CONFIRMED (placeholder is structural)     | `DEPLOY-CRITICAL-017`        |
 | 6   | Backup activation / restore proof missing      | CONFIRMED — already tracked               | `INFRA-HIGH-033/034/035/073` |
 | 7   | MinIO bytes outside the recovery cut           | CONFIRMED                                 | `INFRA-HIGH-151`             |
 
+## Ledger ids
+
+Three of the seven were registered on the Faz 3 branch (PR #1424) before `main`
+allocated the same sequence numbers (`SEC-HIGH-056`, `SEC-HIGH-057`,
+`SENSOR-HIGH-106`) to other findings. The allocator treats the sequence as the
+identity, so the rows were re-registered under the right-hand ids when the
+branch took main; `PLAT-HIGH-902`, `DEPLOY-CRITICAL-017` and `INFRA-HIGH-151`
+kept theirs. `DEPLOY-HIGH-016` is NOT re-registered at all: main's #1431 round
+raised and fixed the identical defect under that same id — auth-service minting
+every invitation and password-reset link from the development default — and the
+row is already RESOLVED there (`8fc6fcbdd`). This document's claim 1b therefore
+points at main's row, and PR #1425's overlapping `FRONTEND_URL` work is
+reconciled against it rather than duplicating it. The Faz 2c branches
+(PR #1425, #1426) were cut before the renumbering and cite the left column in
+their `Closes:` trailers; their own merge ceremonies carry the right-hand ids.
+
+| Review id (headings, trailers) | Ledger id (findings.jsonl) |
+| ------------------------------ | -------------------------- |
+| `SEC-HIGH-056`                 | `SEC-HIGH-158`             |
+| `SEC-HIGH-057`                 | `SEC-HIGH-159`             |
+| `SENSOR-CRITICAL-106`          | `SENSOR-CRITICAL-111`      |
+| `SEC-LOW-060` (PR #1425)       | `SEC-LOW-160`              |
+| `PLAT-MEDIUM-905` (PR #1425)   | `PLAT-MEDIUM-910`          |
+
+The last two were raised by PR #1425's own A0 commit (the raw-token branch's
+retirement and the hand-rolled tenant-guard burn-down) and moved for the same
+reason when that branch took main: `SEC-LOW-060` names a dompurify advisory on
+main and `PLAT-MEDIUM-905` a live `PLAT-CRITICAL-905`, so neither old id can be
+an alias.
+
 ## Findings
 
-### SEC-HIGH-056 — invitation links cannot be validated
+### SEC-HIGH-158 — invitation links cannot be validated
 
 `internal-auth.controller.ts:73-85` builds the e-mailed link from
 `actionToken.id` (a row PK). The shell routes `/accept-invitation/:token` to
@@ -48,7 +78,7 @@ in every environment points at localhost. Same class as `DEPLOY-CRITICAL-007`.
 **Fix direction (tier 1):** a required, schema-validated auth-service config key
 that fails fast at boot in production; set in all three compose files.
 
-### SEC-HIGH-057 — super-admin password recovery silently does nothing
+### SEC-HIGH-159 — super-admin password recovery silently does nothing
 
 `authentication.service.ts:1605` publishes `PasswordResetRequested` with
 `user.tenantId ?? 'system'`; `auth-event.handler.ts:88-95` drops any event whose
@@ -77,7 +107,7 @@ documents the invariant explicitly and naks with backoff only on a thrown error
 | DeadLetter(reason)` so a handler that logs must still choose an outcome;
 resolvers distinguish permanent (404) from transient (5xx/network) failure.
 
-### SENSOR-CRITICAL-106 — the MQTT path records one reading and alarms on another
+### SENSOR-CRITICAL-111 — the MQTT path records one reading and alarms on another
 
 `mqtt-listener.service.ts:467` persists calibrated, scoped
 `SensorMetricInput` rows (`:2097-2131`); `:473` then publishes the untouched
@@ -161,19 +191,19 @@ variable rather than reading the manifest, so the two gates can diverge.
 ## Programme placement
 
 Recorded in `/root/.claude/plans/planla-once-tek-tek-concurrent-dragon.md`
-("Dış inceleme — 2026-09-05"): invitation + recovery (`SEC-HIGH-056/057`,
+("Dış inceleme — 2026-09-05"): invitation + recovery (`SEC-HIGH-158/159`,
 `DEPLOY-HIGH-016`, `PLAT-HIGH-902`) join the tenant-provisioning acceptance
-criteria as **Faz 2c**; `SENSOR-CRITICAL-106` joins Faz 5; `INFRA-HIGH-151` joins
+criteria as **Faz 2c**; `SENSOR-CRITICAL-111` joins Faz 5; `INFRA-HIGH-151` joins
 Faz 6; `DEPLOY-CRITICAL-017` and claim 6's evidence chain become the
 **production go-live gate**, not Faz 8 ledger work.
 
 ## Faz 2c deferred work (registered with owner + deadline)
 
-### SEC-LOW-060 — retire the raw-token resolution branch of ActionTokenResolver
+### SEC-LOW-160 — retire the raw-token resolution branch of ActionTokenResolver
 
 `ActionTokenResolver.resolve()` (apps/auth-service/src/modules/authentication/services/action-token-resolver.service.ts)
 keeps a `raw-token` branch that hashes a 64-hex URL segment and looks it up as a legacy
-`Invitation.token` / `User.passwordResetToken`. After SEC-HIGH-056 nothing mints such a link:
+`Invitation.token` / `User.passwordResetToken`. After SEC-HIGH-158 nothing mints such a link:
 every delivery carries `actionToken.id`. The branch exists only so links e-mailed BEFORE the
 PR-A deploy (invitations ≤ 7 days, resets ≤ 1 hour) still redeem. Deleting it earlier would
 invalidate every invitation in flight; keeping it re-opens the "raw secret in the URL" surface
@@ -184,9 +214,9 @@ the ActionToken indirection closed.
 production deploy; `tests/invariants/action-link-resolver-ssot.spec.ts` then asserts the
 pattern is gone. Owner @okan-wqm, deadline 2026-10-31.
 
-### PLAT-MEDIUM-905 — NATS handlers still hand-roll a tenantId UUID guard
+### PLAT-MEDIUM-910 — NATS handlers still hand-roll a tenantId UUID guard
 
-SEC-HIGH-057 introduced `eventTenantScope()` / `requireTenantScope()` in `@platform/event-contracts`
+SEC-HIGH-159 introduced `eventTenantScope()` / `requireTenantScope()` in `@platform/event-contracts`
 as the one way a consumer parses an event's tenancy, and rewrote `auth-event.handler.ts` on it.
 Twelve other handlers still declare their own `UUID_REGEX` / `isValidUUID(event.tenantId)` and
 `return` on a miss (acking the message — the PLAT-HIGH-902 shape): notification-service

@@ -4,6 +4,10 @@ import { getTenantSchemaName } from '@aquaculture/backend-common/database';
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
+import {
+  createStandardPaginatedResult,
+  type PaginationResultV1,
+} from '@platform/pagination-contracts';
 
 import {
   TenantDetailDto,
@@ -398,20 +402,23 @@ export class TenantDetailService {
     tenantId: string,
     page = 1,
     limit = 20,
-  ): Promise<{ data: TenantActivity[]; total: number; totalPages: number }> {
-    // BUG-031 fix: guard against limit=0 to prevent Math.ceil producing Infinity
+  ): Promise<PaginationResultV1<TenantActivity>> {
+    // BUG-031 fix: guard against limit=0; the authority rejects a limit below 1
+    // outright, so the guard now feeds it a page size it can honour.
     const safeLimit = limit > 0 ? limit : 20;
+    const safePage = page > 0 ? page : 1;
 
     const result = await this.activityService.getActivities(tenantId, {
       limit: safeLimit,
-      offset: (page - 1) * safeLimit,
+      offset: (safePage - 1) * safeLimit,
     });
 
-    return {
-      data: result.data,
-      total: result.total,
-      totalPages: Math.ceil(result.total / safeLimit),
-    };
+    return createStandardPaginatedResult<TenantActivity>(
+      result.data,
+      result.total,
+      safePage,
+      safeLimit,
+    );
   }
 
   /**

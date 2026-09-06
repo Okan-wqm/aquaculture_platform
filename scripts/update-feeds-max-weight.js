@@ -15,14 +15,29 @@ const gqlRequest = createGraphqlRequester({
   getToken: () => TOKEN,
 });
 
+// SEC-MEDIUM (2026-08-23 scan №3): credentials come from the environment and
+// the script fails fast when they are absent — no real account password may
+// ever live in the repository (the previously committed one has been rotated).
+const SEED_EMAIL = process.env.SEED_USER_EMAIL;
+const SEED_PASSWORD = process.env.SEED_USER_PASSWORD;
+if (!SEED_EMAIL || !SEED_PASSWORD) {
+  console.error(
+    'SEED_USER_EMAIL and SEED_USER_PASSWORD must be set (see docs/runbooks/secret-rotation.md)',
+  );
+  process.exit(1);
+}
+
 async function login() {
-  const data = await gqlRequest(`
+  const data = await gqlRequest(
+    `
     mutation Login($input: LoginInput!) {
       login(input: $input) { accessToken }
     }
-  `, {
-    input: { email: 'okan@suderra.com', password: '12345678' }
-  });
+  `,
+    {
+      input: { email: SEED_EMAIL, password: SEED_PASSWORD },
+    },
+  );
   TOKEN = data.login.accessToken;
   console.log('Logged in.');
 }
@@ -87,11 +102,14 @@ async function main() {
     }
 
     try {
-      await gqlRequest(`
+      await gqlRequest(
+        `
         mutation UpdateFeed($input: UpdateFeedInput!) {
           updateFeed(input: $input) { id code maxFishWeightG }
         }
-      `, { input: { id: feed.id, maxFishWeightG: maxWeight } });
+      `,
+        { input: { id: feed.id, maxFishWeightG: maxWeight } },
+      );
       console.log(`OK: ${feed.code} (${feed.name}) -> maxFishWeightG=${maxWeight}g`);
       updated++;
     } catch (e) {

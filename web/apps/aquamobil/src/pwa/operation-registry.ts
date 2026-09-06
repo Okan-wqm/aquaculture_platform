@@ -15,7 +15,7 @@
  * Zero imports beyond types by design: this file must bundle cleanly into the
  * SW sub-build (tsconfig.sw.json: ES2020 + WebWorker libs, no DOM, no React).
  *
- * MOB-HIGH-019: every document below carries the `GraphQL` magic comment (a
+ * MOB-HIGH-022: every document below carries the `GraphQL` magic comment (a
  * block comment reading GraphQL right before the backtick) so graphql-codegen
  * plucks it WITHOUT an import — this file is the codegen
  * source for every queue-replayed mutation, and `generated/graphql.ts` carries
@@ -86,6 +86,19 @@ export const OPERATION_MUTATIONS: Record<
   recordMealFeeding: /* GraphQL */ `
     mutation RecordMealFeeding($input: RecordMealFeedingInput!) {
       recordMealFeeding(input: $input) {
+        id
+        status
+        actualKg
+        varianceKg
+        variancePercent
+      }
+    }
+  `,
+  // W8/FARM-MEDIUM-269: kısmi öğünü döküm eklemeden kapatır. Ayrı op, çünkü
+  // yük şekli farklı (kg yok) ve sunucu tarafı ledger'a HİÇ dokunmaz.
+  finalizeMeal: /* GraphQL */ `
+    mutation FinalizeMeal($input: FinalizeMealInput!) {
+      finalizeMeal(input: $input) {
         id
         status
         actualKg

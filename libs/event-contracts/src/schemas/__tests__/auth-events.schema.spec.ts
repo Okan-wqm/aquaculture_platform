@@ -162,7 +162,7 @@ describe('validateAuthEvent (DATA-MEDIUM-001)', () => {
     expect(validateAuthEvent('UserLoggedIn', 42).valid).toBe(false);
   });
 
-  // SEC-HIGH-057: events about a principal whose tenantId is nullable (a super
+  // SEC-HIGH-159: events about a principal whose tenantId is nullable (a super
   // admin) are platform-capable; UserInvited is structurally tenant-bound.
   const PLATFORM_CAPABLE: readonly AuthEventType[] = [
     'UserLoggedIn',

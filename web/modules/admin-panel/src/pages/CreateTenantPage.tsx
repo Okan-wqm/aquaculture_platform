@@ -497,8 +497,7 @@ const CreateTenantPage: React.FC = () => {
         // Try to load basic modules as fallback
         try {
           const result = await modulesApi.list({ isActive: true, limit: 50 });
-          const modules = Array.isArray(result?.data) ? result.data : [];
-          const configs: ModuleConfig[] = modules.map((m: SystemModule) => ({
+          const configs: ModuleConfig[] = result.data.map((m: SystemModule) => ({
             moduleId: m.id,
             moduleCode: m.code,
             moduleName: m.name,

@@ -37,7 +37,7 @@ interface DashboardData {
   metrics: SystemMetrics | null;
   userStats: UserStats | null;
   services: ServiceHealth[];
-  recentLogs: AuditLog[];
+  recentLogs: readonly AuditLog[];
   circuitBreakers: CircuitBreakerStatus | null;
   cacheStats: CacheStats | null;
   loading: boolean;
@@ -154,7 +154,7 @@ const DatabaseStatsCard: React.FC<{ database: SystemMetrics['database'] | undefi
 // Recent Activity Component
 // ============================================================================
 
-const RecentActivityCard: React.FC<{ logs: AuditLog[] }> = ({ logs }) => {
+const RecentActivityCard: React.FC<{ logs: readonly AuditLog[] }> = ({ logs }) => {
   const getSeverityColor = (severity: string): 'error' | 'warning' | 'info' | 'default' => {
     switch (severity) {
       case 'critical':

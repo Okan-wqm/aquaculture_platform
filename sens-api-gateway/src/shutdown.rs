@@ -101,12 +101,30 @@ impl ShutdownCoordinator {
         // Give a small delay for signal propagation
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        // Step 2: Wait for all tasks to complete
+        // Step 2: Wait for all tasks to complete.
+        //
+        // PR935-HIGH-002 / PR935-HIGH-003: the drain is CONCURRENT and every
+        // timeout arm ACTUALLY ABORTS. Two properties are load-bearing for
+        // the life-safety guarantee that safe-state is the last actuator
+        // write:
+        //   1. `tokio::time::timeout(_, &mut handle)` borrows the handle, so
+        //      on expiry the handle survives and `handle.abort()` cancels the
+        //      task. The previous code moved the handle into `timeout`, which
+        //      DROPPED (detached) it on expiry — a wedged actuator write kept
+        //      running and could overwrite the fail-safe value applied later.
+        //   2. Awaiting all handles concurrently bounds the whole drain to a
+        //      single `shutdown_timeout`, not `task_count * shutdown_timeout`.
+        //      Sequential draining let a few wedged tasks push the total past
+        //      the caller's hard shutdown deadline, so the safe-state phase
+        //      was never reached before the deadline watchdog fired.
         let task_count = self.tasks.len();
-        info!("Waiting for {} tasks to complete...", task_count);
+        info!(
+            "Draining {} tasks concurrently (per-task budget {:?})...",
+            task_count, shutdown_timeout
+        );
 
-        for (name, handle) in self.tasks {
-            match tokio::time::timeout(shutdown_timeout, handle).await {
+        let drains = self.tasks.into_iter().map(|(name, mut handle)| async move {
+            match tokio::time::timeout(shutdown_timeout, &mut handle).await {
                 Ok(Ok(())) => {
                     info!("Task '{}' completed gracefully", name);
                 }
@@ -114,12 +132,18 @@ impl ShutdownCoordinator {
                     warn!("Task '{}' panicked: {}", name, e);
                 }
                 Err(_) => {
-                    warn!("Task '{}' timed out during shutdown, aborting", name);
+                    warn!(
+                        "Task '{}' exceeded the shutdown budget — aborting so it \
+                         cannot write actuators after safe-state is applied",
+                        name
+                    );
+                    handle.abort();
                 }
             }
-        }
+        });
+        futures::future::join_all(drains).await;
 
-        info!("All tasks completed");
+        info!("All tasks drained");
     }
 
     /// Abort all tasks immediately (for emergency shutdown)
@@ -211,6 +235,66 @@ mod tests {
 
         // Shutdown should complete quickly
         coordinator.shutdown(Duration::from_secs(1)).await;
+    }
+
+    #[tokio::test]
+    async fn drain_is_concurrent_not_sequential() {
+        // PR935-HIGH-003: N wedged tasks must drain in ~one per-task budget,
+        // not N budgets. Real short timers: 8 tasks × 200ms sequential = 1.6s;
+        // concurrent ≈ 200ms. We assert well under the sequential figure.
+        let mut coordinator = ShutdownCoordinator::new();
+        for i in 0..8 {
+            let name: &'static str = Box::leak(format!("wedged-{i}").into_boxed_str());
+            // A task that never observes the shutdown signal (wedged).
+            let handle = tokio::spawn(async {
+                std::future::pending::<()>().await;
+            });
+            coordinator.register_task(name, handle);
+        }
+
+        let start = std::time::Instant::now();
+        coordinator.shutdown(Duration::from_millis(200)).await;
+        let elapsed = start.elapsed();
+
+        assert!(
+            elapsed < Duration::from_millis(900),
+            "drain took {elapsed:?} — expected ~one 200ms budget; a sequential \
+             drain of 8 tasks would take ~1.6s (PR935-HIGH-003 regression)"
+        );
+    }
+
+    #[tokio::test]
+    async fn timed_out_task_is_actually_aborted() {
+        // PR935-HIGH-002: a task that exceeds the budget must be ABORTED, not
+        // detached. The task would set a flag after a long sleep; a detached
+        // task stays alive (is_finished == false). We keep an AbortHandle to
+        // assert the coordinator cancelled it.
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let ran_past_abort = Arc::new(AtomicBool::new(false));
+        let flag = ran_past_abort.clone();
+        let handle = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(3600)).await;
+            flag.store(true, Ordering::SeqCst);
+        });
+        let observer = handle.abort_handle();
+
+        let mut coordinator = ShutdownCoordinator::new();
+        coordinator.register_task("slow", handle);
+        coordinator.shutdown(Duration::from_millis(100)).await;
+
+        // Give the aborted task a moment to unwind, then assert it is finished
+        // (cancelled) and never reached the post-sleep store.
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(
+            observer.is_finished(),
+            "task was not aborted on timeout — it was detached (PR935-HIGH-002)"
+        );
+        assert!(
+            !ran_past_abort.load(Ordering::SeqCst),
+            "aborted task still executed past its await point (PR935-HIGH-002)"
+        );
     }
 
     #[tokio::test]

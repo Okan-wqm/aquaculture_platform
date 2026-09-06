@@ -21,7 +21,7 @@ import {
 // ============================================================================
 
 const DiscountCodePage: React.FC = () => {
-  const [discountCodes, setDiscountCodes] = useState<DiscountCode[]>([]);
+  const [discountCodes, setDiscountCodes] = useState<readonly DiscountCode[]>([]);
   const [stats, setStats] = useState<DiscountStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -57,7 +57,7 @@ const DiscountCodePage: React.FC = () => {
         }),
         billingApi.getDiscountStats(),
       ]);
-      setDiscountCodes(Array.isArray(codesResult) ? codesResult : []);
+      setDiscountCodes(codesResult.data);
       setStats(statsResult);
     } catch (err) {
       setError((err as Error).message);

@@ -70,6 +70,7 @@ function harness(
   process: (msg: FakeJsMsg) => Promise<void>;
   sink: IDeadLetterSink;
   recorded: DeadLetterRecord[];
+  dlqPublish: jest.Mock;
 } {
   const recorded: DeadLetterRecord[] = [];
   const deadLetterSink: IDeadLetterSink = sink ?? {
@@ -81,6 +82,12 @@ function harness(
   const bus = new NatsEventBus(config(), undefined, undefined, deadLetterSink);
   Reflect.set(bus, 'handlers', new Map([[SUBJECT, handlers]]));
   Reflect.set(bus, 'subscriptionOptions', new Map([[SUBJECT, options]]));
+  // SENSOR-HIGH-093 + PLAT-HIGH-902: a terminate is finished only after the
+  // DLQ copy is durably PubAck'd, so a consuming bus always has a JetStream
+  // client. Omitting it here would test a state the runtime cannot reach —
+  // JetStream is what delivers the message in the first place.
+  const dlqPublish = jest.fn(() => Promise.resolve({ seq: 1 }));
+  Reflect.set(bus, 'jetStream', { publish: dlqPublish });
   const process = (msg: FakeJsMsg): Promise<void> =>
     (
       Reflect.get(bus, 'processConsumerMessage') as (
@@ -89,7 +96,7 @@ function harness(
         msg: FakeJsMsg,
       ) => Promise<void>
     ).call(bus, SUBJECT, msg);
-  return { bus, process, sink: deadLetterSink, recorded };
+  return { bus, process, sink: deadLetterSink, recorded, dlqPublish };
 }
 
 describe('NatsEventBus handler outcome fold (PLAT-HIGH-902)', () => {
@@ -137,7 +144,10 @@ describe('NatsEventBus handler outcome fold (PLAT-HIGH-902)', () => {
       disposition: 'terminated',
       reason: 'invalid tenancy scope',
       deliveryCount: 1,
-      maxDeliver: 3,
+      // The subscription sets no `maxRetries`, so the budget is the bus-wide
+      // NATS_DLQ_AFTER_DELIVERIES (5) — ONE number shared with the
+      // dead-letter route, not a second default that could disagree with it.
+      maxDeliver: 5,
       cause,
     });
   });

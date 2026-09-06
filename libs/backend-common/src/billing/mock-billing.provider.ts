@@ -90,6 +90,8 @@ export class MockBillingProvider implements IStripeApiClient {
     subscriptionId: string;
     priceId?: string;
     metadata?: StripeMetadata;
+    cancelAtPeriodEnd?: boolean;
+    trialEnd?: Date;
     idempotencyKey: StripeIdempotencyKey;
   }): Promise<StripeSubscription> {
     this.noop('updateSubscription');

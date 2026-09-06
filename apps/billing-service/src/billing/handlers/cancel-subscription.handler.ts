@@ -32,7 +32,7 @@ export class CancelSubscriptionHandler
   ) {}
 
   async execute(command: CancelSubscriptionCommand): Promise<Subscription> {
-    const { tenantId, subscriptionId, reason, userId } = command;
+    const { tenantId, subscriptionId, reason, userId, cancelImmediately } = command;
 
     // Validate cancellation reason length
     if (reason && reason.length > MAX_CANCELLATION_REASON_LENGTH) {
@@ -44,8 +44,12 @@ export class CancelSubscriptionHandler
     // W1.1 (SSOT-C-12): cancel at Stripe BEFORE opening the DB tx — never hold a
     // pool connection/lock across the network call. Cancelling is idempotent, so
     // a retry after a later DB failure is harmless; if the local commit then
-    // fails the webhook (customer.subscription.deleted) reconciles. We cancel at
-    // period end to mirror the local endDate = currentPeriodEnd.
+    // fails the webhook (customer.subscription.deleted) reconciles.
+    //
+    // The immediacy is the caller's, and Stripe is told the same thing the row
+    // records: an immediate cancellation ends billing now, a scheduled one runs
+    // to period end. The idempotency key carries it too, so a scheduled cancel
+    // followed by an immediate one is not replayed as the first (ADR-0014).
     const existing = await this.subscriptionRepository.findOne({
       where: { id: subscriptionId, tenantId },
     });
@@ -53,8 +57,10 @@ export class CancelSubscriptionHandler
       await this.stripeApi.cancelSubscription({
         tenantId,
         subscriptionId: existing.stripeSubscriptionId,
-        immediately: false,
-        idempotencyKey: `sub-cancel:${existing.stripeSubscriptionId}`,
+        immediately: cancelImmediately,
+        idempotencyKey: `sub-cancel:${existing.stripeSubscriptionId}:${
+          cancelImmediately ? 'now' : 'period-end'
+        }`,
       });
     }
 
@@ -87,7 +93,7 @@ export class CancelSubscriptionHandler
       subscription.cancelledAt = new Date();
       subscription.cancellationReason = reason;
       subscription.autoRenew = false;
-      subscription.endDate = subscription.currentPeriodEnd;
+      subscription.endDate = cancelImmediately ? new Date() : subscription.currentPeriodEnd;
       subscription.updatedBy = userId;
 
       const savedSubscription = await manager.save(Subscription, subscription);

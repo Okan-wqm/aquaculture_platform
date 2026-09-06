@@ -190,7 +190,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.121.0",
-    "@apollo/gateway": "2.13.3",
+    "@apollo/gateway": "2.14.4",
     "@apollo/server": "^5.5.1",
     "@apollo/server-plugin-landing-page-graphql-playground": "file:tools/vendor/apollo-playground-disabled",
     "@apollo/subgraph": "2.13.3",

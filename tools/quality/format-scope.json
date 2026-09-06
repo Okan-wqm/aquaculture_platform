@@ -5038,6 +5038,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/modules/authentication/__tests__/login-security-signal.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/authentication/__tests__/mfa.spec.ts",
       "prettier_managed": true
     },

@@ -120,6 +120,41 @@ export function decodeRefreshTokenTransport(token: string): string {
   }
 }
 
+/**
+ * The `security.events.*` signal each audited auth action carries (ADR-0018).
+ *
+ * `null` is a DECISION, not an omission:
+ *
+ *  - `LOGIN_MFA_REQUIRED` — the password was right and the login is not
+ *    finished. Publishing it as a success would let a half-authenticated
+ *    attempt establish the "normal location" baseline the geo-anomaly detector
+ *    compares against; publishing it as a failure would trip brute-force
+ *    counters on a correct password.
+ *  - `ACCOUNT_LOCKED` — a consequence of the attempt that already published
+ *    `LOGIN_FAILED_INVALID_PASSWORD`. Emitting both would double-count the
+ *    same failure. The lockout has its own `UserAccountLocked` domain event.
+ *  - `INVITATION_ACCEPTED` — account creation, not an authentication attempt.
+ *
+ * Keyed by the action union, so a new audited action does not compile until it
+ * states which signal it carries.
+ */
+const AUTH_SECURITY_SIGNAL = {
+  LOGIN_FAILED: 'login-failed',
+  LOGIN_BLOCKED_ACCOUNT_LOCKED: 'login-failed',
+  LOGIN_BLOCKED_TENANT_INACTIVE: 'login-failed',
+  LOGIN_FAILED_INVALID_PASSWORD: 'login-failed',
+  LOGIN_BLOCKED_MFA_UNAVAILABLE: 'login-failed',
+  LOGIN_MFA_REQUIRED: null,
+  LOGIN_SUCCESS: 'login-success',
+  INVITATION_ACCEPTED: null,
+  ACCOUNT_LOCKED: null,
+  PASSWORD_RESET_REQUESTED: 'password-reset',
+  PASSWORD_RESET_SUCCESS: 'password-reset',
+} as const satisfies Record<string, 'login-failed' | 'login-success' | 'password-reset' | null>;
+
+/** Every action `logSecurityEvent` accepts. Adding one forces a signal decision above. */
+export type AuthSecurityAction = keyof typeof AUTH_SECURITY_SIGNAL;
+
 @Injectable()
 export class AuthenticationService {
   private readonly logger = new Logger(AuthenticationService.name);
@@ -281,11 +316,28 @@ export class AuthenticationService {
   }
 
   /**
-   * Log security events for audit trail
-   * @private
+   * Record a security event: the `auth.audit_logs` ledger row AND the
+   * `security.events.*` NATS signal, from one call (ADMIN-HIGH-014, ADR-0018).
+   *
+   * The signal used to have no producer. `SecurityEventService.publishLoginFailed`
+   * and `publishLoginSuccess` existed, `observability-service` held a durable
+   * subscription to `events.security.events.>`, and **nothing ever published** —
+   * so every downstream consumer of login facts was reading an empty stream.
+   * admin-api's five anomaly detectors counted rows in a table that stream was
+   * meant to fill, found 0 every time, and its security health score returned a
+   * perfect 100 by construction.
+   *
+   * Publishing here rather than at the eleven call sites is what makes it total:
+   * the ledger row and the signal are the same fact, so they leave from the same
+   * place. `AUTH_SECURITY_SIGNAL` maps every action to the signal it carries —
+   * `null` is an explicit "this is not one of those facts", not an omission, and
+   * the compiler requires a new action to state which it is.
+   *
+   * The publish is best-effort and comes second: a NATS outage must not fail a
+   * login, and it must never cost the audit row, which is the system of record.
    */
   private async logSecurityEvent(
-    action: string,
+    action: AuthSecurityAction,
     details: {
       userId?: string;
       email?: string;
@@ -294,6 +346,8 @@ export class AuthenticationService {
       userAgent?: string;
       success: boolean;
       reason?: string;
+      /** Consecutive failures including this one — carried on the signal so a detector need not parse `reason`. */
+      failedAttempts?: number;
     },
     severity: AuditLogSeverity = AuditLogSeverity.INFO,
   ): Promise<void> {
@@ -317,6 +371,68 @@ export class AuthenticationService {
     } catch (error) {
       // Don't fail the main operation if audit logging fails
       this.logger.error(`Failed to log security event: ${action}`, error);
+    }
+
+    await this.publishAuthSecuritySignal(action, details);
+  }
+
+  /**
+   * Emit the `security.events.*` signal this action carries, if any.
+   *
+   * Best-effort HERE, not merely by the collaborator's grace.
+   * `SecurityEventService.publish` does swallow its own errors today, but a
+   * login must not depend on that staying true: a broker outage turning a 401
+   * into a 500 would be a worse defect than the missing signal this fixes. The
+   * guarantee is local and symmetric with the audit write above, which has
+   * carried its own try/catch for the same reason.
+   *
+   * The service is also `@Optional()`, so a local-dev process without the
+   * security infrastructure behaves exactly as before.
+   */
+  private async publishAuthSecuritySignal(
+    action: AuthSecurityAction,
+    details: {
+      userId?: string;
+      email?: string;
+      tenantId?: string | null;
+      ipAddress?: string;
+      userAgent?: string;
+      reason?: string;
+      failedAttempts?: number;
+    },
+  ): Promise<void> {
+    const signal = AUTH_SECURITY_SIGNAL[action];
+    if (signal === null || !this.securityEventService) {
+      return;
+    }
+
+    const opts = {
+      tenantId: details.tenantId ?? undefined,
+      userId: details.userId,
+      ip: details.ipAddress,
+      userAgent: details.userAgent,
+      email: details.email,
+      correlationId: getRequestContext().correlationId,
+    };
+
+    try {
+      switch (signal) {
+        case 'login-failed':
+          await this.securityEventService.publishLoginFailed({
+            ...opts,
+            reason: details.reason ?? action,
+            failedAttempts: details.failedAttempts,
+          });
+          return;
+        case 'login-success':
+          await this.securityEventService.publishLoginSuccess(opts);
+          return;
+        case 'password-reset':
+          await this.securityEventService.publishPasswordReset(opts);
+          return;
+      }
+    } catch (error) {
+      this.logger.error(`Failed to publish security signal for ${action}`, error);
     }
   }
 
@@ -507,6 +623,9 @@ export class AuthenticationService {
             userAgent,
             success: false,
             reason: `Invalid password (attempt ${updatedAttempts})`,
+            // Carried on the signal so a brute-force detector reads a number
+            // instead of parsing it back out of the reason string.
+            failedAttempts: updatedAttempts,
           },
           AuditLogSeverity.WARNING,
         );

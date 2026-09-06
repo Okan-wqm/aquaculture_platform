@@ -81,8 +81,26 @@ describe('INVARIANT (BILLING-CRITICAL-001): StripeApiService is the only outboun
     // hot path, so a regression that drops the Stripe call fails CI.
     const handlers: { file: string; method: string }[] = [
       {
-        file: 'apps/billing-service/src/billing/handlers/create-subscription.handler.ts',
+        // ADR-0014: the subscription create+customer calls moved out of the
+        // handler into SubscriptionWriterService, so admin tenant provisioning
+        // — which minted no Stripe objects at all — reaches the same code.
+        // The handler now goes through the writer; the writer holds the calls.
+        file: 'apps/billing-service/src/billing/services/subscription-writer.service.ts',
         method: 'createSubscription',
+      },
+      {
+        file: 'apps/billing-service/src/billing/services/subscription-writer.service.ts',
+        method: 'createCustomer',
+      },
+      {
+        // The reactivation and trial-extension handlers ADR-0014 added, which
+        // replaced raw UPDATEs that told Stripe nothing at all.
+        file: 'apps/billing-service/src/billing/handlers/reactivate-subscription.handler.ts',
+        method: 'updateSubscription',
+      },
+      {
+        file: 'apps/billing-service/src/billing/handlers/extend-subscription-trial.handler.ts',
+        method: 'updateSubscription',
       },
       {
         file: 'apps/billing-service/src/billing/handlers/cancel-subscription.handler.ts',
@@ -107,6 +125,19 @@ describe('INVARIANT (BILLING-CRITICAL-001): StripeApiService is the only outboun
         /import\s*\{[^}]*\bStripeApiService\b[^}]*\}\s*from\s*['"]@aquaculture\/backend-common\/billing['"]/,
       );
       expect(src).toMatch(new RegExp(`this\\.stripeApi\\.${method}\\(`));
+    }
+  });
+
+  it('both subscription-creating paths reach Stripe through the shared writer (ADR-0014)', () => {
+    // admin tenant provisioning used to raw-INSERT the subscription row with
+    // stripe_customer_id and stripe_subscription_id left NULL, so an
+    // operator-provisioned tenant had a subscription Stripe never knew about.
+    for (const file of [
+      'apps/billing-service/src/billing/handlers/create-subscription.handler.ts',
+      'apps/billing-service/src/billing/handlers/billing-admin-nats.handler.ts',
+    ]) {
+      const src = readFileSync(resolve(REPO_ROOT, file), 'utf8');
+      expect(src).toMatch(/subscriptionWriter\.ensureStripeObjects\(/);
     }
   });
 

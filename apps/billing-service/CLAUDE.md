@@ -30,10 +30,16 @@ The rest of the catalogue (`plans`, `discount_codes`, `module_prices` and their 
 
 Its lifecycle (`draft` → `pending_approval` → `approved` → `active`, or `rejected`) is a state machine in `CustomPlanService`, not a check in the caller. admin-api keeps ONE precondition of its own — it refuses to activate a plan that is not `approved` — because the provisioning call it makes first is irreversible.
 
+## One writer for `billing.subscriptions`, and one metadata key (ADR-0014)
+
+A subscription row is written ONLY by `SubscriptionWriterService.createWithin`, which takes the caller's `EntityManager` so the GraphQL path and admin tenant provisioning share it across their different transactions; `ensureStripeObjects` runs before either transaction opens. Provisioning used to raw-`INSERT` with the Stripe columns NULL, so operator-provisioned tenants existed only locally. The three lifecycle transitions (cancel / reactivate / extend-trial) go through their `@CommandHandler`s, never raw SQL. Gate: `tests/invariants/billing-command-contract-ssot.spec.ts`.
+
+The Stripe↔tenant metadata key has ONE declaration, `STRIPE_TENANT_METADATA_KEY` in `libs/backend-common/src/billing/stripe-metadata.ts`. It is a HINT, never the authority: a webhook handler resolves the tenant from the local row that owns the Stripe object and cross-checks the hint through `readStripeTenantHint`. The producer's key is deliberately NOT renamed — every Stripe object the platform has created carries it.
+
 ## Erasure really does delete here
 
 Unlike `event_store` — which excludes its ledger and relies on crypto-shred — billing runs `source-schema-tenant-column` erasure with **no exclusions**. Billing rows are deleted outright. Do not copy an exclusion pattern across from another service's registry entry.
 
 ## Enforcement
 
-Boot: `SchemaDriftValidator`. CI: `tests/invariants/plan-limits-ssot.spec.ts`, `billing-money-decimal-coexistence.spec.ts`, `billing-webhook-redis-required.spec.ts`, `stripe-calls-via-canonical-client.spec.ts`, `webhook-public-paths.spec.ts`, `platform-entity-registry-parity.spec.ts`.
+Boot: `SchemaDriftValidator`. CI: `tests/invariants/plan-limits-ssot.spec.ts`, `billing-money-decimal-coexistence.spec.ts`, `billing-webhook-redis-required.spec.ts`, `stripe-calls-via-canonical-client.spec.ts`, `webhook-public-paths.spec.ts`, `platform-entity-registry-parity.spec.ts`, `billing-command-contract-ssot.spec.ts`.

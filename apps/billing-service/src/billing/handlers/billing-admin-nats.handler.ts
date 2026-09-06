@@ -34,6 +34,10 @@ import { DataSource, EntityManager } from 'typeorm';
 
 import { CancelSubscriptionCommand } from '../commands/cancel-subscription.command';
 import { ChangeSubscriptionPlanCommand } from '../commands/change-subscription-plan.command';
+import {
+  SubscriptionWriterService,
+  type StripeSubscriptionRefs,
+} from '../services/subscription-writer.service';
 import { CreateInvoiceCommand } from '../commands/create-invoice.command';
 import { ExtendSubscriptionTrialCommand } from '../commands/extend-subscription-trial.command';
 import { ReactivateSubscriptionCommand } from '../commands/reactivate-subscription.command';
@@ -112,6 +116,7 @@ export class BillingAdminNatsHandler {
   constructor(
     private readonly commandBus: CommandBus,
     private readonly dataSource: DataSource,
+    private readonly subscriptionWriter: SubscriptionWriterService,
     private readonly bypassRls: BypassRlsService,
   ) {}
 
@@ -184,6 +189,22 @@ export class BillingAdminNatsHandler {
         // (VALIDATION_ERROR) — before the transaction opens, never mid-transaction
         // after a subscription row is written (the silent-rollback class removed).
         this.assertProvisioningModuleItems(command);
+
+        // ADR-0014: mint the Stripe objects BEFORE the SERIALIZABLE receipt
+        // transaction opens — a network call inside it would hold a pool
+        // connection for its whole duration (SSOT-C-12). The keys are
+        // deterministic, so the receipt's own replay-on-retry reuses the same
+        // Stripe customer and subscription rather than creating a second pair.
+        const provisioningPlan = await this.resolveProvisioningPlan(
+          this.dataSource.manager,
+          command,
+        );
+        const stripeRefs = await this.subscriptionWriter.ensureStripeObjects({
+          tenantId: command.tenantId,
+          plan: provisioningPlan,
+          billingCycle: provisioningPlan.billingCycle,
+        });
+
         return await this.dataSource.transaction('SERIALIZABLE', async (manager) => {
           const receipt = await this.prepareBillingReceipt(
             manager,
@@ -217,6 +238,7 @@ export class BillingAdminNatsHandler {
             command,
             plan,
             moduleItemsMonthlyTotal,
+            stripeRefs,
           );
           const moduleItemCount = await this.reconcileSubscriptionModuleItems(
             manager,
@@ -605,89 +627,55 @@ export class BillingAdminNatsHandler {
     return plan;
   }
 
+  /**
+   * Provision the tenant's subscription through the SAME writer the GraphQL
+   * path uses (ADR-0014).
+   *
+   * This replaced a raw `INSERT INTO billing.subscriptions` that left
+   * `stripe_customer_id` and `stripe_subscription_id` NULL — so every tenant
+   * an operator provisioned had a subscription this platform believed in and
+   * Stripe had never heard of. Nothing charged them, no Stripe webhook could
+   * resolve to them, and the divergence was invisible until someone
+   * reconciled by hand.
+   *
+   * `stripe` is minted BEFORE the receipt transaction opens (SSOT-C-12) and
+   * passed in, so no pool connection is held across the network call.
+   */
   private async createProvisioningSubscription(
     manager: EntityManager,
     command: BillingTenantProvisioningCommand,
     plan: Plan,
     moduleItemsMonthlyTotal: number,
+    stripe: StripeSubscriptionRefs,
   ): Promise<{ id: string; status: SubscriptionStatus }> {
     if (command.trialDays && command.trialDays > 30) {
       throw new ConflictException('Trial period cannot exceed 30 days');
     }
 
-    // FREE is a permanent $0 tier (Billing Revival Faz B) and billing is the SSoT
-    // for subscription state (D14): enforce its invariants HERE rather than trust
-    // the caller. A FREE subscription is always `active` (never `trial` — FREE is
-    // not a time-boxed preview), carries no trial window, and its recurring charge
-    // is $0 regardless of any module totals the command carried.
-    const isFree = plan.tier === PlanTier.FREE;
+    const subscription = await this.subscriptionWriter.createWithin(manager, {
+      tenantId: command.tenantId,
+      plan,
+      billingCycle: plan.billingCycle,
+      limits: plan.limits,
+      // basePrice is the recurring monthly charge the invoice scheduler bills
+      // off (billing-scheduler.service.ts) — the real sum of the priced module
+      // items (ORPHAN-HIGH-394), not the catalog plan base, which ignored the
+      // selected modules. The per-unit rates stay as catalog reference; the
+      // writer clamps every price to 0 for FREE.
+      pricing: {
+        basePrice: moduleItemsMonthlyTotal,
+        perFarmPrice: plan.pricing.perFarmPrice ?? 0,
+        perSensorPrice: plan.pricing.perSensorPrice ?? 0,
+        perUserPrice: plan.pricing.perUserPrice ?? 0,
+        currency: plan.currency,
+      },
+      startDate: new Date(),
+      trialDays: command.trialDays,
+      actorId: command.actorId,
+      stripe,
+    });
 
-    const startDate = new Date();
-    const currentPeriodEnd = this.calculatePeriodEnd(startDate, plan.billingCycle);
-    const trialEndDate =
-      !isFree && command.trialDays && command.trialDays > 0
-        ? this.addDays(startDate, command.trialDays)
-        : null;
-    const status = trialEndDate ? SubscriptionStatus.TRIAL : SubscriptionStatus.ACTIVE;
-    // basePrice is the recurring monthly charge the invoice scheduler bills off
-    // (billing-scheduler.service.ts) — set it to the real sum of the priced
-    // module items (ORPHAN-HIGH-394), not the catalog plan base, which ignored
-    // the selected modules. The per-unit rates stay as catalog reference. FREE
-    // clamps every price to 0 so no FREE tenant is ever billed.
-    const pricing = {
-      basePrice: isFree ? 0 : moduleItemsMonthlyTotal,
-      perFarmPrice: isFree ? 0 : (plan.pricing.perFarmPrice ?? 0),
-      perSensorPrice: isFree ? 0 : (plan.pricing.perSensorPrice ?? 0),
-      perUserPrice: isFree ? 0 : (plan.pricing.perUserPrice ?? 0),
-      currency: plan.currency,
-    };
-
-    const rows = await manager.query<Array<{ id: string; status: SubscriptionStatus }>>(
-      `INSERT INTO billing.subscriptions (
-         tenant_id,
-         plan_id,
-         plan_tier,
-         plan_name,
-         status,
-         billing_cycle,
-         limits,
-         pricing,
-         start_date,
-         current_period_start,
-         current_period_end,
-         trial_end_date,
-         auto_renew,
-         created_by,
-         updated_by,
-         version,
-         is_deleted,
-         "createdAt",
-         "updatedAt"
-       ) VALUES (
-         $1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $9, $10, $11,
-         true, $12, $12, 1, false, NOW(), NOW()
-       )
-       RETURNING id, status`,
-      [
-        command.tenantId,
-        plan.id,
-        plan.tier,
-        plan.name.trim(),
-        status,
-        plan.billingCycle,
-        JSON.stringify(plan.limits),
-        JSON.stringify(pricing),
-        startDate,
-        currentPeriodEnd,
-        trialEndDate,
-        command.actorId,
-      ],
-    );
-    const subscription = rows[0];
-    if (!subscription?.id) {
-      throw new Error('Billing subscription insert did not return an id');
-    }
-    return subscription;
+    return { id: subscription.id, status: subscription.status };
   }
 
   private async assertActiveSubscriptionReplayMatches(

@@ -62,6 +62,7 @@ import { PlanSeedService } from './seed/plan-seed.service';
 import { DiscountCodeService } from './services/discount-code.service';
 import { ModulePricingService } from './services/module-pricing.service';
 import { CustomPlanService } from './services/custom-plan.service';
+import { SubscriptionWriterService } from './services/subscription-writer.service';
 import { PlanCatalogService } from './services/plan-catalog.service';
 import { MeteringModule } from '../modules/metering/metering.module';
 
@@ -163,6 +164,7 @@ const EventHandlers: never[] = [];
     ModulePricingService,
     PlanCatalogService,
     CustomPlanService,
+    SubscriptionWriterService,
     // Faz C: invalidates the DynamicStripeClientProvider snapshot when an
     // operator saves a platform/billing.* config row (subscribes in onModuleInit).
     ConfigurationChangedHandler,

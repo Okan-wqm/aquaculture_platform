@@ -21,6 +21,7 @@ import { CreateSubscriptionHandler } from '../../billing/handlers/create-subscri
 import { Plan } from '../../billing/entities/plan.entity';
 import { CreateSubscriptionCommand } from '../../billing/commands/create-subscription.command';
 import { CreateSubscriptionInput } from '../../billing/dto/create-subscription.input';
+import { SubscriptionWriterService } from '../../billing/services/subscription-writer.service';
 import {
   Subscription,
   SubscriptionStatus,
@@ -89,6 +90,12 @@ function createMockQueryRunner(mockRepo: ReturnType<typeof createMockRepository>
     release: jest.fn(),
     manager: {
       getRepository: jest.fn().mockReturnValue(mockRepo),
+      // ADR-0014: the row write moved into SubscriptionWriterService, which
+      // uses the entity-first EntityManager overloads. Both surfaces land on
+      // the same fake, so the assertions below still describe the row that is
+      // actually written.
+      create: jest.fn((_entity: unknown, data: any) => mockRepo.create(data)),
+      save: jest.fn((_entity: unknown, data: any) => mockRepo.save(data)),
     } as any,
   };
 }
@@ -143,6 +150,9 @@ describe('CreateSubscriptionHandler', () => {
         { provide: StripeApiService, useValue: mockStripe },
         { provide: getRepositoryToken(Plan), useValue: mockPlanRepo },
         { provide: RedisService, useValue: mockRedisService },
+        // The REAL writer: this spec asserts the row and the outbox event that
+        // actually get written, so mocking it away would test nothing.
+        SubscriptionWriterService,
       ],
     }).compile();
     handler = moduleRef.get(CreateSubscriptionHandler);
@@ -464,6 +474,7 @@ describe('CreateSubscriptionHandler', () => {
           CreateSubscriptionHandler,
           { provide: DataSource, useValue: mockDS },
           { provide: OutboxPublisher, useValue: mockOutbox },
+          SubscriptionWriterService,
           { provide: StripeApiService, useValue: mockStripe },
           { provide: getRepositoryToken(Plan), useValue: mockPlanRepo },
         ],

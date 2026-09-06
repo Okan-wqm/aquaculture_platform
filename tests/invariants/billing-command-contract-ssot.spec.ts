@@ -144,3 +144,68 @@ describe('INVARIANT (ADR-0014): the Stripe tenant metadata key has one declarati
     expect(offenders).toEqual([]);
   });
 });
+
+describe('INVARIANT (ADR-0014): billing.subscriptions is written through handlers only', () => {
+  it('has no raw INSERT/UPDATE/DELETE against billing.subscriptions in service code', () => {
+    // Three raw `UPDATE`s (cancel, reactivate, extend-trial) and one raw
+    // `INSERT` (tenant provisioning) used to live beside the CQRS handlers that
+    // do the same thing properly. Between them they told Stripe nothing, wrote
+    // no outbox event, projected nothing onto `auth.tenants`, validated no state
+    // transition under a lock, and — the INSERT — left `stripe_customer_id` and
+    // `stripe_subscription_id` NULL, so an operator-provisioned tenant had a
+    // subscription Stripe had never heard of.
+    //
+    // Migrations are exempt: DDL and one-off backfills are exactly the place
+    // raw SQL belongs. This is about the RUNTIME write path.
+    const rawWrite = /\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+(billing\.)?"?subscriptions"?\b/i;
+
+    const offenders = listFiles('apps/billing-service/src/**/*.ts')
+      .filter((file) => !file.includes('__tests__') && !file.includes('/migrations/'))
+      .filter((file) => rawWrite.test(code(file)));
+
+    expect(offenders).toEqual([]);
+  });
+
+  it('routes every lifecycle transition through a @CommandHandler', () => {
+    // The admin NATS surface is the one that used to bypass them.
+    const adminHandler = code(
+      'apps/billing-service/src/billing/handlers/billing-admin-nats.handler.ts',
+    );
+    for (const command of [
+      'CancelSubscriptionCommand',
+      'ReactivateSubscriptionCommand',
+      'ExtendSubscriptionTrialCommand',
+    ]) {
+      expect(adminHandler).toContain(`new ${command}(`);
+    }
+
+    // …and each of those commands has a handler that actually handles it.
+    const handlers = listFiles('apps/billing-service/src/billing/handlers/*.ts')
+      .filter((file) => !file.includes('__tests__'))
+      .map(code)
+      .join('\n');
+    for (const command of [
+      'CancelSubscriptionCommand',
+      'ReactivateSubscriptionCommand',
+      'ExtendSubscriptionTrialCommand',
+      'CreateSubscriptionCommand',
+    ]) {
+      expect(handlers).toContain(`@CommandHandler(${command})`);
+    }
+  });
+
+  it('has one place that writes a subscription row, and both paths use it', () => {
+    const writer = 'apps/billing-service/src/billing/services/subscription-writer.service.ts';
+    expect(code(writer)).toContain('async createWithin(');
+
+    // The GraphQL path and the admin provisioning path, which minted no Stripe
+    // objects at all before ADR-0014.
+    for (const caller of [
+      'apps/billing-service/src/billing/handlers/create-subscription.handler.ts',
+      'apps/billing-service/src/billing/handlers/billing-admin-nats.handler.ts',
+    ]) {
+      expect(code(caller)).toContain('subscriptionWriter.createWithin(');
+      expect(code(caller)).toContain('ensureStripeObjects(');
+    }
+  });
+});

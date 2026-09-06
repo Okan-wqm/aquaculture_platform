@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common';
 import { CommandBus } from '@nestjs/cqrs';
 import { Test } from '@nestjs/testing';
 import { BypassRlsService } from '@aquaculture/backend-common/database';
+import { SubscriptionWriterService } from '../../services/subscription-writer.service';
 import type {
   BillingAdminCreateInvoiceCommand,
   BillingTenantProvisioningCommand,
@@ -33,6 +34,8 @@ describe('BillingAdminNatsHandler.provisionTenantSubscription', () => {
   let dataSourceQuery: jest.Mock;
   let bypassRls: { withBypass: jest.Mock };
   let planFindOne: jest.Mock;
+  let subscriptionWriter: { ensureStripeObjects: jest.Mock; createWithin: jest.Mock };
+  let mockDataSourceRef: { transaction: jest.Mock };
 
   const plan = {
     id: 'plan-starter-1',
@@ -135,6 +138,18 @@ describe('BillingAdminNatsHandler.provisionTenantSubscription', () => {
       }),
     };
 
+    // ADR-0014: the subscription row is written by SubscriptionWriterService
+    // now, not by a raw INSERT here. This spec is about the provisioning
+    // ORCHESTRATION — receipts, the RLS bypass, module items — so the writer is
+    // a collaborator, and what it was ASKED for is the assertion.
+    subscriptionWriter = {
+      ensureStripeObjects: jest.fn().mockResolvedValue({
+        stripeCustomerId: 'cus_test',
+        stripeSubscriptionId: 'sub_test',
+      }),
+      createWithin: jest.fn().mockResolvedValue({ id: 'sub-1', status: 'active' }),
+    };
+
     // dataSource.query is the OUT-OF-TRANSACTION path (the failure receipt in
     // markBillingReceiptFailed). Record it into the same ordered log so a test
     // can prove it also runs AFTER the RLS bypass was granted.
@@ -147,7 +162,11 @@ describe('BillingAdminNatsHandler.provisionTenantSubscription', () => {
         async (_level: string, cb: (m: typeof mockManager) => Promise<unknown>) => cb(mockManager),
       ),
       query: dataSourceQuery,
+      // The plan is resolved OUTSIDE the receipt transaction now, so the Stripe
+      // objects can be minted before it opens (SSOT-C-12).
+      manager: mockManager,
     };
+    mockDataSourceRef = mockDataSource;
 
     // London-style collaborator: the real BypassRlsService.withBypass sets
     // app.bypass_rls='on' for the callback's async frame (RlsConnectionBootstrap
@@ -166,6 +185,7 @@ describe('BillingAdminNatsHandler.provisionTenantSubscription', () => {
       providers: [
         { provide: CommandBus, useValue: { execute: jest.fn() } },
         { provide: DataSource, useValue: mockDataSource },
+        { provide: SubscriptionWriterService, useValue: subscriptionWriter },
         { provide: BypassRlsService, useValue: bypassRls },
       ],
     }).compile();
@@ -209,11 +229,47 @@ describe('BillingAdminNatsHandler.provisionTenantSubscription', () => {
   it('sets subscription pricing.basePrice to the sum of module item totals', async () => {
     await handler.provisionTenantSubscription(buildCommand());
 
-    const subInsert = recordedQueries.find((q) => /INSERT INTO billing\.subscriptions/.test(q.sql));
-    expect(subInsert).toBeDefined();
-    // pricing jsonb is param index 7 (JSON.stringify(pricing)).
-    const pricing = JSON.parse(subInsert?.params[7] as string);
-    expect(pricing.basePrice).toBe(150); // 100 + 50, NOT the catalog base (49)
+    const written = subscriptionWriter.createWithin.mock.calls[0]?.[1];
+    expect(written.pricing.basePrice).toBe(150); // 100 + 50, NOT the catalog base (49)
+  });
+
+  // ADR-0014: the raw INSERT this replaced left stripe_customer_id and
+  // stripe_subscription_id NULL, so every tenant an operator provisioned had a
+  // subscription this platform believed in and Stripe had never heard of.
+  it('mints the Stripe objects and writes them onto the subscription', async () => {
+    await handler.provisionTenantSubscription(buildCommand());
+
+    expect(subscriptionWriter.ensureStripeObjects).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tenantId: '22222222-2222-4222-8222-222222222222',
+        billingCycle: 'monthly',
+      }),
+    );
+    const written = subscriptionWriter.createWithin.mock.calls[0]?.[1];
+    expect(written.stripe).toEqual({
+      stripeCustomerId: 'cus_test',
+      stripeSubscriptionId: 'sub_test',
+    });
+  });
+
+  it('mints the Stripe objects BEFORE the receipt transaction opens', async () => {
+    // A network call inside the SERIALIZABLE transaction would hold a pool
+    // connection for its whole duration (SSOT-C-12).
+    const order: string[] = [];
+    subscriptionWriter.ensureStripeObjects.mockImplementation(async () => {
+      order.push('stripe');
+      return { stripeCustomerId: 'cus_test', stripeSubscriptionId: 'sub_test' };
+    });
+    const transaction = mockDataSourceRef.transaction as jest.Mock;
+    const original = transaction.getMockImplementation()!;
+    transaction.mockImplementation(async (...args: unknown[]) => {
+      order.push('transaction');
+      return original(...(args as Parameters<typeof original>));
+    });
+
+    await handler.provisionTenantSubscription(buildCommand());
+
+    expect(order).toEqual(['stripe', 'transaction']);
   });
 
   it('rejects a command that selects modules but carries no moduleItems (VALIDATION_ERROR)', async () => {
@@ -222,6 +278,7 @@ describe('BillingAdminNatsHandler.provisionTenantSubscription', () => {
     expect(result.success).toBe(false);
     expect(result.errorCode).toBe('VALIDATION_ERROR');
     // No subscription may be created for a rejected command.
+    expect(subscriptionWriter.createWithin).not.toHaveBeenCalled();
     expect(recordedQueries.some((q) => /INSERT INTO billing\.subscriptions/.test(q.sql))).toBe(
       false,
     );

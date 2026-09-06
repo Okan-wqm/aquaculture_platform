@@ -8,7 +8,10 @@ import { Tenant } from '../tenant/entities/tenant.entity';
 
 import { BillingController } from './billing.controller';
 import { CustomPlan } from './entities/custom-plan.entity';
-import { DiscountCode, DiscountRedemption } from './entities/discount-code.entity';
+import {
+  DiscountCodeReadOnly,
+  DiscountRedemptionReadOnly,
+} from './entities/external/discount-code.entity';
 import { ModulePricing } from './entities/module-pricing.entity';
 import { PlanDefinition } from './entities/plan-definition.entity';
 import { PlanModuleAssignment } from './entities/plan-module-assignment.entity';
@@ -39,8 +42,8 @@ import { UsageMeteringManagementService } from './services/usage-metering-manage
     ]),
     TypeOrmModule.forFeature([
       PlanDefinition,
-      DiscountCode,
-      DiscountRedemption,
+      DiscountCodeReadOnly,
+      DiscountRedemptionReadOnly,
       ModulePricing,
       PlanModuleAssignment,
       CustomPlan,

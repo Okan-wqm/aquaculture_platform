@@ -82,20 +82,36 @@ describe('INVARIANT: /security/audit reads immutable audit logs', () => {
 });
 
 describe('INVARIANT: security monitoring DTOs match entity enum contracts', () => {
-  it('rejects stale frontend-only status and indicator aliases at the backend boundary', () => {
-    // CONTRACT-CRITICAL-004 moved the request bodies out of the controller into
-    // class DTOs; the vocabulary they validate against moved with them, so the
-    // DTO module is where this contract now lives.
-    const dto = readRepoFile(
-      'apps/admin-api-service/src/security/controllers/dto/security-monitoring.dto.ts',
-    );
+  // The three membership lists moved out of the controller into its sibling
+  // `dto/` file under CONTRACT-CRITICAL-004: the `@nestjs/swagger` plugin
+  // visits a file EITHER as a controller (typing responses) or as a model
+  // (typing DTOs), never both, so a DTO declared beside its routes cost that
+  // controller's whole response contract. The boundary is the DTO file; the
+  // controller is checked separately for the stale aliases it must not
+  // reintroduce.
+  const DTO_FILE =
+    'apps/admin-api-service/src/security/controllers/dto/security-monitoring.dto.ts';
+  const CONTROLLER_FILE =
+    'apps/admin-api-service/src/security/controllers/security-monitoring.controller.ts';
 
-    expect(dto).toContain('SECURITY_EVENT_TYPES');
-    expect(dto).toContain('SECURITY_EVENT_STATUSES');
-    expect(dto).toContain('THREAT_INDICATOR_TYPES');
-    expect(dto).not.toContain("'resolved'");
-    expect(dto).not.toContain("'file_hash'");
-    expect(dto).not.toContain("'authentication', 'authorization', 'data_access', 'system'");
+  it('validates the query boundary against the entity enums, from one declared list each', () => {
+    const dto = readRepoFile(DTO_FILE);
+
+    expect(dto).toContain('export const SECURITY_EVENT_TYPES');
+    expect(dto).toContain('export const SECURITY_EVENT_STATUSES');
+    expect(dto).toContain('export const THREAT_INDICATOR_TYPES');
+    expect(dto).toContain('@IsIn(SECURITY_EVENT_TYPES)');
+    expect(dto).toContain('@IsIn(SECURITY_EVENT_STATUSES)');
+    expect(dto).toContain('@IsIn(THREAT_INDICATOR_TYPES)');
+  });
+
+  it('rejects stale frontend-only status and indicator aliases at the backend boundary', () => {
+    for (const file of [DTO_FILE, CONTROLLER_FILE]) {
+      const source = readRepoFile(file);
+      expect(source).not.toContain("'resolved'");
+      expect(source).not.toContain("'file_hash'");
+      expect(source).not.toContain("'authentication', 'authorization', 'data_access', 'system'");
+    }
   });
 });
 

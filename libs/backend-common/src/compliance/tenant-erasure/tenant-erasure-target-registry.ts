@@ -37,7 +37,6 @@ const ADMIN_TABLES: TenantErasureTablePolicies = {
   tenant_activities: { kind: 'excluded', reason: WORM_LEDGER },
   tenant_notes: { kind: 'tenant-column', column: 'tenantId' },
   tenant_billing_info: { kind: 'tenant-column', column: 'tenantId' },
-  discount_redemptions: { kind: 'tenant-column', column: 'tenantId' },
   custom_plans: { kind: 'tenant-column', column: 'tenantId' },
   message_threads: { kind: 'tenant-column', column: 'tenantId' },
   messages: { kind: 'cascade-via', parent: 'message_threads', foreignKey: 'threadId' },
@@ -101,7 +100,6 @@ const ADMIN_TABLES: TenantErasureTablePolicies = {
   threat_intelligence: { kind: 'excluded', reason: PLATFORM_REFERENCE },
   compliance_reports: { kind: 'excluded', reason: PLATFORM_REFERENCE },
   announcements: { kind: 'excluded', reason: PLATFORM_REFERENCE },
-  discount_codes: { kind: 'excluded', reason: PLATFORM_REFERENCE },
   module_pricing: { kind: 'excluded', reason: PLATFORM_REFERENCE },
   plan_definitions: { kind: 'excluded', reason: PLATFORM_REFERENCE },
   plan_module_assignments: { kind: 'excluded', reason: PLATFORM_REFERENCE },
@@ -124,6 +122,11 @@ const BILLING_TABLES: TenantErasureTablePolicies = {
   usage_hourly_data: { kind: 'tenant-column', column: 'tenant_id' },
   command_receipts: { kind: 'tenant-column', column: 'tenantId' },
   plans: { kind: 'excluded', reason: PLATFORM_REFERENCE },
+  // ADR-0013 / BILLING-CRITICAL-002: the discount catalogue moved from admin.
+  // A redemption is a tenant's row and is erased with the tenant; the code
+  // itself is a platform-wide catalogue entry with no tenant column.
+  discount_codes: { kind: 'excluded', reason: PLATFORM_REFERENCE },
+  discount_redemptions: { kind: 'tenant-column', column: 'tenant_id' },
   stripe_webhook_events: {
     kind: 'excluded',
     reason: 'Stripe webhook idempotency ledger keyed by Stripe event id; carries no tenant column and is the evidence of what Stripe delivered',

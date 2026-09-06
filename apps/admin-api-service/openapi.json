@@ -220,14 +220,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object"
-                }
-              }
-            }
+            "description": ""
           }
         },
         "summary": "List all tenants with filtering and pagination",
@@ -1935,7 +1928,14 @@
         ],
         "responses": {
           "200": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -3225,7 +3225,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/DiscountCodePageDto"
                 }
               }
             }
@@ -3254,7 +3254,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/DiscountCodeResponseDto"
                 }
               }
             }
@@ -3275,7 +3275,37 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/DiscountStatsDto"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Billing"
+        ]
+      }
+    },
+    "/billing/discounts/code/{code}": {
+      "get": {
+        "operationId": "BillingController_getDiscountByCode",
+        "parameters": [
+          {
+            "name": "code",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiscountCodeLookupDto"
                 }
               }
             }
@@ -3305,7 +3335,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/DiscountCodeResponseDto"
                 }
               }
             }
@@ -3343,7 +3373,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/DiscountCodeResponseDto"
                 }
               }
             }
@@ -3354,14 +3384,30 @@
         ]
       }
     },
-    "/billing/discounts/code/{code}": {
+    "/billing/discounts/{id}/redemptions": {
       "get": {
-        "operationId": "BillingController_getDiscountByCode",
+        "operationId": "BillingController_getDiscountRedemptions",
         "parameters": [
           {
-            "name": "code",
+            "name": "id",
             "required": true,
             "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
             "schema": {
               "type": "string"
             }
@@ -3373,7 +3419,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/DiscountRedemptionPageDto"
                 }
               }
             }
@@ -3403,7 +3449,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/DiscountCodeResponseDto"
                 }
               }
             }
@@ -3434,7 +3480,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/DiscountValidationResponseDto"
                 }
               }
             }
@@ -3465,53 +3511,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
-                }
-              }
-            }
-          }
-        },
-        "tags": [
-          "Billing"
-        ]
-      }
-    },
-    "/billing/discounts/{id}/redemptions": {
-      "get": {
-        "operationId": "BillingController_getDiscountRedemptions",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "limit",
-            "required": false,
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "offset",
-            "required": false,
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/DiscountApplicationResponseDto"
                 }
               }
             }
@@ -3542,7 +3542,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/GeneratedDiscountCodeDto"
                 }
               }
             }
@@ -3573,7 +3573,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/BulkCreatedDiscountCodesDto"
                 }
               }
             }
@@ -3908,7 +3908,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/DiscountRedemptionPageDto"
                 }
               }
             }
@@ -5016,27 +5016,6 @@
         ]
       }
     },
-    "/billing/payments/stats": {
-      "get": {
-        "operationId": "BillingController_getPaymentStats",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object"
-                }
-              }
-            }
-          }
-        },
-        "tags": [
-          "Billing"
-        ]
-      }
-    },
     "/billing/payments": {
       "get": {
         "operationId": "BillingController_getPayments",
@@ -5466,8 +5445,8 @@
               "type": "string",
               "enum": [
                 "all",
-                "active",
-                "inactive"
+                "inactive",
+                "active"
               ]
             }
           },
@@ -10840,6 +10819,72 @@
         ]
       }
     },
+    "/security/activities/sessions/user/{userId}": {
+      "get": {
+        "operationId": "ActivityLogController_getUserSessions",
+        "parameters": [
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/UserSession"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Security"
+        ]
+      }
+    },
+    "/security/activities/sessions/user/{userId}/terminate": {
+      "post": {
+        "operationId": "ActivityLogController_terminateUserSessions",
+        "parameters": [
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TerminateUserSessionsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Security"
+        ]
+      }
+    },
     "/security/audit": {
       "get": {
         "operationId": "AuditTrailController_queryAuditTrail",
@@ -11396,10 +11441,10 @@
             "schema": {
               "type": "string",
               "enum": [
-                "pending",
-                "rejected",
-                "completed",
                 "expired",
+                "pending",
+                "completed",
+                "rejected",
                 "in_progress"
               ]
             }
@@ -15489,28 +15534,6 @@
         ]
       }
     },
-    "/messaging/monitoring/stats": {
-      "get": {
-        "operationId": "MessagingAdminController_getMonitoringStats",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object"
-                }
-              }
-            }
-          }
-        },
-        "summary": "Get messaging monitoring statistics",
-        "tags": [
-          "Messaging Admin"
-        ]
-      }
-    },
     "/messaging/audit": {
       "get": {
         "operationId": "MessagingAdminController_getAuditLog",
@@ -15585,28 +15608,6 @@
           }
         },
         "summary": "Get compliance audit log entries",
-        "tags": [
-          "Messaging Admin"
-        ]
-      }
-    },
-    "/messaging/tenants": {
-      "get": {
-        "operationId": "MessagingAdminController_getTenants",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object"
-                }
-              }
-            }
-          }
-        },
-        "summary": "List tenants with messaging stats",
         "tags": [
           "Messaging Admin"
         ]
@@ -17790,12 +17791,307 @@
           "newPlanId"
         ]
       },
+      "DiscountCodeResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "discountType": {
+            "enum": [
+              "percentage",
+              "fixed_amount",
+              "free_trial_extension",
+              "free_months"
+            ],
+            "type": "string"
+          },
+          "percentOff": {
+            "type": "string"
+          },
+          "amountOff": {
+            "type": "string"
+          },
+          "freeMonths": {
+            "type": "number"
+          },
+          "trialExtensionDays": {
+            "type": "number"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "appliesTo": {
+            "enum": [
+              "all_plans",
+              "specific_plans",
+              "upgrades_only",
+              "new_subscriptions_only"
+            ],
+            "type": "string"
+          },
+          "applicablePlanIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "duration": {
+            "enum": [
+              "once",
+              "repeating",
+              "forever"
+            ],
+            "type": "string"
+          },
+          "durationInMonths": {
+            "type": "number"
+          },
+          "isActive": {
+            "type": "boolean"
+          },
+          "validFrom": {
+            "type": "string"
+          },
+          "validUntil": {
+            "type": "string"
+          },
+          "maxRedemptions": {
+            "type": "number"
+          },
+          "currentRedemptions": {
+            "type": "number"
+          },
+          "maxRedemptionsPerTenant": {
+            "type": "number"
+          },
+          "minimumOrderAmount": {
+            "type": "string"
+          },
+          "campaignId": {
+            "type": "string"
+          },
+          "campaignName": {
+            "type": "string"
+          },
+          "stripePromotionCodeId": {
+            "type": "string"
+          },
+          "stripeCouponId": {
+            "type": "string"
+          },
+          "isReferralCode": {
+            "type": "boolean"
+          },
+          "referrerId": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "updatedBy": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "name",
+          "discountType",
+          "currency",
+          "appliesTo",
+          "duration",
+          "isActive",
+          "currentRedemptions",
+          "isReferralCode",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "DiscountCodePageDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DiscountCodeResponseDto"
+            }
+          },
+          "total": {
+            "type": "number"
+          },
+          "page": {
+            "type": "number"
+          },
+          "limit": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "data",
+          "total",
+          "page",
+          "limit"
+        ]
+      },
+      "DiscountTopCodeDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "redemptions": {
+            "type": "number"
+          },
+          "totalDiscount": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "redemptions",
+          "totalDiscount"
+        ]
+      },
+      "DiscountStatsDto": {
+        "type": "object",
+        "properties": {
+          "totalCodes": {
+            "type": "number"
+          },
+          "activeCodes": {
+            "type": "number"
+          },
+          "expiredCodes": {
+            "type": "number"
+          },
+          "totalRedemptions": {
+            "type": "number"
+          },
+          "totalDiscountAmount": {
+            "type": "string"
+          },
+          "topCodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DiscountTopCodeDto"
+            }
+          }
+        },
+        "required": [
+          "totalCodes",
+          "activeCodes",
+          "expiredCodes",
+          "totalRedemptions",
+          "totalDiscountAmount",
+          "topCodes"
+        ]
+      },
+      "DiscountCodeLookupDto": {
+        "type": "object",
+        "properties": {
+          "found": {
+            "type": "boolean"
+          },
+          "discount": {
+            "$ref": "#/components/schemas/DiscountCodeResponseDto"
+          }
+        },
+        "required": [
+          "found"
+        ]
+      },
+      "DiscountRedemptionResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "discountCodeId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string"
+          },
+          "subscriptionId": {
+            "type": "string"
+          },
+          "invoiceId": {
+            "type": "string"
+          },
+          "discountAmount": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "redeemedAt": {
+            "type": "string"
+          },
+          "redeemedBy": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "discountCodeId",
+          "tenantId",
+          "discountAmount",
+          "currency",
+          "redeemedAt"
+        ]
+      },
+      "DiscountRedemptionPageDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DiscountRedemptionResponseDto"
+            }
+          },
+          "total": {
+            "type": "number"
+          },
+          "page": {
+            "type": "number"
+          },
+          "limit": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "data",
+          "total",
+          "page",
+          "limit"
+        ]
+      },
       "CreateDiscountCodeDto": {
         "type": "object",
         "properties": {
           "code": {
             "type": "string",
-            "maxLength": 64
+            "pattern": "^[A-Za-z0-9_-]{3,64}$"
           },
           "name": {
             "type": "string",
@@ -17810,13 +18106,29 @@
             "enum": [
               "percentage",
               "fixed_amount",
-              "free_trial_extension",
-              "free_months"
+              "free_months",
+              "free_trial_extension"
             ]
           },
-          "discountValue": {
+          "percentOff": {
+            "type": "string"
+          },
+          "amountOff": {
+            "type": "string"
+          },
+          "freeMonths": {
             "type": "number",
-            "minimum": 0
+            "minimum": 1,
+            "maximum": 120
+          },
+          "trialExtensionDays": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 3650
+          },
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
           },
           "appliesTo": {
             "type": "string",
@@ -17849,11 +18161,9 @@
             "maximum": 120
           },
           "validFrom": {
-            "format": "date-time",
             "type": "string"
           },
           "validUntil": {
-            "format": "date-time",
             "type": "string"
           },
           "maxRedemptions": {
@@ -17865,8 +18175,7 @@
             "minimum": 1
           },
           "minimumOrderAmount": {
-            "type": "number",
-            "minimum": 0
+            "type": "string"
           },
           "campaignId": {
             "type": "string",
@@ -17891,8 +18200,7 @@
         "required": [
           "code",
           "name",
-          "discountType",
-          "discountValue"
+          "discountType"
         ]
       },
       "UpdateDiscountCodeDto": {
@@ -17910,11 +18218,9 @@
             "type": "boolean"
           },
           "validFrom": {
-            "format": "date-time",
             "type": "string"
           },
           "validUntil": {
-            "format": "date-time",
             "type": "string"
           },
           "maxRedemptions": {
@@ -17947,13 +18253,55 @@
             "type": "string",
             "format": "uuid"
           },
+          "subscriptionChange": {
+            "type": "string",
+            "enum": [
+              "new",
+              "upgrade",
+              "other"
+            ]
+          },
           "orderAmount": {
-            "type": "number",
-            "minimum": 0
+            "type": "string"
           }
         },
         "required": [
           "code"
+        ]
+      },
+      "DiscountValidationResponseDto": {
+        "type": "object",
+        "properties": {
+          "valid": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "upgrades_only",
+              "new_subscriptions_only",
+              "unknown_code",
+              "inactive",
+              "not_yet_valid",
+              "expired",
+              "redemption_limit_reached",
+              "tenant_limit_reached",
+              "plan_not_eligible",
+              "below_minimum_order"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "discountAmount": {
+            "type": "string"
+          },
+          "discountCode": {
+            "$ref": "#/components/schemas/DiscountCodeResponseDto"
+          }
+        },
+        "required": [
+          "valid"
         ]
       },
       "ApplyDiscountCodeDto": {
@@ -17968,9 +18316,8 @@
             "type": "string",
             "maxLength": 100
           },
-          "originalAmount": {
-            "type": "number",
-            "minimum": 0
+          "orderAmount": {
+            "type": "string"
           },
           "subscriptionId": {
             "type": "string",
@@ -17983,11 +18330,69 @@
           "planId": {
             "type": "string",
             "format": "uuid"
+          },
+          "subscriptionChange": {
+            "type": "string",
+            "enum": [
+              "new",
+              "upgrade",
+              "other"
+            ]
           }
         },
         "required": [
           "code",
-          "originalAmount"
+          "orderAmount"
+        ]
+      },
+      "DiscountApplicationResponseDto": {
+        "type": "object",
+        "properties": {
+          "valid": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "upgrades_only",
+              "new_subscriptions_only",
+              "unknown_code",
+              "inactive",
+              "not_yet_valid",
+              "expired",
+              "redemption_limit_reached",
+              "tenant_limit_reached",
+              "plan_not_eligible",
+              "below_minimum_order"
+            ]
+          },
+          "originalAmount": {
+            "type": "string"
+          },
+          "discountAmount": {
+            "type": "string"
+          },
+          "finalAmount": {
+            "type": "string"
+          },
+          "grantedFreeMonths": {
+            "type": "number"
+          },
+          "grantedTrialExtensionDays": {
+            "type": "number"
+          },
+          "redemptionId": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "valid",
+          "originalAmount",
+          "discountAmount",
+          "finalAmount"
         ]
       },
       "GenerateDiscountCodeDto": {
@@ -17995,7 +18400,7 @@
         "properties": {
           "prefix": {
             "type": "string",
-            "maxLength": 20
+            "pattern": "^[A-Za-z0-9_]{1,20}$"
           },
           "length": {
             "type": "number",
@@ -18003,6 +18408,17 @@
             "maximum": 32
           }
         }
+      },
+      "GeneratedDiscountCodeDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ]
       },
       "DiscountCodeTemplateDto": {
         "type": "object",
@@ -18020,13 +18436,29 @@
             "enum": [
               "percentage",
               "fixed_amount",
-              "free_trial_extension",
-              "free_months"
+              "free_months",
+              "free_trial_extension"
             ]
           },
-          "discountValue": {
+          "percentOff": {
+            "type": "string"
+          },
+          "amountOff": {
+            "type": "string"
+          },
+          "freeMonths": {
             "type": "number",
-            "minimum": 0
+            "minimum": 1,
+            "maximum": 120
+          },
+          "trialExtensionDays": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 3650
+          },
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
           },
           "appliesTo": {
             "type": "string",
@@ -18059,11 +18491,9 @@
             "maximum": 120
           },
           "validFrom": {
-            "format": "date-time",
             "type": "string"
           },
           "validUntil": {
-            "format": "date-time",
             "type": "string"
           },
           "maxRedemptions": {
@@ -18075,8 +18505,7 @@
             "minimum": 1
           },
           "minimumOrderAmount": {
-            "type": "number",
-            "minimum": 0
+            "type": "string"
           },
           "campaignId": {
             "type": "string",
@@ -18100,8 +18529,7 @@
         },
         "required": [
           "name",
-          "discountType",
-          "discountValue"
+          "discountType"
         ]
       },
       "BulkCreateDiscountCodesDto": {
@@ -18110,7 +18538,7 @@
           "count": {
             "type": "number",
             "minimum": 1,
-            "maximum": 1000
+            "maximum": 500
           },
           "template": {
             "$ref": "#/components/schemas/DiscountCodeTemplateDto"
@@ -18123,6 +18551,28 @@
         "required": [
           "count",
           "template"
+        ]
+      },
+      "BulkCreatedDiscountCodesDto": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "count": {
+            "type": "number"
+          },
+          "codes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DiscountCodeResponseDto"
+            }
+          }
+        },
+        "required": [
+          "success",
+          "count",
+          "codes"
         ]
       },
       "PlanChangeRequest": {
@@ -18442,6 +18892,11 @@
       "QuoteRequest": {
         "type": "object",
         "properties": {
+          "tenantId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Tenant id. Resolved and verified server-side before the handler runs; the value a handler uses never comes from this key."
+          },
           "modules": {
             "maxItems": 100,
             "type": "array",
@@ -18516,6 +18971,11 @@
       "ComparePricingDto": {
         "type": "object",
         "properties": {
+          "tenantId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Tenant id. Resolved and verified server-side before the handler runs; the value a handler uses never comes from this key."
+          },
           "config1": {
             "$ref": "#/components/schemas/QuoteRequest"
           },
@@ -19202,10 +19662,10 @@
           "category": {
             "type": "string",
             "enum": [
-              "system",
-              "tenant",
               "user",
+              "system",
               "financial",
+              "tenant",
               "usage"
             ]
           },
@@ -19269,17 +19729,17 @@
           "status": {
             "enum": [
               "draft",
-              "active",
-              "inactive"
+              "inactive",
+              "active"
             ],
             "type": "string"
           },
           "schedule": {
             "enum": [
               "monthly",
-              "manual",
               "daily",
-              "weekly"
+              "weekly",
+              "manual"
             ],
             "type": "string"
           },
@@ -20143,8 +20603,8 @@
           },
           "status": {
             "enum": [
-              "open",
               "closed",
+              "open",
               "in_progress",
               "resolved",
               "waiting_customer"
@@ -20370,8 +20830,8 @@
           "status": {
             "type": "string",
             "enum": [
-              "open",
               "closed",
+              "open",
               "in_progress",
               "resolved",
               "waiting_customer"
@@ -20409,8 +20869,8 @@
           "status": {
             "type": "string",
             "enum": [
-              "open",
               "closed",
+              "open",
               "in_progress",
               "resolved",
               "waiting_customer"
@@ -20873,6 +21333,116 @@
           "createdAt"
         ]
       },
+      "UserSession": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "sessionToken": {
+            "type": "string"
+          },
+          "userId": {
+            "type": "string"
+          },
+          "userName": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string",
+            "nullable": true
+          },
+          "tenantName": {
+            "type": "string",
+            "nullable": true
+          },
+          "isActive": {
+            "type": "boolean"
+          },
+          "expiresAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "ipAddress": {
+            "type": "string"
+          },
+          "geoLocation": {
+            "type": "object",
+            "nullable": true
+          },
+          "deviceInfo": {
+            "type": "object",
+            "nullable": true
+          },
+          "requestCount": {
+            "type": "number"
+          },
+          "lastActivityAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "lastActivityPath": {
+            "type": "string",
+            "nullable": true
+          },
+          "terminatedAt": {
+            "format": "date-time",
+            "type": "string",
+            "nullable": true
+          },
+          "terminationReason": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "security",
+              "expired",
+              "logout",
+              "forced"
+            ]
+          },
+          "terminatedBy": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "sessionToken",
+          "userId",
+          "userName",
+          "isActive",
+          "expiresAt",
+          "ipAddress",
+          "requestCount",
+          "lastActivityAt",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "TerminateUserSessionsDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "enum": [
+              "logout",
+              "forced",
+              "security"
+            ]
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
       "ExportAuditTrailDto": {
         "type": "object",
         "properties": {
@@ -21166,10 +21736,10 @@
           },
           "status": {
             "enum": [
-              "pending",
-              "rejected",
-              "completed",
               "expired",
+              "pending",
+              "completed",
+              "rejected",
               "in_progress"
             ],
             "type": "string"
@@ -21350,10 +21920,10 @@
           "status": {
             "type": "string",
             "enum": [
-              "pending",
-              "rejected",
-              "completed",
               "expired",
+              "pending",
+              "completed",
+              "rejected",
               "in_progress"
             ]
           },
@@ -21881,8 +22451,8 @@
           },
           "status": {
             "enum": [
-              "open",
               "closed",
+              "open",
               "investigating",
               "contained",
               "eradicated",

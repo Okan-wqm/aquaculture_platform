@@ -459,7 +459,7 @@ describe('BillingController', () => {
           template: {
             name: 'Bulk Discount',
             discountType: 'percentage',
-            discountValue: 10,
+            percentOff: '10',
             createdBy: 'attacker-id',
           },
           codePrefix: 'BLK',
@@ -479,15 +479,16 @@ describe('BillingController', () => {
           template: {
             name: 'Test Discount',
             discountType: 'fixed_amount',
-            discountValue: 5,
+            amountOff: '5.00',
           },
         });
 
+      // ADR-0013: the actor is a separate argument, never a template property —
+      // billing records it as `created_by` on every minted code.
       expect(mockDiscountService.bulkCreate).toHaveBeenCalledWith(
         3,
-        expect.objectContaining({
-          createdBy: authenticatedUser.id,
-        }),
+        expect.objectContaining({ discountType: 'fixed_amount', amountOff: '5.00' }),
+        authenticatedUser.id,
         undefined,
       );
     });
@@ -505,7 +506,7 @@ describe('BillingController', () => {
           code: 'SPRING2026',
           name: 'Spring Sale',
           discountType: 'percentage',
-          discountValue: 15,
+          percentOff: '15',
           createdBy: 'attacker-id',
         });
 
@@ -520,13 +521,13 @@ describe('BillingController', () => {
           code: 'SPRING2026',
           name: 'Spring Sale',
           discountType: 'percentage',
-          discountValue: 15,
+          percentOff: '15',
         });
 
       expect(mockDiscountService.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          createdBy: authenticatedUser.id,
-        }),
+        'SPRING2026',
+        expect.objectContaining({ discountType: 'percentage', percentOff: '15' }),
+        authenticatedUser.id,
       );
     });
   });
@@ -538,7 +539,7 @@ describe('BillingController', () => {
   describe('PUT /billing/discounts/:id (updateDiscountCode)', () => {
     it('refuses a body that claims an actor', async () => {
       const res = await request(httpServer())
-        .put('/billing/discounts/disc-1')
+        .put('/billing/discounts/8f3c1a2b-4d5e-4f60-9a71-2b3c4d5e6f7a')
         .send({
           name: 'Updated Discount',
           updatedBy: 'attacker-id',
@@ -548,16 +549,24 @@ describe('BillingController', () => {
       expect(mockDiscountService.update).not.toHaveBeenCalled();
     });
 
+    it('refuses an id that is not a uuid before the handler runs', async () => {
+      const res = await request(httpServer())
+        .put('/billing/discounts/disc-1')
+        .send({ name: 'Updated Discount' });
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST);
+      expect(mockDiscountService.update).not.toHaveBeenCalled();
+    });
+
     it('should use JWT user.id as updatedBy', async () => {
-      await request(httpServer()).put('/billing/discounts/disc-1').send({
+      await request(httpServer()).put('/billing/discounts/8f3c1a2b-4d5e-4f60-9a71-2b3c4d5e6f7a').send({
         name: 'Updated Discount',
       });
 
       expect(mockDiscountService.update).toHaveBeenCalledWith(
-        'disc-1',
-        expect.objectContaining({
-          updatedBy: authenticatedUser.id,
-        }),
+        '8f3c1a2b-4d5e-4f60-9a71-2b3c4d5e6f7a',
+        expect.objectContaining({ name: 'Updated Discount' }),
+        authenticatedUser.id,
       );
     });
   });
@@ -739,10 +748,10 @@ describe('BillingController', () => {
   describe('POST /billing/discounts/:id/deactivate', () => {
     it('should use JWT user.id for deactivation', async () => {
       await request(httpServer())
-        .post('/billing/discounts/disc-1/deactivate');
+        .post('/billing/discounts/8f3c1a2b-4d5e-4f60-9a71-2b3c4d5e6f7a/deactivate');
 
       expect(mockDiscountService.deactivate).toHaveBeenCalledWith(
-        'disc-1',
+        '8f3c1a2b-4d5e-4f60-9a71-2b3c4d5e6f7a',
         authenticatedUser.id,
       );
     });
@@ -753,23 +762,89 @@ describe('BillingController', () => {
   // ==========================================================================
 
   describe('POST /billing/discounts/apply', () => {
-    it('should use JWT user.id as redeemedBy', async () => {
-      await request(httpServer())
+    it('forwards the JWT actor as the redeemer and the amount as an exact decimal string', async () => {
+      const res = await request(httpServer())
         .post('/billing/discounts/apply')
         .send({
           code: 'SPRING2026',
           tenantId: 'd4e5f6a7-b8c9-4d0e-af1a-2b3c4d5e6f7a',
-          originalAmount: 100,
+          orderAmount: '100.00',
+          subscriptionChange: 'upgrade',
         });
 
+      expect(res.status).toBe(HttpStatus.CREATED);
       expect(mockDiscountService.applyDiscount).toHaveBeenCalledWith(
         'SPRING2026',
         'd4e5f6a7-b8c9-4d0e-af1a-2b3c4d5e6f7a',
-        100,
-        expect.objectContaining({
-          redeemedBy: authenticatedUser.id,
-        }),
+        '100.00',
+        authenticatedUser.id,
+        expect.objectContaining({ subscriptionChange: 'upgrade' }),
       );
+    });
+
+    it('refuses an order amount sent as a float — money never crosses as IEEE-754 (ADR-0013)', async () => {
+      mockDiscountService.applyDiscount.mockClear();
+      const res = await request(httpServer())
+        .post('/billing/discounts/apply')
+        .send({
+          code: 'SPRING2026',
+          tenantId: 'd4e5f6a7-b8c9-4d0e-af1a-2b3c4d5e6f7a',
+          orderAmount: 100,
+        });
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST);
+      expect(mockDiscountService.applyDiscount).not.toHaveBeenCalled();
+    });
+  });
+
+  // ==========================================================================
+  // 14b. the discount value branch (ADR-0013 / BILLING-CRITICAL-002)
+  // ==========================================================================
+
+  describe('POST /billing/discounts (value branch)', () => {
+    beforeEach(() => mockDiscountService.create.mockClear());
+
+    it('refuses a percentage code that carries no percentOff', async () => {
+      const res = await request(httpServer())
+        .post('/billing/discounts')
+        .send({ code: 'NOVALUE', name: 'No value', discountType: 'percentage' });
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST);
+      expect(mockDiscountService.create).not.toHaveBeenCalled();
+    });
+
+    it('refuses a percentage code that also carries an amount', async () => {
+      const res = await request(httpServer()).post('/billing/discounts').send({
+        code: 'BOTH',
+        name: 'Both',
+        discountType: 'percentage',
+        percentOff: '10',
+        amountOff: '50.00',
+      });
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST);
+      expect(mockDiscountService.create).not.toHaveBeenCalled();
+    });
+
+    it('accepts a free_months code with a whole month count', async () => {
+      const res = await request(httpServer())
+        .post('/billing/discounts')
+        .send({ code: 'TWOFREE', name: 'Two free', discountType: 'free_months', freeMonths: 2 });
+
+      expect(res.status).toBe(HttpStatus.CREATED);
+      expect(mockDiscountService.create).toHaveBeenCalledWith(
+        'TWOFREE',
+        expect.objectContaining({ discountType: 'free_months', freeMonths: 2 }),
+        authenticatedUser.id,
+      );
+    });
+
+    it('refuses a body that tries to change a minted code value', async () => {
+      const res = await request(httpServer())
+        .put('/billing/discounts/8f3c1a2b-4d5e-4f60-9a71-2b3c4d5e6f7a')
+        .send({ name: 'Renamed', percentOff: '99' });
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST);
     });
   });
 
@@ -848,7 +923,7 @@ describe('BillingController', () => {
 
       const res = await request(httpServer())
         .post('/billing/discounts')
-        .send({ code: 'DUP', name: 'Dup', discountType: 'fixed_amount', discountValue: 5 });
+        .send({ code: 'DUP', name: 'Dup', discountType: 'fixed_amount', amountOff: '5.00' });
 
       expect(res.status).toBe(HttpStatus.CONFLICT);
     });

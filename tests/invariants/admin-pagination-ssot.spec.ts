@@ -62,7 +62,17 @@ const CONSUMER_ROOTS = [
  * the authority by `implements IStandardPaginatedResult<T>`, which is exactly
  * the compile-time check this spec exists to approximate elsewhere.
  */
-const DECLARATION_EXEMPT = ['libs/backend-common/src/pagination/pagination.dto.ts'];
+const DECLARATION_EXEMPT = [
+  'libs/backend-common/src/pagination/pagination.dto.ts',
+  // Same rationale on the REST side: `@nestjs/swagger`'s plugin types a
+  // response from a CLASS's declared properties and can generate nothing from
+  // `PaginationResultV1<T>`, a generic alias in a library — which is why every
+  // paginated admin route was typed `{type: object}` in the OpenAPI artifact
+  // until this one. The classes are bound to the authority by
+  // `implements PaginationResultV1<…>` and CONSTRUCT nothing: rules (b) and
+  // (c) still apply to them, so the page arithmetic stays in one place.
+  'apps/admin-api-service/src/billing/dto/discount-response.dto.ts',
+];
 
 function productionFiles(): string[] {
   const out = execFileSync(

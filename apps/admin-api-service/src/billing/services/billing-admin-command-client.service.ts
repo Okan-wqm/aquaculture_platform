@@ -11,6 +11,22 @@ import {
 import { ClientProxy } from '@nestjs/microservices';
 import {
   BILLING_ADMIN_COMMAND_SUBJECTS,
+  type BillingAdminApplyDiscountCodeCommand,
+  type BillingAdminApplyDiscountCodeResult,
+  type BillingAdminBulkCreateDiscountCodesCommand,
+  type BillingAdminBulkDiscountCodeCommandResult,
+  type BillingAdminCreateDiscountCodeCommand,
+  type BillingAdminDeactivateDiscountCodeCommand,
+  type BillingAdminDiscountCodeCommandResult,
+  type BillingAdminGenerateDiscountCodeCommand,
+  type BillingAdminGenerateDiscountCodeResult,
+  type BillingAdminUpdateDiscountCodeCommand,
+  type BillingAdminUpdateDiscountCodeInput,
+  type BillingAdminValidateDiscountCodeCommand,
+  type BillingAdminValidateDiscountCodeResult,
+  type BillingDiscountCodeInput,
+  type BillingDiscountCodeSnapshot,
+  type BillingDiscountSubscriptionChange,
   type BillingAdminCreateInvoiceCommand,
   type BillingAdminCreateInvoiceInput,
   type BillingAdminInvoiceCommandResult,
@@ -205,6 +221,138 @@ export class BillingAdminCommandClientService {
       actorId,
     });
     return this.unwrapSubscriptionResult(result);
+  }
+
+  // ── Discount catalogue (ADR-0013) ──────────────────────────────────────
+  //
+  // billing owns `billing.discount_codes` / `billing.discount_redemptions`;
+  // admin-api authors through these commands and reads the rows back through
+  // a read-only mapping. A rule refusal is NOT an error here — `validate` and
+  // `apply` return the refusal so the operator sees the reason instead of a
+  // 502 — but a malformed command still raises.
+
+  async createDiscountCode(
+    code: string,
+    input: BillingDiscountCodeInput,
+    actorId: string,
+  ): Promise<BillingDiscountCodeSnapshot> {
+    const result = await this.sendBillingCommand<
+      BillingAdminCreateDiscountCodeCommand,
+      BillingAdminDiscountCodeCommandResult
+    >(BILLING_ADMIN_COMMAND_SUBJECTS.CREATE_DISCOUNT_CODE, { code, input, actorId });
+    return this.unwrapDiscountCode(result);
+  }
+
+  async updateDiscountCode(
+    discountCodeId: string,
+    input: BillingAdminUpdateDiscountCodeInput,
+    actorId: string,
+  ): Promise<BillingDiscountCodeSnapshot> {
+    const result = await this.sendBillingCommand<
+      BillingAdminUpdateDiscountCodeCommand,
+      BillingAdminDiscountCodeCommandResult
+    >(BILLING_ADMIN_COMMAND_SUBJECTS.UPDATE_DISCOUNT_CODE, { discountCodeId, input, actorId });
+    return this.unwrapDiscountCode(result);
+  }
+
+  async deactivateDiscountCode(
+    discountCodeId: string,
+    actorId: string,
+  ): Promise<BillingDiscountCodeSnapshot> {
+    const result = await this.sendBillingCommand<
+      BillingAdminDeactivateDiscountCodeCommand,
+      BillingAdminDiscountCodeCommandResult
+    >(BILLING_ADMIN_COMMAND_SUBJECTS.DEACTIVATE_DISCOUNT_CODE, { discountCodeId, actorId });
+    return this.unwrapDiscountCode(result);
+  }
+
+  async bulkCreateDiscountCodes(
+    count: number,
+    template: BillingDiscountCodeInput,
+    actorId: string,
+    codePrefix?: string,
+  ): Promise<BillingDiscountCodeSnapshot[]> {
+    const result = await this.sendBillingCommand<
+      BillingAdminBulkCreateDiscountCodesCommand,
+      BillingAdminBulkDiscountCodeCommandResult
+    >(BILLING_ADMIN_COMMAND_SUBJECTS.BULK_CREATE_DISCOUNT_CODES, {
+      count,
+      codePrefix,
+      template,
+      actorId,
+    });
+    if (result.success && result.discountCodes) return result.discountCodes;
+    throw this.mapBillingError(result.errorCode, result.error);
+  }
+
+  async generateDiscountCode(actorId: string, prefix?: string, length?: number): Promise<string> {
+    const result = await this.sendBillingCommand<
+      BillingAdminGenerateDiscountCodeCommand,
+      BillingAdminGenerateDiscountCodeResult
+    >(BILLING_ADMIN_COMMAND_SUBJECTS.GENERATE_DISCOUNT_CODE, { prefix, length, actorId });
+    if (result.success && result.code) return result.code;
+    throw this.mapBillingError(result.errorCode, result.error);
+  }
+
+  async validateDiscountCode(
+    code: string,
+    tenantId: string,
+    actorId: string,
+    context: {
+      planId?: string;
+      subscriptionChange?: BillingDiscountSubscriptionChange;
+      orderAmount?: string;
+    },
+  ): Promise<BillingAdminValidateDiscountCodeResult> {
+    const result = await this.sendBillingCommand<
+      BillingAdminValidateDiscountCodeCommand,
+      BillingAdminValidateDiscountCodeResult
+    >(BILLING_ADMIN_COMMAND_SUBJECTS.VALIDATE_DISCOUNT_CODE, {
+      code,
+      tenantId,
+      planId: context.planId,
+      subscriptionChange: context.subscriptionChange,
+      orderAmount: context.orderAmount,
+      actorId,
+    });
+    if (!result.success) throw this.mapBillingError(result.errorCode, result.error);
+    return result;
+  }
+
+  async applyDiscountCode(
+    code: string,
+    tenantId: string,
+    orderAmount: string,
+    actorId: string,
+    context: {
+      planId?: string;
+      subscriptionChange?: BillingDiscountSubscriptionChange;
+      subscriptionId?: string;
+      invoiceId?: string;
+    },
+  ): Promise<BillingAdminApplyDiscountCodeResult> {
+    const result = await this.sendBillingCommand<
+      BillingAdminApplyDiscountCodeCommand,
+      BillingAdminApplyDiscountCodeResult
+    >(BILLING_ADMIN_COMMAND_SUBJECTS.APPLY_DISCOUNT_CODE, {
+      code,
+      tenantId,
+      orderAmount,
+      planId: context.planId,
+      subscriptionChange: context.subscriptionChange,
+      subscriptionId: context.subscriptionId,
+      invoiceId: context.invoiceId,
+      actorId,
+    });
+    if (!result.success) throw this.mapBillingError(result.errorCode, result.error);
+    return result;
+  }
+
+  private unwrapDiscountCode(
+    result: BillingAdminDiscountCodeCommandResult,
+  ): BillingDiscountCodeSnapshot {
+    if (result.success && result.discountCode) return result.discountCode;
+    throw this.mapBillingError(result.errorCode, result.error);
   }
 
   private async sendBillingCommand<TCommand, TResult>(

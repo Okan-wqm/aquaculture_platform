@@ -17,7 +17,15 @@ DEPLOY_STATE_ROOT="${DEPLOY_STATE_ROOT:-/var/lib/aqua/deploy/releases}"
 # deploy's worktree, NOT the interactive /var/aqua-saas tree, so the HEAD check
 # below can no longer false-fail when a parallel session drifts that tree.
 # shellcheck source=scripts/deploy/deploy-paths.sh
-source "${DEPLOY_SOURCE_REPO:-/var/aqua-saas}/scripts/deploy/deploy-paths.sh"
+DEPLOY_GENERATION=$(cat /var/lib/aqua/deploy/config-generations/current)
+[[ "${DEPLOY_GENERATION}" =~ ^[0-9a-f]{40}/[1-9][0-9]*-[1-9][0-9]*$ ]] || exit 2
+[ "${DEPLOY_GENERATION%%/*}" = "${TARGET_SHA}" ] || exit 2
+DEPLOY_SCRIPT_ROOT="/var/lib/aqua/deploy/releases/${DEPLOY_GENERATION}"
+source "${DEPLOY_SCRIPT_ROOT}/scripts/deploy/deploy-paths.sh"
+export DEPLOY_CHECKOUT_DIR=${DEPLOY_SCRIPT_ROOT}
+export DEPLOY_ENV_FILE="/var/lib/aqua/deploy/config-generations/${DEPLOY_GENERATION}/.env"
+export DEPLOY_CERTS_DIR="/var/lib/aqua/deploy/config-generations/${DEPLOY_GENERATION}/certs"
+acquire_deploy_control_lock
 
 case "${TARGET_SHA}" in
   *[!0-9a-f]*)

@@ -40,7 +40,10 @@ set -euo pipefail
 # that checkout is what the materialize routine (provided by the snippet)
 # pins to DEPLOY_SHA before we cd into it below.
 # shellcheck source=scripts/deploy/deploy-paths.sh
-source "${DEPLOY_SOURCE_REPO:-/var/aqua-saas}/scripts/deploy/deploy-paths.sh"
+DEPLOY_SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "${DEPLOY_SCRIPT_ROOT}/scripts/deploy/deploy-paths.sh"
+acquire_deploy_control_lock
+assert_deploy_infrastructure "${DEPLOY_SHA}"
 # shellcheck source=scripts/deploy/lib/deployment-mode-policy.sh
 source scripts/deploy/lib/deployment-mode-policy.sh
 
@@ -467,6 +470,19 @@ pull_deploy_image_required() {
 capture_rollback_manifest() {
   echo "=== Capturing current application image digests for rollback ==="
   : > "${ROLLBACK_MANIFEST}"
+  # Image IDs alone cannot restore the runtime contract. Capture the exact
+  # previously promoted source and private configuration generation as well.
+  if [ -f "${DEPLOY_CONFIG_ROOT}/current" ]; then
+    local previous_generation
+    previous_generation=$(cat "${DEPLOY_CONFIG_ROOT}/current") || return
+    [[ "${previous_generation}" =~ ^[0-9a-f]{40}/[1-9][0-9]*-[1-9][0-9]*$ ]] || return 1
+    if [ -f "${DEPLOY_RELEASES_ROOT}/${previous_generation}/docker-compose.droplet.yml" ] &&
+       [ -f "${DEPLOY_CONFIG_ROOT}/${previous_generation}/sealed.sha256" ]; then
+      printf '%s\n' "${previous_generation}" > "${DEPLOY_STATE_DIR}/rollback-generation"
+      chmod 0400 "${DEPLOY_STATE_DIR}/rollback-generation"
+      sync -f "${DEPLOY_STATE_DIR}/rollback-generation"
+    fi
+  fi
 
   local svc
   local container_id
@@ -537,6 +553,19 @@ rollback_deployed_services() {
     return 1
   fi
 
+  local rollback_generation rollback_source rollback_config
+  [ -f "${DEPLOY_STATE_DIR}/rollback-generation" ] || {
+    export ROLLBACK_SKIPPED_REASON=runtime_generation_unproven
+    return 1
+  }
+  rollback_generation=$(cat "${DEPLOY_STATE_DIR}/rollback-generation") || return
+  [[ "${rollback_generation}" =~ ^[0-9a-f]{40}/[1-9][0-9]*-[1-9][0-9]*$ ]] || return 1
+  rollback_source="${DEPLOY_RELEASES_ROOT}/${rollback_generation}"
+  rollback_config="${DEPLOY_CONFIG_ROOT}/${rollback_generation}"
+  [ "$(git -C "${rollback_source}" rev-parse HEAD)" = "${rollback_generation%%/*}" ] || return 1
+  [ -z "$(git -C "${rollback_source}" status --porcelain --untracked-files=no)" ] || return 1
+  (cd "${rollback_config}" && sha256sum --status --check sealed.sha256) || return
+
   if [ ! -s "${ROLLBACK_MANIFEST}" ]; then
     echo "::error::No rollback manifest available; manual intervention required."
     return 1
@@ -561,26 +590,24 @@ rollback_deployed_services() {
     return 0
   fi
 
-  local image_id
-  local restored=0
+  local image_id override="${DEPLOY_STATE_DIR}/rollback-compose.json" temporary
+  printf '{"services":{}}\n' > "${override}"
   for svc in "${scope_services[@]}"; do
     image_id="$(awk -F "$(printf '\t')" -v svc="${svc}" '$1 == svc {print $2; exit}' "${ROLLBACK_MANIFEST}")"
-    if [ -z "${image_id}" ]; then
-      echo "::warning::Rollback manifest has no prior image for ${svc}; leaving its current image tag unchanged."
-      continue
-    fi
-    echo "  ${svc}: restoring $(image_ref_for_service "$svc") -> ${image_id}"
-    docker tag "${image_id}" "$(image_ref_for_service "$svc")" 2>/dev/null || true
-    docker tag "${image_id}" "$(deploy_tag_ref_for_service "$svc")" 2>/dev/null || true
-    restored=$((restored + 1))
+    [[ "${image_id}" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+      export ROLLBACK_SKIPPED_REASON=incomplete_runtime_snapshot
+      return 1
+    }
+    temporary=$(mktemp "${DEPLOY_STATE_DIR}/.rollback-compose.XXXXXXXX") || return
+    jq --arg service "${svc}" --arg image "${image_id}" \
+      '.services[$service] = {image:$image}' "${override}" > "${temporary}" || return
+    mv "${temporary}" "${override}"
   done
+  TAG="${rollback_generation%%/*}" DEPLOY_CERTS_DIR="${rollback_config}/certs" \
+    docker compose --project-name aqua-saas --project-directory "${rollback_source}" \
+      --env-file "${rollback_config}/.env" -f "${rollback_source}/docker-compose.droplet.yml" \
+      -f "${override}" up -d --no-deps --no-build --force-recreate --pull never "${scope_services[@]}"
 
-  if [ "${restored}" -eq 0 ]; then
-    echo "::error::Rollback scope had no restorable images."
-    return 1
-  fi
-
-  docker compose -f docker-compose.droplet.yml up -d --no-deps --no-build --force-recreate "${scope_services[@]}"
 }
 
 # NATS authorization is loaded only when the broker starts. A selective deploy
@@ -1091,12 +1118,12 @@ fi
 # skip-if-exists logic (line 45-46 of generate-internal-certs.sh)
 # makes the no-op case ~100ms total. New per-service certs added in
 # lockstep with services.yaml will land on next deploy automatically,
-# without operator intervention. --force is reserved for proactive
-# renewal of existing certs nearing expiry.
+# without operator intervention. Leaf renewal retains the validated CA used by
+# infrastructure that remains running across application deployments.
+if ! deploy_configuration_is_sealed; then
 echo "=== TLS certificate generation (always-run; idempotent) ==="
-# Read TLS material from the persistent certs dir (DEPLOY_CERTS_DIR), which is
-# symlinked into the checkout as ./certs — generate-internal-certs.sh writes
-# there via that symlink, and docker-compose.droplet.yml bind-mounts ./certs.
+# Prepare TLS material only in this private configuration generation. Compose
+# mounts its concrete path; existing containers retain their original generation.
 CERT_RENEW=false
 if [ -f "${DEPLOY_CERTS_DIR}/redis/redis-cert.pem" ]; then
   EXPIRY=$(openssl x509 -enddate -noout -in "${DEPLOY_CERTS_DIR}/redis/redis-cert.pem" 2>/dev/null | cut -d= -f2)
@@ -1106,15 +1133,15 @@ if [ -f "${DEPLOY_CERTS_DIR}/redis/redis-cert.pem" ]; then
     DAYS_LEFT=$(( (EXPIRY_EPOCH - NOW_EPOCH) / 86400 ))
     echo "  Server certificate expires in ${DAYS_LEFT} days"
     if [ "$DAYS_LEFT" -lt 30 ]; then
-      echo "  Expiring soon — proactive full regeneration"
+      echo "  Expiring soon — renewing leaf certificates with the existing CA"
       CERT_RENEW=true
     fi
   fi
 fi
 if [ "$CERT_RENEW" = true ]; then
-  bash infrastructure/docker/scripts/generate-internal-certs.sh --force
+  bash infrastructure/docker/scripts/generate-internal-certs.sh --renew-leaves
 else
-  # No --force: script generates ONLY missing certs; existing valid
+  # Without renewal, the script generates only missing certs; existing valid
   # certs stay untouched. Catches "new service added since last
   # deploy" → its client cert gets generated even if shared CA cert
   # is still valid for 300+ days.
@@ -1198,6 +1225,33 @@ if [ ${#MISSING[@]} -gt 0 ]; then
 fi
 echo "  OK: ${REQUIRED_SECRET_COUNT} required secrets present"
 
+# Complete the private generation before sealing it and before containers use it.
+for SVC in AUTH FARM SENSOR GATEWAY NOTIFICATION BILLING ALERT HR MESSAGING HYDROPONICS; do
+  generate_credential "NATS_${SVC}_SVC_USER" "${DEPLOY_ENV_FILE}"
+  generate_credential "NATS_${SVC}_SVC_PASS" "${DEPLOY_ENV_FILE}"
+done
+generate_credential WEBHOOK_ENCRYPTION_KEY "${DEPLOY_ENV_FILE}"
+  echo "=== Ensuring JWT RSA key pair exists ==="
+  JWT_KEY_DIR="${DEPLOY_CERTS_DIR}/jwt"
+  if [ ! -f "$JWT_KEY_DIR/private.pem" ]; then
+    echo "  Generating RSA-2048 key pair for JWT..."
+    mkdir -p "$JWT_KEY_DIR"
+    openssl genrsa -out "$JWT_KEY_DIR/private.pem" 2048
+    openssl rsa -in "$JWT_KEY_DIR/private.pem" -pubout -out "$JWT_KEY_DIR/public.pem"
+    chmod 600 "$JWT_KEY_DIR/private.pem"
+    chmod 644 "$JWT_KEY_DIR/public.pem"
+    # Write PEM paths to .env
+    grep -q "^JWT_PRIVATE_KEY_PATH=" "$ENV_FILE" || echo "JWT_PRIVATE_KEY_PATH=/etc/ssl/jwt/private.pem" >> "$ENV_FILE"
+    grep -q "^JWT_PUBLIC_KEY_PATH=" "$ENV_FILE" || echo "JWT_PUBLIC_KEY_PATH=/etc/ssl/jwt/public.pem" >> "$ENV_FILE"
+    echo "  JWT RSA key pair generated"
+  else
+    echo "  JWT RSA key pair already exists"
+    # Ensure .env has the path vars even if keys were generated in a prior deploy
+    grep -q "^JWT_PRIVATE_KEY_PATH=" "$ENV_FILE" || echo "JWT_PRIVATE_KEY_PATH=/etc/ssl/jwt/private.pem" >> "$ENV_FILE"
+    grep -q "^JWT_PUBLIC_KEY_PATH=" "$ENV_FILE" || echo "JWT_PUBLIC_KEY_PATH=/etc/ssl/jwt/public.pem" >> "$ENV_FILE"
+  fi
+
+
 configure_preserved_compose_interpolation "${DEPLOY_ENV_FILE}"
 
 echo "=== Pre-flight: compose interpolation ==="
@@ -1209,29 +1263,20 @@ if ! docker compose -f docker-compose.droplet.yml config --quiet; then
 fi
 echo "  OK: compose interpolates cleanly"
 
-# Phase A3 — NATS SSoT not drifted from generated nats.conf
-echo "=== Pre-flight: NATS SSoT drift check ==="
-if [ -f scripts/nats/generate-nats-conf.py ]; then
-  python3 scripts/nats/generate-nats-conf.py
-  NATS_GENERATED_ARTIFACTS=(
-    infrastructure/docker/nats/nats.conf
-    infrastructure/helm/aquaculture/files/nats-service-identities.yaml
-  )
-  if [ -n "$(git status --porcelain -- "${NATS_GENERATED_ARTIFACTS[@]}")" ]; then
-    echo "::error::NATS generated artifacts drifted from infrastructure/nats/services.yaml"
-    echo "  Run 'python3 scripts/nats/generate-nats-conf.py' locally and commit the diff."
-    git diff -- "${NATS_GENERATED_ARTIFACTS[@]}" | head -50
-    exit 1
-  fi
-  echo "  OK: broker ACL and Helm certificate roster match services.yaml"
-else
-  echo "  SKIP: generator script not present (commit predates ADR-015)"
-fi
+# NATS generated artifacts are validated by the required hosted CI gate.
+# Source bytes in this release are never regenerated on the droplet.
 
 # Phase A4 — (moved to Phase A2a above: generate-if-absent must precede
 # the interpolation check that consumes the values — INFRA-HIGH-007.)
 
 # End of pre-flight ──────────────────────────────────────────
+
+seal_deploy_configuration
+else
+  verify_deploy_configuration
+fi
+ENV_FILE="${DEPLOY_ENV_FILE}"
+configure_preserved_compose_interpolation "${DEPLOY_ENV_FILE}"
 
 # SEC-CI-001: GITHUB_TOKEN (packages:read) is substituted at template time by the
 # GitHub Actions runner and masked as *** in all logs. Short-lived, run-scoped only.
@@ -1320,98 +1365,6 @@ if deploy_uses_full_stack_path; then
     fi
   else
     echo "No existing JetStream data directory found (first deploy or volume not mounted)"
-  fi
-
-  # ================================================================
-  # Per-service credential provisioning (CRITICAL-002 / CRITICAL-001)
-  #
-  # Each service needs its own NATS user/password and DB role password.
-  # These are generated ONCE and persisted in .env. Subsequent deploys
-  # detect existing values and skip generation (idempotent).
-  # ================================================================
-  echo "=== Ensuring per-service credentials exist ==="
-  ENV_FILE="${DEPLOY_ENV_FILE}"
-
-  generate_credential() {
-    local VAR_NAME="$1"
-    if grep -q "^${VAR_NAME}=" "$ENV_FILE" 2>/dev/null; then
-      echo "  ${VAR_NAME}: already set"
-    else
-      local VALUE=$(openssl rand -base64 24 | tr -d '/+=' | head -c 32)
-      echo "${VAR_NAME}=${VALUE}" >> "$ENV_FILE"
-      echo "  ${VAR_NAME}: generated"
-    fi
-  }
-
-  # ADR-015 (cert-is-identity): NATS per-service identity is the
-  # mTLS cert CN via `verify_and_map: true`. The previous
-  # set_canonical NATS_*_USER / generate_credential NATS_*_PASS
-  # provisioning block was removed — those env vars are no longer
-  # consumed by nats.conf (literal user names from services.yaml)
-  # or by the client factory (mtls-cert mode omits user/pass from
-  # CONNECT frame). Keeping them provisioned would resurrect the
-  # 3-way drift surface (.env ↔ nats.conf ↔ cert CN) that caused
-  # the 2026-04-14 Authorization Violation outage.
-  #
-  # Canonical service name list now lives exclusively at
-  # infrastructure/nats/services.yaml and is consumed by:
-  #   - scripts/nats/generate-nats-conf.py (generates nats.conf)
-  #   - infrastructure/docker/scripts/generate-internal-certs.sh
-  #     (cert CN list — hand-written in lockstep, CI-validated)
-  #   - e2e/tests/integration/nats-invariants.spec.ts (drift
-  #     detection)
-  #
-  # If the SSoT gets out of sync with generated artifacts, the
-  # nats-invariants CI test fails the build — no need for deploy
-  # workflow to enforce it.
-  #
-  # NATS_*_SVC_USER / NATS_*_SVC_PASS are historical (internal
-  # deploy bookkeeping, not client auth). Preserved to avoid
-  # churning deploy-state conventions in the same PR as the
-  # architectural refactor. Tracked as BACKLOG-NATS-003 to audit
-  # whether they're still read by any pipeline step and remove
-  # them if not.
-
-  # NATS per-service internal bookkeeping credentials (unrelated
-  # to client auth; legacy — see comment above)
-  for SVC in AUTH FARM SENSOR GATEWAY NOTIFICATION BILLING ALERT HR MESSAGING HYDROPONICS; do
-    generate_credential "NATS_${SVC}_SVC_USER"
-    generate_credential "NATS_${SVC}_SVC_PASS"
-  done
-
-  # PostgreSQL per-service role passwords
-  # SSoT: SERVICE_DB_ROLES is generated from the platform service catalog.
-  for SVC in ${SERVICE_DB_ROLES}; do
-    generate_credential "${SVC}_SERVICE_DB_PASS"
-  done
-
-  # Application secrets
-  generate_credential "WEBHOOK_ENCRYPTION_KEY"
-
-  echo "=== Per-service credentials provisioned ==="
-
-  # RSA key pair for JWT RS256 signing (auth-service signs, all verify).
-  # Persisted in the stable certs dir (mounted into containers via the
-  # compose ./certs/jwt bind, which resolves through the checkout's certs
-  # symlink to DEPLOY_CERTS_DIR) — never regenerated on a recreated checkout.
-  echo "=== Ensuring JWT RSA key pair exists ==="
-  JWT_KEY_DIR="${DEPLOY_CERTS_DIR}/jwt"
-  if [ ! -f "$JWT_KEY_DIR/private.pem" ]; then
-    echo "  Generating RSA-2048 key pair for JWT..."
-    mkdir -p "$JWT_KEY_DIR"
-    openssl genrsa -out "$JWT_KEY_DIR/private.pem" 2048
-    openssl rsa -in "$JWT_KEY_DIR/private.pem" -pubout -out "$JWT_KEY_DIR/public.pem"
-    chmod 600 "$JWT_KEY_DIR/private.pem"
-    chmod 644 "$JWT_KEY_DIR/public.pem"
-    # Write PEM paths to .env
-    grep -q "^JWT_PRIVATE_KEY_PATH=" "$ENV_FILE" || echo "JWT_PRIVATE_KEY_PATH=/etc/ssl/jwt/private.pem" >> "$ENV_FILE"
-    grep -q "^JWT_PUBLIC_KEY_PATH=" "$ENV_FILE" || echo "JWT_PUBLIC_KEY_PATH=/etc/ssl/jwt/public.pem" >> "$ENV_FILE"
-    echo "  JWT RSA key pair generated"
-  else
-    echo "  JWT RSA key pair already exists"
-    # Ensure .env has the path vars even if keys were generated in a prior deploy
-    grep -q "^JWT_PRIVATE_KEY_PATH=" "$ENV_FILE" || echo "JWT_PRIVATE_KEY_PATH=/etc/ssl/jwt/private.pem" >> "$ENV_FILE"
-    grep -q "^JWT_PUBLIC_KEY_PATH=" "$ENV_FILE" || echo "JWT_PUBLIC_KEY_PATH=/etc/ssl/jwt/public.pem" >> "$ENV_FILE"
   fi
 
   echo "=== Ensuring infrastructure databases exist ==="
@@ -1517,37 +1470,6 @@ else
   else
     echo "No existing JetStream data directory found"
   fi
-
-  # Per-service credential provisioning (same as full deploy path).
-  # ADR-015: no NATS client-auth credential provisioning here —
-  # mTLS cert CN IS identity. Only legacy internal bookkeeping
-  # credentials + DB role passwords get generated.
-  echo "=== Ensuring per-service credentials exist ==="
-  ENV_FILE="${DEPLOY_ENV_FILE}"
-  generate_credential() {
-    local VAR_NAME="$1"
-    if grep -q "^${VAR_NAME}=" "$ENV_FILE" 2>/dev/null; then
-      echo "  ${VAR_NAME}: already set"
-    else
-      local VALUE=$(openssl rand -base64 24 | tr -d '/+=' | head -c 32)
-      echo "${VAR_NAME}=${VALUE}" >> "$ENV_FILE"
-      echo "  ${VAR_NAME}: generated"
-    fi
-  }
-  # NATS per-service internal bookkeeping (legacy; see full-deploy
-  # block above for BACKLOG-NATS-003 to audit whether any pipeline
-  # step still consumes these).
-  for SVC in AUTH FARM SENSOR GATEWAY NOTIFICATION BILLING ALERT HR MESSAGING HYDROPONICS; do
-    generate_credential "NATS_${SVC}_SVC_USER"
-    generate_credential "NATS_${SVC}_SVC_PASS"
-  done
-  # SSoT: SERVICE_DB_ROLES is generated from the platform service catalog.
-  for SVC in ${SERVICE_DB_ROLES}; do
-    generate_credential "${SVC}_SERVICE_DB_PASS"
-  done
-
-  # Application secrets
-  generate_credential "WEBHOOK_ENCRYPTION_KEY"
 
   if [ "$RUN_DB_MIGRATE" = "true" ]; then
     if [ "${PRESERVE_DATA_INFRASTRUCTURE}" = "true" ]; then
@@ -1749,6 +1671,7 @@ fi
 echo "  Public /graphql smoke passed (HTTP 200, valid GraphQL JSON)."
 
 record_release_ledger "promoted" ""
+promote_deploy_configuration
 
 echo "=== Cleanup old images ==="
 bash scripts/deploy/droplet-capacity.sh gc

@@ -1255,6 +1255,7 @@ aqua_control_plane_guard_dr_state() {
   /usr/bin/python3 - \
     "${AQUA_CONTROL_PLANE_DR_STATE_ROOT}" "${AQUA_CONTROL_PLANE_EXPECTED_UID}" <<'PY'
 import datetime
+import hashlib
 import json
 import os
 import pathlib
@@ -1349,11 +1350,17 @@ for entry in sorted(root.iterdir(), key=lambda value: value.name):
         require_safe(child, False, 0o400)
     phase_path = entry / "phase.json"
     document = read_json(phase_path)
-    if not isinstance(document, dict) or set(document) != {
-        "candidate", "candidate_image_id", "occurred_at", "phase",
-        "prior_image_id", "schema_version",
-    } or document.get("schema_version") != 1:
+    version = document.get("schema_version") if isinstance(document, dict) else None
+    expected_keys = {"candidate", "candidate_image_id", "occurred_at", "phase", "prior_image_id", "schema_version"}
+    if version == 2:
+        expected_keys |= {"mode", "recovery_point_sha256"}
+    if not isinstance(document, dict) or set(document) != expected_keys or version not in {1, 2}:
         raise SystemExit(f"DR execution journal schema is invalid: {phase_path}")
+    if version == 2 and (
+        document.get("mode") not in {"healthy_upgrade", "degraded_legacy_recovery"}
+        or re.fullmatch(r"[0-9a-f]{64}", str(document.get("recovery_point_sha256"))) is None
+    ):
+        raise SystemExit(f"DR v2 recovery binding is invalid: {phase_path}")
     candidate = document.get("candidate")
     if not isinstance(candidate, dict) or set(candidate) != {
         "image_digest", "main_sha", "repository", "run_attempt", "run_id",
@@ -1391,6 +1398,25 @@ for entry in sorted(root.iterdir(), key=lambda value: value.name):
     }
     result_name = "result.json" if document["phase"] == "COMMITTED" else "rollback.json"
     expected_artifacts = shared_artifacts | {result_name}
+    if version == 2:
+        expected_artifacts.add("recovery-point.json")
+        point_path = entry / "recovery-point.json"
+        point = read_json(point_path)
+        if hashlib.sha256(point_path.read_bytes()).hexdigest() != document["recovery_point_sha256"]:
+            raise SystemExit(f"DR recovery point digest mismatch: {point_path}")
+        if not isinstance(point, dict) or set(point) != {
+            "schema_version", "run_key", "observed_image_id", "baseline_image_id", "data_volume",
+            "snapshot_volume", "probe_volume", "snapshot_volume_created_at", "snapshot_sha256", "baseline_config_sha256", "verified_boot",
+        } or (
+            point.get("schema_version") != 2 or point.get("run_key") != entry.name
+            or point.get("baseline_image_id") != document["prior_image_id"]
+            or point.get("data_volume") != "aqua-saas_postgres_data"
+            or point.get("snapshot_volume") != f"aqua-dr-point-{entry.name}"
+            or point.get("probe_volume") != f"aqua-dr-probe-{entry.name}"
+            or re.fullmatch(r"[0-9a-f]{64}", str(point.get("snapshot_sha256"))) is None
+            or point.get("verified_boot") is not True
+        ):
+            raise SystemExit(f"DR recovery point contract mismatch: {point_path}")
     if set(children) != expected_artifacts:
         raise SystemExit(
             f"DR execution terminal artifact set is invalid: {entry}; "
@@ -2737,6 +2763,8 @@ allowed_files = {
     "superseded-transaction.json": {0o400},
     ".release-transaction-terminal.json.staging": {0o400},
     ".superseded-transaction.json.staging": {0o400},
+    "rollback-generation": {0o400},
+    "rollback-compose.json": {0o600, 0o644},
 }
 stage_file_pattern = re.compile(r"^\.(?:image-digests|immutable-images)\.[A-Za-z0-9_-]{6,32}\.tmp$")
 rollback_stage_pattern = re.compile(r"^\.rollback-state\.[A-Za-z0-9]{6}$")
@@ -2835,6 +2863,18 @@ def validate_release_tree(entry: pathlib.Path, release_id: str) -> tuple[dict[st
 
 
 for entry in entries:
+    if sha40.fullmatch(entry.name):
+        require_directory(entry, 0o700)
+        for generation in entry.iterdir():
+            if re.fullmatch(r"[1-9][0-9]*-[1-9][0-9]*", generation.name) is None:
+                raise SystemExit(f"immutable release generation is invalid: {generation}")
+            require_directory(generation, {0o755, 0o555})
+            identity = read_control_json(generation / ".release-identity.json", 4096)
+            if identity != {"schema_version": 2, "main_sha": entry.name, "attempt": generation.name}:
+                raise SystemExit(f"immutable release identity mismatch: {generation}")
+        # Config, runtime mounts, recovery and rollback references retain these
+        # generations. This journal collector has no authority to delete them.
+        continue
     match = release_pattern.fullmatch(entry.name)
     retiring_match = retiring_pattern.fullmatch(entry.name)
     if match is None and retiring_match is None:
@@ -2958,7 +2998,7 @@ try:
         snapshots[retiring_name] = snapshots.pop(name)
         delete_retiring(retiring_name)
 
-    remaining = len(os.listdir(root_fd))
+    remaining = sum(1 for name in os.listdir(root_fd) if sha40.fullmatch(name) is None)
     if remaining > 128:
         raise SystemExit(f"release retention cannot safely reach its bound: remaining={remaining}")
 finally:

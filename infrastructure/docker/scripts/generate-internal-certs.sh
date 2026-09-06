@@ -1,7 +1,7 @@
 #!/bin/bash
 # =============================================================================
 # Internal TLS Certificate Generator — Aquaculture Platform
-# Usage: ./generate-internal-certs.sh [--force]
+# Usage: ./generate-internal-certs.sh [--renew-leaves|--force]
 # Output: ${DEPLOY_CERTS_DIR:-./certs}/{ca,nats,redis,postgres}/
 # =============================================================================
 set -euo pipefail
@@ -25,17 +25,19 @@ case "${CERTS_DIR}" in
   /*) ;;
   *) echo "error: CERTS_DIR must resolve to an absolute path" >&2; exit 2 ;;
 esac
+# Leaf renewal preserves the trust root used by infrastructure containers that
+# an application deploy deliberately leaves running. CA rotation is a separate,
+# explicit operator operation and cannot be selected by certificate expiry.
 FORCE=false
-[ "${1:-}" = "--force" ] && FORCE=true
-# The source branch additionally refused `--force` whenever DEPLOY_CERTS_DIR
-# was set, because its deploy lane replaced proactive renewal with a staged
-# set plus an explicit consumer recreate. This deploy lane has no such step:
-# `scripts/deploy/droplet-up.sh` invokes `--force` itself when the redis server
-# certificate is inside 30 days of expiry, and recreates the consumers in the
-# same rollout. Carrying the refusal here would turn that renewal into a hard
-# deploy failure on the day the certificate is closest to expiring. Renewal is
-# nonetheless atomic: every asset below is written to a staged file in its own
-# directory and published by rename after cryptographic validation.
+ROTATE_CA=false
+RENEW_LEAVES=false
+[ "$#" -le 1 ] || { echo "error: expected at most one renewal option" >&2; exit 2; }
+case "${1:-}" in
+  '') ;;
+  --renew-leaves) FORCE=true; RENEW_LEAVES=true ;;
+  --force) FORCE=true; ROTATE_CA=true ;;
+  *) echo "error: expected --renew-leaves or --force" >&2; exit 2 ;;
+esac
 GENERATED_STAGE=''
 declare -a GENERATED_STAGE_PATHS=()
 declare -a GENERATED_STAGE_DIRECTORIES=()
@@ -281,7 +283,7 @@ validate_certificate_key_pair() {
   local purpose="$5" label="$6" actual_subject key_digest cert_digest
 
   if ! actual_subject=$(certificate_subject "${cert_path}" "${label} certificate"); then
-    return
+    return 1
   fi
   if [ "${actual_subject}" != "${expected_subject}" ]; then
     certificate_store_error \
@@ -289,10 +291,10 @@ validate_certificate_key_pair() {
     return
   fi
   if ! key_digest=$(public_key_digest_from_private_key "${key_path}" "${label} private key"); then
-    return
+    return 1
   fi
   if ! cert_digest=$(public_key_digest_from_certificate "${cert_path}" "${label} certificate"); then
-    return
+    return 1
   fi
   if [ "${key_digest}" != "${cert_digest}" ]; then
     certificate_store_error "${label} certificate and private key do not match"
@@ -314,7 +316,7 @@ validate_certificate_authority() {
   local actual_subject key_digest cert_digest
 
   if ! actual_subject=$(certificate_subject "${cert_path}" "${label} certificate"); then
-    return
+    return 1
   fi
   if [ "${actual_subject}" != 'CN=Aquaculture Internal CA' ]; then
     certificate_store_error \
@@ -322,10 +324,10 @@ validate_certificate_authority() {
     return
   fi
   if ! key_digest=$(public_key_digest_from_private_key "${key_path}" "${label} private key"); then
-    return
+    return 1
   fi
   if ! cert_digest=$(public_key_digest_from_certificate "${cert_path}" "${label} certificate"); then
-    return
+    return 1
   fi
   if [ "${key_digest}" != "${cert_digest}" ]; then
     certificate_store_error "${label} certificate and private key do not match"
@@ -600,7 +602,7 @@ generate_per_service_client_cert() {
 echo "=== Generating Internal TLS Certificates ==="
 CA_DIR="${CERTS_DIR}/ca"
 assert_certificate_directory "${CA_DIR}" 'certificate authority directory'
-if [ "$FORCE" = false ] && certificate_set_has_any_path \
+if [ "$ROTATE_CA" = false ] && certificate_set_has_any_path \
   "${CA_DIR}/ca-key.pem" "${CA_DIR}/ca-cert.pem"; then
   validate_existing_certificate_asset "${CA_DIR}/ca-key.pem" 0600 'certificate authority private key'
   validate_existing_certificate_asset "${CA_DIR}/ca-cert.pem" 0644 'certificate authority certificate'
@@ -608,6 +610,10 @@ if [ "$FORCE" = false ] && certificate_set_has_any_path \
     "${CA_DIR}/ca-key.pem" "${CA_DIR}/ca-cert.pem" 'certificate authority'
   echo "  [skip] CA"
 else
+  if [ "$RENEW_LEAVES" = true ]; then
+    certificate_store_error 'leaf renewal requires an existing validated certificate authority'
+    exit 1
+  fi
   require_safe_generation_target "${CA_DIR}/ca-key.pem" 'certificate authority private key'
   require_safe_generation_target "${CA_DIR}/ca-cert.pem" 'certificate authority certificate'
   create_stage_file "${CA_DIR}/.ca-key.pem.XXXXXX"

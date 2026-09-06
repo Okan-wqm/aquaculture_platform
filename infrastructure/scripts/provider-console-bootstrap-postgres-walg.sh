@@ -31,6 +31,7 @@ if [ "${DR_BOOTSTRAP_CLEAN_ENVIRONMENT:-}" != aqua/postgres-dr-bootstrap/v1 ]; t
     EXPECTED_IMAGE_DIGEST="${EXPECTED_IMAGE_DIGEST-}" \
     EXPECTED_RUN_ID="${EXPECTED_RUN_ID-}" \
     EXPECTED_RUN_ATTEMPT="${EXPECTED_RUN_ATTEMPT-}" \
+    DR_BOOTSTRAP_MODE="${DR_BOOTSTRAP_MODE:-healthy_upgrade}" \
     /bin/bash -p "${EXECUTOR_PATH}"
 fi
 
@@ -38,7 +39,7 @@ while IFS='=' read -r environment_name _; do
   case "${environment_name}" in
     PATH | LC_ALL | HOME | DR_BOOTSTRAP_CLEAN_ENVIRONMENT | \
       RELEASE_ROOT | EXPECTED_MAIN_SHA | EXPECTED_IMAGE_DIGEST | \
-      EXPECTED_RUN_ID | EXPECTED_RUN_ATTEMPT | PWD | SHLVL | _) ;;
+      EXPECTED_RUN_ID | EXPECTED_RUN_ATTEMPT | DR_BOOTSTRAP_MODE | PWD | SHLVL | _) ;;
     *) die "Unexpected inherited environment variable: ${environment_name}" ;;
   esac
 done < <(/usr/bin/env)
@@ -161,8 +162,8 @@ wait_for_postgres_health() {
 }
 
 for required_command in \
-  awk base64 chmod cmp cosign date docker find flock id jq mkdir mktemp mv \
-  readlink rm sha256sum sleep stat sync; do
+  awk base64 chmod chown cmp cosign cp date diff docker find flock id install jq mkdir mktemp mv tar \
+  readlink rm sha256sum sleep stat sync timeout du df tail tr xargs sort; do
   command -v "${required_command}" >/dev/null 2>&1 || \
     die "Required command is unavailable: ${required_command}"
 done
@@ -187,8 +188,19 @@ EXPECTED_MAIN_SHA=${EXPECTED_MAIN_SHA:?EXPECTED_MAIN_SHA is required}
 EXPECTED_IMAGE_DIGEST=${EXPECTED_IMAGE_DIGEST:?EXPECTED_IMAGE_DIGEST is required}
 EXPECTED_RUN_ID=${EXPECTED_RUN_ID:?EXPECTED_RUN_ID is required}
 EXPECTED_RUN_ATTEMPT=${EXPECTED_RUN_ATTEMPT:?EXPECTED_RUN_ATTEMPT is required}
-DEPLOY_ROOT=/var/lib/aqua/deploy/checkout
+DEPLOY_ROOT="${RELEASE_ROOT}/repository"
+DR_BOOTSTRAP_MODE=${DR_BOOTSTRAP_MODE:-healthy_upgrade}
+case "${DR_BOOTSTRAP_MODE}" in healthy_upgrade|degraded_legacy_recovery) ;; *) die "Invalid recovery mode." ;; esac
 DEPLOY_ENV_FILE=/var/aqua-saas/.env
+CERTS_SEED_ROOT=/var/aqua-saas/certs
+if [ -f /var/lib/aqua/deploy/config-generations/current ]; then
+  [ ! -L /var/lib/aqua/deploy/config-generations/current ] || die 'Config generation pointer must not be a symlink.'
+  [ "$(stat -c '%u:%a:%h' /var/lib/aqua/deploy/config-generations/current)" = '0:400:1' ] || die 'Config generation pointer is unsafe.'
+  PRIOR_CONFIG_GENERATION=$(cat /var/lib/aqua/deploy/config-generations/current)
+  [[ "${PRIOR_CONFIG_GENERATION}" =~ ^[0-9a-f]{40}/[1-9][0-9]*-[1-9][0-9]*$ ]] || die 'Config generation key is invalid.'
+  DEPLOY_ENV_FILE="/var/lib/aqua/deploy/config-generations/${PRIOR_CONFIG_GENERATION}/.env"
+  CERTS_SEED_ROOT="/var/lib/aqua/deploy/config-generations/${PRIOR_CONFIG_GENERATION}/certs"
+fi
 STATE_ROOT=/var/lib/aqua/deploy/dr-bootstrap
 CONTROL_PLANE_LOCK_PATH=/var/lib/aqua/deploy/control-plane.lock
 PUBLIC_DOCKER_CONFIG_ROOT=/etc/aqua/dr-bootstrap-public-registry
@@ -236,10 +248,7 @@ DEPLOY_ENV_PARENT=${DEPLOY_ENV_FILE%/*}
   "${DEPLOY_ENV_PARENT}" ] || die 'The production environment parent path is not canonical.'
 require_root_owned_nonwritable_file "${DEPLOY_ENV_FILE}"
 DEPLOY_ENV_FILE_ID=$(stat -c '%d:%i' "${DEPLOY_ENV_FILE}")
-CERTS_LINK_PATH="${DEPLOY_ROOT}/certs"
-[ -L "${CERTS_LINK_PATH}" ] || die 'The deploy certs boundary must be the managed symlink.'
-[ "$(stat -c '%u' -- "${CERTS_LINK_PATH}")" -eq 0 ] || \
-  die 'The deploy certs symlink must be owned by root.'
+CERTS_LINK_PATH=${CERTS_SEED_ROOT}
 CERTS_REAL_ROOT=$(resolve_root_owned_nonwritable_directory_chain "${CERTS_LINK_PATH}")
 CERTS_REAL_ROOT_ID=$(stat -c '%d:%i' "${CERTS_REAL_ROOT}")
 WALG_SECRET_DIR=$(resolve_root_owned_nonwritable_directory_chain \
@@ -286,6 +295,7 @@ SIGNED_COMPOSE_PATH="${RELEASE_ROOT}/repository/docker-compose.droplet.yml"
 SIGNED_ROLLBACK_COMPOSE_PATH="${RELEASE_ROOT}/repository/infrastructure/deploy/postgres-dr-bootstrap-rollback.override.yml"
 SIGNED_EXECUTOR_PATH="${RELEASE_ROOT}/repository/infrastructure/scripts/provider-console-bootstrap-postgres-walg.sh"
 SIGNED_STATE_HELPER_PATH="${RELEASE_ROOT}/repository/infrastructure/scripts/postgres-dr-bootstrap-state.sh"
+SIGNED_RECOVERY_HELPER_PATH="${RELEASE_ROOT}/repository/infrastructure/scripts/postgres-dr-recovery.sh"
 SIGNED_INIT_DIRECTORY="${RELEASE_ROOT}/repository/infrastructure/docker/init-scripts"
 SIGNED_INIT_DATABASES_PATH="${SIGNED_INIT_DIRECTORY}/01-init-databases.sql"
 DR_CONTRACT_PATH="${RELEASE_ROOT}/repository/.github/manifests/postgres-dr-contract.sha256"
@@ -306,6 +316,7 @@ for release_file in \
   "${SIGNED_ROLLBACK_COMPOSE_PATH}" \
   "${SIGNED_EXECUTOR_PATH}" \
   "${SIGNED_STATE_HELPER_PATH}" \
+  "${SIGNED_RECOVERY_HELPER_PATH}" \
   "${SIGNED_INIT_DATABASES_PATH}" \
   "${DR_CONTRACT_PATH}"; do
   require_root_owned_nonwritable_file "${release_file}"
@@ -383,6 +394,7 @@ jq --exit-status \
     any(.materials[]; .role == "release-workflow" and .path == $workflow_path) and
     any(.materials[]; .role == "provider-console-bootstrap" and .path == $executor_path) and
     any(.materials[]; .role == "provider-state-machine" and .path == $state_helper_path) and
+    any(.materials[]; .role == "provider-recovery-point" and .path == "infrastructure/scripts/postgres-dr-recovery.sh") and
     any(.materials[]; .role == "production-compose" and .path == $compose_path) and
     any(.materials[]; .role == "postgres-rollback-compose" and .path == $rollback_path) and
     any(.materials[];
@@ -496,7 +508,7 @@ jq --exit-status \
 
 jq --exit-status \
   '
-    .schema_version == 1 and
+    .schema_version == 2 and
     .finding_ids == ["INFRA-HIGH-073"] and
     .does_not_close_findings == ["INFRA-HIGH-033"] and
     .release.workflow == ".github/workflows/postgres-dr-bootstrap-candidate.yml" and
@@ -539,7 +551,8 @@ jq --exit-status \
     .bootstrap.pre_execution_signature_verification_required == true and
     .bootstrap.global_nonblocking_lock_required == true and
     .bootstrap.pinned_host_paths == {
-      deploy_root: "/var/lib/aqua/deploy/checkout",
+      deploy_root: "<release_root>/repository",
+      config_generations_root: "/var/lib/aqua/deploy/config-generations",
       deploy_env_file: "/var/aqua-saas/.env",
       state_root: "/var/lib/aqua/deploy/dr-bootstrap",
       control_plane_lock: "/var/lib/aqua/deploy/control-plane.lock"
@@ -550,13 +563,22 @@ jq --exit-status \
     } and
     .bootstrap.state_machine == {
       helper: "infrastructure/scripts/postgres-dr-bootstrap-state.sh",
+      schema_version: 2,
+      modes: ["healthy_upgrade", "degraded_legacy_recovery"],
+      recovery_helper: "infrastructure/scripts/postgres-dr-recovery.sh",
+      verified_cold_copy_required: true,
+      baseline: "signed_candidate_walg_disabled_on_isolated_copy",
+      writer_quiescence: "record_and_stop_existing_compose_containers",
       durable_phases: [
         "VERIFYING",
         "PREPARED",
         "FORWARD_STARTED",
         "ROLLBACK_STARTED",
         "ROLLED_BACK",
-        "COMMITTED"
+        "COMMITTED",
+        "RECOVERY_REQUIRED",
+        "FINALIZING",
+        "ROLLBACK_FINALIZING"
       ],
       exact_prior_recovery_required: true,
       power_loss_reentry_required: true,
@@ -604,10 +626,13 @@ cmp --silent "${EXECUTING_SCRIPT}" "${SIGNED_EXECUTOR_PATH}" || \
   die 'Executing provider-console script differs from the signed candidate material.'
 # shellcheck source=/dev/null
 source "${SIGNED_STATE_HELPER_PATH}"
+source "${SIGNED_RECOVERY_HELPER_PATH}"
 for required_state_function in \
   dr_state_initialize dr_state_transition dr_state_validate dr_state_validate_any \
   dr_state_phase dr_state_prior_image_id dr_state_candidate_image_id \
-  dr_state_reentry_action; do
+  dr_state_reentry_action dr_state_bind_recovery dr_copy_cluster \
+  prepare_postgres_recovery_point verify_postgres_recovery_point \
+  restore_postgres_recovery_point resume_postgres_recovery_writers; do
   declare -F "${required_state_function}" >/dev/null || \
     die "Signed state helper is missing ${required_state_function}."
 done
@@ -738,11 +763,15 @@ publish_state_file() {
 render_image_override() {
   local destination_path=$1
   local image_value=$2
+  local baseline_environment=${3:-}
   local temporary_path
   temporary_path=$(mktemp --tmpdir="${STATE_DIR}" .override.XXXXXXXX)
   printf \
     'services:\n  postgres:\n    image: %s\n    volumes:\n      - type: bind\n        source: %s\n        target: /docker-entrypoint-initdb.d\n        read_only: true\n' \
     "${image_value}" "${SIGNED_INIT_DIRECTORY}" > "${temporary_path}"
+  if [ -n "${baseline_environment}" ]; then
+    printf '    environment: %s\n' "$(jq -Rn '[inputs | capture("^(?<key>[A-Za-z_][A-Za-z0-9_]*)=(?<value>.*)$") | {key:.key,value:.value}] | from_entries' "${baseline_environment}" | jq -c .)" >> "${temporary_path}"
+  fi
   publish_state_file "${temporary_path}" "${destination_path}"
 }
 
@@ -752,7 +781,6 @@ require_execution_boundaries() {
   local expected_sha256
   require_unchanged_directory_identity "${DEPLOY_ROOT}" "${DEPLOY_ROOT_ID}" DEPLOY_ROOT
   require_unchanged_directory_identity "${RELEASE_ROOT}" "${RELEASE_ROOT_ID}" RELEASE_ROOT
-  require_unchanged_symlink_target "${CERTS_LINK_PATH}" "${CERTS_REAL_ROOT}" CERTS_ROOT
   require_unchanged_directory_identity "${CERTS_REAL_ROOT}" "${CERTS_REAL_ROOT_ID}" CERTS_ROOT
   require_unchanged_directory_identity "${WALG_SECRET_DIR}" "${WALG_SECRET_DIR_ID}" WAL_G_BUNDLE
   require_unchanged_directory_identity "${STATE_ROOT}" "${STATE_ROOT_ID}" STATE_ROOT
@@ -790,7 +818,7 @@ verify_walg_secret_bundle() {
 
 active_postgres_container() {
   local container_id
-  container_id=$(docker ps --no-trunc \
+  container_id=$(docker ps --all --no-trunc \
     --filter 'name=^/aqua-postgres$' --format '{{.ID}}') || return
   [[ "${container_id}" =~ ^[0-9a-f]{64}$ ]] || return 1
   printf '%s' "${container_id}"
@@ -934,24 +962,27 @@ recover_exact_prior() {
   local rollback_container_id
   phase=$(dr_state_phase "${STATE_PATH}") || return
   case "${phase}" in
-    FORWARD_STARTED | ROLLBACK_STARTED) ;;
+    FORWARD_STARTED | ROLLBACK_STARTED | RECOVERY_REQUIRED) ;;
     *) return 65 ;;
   esac
   prior_image_id=$(dr_state_prior_image_id "${STATE_PATH}") || return
   candidate_image_id=$(dr_state_candidate_image_id "${STATE_PATH}") || return
+  CANDIDATE_IMAGE_ID=${candidate_image_id}
   [[ "${prior_image_id}" =~ ^sha256:[0-9a-f]{64}$ ]] || return 65
   [[ "${candidate_image_id}" =~ ^sha256:[0-9a-f]{64}$ ]] || return 65
   docker image inspect "${prior_image_id}" >/dev/null 2>&1 || return
   require_execution_boundaries
-  render_image_override "${ROLLBACK_OVERRIDE}" "${prior_image_id}"
+  render_image_override "${ROLLBACK_OVERRIDE}" "${prior_image_id}" \
+    "/var/lib/aqua/deploy/dr-recovery/${RUN_KEY}/baseline.env"
   configure_rollback_compose
-  if [ "${phase}" = FORWARD_STARTED ]; then
+  if [ "${phase}" = FORWARD_STARTED ] || [ "${phase}" = RECOVERY_REQUIRED ]; then
     dr_state_transition \
-      "${STATE_PATH}" FORWARD_STARTED ROLLBACK_STARTED \
+      "${STATE_PATH}" "${phase}" ROLLBACK_STARTED \
       "${prior_image_id}" "${candidate_image_id}" \
       "$(date -u +%Y-%m-%dT%H:%M:%SZ)" || return
   fi
-  docker compose \
+  restore_postgres_recovery_point || return
+  DEPLOY_CERTS_DIR="/var/lib/aqua/deploy/dr-recovery/${RUN_KEY}/certs" docker compose \
     --project-name aqua-saas \
     --project-directory "${DEPLOY_ROOT}" \
     --env-file "${DEPLOY_ENV_FILE}" \
@@ -964,8 +995,11 @@ recover_exact_prior() {
     "${prior_image_id}" "${candidate_image_id}" "${rollback_container_id}" || return
   rm -f -- "${STATE_DIR}/result.json"
   sync -f "${STATE_DIR}"
+  dr_state_transition "${STATE_PATH}" ROLLBACK_STARTED ROLLBACK_FINALIZING \
+    "${prior_image_id}" "${candidate_image_id}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" || return
+  resume_postgres_recovery_writers || return
   dr_state_transition \
-    "${STATE_PATH}" ROLLBACK_STARTED ROLLED_BACK \
+    "${STATE_PATH}" ROLLBACK_FINALIZING ROLLED_BACK \
     "${prior_image_id}" "${candidate_image_id}" \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
@@ -1026,9 +1060,62 @@ verify_candidate_supply_chain() {
     "${EXPECTED_CONTRACT_SHA256}" ] || die 'Candidate image DR contract label does not match.'
 }
 
+finalize_postgres_recovery() {
+# Publish the recovered private configuration as the seed for later releases.
+CONFIG_POINTER=$(mktemp /var/lib/aqua/deploy/config-generations/.current.XXXXXXXX)
+printf '%s/%s-%s\n' "${EXPECTED_MAIN_SHA}" "${EXPECTED_RUN_ID}" "${EXPECTED_RUN_ATTEMPT}" > "${CONFIG_POINTER}"
+chmod 0400 "${CONFIG_POINTER}"
+sync -f "${CONFIG_POINTER}"
+mv "${CONFIG_POINTER}" /var/lib/aqua/deploy/config-generations/current
+sync -f /var/lib/aqua/deploy/config-generations
+resume_postgres_recovery_writers || die 'PostgreSQL recovered but recorded writers could not restart.'
+}
+
+CONFIG_GENERATION="/var/lib/aqua/deploy/config-generations/${EXPECTED_MAIN_SHA}/${EXPECTED_RUN_ID}-${EXPECTED_RUN_ATTEMPT}"
+if [ ! -e "${CONFIG_GENERATION}" ]; then
+  install -d -m 0700 "/var/lib/aqua/deploy/config-generations/${EXPECTED_MAIN_SHA}"
+  CONFIG_STAGE=$(mktemp -d "/var/lib/aqua/deploy/config-generations/${EXPECTED_MAIN_SHA}/.preparing-${EXPECTED_RUN_ID}-${EXPECTED_RUN_ATTEMPT}.XXXXXXXX")
+  cp --preserve=mode,ownership -- "${DEPLOY_ENV_FILE}" "${CONFIG_STAGE}/.env"
+  cp -aL -- "${CERTS_REAL_ROOT}" "${CONFIG_STAGE}/certs"
+  printf '{"schema_version":2,"main_sha":"%s","attempt":"%s-%s"}\n' \
+    "${EXPECTED_MAIN_SHA}" "${EXPECTED_RUN_ID}" "${EXPECTED_RUN_ATTEMPT}" > "${CONFIG_STAGE}/.generation-identity.json"
+  chmod 0400 "${CONFIG_STAGE}/.generation-identity.json"
+  sync -f "${CONFIG_STAGE}"
+  mv -T -- "${CONFIG_STAGE}" "${CONFIG_GENERATION}"
+  sync -f "/var/lib/aqua/deploy/config-generations/${EXPECTED_MAIN_SHA}"
+fi
+require_root_owned_nonwritable_directory "${CONFIG_GENERATION}"
+require_root_owned_nonwritable_file "${CONFIG_GENERATION}/.generation-identity.json"
+jq -e --arg sha "${EXPECTED_MAIN_SHA}" --arg attempt "${EXPECTED_RUN_ID}-${EXPECTED_RUN_ATTEMPT}" \
+  '.schema_version == 2 and .main_sha == $sha and .attempt == $attempt' \
+  "${CONFIG_GENERATION}/.generation-identity.json" >/dev/null || die 'Configuration generation identity changed.'
+DEPLOY_ENV_FILE="${CONFIG_GENERATION}/.env"
+DEPLOY_ENV_FILE_ID=$(stat -c '%d:%i' "${DEPLOY_ENV_FILE}")
+CERTS_REAL_ROOT="${CONFIG_GENERATION}/certs"
+CERTS_REAL_ROOT_ID=$(stat -c '%d:%i' "${CERTS_REAL_ROOT}")
+WALG_SECRET_DIR="${CERTS_REAL_ROOT}/wal-g/postgres"
+WALG_SECRET_DIR_ID=$(stat -c '%d:%i' "${WALG_SECRET_DIR}")
+export DEPLOY_CERTS_DIR="${CERTS_REAL_ROOT}"
 PHASE=$(dr_state_phase "${STATE_PATH}")
+[ "$(jq -r '.mode' "${STATE_PATH}")" = "${DR_BOOTSTRAP_MODE}" ] || die 'Recovery mode changed during re-entry.'
 REENTRY_ACTION=$(dr_state_reentry_action "${PHASE}")
 case "${REENTRY_ACTION}" in
+  finish-forward)
+    PRIOR_IMAGE_ID=$(dr_state_prior_image_id "${STATE_PATH}")
+    CANDIDATE_IMAGE_ID=$(dr_state_candidate_image_id "${STATE_PATH}")
+    verify_active_exact_image "${CANDIDATE_IMAGE_ID}" true >/dev/null || die 'Forward finalization requires repair in place; writers may already have committed data.'
+    finalize_postgres_recovery
+    dr_state_transition "${STATE_PATH}" FINALIZING COMMITTED "${PRIOR_IMAGE_ID}" "${CANDIDATE_IMAGE_ID}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    exit 0
+    ;;
+  finish-rollback)
+    PRIOR_IMAGE_ID=$(dr_state_prior_image_id "${STATE_PATH}")
+    CANDIDATE_IMAGE_ID=$(dr_state_candidate_image_id "${STATE_PATH}")
+    verify_active_exact_image "${PRIOR_IMAGE_ID}" false >/dev/null || die 'Rollback finalization requires repair in place; writers may already have committed data.'
+    resume_postgres_recovery_writers
+    dr_state_transition "${STATE_PATH}" ROLLBACK_FINALIZING ROLLED_BACK "${PRIOR_IMAGE_ID}" "${CANDIDATE_IMAGE_ID}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    exit 0
+    ;;
   recover-exact-prior)
     recover_exact_prior || die 'Exact-prior recovery failed; bootstrap remains fail-closed.'
     die 'Exact-prior recovery completed; a new signed run attempt is required.'
@@ -1050,8 +1137,7 @@ case "${REENTRY_ACTION}" in
   resume-forward)
     PRIOR_IMAGE_ID=$(dr_state_prior_image_id "${STATE_PATH}")
     CANDIDATE_IMAGE_ID=$(dr_state_candidate_image_id "${STATE_PATH}")
-    verify_active_exact_image "${PRIOR_IMAGE_ID}" false >/dev/null || \
-      die 'PREPARED re-entry requires the persisted exact prior image to remain healthy.'
+    verify_postgres_recovery_point || die 'PREPARED re-entry requires the verified cold recovery point.'
     ;;
   resume-verification) ;;
   *) die 'The durable PostgreSQL DR bootstrap phase has no safe re-entry action.' ;;
@@ -1064,15 +1150,16 @@ verify_walg_secret_bundle
 if [ "${PHASE}" = VERIFYING ]; then
   PRIOR_CONTAINER_ID=$(active_postgres_container) || \
     die 'The production PostgreSQL container is not running under its exact name.'
-  wait_for_postgres_health "${PRIOR_CONTAINER_ID}" || \
-    die 'The prior PostgreSQL container is not healthy.'
   PRIOR_IMAGE_ID=$(docker inspect --format '{{.Image}}' "${PRIOR_CONTAINER_ID}")
   [[ "${PRIOR_IMAGE_ID}" =~ ^sha256:[0-9a-f]{64}$ ]] || \
     die 'Prior PostgreSQL image ID is invalid.'
   [ "$(active_postgres_container)" = "${PRIOR_CONTAINER_ID}" ] || \
     die 'The prior PostgreSQL name-to-ID mapping changed during observation.'
+  prepare_postgres_recovery_point "${PRIOR_CONTAINER_ID}" || die 'The complete recovery point could not be verified; live database bytes were not replaced.'
+  PRIOR_IMAGE_ID=${CANDIDATE_IMAGE_ID}
   render_image_override "${FORWARD_OVERRIDE}" "${IMAGE_REF}"
-  render_image_override "${ROLLBACK_OVERRIDE}" "${PRIOR_IMAGE_ID}"
+  render_image_override "${ROLLBACK_OVERRIDE}" "${PRIOR_IMAGE_ID}" \
+    "/var/lib/aqua/deploy/dr-recovery/${RUN_KEY}/baseline.env"
   configure_forward_compose
   configure_rollback_compose
   dr_state_transition \
@@ -1085,14 +1172,14 @@ else
     "$(dr_state_candidate_image_id "${STATE_PATH}")" ] || \
     die 'Reverified candidate image ID differs from the PREPARED record.'
   render_image_override "${FORWARD_OVERRIDE}" "${IMAGE_REF}"
-  render_image_override "${ROLLBACK_OVERRIDE}" "${PRIOR_IMAGE_ID}"
+  render_image_override "${ROLLBACK_OVERRIDE}" "${PRIOR_IMAGE_ID}" \
+    "/var/lib/aqua/deploy/dr-recovery/${RUN_KEY}/baseline.env"
   configure_forward_compose
   configure_rollback_compose
 fi
 
 require_execution_boundaries
-verify_active_exact_image "${PRIOR_IMAGE_ID}" false >/dev/null || \
-  die 'The exact prior image changed before the forward mutation.'
+verify_postgres_recovery_point || die 'The recovery point changed before the forward mutation.'
 
 RECOVERY_REQUIRED=true
 on_exit() {
@@ -1105,7 +1192,15 @@ on_exit() {
       FORWARD_STARTED | ROLLBACK_STARTED)
         set +e
         recover_exact_prior
-        [ "$?" -eq 0 ] || status=3
+        if [ "$?" -ne 0 ]; then
+          status=3
+          exit_phase=$(dr_state_phase "${STATE_PATH}")
+          case "${exit_phase}" in
+            FORWARD_STARTED|ROLLBACK_STARTED)
+              dr_state_transition "${STATE_PATH}" "${exit_phase}" RECOVERY_REQUIRED \
+                "${PRIOR_IMAGE_ID}" "${CANDIDATE_IMAGE_ID}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" ;;
+          esac
+        fi
         ;;
     esac
   fi
@@ -1132,9 +1227,12 @@ CANDIDATE_CONTAINER_ID=$(verify_active_exact_image "${CANDIDATE_IMAGE_ID}" true)
 write_forward_result \
   "${PRIOR_IMAGE_ID}" "${CANDIDATE_IMAGE_ID}" "${CANDIDATE_CONTAINER_ID}"
 dr_state_transition \
-  "${STATE_PATH}" FORWARD_STARTED COMMITTED "${PRIOR_IMAGE_ID}" \
+  "${STATE_PATH}" FORWARD_STARTED FINALIZING "${PRIOR_IMAGE_ID}" \
   "${CANDIDATE_IMAGE_ID}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" || \
   die 'The verified candidate could not reach the durable COMMITTED phase.'
+finalize_postgres_recovery
+dr_state_transition "${STATE_PATH}" FINALIZING COMMITTED "${PRIOR_IMAGE_ID}" \
+  "${CANDIDATE_IMAGE_ID}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" || die 'Finalization could not be committed.'
 RECOVERY_REQUIRED=false
 trap - EXIT HUP INT TERM
 printf 'PostgreSQL DR bootstrap candidate is healthy at %s.\n' "${EXPECTED_IMAGE_DIGEST}"

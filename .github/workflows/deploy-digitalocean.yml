@@ -1214,15 +1214,18 @@ jobs:
             # `git show` (working-tree-independent) after fetching the objects.
             cd /var/aqua-saas && git fetch --force --prune origin
             install -d /var/lib/aqua/deploy
-            git show "${DEPLOY_SHA}:scripts/deploy/deploy-paths.sh" > /var/lib/aqua/deploy/deploy-paths.sh
-            source /var/lib/aqua/deploy/deploy-paths.sh
+            deploy_paths_bootstrap="$(mktemp /tmp/aqua-deploy-paths.XXXXXXXX)"
+            git show "${DEPLOY_SHA}:scripts/deploy/deploy-paths.sh" > "${deploy_paths_bootstrap}"
+            source "${deploy_paths_bootstrap}"
+            rm -- "${deploy_paths_bootstrap}"
+            export DEPLOY_ATTEMPT="${{ github.run_id }}-${{ github.run_attempt }}"
             materialize_deploy_checkout "${DEPLOY_SHA}"
             cd "${DEPLOY_CHECKOUT_DIR}"
             # GitHub Actions is the only deploy-remediation control plane.
             # The gate may run one safe image-only GC pass through the
             # canonical droplet-capacity script; it still never prunes
             # volumes, containers, networks, or build cache.
-            CAPACITY_GC_MODE=auto bash scripts/deploy/droplet-capacity.sh gate
+            CAPACITY_GC_MODE=off bash scripts/deploy/droplet-capacity.sh gate
 
   # ===========================================================================
   # Deploy to DigitalOcean Droplet (selective — affected services only)
@@ -1334,8 +1337,11 @@ jobs:
             # `git show` (working-tree-independent) after fetching the objects.
             cd /var/aqua-saas && git fetch --force --prune origin
             install -d /var/lib/aqua/deploy
-            git show "${DEPLOY_SHA}:scripts/deploy/deploy-paths.sh" > /var/lib/aqua/deploy/deploy-paths.sh
-            source /var/lib/aqua/deploy/deploy-paths.sh
+            deploy_paths_bootstrap="$(mktemp /tmp/aqua-deploy-paths.XXXXXXXX)"
+            git show "${DEPLOY_SHA}:scripts/deploy/deploy-paths.sh" > "${deploy_paths_bootstrap}"
+            source "${deploy_paths_bootstrap}"
+            rm -- "${deploy_paths_bootstrap}"
+            export DEPLOY_ATTEMPT="${{ github.run_id }}-${{ github.run_attempt }}"
             materialize_deploy_checkout "${DEPLOY_SHA}"
             cd "${DEPLOY_CHECKOUT_DIR}"
             bash scripts/deploy/droplet-up.sh

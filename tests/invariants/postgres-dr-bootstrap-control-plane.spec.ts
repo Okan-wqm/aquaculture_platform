@@ -95,7 +95,7 @@ describe('PostgreSQL DR bootstrap control plane', () => {
 
     expect(policy).toEqual(
       expect.objectContaining({
-        schema_version: 1,
+        schema_version: 2,
         finding_ids: ['INFRA-HIGH-073'],
         does_not_close_findings: ['INFRA-HIGH-033'],
         release: expect.objectContaining({
@@ -142,7 +142,8 @@ describe('PostgreSQL DR bootstrap control plane', () => {
           pre_execution_signature_verification_required: true,
           global_nonblocking_lock_required: true,
           pinned_host_paths: {
-            deploy_root: '/var/lib/aqua/deploy/checkout',
+            deploy_root: '<release_root>/repository',
+            config_generations_root: '/var/lib/aqua/deploy/config-generations',
             deploy_env_file: '/var/aqua-saas/.env',
             state_root: '/var/lib/aqua/deploy/dr-bootstrap',
             control_plane_lock: '/var/lib/aqua/deploy/control-plane.lock',
@@ -153,6 +154,12 @@ describe('PostgreSQL DR bootstrap control plane', () => {
           },
           state_machine: {
             helper: STATE_HELPER_PATH,
+            schema_version: 2,
+            modes: ['healthy_upgrade', 'degraded_legacy_recovery'],
+            recovery_helper: 'infrastructure/scripts/postgres-dr-recovery.sh',
+            verified_cold_copy_required: true,
+            baseline: 'signed_candidate_walg_disabled_on_isolated_copy',
+            writer_quiescence: 'record_and_stop_existing_compose_containers',
             durable_phases: [
               'VERIFYING',
               'PREPARED',
@@ -160,6 +167,9 @@ describe('PostgreSQL DR bootstrap control plane', () => {
               'ROLLBACK_STARTED',
               'ROLLED_BACK',
               'COMMITTED',
+              'RECOVERY_REQUIRED',
+              'FINALIZING',
+              'ROLLBACK_FINALIZING',
             ],
             exact_prior_recovery_required: true,
             power_loss_reentry_required: true,
@@ -345,7 +355,7 @@ describe('PostgreSQL DR bootstrap control plane', () => {
     expect(script).toContain('unset COMPOSE_PROJECT_NAME COMPOSE_ENV_FILES');
     expect(script).toContain('export DOCKER_HOST=unix:///var/run/docker.sock');
     expect(script).toContain('export TAG="${EXPECTED_MAIN_SHA}"');
-    expect(script).toContain('DEPLOY_ROOT=/var/lib/aqua/deploy/checkout');
+    expect(script).toContain('DEPLOY_ROOT="${RELEASE_ROOT}/repository"');
     expect(script).toContain('DEPLOY_ENV_FILE=/var/aqua-saas/.env');
     expect(script).toContain('STATE_ROOT=/var/lib/aqua/deploy/dr-bootstrap');
     expect(script).toContain('CONTROL_PLANE_LOCK_PATH=/var/lib/aqua/deploy/control-plane.lock');
@@ -380,7 +390,7 @@ describe('PostgreSQL DR bootstrap control plane', () => {
     expect(script).toContain('STATE_ROOT_ID=$(stat -c');
     expect(script).toContain('require_unchanged_symlink_target()');
     expect(script).toContain(
-      'require_unchanged_symlink_target "${CERTS_LINK_PATH}" "${CERTS_REAL_ROOT}" CERTS_ROOT',
+      'require_unchanged_directory_identity "${CERTS_REAL_ROOT}" "${CERTS_REAL_ROOT_ID}" CERTS_ROOT',
     );
     expect(
       script.match(/require_unchanged_directory_identity "\$\{[^}]+\}"/g)?.length,
@@ -614,6 +624,9 @@ describe('PostgreSQL DR bootstrap control plane', () => {
       ROLLBACK_STARTED: 'recover-exact-prior',
       ROLLED_BACK: 'require-new-signed-candidate',
       COMMITTED: 'verify-committed',
+      FINALIZING: 'finish-forward',
+      ROLLBACK_FINALIZING: 'finish-rollback',
+      RECOVERY_REQUIRED: 'recover-exact-prior',
     };
     const killedStates = new Map<string, string>();
 
@@ -632,22 +645,32 @@ describe('PostgreSQL DR bootstrap control plane', () => {
               state="$2/phase.json"
               dr_state_initialize "$state" Okan-wqm/aquaculture_platform "$4" 10 1 "$5" 2026-07-18T00:00:00Z
               if [ "$3" != VERIFYING ]; then
+                printf '%s' '{"fixture":"verified-recovery-point"}' > "$2/recovery-point.json"
+                dr_state_bind_recovery "$state" "$2/recovery-point.json"
                 dr_state_transition "$state" VERIFYING PREPARED "$6" "$7" 2026-07-18T00:01:00Z
               fi
               case "$3" in
-                FORWARD_STARTED|ROLLBACK_STARTED|ROLLED_BACK|COMMITTED)
+                FORWARD_STARTED|ROLLBACK_STARTED|ROLLED_BACK|COMMITTED|FINALIZING|ROLLBACK_FINALIZING|RECOVERY_REQUIRED)
                   dr_state_transition "$state" PREPARED FORWARD_STARTED "$6" "$7" 2026-07-18T00:02:00Z
                   ;;
               esac
               case "$3" in
-                ROLLBACK_STARTED|ROLLED_BACK)
+                ROLLBACK_STARTED|ROLLED_BACK|ROLLBACK_FINALIZING)
                   dr_state_transition "$state" FORWARD_STARTED ROLLBACK_STARTED "$6" "$7" 2026-07-18T00:03:00Z
                   ;;
               esac
-              if [ "$3" = ROLLED_BACK ]; then
-                dr_state_transition "$state" ROLLBACK_STARTED ROLLED_BACK "$6" "$7" 2026-07-18T00:04:00Z
-              elif [ "$3" = COMMITTED ]; then
-                dr_state_transition "$state" FORWARD_STARTED COMMITTED "$6" "$7" 2026-07-18T00:04:00Z
+              if [ "$3" = ROLLED_BACK ] || [ "$3" = ROLLBACK_FINALIZING ]; then
+                dr_state_transition "$state" ROLLBACK_STARTED ROLLBACK_FINALIZING "$6" "$7" 2026-07-18T00:04:00Z
+                if [ "$3" = ROLLED_BACK ]; then
+                  dr_state_transition "$state" ROLLBACK_FINALIZING ROLLED_BACK "$6" "$7" 2026-07-18T00:04:00Z
+                fi
+              elif [ "$3" = COMMITTED ] || [ "$3" = FINALIZING ]; then
+                dr_state_transition "$state" FORWARD_STARTED FINALIZING "$6" "$7" 2026-07-18T00:04:00Z
+                if [ "$3" = COMMITTED ]; then
+                  dr_state_transition "$state" FINALIZING COMMITTED "$6" "$7" 2026-07-18T00:04:00Z
+                fi
+              elif [ "$3" = RECOVERY_REQUIRED ]; then
+                dr_state_transition "$state" FORWARD_STARTED RECOVERY_REQUIRED "$6" "$7" 2026-07-18T00:04:00Z
               fi
               case "$3" in
                 FORWARD_STARTED|ROLLBACK_STARTED)
@@ -736,6 +759,9 @@ describe('PostgreSQL DR bootstrap control plane', () => {
                 [ "$2" = "${prior}" ]
               }
               configure_rollback_compose() { :; }
+              restore_postgres_recovery_point() { :; }
+              resume_postgres_recovery_writers() { :; }
+              RUN_KEY=fixture
               docker() {
                 if [ "$1" = image ] && [ "$2" = inspect ] && [ "$3" = "${prior}" ]; then
                   return 0

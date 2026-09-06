@@ -33,6 +33,7 @@ import {
 } from './entities/security.entity';
 import { ActivityLoggingService } from './services/activity-logging.service';
 import { AuditTrailService } from './services/audit-trail.service';
+import { SecuritySignalProjectionHandler } from './handlers/security-signal-projection.handler';
 import { ComplianceService } from './services/compliance.service';
 import { SecurityMonitoringService } from './services/security-monitoring.service';
 
@@ -61,6 +62,9 @@ import { SecurityMonitoringService } from './services/security-monitoring.servic
     AuditTrailController,
     ComplianceController,
     SecurityMonitoringController,
+    // The sink for `events.security.events.>`. A @Controller because a NATS
+    // @EventPattern handler is a controller to Nest, not a provider.
+    SecuritySignalProjectionHandler,
   ],
   providers: [
     ActivityLoggingService,

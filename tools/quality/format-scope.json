@@ -1076,7 +1076,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "7b86a133033d9fe9f9f3d099a04324f0292464d233c7f5bd2dc1ffd2e2a54729",
+      "content_sha256": "01dce4c82c794cbf9750fedec2b63c5dd1ecf2cff7dc7e59fdbaea5003de3a66",
       "hash_policy": "sha256",
       "owner": "admin-openapi-generator",
       "path": "apps/admin-api-service/openapi.json",
@@ -2375,6 +2375,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/security/entities/security.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/security/handlers/__tests__/security-signal-projection.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/security/handlers/security-signal-projection.handler.ts",
       "prettier_managed": true
     },
     {
@@ -49111,7 +49123,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "7f4f4c3ad2d35257644783ad8ed6d611074db2e3da0215971fdd2a75ee4d5390",
+      "content_sha256": "4e60a050b591e7f0792a97b5e5ba713c74d5d249d0d05711edb9e0130ec8bae7",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/modules/admin-panel/src/services/generated/admin-api.ts",

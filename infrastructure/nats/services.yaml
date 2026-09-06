@@ -373,6 +373,10 @@ services:
     subscribe:
       - 'events.*.TenantOnboardingAck'
       - 'events.*.TenantOnboardingFailed'
+      # ADMIN-HIGH-014: the login/rate-limit signal admin-api projects into
+      # admin.login_attempts and admin.api_usage_logs, so its anomaly detectors
+      # count real rows instead of an empty table.
+      - 'events.security.events.>'
       - 'policy.ingest_backend.snapshot'
       - '_INBOX.>'
       - '$JS.API.>'

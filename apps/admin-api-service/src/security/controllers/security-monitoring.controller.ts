@@ -6,7 +6,6 @@
 
 import {
   AddThreatIndicatorDto,
-  AnalyzeLoginDto,
   CreateSecurityEventDto,
   QueryIncidentsDto,
   QuerySecurityEventsDto,
@@ -373,32 +372,11 @@ export class SecurityMonitoringController {
   // ============================================================================
   // Analysis & Detection
   // ============================================================================
-
-  /**
-   * Analyze login attempt for anomalies
-   */
-  @AuditedOperation({ resource: 'SecurityMonitoring', action: 'ANALYZE_LOGIN' })
-  @RequiresCapability('security-ops')
-  @Post('analyze/login')
-  @HttpCode(HttpStatus.OK)
-  async analyzeLogin(
-    @TenantParam('body', { optional: true, allow: 'any' }) tenantId: string | undefined,
-    @Body() dto: AnalyzeLoginDto,
-  ): Promise<{ analyzed: boolean; message: string }> {
-    await this.securityMonitoringService.analyzeLoginAttempt({
-      email: dto.email,
-      ipAddress: dto.ipAddress,
-      success: dto.success,
-      geoLocation: dto.geoLocation,
-      userId: dto.userId,
-      tenantId,
-    });
-
-    return {
-      analyzed: true,
-      message: 'Login attempt analyzed for anomalies',
-    };
-  }
+  //
+  // ADMIN-HIGH-014: `POST analyze/login` is gone. Detection ran only when a
+  // SUPER_ADMIN pressed a button, which is not how an attack announces itself.
+  // `SecuritySignalProjectionHandler` now drives `analyzeLoginAttempt` from
+  // `events.security.events.auth.login.*`, on every real attempt.
 
   /**
    * Get anomaly detection configuration

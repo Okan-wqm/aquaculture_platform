@@ -943,9 +943,11 @@ describe('Frontend-Backend Contract Validation', () => {
     // Bu, beklenmedik endpoint degisikliklerini yakalar.
     const count = backendEndpoints.length;
 
-    // 461 since ADR-0013 removed `POST /billing/plans/seed`: seeding the plan
-    // catalogue is billing's own boot-time concern, not an admin route.
-    expect(count).toBe(461);
+    // 460 since ADMIN-HIGH-014 removed `POST /security/monitoring/analyze/login`:
+    // anomaly detection ran only when a SUPER_ADMIN pressed a button, and now
+    // runs from the `events.security.events.auth.login.*` stream on every real
+    // attempt. (461 since ADR-0013 removed `POST /billing/plans/seed`.)
+    expect(count).toBe(460);
   });
 
   it('frontend endpoint snapshot should be up to date', () => {

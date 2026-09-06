@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 const helper = resolve(__dirname, '../../infrastructure/scripts/postgres-dr-recovery.sh');
+const coordinator = resolve(__dirname, '../../infrastructure/scripts/postgres-dr-coordinator.sh');
 
 describe('PostgreSQL cold recovery point', () => {
   it('copies the complete stopped cluster including legacy TLS bytes without modifying the source', () => {
@@ -39,12 +40,63 @@ describe('PostgreSQL cold recovery point', () => {
   });
 
   it('requires a verified recovery-point binding before the durable mutation phase', () => {
-    const script = readFileSync(resolve(__dirname, '../../infrastructure/scripts/provider-console-bootstrap-postgres-walg.sh'), 'utf8');
+    const script = readFileSync(resolve(__dirname, '../../infrastructure/scripts/postgres-dr-coordinator.sh'), 'utf8');
     const preparation = script.indexOf('prepare_postgres_recovery_point');
     const mutation = script.indexOf('"${STATE_PATH}" PREPARED FORWARD_STARTED');
     expect(preparation).toBeGreaterThan(0);
     expect(mutation).toBeGreaterThan(preparation);
     expect(script).toContain('verify_postgres_recovery_point');
     expect(script).toContain('RECOVERY_REQUIRED');
+  });
+
+  it.each(['chmod', 'sync', 'mv'])('does not publish a result when %s fails with rollback errexit disabled', (failingCommand) => {
+    const root = mkdtempSync(join(tmpdir(), 'aqua-recovery-publish-'));
+    try {
+      const staged = join(root, 'staged');
+      const published = join(root, 'result.json');
+      writeFileSync(staged, 'uncommitted\n');
+      writeFileSync(published, 'prior-durable-result\n');
+      const result = spawnSync('/bin/bash', ['-c', `
+        set +e
+        source "$1"
+        STATE_DIR=$2
+        FAIL_COMMAND=$3
+        STAGED_PATH=$4
+        chmod() { [ "$FAIL_COMMAND" != chmod ] || return 73; command chmod "$@"; }
+        sync() { if [ "$FAIL_COMMAND" = sync ] && [ "$2" = "$STAGED_PATH" ]; then return 73; fi; command sync "$@"; }
+        mv() { [ "$FAIL_COMMAND" != mv ] || return 73; command mv "$@"; }
+        publish_state_file "$4" "$5"
+        exit $?
+      `, '--', coordinator, root, failingCommand, staged, published], { encoding: 'utf8' });
+      expect(result.status).toBe(73);
+      expect(readFileSync(published, 'utf8')).toBe('prior-durable-result\n');
+      expect(readFileSync(staged, 'utf8')).toBe('uncommitted\n');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses rollback before data restoration when authority or baseline rendering fails', () => {
+    for (const failure of ['authority', 'render']) {
+      const result = spawnSync('/bin/bash', ['-c', `
+        set +e
+        source "$1"
+        STATE_PATH=fixture
+        ROLLBACK_OVERRIDE=fixture-override
+        RUN_KEY=fixture
+        FAIL_AT=$2
+        dr_state_phase() { printf FORWARD_STARTED; }
+        dr_state_prior_image_id() { printf 'sha256:%064d' 1; }
+        dr_state_candidate_image_id() { printf 'sha256:%064d' 2; }
+        docker() { [ "$1 $2" = 'image inspect' ] || { printf unexpected-docker; return 99; }; }
+        require_execution_boundaries() { [ "$FAIL_AT" != authority ] || return 73; }
+        render_image_override() { [ "$FAIL_AT" != render ] || return 73; }
+        configure_rollback_compose() { printf unexpected-configuration; return 99; }
+        recover_exact_prior
+        exit $?
+      `, '--', coordinator, failure], { encoding: 'utf8' });
+      expect(result.status).toBe(73);
+      expect(result.stdout).toBe('');
+    }
   });
 });

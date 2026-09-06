@@ -96,6 +96,7 @@
         "degraded_legacy_recovery"
       ],
       "recovery_helper": "infrastructure/scripts/postgres-dr-recovery.sh",
+      "coordinator_helper": "infrastructure/scripts/postgres-dr-coordinator.sh",
       "verified_cold_copy_required": true,
       "baseline": "signed_candidate_walg_disabled_on_isolated_copy",
       "writer_quiescence": "record_and_stop_existing_compose_containers"

@@ -17,6 +17,7 @@ const POLICY_PATH = '.github/manifests/postgres-dr-bootstrap-policy.json';
 const WORKFLOW_PATH = '.github/workflows/postgres-dr-bootstrap-candidate.yml';
 const PROVIDER_SCRIPT_PATH = 'infrastructure/scripts/provider-console-bootstrap-postgres-walg.sh';
 const STATE_HELPER_PATH = 'infrastructure/scripts/postgres-dr-bootstrap-state.sh';
+const COORDINATOR_PATH = 'infrastructure/scripts/postgres-dr-coordinator.sh';
 const CHECK_SELECTOR_PATH = '.github/scripts/select-effective-required-check.jq';
 const CHECK_FIXTURE_PATH =
   'tests/invariants/fixtures/postgres-dr-bootstrap/check-runs-older-success-newer-failure.json';
@@ -26,7 +27,10 @@ const AUTHORITY_PREDICATE_TYPE =
   'https://github.com/Okan-wqm/aquaculture_platform/attestations/postgres-dr-bootstrap-release-authority/v1';
 
 function read(path: string): string {
-  return readFileSync(join(REPO_ROOT, path), 'utf8');
+  const source = readFileSync(join(REPO_ROOT, path), 'utf8');
+  return path === PROVIDER_SCRIPT_PATH
+    ? `${source}\n${readFileSync(join(REPO_ROOT, COORDINATOR_PATH), 'utf8')}`
+    : source;
 }
 
 function jobBlock(workflow: string, job: string, nextJob?: string): string {
@@ -158,6 +162,7 @@ describe('PostgreSQL DR bootstrap control plane', () => {
             schema_version: 2,
             modes: ['healthy_upgrade', 'degraded_legacy_recovery'],
             recovery_helper: 'infrastructure/scripts/postgres-dr-recovery.sh',
+            coordinator_helper: 'infrastructure/scripts/postgres-dr-coordinator.sh',
             verified_cold_copy_required: true,
             baseline: 'signed_candidate_walg_disabled_on_isolated_copy',
             writer_quiescence: 'record_and_stop_existing_compose_containers',
@@ -793,7 +798,7 @@ describe('PostgreSQL DR bootstrap control plane', () => {
             `,
             'state-recovery-test',
             helper,
-            join(REPO_ROOT, PROVIDER_SCRIPT_PATH),
+            join(REPO_ROOT, COORDINATOR_PATH),
             killedStates.get(phase)!,
             join(root, phase.toLowerCase()),
             prior,

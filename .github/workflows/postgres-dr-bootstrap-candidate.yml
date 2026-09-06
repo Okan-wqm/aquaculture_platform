@@ -402,6 +402,7 @@ jobs:
                 schema_version: 2,
                 modes: ["healthy_upgrade", "degraded_legacy_recovery"],
                 recovery_helper: "infrastructure/scripts/postgres-dr-recovery.sh",
+                coordinator_helper: "infrastructure/scripts/postgres-dr-coordinator.sh",
                 verified_cold_copy_required: true,
                 baseline: "signed_candidate_walg_disabled_on_isolated_copy",
                 writer_quiescence: "record_and_stop_existing_compose_containers",
@@ -492,6 +493,8 @@ jobs:
         run: |
           sudo --preserve-env=GITHUB_ACTIONS,GITHUB_SHA,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,POSTGRES_DR_TEST_IMAGE \
             bash scripts/ci/test-postgres-dr-recovery.sh
+          sudo --preserve-env=GITHUB_ACTIONS,GITHUB_SHA,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,POSTGRES_DR_TEST_IMAGE \
+            bash scripts/ci/test-postgres-dr-coordinator.sh
 
       - name: Assemble unsigned candidate
         env:
@@ -517,6 +520,7 @@ jobs:
           provider-console-bootstrap	infrastructure/scripts/provider-console-bootstrap-postgres-walg.sh
           provider-state-machine	infrastructure/scripts/postgres-dr-bootstrap-state.sh
           provider-recovery-point	infrastructure/scripts/postgres-dr-recovery.sh
+          provider-coordinator	infrastructure/scripts/postgres-dr-coordinator.sh
           production-compose	docker-compose.droplet.yml
           postgres-rollback-compose	infrastructure/deploy/postgres-dr-bootstrap-rollback.override.yml
           postgres-image-policy	.github/manifests/postgres-image.json

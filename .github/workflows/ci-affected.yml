@@ -293,7 +293,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes python3-yaml
           sudo --preserve-env=GITHUB_ACTIONS,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT bash scripts/ci/test-nats-leaf-rollout.sh
-      - name: Verify recovery after first-start TLS mutation failure
+      - name: Verify real recovery coordinator and first-start TLS mutation failure
         env:
           BASE_SHA: ${{ needs.detect-changes.outputs.base_sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -302,11 +302,22 @@ jobs:
           export POSTGRES_DR_TEST_IMAGE="$(docker image inspect --format '{{.Id}}' aquaculture-platform/postgres-ci:${{ github.sha }})"
           mkdir -p artifacts/postgres-recovery
           sudo --preserve-env=GITHUB_ACTIONS,GITHUB_SHA,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,POSTGRES_DR_TEST_IMAGE bash scripts/ci/test-postgres-dr-recovery.sh
+          sudo --preserve-env=GITHUB_ACTIONS,GITHUB_SHA,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT,POSTGRES_DR_TEST_IMAGE bash scripts/ci/test-postgres-dr-coordinator.sh
           python3 - <<'PYTHON'
           import json, os
           from pathlib import Path
+          coordinator = json.loads(Path('artifacts/postgres-recovery/coordinator-results.json').read_text())
+          expected_scenarios = {'healthy', 'degraded', 'forward-failure', 'rollback-failure', 'before-FINALIZING', 'after-FINALIZING', 'before-ROLLBACK_FINALIZING', 'after-ROLLBACK_FINALIZING', 'phase-publish', 'result-publish', 'override-publish'}
+          expected_coordinates = {'schema_version': 1, 'github_sha': os.environ['GITHUB_SHA'], 'run_id': os.environ['GITHUB_RUN_ID'], 'run_attempt': os.environ['GITHUB_RUN_ATTEMPT'], 'candidate_reference': os.environ['POSTGRES_DR_TEST_IMAGE'], 'candidate_image_id': os.environ['POSTGRES_DR_TEST_IMAGE']}
+          if any(coordinator.get(key) != value for key, value in expected_coordinates.items()):
+              raise SystemExit('Coordinator proof identity does not match this checkout, candidate image and attempt')
+          scenarios = coordinator.get('scenarios', [])
+          if coordinator.get('executed_scenarios', 0) <= 0 or coordinator.get('executed_scenarios') != len(expected_scenarios) or coordinator.get('expected_scenarios') != len(expected_scenarios) or coordinator.get('skipped_scenarios') != 0 or len(scenarios) != len(expected_scenarios):
+              raise SystemExit('Coordinator proof is missing scenarios or contains skips')
+          if {item.get('name') for item in scenarios} != expected_scenarios or any(item.get('passed') is not True or item.get('terminal_phase') not in {'COMMITTED', 'ROLLED_BACK'} for item in scenarios):
+              raise SystemExit('Coordinator proof contains an unsuccessful or unexpected scenario')
           record = {key.lower(): os.environ[key] for key in ['BASE_SHA', 'PR_HEAD_SHA', 'GITHUB_SHA', 'GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT', 'POSTGRES_DR_TEST_IMAGE']}
-          record.update({'runner_environment': 'github-hosted', 'success': True, 'nats_leaf_rollout': True})
+          record.update({'runner_environment': 'github-hosted', 'success': True, 'nats_leaf_rollout': True, 'coordinator': coordinator})
           Path('artifacts/postgres-recovery/receipt.json').write_text(json.dumps(record, indent=2) + '\n')
           PYTHON
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

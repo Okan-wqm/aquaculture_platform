@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { IEventBus, IEventHandler } from '@platform/event-bus';
+import { IEventBus, IEventHandler, HandlerOutcome } from '@platform/event-bus';
 import { MessageSentEvent } from '@platform/event-contracts';
 
 import { MessagingPushService } from './messaging-push.service';
@@ -25,9 +25,7 @@ import { MessagingPushService } from './messaging-push.service';
  * no event-contract change is needed; the push payload remains opaque.
  */
 @Injectable()
-export class MessagingPushNatsHandler
-  implements OnModuleInit, IEventHandler<MessageSentEvent>
-{
+export class MessagingPushNatsHandler implements OnModuleInit, IEventHandler<MessageSentEvent> {
   private readonly logger = new Logger(MessagingPushNatsHandler.name);
 
   constructor(
@@ -38,16 +36,15 @@ export class MessagingPushNatsHandler
 
   async onModuleInit(): Promise<void> {
     await this.eventBus.subscribeWildcard('MessageSent', this);
-    this.logger.log(
-      'Subscribed to durable MessageSent fan-out for push dispatch',
-    );
+    this.logger.log('Subscribed to durable MessageSent fan-out for push dispatch');
   }
 
   getEventType(): string {
     return 'MessageSent';
   }
 
-  async handle(event: MessageSentEvent): Promise<void> {
+  async handle(event: MessageSentEvent): Promise<HandlerOutcome> {
     await this.messagingPushService.handleMessageSent(event);
+    return HandlerOutcome.ack();
   }
 }

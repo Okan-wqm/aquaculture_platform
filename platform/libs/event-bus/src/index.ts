@@ -4,6 +4,10 @@
 // the `type` modifier to drop the runtime emission too.
 export type * from './interfaces/event-bus.interface';
 export type { IEventBus as EventBus } from './interfaces/event-bus.interface';
+// PLAT-HIGH-902: handler delivery outcome (value + type), the fold the bus
+// applies, and the dead-letter sink contract.
+export * from './interfaces/handler-outcome';
+export * from './interfaces/dead-letter-sink';
 
 // NATS Implementation
 export * from './nats/nats-event-bus';

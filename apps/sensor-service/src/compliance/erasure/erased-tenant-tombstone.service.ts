@@ -2,7 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
-import { IEvent, IEventBus, IEventHandler } from '@platform/event-bus';
+import { HandlerOutcome, IEvent, IEventBus, IEventHandler } from '@platform/event-bus';
 
 /**
  * Task 1.8 (100-tenant readiness plan): the erased-tenant tombstone set.
@@ -88,14 +88,19 @@ export class ErasedTenantTombstoneService implements OnModuleInit {
   attachEventBus(eventBus: IEventBus): void {
     const handler: IEventHandler<IEvent> = {
       getEventType: (): string => 'TenantErased',
-      handle: (event: IEvent): Promise<void> => {
+      handle: (event: IEvent): Promise<HandlerOutcome> => {
         if (event.eventType === 'TenantErased' && typeof event.tenantId === 'string') {
           this.markErased(event.tenantId);
           this.logger.warn(
             `Tenant ${event.tenantId.slice(0, 8)}… erased — ingress will ACK-drop its messages`,
           );
+          return Promise.resolve(HandlerOutcome.ack());
         }
-        return Promise.resolve();
+        // The tombstone is an in-memory marker with nothing to fail: an event
+        // that does not carry an erased tenant id simply does not apply.
+        return Promise.resolve(
+          HandlerOutcome.ack('event carries no erased tenant id — nothing to mark'),
+        );
       },
     };
 

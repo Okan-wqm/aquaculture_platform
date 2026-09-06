@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { CommandBus } from '@platform/cqrs';
-import { NatsEventBus } from '@platform/event-bus';
+import { NatsEventBus, HandlerOutcome, outcomeForError } from '@platform/event-bus';
 import { SCHEMA_MIGRATION_SUBJECT_PREFIX } from '@platform/event-contracts';
 import type {
   SchemaMigrationAppliedEvent,
@@ -50,9 +50,7 @@ const GROUP_ID = 'observability-schema-migration';
  * ensures at-least-once delivery across observability restarts.
  */
 @Injectable()
-export class SchemaMigrationEventsConsumer
-  implements OnModuleInit, OnModuleDestroy
-{
+export class SchemaMigrationEventsConsumer implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(SchemaMigrationEventsConsumer.name);
 
   constructor(
@@ -65,9 +63,8 @@ export class SchemaMigrationEventsConsumer
       await this.eventBus.subscribeTo(
         SUBSCRIBE_SUBJECT,
         {
-          handle: async (event) => {
-            await this.handle(event as unknown as SchemaMigrationEvent);
-          },
+          handle: async (event): Promise<HandlerOutcome> =>
+            this.handle(event as SchemaMigrationEvent),
           getEventType: () => `${SCHEMA_MIGRATION_SUBJECT_PREFIX}.>`,
         },
         {
@@ -91,23 +88,25 @@ export class SchemaMigrationEventsConsumer
       await this.eventBus.unsubscribeFrom(SUBSCRIBE_SUBJECT);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      this.logger.warn(
-        `Unsubscribe from ${SUBSCRIBE_SUBJECT} failed: ${msg}`,
-      );
+      this.logger.warn(`Unsubscribe from ${SUBSCRIBE_SUBJECT} failed: ${msg}`);
     }
   }
 
-  private async handle(event: SchemaMigrationEvent): Promise<void> {
+  private async handle(event: SchemaMigrationEvent): Promise<HandlerOutcome> {
     try {
       const cmd = this.toCommand(event);
       await this.commandBus.execute(cmd);
+      return HandlerOutcome.ack();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       this.logger.error(
         `Failed to persist ${event.eventType} for ` +
           `${event.serviceName}/${event.migrationName}: ${msg}`,
       );
-      // Swallow — never propagate to NATS (would trigger redelivery).
+      // PLAT-HIGH-902: an audit row that failed to persist is retried within
+      // the delivery budget (a DB blip) or dead-lettered (a malformed event) —
+      // never silently acknowledged.
+      return outcomeForError(`${event.eventType} audit persist`, err);
     }
   }
 
@@ -117,9 +116,7 @@ export class SchemaMigrationEventsConsumer
       migrationName: event.migrationName,
       occurredAt: new Date(event.timestamp),
       environment: event.environment,
-      ...(this.isTenantSchema(event.tenantId)
-        ? { tenantSchema: event.tenantId }
-        : {}),
+      ...(this.isTenantSchema(event.tenantId) ? { tenantSchema: event.tenantId } : {}),
     };
 
     switch (event.eventType) {

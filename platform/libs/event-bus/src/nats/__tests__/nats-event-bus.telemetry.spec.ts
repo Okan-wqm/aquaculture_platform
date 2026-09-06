@@ -19,6 +19,7 @@ import { connect } from '@nats-io/transport-node';
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import { HandlerOutcome } from '../../interfaces/handler-outcome';
 import {
   DEFAULT_TELEMETRY_STREAM_NAME,
   buildRoutedSubject,
@@ -248,7 +249,9 @@ describe('Event route registry + telemetry stream (Task 2)', () => {
     it('subscribes SensorReading with a durable on AQUACULTURE_TELEMETRY', async () => {
       const bus = await boot();
       await bus.subscribeWildcard('SensorReading', {
-        handle: () => Promise.resolve(),
+        // PLAT-HIGH-902: a handler reports a delivery outcome; `Promise.resolve()`
+        // is no longer spellable, which is the point of the contract.
+        handle: () => Promise.resolve(HandlerOutcome.ack()),
         // Required by IEventHandler. The cast this replaces hid its absence —
         // the double claimed to be a handler while missing half the contract.
         getEventType: () => 'SensorReading',

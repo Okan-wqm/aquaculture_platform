@@ -1,21 +1,15 @@
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { IEventBus, IEventHandler } from '@platform/event-bus';
-import type {
-  GdprAnonymizeRequestedEvent,
-  UserDeletedEvent,
-} from '@platform/event-contracts';
+import { IEventBus, IEventHandler, HandlerOutcome } from '@platform/event-bus';
+import type { GdprAnonymizeRequestedEvent, UserDeletedEvent } from '@platform/event-contracts';
 
 import { ConversationService } from './conversation.service';
 
-const UUID_REGEX =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 type PrivacyEvent = UserDeletedEvent | GdprAnonymizeRequestedEvent;
 
 @Injectable()
-export class ConversationPrivacyEventHandler
-  implements IEventHandler<PrivacyEvent>, OnModuleInit
-{
+export class ConversationPrivacyEventHandler implements IEventHandler<PrivacyEvent>, OnModuleInit {
   private readonly logger = new Logger(ConversationPrivacyEventHandler.name);
 
   constructor(
@@ -34,27 +28,24 @@ export class ConversationPrivacyEventHandler
     return 'ConversationPrivacyEvent';
   }
 
-  async handle(event: PrivacyEvent): Promise<void> {
+  async handle(event: PrivacyEvent): Promise<HandlerOutcome> {
     if (!UUID_REGEX.test(event.tenantId)) {
       this.logger.error(`Rejected ${event.eventType} with invalid tenantId`);
-      return;
+      return HandlerOutcome.terminate(`${event.eventType}: invalid tenantId`);
     }
 
-    const targetUserId =
-      event.eventType === 'UserDeleted' ? event.deletedUserId : event.userId;
+    const targetUserId = event.eventType === 'UserDeleted' ? event.deletedUserId : event.userId;
     if (!UUID_REGEX.test(targetUserId)) {
       this.logger.error(`Rejected ${event.eventType} with invalid target user id`);
-      return;
+      return HandlerOutcome.terminate(`${event.eventType}: invalid target user id`);
     }
 
-    const erased = await this.conversationService.eraseForUser(
-      event.tenantId,
-      targetUserId,
-    );
+    const erased = await this.conversationService.eraseForUser(event.tenantId, targetUserId);
     if (erased > 0) {
       this.logger.log(
         `Erased ${erased} AI conversations for ${event.eventType} target ${targetUserId}`,
       );
     }
+    return HandlerOutcome.ack();
   }
 }

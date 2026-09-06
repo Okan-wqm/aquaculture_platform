@@ -97,6 +97,6 @@ describe('TenantSubscriptionProjectionHandler (DATA-LOW-001)', () => {
 
   it('does not throw when the tenant row is absent (affected=0)', async () => {
     update.mockResolvedValue({ affected: 0 });
-    await expect(handler.handle(makeEvent({}))).resolves.toBeUndefined();
+    await expect(handler.handle(makeEvent({}))).resolves.toEqual({ kind: 'ack' });
   });
 });

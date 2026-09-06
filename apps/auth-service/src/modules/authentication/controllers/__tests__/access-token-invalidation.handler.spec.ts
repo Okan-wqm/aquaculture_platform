@@ -90,7 +90,14 @@ describe('AccessTokenInvalidationHandler', () => {
         ...invalidationEvent(),
         expiresAtEpochSeconds: 'not-an-epoch',
       }),
-    ).rejects.toThrow('Invalid AccessTokenInvalidationRequested event');
+    ).resolves.toEqual(
+      // PLAT-HIGH-902: on this unlimited-redelivery consumer a throw was an
+      // endless NAK loop; a malformed payload is terminated (dead-lettered).
+      expect.objectContaining({
+        kind: 'terminate',
+        reason: 'Invalid AccessTokenInvalidationRequested event',
+      }),
+    );
 
     expect(tokenBlacklist.add).not.toHaveBeenCalled();
   });

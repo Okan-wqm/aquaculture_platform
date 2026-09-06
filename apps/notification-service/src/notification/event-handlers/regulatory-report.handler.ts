@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
-import { IEventBus, IEventHandler } from '@platform/event-bus';
+import { IEventBus, IEventHandler, HandlerOutcome } from '@platform/event-bus';
 import type {
   WelfareEventReportedEvent,
   EscapeReportedEvent,
@@ -62,7 +62,7 @@ export class RegulatoryReportEventHandler
     return 'RegulatoryReportEvent';
   }
 
-  async handle(event: RegulatoryVarslingEvent): Promise<void> {
+  async handle(event: RegulatoryVarslingEvent): Promise<HandlerOutcome> {
     // SECURITY: validate tenantId format to ensure isolation before any
     // downstream PII (contact person) is rendered into an email.
     if (!event.tenantId || !UUID_REGEX.test(event.tenantId)) {
@@ -70,13 +70,11 @@ export class RegulatoryReportEventHandler
         'Regulatory varsling event has invalid or missing tenantId. ' +
           'Skipping to prevent cross-tenant notification leakage.',
       );
-      return;
+      return HandlerOutcome.terminate('Regulatory varsling: missing or invalid tenantId');
     }
 
     const eventType = event.eventType;
-    this.logger.log(
-      `Processing ${eventType} for tenant ${event.tenantId.substring(0, 8)}...`,
-    );
+    this.logger.log(`Processing ${eventType} for tenant ${event.tenantId.substring(0, 8)}...`);
 
     switch (eventType) {
       case 'WelfareEventReported':
@@ -90,7 +88,9 @@ export class RegulatoryReportEventHandler
         break;
       default:
         this.logger.warn(`Unknown regulatory varsling event type: ${eventType}`);
+        return HandlerOutcome.terminate(`Unknown regulatory varsling event type: ${eventType}`);
     }
+    return HandlerOutcome.ack();
   }
 
   /**

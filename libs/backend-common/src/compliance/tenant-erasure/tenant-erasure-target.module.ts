@@ -8,7 +8,7 @@ import {
   Type,
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { IEventBus, IEventHandler } from '@platform/event-bus';
+import { IEventBus, IEventHandler, HandlerOutcome } from '@platform/event-bus';
 import {
   TenantErasureRequestedEvent,
   type TenantErasureTargetService,
@@ -93,8 +93,9 @@ export class TenantErasureRequestedTargetHandler
     return 'TenantErasureRequested';
   }
 
-  async handle(event: TenantErasureRequestedEvent): Promise<void> {
+  async handle(event: TenantErasureRequestedEvent): Promise<HandlerOutcome> {
     await this.executor.eraseFromRequest(event);
+    return HandlerOutcome.ack();
   }
 }
 

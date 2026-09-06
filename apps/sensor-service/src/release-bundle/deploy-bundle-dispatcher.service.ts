@@ -10,7 +10,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 
 import { withTenantContext } from '@aquaculture/backend-common/context';
-import { IEventBus, IEventHandler } from '@platform/event-bus';
+import { IEventBus, IEventHandler, HandlerOutcome } from '@platform/event-bus';
 import type { DeployBundleRequestedEvent } from '@platform/event-contracts';
 import {
   formatValidationErrors,
@@ -96,7 +96,7 @@ export class DeployBundleDispatcherService
     }
   }
 
-  async handle(event: DeployBundleRequestedEvent): Promise<void> {
+  async handle(event: DeployBundleRequestedEvent): Promise<HandlerOutcome> {
     // Structural guard — the event is untrusted wake-up data.
     if (
       !UUID_RE.test(event.tenantId ?? '') ||
@@ -104,7 +104,7 @@ export class DeployBundleDispatcherService
       !UUID_RE.test(event.deviceId ?? '')
     ) {
       this.logger.warn('Dropped malformed DeployBundleRequested event');
-      return;
+      return HandlerOutcome.terminate('DeployBundleRequested: malformed identifiers');
     }
 
     await withTenantContext(event.tenantId, async () => {
@@ -123,6 +123,7 @@ export class DeployBundleDispatcherService
       }
       await this.dispatch(bundle);
     });
+    return HandlerOutcome.ack();
   }
 
   private async dispatch(bundle: ReleaseBundle): Promise<void> {

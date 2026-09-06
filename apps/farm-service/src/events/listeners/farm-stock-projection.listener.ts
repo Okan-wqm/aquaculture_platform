@@ -40,7 +40,7 @@
  */
 import { isValidUUID, runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
-import { IEventBus, IEventHandler } from '@platform/event-bus';
+import { IEventBus, IEventHandler, HandlerOutcome } from '@platform/event-bus';
 import type { BaseEvent } from '@platform/event-contracts';
 import { DataSource } from 'typeorm';
 
@@ -62,9 +62,7 @@ const STOCK_MUTATION_EVENTS = [
 ] as const;
 
 @Injectable()
-export class FarmStockProjectionListener
-  implements IEventHandler<BaseEvent>, OnModuleInit
-{
+export class FarmStockProjectionListener implements IEventHandler<BaseEvent>, OnModuleInit {
   private readonly logger = new Logger(FarmStockProjectionListener.name);
 
   constructor(
@@ -110,48 +108,45 @@ export class FarmStockProjectionListener
    * Refresh the read-model snapshots for the containers touched by one stock
    * event. Fail-closed on tenant identity; idempotent + retryable on the write.
    */
-  async handle(event: BaseEvent): Promise<void> {
+  async handle(event: BaseEvent): Promise<HandlerOutcome> {
     if (!event.tenantId || !isValidUUID(event.tenantId)) {
       this.logger.error(
         'Farm stock event has missing/invalid tenantId — skipping to prevent ' +
           'cross-tenant read-model corruption.',
       );
-      return;
+      return HandlerOutcome.terminate(`${event.eventType}: missing or invalid tenantId`);
     }
 
     const containerIds = FarmStockProjectionListener.extractContainerIds(event);
     if (containerIds.length === 0) {
       // Some events (e.g. a non-tank mortality) carry no tank reference; nothing
       // to project. Not an error.
-      return;
+      return HandlerOutcome.ack();
     }
 
     try {
-      await runInTenantTransaction(
-        this.dataSource,
-        'farm',
-        event.tenantId,
-        async (queryRunner) => {
-          await this.projectionService.refreshContainers(
-            queryRunner.manager,
-            event.tenantId,
-            containerIds,
-          );
-        },
-      );
+      await runInTenantTransaction(this.dataSource, 'farm', event.tenantId, async (queryRunner) => {
+        await this.projectionService.refreshContainers(
+          queryRunner.manager,
+          event.tenantId,
+          containerIds,
+        );
+      });
       this.logger.debug(
         `[${event.eventType}] refreshed ${containerIds.length} container ` +
           `snapshot(s) for tenant ${event.tenantId.substring(0, 8)}...`,
       );
+      return HandlerOutcome.ack();
     } catch (error) {
       this.logger.error(
         `[${event.eventType}] failed to refresh container snapshots for tenant ` +
           `${event.tenantId.substring(0, 8)}...: ${(error as Error).message}`,
         (error as Error).stack,
       );
-      // Rethrow so the read model converges via redelivery (bounded by
-      // max_deliver); refreshContainers is idempotent so the retry is safe.
-      throw error;
+      // Retry so the read model converges via redelivery (bounded by
+      // max_deliver, then dead-lettered); refreshContainers is idempotent so
+      // the retry is safe.
+      return HandlerOutcome.retry(`${event.eventType}: container snapshot refresh failed`, error);
     }
   }
 

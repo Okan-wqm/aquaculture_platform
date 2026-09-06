@@ -1,7 +1,6 @@
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IEventBus, IEventHandler } from '@platform/event-bus';
-import { createBaseEvent } from '@platform/event-contracts';
+import { IEventBus, IEventHandler, HandlerOutcome, outcomeForError } from '@platform/event-bus';
 import type {
   TaskEvent,
   TaskCreatedEvent,
@@ -14,7 +13,6 @@ import { Repository } from 'typeorm';
 
 import { DeviceToken } from '../entities/device-token.entity';
 import { NotificationChannel } from '../entities/notification-log.entity';
-import { DeadLetterQueueService } from '../services/dead-letter-queue.service';
 import { InAppNotificationService } from '../services/in-app.service';
 import { NotificationDispatcherService } from '../services/notification-dispatcher.service';
 
@@ -68,16 +66,13 @@ class Semaphore {
  * task events at MAX_EVENT_CONCURRENCY.
  */
 @Injectable()
-export class TaskEventHandler
-  implements IEventHandler<TaskEvent>, OnModuleInit
-{
+export class TaskEventHandler implements IEventHandler<TaskEvent>, OnModuleInit {
   private readonly logger = new Logger(TaskEventHandler.name);
   private readonly semaphore = new Semaphore(MAX_EVENT_CONCURRENCY);
 
   constructor(
     private readonly dispatcher: NotificationDispatcherService,
     private readonly inAppService: InAppNotificationService,
-    private readonly dlqService: DeadLetterQueueService,
     @InjectRepository(DeviceToken)
     private readonly deviceTokenRepository: Repository<DeviceToken>,
     @Inject('EVENT_BUS')
@@ -104,29 +99,27 @@ export class TaskEventHandler
     return 'TaskEvent';
   }
 
-  async handle(event: TaskEvent): Promise<void> {
+  async handle(event: TaskEvent): Promise<HandlerOutcome> {
     // SECURITY: Validate tenantId format to ensure data isolation
     if (!event.tenantId || !UUID_REGEX.test(event.tenantId)) {
       this.logger.error(
         `Task event has invalid or missing tenantId. ` +
-        'Skipping to prevent cross-tenant notification leakage.',
+          'Skipping to prevent cross-tenant notification leakage.',
       );
-      return;
+      return HandlerOutcome.terminate('Task event: missing or invalid tenantId');
     }
 
     const eventType = event.eventType;
 
     // Validate required fields common to all task events
     if (!event.taskId) {
-      this.logger.error(
-        `Task event missing required field (taskId). Skipping.`,
-      );
-      return;
+      this.logger.error(`Task event missing required field (taskId). Skipping.`);
+      return HandlerOutcome.terminate(`${eventType}: missing taskId`);
     }
 
     this.logger.log(
       `Processing ${eventType} for task ${event.taskId.substring(0, 8)}... ` +
-      `in tenant ${event.tenantId.substring(0, 8)}...`,
+        `in tenant ${event.tenantId.substring(0, 8)}...`,
     );
 
     // Acquire semaphore slot before processing to enforce backpressure
@@ -151,38 +144,17 @@ export class TaskEventHandler
           break;
         default:
           this.logger.warn(`Unknown task event type: ${eventType}`);
+          return HandlerOutcome.terminate(`Unknown task event type: ${eventType}`);
       }
+      return HandlerOutcome.ack();
     } catch (error) {
       this.logger.error(
         `Error processing ${eventType} event: ${(error as Error).message}`,
         (error as Error).stack,
       );
-
-      // DLQ: Determine whether to retry or dead-letter this event
-      try {
-        const dlqResult = await this.dlqService.handleFailedEvent(
-          { ...event },
-          error,
-        );
-
-        if (dlqResult.retry) {
-          // Re-publish with incremented retryCount and a fresh eventId
-          // to bypass NATS deduplication window
-          await this.eventBus.publish({
-            ...event,
-            retryCount: dlqResult.retryCount,
-            ...createBaseEvent(event.eventType, event.tenantId, { aggregateId: event.taskId, aggregateType: 'Task' }),
-          });
-          this.logger.warn(
-            `Task event ${eventType} (task ${event.taskId.substring(0, 8)}...) ` +
-            `re-published for retry attempt ${dlqResult.retryCount}`,
-          );
-        }
-      } catch (dlqError) {
-        this.logger.error(
-          `DLQ handling failed for ${eventType}: ${(dlqError as Error).message}`,
-        );
-      }
+      // PLAT-HIGH-902: the bus owns retries and dead-lettering; the
+      // re-publishing ladder is gone.
+      return outcomeForError(`${eventType} task notification`, error);
     } finally {
       this.semaphore.release();
     }
@@ -229,9 +201,7 @@ export class TaskEventHandler
         pushData: { userId },
       });
     } catch (err) {
-      this.logger.warn(
-        `Failed to dispatch task push command: ${(err as Error).message}`,
-      );
+      this.logger.warn(`Failed to dispatch task push command: ${(err as Error).message}`);
     }
   }
 
@@ -240,38 +210,24 @@ export class TaskEventHandler
    */
   private async handleTaskCreated(event: TaskCreatedEvent): Promise<void> {
     if (!event.assignedTo) {
-      this.logger.warn(
-        `TaskCreated event missing assignedTo. Skipping notification.`,
-      );
+      this.logger.warn(`TaskCreated event missing assignedTo. Skipping notification.`);
       return;
     }
 
     const title = `Yeni g\u00F6rev olu\u015Fturuldu: ${event.title}`;
     const body = `Size yeni bir g\u00F6rev olu\u015Fturuldu: ${event.title}`;
 
-    await this.inAppService.createNotification(
-      event.tenantId,
-      event.assignedTo,
-      title,
-      body,
-      {
-        type: 'TaskCreated',
-        taskId: event.taskId,
-        category: event.category,
-        dueDate: event.dueDate,
-        priority: event.priority,
-        createdBy: event.createdBy,
-      },
-    );
+    await this.inAppService.createNotification(event.tenantId, event.assignedTo, title, body, {
+      type: 'TaskCreated',
+      taskId: event.taskId,
+      category: event.category,
+      dueDate: event.dueDate,
+      priority: event.priority,
+      createdBy: event.createdBy,
+    });
 
     // Send push notification to assignee's devices
-    await this.sendPushToUser(
-      event.tenantId,
-      event.assignedTo,
-      event.taskId,
-      title,
-      'TaskCreated',
-    );
+    await this.sendPushToUser(event.tenantId, event.assignedTo, event.taskId, title, 'TaskCreated');
 
     this.logger.debug(
       `In-app notification created for TaskCreated: task ${event.taskId.substring(0, 8)}...`,
@@ -283,28 +239,20 @@ export class TaskEventHandler
    */
   private async handleTaskAssigned(event: TaskAssignedEvent): Promise<void> {
     if (!event.assignedTo) {
-      this.logger.warn(
-        `TaskAssigned event missing assignedTo. Skipping notification.`,
-      );
+      this.logger.warn(`TaskAssigned event missing assignedTo. Skipping notification.`);
       return;
     }
 
     const title = `Yeni g\u00F6rev atand\u0131: ${event.title}`;
     const body = `Size yeni bir g\u00F6rev atand\u0131: ${event.title}`;
 
-    await this.inAppService.createNotification(
-      event.tenantId,
-      event.assignedTo,
-      title,
-      body,
-      {
-        type: 'TaskAssigned',
-        taskId: event.taskId,
-        assignedBy: event.assignedBy,
-        dueDate: event.dueDate,
-        priority: event.priority,
-      },
-    );
+    await this.inAppService.createNotification(event.tenantId, event.assignedTo, title, body, {
+      type: 'TaskAssigned',
+      taskId: event.taskId,
+      assignedBy: event.assignedBy,
+      dueDate: event.dueDate,
+      priority: event.priority,
+    });
 
     // Send push notification to assignee's devices
     await this.sendPushToUser(
@@ -338,19 +286,13 @@ export class TaskEventHandler
       return;
     }
 
-    await this.inAppService.createNotification(
-      event.tenantId,
-      recipientId,
-      title,
-      body,
-      {
-        type: 'TaskStatusChanged',
-        taskId: event.taskId,
-        previousStatus: event.previousStatus,
-        newStatus: event.newStatus,
-        changedBy: event.changedBy,
-      },
-    );
+    await this.inAppService.createNotification(event.tenantId, recipientId, title, body, {
+      type: 'TaskStatusChanged',
+      taskId: event.taskId,
+      previousStatus: event.previousStatus,
+      newStatus: event.newStatus,
+      changedBy: event.changedBy,
+    });
 
     // TODO: Add push notification for status changes once TaskStatusChangedEvent
     // includes an assignedTo field so we can reliably determine the notification recipient.
@@ -365,27 +307,19 @@ export class TaskEventHandler
    */
   private async handleTaskCompleted(event: TaskCompletedEvent): Promise<void> {
     if (!event.assignedTo) {
-      this.logger.warn(
-        `TaskCompleted event missing assignedTo. Skipping notification.`,
-      );
+      this.logger.warn(`TaskCompleted event missing assignedTo. Skipping notification.`);
       return;
     }
 
     const title = `G\u00F6rev tamamland\u0131: ${event.title}`;
     const body = `G\u00F6reviniz tamamland\u0131: ${event.title}`;
 
-    await this.inAppService.createNotification(
-      event.tenantId,
-      event.assignedTo,
-      title,
-      body,
-      {
-        type: 'TaskCompleted',
-        taskId: event.taskId,
-        completedBy: event.completedBy,
-        completedAt: event.completedAt?.toString(),
-      },
-    );
+    await this.inAppService.createNotification(event.tenantId, event.assignedTo, title, body, {
+      type: 'TaskCompleted',
+      taskId: event.taskId,
+      completedBy: event.completedBy,
+      completedAt: event.completedAt?.toString(),
+    });
 
     // Send push notification to assignee's devices
     await this.sendPushToUser(
@@ -406,37 +340,23 @@ export class TaskEventHandler
    */
   private async handleTaskOverdue(event: TaskOverdueEvent): Promise<void> {
     if (!event.assignedTo) {
-      this.logger.warn(
-        `TaskOverdue event missing assignedTo. Skipping notification.`,
-      );
+      this.logger.warn(`TaskOverdue event missing assignedTo. Skipping notification.`);
       return;
     }
 
     const title = `Gecikmi\u015F g\u00F6rev: ${event.title}`;
     const body = `G\u00F6reviniz gecikmi\u015F durumda: ${event.title}`;
 
-    await this.inAppService.createNotification(
-      event.tenantId,
-      event.assignedTo,
-      title,
-      body,
-      {
-        type: 'TaskOverdue',
-        taskId: event.taskId,
-        dueDate: event.dueDate,
-        priority: event.priority,
-        hoursOverdue: event.hoursOverdue,
-      },
-    );
+    await this.inAppService.createNotification(event.tenantId, event.assignedTo, title, body, {
+      type: 'TaskOverdue',
+      taskId: event.taskId,
+      dueDate: event.dueDate,
+      priority: event.priority,
+      hoursOverdue: event.hoursOverdue,
+    });
 
     // Send push notification to assignee's devices
-    await this.sendPushToUser(
-      event.tenantId,
-      event.assignedTo,
-      event.taskId,
-      title,
-      'TaskOverdue',
-    );
+    await this.sendPushToUser(event.tenantId, event.assignedTo, event.taskId, title, 'TaskOverdue');
 
     this.logger.debug(
       `In-app + push notification sent for TaskOverdue: task ${event.taskId.substring(0, 8)}...`,

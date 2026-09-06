@@ -1,3 +1,4 @@
+import { DurableUserTokenInvalidationService, UserTokenInvalidationIntent } from '../../authentication/services/durable-user-token-invalidation.service';
 import * as crypto from 'crypto';
 
 import { bindTenantRlsContext } from '@aquaculture/backend-common/database';
@@ -208,6 +209,7 @@ export class TenantProvisioningCommandService {
     // the RBAC-HIGH-001 primitive the gateway already enforces on every request).
     @Inject(USER_TOKEN_REVOCATION)
     private readonly userTokenRevocation: IUserTokenRevocation,
+    private readonly durableUserTokenInvalidation: DurableUserTokenInvalidationService,
     // W5: lokalizasyon değişimi denetim izi, receipt transaction'ında
     // fail-CLOSED yazılır (yazım geri alınırsa denetim satırı da geri alınır).
     private readonly auditLogService: AuditLogService,
@@ -799,7 +801,7 @@ export class TenantProvisioningCommandService {
 
   private async assertTenantExists(tenantId: string, manager?: EntityManager): Promise<Tenant> {
     const tenant = manager
-      ? await manager.findOne(Tenant, { where: { id: tenantId } })
+      ? await manager.findOne(Tenant, { where: { id: tenantId }, lock: { mode: 'pessimistic_write' } })
       : await this.tenantRepository.findOne({ where: { id: tenantId } });
     if (!tenant) {
       throw new NotFoundException(`Tenant with ID "${tenantId}" not found`);
@@ -851,6 +853,7 @@ export class TenantProvisioningCommandService {
     // RBAC-HIGH-007: users locked out by THIS live execution (closure, not part
     // of the receipt result — an idempotent replay must not re-blacklist).
     const lockedOutUserIds: string[] = [];
+    const invalidationIntents: UserTokenInvalidationIntent[] = [];
     const execution = await this.runWithReceipt(commandType, command, 'tenant', async (manager) => {
       const { tenant, transition } = await this.assertTenantTransition(
         manager,
@@ -933,11 +936,20 @@ export class TenantProvisioningCommandService {
       // over NATS with no request tenant context.
       if (!isLoginAllowed(targetStatus)) {
         const userRows = this.rowsFromQuery<{ id: string }>(
-          await manager.query(`SELECT id FROM "auth"."users" WHERE "tenantId" = $1`, [
+          await manager.query(`SELECT id FROM "auth"."users" WHERE "tenantId" = $1 ORDER BY id FOR UPDATE`, [
             command.tenantId,
           ]),
         );
         lockedOutUserIds.push(...userRows.map((row) => row.id));
+        const invalidatedAt = new Date();
+        for (const row of userRows) {
+          const intent: UserTokenInvalidationIntent = {
+            userId: row.id, tenantId: command.tenantId, invalidatedAt, reason: 'logout_all_devices',
+            idempotencyKey: `${command.operationId}:tenant-status:${row.id}`,
+          };
+          await this.durableUserTokenInvalidation.enqueue(manager, intent);
+          invalidationIntents.push(intent);
+        }
         if (lockedOutUserIds.length > 0) {
           await manager.query(`SELECT set_config('app.current_tenant', $1, true)`, [
             command.tenantId,
@@ -945,8 +957,7 @@ export class TenantProvisioningCommandService {
           await manager.query(
             `UPDATE "auth"."refresh_tokens"
                   SET "isRevoked" = true, "revokedAt" = NOW(), "revokedReason" = $2
-                WHERE "userId" = ANY($1::uuid[])
-                  AND "isRevoked" = false`,
+                WHERE "userId" = ANY($1::uuid[])`,
             [lockedOutUserIds, `Tenant ${targetStatus}`],
           );
         }
@@ -967,9 +978,10 @@ export class TenantProvisioningCommandService {
     // deliberately non-fatal per user: the durable guarantee is the in-tx
     // refresh-token revocation above plus the refresh-path tenant gate; access
     // tokens self-expire within their ≤15-minute TTL even if Redis is down.
-    for (const userId of lockedOutUserIds) {
+    for (const intent of invalidationIntents) {
+      const userId = intent.userId;
       try {
-        await this.userTokenRevocation.revokeUserTokens(userId);
+        await this.durableUserTokenInvalidation.applyImmediately(intent);
       } catch (err) {
         this.logger.warn(
           `Access-token blacklist failed for userId=${userId} after ${commandType} on tenant ${command.tenantId}: ${(err as Error).message}`,

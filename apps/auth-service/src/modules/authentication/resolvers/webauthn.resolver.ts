@@ -24,6 +24,7 @@ import {
   buildRefreshTokenCookieOptions,
 } from '../utils/refresh-token-cookie';
 import { WebAuthnService } from '../services/webauthn.service';
+import type { OriginatingAccessSession } from '../services/token.service';
 
 interface GqlContext {
   req: Request;
@@ -103,10 +104,10 @@ export class WebAuthnResolver {
     description: 'Register a new biometric credential',
   })
   async registerWebAuthnCredential(
-    @CurrentUser('sub') userId: string,
+    @CurrentUser() session: OriginatingAccessSession,
     @Args('input') input: WebAuthnRegisterCredentialInput,
   ): Promise<WebAuthnRegisterResponse> {
-    return this.webAuthnService.registerCredential(userId, input);
+    return this.webAuthnService.registerCredential(session, input);
   }
 
   /**
@@ -141,10 +142,10 @@ export class WebAuthnResolver {
     description: 'Remove a biometric credential',
   })
   async removeWebAuthnCredential(
-    @CurrentUser('sub') userId: string,
+    @CurrentUser() session: OriginatingAccessSession,
     @Args('credentialId') credentialId: string,
   ): Promise<WebAuthnRemoveResponse> {
-    return this.webAuthnService.removeCredential(userId, credentialId);
+    return this.webAuthnService.removeCredential(session, credentialId);
   }
 
   // ==========================================================================

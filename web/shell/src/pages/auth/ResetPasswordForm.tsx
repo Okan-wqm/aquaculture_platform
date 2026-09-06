@@ -12,6 +12,7 @@ import {
   minLength,
   validateField,
   publicGraphqlClient,
+  clearSession,
 } from '@aquaculture/shared-ui';
 
 import { AuthFormShell } from './AuthFormShell';
@@ -58,11 +59,13 @@ const ResetPasswordForm: React.FC = () => {
         await publicGraphqlClient.request(
           `mutation ResetPassword($input: ResetPasswordInput!) {
               resetPassword(input: $input) {
-                accessToken
+                success
+                loginRequired
               }
             }`,
           { input: { token, newPassword: formData.password } },
         );
+        clearSession();
         setSuccess(true);
       } catch (err) {
         setErrors({ password: err instanceof Error ? err.message : t('common.error') });

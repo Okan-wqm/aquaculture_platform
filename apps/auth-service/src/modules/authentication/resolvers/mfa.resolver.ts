@@ -18,7 +18,8 @@ import {
   RegenerateMfaRecoveryCodesResponse,
 } from '../dto/mfa.dto';
 import { User } from '../entities/user.entity';
-import { MfaService } from '../services/mfa.service';
+import { MfaService, type MfaSubject } from '../services/mfa.service';
+import type { OriginatingAccessSession } from '../services/token.service';
 import {
   REFRESH_TOKEN_COOKIE_NAME,
   buildRefreshTokenCookieOptions,
@@ -31,7 +32,7 @@ import {
  * the gateway-forwarded x-user-payload middleware.
  */
 interface GqlContext {
-  req: Pick<Request, 'headers' | 'ip'> & { user?: { sub: string } };
+  req: Pick<Request, 'headers' | 'ip'> & { user?: OriginatingAccessSession };
   res: Pick<Response, 'cookie'>;
 }
 
@@ -95,15 +96,15 @@ export class MfaResolver {
    * is the credential (MfaService positively requires type === 'mfa_setup').
    * These two mutations are the ONLY consumers of the setup token.
    */
-  private resolveMfaSubject(context: GqlContext, mfaSetupToken?: string | null): string {
-    const authenticatedUserId = context.req?.user?.sub;
-    if (authenticatedUserId) {
-      return authenticatedUserId;
+  private resolveMfaSubject(context: GqlContext, mfaSetupToken?: string | null): MfaSubject {
+    const session = context.req.user;
+    if (session) {
+      return { kind: 'session', session };
     }
     if (!mfaSetupToken) {
       throw new UnauthorizedException('Authentication or an MFA setup token is required');
     }
-    return this.mfaService.resolveSetupTokenUserId(mfaSetupToken);
+    return this.mfaService.resolveSetupTokenSubject(mfaSetupToken);
   }
 
   /**
@@ -177,10 +178,10 @@ export class MfaResolver {
   @SkipTenantGuard()
   @Mutation(() => DisableMfaResponse, { description: 'Disable MFA (requires password + TOTP code)' })
   async disableMfa(
-    @CurrentUser('sub') userId: string,
+    @CurrentUser() session: OriginatingAccessSession,
     @Args('input') input: DisableMfaInput,
   ): Promise<DisableMfaResponse> {
-    return this.mfaService.disableMfa(userId, input.password, input.code);
+    return this.mfaService.disableMfa(session, input.password, input.code);
   }
 
   /**
@@ -190,10 +191,10 @@ export class MfaResolver {
   @SkipTenantGuard()
   @Mutation(() => RegenerateMfaRecoveryCodesResponse, { description: 'Regenerate MFA recovery codes (invalidates previous)' })
   async regenerateMfaRecoveryCodes(
-    @CurrentUser('sub') userId: string,
+    @CurrentUser() session: OriginatingAccessSession,
     @Args('code') code: string,
   ): Promise<RegenerateMfaRecoveryCodesResponse> {
-    return this.mfaService.regenerateRecoveryCodes(userId, code);
+    return this.mfaService.regenerateRecoveryCodes(session, code);
   }
 
   // ==========================================================================
@@ -213,7 +214,7 @@ export class MfaResolver {
   @SkipTenantGuard()
   @Mutation(() => AuthPayload, { description: 'MFA step-up: re-verify identity for elevated operations' })
   async mfaStepUp(
-    @CurrentUser('sub') userId: string,
+    @CurrentUser() session: OriginatingAccessSession,
     @Args('input') input: MfaStepUpInput,
     @Context() context: GqlContext,
   ): Promise<AuthPayload> {
@@ -222,15 +223,13 @@ export class MfaResolver {
     const userAgent = context.req?.headers?.['user-agent'] as string | undefined;
 
     const result = await this.mfaService.verifyStepUp(
-      userId,
+      session,
       input.code,
       ipAddress,
       userAgent,
     );
 
-    // Step-up elevates an already-authenticated session; it is not a "remember
-    // me" login → session cookie.
-    this.setRefreshTokenCookie(context.res, result.refreshToken, false);
+    // Step-up derives an access token from the existing session; its refresh cookie is unchanged.
     return this.stripRefreshToken(result);
   }
 

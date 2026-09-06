@@ -4,6 +4,15 @@ import { Role } from '@aquaculture/backend-common/decorators';
 import { User } from '../entities/user.entity';
 
 @ObjectType()
+export class CredentialActionResult {
+  @Field()
+  success!: boolean;
+
+  @Field()
+  loginRequired!: boolean;
+}
+
+@ObjectType()
 export class AuthPayload {
   @Field()
   accessToken!: string;

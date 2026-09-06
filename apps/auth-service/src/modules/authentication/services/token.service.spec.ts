@@ -1,9 +1,11 @@
+import { generateKeyPairSync } from 'node:crypto';
 import { getActiveSigningKid } from '@aquaculture/backend-common/auth';
 import { Role } from '@aquaculture/backend-common/decorators';
 import {
   ISessionManager,
   IUserTokenRevocation,
   SESSION_MANAGER,
+  TOKEN_BLACKLIST,
   USER_TOKEN_REVOCATION,
 } from '@aquaculture/backend-common/security';
 import { ConfigService } from '@nestjs/config';
@@ -11,7 +13,7 @@ import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 
 import { MobileSettingsService } from '../../tenant/services/mobile-settings.service';
 import { RefreshToken } from '../entities/refresh-token.entity';
@@ -19,7 +21,9 @@ import { UserModuleAssignment } from '../entities/user-module-assignment.entity'
 import { UserSiteAssignment } from '../entities/user-site-assignment.entity';
 import { User } from '../entities/user.entity';
 
-import { JwtPayload, TokenService } from './token.service';
+import { LockedAuthContext, snapshotCredentialProof } from './credential-state';
+import { Tenant, TenantStatus } from '../../tenant/entities/tenant.entity';
+import { GenerateTokensOptions, JwtPayload, TokenService } from './token.service';
 
 // WHY: bcryptjs publishes a sealed module namespace under the current
 // toolchain — jest.spyOn(bcrypt, 'hash') throws "Cannot redefine property"
@@ -89,29 +93,42 @@ function makeSiteAssignmentRepository(find: jest.Mock): {
   };
 }
 
+let principalForMint: User;
+
+async function mint(
+  service: TokenService, user: User, ipAddress?: string, userAgent?: string,
+  options?: GenerateTokensOptions,
+): Promise<Awaited<ReturnType<TokenService['generateTokens']>>> {
+  principalForMint = Object.assign(user, { isActive: user.isActive ?? true,
+    credentialVersion: user.credentialVersion ?? 1,
+    accessTokenInvalidBeforeEpochSeconds: user.accessTokenInvalidBeforeEpochSeconds ?? 0 });
+  return service.generateTokens(snapshotCredentialProof(user), ipAddress, userAgent, options);
+}
+
 function makeTransactionalDataSource(query: jest.Mock): {
   dataSource: object;
   userRepository: { findOne: jest.Mock };
   lockedUserFindOne: jest.Mock;
   transaction: jest.Mock;
+  manager: EntityManager;
 } {
-  const lockedUserFindOne = jest.fn().mockResolvedValue({ id: 'locked-user' });
-  const userRepository = { findOne: lockedUserFindOne };
-  const manager = {
-    // TypeORM's transaction-scoped repository preserves the repository API;
-    // passing the supplied double through lets the same manager scope both
-    // assignment reads and the RefreshToken INSERT.
-    withRepository: jest.fn((repository: object) => repository),
-  };
-  const transaction = jest.fn((work: (transactionManager: typeof manager) => Promise<unknown>) =>
-    work(manager),
-  );
-  return {
-    dataSource: { query, transaction },
-    userRepository,
-    lockedUserFindOne,
-    transaction,
-  };
+  const source = new DataSource({ type: 'postgres' });
+  const queryRunner = source.createQueryRunner();
+  queryRunner.isTransactionActive = true;
+  const manager = queryRunner.manager;
+  const lockedUserFindOne = jest.fn().mockImplementation(() => Promise.resolve(principalForMint));
+  jest.spyOn(manager, 'findOne').mockImplementation(async (entity, options) => {
+    if (entity === Tenant) return Object.assign(new Tenant(), {
+      id: principalForMint.tenantId, status: TenantStatus.ACTIVE });
+    if (entity !== User) throw new Error('Unexpected identity entity');
+    if (options.lock) return lockedUserFindOne(options);
+    return principalForMint;
+  });
+  jest.spyOn(manager, 'query').mockImplementation(query);
+  jest.spyOn(manager, 'withRepository').mockImplementation((repository) => repository);
+  const transaction = jest.fn((work: (transactionManager: EntityManager) => Promise<unknown>) => work(manager));
+  return { dataSource: { query, transaction, manager }, userRepository: { findOne: lockedUserFindOne },
+    lockedUserFindOne, transaction, manager };
 }
 
 /**
@@ -165,6 +182,7 @@ describe('TokenService — planLevel JWT claim (MT-MEDIUM-001)', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TokenService,
+        { provide: TOKEN_BLACKLIST, useValue: { isBlacklisted: jest.fn().mockResolvedValue(false), add: jest.fn() } },
         {
           provide: getRepositoryToken(User),
           useValue: transactionHarness.userRepository,
@@ -214,7 +232,7 @@ describe('TokenService — planLevel JWT claim (MT-MEDIUM-001)', () => {
   });
 
   it('includes the tenant plan ordinal as planLevel', async () => {
-    await service.generateTokens(buildUser({ role: Role.TENANT_ADMIN }));
+    await mint(service, buildUser({ role: Role.TENANT_ADMIN }));
 
     expect(capturedPayload().planLevel).toBe(2); // professional → PLAN_LEVEL 2
     expect(query).toHaveBeenCalledWith(expect.stringContaining('FROM auth.tenants'), [
@@ -223,7 +241,7 @@ describe('TokenService — planLevel JWT claim (MT-MEDIUM-001)', () => {
   });
 
   it('omits planLevel for a platform account with no tenant', async () => {
-    await service.generateTokens(buildUser({ role: Role.SUPER_ADMIN, tenantId: null }));
+    await mint(service, buildUser({ role: Role.SUPER_ADMIN, tenantId: null }));
 
     const payload = capturedPayload();
     expect('planLevel' in payload).toBe(false);
@@ -241,7 +259,7 @@ describe('TokenService — planLevel JWT claim (MT-MEDIUM-001)', () => {
         : Promise.resolve([]),
     );
 
-    await service.generateTokens(buildUser({ role: Role.TENANT_ADMIN }));
+    await mint(service, buildUser({ role: Role.TENANT_ADMIN }));
 
     expect(capturedPayload().planLevel).toBe(0);
   });
@@ -249,14 +267,14 @@ describe('TokenService — planLevel JWT claim (MT-MEDIUM-001)', () => {
   // C1 (tenant-isolation invariant): SUPER_ADMIN is the only tenantless role.
   it('rejects issuing a token to a non-SUPER_ADMIN principal with no tenant', async () => {
     await expect(
-      service.generateTokens(buildUser({ role: Role.MODULE_USER, tenantId: null })),
-    ).rejects.toThrow(/without a tenant/i);
+      mint(service, buildUser({ role: Role.MODULE_USER, tenantId: null })),
+    ).rejects.toThrow('Authentication failed');
   });
 
   it('rejects a tenant-scoped TENANT_ADMIN whose tenant resolves to null', async () => {
     await expect(
-      service.generateTokens(buildUser({ role: Role.TENANT_ADMIN, tenantId: null })),
-    ).rejects.toThrow(/without a tenant/i);
+      mint(service, buildUser({ role: Role.TENANT_ADMIN, tenantId: null })),
+    ).rejects.toThrow('Authentication failed');
   });
 });
 
@@ -353,6 +371,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
     query?: jest.Mock;
     config?: Record<string, unknown>;
     moduleAssignmentFind?: jest.Mock;
+    jwtService?: JwtService;
   }): Promise<TokenService> => {
     configValues = { HASH_REFRESH_TOKENS: false, ...(deps?.config ?? {}) };
     query = deps?.query ?? buildQueryRouter();
@@ -365,6 +384,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TokenService,
+        { provide: TOKEN_BLACKLIST, useValue: { isBlacklisted: jest.fn().mockResolvedValue(false), add: jest.fn() } },
         {
           provide: getRepositoryToken(User),
           useValue: transactionHarness.userRepository,
@@ -397,7 +417,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
           },
         },
         { provide: DataSource, useValue: dataSource },
-        { provide: JwtService, useValue: { signAsync } },
+        { provide: JwtService, useValue: deps?.jwtService ?? { signAsync } },
         {
           provide: ConfigService,
           useValue: {
@@ -460,13 +480,14 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       'type',
       'jti',
       'iat',
+      'exp',
       'mfaVerified',
     ]);
 
     it('carries no email / firstName / lastName / phone in the payload', async () => {
       service = await createService();
 
-      await service.generateTokens(buildUser({}));
+      await mint(service, buildUser({}));
 
       const payload = capturedPayload();
       expect('email' in payload).toBe(false);
@@ -479,7 +500,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
     it('emits only keys within the allowed non-PII set', async () => {
       service = await createService();
 
-      await service.generateTokens(buildUser({}));
+      await mint(service, buildUser({}));
 
       for (const key of Object.keys(capturedPayload())) {
         expect(ALLOWED_KEYS.has(key)).toBe(true);
@@ -497,7 +518,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
     it('defaults the audience to aquaculture-platform and stamps the active kid', async () => {
       service = await createService();
 
-      await service.generateTokens(buildUser({}));
+      await mint(service, buildUser({}));
 
       expect(signAsync).toHaveBeenCalledTimes(1);
       const signOptions = signAsync.mock.calls[0]?.[1] as {
@@ -513,7 +534,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
         config: { JWT_AUDIENCE: 'custom-aud', JWT_KEY_ID: 'key-rotated-2' },
       });
 
-      await service.generateTokens(buildUser({}));
+      await mint(service, buildUser({}));
 
       const signOptions = signAsync.mock.calls[0]?.[1] as {
         audience?: string;
@@ -534,7 +555,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
     it('stamps type === access on every mint', async () => {
       service = await createService();
 
-      await service.generateTokens(buildUser({}));
+      await mint(service, buildUser({}));
 
       expect(capturedPayload().type).toBe('access');
     });
@@ -551,7 +572,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
         query: buildQueryRouter({ resourcePermissions: [] }),
       });
 
-      await service.generateTokens(buildUser({ tenantId: malicious }));
+      await mint(service, buildUser({ tenantId: malicious }));
 
       const roleJoinCall = query.mock.calls.find(
         ([sql]) =>
@@ -573,7 +594,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
         }),
       });
 
-      await service.generateTokens(buildUser({}));
+      await mint(service, buildUser({}));
 
       const roleJoinCall = query.mock.calls.find(
         ([sql]) =>
@@ -600,7 +621,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
         }),
       });
 
-      await expect(service.generateTokens(buildUser({}))).rejects.toThrow(
+      await expect(mint(service, buildUser({}))).rejects.toThrow(
         /relation does not exist/,
       );
       // A failed permission read must abort the mint, not sign a token.
@@ -630,10 +651,10 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       service = await createService({ moduleAssignmentFind });
       const user = buildUser({});
 
-      await service.generateTokens(user);
+      await mint(service, user);
       expect(capturedPayload().modules).toEqual(['farm']);
 
-      await service.generateTokens(user);
+      await mint(service, user);
       expect(capturedPayload().modules).toEqual(['sensor']);
       expect(moduleAssignmentFind).toHaveBeenCalledTimes(2);
     });
@@ -650,10 +671,10 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       });
       const user = buildUser({});
 
-      await service.generateTokens(user);
+      await mint(service, user);
       expect(capturedPayload().resourcePermissions).toEqual(['sites:view']);
 
-      await service.generateTokens(user);
+      await mint(service, user);
       expect(capturedPayload().resourcePermissions).toEqual(['sites:edit']);
       expect(permissionReads).toHaveLength(0);
     });
@@ -666,7 +687,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
         query: buildQueryRouter({ resourcePermissions: [] }),
       });
 
-      await service.generateTokens(buildUser({}));
+      await mint(service, buildUser({}));
 
       const payload = capturedPayload();
       expect('modules' in payload).toBe(false);
@@ -680,7 +701,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
         }),
       });
 
-      await service.generateTokens(buildUser({}));
+      await mint(service, buildUser({}));
 
       expect(capturedPayload().resourcePermissions).toEqual(
         expect.arrayContaining(['sites:view', 'tanks:edit']),
@@ -703,7 +724,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
         }),
       });
 
-      await service.generateTokens(buildUser({}));
+      await mint(service, buildUser({}));
 
       const claim = capturedPayload().resourcePermissions ?? [];
       expect(claim).toEqual(expect.arrayContaining(['sites:view', 'roles:view']));
@@ -724,7 +745,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
         }),
       });
 
-      await service.generateTokens(buildUser({}));
+      await mint(service, buildUser({}));
 
       const claim = capturedPayload().resourcePermissions ?? [];
       expect(claim).toContain('sites:view'); // core survives
@@ -739,7 +760,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
         }),
       });
 
-      await service.generateTokens(buildUser({}));
+      await mint(service, buildUser({}));
 
       const claim = capturedPayload().resourcePermissions ?? [];
       expect(claim).toEqual(expect.arrayContaining(['sites:view', 'ai_settings:manage']));
@@ -759,9 +780,8 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
           }),
       );
 
-      const mint = service.generateTokens(authenticatedSnapshot);
-      await Promise.resolve();
-      await Promise.resolve();
+      const mint = mint(service, authenticatedSnapshot);
+      for (let turn = 0; turn < 8; turn += 1) await Promise.resolve();
 
       expect(refreshSave).not.toHaveBeenCalled();
       expect(signAsync).not.toHaveBeenCalled();
@@ -773,19 +793,9 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       // while this login waited. The authoritative snapshot predicate no
       // longer resolves, so stale authentication cannot mint a replacement.
       finishCredentialFence(null);
-      await expect(mint).rejects.toThrow('User credentials changed during token issuance');
+      await expect(mint).rejects.toThrow('User credentials changed during authentication');
 
-      expect(credentialUserLockFindOne).toHaveBeenCalledWith({
-        select: { id: true },
-        where: {
-          id: authenticatedSnapshot.id,
-          role: authenticatedSnapshot.role,
-          tenantId: authenticatedSnapshot.tenantId,
-          isActive: true,
-          updatedAt: authenticatedAt,
-        },
-        lock: { mode: 'pessimistic_write' },
-      });
+      expect(credentialUserLockFindOne).toHaveBeenCalledWith({ where: { id: authenticatedSnapshot.id }, lock: { mode: 'pessimistic_write' } });
       expect(refreshSave).not.toHaveBeenCalled();
       expect(createSession).not.toHaveBeenCalled();
     });
@@ -796,7 +806,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       isTokenValid.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
       service = await createService();
 
-      const mintPromise = service.generateTokens(buildUser({}));
+      const mintPromise = mint(service, buildUser({}));
       await Promise.resolve();
       await jest.advanceTimersByTimeAsync(101);
       await mintPromise;
@@ -818,24 +828,22 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
 
   // (G) SessionManager path.
   describe('SessionManager path', () => {
-    it('enforces the session limit and creates a session with tenant context', async () => {
+    it('uses durable refresh families without an independent Redis session write', async () => {
       service = await createService({ config: { MAX_SESSIONS_PER_USER: 3 } });
 
       const user = buildUser({});
-      await service.generateTokens(user, '203.0.113.5', 'jest-agent');
+      await mint(service, user, '203.0.113.5', 'jest-agent');
 
-      expect(enforceSessionLimit).toHaveBeenCalledWith(user.id, 3);
-      expect(createSession).toHaveBeenCalledWith(user.id, {
-        ipAddress: '203.0.113.5',
-        userAgent: 'jest-agent',
-        tenantId: VALID_TENANT_ID,
-      });
+      expect(enforceSessionLimit).not.toHaveBeenCalled();
+      expect(createSession).not.toHaveBeenCalled();
+      expect(refreshSave).toHaveBeenCalledWith(expect.objectContaining({ userId: user.id,
+        tenantId: VALID_TENANT_ID, familyId: expect.any(String) }));
     });
 
     it('does not enforce or establish a session during refresh-token rotation', async () => {
       service = await createService({ config: { MAX_SESSIONS_PER_USER: 3 } });
 
-      await service.generateTokens(buildUser({}), undefined, undefined, {
+      await mint(service, buildUser({}), undefined, undefined, {
         establishSession: false,
       });
 
@@ -846,114 +854,95 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
   });
 
   describe('transaction-scoped refresh-token persistence', () => {
-    it('persists the replacement row through the active EntityManager repository', async () => {
+    it('uses the context manager for every claim read and refresh insertion', async () => {
       service = await createService();
-      const transactionDataSource = new DataSource({ type: 'postgres' });
-      const transactionManager = transactionDataSource.manager;
-      const scopedCreate = jest.fn((value: Partial<RefreshToken>) =>
-        Object.assign(new RefreshToken(), value),
-      );
-      const scopedSave = jest.fn().mockResolvedValue(new RefreshToken());
-      const scopedRepository = Object.assign(
-        new Repository<RefreshToken>(RefreshToken, transactionManager),
-        { create: scopedCreate, save: scopedSave },
-      );
-      const lockedUserFindOne = jest.fn().mockResolvedValue({ id: 'locked-user' });
-      const scopedUserRepository = Object.assign(new Repository<User>(User, transactionManager), {
-        findOne: lockedUserFindOne,
+      const principal = buildUser({ role: Role.MODULE_USER });
+      principalForMint = Object.assign(principal, { credentialVersion: 1, accessTokenInvalidBeforeEpochSeconds: 0, isActive: true });
+      const query = buildQueryRouter();
+      const harness = makeTransactionalDataSource(query);
+      const context = await LockedAuthContext.lock(harness.manager, snapshotCredentialProof(principal));
+      const scopedSave = jest.fn().mockResolvedValue(undefined);
+      const scopedRepository = Object.assign(new Repository<RefreshToken>(RefreshToken, harness.manager), {
+        create: jest.fn((value: Partial<RefreshToken>) => Object.assign(new RefreshToken(), value)), save: scopedSave,
       });
-      const withRepository = jest
-        .spyOn(transactionManager, 'withRepository')
-        .mockReturnValueOnce(scopedUserRepository)
-        .mockReturnValueOnce(scopedRepository);
-
-      await service.generateTokens(buildUser({ role: Role.TENANT_ADMIN }), undefined, undefined, {
-        manager: transactionManager,
-        establishSession: false,
+      const withRepository = jest.mocked(harness.manager.withRepository);
+      withRepository.mockImplementation((repository) => {
+        if (repository.save === refreshSave) return scopedRepository;
+        return repository;
       });
-
-      expect(lockedUserFindOne).toHaveBeenCalledWith({
-        select: { id: true },
-        where: {
-          id: '11111111-1111-1111-1111-111111111111',
-          role: Role.TENANT_ADMIN,
-          tenantId: VALID_TENANT_ID,
-          isActive: true,
-        },
-        lock: { mode: 'pessimistic_write' },
-      });
-      expect(withRepository).toHaveBeenNthCalledWith(
-        1,
-        expect.objectContaining({ findOne: expect.any(Function) }),
-      );
-      expect(withRepository).toHaveBeenNthCalledWith(
-        2,
-        expect.objectContaining({ save: refreshSave }),
-      );
-      expect(scopedCreate).toHaveBeenCalledTimes(1);
-      expect(scopedSave).toHaveBeenCalledTimes(1);
+      await service.generateTokensInContext(context, undefined, undefined, { establishSession: false, familyId: 'same-family' });
+      expect(query).toHaveBeenCalledWith(expect.stringContaining('user_role_assignments'), [principal.id, principal.tenantId]);
+      expect(scopedSave).toHaveBeenCalledWith(expect.objectContaining({ familyId: 'same-family' }));
       expect(refreshSave).not.toHaveBeenCalled();
-      expect(enforceSessionLimit).not.toHaveBeenCalled();
-      expect(createSession).not.toHaveBeenCalled();
+      expect(siteSnapshotTransaction).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('permanent credential-state admission', () => {
+    it('evicts all history of the oldest active family before a new family is inserted', async () => {
+      const router = buildQueryRouter();
+      const query = jest.fn((sql: string, params?: unknown[]) => {
+        if (sql.includes('GROUP BY "familyId"')) return Promise.resolve([
+          { familyId: 'old-family' }, { familyId: 'second-family' }, { familyId: 'third-family' },
+        ]);
+        return router(sql, params);
+      });
+      service = await createService({ query, config: { MAX_SESSIONS_PER_USER: 3 } });
+      const user = buildUser({});
+      await mint(service, user);
+      const terminalWrites = query.mock.calls.filter(([sql]) => String(sql).includes("'Session limit exceeded'"));
+      expect(terminalWrites).toHaveLength(1);
+      expect(terminalWrites[0]?.[0]).not.toContain('"isRevoked" = false');
+      expect(terminalWrites[0]?.[1]).toEqual([user.id, 'old-family']);
     });
 
-    it('reuses the active EntityManager for the site-authorization snapshot', async () => {
+    it('uses the durable DB cutoff even before its Redis outbox projection arrives', async () => {
+      const now = Date.parse('2026-09-01T12:00:00.500Z');
+      jest.useFakeTimers({ now });
       service = await createService();
-      const transactionDataSource = new DataSource({ type: 'postgres' });
-      const transactionManager = transactionDataSource.manager;
-      const lockedUserFindOne = jest.fn().mockResolvedValue({ id: 'locked-user' });
-      const scopedUserRepository = Object.assign(new Repository<User>(User, transactionManager), {
-        findOne: lockedUserFindOne,
-      });
-      const siteAssignments = makeSiteAssignmentRepository(jest.fn().mockResolvedValue([]));
-      const scopedSiteRepository = Object.assign(
-        new Repository<UserSiteAssignment>(UserSiteAssignment, transactionManager),
-        { createQueryBuilder: siteAssignments.repository.createQueryBuilder },
-      );
-      const scopedRefreshRepository = Object.assign(
-        new Repository<RefreshToken>(RefreshToken, transactionManager),
-        {
-          create: jest.fn((value: Partial<RefreshToken>) =>
-            Object.assign(new RefreshToken(), value),
-          ),
-          save: jest.fn().mockResolvedValue(new RefreshToken()),
-        },
-      );
-      const withRepository = jest
-        .spyOn(transactionManager, 'withRepository')
-        .mockReturnValueOnce(scopedUserRepository)
-        .mockReturnValueOnce(scopedSiteRepository)
-        .mockReturnValueOnce(scopedRefreshRepository);
+      const promise = mint(service, buildUser({ accessTokenInvalidBeforeEpochSeconds: Math.floor(now / 1000) }));
+      await jest.advanceTimersByTimeAsync(501);
+      await promise;
+      expect(capturedPayload().iat).toBe(Math.floor(now / 1000) + 1);
+    });
 
-      await service.generateTokens(buildUser({ role: Role.MODULE_USER }), undefined, undefined, {
-        manager: transactionManager,
-        establishSession: false,
-      });
+    it('does not mint through a context whose transaction has ended', async () => {
+      service = await createService();
+      principalForMint = Object.assign(buildUser({}), { credentialVersion: 1, accessTokenInvalidBeforeEpochSeconds: 0, isActive: true });
+      const harness = makeTransactionalDataSource(buildQueryRouter());
+      const context = await LockedAuthContext.lock(harness.manager, snapshotCredentialProof(principalForMint));
+      if (!harness.manager.queryRunner) throw new Error('Missing test query runner');
+      harness.manager.queryRunner.isTransactionActive = false;
+      await expect(service.generateTokensInContext(context)).rejects.toThrow('active transaction');
+      expect(refreshSave).not.toHaveBeenCalled();
+    });
 
-      expect(siteSnapshotTransaction).not.toHaveBeenCalled();
-      expect(lockedUserFindOne).toHaveBeenCalledWith({
-        select: { id: true },
-        where: {
-          id: '11111111-1111-1111-1111-111111111111',
-          role: Role.MODULE_USER,
-          tenantId: VALID_TENANT_ID,
-          isActive: true,
-        },
-        lock: { mode: 'pessimistic_write' },
+    it('signs RS256 access and step-up tokens with absolute expiry and retains revocation identity', async () => {
+      const { privateKey, publicKey } = generateKeyPairSync('rsa', {
+        modulusLength: 2048, privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+        publicKeyEncoding: { type: 'spki', format: 'pem' },
       });
-      expect(withRepository).toHaveBeenNthCalledWith(
-        1,
-        expect.objectContaining({ findOne: expect.any(Function) }),
-      );
-      expect(withRepository).toHaveBeenNthCalledWith(
-        2,
-        expect.objectContaining({ createQueryBuilder: expect.any(Function) }),
-      );
-      expect(withRepository).toHaveBeenNthCalledWith(
-        3,
-        expect.objectContaining({ save: refreshSave }),
-      );
-      expect(scopedRefreshRepository.save).toHaveBeenCalledTimes(1);
+      const jwt = new JwtService({ privateKey, publicKey, signOptions: {
+        algorithm: 'RS256', issuer: 'aquaculture-platform', audience: 'aquaculture-platform',
+      } });
+      service = await createService({ jwtService: jwt, config: { JWT_PRIVATE_KEY: privateKey, JWT_PUBLIC_KEY: publicKey } });
+      const user = buildUser({ role: Role.SUPER_ADMIN, tenantId: null });
+      const initial = await mint(service, user);
+      const initialPayload = await jwt.verifyAsync<JwtPayload>(initial.accessToken, { algorithms: ['RS256'] });
+      if (!initialPayload.jti || !initialPayload.iat || !initialPayload.exp) throw new Error('Missing signed session identity');
+      const harness = makeTransactionalDataSource(buildQueryRouter());
+      const context = await LockedAuthContext.lock(harness.manager, snapshotCredentialProof(user));
+      const initialInserts = refreshSave.mock.calls.length;
+      const elevated = await service.generateStepUpInContext(context, {
+        sub: user.id, role: user.role, tenantId: null,
+        jti: initialPayload.jti, iat: initialPayload.iat, exp: initialPayload.exp,
+      });
+      const elevatedPayload = await jwt.verifyAsync<JwtPayload>(elevated.accessToken, { algorithms: ['RS256'] });
+      expect(elevatedPayload).toMatchObject({ jti: initialPayload.jti, iat: initialPayload.iat, mfaVerified: true });
+      expect(elevatedPayload.exp).toBeLessThanOrEqual(initialPayload.exp);
+      expect(elevatedPayload.exp).toBeLessThanOrEqual(Math.floor(Date.now() / 1000) + 300);
+      expect(elevated.refreshToken).toBe('');
+      expect(refreshSave).toHaveBeenCalledTimes(initialInserts);
     });
   });
 
@@ -966,7 +955,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       service = await createService({ config: { HASH_REFRESH_TOKENS: true } });
 
       const user = buildUser({});
-      const result = await service.generateTokens(user);
+      const result = await mint(service, user);
 
       expect(mockBcryptHash).toHaveBeenCalledTimes(1);
       const savedRow = refreshSave.mock.calls[0]?.[0] as { token: string; tokenId: string };
@@ -990,7 +979,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
     it('stamps mfaVerified=true only when the option is set', async () => {
       service = await createService();
 
-      await service.generateTokens(buildUser({}), undefined, undefined, {
+      await mint(service, buildUser({}), undefined, undefined, {
         mfaVerified: true,
       });
       expect(capturedPayload().mfaVerified).toBe(true);
@@ -999,7 +988,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
     it('omits mfaVerified when the option is absent', async () => {
       service = await createService();
 
-      await service.generateTokens(buildUser({}));
+      await mint(service, buildUser({}));
       expect('mfaVerified' in capturedPayload()).toBe(false);
     });
   });
@@ -1015,7 +1004,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
         config: { REFRESH_TOKEN_EXPIRY_DAYS: 7, REMEMBER_ME_REFRESH_TOKEN_EXPIRY_DAYS: 30 },
       });
 
-      const result = await service.generateTokens(buildUser({}), undefined, undefined, {
+      const result = await mint(service, buildUser({}), undefined, undefined, {
         rememberMe: true,
       });
 
@@ -1031,7 +1020,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
         config: { REFRESH_TOKEN_EXPIRY_DAYS: 7, REMEMBER_ME_REFRESH_TOKEN_EXPIRY_DAYS: 30 },
       });
 
-      const result = await service.generateTokens(buildUser({}));
+      const result = await mint(service, buildUser({}));
 
       const savedRow = refreshSave.mock.calls[0]?.[0] as { rememberMe: boolean; expiresAt: Date };
       expect(savedRow.rememberMe).toBe(false);
@@ -1069,7 +1058,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
     it('reads the policy in the SAME auth.tenants statement as the plan claim', async () => {
       service = await createService({ query: routerWithPolicy(60) });
 
-      await service.generateTokens(buildUser({}));
+      await mint(service, buildUser({}));
 
       const tenantReads = query.mock.calls
         .map((call) => call[0] as unknown)
@@ -1088,7 +1077,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
         config: { REFRESH_TOKEN_EXPIRY_DAYS: 7, REMEMBER_ME_REFRESH_TOKEN_EXPIRY_DAYS: 30 },
       });
 
-      await service.generateTokens(buildUser({}));
+      await mint(service, buildUser({}));
 
       const savedRow = refreshSave.mock.calls[0]?.[0] as { expiresAt: Date };
       expect(minutesFromNow(savedRow.expiresAt)).toBeGreaterThan(29);
@@ -1101,7 +1090,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
         config: { REFRESH_TOKEN_EXPIRY_DAYS: 7, REMEMBER_ME_REFRESH_TOKEN_EXPIRY_DAYS: 30 },
       });
 
-      const result = await service.generateTokens(buildUser({}), undefined, undefined, {
+      const result = await mint(service, buildUser({}), undefined, undefined, {
         rememberMe: true,
       });
 
@@ -1119,7 +1108,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
         config: { REFRESH_TOKEN_EXPIRY_DAYS: 7, REMEMBER_ME_REFRESH_TOKEN_EXPIRY_DAYS: 30 },
       });
 
-      await service.generateTokens(buildUser({}));
+      await mint(service, buildUser({}));
 
       const savedRow = refreshSave.mock.calls[0]?.[0] as { expiresAt: Date };
       expect(minutesFromNow(savedRow.expiresAt)).toBeGreaterThan(7 * 24 * 60 - 1);
@@ -1131,7 +1120,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
         config: { REFRESH_TOKEN_EXPIRY_DAYS: 0.5, REMEMBER_ME_REFRESH_TOKEN_EXPIRY_DAYS: 30 },
       });
 
-      await service.generateTokens(buildUser({}));
+      await mint(service, buildUser({}));
 
       const savedRow = refreshSave.mock.calls[0]?.[0] as { expiresAt: Date };
       // MIN wins: 0.5 day (720 min) is shorter than the 1440-minute policy.
@@ -1143,7 +1132,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       // five of seven mint paths omitted. Pin that generateTokens takes exactly
       // (user, ipAddress, userAgent, options) and that the options bag carries
       // no timeout knob — a caller has nothing to pass and nothing to forget.
-      expect(TokenService.prototype.generateTokens).toHaveLength(4);
+      expect(TokenService.prototype.generateTokens).toHaveLength(3);
       const source = TokenService.prototype.generateTokens.toString();
       expect(source).not.toMatch(/sessionTimeout/i);
     });
@@ -1187,6 +1176,7 @@ describe('TokenService — assignedSiteIds + mobileFeatures claims (SEC-HIGH-051
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TokenService,
+        { provide: TOKEN_BLACKLIST, useValue: { isBlacklisted: jest.fn().mockResolvedValue(false), add: jest.fn() } },
         {
           provide: getRepositoryToken(User),
           useValue: transactionHarness.userRepository,
@@ -1239,19 +1229,10 @@ describe('TokenService — assignedSiteIds + mobileFeatures claims (SEC-HIGH-051
 
   it('stamps assignedSiteIds from active, non-expired assignments for a MODULE_USER', async () => {
     service = await buildService();
-    await service.generateTokens(buildUser({ role: Role.MODULE_USER }));
+    await mint(service, buildUser({ role: Role.MODULE_USER }));
 
     expect(capturedPayload().assignedSiteIds).toEqual(['site-a', 'site-b']);
-    expect(lockedUserFindOne).toHaveBeenCalledWith({
-      select: { id: true },
-      where: {
-        id: USER,
-        role: Role.MODULE_USER,
-        tenantId: TENANT,
-        isActive: true,
-      },
-      lock: { mode: 'pessimistic_write' },
-    });
+    expect(lockedUserFindOne).toHaveBeenCalledWith({ where: { id: USER }, lock: { mode: 'pessimistic_write' } });
     expect(siteQueryBuilder.where).toHaveBeenCalledWith('assignment.userId = :userId', {
       userId: USER,
     });
@@ -1270,12 +1251,12 @@ describe('TokenService — assignedSiteIds + mobileFeatures claims (SEC-HIGH-051
     ]);
     service = await buildService();
 
-    const result = await service.generateTokens(buildUser({ role: Role.MODULE_USER }));
+    const result = await mint(service, buildUser({ role: Role.MODULE_USER }));
 
     expect(capturedPayload().assignedSiteIds).toEqual(['site-long', 'site-short']);
     expect(signAsync).toHaveBeenCalledWith(
-      expect.objectContaining({ iat: now / 1000 }),
-      expect.objectContaining({ expiresIn: 120 }),
+      expect.objectContaining({ iat: now / 1000, exp: now / 1000 + 120 }),
+      expect.not.objectContaining({ expiresIn: expect.anything() }),
     );
     expect(result.expiresIn).toBe(120);
     dateNow.mockRestore();
@@ -1289,7 +1270,7 @@ describe('TokenService — assignedSiteIds + mobileFeatures claims (SEC-HIGH-051
     ]);
     service = await buildService();
 
-    await service.generateTokens(buildUser({ role: Role.MODULE_USER }));
+    await mint(service, buildUser({ role: Role.MODULE_USER }));
 
     expect('assignedSiteIds' in capturedPayload()).toBe(false);
     dateNow.mockRestore();
@@ -1297,20 +1278,20 @@ describe('TokenService — assignedSiteIds + mobileFeatures claims (SEC-HIGH-051
 
   it('projects ONLY the truthy allowedFeatures keys into mobileFeatures (single read path)', async () => {
     service = await buildService();
-    await service.generateTokens(buildUser({ role: Role.MODULE_USER }));
+    await mint(service, buildUser({ role: Role.MODULE_USER }));
 
     const features = capturedPayload().mobileFeatures ?? [];
     expect(features.sort()).toEqual(['harvest', 'leave', 'mortality']);
     // cull=false must NOT appear.
     expect(features).not.toContain('cull');
     // MobileSettingsService is the SINGLE read path.
-    expect(getByUserId).toHaveBeenCalledWith(USER, TENANT);
+    expect(getByUserId).toHaveBeenCalledWith(USER, TENANT, expect.any(EntityManager));
   });
 
   it('omits mobileFeatures when mobile is disabled', async () => {
     getByUserId.mockResolvedValue({ isMobileEnabled: false, allowedFeatures: { mortality: true } });
     service = await buildService();
-    await service.generateTokens(buildUser({ role: Role.MODULE_USER }));
+    await mint(service, buildUser({ role: Role.MODULE_USER }));
 
     expect('mobileFeatures' in capturedPayload()).toBe(false);
   });
@@ -1318,14 +1299,14 @@ describe('TokenService — assignedSiteIds + mobileFeatures claims (SEC-HIGH-051
   it('omits assignedSiteIds when the user has no active assignments', async () => {
     siteFind.mockResolvedValue([]);
     service = await buildService();
-    await service.generateTokens(buildUser({ role: Role.MODULE_USER }));
+    await mint(service, buildUser({ role: Role.MODULE_USER }));
 
     expect('assignedSiteIds' in capturedPayload()).toBe(false);
   });
 
   it('omits assignedSiteIds for TENANT_ADMIN (they bypass via the role hierarchy)', async () => {
     service = await buildService();
-    await service.generateTokens(buildUser({ role: Role.TENANT_ADMIN }));
+    await mint(service, buildUser({ role: Role.TENANT_ADMIN }));
 
     // TENANT_ADMIN never queries the site assignment repo.
     expect(siteFind).not.toHaveBeenCalled();
@@ -1334,7 +1315,7 @@ describe('TokenService — assignedSiteIds + mobileFeatures claims (SEC-HIGH-051
 
   it('omits legacy assignedSiteIds for MODULE_MANAGER (tenant-wide bypass)', async () => {
     service = await buildService();
-    await service.generateTokens(buildUser({ role: Role.MODULE_MANAGER }));
+    await mint(service, buildUser({ role: Role.MODULE_MANAGER }));
 
     expect(siteFind).not.toHaveBeenCalled();
     expect('assignedSiteIds' in capturedPayload()).toBe(false);
@@ -1342,7 +1323,7 @@ describe('TokenService — assignedSiteIds + mobileFeatures claims (SEC-HIGH-051
 
   it('signs with the keyid header SSoT untouched (no RS256/JWKS change)', async () => {
     service = await buildService();
-    await service.generateTokens(buildUser({ role: Role.MODULE_USER }));
+    await mint(service, buildUser({ role: Role.MODULE_USER }));
 
     // The signing call must still pass keyid + audience — adding claims to the
     // payload must not have altered the signing options path.

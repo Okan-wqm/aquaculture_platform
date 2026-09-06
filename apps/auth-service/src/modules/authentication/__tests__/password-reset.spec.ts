@@ -8,17 +8,18 @@ import {
   TOKEN_BLACKLIST,
   USER_TOKEN_REVOCATION,
 } from '@aquaculture/backend-common/security';
-import { BadRequestException, Logger } from '@nestjs/common';
+import { BadRequestException } from '@nestjs/common';
+import { OutboxPublisher } from '@platform/outbox';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { DataSource, SelectQueryBuilder } from 'typeorm';
+import { DataSource } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { BestEffortEventPublisher } from '../../../outbox/best-effort-event-publisher';
 import { Tenant } from '../../tenant/entities/tenant.entity';
-import { ActionToken } from '../entities/action-token.entity';
+import { ActionToken, ActionTokenPurpose, ActionTokenStatus } from '../entities/action-token.entity';
 import { Invitation } from '../entities/invitation.entity';
 import { RefreshToken } from '../entities/refresh-token.entity';
 import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
@@ -40,10 +41,6 @@ interface PasswordResetRequestedEvent {
   resetToken?: unknown;
 }
 
-interface PasswordResetCompletedEvent {
-  eventType: string;
-  userId: string;
-}
 
 // ============================================================================
 // Mock Helpers
@@ -63,6 +60,8 @@ const createMockUser = (overrides: Partial<User> = {}): User => {
     isEmailVerified: true,
     failedLoginAttempts: 0,
     lockedUntil: null,
+    credentialVersion: 1,
+    accessTokenInvalidBeforeEpochSeconds: 0,
     passwordResetToken: null,
     passwordResetExpires: null,
     createdAt: new Date(),
@@ -77,7 +76,7 @@ const createMockUser = (overrides: Partial<User> = {}): User => {
 // ============================================================================
 
 const mockUserRepository = {
-  findOne: jest.fn(),
+  findOne: jest.fn<Promise<User | null>, [options?: unknown]>(),
   save: jest.fn(),
   create: jest.fn(),
   createQueryBuilder: jest.fn(),
@@ -144,7 +143,10 @@ const mockAuditLogService = {
 // WHY: AuthenticationService now injects TokenService (token minting moved
 // there) and MfaService (login MFA branch). Password-reset paths don't mint
 // MFA challenges, but the constructor requires both collaborators.
+const mockOutboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
+
 const mockTokenService = {
+  generateTokensInContext: jest.fn(),
   generateTokens: jest.fn().mockImplementation((user: User) => ({
     accessToken: 'mock-access-token',
     refreshToken: 'mock-refresh-token',
@@ -162,6 +164,12 @@ const mockMfaService = {
 };
 
 const mockTransactionManager = {
+  queryRunner: { isTransactionActive: false },
+  findOne: jest.fn(),
+  update: jest.fn(),
+  create: jest.fn(),
+  save: jest.fn(),
+  withRepository: <T>(repository: T): T => repository,
   getRepository: jest.fn((entity: unknown) => {
     if (entity === User) return mockUserRepository;
     if (entity === RefreshToken) return mockRefreshTokenRepository;
@@ -176,10 +184,8 @@ const mockTransactionManager = {
 };
 
 const mockDataSource = {
-  transaction: jest.fn(
-    async <T>(callback: (manager: typeof mockTransactionManager) => Promise<T>): Promise<T> =>
-      callback(mockTransactionManager),
-  ),
+  manager: mockTransactionManager,
+  transaction: jest.fn(),
   query: jest.fn(),
 };
 
@@ -216,6 +222,48 @@ describe('AuthenticationService - Password Reset Flow', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    mockUserRepository.findOne.mockResolvedValue(null);
+    mockUserRepository.save.mockImplementation(async (user: User): Promise<User> => user);
+    mockAuditLogService.log.mockResolvedValue(undefined);
+    mockOutboxPublisher.enqueue.mockResolvedValue(undefined);
+    mockTokenService.generateTokensInContext.mockResolvedValue(undefined);
+    mockTenantRepository.findOne.mockResolvedValue(Object.assign(new Tenant(), {
+      id: 'tenant-uuid-123', status: 'ACTIVE',
+    }));
+    mockTransactionManager.findOne.mockImplementation((entity: unknown, options: unknown) => {
+      if (entity === User) return mockUserRepository.findOne(options);
+      if (entity === Tenant) return mockTenantRepository.findOne(options);
+      if (entity === ActionToken) return mockActionTokenRepository.findOne(options);
+      if (entity === Invitation) return mockInvitationRepository.findOne(options);
+      throw new Error('Unexpected credential-action entity');
+    });
+    mockTransactionManager.create.mockImplementation((entity: unknown, values: Record<string, unknown>) => {
+      if (entity === ActionToken) return mockActionTokenRepository.create(values);
+      throw new Error('Unexpected credential-action insert');
+    });
+    mockTransactionManager.save.mockImplementation((entity: unknown, values: Record<string, unknown>) => {
+      if (entity === ActionToken) return mockActionTokenRepository.save(values);
+      throw new Error('Unexpected credential-action save');
+    });
+    mockTransactionManager.update.mockImplementation(async (entity: unknown, criteria: unknown, values: Partial<User>) => {
+      if (entity === User) {
+        const current = await mockUserRepository.findOne();
+        if (current) {
+          const updated = Object.assign(new User(), current, values);
+          if (values.password !== undefined && values.password !== current.password) {
+            updated.credentialVersion = current.credentialVersion + 1;
+          }
+          mockUserRepository.findOne.mockResolvedValue(updated);
+        }
+      }
+      if (entity === RefreshToken) return mockRefreshTokenRepository.update(criteria, values);
+      return { affected: 1 };
+    });
+    mockDataSource.transaction.mockImplementation(async <T>(callback: (manager: typeof mockTransactionManager) => Promise<T>): Promise<T> => {
+      mockTransactionManager.queryRunner.isTransactionActive = true;
+      try { return await callback(mockTransactionManager); }
+      finally { mockTransactionManager.queryRunner.isTransactionActive = false; }
+    });
     mockActionTokenRepository.create.mockImplementation((data: Record<string, unknown>) => ({
       ...data,
     }));
@@ -269,6 +317,7 @@ describe('AuthenticationService - Password Reset Flow', () => {
           useValue: new BestEffortEventPublisher(mockEventBus),
         },
         { provide: AuditLogService, useValue: mockAuditLogService },
+        { provide: OutboxPublisher, useValue: mockOutboxPublisher },
         { provide: TokenService, useValue: mockTokenService },
         {
           provide: DurableAccessTokenInvalidationService,
@@ -310,9 +359,13 @@ describe('AuthenticationService - Password Reset Flow', () => {
 
       await service.initiatePasswordReset('test@example.com');
 
-      // Verify save was called with hashed token (SHA-256 hex = 64 chars)
-      expect(mockUserRepository.save).toHaveBeenCalledTimes(1);
-      const [savedUser] = mockUserRepository.save.mock.calls[0] as [User];
+      expect(mockUserRepository.save).not.toHaveBeenCalled();
+      const savedUser = await mockUserRepository.findOne();
+      if (!savedUser) throw new Error('User disappeared after reset request');
+      expect(mockTransactionManager.update).toHaveBeenCalledWith(User, { id: user.id }, {
+        passwordResetToken: savedUser.passwordResetToken,
+        passwordResetExpires: savedUser.passwordResetExpires,
+      });
       expect(savedUser.passwordResetToken).toBeDefined();
       expect(savedUser.passwordResetToken).toHaveLength(64); // SHA-256 hex digest
       const resetExpires = savedUser.passwordResetExpires;
@@ -331,8 +384,8 @@ describe('AuthenticationService - Password Reset Flow', () => {
       await service.initiatePasswordReset('test@example.com');
       const after = Date.now();
 
-      const saveCalls = mockUserRepository.save.mock.calls as readonly (readonly unknown[])[];
-      const savedUser = saveCalls[0]?.[0] as User;
+      const savedUser = await mockUserRepository.findOne();
+      if (!savedUser) throw new Error('User disappeared after reset request');
       const resetExpires = savedUser.passwordResetExpires;
       if (!(resetExpires instanceof Date)) {
         throw new Error('passwordResetExpires was not persisted as a Date');
@@ -417,13 +470,14 @@ describe('AuthenticationService - Password Reset Flow', () => {
           entityType: 'User',
           entityId: 'user-uuid-123',
         }),
+        undefined,
       );
     });
 
     it('should swallow errors and not propagate them (security)', async () => {
       const user = createMockUser();
       mockUserRepository.findOne.mockResolvedValue(user);
-      mockUserRepository.save.mockRejectedValue(new Error('DB error'));
+      mockTransactionManager.update.mockRejectedValueOnce(new Error('DB error'));
 
       // Should NOT throw
       await expect(service.initiatePasswordReset('test@example.com')).resolves.toBeUndefined();
@@ -434,319 +488,141 @@ describe('AuthenticationService - Password Reset Flow', () => {
   // resetPassword
   // ==========================================================================
   describe('resetPassword', () => {
-    const plainToken = crypto.randomBytes(32).toString('hex');
+    const plainToken = 'a'.repeat(64);
     const tokenHash = crypto.createHash('sha256').update(plainToken).digest('hex');
 
-    let mockQueryBuilder: Partial<SelectQueryBuilder<User>>;
+    function validUser(overrides: Partial<User> = {}): User {
+      const user = createMockUser({ passwordResetToken: tokenHash,
+        passwordResetExpires: new Date(Date.now() + 3_600_000), ...overrides });
+      mockUserRepository.findOne.mockResolvedValue(user);
+      return user;
+    }
 
-    beforeEach(() => {
-      mockQueryBuilder = {
-        setLock: jest.fn().mockReturnThis(),
-        where: jest.fn().mockReturnThis(),
-        andWhere: jest.fn().mockReturnThis(),
-        getOne: jest.fn(),
-      };
-      mockUserRepository.createQueryBuilder.mockReturnValue(mockQueryBuilder);
-    });
-
-    it('should reset password for valid token', async () => {
-      const user = createMockUser({
-        passwordResetToken: tokenHash,
-        passwordResetExpires: new Date(Date.now() + 60 * 60 * 1000),
+    it('commits the password action and returns an explicit login requirement', async () => {
+      const original = validUser();
+      await expect(service.resetPassword(plainToken, 'NewPass123!')).resolves.toEqual({
+        success: true, loginRequired: true,
       });
-      (mockQueryBuilder.getOne as jest.Mock).mockResolvedValue(user);
-      mockUserRepository.save.mockResolvedValue(user);
-      mockRefreshTokenRepository.update.mockResolvedValue({ affected: 1 });
-      mockRefreshTokenRepository.create.mockReturnValue({ id: 'rt-1' });
-      mockRefreshTokenRepository.save.mockResolvedValue({ id: 'rt-1' });
-      mockUserModuleAssignmentRepository.find.mockResolvedValue([]);
-
-      const result = await service.resetPassword(plainToken, 'NewPass123!');
-
-      expect(result).toBeDefined();
-      expect(result.accessToken).toBe('mock-access-token');
-      expect(result.user).toBe(user);
-    });
-
-    it('should hash token with SHA-256 before database lookup', async () => {
-      const user = createMockUser({
-        passwordResetToken: tokenHash,
-        passwordResetExpires: new Date(Date.now() + 60 * 60 * 1000),
-      });
-      (mockQueryBuilder.getOne as jest.Mock).mockResolvedValue(user);
-      mockUserRepository.save.mockResolvedValue(user);
-      mockRefreshTokenRepository.update.mockResolvedValue({ affected: 1 });
-      mockRefreshTokenRepository.create.mockReturnValue({ id: 'rt-1' });
-      mockRefreshTokenRepository.save.mockResolvedValue({ id: 'rt-1' });
-      mockUserModuleAssignmentRepository.find.mockResolvedValue([]);
-
-      await service.resetPassword(plainToken, 'NewPass123!');
-
-      // Verify createQueryBuilder was used with the hashed token
-      const dateMatcher: unknown = expect.any(Date);
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith(
-        'user.passwordResetExpires > :now',
-        expect.objectContaining({ now: dateMatcher }),
-      );
-      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith(
-        'user.passwordResetToken = :tokenHash',
-        { tokenHash },
-      );
-    });
-
-    it('should clear reset token after successful reset (single-use)', async () => {
-      const user = createMockUser({
-        passwordResetToken: tokenHash,
-        passwordResetExpires: new Date(Date.now() + 60 * 60 * 1000),
-      });
-      (mockQueryBuilder.getOne as jest.Mock).mockResolvedValue(user);
-      mockUserRepository.save.mockResolvedValue(user);
-      mockRefreshTokenRepository.update.mockResolvedValue({ affected: 1 });
-      mockRefreshTokenRepository.create.mockReturnValue({ id: 'rt-1' });
-      mockRefreshTokenRepository.save.mockResolvedValue({ id: 'rt-1' });
-      mockUserModuleAssignmentRepository.find.mockResolvedValue([]);
-
-      await service.resetPassword(plainToken, 'NewPass123!');
-
-      const [savedUser] = mockUserRepository.save.mock.calls[0] as [User];
-      expect(savedUser.passwordResetToken).toBeNull();
-      expect(savedUser.passwordResetExpires).toBeNull();
-    });
-
-    it('should reset account lockout on password reset', async () => {
-      const user = createMockUser({
-        passwordResetToken: tokenHash,
-        passwordResetExpires: new Date(Date.now() + 60 * 60 * 1000),
-        failedLoginAttempts: 5,
-        lockedUntil: new Date(Date.now() + 30 * 60 * 1000),
-      });
-      (mockQueryBuilder.getOne as jest.Mock).mockResolvedValue(user);
-      mockUserRepository.save.mockResolvedValue(user);
-      mockRefreshTokenRepository.update.mockResolvedValue({ affected: 1 });
-      mockRefreshTokenRepository.create.mockReturnValue({ id: 'rt-1' });
-      mockRefreshTokenRepository.save.mockResolvedValue({ id: 'rt-1' });
-      mockUserModuleAssignmentRepository.find.mockResolvedValue([]);
-
-      await service.resetPassword(plainToken, 'NewPass123!');
-
-      const [savedUser] = mockUserRepository.save.mock.calls[0] as [User];
-      expect(savedUser.failedLoginAttempts).toBe(0);
-      expect(savedUser.lockedUntil).toBeNull();
-    });
-
-    it('should revoke all refresh tokens after password reset', async () => {
-      const user = createMockUser({
-        passwordResetToken: tokenHash,
-        passwordResetExpires: new Date(Date.now() + 60 * 60 * 1000),
-      });
-      (mockQueryBuilder.getOne as jest.Mock).mockResolvedValue(user);
-      mockUserRepository.save.mockResolvedValue(user);
-      mockRefreshTokenRepository.update.mockResolvedValue({ affected: 3 });
-      mockRefreshTokenRepository.create.mockReturnValue({ id: 'rt-1' });
-      mockRefreshTokenRepository.save.mockResolvedValue({ id: 'rt-1' });
-      mockUserModuleAssignmentRepository.find.mockResolvedValue([]);
-
-      await service.resetPassword(plainToken, 'NewPass123!');
-
-      expect(mockRefreshTokenRepository.update).toHaveBeenCalledWith(
-        { userId: 'user-uuid-123', isRevoked: false },
-        expect.objectContaining({
-          isRevoked: true,
-          revokedReason: 'Password reset',
-        }),
-      );
-      expect(mockDurableUserTokenInvalidation.enqueue).toHaveBeenCalledWith(
-        mockTransactionManager,
-        expect.objectContaining({
-          userId: 'user-uuid-123',
-          tenantId: 'tenant-uuid-123',
-          invalidatedAt: expect.any(Date),
-          reason: 'password_reset',
-        }),
-      );
-      const intent = mockDurableUserTokenInvalidation.enqueue.mock.calls[0]?.[1];
-      expect(mockDurableUserTokenInvalidation.applyImmediately).toHaveBeenCalledWith(intent);
-      expect(mockSessionManager.revokeAllSessions).toHaveBeenCalledWith('user-uuid-123');
-    });
-
-    it('should delete all WebAuthn credentials after password reset (SEC-CRITICAL-002 №38b)', async () => {
-      const user = createMockUser({
-        passwordResetToken: tokenHash,
-        passwordResetExpires: new Date(Date.now() + 60 * 60 * 1000),
-      });
-      (mockQueryBuilder.getOne as jest.Mock).mockResolvedValue(user);
-      mockUserRepository.save.mockResolvedValue(user);
-      mockRefreshTokenRepository.update.mockResolvedValue({ affected: 0 });
-      mockRefreshTokenRepository.create.mockReturnValue({ id: 'rt-1' });
-      mockRefreshTokenRepository.save.mockResolvedValue({ id: 'rt-1' });
-      mockUserModuleAssignmentRepository.find.mockResolvedValue([]);
-
-      await service.resetPassword(plainToken, 'NewPass123!');
-
-      // A biometric credential planted with a stolen token must NOT survive
-      // the victim rotating their password.
-      expect(mockTransactionManager.delete).toHaveBeenCalledWith(WebAuthnCredential, {
-        userId: 'user-uuid-123',
-      });
-    });
-
-    it('fails closed before commit when password-reset invalidation cannot be enqueued', async () => {
-      const user = createMockUser({
-        passwordResetToken: tokenHash,
-        passwordResetExpires: new Date(Date.now() + 60 * 60 * 1000),
-      });
-      (mockQueryBuilder.getOne as jest.Mock).mockResolvedValue(user);
-      mockUserRepository.save.mockResolvedValue(user);
-      mockRefreshTokenRepository.update.mockResolvedValue({ affected: 1 });
-      mockDurableUserTokenInvalidation.enqueue.mockRejectedValueOnce(
-        new Error('outbox unavailable'),
-      );
-
-      await expect(service.resetPassword(plainToken, 'NewPass123!')).rejects.toThrow(
-        'outbox unavailable',
-      );
-
-      expect(mockDurableUserTokenInvalidation.applyImmediately).not.toHaveBeenCalled();
-      expect(mockSessionManager.revokeAllSessions).not.toHaveBeenCalled();
+      const stored = await mockUserRepository.findOne();
+      expect(stored).toMatchObject({ id: original.id, passwordResetToken: null,
+        passwordResetExpires: null, credentialVersion: original.credentialVersion + 1 });
+      if (!stored) throw new Error('Reset user disappeared');
+      expect(stored.password).not.toBe('NewPass123!');
+      expect(stored.password).not.toBe(original.password);
+      expect(mockUserRepository.save).not.toHaveBeenCalled();
       expect(mockTokenService.generateTokens).not.toHaveBeenCalled();
+      expect(mockTokenService.generateTokensInContext).not.toHaveBeenCalled();
+      expect(mockMfaService.generateMfaChallenge).not.toHaveBeenCalled();
+      expect(mockDurableUserTokenInvalidation.applyImmediately).not.toHaveBeenCalled();
+      expect(mockUserTokenRevocation.revokeUserTokens).not.toHaveBeenCalled();
     });
 
-    it('returns tokens after commit when immediate password-reset effects fail', async () => {
-      const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
-      const user = createMockUser({
-        passwordResetToken: tokenHash,
-        passwordResetExpires: new Date(Date.now() + 60 * 60 * 1000),
-      });
-      (mockQueryBuilder.getOne as jest.Mock).mockResolvedValue(user);
-      mockUserRepository.save.mockResolvedValue(user);
-      mockRefreshTokenRepository.update.mockResolvedValue({ affected: 1 });
-      mockDurableUserTokenInvalidation.applyImmediately.mockRejectedValueOnce(
-        new TypeError('redis unavailable for user-uuid-123'),
-      );
-      mockSessionManager.revokeAllSessions.mockRejectedValueOnce(
-        new RangeError('session store unavailable for user-uuid-123'),
-      );
-
-      await expect(service.resetPassword(plainToken, 'NewPass123!')).resolves.toMatchObject({
-        accessToken: 'mock-access-token',
-        refreshToken: 'mock-refresh-token',
-      });
-
-      expect(mockDurableUserTokenInvalidation.enqueue).toHaveBeenCalledTimes(1);
-      const [serializedLog] = errorSpy.mock.calls.at(-1) ?? [];
-      expect(JSON.parse(String(serializedLog))).toEqual({
-        event: 'post_commit_security_effect_failed',
-        operation: 'password_reset',
-        failedCount: 2,
-        effectCount: 2,
-        failedEffectTypes: ['user_token_invalidation', 'session_revocation'],
-        errorTypes: ['TypeError', 'RangeError'],
-      });
-      expect(String(serializedLog)).not.toContain('user-uuid-123');
-      expect(String(serializedLog)).not.toContain('unavailable');
-      errorSpy.mockRestore();
-    });
-
-    it('should throw BadRequestException for invalid token', async () => {
-      (mockQueryBuilder.getOne as jest.Mock).mockResolvedValue(null);
-
-      await expect(service.resetPassword('invalid-token', 'NewPass123!')).rejects.toThrow(
-        BadRequestException,
-      );
-    });
-
-    it('should throw BadRequestException for expired token', async () => {
-      // The query already filters by passwordResetExpires > NOW(),
-      // so expired token results in null from getOne
-      (mockQueryBuilder.getOne as jest.Mock).mockResolvedValue(null);
-
-      await expect(service.resetPassword(plainToken, 'NewPass123!')).rejects.toThrow(
-        BadRequestException,
-      );
-    });
-
-    it('should throw BadRequestException for inactive user', async () => {
-      const user = createMockUser({
-        isActive: false,
-        passwordResetToken: tokenHash,
-        passwordResetExpires: new Date(Date.now() + 60 * 60 * 1000),
-      });
-      (mockQueryBuilder.getOne as jest.Mock).mockResolvedValue(user);
-
-      await expect(service.resetPassword(plainToken, 'NewPass123!')).rejects.toThrow(
-        BadRequestException,
-      );
-    });
-
-    it('should publish PasswordResetCompleted event', async () => {
-      const user = createMockUser({
-        passwordResetToken: tokenHash,
-        passwordResetExpires: new Date(Date.now() + 60 * 60 * 1000),
-      });
-      (mockQueryBuilder.getOne as jest.Mock).mockResolvedValue(user);
-      mockUserRepository.save.mockResolvedValue(user);
-      mockRefreshTokenRepository.update.mockResolvedValue({ affected: 1 });
-      mockRefreshTokenRepository.create.mockReturnValue({ id: 'rt-1' });
-      mockRefreshTokenRepository.save.mockResolvedValue({ id: 'rt-1' });
-      mockUserModuleAssignmentRepository.find.mockResolvedValue([]);
-
+    it('uses the random link token hash and refuses reuse after successful completion', async () => {
+      validUser();
       await service.resetPassword(plainToken, 'NewPass123!');
-
-      const publishCalls = mockEventBus.publish.mock.calls as readonly (readonly unknown[])[];
-      const resetCompletedEvent = publishCalls.find((call) => {
-        const payload = call[0];
-        return (
-          typeof payload === 'object' &&
-          payload !== null &&
-          (payload as { eventType?: unknown }).eventType === 'PasswordResetCompleted'
-        );
+      expect(mockTransactionManager.findOne).toHaveBeenCalledWith(User, {
+        where: [{ passwordResetToken: tokenHash }, { passwordResetToken: plainToken }],
       });
-      if (!resetCompletedEvent) {
-        throw new Error('PasswordResetCompleted event was not published');
-      }
-      const completedEvent = resetCompletedEvent[0] as PasswordResetCompletedEvent;
-      expect(completedEvent.userId).toBe('user-uuid-123');
+      await expect(service.resetPassword(plainToken, 'AnotherPass123!')).rejects.toThrow(BadRequestException);
+      expect(mockOutboxPublisher.enqueue).toHaveBeenCalledTimes(1);
     });
 
-    it('should log PASSWORD_RESET_SUCCESS audit event', async () => {
-      const user = createMockUser({
-        passwordResetToken: tokenHash,
-        passwordResetExpires: new Date(Date.now() + 60 * 60 * 1000),
+    it('resolves and consumes an emailed action id bound to the same principal', async () => {
+      const user = validUser();
+      const action = Object.assign(new ActionToken(), {
+        id: '11111111-1111-4111-8111-111111111111', userId: user.id,
+        tenantId: user.tenantId, purpose: ActionTokenPurpose.PASSWORD_RESET,
+        tokenHash, status: ActionTokenStatus.ACTIVE, expiresAt: new Date(Date.now() + 3_600_000),
       });
-      (mockQueryBuilder.getOne as jest.Mock).mockResolvedValue(user);
-      mockUserRepository.save.mockResolvedValue(user);
-      mockRefreshTokenRepository.update.mockResolvedValue({ affected: 1 });
-      mockRefreshTokenRepository.create.mockReturnValue({ id: 'rt-1' });
-      mockRefreshTokenRepository.save.mockResolvedValue({ id: 'rt-1' });
-      mockUserModuleAssignmentRepository.find.mockResolvedValue([]);
+      mockActionTokenRepository.findOne.mockResolvedValue(action);
+      await expect(service.resetPassword(action.id, 'NewPass123!')).resolves.toEqual({ success: true, loginRequired: true });
+      expect(mockTransactionManager.update).toHaveBeenCalledWith(ActionToken, { id: action.id },
+        expect.objectContaining({ status: ActionTokenStatus.CONSUMED, consumedAt: expect.any(Date) }));
+    });
 
+    it('refuses an action id owned by another user before any credential write', async () => {
+      validUser();
+      const action = Object.assign(new ActionToken(), {
+        id: '11111111-1111-4111-8111-111111111111', userId: 'different-user',
+        tenantId: 'tenant-uuid-123', purpose: ActionTokenPurpose.PASSWORD_RESET,
+        tokenHash, status: ActionTokenStatus.ACTIVE, expiresAt: new Date(Date.now() + 3_600_000),
+      });
+      mockActionTokenRepository.findOne.mockResolvedValue(action);
+      await expect(service.resetPassword(action.id, 'NewPass123!')).rejects.toThrow(BadRequestException);
+      expect(mockTransactionManager.update).not.toHaveBeenCalled();
+      expect(mockOutboxPublisher.enqueue).not.toHaveBeenCalled();
+    });
+
+    it('rejects a missing action id without treating it as a historical raw token', async () => {
+      validUser();
+      await expect(service.resetPassword('11111111-1111-4111-8111-111111111111', 'NewPass123!'))
+        .rejects.toThrow(BadRequestException);
+      expect(mockTransactionManager.update).not.toHaveBeenCalled();
+    });
+
+    it('clears the account lockout as part of credential recovery', async () => {
+      validUser({ failedLoginAttempts: 5, lockedUntil: new Date(Date.now() + 1_800_000) });
+      await service.resetPassword(plainToken, 'NewPass123!');
+      expect(await mockUserRepository.findOne()).toMatchObject({ failedLoginAttempts: 0, lockedUntil: null });
+    });
+
+    it('terminally revokes refresh history and removes WebAuthn credentials inside the action transaction', async () => {
+      const user = validUser();
+      await service.resetPassword(plainToken, 'NewPass123!');
+      expect(mockRefreshTokenRepository.update).toHaveBeenCalledWith({ userId: user.id },
+        expect.objectContaining({ isRevoked: true, revokedReason: 'Password reset' }));
+      expect(mockTransactionManager.delete).toHaveBeenCalledWith(WebAuthnCredential, { userId: user.id });
+      expect(mockDurableUserTokenInvalidation.enqueue).toHaveBeenCalledWith(mockTransactionManager,
+        expect.objectContaining({ userId: user.id, tenantId: user.tenantId,
+          invalidatedAt: expect.any(Date), reason: 'password_reset' }));
+    });
+
+    it('completes recovery for a tenant-less platform account without session admission', async () => {
+      validUser({ tenantId: null, role: Role.SUPER_ADMIN });
+      await expect(service.resetPassword(plainToken, 'NewPass123!')).resolves.toEqual({ success: true, loginRequired: true });
+      expect(mockTokenService.generateTokensInContext).not.toHaveBeenCalled();
+    });
+
+    it('completes despite unavailable Redis and signing services without calling them', async () => {
+      validUser();
+      mockDurableUserTokenInvalidation.applyImmediately.mockRejectedValue(new Error('redis unavailable'));
+      mockTokenService.generateTokensInContext.mockRejectedValue(new Error('signing unavailable'));
+      await expect(service.resetPassword(plainToken, 'NewPass123!')).resolves.toEqual({ success: true, loginRequired: true });
+      expect(mockDurableUserTokenInvalidation.applyImmediately).not.toHaveBeenCalled();
+      expect(mockTokenService.generateTokensInContext).not.toHaveBeenCalled();
+    });
+
+    it('rejects completion if its durable invalidation cannot be recorded', async () => {
+      validUser();
+      mockDurableUserTokenInvalidation.enqueue.mockRejectedValueOnce(new Error('outbox unavailable'));
+      await expect(service.resetPassword(plainToken, 'NewPass123!')).rejects.toThrow('outbox unavailable');
+      expect(mockAuditLogService.log).not.toHaveBeenCalled();
+      expect(mockOutboxPublisher.enqueue).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      { isActive: false },
+      { passwordResetExpires: new Date(0) },
+      { passwordResetToken: 'unrelated-hash' },
+    ])('rejects an ineligible stored action before writing: %j', async (overrides) => {
+      validUser(overrides);
+      await expect(service.resetPassword(plainToken, 'NewPass123!')).rejects.toThrow(BadRequestException);
+      expect(mockTransactionManager.update).not.toHaveBeenCalled();
+    });
+
+    it('rejects an unknown token', async () => {
+      await expect(service.resetPassword('invalid-token', 'NewPass123!')).rejects.toThrow(BadRequestException);
+    });
+
+    it('records completion audit and notification with the action transaction manager', async () => {
+      const user = validUser();
       await service.resetPassword(plainToken, 'NewPass123!', '192.168.1.1');
-
-      expect(mockAuditLogService.log).toHaveBeenCalledWith(
-        expect.objectContaining({
-          action: 'PASSWORD_RESET_SUCCESS',
-          entityType: 'User',
-          entityId: 'user-uuid-123',
-        }),
-      );
-    });
-
-    it('should set new password on user (to be hashed by BeforeUpdate hook)', async () => {
-      const user = createMockUser({
-        passwordResetToken: tokenHash,
-        passwordResetExpires: new Date(Date.now() + 60 * 60 * 1000),
-      });
-      (mockQueryBuilder.getOne as jest.Mock).mockResolvedValue(user);
-      mockUserRepository.save.mockResolvedValue(user);
-      mockRefreshTokenRepository.update.mockResolvedValue({ affected: 1 });
-      mockRefreshTokenRepository.create.mockReturnValue({ id: 'rt-1' });
-      mockRefreshTokenRepository.save.mockResolvedValue({ id: 'rt-1' });
-      mockUserModuleAssignmentRepository.find.mockResolvedValue([]);
-
-      await service.resetPassword(plainToken, 'NewPass123!');
-
-      const [savedUser] = mockUserRepository.save.mock.calls[0] as [User];
-      expect(savedUser.password).toBe('NewPass123!');
+      expect(mockAuditLogService.log).toHaveBeenCalledWith(expect.objectContaining({
+        action: 'PASSWORD_RESET_SUCCESS', entityId: user.id,
+      }), mockTransactionManager);
+      expect(mockOutboxPublisher.enqueue).toHaveBeenCalledWith(expect.objectContaining({
+        eventType: 'PasswordResetCompleted', userId: user.id,
+      }), mockTransactionManager, expect.objectContaining({ aggregateId: user.id }));
     });
   });
 });

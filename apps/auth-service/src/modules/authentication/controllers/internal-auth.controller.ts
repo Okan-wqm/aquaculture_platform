@@ -18,6 +18,7 @@ import { parseFrontendUrl } from '../../../config/frontend-url';
 import { Tenant } from '../../tenant/entities/tenant.entity';
 import { ActionToken, ActionTokenPurpose, ActionTokenStatus } from '../entities/action-token.entity';
 import { Invitation, InvitationStatus } from '../entities/invitation.entity';
+import { LockedAuthContext, snapshotCredentialProof } from '../services/credential-state';
 import { User } from '../entities/user.entity';
 
 @Public()
@@ -148,33 +149,34 @@ export class InternalAuthController {
     const tokenHash = this.hashToken(rawToken);
     const expiresAt = user.invitationExpiresAt ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
-    user.invitationToken = tokenHash;
-    user.invitationExpiresAt = expiresAt;
-    await this.userRepository.save(user);
-
-    const invitation = await this.invitationRepository.findOne({
-      where: {
-        token: currentTokenHash,
-        tenantId: user.tenantId,
-      },
+    await this.userRepository.manager.transaction(async (manager) => {
+      const context = await LockedAuthContext.lock(manager, snapshotCredentialProof(user));
+      if (context.user.invitationToken !== currentTokenHash) throw new NotFoundException('Action token not found');
+      const invitation = await manager.findOne(Invitation, {
+        where: { token: currentTokenHash, tenantId: user.tenantId ?? undefined }, lock: { mode: 'pessimistic_write' },
+      });
+      if (!invitation || !invitation.canBeAccepted()) throw new NotFoundException('Action token not found');
+      await manager.update(User, { id: user.id }, { invitationToken: tokenHash, invitationExpiresAt: expiresAt });
+      await manager.update(Invitation, { id: invitation.id }, {
+        token: tokenHash, status: InvitationStatus.PENDING, expiresAt,
+        lastSentAt: new Date(), sendCount: invitation.sendCount + 1,
+      });
     });
-    if (invitation) {
-      invitation.token = tokenHash;
-      invitation.status = InvitationStatus.PENDING;
-      invitation.expiresAt = expiresAt;
-      invitation.lastSentAt = new Date();
-      invitation.sendCount += 1;
-      await this.invitationRepository.save(invitation);
-    }
 
     return rawToken;
   }
 
   private async rotatePasswordResetToken(user: User): Promise<string> {
     const rawToken = crypto.randomBytes(32).toString('hex');
-    user.passwordResetToken = this.hashToken(rawToken);
-    user.passwordResetExpires = user.passwordResetExpires ?? new Date(Date.now() + 60 * 60 * 1000);
-    await this.userRepository.save(user);
+    await this.userRepository.manager.transaction(async (manager) => {
+      const context = await LockedAuthContext.lock(manager, snapshotCredentialProof(user));
+      if (context.user.passwordResetToken !== user.passwordResetToken ||
+          !context.user.passwordResetExpires || context.user.passwordResetExpires.getTime() <= Date.now()) {
+        throw new NotFoundException('Action token not found');
+      }
+      await manager.update(User, { id: user.id }, { passwordResetToken: this.hashToken(rawToken),
+        passwordResetExpires: context.user.passwordResetExpires });
+    });
     return rawToken;
   }
 

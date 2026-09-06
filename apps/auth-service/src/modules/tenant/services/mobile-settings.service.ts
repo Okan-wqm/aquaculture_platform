@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import { MobileUserSettings, DEFAULT_MOBILE_FEATURES } from '../entities/mobile-user-settings.entity';
 
 @Injectable()
@@ -16,18 +16,19 @@ export class MobileSettingsService {
    * Get mobile settings for a specific user
    * Creates default settings if none exist
    */
-  async getByUserId(userId: string, tenantId: string): Promise<MobileUserSettings> {
+  async getByUserId(userId: string, tenantId: string, manager: EntityManager = this.repo.manager): Promise<MobileUserSettings> {
+    const repository = manager.withRepository(this.repo);
     // SECURITY: Filter by both userId AND tenantId to enforce tenant isolation
-    let settings = await this.repo.findOne({ where: { userId, tenantId } });
+    let settings = await repository.findOne({ where: { userId, tenantId } });
 
     if (!settings) {
-      settings = this.repo.create({
+      settings = repository.create({
         userId,
         tenantId,
         allowedFeatures: { ...DEFAULT_MOBILE_FEATURES },
         isMobileEnabled: true,
       });
-      settings = await this.repo.save(settings);
+      settings = await repository.save(settings);
       this.logger.debug(`Created default mobile settings for user ${userId}`);
     } else {
       // Forward-compatibility: merge new feature flags into existing JSONB.

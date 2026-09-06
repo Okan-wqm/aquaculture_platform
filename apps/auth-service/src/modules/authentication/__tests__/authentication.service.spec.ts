@@ -38,6 +38,7 @@ import { DataSource } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { BestEffortEventPublisher } from '../../../outbox/best-effort-event-publisher';
+import { OutboxPublisher } from '@platform/outbox';
 import { Tenant, TenantStatus } from '../../tenant/entities/tenant.entity';
 import { ActionToken } from '../entities/action-token.entity';
 import { Invitation } from '../entities/invitation.entity';
@@ -53,6 +54,7 @@ import { DurableAccessTokenInvalidationService } from '../services/durable-acces
 import { DurableUserTokenInvalidationService } from '../services/durable-user-token-invalidation.service';
 import { MfaService } from '../services/mfa.service';
 import { TokenService } from '../services/token.service';
+import { LockedAuthContext } from '../services/credential-state';
 
 // WHY: bcryptjs publishes a sealed module namespace under the current
 // toolchain — jest.spyOn(bcrypt, 'compare') throws "Cannot redefine
@@ -111,6 +113,8 @@ const createMockUser = (overrides: Partial<User> = {}): User => {
     isEmailVerified: true,
     failedLoginAttempts: 0,
     lockedUntil: null,
+    credentialVersion: 1,
+    accessTokenInvalidBeforeEpochSeconds: 0,
     isPendingInvitation: () => false,
     isLocked: () => false,
     ...overrides,
@@ -138,7 +142,7 @@ const createMockTenant = (overrides: Partial<Tenant> = {}): Tenant => {
 // ============================================================================
 
 const mockUserRepository = {
-  findOne: jest.fn(),
+  findOne: jest.fn<Promise<User | null>, [options?: unknown]>(),
   save: jest.fn(),
   create: jest.fn(),
   createQueryBuilder: jest.fn(),
@@ -226,11 +230,11 @@ const mockAuditLogService = {
 // generateTokens, not the JWT/bcrypt internals — those are TokenService's own
 // spec's responsibility.
 const mockTokenService = {
-  generateTokens: jest.fn().mockImplementation((user: User) =>
+  generateTokensInContext: jest.fn().mockImplementation((context: LockedAuthContext) =>
     Promise.resolve({
       accessToken: 'mock-access-token',
       refreshToken: 'mock-refresh-token',
-      user,
+      user: context.user,
       expiresIn: 900,
       tokenType: 'Bearer',
       redirectUrl: '/dashboard',
@@ -251,63 +255,23 @@ const mockMfaService = {
   generateMfaSetupToken: jest.fn().mockReturnValue('mock-mfa-setup-token'),
 };
 
+const mockTransactionManager = {
+  queryRunner: { isTransactionActive: false },
+  getRepository: jest.fn(),
+  withRepository: <T>(repository: T): T => repository,
+  findOne: jest.fn(),
+  update: jest.fn(),
+  delete: jest.fn().mockResolvedValue({ affected: 0 }),
+  query: jest.fn(),
+};
+
 const mockDataSource = {
-  // WHY: refreshToken() (non-hashed path) runs inside dataSource.transaction
-  // with manager-scoped repositories and a pessimistic-lock query builder.
-  // The mock manager mirrors the SQL acceptance rules (isRevoked = false,
-  // expiresAt > now) so the spec exercises the same semantics the WHERE
-  // clause enforces in production — a passthrough mock would let expired or
-  // revoked tokens through and the negative-path tests would assert nothing.
-  transaction: jest.fn().mockImplementation(async (cb: (manager: unknown) => Promise<unknown>) => {
-    const refreshTokenQueryBuilder = {
-      setLock: jest.fn().mockReturnThis(),
-      where: jest.fn().mockReturnThis(),
-      andWhere: jest.fn().mockReturnThis(),
-      getOne: jest.fn().mockImplementation(async () => {
-        const token = (await mockRefreshTokenRepository.findOne()) as {
-          isRevoked?: boolean;
-          expiresAt?: Date;
-        } | null;
-        if (
-          !token ||
-          token.isRevoked === true ||
-          !(token.expiresAt instanceof Date) ||
-          token.expiresAt.getTime() <= Date.now()
-        ) {
-          return null;
-        }
-        return token;
-      }),
-    };
-    const manager = {
-      getRepository: jest.fn().mockImplementation((entity: unknown) => {
-        if (entity === RefreshToken) {
-          return {
-            ...mockRefreshTokenRepository,
-            createQueryBuilder: jest.fn(() => refreshTokenQueryBuilder),
-          };
-        }
-        if (entity === User) {
-          return mockUserRepository;
-        }
-        return {};
-      }),
-      query: jest.fn(),
-    };
-    return cb(manager);
-  }),
-  // WHAT: handleFailedLogin() runs an atomic UPDATE ... RETURNING. The
-  // postgres driver returns the TUPLE `[rows, affectedCount]` for UPDATE
-  // statements (ORPHAN-HIGH-318 — the old mock mirrored the WRONG plain-rows
-  // shape, exactly the misread that shipped). The default reply mirrors one
-  // failed attempt on an unlocked account so negative-path login tests
-  // exercise the real post-update branch.
+  manager: mockTransactionManager,
+  transaction: jest.fn(),
   query: jest.fn().mockResolvedValue([[{ failedLoginAttempts: 1, lockedUntil: null }], 1]),
 };
 
-const mockTransactionManager = {
-  getRepository: jest.fn(),
-};
+const mockOutboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
 
 const mockTimingSafe = {
   ensureMinDuration: jest.fn().mockResolvedValue(undefined),
@@ -353,6 +317,10 @@ describe('AuthenticationService', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     mockBcryptCompare.mockReset();
+    mockUserRepository.findOne.mockResolvedValue(createMockUser());
+    mockTenantRepository.findOne.mockResolvedValue(createMockTenant());
+    mockAuditLogService.log.mockResolvedValue(undefined);
+    mockOutboxPublisher.enqueue.mockResolvedValue(undefined);
 
     // Default happy-path setup
     mockUserModuleAssignmentRepository.find.mockResolvedValue([]);
@@ -378,9 +346,33 @@ describe('AuthenticationService', () => {
       if (entity === ActionToken) return mockActionTokenRepository;
       return {};
     });
+    mockTransactionManager.findOne.mockImplementation((entity: unknown, options: unknown) => {
+      if (entity === User) return mockUserRepository.findOne(options);
+      if (entity === Tenant) return mockTenantRepository.findOne(options);
+      if (entity === Invitation) return mockInvitationRepository.findOne(options);
+      if (entity === ActionToken) return mockActionTokenRepository.findOne(options);
+      throw new Error('Unexpected entity in authentication transaction');
+    });
+    mockTransactionManager.update.mockImplementation(async (entity: unknown, criteria: unknown, values: Partial<User>) => {
+      if (entity === User) {
+        const current = await mockUserRepository.findOne();
+        if (current) {
+          const updated = Object.assign(new User(), current, values);
+          if (values.password !== undefined && values.password !== current.password) {
+            updated.credentialVersion = current.credentialVersion + 1;
+          }
+          mockUserRepository.findOne.mockResolvedValue(updated);
+        }
+      }
+      if (entity === RefreshToken) return mockRefreshTokenRepository.update(criteria, values);
+      return { affected: 1 };
+    });
     mockDataSource.transaction.mockImplementation(
-      async (callback: (manager: typeof mockTransactionManager) => Promise<unknown>) =>
-        callback(mockTransactionManager),
+      async (callback: (manager: typeof mockTransactionManager) => Promise<unknown>) => {
+        mockTransactionManager.queryRunner.isTransactionActive = true;
+        try { return await callback(mockTransactionManager); }
+        finally { mockTransactionManager.queryRunner.isTransactionActive = false; }
+      },
     );
     // Postgres UPDATE…RETURNING tuple shape [rows, affected] (ORPHAN-HIGH-318).
     mockDataSource.query.mockResolvedValue([[{ failedLoginAttempts: 3, lockedUntil: null }], 1]);
@@ -392,13 +384,13 @@ describe('AuthenticationService', () => {
     mockDurableAccessTokenInvalidation.applyImmediately.mockResolvedValue(undefined);
     mockDurableUserTokenInvalidation.enqueue.mockResolvedValue(undefined);
     mockDurableUserTokenInvalidation.applyImmediately.mockResolvedValue(undefined);
-    mockTokenService.generateTokens.mockImplementation((user: User) =>
-      Promise.resolve({
-        accessToken: 'mock-access-token',
-        refreshToken: 'mock-refresh-token',
-        user,
-      }),
-    );
+    mockTokenService.generateTokensInContext.mockImplementation((context: LockedAuthContext) => {
+      context.assertSessionAdmission();
+      return Promise.resolve({
+        accessToken: 'mock-access-token', refreshToken: 'mock-refresh-token',
+        user: context.user, expiresIn: 900, tokenType: 'Bearer', redirectUrl: '/dashboard',
+      });
+    });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -428,6 +420,7 @@ describe('AuthenticationService', () => {
           useValue: new BestEffortEventPublisher(mockEventBus),
         },
         { provide: AuditLogService, useValue: mockAuditLogService },
+        { provide: OutboxPublisher, useValue: mockOutboxPublisher },
         { provide: TokenService, useValue: mockTokenService },
         {
           provide: DurableAccessTokenInvalidationService,
@@ -531,10 +524,12 @@ describe('AuthenticationService', () => {
             reason: 'Invalid password (attempt 3)',
           }),
         }),
+        undefined,
       );
       // Below the threshold no lockout event may fire.
       expect(mockAuditLogService.log).not.toHaveBeenCalledWith(
         expect.objectContaining({ action: 'ACCOUNT_LOCKED' }),
+        undefined,
       );
     });
 
@@ -560,6 +555,7 @@ describe('AuthenticationService', () => {
             reason: expect.stringContaining('Account locked after 5 failed attempts'),
           }),
         }),
+        undefined,
       );
       // And the failed-password event carries the real terminal count.
       expect(mockAuditLogService.log).toHaveBeenCalledWith(
@@ -569,6 +565,7 @@ describe('AuthenticationService', () => {
             reason: 'Invalid password (attempt 5)',
           }),
         }),
+        undefined,
       );
       // ORPHAN-MEDIUM-320: the owner-facing lockout event rides the
       // best-effort path (mockEventBus backs BestEffortEventPublisher).
@@ -636,10 +633,13 @@ describe('AuthenticationService', () => {
       mockBcryptCompare.mockResolvedValue(true);
       mockUserRepository.save.mockResolvedValue({ ...user, failedLoginAttempts: 0 });
 
-      await service.login(validInput);
+      const result = await service.login(validInput);
 
-      expect(mockUserRepository.save).toHaveBeenCalledWith(
-        expect.objectContaining({ failedLoginAttempts: 0 }),
+      expect(result.user.failedLoginAttempts).toBe(0);
+      expect(user.failedLoginAttempts).toBe(3);
+      expect(mockUserRepository.save).not.toHaveBeenCalled();
+      expect(mockTransactionManager.update).toHaveBeenCalledWith(
+        User, { id: user.id }, expect.objectContaining({ failedLoginAttempts: 0 }),
       );
     });
 
@@ -762,18 +762,6 @@ describe('AuthenticationService', () => {
         expect(mockMfaService.generateMfaSetupToken).not.toHaveBeenCalled();
       });
 
-      it('is reachable from resetPassword, not only from login', () => {
-        // The gate's value is that it is ONE assertion every password-backed
-        // mint funnels through. Pin the call sites structurally so a future
-        // mint path cannot quietly skip it.
-        const source = AuthenticationService.prototype.resetPassword.toString();
-        expect(source).toContain('resolveMfaEnrollmentGate');
-      });
-
-      it('is reachable from acceptInvitation, not only from login', () => {
-        const source = AuthenticationService.prototype.acceptInvitation.toString();
-        expect(source).toContain('resolveMfaEnrollmentGate');
-      });
     });
 
     it('throws UnauthorizedException for pending-invitation user', async () => {
@@ -800,8 +788,8 @@ describe('AuthenticationService', () => {
       // token.service.spec.ts where the collaborator lives.
       expect(result.accessToken).toBe('mock-access-token');
       // ORPHAN-LOW-135: login threads the rememberMe choice (default false) into issuance.
-      expect(mockTokenService.generateTokens).toHaveBeenCalledWith(
-        user,
+      expect(mockTokenService.generateTokensInContext).toHaveBeenCalledWith(
+        expect.objectContaining({ user: expect.objectContaining({ id: user.id }), manager: mockTransactionManager }),
         '127.0.0.1',
         'test-agent',
         {
@@ -820,6 +808,59 @@ describe('AuthenticationService', () => {
       await service.login(validInput, '127.0.0.1');
 
       expect(mockAuditLogService.log).toHaveBeenCalled();
+    });
+
+    it('rejects a credential change committed while the password is being verified', async () => {
+      const authenticated = createMockUser();
+      const changed = createMockUser({ credentialVersion: 2 });
+      mockUserRepository.findOne.mockResolvedValue(authenticated);
+      jest.spyOn(authenticated, 'verifyPasswordAndSignalMigration').mockImplementation(async () => {
+        mockUserRepository.findOne.mockResolvedValue(changed);
+        return { matched: true, shouldMigrate: false };
+      });
+      await expect(service.login(validInput)).rejects.toThrow(ForbiddenException);
+      expect(mockTokenService.generateTokensInContext).not.toHaveBeenCalled();
+      expect(mockTransactionManager.update).not.toHaveBeenCalled();
+    });
+
+    it('enforces a lockout committed after the initial password check', async () => {
+      const authenticated = createMockUser();
+      const locked = createMockUser({ isLocked: () => true });
+      mockUserRepository.findOne.mockResolvedValue(authenticated);
+      jest.spyOn(authenticated, 'verifyPasswordAndSignalMigration').mockImplementation(async () => {
+        mockUserRepository.findOne.mockResolvedValue(locked);
+        return { matched: true, shouldMigrate: false };
+      });
+      await expect(service.login(validInput)).rejects.toThrow(ForbiddenException);
+      expect(mockTokenService.generateTokensInContext).not.toHaveBeenCalled();
+      expect(mockTransactionManager.update).not.toHaveBeenCalled();
+    });
+
+    it('does not report a successful login when issuance rejects', async () => {
+      const user = createMockUser();
+      mockUserRepository.findOne.mockResolvedValue(user);
+      jest.spyOn(user, 'verifyPasswordAndSignalMigration').mockResolvedValue({ matched: true, shouldMigrate: false });
+      mockTokenService.generateTokensInContext.mockRejectedValueOnce(new Error('signing unavailable'));
+      await expect(service.login(validInput)).rejects.toThrow('signing unavailable');
+      expect(mockAuditLogService.log).not.toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'LOGIN_SUCCESS' }), expect.anything(),
+      );
+      expect(mockEventBus.publish).not.toHaveBeenCalled();
+    });
+
+    it('upgrades a legacy password before issuing an MFA challenge with the committed version', async () => {
+      const user = createMockUser({ mfaEnabled: true });
+      mockUserRepository.findOne.mockResolvedValue(user);
+      mockMfaService.isMfaAvailable.mockReturnValue(true);
+      jest.spyOn(user, 'verifyPasswordAndSignalMigration').mockResolvedValue({ matched: true, shouldMigrate: true });
+      const originalVersion = user.credentialVersion;
+      const result = await service.login(validInput);
+      expect(result.mfaRequired).toBe(true);
+      expect(result.user.credentialVersion).toBe(originalVersion + 1);
+      expect(user.credentialVersion).toBe(originalVersion);
+      expect(mockMfaService.generateMfaChallenge).toHaveBeenCalledWith(result.user, false);
+      expect(mockTokenService.generateTokensInContext).not.toHaveBeenCalled();
+      expect(mockUserRepository.save).not.toHaveBeenCalled();
     });
 
     it('records audit log entry on failed login (wrong password)', async () => {

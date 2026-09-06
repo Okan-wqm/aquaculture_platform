@@ -830,6 +830,12 @@ export type AuditLogPageType = {
   totalCount: Scalars['Int']['output'];
 };
 
+export type CredentialActionResult = {
+  __typename?: 'CredentialActionResult';
+  loginRequired: Scalars['Boolean']['output'];
+  success: Scalars['Boolean']['output'];
+};
+
 export type AuthPayload = {
   accessToken: Scalars['String']['output'];
   expiresIn: Scalars['Int']['output'];
@@ -9299,7 +9305,7 @@ export type MovementType =
   | 'WASTE';
 
 export type Mutation = {
-  acceptInvitation: AuthPayload;
+  acceptInvitation: CredentialActionResult;
   acknowledgeAlert: AlertHistory;
   acknowledgeAllAlarmsForConnection: Scalars['Int']['output'];
   acknowledgeAnnouncement: AnnouncementAcknowledgment;
@@ -9762,7 +9768,7 @@ export type Mutation = {
   requestIncidentMediaUpload: IncidentMediaUploadResponse;
   requestMediaUpload: MediaUploadResponse;
   resetDeviceForReprovisioning: RegenerateTokenResponse;
-  resetPassword: AuthPayload;
+  resetPassword: CredentialActionResult;
   resetVfdFault: VfdCommandResult;
   resolveAlert: AlertHistory;
   /** Resolve a health event */

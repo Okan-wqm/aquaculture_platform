@@ -1,3 +1,5 @@
+import { LockedAuthContext } from '../../authentication/services/credential-state';
+import { DurableUserTokenInvalidationService, UserTokenInvalidationIntent } from '../../authentication/services/durable-user-token-invalidation.service';
 import { getTenantSchemaName } from '@aquaculture/backend-common/database';
 import { Role } from '@aquaculture/backend-common/decorators';
 import {
@@ -93,6 +95,7 @@ export class TenantService {
     @InjectRepository(RefreshToken)
     private readonly refreshTokenRepository: Repository<RefreshToken>,
     @InjectDataSource() private readonly dataSource: DataSource,
+    private readonly durableUserTokenInvalidation: DurableUserTokenInvalidationService,
   ) {}
 
   async findById(id: string): Promise<Tenant> {
@@ -575,18 +578,23 @@ export class TenantService {
       throw new NotFoundException('User not found in this tenant');
     }
 
-    // Update module manager
-    tenantModule.managerId = userId;
-    const saved = await this.tenantModuleRepository.save(tenantModule);
-
-    // Update user role to MODULE_MANAGER if not already higher
-    if (user.role !== Role.TENANT_ADMIN && user.role !== Role.SUPER_ADMIN) {
-      user.role = Role.MODULE_MANAGER;
-      await this.userRepository.save(user);
+    const committed = await this.dataSource.transaction(async (manager) => {
+      const context = await LockedAuthContext.lock(manager, userId);
+      if (context.user.tenantId !== tenantId) throw new NotFoundException('User not found in tenant');
+      await manager.update(TenantModule, { id: tenantModule.id, tenantId }, { managerId: userId });
+      let intent: UserTokenInvalidationIntent | null = null;
+      if (context.user.role !== Role.TENANT_ADMIN && context.user.role !== Role.SUPER_ADMIN) {
+        await manager.update(User, { id: userId, tenantId }, { role: Role.MODULE_MANAGER });
+        intent = { userId, tenantId, invalidatedAt: new Date(), reason: 'role_permissions_changed',
+          idempotencyKey: `module-manager:${tenantModule.id}:${userId}:${Date.now()}` };
+        await this.durableUserTokenInvalidation.enqueue(manager, intent);
+      }
+      return { saved: await manager.findOneByOrFail(TenantModule, { id: tenantModule.id }), intent };
+    });
+    if (committed.intent) {
+      await Promise.allSettled([this.durableUserTokenInvalidation.applyImmediately(committed.intent)]);
     }
-
-    this.logger.log(`Assigned ${user.email} as manager for module ${tenantModule.module?.name || moduleId}`);
-
+    const saved = committed.saved;
     return saved;
   }
 

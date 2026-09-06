@@ -31,15 +31,14 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
-import { createBaseEvent, isLoginAllowed } from '@platform/event-contracts';
+import { createBaseEvent, isLoginAllowed, InvitationAcceptedEvent, PasswordResetCompletedEvent } from '@platform/event-contracts';
+import { OutboxPublisher, OUTBOX_SYSTEM_TENANT_ID } from '@platform/outbox';
 import type { UserAccountLockedEvent } from '@platform/event-contracts';
 import * as bcrypt from 'bcryptjs';
 import {
   DataSource,
   EntityManager,
-  EntityTarget,
   IsNull,
-  ObjectLiteral,
   Repository,
 } from 'typeorm';
 
@@ -49,7 +48,7 @@ import { SECURITY_CONSTANTS, TOKEN_CONSTANTS } from '../../../constants/auth.con
 import { parseHashRefreshTokens } from '../../../config/hash-refresh-tokens';
 import { BestEffortEventPublisher } from '../../../outbox/best-effort-event-publisher';
 import { Tenant } from '../../tenant/entities/tenant.entity';
-import { AuthPayload, MePayload } from '../dto/auth-response.dto';
+import { AuthPayload, MePayload, CredentialActionResult } from '../dto/auth-response.dto';
 import { LoginInput } from '../dto/login.dto';
 import {
   ActionToken,
@@ -61,6 +60,8 @@ import { RefreshToken } from '../entities/refresh-token.entity';
 import { User } from '../entities/user.entity';
 import { WebAuthnCredential } from '../entities/webauthn-credential.entity';
 
+import { LockedAuthContext, snapshotCredentialProof, withLockedCredentialPrincipal } from './credential-state';
+import { resolveActionReference } from './action-token-reference';
 import { MfaService } from './mfa.service';
 import { DurableAccessTokenInvalidationService } from './durable-access-token-invalidation.service';
 import {
@@ -150,6 +151,7 @@ export class AuthenticationService {
    * real password.
    */
   private dummyPasswordHash: string | null = null;
+  private readonly lockedContexts = new WeakMap<User, LockedAuthContext>();
 
   constructor(
     @InjectRepository(User)
@@ -180,6 +182,7 @@ export class AuthenticationService {
     private readonly durableAccessTokenInvalidation: DurableAccessTokenInvalidationService,
     private readonly durableUserTokenInvalidation: DurableUserTokenInvalidationService,
     private readonly mfaService: MfaService,
+    private readonly outboxPublisher: OutboxPublisher,
     /**
      * SECURITY (DEPLOY-CRITICAL-007): audit-logged RLS bypass primitive for
      * the SUPER_ADMIN login path. Platform-level users (tenantId=NULL)
@@ -218,13 +221,6 @@ export class AuthenticationService {
     );
   }
 
-  private preTenantAuthRepository<T extends ObjectLiteral>(
-    manager: EntityManager,
-    entity: EntityTarget<T>,
-  ): Repository<T> {
-    const getRepository = manager.getRepository.bind(manager);
-    return getRepository(entity);
-  }
 
   /**
    * Canonical serialization fence for every per-user refresh-credential write.
@@ -237,14 +233,15 @@ export class AuthenticationService {
    * token-first/user-first deadlock cycle that otherwise appears under load.
    */
   private async lockCredentialPrincipal(manager: EntityManager, userId: string): Promise<User> {
-    const user = await this.preTenantAuthRepository(manager, User).findOne({
-      where: { id: userId },
-      lock: { mode: 'pessimistic_write' },
-    });
-    if (!user) {
-      throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
-    }
-    return user;
+    const context = await LockedAuthContext.lock(manager, userId);
+    this.lockedContexts.set(context.user, context);
+    return context.user;
+  }
+
+  private contextFor(user: User): LockedAuthContext {
+    const context = this.lockedContexts.get(user);
+    if (!context) throw new Error('Credential operation requires the locked principal context');
+    return context;
   }
 
   private invalidationTenantForUser(user: User): string | null {
@@ -274,7 +271,7 @@ export class AuthenticationService {
     user: User,
   ): Promise<void> {
     if (!user.tenantId) return;
-    const tenant = await this.preTenantAuthRepository(manager, Tenant).findOne({
+    const tenant = await manager.withRepository(this.tenantRepository).findOne({
       where: { id: user.tenantId },
     });
     if (tenant && !isLoginAllowed(tenant.status)) {
@@ -313,6 +310,7 @@ export class AuthenticationService {
       reason?: string;
     },
     severity: AuditLogSeverity = AuditLogSeverity.INFO,
+    manager?: EntityManager,
   ): Promise<void> {
     try {
       await this.auditLogService.log({
@@ -330,9 +328,10 @@ export class AuthenticationService {
         severity,
         ipAddress: details.ipAddress,
         userAgent: details.userAgent,
-      });
+      }, manager);
     } catch (error) {
-      // Don't fail the main operation if audit logging fails
+      if (manager) throw error;
+      // Rejected attempts outside a credential transaction retain best-effort diagnostics.
       this.logger.error(`Failed to log security event: ${action}`, error);
     }
   }
@@ -380,8 +379,11 @@ export class AuthenticationService {
 
     const { matched, shouldMigrate } = await user.verifyPasswordAndSignalMigration(password);
     if (matched && shouldMigrate) {
-      user.password = await hashPassword(password);
-      await this.userRepository.save(user);
+      const proof = snapshotCredentialProof(user);
+      const passwordHash = await hashPassword(password);
+      await withLockedCredentialPrincipal(this.dataSource, proof, async (context) => {
+        await context.manager.update(User, { id: user.id }, { password: passwordHash });
+      });
     }
     await this.ensureMinDuration(startTime);
     return matched;
@@ -533,204 +535,49 @@ export class AuthenticationService {
         throw new UnauthorizedException(INVALID_CREDENTIALS_MSG);
       }
 
-      // Reset failed login attempts on successful password validation
-      user.failedLoginAttempts = 0;
-      user.lockedUntil = null;
-      user.lastLoginIp = ipAddress ?? null;
-
-      // ----------------------------------------------------------------
-      // MFA Check: If user has MFA enabled, return MFA challenge
-      // instead of full tokens. The user must complete MFA verification
-      // via the verifyMfaLogin mutation to receive full auth tokens.
-      // ----------------------------------------------------------------
-      if (user.mfaEnabled && !this.mfaService?.isMfaAvailable()) {
-        await this.ensureMinDuration(startTime);
-        this.logger.error(`Login blocked: MFA enabled but unavailable for userId=${user.id}`);
-        await this.logSecurityEvent(
-          'LOGIN_BLOCKED_MFA_UNAVAILABLE',
-          {
-            userId: user.id,
-            tenantId: user.tenantId,
-            ipAddress,
-            userAgent,
-            success: false,
-            reason: 'MFA enabled but MFA_ENCRYPTION_KEY is unavailable',
-          },
-          AuditLogSeverity.CRITICAL,
-        );
-        throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
-      }
-
-      if (user.mfaEnabled && this.mfaService?.isMfaAvailable()) {
-        // Save login attempt state but DON'T set lastLoginAt yet
-        // (it will be set after MFA verification succeeds)
-        await this.userRepository.save(user);
-
-        // Carry the rememberMe choice into the signed mfaToken so it survives the
-        // challenge → verify round-trip (the client does not re-send it).
-        const mfaChallenge = this.mfaService.generateMfaChallenge(user, input.rememberMe ?? false);
-
-        await this.logSecurityEvent('LOGIN_MFA_REQUIRED', {
-          userId: user.id,
-          email: user.email,
-          tenantId: user.tenantId,
-          ipAddress,
-          userAgent,
-          success: true,
-          reason: 'Password valid, MFA verification required',
+      const proof = snapshotCredentialProof(user);
+      const migratedPassword = shouldMigratePasswordHash ? await hashPassword(input.password) : undefined;
+      const completeLogin = (): Promise<AuthPayload> => withLockedCredentialPrincipal(
+        this.dataSource, proof, async (context) => {
+          context.assertSessionAdmission();
+          const manager = context.manager;
+          await manager.update(User, { id: user.id }, {
+            failedLoginAttempts: 0, lockedUntil: null, lastLoginIp: ipAddress ?? null,
+            ...(migratedPassword ? { password: migratedPassword } : {}),
+          });
+          const principal = await context.reloadUser();
+          if (principal.mfaEnabled) {
+            if (!this.mfaService.isMfaAvailable()) {
+              throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
+            }
+            const challenge = this.mfaService.generateMfaChallenge(principal, input.rememberMe ?? false);
+            await this.logSecurityEvent('LOGIN_MFA_REQUIRED', {
+              userId: principal.id, tenantId: principal.tenantId, ipAddress, userAgent, success: true,
+            }, AuditLogSeverity.INFO, manager);
+            return { accessToken: '', refreshToken: '', user: principal, expiresIn: 0,
+              tokenType: 'Bearer', redirectUrl: '', mfaRequired: true, mfaToken: challenge.mfaToken };
+          }
+          const enrollment = await this.resolveMfaEnrollmentGate(principal, context.tenant,
+            { ipAddress, userAgent }, manager);
+          if (enrollment) return enrollment;
+          await manager.update(User, { id: principal.id }, { lastLoginAt: new Date() });
+          const payload = await this.tokenService.generateTokensInContext(context, ipAddress, userAgent,
+            { rememberMe: input.rememberMe ?? false });
+          await this.logSecurityEvent('LOGIN_SUCCESS', {
+            userId: principal.id, tenantId: principal.tenantId, ipAddress, userAgent, success: true,
+          }, AuditLogSeverity.INFO, manager);
+          return payload;
         });
-
-        await this.ensureMinDuration(startTime);
-
-        // Return a partial AuthPayload with MFA challenge info
-        return {
-          accessToken: '',
-          refreshToken: '',
-          user,
-          expiresIn: 0,
-          tokenType: 'Bearer',
-          redirectUrl: '',
-          mfaRequired: true,
-          mfaToken: mfaChallenge.mfaToken,
-        };
+      const result = user.tenantId
+        ? await requestContextStorage.run({ ...getRequestContext(), tenantId: user.tenantId, userId: user.id }, completeLogin)
+        : await this.bypassRls.withBypass('auth-service:super-admin-login-tokens', completeLogin);
+      if (result.accessToken) {
+        await this.bestEffort.publish(createBaseEvent('UserLoggedIn', user.tenantId ?? 'system', {
+          aggregateId: user.id, aggregateType: 'User', userId: user.id,
+        }));
       }
-
-      // ----------------------------------------------------------------
-      // ADR-046 MFA-ENFORCEMENT GATE (ADMIN-HIGH-014):
-      // the tenant requires MFA but this user has NEITHER TOTP nor a
-      // registered WebAuthn credential. resolveMfaEnrollmentGate is the single
-      // shared assertion every password-backed token-minting caller funnels
-      // through (login / acceptInvitation / resetPassword): it hands back a
-      // completable enrollment outcome (mfaSetupRequired + a 10-minute
-      // mfa_setup token, no access/refresh) instead of a lockout, and FAILS
-      // CLOSED (throw + CRITICAL audit) when MFA is unavailable so enforcement
-      // never depends on a boot-time env heuristic. A user who ALREADY
-      // satisfies enforcement (TOTP above, or a WebAuthn passkey) returns null
-      // here and proceeds to a full session.
-      // ----------------------------------------------------------------
-      const enrollmentGate = await this.resolveMfaEnrollmentGate(user, tenant, {
-        ipAddress,
-        userAgent,
-      });
-      if (enrollmentGate) {
-        // Persist the reset failed-attempt counters, but NOT lastLoginAt —
-        // like the MFA-challenge branch, this is not yet a completed login.
-        await this.userRepository.save(user);
-        await this.ensureMinDuration(startTime);
-        return enrollmentGate;
-      }
-
-      // No MFA — proceed with full login.
-      //
-      // SECURITY (HIGH-006): lazy password-hash migration.
-      // If the stored hash was a legacy (unpeppered) bcrypt AND a pepper is
-      // now configured, re-hash the plaintext with the peppered format and
-      // persist. The @BeforeUpdate hook is skipped here because the entity
-      // already has a hashed password; instead we set the plaintext back
-      // onto the field before save() so the BeforeUpdate hook catches it.
-      if (shouldMigratePasswordHash) {
-        user.password = input.password;
-        this.logger.debug(`Migrating legacy password hash to peppered format: userId=${user.id}`);
-      }
-      user.lastLoginAt = new Date();
-      await this.userRepository.save(user);
-
-      // SECURITY: Log user ID instead of email to prevent PII exposure in logs (H-14)
-      this.logger.log(`User logged in: userId=${user.id} (role: ${user.role})`);
-
-      // PERF: Parallelize audit log + event publish — both are independent
-      // fire-and-monitor operations (HIGH-08)
-      await Promise.allSettled([
-        this.logSecurityEvent('LOGIN_SUCCESS', {
-          userId: user.id,
-          email: user.email,
-          tenantId: user.tenantId,
-          ipAddress,
-          userAgent,
-          success: true,
-        }),
-        this.bestEffort.publish(
-          createBaseEvent('UserLoggedIn', user.tenantId ?? 'system', {
-            aggregateId: user.id,
-            aggregateType: 'User',
-            userId: user.id,
-          }),
-        ),
-      ]);
-
       await this.ensureMinDuration(startTime);
-
-      // ────────────────────────────────────────────────────────────────────
-      // SECURITY (DEPLOY-CRITICAL-007): Establish post-authentication RLS
-      // context for token + session writes.
-      // ────────────────────────────────────────────────────────────────────
-      //
-      // Login is a TWO-PHASE operation:
-      //
-      //   Phase 1 (PRE-AUTH) — identify the user by email. Cross-tenant by
-      //     design; the tenant is DETERMINED by the user row. Uses auth.users
-      //     which is intentionally NOT RLS-gated (identity primitive — see
-      //     DEPLOY-CRITICAL-006 + DEFAULT_IDENTITY_TABLES in
-      //     apply-tenant-rls.helper.ts).
-      //
-      //   Phase 2 (POST-DISCOVERY) — write refresh_tokens and session rows
-      //     SCOPED to the just-identified user's tenant. These tables ARE
-      //     RLS-gated (auth.refresh_tokens carries tenant_isolation_policy),
-      //     so the pool connection MUST have `app.current_tenant` set to the
-      //     user's tenantId before the INSERT, OR the write fails with
-      //     "new row violates row-level security policy" (the 2026-04-21
-      //     login incident manifestation).
-      //
-      // The TenantContextMiddleware only sets `tenantId` when an
-      // x-tenant-id header is present OR a JWT is already minted — neither
-      // is true on the login endpoint. Hence we must establish the context
-      // HERE, once we know the user's tenant.
-      //
-      // # Two paths, both architectural (neither is a bypass-the-problem hack)
-      //
-      //   A) Tenant user (user.tenantId IS NOT NULL) — nest an
-      //      AsyncLocalStorage frame with the discovered tenantId. The
-      //      RlsConnectionBootstrap pool patch reads this on the next
-      //      connection checkout and emits SET app.current_tenant = <uuid>;
-      //      the INSERT into refresh_tokens succeeds under the normal policy
-      //      predicate. NO bypass — the write is strictly tenant-scoped, as
-      //      intended by the RLS design.
-      //
-      //   B) SUPER_ADMIN (user.tenantId IS NULL) — platform-level session.
-      //      The row has tenantId=NULL and cannot satisfy
-      //      `"tenantId" = <uuid>` regardless of context. Use the
-      //      AUDIT-LOGGED BypassRlsService.withBypass() so the bypass is
-      //      visible in deploy-audit log grep ("RLS BYPASS GRANTED
-      //      [auth-service:super-admin-login-tokens]"). Same primitive used
-      //      by admin-api-service for cross-tenant analytics. SUPER_ADMIN
-      //      login frequency is low, so the WARN log volume is negligible.
-      //
-      // # Why not mutate the existing RequestContext frame?
-      //
-      // BypassRlsService's docblock explicitly warns against mutating the
-      // existing frame: other async work in flight may still be reading it.
-      // `requestContextStorage.run(next, fn)` creates a strictly scoped
-      // nested frame that AsyncLocalStorage unwinds automatically on
-      // callback return (success or throw). No manual cleanup, no leakage
-      // between concurrent requests.
-      if (user.tenantId) {
-        const scopedContext = {
-          ...getRequestContext(),
-          tenantId: user.tenantId,
-          userId: user.id,
-        };
-        return await requestContextStorage.run(scopedContext, () =>
-          this.tokenService.generateTokens(user, ipAddress, userAgent, {
-            rememberMe: input.rememberMe ?? false,
-          }),
-        );
-      }
-      // SUPER_ADMIN: audited bypass for platform-level session creation.
-      return await this.bypassRls.withBypass('auth-service:super-admin-login-tokens', () =>
-        this.tokenService.generateTokens(user, ipAddress, userAgent, {
-          rememberMe: input.rememberMe ?? false,
-        }),
-      );
+      return result;
     } catch (error) {
       await this.ensureMinDuration(startTime);
       throw error;
@@ -766,142 +613,60 @@ export class AuthenticationService {
     firstName?: string,
     lastName?: string,
     ipAddress?: string,
-  ): Promise<AuthPayload> {
-    // SECURITY: Hash token with SHA-256 for lookup against hashed tokens (SEC-005)
-    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-
-    // Execute all reads + validation + writes inside a single transaction
-    const result = await this.dataSource.transaction(async (manager) => {
-      const actionToken = await this.preTenantAuthRepository(manager, ActionToken)
-        .createQueryBuilder('actionToken')
-        .setLock('pessimistic_write')
-        .where('actionToken.id = :token', { token })
-        .andWhere('actionToken.purpose = :purpose', { purpose: ActionTokenPurpose.INVITATION })
-        .getOne();
-
-      if (actionToken && !actionToken.isActive()) {
-        throw new BadRequestException('Invalid invitation token');
-      }
-
-      const lookupTokenHash = actionToken?.tokenHash ?? tokenHash;
-
-      // SECURITY: Lock the invitation row to prevent concurrent acceptance
-      // Try hashed token first, then fall back to plaintext for backward compatibility
-      // Invitation redemption runs BEFORE tenant context is established
-      // — the invitation token IS the pre-tenant credential, so the
-      // lookup must scan across all tenants by construction. auth-
-      // service is the one service where cross-tenant auth flows are
-      // first-class; tenantManagerRepo cannot be used here.
-      let invitation = await this.preTenantAuthRepository(manager, Invitation)
-        .createQueryBuilder('invitation')
-        .setLock('pessimistic_write')
-        .where('invitation.token = :tokenHash', { tokenHash: lookupTokenHash })
-        .getOne();
-
-      if (!invitation && !actionToken) {
-        // Backward compatibility: try plaintext token for pre-migration invitations
-        invitation = await this.preTenantAuthRepository(manager, Invitation)
-          .createQueryBuilder('invitation')
-          .setLock('pessimistic_write')
-          .where('invitation.token = :token', { token })
-          .getOne();
-      }
-
-      if (!invitation) {
-        throw new BadRequestException('Invalid invitation token');
-      }
-
-      if (!invitation.canBeAccepted()) {
-        if (invitation.isExpired()) {
-          throw new BadRequestException('Invitation has expired');
-        }
-        throw new BadRequestException('Invitation cannot be accepted');
-      }
-
-      // Find user by invitation token hash (within transaction).
-      // Same cross-tenant-before-tenant-resolved rationale as above.
-      let user = await this.preTenantAuthRepository(manager, User).findOne({
-        where: { invitationToken: lookupTokenHash },
-      });
-
-      if (!user && !actionToken) {
-        // Backward compatibility: try plaintext token for pre-migration users
-        user = await this.preTenantAuthRepository(manager, User).findOne({
-          where: { invitationToken: token },
+  ): Promise<CredentialActionResult> {
+    const passwordHash = await hashPassword(password);
+    await this.bypassRls.withBypass('auth-service:invitation-acceptance', () =>
+      this.dataSource.transaction(async (manager) => {
+        const reference = await resolveActionReference(manager, token, ActionTokenPurpose.INVITATION);
+        const discovered = await manager.findOne(User, {
+          where: reference.tokenHashes.map((invitationToken) => ({ invitationToken })),
         });
-      }
-
-      if (!user) {
-        // SECURITY: Generic message to prevent token enumeration
-        throw new BadRequestException('Invalid or expired invitation');
-      }
-
-      // Update user with password and clear invitation token
-      user.password = password; // Will be hashed by BeforeUpdate hook
-      user.invitationToken = null;
-      user.invitationExpiresAt = null;
-      user.isEmailVerified = true;
-
-      if (firstName) user.firstName = firstName;
-      if (lastName) user.lastName = lastName;
-
-      await manager.save(User, user);
-
-      // Update invitation status
-      invitation.status = InvitationStatus.ACCEPTED;
-      invitation.acceptedAt = new Date();
-      invitation.userId = user.id;
-      invitation.acceptedFromIp = ipAddress ?? null;
-      await manager.save(Invitation, invitation);
-
-      if (actionToken) {
-        actionToken.status = ActionTokenStatus.CONSUMED;
-        actionToken.consumedAt = new Date();
-        await manager.save(ActionToken, actionToken);
-      }
-
-      return user;
-    });
-
-    // SECURITY: Log user ID instead of email to prevent PII exposure in logs (H-14)
-    this.logger.log(`Invitation accepted: userId=${result.id} (role: ${result.role})`);
-
-    // PERF: Parallelize audit log + event publish (BULGU-016)
-    await Promise.allSettled([
-      // SECURITY AUDIT: Log invitation acceptance (BULGU-016)
-      this.logSecurityEvent('INVITATION_ACCEPTED', {
-        userId: result.id,
-        email: result.email,
-        tenantId: result.tenantId,
-        ipAddress,
-        success: true,
-      }),
-      // Publish event (outside transaction - events can be retried)
-      this.bestEffort.publish(
-        createBaseEvent('InvitationAccepted', result.tenantId ?? 'system', {
-          aggregateId: result.id,
-          aggregateType: 'User',
-          userId: result.id,
-        }),
-      ),
-    ]);
-
-    // ADR-046 MFA-ENFORCEMENT GATE (ADMIN-HIGH-014): gate token ISSUANCE on MFA
-    // enrollment through the same shared assertion login uses. The invitation
-    // is already accepted and the password committed above — only issuance is
-    // gated. A freshly-onboarded user has no factor, so an enforcing tenant
-    // gets the completable mfaSetupRequired outcome instead of a full session;
-    // a user who satisfies enforcement mints normally (the session-TTL clamp
-    // is applied inside generateTokens either way).
-    const invitationTenant = await this.resolveTenantForUser(result.tenantId);
-    const invitationEnrollmentGate = await this.resolveMfaEnrollmentGate(result, invitationTenant, {
-      ipAddress,
-    });
-    if (invitationEnrollmentGate) {
-      return invitationEnrollmentGate;
-    }
-
-    return this.tokenService.generateTokens(result, ipAddress);
+        if (!discovered) throw new BadRequestException('Invalid or expired invitation');
+        const context = await LockedAuthContext.lock(manager, discovered.id);
+        const resolved = await resolveActionReference(manager, token, ActionTokenPurpose.INVITATION, true);
+        const user = context.user;
+        if (!user.invitationToken || !resolved.tokenHashes.includes(user.invitationToken) ||
+            (resolved.actionToken && (resolved.actionToken.userId !== user.id ||
+              (resolved.actionToken.tenantId ?? null) !== (user.tenantId ?? null)))) {
+          throw new BadRequestException('Invalid or expired invitation');
+        }
+        const invitation = await manager.findOne(Invitation, {
+          where: { token: user.invitationToken }, lock: { mode: 'pessimistic_write' },
+        });
+        if (!invitation || !invitation.canBeAccepted() || invitation.tenantId !== user.tenantId) {
+          throw new BadRequestException('Invalid or expired invitation');
+        }
+        await manager.update(User, { id: user.id }, {
+          password: passwordHash, invitationToken: null, invitationExpiresAt: null,
+          isEmailVerified: true, ...(firstName ? { firstName } : {}), ...(lastName ? { lastName } : {}),
+        });
+        await manager.update(Invitation, { id: invitation.id }, {
+          status: InvitationStatus.ACCEPTED, acceptedAt: new Date(), userId: user.id,
+          acceptedFromIp: ipAddress ?? null,
+        });
+        if (resolved.actionToken) {
+          await manager.update(ActionToken, { id: resolved.actionToken.id }, {
+            status: ActionTokenStatus.CONSUMED, consumedAt: new Date(),
+          });
+        }
+        const intent: UserTokenInvalidationIntent = {
+          userId: user.id, tenantId: this.invalidationTenantForUser(user), invalidatedAt: new Date(),
+          reason: 'password_reset', idempotencyKey: `invitation-accepted:${invitation.id}`,
+        };
+        await manager.update(RefreshToken, { userId: user.id }, {
+          isRevoked: true, revokedAt: intent.invalidatedAt, revokedReason: 'Invitation accepted',
+        });
+        await this.durableUserTokenInvalidation.enqueue(manager, intent);
+        await this.logSecurityEvent('INVITATION_ACCEPTED', {
+          userId: user.id, tenantId: user.tenantId, ipAddress, success: true,
+        }, AuditLogSeverity.INFO, manager);
+        await this.outboxPublisher.enqueue<InvitationAcceptedEvent>({
+          ...createBaseEvent<InvitationAcceptedEvent>('InvitationAccepted', user.tenantId ?? OUTBOX_SYSTEM_TENANT_ID),
+          userId: user.id, invitationId: invitation.id,
+        }, manager, { aggregateId: user.id, idempotencyKey: `invitation-accepted-event:${invitation.id}`,
+          ...(user.tenantId ? {} : { routingScope: 'system' as const }) });
+      }));
+    return { success: true, loginRequired: true };
   }
 
   /**
@@ -915,20 +680,17 @@ export class AuthenticationService {
     lastName?: string;
     expired?: boolean;
   }> {
-    // SECURITY: Hash token for lookup against hashed tokens (SEC-005)
-    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-
-    // Try hashed token first, then fall back to plaintext for backward compatibility
-    let invitation = await this.invitationRepository.findOne({
-      where: { token: tokenHash },
-    });
-
-    if (!invitation) {
-      // Backward compatibility: try plaintext token for pre-migration invitations
-      invitation = await this.invitationRepository.findOne({
-        where: { token },
-      });
+    return this.bypassRls.withBypass('auth-service:invitation-validation', async () => {
+    let reference: Awaited<ReturnType<typeof resolveActionReference>>;
+    try {
+      reference = await resolveActionReference(this.dataSource.manager, token, ActionTokenPurpose.INVITATION);
+    } catch (error) {
+      if (error instanceof BadRequestException) return { valid: false };
+      throw error;
     }
+    const invitation = await this.invitationRepository.findOne({
+      where: reference.tokenHashes.map((invitationToken) => ({ token: invitationToken })),
+    });
 
     if (!invitation) {
       return { valid: false };
@@ -949,6 +711,7 @@ export class AuthenticationService {
       firstName: invitation.firstName ?? undefined,
       lastName: invitation.lastName ?? undefined,
     };
+    });
   }
 
   /**
@@ -997,7 +760,7 @@ export class AuthenticationService {
         // re-established — the bearer's tenant is derived from the token
         // row's userId after the row is resolved. Cross-tenant scan is
         // intrinsic to the refresh-token protocol.
-        const tokenRepo = this.preTenantAuthRepository(manager, RefreshToken);
+        const tokenRepo = manager.withRepository(this.refreshTokenRepository);
 
         // The legacy plaintext transport has no user id. Resolve only the
         // serialization key first, without taking a token lock or trusting the
@@ -1033,6 +796,7 @@ export class AuthenticationService {
         await this.assertTenantOperationalForRefresh(manager, user);
 
         // Revoke the token within the same transaction
+        refreshToken.familyId = refreshToken.familyId ?? refreshToken.id;
         refreshToken.isRevoked = true;
         refreshToken.revokedAt = new Date();
         refreshToken.revokedReason = 'Token refreshed';
@@ -1040,13 +804,13 @@ export class AuthenticationService {
 
         // Preserve the rememberMe choice across rotation so a remembered session
         // stays persistent (the resolver re-issues a persistent vs session cookie).
-        return this.tokenService.generateTokens(
-          user,
+        return this.tokenService.generateTokensInContext(
+          this.contextFor(user),
           refreshToken.ipAddress ?? undefined,
           refreshToken.userAgent ?? undefined,
           {
+            familyId: refreshToken.familyId,
             rememberMe: refreshToken.rememberMe,
-            manager,
             establishSession: false,
           },
         );
@@ -1113,7 +877,7 @@ export class AuthenticationService {
     if (!parsed.tokenId) {
       return {};
     }
-    const tokenRepo = this.preTenantAuthRepository(manager, RefreshToken);
+    const tokenRepo = manager.withRepository(this.refreshTokenRepository);
     const token = await tokenRepo
       .createQueryBuilder('rt')
       .setLock('pessimistic_write')
@@ -1131,7 +895,7 @@ export class AuthenticationService {
     user: User,
     parsed: ParsedHashedRefreshToken,
   ): Promise<RefreshTransactionResult> {
-    const tokenRepo = this.preTenantAuthRepository(manager, RefreshToken);
+    const tokenRepo = manager.withRepository(this.refreshTokenRepository);
     const now = new Date();
     const activeTokens = await tokenRepo
       .createQueryBuilder('rt')
@@ -1183,6 +947,8 @@ export class AuthenticationService {
       return {};
     }
     if (token.isRevoked) {
+      // Historical NULL-family lineages cannot be reconstructed; terminal rows never contain newer sessions.
+      if (!token.familyId || !['Token refreshed', 'Token refreshed (grace)'].includes(token.revokedReason ?? '')) return {};
       if (token.expiresAt.getTime() <= Date.now()) {
         return {};
       }
@@ -1196,7 +962,7 @@ export class AuthenticationService {
         revokedAtMs !== undefined &&
         Date.now() - revokedAtMs <= REFRESH_ROTATION_GRACE_MS;
       if (rotatedWithinGrace) {
-        const claimed = await this.preTenantAuthRepository(manager, RefreshToken).update(
+        const claimed = await manager.withRepository(this.refreshTokenRepository).update(
           { id: token.id, revokedReason: 'Token refreshed' },
           { revokedReason: 'Token refreshed (grace)' },
         );
@@ -1212,14 +978,13 @@ export class AuthenticationService {
             throw new UnauthorizedException(GENERIC_AUTH_ERROR_MSG);
           }
           await this.assertTenantOperationalForRefresh(manager, user);
-          const payload = await this.tokenService.generateTokens(
-            user,
+          const payload = await this.tokenService.generateTokensInContext(
+            this.contextFor(user),
             token.ipAddress ?? undefined,
             token.userAgent ?? undefined,
             {
               familyId: token.familyId ?? undefined,
               rememberMe: token.rememberMe,
-              manager,
               establishSession: false,
             },
           );
@@ -1238,18 +1003,18 @@ export class AuthenticationService {
     }
     await this.assertTenantOperationalForRefresh(manager, user);
 
+    token.familyId = token.familyId ?? token.id;
     token.isRevoked = true;
     token.revokedAt = new Date();
     token.revokedReason = 'Token refreshed';
-    await this.preTenantAuthRepository(manager, RefreshToken).save(token);
-    const payload = await this.tokenService.generateTokens(
-      user,
+    await manager.withRepository(this.refreshTokenRepository).save(token);
+    const payload = await this.tokenService.generateTokensInContext(
+      this.contextFor(user),
       token.ipAddress ?? undefined,
       token.userAgent ?? undefined,
       {
         familyId: token.familyId ?? undefined,
         rememberMe: token.rememberMe,
-        manager,
         establishSession: false,
       },
     );
@@ -1260,7 +1025,7 @@ export class AuthenticationService {
     manager: EntityManager,
     suspectToken: RefreshToken,
   ): Promise<RefreshReuseContainment | null> {
-    const tokenRepo = this.preTenantAuthRepository(manager, RefreshToken);
+    const tokenRepo = manager.withRepository(this.refreshTokenRepository);
     const invalidatedAt = new Date();
     const claim = await tokenRepo.update(
       { id: suspectToken.id, reuseContainedAt: IsNull() },
@@ -1272,8 +1037,8 @@ export class AuthenticationService {
 
     await tokenRepo.update(
       suspectToken.familyId
-        ? { userId: suspectToken.userId, familyId: suspectToken.familyId, isRevoked: false }
-        : { userId: suspectToken.userId, isRevoked: false },
+        ? { userId: suspectToken.userId, familyId: suspectToken.familyId }
+        : { userId: suspectToken.userId },
       {
         isRevoked: true,
         revokedAt: invalidatedAt,
@@ -1325,8 +1090,8 @@ export class AuthenticationService {
   async logout(userId: string, jti?: string, accessTokenExpiry?: Date): Promise<boolean> {
     const intent = await this.dataSource.transaction(async (manager) => {
       const user = await this.lockCredentialPrincipal(manager, userId);
-      await this.preTenantAuthRepository(manager, RefreshToken).update(
-        { userId, isRevoked: false },
+      await manager.withRepository(this.refreshTokenRepository).update(
+        { userId },
         { isRevoked: true, revokedAt: new Date(), revokedReason: 'User logged out' },
       );
       if (!jti || !accessTokenExpiry || accessTokenExpiry.getTime() <= Date.now()) {
@@ -1374,8 +1139,9 @@ export class AuthenticationService {
     const transactionResult = await this.dataSource.transaction(async (manager) => {
       const user = await this.lockCredentialPrincipal(manager, userId);
       const invalidatedAt = new Date();
-      const updateResult = await this.preTenantAuthRepository(manager, RefreshToken).update(
-        { userId, isRevoked: false },
+      const activeCount = await manager.withRepository(this.refreshTokenRepository).count({ where: { userId, isRevoked: false } });
+      await manager.withRepository(this.refreshTokenRepository).update(
+        { userId },
         {
           isRevoked: true,
           revokedAt: invalidatedAt,
@@ -1392,7 +1158,7 @@ export class AuthenticationService {
         )}`,
       };
       await this.durableUserTokenInvalidation.enqueue(manager, userIntent);
-      return { affected: updateResult.affected ?? 0, intent: userIntent };
+      return { affected: activeCount, intent: userIntent };
     });
 
     const effects: PostCommitSecurityEffect[] = [
@@ -1673,25 +1439,20 @@ export class AuthenticationService {
       const resetTokenHash = crypto.createHash('sha256').update(resetToken).digest('hex');
       const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
 
-      // Set token and expiry (1 hour)
-      user.passwordResetToken = resetTokenHash;
-      user.passwordResetExpires = expiresAt;
-      await this.userRepository.save(user);
-
-      const actionToken = await this.actionTokenRepository.save(
-        this.actionTokenRepository.create({
-          purpose: ActionTokenPurpose.PASSWORD_RESET,
-          tenantId: user.tenantId ?? null,
-          userId: user.id,
-          tokenHash: resetTokenHash,
-          status: ActionTokenStatus.ACTIVE,
-          expiresAt,
-          auditMetadata: {
-            source: 'password-reset-request',
-            ipAddress,
-          },
-        }),
-      );
+      const actionToken = await withLockedCredentialPrincipal(this.dataSource, user.id, async (context) => {
+        if (!context.user.isActive) throw new BadRequestException('Account is unavailable');
+        await context.manager.update(User, { id: user.id }, {
+          passwordResetToken: resetTokenHash, passwordResetExpires: expiresAt,
+        });
+        await context.manager.update(ActionToken, {
+          userId: user.id, purpose: ActionTokenPurpose.PASSWORD_RESET, status: ActionTokenStatus.ACTIVE,
+        }, { status: ActionTokenStatus.REVOKED, revokedAt: new Date() });
+        return context.manager.save(ActionToken, context.manager.create(ActionToken, {
+          purpose: ActionTokenPurpose.PASSWORD_RESET, tenantId: context.user.tenantId ?? null,
+          userId: user.id, tokenHash: resetTokenHash, status: ActionTokenStatus.ACTIVE, expiresAt,
+          auditMetadata: { source: 'password-reset-request', ipAddress },
+        }));
+      });
 
       // SECURITY (CRITICAL-001/002): Publish event with opaque references ONLY.
       // PII (email, firstName) and secret URLs are NEVER placed on the immutable event bus.
@@ -1738,7 +1499,7 @@ export class AuthenticationService {
    * - Validates token expiry (1 hour window)
    * - Token is single-use (cleared after successful reset)
    * - All refresh tokens are revoked (forces re-authentication on all devices)
-   * - Returns new auth tokens so user is immediately logged in
+   * - Returns success/loginRequired; session admission is a subsequent login
    * - Password validation: min 8, uppercase, lowercase, digit, special char
    */
   async resetPassword(
@@ -1746,139 +1507,54 @@ export class AuthenticationService {
     newPassword: string,
     ipAddress?: string,
     userAgent?: string,
-  ): Promise<AuthPayload> {
-    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-    const transactionResult = await this.dataSource.transaction(async (manager) => {
-      const actionTokenRepository = this.preTenantAuthRepository(manager, ActionToken);
-      const userRepository = this.preTenantAuthRepository(manager, User);
-      const refreshTokenRepository = this.preTenantAuthRepository(manager, RefreshToken);
-      const actionToken = await actionTokenRepository.findOne({
-        where: {
-          id: token,
-          purpose: ActionTokenPurpose.PASSWORD_RESET,
-          status: ActionTokenStatus.ACTIVE,
-        },
-        lock: { mode: 'pessimistic_write' },
-      });
-      if (actionToken && !actionToken.isActive()) {
-        throw new BadRequestException('Invalid or expired password reset token');
-      }
-
-      const userQuery = userRepository
-        .createQueryBuilder('user')
-        .setLock('pessimistic_write')
-        .where('user.passwordResetExpires > :now', { now: new Date() });
-      if (actionToken) {
-        userQuery
-          .andWhere('user.id = :userId', { userId: actionToken.userId })
-          .andWhere('user.passwordResetToken = :tokenHash', {
-            tokenHash: actionToken.tokenHash,
+  ): Promise<CredentialActionResult> {
+    const passwordHash = await hashPassword(newPassword);
+    await this.bypassRls.withBypass('auth-service:password-reset', () =>
+      this.dataSource.transaction(async (manager) => {
+        const reference = await resolveActionReference(manager, token, ActionTokenPurpose.PASSWORD_RESET);
+        const discovered = await manager.findOne(User, {
+          where: reference.tokenHashes.map((passwordResetToken) => ({ passwordResetToken })),
+        });
+        if (!discovered) throw new BadRequestException('Invalid or expired password reset token');
+        const context = await LockedAuthContext.lock(manager, discovered.id);
+        const resolved = await resolveActionReference(manager, token, ActionTokenPurpose.PASSWORD_RESET, true);
+        const user = context.user;
+        if (!user.isActive || !user.passwordResetToken || !user.passwordResetExpires ||
+            user.passwordResetExpires.getTime() <= Date.now() ||
+            !resolved.tokenHashes.includes(user.passwordResetToken) ||
+            (resolved.actionToken && (resolved.actionToken.userId !== user.id ||
+              (resolved.actionToken.tenantId ?? null) !== (user.tenantId ?? null)))) {
+          throw new BadRequestException('Invalid or expired password reset token');
+        }
+        await manager.update(User, { id: user.id }, {
+          password: passwordHash, passwordResetToken: null, passwordResetExpires: null,
+          failedLoginAttempts: 0, lockedUntil: null,
+        });
+        if (resolved.actionToken) {
+          await manager.update(ActionToken, { id: resolved.actionToken.id }, {
+            status: ActionTokenStatus.CONSUMED, consumedAt: new Date(),
           });
-      } else {
-        userQuery.andWhere('user.passwordResetToken = :tokenHash', { tokenHash });
-      }
-      const user = await userQuery.getOne();
-      if (!user?.isActive) {
-        throw new BadRequestException('Invalid or expired password reset token');
-      }
-
-      user.password = newPassword;
-      user.passwordResetToken = null;
-      user.passwordResetExpires = null;
-      user.failedLoginAttempts = 0;
-      user.lockedUntil = null;
-      await userRepository.save(user);
-
-      if (actionToken) {
-        actionToken.status = ActionTokenStatus.CONSUMED;
-        actionToken.consumedAt = new Date();
-        await actionTokenRepository.save(actionToken);
-      }
-
-      // SEC-CRITICAL-002 (2026-08-23 scan №38): a password reset invalidates
-      // every second factor bound to the previous credential set. WebAuthn
-      // credentials deleted here cannot survive the victim rotating their
-      // password, closing the "biometric backdoor outlives reset" chain.
-      // Same transaction as the password write — no window where the new
-      // password is live while old biometric credentials still authenticate.
-      await manager.delete(WebAuthnCredential, { userId: user.id });
-
-      const invalidatedAt = new Date();
-      await refreshTokenRepository.update(
-        { userId: user.id, isRevoked: false },
-        { isRevoked: true, revokedAt: invalidatedAt, revokedReason: 'Password reset' },
-      );
-      const intent: UserTokenInvalidationIntent = {
-        userId: user.id,
-        tenantId: this.invalidationTenantForUser(user),
-        invalidatedAt,
-        reason: 'password_reset',
-        idempotencyKey: `password-reset:${actionToken?.id ?? tokenHash}`,
-      };
-      await this.durableUserTokenInvalidation.enqueue(manager, intent);
-      return { user, intent };
-    });
-
-    const effects: PostCommitSecurityEffect[] = [
-      {
-        type: 'user_token_invalidation',
-        apply: () => this.durableUserTokenInvalidation.applyImmediately(transactionResult.intent),
-      },
-    ];
-    const sessionManager = this.sessionManager;
-    if (sessionManager) {
-      effects.push({
-        type: 'session_revocation',
-        apply: () => sessionManager.revokeAllSessions(transactionResult.user.id),
-      });
-    }
-    await settlePostCommitSecurityEffects({
-      logger: this.logger,
-      operation: 'password_reset',
-      effects,
-    });
-
-    const { user } = transactionResult;
-    this.logger.log(JSON.stringify({ event: 'password_reset_success' }));
-
-    // Audit log + event publish in parallel
-    await Promise.allSettled([
-      this.logSecurityEvent('PASSWORD_RESET_SUCCESS', {
-        userId: user.id,
-        email: user.email,
-        tenantId: user.tenantId,
-        ipAddress,
-        userAgent,
-        success: true,
-      }),
-      this.bestEffort.publish(
-        createBaseEvent('PasswordResetCompleted', user.tenantId ?? 'system', {
-          aggregateId: user.id,
-          aggregateType: 'User',
+        }
+        await manager.delete(WebAuthnCredential, { userId: user.id });
+        const invalidation: UserTokenInvalidationIntent = {
+          userId: user.id, tenantId: this.invalidationTenantForUser(user), invalidatedAt: new Date(),
+          reason: 'password_reset',
+          idempotencyKey: `password-reset:${resolved.actionToken?.id ?? user.passwordResetToken}`,
+        };
+        await manager.update(RefreshToken, { userId: user.id }, {
+          isRevoked: true, revokedAt: invalidation.invalidatedAt, revokedReason: 'Password reset',
+        });
+        await this.durableUserTokenInvalidation.enqueue(manager, invalidation);
+        await this.logSecurityEvent('PASSWORD_RESET_SUCCESS', {
+          userId: user.id, tenantId: user.tenantId, ipAddress, userAgent, success: true,
+        }, AuditLogSeverity.INFO, manager);
+        await this.outboxPublisher.enqueue<PasswordResetCompletedEvent>({
+          ...createBaseEvent<PasswordResetCompletedEvent>('PasswordResetCompleted', user.tenantId ?? OUTBOX_SYSTEM_TENANT_ID),
           userId: user.id,
-        }),
-      ),
-    ]);
-
-    // ADR-046 MFA-ENFORCEMENT GATE (ADMIN-HIGH-014): gate token ISSUANCE on MFA
-    // enrollment through the same shared assertion login/acceptInvitation use.
-    // The password reset AND the session revocation above have already
-    // committed; if the tenant enforces MFA and this user has neither TOTP nor
-    // a WebAuthn credential, hand back the completable mfaSetupRequired
-    // outcome instead of a session. Without this gate a signed-out user could
-    // self-serve a reset back into an MFA-free session, durably defeating the
-    // revocation-on-flip.
-    const resetTenant = await this.resolveTenantForUser(user.tenantId);
-    const resetEnrollmentGate = await this.resolveMfaEnrollmentGate(user, resetTenant, {
-      ipAddress,
-      userAgent,
-    });
-    if (resetEnrollmentGate) {
-      return resetEnrollmentGate;
-    }
-
-    // Generate new tokens so user is immediately logged in
-    return this.tokenService.generateTokens(user, ipAddress, userAgent);
+        }, manager, { aggregateId: user.id, idempotencyKey: `password-reset-event:${resolved.actionToken?.id ?? user.passwordResetToken}`,
+          ...(user.tenantId ? {} : { routingScope: 'system' as const }) });
+      }));
+    return { success: true, loginRequired: true };
   }
 
   // ==========================================================================
@@ -1887,17 +1563,12 @@ export class AuthenticationService {
 
   /**
    * Load the user's tenant row for the MFA-enrollment gate on the
-   * password-backed token-minting paths (acceptInvitation, resetPassword).
+   * password-backed token-minting paths (login).
    * `auth.tenants` is cross-tenant by design (D14) and readable without a
    * tenant context — the same direct read login performs for its tenant-status
    * gate. Platform users (tenantId NULL) have no tenant.
    */
-  private async resolveTenantForUser(tenantId: string | null | undefined): Promise<Tenant | null> {
-    if (!tenantId) {
-      return null;
-    }
-    return this.tenantRepository.findOne({ where: { id: tenantId } });
-  }
+
 
   /**
    * ADR-046: a user SATISFIES tenant MFA enforcement when they have TOTP MFA
@@ -1908,11 +1579,11 @@ export class AuthenticationService {
    * users (short-circuit) and only the gate calls it, so a tenant that does not
    * enforce MFA never pays for it.
    */
-  private async userSatisfiesMfaEnforcement(user: User): Promise<boolean> {
+  private async userSatisfiesMfaEnforcement(user: User, manager: EntityManager): Promise<boolean> {
     if (user.mfaEnabled) {
       return true;
     }
-    const credentialCount = await this.webAuthnCredentialRepository.count({
+    const credentialCount = await manager.withRepository(this.webAuthnCredentialRepository).count({
       where: { userId: user.id },
     });
     return credentialCount > 0;
@@ -1921,7 +1592,7 @@ export class AuthenticationService {
   /**
    * ADR-046 MFA-ENFORCEMENT GATE (ADMIN-HIGH-014) — the single shared
    * assertion every password-backed token-minting caller funnels through
-   * (login, acceptInvitation, resetPassword). Returns:
+   * (login). Returns:
    *
    *   - `null` → the caller MAY mint a full session: the tenant does not
    *     enforce MFA, or the user already satisfies enforcement (TOTP OR a
@@ -1949,11 +1620,12 @@ export class AuthenticationService {
     user: User,
     tenant: Tenant | null,
     audit: { ipAddress?: string; userAgent?: string },
+    manager: EntityManager,
   ): Promise<AuthPayload | null> {
     if (!tenant || tenant.enforceMfa !== true) {
       return null;
     }
-    if (await this.userSatisfiesMfaEnforcement(user)) {
+    if (await this.userSatisfiesMfaEnforcement(user, manager)) {
       return null;
     }
 
@@ -1988,7 +1660,7 @@ export class AuthenticationService {
       userAgent: audit.userAgent,
       success: true,
       reason: 'Password valid; tenant enforces MFA and the user has no factor enrolled',
-    });
+    }, AuditLogSeverity.INFO, manager);
 
     return {
       accessToken: '',

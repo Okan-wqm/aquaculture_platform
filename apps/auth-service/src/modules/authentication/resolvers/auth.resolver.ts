@@ -11,6 +11,7 @@ import { AuthDomainMetricsService } from '../../../metrics/auth-domain-metrics.s
 import { AcceptInvitationInput } from '../dto/accept-invitation.dto';
 import {
   AuthPayload,
+  CredentialActionResult,
   LogoutResponse,
   TokenValidationResponse,
   MePayload,
@@ -167,11 +168,11 @@ export class AuthResolver {
    * Password validation: min 8 chars, uppercase, lowercase, number, special char
    */
   @Public()
-  @Mutation(() => AuthPayload)
+  @Mutation(() => CredentialActionResult)
   async acceptInvitation(
     @Args('input') input: AcceptInvitationInput,
     @Context() context: GqlContext,
-  ): Promise<AuthPayload> {
+  ): Promise<CredentialActionResult> {
     // ORPHAN-MEDIUM-319: gateway-resolved client identity (see login()).
     const { ip: ipAddress } = resolveClientNetworkContext(context.req);
     const result = await this.authService.acceptInvitation(
@@ -181,9 +182,9 @@ export class AuthResolver {
       input.lastName,
       ipAddress,
     );
-    // Invitation acceptance / password reset is not a "remember me" event → session cookie.
-    this.setRefreshTokenCookie(context.res, result.refreshToken, false);
-    return this.stripRefreshToken(result);
+    // Credential actions complete independently of new-session admission.
+    this.clearRefreshTokenCookie(context.res);
+    return result;
   }
 
   /**
@@ -225,17 +226,17 @@ export class AuthResolver {
    * - @Public() - unauthenticated access required (user forgot their password)
    * - Token is validated and single-use (cleared after successful reset)
    * - All existing sessions and refresh tokens are revoked
-   * - Returns new auth tokens so user is immediately logged in
+   * - Returns the committed action result; a subsequent login establishes a session
    * - Password validation: min 8, uppercase, lowercase, digit, special char (via DTO)
-   * - Refresh token is set as httpOnly cookie
+   * - Clears the old refresh cookie after the action commits
    */
   @RateLimit({ name: 'password-reset', limit: 3, windowMs: 60 * 60_000 })
   @Public()
-  @Mutation(() => AuthPayload)
+  @Mutation(() => CredentialActionResult)
   async resetPassword(
     @Args('input') input: ResetPasswordInput,
     @Context() context: GqlContext,
-  ): Promise<AuthPayload> {
+  ): Promise<CredentialActionResult> {
     // ORPHAN-MEDIUM-319: gateway-resolved client identity (see login()).
     const { ip: ipAddress, userAgent } = resolveClientNetworkContext(context.req);
     const result = await this.authService.resetPassword(
@@ -244,9 +245,9 @@ export class AuthResolver {
       ipAddress,
       userAgent,
     );
-    // Invitation acceptance / password reset is not a "remember me" event → session cookie.
-    this.setRefreshTokenCookie(context.res, result.refreshToken, false);
-    return this.stripRefreshToken(result);
+    // Credential actions complete independently of new-session admission.
+    this.clearRefreshTokenCookie(context.res);
+    return result;
   }
 
   /**

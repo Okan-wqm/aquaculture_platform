@@ -17,6 +17,7 @@ import {
   BeforeInsert,
   BeforeUpdate,
   Unique,
+  Check,
 } from 'typeorm';
 
 import { Tenant } from '../../tenant/entities/tenant.entity';
@@ -63,6 +64,8 @@ registerEnumType(AccessType, {
 // shapes of user identity; the public one carries no PII.
 @Entity('users', { schema: 'auth' })
 @Unique('UQ_users_id_tenant', ['id', 'tenantId'])
+@Check('CHK_users_credential_version_positive', '"credentialVersion" > 0')
+@Check('CHK_users_access_token_cutoff_range', '"accessTokenInvalidBeforeEpochSeconds" >= 0 AND "accessTokenInvalidBeforeEpochSeconds" <= 9007199254740991')
 // NOTE: email uniqueness is enforced via a `LOWER(email)` expression index
 // created by migration RestoreCaseInsensitiveEmailUniqueness1800300000000
 // (successor of the archived EnforceCaseInsensitiveEmailUniqueness — the
@@ -83,6 +86,21 @@ export class User {
   @Field(() => ID)
   @PrimaryGeneratedColumn('uuid')
   id!: string;
+
+  @HideField()
+  @Column({ type: 'integer', default: 1, insert: false, update: false })
+  credentialVersion!: number;
+
+  @HideField()
+  @Column({ type: 'bigint', default: 0, transformer: {
+    to: (value: number): number => value,
+    from: (value: string | number): number => {
+      const epoch = Number(value);
+      if (!Number.isSafeInteger(epoch) || epoch < 0) throw new RangeError('Invalid access-token cutoff');
+      return epoch;
+    },
+  } })
+  accessTokenInvalidBeforeEpochSeconds!: number;
 
   @Field()
   // NOTE: column-level `unique: true` REMOVED so TypeORM does not create a

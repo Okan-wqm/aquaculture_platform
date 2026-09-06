@@ -1,3 +1,5 @@
+import { hashPassword } from '@aquaculture/backend-common/auth';
+import { LockedAuthContext, snapshotCredentialProof } from './credential-state';
 import { Role } from '@aquaculture/backend-common/decorators';
 import { SESSION_MANAGER, ISessionManager } from '@aquaculture/backend-common/security';
 import {
@@ -84,7 +86,11 @@ export class AccountService {
       user.lastName = lastName;
     }
 
-    const savedUser = await this.userRepository.save(user);
+    await this.userRepository.update({ id: userId }, {
+      ...(input.firstName !== undefined ? { firstName: user.firstName } : {}),
+      ...(input.lastName !== undefined ? { lastName: user.lastName } : {}),
+    });
+    const savedUser = await this.findUserOrFail(userId);
 
     await Promise.allSettled([
       this.auditAccountEvent('USER_PROFILE_UPDATED', savedUser),
@@ -104,34 +110,24 @@ export class AccountService {
     userId: string,
     input: ChangeMyPasswordInput,
   ): Promise<ChangeMyPasswordResponse> {
+    const authenticated = await this.findUserOrFail(userId);
+    const proof = snapshotCredentialProof(authenticated);
+    if (!await authenticated.validatePassword(input.currentPassword)) {
+      await this.auditAccountEvent('PASSWORD_CHANGE_FAILED', authenticated, false, 'invalid_current_password');
+      throw new UnauthorizedException('Current password is incorrect');
+    }
+    const passwordHash = await hashPassword(input.newPassword);
     const transactionResult = await this.dataSource.transaction(async (manager) => {
-      const userRepository = manager.withRepository(this.userRepository);
+      const context = await LockedAuthContext.lock(manager, proof);
+      const user = context.user;
       const refreshTokenRepository = manager.withRepository(this.refreshTokenRepository);
-      const user = await userRepository.findOne({
-        where: { id: userId },
-        lock: { mode: 'pessimistic_write' },
+      await manager.update(User, { id: userId }, {
+        password: passwordHash, failedLoginAttempts: 0, lockedUntil: null,
       });
-      if (!user) {
-        throw new UnauthorizedException('User not found');
-      }
-      if (!(await user.validatePassword(input.currentPassword))) {
-        await this.auditAccountEvent(
-          'PASSWORD_CHANGE_FAILED',
-          user,
-          false,
-          'invalid_current_password',
-        );
-        throw new UnauthorizedException('Current password is incorrect');
-      }
-
-      user.password = input.newPassword;
-      user.failedLoginAttempts = 0;
-      user.lockedUntil = null;
-      await userRepository.save(user);
 
       const invalidatedAt = new Date();
       await refreshTokenRepository.update(
-        { userId, isRevoked: false },
+        { userId },
         {
           isRevoked: true,
           revokedAt: invalidatedAt,
@@ -146,6 +142,8 @@ export class AccountService {
         idempotencyKey: `password-change:${userId}:${Math.floor(invalidatedAt.getTime() / 1000)}`,
       };
       await this.durableUserTokenInvalidation.enqueue(manager, intent);
+      await this.auditLogService.log({ tenantId: user.tenantId ?? undefined, performedBy: user.id,
+        action: 'PASSWORD_CHANGED', entityType: 'User', entityId: user.id }, manager);
       return { user, intent };
     });
 
@@ -170,7 +168,6 @@ export class AccountService {
     const { user } = transactionResult;
 
     await Promise.allSettled([
-      this.auditAccountEvent('PASSWORD_CHANGED', user),
       this.bestEffort.publish(
         createBaseEvent('UserPasswordChanged', user.tenantId ?? 'system', {
           aggregateId: user.id,

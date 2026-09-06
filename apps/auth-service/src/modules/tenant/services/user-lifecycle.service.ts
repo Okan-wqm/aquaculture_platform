@@ -1,3 +1,4 @@
+import { hashPassword } from '@aquaculture/backend-common/auth';
 import * as crypto from 'crypto';
 
 import { tenantManagerRepo } from '@aquaculture/backend-common/database';
@@ -371,7 +372,7 @@ export class UserLifecycleService {
 
       // 1. Deactivate the user
       user.isActive = false;
-      await transactionUserRepository.save(user);
+      await transactionUserRepository.update({ id: user.id }, { isActive: false });
 
       // 2. Revoke role assignments — repointed to "auth"."user_role_assignments"
       // (ORPHAN-CRITICAL-100). The table has NO tenantId column, so tenant
@@ -551,18 +552,17 @@ export class UserLifecycleService {
     userId: string,
     newPassword: string,
   ): Promise<{ userId: string; refreshTokensRevoked: number }> {
+    const passwordHash = await hashPassword(newPassword);
     const transactionResult = await this.dataSource.transaction(async (manager) => {
       const user = await lockUserForCredentialMutation(manager, this.userRepository, userId);
       if (!user) {
         throw new NotFoundException(`User with ID "${userId}" not found`);
       }
 
-      user.password = newPassword;
-      user.passwordResetToken = null;
-      user.passwordResetExpires = null;
-      user.failedLoginAttempts = 0;
-      user.lockedUntil = null;
-      await manager.withRepository(this.userRepository).save(user);
+      await manager.update(User, { id: userId }, {
+        password: passwordHash, passwordResetToken: null, passwordResetExpires: null,
+        failedLoginAttempts: 0, lockedUntil: null,
+      });
 
       const invalidatedAt = new Date();
       const refreshTokensRevoked = await revokeActiveRefreshTokens(
@@ -626,14 +626,25 @@ export class UserLifecycleService {
     // canonical User fence, revoke refresh credentials and durably invalidate
     // already-issued access tokens in the same transaction.
     const mutatesAuthorization =
-      patch.isActive === false || patch.role !== undefined || patch.tenantId !== undefined;
+      patch.isActive !== undefined || patch.role !== undefined || patch.tenantId !== undefined;
     if (mutatesAuthorization) {
       const transactionResult = await this.dataSource.transaction(async (manager) => {
+        const discovered = await manager.findOne(User, { where: { id: userId }, select: { id: true, tenantId: true } });
+        if (!discovered) throw new NotFoundException('User not found');
+        const tenantIds = [...new Set([discovered.tenantId, patch.tenantId]
+          .filter((id): id is string => typeof id === 'string'))].sort();
+        for (const tenantId of tenantIds) {
+          const tenant = await manager.findOne(Tenant, { where: { id: tenantId }, lock: { mode: 'pessimistic_write' } });
+          if (!tenant) throw new NotFoundException('Tenant not found');
+        }
         const user = await lockUserForCredentialMutation(manager, this.userRepository, userId);
         if (!user) {
           throw new NotFoundException(`User with ID "${userId}" not found`);
         }
 
+        if ((user.tenantId ?? null) !== (discovered.tenantId ?? null)) {
+          throw new ConflictException('User tenant changed during update');
+        }
         const requestedRole = patch.role;
         if (requestedRole !== undefined && !isCanonicalRole(requestedRole)) {
           throw new BadRequestException(`Unknown role "${requestedRole}"`);
@@ -654,7 +665,20 @@ export class UserLifecycleService {
         if (patch.tenantId !== undefined) user.tenantId = patch.tenantId;
         if (patch.isActive !== undefined) user.isActive = patch.isActive;
 
-        const saved = await manager.withRepository(this.userRepository).save(user);
+        await manager.update(User, { id: userId }, {
+          ...(patch.firstName !== undefined ? { firstName: patch.firstName } : {}),
+          ...(patch.lastName !== undefined ? { lastName: patch.lastName } : {}),
+          ...(requestedRole !== undefined ? { role: requestedRole } : {}),
+          ...(patch.tenantId !== undefined ? { tenantId: patch.tenantId } : {}),
+          ...(patch.isActive !== undefined ? { isActive: patch.isActive } : {}),
+        });
+        const saved = await manager.findOneByOrFail(User, { id: userId });
+        if (patch.tenantId !== undefined) {
+          for (const tenantId of tenantIds) {
+            const userCount = await manager.count(User, { where: { tenantId } });
+            await manager.update(Tenant, { id: tenantId }, { userCount });
+          }
+        }
         const invalidatedAt = new Date();
         await revokeActiveRefreshTokens(
           manager,
@@ -690,7 +714,11 @@ export class UserLifecycleService {
     if (patch.lastName !== undefined) user.lastName = patch.lastName;
     if (patch.isActive !== undefined) user.isActive = patch.isActive;
 
-    const saved = await this.userRepository.save(user);
+    await this.userRepository.update({ id: userId }, {
+      ...(patch.firstName !== undefined ? { firstName: patch.firstName } : {}),
+      ...(patch.lastName !== undefined ? { lastName: patch.lastName } : {}),
+    });
+    const saved = await this.userRepository.findOneByOrFail({ id: userId });
     this.logger.log(`Admin updated userId=${saved.id}`);
     return saved;
   }
@@ -720,7 +748,7 @@ export class UserLifecycleService {
       }
 
       user.isActive = false;
-      await manager.withRepository(this.userRepository).save(user);
+      await manager.update(User, { id: userId }, { isActive: false });
       const invalidatedAt = new Date();
       const refreshTokensRemoved = await revokeActiveRefreshTokens(
         manager,
@@ -900,6 +928,13 @@ export class UserLifecycleService {
     //    EntityManager guarantees that a User without an Invitation row
     //    (or vice versa) cannot exist if any single insert fails.
     const result = await this.dataSource.transaction(async (manager) => {
+      const lockedTenant = await manager.findOne(Tenant, { where: { id: input.tenantId }, lock: { mode: 'pessimistic_write' } });
+      if (!lockedTenant) throw new NotFoundException('Tenant not found');
+      const lockedCount = await manager.count(User, { where: { tenantId: input.tenantId } });
+      if (lockedTenant.maxUsers !== -1 && lockedCount >= lockedTenant.maxUsers) {
+        throw new BadRequestException('Tenant user limit reached');
+      }
+
       // WHY manager.create/save for User + Invitation (not tenantManagerRepo):
       // auth.users and auth.invitations are cross-tenant tables by design —
       // tenantId is NULLABLE there (SUPER_ADMIN rows carry NULL), so the

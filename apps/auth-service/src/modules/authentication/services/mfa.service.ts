@@ -10,7 +10,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { AuditLogSeverity } from '../../../audit/audit-log.entity';
@@ -22,7 +22,15 @@ import {
   RegenerateMfaRecoveryCodesResponse,
 } from '../dto/mfa.dto';
 import { AuthPayload } from '../dto/auth-response.dto';
-import { TokenService } from './token.service';
+import { TokenService, type OriginatingAccessSession } from './token.service';
+import { credentialProofFromClaims, snapshotCredentialProof, withLockedCredentialPrincipal, type CredentialProof, type LockedAuthContext } from './credential-state';
+
+export type MfaSubject =
+  | { readonly kind: 'session'; readonly session: OriginatingAccessSession }
+  | { readonly kind: 'setup'; readonly proof: CredentialProof };
+
+type MfaResult<T> = { readonly value: T } | { readonly error: Error };
+
 
 // ============================================================================
 // Constants
@@ -223,6 +231,7 @@ export class MfaService {
     private readonly configService: ConfigService,
     private readonly auditLogService: AuditLogService,
     private readonly tokenService: TokenService,
+    private readonly dataSource: DataSource,
   ) {
     this.issuerName = this.configService.get<string>(
       'MFA_ISSUER_NAME',
@@ -317,192 +326,141 @@ export class MfaService {
    * consumed (step > lastUsedTotpStep).
    */
   private async verifyAndConsumeTotp(
-    user: User,
+    context: LockedAuthContext,
     code: string,
     secretBuffer: Buffer,
   ): Promise<boolean> {
     const matchedStep = verifyTOTP(secretBuffer, code);
-    if (matchedStep === null) {
-      return false;
-    }
-    const result = await this.userRepository
-      .createQueryBuilder()
+    if (matchedStep === null) return false;
+    const result = await context.manager.createQueryBuilder()
       .update(User)
       .set({ lastUsedTotpStep: String(matchedStep) })
-      .where('id = :id', { id: user.id })
-      .andWhere(
-        '("lastUsedTotpStep" IS NULL OR "lastUsedTotpStep" < CAST(:step AS bigint))',
-        { step: String(matchedStep) },
-      )
+      .where('id = :id', { id: context.user.id })
+      .andWhere('("lastUsedTotpStep" IS NULL OR "lastUsedTotpStep" < CAST(:step AS bigint))',
+        { step: String(matchedStep) })
       .execute();
-    return (result.affected ?? 0) > 0;
+    if ((result.affected ?? 0) !== 1) return false;
+    context.user.lastUsedTotpStep = String(matchedStep);
+    return true;
   }
 
-  async setupMfa(userId: string): Promise<SetupMfaResponse> {
+  private assertAvailable(): void {
     if (this.mfaDisabled) {
       throw new BadRequestException('MFA is not available. MFA_ENCRYPTION_KEY must be configured.');
     }
-    const user = await this.findUserOrFail(userId);
-
-    if (user.mfaEnabled) {
-      throw new BadRequestException('MFA is already enabled for this account');
-    }
-
-    // Generate a 20-byte (160-bit) random secret (RFC 4226 recommended minimum)
-    const secretBuffer = crypto.randomBytes(20);
-    const secretBase32 = base32Encode(secretBuffer);
-
-    // Generate recovery codes
-    const recoveryCodes = this.generateRecoveryCodes();
-    // SEC-LOW-001(b): hashRecoveryCodes asserts each digest is 64-char hex so a
-    // malformed hash can never be persisted (write-time invariant).
-    const recoveryCodeHashes = this.hashRecoveryCodes(recoveryCodes);
-
-    // Encrypt secret before storage
-    const encryptedSecret = this.encrypt(secretBase32);
-
-    // Store encrypted secret and hashed recovery codes (but keep mfaEnabled=false)
-    user.mfaSecret = encryptedSecret;
-    user.mfaRecoveryCodes = recoveryCodeHashes;
-    user.mfaFailedAttempts = 0;
-    user.mfaLockedUntil = null;
-    await this.userRepository.save(user);
-
-    // Build otpauth URI for QR code
-    const qrCodeUri = this.buildOtpauthUri(user.email, secretBase32);
-
-    await this.logMfaEvent('MFA_SETUP_INITIATED', user, true);
-
-    return {
-      secret: secretBase32,
-      qrCodeUri,
-      recoveryCodes,
-    };
   }
 
-  /**
-   * Step 2: Verify the first TOTP code to complete MFA setup.
-   * Sets mfaEnabled=true on success.
-   */
-  async verifyMfaSetup(userId: string, code: string): Promise<VerifyMfaSetupResponse> {
-    if (this.mfaDisabled) {
-      throw new BadRequestException('MFA is not available. MFA_ENCRYPTION_KEY must be configured.');
-    }
-    const user = await this.findUserOrFail(userId);
-
-    if (user.mfaEnabled) {
-      throw new BadRequestException('MFA is already enabled');
-    }
-
-    if (!user.mfaSecret) {
-      throw new BadRequestException('MFA setup has not been initiated. Call setupMfa first.');
-    }
-
-    // Decrypt the stored secret
-    const secretBase32 = this.decrypt(user.mfaSecret);
-    const secretBuffer = base32Decode(secretBase32);
-
-    // Verify the TOTP code (and consume its step — one-time-use)
-    if (!(await this.verifyAndConsumeTotp(user, code, secretBuffer))) {
-      await this.logMfaEvent('MFA_SETUP_VERIFY_FAILED', user, false, 'Invalid or replayed TOTP code');
-      throw new BadRequestException('Invalid TOTP code. Please try again with a new code from your authenticator app.');
-    }
-
-    // Enable MFA
-    user.mfaEnabled = true;
-    user.mfaFailedAttempts = 0;
-    user.mfaLockedUntil = null;
-    await this.userRepository.save(user);
-
-    await this.logMfaEvent('MFA_ENABLED', user, true);
-
-    return {
-      success: true,
-      message: 'MFA has been successfully enabled',
-    };
+  private async mfaLockout(context: LockedAuthContext, action: string): Promise<{ error: Error } | null> {
+    const lockedUntil = context.user.mfaLockedUntil;
+    if (!lockedUntil || lockedUntil.getTime() <= Date.now()) return null;
+    await this.logMfaEvent(action, context, false, 'MFA locked out');
+    return { error: new ForbiddenException('Too many failed MFA attempts. Please try again later.') };
   }
 
-  /**
-   * Disable MFA after verifying password and TOTP code.
-   */
-  async disableMfa(userId: string, password: string, code: string): Promise<DisableMfaResponse> {
-    if (this.mfaDisabled) {
-      throw new BadRequestException('MFA is not available. MFA_ENCRYPTION_KEY must be configured.');
-    }
-    const user = await this.findUserOrFail(userId);
-
-    if (!user.mfaEnabled) {
-      throw new BadRequestException('MFA is not enabled for this account');
-    }
-
-    // Verify password
-    const isPasswordValid = await user.validatePassword(password);
-    if (!isPasswordValid) {
-      await this.logMfaEvent('MFA_DISABLE_FAILED', user, false, 'Invalid password');
-      throw new UnauthorizedException('Invalid password');
-    }
-
-    // Verify TOTP code
-    if (!user.mfaSecret) {
-      throw new BadRequestException('MFA configuration is corrupted. Contact support.');
-    }
-
-    const secretBase32 = this.decrypt(user.mfaSecret);
-    const secretBuffer = base32Decode(secretBase32);
-
-    if (!verifyTOTP(secretBuffer, code)) {
-      await this.logMfaEvent('MFA_DISABLE_FAILED', user, false, 'Invalid TOTP code');
-      throw new BadRequestException('Invalid TOTP code');
-    }
-
-    // Disable MFA and clear all MFA data
-    user.mfaEnabled = false;
-    user.mfaSecret = null;
-    user.mfaRecoveryCodes = null;
-    user.mfaFailedAttempts = 0;
-    user.mfaLockedUntil = null;
-    await this.userRepository.save(user);
-
-    await this.logMfaEvent('MFA_DISABLED', user, true);
-
-    return {
-      success: true,
-      message: 'MFA has been successfully disabled',
-    };
+  private async withMfaSubject<T>(subject: MfaSubject,
+    operation: (context: LockedAuthContext) => Promise<MfaResult<T>>,
+    blockedAction = 'MFA_OPERATION_BLOCKED_LOCKOUT',
+  ): Promise<T> {
+    this.assertAvailable();
+    const result = await withLockedCredentialPrincipal(this.dataSource,
+      subject.kind === 'setup' ? subject.proof : subject.session.sub, async (context): Promise<MfaResult<T>> => {
+        context.assertSessionAdmission();
+        if (subject.kind === 'session') {
+          await this.tokenService.assertOriginatingSessionInContext(context, subject.session);
+        }
+        const blocked = await this.mfaLockout(context, blockedAction);
+        return blocked ?? operation(context);
+      });
+    if ('error' in result) throw result.error;
+    return result.value;
   }
 
-  /**
-   * Regenerate recovery codes (requires authentication + TOTP verification).
-   */
-  async regenerateRecoveryCodes(userId: string, code: string): Promise<RegenerateMfaRecoveryCodesResponse> {
-    if (this.mfaDisabled) {
-      throw new BadRequestException('MFA is not available. MFA_ENCRYPTION_KEY must be configured.');
-    }
-    const user = await this.findUserOrFail(userId);
+  private async recordFailedAttempt(context: LockedAuthContext, action: string,
+    error: Error,
+  ): Promise<{ error: Error }> {
+    const attempts = context.user.mfaFailedAttempts + 1;
+    const lockedUntil = attempts >= MFA_MAX_FAILED_ATTEMPTS
+      ? new Date(Date.now() + MFA_LOCKOUT_DURATION_MINUTES * 60_000) : null;
+    await context.manager.update(User, context.user.id, {
+      mfaFailedAttempts: attempts, mfaLockedUntil: lockedUntil,
+    });
+    const lockoutAction = action === 'MFA_VERIFY_FAILED' ? 'MFA_LOCKOUT' : action.replace(/FAILED$/, 'LOCKOUT');
+    await this.logMfaEvent(lockedUntil ? lockoutAction : action,
+      context, false, `Attempt ${attempts}`);
+    return { error: lockedUntil
+      ? new ForbiddenException(`Too many failed MFA attempts. Account locked for ${MFA_LOCKOUT_DURATION_MINUTES} minutes.`)
+      : error };
+  }
 
-    if (!user.mfaEnabled || !user.mfaSecret) {
-      throw new BadRequestException('MFA is not enabled for this account');
-    }
+  async setupMfa(subject: MfaSubject): Promise<SetupMfaResponse> {
+    return this.withMfaSubject(subject, async (context) => {
+      const user = context.user;
+      if (user.mfaEnabled) throw new BadRequestException('MFA is already enabled for this account');
+      const secret = base32Encode(crypto.randomBytes(20));
+      const recoveryCodes = this.generateRecoveryCodes();
+      await context.manager.update(User, user.id, {
+        mfaSecret: this.encrypt(secret), mfaRecoveryCodes: this.hashRecoveryCodes(recoveryCodes),
+        lastUsedTotpStep: null,
+      });
+      await this.logMfaEvent('MFA_SETUP_INITIATED', context, true);
+      return { value: { secret, qrCodeUri: this.buildOtpauthUri(user.email, secret), recoveryCodes } };
+    });
+  }
 
-    // Verify TOTP code
-    const secretBase32 = this.decrypt(user.mfaSecret);
-    const secretBuffer = base32Decode(secretBase32);
+  async verifyMfaSetup(subject: MfaSubject, code: string): Promise<VerifyMfaSetupResponse> {
+    return this.withMfaSubject(subject, async (context) => {
+      const user = context.user;
+      if (user.mfaEnabled) throw new BadRequestException('MFA is already enabled');
+      if (!user.mfaSecret) throw new BadRequestException('MFA setup has not been initiated. Call setupMfa first.');
+      if (!await this.verifyAndConsumeTotp(context, code, base32Decode(this.decrypt(user.mfaSecret)))) {
+        return this.recordFailedAttempt(context, 'MFA_SETUP_VERIFY_FAILED', new BadRequestException('Invalid TOTP code. Please try again with a new code from your authenticator app.'));
+      }
+      await context.manager.update(User, user.id, { mfaEnabled: true, mfaFailedAttempts: 0, mfaLockedUntil: null });
+      await this.logMfaEvent('MFA_ENABLED', context, true);
+      return { value: { success: true, message: 'MFA has been successfully enabled' } };
+    });
+  }
 
-    if (!verifyTOTP(secretBuffer, code)) {
-      throw new BadRequestException('Invalid TOTP code');
-    }
+  async disableMfa(session: OriginatingAccessSession, password: string, code: string): Promise<DisableMfaResponse> {
+    this.assertAvailable();
+    const observed = await this.findUserOrFail(session.sub);
+    const proof = snapshotCredentialProof(observed);
+    const passwordValid = await observed.validatePassword(password);
+    const result = await withLockedCredentialPrincipal(this.dataSource, proof, async (context): Promise<MfaResult<DisableMfaResponse>> => {
+      context.assertSessionAdmission();
+      await this.tokenService.assertOriginatingSessionInContext(context, session);
+      const blocked = await this.mfaLockout(context, 'MFA_DISABLE_BLOCKED_LOCKOUT');
+      if (blocked) return blocked;
+      if (!context.user.mfaEnabled) throw new BadRequestException('MFA is not enabled for this account');
+      if (!passwordValid) return this.recordFailedAttempt(context, 'MFA_DISABLE_FAILED', new UnauthorizedException('Invalid password'));
+      if (!context.user.mfaSecret) throw new BadRequestException('MFA configuration is corrupted. Contact support.');
+      if (!await this.verifyAndConsumeTotp(context, code, base32Decode(this.decrypt(context.user.mfaSecret)))) {
+        return this.recordFailedAttempt(context, 'MFA_DISABLE_FAILED', new BadRequestException('Invalid TOTP code'));
+      }
+      await context.manager.update(User, context.user.id, {
+        mfaEnabled: false, mfaSecret: null, mfaRecoveryCodes: null, lastUsedTotpStep: null,
+        mfaFailedAttempts: 0, mfaLockedUntil: null,
+      });
+      await this.logMfaEvent('MFA_DISABLED', context, true);
+      return { value: { success: true, message: 'MFA has been successfully disabled' } };
+    });
+    if ('error' in result) throw result.error;
+    return result.value;
+  }
 
-    // Generate new recovery codes
-    const recoveryCodes = this.generateRecoveryCodes();
-    // SEC-LOW-001(b): same write-time hex invariant as setupMfa.
-    const recoveryCodeHashes = this.hashRecoveryCodes(recoveryCodes);
-
-    user.mfaRecoveryCodes = recoveryCodeHashes;
-    await this.userRepository.save(user);
-
-    await this.logMfaEvent('MFA_RECOVERY_CODES_REGENERATED', user, true);
-
-    return { recoveryCodes };
+  async regenerateRecoveryCodes(session: OriginatingAccessSession, code: string): Promise<RegenerateMfaRecoveryCodesResponse> {
+    return this.withMfaSubject({ kind: 'session', session }, async (context) => {
+      if (!context.user.mfaEnabled || !context.user.mfaSecret) throw new BadRequestException('MFA is not enabled for this account');
+      if (!await this.verifyAndConsumeTotp(context, code, base32Decode(this.decrypt(context.user.mfaSecret)))) {
+        return this.recordFailedAttempt(context, 'MFA_RECOVERY_CODES_VERIFY_FAILED', new BadRequestException('Invalid TOTP code'));
+      }
+      const recoveryCodes = this.generateRecoveryCodes();
+      await context.manager.update(User, context.user.id, {
+        mfaRecoveryCodes: this.hashRecoveryCodes(recoveryCodes), mfaFailedAttempts: 0, mfaLockedUntil: null,
+      });
+      await this.logMfaEvent('MFA_RECOVERY_CODES_REGENERATED', context, true);
+      return { value: { recoveryCodes } };
+    });
   }
 
   // ==========================================================================
@@ -529,13 +487,13 @@ export class MfaService {
     // (paired with the positive check in verifyMfaLogin below) makes an
     // access/refresh token unusable at the MFA-verify endpoint — neither can be
     // replayed across surfaces even though both are signed by the same keypair.
-    // `purpose: 'mfa_verification'` is retained for backward compat during
-    // rollout, but `type` is the authoritative discriminator.
+    // Both the type and purpose are required when consuming the signed proof.
     const mfaPayload = {
       sub: `${MFA_TOKEN_PREFIX}${user.id}`,
       type: 'mfa_challenge' as const,
       purpose: 'mfa_verification',
       userId: user.id,
+      credential: snapshotCredentialProof(user),
       jti: crypto.randomUUID(),
       // ORPHAN-LOW-135: carry the rememberMe choice in the SIGNED challenge token
       // so it survives the challenge → verify round-trip and is tamper-proof (the
@@ -563,7 +521,7 @@ export class MfaService {
    *     type !== 'access'),
    *   - unusable at verifyMfaLogin (which positively requires
    *     type === 'mfa_challenge'),
-   *   - usable ONLY where resolveSetupTokenUserId positively requires it —
+   *   - usable ONLY where resolveSetupTokenSubject positively requires it —
    *     the setupMfa + verifyMfaSetup enrollment pair.
    */
   generateMfaSetupToken(user: User): string {
@@ -572,6 +530,7 @@ export class MfaService {
       type: 'mfa_setup' as const,
       purpose: 'mfa_enrollment',
       userId: user.id,
+      credential: snapshotCredentialProof(user),
       jti: crypto.randomUUID(),
     };
 
@@ -589,233 +548,73 @@ export class MfaService {
    * sub-prefix check, so no other token shape (access / refresh /
    * mfa_challenge) can ever be accepted here.
    */
-  resolveSetupTokenUserId(mfaSetupToken: string): string {
-    let setupPayload: {
-      sub: string;
-      userId: string;
-      purpose: string;
-      type?: string;
-    };
-    try {
-      setupPayload = this.jwtService.verify(mfaSetupToken);
-    } catch {
-      throw new UnauthorizedException('MFA setup token is invalid or expired. Please login again.');
-    }
-
-    if (
-      setupPayload.type !== 'mfa_setup' ||
-      setupPayload.purpose !== 'mfa_enrollment' ||
-      !setupPayload.sub?.startsWith(MFA_SETUP_TOKEN_PREFIX)
-    ) {
-      throw new UnauthorizedException('Invalid MFA setup token');
-    }
-
-    return setupPayload.userId;
+  resolveSetupTokenSubject(mfaSetupToken: string): MfaSubject {
+    const payload = this.verifyIntermediateToken(mfaSetupToken, 'mfa_setup');
+    return { kind: 'setup', proof: credentialProofFromClaims(payload.credential) };
   }
 
-  /**
-   * Verify MFA code during login flow.
-   *
-   * Accepts either a 6-digit TOTP code or a recovery code.
-   * On success, returns full auth tokens via AuthenticationService.
-   */
-  async verifyMfaLogin(
-    mfaToken: string,
-    code: string,
-    ipAddress?: string,
-    userAgent?: string,
-  ): Promise<AuthPayload> {
-    if (this.mfaDisabled) {
-      throw new BadRequestException('MFA is not available. MFA_ENCRYPTION_KEY must be configured.');
-    }
-    // Validate the MFA token
-    let mfaPayload: {
-      sub: string;
-      userId: string;
-      purpose: string;
-      jti: string;
-      type?: string;
-      rememberMe?: boolean;
-    };
+  private verifyIntermediateToken(token: string, type: 'mfa_setup' | 'mfa_challenge'): Record<string, unknown> {
+    let payload: Record<string, unknown>;
     try {
-      mfaPayload = this.jwtService.verify(mfaToken);
+      payload = this.jwtService.verify<Record<string, unknown>>(token);
     } catch {
       throw new UnauthorizedException('MFA token is invalid or expired. Please login again.');
     }
-
-    // Validate token purpose AND type.
-    //
-    // SEC-LOW-001(a) — WHY the positive `type === 'mfa_challenge'` check: the
-    // legacy guard only asserted purpose + sub-prefix, both of which a future
-    // token shape could satisfy. The `type` claim is the canonical discriminator
-    // minted in generateMfaChallenge; requiring it positively here means an
-    // access/refresh token (type 'access'/'refresh') can never be replayed into
-    // this MFA-verify endpoint even if signed by the same keypair.
-    if (
-      mfaPayload.type !== 'mfa_challenge' ||
-      mfaPayload.purpose !== 'mfa_verification' ||
-      !mfaPayload.sub?.startsWith(MFA_TOKEN_PREFIX)
-    ) {
+    const prefix = type === 'mfa_setup' ? MFA_SETUP_TOKEN_PREFIX : MFA_TOKEN_PREFIX;
+    const purpose = type === 'mfa_setup' ? 'mfa_enrollment' : 'mfa_verification';
+    if (payload.type !== type || payload.purpose !== purpose ||
+        typeof payload.userId !== 'string' || payload.sub !== `${prefix}${payload.userId}` ||
+        typeof payload.jti !== 'string' || !payload.jti) {
       throw new UnauthorizedException('Invalid MFA token');
     }
-
-    const userId = mfaPayload.userId;
-    const user = await this.findUserOrFail(userId);
-
-    // Check MFA lockout
-    if (user.mfaLockedUntil && user.mfaLockedUntil > new Date()) {
-      const remainingMs = user.mfaLockedUntil.getTime() - Date.now();
-      const remainingMin = Math.ceil(remainingMs / 60000);
-      await this.logMfaEvent('MFA_VERIFY_BLOCKED_LOCKOUT', user, false, 'MFA locked out');
-      throw new ForbiddenException(
-        `Too many failed MFA attempts. Try again in ${remainingMin} minute(s).`,
-      );
-    }
-
-    if (!user.mfaEnabled || !user.mfaSecret) {
-      throw new BadRequestException('MFA is not enabled for this account');
-    }
-
-    // Try TOTP code first (6 digits)
-    const isTotpCode = /^\d{6}$/.test(code);
-    let verified = false;
-
-    if (isTotpCode) {
-      const secretBase32 = this.decrypt(user.mfaSecret);
-      const secretBuffer = base32Decode(secretBase32);
-      verified = await this.verifyAndConsumeTotp(user, code, secretBuffer);
-    }
-
-    // If TOTP didn't match, try recovery code
-    if (!verified) {
-      verified = await this.verifyAndConsumeRecoveryCode(user, code);
-    }
-
-    if (!verified) {
-      // Increment failed attempts
-      user.mfaFailedAttempts = (user.mfaFailedAttempts || 0) + 1;
-
-      if (user.mfaFailedAttempts >= MFA_MAX_FAILED_ATTEMPTS) {
-        user.mfaLockedUntil = new Date(Date.now() + MFA_LOCKOUT_DURATION_MINUTES * 60 * 1000);
-        await this.userRepository.save(user);
-        await this.logMfaEvent('MFA_LOCKOUT', user, false, `Locked after ${MFA_MAX_FAILED_ATTEMPTS} failed attempts`);
-        throw new ForbiddenException(
-          `Too many failed MFA attempts. Account locked for ${MFA_LOCKOUT_DURATION_MINUTES} minutes.`,
-        );
-      }
-
-      await this.userRepository.save(user);
-      await this.logMfaEvent('MFA_VERIFY_FAILED', user, false, `Attempt ${user.mfaFailedAttempts}`);
-      throw new UnauthorizedException('Invalid MFA code');
-    }
-
-    // Success — reset failed attempts
-    user.mfaFailedAttempts = 0;
-    user.mfaLockedUntil = null;
-    user.lastLoginAt = new Date();
-    await this.userRepository.save(user);
-
-    await this.logMfaEvent('MFA_VERIFY_SUCCESS', user, true);
-
-    // IP-2: MFA login verification → set mfaVerified claim in JWT.
-    // ORPHAN-LOW-135: restore the rememberMe choice carried in the signed mfaToken.
-    return this.tokenService.generateTokens(user, ipAddress, userAgent, {
-      mfaVerified: true,
-      rememberMe: mfaPayload.rememberMe ?? false,
-    });
+    const proof = credentialProofFromClaims(payload.credential);
+    if (proof.id !== payload.userId) throw new UnauthorizedException('Invalid MFA token');
+    return payload;
   }
 
-  // ==========================================================================
-  // Step-Up Authentication
-  // ==========================================================================
-
-  /**
-   * IP-2: MFA step-up authentication for elevated operations.
-   *
-   * Called when a user with an existing session needs to re-verify their
-   * identity for sensitive operations (e.g., impersonation, billing changes).
-   * Returns a new access token with `mfaVerified: true` claim.
-   *
-   * SECURITY: The caller must already be authenticated (valid access token).
-   * This endpoint only elevates the session — it does not create one.
-   *
-   * WHY: Separate from login MFA because:
-   *   - Login MFA uses a short-lived mfaToken (5 min) as credential
-   *   - Step-up uses the existing access token as credential
-   *   - Step-up tokens have a shorter TTL (5 min) to limit blast radius
-   *
-   * @param userId    - From the existing JWT (not user-supplied)
-   * @param code      - 6-digit TOTP code or recovery code
-   * @param ipAddress - Client IP for audit logging
-   * @param userAgent - Client user agent for audit logging
-   * @returns New auth tokens with mfaVerified=true claim
-   */
-  async verifyStepUp(
-    userId: string,
-    code: string,
-    ipAddress?: string,
-    userAgent?: string,
-  ): Promise<AuthPayload> {
-    if (this.mfaDisabled) {
-      throw new BadRequestException('MFA is not available. MFA_ENCRYPTION_KEY must be configured.');
-    }
-
-    const user = await this.findUserOrFail(userId);
-
-    if (!user.mfaEnabled || !user.mfaSecret) {
-      throw new BadRequestException(
-        'MFA is not enabled for this account. Enable MFA first via setupMfa mutation.',
-      );
-    }
-
-    // ── Lockout check ───────────────────────────────────────────────────────
-    if (user.mfaLockedUntil && user.mfaLockedUntil > new Date()) {
-      const remainingMin = Math.ceil((user.mfaLockedUntil.getTime() - Date.now()) / 60000);
-      await this.logMfaEvent('MFA_STEPUP_BLOCKED_LOCKOUT', user, false, 'MFA locked out');
-      throw new ForbiddenException(
-        `Too many failed MFA attempts. Try again in ${remainingMin} minute(s).`,
-      );
-    }
-
-    // ── TOTP verification ───────────────────────────────────────────────────
-    const isTotpCode = /^\d{6}$/.test(code);
-    let verified = false;
-
-    if (isTotpCode) {
-      const secretBase32 = this.decrypt(user.mfaSecret);
-      const secretBuffer = base32Decode(secretBase32);
-      verified = await this.verifyAndConsumeTotp(user, code, secretBuffer);
-    }
-
-    // ── Recovery code fallback ──────────────────────────────────────────────
-    if (!verified) {
-      verified = await this.verifyAndConsumeRecoveryCode(user, code);
-    }
-
-    if (!verified) {
-      user.mfaFailedAttempts = (user.mfaFailedAttempts || 0) + 1;
-      if (user.mfaFailedAttempts >= MFA_MAX_FAILED_ATTEMPTS) {
-        user.mfaLockedUntil = new Date(Date.now() + MFA_LOCKOUT_DURATION_MINUTES * 60 * 1000);
-        await this.userRepository.save(user);
-        await this.logMfaEvent('MFA_STEPUP_LOCKOUT', user, false,
-          `Locked after ${MFA_MAX_FAILED_ATTEMPTS} failed attempts`);
-        throw new ForbiddenException(
-          `Too many failed MFA attempts. Account locked for ${MFA_LOCKOUT_DURATION_MINUTES} minutes.`,
-        );
+  async verifyMfaLogin(mfaToken: string, code: string, ipAddress?: string, userAgent?: string): Promise<AuthPayload> {
+    this.assertAvailable();
+    const payload = this.verifyIntermediateToken(mfaToken, 'mfa_challenge');
+    const proof = credentialProofFromClaims(payload.credential);
+    const result = await withLockedCredentialPrincipal(this.dataSource, proof, async (context): Promise<MfaResult<AuthPayload>> => {
+      context.assertSessionAdmission();
+      const blocked = await this.mfaLockout(context, 'MFA_VERIFY_BLOCKED_LOCKOUT');
+      if (blocked) return blocked;
+      if (!await this.verifyFactor(context, code)) {
+        return this.recordFailedAttempt(context, 'MFA_VERIFY_FAILED', new UnauthorizedException('Invalid MFA code'));
       }
-      await this.userRepository.save(user);
-      await this.logMfaEvent('MFA_STEPUP_FAILED', user, false, `Attempt ${user.mfaFailedAttempts}`);
-      throw new UnauthorizedException('Invalid MFA code');
+      await context.manager.update(User, context.user.id, {
+        mfaFailedAttempts: 0, mfaLockedUntil: null, lastLoginAt: new Date(), lastLoginIp: ipAddress ?? null,
+      });
+      const value = await this.tokenService.generateTokensInContext(context, ipAddress, userAgent, {
+        mfaVerified: true, rememberMe: payload.rememberMe === true,
+      });
+      await this.logMfaEvent('MFA_VERIFY_SUCCESS', context, true);
+      return { value };
+    });
+    if ('error' in result) throw result.error;
+    return result.value;
+  }
+
+  async verifyStepUp(session: OriginatingAccessSession, code: string, ipAddress?: string, userAgent?: string): Promise<AuthPayload> {
+    return this.withMfaSubject({ kind: 'session', session }, async (context) => {
+      if (!await this.verifyFactor(context, code)) {
+        return this.recordFailedAttempt(context, 'MFA_STEPUP_FAILED', new UnauthorizedException('Invalid MFA code'));
+      }
+      await context.manager.update(User, context.user.id, { mfaFailedAttempts: 0, mfaLockedUntil: null });
+      const value = await this.tokenService.generateStepUpInContext(context, session, ipAddress, userAgent);
+      await this.logMfaEvent('MFA_STEPUP_SUCCESS', context, true);
+      return { value };
+    }, 'MFA_STEPUP_BLOCKED_LOCKOUT');
+  }
+
+  private async verifyFactor(context: LockedAuthContext, code: string): Promise<boolean> {
+    const user = context.user;
+    if (!user.mfaEnabled || !user.mfaSecret) throw new BadRequestException('MFA is not enabled for this account');
+    if (/^\d{6}$/.test(code) && await this.verifyAndConsumeTotp(context, code, base32Decode(this.decrypt(user.mfaSecret)))) {
+      return true;
     }
-
-    // ── Success: reset failures, issue elevated token ───────────────────────
-    user.mfaFailedAttempts = 0;
-    user.mfaLockedUntil = null;
-    await this.userRepository.save(user);
-
-    await this.logMfaEvent('MFA_STEPUP_SUCCESS', user, true);
-
-    return this.tokenService.generateTokens(user, ipAddress, userAgent, { mfaVerified: true });
+    return this.verifyAndConsumeRecoveryCode(context, code);
   }
 
   // ==========================================================================
@@ -881,7 +680,8 @@ export class MfaService {
    * Verify a recovery code and consume it (remove from stored hashes).
    * Returns true if a matching code was found and consumed.
    */
-  private async verifyAndConsumeRecoveryCode(user: User, code: string): Promise<boolean> {
+  private async verifyAndConsumeRecoveryCode(context: LockedAuthContext, code: string): Promise<boolean> {
+    const user = context.user;
     if (!user.mfaRecoveryCodes) {
       return false;
     }
@@ -918,9 +718,9 @@ export class MfaService {
     // Remove the consumed recovery code
     storedHashes.splice(matchIndex, 1);
     user.mfaRecoveryCodes = storedHashes.length > 0 ? storedHashes.join(',') : null;
-    await this.userRepository.save(user);
+    await context.manager.update(User, user.id, { mfaRecoveryCodes: user.mfaRecoveryCodes });
 
-    await this.logMfaEvent('MFA_RECOVERY_CODE_USED', user, true, `Remaining codes: ${storedHashes.length}`);
+    await this.logMfaEvent('MFA_RECOVERY_CODE_USED', context, true, `Remaining codes: ${storedHashes.length}`);
 
     return true;
   }
@@ -997,47 +797,14 @@ export class MfaService {
   // Audit Logging
   // ==========================================================================
 
-  /**
-   * Persist an MFA audit row.
-   *
-   * # Why no try/catch wraps the write (AUDITTRAIL-HIGH-003)
-   *
-   * Pre-fix this method wrapped `auditLogService.log(...)` in a
-   * try/catch and on DB failure logged the error and returned. Every
-   * MFA gate (verify, step-up, lockout, disable) called this and then
-   * proceeded as if audit had succeeded. Combined with the gates being
-   * security boundaries — `MFA_VERIFY_FAILED`, `MFA_LOCKOUT`,
-   * `MFA_STEPUP_FAILED`, `MFA_STEPUP_LOCKOUT`, `MFA_STEPUP_SUCCESS` are
-   * all SOC 2 CC6.1 evidence-bearing rows — a single DB blip silently
-   * lost evidence the platform is contractually required to keep.
-   *
-   * The architectural cure is fail-closed: the MFA gate succeeds only
-   * if its audit row succeeds. If audit can't be written, the gate
-   * fails, the user retries, and the platform stays auditable. This is
-   * the right posture for a security gate — better to fail an MFA
-   * verify than to silently drop the evidence row.
-   *
-   * Callers that already `await` this method (every callsite in this
-   * file does — see lines 312, 345, 355, 379, 392, 404, 442, 514, 546,
-   * 553, 563, 615, 641, 648, 657, 727) will surface the failure to
-   * the request handler as the throw-bubble convention. The
-   * AuditLogService.log() implementation in
-   * apps/auth-service/src/audit/audit-log.service.ts:36 already
-   * propagates DB errors; removing the swallow here completes the
-   * fail-closed chain end-to-end.
-   *
-   * Tier-1 "make it impossible" rationale: with the try/catch removed,
-   * no future maintainer can reintroduce silent loss without
-   * deliberately re-adding the swallow — a code review would catch it
-   * because the swallow has no purpose when the contract is "audit
-   * failure = MFA failure."
-   */
+  /** Audit and the MFA outcome share one commit; audit failure rolls the operation back. */
   private async logMfaEvent(
     action: string,
-    user: User,
+    context: LockedAuthContext,
     success: boolean,
     reason?: string,
   ): Promise<void> {
+    const user = context.user;
     await this.auditLogService.log({
       tenantId: user.tenantId || undefined,
       performedBy: user.id,
@@ -1051,6 +818,6 @@ export class MfaService {
         timestamp: new Date().toISOString(),
       },
       severity: success ? AuditLogSeverity.INFO : AuditLogSeverity.WARNING,
-    });
+    }, context.manager);
   }
 }

@@ -394,21 +394,27 @@ describe('deploy SSOT contract', () => {
   it('reloads and proves the NATS ACL before rolling application identities', () => {
     const deploy = read('scripts/deploy/droplet-up.sh');
     const staging = read('.github/workflows/deploy-staging.yml');
+    const coordinator = read('scripts/deploy/nats-runtime.sh');
     const fullBranch = deploy.slice(deploy.indexOf('if deploy_uses_full_stack_path; then'));
     const selectiveBranch = fullBranch.slice(
       fullBranch.indexOf('else\n  # ── Application rollout'),
     );
 
-    expect(deploy).toContain('ensure_nats_acl_loaded()');
-    expect(deploy).toContain('sha256sum "${mounted_source}"');
-    expect(deploy).toContain('stat -c \'%Y\' "${mounted_source}"');
-    expect(deploy).toContain("docker inspect --format '{{.State.StartedAt}}'");
-    expect(deploy).toContain('[ "${source_mtime}" -lt "${started_epoch}" ]');
-    expect(deploy).toContain('--force-recreate nats');
-    expect(deploy).toContain('run --rm --no-deps -T nats');
-    expect(deploy).toContain('live broker was not replaced');
-    expect(deploy).toContain('NATS did not become healthy after ACL reload');
-    expect(deploy).toContain('NATS_ACL_RELOADED=true');
+    expect(deploy).toContain('scripts/deploy/nats-runtime.sh');
+    expect(coordinator).toContain('ensure_nats_acl_loaded()');
+    expect(coordinator).toContain('nats_runtime_tls_matches');
+    expect(coordinator).toContain('nats_runtime_probe');
+    expect(coordinator).toContain('acquire_deploy_control_lock');
+    expect(coordinator).toContain('-checkend 2592000');
+    expect(coordinator).toContain('sha256sum "${mounted_source}"');
+    expect(coordinator).toContain('stat -c \'%Y\' "${mounted_source}"');
+    expect(coordinator).toContain("docker inspect --format '{{.State.StartedAt}}'");
+    expect(coordinator).toContain('[ "${source_mtime}" -lt "${started_epoch}" ]');
+    expect(coordinator).toContain('--force-recreate nats');
+    expect(coordinator).toContain('run --rm --no-deps -T nats');
+    expect(coordinator).toContain('live broker was not replaced');
+    expect(coordinator).toContain('NATS did not become healthy after ACL reload');
+    expect(coordinator).toContain('NATS_ACL_RELOADED=true');
 
     expect(fullBranch.indexOf('ensure_nats_acl_loaded')).toBeLessThan(
       fullBranch.indexOf('run_db_migrate_or_exit "full deploy"'),

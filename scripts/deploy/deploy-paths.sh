@@ -43,7 +43,7 @@ acquire_deploy_control_lock() {
 # guard runs before worktree/config publication, capacity GC or app mutation.
 assert_deploy_infrastructure() {
   local sha=${1:?candidate SHA required}
-  local expected_contract observed image_id record running health matched=false
+  local expected_contract observed image_id running health
   expected_contract=$(git -C "${DEPLOY_SOURCE_REPO}" show \
     "${sha}:.github/manifests/postgres-dr-contract.sha256" | sha256sum | awk '{print $1}') || return
   observed=$(timeout 30 docker inspect --format \
@@ -55,36 +55,15 @@ assert_deploy_infrastructure() {
   [ "$(timeout 30 docker image inspect --format \
     '{{index .Config.Labels "io.aquaculture.postgres.dr-contract-sha256"}}' "${image_id}")" = \
     "${expected_contract}" ] || deploy_paths_error image-contract-mismatch || return
-  # The candidate's strict journal reader is the authority even before its
-  # worktree exists; no mutable interactive-checkout helper is sourced.
-  source <(git -C "${DEPLOY_SOURCE_REPO}" show "${sha}:infrastructure/scripts/postgres-dr-bootstrap-state.sh")
-  declare -F dr_state_validate_any >/dev/null || return 1
-  local state_root=/var/lib/aqua/deploy/dr-bootstrap
-  [ -d "${state_root}" ] && [ ! -L "${state_root}" ] || \
-    deploy_paths_error recovery-receipt-missing || return
-  while IFS= read -r -d '' record; do
-    [ -f "${record}/phase.json" ] && [ ! -L "${record}/phase.json" ] || \
-      deploy_paths_error unresolved-recovery || return
-    [ "$(stat -c '%u:%a:%h' "${record}/phase.json")" = '0:400:1' ] || return 1
-    dr_state_validate_any "${record}/phase.json" || return
-    if [ "$(jq -r .schema_version "${record}/phase.json")" = 2 ]; then
-      [ -f "${record}/recovery-point.json" ] && [ ! -L "${record}/recovery-point.json" ] || return 1
-      [ "$(sha256sum --binary "${record}/recovery-point.json" | awk '{print $1}')" = \
-        "$(jq -r .recovery_point_sha256 "${record}/phase.json")" ] || return 1
-    fi
-    case "$(jq -r '.phase' "${record}/phase.json")" in
-      COMMITTED|SUCCEEDED)
-        if jq -e --arg image "${image_id}" \
-          '.candidate_image_id == $image' "${record}/phase.json" >/dev/null; then
-          jq -e --arg image "${image_id}" \
-            '.result == "success" and .image_id == $image' "${record}/result.json" >/dev/null || return
-          matched=true
-        fi ;;
-      ROLLED_BACK) ;;
-      *) deploy_paths_error unresolved-recovery; return 1 ;;
-    esac
-  done < <(find "${state_root}" -mindepth 1 -maxdepth 1 -type d -print0)
-  [ "${matched}" = true ] || deploy_paths_error recovery-receipt-missing
+  # Both entrypoints execute the same strict receipt reader: exact artifact
+  # membership, candidate/result binding, ownership and modes are inseparable.
+  # Read it from this exact commit before any candidate checkout is published.
+  (
+    set -o pipefail
+    git -C "${DEPLOY_SOURCE_REPO}" show "${sha}:scripts/deploy/validate-postgres-dr-state.py" | \
+      /usr/bin/python3 - /var/lib/aqua/deploy/dr-bootstrap 0 "${image_id}"
+  ) || deploy_paths_error unresolved-recovery
+
 }
 
 materialize_deploy_checkout() {
@@ -137,6 +116,7 @@ materialize_deploy_checkout() {
     if [ -d "${src}/node_modules" ]; then
       ln -s "${src}/node_modules" "${source_stage}/node_modules" || return
     fi
+    chmod 0755 "${source_stage}" || return
     sync -f "${source_stage}" || return
     git -C "${src}" worktree move "${source_stage}" "${dir}" || return
     sync -f "${DEPLOY_RELEASES_ROOT}/${sha}" || return
@@ -183,7 +163,7 @@ seal_deploy_configuration() {
   sync -f "${generation}"
   # Source files are never regenerated or reset once published.
   find "${DEPLOY_CHECKOUT_DIR}" -type f -exec chmod a-w -- {} +
-  find "${DEPLOY_CHECKOUT_DIR}" -type d -exec chmod a-w -- {} +
+  find "${DEPLOY_CHECKOUT_DIR}" -type d -exec chmod 0555 -- {} +
 }
 
 verify_deploy_configuration() {

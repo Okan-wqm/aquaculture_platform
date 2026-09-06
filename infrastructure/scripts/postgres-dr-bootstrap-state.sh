@@ -273,3 +273,43 @@ dr_state_bind_recovery() {
   jq --arg digest "${digest}" '.recovery_point_sha256 = $digest' "${state_path}" > "${temporary_path}" || return
   _dr_state_publish "${temporary_path}" "${state_path}"
 }
+
+# Only the signed, same-attempt provider executor may reconcile unpublished
+# scratch files. The durable phase remains the sole authority; staged intent is
+# discarded, never promoted, so a crash cannot advance a mutation boundary.
+dr_state_reconcile_staging() {
+  [ "$#" -eq 6 ] || return 64
+  local state_path=$1 state_dir=${1%/*} path name mode
+  local expected_uid
+  expected_uid=$(id -u) || return
+  [ -d "${state_dir}" ] && [ ! -L "${state_dir}" ] || return 65
+  [ "$(stat -c '%u:%a' "${state_dir}")" = "${expected_uid}:700" ] || return 65
+  if [ -e "${state_path}" ] || [ -L "${state_path}" ]; then
+    [ -f "${state_path}" ] && [ ! -L "${state_path}" ] || return 65
+    [ "$(stat -c '%u:%a:%h' "${state_path}")" = "${expected_uid}:400:1" ] || return 65
+    dr_state_validate "$@" || return
+  else
+    [ -z "$(find "${state_dir}" -mindepth 1 -maxdepth 1 ! -name '.phase.*' -print -quit)" ] || return 65
+  fi
+  while IFS= read -r -d '' path; do
+    name=${path##*/}
+    [[ "${name}" =~ ^\.(phase|override|rollback|result|recovery|signature|attestations|candidate|statement|predicate)\.[A-Za-z0-9]{8}$ ]] || return 65
+    [ -f "${path}" ] && [ ! -L "${path}" ] || return 65
+    [ "$(stat -c '%u:%h' "${path}")" = "${expected_uid}:1" ] || return 65
+    mode=$(stat -c '%a' "${path}") || return
+    [ "${mode}" = 400 ] || [ "${mode}" = 600 ] || return 65
+    [ "$(stat -c '%s' "${path}")" -le 8388608 ] || return 65
+    if [ ! -e "${state_path}" ]; then
+      [[ "${name}" = .phase.* ]] || return 65
+    fi
+    # A completely rendered phase must belong to this exact candidate. An
+    # incomplete render has no authority and is safe to discard in its private
+    # same-attempt directory, provided the metadata checks above all pass.
+    if [[ "${name}" = .phase.* ]] && jq -e . "${path}" >/dev/null 2>&1; then
+      dr_state_validate "${path}" "${@:2}" || return
+    fi
+  done < <(find "${state_dir}" -mindepth 1 -maxdepth 1 -name '.*' -print0)
+  # Validate the entire scratch inventory before unlinking any of it.
+  find "${state_dir}" -mindepth 1 -maxdepth 1 -name '.*' -type f -delete || return
+  sync -f "${state_dir}"
+}

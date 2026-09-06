@@ -630,7 +630,7 @@ source "${SIGNED_RECOVERY_HELPER_PATH}"
 for required_state_function in \
   dr_state_initialize dr_state_transition dr_state_validate dr_state_validate_any \
   dr_state_phase dr_state_prior_image_id dr_state_candidate_image_id \
-  dr_state_reentry_action dr_state_bind_recovery dr_copy_cluster \
+  dr_state_reentry_action dr_state_bind_recovery dr_state_reconcile_staging dr_copy_cluster \
   prepare_postgres_recovery_point verify_postgres_recovery_point \
   restore_postgres_recovery_point resume_postgres_recovery_writers; do
   declare -F "${required_state_function}" >/dev/null || \
@@ -681,21 +681,6 @@ flock --exclusive --nonblock "${GLOBAL_LOCK_FD}" || \
   die 'Another PostgreSQL DR bootstrap candidate holds the global lock.'
 require_root_owned_nonwritable_file "${GLOBAL_LOCK_PATH}"
 
-recover_pre_mutation_state_directory() {
-  local recorded_state_dir=$1
-  local partial_phase_path
-  [ "${recorded_state_dir}" = "${STATE_DIR}" ] || \
-    die 'A different PostgreSQL DR bootstrap candidate has an incomplete journal.'
-  while IFS= read -r -d '' partial_phase_path; do
-    [[ "${partial_phase_path##*/}" =~ ^\.phase\.[A-Za-z0-9]{8}$ ]] || \
-      die 'The current pre-mutation execution directory contains an unexpected entry.'
-    require_root_owned_nonwritable_file "${partial_phase_path}"
-    rm -f -- "${partial_phase_path}"
-  done < <(find "${recorded_state_dir}" -mindepth 1 -maxdepth 1 -print0)
-  sync -f "${recorded_state_dir}"
-  CURRENT_STATE_NEEDS_INITIALIZATION=true
-}
-
 RUN_KEY="${EXPECTED_MAIN_SHA}-${EXPECTED_RUN_ID}-${EXPECTED_RUN_ATTEMPT}"
 STATE_DIR="${STATE_ROOT}/${RUN_KEY}"
 STATE_PATH="${STATE_DIR}/phase.json"
@@ -706,8 +691,15 @@ CURRENT_STATE_NEEDS_INITIALIZATION=false
 while IFS= read -r -d '' recorded_state_dir; do
   require_root_owned_nonwritable_directory "${recorded_state_dir}"
   recorded_state_path="${recorded_state_dir}/phase.json"
+  if [ "${recorded_state_dir}" = "${STATE_DIR}" ]; then
+    dr_state_reconcile_staging "${recorded_state_path}" Okan-wqm/aquaculture_platform \
+      "${EXPECTED_MAIN_SHA}" "${EXPECTED_RUN_ID}" "${EXPECTED_RUN_ATTEMPT}" "${EXPECTED_IMAGE_DIGEST}" || \
+      die 'Same-attempt state staging could not be safely reconciled.'
+  fi
   if [ ! -e "${recorded_state_path}" ] && [ ! -L "${recorded_state_path}" ]; then
-    recover_pre_mutation_state_directory "${recorded_state_dir}"
+    [ "${recorded_state_dir}" = "${STATE_DIR}" ] || die 'A different candidate has an incomplete journal.'
+    [ -z "$(find "${recorded_state_dir}" -mindepth 1 -maxdepth 1 -print -quit)" ] || die 'Initial journal directory is not empty after staging reconciliation.'
+    CURRENT_STATE_NEEDS_INITIALIZATION=true
     continue
   fi
   require_root_owned_nonwritable_file "${recorded_state_path}"

@@ -616,90 +616,7 @@ rollback_deployed_services() {
 # not know, or an old shared identity retains permissions removed in source.
 # Recreate only NATS when the bind-mounted ACL hash differs, prove it healthy,
 # and fail closed before any affected application container is restarted.
-ensure_nats_acl_loaded() {
-  local desired_path="${PWD}/infrastructure/docker/nats/nats.conf"
-  local desired_hash container_id mounted_source loaded_hash state health
-  local started_at started_epoch source_mtime
-  local attempt
-
-  if [ ! -r "${desired_path}" ]; then
-    echo "::error::NATS ACL is unreadable: ${desired_path}"
-    return 1
-  fi
-  desired_hash=$(sha256sum "${desired_path}" | awk '{print $1}')
-  container_id=$(docker compose -f docker-compose.droplet.yml ps -q nats 2>/dev/null || true)
-
-  if [ -n "${container_id}" ]; then
-    mounted_source=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/etc/nats/nats.conf"}}{{.Source}}{{end}}{{end}}' "${container_id}" 2>/dev/null || true)
-    if [ -n "${mounted_source}" ] && [ -r "${mounted_source}" ]; then
-      loaded_hash=$(sha256sum "${mounted_source}" | awk '{print $1}')
-      state=$(docker inspect --format '{{.State.Status}}' "${container_id}" 2>/dev/null || true)
-      health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "${container_id}" 2>/dev/null || true)
-      started_at=$(docker inspect --format '{{.State.StartedAt}}' "${container_id}" 2>/dev/null || true)
-      started_epoch=$(date -d "${started_at}" +%s 2>/dev/null || true)
-      source_mtime=$(stat -c '%Y' "${mounted_source}" 2>/dev/null || true)
-      # Hash equality alone is insufficient for a bind mount: the host file can
-      # change in place while the running broker keeps its previously parsed
-      # authorization. Only skip when the source strictly predates this
-      # container start; equal whole-second timestamps are ambiguous because
-      # Docker reports StartedAt with finer precision than stat's epoch value.
-      if [ "${state}" = "running" ] && [ "${health}" = "healthy" ] &&
-         [ "${loaded_hash}" = "${desired_hash}" ] &&
-         [ -n "${started_epoch}" ] && [ -n "${source_mtime}" ] &&
-         [ "${source_mtime}" -lt "${started_epoch}" ]; then
-        echo "  NATS already runs the desired ACL (${desired_hash})."
-        return 0
-      fi
-    fi
-  fi
-
-  echo "=== Reloading NATS certificate identities and ACL before client restart ==="
-  if ! docker compose -f docker-compose.droplet.yml run --rm --no-deps -T nats \
-       -t -c /etc/nats/nats.conf 2>&1 | redact_sensitive; then
-    echo "::error::Desired NATS configuration failed broker-native validation; live broker was not replaced."
-    return 1
-  fi
-  docker compose -f docker-compose.droplet.yml up -d --no-deps --no-build --force-recreate nats 2>&1 | redact_sensitive
-
-  for attempt in $(seq 1 30); do
-    container_id=$(docker compose -f docker-compose.droplet.yml ps -q nats 2>/dev/null || true)
-    if [ -n "${container_id}" ]; then
-      state=$(docker inspect --format '{{.State.Status}}' "${container_id}" 2>/dev/null || true)
-      health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "${container_id}" 2>/dev/null || true)
-      if [ "${state}" = "running" ] && [ "${health}" = "healthy" ]; then
-        break
-      fi
-      case "${state}" in
-        exited|dead)
-          echo "::error::NATS exited while loading the new ACL."
-          docker logs --tail 200 "${container_id}" 2>&1 | redact_sensitive || true
-          return 1
-          ;;
-      esac
-    fi
-    sleep 2
-  done
-
-  if [ "${state:-}" != "running" ] || [ "${health:-}" != "healthy" ]; then
-    echo "::error::NATS did not become healthy after ACL reload."
-    [ -n "${container_id:-}" ] && docker logs --tail 200 "${container_id}" 2>&1 | redact_sensitive || true
-    return 1
-  fi
-
-  mounted_source=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/etc/nats/nats.conf"}}{{.Source}}{{end}}{{end}}' "${container_id}" 2>/dev/null || true)
-  if [ -z "${mounted_source}" ] || [ ! -r "${mounted_source}" ]; then
-    echo "::error::Healthy NATS container does not expose the expected /etc/nats/nats.conf bind mount."
-    return 1
-  fi
-  loaded_hash=$(sha256sum "${mounted_source}" | awk '{print $1}')
-  if [ "${loaded_hash}" != "${desired_hash}" ]; then
-    echo "::error::NATS bind-mounted ACL hash differs after reload."
-    return 1
-  fi
-
-  NATS_ACL_RELOADED=true
-  echo "  NATS loaded the desired ACL (${desired_hash})."
-}
+source "${DEPLOY_SCRIPT_ROOT}/scripts/deploy/nats-runtime.sh"
 
 migration_manifest_hash() {
   local files
@@ -1125,19 +1042,14 @@ echo "=== TLS certificate generation (always-run; idempotent) ==="
 # Prepare TLS material only in this private configuration generation. Compose
 # mounts its concrete path; existing containers retain their original generation.
 CERT_RENEW=false
-if [ -f "${DEPLOY_CERTS_DIR}/redis/redis-cert.pem" ]; then
-  EXPIRY=$(openssl x509 -enddate -noout -in "${DEPLOY_CERTS_DIR}/redis/redis-cert.pem" 2>/dev/null | cut -d= -f2)
-  if [ -n "$EXPIRY" ]; then
-    EXPIRY_EPOCH=$(date -d "$EXPIRY" +%s 2>/dev/null || echo 0)
-    NOW_EPOCH=$(date +%s)
-    DAYS_LEFT=$(( (EXPIRY_EPOCH - NOW_EPOCH) / 86400 ))
-    echo "  Server certificate expires in ${DAYS_LEFT} days"
-    if [ "$DAYS_LEFT" -lt 30 ]; then
-      echo "  Expiring soon — renewing leaf certificates with the existing CA"
-      CERT_RENEW=true
-    fi
+# Every leaf has its own lifetime; a freshly renewed Redis leaf cannot hide a
+# NATS server or per-service identity nearing expiry.
+while IFS= read -r -d '' certificate_path; do
+  if ! openssl x509 -in "${certificate_path}" -checkend 2592000 -noout >/dev/null; then
+    CERT_RENEW=true
   fi
-fi
+done < <(find "${DEPLOY_CERTS_DIR}/nats" "${DEPLOY_CERTS_DIR}/redis" "${DEPLOY_CERTS_DIR}/postgres" \
+  -type f -name '*-cert.pem' ! -name ca-cert.pem -print0)
 if [ "$CERT_RENEW" = true ]; then
   bash infrastructure/docker/scripts/generate-internal-certs.sh --renew-leaves
 else

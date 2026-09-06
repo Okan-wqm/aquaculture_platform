@@ -81,7 +81,7 @@ describe('deploy isolated SHA-pinned checkout SSOT', () => {
       materializer.indexOf('assert_deploy_infrastructure'),
     );
     expect(exec).toContain('image-contract-mismatch');
-    expect(exec).toContain('recovery-receipt-missing');
+    expect(exec).toContain('validate-postgres-dr-state.py');
     expect(exec).toContain('unresolved-recovery');
   });
 

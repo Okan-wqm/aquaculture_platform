@@ -743,7 +743,7 @@ describe('MfaService', () => {
       // save is called twice: once by verifyAndConsumeRecoveryCode, once by verifyMfaLogin
       const lastSave = jest.mocked(mockManager.update).mock.calls;
       const codeConsumedSave = lastSave.find(
-        (call) => call[2].mfaRecoveryCodes === otherHash,
+        (call) => call[0] === User && 'mfaRecoveryCodes' in call[2] && call[2].mfaRecoveryCodes === otherHash,
       );
       expect(codeConsumedSave).toBeDefined();
     });

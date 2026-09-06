@@ -282,7 +282,6 @@ export class TenantAdminService {
       // belong to no tenant). tenantManagerRepo requires a non-null
       // tenantId type constraint, so the User repo stays raw here.
       // The code below sets tenantId explicitly on each create().
-      // eslint-disable-next-line no-restricted-syntax -- User.tenantId is nullable for platform admins
       const userRepo = manager.withRepository(this.userRepository);
       const assignmentRepo = tenantManagerRepo(manager, UserModuleAssignment, admin.tenantId!);
 

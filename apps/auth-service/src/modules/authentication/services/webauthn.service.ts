@@ -249,11 +249,11 @@ export class WebAuthnService {
       }
       const existing = await context.manager.findOne(WebAuthnCredential, { where: { credentialId: derived.id } });
       if (existing) throw new BadRequestException('Credential already registered');
-      const credential = Object.assign(new WebAuthnCredential(), {
+      const credential = {
         id: crypto.randomUUID(), userId, credentialId: derived.id, publicKey: publicKeyBase64url,
         counter: derived.counter, transports: derived.transports ?? input.transports,
         deviceName: input.deviceName || 'Biometric Device',
-      });
+      };
       // INSERT only: unique credential ID and the User lock jointly own admission.
       await context.manager.insert(WebAuthnCredential, credential);
       await this.logAudit('WEBAUTHN_CREDENTIAL_REGISTERED', userId, {

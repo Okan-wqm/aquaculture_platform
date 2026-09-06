@@ -27,6 +27,8 @@ function user(overrides: Partial<User> = {}): User {
     tenantId: TENANT_ID,
     role: Role.MODULE_USER,
     isActive: true,
+    credentialVersion: 1,
+    accessTokenInvalidBeforeEpochSeconds: 0,
     ...overrides,
   });
 }
@@ -35,12 +37,14 @@ function repositoryMock(): {
   findOne: jest.Mock;
   save: jest.Mock;
   update: jest.Mock;
+  count: jest.Mock;
   createQueryBuilder: jest.Mock;
 } {
   return {
     findOne: jest.fn(),
     save: jest.fn(),
     update: jest.fn().mockResolvedValue({ affected: 2, raw: [], generatedMaps: [] }),
+    count: jest.fn().mockResolvedValue(2),
     createQueryBuilder: jest.fn(() => ({
       select: jest.fn().mockReturnThis(),
       where: jest.fn().mockReturnThis(),
@@ -63,9 +67,21 @@ describe('TenantAdminService deactivateUser credential fence', () => {
   beforeEach(async () => {
     userRepository = repositoryMock();
     refreshTokenRepository = repositoryMock();
-    manager = Object.assign({} as EntityManager, {
-      withRepository: jest.fn((repository: object) => repository),
+    const source = new DataSource({ type: 'postgres' });
+    const runner = source.createQueryRunner();
+    jest.replaceProperty(runner, 'isTransactionActive', true);
+    manager = runner.manager;
+    jest.spyOn(manager, 'withRepository').mockImplementation((repository) => repository);
+    jest.spyOn(manager, 'findOne').mockImplementation(async (entity, options) => {
+      if (entity === User) return userRepository.findOne(options);
+      if (entity === Tenant) return Object.assign(new Tenant(), { id: TENANT_ID });
+      throw new Error('Unexpected deactivation identity lookup');
     });
+    jest.spyOn(manager, 'update').mockImplementation(async (entity, criteria, values) => {
+      if (entity !== User) throw new Error('Unexpected deactivation mutation');
+      return userRepository.update(criteria, values);
+    });
+    jest.spyOn(manager, 'findOneByOrFail').mockImplementation(async () => userRepository.findOne());
     const dataSource = {
       transaction: jest.fn(
         async (work: (transactionManager: EntityManager) => Promise<unknown>): Promise<unknown> =>
@@ -100,20 +116,20 @@ describe('TenantAdminService deactivateUser credential fence', () => {
   it('locks target User before RefreshToken, commits audit and durable invalidation atomically', async () => {
     const admin = user({ id: ADMIN_ID, role: Role.TENANT_ADMIN });
     const target = user();
-    userRepository.findOne.mockResolvedValueOnce(admin).mockResolvedValueOnce(target);
+    userRepository.findOne.mockResolvedValue(target).mockResolvedValueOnce(admin);
     userRepository.save.mockResolvedValue(target);
 
     await expect(service.deactivateUser(ADMIN_ID, USER_ID)).resolves.toBe(target);
 
-    expect(userRepository.findOne).toHaveBeenNthCalledWith(2, {
-      where: { id: USER_ID, tenantId: TENANT_ID },
+    expect(manager.findOne).toHaveBeenCalledWith(User, {
+      where: { id: USER_ID },
       lock: { mode: 'pessimistic_write' },
     });
     expect(userRepository.findOne.mock.invocationCallOrder[1]).toBeLessThan(
       refreshTokenRepository.createQueryBuilder.mock.invocationCallOrder[0]!,
     );
     expect(refreshTokenRepository.update).toHaveBeenCalledWith(
-      { userId: USER_ID, isRevoked: false },
+      { userId: USER_ID },
       expect.objectContaining({ isRevoked: true, revokedReason: 'User deactivated' }),
     );
     expect(durableInvalidation.enqueue).toHaveBeenCalledWith(
@@ -133,8 +149,8 @@ describe('TenantAdminService deactivateUser credential fence', () => {
 
   it('preserves the tenant-admin target prohibition before credential mutation', async () => {
     userRepository.findOne
-      .mockResolvedValueOnce(user({ id: ADMIN_ID, role: Role.TENANT_ADMIN }))
-      .mockResolvedValueOnce(user({ role: Role.TENANT_ADMIN }));
+      .mockResolvedValue(user({ role: Role.TENANT_ADMIN }))
+      .mockResolvedValueOnce(user({ id: ADMIN_ID, role: Role.TENANT_ADMIN }));
 
     await expect(service.deactivateUser(ADMIN_ID, USER_ID)).rejects.toThrow(ForbiddenException);
 
@@ -145,8 +161,8 @@ describe('TenantAdminService deactivateUser credential fence', () => {
   it('fails closed and skips immediate invalidation when durable enqueue rejects', async () => {
     const target = user();
     userRepository.findOne
-      .mockResolvedValueOnce(user({ id: ADMIN_ID, role: Role.TENANT_ADMIN }))
-      .mockResolvedValueOnce(target);
+      .mockResolvedValue(target)
+      .mockResolvedValueOnce(user({ id: ADMIN_ID, role: Role.TENANT_ADMIN }));
     userRepository.save.mockResolvedValue(target);
     durableInvalidation.enqueue.mockRejectedValueOnce(new Error('outbox unavailable'));
 

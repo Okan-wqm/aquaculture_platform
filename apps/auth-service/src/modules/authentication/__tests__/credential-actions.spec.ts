@@ -48,7 +48,7 @@ describe('credential action completion', () => {
       expiresAt: new Date(Date.now() + 60_000) });
     const source = new DataSource({ type: 'postgres' });
     const runner = source.createQueryRunner();
-    runner.isTransactionActive = true;
+    jest.replaceProperty(runner, 'isTransactionActive', true);
     const manager = runner.manager;
     jest.spyOn(manager, 'findOne').mockImplementation(async (entity) => {
       if (entity === User) return user;

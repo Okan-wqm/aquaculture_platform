@@ -830,12 +830,6 @@ export type AuditLogPageType = {
   totalCount: Scalars['Int']['output'];
 };
 
-export type CredentialActionResult = {
-  __typename?: 'CredentialActionResult';
-  loginRequired: Scalars['Boolean']['output'];
-  success: Scalars['Boolean']['output'];
-};
-
 export type AuthPayload = {
   accessToken: Scalars['String']['output'];
   expiresIn: Scalars['Int']['output'];
@@ -4109,6 +4103,11 @@ export type CreatedTenantUserResult = {
   lastName?: Maybe<Scalars['String']['output']>;
   roleAssignment: UserRoleAssignment;
   userId: Scalars['ID']['output'];
+};
+
+export type CredentialActionResult = {
+  loginRequired: Scalars['Boolean']['output'];
+  success: Scalars['Boolean']['output'];
 };
 
 export type CrewAssignment = {

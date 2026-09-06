@@ -114,7 +114,7 @@ function makeTransactionalDataSource(query: jest.Mock): {
 } {
   const source = new DataSource({ type: 'postgres' });
   const queryRunner = source.createQueryRunner();
-  queryRunner.isTransactionActive = true;
+  jest.replaceProperty(queryRunner, 'isTransactionActive', true);
   const manager = queryRunner.manager;
   const lockedUserFindOne = jest.fn().mockImplementation(() => Promise.resolve(principalForMint));
   jest.spyOn(manager, 'findOne').mockImplementation(async (entity, options) => {
@@ -780,7 +780,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
           }),
       );
 
-      const mint = mint(service, authenticatedSnapshot);
+      const pendingMint = mint(service, authenticatedSnapshot);
       for (let turn = 0; turn < 8; turn += 1) await Promise.resolve();
 
       expect(refreshSave).not.toHaveBeenCalled();
@@ -793,7 +793,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       // while this login waited. The authoritative snapshot predicate no
       // longer resolves, so stale authentication cannot mint a replacement.
       finishCredentialFence(null);
-      await expect(mint).rejects.toThrow('User credentials changed during authentication');
+      await expect(pendingMint).rejects.toThrow('User credentials changed during authentication');
 
       expect(credentialUserLockFindOne).toHaveBeenCalledWith({ where: { id: authenticatedSnapshot.id }, lock: { mode: 'pessimistic_write' } });
       expect(refreshSave).not.toHaveBeenCalled();
@@ -912,7 +912,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       const harness = makeTransactionalDataSource(buildQueryRouter());
       const context = await LockedAuthContext.lock(harness.manager, snapshotCredentialProof(principalForMint));
       if (!harness.manager.queryRunner) throw new Error('Missing test query runner');
-      harness.manager.queryRunner.isTransactionActive = false;
+      jest.replaceProperty(harness.manager.queryRunner, 'isTransactionActive', false);
       await expect(service.generateTokensInContext(context)).rejects.toThrow('active transaction');
       expect(refreshSave).not.toHaveBeenCalled();
     });
@@ -950,6 +950,14 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
   // two-segment transport. The opaque secret embeds the indexed tokenId while
   // retaining the legacy `userId:secret` split consumed during rollout.
   describe('refresh-token hashing (HASH_REFRESH_TOKENS=true)', () => {
+    it('joins refresh hashing before signing so hashing failure cannot leave a partially signed session', async () => {
+      mockBcryptHash.mockRejectedValueOnce(new Error('hash unavailable'));
+      service = await createService({ config: { HASH_REFRESH_TOKENS: true } });
+      await expect(mint(service, buildUser({}))).rejects.toThrow('hash unavailable');
+      expect(signAsync).not.toHaveBeenCalled();
+      expect(refreshSave).not.toHaveBeenCalled();
+    });
+
     it('stores tokenId + hash and returns exactly userId:secret with tokenId embedded', async () => {
       mockBcryptHash.mockResolvedValue('bcrypt-hash');
       service = await createService({ config: { HASH_REFRESH_TOKENS: true } });

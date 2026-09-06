@@ -1,7 +1,10 @@
 import { Role } from '@aquaculture/backend-common/decorators';
 import { ForbiddenException } from '@nestjs/common';
+import { DataSource } from 'typeorm';
+import { getRequestContext, requestContextStorage } from '@aquaculture/backend-common/logging';
+import { Tenant, TenantStatus } from '../../tenant/entities/tenant.entity';
 import { User } from '../entities/user.entity';
-import { snapshotCredentialProof, assertCredentialProof } from './credential-state';
+import { snapshotCredentialProof, assertCredentialProof, withLockedCredentialPrincipal } from './credential-state';
 
 describe('credential proof', () => {
   function principal(): User {
@@ -28,5 +31,33 @@ describe('credential proof', () => {
     const proof = snapshotCredentialProof(user);
     user.tenantId = 'different';
     expect(() => assertCredentialProof(proof, user)).toThrow(ForbiddenException);
+  });
+});
+
+
+describe('proof-owned pre-auth RLS context', () => {
+  it.each([Role.TENANT_ADMIN, Role.SUPER_ADMIN])('binds %s scope before transaction checkout and restores the caller frame', async (role) => {
+    const source = new DataSource({ type: 'postgres' });
+    const runner = source.createQueryRunner();
+    const user = Object.assign(new User(), { id: 'principal', role,
+      tenantId: role === Role.SUPER_ADMIN ? null : 'tenant', isActive: true, credentialVersion: 1 });
+    jest.spyOn(source, 'createQueryRunner').mockReturnValue(runner);
+    jest.spyOn(runner, 'connect').mockImplementation(async () => {
+      expect(getRequestContext()).toMatchObject({ userId: user.id,
+        tenantId: user.tenantId ?? undefined, bypassRls: role === Role.SUPER_ADMIN });
+    });
+    jest.spyOn(runner, 'startTransaction').mockImplementation(async () => { jest.replaceProperty(runner, 'isTransactionActive', true); });
+    jest.spyOn(runner, 'commitTransaction').mockImplementation(async () => { jest.replaceProperty(runner, 'isTransactionActive', false); });
+    jest.spyOn(runner, 'rollbackTransaction').mockResolvedValue(undefined);
+    jest.spyOn(runner, 'release').mockResolvedValue(undefined);
+    jest.spyOn(runner.manager, 'findOne').mockImplementation(async (entity) => entity === User ? user
+      : Object.assign(new Tenant(), { id: user.tenantId, status: TenantStatus.ACTIVE }));
+    await requestContextStorage.run({ tenantId: 'caller', bypassRls: true }, async () => {
+      await withLockedCredentialPrincipal(source, snapshotCredentialProof(user), async (context) => {
+        context.assertSessionAdmission();
+      });
+      expect(getRequestContext()).toEqual({ tenantId: 'caller', bypassRls: true });
+    });
+    expect(runner.connect).toHaveBeenCalled();
   });
 });

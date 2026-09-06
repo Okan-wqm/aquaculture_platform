@@ -26,6 +26,7 @@ import { AuditLogService } from '../../../../audit/audit-log.service';
 import { AuditLog } from '../../../../audit/audit-log.entity';
 import { Invitation } from '../../../authentication/entities/invitation.entity';
 import { User } from '../../../authentication/entities/user.entity';
+import { DurableUserTokenInvalidationService } from '../../../authentication/services/durable-user-token-invalidation.service';
 import { Tenant } from '../../entities/tenant.entity';
 
 const TENANT_ID = '33333333-3333-4333-8333-333333333333';
@@ -90,6 +91,10 @@ function createService(manager: MockManager): TenantProvisioningCommandService {
       },
       'IUserTokenRevocation',
     ),
+    collaborator<DurableUserTokenInvalidationService>({
+      enqueue: jest.fn(() => Promise.resolve()),
+      applyImmediately: jest.fn(() => Promise.resolve()),
+    }, 'DurableUserTokenInvalidationService'),
     // W5 added the localization audit trail as the seventh collaborator: a
     // change to `AuditLogService.log`'s shape now fails HERE at compile time.
     collaborator<AuditLogService>(

@@ -48,6 +48,8 @@ const createMockUser = (overrides: Partial<User> = {}): User => {
     role: Role.MODULE_USER,
     tenantId: TENANT_ID,
     isActive: true,
+    credentialVersion: 1,
+    accessTokenInvalidBeforeEpochSeconds: 0,
     isEmailVerified: false,
     failedLoginAttempts: 0,
     lockedUntil: null,
@@ -108,6 +110,7 @@ const createMockRoleWithDetails = (
 const createMockRepository = (): {
   find: jest.Mock;
   findOne: jest.Mock;
+  findOneByOrFail: jest.Mock;
   findAndCount: jest.Mock;
   save: jest.Mock;
   create: jest.Mock;
@@ -118,6 +121,7 @@ const createMockRepository = (): {
 } => ({
   find: jest.fn(),
   findOne: jest.fn(),
+  findOneByOrFail: jest.fn(),
   findAndCount: jest.fn(),
   save: jest.fn(),
   create: jest.fn(<T>(data: T) => ({ ...data })),
@@ -166,7 +170,21 @@ describe('UserLifecycleService', () => {
     };
     const mockUserRepo = createMockRepository();
     const mockTenantRepo = createMockRepository();
+    mockTenantRepo.findOne.mockResolvedValue(createMockTenant());
+    mockUserRepo.findOneByOrFail.mockImplementation(async () => {
+      const user: User | null = await mockUserRepo.findOne();
+      if (!user) throw new NotFoundException('User not found');
+      return user;
+    });
+    mockUserRepo.update.mockImplementation(async (_criteria: unknown, values: Partial<User>) => {
+      const current: User | null = await mockUserRepo.findOne();
+      if (!current) throw new NotFoundException('User not found');
+      const updated = Object.assign(new User(), current, values);
+      mockUserRepo.findOne.mockResolvedValue(updated);
+      return { affected: 1, raw: [], generatedMaps: [] };
+    });
     const mockRefreshTokenRepo = createMockRepository();
+    mockRefreshTokenRepo.count.mockResolvedValue(1);
     mockRefreshTokenRepo.update.mockResolvedValue({
       affected: 1,
       raw: [],
@@ -187,6 +205,14 @@ describe('UserLifecycleService', () => {
       transaction: jest.fn().mockImplementation((cb: (manager: unknown) => Promise<unknown>) => {
         // Simulate transaction by passing a mock manager
         const mockManager = {
+          queryRunner: { isTransactionActive: true },
+          findOne: jest.fn((entity: unknown, options: unknown) => {
+            if (entity === User) return mockUserRepo.findOne(options);
+            if (entity === Tenant) return mockTenantRepo.findOne(options);
+            throw new Error('Unexpected lifecycle identity lookup');
+          }),
+          findOneByOrFail: jest.fn(() => mockUserRepo.findOneByOrFail()),
+          count: jest.fn().mockResolvedValue(5),
           getRepository: jest.fn().mockReturnValue(mockUserRepo),
           withRepository: jest.fn((repository: unknown) => repository),
           create: jest.fn(<T>(_entity: unknown, data: T) => ({ ...data })),
@@ -287,6 +313,15 @@ describe('UserLifecycleService', () => {
   afterEach(() => {
     jest.clearAllMocks();
   });
+
+  function setUserAndAuditActor(user: User, actor: User): void {
+    userRepository.findOne.mockImplementation(async (options) => {
+      const where = options.where;
+      if (!where || Array.isArray(where)) throw new Error('Expected an identity lookup');
+      if (where.tenantId && where.tenantId !== TENANT_ID) return null;
+      return where.id === ADMIN_USER_ID ? actor : user;
+    });
+  }
 
   // ==========================================================================
   // createUser
@@ -446,6 +481,8 @@ describe('UserLifecycleService', () => {
       // UserModuleAssignment still routes through getRepository via
       // tenantManagerRepo.
       const txManager = {
+        findOne: jest.fn().mockResolvedValue(createMockTenant()),
+        count: jest.fn().mockResolvedValue(5),
         getRepository: jest.fn((entity: unknown) => {
           if (entity === UserModuleAssignment) return txUserModuleAssignmentRepo;
           if (entity === Tenant) return txTenantRepo;
@@ -522,6 +559,8 @@ describe('UserLifecycleService', () => {
       // Same entity-aware manager shape as the previous test — User and
       // Invitation persist through typed manager.create/save.
       const txManager = {
+        findOne: jest.fn().mockResolvedValue(createMockTenant()),
+        count: jest.fn().mockResolvedValue(5),
         getRepository: jest.fn((entity: unknown) => {
           if (entity === UserModuleAssignment) return createMockRepository();
           if (entity === Tenant) return txTenantRepo;
@@ -571,9 +610,11 @@ describe('UserLifecycleService', () => {
       userRepository.findOne.mockResolvedValue(user);
       userRepository.save.mockResolvedValue(user);
 
-      await expect(service.adminUpdateUser(USER_ID, { isActive: false })).resolves.toBe(user);
+      await expect(service.adminUpdateUser(USER_ID, { isActive: false })).resolves.toMatchObject({
+        id: USER_ID, isActive: false,
+      });
 
-      expect(user.isActive).toBe(false);
+      expect((await userRepository.findOneByOrFail({ id: USER_ID })).isActive).toBe(false);
       expect(userRepository.findOne).toHaveBeenCalledWith({
         where: { id: USER_ID },
         lock: { mode: 'pessimistic_write' },
@@ -582,7 +623,7 @@ describe('UserLifecycleService', () => {
         refreshTokenRepository.createQueryBuilder.mock.invocationCallOrder[0]!,
       );
       expect(refreshTokenRepository.update).toHaveBeenCalledWith(
-        { userId: USER_ID, isRevoked: false },
+        { userId: USER_ID },
         expect.objectContaining({
           isRevoked: true,
           revokedReason: 'User authorization updated by administrator',
@@ -657,16 +698,16 @@ describe('UserLifecycleService', () => {
 
     it('uses the same credential fence for platform deactivation and force logout', async () => {
       const deactivatedUser = createMockUser();
-      userRepository.findOne.mockResolvedValueOnce(deactivatedUser);
+      userRepository.findOne.mockResolvedValue(deactivatedUser);
 
       await expect(service.adminDeactivateUser(USER_ID)).resolves.toEqual({
         userId: USER_ID,
         refreshTokensRemoved: 1,
       });
 
-      expect(deactivatedUser.isActive).toBe(false);
+      expect((await userRepository.findOneByOrFail({ id: USER_ID })).isActive).toBe(false);
       expect(refreshTokenRepository.update).toHaveBeenLastCalledWith(
-        { userId: USER_ID, isRevoked: false },
+        { userId: USER_ID },
         expect.objectContaining({ isRevoked: true }),
       );
       expect(mockDurableUserTokenInvalidation.enqueue).toHaveBeenLastCalledWith(
@@ -681,7 +722,7 @@ describe('UserLifecycleService', () => {
         generatedMaps: [],
       });
       const activeUser = createMockUser();
-      userRepository.findOne.mockResolvedValueOnce(activeUser);
+      userRepository.findOne.mockResolvedValue(activeUser);
       mockDurableUserTokenInvalidation.enqueue.mockResolvedValue(undefined);
       mockDurableUserTokenInvalidation.applyImmediately.mockResolvedValue(undefined);
 
@@ -762,11 +803,12 @@ describe('UserLifecycleService', () => {
       await service.deleteUser(TENANT_ID, USER_ID, ADMIN_USER_ID);
 
       // 1. User should be deactivated
-      expect(userRepository.save).toHaveBeenCalledWith(
-        expect.objectContaining({ isActive: false }),
+      expect(userRepository.save).not.toHaveBeenCalled();
+      expect(userRepository.update).toHaveBeenCalledWith(
+        { id: USER_ID, tenantId: TENANT_ID }, expect.objectContaining({ isActive: false }),
       );
-      expect(userRepository.findOne).toHaveBeenNthCalledWith(1, {
-        where: { id: USER_ID, tenantId: TENANT_ID },
+      expect(userRepository.findOne).toHaveBeenCalledWith({
+        where: { id: USER_ID },
         lock: { mode: 'pessimistic_write' },
       });
       expect(userRepository.findOne.mock.invocationCallOrder[0]).toBeLessThan(
@@ -775,7 +817,7 @@ describe('UserLifecycleService', () => {
 
       // 2. CRITICAL: Refresh tokens must be revoked
       expect(refreshTokenRepository.update).toHaveBeenCalledWith(
-        { userId: USER_ID, isRevoked: false },
+        { userId: USER_ID },
         expect.objectContaining({
           isRevoked: true,
           revokedReason: expect.stringContaining('deleted') as string,
@@ -873,9 +915,7 @@ describe('UserLifecycleService', () => {
 
     it('should log audit event for user deletion', async () => {
       const user = createMockUser();
-      userRepository.findOne
-        .mockResolvedValueOnce(user) // target user lookup
-        .mockResolvedValueOnce(createMockUser({ id: ADMIN_USER_ID, email: 'admin@tenant.com' })); // admin lookup for audit
+      setUserAndAuditActor(user, createMockUser({ id: ADMIN_USER_ID, email: 'admin@tenant.com' }));
 
       await service.deleteUser(TENANT_ID, USER_ID, ADMIN_USER_ID);
 
@@ -897,14 +937,11 @@ describe('UserLifecycleService', () => {
     // tenant's audit row.
     it('ORPHAN-CRITICAL-100: admin lookup is pinned to tenantId (no foreign-actor email leak)', async () => {
       const user = createMockUser();
-      userRepository.findOne
-        .mockResolvedValueOnce(user) // target user lookup ({ id, tenantId })
-        .mockResolvedValueOnce(createMockUser({ id: ADMIN_USER_ID, email: 'admin@tenant.com' })); // admin lookup
+      setUserAndAuditActor(user, createMockUser({ id: ADMIN_USER_ID, email: 'admin@tenant.com' }));
 
       await service.deleteUser(TENANT_ID, USER_ID, ADMIN_USER_ID);
 
-      // 2nd findOne is the admin/actor lookup — it MUST carry { id, tenantId }.
-      expect(userRepository.findOne).toHaveBeenNthCalledWith(2, {
+      expect(userRepository.findOne).toHaveBeenCalledWith({
         where: { id: ADMIN_USER_ID, tenantId: TENANT_ID },
       });
     });

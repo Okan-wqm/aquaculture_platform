@@ -4720,6 +4720,12 @@
       "prettier_managed": true
     },
     {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/migrations/__tests__/1819100000000-AddUserAuthenticationState.postgres.spec.ts",
+      "prettier_managed": true
+    },
+    {
       "class": "archive_immutable",
       "content_sha256": "d12870b3c9f9f2506ce5aea97515ed521ae0a2397bc990fea847f7e57bc2be5f",
       "hash_policy": "sha256",
@@ -5015,6 +5021,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/migrations/1819100000000-AddUserAuthenticationState.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/migrations/support/concurrent-index.spec.ts",
       "prettier_managed": true
     },
@@ -5088,6 +5100,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/auth-service/src/modules/authentication/__tests__/authentication.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/modules/authentication/__tests__/credential-actions.spec.ts",
       "prettier_managed": true
     },
     {
@@ -5387,7 +5405,31 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/modules/authentication/services/action-token-reference.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/modules/authentication/services/action-token-reference.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/authentication/services/authentication.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/modules/authentication/services/credential-state.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/modules/authentication/services/credential-state.ts",
       "prettier_managed": true
     },
     {
@@ -43268,6 +43310,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "scripts/ci/authentication-proof.inventory.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "scripts/ci/authentication-proof.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "scripts/ci/check-advisory-ignore-sync.ts",
       "prettier_managed": true
     },
@@ -43425,6 +43479,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "scripts/ci/select-deployment-scope.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "scripts/ci/test-proof-report.mjs",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "scripts/ci/test-proof-report.spec.mjs",
       "prettier_managed": true
     },
     {
@@ -45753,6 +45819,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/postgres-dr-bootstrap-control-plane.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/postgres-dr-recovery-point.spec.ts",
       "prettier_managed": true
     },
     {
@@ -58767,7 +58839,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "eb479538f3c5e5805f42d797f306c1094b8d2992c32274ce31ce4519f4911eec",
+      "content_sha256": "d51137ea34706d51af9805804b69cee57f8774c0709c52522ebc705cfb496185",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/shared-ui/src/generated/graphql-types.ts",

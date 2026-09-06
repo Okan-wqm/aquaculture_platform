@@ -1,3 +1,5 @@
+import { BypassRlsService } from '@aquaculture/backend-common/database';
+import { getRequestContext, requestContextStorage } from '@aquaculture/backend-common/logging';
 import { Role } from '@aquaculture/backend-common/decorators';
 import { ForbiddenException } from '@nestjs/common';
 import { isLoginAllowed } from '@platform/event-contracts';
@@ -110,5 +112,16 @@ export async function withLockedCredentialPrincipal<T>(
   subject: CredentialProof | string,
   operation: (context: LockedAuthContext) => Promise<T>,
 ): Promise<T> {
-  return dataSource.transaction(async (manager) => operation(await LockedAuthContext.lock(manager, subject)));
+  const transact = (): Promise<T> => dataSource.transaction(async (manager) =>
+    operation(await LockedAuthContext.lock(manager, subject)));
+  if (typeof subject === 'string') return transact();
+  if (!subject.tenantId && subject.role !== Role.SUPER_ADMIN) {
+    throw new ForbiddenException('Authentication failed');
+  }
+  // Public MFA/WebAuthn calls carry a verified proof before any tenant middleware
+  // can authenticate the request. Bind its scope before the pool checkout.
+  return requestContextStorage.run({ ...getRequestContext(), userId: subject.id,
+    tenantId: subject.tenantId ?? undefined, bypassRls: false }, () => subject.tenantId
+    ? transact()
+    : new BypassRlsService().withBypass('auth-service:platform-credential-proof', transact));
 }

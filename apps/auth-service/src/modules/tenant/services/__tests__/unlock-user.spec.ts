@@ -29,6 +29,8 @@ describe('TenantAdminService.unlockUser', () => {
 
   const mockUserRepository = {
     findOne: jest.fn(),
+    findOneByOrFail: jest.fn(),
+    update: jest.fn().mockResolvedValue({ affected: 1 }),
     save: jest.fn(),
   };
   const mockAuditLogService = { log: jest.fn().mockResolvedValue(undefined) };
@@ -74,11 +76,15 @@ describe('TenantAdminService.unlockUser', () => {
       .mockResolvedValueOnce(admin)
       .mockResolvedValueOnce(locked);
     mockUserRepository.save.mockImplementation((u: User) => Promise.resolve(u));
+    mockUserRepository.findOneByOrFail.mockResolvedValue(locked);
 
     const saved = await service.unlockUser('admin-1', 'user-1');
 
     expect(saved.failedLoginAttempts).toBe(0);
     expect(saved.lockedUntil).toBeNull();
+    expect(mockUserRepository.save).not.toHaveBeenCalled();
+    expect(mockUserRepository.update).toHaveBeenCalledWith({ id: 'user-1', tenantId: TENANT },
+      { failedLoginAttempts: 0, lockedUntil: null });
     expect(mockAuditLogService.log).toHaveBeenCalledWith(
       expect.objectContaining({
         action: 'USER_UNLOCKED',
@@ -130,6 +136,7 @@ describe('TenantAdminService.unlockUser', () => {
       .mockResolvedValueOnce(admin)
       .mockResolvedValueOnce(lockedAdmin);
     mockUserRepository.save.mockImplementation((u: User) => Promise.resolve(u));
+    mockUserRepository.findOneByOrFail.mockResolvedValue(lockedAdmin);
 
     const saved = await service.unlockUser('admin-1', 'admin-2');
     expect(saved.lockedUntil).toBeNull();

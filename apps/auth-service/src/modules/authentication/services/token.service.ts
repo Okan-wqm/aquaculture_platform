@@ -293,15 +293,18 @@ export class TokenService {
     // Hot-path reads run concurrently: the user's module codes, tenant-level
     // resource permissions, the tenant's plan-tier ordinal (the MT-MEDIUM-001
     // JWT claim), the user's assigned site ids (SEC-HIGH-051) and enabled mobile
-    // features (SEC-HIGH-052) are independent, so a single Promise.all keeps
+    // features (SEC-HIGH-052) and refresh hash are independent. Joining every
+    // promise here owns hash failures even when another authorization read fails.
+    // A single Promise.all keeps
     // token mint to one read latency instead of five serial round-trips.
-    const [modules, resourcePermissions, tenantPolicy, assignedSites, mobileFeatures] =
+    const [modules, resourcePermissions, tenantPolicy, assignedSites, mobileFeatures, tokenToStore] =
       await Promise.all([
         this.getUserModules(user, options.manager),
         this.getUserResourcePermissions(user, options.manager),
         this.resolveTenantTokenPolicy(effectiveTenantId, options.manager),
         this.getUserAssignedSites(user, issuedAtEpochSeconds, options.manager),
         this.getUserMobileFeatures(user, options.manager),
+        tokenToStorePromise,
       ]);
     const moduleCodes = modules.map((m) => m.code);
     const planLevel = tenantPolicy.planLevel;
@@ -378,11 +381,6 @@ export class TokenService {
     const refreshTokenValue = this.hashRefreshTokens
       ? `${user.id}:${transportedRefreshSecret}`
       : transportedRefreshSecret;
-
-    // PERF (PERF-HIGH-003): collect the bcrypt result started before the reads.
-    // By now the hash has run concurrently with the module/permission/plan
-    // round-trips, so this await is usually already-settled work.
-    const tokenToStore = await tokenToStorePromise;
 
     // SECURITY (SEC-MEDIUM-003): a fresh login starts a NEW token family; a
     // rotation (refresh) passes the rotated token's familyId so the lineage

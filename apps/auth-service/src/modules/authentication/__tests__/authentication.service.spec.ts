@@ -475,7 +475,9 @@ describe('AuthenticationService', () => {
 
       expect(result).toHaveProperty('accessToken');
       expect(result).toHaveProperty('refreshToken');
-      expect(mockUserRepository.save).toHaveBeenCalled();
+      expect(mockUserRepository.save).not.toHaveBeenCalled();
+      expect(mockTransactionManager.update).toHaveBeenCalledWith(User, { id: user.id },
+        expect.objectContaining({ lastLoginAt: expect.any(Date) }));
     });
 
     it('throws UnauthorizedException and performs dummy hash check when user not found', async () => {
@@ -1058,6 +1060,7 @@ describe('AuthenticationService', () => {
     it('fails closed before commit when user-wide invalidation cannot be enqueued', async () => {
       mockUserRepository.findOne.mockResolvedValue(createMockUser());
       mockRefreshTokenRepository.update.mockResolvedValue({ affected: 3 });
+      mockRefreshTokenRepository.count.mockResolvedValue(3);
       mockDurableUserTokenInvalidation.enqueue.mockRejectedValueOnce(
         new Error('outbox unavailable'),
       );

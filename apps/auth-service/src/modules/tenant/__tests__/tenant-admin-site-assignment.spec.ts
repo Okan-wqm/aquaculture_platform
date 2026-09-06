@@ -7,6 +7,7 @@ import { AuditLogSeverity } from '../../../audit/audit-log.entity';
 import { UserSiteAssignment } from '../../authentication/entities/user-site-assignment.entity';
 import { User } from '../../authentication/entities/user.entity';
 import { TenantAdminService } from '../services/tenant-admin.service';
+import { Tenant, TenantStatus } from '../entities/tenant.entity';
 
 const ADMIN_ID = '11111111-1111-4111-8111-111111111111';
 const SUPER_ADMIN_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1';
@@ -32,6 +33,8 @@ function makeUser(overrides: Partial<User> = {}): User {
     email: 'target@example.test',
     role: Role.MODULE_USER,
     isActive: true,
+    credentialVersion: 1,
+    accessTokenInvalidBeforeEpochSeconds: 0,
     ...overrides,
   });
 }
@@ -114,6 +117,14 @@ function makeFixture(options: FixtureOptions = {}) {
   };
 
   const manager = {
+    queryRunner: { isTransactionActive: true },
+    findOne: jest.fn(async (entity: unknown, query: { where: { id: string } }) => {
+      if (entity === Tenant) return Object.assign(new Tenant(), {
+        id: query.where.id, status: TenantStatus.ACTIVE,
+      });
+      if (entity === User) return query.where.id === actor?.id ? actor : target;
+      throw new Error('Unexpected site authority lookup');
+    }),
     withRepository: jest.fn((repository: object): object => repository),
   };
   const dataSource = {

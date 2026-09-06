@@ -20,9 +20,17 @@ export class AddUserAuthenticationState1819100000000 implements MigrationInterfa
       WHERE "accessTokenInvalidBeforeEpochSeconds" IS NULL`);
     await queryRunner.query(`ALTER TABLE auth.users
       ALTER COLUMN "credentialVersion" SET DEFAULT 1,
-      ALTER COLUMN "credentialVersion" SET NOT NULL,
-      ALTER COLUMN "accessTokenInvalidBeforeEpochSeconds" SET DEFAULT 0,
-      ALTER COLUMN "accessTokenInvalidBeforeEpochSeconds" SET NOT NULL`);
+      ALTER COLUMN "accessTokenInvalidBeforeEpochSeconds" SET DEFAULT 0`);
+    await queryRunner.query(`DO $$ BEGIN
+      IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'auth'
+        AND table_name = 'users' AND column_name = 'credentialVersion' AND is_nullable = 'YES') THEN
+        ALTER TABLE auth.users ALTER COLUMN "credentialVersion" SET NOT NULL;
+      END IF;
+      IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'auth'
+        AND table_name = 'users' AND column_name = 'accessTokenInvalidBeforeEpochSeconds' AND is_nullable = 'YES') THEN
+        ALTER TABLE auth.users ALTER COLUMN "accessTokenInvalidBeforeEpochSeconds" SET NOT NULL;
+      END IF;
+    END $$`);
     await queryRunner.query(`DO $$ BEGIN
       IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'auth.users'::regclass
         AND conname = 'CHK_users_credential_version_positive') THEN

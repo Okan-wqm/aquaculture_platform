@@ -4,6 +4,7 @@ import { DataSource, QueryRunner } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { DurableUserTokenInvalidationService } from '../../authentication/services/durable-user-token-invalidation.service';
+import { Tenant } from '../entities/tenant.entity';
 import { CapabilityAuthorityService } from '../services/capability-authority';
 import { CATALOGUE_CAPABILITIES } from '../services/permission-catalogue';
 import { TenantRoleService } from '../services/tenant-role.service';
@@ -31,7 +32,7 @@ const createMockQueryRunner = (): jest.Mocked<
     | 'release'
     | 'query'
   >
-> & { manager: { create: jest.Mock; save: jest.Mock } } => ({
+> & { manager: { create: jest.Mock; save: jest.Mock; findOne: jest.Mock; find: jest.Mock } } => ({
   connect: jest.fn().mockResolvedValue(undefined),
   startTransaction: jest.fn().mockResolvedValue(undefined),
   commitTransaction: jest.fn().mockResolvedValue(undefined),
@@ -41,6 +42,8 @@ const createMockQueryRunner = (): jest.Mocked<
   // A real QueryRunner exposes `.manager` (the transaction-bound EntityManager)
   // that RBAC-C3 threads into AuditLogService.log for an atomic audit write.
   manager: {
+    findOne: jest.fn().mockResolvedValue(Object.assign(new Tenant(), { id: TENANT_ID })),
+    find: jest.fn().mockResolvedValue([]),
     create: jest.fn((_entity: unknown, data: unknown) => data),
     save: jest.fn((entity: unknown) => Promise.resolve(entity)),
   },

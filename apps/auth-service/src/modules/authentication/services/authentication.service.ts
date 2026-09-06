@@ -1439,7 +1439,8 @@ export class AuthenticationService {
       const resetTokenHash = crypto.createHash('sha256').update(resetToken).digest('hex');
       const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
 
-      const actionToken = await withLockedCredentialPrincipal(this.dataSource, user.id, async (context) => {
+      const actionToken = await this.bypassRls.withBypass('auth-service:password-reset-request', () =>
+        withLockedCredentialPrincipal(this.dataSource, user.id, async (context) => {
         if (!context.user.isActive) throw new BadRequestException('Account is unavailable');
         await context.manager.update(User, { id: user.id }, {
           passwordResetToken: resetTokenHash, passwordResetExpires: expiresAt,
@@ -1452,7 +1453,7 @@ export class AuthenticationService {
           userId: user.id, tokenHash: resetTokenHash, status: ActionTokenStatus.ACTIVE, expiresAt,
           auditMetadata: { source: 'password-reset-request', ipAddress },
         }));
-      });
+      }));
 
       // SECURITY (CRITICAL-001/002): Publish event with opaque references ONLY.
       // PII (email, firstName) and secret URLs are NEVER placed on the immutable event bus.

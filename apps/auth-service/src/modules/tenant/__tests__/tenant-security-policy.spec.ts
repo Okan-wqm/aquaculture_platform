@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { NotFoundException } from '@nestjs/common';
+import { Role } from '@aquaculture/backend-common/decorators';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { getMetadataStorage } from 'class-validator';
@@ -37,7 +38,9 @@ describe('TenantAdminService — tenant auth-security policy (ADR-046)', () => {
     Object.assign(new Tenant(), { id: TENANT_ID, name: 'Acme', ...overrides });
 
   const buildUser = (overrides: Partial<User>): User =>
-    Object.assign(new User(), { id: ADMIN_ID, email: 'admin@example.com', ...overrides });
+    Object.assign(new User(), { id: ADMIN_ID, email: 'admin@example.com', tenantId: TENANT_ID,
+      role: Role.TENANT_ADMIN, isActive: true, credentialVersion: 1, mfaEnabled: false,
+      accessTokenInvalidBeforeEpochSeconds: 0, ...overrides });
 
   interface Harness {
     service: TenantAdminService;
@@ -66,6 +69,9 @@ describe('TenantAdminService — tenant auth-security policy (ADR-046)', () => {
       from: jest.fn().mockReturnThis(),
       getQuery: jest.fn().mockReturnValue('(SELECT 1)'),
       getRawMany: jest.fn().mockResolvedValue(candidateIds.map((id) => ({ id }))),
+      orderBy: jest.fn().mockReturnThis(),
+      setLock: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue(candidateIds.map((id) => buildUser({ id }))),
     };
 
     const userRepository = {
@@ -82,11 +88,24 @@ describe('TenantAdminService — tenant auth-security policy (ADR-046)', () => {
       getMany: jest.fn().mockResolvedValue([]),
     };
     const refreshTokenRepository = {
+      count: jest.fn().mockResolvedValue(1),
       update: jest.fn().mockResolvedValue({ affected: 1 }),
       createQueryBuilder: jest.fn().mockReturnValue(refreshTokenQueryBuilder),
     };
 
     const manager = {
+      queryRunner: { isTransactionActive: true },
+      findOne: jest.fn(async (entity: unknown, options: { where: { id: string } }) => {
+        if (entity === Tenant) return tenant;
+        if (entity === User) return buildUser({ id: options.where.id });
+        throw new Error('Unexpected security policy identity lookup');
+      }),
+      update: jest.fn((entity: unknown, criteria: unknown, values: unknown) => {
+        if (entity === Tenant) return tenantUpdate(criteria, values);
+        throw new Error('Unexpected security policy mutation');
+      }),
+      createQueryBuilder: jest.fn().mockReturnValue(candidateQueryBuilder),
+      count: jest.fn().mockResolvedValue(0),
       withRepository: jest.fn((repository: unknown) => {
         if (repository === refreshTokenRepository) {
           return refreshTokenRepository;

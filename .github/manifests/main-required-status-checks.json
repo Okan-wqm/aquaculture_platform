@@ -3,13 +3,22 @@
   "schema_version": 1,
   "repository": "Okan-wqm/aquaculture_platform",
   "branch": "main",
-  "finding_ids": ["EDGE-CRITICAL-001", "INFRA-CRITICAL-044", "INFRA-HIGH-084"],
+  "finding_ids": [
+    "EDGE-CRITICAL-001",
+    "INFRA-CRITICAL-044",
+    "INFRA-HIGH-084"
+  ],
   "branch_protection": {
     "enforce_admins": true
   },
   "required_status_checks": {
     "strict": true,
-    "contexts": ["sens-enterprise-summary", "merge-gate", "aria-merge-authority", "build-status"],
+    "contexts": [
+      "sens-enterprise-summary",
+      "merge-gate",
+      "aria-merge-authority",
+      "build-status"
+    ],
     "checks": [
       {
         "context": "aria-merge-authority",
@@ -42,7 +51,11 @@
     ".github/manifests/**",
     "tests/**",
     "package.json",
-    "package-lock.json"
+    "package-lock.json",
+    ".husky/**",
+    "tools/lint-gates/**",
+    "scripts/ci/**",
+    "CLAUDE.md"
   ],
   "sens_specialist_required_path_filters": [
     "sens-api-gateway/**",
@@ -92,9 +105,13 @@
             "build",
             "sensor-service-gates",
             "sens-api-gateway-rust",
-            "sens-enterprise-validation"
+            "sens-enterprise-validation",
+            "hosted-validation"
           ],
-          "required_markers": ["Assert required PR checks"]
+          "required_markers": [
+            "Assert required PR checks",
+            "needs.hosted-validation.result"
+          ]
         },
         {
           "context": "build-status",
@@ -116,9 +133,15 @@
             "sens-api-gateway-rust",
             "sens-enterprise-validation",
             "sens-enterprise-summary",
-            "merge-gate"
+            "merge-gate",
+            "hosted-validation"
           ],
-          "required_markers": ["name: build-status", "if: always()", "Affected validation passed"]
+          "required_markers": [
+            "name: build-status",
+            "if: always()",
+            "Affected validation passed",
+            "needs.hosted-validation.result"
+          ]
         }
       ]
     },

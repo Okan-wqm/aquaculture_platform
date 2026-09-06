@@ -1,6 +1,6 @@
 # CRITICAL — Read BEFORE and AFTER every change
 
-- Run `nx affected --target=test` and `nx affected --target=lint` after changes. Never commit with red tests.
+- Run `nx affected --target=test` and `nx affected --target=lint` in GitHub-hosted Actions after publishing changes; required checks must pass before merge or deploy. Local hooks check metadata only; do not run tests, builds, lint, type-check, codegen, or dependency installation on the production droplet.
 - Every fix is an architectural root-cause fix. No workarounds, patches, defensive `?.`, `as any`, or compat shims. The 4-tier hierarchy and banned-phrase list under **Architectural Approach** are load-bearing, not decoration.
 - Keep domain entities separate from persistence entities. ORM decorators do not belong in the domain layer.
 - `@Entity()` declares `schema:` UNLESS it is a **per-tenant** table in a tenant-scoped service (`farm`, `sensor`, `hr`, `messaging`, `hydroponics`, `ai`, `alert`) — those OMIT `schema:` so search_path routes them into `tenant_<uuid>` at runtime. The split is **per-table, not per-service**: cross-tenant tables inside those services (outbox, audit ledgers, idempotency) KEEP `schema:`. The authoritative per-service cross-tenant set is `MODULE_SCHEMAS[].infrastructureTables` (`libs/backend-common/src/database/schema-manager.service.ts`). Enforced by `tests/invariants/entity-schema-declaration.spec.ts` (source, every PR) + `e2e/tests/integration/schema-invariants.spec.ts` (live DDL, `db-migration-check.yml`). Never add tables to `public`.

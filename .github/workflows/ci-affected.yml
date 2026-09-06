@@ -106,6 +106,97 @@ jobs:
           echo "has_changes=$VALIDATION_REQUIRED" >> "$GITHUB_OUTPUT"
           echo "deploy_changes=$DEPLOY_CHANGES" >> "$GITHUB_OUTPUT"
 
+  # These gates used to run in local hooks. They always run, including docs-only PRs.
+  hosted-validation:
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [policy, types, rust, aria]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.detect-changes.outputs.head_sha }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - name: Install hosted validation dependencies
+        run: npm ci --ignore-scripts --no-audit
+      - uses: ./.github/actions/setup-aria-kernel
+        if: matrix.lane == 'aria'
+      - uses: ./.github/actions/setup-rust-workspace
+        if: matrix.lane == 'rust'
+      - uses: ./.github/actions/install-tpm-build-dependencies
+        if: matrix.lane == 'rust'
+      - name: Execute every selected gate and write exact revision receipt
+        env:
+          BASE_SHA: ${{ needs.detect-changes.outputs.base_sha }}
+          HEAD_SHA: ${{ needs.detect-changes.outputs.head_sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: node scripts/ci/hosted-validation.mjs "${{ matrix.lane }}"
+      - name: Upload hosted validation receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: hosted-validation-${{ matrix.lane }}-${{ github.run_attempt }}
+          path: artifacts/hosted-validation/
+          if-no-files-found: error
+
+  # Produces reviewable generated-source changes; never writes to the remote branch.
+  source-generation:
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.detect-changes.outputs.head_sha }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - name: Install source generation dependencies on hosted runner
+        run: npm ci --ignore-scripts --no-audit
+      - name: Generate formatting, format inventory and ARIA authority patch
+        env:
+          FORMAT_BASE_SHA: ${{ needs.detect-changes.outputs.base_sha }}
+          CANDIDATE_SHA: ${{ needs.detect-changes.outputs.head_sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          node tools/quality/quality.mjs format-scope generate
+          node tools/quality/quality.mjs format write-changed
+          node node_modules/ts-node/dist/bin.js --project tools/gates/tsconfig.json tools/gates/aria-authority-hash.ts --write
+          node tools/quality/quality.mjs format-scope generate
+          mkdir -p artifacts/source-generation
+          git diff --binary > artifacts/source-generation/candidate.patch
+          python3 - <<'PYTHON'
+          import hashlib, json, os
+          from pathlib import Path
+          patch = Path('artifacts/source-generation/candidate.patch')
+          receipt = {
+              'base_sha': os.environ['FORMAT_BASE_SHA'],
+              'pr_head_sha': os.environ['PR_HEAD_SHA'],
+              'tested_merge_sha': os.environ['CANDIDATE_SHA'],
+              'run_id': os.environ['GITHUB_RUN_ID'],
+              'run_attempt': os.environ['GITHUB_RUN_ATTEMPT'],
+              'patch_sha256': hashlib.sha256(patch.read_bytes()).hexdigest(),
+          }
+          patch.with_name('receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
+          PYTHON
+      - name: Upload generated source patch for review
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: source-generation-${{ github.run_attempt }}
+          path: artifacts/source-generation/
+          if-no-files-found: error
+
   # ---------------------------------------------------------------------------
   # Shared setup: install + cache (reusable via needs + cache restore)
   # ---------------------------------------------------------------------------
@@ -1846,6 +1937,7 @@ jobs:
 
   merge-gate:
     needs:
+      - hosted-validation
       - detect-changes
       - install
       - lint
@@ -1886,6 +1978,10 @@ jobs:
       - name: Assert required PR checks
         run: |
           set -euo pipefail
+          if [ "${{ needs.hosted-validation.result }}" != "success" ]; then
+            echo "::error::Required hosted validation did not succeed."
+            exit 1
+          fi
           if [ "${{ needs.detect-changes.result }}" != "success" ]; then
             echo "::error::detect-changes did not succeed"
             exit 1
@@ -1919,6 +2015,7 @@ jobs:
   build-status:
     name: build-status
     needs:
+      - hosted-validation
       - detect-changes
       - install
       - lint
@@ -1943,6 +2040,10 @@ jobs:
       - name: Assert affected validation status
         run: |
           set -euo pipefail
+          if [ "${{ needs.hosted-validation.result }}" != "success" ]; then
+            echo "::error::Required hosted validation did not succeed."
+            exit 1
+          fi
           if [ "${{ needs.detect-changes.result }}" != "success" ]; then
             echo "::error::Affected range resolution failed."
             exit 1

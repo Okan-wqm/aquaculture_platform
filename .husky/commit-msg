@@ -1,13 +1,5 @@
 #!/bin/sh
 . "$(dirname "$0")/_/husky.sh"
 
-# commit-msg hook — Phase 2 of
-# /root/.claude/plans/abstract-brewing-mochi.md (docs/plans/2026-04-17-...).
-# Enforces CLAUDE.md "Review Finding Traceability" rule: every fix,
-# security, or refactor(agentic,phase-*) commit MUST carry a
-#   Closes: docs/reviews/<agent>/<date>-<topic>.md#<FINDING-ID>
-# trailer pointing to a registered finding.
-#
-# The hook receives the path to the prepared commit-msg file as $1.
-
-npx ts-node --project tools/gates/tsconfig.json tools/gates/commit-msg-validator.ts --mode=msg-file "$1"
+# Heavy checks run in the required hosted-validation job. No local compilation.
+node scripts/ci/local-hook.mjs commit-msg "$1"

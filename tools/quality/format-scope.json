@@ -4584,6 +4584,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/config/__tests__/frontend-url.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/config/frontend-url.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/config/hash-refresh-tokens.spec.ts",
       "prettier_managed": true
     },
@@ -36045,6 +36057,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/zcode/2026-09-06-action-link-origin.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/runbooks/2026-04-14-teardown-rollout.md",
       "prettier_managed": true
     },
@@ -44475,6 +44493,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/access-log-stream-shape.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/action-link-origin-deployment-contract.spec.ts",
       "prettier_managed": true
     },
     {

@@ -14,6 +14,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
+import { parseFrontendUrl } from '../../../config/frontend-url';
 import { Tenant } from '../../tenant/entities/tenant.entity';
 import { ActionToken, ActionTokenPurpose, ActionTokenStatus } from '../entities/action-token.entity';
 import { Invitation, InvitationStatus } from '../entities/invitation.entity';
@@ -32,7 +33,14 @@ export class InternalAuthController {
     @InjectRepository(ActionToken)
     private readonly actionTokenRepository: Repository<ActionToken>,
     private readonly configService: ConfigService,
-  ) {}
+  ) {
+    // DEPLOY-HIGH-016: resolved once, at boot. Reading it per request meant a
+    // misconfigured deployment surfaced as a wrong link in somebody's inbox
+    // rather than as a service that refuses to start.
+    this.frontendOrigin = parseFrontendUrl(this.configService);
+  }
+
+  private readonly frontendOrigin: string;
 
   @Get('users/:userId/pii')
   async getUserPii(
@@ -81,7 +89,7 @@ export class InternalAuthController {
       }
 
       return {
-        actionUrl: `${this.frontendUrl()}/${this.actionPath(actionToken.purpose)}/${actionToken.id}`,
+        actionUrl: `${this.frontendOrigin}/${this.actionPath(actionToken.purpose)}/${actionToken.id}`,
       };
     }
 
@@ -98,12 +106,12 @@ export class InternalAuthController {
 
     if (user.invitationToken === actionTokenId) {
       const rawToken = await this.rotateInvitationToken(user, actionTokenId);
-      return { actionUrl: `${this.frontendUrl()}/accept-invitation/${rawToken}` };
+      return { actionUrl: `${this.frontendOrigin}/accept-invitation/${rawToken}` };
     }
 
     if (user.passwordResetToken === actionTokenId) {
       const rawToken = await this.rotatePasswordResetToken(user);
-      return { actionUrl: `${this.frontendUrl()}/reset-password/${rawToken}` };
+      return { actionUrl: `${this.frontendOrigin}/reset-password/${rawToken}` };
     }
 
     throw new NotFoundException('Action token not found');
@@ -185,7 +193,4 @@ export class InternalAuthController {
     }
   }
 
-  private frontendUrl(): string {
-    return this.configService.get<string>('FRONTEND_URL', 'http://localhost:8080').replace(/\/+$/, '');
-  }
 }

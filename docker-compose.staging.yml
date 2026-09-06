@@ -136,6 +136,7 @@ services:
     environment:
       NODE_OPTIONS: '--max-old-space-size=256'
       CORS_ORIGINS: ${CORS_ORIGINS:-https://staging.suderra.com}
+      FRONTEND_URL: ${FRONTEND_URL:-https://staging.suderra.com}
       WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-staging.suderra.com}
       WEBAUTHN_RP_NAME: ${WEBAUTHN_RP_NAME:-AquaCulture Platform (Staging)}
     deploy:
@@ -187,7 +188,6 @@ services:
       NODE_OPTIONS: '--max-old-space-size=192'
       CORS_ORIGINS: ${CORS_ORIGINS:-https://staging.suderra.com}
       ADMIN_CORS_ORIGINS: ${CORS_ORIGINS:-https://staging.suderra.com}
-      FRONTEND_URL: ${FRONTEND_URL:-https://staging.suderra.com}
       THROTTLE_DEFAULT_LIMIT: 200
     deploy:
       resources:

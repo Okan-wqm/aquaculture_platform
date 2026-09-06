@@ -32,7 +32,7 @@ import { createTenantQueryKey } from '@/utils/tenant-query-keys';
  * @returns Full channel object with members array
  */
 async function fetchChannel(channelId: string): Promise<Channel> {
-  const result = await graphqlRequest<{ channel: Channel }>(
+  const result = await graphqlRequest(
     GET_CHANNEL,
     { id: channelId },
   );

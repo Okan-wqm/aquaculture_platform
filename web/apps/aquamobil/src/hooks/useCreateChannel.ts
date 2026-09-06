@@ -22,7 +22,7 @@ import { useAuth } from './useAuth';
 
 import { DIRECT_CHANNEL, CREATE_CHANNEL } from '@/graphql/messaging-operations';
 import { graphqlRequest } from '@/services/authenticated-fetch';
-import type { Channel, CreateChannelInput } from '@/types/messaging';
+import type { CreateChannelInput } from '@/types/messaging';
 import { toWireChannelType } from '@/utils/channel-type-wire';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
@@ -50,7 +50,7 @@ export function useCreateChannel(): UseCreateChannelReturn {
 
   const dmMutation = useMutation({
     mutationFn: async (userId: string) => {
-      const result = await graphqlRequest<{ directChannel: Channel }>(
+      const result = await graphqlRequest(
         DIRECT_CHANNEL,
         { userId },
       );
@@ -76,7 +76,7 @@ export function useCreateChannel(): UseCreateChannelReturn {
         name: params.name,
         memberIds: params.memberIds,
       };
-      const result = await graphqlRequest<{ createChannel: Channel }>(
+      const result = await graphqlRequest(
         CREATE_CHANNEL,
         { input },
       );
@@ -102,7 +102,7 @@ export function useCreateChannel(): UseCreateChannelReturn {
         memberIds: [], // Creator auto-added on backend
         aiPersona: params.aiPersona,
       };
-      const result = await graphqlRequest<{ createChannel: Channel }>(
+      const result = await graphqlRequest(
         CREATE_CHANNEL,
         { input },
       );

@@ -18,7 +18,7 @@ interface NotificationDeepLink {
   taskId?: string;
 }
 
-function parseNotificationDeepLink(data: string | undefined): NotificationDeepLink | null {
+function parseNotificationDeepLink(data: string | null | undefined): NotificationDeepLink | null {
   if (!data) return null;
   try {
     const parsed: unknown = JSON.parse(data);

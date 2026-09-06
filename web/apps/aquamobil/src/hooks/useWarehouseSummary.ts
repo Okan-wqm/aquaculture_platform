@@ -13,12 +13,6 @@ import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 // approximate stock levels even without connectivity.
 const CACHE_TTL_1H = 1000 * 60 * 60;
 
-// WHY inline response type: the backend response wraps WarehouseSummary
-// inside a `warehouseSummary` key. This shape is an internal GraphQL detail.
-interface WarehouseSummaryResponse {
-  warehouseSummary: WarehouseSummary;
-}
-
 // WHY default constant: avoids re-creating the object on every render cycle
 // while the authoritative query is still loading.
 const DEFAULT_SUMMARY: WarehouseSummary = {
@@ -58,7 +52,7 @@ export function useWarehouseSummary(): {
       // tenant-isolated cache calls below without a non-null assertion.
       if (!tenantId) throw new Error('useWarehouseSummary: tenantId is required');
       try {
-        const result = await graphqlRequest<WarehouseSummaryResponse>(
+        const result = await graphqlRequest(
           GET_WAREHOUSE_SUMMARY,
         );
         const summary = result.warehouseSummary;

@@ -47,7 +47,7 @@ const CACHE_TTL_MS = 2 * 60 * 60 * 1000;
  * @returns ChannelPage with items and total count
  */
 async function fetchChannels(limit: number, offset: number): Promise<ChannelPage> {
-  const result = await graphqlRequest<{ myChannels: ChannelPage }>(
+  const result = await graphqlRequest(
     MY_CHANNELS,
     { filter: { limit, offset } },
   );

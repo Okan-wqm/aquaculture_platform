@@ -31,7 +31,7 @@ import {
 
 import { PhotoCaptureField } from '@/components/PhotoCaptureField';
 import { useTanks } from '@/hooks/useTanks';
-import type { EscapeIncidentCause, EscapeIncidentInput } from '@/types';
+import type { EscapeIncidentCause, QueuedPayload } from '@/types';
 
 const ESCAPE_CAUSES: ReadonlyArray<{ value: EscapeIncidentCause; label: string; emoji: string }> = [
   { value: 'HOLE_IN_NET', label: 'Hole in Net', emoji: '🕳️' },
@@ -113,7 +113,7 @@ export function EscapeIncidentPage(): JSX.Element {
     return Object.keys(next).length === 0;
   }, [selectedTankId, selectedTank, metrics, estimatedCount]);
 
-  const buildPayload = (): EscapeIncidentInput => {
+  const buildPayload = (): QueuedPayload<'recordEscapeIncident'> => {
     const siteId = selectedTank?.siteId;
     const speciesId = metrics?.speciesId;
     if (!siteId) {
@@ -138,7 +138,7 @@ export function EscapeIncidentPage(): JSX.Element {
   };
 
   return (
-    <RecordEntityPage<EscapeIncidentInput>
+    <RecordEntityPage<'recordEscapeIncident'>
       theme={ESCAPE_THEME}
       entryTitle="Escape Incident"
       confirmTitle="Confirm Escape Incident"

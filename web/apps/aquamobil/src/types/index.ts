@@ -9,14 +9,70 @@
 // vocabulary stays single-sourced — the old hand-maintained
 // MANAGER/OPERATOR/VIEWER union was phantom (the server never emits it).
 export type { Role } from '../generated/graphql';
+// MOB-HIGH-022: enum vocabularies a page SENDS come from the generated schema
+// types, never a hand-maintained union — the hand-written MortalityReason once
+// carried three members (AMMONIA, STARVATION, GENETIC) the server does not
+// have, so selecting them produced a coercion error the type system approved.
+export type {
+  CullReason,
+  EscapeIncidentCause,
+  MortalityReason,
+  QualityClass,
+} from '../generated/graphql';
 import type {
-  CreateWaterQualityInput as GeneratedCreateWaterQualityInput,
+  AccessType,
+  AttendanceRecordFieldsFragment,
+  GetMyNotificationsQuery,
+  GetStockEventsSummaryQuery,
+  GetWarehouseSummaryQuery,
+  LeaveTypesQuery,
+  MessageContentType,
+  MyLeaveBalancesQuery,
+  MyLeaveRequestsQuery,
   Role,
+  TaskFieldsFragment,
+} from '../generated/graphql';
+// MOB-HIGH-022: read-side enum vocabularies come from the generated schema
+// types too — a hand-written union cannot drift from what the resolver emits.
+export type {
+  AttendanceStatus,
+  ClockMethod,
+  LeaveRequestStatus,
+  TaskCategory,
+  TaskPriority,
+  TaskStatus,
+} from '../generated/graphql';
+import type {
+  AcknowledgeAlertInput,
+  DeleteMessageMutationVariables,
+  EditMessageMutationVariables,
+  ClockInInput,
+  ClockOutInput,
+  CreateHarvestRecordInput,
+  CreateLeaveRequestInput,
+  CreateWaterQualityInput,
+  EditMessageInput,
+  FinalizeMealInput,
+  MarkReadInput,
+  RecordCullInput,
+  RecordDailyFeedingInput,
+  RecordEscapeIncidentInput,
+  RecordLiceCountInput,
+  RecordMealFeedingInput,
+  RecordMortalityInput,
+  RecordStockMovementInput,
+  RecordWelfareAssessmentInput,
+  SendMessageInput,
+  SetChecklistItemInput,
+  TaskLifecycleInput,
+  TransferBatchInput,
+  TransferStockInput,
 } from '../generated/graphql';
 
 // WHY: AccessType determines platform access — PANEL_ONLY users are blocked from
 // the mobile app at login time, before any feature check occurs.
-export type AccessType = 'PANEL_ONLY' | 'MOBILE_ONLY' | 'BOTH';
+// MOB-HIGH-022: the vocabulary is the generated AccessType enum, not a mirror.
+export type { AccessType } from '../generated/graphql';
 
 // Auth types
 export interface User {
@@ -71,186 +127,12 @@ export interface BatchMetrics {
   daysSinceStocking: number | null;
 }
 
-// Data entry types
-export type MortalityReason =
-  | 'DISEASE'
-  | 'WATER_QUALITY'
-  | 'STRESS'
-  | 'HANDLING'
-  | 'TEMPERATURE'
-  | 'OXYGEN'
-  | 'AMMONIA'
-  | 'PREDATION'
-  | 'CANNIBALISM'
-  | 'STARVATION'
-  | 'GENETIC'
-  | 'UNKNOWN'
-  | 'OTHER';
-
-export type CullReason =
-  | 'SMALL_SIZE'
-  | 'DEFORMED'
-  | 'SICK'
-  | 'POOR_GROWTH'
-  | 'GRADING'
-  | 'QUALITY'
-  | 'OTHER';
-
-/**
- * Norwegian official slaughter quality class (kvalitetsklasse) — the stored SSoT
- * for harvest quality (RPT-007). Values are the GraphQL enum names. The legacy
- * 5-level display grade was retired; operators select the class directly.
- */
-export type QualityClass = 'SUPERIOR' | 'ORDINAER' | 'PRODUKSJONSFISK' | 'UTKAST';
-
-export interface MortalityInput {
-  batchId: string;
-  tankId: string;
-  quantity: number;
-  reason: MortalityReason;
-  detail?: string;
-  observedAt?: string;
-  avgWeightG?: number;
-  notes?: string;
-}
-
-export interface CullInput {
-  batchId: string;
-  tankId: string;
-  quantity: number;
-  reason: CullReason;
-  detail?: string;
-  culledAt?: string;
-  avgWeightG?: number;
-  notes?: string;
-}
-
-export interface HarvestInput {
-  batchId: string;
-  tankId: string;
-  quantityHarvested: number;
-  averageWeight: number;
-  totalBiomass: number;
-  qualityClass: QualityClass;
-  harvestDate: string;
-  pricePerKg?: number;
-  buyerName?: string;
-  lotNumber?: string;
-  notes?: string;
-}
-
 // ============================================================================
 // Regulatory field-capture types (FARM-HIGH-214 / RPT-019)
 // ============================================================================
 
-/**
- * Matches backend RecordLiceCountInput exactly (fish-health field capture).
- * The lice_counts SSoT upserts on (tenant, tank, countDate) — a replayed or
- * re-submitted count for the same pen/day corrects the row, never duplicates.
- */
-export interface LiceCountInput {
-  siteId: string;
-  tankId: string;
-  batchId?: string;
-  /** Counting date, yyyy-mm-dd. */
-  countDate: string;
-  adultFemaleLice: number;
-  mobileLice: number;
-  attachedLice: number;
-  fishSampled: number;
-  seaTemperatureC?: number;
-  notes?: string;
-  /** MinIO storageKeys of incident evidence photos uploaded at capture. */
-  mediaKeys?: string[];
-}
-
-/** Matches backend RecordWelfareAssessmentInput exactly (scores 0–3). */
-export interface WelfareAssessmentInput {
-  siteId: string;
-  tankId: string;
-  batchId?: string;
-  /** Assessment date, yyyy-mm-dd. */
-  assessedAt: string;
-  fishSampled: number;
-  gillScore: number;
-  finScore: number;
-  woundScore: number;
-  deformityScore: number;
-  notes?: string;
-  /** MinIO storageKeys of incident evidence photos uploaded at capture. */
-  mediaKeys?: string[];
-}
-
-/** GraphQL EscapeIncidentCause enum KEYS (wire names, FARM-MEDIUM-166 parity). */
-export type EscapeIncidentCause =
-  | 'HOLE_IN_NET'
-  | 'HANDLING'
-  | 'PREDATOR'
-  | 'STRUCTURAL_FAILURE'
-  | 'OPERATIONAL'
-  | 'UNKNOWN'
-  | 'OTHER';
-
-/** Matches backend RecordEscapeIncidentInput exactly. */
-export interface EscapeIncidentInput {
-  siteId: string;
-  tankId?: string;
-  batchId?: string;
-  /** ISO timestamp of detection. */
-  detectedAt: string;
-  speciesId: string;
-  estimatedCount: number;
-  avgWeightG?: number;
-  cause?: EscapeIncidentCause;
-  causeDetails?: string;
-  recoveryOngoing?: boolean;
-  notes?: string;
-  /** MinIO storageKeys of incident evidence photos uploaded at capture. */
-  mediaKeys?: string[];
-}
-
-// Feeding types
-// Drain penceresi yükü: cutover ÖNCESİ kuyruğa alınmış recordFeeding op'ları
-// eski execution'lara karşı replay olmaya devam eder (Faz 8'de execution
-// stack'iyle birlikte ölür). YENİ kayıtlar recordMealFeeding kullanır.
-export interface FeedingInput {
-  executionId: string;
-  actualKg: number;
-  feedingMethod?: string;
-  feederEquipmentId?: string;
-  notes?: string;
-}
-
-/**
- * Faz 6 öğün cutover'ı — tek döküm kaydı (D-8). Backend zarfı ZORUNLU kılar
- * (C-17); kuyruk zarfı enqueue'da damgalar, dolayısıyla payload yalnız domain
- * alanlarını taşır. `finalize=true` operatörün "öğün bitti" onayıdır (varyans
- * + büyüme + kalan öğün recalc'ı finalize'da koşar).
- */
-export interface RecordMealFeedingPayload {
-  mealId: string;
-  pourKg: number;
-  finalize: boolean;
-  feedingMethod?: string;
-  notes?: string;
-}
-
-/**
- * W8 / FARM-MEDIUM-269 — kısmi beslenen öğünü DÖKÜM EKLEMEDEN kapatır.
- *
- * `recordMealFeeding` `pourKg > 0` ister; balık doyup operatör "öğün bitti"
- * demek istediğinde tek çıkış uydurma bir 0.001 kg dökümdü, yani sahte bir
- * `feeding_records` satırı + sahte bir stok düşümü. Ayrı bir op olduğu için
- * kuyruk yükü de dürüst: kg alanı YOK.
- */
-export interface FinalizeMealPayload {
-  mealId: string;
-}
 
 // Attendance types
-export type ClockMethod = 'BIOMETRIC' | 'CARD' | 'MOBILE' | 'WEB' | 'MANUAL' | 'GPS';
-export type AttendanceStatus = 'PRESENT' | 'ABSENT' | 'LATE' | 'EARLY_LEAVE' | 'HALF_DAY' | 'ON_LEAVE' | 'HOLIDAY' | 'OFFSHORE' | 'REST_DAY' | 'WORK_FROM_HOME';
-
 export interface GeoLocation {
   latitude: number;
   longitude: number;
@@ -258,22 +140,12 @@ export interface GeoLocation {
   accuracy?: number;
 }
 
-export interface AttendanceRecord {
-  id: string;
-  employeeId: string;
-  date: string;
-  clockIn?: string;
-  clockOut?: string;
-  clockInMethod?: ClockMethod;
-  clockOutMethod?: ClockMethod;
-  status: AttendanceStatus;
-  workedMinutes: number;
-  overtimeMinutes: number;
-  lateMinutes: number;
-  isOffshore: boolean;
-  remarks?: string;
-  shiftId?: string;
-}
+/**
+ * One attendance record as BOTH attendance documents select it (the shared
+ * `AttendanceRecordFields` fragment) — derived, so the list and today's view
+ * cannot diverge in shape.
+ */
+export type AttendanceRecord = AttendanceRecordFieldsFragment;
 
 export interface AttendanceSummary {
   totalWorkingDays: number;
@@ -286,127 +158,16 @@ export interface AttendanceSummary {
   attendanceRate: number;
 }
 
-export interface ClockInInput {
-  employeeId?: string;
-  method: ClockMethod;
-  location?: GeoLocation;
-  workAreaId?: string;
-  remarks?: string;
-}
-
-export interface ClockOutInput {
-  employeeId?: string;
-  method: ClockMethod;
-  location?: GeoLocation;
-  remarks?: string;
-}
-
-// Leave types
-export type LeaveRequestStatus = 'DRAFT' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
-
-export interface LeaveType {
-  id: string;
-  name: string;
-  code: string;
-  category: string;
-  isPaid: boolean;
-  defaultDaysPerYear?: number;
-  color?: string;
-}
-
-export interface LeaveBalance {
-  id: string;
-  leaveTypeId: string;
-  leaveType?: LeaveType;
-  totalEntitlement: number;
-  usedDays: number;
-  pendingDays: number;
-  remainingDays: number;
-  year: number;
-}
-
-export interface LeaveRequest {
-  id: string;
-  employeeId: string;
-  leaveTypeId: string;
-  leaveType?: LeaveType;
-  startDate: string;
-  endDate: string;
-  totalDays: number;
-  isHalfDay: boolean;
-  isHalfDayStart?: boolean;
-  isHalfDayEnd?: boolean;
-  halfDayPeriod?: string | null;
-  reason?: string;
-  status: LeaveRequestStatus;
-  createdAt: string;
-}
-
-export interface CreateLeaveRequestInput {
-  employeeId?: string;
-  leaveTypeId: string;
-  startDate: string;
-  endDate: string;
-  totalDays?: number;
-  isHalfDay?: boolean;
-  isHalfDayStart?: boolean;
-  isHalfDayEnd?: boolean;
-  halfDayPeriod?: string | null;
-  reason?: string;
-}
-
-// Offline queue types
-// MSG-MEDIUM-055: 'uploadAndSendMessage' is the binary offline lane. Unlike
-// 'sendMessage' (which carries an already-uploaded storageKey), this op carries
-// a reference to a recorded/selected Blob persisted in the dedicated binary
-// store. Its in-app sync replay runs the 3-step online flow that cannot happen
-// offline: requestMediaUpload (presign) → PUT blob → sendMessage(storageKey).
-export type OperationType = 'recordMortality' | 'recordCull' | 'createHarvestRecord' | 'recordFeeding' | 'recordMealFeeding' | 'finalizeMeal' | 'clockIn' | 'clockOut' | 'createLeaveRequest' | 'completeTask' | 'startTask' | 'setChecklistItem' | 'recordTransfer' | 'createWaterQuality' | 'recordStockMovement' | 'transferStock' | 'recordLiceCount' | 'recordWelfareAssessment' | 'recordEscapeIncident' | 'acknowledgeAlert' | 'sendMessage' | 'editMessage' | 'deleteMessage' | 'markMessagesRead' | 'uploadAndSendMessage';
-
+// Leave types — derived from the generated read documents (MOB-HIGH-022).
+export type LeaveType = LeaveTypesQuery['leaveTypes'][number];
 /**
- * FARM-HIGH-057 — offline payload for an idempotent checklist SET.
- *
- * Carries the ABSOLUTE target `isCompleted` (not a flip), so replaying a queued
- * checklist toggle after reconnect converges to the same state instead of
- * reverting it. `taskId`/`itemId` identify the row; the command envelope fields
- * are stamped by the offline queue on enqueue.
+ * The HR `LeaveBalance` type has no nested `leaveType`; the UI joins
+ * `leaveTypeId` against the `leaveTypes` list (see MyLeavesPage).
  */
-export interface ChecklistItemSetInput {
-  taskId: string;
-  itemId: string;
-  isCompleted: boolean;
-}
+export type LeaveBalance = MyLeaveBalancesQuery['myLeaveBalances'][number];
+export type LeaveRequest = MyLeaveRequestsQuery['myLeaveRequests'][number];
 
-/**
- * Mirror of the backend `MobileCommandEnvelopeInput`. Every field is nullable on
- * the wire, so each is `| null` here: a codegen-emitted input type spells a
- * nullable GraphQL field as `T | null | undefined`, and a mirror that omitted
- * `null` made the generated type unassignable to `OperationPayload` — which is
- * exactly the friction that kept water-quality on a hand-written input in the
- * first place. Intersecting with a generated input still narrows the union
- * members that are stricter here (`operationType` stays `OperationType`).
- */
-export interface MobileCommandEnvelope {
-  clientCommandId?: string | null;
-  clientCreatedAt?: string | null;
-  deviceId?: string | null;
-  /**
-   * `String` on the wire. The `OperationType` narrowing is enforced where it is
-   * actually applied — `addToQueue(type: OperationType, …)` and the stamp at
-   * offline-queue.ts:131 — so repeating it here only rejected generated inputs.
-   */
-  operationType?: string | null;
-  payloadHash?: string | null;
-  schemaVersion?: string | null;
-}
 
-/** Messaging offline payloads — sendMessage uses SendMessageInput, editMessage uses { id, content },
- * deleteMessage uses { id }, markMessagesRead uses { channelId, messageId }. */
-export type MessagingOfflinePayload =
-  | { channelId: string; content: string | null; contentType: string; idempotencyKey: string; parentId?: string; attachmentKeys?: string[]; metadata?: Record<string, unknown> }
-  | { id: string; content: string }
-  | { id: string }
-  | { channelId: string; messageId: string };
 
 /**
  * MSG-MEDIUM-055 — binary offline lane payload (`uploadAndSendMessage`).
@@ -422,7 +183,7 @@ export type MessagingOfflinePayload =
 export interface UploadAndSendMessageOfflinePayload {
   blobId: string;
   channelId: string;
-  contentType: string;
+  contentType: MessageContentType;
   filename: string;
   mimeType: string;
   /** Voice/video duration in seconds, when applicable. */
@@ -432,20 +193,110 @@ export interface UploadAndSendMessageOfflinePayload {
   parentId?: string;
 }
 
+// ============================================================================
+// Offline queue contract — derived from the generated GraphQL client (MOB-HIGH-022)
+// ============================================================================
+//
+// Every queue-replayed mutation is declared once in pwa/operation-registry.ts
+// and plucked by graphql-codegen, so `generated/graphql.ts` carries the exact
+// input type each operation sends. The queued payload type is DERIVED from
+// those inputs — never hand-written — so a field the server removes or makes
+// required becomes a compile error at the page that builds the payload, not a
+// rejected mutation weeks later (the `parameters: {}` class, MOB-CRITICAL-021).
+//
+// The command envelope is stamped by the queue at enqueue
+// (offline-queue.ts attachCommandEnvelope), AFTER the page hands its payload
+// over, so the page-facing type omits the envelope fields even where the
+// server marks them required; the stored/replayed row carries them.
+
+/** Envelope keys the queue stamps at enqueue; `QueueInput` strips them. */
+type MobileCommandEnvelopeKey =
+  | 'clientCommandId'
+  | 'clientCreatedAt'
+  | 'deviceId'
+  | 'operationType'
+  | 'payloadHash'
+  | 'schemaVersion';
+
+/** The domain half of a generated input: what a page supplies to `addToQueue`. */
+export type QueueInput<T> = Omit<T, MobileCommandEnvelopeKey>;
+
 /**
- * MOB-HIGH-006 — offline payload for an alert acknowledgement. Naturally
- * idempotent on replay (re-acking converges); AcknowledgeAlertInput extends
- * MobileCommandEnvelopeInput on the backend so the injected envelope passes
- * validation.
+ * Queued payload per operation type. The SOLE source of `OperationType` —
+ * adding a queued op means adding a row here, and a row without a generated
+ * input to derive from does not type-check.
+ *
+ * MSG-MEDIUM-055: 'uploadAndSendMessage' is the binary offline lane. Unlike
+ * 'sendMessage' (which carries an already-uploaded storageKey), this op carries
+ * a reference to a recorded/selected Blob persisted in the dedicated binary
+ * store. Its in-app sync replay runs the 3-step online flow that cannot happen
+ * offline: requestMediaUpload (presign) → PUT blob → sendMessage(storageKey).
  */
-export interface AcknowledgeAlertInputPayload {
-  alertId: string;
-  note?: string;
+export interface QueuedPayloadByType {
+  recordMortality: QueueInput<RecordMortalityInput>;
+  recordCull: QueueInput<RecordCullInput>;
+  createHarvestRecord: QueueInput<CreateHarvestRecordInput>;
+  /**
+   * Drain-window payload: recordFeeding ops queued BEFORE the meal cutover keep
+   * replaying against the legacy executions; new records use recordMealFeeding.
+   */
+  recordFeeding: QueueInput<RecordDailyFeedingInput>;
+  /**
+   * Faz 6 meal cutover — single pour record (D-8). The backend requires the
+   * envelope (C-17); the queue stamps it, so the page supplies domain fields
+   * only. `finalize=true` is the operator's "meal done" confirmation.
+   */
+  recordMealFeeding: QueueInput<RecordMealFeedingInput>;
+  /**
+   * W8/FARM-MEDIUM-269 — closes a partially fed meal WITHOUT a pour: the
+   * server touches no ledger row, so the payload carries the meal id only.
+   */
+  finalizeMeal: QueueInput<FinalizeMealInput>;
+  clockIn: QueueInput<ClockInInput>;
+  clockOut: QueueInput<ClockOutInput>;
+  createLeaveRequest: QueueInput<CreateLeaveRequestInput>;
+  completeTask: QueueInput<TaskLifecycleInput>;
+  startTask: QueueInput<TaskLifecycleInput>;
+  /**
+   * FARM-HIGH-057 — idempotent checklist SET: carries the ABSOLUTE target
+   * `isCompleted` (not a flip), so a replay after reconnect converges instead
+   * of reverting the item.
+   */
+  setChecklistItem: QueueInput<SetChecklistItemInput>;
+  recordTransfer: QueueInput<TransferBatchInput>;
+  createWaterQuality: QueueInput<CreateWaterQualityInput>;
+  recordStockMovement: QueueInput<RecordStockMovementInput>;
+  transferStock: QueueInput<TransferStockInput>;
+  recordLiceCount: QueueInput<RecordLiceCountInput>;
+  recordWelfareAssessment: QueueInput<RecordWelfareAssessmentInput>;
+  recordEscapeIncident: QueueInput<RecordEscapeIncidentInput>;
+  /** MOB-HIGH-006 — naturally idempotent on replay (re-acking converges). */
+  acknowledgeAlert: QueueInput<AcknowledgeAlertInput>;
+  sendMessage: QueueInput<SendMessageInput>;
+  /** editMessage rides as `{ id, input }` — the id splits out in buildOperationVariables. */
+  editMessage: Pick<EditMessageMutationVariables, 'id'> & QueueInput<EditMessageInput>;
+  deleteMessage: DeleteMessageMutationVariables;
+  markMessagesRead: QueueInput<MarkReadInput>;
+  uploadAndSendMessage: UploadAndSendMessageOfflinePayload;
 }
 
-export type OperationPayload = (
-  MortalityInput | CullInput | HarvestInput | FeedingInput | RecordMealFeedingPayload | FinalizeMealPayload | ClockInInput | ClockOutInput | CreateLeaveRequestInput | { id: string } | ChecklistItemSetInput | TransferInput | GeneratedCreateWaterQualityInput | StockMovementInput | StockTransferInput | LiceCountInput | WelfareAssessmentInput | EscapeIncidentInput | AcknowledgeAlertInputPayload | MessagingOfflinePayload | UploadAndSendMessageOfflinePayload
-) & MobileCommandEnvelope;
+export type OperationType = keyof QueuedPayloadByType;
+
+/** The payload a page hands to `addToQueue` for one operation type. */
+export type QueuedPayload<K extends OperationType> = QueuedPayloadByType[K];
+
+export interface MobileCommandEnvelope {
+  clientCommandId?: string;
+  clientCreatedAt?: string;
+  deviceId?: string;
+  operationType?: OperationType;
+  payloadHash?: string;
+  schemaVersion?: string;
+}
+
+/** A stored/replayed queue row's payload: the domain half plus the stamped envelope. */
+export type OperationPayload<K extends OperationType = OperationType> = QueuedPayloadByType[K] &
+  MobileCommandEnvelope;
 
 export interface QueuedOperation {
   id: string;
@@ -456,7 +307,15 @@ export interface QueuedOperation {
   payload: OperationPayload;
   createdAt: string;
   retryCount: number;
+  /** Display-only, truncated to 200 chars (SEC-07). Never used to classify. */
   lastError?: string;
+  /**
+   * The server's GraphQL `extensions.code` from the last failed replay
+   * (MOB-CRITICAL-021 class). Retry eligibility is decided on THIS, not on the
+   * message text; absent for transport errors and for rows written before the
+   * code was recorded, which fall back to the message heuristics.
+   */
+  lastErrorCode?: string;
   status: 'pending' | 'syncing' | 'failed';
 }
 
@@ -484,49 +343,12 @@ export interface SelectOption<T = string> {
   description?: string;
 }
 
-// Task types
-export type TaskCategory = 'FEEDING' | 'WATER_QUALITY' | 'HEALTH_CHECK' | 'EQUIPMENT_MAINTENANCE' | 'STOCK_MANAGEMENT' | 'CLEANING' | 'REGULATORY' | 'HARVEST' | 'ENVIRONMENTAL' | 'SAFETY' | 'GENERAL';
-export type TaskPriority = 'URGENT' | 'HIGH' | 'MEDIUM' | 'LOW';
-export type TaskStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'OVERDUE' | 'CANCELLED';
-
-export interface ChecklistItem {
-  id: string;
-  text: string;
-  isCompleted: boolean;
-  completedAt?: string;
-}
-
-export interface TaskNote {
-  id: string;
-  text: string;
-  createdBy: string;
-  createdAt: string;
-}
-
-export interface Task {
-  id: string;
-  title: string;
-  description: string;
-  category: TaskCategory;
-  priority: TaskPriority;
-  status: TaskStatus;
-  assignedTo: string;
-  assignedToName: string;
-  dueDate: string;
-  dueTime?: string;
-  location?: string;
-  estimatedMinutes?: number;
-  checklistItems: ChecklistItem[];
-  notes: TaskNote[];
-  tags: string[];
-  isRecurring: boolean;
-  recurringTemplateId?: string;
-  isAutoGenerated: boolean;
-  completedAt?: string;
-  completedBy?: string;
-  createdAt: string;
-  updatedAt?: string;
-}
+// Task types — the shared `TaskFields` fragment both task documents select
+// (FARM-HIGH-320 typed the checklist and notes on the wire, so the item
+// shapes are schema objects, not client-side normaliser output).
+export type Task = TaskFieldsFragment;
+export type ChecklistItem = Task['checklistItems'][number];
+export type TaskNote = Task['notes'][number];
 
 export interface TaskStats {
   totalToday: number;
@@ -537,88 +359,24 @@ export interface TaskStats {
   avgCompletionMinutes: number;
 }
 
-// Notification types
-export interface InAppNotification {
-  id: string;
-  title: string;
-  body: string;
-  isRead: boolean;
-  readAt?: string;
-  data?: string;
-  createdAt: string;
-}
+// Notification types — derived (MOB-HIGH-022).
+export type InAppNotification = GetMyNotificationsQuery['myNotifications'][number];
 
-// Transfer types
-// CONTRACT (FARM-MEDIUM-050): this payload is sent verbatim as the backend
-// GraphQL `TransferBatchInput`. The backend SSoT is `avgWeightG` — average
-// weight PER FISH in grams — from which it derives total biomass internally
-// (`biomassKg = quantity * avgWeightG / 1000`, transfer-batch.handler.ts).
-// A `biomassKg` field here would be rejected by the backend ValidationPipe
-// (`forbidNonWhitelisted: true`) AND carries different semantics (total kg vs
-// avg g/fish). Keeping this interface aligned to the backend input type is the
-// single source of truth — do not reintroduce `biomassKg`.
-export interface TransferInput {
-  batchId: string;
-  sourceTankId: string;
-  destinationTankId: string;
-  quantity: number;
-  avgWeightG?: number;
-  transferReason?: string;
-  transferredAt?: string;
-}
-
-// Water quality types
-export type MeasurementSource =
-  | 'MANUAL'
-  | 'SENSOR_AUTOMATIC'
-  | 'SENSOR_TRIGGERED'
-  | 'LAB_ANALYSIS'
-  | 'CALIBRATION';
-
-// Storage types
-export type StockMovementType = 'IN' | 'OUT' | 'WASTE';
-export type StorageItemType = 'FEED' | 'CHEMICAL' | 'CONSUMABLE' | 'HEALTHCARE';
-
+// Storage types — FARM-HIGH-319: the storage vocabularies are GraphQL enums
+// on the wire, so the client reads them from the generated schema types
+// instead of re-typing them. A server-side rename now fails `tsc`, not the
+// field worker's screen.
+export type { StorageItemType } from '../generated/graphql';
 /**
- * Matches backend RecordStockMovementInput exactly.
- *
- * The backend uses separate fromLocationId/toLocationId fields:
- * - IN movement: toLocationId is required (destination warehouse)
- * - OUT/WASTE movement: fromLocationId is required (source warehouse)
- *
- * The reference field maps to free-text reference (e.g. supplier invoice number).
+ * The movement kinds the mobile wizard RECORDS (Stock In / Out / Waste) — a
+ * compile-checked subset of the server's MovementType. Reading surfaces
+ * (RecentStockMovement) carry the full enum because the warehouse feed shows
+ * transfers, adjustments and returns recorded elsewhere.
  */
-export interface StockMovementInput {
-  movementType: StockMovementType;
-  itemType: StorageItemType;
-  itemId: string;
-  quantity: number;
-  fromLocationId?: string;
-  toLocationId?: string;
-  lotNumber?: string;
-  expiryDate?: string;
-  reference?: string;
-  reason?: string;
-  idempotencyKey?: string;
-}
-
-/**
- * Matches backend TransferStockInput exactly.
- *
- * Note: the backend does NOT accept 'unit'. `idempotencyKey` is a server-side
- * at-most-once key and must be reused on every retry.
- */
-export interface StockTransferInput {
-  itemType: StorageItemType;
-  itemId: string;
-  fromLocationId: string;
-  toLocationId: string;
-  quantity: number;
-  lotNumber?: string;
-  reference?: string;
-  reason?: string;
-  idempotencyKey?: string;
-}
+export type StockMovementType = Extract<
+  import('../generated/graphql').MovementType,
+  'IN' | 'OUT' | 'WASTE'
+>;
 
 // GraphQL response types
 export interface GraphQLResponse<T> {
@@ -658,58 +416,23 @@ export interface StockEventsSummary {
   recentEvents: StockEvent[];
 }
 
-/** A single stock event (cull, harvest, transfer, mortality). */
-export interface StockEvent {
-  id: string;
-  type: 'CULL' | 'HARVEST' | 'TRANSFER' | 'MORTALITY';
-  tankName: string;
-  quantity: number;
-  createdAt: string;
-  note?: string;
-}
+/** A single stock event (cull, harvest, transfer, mortality) — derived. */
+export type StockEvent = GetStockEventsSummaryQuery['stockEventsSummary']['recentEvents'][number];
 
-/** Aggregated KPI data for the Warehouse hub page. */
-export interface WarehouseSummary {
-  totalItems: number;
-  lowStockAlertCount: number;
-  todaysMovementCount: number;
-  lowStockItems: LowStockItem[];
-  recentMovements: RecentStockMovement[];
-  feedCoverage: WarehouseFeedCoverage[];
-}
+/** Aggregated KPI data for the Warehouse hub page — the `warehouseSummary` result. */
+export type WarehouseSummary = GetWarehouseSummaryQuery['warehouseSummary'];
 
 /**
  * Feed başına stok-kapsama (Faz 7, P-27) — günlük forecast snapshot'ının
  * ucuz satır okuması: "kaç gün yeter" cevabı. Seri/grafik web'de kalır.
  */
-export interface WarehouseFeedCoverage {
-  feedId: string;
-  feedCode: string;
-  feedName: string;
-  daysOfCover: number | null;
-  stockoutDate: string | null;
-  coverageStatus: 'critical' | 'warning' | 'ok';
-}
+export type WarehouseFeedCoverage = WarehouseSummary['feedCoverage'][number];
 
 /** An item below its minimum stock threshold. */
-export interface LowStockItem {
-  id: string;
-  name: string;
-  itemType: StorageItemType;
-  currentQty: number;
-  minQty: number;
-  unit: string;
-}
+export type LowStockItem = WarehouseSummary['lowStockItems'][number];
 
 /** A recent stock movement for display in the warehouse hub. */
-export interface RecentStockMovement {
-  id: string;
-  movementType: StockMovementType;
-  itemName: string;
-  quantity: number;
-  unit: string;
-  createdAt: string;
-}
+export type RecentStockMovement = WarehouseSummary['recentMovements'][number];
 
 /** Aggregated KPI data for the Staff hub page. */
 export interface StaffSummary {

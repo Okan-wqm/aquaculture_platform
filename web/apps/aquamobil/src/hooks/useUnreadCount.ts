@@ -48,9 +48,7 @@ export function useUnreadCount(): UseUnreadCountReturn {
   const query = useQuery({
     queryKey: createTenantQueryKey(tenantId, 'messaging', 'unreadCount', tenantId),
     queryFn: async () => {
-      const result = await graphqlRequest<{ totalUnreadMessageCount: number }>(
-        TOTAL_UNREAD_MESSAGE_COUNT,
-      );
+      const result = await graphqlRequest(TOTAL_UNREAD_MESSAGE_COUNT);
 
       if (typeof result.totalUnreadMessageCount !== 'number') {
         return 0;

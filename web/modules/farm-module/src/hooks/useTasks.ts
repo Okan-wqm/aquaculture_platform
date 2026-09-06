@@ -30,8 +30,19 @@ const TASK_FIELDS = `
   completedBy
   location
   estimatedMinutes
-  checklistItems
-  notes
+  checklistItems {
+    id
+    text
+    isCompleted
+    completedAt
+    completedBy
+  }
+  notes {
+    id
+    text
+    createdBy
+    createdAt
+  }
   tags
   isRecurring
   recurringTemplateId

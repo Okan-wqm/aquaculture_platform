@@ -1,9 +1,14 @@
+import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { gql } from 'graphql-tag';
 
 
 import { useAuth } from './useAuth';
 
+import type {
+  GetMyWeeklyPlanQuery,
+  GetMyWeeklyPlanQueryVariables,
+} from '@/generated/graphql';
 import { cacheUserData, getCachedUserData } from '@/pwa/offline-queue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
@@ -20,35 +25,15 @@ export interface ShiftInfo {
   colorCode: string | null;
 }
 
-export interface WeeklyPlanEntry {
-  id: string;
-  date: string;
-  dayOfWeek: number;
-  entryType: 'work' | 'off' | 'leave' | 'holiday' | 'training';
-  shiftId: string | null;
-  shift: ShiftInfo | null;
-  plannedStartTime: string | null;
-  plannedEndTime: string | null;
-  plannedMinutes: number;
-  isOffDay: boolean;
-  isLeaveDay: boolean;
-}
+// MOB-HIGH-022: derived from the generated result of MY_WEEKLY_PLAN_QUERY. The
+// hand-written mirror declared `entryType: 'work' | 'off' | …` and
+// `status: 'draft' | 'published'` while the HR subgraph serializes the enum
+// NAMES ('WORK', 'PUBLISHED') — every `entryType === 'work'` comparison on the
+// schedule page was structurally false, so each day rendered as "Day Off".
+export type WeeklyPlan = GetMyWeeklyPlanQuery['mySchedule']['items'][number];
+export type WeeklyPlanEntry = NonNullable<WeeklyPlan['entries']>[number];
 
-export interface WeeklyPlan {
-  id: string;
-  employeeId: string;
-  weekStartDate: string;
-  weekEndDate: string;
-  status: 'draft' | 'published';
-  plannedTotalMinutes: number;
-  standardWeeklyMinutes: number;
-  plannedOvertimeMinutes: number;
-  plannedWorkDays: number;
-  plannedOffDays: number;
-  entries: WeeklyPlanEntry[];
-}
-
-const MY_WEEKLY_PLAN_QUERY = gql`
+const MY_WEEKLY_PLAN_QUERY: TypedDocumentNode<GetMyWeeklyPlanQuery, GetMyWeeklyPlanQueryVariables> = gql`
   query GetMyWeeklyPlan($weekStartDate: String) {
     mySchedule(weekStartDate: $weekStartDate, limit: 1) {
       items {
@@ -101,7 +86,7 @@ function getWeekMonday(date: Date): string {
 async function fetchMySchedule(
   weekStartDate: string,
 ): Promise<WeeklyPlan | null> {
-  const result = await graphqlRequest<{ mySchedule: { items: WeeklyPlan[]; total: number } }>(
+  const result = await graphqlRequest(
     MY_WEEKLY_PLAN_QUERY,
     { weekStartDate },
   );

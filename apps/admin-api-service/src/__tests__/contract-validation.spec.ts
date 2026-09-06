@@ -986,7 +986,11 @@ describe('Frontend-Backend Contract Validation', () => {
     // this number: their rows moved to billing, but admin-api keeps every route
     // — it reads the rows read-only and forwards each write as a command, so
     // the operator surface is unchanged and only its backing store moved.
-    expect(count).toBe(462);
+    // 461: -1 for POST /security/monitoring/analyze/login. Anomaly detection
+    // ran only when a SUPER_ADMIN pressed a button; it now runs from the
+    // `events.security.events.auth.login.*` stream on every real attempt, so
+    // the route had nothing left to trigger (ADMIN-HIGH-109).
+    expect(count).toBe(461);
   });
 
   it('frontend endpoint snapshot should be up to date', () => {

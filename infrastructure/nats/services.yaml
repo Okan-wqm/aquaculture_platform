@@ -316,6 +316,7 @@ services:
   - request.auth.public.requestPasswordReset
   - request.auth.public.resetPassword
   subscribe:
+  - events.security.events.>
   - events.*.TenantOnboardingAck
   - events.*.TenantOnboardingFailed
   - policy.ingest_backend.snapshot

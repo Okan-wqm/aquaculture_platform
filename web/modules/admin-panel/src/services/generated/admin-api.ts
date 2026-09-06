@@ -5149,22 +5149,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/security/monitoring/analyze/login": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["SecurityMonitoringController_analyzeLogin"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/security/monitoring/config/anomaly-detection": {
         parameters: {
             query?: never;
@@ -8691,18 +8675,6 @@ export interface components {
             createdAt: string;
             /** Format: date-time */
             updatedAt: string;
-        };
-        AnalyzeLoginDto: {
-            /**
-             * Format: uuid
-             * @description Tenant id. Resolved and verified server-side before the handler runs; the value a handler uses never comes from this key.
-             */
-            tenantId?: string;
-            email: string;
-            ipAddress: string;
-            success: boolean;
-            geoLocation?: Record<string, never>;
-            userId?: string;
         };
         CreateFeatureToggleDto: {
             key: string;
@@ -17259,27 +17231,6 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    SecurityMonitoringController_analyzeLogin: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AnalyzeLoginDto"];
-            };
-        };
         responses: {
             200: {
                 headers: {

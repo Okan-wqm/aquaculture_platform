@@ -12442,30 +12442,6 @@
         ]
       }
     },
-    "/security/monitoring/analyze/login": {
-      "post": {
-        "operationId": "SecurityMonitoringController_analyzeLogin",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AnalyzeLoginDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Security"
-        ]
-      }
-    },
     "/security/monitoring/config/anomaly-detection": {
       "get": {
         "operationId": "SecurityMonitoringController_getAnomalyConfig",
@@ -23929,36 +23905,6 @@
           "hitCount",
           "createdAt",
           "updatedAt"
-        ]
-      },
-      "AnalyzeLoginDto": {
-        "type": "object",
-        "properties": {
-          "tenantId": {
-            "type": "string",
-            "format": "uuid",
-            "description": "Tenant id. Resolved and verified server-side before the handler runs; the value a handler uses never comes from this key."
-          },
-          "email": {
-            "type": "string"
-          },
-          "ipAddress": {
-            "type": "string"
-          },
-          "success": {
-            "type": "boolean"
-          },
-          "geoLocation": {
-            "type": "object"
-          },
-          "userId": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "email",
-          "ipAddress",
-          "success"
         ]
       },
       "CreateFeatureToggleDto": {

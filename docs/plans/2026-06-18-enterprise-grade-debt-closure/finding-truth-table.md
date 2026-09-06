@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `11e39a506a6f953ad55b746a7b8dc274ed4e1aaed7b60915ce4988dd58d8cfcb`
+Registry tip: `0b00ed9e1f2ac24117c15f26a2b1e8e4ab9b750e1878f9e1fad3612a5aace1c8`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -233,7 +233,6 @@ Allowed truth buckets:
 | `INFRA-CRITICAL-098`  | OPEN           | 2026-07-19   | security-reviewer          | real-open                 |
 | `INFRA-CRITICAL-100`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
 | `ADMIN-CRITICAL-087`  | OPEN           | 2026-09-04   | admin-expert               | real-open                 |
-| `INFRA-CRITICAL-149`  | OPEN           | 2026-09-15   | data-expert                | already-fixed-needs-close |
 
 ## Mutation Rules
 
@@ -376,6 +375,11 @@ The 2026-06-20 registry close follow-up left no OTHER active CRITICAL in
   outbox/infrastructure and migration-timing invariants.
 
 ## Resolved Evidence
+
+- `INFRA-CRITICAL-149`: registry state is `RESOLVED` with closing commit `381e06271`
+  ("fix(db-migrate): stamp a tenant ledger only when the schema can back it"), derived by
+  `finding-registry reconcile` against `origin/main`. Left the active table from
+  bucket `already-fixed-needs-close`.
 
 - `FARM-CRITICAL-240`: registry state is `RESOLVED` with closing commit `b0072bca0`
   ("fix(farm): give physical stock one lock protocol, one FEFO compiler and a refusal"), derived by

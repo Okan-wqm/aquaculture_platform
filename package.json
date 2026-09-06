@@ -189,7 +189,7 @@
     "tools:test": "node --experimental-strip-types --test \"tools/supervisor/*.spec.ts\" \"tools/watchdog/*.spec.mjs\""
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.121.0",
+    "@anthropic-ai/sdk": "^0.123.0",
     "@apollo/gateway": "2.13.3",
     "@apollo/server": "^5.5.1",
     "@apollo/server-plugin-landing-page-graphql-playground": "file:tools/vendor/apollo-playground-disabled",

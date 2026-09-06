@@ -2397,6 +2397,7 @@ def _verify_snapshot_and_collect_evidence(
         surface_key_name,
         iter_surfaces,
     )
+    from .runtime_artifacts import ARTIFACT_PROJECTION_PATHS, artifact_projection_issues
     from .state_store import store_roots
     from .state_snapshot import STORAGE_POLICY
 
@@ -2601,7 +2602,26 @@ def _verify_snapshot_and_collect_evidence(
         except Exception:  # noqa: BLE001 — unreadable parent claim: strict
             grandfather_row_counts = {}
 
+    artifact_rows: dict[str, list[dict[str, Any]]] = {
+        name: [] for name in (*ARTIFACT_PROJECTION_PATHS, "retention_events")
+    }
+    artifact_blobs: dict[str, tuple[str, int]] = {}
+
+    def consume_verified_row(name: str, row: dict[str, Any], consumed: bool) -> None:
+        if consumed:
+            accumulator.consume(name, row)
+        if name in artifact_rows:
+            # Keep only graph fields; full payloads remain in the bounded
+            # streaming verifier and are never duplicated in this projection.
+            artifact_rows[name].append({key: row[key] for key in (
+                "artifact_id", "current_uri", "uri", "path", "sha256", "event",
+                "kind", "new_path", "archive_path", "archive_sha256", "bytes", "size_bytes",
+                "original_path", "source_path", "source_sha256", "size",
+            ) if key in row})
+
     for key, claim, object_id, git_path, size, consumed in claims:
+        if claim["root_kind"] == "tools":
+            artifact_blobs[claim["path"]] = ("sha256:" + claim["sha256"], claim["size_bytes"])
         chunks = _iter_git_output_bounded(
             store.root,
             "cat-file",
@@ -2629,11 +2649,8 @@ def _verify_snapshot_and_collect_evidence(
                     expected_surface=surface_name,
                     expected_surface_instance=claim["path"],
                     on_row=(
-                        (lambda row, name=surface_name: accumulator.consume(
-                            name,
-                            row,
-                        ))
-                        if consumed
+                        (lambda row, name=surface_name, counted=consumed: consume_verified_row(name, row, counted))
+                        if consumed or surface_name in artifact_rows
                         else None
                     ),
                 )
@@ -2674,6 +2691,11 @@ def _verify_snapshot_and_collect_evidence(
                 or digest.hexdigest() != claim["sha256"]
             ):
                 raise RuntimeError(f"state_snapshot_surface_mismatch:{key}")
+    artifact_issues = artifact_projection_issues(
+        artifact_rows, artifact_blobs, artifact_rows["retention_events"],
+    )
+    if artifact_issues:
+        raise RuntimeError("state_artifact_graph_invalid:" + json.dumps(artifact_issues[:10], sort_keys=True))
     return accumulator
 
 

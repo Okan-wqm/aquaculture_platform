@@ -2723,3 +2723,75 @@ class _EnvPatch:
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ArtifactProjectionPublication(StateStoreTestCase):
+    def test_missing_manifest_blob_refuses_publish_without_advancing_remote(self) -> None:
+        from aria_kernel.ledger import append_jsonl
+        store = self._bootstrap()
+        publish_state(store, snapshot=self._snapshot(store, "initial"),
+                      cycle_id="initial", repo_hash=REPO_HASH)
+        before = _git(self.remote, "rev-parse", "refs/heads/aria/state").strip()
+        append_jsonl(tools_root(store) / "run-artifacts/manifest.jsonl", {
+            "artifact_id": "redacted-history", "current_uri": "run-artifacts/hot/missing.json",
+            "sha256": "sha256:" + "0" * 64,
+        }, test_fixture=True)
+        with self.assertRaisesRegex(StateStoreRefusal, "artifact"):
+            publish_state(store, snapshot=self._snapshot(store, "missing-evidence"),
+                          cycle_id="maintenance", repo_hash=REPO_HASH)
+        self.assertEqual(_git(self.remote, "rev-parse", "refs/heads/aria/state").strip(), before)
+
+    def test_publish_receipt_binds_code_state_and_snapshot(self) -> None:
+        store = self._bootstrap()
+        publish_state(store, snapshot=self._snapshot(store, "initial"),
+                      cycle_id="initial", repo_hash=REPO_HASH)
+        before = _git(self.remote, "rev-parse", "refs/heads/aria/state").strip()
+        self._seed_surface(store, "")
+        result = publish_state(store, snapshot=self._snapshot(store, "receipt"),
+                               cycle_id="maintenance", repo_hash=REPO_HASH)
+        self.assertEqual(result["previous_state_sha"], before)
+        self.assertEqual(result["new_state_sha"], _git(self.remote, "rev-parse", "refs/heads/aria/state").strip())
+        self.assertEqual(result["code_sha"], _git(self.repo, "rev-parse", "HEAD").strip())
+        self.assertEqual(result["snapshot_sha256"], hashlib.sha256((store.root / "snapshot.json").read_bytes()).hexdigest())
+        self.assertTrue(result["validator_version"])
+
+    def test_restore_verifier_rejects_self_consistent_snapshot_with_dangling_history(self) -> None:
+        from aria_kernel.ledger import append_jsonl
+        store = self._bootstrap()
+        publish_state(store, snapshot=self._snapshot(store, "initial"),
+                      cycle_id="initial", repo_hash=REPO_HASH)
+        append_jsonl(tools_root(store) / "run-artifacts/manifest.jsonl", {
+            "artifact_id": "redacted-history", "current_uri": "run-artifacts/hot/missing.json",
+            "sha256": "sha256:" + "0" * 64,
+        }, test_fixture=True)
+        snapshot = self._snapshot(store, "dangling-history")
+        (store.root / "snapshot.json").write_text(json.dumps(snapshot))
+        self._commit_in_store(store, "fixture: historical raw maintenance publication")
+        _git(store.root, "push", "origin", "HEAD:refs/heads/aria/state")
+        verdict = verify_state_store(store, repo_hash=REPO_HASH)
+        self.assertFalse(verdict["valid"])
+        self.assertIn("artifact", verdict["integrity_error"])
+
+    def test_retention_archive_is_carried_and_verified_on_next_restore(self) -> None:
+        from aria_kernel.runtime_artifacts import retention_apply, write_run_artifact
+        from aria_kernel.runtime_profile import set_profile
+        from aria_kernel.tool_registry import ensure_tools_binding
+        store = self._bootstrap()
+        tools = tools_root(store)
+        set_profile("standard", operator_approval_ref="fixture", base_dir=tools)
+        ensure_tools_binding(tools, workspace_root=self.repo)
+        written = write_run_artifact(base_dir=tools, run_id="archive-run",
+                                     cycle_uid="cyc-20260810T063724Z-auto", tool_id="fixture",
+                                     kind="tool_run", payload={"evidence": "retained"}, run_status="ok")
+        result = retention_apply(base_dir=tools, acknowledge=True, retain_hot_cycles=0,
+                                 reason="fixture", operator_approval_ref="gov:fixture")
+        archive_uri = result["archived"][0]["new_path"]
+        snapshot = self._snapshot(store, "archive")
+        publish_state(store, snapshot=snapshot, cycle_id="maintenance", repo_hash=REPO_HASH)
+        remote_archive = subprocess.check_output([
+            "git", "-C", str(self.remote), "show", f"refs/heads/aria/state:tools/{archive_uri}",
+        ])
+        self.assertEqual(remote_archive, (tools / written["artifact_ref"]["uri"]).read_bytes())
+        self.assertTrue(verify_state_store(store, repo_hash=REPO_HASH)["valid"])
+        paths = _git(self.remote, "ls-tree", "-r", "--name-only", "refs/heads/aria/state").splitlines()
+        self.assertNotIn("tools/repo_identity.json", paths)

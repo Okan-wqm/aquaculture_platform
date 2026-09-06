@@ -238,8 +238,12 @@ without a variable refuses to start.
 
 ## BILLING-CRITICAL-011 — Two plan catalogues; money in jsonb (R7, C10)
 
-**State:** OPEN · **Wave:** W4 · **ADR:** 0013 (extends ADR-037; reverses the
+**State:** IN-PROGRESS · **Wave:** W4 · **ADR:** 0013 (extends ADR-037; reverses the
 `apps/billing-service/CLAUDE.md` ownership clause)
+
+All four tables have moved (discount codes, module pricing, the plan catalogue, custom plans). What
+remains under this ID is the `PlanPricing` snapshot shape, re-attributed to BILLING-CRITICAL-012 —
+see the closing note below.
 
 **Fix (Tier-1):** `billing.plans` is the sole catalogue of record for plan id, price, cycle and
 Stripe ids. Delete `admin.plan_definitions`, `module_pricing`, `custom_plans`, `discount_codes`;
@@ -411,15 +415,55 @@ at all. Every read of a plan now loads its priced children.
 duplicated Stripe identifiers left the allowlist, so `duplicateStripeIdentifiers` is down to the two
 `admin.tenant_billing_info` entries that BILLING-CRITICAL-012 owns.
 
-**Still open under this finding (owner okan, deadline 2026-12-31):** `admin.custom_plans` has not
-moved; `admin.custom_plans.modules` still holds per-module subtotals in jsonb. The twelve
-`PlanPricing` allowlist entries were RE-ATTRIBUTED from this finding to BILLING-CRITICAL-012 rather
-than closed: `billing.plans.pricing` is not the per-cycle matrix (that is now rows) but the flat
-per-unit rate card a subscription snapshots at signup, byte-identical in shape to
-`billing.subscriptions.pricing` and `scheduled_plan_changes.pricing`. Normalising one without all
-three would split the snapshot, so all three move together with the subscription money path. The
-allowlist ceiling is unchanged at 23 for that reason — this wave removed no money-in-jsonb site, and
-saying otherwise would be the audit theater the traceability rule exists to prevent.
+**Implementation note — custom plans (landed 2026-09-06):** the last of the four tables has moved,
+and BILLING-CRITICAL-011's table list is now empty. `admin.custom_plans` held the whole priced
+selection inside ONE `jsonb` column — every module's `subtotal` and every line item's `unitPrice`
+and `total` — where a jsonb number IS an IEEE-754 double and no CHECK can reach it, and priced it in
+admin with the fourth float copy of billing's own arithmetic. `1802600000000-MoveCustomPlans`
+creates `billing.custom_plans` + `custom_plan_modules` + `custom_plan_line_items`, keeps the plan's
+id (nothing outside billing resolves one), resolves `basePlanId` against the merged `billing.plans`
+— an id that resolves to nothing becomes NULL rather than a dangling FK — and expands the jsonb
+selection into rows; `1809500000000-RetireAdminCustomPlans` re-verifies every plan AND every priced
+module by id before dropping.
+
+**One rule now prices a negotiated plan.** The discount was applied in three places that had to
+agree: `CustomPlanService.calculateFinalTotal`, the entity's own `calculateDiscount()`, and
+`CustomPlanBuilderPage` in the browser. The browser's copy was wrong outright — its annual figure
+took the fixed discount off TWELVE times where the server takes it off once, so an operator
+negotiating "$500/mo off" was shown a yearly price $5,500 below what billing would charge.
+`quoteModuleSelection` now accepts `negotiatedDiscountPercent` / `negotiatedDiscountAmount`, applies
+them in `Decimal` and returns the total; the builder quotes with them and renders the number it gets
+back, and `CustomPlanService.create/update` store that same number. There is no second
+implementation left to drift. `roundToCurrency`, which had two byte-identical copies inside
+billing-service, moved to `@aquaculture/backend-common/monetary` beside `getCurrencyScale`.
+
+**Four defects fixed rather than carried across.** (a) `discountPercent` was an unbounded `number`
+on a `numeric(5,2)` column: 400 was storable, and `Math.max(0, …)` turned it into a plan priced at
+zero instead of an error — it is CHECKed into [0, 100] now and refused at the DTO, the service and
+the column. (b) Nothing in the platform ever set a plan to `expired`, and `isValid()` existed but
+was called from nowhere, so `getCustomPlanByTenant` returned plans whose `validTo` had passed years
+earlier as the tenant's current price — the window is part of the query now, and activation refuses
+a lapsed plan. (c) `clonePlan` spread the source row wholesale and took no actor, so a clone was
+credited to whoever wrote the original and carried its rejection reason and subscription id; it is
+credited to the operator who cloned it and starts clean. (d) `submitForApproval` recorded no actor
+at all. Separately, `admin.custom_plans` carried the base-plan reference in TWO columns —
+`"basePlanId"`, which the ORM wrote, and `base_plan_id`, which the FK was built on and nothing ever
+populated; the plan-catalogue drop migration re-points both, having originally re-pointed only the
+dead one.
+
+**Gate:** `tests/invariants/plan-catalog-ssot.spec.ts` extends to the three new tables and adds
+`custom_plans` to the names that may not reappear under `schema: 'admin'`. The money-in-jsonb
+ceiling dropped 23 → 22 as `CustomPlanModule.subtotal` disappeared — the gate FAILED on the stale
+entry before it was removed, which is the ratchet working.
+
+**Still open under this finding (owner okan, deadline 2026-12-31):** the twelve `PlanPricing`
+allowlist entries were RE-ATTRIBUTED from this finding to BILLING-CRITICAL-012 rather than closed:
+`billing.plans.pricing` is not the per-cycle matrix (that is now rows) but the flat per-unit rate
+card a subscription snapshots at signup, byte-identical in shape to `billing.subscriptions.pricing`
+and `scheduled_plan_changes.pricing`. Normalising one without all three would split the snapshot, so
+all three move together with the subscription money path. The allowlist ceiling is unchanged at 23
+for that reason — this wave removed no money-in-jsonb site, and saying otherwise would be the audit
+theater the traceability rule exists to prevent.
 
 ## BILLING-CRITICAL-012 — Raw SQL against subscriptions; dead Stripe reconciliation
 

@@ -37,7 +37,6 @@ const ADMIN_TABLES: TenantErasureTablePolicies = {
   tenant_activities: { kind: 'excluded', reason: WORM_LEDGER },
   tenant_notes: { kind: 'tenant-column', column: 'tenantId' },
   tenant_billing_info: { kind: 'tenant-column', column: 'tenantId' },
-  custom_plans: { kind: 'tenant-column', column: 'tenantId' },
   message_threads: { kind: 'tenant-column', column: 'tenantId' },
   messages: { kind: 'cascade-via', parent: 'message_threads', foreignKey: 'threadId' },
   announcement_acknowledgments: { kind: 'tenant-column', column: 'tenantId' },
@@ -134,6 +133,20 @@ const BILLING_TABLES: TenantErasureTablePolicies = {
   // catalogue plan, not to a tenant — the same reason `plans` itself is excluded.
   plan_cycle_prices: { kind: 'excluded', reason: PLATFORM_REFERENCE },
   plan_add_ons: { kind: 'excluded', reason: PLATFORM_REFERENCE },
+  // ADR-0013: a custom plan is negotiated FOR one tenant, so unlike the rest
+  // of the catalogue it is that tenant's data and is erased with them. The
+  // child rows cascade from the plan's own foreign key.
+  custom_plans: { kind: 'tenant-column', column: 'tenant_id' },
+  custom_plan_modules: {
+    kind: 'cascade-via',
+    parent: 'custom_plans',
+    foreignKey: 'custom_plan_id',
+  },
+  custom_plan_line_items: {
+    kind: 'cascade-via',
+    parent: 'custom_plan_modules',
+    foreignKey: 'custom_plan_module_id',
+  },
   stripe_webhook_events: {
     kind: 'excluded',
     reason: 'Stripe webhook idempotency ledger keyed by Stripe event id; carries no tenant column and is the evidence of what Stripe delivered',

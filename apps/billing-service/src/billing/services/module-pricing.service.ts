@@ -7,6 +7,7 @@
  * command. Whoever owns the prices owns the multiplication, so both live here
  * and admin asks for the quote.
  */
+import { roundToCurrency } from '@aquaculture/backend-common/monetary';
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import type {
@@ -27,12 +28,7 @@ import {
 } from '../entities/module-price.entity';
 
 import { DEFAULT_MODULE_PRICES } from './default-module-prices';
-import {
-  BILLING_CYCLE_DISCOUNT_RATE,
-  BILLING_CYCLE_MONTHS,
-  priceModule,
-  roundToCurrency,
-} from './module-quote';
+import { BILLING_CYCLE_DISCOUNT_RATE, BILLING_CYCLE_MONTHS, priceModule } from './module-quote';
 
 import type { DiscountCodeService } from './discount-code.service';
 
@@ -297,7 +293,27 @@ export class ModulePricingService {
       tierDiscount = tierDiscount.plus(breakdown.tierDiscount);
     }
 
-    const monthlyTotal = subtotal;
+    // A negotiated discount is the operator's own, not a code's: percentage off
+    // the subtotal, then the fixed amount off what is left, floored at zero.
+    // This is the ONLY implementation of that rule — a custom plan's stored
+    // total and the builder's preview both come from here.
+    const negotiatedPercent = new Decimal(command.negotiatedDiscountPercent ?? '0');
+    if (negotiatedPercent.isNegative() || negotiatedPercent.greaterThan(100)) {
+      throw new BadRequestException('negotiatedDiscountPercent must be between 0 and 100');
+    }
+    const negotiatedFixed = new Decimal(command.negotiatedDiscountAmount ?? '0');
+    if (negotiatedFixed.isNegative()) {
+      throw new BadRequestException('negotiatedDiscountAmount cannot be negative');
+    }
+    const negotiatedOffSubtotal = roundToCurrency(
+      subtotal.times(negotiatedPercent).dividedBy(100),
+      currency,
+    );
+    const negotiatedDiscountAmount = Decimal.min(
+      subtotal,
+      negotiatedOffSubtotal.plus(negotiatedFixed),
+    );
+    const monthlyTotal = subtotal.minus(negotiatedDiscountAmount);
     const cycleRate = new Decimal(BILLING_CYCLE_DISCOUNT_RATE[command.billingCycle]);
     const cycleGross = roundToCurrency(monthlyTotal.times(cycleMonths), currency);
     const cycleDiscountAmount = roundToCurrency(cycleGross.times(cycleRate), currency);
@@ -339,6 +355,7 @@ export class ModulePricingService {
       discountDescription,
       discountAmount: discountAmount.toString(),
       discountReason,
+      negotiatedDiscountAmount: negotiatedDiscountAmount.toString(),
       tax: tax.toString(),
       taxRate: taxRate.toString(),
       total: cycleTotal.plus(tax).toString(),

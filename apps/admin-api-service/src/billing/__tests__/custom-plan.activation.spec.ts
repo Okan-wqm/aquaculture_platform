@@ -1,73 +1,121 @@
 /**
- * CustomPlanService.activatePlan — billing-service creates the subscription.
+ * `CustomPlanService.activate` — billing owns the plan AND the subscription
+ * (ADR-0013, ADMIN-HIGH-011).
  *
- * ADMIN-HIGH-011: activation used to call an admin-api writer that always
- * answered 409, so no custom plan could ever be activated. It now sends the
- * `ProvisionTenantSubscription` command tenant provisioning sends, with
- * identifiers derived from the plan id so a retry replays billing's receipt.
+ * The plan itself moved to `billing.custom_plans`; admin-api reads it through
+ * the read-only mapping and orchestrates the two billing calls. What is pinned
+ * here is the part admin still owns:
+ *
+ *   - the provisioning command's identifiers derive from the plan id, so a
+ *     retry after a timeout replays billing's receipt instead of provisioning
+ *     a second subscription;
+ *   - the plan-level discount is allocated across module rows from the exact
+ *     `numeric` amounts billing stored, summing EXACTLY to the plan's discount;
+ *   - the irreversible provisioning call is not made for a plan that is not
+ *     approved. billing refuses the transition authoritatively, but it refuses
+ *     it AFTER the subscription would already exist.
  */
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { BillingPlanTier } from '@platform/event-contracts';
+import Decimal from 'decimal.js';
 
 import { Tenant } from '../../tenant/entities/tenant.entity';
-import { CustomPlan, CustomPlanStatus } from '../entities/custom-plan.entity';
+import {
+  CustomPlanLineItemReadOnly,
+  CustomPlanModuleReadOnly,
+  CustomPlanReadOnly,
+} from '../entities/external/custom-plan.entity';
 import { BillingAdminCommandClientService } from '../services/billing-admin-command-client.service';
 import { CustomPlanService } from '../services/custom-plan.service';
-import { ModulePricingService } from '../services/module-pricing.service';
 
 const PLAN_ID = 'a1b2c3d4-0000-4000-8000-000000000001';
 const TENANT_ID = 'a1b2c3d4-0000-4000-8000-000000000002';
 
-function approvedPlan(overrides: Partial<CustomPlan> = {}): CustomPlan {
-  return Object.assign(new CustomPlan(), {
+function lineItem(): CustomPlanLineItemReadOnly {
+  const line = new CustomPlanLineItemReadOnly();
+  line.id = 'line-1';
+  line.customPlanModuleId = 'mod-row-1';
+  line.metric = 'per_user';
+  line.metricLabel = 'Per user';
+  line.quantity = 10;
+  line.unitPrice = new Decimal('5');
+  line.total = new Decimal('50');
+  return line;
+}
+
+function moduleRow(
+  id: string,
+  moduleId: string,
+  code: string,
+  name: string,
+  subtotal: string,
+  lineItems: CustomPlanLineItemReadOnly[] = [],
+): CustomPlanModuleReadOnly {
+  const row = new CustomPlanModuleReadOnly();
+  row.id = id;
+  row.customPlanId = PLAN_ID;
+  row.moduleId = moduleId;
+  row.moduleCode = code;
+  row.moduleName = name;
+  row.quantities = { users: 10, farms: 2 };
+  row.lineItems = lineItems;
+  row.subtotal = new Decimal(subtotal);
+  return row;
+}
+
+function approvedPlan(overrides: Partial<CustomPlanReadOnly> = {}): CustomPlanReadOnly {
+  const plan = new CustomPlanReadOnly();
+  return Object.assign(plan, {
     id: PLAN_ID,
     tenantId: TENANT_ID,
     name: 'Negotiated',
+    description: null,
+    basePlanId: null,
     tier: BillingPlanTier.CUSTOM,
     billingCycle: 'annual',
-    status: CustomPlanStatus.APPROVED,
+    status: 'approved',
     modules: [
-      {
-        moduleId: 'mod-farm',
-        moduleCode: 'farm',
-        moduleName: 'Farm',
-        quantities: { users: 10, farms: 2 },
-        lineItems: [
-          { metric: 'users', description: '10 users', quantity: 10, unitPrice: 5, total: 50 },
-        ],
-        subtotal: 300,
-      },
-      {
-        moduleId: 'mod-sensor',
-        moduleCode: 'sensor',
-        moduleName: 'Sensor',
-        quantities: { sensors: 40 },
-        lineItems: [],
-        subtotal: 100,
-      },
+      moduleRow('mod-row-1', 'a1b2c3d4-0000-4000-8000-00000000000a', 'farm', 'Farm', '300', [
+        lineItem(),
+      ]),
+      moduleRow('mod-row-2', 'a1b2c3d4-0000-4000-8000-00000000000b', 'sensor', 'Sensor', '100'),
     ],
-    monthlySubtotal: 400,
-    discountPercent: 0,
-    discountAmount: 33.33,
-    monthlyTotal: 366.67,
+    monthlySubtotal: new Decimal('400'),
+    discountPercent: new Decimal('0'),
+    discountAmount: new Decimal('33.33'),
+    discountReason: null,
+    monthlyTotal: new Decimal('366.67'),
     currency: 'USD',
+    validFrom: '2026-01-01',
+    validTo: null,
+    approvedBy: 'approver',
+    approvedAt: new Date('2026-01-02T00:00:00Z'),
+    rejectionReason: null,
+    notes: null,
     subscriptionId: null,
+    unpricedModuleCodes: [],
+    createdAt: new Date('2026-01-01T00:00:00Z'),
+    updatedAt: new Date('2026-01-01T00:00:00Z'),
+    createdBy: null,
+    updatedBy: null,
     ...overrides,
   });
 }
 
-describe('CustomPlanService.activatePlan (ADMIN-HIGH-011)', () => {
+describe('CustomPlanService.activate (ADR-0013 / ADMIN-HIGH-011)', () => {
   let service: CustomPlanService;
-  const planRepo = { findOne: jest.fn(), save: jest.fn() };
+  const planRepo = { findOne: jest.fn(), createQueryBuilder: jest.fn() };
   const tenantRepo = { findOne: jest.fn() };
-  const billingCommands = { provisionTenantSubscription: jest.fn() };
+  const billingCommands = {
+    provisionTenantSubscription: jest.fn(),
+    activateCustomPlan: jest.fn(),
+  };
 
   beforeEach(async () => {
     jest.clearAllMocks();
     planRepo.findOne.mockResolvedValue(approvedPlan());
-    planRepo.save.mockImplementation(async (plan: CustomPlan) => plan);
     tenantRepo.findOne.mockResolvedValue({ id: TENANT_ID, name: 'Blue Fjord AS' });
     billingCommands.provisionTenantSubscription.mockResolvedValue({
       success: true,
@@ -76,20 +124,28 @@ describe('CustomPlanService.activatePlan (ADMIN-HIGH-011)', () => {
       subscriptionId: 'sub-1',
       receiptId: 'rcpt-1',
     });
+    billingCommands.activateCustomPlan.mockImplementation(
+      async (customPlanId: string, subscriptionId: string) => ({
+        ...snapshotOf(approvedPlan()),
+        id: customPlanId,
+        status: 'active',
+        subscriptionId,
+      }),
+    );
+
     const module = await Test.createTestingModule({
       providers: [
         CustomPlanService,
-        { provide: getRepositoryToken(CustomPlan), useValue: planRepo },
+        { provide: getRepositoryToken(CustomPlanReadOnly), useValue: planRepo },
         { provide: getRepositoryToken(Tenant), useValue: tenantRepo },
-        { provide: ModulePricingService, useValue: {} },
         { provide: BillingAdminCommandClientService, useValue: billingCommands },
       ],
     }).compile();
     service = module.get(CustomPlanService);
   });
 
-  it('sends the billing provisioning command and records the subscription on the plan', async () => {
-    const saved = await service.activatePlan(PLAN_ID, 'admin-user');
+  it('provisions the subscription, then records it on the plan', async () => {
+    const activated = await service.activate(PLAN_ID, 'admin-user');
 
     expect(billingCommands.provisionTenantSubscription).toHaveBeenCalledTimes(1);
     const command = billingCommands.provisionTenantSubscription.mock.calls[0]?.[0];
@@ -97,22 +153,54 @@ describe('CustomPlanService.activatePlan (ADMIN-HIGH-011)', () => {
       tenantId: TENANT_ID,
       tenantName: 'Blue Fjord AS',
       actorId: 'admin-user',
+      // CUSTOM is not a billing-command tier: it travels as enterprise plus
+      // its own customPlanId.
       tier: 'enterprise',
       billingCycle: 'annual',
-      moduleIds: ['mod-farm', 'mod-sensor'],
       customPlanId: PLAN_ID,
       idempotencyKey: `custom-plan:${PLAN_ID}:activate`,
     });
-    expect(saved.subscriptionId).toBe('sub-1');
-    expect(saved.status).toBe(CustomPlanStatus.ACTIVE);
-    expect(planRepo.save).toHaveBeenCalledWith(
-      expect.objectContaining({ subscriptionId: 'sub-1' }),
-    );
+    expect(billingCommands.activateCustomPlan).toHaveBeenCalledWith(PLAN_ID, 'sub-1', 'admin-user');
+    expect(activated.status).toBe('active');
+    expect(activated.subscriptionId).toBe('sub-1');
   });
 
-  it('derives byte-identical command identifiers for the same plan, so a retry replays the receipt', () => {
-    const first = service.buildProvisioningCommand(approvedPlan(), 'Blue Fjord AS', 'admin-user');
-    const second = service.buildProvisioningCommand(approvedPlan(), 'Blue Fjord AS', 'admin-user');
+  it('allocates the plan discount across module rows, summing exactly', async () => {
+    await service.activate(PLAN_ID, 'admin-user');
+    const command = billingCommands.provisionTenantSubscription.mock.calls[0]?.[0];
+    const items: Array<{ discountAmount: string; total: string; subtotal: string }> =
+      command.moduleItems;
+
+    // 33.33 split 300:100 → 25.00 and the remainder, in USD minor units, and
+    // the parts sum to the plan's discount to the cent.
+    expect(items.map((item) => item.discountAmount)).toEqual(['25', '8.33']);
+    expect(items.map((item) => item.total)).toEqual(['275', '91.67']);
+    expect(
+      items.reduce((sum, item) => sum.plus(item.discountAmount), new Decimal(0)).toString(),
+    ).toBe('33.33');
+  });
+
+  it('derives byte-identical identifiers for the same plan, so a retry replays the receipt', async () => {
+    await service.activate(PLAN_ID, 'admin-user');
+    const first = billingCommands.provisionTenantSubscription.mock.calls[0]?.[0];
+
+    jest.clearAllMocks();
+    planRepo.findOne.mockResolvedValue(approvedPlan());
+    tenantRepo.findOne.mockResolvedValue({ id: TENANT_ID, name: 'Blue Fjord AS' });
+    billingCommands.provisionTenantSubscription.mockResolvedValue({
+      success: true,
+      operationId: 'op',
+      tenantId: TENANT_ID,
+      subscriptionId: 'sub-1',
+    });
+    billingCommands.activateCustomPlan.mockResolvedValue({
+      ...snapshotOf(approvedPlan()),
+      status: 'active',
+      subscriptionId: 'sub-1',
+    });
+    await service.activate(PLAN_ID, 'admin-user');
+    const second = billingCommands.provisionTenantSubscription.mock.calls[0]?.[0];
+
     expect(second.operationId).toBe(first.operationId);
     expect(second.idempotencyKey).toBe(first.idempotencyKey);
     expect(second.requestPayloadHash).toBe(first.requestPayloadHash);
@@ -121,46 +209,29 @@ describe('CustomPlanService.activatePlan (ADMIN-HIGH-011)', () => {
     );
   });
 
-  it('allocates the plan discount across module rows in proportion to subtotal, summing exactly', () => {
-    const command = service.buildProvisioningCommand(approvedPlan(), 'Blue Fjord AS', 'admin-user');
-    const items = command.moduleItems ?? [];
-    // ADR-0013: the provisioning contract carries exact decimal strings, so
-    // the allocation is asserted as the text billing receives.
-    expect(items.map((item) => item.discountAmount)).toEqual(['25', '8.33']);
-    expect(items.map((item) => item.total)).toEqual(['275', '91.67']);
-    expect(items.reduce((sum, item) => sum + Number(item.discountAmount), 0)).toBeCloseTo(33.33, 2);
-    expect(items[0]).toMatchObject({
-      moduleId: 'mod-farm',
-      code: 'farm',
-      name: 'Farm',
-      quantities: { moduleId: 'mod-farm', users: 10, farms: 2 },
-      subtotal: '300',
-    });
-  });
-
-  it('passes a sellable tier through unchanged', () => {
-    const command = service.buildProvisioningCommand(
-      approvedPlan({ tier: BillingPlanTier.PROFESSIONAL }),
-      'Blue Fjord AS',
-      'admin-user',
+  it('passes a sellable tier through unchanged', async () => {
+    planRepo.findOne.mockResolvedValue(approvedPlan({ tier: BillingPlanTier.PROFESSIONAL }));
+    await service.activate(PLAN_ID, 'admin-user');
+    expect(billingCommands.provisionTenantSubscription.mock.calls[0]?.[0].tier).toBe(
+      'professional',
     );
-    expect(command.tier).toBe('professional');
   });
 
-  it('refuses a plan that is not approved without touching billing', async () => {
-    planRepo.findOne.mockResolvedValue(approvedPlan({ status: CustomPlanStatus.DRAFT }));
-    await expect(service.activatePlan(PLAN_ID, 'admin-user')).rejects.toBeInstanceOf(
+  it('refuses a plan that is not approved WITHOUT provisioning anything', async () => {
+    planRepo.findOne.mockResolvedValue(approvedPlan({ status: 'draft' }));
+
+    await expect(service.activate(PLAN_ID, 'admin-user')).rejects.toBeInstanceOf(
       BadRequestException,
     );
+    // The provisioning call is irreversible; billing's own guard would only
+    // reject the transition after the subscription already existed.
     expect(billingCommands.provisionTenantSubscription).not.toHaveBeenCalled();
-    expect(planRepo.save).not.toHaveBeenCalled();
+    expect(billingCommands.activateCustomPlan).not.toHaveBeenCalled();
   });
 
   it('refuses when the plan names a tenant that does not exist', async () => {
     tenantRepo.findOne.mockResolvedValue(null);
-    await expect(service.activatePlan(PLAN_ID, 'admin-user')).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
+    await expect(service.activate(PLAN_ID, 'admin-user')).rejects.toBeInstanceOf(NotFoundException);
     expect(billingCommands.provisionTenantSubscription).not.toHaveBeenCalled();
   });
 
@@ -170,9 +241,32 @@ describe('CustomPlanService.activatePlan (ADMIN-HIGH-011)', () => {
       operationId: 'op',
       tenantId: TENANT_ID,
     });
-    await expect(service.activatePlan(PLAN_ID, 'admin-user')).rejects.toThrow(
+    await expect(service.activate(PLAN_ID, 'admin-user')).rejects.toThrow(
       /without a subscription id/,
     );
-    expect(planRepo.save).not.toHaveBeenCalled();
+    expect(billingCommands.activateCustomPlan).not.toHaveBeenCalled();
   });
 });
+
+/** The snapshot billing would reply with for a given row. */
+function snapshotOf(plan: CustomPlanReadOnly): Record<string, unknown> {
+  return {
+    id: plan.id,
+    tenantId: plan.tenantId,
+    name: plan.name,
+    tier: plan.tier,
+    billingCycle: plan.billingCycle,
+    modules: [],
+    monthlySubtotal: plan.monthlySubtotal.toString(),
+    discountPercent: plan.discountPercent.toString(),
+    discountAmount: plan.discountAmount.toString(),
+    monthlyTotal: plan.monthlyTotal.toString(),
+    currency: plan.currency,
+    status: plan.status,
+    validFrom: plan.validFrom,
+    unpricedModuleCodes: [],
+    provisioningModuleItems: [],
+    createdAt: plan.createdAt.toISOString(),
+    updatedAt: plan.updatedAt.toISOString(),
+  };
+}

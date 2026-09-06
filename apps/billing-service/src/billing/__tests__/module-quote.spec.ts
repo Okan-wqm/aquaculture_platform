@@ -6,6 +6,7 @@
  * CreateTenantPage, and the seed. What is pinned here is the behaviour those
  * copies got wrong.
  */
+import { roundToCurrency } from '@aquaculture/backend-common/monetary';
 import type { BillingModuleQuoteSelection } from '@platform/event-contracts';
 import { BillingPlanTier } from '@platform/event-contracts';
 import Decimal from 'decimal.js';
@@ -15,7 +16,7 @@ import type {
   ModulePriceMetric,
   ModulePriceTierMultiplier,
 } from '../entities/module-price.entity';
-import { priceModule, roundToCurrency, tierMultiplierOf } from '../services/module-quote';
+import { priceModule, tierMultiplierOf } from '../services/module-quote';
 
 function metric(
   metricType: ModulePriceMetric['metricType'],

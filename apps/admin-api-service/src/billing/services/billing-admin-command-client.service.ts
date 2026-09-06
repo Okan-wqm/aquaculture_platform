@@ -42,6 +42,16 @@ import {
   type BillingAdminDeprecatePlanCommand,
   type BillingAdminPlanCommandResult,
   type BillingAdminUpdatePlanCommand,
+  type BillingAdminCloneCustomPlanCommand,
+  type BillingAdminCreateCustomPlanCommand,
+  type BillingAdminCustomPlanCommandResult,
+  type BillingAdminCustomPlanTransitionCommand,
+  type BillingAdminDeleteCustomPlanResult,
+  type BillingAdminRejectCustomPlanCommand,
+  type BillingAdminUpdateCustomPlanCommand,
+  type BillingCustomPlanInput,
+  type BillingCustomPlanSnapshot,
+  type BillingCustomPlanUpdateInput,
   type BillingPlanInput,
   type BillingPlanSnapshot,
   type BillingPlanUpdateInput,
@@ -425,6 +435,8 @@ export class BillingAdminCommandClientService {
       discountCode?: string;
       subscriptionChange?: BillingDiscountSubscriptionChange;
       taxRate?: string;
+      negotiatedDiscountPercent?: string;
+      negotiatedDiscountAmount?: string;
     },
     actorId: string,
   ): Promise<BillingModuleQuote> {
@@ -480,6 +492,130 @@ export class BillingAdminCommandClientService {
 
   private unwrapPlan(result: BillingAdminPlanCommandResult): BillingPlanSnapshot {
     if (result.success && result.plan) return result.plan;
+    throw this.mapBillingError(result.errorCode, result.error);
+  }
+
+  // ── Custom plans (ADR-0013) ────────────────────────────────────────────
+  //
+  // A negotiated per-tenant price lives with the prices. admin-panel keeps the
+  // builder; admin-api forwards the selection and billing prices it with the
+  // same code that will price its invoice — admin multiplies nothing, and the
+  // lifecycle guard lives with the row rather than in the caller.
+
+  async createCustomPlan(
+    input: BillingCustomPlanInput,
+    actorId: string,
+  ): Promise<BillingCustomPlanSnapshot> {
+    const result = await this.sendBillingCommand<
+      BillingAdminCreateCustomPlanCommand,
+      BillingAdminCustomPlanCommandResult
+    >(BILLING_ADMIN_COMMAND_SUBJECTS.CREATE_CUSTOM_PLAN, { input, actorId });
+    return this.unwrapCustomPlan(result);
+  }
+
+  async updateCustomPlan(
+    customPlanId: string,
+    input: BillingCustomPlanUpdateInput,
+    actorId: string,
+  ): Promise<BillingCustomPlanSnapshot> {
+    const result = await this.sendBillingCommand<
+      BillingAdminUpdateCustomPlanCommand,
+      BillingAdminCustomPlanCommandResult
+    >(BILLING_ADMIN_COMMAND_SUBJECTS.UPDATE_CUSTOM_PLAN, { customPlanId, input, actorId });
+    return this.unwrapCustomPlan(result);
+  }
+
+  async submitCustomPlan(
+    customPlanId: string,
+    actorId: string,
+  ): Promise<BillingCustomPlanSnapshot> {
+    return this.transitionCustomPlan(
+      BILLING_ADMIN_COMMAND_SUBJECTS.SUBMIT_CUSTOM_PLAN,
+      customPlanId,
+      actorId,
+    );
+  }
+
+  async approveCustomPlan(
+    customPlanId: string,
+    actorId: string,
+  ): Promise<BillingCustomPlanSnapshot> {
+    return this.transitionCustomPlan(
+      BILLING_ADMIN_COMMAND_SUBJECTS.APPROVE_CUSTOM_PLAN,
+      customPlanId,
+      actorId,
+    );
+  }
+
+  async rejectCustomPlan(
+    customPlanId: string,
+    reason: string,
+    actorId: string,
+  ): Promise<BillingCustomPlanSnapshot> {
+    const result = await this.sendBillingCommand<
+      BillingAdminRejectCustomPlanCommand,
+      BillingAdminCustomPlanCommandResult
+    >(BILLING_ADMIN_COMMAND_SUBJECTS.REJECT_CUSTOM_PLAN, { customPlanId, reason, actorId });
+    return this.unwrapCustomPlan(result);
+  }
+
+  /** Records the subscription the plan was provisioned into and closes it. */
+  async activateCustomPlan(
+    customPlanId: string,
+    subscriptionId: string,
+    actorId: string,
+  ): Promise<BillingCustomPlanSnapshot> {
+    const result = await this.sendBillingCommand<
+      BillingAdminCustomPlanTransitionCommand & { subscriptionId: string },
+      BillingAdminCustomPlanCommandResult
+    >(BILLING_ADMIN_COMMAND_SUBJECTS.ACTIVATE_CUSTOM_PLAN, {
+      customPlanId,
+      subscriptionId,
+      actorId,
+    });
+    return this.unwrapCustomPlan(result);
+  }
+
+  async cloneCustomPlan(
+    customPlanId: string,
+    targetTenantId: string,
+    actorId: string,
+  ): Promise<BillingCustomPlanSnapshot> {
+    const result = await this.sendBillingCommand<
+      BillingAdminCloneCustomPlanCommand,
+      BillingAdminCustomPlanCommandResult
+    >(BILLING_ADMIN_COMMAND_SUBJECTS.CLONE_CUSTOM_PLAN, {
+      customPlanId,
+      targetTenantId,
+      actorId,
+    });
+    return this.unwrapCustomPlan(result);
+  }
+
+  async deleteCustomPlan(customPlanId: string, actorId: string): Promise<void> {
+    const result = await this.sendBillingCommand<
+      BillingAdminCustomPlanTransitionCommand,
+      BillingAdminDeleteCustomPlanResult
+    >(BILLING_ADMIN_COMMAND_SUBJECTS.DELETE_CUSTOM_PLAN, { customPlanId, actorId });
+    if (!result.success) throw this.mapBillingError(result.errorCode, result.error);
+  }
+
+  private async transitionCustomPlan(
+    subject: string,
+    customPlanId: string,
+    actorId: string,
+  ): Promise<BillingCustomPlanSnapshot> {
+    const result = await this.sendBillingCommand<
+      BillingAdminCustomPlanTransitionCommand,
+      BillingAdminCustomPlanCommandResult
+    >(subject, { customPlanId, actorId });
+    return this.unwrapCustomPlan(result);
+  }
+
+  private unwrapCustomPlan(
+    result: BillingAdminCustomPlanCommandResult,
+  ): BillingCustomPlanSnapshot {
+    if (result.success && result.customPlan) return result.customPlan;
     throw this.mapBillingError(result.errorCode, result.error);
   }
 

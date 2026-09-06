@@ -53,6 +53,8 @@ const MONEY_STRING = /^\d{1,13}(\.\d{1,4})?$/;
 const PERCENT_STRING = /^(100(\.0{1,2})?|\d{1,2}(\.\d{1,2})?)$/;
 /** A tier multiplier: (0, 10] with up to four decimals. */
 const MULTIPLIER_STRING = /^(10(\.0{1,4})?|\d(\.\d{1,4})?)$/;
+/** A calendar day. A plan's validity window is a day, never an instant. */
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 // ============================================================================
 // Nested value objects (CONTRACT-CRITICAL-003)
@@ -533,6 +535,20 @@ export class QuoteRequest {
   @IsOptional()
   @Matches(PERCENT_STRING, { message: 'taxRate must be a decimal string' })
   taxRate?: string;
+  /**
+   * A negotiated discount the operator is entering by hand (ADR-0013). The
+   * custom-plan builder quotes with these so the total it previews is the one
+   * billing will store — it used to recompute that total in the browser, in
+   * floats, and its annual figure took the fixed discount off twelve times.
+   */
+  @IsOptional()
+  @Matches(PERCENT_STRING, {
+    message: 'negotiatedDiscountPercent must be a decimal string in [0, 100]',
+  })
+  negotiatedDiscountPercent?: string;
+  @IsOptional()
+  @Matches(MONEY_STRING, { message: 'negotiatedDiscountAmount must be a decimal string' })
+  negotiatedDiscountAmount?: string;
 }
 
 // ============================================================================
@@ -566,11 +582,27 @@ export class CreateCustomPlanDto {
   @ValidateNested({ each: true })
   @Type(() => CustomPlanModuleDto)
   modules!: CustomPlanModuleDto[];
-  @IsOptional() @IsNumber() @Min(0) @Max(100) discountPercent?: number;
-  @IsOptional() @IsNumber() @Min(0) discountAmount?: number;
+  // ADR-0013: money and rates cross the boundary as exact decimal strings.
+  // `discountPercent` was an unbounded `number` on a `numeric(5,2)` column, so
+  // a 400% discount was storable and floored the plan's total to zero rather
+  // than being refused.
+  @IsOptional()
+  @Matches(PERCENT_STRING, { message: 'discountPercent must be a decimal string in [0, 100]' })
+  discountPercent?: string;
+  @IsOptional()
+  @Matches(MONEY_STRING, { message: 'discountAmount must be a decimal string' })
+  discountAmount?: string;
   @IsOptional() @IsString() @MaxLength(500) discountReason?: string;
-  @Type(() => Date) @IsDate() validFrom!: Date;
-  @IsOptional() @Type(() => Date) @IsDate() validTo?: Date;
+  /** ISO-4217, upper-case. Defaults to the price sheet's own currency. */
+  @IsOptional()
+  @Matches(/^[A-Z]{3}$/, { message: 'currency must be an ISO-4217 code' })
+  currency?: string;
+  /** ISO-8601 dates: a plan's validity is a day, never an instant. */
+  @Matches(ISO_DATE, { message: 'validFrom must be an ISO-8601 date (YYYY-MM-DD)' })
+  validFrom!: string;
+  @IsOptional()
+  @Matches(ISO_DATE, { message: 'validTo must be an ISO-8601 date (YYYY-MM-DD)' })
+  validTo?: string;
   @IsOptional() @IsString() @MaxLength(2000) notes?: string;
 }
 
@@ -583,11 +615,23 @@ export class UpdateCustomPlanDto {
   @ValidateNested({ each: true })
   @Type(() => CustomPlanModuleDto)
   modules?: CustomPlanModuleDto[];
-  @IsOptional() @IsNumber() @Min(0) @Max(100) discountPercent?: number;
-  @IsOptional() @IsNumber() @Min(0) discountAmount?: number;
+  @IsOptional() @IsIn(BILLING_CYCLES) billingCycle?: BillingCycle;
+  @IsOptional()
+  @Matches(PERCENT_STRING, { message: 'discountPercent must be a decimal string in [0, 100]' })
+  discountPercent?: string;
+  @IsOptional()
+  @Matches(MONEY_STRING, { message: 'discountAmount must be a decimal string' })
+  discountAmount?: string;
   @IsOptional() @IsString() @MaxLength(500) discountReason?: string;
-  @IsOptional() @Type(() => Date) @IsDate() validFrom?: Date;
-  @IsOptional() @Type(() => Date) @IsDate() validTo?: Date;
+  @IsOptional()
+  @Matches(/^[A-Z]{3}$/, { message: 'currency must be an ISO-4217 code' })
+  currency?: string;
+  @IsOptional()
+  @Matches(ISO_DATE, { message: 'validFrom must be an ISO-8601 date (YYYY-MM-DD)' })
+  validFrom?: string;
+  @IsOptional()
+  @Matches(ISO_DATE, { message: 'validTo must be an ISO-8601 date (YYYY-MM-DD)' })
+  validTo?: string;
   @IsOptional() @IsString() @MaxLength(2000) notes?: string;
 }
 

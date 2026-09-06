@@ -7,6 +7,7 @@
  * the money actually taken off could differ. One pure function is the fix, and
  * this spec pins its answers.
  */
+import { roundToCurrency } from '@aquaculture/backend-common/monetary';
 import Decimal from 'decimal.js';
 
 import {
@@ -15,7 +16,7 @@ import {
   DiscountDuration,
   DiscountType,
 } from '../entities/discount-code.entity';
-import { evaluateDiscount, grantOf, roundToCurrency } from '../services/discount-rules';
+import { evaluateDiscount, grantOf } from '../services/discount-rules';
 
 const NOW = new Date('2026-06-15T12:00:00.000Z');
 

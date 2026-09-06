@@ -4384,7 +4384,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/CustomPlanPageDto"
                 }
               }
             }
@@ -4413,7 +4413,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/CustomPlanResponseDto"
                 }
               }
             }
@@ -4443,7 +4443,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/CustomPlanResponseDto"
                 }
               }
             }
@@ -4481,7 +4481,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/CustomPlanResponseDto"
                 }
               }
             }
@@ -4509,7 +4509,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/DeletedCustomPlanDto"
                 }
               }
             }
@@ -4530,7 +4530,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/CustomPlanLookupDto"
                 }
               }
             }
@@ -4560,7 +4560,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/CustomPlanResponseDto"
                 }
               }
             }
@@ -4590,7 +4590,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/CustomPlanResponseDto"
                 }
               }
             }
@@ -4630,7 +4630,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/CustomPlanResponseDto"
                 }
               }
             }
@@ -4660,7 +4660,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/CustomPlanResponseDto"
                 }
               }
             }
@@ -4700,7 +4700,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/CustomPlanResponseDto"
                 }
               }
             }
@@ -11433,9 +11433,9 @@
               "type": "string",
               "enum": [
                 "expired",
+                "rejected",
                 "pending",
                 "completed",
-                "rejected",
                 "in_progress"
               ]
             }
@@ -19485,6 +19485,12 @@
           },
           "taxRate": {
             "type": "string"
+          },
+          "negotiatedDiscountPercent": {
+            "type": "string"
+          },
+          "negotiatedDiscountAmount": {
+            "type": "string"
           }
         },
         "required": [
@@ -19636,6 +19642,9 @@
               "below_minimum_order"
             ]
           },
+          "negotiatedDiscountAmount": {
+            "type": "string"
+          },
           "tax": {
             "type": "string"
           },
@@ -19693,6 +19702,7 @@
           "cycleDiscountAmount",
           "cycleDiscountPercent",
           "discountAmount",
+          "negotiatedDiscountAmount",
           "tax",
           "taxRate",
           "total",
@@ -19808,6 +19818,297 @@
           "recommendation"
         ]
       },
+      "CustomPlanQuantitiesDto": {
+        "type": "object",
+        "properties": {
+          "users": {
+            "type": "number"
+          },
+          "farms": {
+            "type": "number"
+          },
+          "ponds": {
+            "type": "number"
+          },
+          "sensors": {
+            "type": "number"
+          },
+          "employees": {
+            "type": "number"
+          },
+          "devices": {
+            "type": "number"
+          },
+          "storageGb": {
+            "type": "number"
+          },
+          "apiCalls": {
+            "type": "number"
+          },
+          "alerts": {
+            "type": "number"
+          },
+          "reports": {
+            "type": "number"
+          },
+          "integrations": {
+            "type": "number"
+          }
+        }
+      },
+      "CustomPlanLineItemResponseDto": {
+        "type": "object",
+        "properties": {
+          "metric": {
+            "type": "string",
+            "enum": [
+              "base_price",
+              "per_user",
+              "per_farm",
+              "per_pond",
+              "per_sensor",
+              "per_device",
+              "per_gb_storage",
+              "per_gb_transfer",
+              "per_api_call",
+              "per_alert",
+              "per_report",
+              "per_sms",
+              "per_email",
+              "per_integration",
+              "per_workflow"
+            ]
+          },
+          "metricLabel": {
+            "type": "string"
+          },
+          "quantity": {
+            "type": "number"
+          },
+          "unitPrice": {
+            "type": "string"
+          },
+          "total": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "metric",
+          "metricLabel",
+          "quantity",
+          "unitPrice",
+          "total"
+        ]
+      },
+      "CustomPlanModuleResponseDto": {
+        "type": "object",
+        "properties": {
+          "moduleId": {
+            "type": "string"
+          },
+          "moduleCode": {
+            "type": "string"
+          },
+          "moduleName": {
+            "type": "string"
+          },
+          "quantities": {
+            "$ref": "#/components/schemas/CustomPlanQuantitiesDto"
+          },
+          "lineItems": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CustomPlanLineItemResponseDto"
+            }
+          },
+          "subtotal": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "moduleId",
+          "moduleCode",
+          "moduleName",
+          "quantities",
+          "lineItems",
+          "subtotal"
+        ]
+      },
+      "CustomPlanResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "basePlanId": {
+            "type": "string"
+          },
+          "tier": {
+            "enum": [
+              "free",
+              "starter",
+              "professional",
+              "enterprise",
+              "custom"
+            ],
+            "type": "string"
+          },
+          "billingCycle": {
+            "enum": [
+              "monthly",
+              "quarterly",
+              "semi_annual",
+              "annual"
+            ],
+            "type": "string"
+          },
+          "modules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CustomPlanModuleResponseDto"
+            }
+          },
+          "monthlySubtotal": {
+            "type": "string"
+          },
+          "discountPercent": {
+            "type": "string"
+          },
+          "discountAmount": {
+            "type": "string"
+          },
+          "discountReason": {
+            "type": "string"
+          },
+          "monthlyTotal": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "draft",
+              "pending_approval",
+              "approved",
+              "expired",
+              "active",
+              "rejected"
+            ],
+            "type": "string"
+          },
+          "validFrom": {
+            "type": "string"
+          },
+          "validTo": {
+            "type": "string"
+          },
+          "approvedBy": {
+            "type": "string"
+          },
+          "approvedAt": {
+            "type": "string"
+          },
+          "rejectionReason": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "subscriptionId": {
+            "type": "string"
+          },
+          "unpricedModuleCodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "updatedBy": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tenantId",
+          "name",
+          "tier",
+          "billingCycle",
+          "modules",
+          "monthlySubtotal",
+          "discountPercent",
+          "discountAmount",
+          "monthlyTotal",
+          "currency",
+          "status",
+          "validFrom",
+          "unpricedModuleCodes",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "CustomPlanPageDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CustomPlanResponseDto"
+            }
+          },
+          "total": {
+            "type": "number"
+          },
+          "page": {
+            "type": "number"
+          },
+          "limit": {
+            "type": "number"
+          },
+          "totalPages": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "data",
+          "total",
+          "page",
+          "limit",
+          "totalPages"
+        ]
+      },
+      "CustomPlanLookupDto": {
+        "type": "object",
+        "properties": {
+          "found": {
+            "type": "boolean"
+          },
+          "customPlan": {
+            "$ref": "#/components/schemas/CustomPlanResponseDto"
+          }
+        },
+        "required": [
+          "found"
+        ]
+      },
       "CustomPlanModuleDto": {
         "type": "object",
         "properties": {
@@ -19881,24 +20182,23 @@
             }
           },
           "discountPercent": {
-            "type": "number",
-            "minimum": 0,
-            "maximum": 100
+            "type": "string"
           },
           "discountAmount": {
-            "type": "number",
-            "minimum": 0
+            "type": "string"
           },
           "discountReason": {
             "type": "string",
             "maxLength": 500
           },
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          },
           "validFrom": {
-            "format": "date-time",
             "type": "string"
           },
           "validTo": {
-            "format": "date-time",
             "type": "string"
           },
           "notes": {
@@ -19930,25 +20230,33 @@
               "$ref": "#/components/schemas/CustomPlanModuleDto"
             }
           },
+          "billingCycle": {
+            "type": "string",
+            "enum": [
+              "monthly",
+              "quarterly",
+              "semi_annual",
+              "annual"
+            ]
+          },
           "discountPercent": {
-            "type": "number",
-            "minimum": 0,
-            "maximum": 100
+            "type": "string"
           },
           "discountAmount": {
-            "type": "number",
-            "minimum": 0
+            "type": "string"
           },
           "discountReason": {
             "type": "string",
             "maxLength": 500
           },
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          },
           "validFrom": {
-            "format": "date-time",
             "type": "string"
           },
           "validTo": {
-            "format": "date-time",
             "type": "string"
           },
           "notes": {
@@ -19967,6 +20275,17 @@
         },
         "required": [
           "reason"
+        ]
+      },
+      "DeletedCustomPlanDto": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success"
         ]
       },
       "CloneCustomPlanDto": {
@@ -22557,9 +22876,9 @@
           "status": {
             "enum": [
               "expired",
+              "rejected",
               "pending",
               "completed",
-              "rejected",
               "in_progress"
             ],
             "type": "string"
@@ -22741,9 +23060,9 @@
             "type": "string",
             "enum": [
               "expired",
+              "rejected",
               "pending",
               "completed",
-              "rejected",
               "in_progress"
             ]
           },

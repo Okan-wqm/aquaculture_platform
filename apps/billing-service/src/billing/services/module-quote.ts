@@ -15,7 +15,7 @@
  *     recovered by division, so it is exact and a multiplier of 0 (which the
  *     database now forbids anyway) can no longer produce 0/0 = NaN.
  */
-import { getCurrencyScale } from '@aquaculture/backend-common/monetary';
+import { roundToCurrency } from '@aquaculture/backend-common/monetary';
 import type {
   BillingCycle,
   BillingModuleQuoteBreakdown,
@@ -52,10 +52,6 @@ export const BILLING_CYCLE_DISCOUNT_RATE: Readonly<Record<BillingCycle, string>>
   semi_annual: '0.10',
   annual: '0.15',
 };
-
-export function roundToCurrency(amount: Decimal, currency: string): Decimal {
-  return amount.toDecimalPlaces(getCurrencyScale(currency), Decimal.ROUND_HALF_UP);
-}
 
 /** The multiplier in force for a tier — absent means full list price. */
 export function tierMultiplierOf(sheet: ModulePrice, tier: BillingPlanTier): Decimal {

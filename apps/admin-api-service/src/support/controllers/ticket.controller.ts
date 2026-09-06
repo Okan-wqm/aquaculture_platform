@@ -23,7 +23,12 @@ import { IsString, IsOptional, IsArray, IsBoolean, IsNumber, IsObject } from 'cl
 import { CurrentUser, CurrentUserData } from '../../decorators/current-user.decorator';
 import { PlatformAdminOnly } from '../../decorators/roles.decorator';
 import { PaginationQueryDto } from '../../shared/pagination-query.dto';
-import { TicketPriority, TicketStatus, TicketCategory, TicketAttachment } from '../entities/support.entity';
+import {
+  TicketPriority,
+  TicketStatus,
+  TicketCategory,
+  TicketAttachment,
+} from '../entities/support.entity';
 import { TicketService } from '../services/ticket.service';
 
 // ============================================================================
@@ -197,9 +202,7 @@ export class TicketController {
   }
 
   @Get('unassigned')
-  async getUnassignedTickets(
-    @Query() pagination?: PaginationQueryDto,
-  ) {
+  async getUnassignedTickets(@Query() pagination?: PaginationQueryDto) {
     return this.ticketService.getUnassignedTickets({
       page: pagination?.page,
       limit: pagination?.limit,
@@ -258,15 +261,17 @@ export class TicketController {
   @Post()
   @PlatformAdminOnly()
   @HttpCode(HttpStatus.CREATED)
-  async createTicket(@Body() dto: CreateTicketDto) {
+  async createTicket(@Body() dto: CreateTicketDto, @CurrentUser() user: CurrentUserData) {
     if (!dto.tenantId || !dto.subject || !dto.description || !dto.createdByName) {
-      throw new BadRequestException('tenantId, subject, description, and createdByName are required');
+      throw new BadRequestException(
+        'tenantId, subject, description, and createdByName are required',
+      );
     }
 
     return this.ticketService.createTicket({
       tenantId: dto.tenantId,
       tenantName: dto.tenantName,
-      createdBy: 'tenant-user-id', // In production, would come from auth context
+      createdBy: user.id,
       createdByName: dto.createdByName,
       createdByEmail: dto.createdByEmail,
       subject: dto.subject,
@@ -278,10 +283,7 @@ export class TicketController {
   }
 
   @Put(':id')
-  async updateTicket(
-    @Param('id') id: string,
-    @Body() dto: UpdateTicketDto,
-  ) {
+  async updateTicket(@Param('id') id: string, @Body() dto: UpdateTicketDto) {
     return this.ticketService.updateTicket(id, {
       subject: dto.subject,
       description: dto.description,
@@ -298,10 +300,7 @@ export class TicketController {
   // ============================================================================
 
   @Post(':id/assign')
-  async assignTicket(
-    @Param('id') id: string,
-    @Body() dto: AssignTicketDto,
-  ) {
+  async assignTicket(@Param('id') id: string, @Body() dto: AssignTicketDto) {
     if (!dto.assignedTo || !dto.assignedToName) {
       throw new BadRequestException('assignedTo and assignedToName are required');
     }
@@ -432,10 +431,7 @@ export class TicketController {
 
   @Post(':id/satisfaction')
   @PlatformAdminOnly()
-  async submitSatisfactionRating(
-    @Param('id') id: string,
-    @Body() dto: SatisfactionRatingDto,
-  ) {
+  async submitSatisfactionRating(@Param('id') id: string, @Body() dto: SatisfactionRatingDto) {
     if (!dto.rating) {
       throw new BadRequestException('rating is required');
     }

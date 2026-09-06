@@ -14,10 +14,20 @@ import {
   Body,
   HttpCode,
   HttpStatus,
+  Req,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Type, Transform } from 'class-transformer';
-import { IsOptional, IsNumber, IsString, IsBoolean, IsIn, IsArray, Min, Max } from 'class-validator';
+import {
+  IsOptional,
+  IsNumber,
+  IsString,
+  IsBoolean,
+  IsIn,
+  IsArray,
+  Min,
+  Max,
+} from 'class-validator';
 
 import {
   SecurityEvent,
@@ -35,6 +45,10 @@ import {
   SecurityMonitoringService,
   SecurityDashboardStats,
 } from '../services/security-monitoring.service';
+import type { Request } from 'express';
+
+import { requireAuthUserId, requireAuthUserName } from '../../shared/authenticated-request';
+
 import type { PaginationResultV1 } from '@platform/pagination-contracts';
 
 // ============================================================================
@@ -379,9 +393,7 @@ class AnalyzeLoginDto {
 @ApiTags('Security')
 @Controller('security/monitoring')
 export class SecurityMonitoringController {
-  constructor(
-    private readonly securityMonitoringService: SecurityMonitoringService,
-  ) {}
+  constructor(private readonly securityMonitoringService: SecurityMonitoringService) {}
 
   // ============================================================================
   // Security Events
@@ -392,9 +404,7 @@ export class SecurityMonitoringController {
    */
   @Post('events')
   @HttpCode(HttpStatus.CREATED)
-  async createSecurityEvent(
-    @Body() dto: CreateSecurityEventDto,
-  ): Promise<SecurityEvent> {
+  async createSecurityEvent(@Body() dto: CreateSecurityEventDto): Promise<SecurityEvent> {
     return this.securityMonitoringService.createSecurityEvent({
       eventType: dto.eventType,
       threatLevel: dto.threatLevel,
@@ -456,17 +466,13 @@ export class SecurityMonitoringController {
     @Param('id') id: string,
     @Body() dto: UpdateSecurityEventStatusDto,
   ): Promise<SecurityEvent> {
-    return this.securityMonitoringService.updateSecurityEventStatus(
-      id,
-      dto.status,
-      {
-        assignedTo: dto.assignedTo,
-        assignedToName: dto.assignedToName,
-        investigationNotes: dto.investigationNotes,
-        resolution: dto.resolution,
-        resolvedBy: dto.resolvedBy,
-      },
-    );
+    return this.securityMonitoringService.updateSecurityEventStatus(id, dto.status, {
+      assignedTo: dto.assignedTo,
+      assignedToName: dto.assignedToName,
+      investigationNotes: dto.investigationNotes,
+      resolution: dto.resolution,
+      resolvedBy: dto.resolvedBy,
+    });
   }
 
   /**
@@ -536,12 +542,13 @@ export class SecurityMonitoringController {
   async updateIncident(
     @Param('id') id: string,
     @Body() dto: UpdateIncidentDto,
+    @Req() req: Request,
   ): Promise<SecurityIncident> {
     return this.securityMonitoringService.updateIncident(
       id,
       dto,
-      'admin', // Would come from auth context
-      'Admin User',
+      requireAuthUserId(req),
+      requireAuthUserName(req),
     );
   }
 
@@ -582,9 +589,7 @@ export class SecurityMonitoringController {
    */
   @Post('threat-intelligence')
   @HttpCode(HttpStatus.CREATED)
-  async addThreatIndicator(
-    @Body() dto: AddThreatIndicatorDto,
-  ): Promise<ThreatIntelligence> {
+  async addThreatIndicator(@Body() dto: AddThreatIndicatorDto): Promise<ThreatIntelligence> {
     return this.securityMonitoringService.addThreatIndicator({
       indicatorType: dto.indicatorType,
       value: dto.value,
@@ -617,9 +622,7 @@ export class SecurityMonitoringController {
    * Check if IP is a known threat
    */
   @Get('threat-intelligence/check/:ip')
-  async checkThreat(
-    @Param('ip') ip: string,
-  ): Promise<{
+  async checkThreat(@Param('ip') ip: string): Promise<{
     isThreat: boolean;
     threat: ThreatIntelligence | null;
   }> {
@@ -712,9 +715,7 @@ export class SecurityMonitoringController {
    * Get real-time security alerts (unresolved events)
    */
   @Get('alerts/realtime')
-  async getRealtimeAlerts(
-    @Query('limit') limit?: number,
-  ): Promise<SecurityEvent[]> {
+  async getRealtimeAlerts(@Query('limit') limit?: number): Promise<SecurityEvent[]> {
     const result = await this.securityMonitoringService.querySecurityEvents({
       page: 1,
       limit: limit ? parseInt(String(limit), 10) : 10,
@@ -733,9 +734,7 @@ export class SecurityMonitoringController {
       };
       const levelDiff = (threatOrder[a.threatLevel] ?? 4) - (threatOrder[b.threatLevel] ?? 4);
       if (levelDiff !== 0) return levelDiff;
-      return (
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      );
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
   }
 
@@ -818,9 +817,10 @@ export class SecurityMonitoringController {
     }
 
     // Factor 4: Threat mitigation (weight: 20%)
-    const mitigationRate = dashboard.totalSecurityEvents > 0
-      ? (dashboard.threatsBlocked / dashboard.totalSecurityEvents) * 100
-      : 100;
+    const mitigationRate =
+      dashboard.totalSecurityEvents > 0
+        ? (dashboard.threatsBlocked / dashboard.totalSecurityEvents) * 100
+        : 100;
     const mitigationScore = Math.min(100, mitigationRate * 1.5);
 
     factors.push({
@@ -835,10 +835,7 @@ export class SecurityMonitoringController {
     }
 
     // Calculate weighted score
-    const totalScore = factors.reduce(
-      (acc, f) => acc + (f.score * f.weight) / 100,
-      0,
-    );
+    const totalScore = factors.reduce((acc, f) => acc + (f.score * f.weight) / 100, 0);
 
     return {
       score: Math.round(totalScore),

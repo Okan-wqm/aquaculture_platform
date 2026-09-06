@@ -87,6 +87,19 @@ describe('DatabaseExplorerController export StreamableFile contract', () => {
     }).compile();
 
     app = moduleRef.createNestApplication();
+    // Production attaches the verified operator before the controller runs, and
+    // the export writes an audit row naming them. Without this the spec would
+    // exercise a request shape that never reaches the controller in production.
+    app.use((req: { user?: unknown }, _res: unknown, next: () => void) => {
+      req.user = {
+        id: 'super-admin-1',
+        sub: 'super-admin-1',
+        email: 'ops@example.com',
+        name: 'Ops Admin',
+        roles: ['SUPER_ADMIN'],
+      };
+      next();
+    });
     app.useGlobalPipes(
       new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }),
     );

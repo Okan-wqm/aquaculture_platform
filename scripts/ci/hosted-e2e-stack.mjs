@@ -155,8 +155,31 @@ if (operation === 'prepare') {
     .split('\n').filter(Boolean);
   if (keys.some((key) => !key.startsWith('ratelimit:'))) throw new Error('Unexpected fixture counter namespace');
   if (keys.length) run('docker', [...cli, 'DEL', ...keys], { env: redisEnv, stdio: 'ignore' });
+} else if (operation === 'diagnose') {
+  const directory = join(root, 'artifacts', 'hosted-e2e', 'runtime');
+  mkdirSync(directory, { recursive: true });
+  if (existsSync(composePath)) {
+    const values = JSON.parse(readFileSync(join(state, 'runtime.json'), 'utf8'));
+    const secrets = Object.entries(values).filter(([key]) => /PASSWORD|PASS|SECRET|TOKEN|KEY/.test(key))
+      .map(([, value]) => value);
+    // Logs may render a keyring member independently of the full environment JSON.
+    for (const key of JSON.parse(values.SERVICE_IDENTITY_KEYRING)) secrets.push(key.secret);
+    const redact = (text) => secrets.reduce((output, secret) => output.replaceAll(secret, '[REDACTED]'), text);
+    const commands = [
+      ['status', [...compose, 'ps', '--all', '--format', 'json']],
+      ['logs', [...compose, 'logs', '--no-color', '--timestamps', '--tail', '160']],
+    ];
+    for (const [name, args] of commands) {
+      const result = spawnSync('docker', args, { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
+      writeFileSync(join(directory, `${name}.txt`), redact(`${result.stdout ?? ''}\n${result.stderr ?? ''}`));
+    }
+    const containers = capture('docker', [...compose, 'ps', '--all', '--quiet']).split('\n').filter(Boolean);
+    const states = containers.map((id) => JSON.parse(capture('docker', ['inspect', '--format',
+      '{"name":{{json .Name}},"image_id":{{json .Image}},"state":{{json .State}}}', id])));
+    writeFileSync(join(directory, 'states.json'), redact(JSON.stringify(states, null, 2)));
+  }
 } else if (operation === 'down') {
   if (existsSync(composePath)) run('docker', [...compose, 'down', '--volumes', '--remove-orphans', '--timeout', '30']);
 } else {
-  throw new Error('Expected prepare, build, up, reset-rate-limits or down');
+  throw new Error('Expected prepare, build, up, reset-rate-limits, diagnose or down');
 }

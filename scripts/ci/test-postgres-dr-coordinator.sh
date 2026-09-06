@@ -53,6 +53,13 @@ if [ "${1:-}" = attempt ]; then
   fi
   # Faults live only in this hosted test process. No production bypass flag or
   # injected command exists in the signed coordinator.
+  df() {
+    if [ "${DR_FIXTURE_FAULT:-}" = capacity ] && [ "${1:-}" = --output=avail ]; then
+      printf 'Avail\n%s\n' "${DR_FIXTURE_AVAILABLE_BYTES:?capacity boundary required}"
+    else
+      command df "$@"
+    fi
+  }
   eval "$(declare -f dr_state_transition | sed '1s/dr_state_transition/fixture_actual_transition/')"
   dr_state_transition() {
     fixture_actual_transition "$@" || return
@@ -157,6 +164,7 @@ source "${repository}/infrastructure/scripts/postgres-dr-recovery.sh"
 scenario_index=0
 scenarios=(healthy degraded forward-failure rollback-failure before-FINALIZING after-FINALIZING before-ROLLBACK_FINALIZING after-ROLLBACK_FINALIZING phase-publish result-publish override-publish)
 scenario_results=()
+capacity_results=()
 for scenario in "${scenarios[@]}"; do
   scenario_index=$((scenario_index + 1))
   case_root="${fixture_root}/${scenario}"
@@ -272,6 +280,30 @@ PY
     --label com.docker.compose.project=aqua-saas --label com.docker.compose.service=fixture-writer \
     -e DR_FIXTURE_PASSWORD="${DR_FIXTURE_PASSWORD}" \
     --entrypoint /bin/bash "${image_id}" -c 'while true; do PGPASSWORD="$DR_FIXTURE_PASSWORD" psql -X -h aqua-postgres -U aquaculture -d aquaculture -c "INSERT INTO recovery_fixture.writer_ticks DEFAULT VALUES" >/dev/null 2>&1 || true; sleep 1; done' >/dev/null
+  if [ "${scenario}" = healthy ]; then
+    data_path=$(docker volume inspect --format '{{.Mountpoint}}' aqua-saas_postgres_data)
+    copy_bytes=$(dr_cluster_copy_bytes "${data_path}")
+    # This amount passed the old two-copy admission but cannot accommodate the
+    # retained probe and failed-forward cluster during the first rollback.
+    capacity_limit=$((copy_bytes * 2 + copy_bytes / 5 + 1073741824))
+    before_container=$(docker inspect --format '{{.Id}} {{.State.StartedAt}}' aqua-postgres)
+    before_writer=$(docker inspect --format '{{.Id}} {{.State.StartedAt}}' aqua-dr-fixture-writer)
+    set +e
+    DR_FIXTURE_FAULT=capacity DR_FIXTURE_AVAILABLE_BYTES="${capacity_limit}" bash "${BASH_SOURCE[0]}" attempt > "${case_root}/capacity-initial.log" 2>&1
+    capacity_status=$?
+    set -e
+    [ "${capacity_status}" != 0 ]
+    rg -q 'Recovery capacity refused:' "${case_root}/capacity-initial.log"
+    [ "$(jq -r .phase "${case_root}/journal/${run_key}/phase.json")" = VERIFYING ]
+    [ "$(docker inspect --format '{{.Id}} {{.State.StartedAt}}' aqua-postgres)" = "${before_container}" ]
+    [ "$(docker inspect --format '{{.Id}} {{.State.StartedAt}}' aqua-dr-fixture-writer)" = "${before_writer}" ]
+    [ "$(docker inspect --format '{{.State.Running}}' aqua-postgres)" = true ]
+    [ "$(docker inspect --format '{{.State.Running}}' aqua-dr-fixture-writer)" = true ]
+    [ ! -e "/var/lib/aqua/deploy/dr-recovery/${run_key}/writers" ]
+    [ ! -e "${case_root}/journal/${run_key}/recovery-point.json" ]
+    [ "$(docker exec aqua-postgres psql -X -U aquaculture -d aquaculture -Atc 'SELECT count(*) FROM recovery_fixture.sentinel WHERE value=42')" = 1 ]
+    capacity_results+=(initial-admission-refused-before-writer-stop)
+  fi
   fault=${scenario}
   case "${scenario}" in healthy|degraded) fault= ;; esac
   set +e
@@ -293,6 +325,29 @@ PY
       [ "$(docker exec aqua-postgres psql -X -U aquaculture -d aquaculture -Atc 'SELECT count(*) FROM recovery_fixture.sentinel WHERE value=84')" -ge 1 ]
     fi
     if [ "${scenario}" != forward-failure ]; then
+      if [ "${scenario}" = rollback-failure ]; then
+        snapshot_path=$(docker volume inspect --format '{{.Mountpoint}}' "aqua-dr-point-${run_key}")
+        data_path=$(docker volume inspect --format '{{.Mountpoint}}' aqua-saas_postgres_data)
+        copy_bytes=$(dr_cluster_copy_bytes "${snapshot_path}")
+        capacity_limit=$((copy_bytes + copy_bytes / 5 + 1073741824 - 1))
+        before_container=$(docker inspect --format '{{.Id}} {{.State.StartedAt}}' aqua-postgres)
+        before_data_digest=$(dr_cluster_digest "${data_path}")
+        before_point_digest=$(dr_cluster_digest "${snapshot_path}")
+        before_retained_count=$(find "/var/lib/aqua/deploy/dr-recovery/${run_key}" -mindepth 1 -maxdepth 1 -type d -name 'failed-forward.*' | wc -l)
+        set +e
+        DR_FIXTURE_FAULT=capacity DR_FIXTURE_AVAILABLE_BYTES="${capacity_limit}" bash "${BASH_SOURCE[0]}" attempt > "${case_root}/capacity-retry.log" 2>&1
+        capacity_status=$?
+        set -e
+        [ "${capacity_status}" != 0 ]
+        rg -q 'Recovery capacity refused:' "${case_root}/capacity-retry.log"
+        [ "$(jq -r .phase "${case_root}/journal/${run_key}/phase.json")" = ROLLBACK_STARTED ]
+        [ "$(docker inspect --format '{{.Id}} {{.State.StartedAt}}' aqua-postgres)" = "${before_container}" ]
+        [ "$(dr_cluster_digest "${data_path}")" = "${before_data_digest}" ]
+        [ "$(dr_cluster_digest "${snapshot_path}")" = "${before_point_digest}" ]
+        [ "$(find "/var/lib/aqua/deploy/dr-recovery/${run_key}" -mindepth 1 -maxdepth 1 -type d -name 'failed-forward.*' | wc -l)" = "${before_retained_count}" ]
+        [ "$(docker inspect --format '{{.State.Running}}' aqua-dr-fixture-writer)" = false ]
+        capacity_results+=(rollback-retry-refused-before-data-move)
+      fi
       set +e
       DR_FIXTURE_FAULT='' bash "${BASH_SOURCE[0]}" attempt > "${case_root}/reentry.log" 2>&1
       second_status=$?
@@ -328,18 +383,21 @@ PY
 done
 # Publish only after every actual coordinator scenario and its assertions ran.
 # The required CI job validates these coordinates before issuing its receipt.
-python3 - "${repository}" "${image}" "${image_id}" "${contract_digest}" "${#scenarios[@]}" "${scenario_results[@]}" <<'PY'
+python3 - "${repository}" "${image}" "${image_id}" "${contract_digest}" "${#scenarios[@]}" "${capacity_results[*]}" "${scenario_results[@]}" <<'PY'
 import json
 import os
 from pathlib import Path
 import sys
 
-repository, reference, image_id, contract_digest, expected_count, *results = sys.argv[1:]
+repository, reference, image_id, contract_digest, expected_count, capacity_results, *results = sys.argv[1:]
 scenarios = [dict(zip(('name', 'terminal_phase'), result.split(':', 1))) for result in results]
 if len(scenarios) != int(expected_count) or not scenarios or len({item['name'] for item in scenarios}) != len(scenarios):
     raise SystemExit('Coordinator proof did not execute every required scenario')
 if any(item['terminal_phase'] not in {'COMMITTED', 'ROLLED_BACK'} for item in scenarios):
     raise SystemExit('Coordinator proof contains an unresolved scenario')
+capacity_results = capacity_results.split()
+if set(capacity_results) != {'initial-admission-refused-before-writer-stop', 'rollback-retry-refused-before-data-move'} or len(capacity_results) != 2:
+    raise SystemExit('Coordinator proof did not execute both capacity boundaries')
 record = {
     'schema_version': 1, 'github_sha': os.environ['GITHUB_SHA'],
     'run_id': os.environ['GITHUB_RUN_ID'], 'run_attempt': os.environ['GITHUB_RUN_ATTEMPT'],
@@ -347,6 +405,7 @@ record = {
     'postgres_dr_contract_sha256': contract_digest,
     'expected_scenarios': int(expected_count), 'executed_scenarios': len(scenarios), 'skipped_scenarios': 0,
     'scenarios': [dict(item, passed=True) for item in scenarios],
+    'capacity_boundaries': [dict(name=name, passed=True) for name in capacity_results],
 }
 output = Path(repository) / 'artifacts/postgres-recovery'
 output.mkdir(parents=True, exist_ok=True)

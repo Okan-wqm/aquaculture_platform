@@ -4590,6 +4590,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/config/frontend-url.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/config/frontend-url.ts",
       "prettier_managed": true
     },
@@ -5099,7 +5105,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/modules/authentication/__tests__/action-token-resolver.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/authentication/__tests__/authentication.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/modules/authentication/__tests__/invitation-links.spec.ts",
       "prettier_managed": true
     },
     {
@@ -5190,6 +5208,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/auth-service/src/modules/authentication/controllers/__tests__/auth-credential-nats.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/modules/authentication/controllers/__tests__/internal-auth.controller.spec.ts",
       "prettier_managed": true
     },
     {
@@ -5405,13 +5429,7 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/auth-service/src/modules/authentication/services/action-token-reference.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/auth-service/src/modules/authentication/services/action-token-reference.ts",
+      "path": "apps/auth-service/src/modules/authentication/services/action-token-resolver.service.ts",
       "prettier_managed": true
     },
     {
@@ -18254,7 +18272,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "7481ac7ebb2260f937edef77fe4d443a5196cd9f2a6bf972767f7e7dd2bf4b9e",
+      "content_sha256": "61383f3b5a86a6a08810627832f4d3216739be8b969eb440d8c259e05ca94115",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "apps/gateway-api/src/config/federated-subgraphs.generated.ts",
@@ -23900,6 +23918,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/notification-service/src/notification/event-handlers/auth-event.handler.lockout.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/notification-service/src/notification/event-handlers/auth-event.handler.password-reset.spec.ts",
       "prettier_managed": true
     },
     {
@@ -36141,6 +36165,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/zcode/2026-09-06-nullable-numeric-zero.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/zcode/2026-09-06-one-rule-two-implementations.md",
       "prettier_managed": true
     },
@@ -37714,7 +37744,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "90443cf6d60d411c0a821917be61aa810fb6192d41785b6e749c90f49d12ae2b",
+      "content_sha256": "e5b878f4af03d8ba36f355b47b7a127c56612a5502f356b365bfe1ceb8d526af",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "infrastructure/apollo-router/codegen-schema.generated.json",
@@ -37749,7 +37779,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "2734816847f8b4bd6b33a9c510c926aa622e2215bfb69f0e6f511fd4fc7479df",
+      "content_sha256": "4ce6035692f1582635053b3970e1167cf1ec99aee9d5314c834b5f7979142530",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "infrastructure/deploy/service-catalog.generated.json",
@@ -40836,6 +40866,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/event-contracts/src/__tests__/tenant-scope.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/event-contracts/src/__tests__/websocket-envelopes.parity.spec.ts",
       "prettier_managed": true
     },
@@ -41209,6 +41245,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/event-contracts/src/tenant-events.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/src/tenant-scope.ts",
       "prettier_managed": true
     },
     {
@@ -44660,6 +44702,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/action-link-resolver-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/active-path-hygiene.spec.ts",
       "prettier_managed": true
     },
@@ -44895,6 +44943,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/audited-operation-module-wired.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/auth-frontend-url-deployment-contract.spec.ts",
       "prettier_managed": true
     },
     {
@@ -45153,6 +45207,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/event-contract-emit-has-interface.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/event-tenant-scope-ssot.spec.ts",
       "prettier_managed": true
     },
     {
@@ -45417,6 +45477,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/helpers/farm-graphql-surface.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/helpers/nats-event-handler.ts",
       "prettier_managed": true
     },
     {
@@ -45765,6 +45831,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/npm-audit-exception-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/nullable-numeric-zero-preserved.spec.ts",
       "prettier_managed": true
     },
     {
@@ -58875,7 +58947,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "d51137ea34706d51af9805804b69cee57f8774c0709c52522ebc705cfb496185",
+      "content_sha256": "eb479538f3c5e5805f42d797f306c1094b8d2992c32274ce31ce4519f4911eec",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/shared-ui/src/generated/graphql-types.ts",

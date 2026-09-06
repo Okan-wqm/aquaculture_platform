@@ -7,6 +7,25 @@ const helper = resolve(__dirname, '../../infrastructure/scripts/postgres-dr-reco
 const coordinator = resolve(__dirname, '../../infrastructure/scripts/postgres-dr-coordinator.sh');
 
 describe('PostgreSQL cold recovery point', () => {
+  it.each([
+    { copies: 3, available: '12884901888', status: 65 }, // Old budget: two extra 5 GiB copies and headroom.
+    { copies: 3, available: '18253611007', status: 65 },
+    { copies: 3, available: '18253611008', status: 0 }, // Three extra 5 GiB copies plus 20% and 1 GiB.
+    { copies: 1, available: '7516192767', status: 65 },
+    { copies: 1, available: '7516192768', status: 0 }, // A further retained rollback requires another complete copy.
+  ])('enforces the $copies-copy peak at $available available bytes', ({ copies, available, status }) => {
+    const result = spawnSync('/bin/bash', ['-c', `
+      set +e
+      source "$1"
+      dr_cluster_copy_bytes() { printf 5368709120; }
+      df() { printf 'Avail\\n%s\\n' "$AVAILABLE_BYTES"; }
+      AVAILABLE_BYTES=$3
+      dr_require_copy_capacity fixture "$2" fixture
+      exit $?
+    `, '--', helper, String(copies), available], { encoding: 'utf8' });
+    expect(result.status).toBe(status);
+  });
+
   it('copies the complete stopped cluster including legacy TLS bytes without modifying the source', () => {
     const root = mkdtempSync(join(tmpdir(), 'aqua-cold-copy-'));
     try {

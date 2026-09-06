@@ -29,7 +29,9 @@
       "required_files": [
         "services/token.service.spec.ts",
         "services/credential-state.spec.ts",
-        "services/action-token-reference.spec.ts",
+        "__tests__/action-token-resolver.spec.ts",
+        "__tests__/invitation-links.spec.ts",
+        "controllers/__tests__/internal-auth.controller.spec.ts",
         "__tests__/authentication.service.spec.ts",
         "__tests__/mfa.spec.ts",
         "__tests__/webauthn.service.spec.ts",

@@ -1,6 +1,6 @@
 # Permanent login recovery implementation findings
 
-Status: IN-PROGRESS. Static review against `411c86835`; hosted validation is pending.
+Status: IN-PROGRESS. Integration with main `2efee0eb4` is underway; complete hosted validation is pending.
 
 The approved design uses a database-owned credential version, one locked authentication context,
 action-only password recovery/invitation completion, hosted validation, and an immutable production
@@ -41,9 +41,10 @@ Reset/invitation must atomically complete the action and return success/loginReq
 or synchronous Redis dependencies. Login success audit belongs to committed mint.
 
 SEC-HIGH-158 is included: validation and acceptance must agree on opaque invitation references.
-SEC-HIGH-159 remains open with its existing owner/deadline: platform password-recovery email requires
-a separate cross-service event and internal identity contract. The current change preserves existing
-request authorization; successful password login does not prove platform recovery email delivery.
+Main PR #1425 supplies SEC-HIGH-159's typed platform event scope, durable recovery-email outbox and
+notification internal identity contract. The merge preserves these changes inside the credential
+transaction, including explicit RLS context for platform action-token reads. Successful password
+login alone does not prove recovery-email delivery; the integrated flows require hosted evidence.
 
 Evidence in `apps/auth-service/src/modules/authentication/`:
 
@@ -60,6 +61,11 @@ Static review: registration can commit after reset deletes credentials; detached
 factor consumption; step-up loses originating jti/iat/exp; admission needs current lockout checks.
 Use the shared lock context, narrow writes, original signed proof and derivative step-up identity.
 
+Hosted PostgreSQL evidence also caught WebAuthn audit inserts without the authenticated tenant id:
+RLS rejected the audit row and rolled back successful token issuance. All WebAuthn audit paths now
+require the observed or locked principal identity; the next hosted run must confirm both tenant and
+platform behavior.
+
 Evidence in `apps/auth-service/src/modules/authentication/`:
 
 - `services/mfa.service.ts`
@@ -75,6 +81,11 @@ State: IN-PROGRESS. Owner: codex / okan. Deadline: 2026-09-07.
 Rotation/grace must retain family and rememberMe. Terminal revocation must cover historical grace
 rows. Old revoked NULL-family rows cannot recover lineage. Invalidation timestamps must be captured
 inside their DB transaction and replayed unchanged, so delayed delivery does not reject later login.
+
+Serializable tenant lifecycle commands retry their whole transaction for PostgreSQL 40001/40P01 only,
+with a bounded attempt count and stable command id. Aborted attempts neither write FAILED receipts
+inside a failed transaction nor apply invalidation intents. Real PostgreSQL ordered races cover login
+against reset/suspension and family admission against logout in both lock acquisition orders.
 
 Evidence in `apps/auth-service/src/modules/`:
 
@@ -139,3 +150,15 @@ Evidence:
 
 - `scripts/deploy/production-host-control-plane.sh`
 - `.github/manifests/postgres-dr-bootstrap-policy.json`
+
+Recovery review confirmed a separate capacity defect: retained source data, the cold point, the probe
+and a failed-forward generation can coexist during restore. Admission now reserves three additional
+full copies; restore retries recheck free space before stopping or moving data. Hosted coordinator
+proof includes initial scarcity and retry scarcity refusal before mutation.
+
+Latest completed evidence before the main integration: run 34025030636 built all candidate images and
+completed the authoritative migration. Auth unit tests reported 763 passed / 8 failed and PostgreSQL
+35 passed / 2 failed; the reported defects have source corrections awaiting the integrated run.
+Hosted full-stack startup stopped at config-service exit 1. Redacted service diagnostics now survive
+cleanup so the next failure can be diagnosed from runtime evidence. Neither full-stack login nor the
+actual signed recovery coordinator is yet proven. No local heavy validation or production mutation.

@@ -67,6 +67,11 @@ jobs:
         env:
           RUNNER_ENVIRONMENT: ${{ runner.environment }}
         run: node scripts/ci/hosted-e2e-proof.mjs
+      - name: Capture isolated runtime state and redacted service logs
+        if: always()
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: node scripts/ci/hosted-e2e-stack.mjs diagnose
       - name: Upload exact candidate images, test counts and proof receipts
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

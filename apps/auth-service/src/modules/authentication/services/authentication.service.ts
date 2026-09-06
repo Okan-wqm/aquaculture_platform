@@ -31,9 +31,9 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
-import { createBaseEvent, isLoginAllowed, InvitationAcceptedEvent, PasswordResetCompletedEvent } from '@platform/event-contracts';
-import { OutboxPublisher, OUTBOX_SYSTEM_TENANT_ID } from '@platform/outbox';
-import type { UserAccountLockedEvent } from '@platform/event-contracts';
+import { createBaseEvent, isLoginAllowed, tenantScopeOf } from '@platform/event-contracts';
+import { OutboxPublisher } from '@platform/outbox';
+import type { UserAccountLockedEvent, InvitationAcceptedEvent, PasswordResetCompletedEvent, PasswordResetRequestedEvent } from '@platform/event-contracts';
 import * as bcrypt from 'bcryptjs';
 import {
   DataSource,
@@ -61,7 +61,7 @@ import { User } from '../entities/user.entity';
 import { WebAuthnCredential } from '../entities/webauthn-credential.entity';
 
 import { LockedAuthContext, snapshotCredentialProof, withLockedCredentialPrincipal, withLockedAuthenticatedSession } from './credential-state';
-import { resolveActionReference } from './action-token-reference';
+import { ActionTokenResolver, type ActionLinkLock } from './action-token-resolver.service';
 import { MfaService } from './mfa.service';
 import { DurableAccessTokenInvalidationService } from './durable-access-token-invalidation.service';
 import {
@@ -172,17 +172,16 @@ export class AuthenticationService {
     private readonly dataSource: DataSource,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
-    // DATA-HIGH-001: every event auth-service login/invitation/password-reset
-    // publishes is telemetry or audit-log-backed and can originate from a
-    // platform-level SUPER_ADMIN (tenantId NULL), so they route through the
-    // allowlisted best-effort path rather than the raw event bus.
+    // Login telemetry is best effort; credential actions and recovery delivery
+    // events commit through the outbox with the corresponding mutation.
     private readonly bestEffort: BestEffortEventPublisher,
+    private readonly outboxPublisher: OutboxPublisher,
+    private readonly actionTokenResolver: ActionTokenResolver,
     private readonly auditLogService: AuditLogService,
     private readonly tokenService: TokenService,
     private readonly durableAccessTokenInvalidation: DurableAccessTokenInvalidationService,
     private readonly durableUserTokenInvalidation: DurableUserTokenInvalidationService,
     private readonly mfaService: MfaService,
-    private readonly outboxPublisher: OutboxPublisher,
     /**
      * SECURITY (DEPLOY-CRITICAL-007): audit-logged RLS bypass primitive for
      * the SUPER_ADMIN login path. Platform-level users (tenantId=NULL)
@@ -572,7 +571,7 @@ export class AuthenticationService {
         ? await requestContextStorage.run({ ...getRequestContext(), tenantId: user.tenantId, userId: user.id }, completeLogin)
         : await this.bypassRls.withBypass('auth-service:super-admin-login-tokens', completeLogin);
       if (result.accessToken) {
-        await this.bestEffort.publish(createBaseEvent('UserLoggedIn', user.tenantId ?? 'system', {
+        await this.bestEffort.publish(createBaseEvent('UserLoggedIn', tenantScopeOf(user.tenantId), {
           aggregateId: user.id, aggregateType: 'User', userId: user.id,
         }));
       }
@@ -617,23 +616,21 @@ export class AuthenticationService {
     const passwordHash = await hashPassword(password);
     await this.bypassRls.withBypass('auth-service:invitation-acceptance', () =>
       this.dataSource.transaction(async (manager) => {
-        const reference = await resolveActionReference(manager, token, ActionTokenPurpose.INVITATION);
+        const discoveredLink = await this.loadInvitationForSegment(manager, token, 'none');
+        if (!discoveredLink.invitation) throw new BadRequestException('Invalid or expired invitation');
         const discovered = await manager.findOne(User, {
-          where: reference.tokenHashes.map((invitationToken) => ({ invitationToken })),
+          where: { invitationToken: discoveredLink.invitation.token },
         });
         if (!discovered) throw new BadRequestException('Invalid or expired invitation');
         const context = await LockedAuthContext.lock(manager, discovered.id);
-        const resolved = await resolveActionReference(manager, token, ActionTokenPurpose.INVITATION, true);
+        // Lock the action and invitation only after Tenant → User. The second
+        // resolution observes concurrent reset/resend/acceptance before mutation.
+        const { actionToken, invitation } = await this.loadInvitationForSegment(manager, token, 'pessimistic_write');
         const user = context.user;
-        if (!user.invitationToken || !resolved.tokenHashes.includes(user.invitationToken) ||
-            (resolved.actionToken && (resolved.actionToken.userId !== user.id ||
-              (resolved.actionToken.tenantId ?? null) !== (user.tenantId ?? null)))) {
-          throw new BadRequestException('Invalid or expired invitation');
-        }
-        const invitation = await manager.findOne(Invitation, {
-          where: { token: user.invitationToken }, lock: { mode: 'pessimistic_write' },
-        });
-        if (!invitation || !invitation.canBeAccepted() || invitation.tenantId !== user.tenantId) {
+        if (!invitation || !invitation.canBeAccepted() || invitation.tenantId !== user.tenantId ||
+            user.invitationToken !== invitation.token ||
+            (actionToken && (!actionToken.isActive() || actionToken.userId !== user.id ||
+              (actionToken.tenantId ?? null) !== (user.tenantId ?? null)))) {
           throw new BadRequestException('Invalid or expired invitation');
         }
         await manager.update(User, { id: user.id }, {
@@ -644,8 +641,8 @@ export class AuthenticationService {
           status: InvitationStatus.ACCEPTED, acceptedAt: new Date(), userId: user.id,
           acceptedFromIp: ipAddress ?? null,
         });
-        if (resolved.actionToken) {
-          await manager.update(ActionToken, { id: resolved.actionToken.id }, {
+        if (actionToken) {
+          await manager.update(ActionToken, { id: actionToken.id }, {
             status: ActionTokenStatus.CONSUMED, consumedAt: new Date(),
           });
         }
@@ -661,7 +658,7 @@ export class AuthenticationService {
           userId: user.id, tenantId: user.tenantId, ipAddress, success: true,
         }, AuditLogSeverity.INFO, manager);
         await this.outboxPublisher.enqueue<InvitationAcceptedEvent>({
-          ...createBaseEvent<InvitationAcceptedEvent>('InvitationAccepted', user.tenantId ?? OUTBOX_SYSTEM_TENANT_ID),
+          ...createBaseEvent<InvitationAcceptedEvent>('InvitationAccepted', tenantScopeOf(user.tenantId)),
           userId: user.id, invitationId: invitation.id,
         }, manager, { aggregateId: user.id, idempotencyKey: `invitation-accepted-event:${invitation.id}`,
           ...(user.tenantId ? {} : { routingScope: 'system' as const }) });
@@ -680,38 +677,33 @@ export class AuthenticationService {
     lastName?: string;
     expired?: boolean;
   }> {
-    return this.bypassRls.withBypass('auth-service:invitation-validation', async () => {
-    let reference: Awaited<ReturnType<typeof resolveActionReference>>;
-    try {
-      reference = await resolveActionReference(this.dataSource.manager, token, ActionTokenPurpose.INVITATION);
-    } catch (error) {
-      if (error instanceof BadRequestException) return { valid: false };
-      throw error;
-    }
-    const invitation = await this.invitationRepository.findOne({
-      where: reference.tokenHashes.map((invitationToken) => ({ token: invitationToken })),
-    });
+    return this.bypassRls.withBypass('auth-service:invitation-validation', () =>
+      this.dataSource.transaction(async (manager) => {
+        const { actionToken, invitation } = await this.loadInvitationForSegment(manager, token, 'none');
+        if (actionToken && !actionToken.isActive()) {
+          return { valid: false, expired: actionToken.expiresAt <= new Date() };
+        }
+        if (!invitation) return { valid: false };
+        if (!invitation.canBeAccepted()) return { valid: false, expired: invitation.isExpired() };
+        return { valid: true, email: invitation.email, role: invitation.role,
+          firstName: invitation.firstName ?? undefined, lastName: invitation.lastName ?? undefined };
+      }));
+  }
 
-    if (!invitation) {
-      return { valid: false };
-    }
-
-    if (invitation.isExpired()) {
-      return { valid: false, expired: true };
-    }
-
-    if (!invitation.isPending()) {
-      return { valid: false };
-    }
-
-    return {
-      valid: true,
-      email: invitation.email,
-      role: invitation.role,
-      firstName: invitation.firstName ?? undefined,
-      lastName: invitation.lastName ?? undefined,
-    };
-    });
+  /** The canonical link resolver and invitation gate shared by preview and redemption. */
+  private async loadInvitationForSegment(
+    manager: EntityManager,
+    segment: string,
+    lock: ActionLinkLock,
+  ): Promise<{ actionToken: ActionToken | null; invitation: Invitation | null }> {
+    const resolution = await this.actionTokenResolver.resolve(segment, ActionTokenPurpose.INVITATION, manager, lock);
+    if (resolution.kind === 'unresolvable') return { actionToken: null, invitation: null };
+    const actionToken = resolution.kind === 'action-token' ? resolution.actionToken : null;
+    if (actionToken && !actionToken.isActive()) return { actionToken, invitation: null };
+    const tokenHash = resolution.kind === 'action-token' ? resolution.actionToken.tokenHash : resolution.tokenHash;
+    const invitation = await manager.findOne(Invitation, { where: { token: tokenHash },
+      ...(lock === 'pessimistic_write' ? { lock: { mode: 'pessimistic_write' as const } } : {}) });
+    return { actionToken, invitation };
   }
 
   /**
@@ -1386,7 +1378,7 @@ export class AuthenticationService {
       // only mails tenant-scoped users — operator visibility for platform
       // accounts comes from the CRITICAL audit event.
       const lockEvent: UserAccountLockedEvent = {
-        ...createBaseEvent<UserAccountLockedEvent>('UserAccountLocked', user.tenantId ?? 'system', {
+        ...createBaseEvent<UserAccountLockedEvent>('UserAccountLocked', tenantScopeOf(user.tenantId), {
           aggregateId: user.id,
           aggregateType: 'User',
           userId: user.id,
@@ -1409,7 +1401,7 @@ export class AuthenticationService {
    * - Stores SHA-256 hash of token (not plaintext) in the database
    * - Token expires after 1 hour
    * - If user not found, performs dummy hash to match timing and returns silently
-   * - Publishes PasswordResetRequestedEvent for notification service to send email
+   * - Commits PasswordResetRequestedEvent with the credential through the durable outbox
    */
   async initiatePasswordReset(email: string, ipAddress?: string): Promise<void> {
     const startTime = Date.now();
@@ -1440,49 +1432,38 @@ export class AuthenticationService {
       const resetTokenHash = crypto.createHash('sha256').update(resetToken).digest('hex');
       const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
 
-      const actionToken = await this.bypassRls.withBypass('auth-service:password-reset-request', () =>
+      // The reset credential and its only delivery signal commit together.
+      // Platform scope is derived from the locked principal, never caller input.
+      await this.bypassRls.withBypass('auth-service:password-reset-request', () =>
         withLockedCredentialPrincipal(this.dataSource, user.id, async (context) => {
-        if (!context.user.isActive) throw new BadRequestException('Account is unavailable');
-        await context.manager.update(User, { id: user.id }, {
-          passwordResetToken: resetTokenHash, passwordResetExpires: expiresAt,
-        });
-        await context.manager.update(ActionToken, {
-          userId: user.id, purpose: ActionTokenPurpose.PASSWORD_RESET, status: ActionTokenStatus.ACTIVE,
-        }, { status: ActionTokenStatus.REVOKED, revokedAt: new Date() });
-        return context.manager.save(ActionToken, context.manager.create(ActionToken, {
-          purpose: ActionTokenPurpose.PASSWORD_RESET, tenantId: context.user.tenantId ?? null,
-          userId: user.id, tokenHash: resetTokenHash, status: ActionTokenStatus.ACTIVE, expiresAt,
-          auditMetadata: { source: 'password-reset-request', ipAddress },
+          const { manager, user: principal } = context;
+          if (!principal.isActive) throw new BadRequestException('Account is unavailable');
+          await manager.update(User, { id: principal.id }, {
+            passwordResetToken: resetTokenHash, passwordResetExpires: expiresAt,
+          });
+          await manager.update(ActionToken, {
+            userId: principal.id, purpose: ActionTokenPurpose.PASSWORD_RESET, status: ActionTokenStatus.ACTIVE,
+          }, { status: ActionTokenStatus.REVOKED, revokedAt: new Date() });
+          const actionToken = await manager.save(ActionToken, manager.create(ActionToken, {
+            purpose: ActionTokenPurpose.PASSWORD_RESET, tenantId: principal.tenantId ?? null,
+            userId: principal.id, tokenHash: resetTokenHash, status: ActionTokenStatus.ACTIVE, expiresAt,
+            auditMetadata: { source: 'password-reset-request', ipAddress },
+          }));
+          const scope = tenantScopeOf(principal.tenantId);
+          const event: PasswordResetRequestedEvent = {
+            ...createBaseEvent<PasswordResetRequestedEvent>('PasswordResetRequested', scope, {
+              aggregateId: principal.id, aggregateType: 'User', userId: principal.id, version: 2,
+            }),
+            userId: principal.id, actionTokenId: actionToken.id, cryptoShredKeyId: principal.id,
+          };
+          await this.outboxPublisher.enqueue(event, manager, {
+            aggregateId: principal.id, idempotencyKey: `password-reset-requested:${actionToken.id}`,
+            ...(scope.kind === 'platform' ? { routingScope: 'system' as const } : {}),
+          });
+          await this.logSecurityEvent('PASSWORD_RESET_REQUESTED', {
+            userId: principal.id, tenantId: principal.tenantId, ipAddress, success: true,
+          }, AuditLogSeverity.INFO, manager);
         }));
-      }));
-
-      // SECURITY (CRITICAL-001/002): Publish event with opaque references ONLY.
-      // PII (email, firstName) and secret URLs are NEVER placed on the immutable event bus.
-      // The notification service resolves user details and builds the reset URL at delivery
-      // time via authenticated internal API calls using userId and actionTokenId.
-      //
-      // actionTokenId is the opaque auth.action_tokens row id. The notification
-      // service calls auth-service's internal API with this ID to get the action URL
-      // without the raw token ever touching the event bus.
-      await this.bestEffort.publish({
-        ...createBaseEvent('PasswordResetRequested', user.tenantId ?? 'system', {
-          aggregateId: user.id,
-          aggregateType: 'User',
-          userId: user.id,
-          version: 2,
-        }),
-        actionTokenId: actionToken.id,
-        cryptoShredKeyId: user.id,
-      });
-
-      // Audit log
-      await this.logSecurityEvent('PASSWORD_RESET_REQUESTED', {
-        userId: user.id,
-        email: user.email,
-        tenantId: user.tenantId,
-        ipAddress,
-        success: true,
-      });
 
       await this.ensureMinDuration(startTime);
     } catch (error) {
@@ -1513,27 +1494,31 @@ export class AuthenticationService {
     const passwordHash = await hashPassword(newPassword);
     await this.bypassRls.withBypass('auth-service:password-reset', () =>
       this.dataSource.transaction(async (manager) => {
-        const reference = await resolveActionReference(manager, token, ActionTokenPurpose.PASSWORD_RESET);
-        const discovered = await manager.findOne(User, {
-          where: reference.tokenHashes.map((passwordResetToken) => ({ passwordResetToken })),
-        });
+        const reference = await this.actionTokenResolver.resolve(token, ActionTokenPurpose.PASSWORD_RESET, manager, 'none');
+        if (reference.kind === 'unresolvable' || (reference.kind === 'action-token' && !reference.actionToken.isActive())) {
+          throw new BadRequestException('Invalid or expired password reset token');
+        }
+        const tokenHash = reference.kind === 'action-token' ? reference.actionToken.tokenHash : reference.tokenHash;
+        const discovered = await manager.findOne(User, { where: { passwordResetToken: tokenHash } });
         if (!discovered) throw new BadRequestException('Invalid or expired password reset token');
         const context = await LockedAuthContext.lock(manager, discovered.id);
-        const resolved = await resolveActionReference(manager, token, ActionTokenPurpose.PASSWORD_RESET, true);
+        const resolved = await this.actionTokenResolver.resolve(token, ActionTokenPurpose.PASSWORD_RESET, manager, 'pessimistic_write');
+        if (resolved.kind === 'unresolvable') throw new BadRequestException('Invalid or expired password reset token');
+        const actionToken = resolved.kind === 'action-token' ? resolved.actionToken : null;
+        const resolvedHash = resolved.kind === 'action-token' ? resolved.actionToken.tokenHash : resolved.tokenHash;
         const user = context.user;
         if (!user.isActive || !user.passwordResetToken || !user.passwordResetExpires ||
-            user.passwordResetExpires.getTime() <= Date.now() ||
-            !resolved.tokenHashes.includes(user.passwordResetToken) ||
-            (resolved.actionToken && (resolved.actionToken.userId !== user.id ||
-              (resolved.actionToken.tenantId ?? null) !== (user.tenantId ?? null)))) {
+            user.passwordResetExpires.getTime() <= Date.now() || user.passwordResetToken !== resolvedHash ||
+            (actionToken && (!actionToken.isActive() || actionToken.userId !== user.id ||
+              (actionToken.tenantId ?? null) !== (user.tenantId ?? null)))) {
           throw new BadRequestException('Invalid or expired password reset token');
         }
         await manager.update(User, { id: user.id }, {
           password: passwordHash, passwordResetToken: null, passwordResetExpires: null,
           failedLoginAttempts: 0, lockedUntil: null,
         });
-        if (resolved.actionToken) {
-          await manager.update(ActionToken, { id: resolved.actionToken.id }, {
+        if (actionToken) {
+          await manager.update(ActionToken, { id: actionToken.id }, {
             status: ActionTokenStatus.CONSUMED, consumedAt: new Date(),
           });
         }
@@ -1541,7 +1526,7 @@ export class AuthenticationService {
         const invalidation: UserTokenInvalidationIntent = {
           userId: user.id, tenantId: this.invalidationTenantForUser(user), invalidatedAt: new Date(),
           reason: 'password_reset',
-          idempotencyKey: `password-reset:${resolved.actionToken?.id ?? user.passwordResetToken}`,
+          idempotencyKey: `password-reset:${actionToken?.id ?? user.passwordResetToken}`,
         };
         await manager.update(RefreshToken, { userId: user.id }, {
           isRevoked: true, revokedAt: invalidation.invalidatedAt, revokedReason: 'Password reset',
@@ -1551,9 +1536,9 @@ export class AuthenticationService {
           userId: user.id, tenantId: user.tenantId, ipAddress, userAgent, success: true,
         }, AuditLogSeverity.INFO, manager);
         await this.outboxPublisher.enqueue<PasswordResetCompletedEvent>({
-          ...createBaseEvent<PasswordResetCompletedEvent>('PasswordResetCompleted', user.tenantId ?? OUTBOX_SYSTEM_TENANT_ID),
+          ...createBaseEvent<PasswordResetCompletedEvent>('PasswordResetCompleted', tenantScopeOf(user.tenantId)),
           userId: user.id,
-        }, manager, { aggregateId: user.id, idempotencyKey: `password-reset-event:${resolved.actionToken?.id ?? user.passwordResetToken}`,
+        }, manager, { aggregateId: user.id, idempotencyKey: `password-reset-event:${actionToken?.id ?? user.passwordResetToken}`,
           ...(user.tenantId ? {} : { routingScope: 'system' as const }) });
       }));
     return { success: true, loginRequired: true };

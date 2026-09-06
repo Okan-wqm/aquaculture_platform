@@ -26,6 +26,33 @@ test('changed suites cannot hide skipped tests behind other passing tests', () =
   assert.equal(unchanged.success, true);
   assert.equal(unchanged.pending, 1);
 });
+test('required suites reject every unpassed assertion even when the file is unchanged', () => {
+  for (const status of ['pending', 'skipped', 'todo', 'disabled', 'failed']) {
+    const proof = report();
+    proof.testResults[0].assertionResults.push({ status });
+    // Even inconsistent green summary counters cannot override assertion evidence.
+    const result = evaluateTestProof(proof, ['new.postgres.spec.ts'], ['/repo/another.spec.ts']);
+    assert.equal(result.success, false, status);
+    assert.equal(result.required_tests_not_passed, 1, status);
+    assert.deepEqual(result.required_files_missing, []);
+  }
+});
+test('required suite evidence must match a whole path segment', () => {
+  const proof = report();
+  proof.testResults[0].name = '/repo/not-new.postgres.spec.ts';
+  assert.equal(evaluateTestProof(proof, ['new.postgres.spec.ts'], []).success, false);
+});
+test('all assertions in every required file pass while unrelated unchanged pending tests remain visible', () => {
+  const proof = report();
+  proof.numPendingTests = 1;
+  proof.testResults[0].assertionResults.push({ status: 'passed' });
+  proof.numPassedTests = 2;
+  proof.testResults.push({ name: '/repo/unrelated.spec.ts', assertionResults: [{ status: 'pending' }] });
+  const result = evaluateTestProof(proof, ['new.postgres.spec.ts'], []);
+  assert.equal(result.success, true);
+  assert.equal(result.required_tests_not_passed, 0);
+  assert.equal(result.pending, 1);
+});
 test('malformed reports fail before they can become evidence', () => {
   assert.throws(() => evaluateTestProof({}, [], []), /testResults/);
   assert.throws(() => evaluateTestProof({ ...report(), numPassedTests: '1' }, [], []), /numPassedTests/);

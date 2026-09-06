@@ -29,12 +29,7 @@ import {
   DataSource,
   QueryRunner,
 } from 'typeorm';
-import {
-  listTenantSchemas,
-  tenantManagerRepo,
-  TenantContextError,
-  TenantScopedRepository,
-} from '@aquaculture/backend-common/database';
+import { TenantContextError, TenantScopedRepository, listTenantSchemas, numberOrUndefined, tenantManagerRepo } from '@aquaculture/backend-common/database';
 import {
   clearManagedTimer,
   createManagedInterval,
@@ -1789,7 +1784,7 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
       record.tenantId,
       record.batchId,
       actualQuantity,
-      record.feedCost ? Number(record.feedCost) : undefined,
+      numberOrUndefined(record.feedCost),
     );
   }
 

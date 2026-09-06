@@ -13,9 +13,10 @@ import {
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { UserInvitedEvent, createBaseEvent } from '@platform/event-contracts';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, EntityManager } from 'typeorm';
 
 import { AuditLogSeverity } from '../../../audit/audit-log.entity';
+import { TOKEN_CONSTANTS } from '../../../constants/auth.constants';
 import { AuditLogService } from '../../../audit/audit-log.service';
 import { BestEffortEventPublisher } from '../../../outbox/best-effort-event-publisher';
 import {
@@ -57,6 +58,20 @@ import {
  */
 function isCanonicalRole(value: string): value is Role {
   return (Object.values(Role) as string[]).includes(value);
+}
+
+const INVITATION_TTL_MS = TOKEN_CONSTANTS.DEFAULT_INVITATION_EXPIRY_DAYS * 24 * 60 * 60 * 1000;
+
+/**
+ * The correlation key shared by the User, Invitation and ActionToken rows of
+ * one invitation, plus the expiry all three carry. Only the hash exists: the
+ * link the invitee receives names the ActionToken row id
+ * (InternalAuthController.getActionTokenUrl), and acceptInvitation joins the
+ * resolved ActionToken to its Invitation through this hash.
+ */
+interface InvitationSecret {
+  readonly tokenHash: string;
+  readonly expiresAt: Date;
 }
 
 /**
@@ -126,8 +141,9 @@ export class UserLifecycleService {
     private readonly tenantRoleService: TenantRoleService,
     // DATA-HIGH-001: UserInvited is a notification trigger whose durable record
     // is the invitation row — routed through the allowlisted best-effort path,
-    // not the raw event bus. (Durable upgrade tracked as ORPHAN-HIGH-090, which
-    // first needs createUser to become transactional.)
+    // not the raw event bus. (Durable upgrade tracked as ORPHAN-HIGH-090; the
+    // rows it must commit with are now written in one transaction by
+    // mintInvitation, so the outbox move no longer waits on createUser.)
     private readonly bestEffort: BestEffortEventPublisher,
     private readonly auditLogService: AuditLogService,
     // SECURITY (RBAC-C1/C2): write-time grant-authority SSoT. createUser was a
@@ -166,9 +182,10 @@ export class UserLifecycleService {
    * 1. Validates tenant exists
    * 2. Checks for duplicate email
    * 3. Validates role exists in tenant
-   * 4. Creates user record with invitation token
+   * 4. Creates the user row and, unless a password was supplied, its Invitation
+   *    and ActionToken rows in ONE transaction (mintInvitation)
    * 5. Creates role assignment in tenant schema
-   * 6. Sends invitation email
+   * 6. Publishes UserInvited carrying the ActionToken row id the e-mailed link names
    */
   async createUser(
     tenantId: string,
@@ -216,36 +233,54 @@ export class UserLifecycleService {
       await this.capabilityAuthority.resolveActorAuthority(tenantId, createdBy),
     );
 
-    // Generate invitation token if not providing password
-    // SECURITY: Use crypto.randomBytes for unpredictable tokens (256 bits of entropy)
-    const plainInvitationToken =
-      sendInvitation && !input.password ? crypto.randomBytes(32).toString('hex') : null;
-    // SECURITY: Hash invitation token with SHA-256 before storage (SEC-005)
-    const invitationTokenHash = plainInvitationToken
-      ? crypto.createHash('sha256').update(plainInvitationToken).digest('hex')
-      : null;
-    const invitationExpiry = plainInvitationToken
-      ? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
-      : null;
+    // An invitation is minted only when the caller did not supply a password:
+    // the e-mailed link IS the credential. The secret is fixed before the
+    // transaction so the User row carries its hash from the first write.
+    const invitationSecret = sendInvitation && !input.password ? this.newInvitationSecret() : null;
 
-    // Create user in auth.users table
     const userAccessType = input.accessType ?? AccessType.BOTH;
-    const newUser = this.userRepository.create({
-      email: input.email.toLowerCase(),
-      firstName: input.firstName,
-      lastName: input.lastName,
-      password: input.password || undefined,
-      role: Role.MODULE_USER, // Default global role; tenant role is separate
-      accessType: userAccessType,
-      tenantId,
-      isActive: true,
-      isEmailVerified: false,
-      invitationToken: invitationTokenHash,
-      invitationExpiresAt: invitationExpiry,
-      invitedBy: createdBy,
-    });
+    const normalisedEmail = input.email.toLowerCase();
 
-    const savedUser = await this.userRepository.save(newUser);
+    // SEC-HIGH-158: User, Invitation and ActionToken commit together. A user
+    // whose e-mailed link has no ActionToken row behind it cannot exist — the
+    // previous shape published a token HASH under `actionTokenId`, which the
+    // link resolver could never turn into a row.
+    const { savedUser, actionTokenId } = await this.dataSource.transaction(async (manager) => {
+      const newUser = manager.create(User, {
+        email: normalisedEmail,
+        firstName: input.firstName,
+        lastName: input.lastName,
+        password: input.password || undefined,
+        role: Role.MODULE_USER, // Default global role; tenant role is separate
+        accessType: userAccessType,
+        tenantId,
+        isActive: true,
+        isEmailVerified: false,
+        invitationToken: invitationSecret ? invitationSecret.tokenHash : null,
+        invitationExpiresAt: invitationSecret ? invitationSecret.expiresAt : null,
+        invitedBy: createdBy,
+      });
+      const persistedUser = await manager.save(User, newUser);
+      if (invitationSecret === null) {
+        return { savedUser: persistedUser, actionTokenId: null };
+      }
+
+      const { actionToken } = await this.mintInvitation(manager, {
+        user: persistedUser,
+        tenantId,
+        email: normalisedEmail,
+        firstName: input.firstName,
+        lastName: input.lastName,
+        role: Role.MODULE_USER,
+        moduleIds: null,
+        primaryModuleId: null,
+        message: null,
+        invitedBy: createdBy,
+        secret: invitationSecret,
+        source: 'tenant-user-create',
+      });
+      return { savedUser: persistedUser, actionTokenId: actionToken.id };
+    });
     // SECURITY: Log user ID instead of email to prevent PII exposure in logs (H-14)
     this.logger.log(`Created user userId=${savedUser.id} for tenant ${tenantId}`);
 
@@ -279,18 +314,17 @@ export class UserLifecycleService {
       createdBy,
     );
 
-    // Send invitation email if requested
+    // The e-mailed link is built by the notification service from this row id.
     let invitationSent = false;
-    if (sendInvitation && plainInvitationToken) {
-      try {
-        await this.sendInvitationEmail(tenant, savedUser, plainInvitationToken);
-        invitationSent = true;
-      } catch (error) {
-        // SECURITY: Log user ID instead of email to prevent PII exposure (H-14)
-        this.logger.error(
-          `Failed to send invitation email for userId=${savedUser.id}: ${(error as Error).message}`,
-        );
-      }
+    if (actionTokenId !== null) {
+      await this.publishUserInvited({
+        tenantId,
+        userId: savedUser.id,
+        role: savedUser.role,
+        invitedBy: createdBy,
+        actionTokenId,
+      });
+      invitationSent = true;
     }
 
     // SECURITY AUDIT: Log user creation
@@ -943,11 +977,9 @@ export class UserLifecycleService {
       throw new ConflictException(`User with email "${input.email}" already exists`);
     }
 
-    // 5. Invitation token: SHA-256 hash stored in the DB (MED-004 pattern).
-    //    The raw token never crosses the service boundary.
-    const rawToken = crypto.randomBytes(32).toString('hex');
-    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    // 5. Invitation secret (MED-004 pattern): only its hash is stored, and
+    //    the link names the ActionToken row id — see newInvitationSecret.
+    const secret = this.newInvitationSecret();
 
     // 6. Atomic multi-row write via a transaction. Using a transactional
     //    EntityManager guarantees that a User without an Invitation row
@@ -982,42 +1014,27 @@ export class UserLifecycleService {
         tenantId: input.tenantId,
         isActive: true,
         isEmailVerified: false,
-        invitationToken: tokenHash,
-        invitationExpiresAt: expiresAt,
+        invitationToken: secret.tokenHash,
+        invitationExpiresAt: secret.expiresAt,
         invitedBy: input.invitedBy,
       });
       const savedUser = await manager.save(User, newUser);
 
-      const newInvitation = manager.create(Invitation, {
-        token: tokenHash,
-        email: normalisedEmail,
-        firstName: input.firstName ?? null,
-        lastName: input.lastName ?? null,
-        role: invitedRole,
-        tenantId: input.tenantId,
-        moduleIds: input.moduleIds && input.moduleIds.length > 0 ? input.moduleIds : null,
-        primaryModuleId: input.primaryModuleId ?? null,
-        status: InvitationStatus.PENDING,
-        expiresAt,
-        message: input.message ?? null,
-        invitedBy: input.invitedBy,
-        sendCount: 1,
-        lastSentAt: new Date(),
-      });
-      const savedInvitation = await manager.save(Invitation, newInvitation);
-      const actionToken = manager.create(ActionToken, {
-        purpose: ActionTokenPurpose.INVITATION,
-        tenantId: input.tenantId,
-        userId: savedUser.id,
-        tokenHash,
-        status: ActionTokenStatus.ACTIVE,
-        expiresAt,
-        auditMetadata: {
-          source: 'tenant-admin-invite',
+      const { invitation: savedInvitation, actionToken: savedActionToken } =
+        await this.mintInvitation(manager, {
+          user: savedUser,
+          tenantId: input.tenantId,
+          email: normalisedEmail,
+          firstName: input.firstName ?? null,
+          lastName: input.lastName ?? null,
+          role: invitedRole,
+          moduleIds: input.moduleIds && input.moduleIds.length > 0 ? input.moduleIds : null,
+          primaryModuleId: input.primaryModuleId ?? null,
+          message: input.message ?? null,
           invitedBy: input.invitedBy,
-        },
-      });
-      const savedActionToken = await manager.save(ActionToken, actionToken);
+          secret,
+          source: 'tenant-admin-invite',
+        });
 
       // Module assignments — only meaningful for module-scoped roles.
       // TENANT_ADMIN inherits access from TenantModule rows and gets no
@@ -1061,20 +1078,13 @@ export class UserLifecycleService {
     );
 
     if (input.sendInvitation !== false) {
-      const event: UserInvitedEvent = {
-        ...createBaseEvent<UserInvitedEvent>('UserInvited', input.tenantId, {
-          aggregateId: result.userId,
-          aggregateType: 'User',
-        }),
+      await this.publishUserInvited({
+        tenantId: input.tenantId,
         userId: result.userId,
         role: input.role,
         invitedBy: input.invitedBy,
-        credentialType: 'reset_token',
         actionTokenId: result.actionTokenId,
-        cryptoShredKeyId: result.userId,
-      };
-      await this.bestEffort.publish(event);
-      this.logger.log(`Published UserInvitedEvent for userId=${result.userId}`);
+      });
     }
 
     return {
@@ -1298,41 +1308,117 @@ export class UserLifecycleService {
    * Send invitation email to new user
    */
   /**
-   * Send invitation email to new user.
-   *
-   * SECURITY (CRITICAL-001/002): Only opaque references are published on the event bus.
-   * PII (email, firstName, lastName, tenantName) and secret URLs are NEVER placed on
-   * the immutable event bus. The notification service resolves user/tenant details
-   * and builds the action URL at delivery time via authenticated internal API calls.
-   *
-   * @param tenant - The tenant the user is being invited to
-   * @param user - The invited user entity
-   * @param invitationToken - Raw invitation token (stored hashed in DB, NOT on event bus)
+   * Fresh invitation secret. 256 random bits are hashed and the raw value is
+   * discarded: nothing e-mails it. The hash is the correlation key between
+   * User.invitationToken, Invitation.token and ActionToken.tokenHash, and the
+   * e-mailed link names the ActionToken row id instead (SEC-HIGH-158).
    */
-  private async sendInvitationEmail(
-    tenant: Tenant,
-    user: User,
-    invitationToken: string,
-  ): Promise<void> {
-    // SECURITY: Hash the invitation token for the opaque actionTokenId reference.
-    // The raw token is NEVER placed on the event bus.
-    const actionTokenHash = crypto.createHash('sha256').update(invitationToken).digest('hex');
+  private newInvitationSecret(): InvitationSecret {
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    return {
+      tokenHash: crypto.createHash('sha256').update(rawToken).digest('hex'),
+      expiresAt: new Date(Date.now() + INVITATION_TTL_MS),
+    };
+  }
 
+  /**
+   * Write the Invitation and ActionToken rows of one invitation on the caller's
+   * transactional manager. The user row is the caller's (its shape differs per
+   * entry point); this is the single place the pair behind an e-mailed link is
+   * minted, so every UserInvited publisher hands the notification service a
+   * row id that InternalAuthController.getActionTokenUrl can look up.
+   *
+   * WHY manager.create/save (not tenantManagerRepo): auth.invitations and
+   * auth.action_tokens are cross-tenant tables whose tenantId is nullable
+   * (platform-scoped rows carry NULL), so they do not satisfy the scoped
+   * repository's TenantEntity constraint; tenantId is bound explicitly below.
+   */
+  private async mintInvitation(
+    manager: EntityManager,
+    params: {
+      user: User;
+      tenantId: string;
+      email: string;
+      firstName: string | null;
+      lastName: string | null;
+      role: Role;
+      moduleIds: string[] | null;
+      primaryModuleId: string | null;
+      message: string | null;
+      invitedBy: string;
+      secret: InvitationSecret;
+      source: 'tenant-admin-invite' | 'tenant-user-create';
+    },
+  ): Promise<{ invitation: Invitation; actionToken: ActionToken }> {
+    const invitation = await manager.save(
+      Invitation,
+      manager.create(Invitation, {
+        token: params.secret.tokenHash,
+        email: params.email,
+        firstName: params.firstName,
+        lastName: params.lastName,
+        role: params.role,
+        tenantId: params.tenantId,
+        moduleIds: params.moduleIds,
+        primaryModuleId: params.primaryModuleId,
+        status: InvitationStatus.PENDING,
+        expiresAt: params.secret.expiresAt,
+        message: params.message,
+        invitedBy: params.invitedBy,
+        sendCount: 1,
+        lastSentAt: new Date(),
+      }),
+    );
+    const actionToken = await manager.save(
+      ActionToken,
+      manager.create(ActionToken, {
+        purpose: ActionTokenPurpose.INVITATION,
+        tenantId: params.tenantId,
+        userId: params.user.id,
+        tokenHash: params.secret.tokenHash,
+        status: ActionTokenStatus.ACTIVE,
+        expiresAt: params.secret.expiresAt,
+        auditMetadata: {
+          source: params.source,
+          invitedBy: params.invitedBy,
+        },
+      }),
+    );
+    return { invitation, actionToken };
+  }
+
+  /**
+   * Publish the UserInvited notification trigger.
+   *
+   * SECURITY (CRITICAL-001/002): only opaque references travel on the event
+   * bus. PII (email, names, tenant name) and secret URLs are NEVER placed on
+   * the immutable event bus; the notification service resolves user/tenant
+   * details and builds the action URL at delivery time via authenticated
+   * internal API calls. `actionTokenId` is the ActionToken ROW ID minted by
+   * mintInvitation — the only value that URL builder can resolve.
+   */
+  private async publishUserInvited(params: {
+    tenantId: string;
+    userId: string;
+    role: string;
+    invitedBy: string;
+    actionTokenId: string;
+  }): Promise<void> {
     const event: UserInvitedEvent = {
-      ...createBaseEvent<UserInvitedEvent>('UserInvited', tenant.id, {
-        aggregateId: user.id,
+      ...createBaseEvent<UserInvitedEvent>('UserInvited', params.tenantId, {
+        aggregateId: params.userId,
         aggregateType: 'User',
       }),
-      userId: user.id,
-      role: user.role,
-      invitedBy: user.invitedBy || undefined,
+      userId: params.userId,
+      role: params.role,
+      invitedBy: params.invitedBy,
       credentialType: 'reset_token',
-      actionTokenId: actionTokenHash,
-      cryptoShredKeyId: user.id,
+      actionTokenId: params.actionTokenId,
+      cryptoShredKeyId: params.userId,
     };
 
     await this.bestEffort.publish(event);
     // SECURITY: Log user ID instead of email to prevent PII exposure in logs (H-14)
-    this.logger.log(`Published UserInvitedEvent for userId=${user.id}`);
+    this.logger.log(`Published UserInvitedEvent for userId=${params.userId}`);
   }
 }

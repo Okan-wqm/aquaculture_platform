@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 
 import { Role } from '@aquaculture/backend-common/decorators';
 import {
@@ -9,23 +9,21 @@ import {
   ForbiddenException,
   Inject,
 } from '@nestjs/common';
-import {
-  USER_TOKEN_REVOCATION,
-  IUserTokenRevocation,
-} from '@aquaculture/backend-common/security';
+import { USER_TOKEN_REVOCATION, IUserTokenRevocation } from '@aquaculture/backend-common/security';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { UserInvitedEvent, createBaseEvent } from '@platform/event-contracts';
 import { Repository, DataSource, EntityManager } from 'typeorm';
 
 import { AuditLogSeverity } from '../../../audit/audit-log.entity';
 import { AuditLogService } from '../../../audit/audit-log.service';
-import { BestEffortEventPublisher } from '../../../outbox/best-effort-event-publisher';
 // WHY: Import AccessType so createTenantUser and updateTenantUser can accept and
 // persist the platform access level chosen by the tenant admin.
 import { LockedAuthContext } from '../../authentication/services/credential-state';
 import { DurableUserTokenInvalidationService, UserTokenInvalidationIntent } from '../../authentication/services/durable-user-token-invalidation.service';
 import { User, AccessType } from '../../authentication/entities/user.entity';
-import { MobileUserSettings, DEFAULT_MOBILE_FEATURES } from '../entities/mobile-user-settings.entity';
+import {
+  MobileUserSettings,
+  DEFAULT_MOBILE_FEATURES,
+} from '../entities/mobile-user-settings.entity';
 import { Tenant } from '../entities/tenant.entity';
 
 import {
@@ -129,10 +127,6 @@ export class TenantUserManagementService {
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly tenantRoleService: TenantRoleService,
-    // DATA-HIGH-001: UserInvited routes through the allowlisted best-effort
-    // path (the invitation row is its durable record). See ORPHAN-HIGH-090 for
-    // the durable upgrade.
-    private readonly bestEffort: BestEffortEventPublisher,
     private readonly auditLogService: AuditLogService,
     // WHY: UserLifecycleService is the single owner of the user-creation
     // pipeline (tenant validation, email uniqueness, invitation-token
@@ -262,13 +256,17 @@ export class TenantUserManagementService {
       user.accessType = input.accessType;
       profileChanged = true;
 
-      const hadMobileAccess = oldAccessType === AccessType.MOBILE_ONLY || oldAccessType === AccessType.BOTH;
-      const hasMobileAccess = input.accessType === AccessType.MOBILE_ONLY || input.accessType === AccessType.BOTH;
+      const hadMobileAccess =
+        oldAccessType === AccessType.MOBILE_ONLY || oldAccessType === AccessType.BOTH;
+      const hasMobileAccess =
+        input.accessType === AccessType.MOBILE_ONLY || input.accessType === AccessType.BOTH;
 
       if (!hadMobileAccess && hasMobileAccess) {
         // WHY: User gained mobile access — auto-provision mobile settings if they don't exist.
         try {
-          const existing = await this.mobileSettingsRepository.findOne({ where: { userId, tenantId } });
+          const existing = await this.mobileSettingsRepository.findOne({
+            where: { userId, tenantId },
+          });
           if (existing) {
             // Re-enable existing settings
             existing.isMobileEnabled = true;
@@ -282,21 +280,31 @@ export class TenantUserManagementService {
             });
             await this.mobileSettingsRepository.save(mobileSettings);
           }
-          this.logger.debug(`Provisioned mobile settings for user ${userId} (accessType -> ${input.accessType})`);
+          this.logger.debug(
+            `Provisioned mobile settings for user ${userId} (accessType -> ${input.accessType})`,
+          );
         } catch (mobileErr) {
-          this.logger.warn(`Failed to provision mobile settings for ${userId}: ${(mobileErr as Error).message}`);
+          this.logger.warn(
+            `Failed to provision mobile settings for ${userId}: ${(mobileErr as Error).message}`,
+          );
         }
       } else if (hadMobileAccess && !hasMobileAccess) {
         // WHY: User lost mobile access — deactivate mobile settings to enforce access restriction.
         try {
-          const existing = await this.mobileSettingsRepository.findOne({ where: { userId, tenantId } });
+          const existing = await this.mobileSettingsRepository.findOne({
+            where: { userId, tenantId },
+          });
           if (existing) {
             existing.isMobileEnabled = false;
             await this.mobileSettingsRepository.save(existing);
-            this.logger.debug(`Deactivated mobile settings for user ${userId} (accessType -> PANEL_ONLY)`);
+            this.logger.debug(
+              `Deactivated mobile settings for user ${userId} (accessType -> PANEL_ONLY)`,
+            );
           }
         } catch (mobileErr) {
-          this.logger.warn(`Failed to deactivate mobile settings for ${userId}: ${(mobileErr as Error).message}`);
+          this.logger.warn(
+            `Failed to deactivate mobile settings for ${userId}: ${(mobileErr as Error).message}`,
+          );
         }
       }
     }
@@ -389,7 +397,9 @@ export class TenantUserManagementService {
               manager,
             );
           });
-          this.logger.log(`Updated role assignment for user ${userId} to role ${newRole.name} in tenant ${tenantId}`);
+          this.logger.log(
+            `Updated role assignment for user ${userId} to role ${newRole.name} in tenant ${tenantId}`,
+          );
           // RBAC-HIGH-001: role changed — revoke live tokens (enforced next request).
 
         }
@@ -411,7 +421,9 @@ export class TenantUserManagementService {
           updatedBy,
           undefined,
         );
-        this.logger.log(`Created role assignment for user ${userId} with role ${newRole.name} in tenant ${tenantId}`);
+        this.logger.log(
+          `Created role assignment for user ${userId} with role ${newRole.name} in tenant ${tenantId}`,
+        );
         // RBAC-HIGH-001: new assignment grants capabilities — revoke stale tokens.
 
       }
@@ -431,11 +443,7 @@ export class TenantUserManagementService {
    * Sets isActive = false, revokes role assignment, and revokes all refresh tokens.
    * This is a "soft delete" — the user record remains but is fully deactivated.
    */
-  async deleteTenantUser(
-    tenantId: string,
-    userId: string,
-    deletedBy: string,
-  ): Promise<boolean> {
+  async deleteTenantUser(tenantId: string, userId: string, deletedBy: string): Promise<boolean> {
     // RBAC-HIGH-002: delegate to the single deletion SSoT. This method previously
     // carried a divergent copy of the deletion logic that did NOT revoke refresh
     // tokens (its docstring claimed it did) — a "deleted" user could still mint
@@ -512,9 +520,7 @@ export class TenantUserManagementService {
     );
     const actorCeiling = actorLevelRows[0]?.level ?? 0;
     if (targetRole.level > actorCeiling) {
-      throw new ForbiddenException(
-        'You cannot grant a role above your own authority level.',
-      );
+      throw new ForbiddenException('You cannot grant a role above your own authority level.');
     }
   }
 
@@ -572,7 +578,7 @@ export class TenantUserManagementService {
 
     if (existingAssignment.length > 0) {
       throw new ConflictException(
-        `User already has an active role assignment. Use updateUserRole to change it.`
+        `User already has an active role assignment. Use updateUserRole to change it.`,
       );
     }
 
@@ -657,7 +663,8 @@ export class TenantUserManagementService {
     // `users:edit_permissions` used to self-grant arbitrary capabilities. Measure
     // the ceiling against the incoming role if it is changing, else the user's
     // current role.
-    const ceilingRole = newRole ?? (await this.tenantRoleService.getRoleById(tenantId, existing.role_id));
+    const ceilingRole =
+      newRole ?? (await this.tenantRoleService.getRoleById(tenantId, existing.role_id));
     if (!ceilingRole) {
       throw new NotFoundException(`No active role assignment found for user ${userId}`);
     }
@@ -837,7 +844,9 @@ export class TenantUserManagementService {
            WHERE ura.user_id = $1 AND ura.is_active = true AND tr.id = ura.role_id AND tr."tenantId" = $2`,
           [userId, tenantId],
         );
-        this.logger.log(`Soft deleted (deactivated) role assignment for user ${userId} in tenant ${tenantId}`);
+        this.logger.log(
+          `Soft deleted (deactivated) role assignment for user ${userId} in tenant ${tenantId}`,
+        );
       }
 
       await this.auditLogService.log(
@@ -962,7 +971,7 @@ export class TenantUserManagementService {
     }
 
     this.logger.log(
-      `Bulk assigned role "${role.name}" to ${result.success.length} users, ${result.failed.length} failed`
+      `Bulk assigned role "${role.name}" to ${result.success.length} users, ${result.failed.length} failed`,
     );
 
     return result;
@@ -1131,7 +1140,10 @@ export class TenantUserManagementService {
       roleIcon: role.icon,
       roleLevel: role.level,
       // Strip the internal validation brand from the client-facing result.
-      permissionOverrides: { grants: permissionOverrides.grants, revokes: permissionOverrides.revokes },
+      permissionOverrides: {
+        grants: permissionOverrides.grants,
+        revokes: permissionOverrides.revokes,
+      },
       panelPermissions: role.permissions?.panelPermissions || {},
       resourcePermissions: role.permissions?.resourcePermissions || [],
       effectivePermissions,
@@ -1140,38 +1152,6 @@ export class TenantUserManagementService {
       assignedAt: new Date(),
       assignedBy,
     };
-  }
-
-  /**
-   * Send invitation email to new user.
-   *
-   * SECURITY (CRITICAL-001/002): Only opaque references are published on the event bus.
-   * PII (email, firstName, lastName, tenantName) and secret URLs are NEVER placed on
-   * the immutable event bus. The notification service resolves user/tenant details
-   * and builds the action URL at delivery time via authenticated internal API calls.
-   */
-  private async sendInvitationEmail(
-    tenant: Tenant,
-    user: User,
-    invitationToken: string,
-  ): Promise<void> {
-    // SECURITY: Hash the invitation token for the opaque actionTokenId reference.
-    // The raw token is NEVER placed on the event bus.
-    const actionTokenHash = createHash('sha256').update(invitationToken).digest('hex');
-
-    const event: UserInvitedEvent = {
-      ...createBaseEvent<UserInvitedEvent>('UserInvited', tenant.id, { aggregateId: user.id, aggregateType: 'User' }),
-      userId: user.id,
-      role: user.role,
-      invitedBy: user.invitedBy || undefined,
-      credentialType: 'reset_token',
-      actionTokenId: actionTokenHash,
-      cryptoShredKeyId: user.id,
-    };
-
-    await this.bestEffort.publish(event);
-    // SECURITY: Log user ID instead of email to prevent PII exposure in logs (H-14)
-    this.logger.log(`Published UserInvitedEvent for userId=${user.id}`);
   }
 
   /**
@@ -1190,9 +1170,7 @@ export class TenantUserManagementService {
   /**
    * Parse permission overrides from JSON or object
    */
-  private parsePermissionOverrides(
-    raw: unknown,
-  ): { grants: string[]; revokes: string[] } {
+  private parsePermissionOverrides(raw: unknown): { grants: string[]; revokes: string[] } {
     // Delegates to the shared SSoT (permission-overrides.util.ts) so the
     // jsonb/string/object normalisation is defined in exactly one place.
     return parsePermissionOverridesSSoT(raw);

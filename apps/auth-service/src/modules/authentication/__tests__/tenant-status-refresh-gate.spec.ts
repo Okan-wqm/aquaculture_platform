@@ -38,6 +38,7 @@ import { RefreshToken } from '../entities/refresh-token.entity';
 import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
 import { User } from '../entities/user.entity';
 import { WebAuthnCredential } from '../entities/webauthn-credential.entity';
+import { ActionTokenResolver } from '../services/action-token-resolver.service';
 import { AuthenticationService } from '../services/authentication.service';
 import { DurableAccessTokenInvalidationService } from '../services/durable-access-token-invalidation.service';
 import { DurableUserTokenInvalidationService } from '../services/durable-user-token-invalidation.service';
@@ -56,6 +57,8 @@ const mockCompare = jest.mocked<(d: string, e: string) => Promise<boolean>>(bcry
 
 const USER_ID = '11111111-1111-4111-8111-111111111111';
 const TENANT_ID = '33333333-3333-4333-8333-333333333333';
+
+const mockOutboxPublisher = { enqueue: jest.fn().mockResolvedValue(undefined) };
 
 describe('AuthenticationService — tenant-status refresh gate (RBAC-HIGH-007)', () => {
   let service: AuthenticationService;
@@ -146,7 +149,7 @@ describe('AuthenticationService — tenant-status refresh gate (RBAC-HIGH-007)',
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthenticationService,
-        { provide: OutboxPublisher, useValue: { enqueue: jest.fn() } },
+        ActionTokenResolver,
         { provide: getRepositoryToken(User), useValue: mockUserRepository },
         { provide: getRepositoryToken(RefreshToken), useValue: buildRefreshTokenRepo() },
         { provide: getRepositoryToken(Invitation), useValue: {} },
@@ -168,6 +171,7 @@ describe('AuthenticationService — tenant-status refresh gate (RBAC-HIGH-007)',
           provide: BestEffortEventPublisher,
           useValue: new BestEffortEventPublisher({ publish: jest.fn() }),
         },
+        { provide: OutboxPublisher, useValue: mockOutboxPublisher },
         { provide: AuditLogService, useValue: { log: jest.fn() } },
         { provide: TokenService, useValue: mockTokenService },
         {

@@ -1,12 +1,3 @@
- 
- 
- 
- 
- 
- 
- 
- 
- 
 import * as crypto from 'crypto';
 
 import { Role } from '@aquaculture/backend-common/decorators';
@@ -37,7 +28,7 @@ const createMockUser = (overrides: Partial<User> = {}): User => {
     firstName: 'Test',
     lastName: 'User',
     role: Role.MODULE_USER,
-    tenantId: 'tenant-uuid-123',
+    tenantId: '11111111-1111-4111-8111-111111111111',
     isActive: true,
     credentialVersion: 1,
     lastUsedTotpStep: null,
@@ -278,7 +269,9 @@ describe('MfaService', () => {
       const unavailableService = await createServiceWithConfig({ NODE_ENV: 'test' });
 
       expect(unavailableService.isMfaAvailable()).toBe(false);
-      expect(unavailableService.getMfaUnavailableReason()).toBe('MFA_ENCRYPTION_KEY is not configured');
+      expect(unavailableService.getMfaUnavailableReason()).toBe(
+        'MFA_ENCRYPTION_KEY is not configured',
+      );
     });
 
     it('derives a development-only key for malformed non-production MFA_ENCRYPTION_KEY', async () => {
@@ -483,9 +476,9 @@ describe('MfaService', () => {
         throw new Error('invalid token');
       });
 
-      await expect(
-        service.verifyMfaLogin('bad-token', '123456'),
-      ).rejects.toThrow(UnauthorizedException);
+      await expect(service.verifyMfaLogin('bad-token', '123456')).rejects.toThrow(
+        UnauthorizedException,
+      );
     });
 
     it('should throw if mfaToken has wrong purpose', async () => {
@@ -495,9 +488,9 @@ describe('MfaService', () => {
         userId: 'user-uuid-123',
       });
 
-      await expect(
-        service.verifyMfaLogin('wrong-purpose-token', '123456'),
-      ).rejects.toThrow(UnauthorizedException);
+      await expect(service.verifyMfaLogin('wrong-purpose-token', '123456')).rejects.toThrow(
+        UnauthorizedException,
+      );
     });
 
     it('SEC-LOW-001(a): rejects an access token replayed at the MFA-verify endpoint', async () => {
@@ -513,9 +506,9 @@ describe('MfaService', () => {
         credential: snapshotCredentialProof(createMockUser()),
       });
 
-      await expect(
-        service.verifyMfaLogin('access-token', '123456'),
-      ).rejects.toThrow(UnauthorizedException);
+      await expect(service.verifyMfaLogin('access-token', '123456')).rejects.toThrow(
+        UnauthorizedException,
+      );
       // Must reject before any token minting.
       expect(mockTokenService.generateTokensInContext).not.toHaveBeenCalled();
     });
@@ -585,9 +578,9 @@ describe('MfaService', () => {
       });
       mockUserRepository.findOne.mockResolvedValue(user);
 
-      await expect(
-        service.verifyMfaLogin('valid-mfa-token', '000000'),
-      ).rejects.toThrow(ForbiddenException);
+      await expect(service.verifyMfaLogin('valid-mfa-token', '000000')).rejects.toThrow(
+        ForbiddenException,
+      );
 
       const savedUser: User = await mockUserRepository.findOne();
       expect(savedUser.mfaLockedUntil).toBeInstanceOf(Date);
@@ -611,9 +604,9 @@ describe('MfaService', () => {
       });
       mockUserRepository.findOne.mockResolvedValue(user);
 
-      await expect(
-        service.verifyMfaLogin('valid-mfa-token', '123456'),
-      ).rejects.toThrow(ForbiddenException);
+      await expect(service.verifyMfaLogin('valid-mfa-token', '123456')).rejects.toThrow(
+        ForbiddenException,
+      );
     });
 
     it('should return full auth tokens on valid TOTP code', async () => {
@@ -772,9 +765,9 @@ describe('MfaService', () => {
       mockUserRepository.findOne.mockResolvedValue(user);
 
       // Supply a code that matches NEITHER the valid hash nor the corrupt entries.
-      await expect(
-        service.verifyMfaLogin('valid-mfa-token', 'WRONG-CODES'),
-      ).rejects.toThrow(UnauthorizedException);
+      await expect(service.verifyMfaLogin('valid-mfa-token', 'WRONG-CODES')).rejects.toThrow(
+        UnauthorizedException,
+      );
       // Crucially it must be the clean no-match path, never a crypto throw.
       expect(mockTokenService.generateTokensInContext).not.toHaveBeenCalled();
     });
@@ -874,19 +867,17 @@ describe('MfaService', () => {
       // corrupt hash that would later throw at verify. Stubbing digest() (not
       // casting types) exercises the exact branch a future regression would hit.
       const realDigest = crypto.Hash.prototype.digest;
-      const digestSpy = jest
-        .spyOn(crypto.Hash.prototype, 'digest')
-        .mockImplementation(function (
-          this: crypto.Hash,
-          encoding?: crypto.BinaryToTextEncoding,
-        ): string {
-          // Only corrupt the hex-string recovery-code hashing; delegate any other
-          // (e.g. encryption-key derivation) digest call to the real impl.
-          if (encoding === 'hex') {
-            return 'not-a-valid-hex-digest';
-          }
-          return realDigest.call(this, encoding ?? 'hex');
-        });
+      const digestSpy = jest.spyOn(crypto.Hash.prototype, 'digest').mockImplementation(function (
+        this: crypto.Hash,
+        encoding?: crypto.BinaryToTextEncoding,
+      ): string {
+        // Only corrupt the hex-string recovery-code hashing; delegate any other
+        // (e.g. encryption-key derivation) digest call to the real impl.
+        if (encoding === 'hex') {
+          return 'not-a-valid-hex-digest';
+        }
+        return realDigest.call(this, encoding ?? 'hex');
+      });
 
       const user = createMockUser();
       mockUserRepository.findOne.mockResolvedValue(user);

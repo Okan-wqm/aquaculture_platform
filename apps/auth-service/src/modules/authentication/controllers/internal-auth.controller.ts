@@ -1,56 +1,66 @@
-import * as crypto from 'crypto';
-
 import { Public } from '@aquaculture/backend-common/decorators';
+import { BypassRlsService } from '@aquaculture/backend-common/database';
+import { requestContextStorage, getRequestContext } from '@aquaculture/backend-common/logging';
 import type { TenantRequest } from '@aquaculture/backend-common/types';
-import {
-  Controller,
-  ForbiddenException,
-  Get,
-  NotFoundException,
-  Param,
-  Req,
-} from '@nestjs/common';
+import { Controller, ForbiddenException, Get, NotFoundException, Param, Req } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import {
+  InvalidEventTenantScopeError,
+  PLATFORM_SCOPE,
+  tenantScopeOf,
+  type EventTenantScope,
+} from '@platform/event-contracts';
+import { IsNull, Repository } from 'typeorm';
 
 import { parseFrontendUrl } from '../../../config/frontend-url';
 import { Tenant } from '../../tenant/entities/tenant.entity';
-import { ActionToken, ActionTokenPurpose, ActionTokenStatus } from '../entities/action-token.entity';
-import { Invitation, InvitationStatus } from '../entities/invitation.entity';
-import { LockedAuthContext, snapshotCredentialProof } from '../services/credential-state';
+import { ActionToken, ActionTokenStatus } from '../entities/action-token.entity';
 import { User } from '../entities/user.entity';
+import { ActionTokenResolver } from '../services/action-token-resolver.service';
 
 @Public()
 @Controller('internal')
 export class InternalAuthController {
+  /**
+   * DEPLOY-HIGH-016: parsed once at construction so a deployment without a
+   * valid FRONTEND_URL fails at boot, not at the first e-mail.
+   */
+  private readonly frontendUrl: string;
+
   constructor(
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
     @InjectRepository(Tenant)
     private readonly tenantRepository: Repository<Tenant>,
-    @InjectRepository(Invitation)
-    private readonly invitationRepository: Repository<Invitation>,
     @InjectRepository(ActionToken)
     private readonly actionTokenRepository: Repository<ActionToken>,
-    private readonly configService: ConfigService,
+    configService: ConfigService,
+    private readonly actionTokenResolver: ActionTokenResolver,
+    private readonly bypassRls: BypassRlsService,
   ) {
     // DEPLOY-HIGH-016: resolved once, at boot. Reading it per request meant a
     // misconfigured deployment surfaced as a wrong link in somebody's inbox
     // rather than as a service that refuses to start.
-    this.frontendOrigin = parseFrontendUrl(this.configService);
+    this.frontendUrl = parseFrontendUrl(configService);
   }
-
-  private readonly frontendOrigin: string;
 
   @Get('users/:userId/pii')
   async getUserPii(
     @Param('userId') userId: string,
     @Req() request: TenantRequest,
   ): Promise<{ email: string; firstName?: string; lastName?: string }> {
-    const tenantId = this.requireNotificationService(request);
+    const scope = this.requireNotificationService(request);
     const user = await this.userRepository.findOne({ where: { id: userId } });
-    if (!user || user.tenantId !== tenantId) {
+    // SEC-HIGH-159: a tenant-bound caller sees only its tenant's users; a
+    // platform-scoped caller sees only platform principals (super admins with
+    // no tenant). Neither can read across the boundary.
+    const visible =
+      user !== null &&
+      (scope.kind === 'tenant'
+        ? user.tenantId === scope.tenantId
+        : (user.tenantId === null || user.tenantId === undefined) && user.isSuperAdmin());
+    if (!user || !visible) {
       throw new NotFoundException('User not found');
     }
 
@@ -66,6 +76,7 @@ export class InternalAuthController {
     @Param('tenantId') tenantId: string,
     @Req() request: TenantRequest,
   ): Promise<{ name: string }> {
+    // A platform-scoped call has no tenant to describe; the binding must match.
     this.requireNotificationService(request, tenantId);
     const tenant = await this.tenantRepository.findOne({ where: { id: tenantId } });
     if (!tenant) {
@@ -79,120 +90,80 @@ export class InternalAuthController {
     @Param('actionTokenId') actionTokenId: string,
     @Req() request: TenantRequest,
   ): Promise<{ actionUrl: string }> {
-    const tenantId = this.requireNotificationService(request);
-    const actionToken = await this.actionTokenRepository.findOne({
-      where: { id: actionTokenId, tenantId, status: ActionTokenStatus.ACTIVE },
+    const scope = this.requireNotificationService(request);
+    // SEC-HIGH-158: the link carries the ActionToken row id and nothing else.
+    // The legacy branch that treated this id as a token HASH and rotated a
+    // fresh raw token into the URL is gone: every producer now mints an
+    // ActionToken row (tenant provisioning, admin invite, createUser, password
+    // reset), and the resolver on the redemption side reads that id back.
+    // SEC-HIGH-159: the lookup is bound to the caller's scope — a tenant's
+    // rows for a tenant-bound caller, NULL-tenant rows (a super admin's
+    // reset) for a platform-scoped caller. A token can never be resolved
+    // from the wrong side.
+    const lookup = (): Promise<ActionToken | null> => this.actionTokenRepository.findOne({
+      where: {
+        id: actionTokenId,
+        tenantId: scope.kind === 'tenant' ? scope.tenantId : IsNull(),
+        status: ActionTokenStatus.ACTIVE,
+      },
     });
+    // The HMAC-verified notification scope must reach the connection before
+    // checkout. A NULL-tenant action cannot satisfy tenant RLS without the
+    // explicitly authorized platform frame; the query still binds tenantId.
+    const actionToken = await requestContextStorage.run({ ...getRequestContext(),
+      tenantId: scope.kind === 'tenant' ? scope.tenantId : undefined, bypassRls: false }, () =>
+      scope.kind === 'platform'
+        ? this.bypassRls.withBypass('auth-service:notification-platform-action-url', lookup)
+        : lookup());
 
-    if (actionToken) {
-      if (!actionToken.isActive()) {
-        throw new NotFoundException('Action token not found');
-      }
-
-      return {
-        actionUrl: `${this.frontendOrigin}/${this.actionPath(actionToken.purpose)}/${actionToken.id}`,
-      };
-    }
-
-    const user = await this.userRepository.findOne({
-      where: [
-        { tenantId, invitationToken: actionTokenId },
-        { tenantId, passwordResetToken: actionTokenId },
-      ],
-    });
-
-    if (!user) {
+    if (!actionToken || !actionToken.isActive()) {
       throw new NotFoundException('Action token not found');
     }
 
-    if (user.invitationToken === actionTokenId) {
-      const rawToken = await this.rotateInvitationToken(user, actionTokenId);
-      return { actionUrl: `${this.frontendOrigin}/accept-invitation/${rawToken}` };
-    }
-
-    if (user.passwordResetToken === actionTokenId) {
-      const rawToken = await this.rotatePasswordResetToken(user);
-      return { actionUrl: `${this.frontendOrigin}/reset-password/${rawToken}` };
-    }
-
-    throw new NotFoundException('Action token not found');
+    return {
+      actionUrl: this.actionTokenResolver.buildActionUrl(this.frontendUrl, actionToken),
+    };
   }
 
+  /**
+   * The caller's tenancy scope, from the HMAC-verified internal identity.
+   *
+   * SEC-HIGH-159: the signed identity binds either a tenant id or the explicit
+   * non-tenant opt-out (`tenantId: ''`, see signedFetch). The empty binding is
+   * the PLATFORM scope — the notification service resolving a super admin's
+   * recovery e-mail — not a missing binding. Anything that is neither a UUID
+   * nor empty is refused: the signature layer never admits it, so seeing it
+   * here means a forged or corrupted identity. When the route names a tenant
+   * (`expectedTenantId`) the caller must be bound to exactly that tenant; a
+   * platform-scoped caller has no tenant to describe.
+   */
   private requireNotificationService(
     request: TenantRequest,
     expectedTenantId?: string,
-  ): string {
+  ): EventTenantScope {
     const identity = request.verifiedIdentity;
     if (!identity || identity.serviceName !== 'notification-service') {
       throw new ForbiddenException('Internal notification service identity is required');
     }
 
-    const tenantId = identity.tenantId;
-    if (!tenantId) {
-      throw new ForbiddenException('Tenant-bound internal request is required');
-    }
-    if (expectedTenantId && tenantId !== expectedTenantId) {
-      throw new ForbiddenException('Tenant binding does not match request path');
-    }
-    return tenantId;
-  }
-
-  private async rotateInvitationToken(
-    user: User,
-    currentTokenHash: string,
-  ): Promise<string> {
-    if (!user.tenantId) {
-      throw new NotFoundException('Action token not found');
-    }
-
-    const rawToken = crypto.randomBytes(32).toString('hex');
-    const tokenHash = this.hashToken(rawToken);
-    const expiresAt = user.invitationExpiresAt ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-
-    await this.userRepository.manager.transaction(async (manager) => {
-      const context = await LockedAuthContext.lock(manager, snapshotCredentialProof(user));
-      if (context.user.invitationToken !== currentTokenHash) throw new NotFoundException('Action token not found');
-      const invitation = await manager.findOne(Invitation, {
-        where: { token: currentTokenHash, tenantId: user.tenantId ?? undefined }, lock: { mode: 'pessimistic_write' },
-      });
-      if (!invitation || !invitation.canBeAccepted()) throw new NotFoundException('Action token not found');
-      await manager.update(User, { id: user.id }, { invitationToken: tokenHash, invitationExpiresAt: expiresAt });
-      await manager.update(Invitation, { id: invitation.id }, {
-        token: tokenHash, status: InvitationStatus.PENDING, expiresAt,
-        lastSentAt: new Date(), sendCount: invitation.sendCount + 1,
-      });
-    });
-
-    return rawToken;
-  }
-
-  private async rotatePasswordResetToken(user: User): Promise<string> {
-    const rawToken = crypto.randomBytes(32).toString('hex');
-    await this.userRepository.manager.transaction(async (manager) => {
-      const context = await LockedAuthContext.lock(manager, snapshotCredentialProof(user));
-      if (context.user.passwordResetToken !== user.passwordResetToken ||
-          !context.user.passwordResetExpires || context.user.passwordResetExpires.getTime() <= Date.now()) {
-        throw new NotFoundException('Action token not found');
+    let scope: EventTenantScope;
+    try {
+      scope = identity.tenantId === '' ? PLATFORM_SCOPE : tenantScopeOf(identity.tenantId);
+    } catch (error) {
+      if (error instanceof InvalidEventTenantScopeError) {
+        throw new ForbiddenException('Tenant binding is not a tenant id');
       }
-      await manager.update(User, { id: user.id }, { passwordResetToken: this.hashToken(rawToken),
-        passwordResetExpires: context.user.passwordResetExpires });
-    });
-    return rawToken;
-  }
-
-  private hashToken(rawToken: string): string {
-    return crypto.createHash('sha256').update(rawToken).digest('hex');
-  }
-
-  private actionPath(purpose: ActionTokenPurpose): string {
-    switch (purpose) {
-      case ActionTokenPurpose.INVITATION:
-        return 'accept-invitation';
-      case ActionTokenPurpose.PASSWORD_RESET:
-        return 'reset-password';
-      default:
-        throw new NotFoundException('Action token not found');
+      throw error;
     }
-  }
 
+    if (expectedTenantId !== undefined) {
+      if (scope.kind !== 'tenant') {
+        throw new ForbiddenException('Tenant-bound internal request is required');
+      }
+      if (scope.tenantId !== expectedTenantId) {
+        throw new ForbiddenException('Tenant binding does not match request path');
+      }
+    }
+    return scope;
+  }
 }

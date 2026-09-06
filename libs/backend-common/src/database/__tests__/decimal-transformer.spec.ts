@@ -11,7 +11,7 @@
  * failure looked like an entity/migration mismatch and was neither — both
  * declared the default correctly.
  */
-import { DecimalTransformer } from '../decimal-transformer';
+import { DecimalTransformer, numberOrUndefined } from '../decimal-transformer';
 
 describe('DecimalTransformer', () => {
   const transformer = new DecimalTransformer();
@@ -54,6 +54,34 @@ describe('DecimalTransformer', () => {
 
     it('reads an unparseable value as null rather than NaN', () => {
       expect(transformer.from('not-a-number')).toBeNull();
+    });
+  });
+
+  describe('numberOrUndefined() — mapping a read onto a response field', () => {
+    it('keeps a measured zero, which a truthiness guard drops', () => {
+      // The whole reason this helper exists: `v ? Number(v) : undefined` reports
+      // a batch that did not grow, and a tank filled to the rim, as unmeasured.
+      expect(numberOrUndefined(0)).toBe(0);
+      expect(numberOrUndefined('0')).toBe(0);
+      expect(numberOrUndefined('0.00')).toBe(0);
+    });
+
+    it.each([null, undefined])('maps %p — the schema\'s "unset" — to undefined', (value) => {
+      expect(numberOrUndefined(value)).toBeUndefined();
+    });
+
+    it('coerces the string PostgreSQL returns, and keeps the sign', () => {
+      expect(numberOrUndefined('1.50')).toBe(1.5);
+      expect(numberOrUndefined(-3)).toBe(-3);
+      expect(numberOrUndefined('-0.25')).toBe(-0.25);
+    });
+
+    it('round-trips what the transformer read', () => {
+      // from() is the producer of the value this helper consumes, so the two
+      // agree by construction rather than by coincidence.
+      expect(numberOrUndefined(transformer.from('0.00'))).toBe(0);
+      expect(numberOrUndefined(transformer.from(null))).toBeUndefined();
+      expect(numberOrUndefined(transformer.from('12.5'))).toBe(12.5);
     });
   });
 });

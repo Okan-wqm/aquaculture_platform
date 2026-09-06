@@ -4,6 +4,8 @@ import { join } from 'node:path';
 
 import { hashPassword } from '@aquaculture/backend-common/auth';
 import { Role } from '@aquaculture/backend-common/decorators';
+import type { TenantRequest } from '@aquaculture/backend-common/types';
+import { stub } from '@platform/testing';
 import { bootPostgresContainer, HarnessContext, shutdownHarness } from '@platform/migration-harness';
 import { DataSource, EntityManager, FindOneOptions, QueryRunner, Repository, ObjectLiteral } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
@@ -22,6 +24,8 @@ import { AuditLog } from '../../audit/audit-log.entity';
 import { AuthOutbox } from '../../outbox/auth-outbox.entity';
 import { BestEffortEventPublisher } from '../../outbox/best-effort-event-publisher';
 import { AuthenticationService } from '../../modules/authentication/services/authentication.service';
+import { ActionTokenResolver } from '../../modules/authentication/services/action-token-resolver.service';
+import { InternalAuthController } from '../../modules/authentication/controllers/internal-auth.controller';
 import { AccountService } from '../../modules/authentication/services/account.service';
 import { MfaService } from '../../modules/authentication/services/mfa.service';
 import { DurableAccessTokenInvalidationService } from '../../modules/authentication/services/durable-access-token-invalidation.service';
@@ -200,6 +204,8 @@ describe.each(['fresh', 'populated'] as const)('authentication state: %s databas
   async function authenticationStack(hashed: boolean, maxSessions = 3): Promise<{
     authentication: AuthenticationService;
     account: AccountService;
+    internal: InternalAuthController;
+    outbox: OutboxPublisher;
     tokens: TokenService;
     jwt: JwtService;
     audit: AuditLogService;
@@ -212,7 +218,7 @@ describe.each(['fresh', 'populated'] as const)('authentication state: %s databas
       publicKeyEncoding: { type: 'spki', format: 'pem' },
       privateKeyEncoding: { type: 'pkcs8', format: 'pem' } });
     const config = new ConfigService({ HASH_REFRESH_TOKENS: hashed, MIN_LOGIN_DURATION_MS: 0,
-      MAX_SESSIONS_PER_USER: maxSessions,
+      MAX_SESSIONS_PER_USER: maxSessions, FRONTEND_URL: 'https://app.example.test',
       JWT_PRIVATE_KEY: keyPair.privateKey, JWT_PUBLIC_KEY: keyPair.publicKey,
       JWT_KEY_ID: 'authentication-contract', JWT_EXPIRES_IN: '15m', MFA_ENCRYPTION_KEY: '11'.repeat(32),
       JWT_AUDIENCE: 'aquaculture-platform', JWT_ISSUER: 'aquaculture-platform' });
@@ -222,7 +228,7 @@ describe.each(['fresh', 'populated'] as const)('authentication state: %s databas
     const repositories = [User, Tenant, RefreshToken, WebAuthnCredential, UserModuleAssignment,
       UserSiteAssignment, Module, MobileUserSettings, ActionToken, Invitation, AuditLog];
     const module = await Test.createTestingModule({ providers: [
-      AuthenticationService, AccountService, TokenService, AuditLogService, MobileSettingsService, MfaService,
+      AuthenticationService, AccountService, InternalAuthController, TokenService, AuditLogService, MobileSettingsService, MfaService, ActionTokenResolver,
       DurableUserTokenInvalidationService, DurableAccessTokenInvalidationService, BypassRlsService, TenantProvisioningCommandService,
       ...repositories.map((entity) => ({ provide: getRepositoryToken(entity), useValue: new Repository<ObjectLiteral>(entity, orm.manager) })),
       { provide: DataSource, useValue: orm }, { provide: ConfigService, useValue: config },
@@ -233,7 +239,8 @@ describe.each(['fresh', 'populated'] as const)('authentication state: %s databas
       // Deliberately stale Redis projection: only the durable row knows about a reset.
       { provide: USER_TOKEN_REVOCATION, useValue: { isTokenValid: jest.fn().mockResolvedValue(true), revokeUserTokens: jest.fn() } },
     ] }).compile();
-    return { authentication: module.get(AuthenticationService), account: module.get(AccountService), tokens: module.get(TokenService),
+    return { authentication: module.get(AuthenticationService), account: module.get(AccountService),
+      internal: module.get(InternalAuthController), outbox: module.get(OutboxPublisher), tokens: module.get(TokenService),
       jwt, audit: module.get(AuditLogService), invalidation: module.get(DurableUserTokenInvalidationService),
       accessInvalidation: module.get(DurableAccessTokenInvalidationService),
       lifecycle: module.get(TenantProvisioningCommandService), mfa: module.get(MfaService) };
@@ -375,17 +382,50 @@ describe.each(['fresh', 'populated'] as const)('authentication state: %s databas
       [user.id, 'PASSWORD_CHANGED'])).toHaveLength(1);
   });
 
-  it('persists a public tenant password-reset request with the canonical pre-auth RLS frame', async () => {
-    const user = await principal(Role.TENANT_ADMIN);
-    const { authentication } = await authenticationStack(false);
+  function notificationRequest(tenantId: string | null): TenantRequest {
+    return stub<TenantRequest>({ verifiedIdentity: { serviceName: 'notification-service',
+      tenantId: tenantId ?? '', effectiveTenantId: tenantId ?? '', keyId: 'contract',
+      audience: 'auth-service', nonce: randomUUID(), version: 'v2' } });
+  }
+
+  it.each([Role.TENANT_ADMIN, Role.SUPER_ADMIN])('persists %s recovery and resolves its emailed action under canonical RLS', async (role) => {
+    const user = await principal(role);
+    const { authentication, internal } = await authenticationStack(false);
     await authentication.initiatePasswordReset(user.email);
     const actions = await migrator.query<Array<{ id: string }>>(
       'SELECT id FROM auth.action_tokens WHERE "userId" = $1 AND status = $2', [user.id, ActionTokenStatus.ACTIVE]);
     expect(actions).toHaveLength(1);
     const action = actions[0];
     if (!action) throw new Error('Reset request did not persist its action');
+    const events = await orm.manager.find(AuthOutbox, { where: { aggregateId: user.id, eventType: 'PasswordResetRequested' } });
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ tenantId: user.tenantId, payload: {
+      tenantId: user.tenantId ?? 'system', userId: user.id, actionTokenId: action.id,
+    } });
+    // The signed notification identity is already verified at this controller
+    // boundary; its tenant/platform binding must establish RLS before checkout.
+    await expect(internal.getActionTokenUrl(action.id, notificationRequest(user.tenantId)))
+      .resolves.toEqual({ actionUrl: `https://app.example.test/reset-password/${action.id}` });
+    await expect(internal.getActionTokenUrl(action.id, notificationRequest(randomUUID()))).rejects.toThrow();
+    if (user.tenantId) {
+      await expect(internal.getActionTokenUrl(action.id, notificationRequest(null))).rejects.toThrow();
+    }
+    expect(await orm.manager.count(ActionToken, { where: { userId: user.id } })).toBe(0);
     await expect(authentication.resetPassword(action.id, 'Recovered-Credential-73!'))
       .resolves.toEqual({ success: true, loginRequired: true });
+    await expect(internal.getActionTokenUrl(action.id, notificationRequest(user.tenantId))).rejects.toThrow();
+  });
+
+  it('rolls back the platform recovery credential when its durable delivery event cannot be appended', async () => {
+    const user = await principal(Role.SUPER_ADMIN);
+    const { authentication, outbox } = await authenticationStack(false);
+    const failure = jest.spyOn(outbox, 'enqueue').mockRejectedValueOnce(new Error('Recovery delivery unavailable'));
+    // The public response remains non-enumerating even when persistence fails.
+    await authentication.initiatePasswordReset(user.email);
+    expect((await orm.manager.findOneByOrFail(User, { id: user.id })).passwordResetToken).toBeNull();
+    expect(await migrator.query('SELECT id FROM auth.action_tokens WHERE "userId" = $1', [user.id])).toHaveLength(0);
+    expect(await orm.manager.find(AuthOutbox, { where: { aggregateId: user.id } })).toHaveLength(0);
+    failure.mockRestore();
   });
 
   it('rolls back the actual refresh INSERT and successful-login bookkeeping when the audit append fails', async () => {

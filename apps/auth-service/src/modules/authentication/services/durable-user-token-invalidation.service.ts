@@ -6,10 +6,11 @@ import {
 import { Inject, Injectable } from '@nestjs/common';
 import {
   createBaseEvent,
+  tenantScopeOf,
   type UserAccessTokenInvalidationReason,
   type UserAccessTokenInvalidationRequestedEvent,
 } from '@platform/event-contracts';
-import { OUTBOX_SYSTEM_TENANT_ID, OutboxPublisher } from '@platform/outbox';
+import { OutboxPublisher } from '@platform/outbox';
 import { EntityManager } from 'typeorm';
 
 export interface UserTokenInvalidationIntent {
@@ -43,12 +44,12 @@ export class DurableUserTokenInvalidationService {
       GREATEST("accessTokenInvalidBeforeEpochSeconds", $2) WHERE id = $1`,
       [intent.userId, userInvalidationEpochFromDate(intent.invalidatedAt)],
     );
-    const systemRouted = intent.tenantId === null;
-    const eventTenantId = intent.tenantId ?? OUTBOX_SYSTEM_TENANT_ID;
+    const scope = tenantScopeOf(intent.tenantId);
+    const systemRouted = scope.kind === 'platform';
     const event: UserAccessTokenInvalidationRequestedEvent = {
       ...createBaseEvent<UserAccessTokenInvalidationRequestedEvent>(
         'UserAccessTokenInvalidationRequested',
-        eventTenantId,
+        scope,
         {
           aggregateId: intent.userId,
           aggregateType: 'User',

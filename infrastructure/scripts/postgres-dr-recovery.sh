@@ -3,6 +3,32 @@
 # The original named volume is retained; only a separately verified baseline
 # may replace its bytes while every recorded writer remains stopped.
 
+dr_cluster_copy_bytes() {
+  [ "$#" -eq 1 ] || return 64
+  local allocated apparent
+  allocated=$(timeout 30 du -sx --block-size=1 "$1" | awk '{print $1}') || return
+  apparent=$(timeout 30 du -sx --apparent-size --block-size=1 "$1" | awk '{print $1}') || return
+  [[ "${allocated}" =~ ^[0-9]{1,16}$ ]] && [[ "${apparent}" =~ ^[0-9]{1,16}$ ]] || return 65
+  # Capacity must remain sufficient on filesystems without reflinks and when
+  # sparse source files become fully allocated by the copy operation.
+  if [ "${allocated}" -ge "${apparent}" ]; then printf '%s' "${allocated}"; else printf '%s' "${apparent}"; fi
+}
+
+dr_require_copy_capacity() {
+  [ "$#" -eq 3 ] || return 64
+  local source=$1 copies=$2 destination=$3
+  local source_bytes available_bytes required_bytes
+  case "${copies}" in 1|3) ;; *) return 64 ;; esac
+  source_bytes=$(dr_cluster_copy_bytes "${source}") || return
+  available_bytes=$(df --output=avail -B1 "${destination}" | tail -1 | tr -d ' ') || return
+  [[ "${available_bytes}" =~ ^[0-9]{1,16}$ ]] || return 65
+  required_bytes=$((source_bytes * copies + source_bytes / 5 + 1073741824))
+  if [ "${available_bytes}" -lt "${required_bytes}" ]; then
+    printf 'Recovery capacity refused: need %s free bytes for %s copies; found %s.\n' "${required_bytes}" "${copies}" "${available_bytes}" >&2
+    return 65
+  fi
+}
+
 dr_copy_cluster() {
   [ "$#" -eq 2 ] || return 64
   local source=$1 destination=$2
@@ -80,17 +106,16 @@ prepare_postgres_recovery_point() {
   esac
   [ "$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql/data"}}{{.Type}} {{.Name}}{{end}}{{end}}' "${observed_container}")" = \
     "volume ${data_volume}" ] || return 65
-  # Reserve two complete copies before quiescing writers. A failed capacity
-  # admission leaves the observed runtime untouched.
+  # Peak allocation is live/failed-forward + cold point + retained probe +
+  # restored PGDATA: three additional complete copies beyond the live cluster.
+  # A failed capacity admission leaves the observed runtime untouched.
   source_path=$(docker volume inspect --format '{{.Mountpoint}}' "${data_volume}") || return
-  local source_bytes available_bytes required_bytes
-  source_bytes=$(timeout 30 du -sx --block-size=1 "${source_path}" | awk '{print $1}') || return
-  available_bytes=$(df --output=avail -B1 "${source_path}" | tail -1 | tr -d ' ') || return
-  [[ "${source_bytes}" =~ ^[0-9]+$ ]] && [[ "${available_bytes}" =~ ^[0-9]+$ ]] || return 65
-  required_bytes=$((source_bytes * 2 + source_bytes / 5 + 1073741824))
-  [ "${available_bytes}" -ge "${required_bytes}" ] || return 65
   [ ! -L "${private_root}" ] || return 65
-  install -d -m 0700 "${private_root}"
+  install -d -m 0700 "${private_root}" || return
+  # Failed-forward retention uses rename, so all managed recovery allocations
+  # must share one filesystem. Split-storage layouts need their own allocator.
+  [ "$(stat -c '%d' "${source_path}")" = "$(stat -c '%d' "${private_root}")" ] || return 65
+  dr_require_copy_capacity "${source_path}" 3 "${source_path}" || return
   if [ ! -f "${private_root}/observed-container.json" ]; then
     docker inspect "${observed_container}" > "${private_root}/.observed-container.json" || return
     chmod 0400 "${private_root}/.observed-container.json"
@@ -115,6 +140,8 @@ prepare_postgres_recovery_point() {
   source_path=$(docker volume inspect --format '{{.Mountpoint}}' "${data_volume}") || return
   snapshot_path=$(docker volume inspect --format '{{.Mountpoint}}' "${snapshot_volume}") || return
   probe_path=$(docker volume inspect --format '{{.Mountpoint}}' "${probe_volume}") || return
+  [ "$(stat -c '%d' "${source_path}")" = "$(stat -c '%d' "${snapshot_path}")" ] || return 65
+  [ "$(stat -c '%d' "${source_path}")" = "$(stat -c '%d' "${probe_path}")" ] || return 65
   # Only VERIFYING may rebuild incomplete copies; original PGDATA has not yet
   # entered a forward write phase. Names are bound to this signed run attempt.
   [ "$(dr_state_phase "${STATE_PATH}")" = VERIFYING ] || return 65
@@ -185,13 +212,19 @@ restore_postgres_recovery_point() {
   local private_root="/var/lib/aqua/deploy/dr-recovery/${RUN_KEY}"
   snapshot_path=$(docker volume inspect --format '{{.Mountpoint}}' "$(jq -r '.snapshot_volume' "${point}")") || return
   [ "$(dr_cluster_digest "${snapshot_path}")" = "$(jq -r '.snapshot_sha256' "${point}")" ] || return 65
+  data_path=$(docker volume inspect --format '{{.Mountpoint}}' aqua-saas_postgres_data) || return
+  [ "$(stat -c '%d' "${data_path}")" = "$(stat -c '%d' "${private_root}")" ] || return 65
+  [ "$(stat -c '%d' "${data_path}")" = "$(stat -c '%d' "${snapshot_path}")" ] || return 65
+  # Each retry retains the last failed-forward cluster. Recheck the next full
+  # copy before stopping/moving anything; prior admission cannot cover an
+  # unbounded number of retained rollback attempts or unrelated disk growth.
+  dr_require_copy_capacity "${snapshot_path}" 1 "${data_path}" || return
   docker stop --time 120 aqua-postgres >/dev/null || return
   [ "$(docker inspect --format '{{.State.Running}}' aqua-postgres)" = false ] || return 65
   local writer
   while IFS= read -r writer; do
     [ "$(docker inspect --format '{{.State.Running}}' "${writer}")" = false ] || return 65
   done < "${private_root}/writers"
-  data_path=$(docker volume inspect --format '{{.Mountpoint}}' aqua-saas_postgres_data) || return
   # Keep the failed-forward bytes as a separate recovery artifact, including
   # across a repeated rollback. Never delete the authoritative cold point.
   local failed_copy

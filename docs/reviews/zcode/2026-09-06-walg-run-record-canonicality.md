@@ -52,6 +52,10 @@ added strictness did not narrow what legitimate records are accepted. The accept
 asserted inside the tampering case itself, so a fixture that stopped being valid could not make
 the rejections vacuous.
 
-**Not in this slice.** The branch's raw-artifact digest binding, evidence lifecycle validation and
-mirror publication separation depend on `backup-production.yml`, which is one of the conflicting
-files; they land with the workflow-wiring slice.
+**Not in this slice — tracked as INFRA-HIGH-163** (owner: infra-expert, deadline 2026-10-04). The
+branch's raw-artifact digest binding, evidence lifecycle validation and mirror publication
+separation depend on `backup-production.yml`, one of the conflicting files. That is the live
+production backup path: landing a verification change there without a real PITR rehearsal risks
+evidence that looks verified and is not, which is the worst failure class in a backup chain. It is
+blocked on a rehearsal window with droplet access, WAL-G storage and credentials — none of which a
+review session has.

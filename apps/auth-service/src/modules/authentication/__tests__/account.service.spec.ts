@@ -23,7 +23,7 @@ const createUser = (overrides: Partial<User> = {}): User => {
     firstName: 'Ada',
     lastName: 'Lovelace',
     role: Role.MODULE_USER,
-    tenantId: 'tenant-1',
+    tenantId: '11111111-1111-4111-8111-111111111111',
     isActive: true,
     credentialVersion: 1,
     accessTokenInvalidBeforeEpochSeconds: 0,
@@ -199,7 +199,7 @@ describe('AccountService', () => {
       transactionManager,
       expect.objectContaining({
         userId: 'user-1',
-        tenantId: 'tenant-1',
+        tenantId: '11111111-1111-4111-8111-111111111111',
         invalidatedAt: expect.any(Date),
         reason: 'password_changed',
       }),

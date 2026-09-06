@@ -5,6 +5,7 @@ import { useAuth } from './useAuth';
 import { useNetworkStatus } from './useNetworkStatus';
 
 import { REQUEST_MEDIA_UPLOAD, SEND_MESSAGE } from '@/graphql/messaging-operations';
+import { GraphQLReplayError } from '@/pwa/graphql-replay-error';
 import {
   queueOperation,
   getPendingOperations,
@@ -14,7 +15,7 @@ import {
   removeOperation,
   getPendingBlob,
   removePendingBlob,
-  MAX_RETRY_COUNT,
+  isPermanentlyFailed,
 } from '@/pwa/offline-queue';
 import {
   OPERATION_MUTATIONS,
@@ -28,9 +29,10 @@ import type {
   OperationType,
   OperationPayload,
   AddToQueueResult,
+  QueuedPayload,
   UploadAndSendMessageOfflinePayload,
 } from '@/types';
-import type { MediaUploadResponse } from '@/types/messaging';
+import { readGraphQLResponse } from '@/utils/graphql-response';
 import { recordLastSyncAt } from '@/utils/last-sync';
 import { logger } from '@/utils/logger';
 import { applyOptimisticKpiBump } from '@/utils/offline-optimistic';
@@ -58,7 +60,11 @@ interface OfflineContextValue {
   isOnline: boolean;
   isSyncing: boolean;
   syncError: string | null;
-  addToQueue: (type: OperationType, payload: OperationPayload, clientCommandId?: string) => Promise<AddToQueueResult>;
+  addToQueue: <K extends OperationType>(
+    type: K,
+    payload: QueuedPayload<K>,
+    clientCommandId?: string,
+  ) => Promise<AddToQueueResult>;
   syncNow: () => Promise<SyncResult>;
   removeFromQueue: (id: string) => Promise<void>;
   getSyncStatus: (id: string) => SyncStatus;
@@ -97,7 +103,7 @@ async function replayUploadAndSendMessage(
   }
 
   // Step 1: presigned PUT URL.
-  const presign = await graphqlRequest<{ requestMediaUpload: MediaUploadResponse }>(
+  const presign = await graphqlRequest(
     REQUEST_MEDIA_UPLOAD,
     {
       input: {
@@ -122,7 +128,7 @@ async function replayUploadAndSendMessage(
 
   // Step 3: send the message referencing the uploaded object. The stable
   // idempotencyKey makes this safe to retry after a lost response.
-  const sent = await graphqlRequest<{ sendMessage: { id: string } }>(SEND_MESSAGE, {
+  const sent = await graphqlRequest(SEND_MESSAGE, {
     input: {
       channelId: payload.channelId,
       content: null,
@@ -228,7 +234,11 @@ export function OfflineProvider({ children }: { children: ReactNode }): ReactEle
     // this offline fallback, so the server dedups an online-fail-then-queue
     // retry. Omitted by pure-offline-first callers, which mint a fresh id inside
     // queueOperation as before.
-    async (type: OperationType, payload: OperationPayload, clientCommandId?: string): Promise<AddToQueueResult> => {
+    async <K extends OperationType>(
+      type: K,
+      payload: QueuedPayload<K>,
+      clientCommandId?: string,
+    ): Promise<AddToQueueResult> => {
       // SECURITY (C11): tenantId is required -- reject if not authenticated
       if (!tenantId) {
         throw new Error('Cannot queue operations without an active tenant');
@@ -245,9 +255,18 @@ export function OfflineProvider({ children }: { children: ReactNode }): ReactEle
         applyOptimisticKpiBump(queryClient, tenantId, type, payload);
       }
       await refreshQueue();
+      // MOB-CRITICAL-021: an online enqueue drains NOW. The queue-version effect
+      // below still arms its 1 s safety-net timer, but a worker who taps
+      // "Record" on a live connection must see the badge turn "Confirmed" —
+      // not sit on "Queued" until the success screen navigates away. syncNow
+      // is serialised by isSyncingRef, so the timer's later call is a no-op
+      // when this drain is still running or already finished.
+      if (isOnline && result.status === 'queued') {
+        void syncNowRef.current();
+      }
       return result;
     },
-    [refreshQueue, accessToken, tenantId, user, queryClient]
+    [refreshQueue, accessToken, tenantId, user, queryClient, isOnline]
   );
 
   const executeGraphQL = useCallback(
@@ -294,10 +313,12 @@ export function OfflineProvider({ children }: { children: ReactNode }): ReactEle
         throw new Error(`HTTP error: ${response.status}`);
       }
 
-      const result = await response.json() as { data?: unknown; errors?: Array<{ message: string }> };
+      // MOB-CRITICAL-021 class: keep the server's `extensions.code` so the
+      // queue classifies the failure by contract, not by message text.
+      const result = await readGraphQLResponse<unknown>(response);
 
       if (result.errors && result.errors.length > 0) {
-        throw new Error(result.errors[0]?.message || 'GraphQL error');
+        throw GraphQLReplayError.fromEnvelope(result.errors);
       }
 
       // createLeaveRequest chains an immediate submit (shared registry helper —
@@ -313,9 +334,9 @@ export function OfflineProvider({ children }: { children: ReactNode }): ReactEle
           throw new Error(`HTTP error: ${submitResponse.status}`);
         }
 
-        const submitResult = await submitResponse.json() as { data?: unknown; errors?: Array<{ message: string }> };
+        const submitResult = await readGraphQLResponse<unknown>(submitResponse);
         if (submitResult.errors && submitResult.errors.length > 0) {
-          throw new Error(submitResult.errors[0]?.message || 'GraphQL error');
+          throw GraphQLReplayError.fromEnvelope(submitResult.errors);
         }
       }
 
@@ -502,8 +523,10 @@ export function OfflineProvider({ children }: { children: ReactNode }): ReactEle
   useEffect(() => {
     if (!isOnline || pendingCount === 0) return;
 
+    // Same predicate as the drain: a server-classified permanent failure
+    // (BAD_USER_INPUT, …) must not keep the 30 s retry timer alive.
     const hasRetryableFailures = pendingOperations.some(
-      (op) => op.status === 'failed' && op.retryCount < MAX_RETRY_COUNT,
+      (op) => op.status === 'failed' && !isPermanentlyFailed(op),
     );
     if (!hasRetryableFailures) return;
 

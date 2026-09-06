@@ -107,7 +107,7 @@ export function ForwardModal({
   // Forward mutation
   const forwardMutation = useMutation({
     mutationFn: async (targetChannelId: string) => {
-      const result = await graphqlRequest<{ forwardMessage: Message }>(
+      const result = await graphqlRequest(
         FORWARD_MESSAGE,
         {
           sourceMessageId: message.id,

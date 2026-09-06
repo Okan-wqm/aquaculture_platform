@@ -1,6 +1,14 @@
 import { get, set, del, keys, entries, createStore } from 'idb-keyval';
 
-import type { QueuedOperation, OperationType, OperationPayload, AddToQueueResult } from '@/types';
+import { GraphQLReplayError, isPermanentGraphQLErrorCode } from './graphql-replay-error';
+
+import type {
+  QueuedOperation,
+  OperationType,
+  OperationPayload,
+  AddToQueueResult,
+  QueuedPayload,
+} from '@/types';
 import { logger } from '@/utils/logger';
 import type { UserScopedCacheKey } from '@/utils/user-scoped-cache-key';
 
@@ -117,21 +125,21 @@ export async function computePayloadHash(payload: OperationPayload): Promise<str
   return sha256Hex(stableStringify(payload));
 }
 
-async function attachCommandEnvelope(
-  type: OperationType,
-  payload: OperationPayload,
+async function attachCommandEnvelope<K extends OperationType>(
+  type: K,
+  payload: QueuedPayload<K>,
   clientCommandId: string,
   payloadHash: string,
-): Promise<OperationPayload> {
+): Promise<OperationPayload<K>> {
   return {
-    ...(payload as unknown as Record<string, unknown>),
+    ...payload,
     clientCommandId,
     clientCreatedAt: new Date().toISOString(),
     deviceId: await getDeviceId(),
     operationType: type,
     payloadHash,
     schemaVersion: 'mobile-command-v1',
-  } as OperationPayload;
+  };
 }
 
 async function encryptPayload(payload: OperationPayload): Promise<{ iv: string; ciphertext: string }> {
@@ -265,10 +273,13 @@ async function bumpQueueVersion(tenantId: string): Promise<void> {
  *   When omitted (pure-offline first submit), a fresh id is minted here, which
  *   is the established behaviour for every other queued operation.
  */
-export async function queueOperation(
+export async function queueOperation<K extends OperationType>(
   tenantId: string,
-  type: OperationType,
-  payload: OperationPayload,
+  type: K,
+  // MOB-HIGH-022: the payload is typed BY the operation — the generated input
+  // for that mutation, envelope stripped — so `type` and `payload` can no
+  // longer disagree at the call site.
+  payload: QueuedPayload<K>,
   // SEC-09: Caller supplies hasValidAuth so background sync is only registered
   // when there are valid credentials. If the token expires before the sync fires
   // the in-app sync path (executeGraphQL) will catch the 401 and surface an error
@@ -829,6 +840,9 @@ export async function syncOperation(
       status: 'failed',
       retryCount: operation.retryCount + 1,
       lastError: errorMessage,
+      // A transport error (no code) deliberately CLEARS a stale code from an
+      // earlier attempt: the classification always describes the last failure.
+      lastErrorCode: error instanceof GraphQLReplayError ? error.code : undefined,
     });
     return false;
   }
@@ -864,16 +878,35 @@ export function calculateRetryDelay(retryCount: number): number {
 }
 
 /**
+ * True when the queue will never attempt this operation again on its own:
+ * the retry budget is spent, or the last failure was classified permanent.
+ * The Sync Status page renders exactly this predicate, so what the user sees
+ * as "permanently failed" is what the drain actually skips.
+ */
+export function isPermanentlyFailed(
+  op: Pick<QueuedOperation, 'status' | 'retryCount' | 'lastError' | 'lastErrorCode'>,
+): boolean {
+  if (op.status !== 'failed') return false;
+  return op.retryCount >= MAX_RETRY_COUNT || !isRetryableError(op);
+}
+
+/**
  * Determine whether a failed operation is eligible for automatic retry.
  *
- * Distinguishes between transient errors (network timeouts, 5xx server errors)
- * and permanent errors (validation failures, 4xx client errors) to avoid
- * wasting retry budget on operations that will never succeed.
+ * The server's GraphQL `extensions.code` is authoritative when the last
+ * failure recorded one (GraphQLReplayError): a permanent code — bad user
+ * input, validation, forbidden, not found — is never retried, any other code
+ * is. Only a failure WITHOUT a code (an HTTP/transport error, or a row written
+ * before codes were recorded) falls back to the message heuristics below.
  *
- * @param errorMessage - The truncated error message from the last sync attempt
+ * @param op - The failed operation's last error message and code
  * @returns true if the error is likely transient and worth retrying
  */
-function isRetryableError(errorMessage?: string): boolean {
+export function isRetryableError(op: Pick<QueuedOperation, 'lastError' | 'lastErrorCode'>): boolean {
+  if (op.lastErrorCode !== undefined) {
+    return !isPermanentGraphQLErrorCode(op.lastErrorCode);
+  }
+  const errorMessage = op.lastError;
   if (!errorMessage) return true;
   const lower = errorMessage.toLowerCase();
 
@@ -928,7 +961,7 @@ export async function syncAllOperations(
   // permanently -- they never transitioned back to 'pending', leaving the user
   // with a dead queue that only manual deletion could resolve.
   const retryableFailed = allOps.filter(
-    (op) => op.status === 'failed' && op.retryCount < MAX_RETRY_COUNT && isRetryableError(op.lastError),
+    (op) => op.status === 'failed' && op.retryCount < MAX_RETRY_COUNT && isRetryableError(op),
   );
   await Promise.all(retryableFailed.map((op) => updateOperation(op.tenantId, op.id, { status: 'pending' })));
 

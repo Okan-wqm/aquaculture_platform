@@ -1,24 +1,26 @@
 import { DynamicMeasurementForm } from '@aquaculture/farm-shared';
 import type { ParameterFieldConfig } from '@aquaculture/farm-shared';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
+import { useQuery } from '@tanstack/react-query';
+import { gql } from 'graphql-tag';
 import { BlockTitle, List, ListInput } from 'konsta/react';
-import { ArrowLeft, Droplets, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { ArrowLeft, Droplets, AlertCircle, Loader2 } from 'lucide-react';
 import type { JSX } from 'react';
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
+import { AlreadyRecordedNotice } from '@/components/AlreadyRecordedNotice';
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
-import type { CreateWaterQualityInput } from '@/generated/graphql';
-import {
-  CREATE_WQ_MUTATION,
-  EQUIPMENT_LIST_QUERY,
-  EQUIPMENT_PARAMS_QUERY,
-} from '@/graphql/water-quality.operations';
+import type {
+  EquipmentListQuery,
+  EquipmentListQueryVariables,
+  EquipmentParametersQuery,
+  EquipmentParametersQueryVariables,
+} from '@/generated/graphql';
 import { useAuth } from '@/hooks/useAuth';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
-import { isRecoverableNetworkError } from '@/utils/network-error';
-import { invalidateSyncedOperationQueries } from '@/utils/offline-sync-invalidation';
+import type { QueuedPayload } from '@/types';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
 // ============================================================================
@@ -32,18 +34,35 @@ interface EquipmentItem {
   equipmentType: { category: string; name: string } | null;
 }
 
-interface EquipmentParameterConfig {
-  parameterConfig: {
-    id: string; code: string; name: string; unit: string;
-    dataType: 'NUMBER' | 'ENUM' | 'BOOLEAN'; precision: number; group: string;
-    optimalMin: number | null; optimalMax: number | null;
-    warningMin: number | null; warningMax: number | null;
-    criticalMin: number | null; criticalMax: number | null;
-    enumValues: string[] | null; displayOrder: number; isRequired: boolean; chartColor: string;
-  };
-}
-
 type FieldValue = number | string | boolean;
+
+// ============================================================================
+// GRAPHQL
+// ============================================================================
+
+/**
+ * Fetch all active equipment using the equipmentList query.
+ * Uses { isActive: true } filter to match the web RecordTab behavior,
+ * ensuring non-tank equipment (sensors, pumps, filters) with
+ * status='operational' are included alongside tank equipment (status='active').
+ */
+const EQUIPMENT_LIST_QUERY: TypedDocumentNode<EquipmentListQuery, EquipmentListQueryVariables> = gql`
+  query EquipmentList($filter: EquipmentFilterInput) {
+    equipmentList(filter: $filter) { items { id name code equipmentType { category name } } }
+  }
+`;
+
+const EQUIPMENT_PARAMS_QUERY: TypedDocumentNode<EquipmentParametersQuery, EquipmentParametersQueryVariables> = gql`
+  query EquipmentParameters($equipmentId: ID!) {
+    equipmentParameters(equipmentId: $equipmentId) {
+      parameterConfig {
+        id code name unit dataType precision group
+        optimalMin optimalMax warningMin warningMax criticalMin criticalMax
+        enumValues displayOrder isRequired chartColor
+      }
+    }
+  }
+`;
 
 // ============================================================================
 // MRU (Most Recently Used)
@@ -71,13 +90,14 @@ export function WaterQualityRecordPage(): JSX.Element {
   const { equipmentId: routeEquipmentId } = useParams<{ equipmentId?: string }>();
   const { accessToken, tenantId, isAuthenticated } = useAuth();
   const { isOnline, addToQueue } = useOfflineQueue();
-  const queryClient = useQueryClient();
 
   const [selectedEquipmentId, setSelectedEquipmentId] = useState(routeEquipmentId || '');
-  const [showSuccess, setShowSuccess] = useState(false);
-  const [queuedOperationId, setQueuedOperationId] = useState<string | null>(null);
+  // Two-phase success UX (C7): the badge tracks the queued op's real sync
+  // status; a deduped double-tap renders "Already recorded" (FE-HIGH-050).
+  const [queuedOperationId, setQueuedOperationId] = useState('');
+  const [wasDuplicate, setWasDuplicate] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [isQueueSubmitting, setIsQueueSubmitting] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     if (routeEquipmentId) setSelectedEquipmentId(routeEquipmentId);
@@ -89,7 +109,7 @@ export function WaterQualityRecordPage(): JSX.Element {
   const { data: equipmentData, isLoading: equipmentLoading } = useQuery<EquipmentItem[]>({
     queryKey: createTenantQueryKey(tenantId, 'equipment-list', tenantId),
     queryFn: async () => {
-      const result = await graphqlRequest<{ equipmentList: { items: EquipmentItem[] } }>(
+      const result = await graphqlRequest(
         EQUIPMENT_LIST_QUERY, { filter: { isActive: true } },
       );
       return result.equipmentList?.items ?? [];
@@ -128,7 +148,7 @@ export function WaterQualityRecordPage(): JSX.Element {
   const { data: parameterConfigs, isLoading: paramsLoading } = useQuery<ParameterFieldConfig[]>({
     queryKey: createTenantQueryKey(tenantId, 'equipment-params', selectedEquipmentId, tenantId),
     queryFn: async () => {
-      const result = await graphqlRequest<{ equipmentParameters: EquipmentParameterConfig[] }>(
+      const result = await graphqlRequest(
         EQUIPMENT_PARAMS_QUERY, { equipmentId: selectedEquipmentId },
       );
       return (result.equipmentParameters ?? [])
@@ -153,19 +173,6 @@ export function WaterQualityRecordPage(): JSX.Element {
     gcTime: 1000 * 60 * 30,
   });
 
-  // -- Create mutation -------------------------------------------------------
-  const { mutateAsync: createMeasurement, isPending: isSubmitting } = useMutation({
-    mutationFn: async (input: CreateWaterQualityInput) =>
-      graphqlRequest<{ createWaterQualityMeasurement: { id: string; overallStatus: string; hasAlarm: boolean } }>(
-        CREATE_WQ_MUTATION, { input },
-      ),
-    onSuccess: async () => {
-      if (tenantId) {
-        await invalidateSyncedOperationQueries(queryClient, tenantId, ['createWaterQuality']);
-      }
-    },
-  });
-
   // -- Submit handler --------------------------------------------------------
   const handleSubmit = useCallback(
     async (values: Record<string, FieldValue>, notes: string, weatherConditions?: string) => {
@@ -176,7 +183,7 @@ export function WaterQualityRecordPage(): JSX.Element {
           value,
         ]),
       ) as Record<string, number | string | boolean>;
-      const input: CreateWaterQualityInput = {
+      const input: QueuedPayload<'createWaterQuality'> = {
         equipmentId: selectedEquipmentId,
         measuredAt: new Date().toISOString(),
         source: 'MANUAL',
@@ -185,41 +192,25 @@ export function WaterQualityRecordPage(): JSX.Element {
         ...(notes.trim() ? { notes: notes.trim() } : {}),
         ...(weatherConditions?.trim() ? { weatherConditions: weatherConditions.trim() } : {}),
       };
-      setIsQueueSubmitting(true);
+      setIsSubmitting(true);
       try {
-        if (isOnline) {
-          await createMeasurement(input);
-          addMRU(selectedEquipmentId);
-          setShowSuccess(true);
-          setTimeout(() => navigate('/'), 1500);
-        } else {
-          // Queued is NOT recorded. Keep the operationId and let QueuedStatusBadge
-          // report the op's real sync status, the way every other record page does —
-          // a green "Measurement Recorded!" for a write the server has never seen is
-          // how a rejected measurement looked like a successful one for months.
-          const { id: opId } = await addToQueue('createWaterQuality', input);
-          addMRU(selectedEquipmentId);
-          setQueuedOperationId(opId);
-        }
+        // Queue-first (MOB-CRITICAL-021): the queue is the platform's single
+        // write path. Online, addToQueue drains immediately; offline, the
+        // record waits for reconnect. Either way the success screen shows the
+        // op's REAL sync status instead of a green "recorded" for a payload
+        // that may never have reached the server.
+        const result = await addToQueue('createWaterQuality', input);
+        addMRU(selectedEquipmentId);
+        setQueuedOperationId(result.id);
+        setWasDuplicate(result.status === 'duplicate');
+        setTimeout(() => navigate('/'), 2000);
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Failed to record measurement';
-        if (isRecoverableNetworkError(error)) {
-          try {
-            const { id: opId } = await addToQueue('createWaterQuality', input);
-            addMRU(selectedEquipmentId);
-            setQueuedOperationId(opId);
-            return;
-          } catch (queueError) {
-            setSubmitError(queueError instanceof Error ? queueError.message : 'Failed to queue measurement');
-            return;
-          }
-        }
-        setSubmitError(message);
+        setSubmitError(error instanceof Error ? error.message : 'Failed to record measurement');
       } finally {
-        setIsQueueSubmitting(false);
+        setIsSubmitting(false);
       }
     },
-    [selectedEquipmentId, isOnline, createMeasurement, addToQueue, navigate],
+    [selectedEquipmentId, addToQueue, navigate],
   );
 
   const handleEquipmentChange = useCallback(
@@ -230,42 +221,15 @@ export function WaterQualityRecordPage(): JSX.Element {
     [],
   );
 
-  // -- Queued screen ---------------------------------------------------------
-  // A queued measurement is on the device, not in the database. QueuedStatusBadge
-  // reports the operation's real state (pending / syncing / synced / failed), so a
-  // contract rejection surfaces as "Sync Failed" instead of hiding behind a tick.
-  if (queuedOperationId) {
+  // -- Success screen: honest sync status, never an unconditional green ------
+  if (queuedOperationId !== '') {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-amber-50 dark:bg-amber-900/10 px-6">
-        <div className="w-20 h-20 bg-amber-100 dark:bg-amber-900/30 rounded-full flex items-center justify-center mb-4">
-          <Droplets size={48} className="text-amber-600" />
-        </div>
-        <h2 className="text-xl font-bold text-amber-700 dark:text-amber-300">Saved to device</h2>
-        <p className="text-amber-600 dark:text-amber-400 text-sm mt-1 text-center">
-          This measurement is not recorded until it reaches the server.
-        </p>
-        <div className="mt-4">
+      <div className="flex flex-col items-center justify-center min-h-screen bg-amber-50 dark:bg-amber-900/10">
+        {wasDuplicate ? (
+          <AlreadyRecordedNotice />
+        ) : (
           <QueuedStatusBadge operationId={queuedOperationId} />
-        </div>
-        <button
-          onClick={() => navigate('/')}
-          className="mt-6 px-5 py-2.5 rounded-xl bg-amber-600 text-white font-medium touch-feedback"
-        >
-          Back to home
-        </button>
-      </div>
-    );
-  }
-
-  // -- Success screen --------------------------------------------------------
-  if (showSuccess) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-green-50 dark:bg-green-900/10">
-        <div className="w-20 h-20 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mb-4">
-          <CheckCircle size={48} className="text-green-600" />
-        </div>
-        <h2 className="text-xl font-bold text-green-700 dark:text-green-300">Measurement Recorded!</h2>
-        <p className="text-green-600 dark:text-green-400 text-sm mt-1">Returning to home...</p>
+        )}
       </div>
     );
   }
@@ -349,7 +313,7 @@ export function WaterQualityRecordPage(): JSX.Element {
             onSubmit={(values, notes, weatherConditions) => {
               void handleSubmit(values, notes, weatherConditions);
             }}
-            isSubmitting={isSubmitting || isQueueSubmitting}
+            isSubmitting={isSubmitting}
             error={submitError}
             showWeather
           />

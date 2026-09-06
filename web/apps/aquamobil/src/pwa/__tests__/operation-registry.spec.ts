@@ -18,7 +18,7 @@ import {
   SW_REPLAY_SKIP_TYPES,
 } from '../operation-registry';
 
-import type { OperationType } from '@/types';
+import type { OperationPayload, OperationType } from '@/types';
 
 // Compile-time + runtime mirror of the OperationType union. If a new member is
 // added to the union, this array fails the exhaustiveness assertion below until
@@ -77,13 +77,19 @@ describe('operation-registry (MOB-MEDIUM-002)', () => {
   });
 
   it('shapes every other operation as { input: payload } verbatim (envelope intact)', () => {
-    const payload = {
+    // A complete generated RecordMortalityInput plus the envelope — the payload
+    // type is derived from the schema (MOB-HIGH-022), so a missing required
+    // field is a compile error here, not a coercion error on the wire.
+    const payload: OperationPayload<'recordMortality'> = {
       batchId: 'b-1',
+      tankId: 't-1',
       quantity: 3,
+      reason: 'DISEASE',
+      observedAt: '2026-09-05T07:00:00.000Z',
       clientCommandId: 'cmd-1',
       payloadHash: 'hash',
     };
-    const variables = buildOperationVariables('recordMortality', payload as never);
+    const variables = buildOperationVariables('recordMortality', payload);
     expect(variables).toEqual({ input: payload });
   });
 

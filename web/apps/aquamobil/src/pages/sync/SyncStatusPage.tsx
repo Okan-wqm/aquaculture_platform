@@ -5,7 +5,7 @@ import type { JSX } from 'react';
 
 import { DataFreshness } from '@/components/DataFreshness';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
-import { MAX_RETRY_COUNT } from '@/pwa/offline-queue';
+import { MAX_RETRY_COUNT, isPermanentlyFailed as isOperationPermanentlyFailed } from '@/pwa/offline-queue';
 import { getLastSyncAt } from '@/utils/last-sync';
 
 // WHY: Every OperationType must have a friendly label so the sync status page
@@ -124,8 +124,11 @@ export function SyncStatusPage(): JSX.Element {
               const config = OPERATION_LABELS[op.type] || { label: op.type, icon: '📝' };
               // BUG-17: Distinguish between retryable failures (will auto-retry)
               // and permanently failed operations (exceeded MAX_RETRY_COUNT).
-              const isPermanentlyFailed = op.status === 'failed' && op.retryCount >= MAX_RETRY_COUNT;
-              const isRetrying = op.status === 'failed' && op.retryCount > 0 && op.retryCount < MAX_RETRY_COUNT;
+              // One predicate with the drain (offline-queue.isPermanentlyFailed):
+              // a server-classified permanent error (BAD_USER_INPUT, …) is final
+              // after ONE attempt, not after the retry budget.
+              const isPermanentlyFailed = isOperationPermanentlyFailed(op);
+              const isRetrying = op.status === 'failed' && !isPermanentlyFailed;
 
               const statusIcon =
                 op.status === 'syncing' ? (
@@ -167,7 +170,7 @@ export function SyncStatusPage(): JSX.Element {
                         // SEC-07: Truncate error messages to limit social engineering
                         // potential from server-sourced text rendered in the UI.
                         <span className="text-red-500 block">
-                          Error: {op.lastError.slice(0, 200)}
+                          Error{op.lastErrorCode ? ` (${op.lastErrorCode})` : ''}: {op.lastError.slice(0, 200)}
                         </span>
                       )}
                     </span>

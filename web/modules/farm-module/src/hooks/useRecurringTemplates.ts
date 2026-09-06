@@ -22,7 +22,13 @@ const RECURRING_TEMPLATE_FIELDS = `
   assignedToName
   location
   estimatedMinutes
-  checklistItems
+  checklistItems {
+    id
+    text
+    isCompleted
+    completedAt
+    completedBy
+  }
   isActive
   lastGenerated
   nextGeneration

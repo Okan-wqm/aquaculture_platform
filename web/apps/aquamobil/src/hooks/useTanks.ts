@@ -1,8 +1,13 @@
+import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { gql } from 'graphql-tag';
 
 import { useAuth } from './useAuth';
 
+import type {
+  FarmStockInventoryQuery,
+  FarmStockInventoryQueryVariables,
+} from '@/generated/graphql';
 import { cacheData, getCachedData } from '@/pwa/offline-queue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { Tank } from '@/types';
@@ -11,7 +16,7 @@ import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 // tenantId comes from X-Tenant-Id header (extracted from JWT by backend)
 const TANK_PAGE_SIZE = 100;
 
-const FARM_STOCK_INVENTORY_QUERY = gql`
+const FARM_STOCK_INVENTORY_QUERY: TypedDocumentNode<FarmStockInventoryQuery, FarmStockInventoryQueryVariables> = gql`
   query FarmStockInventory($filter: FarmStockInventoryFilterInput) {
     farmStockInventory(filter: $filter) {
       items {
@@ -112,7 +117,7 @@ function mapInventoryItemToTank(item: FarmStockInventoryResult['farmStockInvento
 }
 
 async function fetchTanksPage(page: number): Promise<{ items: Tank[]; total: number }> {
-  const result = await graphqlRequest<FarmStockInventoryResult>(FARM_STOCK_INVENTORY_QUERY, {
+  const result = await graphqlRequest(FARM_STOCK_INVENTORY_QUERY, {
     filter: {
       page,
       limit: TANK_PAGE_SIZE,

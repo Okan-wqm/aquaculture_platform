@@ -21,7 +21,7 @@ const STATUS_COLORS: Record<string, string> = {
   WORK_FROM_HOME: 'bg-indigo-100 text-indigo-700',
 };
 
-function formatTime(isoString?: string): string {
+function formatTime(isoString: string | null | undefined): string {
   if (!isoString) return '--:--';
   return new Date(isoString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }

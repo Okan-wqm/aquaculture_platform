@@ -1441,11 +1441,19 @@ type TodaysDailyOpsCounts {
 
 type MobileStockEvent {
   id: ID!
-  type: String!
+  type: MobileStockEventType!
   tankName: String!
   quantity: Int!
   createdAt: DateTime!
   note: String
+}
+
+"""Stock event kind shown on the AquaMobil Stock Events hub"""
+enum MobileStockEventType {
+  MORTALITY
+  CULL
+  TRANSFER
+  HARVEST
 }
 
 type StockEventsSummary {
@@ -2268,7 +2276,7 @@ type StorageOverviewResponse {
 type WarehouseLowStockItem {
   id: ID!
   name: String!
-  itemType: String!
+  itemType: StorageItemType!
   currentQty: Float!
   minQty: Float!
   unit: String!
@@ -2276,7 +2284,7 @@ type WarehouseLowStockItem {
 
 type WarehouseRecentMovement {
   id: ID!
-  movementType: String!
+  movementType: MovementType!
   itemName: String!
   quantity: Float!
   unit: String!
@@ -2289,8 +2297,15 @@ type WarehouseFeedCoverage {
   feedName: String!
   daysOfCover: Int
   stockoutDate: String
-  coverageStatus: String!
+  coverageStatus: WarehouseFeedCoverageStatus!
   stale: Boolean!
+}
+
+"""Feed stock-coverage severity on the AquaMobil warehouse hub"""
+enum WarehouseFeedCoverageStatus {
+  OK
+  WARNING
+  CRITICAL
 }
 
 type WarehouseSummaryResponse {
@@ -5444,6 +5459,21 @@ type TankBatchMetrics {
   daysSinceStocking: Int
 }
 
+type TaskChecklistItem {
+  id: ID!
+  text: String!
+  isCompleted: Boolean!
+  completedAt: String
+  completedBy: String
+}
+
+type TaskNote {
+  id: ID!
+  text: String!
+  createdBy: String!
+  createdAt: String!
+}
+
 type Task {
   id: ID!
   tenantId: String!
@@ -5460,8 +5490,7 @@ type Task {
   siteId: String
   location: String
   estimatedMinutes: Int
-  checklistItems: JSON
-  notes: JSON
+  notes: [TaskNote!]!
   tags: [String!]
   isRecurring: Boolean!
   recurringTemplateId: String
@@ -5471,6 +5500,7 @@ type Task {
   deletedAt: DateTime
   createdAt: DateTime!
   updatedAt: DateTime!
+  checklistItems: [TaskChecklistItem!]!
 }
 
 """Görev kategorisi"""
@@ -5549,7 +5579,6 @@ type RecurringTemplate {
   assignedToName: String!
   location: String
   estimatedMinutes: Int
-  checklistItems: JSON
   isActive: Boolean!
   lastGenerated: DateTime
   nextGeneration: DateTime
@@ -5557,6 +5586,7 @@ type RecurringTemplate {
   deletedAt: DateTime
   createdAt: DateTime!
   updatedAt: DateTime!
+  checklistItems: [TaskChecklistItem!]!
 }
 
 """Tekrarlama sıklığı"""
@@ -12003,8 +12033,13 @@ input CreateRecurringTemplateInput {
   assignedToName: String!
   location: String
   estimatedMinutes: Int
-  checklistItems: JSON
+  checklistItems: [TaskChecklistItemInput!]
   tags: [String!]
+}
+
+input TaskChecklistItemInput {
+  text: String!
+  isCompleted: Boolean
 }
 
 input UpdateRecurringTemplateInput {
@@ -12019,7 +12054,7 @@ input UpdateRecurringTemplateInput {
   assignedToName: String
   location: String
   estimatedMinutes: Int
-  checklistItems: JSON
+  checklistItems: [TaskChecklistItemInput!]
   tags: [String!]
 }
 
@@ -12039,11 +12074,6 @@ input CreateTaskInput {
   tags: [String!]
   isRecurring: Boolean
   recurringTemplateId: ID
-}
-
-input TaskChecklistItemInput {
-  text: String!
-  isCompleted: Boolean
 }
 
 input UpdateTaskInput {

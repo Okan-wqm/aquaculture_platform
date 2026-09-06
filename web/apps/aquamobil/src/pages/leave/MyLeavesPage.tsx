@@ -3,7 +3,7 @@ import { ArrowLeft, CalendarOff, Plus, Clock } from 'lucide-react';
 import { useState, type JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { useMyLeaveBalances, useMyLeaveRequests, useCancelLeaveRequest } from '@/hooks/useLeave';
+import { useMyLeaveBalances, useMyLeaveRequests, useCancelLeaveRequest, useLeaveTypes } from '@/hooks/useLeave';
 import type { LeaveBalance, LeaveRequest } from '@/types';
 
 
@@ -33,6 +33,11 @@ export function MyLeavesPage(): JSX.Element {
     refetchOnMount: 'always',
   });
   const { cancel, loading: cancelling } = useCancelLeaveRequest();
+  // The HR LeaveBalance type carries only leaveTypeId; the display type is
+  // joined client-side against the leaveTypes list (MOB-HIGH-022 — the old
+  // `balance.leaveType` read a field the schema never had).
+  const { data: leaveTypes = [] } = useLeaveTypes();
+  const leaveTypeById = new Map(leaveTypes.map((type) => [type.id, type]));
 
   // WHY: no manual invalidateQueries here — useCancelLeaveRequest now
   // invalidates leaveRequests and leaveBalances caches in its onSuccess
@@ -111,10 +116,10 @@ export function MyLeavesPage(): JSX.Element {
                 <div className="flex items-center gap-2">
                   <div
                     className="w-3 h-3 rounded-full"
-                    style={{ backgroundColor: balance.leaveType?.color || '#6366f1' }}
+                    style={{ backgroundColor: leaveTypeById.get(balance.leaveTypeId)?.color || '#6366f1' }}
                   />
                   <h3 className="font-semibold text-gray-900 dark:text-white">
-                    {balance.leaveType?.name || 'Leave'}
+                    {leaveTypeById.get(balance.leaveTypeId)?.name || 'Leave'}
                   </h3>
                 </div>
                 <span className="text-sm text-gray-400">{balance.year}</span>

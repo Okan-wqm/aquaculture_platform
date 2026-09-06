@@ -6,18 +6,15 @@ import { useTodaysAttendance } from './useAttendance';
 import { useAuth } from './useAuth';
 import { useTodaysDayPlans } from './useTodaysDayPlans';
 
+import type { GetTodaysDailyOpsCountsQuery } from '@/generated/graphql';
 import { GET_TASK_STATS, GET_TODAYS_DAILY_OPS_COUNTS } from '@/graphql/operations';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { DailyOpsStats, TaskStats } from '@/types';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
-// WHY explicit shape: backend aggregate returns flat counts, not entity lists.
-interface DailyOpsCountsResponse {
-  mortalityCount: number;
-  wqReadingsCount: number;
-  feedingCompletedCount: number;
-  feedingTotalCount: number;
-}
+// MOB-HIGH-022: the counts slice is the generated result of the document
+// below, so the field names are checked against the wire contract.
+type DailyOpsCountsResponse = GetTodaysDailyOpsCountsQuery['todaysDailyOpsCounts'];
 
 /**
  * Aggregates clock-in (HR), feeding (farm), mortality/WQ (farm), and task
@@ -46,7 +43,7 @@ export function useDailyOpsStats(): { stats: DailyOpsStats; isLoading: boolean }
   const { data: taskStats, isLoading: taskStatsLoading } = useQuery<TaskStats>({
     queryKey: createTenantQueryKey(tenantId, 'taskStats', tenantId),
     queryFn: async () => {
-      const result = await graphqlRequest<{ taskStats: TaskStats }>(GET_TASK_STATS);
+      const result = await graphqlRequest(GET_TASK_STATS);
       return result.taskStats;
     },
     enabled: isAuthenticated && !!tenantId,
@@ -58,7 +55,7 @@ export function useDailyOpsStats(): { stats: DailyOpsStats; isLoading: boolean }
   const { data: opsCounts, isLoading: opsCountsLoading } = useQuery<DailyOpsCountsResponse>({
     queryKey: createTenantQueryKey(tenantId, 'dailyOpsCounts', tenantId),
     queryFn: async () => {
-      const result = await graphqlRequest<{ todaysDailyOpsCounts: DailyOpsCountsResponse }>(
+      const result = await graphqlRequest(
         GET_TODAYS_DAILY_OPS_COUNTS,
       );
       return result.todaysDailyOpsCounts;

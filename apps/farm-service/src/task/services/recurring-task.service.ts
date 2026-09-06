@@ -73,6 +73,9 @@ export class RecurringTaskService {
 
     const template = this.templateRepository.create({
       ...input,
+      // Stored canonical (stable ids) so the read-path normaliser is a no-op
+      // for rows this service wrote (FARM-HIGH-320).
+      checklistItems: TaskService.normaliseChecklistItems(input.checklistItems),
       tenantId,
       isActive: true,
       nextGeneration: this.calculateNextGeneration(
@@ -96,6 +99,9 @@ export class RecurringTaskService {
     const template = await this.findById(tenantId, id);
 
     Object.assign(template, input);
+    if (input.checklistItems !== undefined) {
+      template.checklistItems = TaskService.normaliseChecklistItems(input.checklistItems);
+    }
 
     // Recalculate next generation if frequency OR timezone changed —
     // a tenant that relocates a site from Istanbul to Oslo expects

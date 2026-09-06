@@ -14,6 +14,17 @@
  *
  * Zero imports beyond types by design: this file must bundle cleanly into the
  * SW sub-build (tsconfig.sw.json: ES2020 + WebWorker libs, no DOM, no React).
+ *
+ * MOB-HIGH-022: every document below carries the `GraphQL` magic comment (a
+ * block comment reading GraphQL right before the backtick) so graphql-codegen
+ * plucks it WITHOUT an import — this file is the codegen
+ * source for every queue-replayed mutation, and `generated/graphql.ts` carries
+ * its `<Name>MutationVariables` (the queued payload type derives from them)
+ * and `<Name>Document` (the online path imports it instead of re-declaring
+ * the text). Operation names must be unique across the client, so a
+ * queue-replayed mutation whose online path needs a richer selection set is
+ * named `<Name>Queued` here (SendMessageQueued, EditMessageQueued,
+ * MobileAcknowledgeAlertQueued); an identical document exists exactly once.
  */
 
 import type { OperationPayload, OperationType } from '@/types';
@@ -32,7 +43,7 @@ export const OPERATION_MUTATIONS: Record<
   Exclude<OperationType, 'uploadAndSendMessage'> | 'submitLeaveRequest',
   string
 > = {
-  recordMortality: `
+  recordMortality: /* GraphQL */ `
     mutation RecordMortality($input: RecordMortalityInput!) {
       recordMortality(input: $input) {
         id
@@ -41,7 +52,7 @@ export const OPERATION_MUTATIONS: Record<
       }
     }
   `,
-  recordCull: `
+  recordCull: /* GraphQL */ `
     mutation RecordCull($input: RecordCullInput!) {
       recordCull(input: $input) {
         id
@@ -50,7 +61,7 @@ export const OPERATION_MUTATIONS: Record<
       }
     }
   `,
-  createHarvestRecord: `
+  createHarvestRecord: /* GraphQL */ `
     mutation CreateHarvestRecord($input: CreateHarvestRecordInput!) {
       createHarvestRecord(input: $input) {
         id
@@ -61,7 +72,7 @@ export const OPERATION_MUTATIONS: Record<
   `,
   // Drain penceresi: cutover ÖNCESİ kuyruğa alınmış kayıtlar eski
   // execution'lara karşı replay olur; yeni kayıtlar recordMealFeeding kullanır.
-  recordFeeding: `
+  recordFeeding: /* GraphQL */ `
     mutation RecordDailyFeeding($input: RecordDailyFeedingInput!) {
       recordDailyFeeding(input: $input) {
         id
@@ -72,7 +83,7 @@ export const OPERATION_MUTATIONS: Record<
   `,
   // Faz 6 öğün cutover'ı (P-25 tipli yanıt; C-17: zarf enqueue'da damgalanır,
   // backend zarfsız komutu fail-closed reddeder).
-  recordMealFeeding: `
+  recordMealFeeding: /* GraphQL */ `
     mutation RecordMealFeeding($input: RecordMealFeedingInput!) {
       recordMealFeeding(input: $input) {
         id
@@ -85,7 +96,7 @@ export const OPERATION_MUTATIONS: Record<
   `,
   // W8/FARM-MEDIUM-269: kısmi öğünü döküm eklemeden kapatır. Ayrı op, çünkü
   // yük şekli farklı (kg yok) ve sunucu tarafı ledger'a HİÇ dokunmaz.
-  finalizeMeal: `
+  finalizeMeal: /* GraphQL */ `
     mutation FinalizeMeal($input: FinalizeMealInput!) {
       finalizeMeal(input: $input) {
         id
@@ -96,7 +107,7 @@ export const OPERATION_MUTATIONS: Record<
       }
     }
   `,
-  clockIn: `
+  clockIn: /* GraphQL */ `
     mutation ClockIn($input: ClockInInput!) {
       clockIn(input: $input) {
         id
@@ -108,7 +119,7 @@ export const OPERATION_MUTATIONS: Record<
       }
     }
   `,
-  clockOut: `
+  clockOut: /* GraphQL */ `
     mutation ClockOut($input: ClockOutInput!) {
       clockOut(input: $input) {
         id
@@ -119,7 +130,7 @@ export const OPERATION_MUTATIONS: Record<
       }
     }
   `,
-  createLeaveRequest: `
+  createLeaveRequest: /* GraphQL */ `
     mutation CreateLeaveRequest($input: CreateLeaveRequestInput!) {
       createLeaveRequest(input: $input) {
         id
@@ -130,7 +141,7 @@ export const OPERATION_MUTATIONS: Record<
       }
     }
   `,
-  submitLeaveRequest: `
+  submitLeaveRequest: /* GraphQL */ `
     mutation SubmitLeaveRequest($id: ID!) {
       submitLeaveRequest(id: $id) {
         id
@@ -142,7 +153,7 @@ export const OPERATION_MUTATIONS: Record<
   // carries the task id PLUS the at-most-once command envelope. The server rejects
   // an envelope-less call, so the queued payload (envelope already stamped on
   // enqueue) is sent verbatim under `input`.
-  completeTask: `
+  completeTask: /* GraphQL */ `
     mutation CompleteTask($input: TaskLifecycleInput!) {
       completeTask(input: $input) {
         id
@@ -152,7 +163,7 @@ export const OPERATION_MUTATIONS: Record<
       }
     }
   `,
-  startTask: `
+  startTask: /* GraphQL */ `
     mutation StartTask($input: TaskLifecycleInput!) {
       startTask(input: $input) {
         id
@@ -163,22 +174,28 @@ export const OPERATION_MUTATIONS: Record<
   // FARM-HIGH-057: idempotent checklist SET — the queued payload carries the
   // ABSOLUTE target isCompleted (taskId/itemId/isCompleted) plus the envelope, so
   // a replay after reconnect converges instead of reverting the item.
-  setChecklistItem: `
+  setChecklistItem: /* GraphQL */ `
     mutation SetChecklistItem($input: SetChecklistItemInput!) {
       setChecklistItem(input: $input) {
         id
-        checklistItems
+        checklistItems {
+          id
+          text
+          isCompleted
+          completedAt
+          completedBy
+        }
       }
     }
   `,
-  recordTransfer: `
+  recordTransfer: /* GraphQL */ `
     mutation RecordTransfer($input: TransferBatchInput!) {
       transferBatch(input: $input) {
         id
       }
     }
   `,
-  createWaterQuality: `
+  createWaterQuality: /* GraphQL */ `
     mutation CreateWaterQualityMeasurement($input: CreateWaterQualityInput!) {
       createWaterQualityMeasurement(input: $input) {
         id
@@ -187,7 +204,7 @@ export const OPERATION_MUTATIONS: Record<
       }
     }
   `,
-  recordStockMovement: `
+  recordStockMovement: /* GraphQL */ `
     mutation RecordStockMovement($input: RecordStockMovementInput!) {
       recordStockMovement(input: $input) {
         id
@@ -196,7 +213,7 @@ export const OPERATION_MUTATIONS: Record<
       }
     }
   `,
-  transferStock: `
+  transferStock: /* GraphQL */ `
     mutation TransferStock($input: TransferStockInput!) {
       transferStock(input: $input) {
         id
@@ -209,7 +226,7 @@ export const OPERATION_MUTATIONS: Record<
   // MobileCommandEnvelopeInput so it rides under `input` verbatim. Lice counts
   // are naturally idempotent (upsert per tank/date); welfare + escape dedup
   // through the farm_mobile_command_receipts ledger on replay.
-  recordLiceCount: `
+  recordLiceCount: /* GraphQL */ `
     mutation RecordLiceCount($input: RecordLiceCountInput!) {
       recordLiceCount(input: $input) {
         id
@@ -218,7 +235,7 @@ export const OPERATION_MUTATIONS: Record<
       }
     }
   `,
-  recordWelfareAssessment: `
+  recordWelfareAssessment: /* GraphQL */ `
     mutation RecordWelfareAssessment($input: RecordWelfareAssessmentInput!) {
       recordWelfareAssessment(input: $input) {
         id
@@ -226,7 +243,7 @@ export const OPERATION_MUTATIONS: Record<
       }
     }
   `,
-  recordEscapeIncident: `
+  recordEscapeIncident: /* GraphQL */ `
     mutation RecordEscapeIncident($input: RecordEscapeIncidentInput!) {
       recordEscapeIncident(input: $input) {
         id
@@ -237,7 +254,7 @@ export const OPERATION_MUTATIONS: Record<
   // MOB-HIGH-006: offline-capable alarm acknowledgement. AcknowledgeAlertInput
   // extends MobileCommandEnvelopeInput on the backend, so the enveloped payload
   // rides under `input` verbatim; the ack is naturally idempotent on replay.
-  acknowledgeAlert: `
+  acknowledgeAlert: /* GraphQL */ `
     mutation MobileAcknowledgeAlertQueued($input: AcknowledgeAlertInput!) {
       acknowledgeAlert(input: $input) {
         id
@@ -247,8 +264,8 @@ export const OPERATION_MUTATIONS: Record<
     }
   `,
   // Messaging mutations — ADR-012
-  sendMessage: `
-    mutation SendMessage($input: SendMessageInput!) {
+  sendMessage: /* GraphQL */ `
+    mutation SendMessageQueued($input: SendMessageInput!) {
       sendMessage(input: $input) {
         id
         channelId
@@ -258,8 +275,8 @@ export const OPERATION_MUTATIONS: Record<
       }
     }
   `,
-  editMessage: `
-    mutation EditMessage($id: ID!, $input: EditMessageInput!) {
+  editMessage: /* GraphQL */ `
+    mutation EditMessageQueued($id: ID!, $input: EditMessageInput!) {
       editMessage(id: $id, input: $input) {
         id
         content
@@ -267,12 +284,12 @@ export const OPERATION_MUTATIONS: Record<
       }
     }
   `,
-  deleteMessage: `
+  deleteMessage: /* GraphQL */ `
     mutation DeleteMessage($id: ID!) {
       deleteMessage(id: $id)
     }
   `,
-  markMessagesRead: `
+  markMessagesRead: /* GraphQL */ `
     mutation MarkMessagesRead($input: MarkReadInput!) {
       markMessagesRead(input: $input)
     }

@@ -189,7 +189,7 @@ export function MentionPicker({
       {filteredMembers.map((member, index) => {
         const name = getMemberDisplayName(member);
         const initials = getInitials(name);
-        const avatarUrl = member.user?.avatarUrl ?? member.user?.profileImageUrl;
+        const avatarUrl = member.user?.profileImageUrl;
         const colorClass = AVATAR_COLORS[index % AVATAR_COLORS.length];
         const isSelected = index === selectedIndex;
 

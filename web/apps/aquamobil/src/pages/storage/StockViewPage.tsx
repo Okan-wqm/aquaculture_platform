@@ -13,7 +13,6 @@
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
-import { gql } from 'graphql-tag';
 import {
   ArrowLeft,
   Package,
@@ -26,6 +25,7 @@ import { useState, useCallback, useMemo, useRef } from 'react';
 import type { JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { STOCK_AT_LOCATION, STORAGE_LOCATIONS } from '@/graphql/storage-operations';
 import { useAuth } from '@/hooks/useAuth';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { cacheData, getCachedData } from '@/pwa/offline-queue';
@@ -63,34 +63,6 @@ interface StockItem {
 // ============================================================================
 // GRAPHQL
 // ============================================================================
-
-const STORAGE_LOCATIONS_QUERY = gql`
-  query StorageLocations {
-    storageLocations {
-      items { id name code }
-    }
-  }
-`;
-
-/**
- * Fetch stock at a specific location. Backed by the farm-service
- * `storageInventory(locationId: ID)` query (StorageResolver), which returns a
- * flat list of StorageInventoryResponse rows for the location. Each row carries
- * the current quantity, lot number, and expiry date.
- */
-const STOCK_AT_LOCATION_QUERY = gql`
-  query StockAtLocation($locationId: ID!) {
-    storageInventory(locationId: $locationId) {
-      id
-      itemName
-      itemType
-      quantity
-      unit
-      lotNumber
-      expiryDate
-    }
-  }
-`;
 
 // ============================================================================
 // HELPERS
@@ -144,8 +116,8 @@ export function StockViewPage(): JSX.Element {
   const { data: locationsData, isLoading: locationsLoading } = useQuery<StorageLocation[]>({
     queryKey: createTenantQueryKey(tenantId, 'storage-locations', tenantId),
     queryFn: async () => {
-      const result = await graphqlRequest<{ storageLocations: { items: StorageLocation[] } }>(
-        STORAGE_LOCATIONS_QUERY,
+      const result = await graphqlRequest(
+        STORAGE_LOCATIONS,
       );
       return result.storageLocations?.items ?? [];
     },
@@ -173,8 +145,8 @@ export function StockViewPage(): JSX.Element {
       }
       // Attempt server fetch first
       if (isOnline) {
-        const result = await graphqlRequest<{ storageInventory: StockItem[] }>(
-          STOCK_AT_LOCATION_QUERY,
+        const result = await graphqlRequest(
+          STOCK_AT_LOCATION,
           { locationId: selectedLocationId },
         );
         const items = result.storageInventory ?? [];

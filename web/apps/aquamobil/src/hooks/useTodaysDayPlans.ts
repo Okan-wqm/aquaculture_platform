@@ -26,53 +26,19 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { useAuth } from './useAuth';
 
+import type { FeedingDayPlansQuery } from '@/generated/graphql';
 import { GET_FEEDING_DAY_PLANS } from '@/graphql/operations';
 import { cacheData, getCachedData } from '@/pwa/offline-queue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import { logger } from '@/utils/logger';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
-export type MealStatus = 'SCHEDULED' | 'FED' | 'PARTIALLY_FED' | 'SKIPPED' | 'MISSED' | 'CANCELLED';
-
-export interface DayPlanMeal {
-  id: string;
-  mealIndex: number;
-  scheduledAt: string;
-  percentOfDaily: number;
-  plannedKg: number;
-  status: MealStatus;
-  actualKg: number;
-  varianceKg: number | null;
-  variancePercent: number | null;
-  feedId: string;
-  fedAt?: string | null;
-  feedingMethod?: string | null;
-  notes?: string | null;
-}
-
-export interface FeedingDayPlanSlice {
-  id: string;
-  unitId: string;
-  unitName: string;
-  unitCode: string;
-  planDate: string;
-  status: string;
-  plannedTotalKg: number;
-  unplannedActualKg: number;
-  mealsPlanned: number;
-  avgWeightG: number;
-  fishCount: number;
-  biomassKg: number;
-  waterTempC: number | null;
-  temperatureSource: string;
-  usingDefaultTemperature: boolean;
-  feedId: string;
-  feedCode: string;
-  feedName: string;
-  effectiveRatePercent: number;
-  expectedFcr: number;
-  meals: DayPlanMeal[];
-}
+// MOB-HIGH-022: the slice, its meals and the meal status are the generated
+// result of the document below — the wire vocabulary is checked by `tsc`, not
+// re-declared by hand.
+export type FeedingDayPlanSlice = FeedingDayPlansQuery['feedingDayPlans'][number];
+export type DayPlanMeal = NonNullable<FeedingDayPlanSlice['meals']>[number];
+export type MealStatus = DayPlanMeal['status'];
 
 const DAY_PLANS_CACHE_PREFIX = 'feedingDayPlans_';
 const DAY_PLANS_CACHE_TTL_MS = 1000 * 60 * 60 * 12; // 12h
@@ -122,11 +88,8 @@ export function useTodaysDayPlans(): TodaysDayPlansResult {
       if (!accessToken || !tenantId) {
         throw new Error('Not authenticated');
       }
-      const result = await graphqlRequest<{ feedingDayPlans: FeedingDayPlanSlice[] }>(
-        GET_FEEDING_DAY_PLANS,
-        { planDate },
-      );
-      const plans = result.feedingDayPlans ?? [];
+      const result = await graphqlRequest(GET_FEEDING_DAY_PLANS, { planDate });
+      const plans = result.feedingDayPlans;
       // Çevrimdışı yazım TEK queryFn'de — hangi ekranın önce mount ettiği
       // artık cache'in yazılıp yazılmayacağını belirlemiyor.
       await cacheData(tenantId, cacheKey, plans, DAY_PLANS_CACHE_TTL_MS);

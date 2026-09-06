@@ -56,10 +56,6 @@ import type {
   SendMessageMutationVariables,
   EditMessageMutation,
   EditMessageMutationVariables,
-  DeleteMessageMutation,
-  DeleteMessageMutationVariables,
-  MarkMessagesReadMutation,
-  MarkMessagesReadMutationVariables,
   RequestMediaUploadMutation,
   RequestMediaUploadMutationVariables,
   PinMessageMutation,
@@ -77,6 +73,7 @@ import type {
   MobileConfirmAiActionMutation,
   MobileConfirmAiActionMutationVariables,
 } from '@/generated/graphql';
+import { DeleteMessageDocument, MarkMessagesReadDocument } from '@/generated/graphql';
 
 // --- Reusable fragments ---
 // MessageFields/ChannelFields are named GraphQL fragments interpolated into the
@@ -104,6 +101,7 @@ export const MESSAGE_FIELDS = gql`
     isDeleted
     createdAt
     editedAt
+    metadata
     sender {
       id
       firstName
@@ -401,18 +399,10 @@ export const EDIT_MESSAGE: TypedDocumentNode<EditMessageMutation, EditMessageMut
 `;
 
 /** Soft-delete a message. */
-export const DELETE_MESSAGE: TypedDocumentNode<DeleteMessageMutation, DeleteMessageMutationVariables> = gql`
-  mutation DeleteMessage($id: ID!) {
-    deleteMessage(id: $id)
-  }
-`;
+export const DELETE_MESSAGE = DeleteMessageDocument;
 
 /** Mark messages as read up to a given message. */
-export const MARK_MESSAGES_READ: TypedDocumentNode<MarkMessagesReadMutation, MarkMessagesReadMutationVariables> = gql`
-  mutation MarkMessagesRead($input: MarkReadInput!) {
-    markMessagesRead(input: $input)
-  }
-`;
+export const MARK_MESSAGES_READ = MarkMessagesReadDocument;
 
 /** Request a presigned URL for media upload. */
 export const REQUEST_MEDIA_UPLOAD: TypedDocumentNode<RequestMediaUploadMutation, RequestMediaUploadMutationVariables> = gql`

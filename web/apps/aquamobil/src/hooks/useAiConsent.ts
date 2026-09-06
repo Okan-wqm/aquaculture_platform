@@ -17,6 +17,7 @@
  * @returns isLoading — true during initial fetch or mutation
  */
 
+import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { gql } from 'graphql-tag';
 import { useCallback } from 'react';
@@ -24,6 +25,12 @@ import { useCallback } from 'react';
 
 import { useAuth } from './useAuth';
 
+import type {
+  GetAiConsentStatusQuery,
+  GetAiConsentStatusQueryVariables,
+  ToggleAiConsentMutation,
+  ToggleAiConsentMutationVariables,
+} from '@/generated/graphql';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 
@@ -62,7 +69,7 @@ interface UseAiConsentReturn {
 // the FE's `isAiEnabled`/`hasConsented` vocabulary is mapped at the boundary.
 // ---------------------------------------------------------------------------
 
-const GET_AI_SETTINGS = gql`
+const GET_AI_SETTINGS: TypedDocumentNode<GetAiConsentStatusQuery, GetAiConsentStatusQueryVariables> = gql`
   query GetAiConsentStatus {
     aiSettings {
       tenantAiEnabled
@@ -71,7 +78,7 @@ const GET_AI_SETTINGS = gql`
   }
 `;
 
-const UPDATE_USER_AI_CONSENT = gql`
+const UPDATE_USER_AI_CONSENT: TypedDocumentNode<ToggleAiConsentMutation, ToggleAiConsentMutationVariables> = gql`
   mutation ToggleAiConsent($consent: Boolean!) {
     updateUserAiConsent(consent: $consent)
   }
@@ -84,9 +91,7 @@ const UPDATE_USER_AI_CONSENT = gql`
 /** Fetch AI consent status from the messaging-service GraphQL API. */
 async function fetchAiConsentStatus(): Promise<AiConsentStatus> {
   try {
-    const result = await graphqlRequest<{
-      aiSettings: { tenantAiEnabled: boolean; userAiConsent: boolean };
-    }>(GET_AI_SETTINGS);
+    const result = await graphqlRequest(GET_AI_SETTINGS);
     return {
       isAiEnabled: result.aiSettings.tenantAiEnabled,
       hasConsented: result.aiSettings.userAiConsent,
@@ -102,7 +107,7 @@ async function mutateAiConsent(consented: boolean): Promise<{ hasConsented: bool
     // `updateUserAiConsent` returns Boolean (success flag), not the new
     // consent value. On success the requested `consented` is the new state;
     // we surface it so the cache update + optimistic UI stay consistent.
-    await graphqlRequest<{ updateUserAiConsent: boolean }>(
+    await graphqlRequest(
       UPDATE_USER_AI_CONSENT,
       { consent: consented },
     );

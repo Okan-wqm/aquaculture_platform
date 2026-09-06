@@ -653,6 +653,40 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
             ),
         ),
     ),
+    # PROC-MEDIUM-029 — the closure producer finding-registry-closure-drift
+    # never had. Same publication shape as finding-state-sweep, but it also
+    # repins the debt plan, so the governed write set is four files rather
+    # than one: the manifest, README and truth table are derived from the
+    # registry tip and would disagree with it if left behind.
+    "finding-closure-reconcile": WorkflowContract(
+        workflow_id="finding-closure-reconcile",
+        workflow_file=".github/workflows/finding-closure-reconcile.yml",
+        job_contracts=(
+            WorkflowJobContract(
+                job_id="reconcile",
+                preflight_step="Persist enterprise workflow preflight",
+                first_governed_mutation_step="Apply reconcile",
+                allowed_write_path_patterns=(
+                    r"^docs/reviews/_registry/findings\.jsonl$",
+                    r"^docs/plans/2026-06-18-enterprise-grade-debt-closure/manifest\.json$",
+                    r"^docs/plans/2026-06-18-enterprise-grade-debt-closure/README\.md$",
+                    r"^docs/plans/2026-06-18-enterprise-grade-debt-closure/finding-truth-table\.md$",
+                ),
+                preflight_artifact_path_pattern=rf"^{_RUNNER_TEMP}/finding-closure-reconcile-preflight\.json$",
+                upload_artifact_name_pattern=rf"^finding-closure-reconcile-proof-{_RUN_ID_ATTEMPT}$",
+                upload_artifact_path_patterns=(
+                    rf"^{_RUNNER_TEMP}/finding-closure-reconcile-preflight\.json$",
+                ),
+                retention_days=365,
+                required_permissions=(("contents", "write"), ("pull-requests", "write")),
+                token_source="github_app:installation",
+                network_policy=("github_api",),
+                dlp_artifact="finding-closure-reconcile-preflight.json",
+                clean_worktree_policy="pre_and_post",
+                external_root_allowlist=("RUNNER_TEMP",),
+            ),
+        ),
+    ),
     "finding-state-sweep": WorkflowContract(
         workflow_id="finding-state-sweep",
         workflow_file=".github/workflows/finding-state-sweep.yml",

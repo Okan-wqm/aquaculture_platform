@@ -657,7 +657,7 @@ describe('ARIA live runtime/documentation SSoT', () => {
     expect(pkg.scripts['aria:test:unit']).toBe(`bash ${ARIA_SUITE_RUNNER}`);
   });
 
-  it('treats the ARIA suite selector and both entrypoints as pre-push surfaces', () => {
+  it('selects ARIA entrypoint changes against an explicit hosted revision range', () => {
     const probeDir = mkdtempSync(join(tmpdir(), 'aria-suite-changed-'));
     const diffLog = join(probeDir, 'git-diff-args');
     const bashLog = join(probeDir, 'bash-args');
@@ -682,7 +682,7 @@ describe('ARIA live runtime/documentation SSoT', () => {
       );
       writeExecutable(join(probeDir, 'bash'), 'printf \'%s\\n\' "$@" > "$ARIA_BASH_PROBE"');
 
-      execFileSync(process.execPath, ['scripts/ci/aria-suite-changed.mjs'], {
+      execFileSync(process.execPath, ['scripts/ci/aria-suite-changed.mjs', '--base', 'a'.repeat(40), '--head', 'b'.repeat(40)], {
         cwd: REPO_ROOT,
         env: {
           ...process.env,
@@ -693,6 +693,7 @@ describe('ARIA live runtime/documentation SSoT', () => {
       });
 
       const diffArgs = readFileSync(diffLog, 'utf8').trim().split('\n');
+      expect(diffArgs).toContain(`${'a'.repeat(40)}...${'b'.repeat(40)}`);
       expect(diffArgs).toContain(ARIA_SUITE_SELECTOR);
       expect(diffArgs).toContain(ARIA_SUITE_RUNNER);
       expect(diffArgs).toContain('package.json');

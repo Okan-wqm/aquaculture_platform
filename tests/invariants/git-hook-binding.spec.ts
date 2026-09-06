@@ -150,7 +150,7 @@ describe('local metadata and required hosted validation boundary', () => {
     const job = workflow.jobs[name];
     if (!job || !job.steps) throw new Error(`Missing aggregate ${name}`);
     const code = job.steps.map((step) => step.run ?? '').join('\n');
-    for (const required of ['authentication-proof', 'postgres-recovery-proof']) {
+    for (const required of ['authentication-proof', 'authentication-e2e', 'postgres-recovery-proof']) {
       expect(job.needs).toContain(required);
       const assertion = code.indexOf(`needs.${required}.result`);
       expect(assertion).toBeGreaterThanOrEqual(0);
@@ -165,6 +165,26 @@ describe('local metadata and required hosted validation boundary', () => {
     const commands = recovery.steps.map((step) => step.run ?? '').join('\n');
     expect(commands).toContain('POSTGRES_DR_TEST_IMAGE');
     expect(commands).toContain('bash scripts/ci/test-postgres-dr-recovery.sh');
+    expect(commands).toContain('bash scripts/ci/test-nats-leaf-rollout.sh');
+  });
+
+  it('runs candidate E2E on hosted Actions with no production SSH test execution', () => {
+    const code = read('.github/workflows/e2e-tests.yml');
+    expect(code).toContain('workflow_call:');
+    expect(code).toContain('ref: ${{ inputs.head_sha }}');
+    expect(code).toContain('runs-on: ubuntu-latest');
+    expect(code).toContain('node scripts/ci/hosted-e2e-proof.mjs');
+    expect(code).not.toMatch(/appleboy|DROPLET_|workflow_run:|continue-on-error/);
+    const runtime = read('scripts/ci/hosted-e2e-stack.mjs');
+    expect(runtime).toContain('service-catalog.generated.json');
+    expect(runtime).toContain('docker-compose.droplet.yml');
+    expect(runtime).toContain("process.env.RUNNER_ENVIRONMENT !== 'github-hosted'");
+    expect(runtime).toContain("'run', '--rm', '--no-deps', 'db-migrate'");
+    const fixture = read('e2e/fixtures/user.fixture.ts');
+    expect(fixture).toContain('await hashPassword(password)');
+    expect(fixture).toContain('await loginFixtureUser(email, password)');
+    expect(fixture).not.toContain('generateTestToken');
+    expect(read('e2e/global-setup.ts')).not.toMatch(/CREATE (?:SCHEMA|TABLE)/);
   });
 
 });

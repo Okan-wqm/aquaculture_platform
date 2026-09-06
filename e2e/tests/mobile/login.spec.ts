@@ -41,7 +41,7 @@ test.describe('AquaMobil login', () => {
   });
 
   test('a wrong password stays on the login page with a visible error', async ({ page }) => {
-    await page.goto('/login');
+    await page.goto('/mobile/login');
     await page.locator('#login-email').fill(seed.user.email);
     await page.locator('#login-password').fill('WrongPassword123!');
     await page.getByRole('button', { name: 'Sign In' }).click();
@@ -55,7 +55,7 @@ test.describe('AquaMobil login', () => {
   test('an unknown deep link renders the 404 page, not a silent bounce home (MOB-LOW-005)', async ({ page }) => {
     await loginAsFieldWorker(page, seed.user.email, FIXTURE_PASSWORD);
 
-    await page.goto('/definitely/not/a/route');
+    await page.goto('/mobile/definitely/not/a/route');
 
     await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Back to Home' })).toBeVisible();

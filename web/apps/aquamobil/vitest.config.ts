@@ -14,6 +14,7 @@ const rootNodeModules = resolve(__dirname, '../../../node_modules');
 export default defineConfig({
   plugins: [react()],
   resolve: {
+    dedupe: ['react', 'react-dom'],
     alias: {
       '@': resolve(__dirname, 'src'),
       '@aquaculture/farm-shared': resolve(__dirname, '../../../libs/farm-shared/src'),
@@ -30,6 +31,9 @@ export default defineConfig({
   test: {
     globals: false,
     environment: 'jsdom',
+    // Standalone dependencies otherwise execute their own React DOM through Node,
+    // outside Vite aliases. Keep the renderer and testing library in one module graph.
+    server: { deps: { inline: [/react-dom/, /@testing-library\/react/] } },
     root: resolve(__dirname),
     include: ['src/**/*.{spec,test}.{ts,tsx}'],
     exclude: ['**/node_modules/**', '**/dist/**'],

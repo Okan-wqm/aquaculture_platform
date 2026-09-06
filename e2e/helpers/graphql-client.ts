@@ -205,7 +205,16 @@ export class GraphQLTestClient {
    * fast on GraphQL errors so CRUD flows cannot accidentally continue.
    */
   async executeSuccess<T = Record<string, unknown>>(options: GraphQLExecuteOptions): Promise<T> {
-    return this.query<T>(options.query, options.variables, options);
+    const body = this.playwrightRequest
+      ? (await this.playwrightRawQuery<T>(options.query, options.variables, options)).body
+      : await this.queryRaw<T>(options.query, options.variables, options);
+    if (body.errors && body.errors.length > 0) {
+      throw new GraphQLTestError(body.errors, body.data);
+    }
+    if (body.data === undefined || body.data === null) {
+      throw new Error('GraphQL response missing data field');
+    }
+    return body.data;
   }
 
   /**

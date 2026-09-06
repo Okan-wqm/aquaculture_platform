@@ -253,6 +253,14 @@ jobs:
           path: artifacts/graphql-generation/
           if-no-files-found: error
 
+  authentication-e2e:
+    needs: detect-changes
+    uses: ./.github/workflows/e2e-tests.yml
+    with:
+      base_sha: ${{ needs.detect-changes.outputs.base_sha }}
+      head_sha: ${{ needs.detect-changes.outputs.head_sha }}
+      pr_head_sha: ${{ github.event.pull_request.head.sha || github.sha }}
+
   postgres-recovery-proof:
     needs: detect-changes
     runs-on: ubuntu-latest
@@ -280,6 +288,11 @@ jobs:
           build-args: |
             BUILD_MAIN_SHA=${{ github.sha }}
             POSTGRES_DR_CONTRACT_SHA256=${{ steps.contract.outputs.sha256 }}
+      - name: Verify real NATS same-CA leaf rollout before release
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes python3-yaml
+          sudo --preserve-env=GITHUB_ACTIONS,GITHUB_RUN_ID,GITHUB_RUN_ATTEMPT bash scripts/ci/test-nats-leaf-rollout.sh
       - name: Verify recovery after first-start TLS mutation failure
         env:
           BASE_SHA: ${{ needs.detect-changes.outputs.base_sha }}
@@ -293,7 +306,7 @@ jobs:
           import json, os
           from pathlib import Path
           record = {key.lower(): os.environ[key] for key in ['BASE_SHA', 'PR_HEAD_SHA', 'GITHUB_SHA', 'GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT', 'POSTGRES_DR_TEST_IMAGE']}
-          record.update({'runner_environment': 'github-hosted', 'success': True})
+          record.update({'runner_environment': 'github-hosted', 'success': True, 'nats_leaf_rollout': True})
           Path('artifacts/postgres-recovery/receipt.json').write_text(json.dumps(record, indent=2) + '\n')
           PYTHON
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -2044,6 +2057,7 @@ jobs:
   merge-gate:
     needs:
       - authentication-proof
+      - authentication-e2e
       - postgres-recovery-proof
       - hosted-validation
       - detect-changes
@@ -2086,6 +2100,10 @@ jobs:
       - name: Assert required PR checks
         run: |
           set -euo pipefail
+          if [ "${{ needs.authentication-e2e.result }}" != "success" ]; then
+            echo "::error::Required isolated authentication E2E proof did not succeed."
+            exit 1
+          fi
           if [ "${{ needs.authentication-proof.result }}" != "success" ] || [ "${{ needs.postgres-recovery-proof.result }}" != "success" ]; then
             echo "::error::Required authentication or PostgreSQL recovery proof did not succeed."
             exit 1
@@ -2128,6 +2146,7 @@ jobs:
     name: build-status
     needs:
       - authentication-proof
+      - authentication-e2e
       - postgres-recovery-proof
       - hosted-validation
       - detect-changes
@@ -2154,6 +2173,10 @@ jobs:
       - name: Assert affected validation status
         run: |
           set -euo pipefail
+          if [ "${{ needs.authentication-e2e.result }}" != "success" ]; then
+            echo "::error::Required isolated authentication E2E proof did not succeed."
+            exit 1
+          fi
           if [ "${{ needs.authentication-proof.result }}" != "success" ] || [ "${{ needs.postgres-recovery-proof.result }}" != "success" ]; then
             echo "::error::Required authentication or PostgreSQL recovery proof did not succeed."
             exit 1

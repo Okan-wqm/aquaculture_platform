@@ -11,7 +11,7 @@ import { test, expect } from '@playwright/test';
 import { v4 as uuidv4 } from 'uuid';
 
 import { GraphQLTestClient, GraphQLError } from '../../helpers/graphql-client';
-import { generateModuleUserToken, generateTenantAdminToken } from '../../helpers/jwt.helper';
+import { issueModuleUserToken, issueTenantAdminToken } from '../../helpers/persisted-actor.fixture';
 
 /** Response types (zero any policy) */
 interface CreateTenantUserResponse {
@@ -76,7 +76,7 @@ test.describe('RBAC Escalation Prevention', () => {
 
   test('MODULE_USER cannot call createTenantUser mutation', async () => {
     // Generate a MODULE_USER token (lowest privilege level)
-    const moduleUserToken = generateModuleUserToken({
+    const moduleUserToken = await issueModuleUserToken({
       tenantId: TENANT_ID,
       email: 'user@tenant.com',
     });
@@ -114,7 +114,7 @@ test.describe('RBAC Escalation Prevention', () => {
   });
 
   test('MODULE_USER cannot access MobileSettings for other users', async () => {
-    const moduleUserToken = generateModuleUserToken({
+    const moduleUserToken = await issueModuleUserToken({
       tenantId: TENANT_ID,
       email: 'user@tenant.com',
     });
@@ -155,7 +155,7 @@ test.describe('RBAC Escalation Prevention', () => {
 
   test('TENANT_ADMIN cannot call suspendTenant', async () => {
     // Generate a TENANT_ADMIN token — should NOT have SUPER_ADMIN privileges
-    const tenantAdminToken = generateTenantAdminToken({
+    const tenantAdminToken = await issueTenantAdminToken({
       tenantId: TENANT_ID,
       email: 'admin@tenant.com',
     });
@@ -185,7 +185,7 @@ test.describe('RBAC Escalation Prevention', () => {
   });
 
   test('MODULE_USER cannot call updateTenantSettings', async () => {
-    const moduleUserToken = generateModuleUserToken({
+    const moduleUserToken = await issueModuleUserToken({
       tenantId: TENANT_ID,
       email: 'user@tenant.com',
     });

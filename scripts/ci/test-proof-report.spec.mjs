@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { evaluateTestProof } from './test-proof-report.mjs';
+import { evaluatePlaywrightProof, evaluateTestProof } from './test-proof-report.mjs';
 
 function report(status = 'passed') {
   return { success: true, numPassedTests: status === 'passed' ? 1 : 0, numFailedTests: 0,
@@ -29,4 +29,16 @@ test('changed suites cannot hide skipped tests behind other passing tests', () =
 test('malformed reports fail before they can become evidence', () => {
   assert.throws(() => evaluateTestProof({}, [], []), /testResults/);
   assert.throws(() => evaluateTestProof({ ...report(), numPassedTests: '1' }, [], []), /numPassedTests/);
+});
+
+test('Playwright proof rejects empty, skipped, retried and missing-file reports', () => {
+  const passing = { stats: { expected: 1, unexpected: 0, skipped: 0, flaky: 0 }, errors: [],
+    suites: [{ specs: [{ file: 'login.spec.ts', tests: [{ status: 'expected', results: [{ status: 'passed' }] }] }] }] };
+  assert.equal(evaluatePlaywrightProof(passing, ['tests/login.spec.ts']).success, true);
+  assert.equal(evaluatePlaywrightProof(passing, ['missing.spec.ts']).success, false);
+  assert.equal(evaluatePlaywrightProof({ ...passing, suites: [], stats: { ...passing.stats, expected: 0 } }, []).success, false);
+  assert.equal(evaluatePlaywrightProof({ ...passing, stats: { ...passing.stats, skipped: 1 } }, []).success, false);
+  const retried = structuredClone(passing);
+  retried.suites[0].specs[0].tests[0].results.unshift({ status: 'failed' });
+  assert.equal(evaluatePlaywrightProof(retried, []).success, false);
 });

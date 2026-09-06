@@ -89,7 +89,8 @@
         "tests/invariants/postgres-dr-recovery-point.spec.ts",
         "tests/invariants/postgres-dr-bootstrap-control-plane.spec.ts",
         "tests/invariants/deploy-isolated-checkout-ssot.spec.ts",
-        "tests/invariants/git-hook-binding.spec.ts"
+        "tests/invariants/git-hook-binding.spec.ts",
+        "tests/invariants/e2e-graphql-success-contract.spec.ts"
       ],
       "cwd": ".",
       "report": "artifacts/authentication-proof/release-invariants.json",
@@ -97,7 +98,8 @@
         "postgres-dr-recovery-point.spec.ts",
         "postgres-dr-bootstrap-control-plane.spec.ts",
         "deploy-isolated-checkout-ssot.spec.ts",
-        "git-hook-binding.spec.ts"
+        "git-hook-binding.spec.ts",
+        "e2e-graphql-success-contract.spec.ts"
       ]
     },
     {
@@ -171,6 +173,18 @@
         "--noEmit",
         "-p",
         "apps/db-migrate/tsconfig.spec.json"
+      ],
+      "cwd": "."
+    },
+    {
+      "id": "strict-lint-project-graph",
+      "lane": "lint",
+      "command": [
+        "node",
+        "tools/toolchain/run.mjs",
+        "nx",
+        "graph",
+        "--file=artifacts/authentication-proof/project-graph.json"
       ],
       "cwd": "."
     },

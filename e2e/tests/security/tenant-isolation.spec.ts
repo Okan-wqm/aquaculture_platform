@@ -11,7 +11,7 @@ import { test, expect } from '@playwright/test';
 import { v4 as uuidv4 } from 'uuid';
 
 import { GraphQLTestClient } from '../../helpers/graphql-client';
-import { generateTestToken, generateTenantAdminToken } from '../../helpers/jwt.helper';
+import { issueTestToken, issueTenantAdminToken } from '../../helpers/persisted-actor.fixture';
 
 /** Response types for type safety (zero any policy) */
 interface TenantUsersResponse {
@@ -48,7 +48,7 @@ test.describe('Tenant Isolation', () => {
 
   test('User A cannot access Tenant B data via tenantUsers query with X-Tenant-Id header spoofing', async () => {
     // Generate a token for Tenant A with TENANT_ADMIN role
-    const tenantAToken = generateTenantAdminToken({
+    const tenantAToken = await issueTenantAdminToken({
       tenantId: TENANT_A_ID,
       email: 'admin-a@tenant-a.com',
     });
@@ -96,7 +96,7 @@ test.describe('Tenant Isolation', () => {
 
   test('User A cannot read Tenant B tenant details via tenant(id) query', async () => {
     // Generate a token for Tenant A with TENANT_ADMIN role
-    const tenantAToken = generateTenantAdminToken({
+    const tenantAToken = await issueTenantAdminToken({
       tenantId: TENANT_A_ID,
       email: 'admin-a@tenant-a.com',
     });
@@ -135,7 +135,7 @@ test.describe('Tenant Isolation', () => {
 
   test('Cross-tenant user query returns empty, not other tenant data', async () => {
     // Generate a token for Tenant A with TENANT_ADMIN role
-    const tenantAToken = generateTenantAdminToken({
+    const tenantAToken = await issueTenantAdminToken({
       tenantId: TENANT_A_ID,
       email: 'admin-a@tenant-a.com',
     });
@@ -170,7 +170,7 @@ test.describe('Tenant Isolation', () => {
   });
 
   test('Invalid tenant ID format in X-Tenant-Id header is rejected', async () => {
-    const token = generateTestToken({ tenantId: TENANT_A_ID });
+    const token = await issueTestToken({ tenantId: TENANT_A_ID });
 
     const response = await client.query<Record<string, unknown>>(
       `query {

@@ -11,6 +11,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { OutboxPublisher } from '@platform/outbox';
 import { DataSource } from 'typeorm';
 
 import { AuditLogService } from '../../../audit/audit-log.service';
@@ -102,6 +103,7 @@ describe('AuthenticationService.validateToken (SEC-MEDIUM-004)', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthenticationService,
+        { provide: OutboxPublisher, useValue: { enqueue: jest.fn() } },
         { provide: getRepositoryToken(User), useValue: { findOne: jest.fn() } },
         { provide: getRepositoryToken(RefreshToken), useValue: { update: jest.fn() } },
         { provide: getRepositoryToken(Invitation), useValue: {} },

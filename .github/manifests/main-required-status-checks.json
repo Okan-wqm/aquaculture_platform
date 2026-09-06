@@ -108,13 +108,15 @@
             "sens-enterprise-validation",
             "hosted-validation",
             "authentication-proof",
-            "postgres-recovery-proof"
+            "postgres-recovery-proof",
+            "authentication-e2e"
           ],
           "required_markers": [
             "Assert required PR checks",
             "needs.hosted-validation.result",
             "needs.authentication-proof.result",
-            "needs.postgres-recovery-proof.result"
+            "needs.postgres-recovery-proof.result",
+            "needs.authentication-e2e.result"
           ]
         },
         {
@@ -140,7 +142,8 @@
             "merge-gate",
             "hosted-validation",
             "authentication-proof",
-            "postgres-recovery-proof"
+            "postgres-recovery-proof",
+            "authentication-e2e"
           ],
           "required_markers": [
             "name: build-status",
@@ -148,7 +151,8 @@
             "Affected validation passed",
             "needs.hosted-validation.result",
             "needs.authentication-proof.result",
-            "needs.postgres-recovery-proof.result"
+            "needs.postgres-recovery-proof.result",
+            "needs.authentication-e2e.result"
           ]
         }
       ]

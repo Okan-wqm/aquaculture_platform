@@ -10,7 +10,7 @@ import { test, expect } from '@playwright/test';
 import { v4 as uuidv4 } from 'uuid';
 
 import { GraphQLTestClient } from '../../helpers/graphql-client';
-import { generateTestToken } from '../../helpers/jwt.helper';
+import { issueTestToken } from '../../helpers/persisted-actor.fixture';
 
 /** Response types (zero any policy) */
 interface LoginResponse {
@@ -120,7 +120,7 @@ test.describe('Rate Limiting', () => {
     // For testing, we use a lower threshold if configured, or verify
     // the rate limit headers are returned
     const tenantId = uuidv4();
-    const token = generateTestToken({
+    const token = await issueTestToken({
       tenantId,
       roles: ['TENANT_ADMIN'],
       role: 'TENANT_ADMIN',

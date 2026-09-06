@@ -42,9 +42,6 @@ ENV NPM_CONFIG_FETCH_RETRIES=5 \
     NPM_CONFIG_FETCH_TIMEOUT=300000 \
     NPM_CONFIG_FUND=false
 
-# Build argument for service name
-ARG SERVICE_NAME
-
 # Copy package files for production dependency installation
 COPY package*.json ./
 # npm installs repository-local file dependencies as symlinks. Copy the
@@ -61,6 +58,9 @@ RUN --mount=type=cache,target=/root/.npm,sharing=shared \
     npm ls --omit=dev --all >/dev/null && \
     node -e "require('@apollo/server-plugin-landing-page-graphql-playground')" && \
     chown -R nestjs:nodejs /app/node_modules
+
+# Service selection follows the shared dependency layer so candidate images reuse it.
+ARG SERVICE_NAME
 
 # Copy the pre-built service from host's dist folder
 COPY --chown=nestjs:nodejs dist/apps/${SERVICE_NAME} ./dist

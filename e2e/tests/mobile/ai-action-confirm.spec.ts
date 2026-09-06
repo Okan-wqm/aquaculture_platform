@@ -18,7 +18,6 @@ import { test, expect } from '@playwright/test';
 
 import { TestDatabase } from '../../helpers/db.helper';
 import { GraphQLTestClient } from '../../helpers/graphql-client';
-import { generateTestToken } from '../../helpers/jwt.helper';
 
 import {
   FIXTURE_PASSWORD,
@@ -46,26 +45,17 @@ test.describe('AquaMobil AI action confirm', () => {
     const schema = seed.tenant.schemaName;
 
     // AI channel created AS the worker (creator becomes a member).
-    const workerToken = generateTestToken({
-      userId: seed.user.id,
-      email: seed.user.email,
-      role: 'MODULE_MANAGER',
-      tenantId: seed.tenant.id,
-    });
+    const workerToken = seed.user.token;
     const client = new GraphQLTestClient(request);
-    const created = await client.query<{ createChannel: { id: string } }>(
-      `mutation CreateChannel($input: CreateChannelInput!) {
+    const created = await client.executeSuccess<{ createChannel: { id: string } }>({ query: `mutation CreateChannel($input: CreateChannelInput!) {
         createChannel(input: $input) { id }
-      }`,
-      { input: { type: 'AI', name: 'AI Assistant' } },
-      { token: workerToken },
-    );
+      }`, variables: { input: { type: 'AI', name: 'AI Assistant' } }, token: workerToken });
     channelId = created.createChannel.id;
 
     // createChannel provisioned the MESSAGING tenant clone; provoke the AI
     // subgraph the same way so ai_proposed_actions exists before the seed.
     await ensureTenantTable(db, schema, 'ai_proposed_actions', () =>
-      client.query(`query ProvisionAi { aiServiceHealth }`, {}, { token: workerToken }),
+      client.executeSuccess({ query: `query ProvisionAi { aiServiceHealth }`, variables: {}, token: workerToken }),
     );
     await ensureTenantTable(db, schema, 'messages', () => Promise.resolve());
 
@@ -115,7 +105,7 @@ test.describe('AquaMobil AI action confirm', () => {
   test('confirming the card executes the persisted proposal into a farm task', async ({ page }) => {
     await loginAsFieldWorker(page, seed.user.email, FIXTURE_PASSWORD);
 
-    await page.goto(`/messages/ai/${channelId}`);
+    await page.goto(`/mobile/messages/ai/${channelId}`);
     await expect(page.getByText(`create_task: "${taskTitle}"`)).toBeVisible({ timeout: 15_000 });
 
     await page.getByRole('button', { name: /^Confirm/ }).first().click();

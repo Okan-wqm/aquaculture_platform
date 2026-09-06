@@ -29,6 +29,7 @@ import type { JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { BarcodeScanButton } from '@/components/BarcodeScanButton';
+import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
 import { VirtualList } from '@/components/VirtualList';
 import { useAuth } from '@/hooks/useAuth';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
@@ -144,6 +145,12 @@ export function StockTransferPage(): JSX.Element {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
+  // MOB: the success heading used to be chosen by `isOnline`, not by what
+  // actually happened. On the recoverable-transport fallback below the write
+  // reaches the DEVICE QUEUE while isOnline is still true, so the user was
+  // told "Recorded!" for a write the server had never seen. Holding the
+  // operation id makes the screen report the operation's real state.
+  const [queuedOperationId, setQueuedOperationId] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   // WHY ref + focus effect (not autoFocus): the quantity step renders a single
@@ -277,7 +284,9 @@ export function StockTransferPage(): JSX.Element {
           await invalidateSyncedOperationQueries(queryClient, tenantId, ['transferStock']);
         }
       } else {
-        await addToQueue('transferStock', input);
+        const { id: opId } = await addToQueue('transferStock', input);
+        setQueuedOperationId(opId);
+        return;
       }
 
       setShowSuccess(true);
@@ -288,9 +297,8 @@ export function StockTransferPage(): JSX.Element {
       // write failures should surface instead of being retried recursively.
       if (isOnline && isRecoverableNetworkError(error)) {
         try {
-          await addToQueue('transferStock', input);
-          setShowSuccess(true);
-          setTimeout(() => navigate('/storage'), 1500);
+          const { id: opId } = await addToQueue('transferStock', input);
+          setQueuedOperationId(opId);
           return;
         } catch (queueError) {
           setSubmitError(queueError instanceof Error ? queueError.message : 'Failed to queue operation');
@@ -309,6 +317,33 @@ export function StockTransferPage(): JSX.Element {
 
   // ---- Success screen ------------------------------------------------------
 
+  // -- Queued screen ---------------------------------------------------------
+  // A queued write is on the device, not in the database. QueuedStatusBadge
+  // reports the operation's real state, so a rejection during sync surfaces as
+  // "Sync Failed" instead of hiding behind the tick the user already left.
+  if (queuedOperationId) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-amber-50 dark:bg-amber-900/10 px-6">
+        <div className="w-20 h-20 bg-amber-100 dark:bg-amber-900/30 rounded-full flex items-center justify-center mb-4">
+          <Package size={48} className="text-amber-600" />
+        </div>
+        <h2 className="text-xl font-bold text-amber-700 dark:text-amber-300">Saved to device</h2>
+        <p className="text-amber-600 dark:text-amber-400 text-sm mt-1 text-center">
+          This transfer is not recorded until it reaches the server.
+        </p>
+        <div className="mt-4">
+          <QueuedStatusBadge operationId={queuedOperationId} />
+        </div>
+        <button
+          onClick={() => navigate('/storage')}
+          className="mt-6 px-5 py-2.5 rounded-xl bg-amber-600 text-white font-medium touch-feedback"
+        >
+          Back to storage
+        </button>
+      </div>
+    );
+  }
+
   if (showSuccess) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-green-50 dark:bg-green-900/10">
@@ -316,7 +351,7 @@ export function StockTransferPage(): JSX.Element {
           <CheckCircle size={48} className="text-green-600" />
         </div>
         <h2 className="text-xl font-bold text-green-700 dark:text-green-300">
-          {isOnline ? 'Transfer Recorded!' : 'Queued for Sync'}
+          Transfer Recorded!
         </h2>
         <p className="text-green-600 dark:text-green-400 text-sm mt-1">Returning to storage hub...</p>
       </div>

@@ -55,6 +55,20 @@ describe('Explorer SQL Security', () => {
       .compile();
 
     app = module.createNestApplication();
+    // Production attaches the verified operator before the controller runs, and
+    // every audited read here records who performed it. Injecting it at the
+    // edge — rather than through the guard double — keeps the spec honest no
+    // matter which guard the controller resolves.
+    app.use((req: { user?: unknown }, _res: unknown, next: () => void) => {
+      req.user = {
+        id: 'super-admin-1',
+        sub: 'super-admin-1',
+        email: 'ops@example.com',
+        name: 'Ops Admin',
+        roles: ['SUPER_ADMIN'],
+      };
+      next();
+    });
     app.useGlobalPipes(
       new ValidationPipe({
         whitelist: true,
@@ -88,9 +102,7 @@ describe('Explorer SQL Security', () => {
   function postQuery(sql: string, params?: unknown[]) {
     const body: Record<string, unknown> = { sql };
     if (params) body['params'] = params;
-    return request(app.getHttpServer())
-      .post('/database/explorer/query')
-      .send(body);
+    return request(app.getHttpServer()).post('/database/explorer/query').send(body);
   }
 
   // ==========================================================================
@@ -334,7 +346,7 @@ describe('Explorer SQL Security', () => {
     });
 
     it('should strip line comments hiding dangerous SQL', async () => {
-      const res = await postQuery("SELECT 1 -- safe query\nDROP TABLE users");
+      const res = await postQuery('SELECT 1 -- safe query\nDROP TABLE users');
 
       expect(res.status).toBe(HttpStatus.BAD_REQUEST);
     });

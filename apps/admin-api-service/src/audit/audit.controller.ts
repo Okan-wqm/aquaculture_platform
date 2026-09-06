@@ -3,7 +3,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 
 import { PaginationQueryDto } from '../shared/pagination-query.dto';
-import { getAuthUser } from '../shared/authenticated-request';
+import { getAuthUser, requireAuthUserId } from '../shared/authenticated-request';
 import { clampLimit } from '../shared/sort-field.util';
 
 import { AuditLog, AuditSeverity } from './audit.entity';
@@ -20,12 +20,12 @@ export class AuditLogController {
    * this, an insider could read audit data without detection.
    */
   private writeMetaAudit(req: Request, action: string, details: Record<string, unknown>): void {
-    const user = getAuthUser(req);
     this.auditLogService
       .log({
         action: 'AUDIT_LOG_ACCESSED',
         entityType: 'AuditLog',
-        performedBy: user?.id || 'unknown',
+        // The trace exists to name the insider; 'unknown' would defeat it.
+        performedBy: requireAuthUserId(req),
         ipAddress: (req.ip || req.socket?.remoteAddress) ?? undefined,
         userAgent: req.headers['user-agent'],
         details: { subAction: action, ...details },

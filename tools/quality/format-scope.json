@@ -36135,6 +36135,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/zcode/2026-09-06-admin-audit-actor-attribution.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/zcode/2026-09-06-fefo-expiry-moment.md",
       "prettier_managed": true
     },
@@ -36160,6 +36166,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/zcode/2026-09-06-queued-write-honesty.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/zcode/2026-09-06-report-failure-honesty.md",
       "prettier_managed": true
     },
     {
@@ -44715,6 +44727,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/admin-api-schema-boundaries.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/admin-audit-actor-attribution.spec.ts",
       "prettier_managed": true
     },
     {

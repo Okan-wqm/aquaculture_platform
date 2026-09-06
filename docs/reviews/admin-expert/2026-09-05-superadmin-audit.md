@@ -179,10 +179,18 @@ One defect was found while writing the billing-side spec: `PlanCatalogService` r
 
 ## BILLING-CRITICAL-003 — Raw SQL against subscriptions; dead Stripe reconciliation; no idempotency (R8, C14)
 
-**State:** OPEN · **Wave:** W4 · **ADR:** 0014 (depends on 0013)
+**State:** IN-PROGRESS · **Wave:** W4 · **ADR:** 0014 (depends on 0013)
 
 **Fix (Tier-1):** provisioning via `CreateSubscriptionHandler` (FREE is the only non-Stripe tier). Delete the three raw-SQL blocks in favour of Cancel / Reactivate / ExtendTrial handlers. Fix the five webhook consumers to read `internalTenantId` through a shared constant (producer rename rejected — it would orphan every existing Stripe object) plus a real customer-lookup fallback. `BillingAdminCommandMeta` gains required `idempotencyKey` + `correlationId`, receipts on all eight commands. Seed `billing.plans` for every cycle.
 **Gate:** `tests/invariants/billing-command-contract-ssot.spec.ts` — sender type, consumer pattern and NATS grant derived from one declaration; metadata-key symmetry; no raw write to `billing.subscriptions` outside a command handler.
+
+**Implementation note — the webhook metadata asymmetry (landed 2026-09-06):** the first and most damaging half of this finding. `StripeApiService` binds the tenant into Stripe metadata under `internalTenantId`; all five webhook consumers read `metadata.tenantId` and warn-and-returned when it was absent — which it always was. **Every Stripe webhook this platform ever received was discarded**: no payment was recorded from Stripe, no subscription was ever moved to PAST_DUE or CANCELLED by Stripe, and no refund reached a payment row. It never surfaced because a warn-and-return is indistinguishable from a webhook for somebody else's object.
+
+The producer's key is NOT renamed — every Stripe object the platform has created carries it, and a rename would orphan all of them. Both sides read `STRIPE_TENANT_METADATA_KEY` from `libs/backend-common/src/billing/stripe-metadata.ts` instead. But renaming the read alone would have fixed the symptom and kept the flaw: Stripe metadata is writable by anyone who can reach the Stripe account, so a tenant id read out of it is an association hint, never proof (SECREV-CRITICAL-001). Each handler now resolves the tenant from the LOCAL row that owns the Stripe object — a payment by its payment-intent id, an invoice by its Stripe invoice id, a subscription by its Stripe subscription id — and `readStripeTenantHint` cross-checks the claim, logging a disagreement at ERROR without letting it change the outcome. `handlePaymentIntentSucceeded` additionally stopped depending on a `metadata.invoiceId` that no producer has ever written: it reaches the invoice through the payment intent's own `invoice` field, or through a payment row already opened for the same intent.
+
+**The service had no test at all** — that is how the defect survived; the only spec covered the controller's signature check, idempotency and routing. `stripe-webhook.service.spec.ts` adds thirteen, and nine of them FAIL against the pre-fix service, which is the evidence that they pin the behaviour rather than describe it.
+
+**Gate (parts i + ii of the ADR's three):** the new invariant derives every one of the 32 `BILLING_ADMIN_COMMAND_SUBJECTS` members' sender, consumer `@MessagePattern` and `services.yaml` grant from the one subject map (96 assertions), and holds the metadata key to a single declaration: the producer may not write it as a literal, the webhook consumer may not reach into a Stripe object's metadata by hand, and no Stripe-surface file may read the old key. Verified by reverting both files — three assertions fail. Part (iii), "no raw write to `billing.subscriptions` outside a `@CommandHandler`", lands with the raw-SQL removal it describes.
 
 ## CONTRACT-CRITICAL-003 — No machine-readable FE↔BE contract; interface DTOs disarm validation (R9, C1, C2)
 

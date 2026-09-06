@@ -6226,6 +6226,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/billing-service/src/billing/controllers/__tests__/stripe-webhook.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/billing-service/src/billing/controllers/stripe-webhook.controller.ts",
       "prettier_managed": true
     },
@@ -37371,6 +37377,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/billing/stripe-metadata.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/bootstrap/__tests__/edge-hardening.spec.ts",
       "prettier_managed": true
     },
@@ -43884,6 +43896,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/backup-ssh-broker-contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/billing-command-contract-ssot.spec.ts",
       "prettier_managed": true
     },
     {

@@ -7,6 +7,7 @@ import { toEventIso,
   PaymentFailedEvent,
   SubscriptionCancelledEvent,
 } from '@platform/event-contracts';
+import { readStripeTenantHint } from '@aquaculture/backend-common/billing';
 import { Money } from '@aquaculture/backend-common/monetary';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import { maskAndTruncatePii } from '@aquaculture/backend-common/utils';
@@ -26,6 +27,22 @@ import { randomUUID } from 'crypto';
  * Coordinates with E2-RefundHandler: charge.refunded DB-level refund
  * logic is owned by E2-RefundHandler; this service updates the payment
  * status and publishes the NATS event.
+ *
+ * ## The tenant comes from OUR row, not from Stripe's metadata (ADR-0014)
+ *
+ * Every handler below used to open with `metadata.tenantId` and
+ * warn-and-return when it was absent. The producer writes the tenant under
+ * `internalTenantId` (`STRIPE_TENANT_METADATA_KEY`), so it was always absent:
+ * every webhook this platform ever received was discarded, and no payment,
+ * cancellation or refund ever reached a row from Stripe.
+ *
+ * Renaming the read to the producer's key alone would have fixed the symptom
+ * and kept the flaw: Stripe metadata is writable by anyone who can reach the
+ * Stripe account, so a tenant id read out of it is an association hint, never
+ * proof (SECREV-CRITICAL-001). Each handler now finds the LOCAL row that owns
+ * the Stripe object — a payment by its payment-intent id, a subscription by
+ * its subscription id — and takes the tenant from there. The hint is compared
+ * against that answer and a disagreement is logged loudly; it never decides.
  */
 @Injectable()
 export class StripeWebhookService {
@@ -58,21 +75,14 @@ export class StripeWebhookService {
     const amountReceived: number = amountReceivedMoney.toDecimal().toNumber();
     const stripeChargeId: string | undefined = paymentIntent.latest_charge ?? undefined;
 
-    // Metadata should carry our tenantId and invoiceId
-    const tenantId: string | undefined = paymentIntent.metadata?.tenantId;
-    const invoiceId: string | undefined = paymentIntent.metadata?.invoiceId;
-
-    if (!tenantId || !invoiceId) {
-      this.logger.warn(
-        `payment_intent.succeeded: missing tenantId or invoiceId in metadata for ${stripePaymentIntentId}`,
-      );
-      return;
-    }
+    const stripeInvoiceId: string | undefined = paymentIntent.invoice ?? undefined;
 
     await this.dataSource.transaction(async (manager) => {
-      // Check if a payment with this stripePaymentIntentId already exists (idempotency at DB level)
+      // Check if a payment with this stripePaymentIntentId already exists
+      // (idempotency at DB level). Not scoped by tenant: the payment-intent id
+      // IS the identity, and the row it finds is what says whose it is.
       const existingPayment = await manager.findOne(Payment, {
-        where: { stripePaymentIntentId, tenantId },
+        where: { stripePaymentIntentId },
       });
 
       if (existingPayment && existingPayment.status === PaymentStatus.SUCCEEDED) {
@@ -82,15 +92,32 @@ export class StripeWebhookService {
         return;
       }
 
-      const invoice = await manager.findOne(Invoice, {
-        where: { id: invoiceId, tenantId },
-        lock: { mode: 'pessimistic_write' },
-      });
+      // The invoice is the authority on the tenant: it is our row, keyed by
+      // the Stripe invoice this payment intent settles, or reached through a
+      // payment row already opened for the same intent.
+      const invoice = existingPayment
+        ? await manager.findOne(Invoice, {
+            where: { id: existingPayment.invoiceId },
+            lock: { mode: 'pessimistic_write' },
+          })
+        : stripeInvoiceId
+          ? await manager.findOne(Invoice, {
+              where: { stripeInvoiceId },
+              lock: { mode: 'pessimistic_write' },
+            })
+          : null;
 
       if (!invoice) {
-        this.logger.warn(`payment_intent.succeeded: invoice ${invoiceId} not found for tenant ${tenantId}`);
+        this.logger.warn(
+          `payment_intent.succeeded: no invoice of ours owns ${stripePaymentIntentId} ` +
+            `(stripe invoice ${stripeInvoiceId ?? 'absent'}) — ignoring`,
+        );
         return;
       }
+
+      const tenantId = invoice.tenantId;
+      const invoiceId = invoice.id;
+      this.assertTenantHintAgrees('payment_intent.succeeded', paymentIntent, tenantId);
 
       const payableStatuses = [
         InvoiceStatus.PENDING,
@@ -204,15 +231,7 @@ export class StripeWebhookService {
     const failureCode: string =
       paymentIntent.last_payment_error?.code ?? 'unknown';
 
-    const tenantId: string | undefined = paymentIntent.metadata?.tenantId;
-    const invoiceId: string | undefined = paymentIntent.metadata?.invoiceId;
-
-    if (!tenantId || !invoiceId) {
-      this.logger.warn(
-        `payment_intent.payment_failed: missing tenantId or invoiceId in metadata for ${stripePaymentIntentId}`,
-      );
-      return;
-    }
+    const stripeInvoiceId: string | undefined = paymentIntent.invoice ?? undefined;
 
     await this.dataSource.transaction(async (manager) => {
       // Idempotency guard: Stripe retries webhooks on failure; Redis may be unavailable
@@ -228,6 +247,21 @@ export class StripeWebhookService {
         );
         return;
       }
+
+      // Our invoice decides whose failure this is — see the class docblock.
+      const invoice = stripeInvoiceId
+        ? await manager.findOne(Invoice, { where: { stripeInvoiceId } })
+        : null;
+      if (!invoice) {
+        this.logger.warn(
+          `payment_intent.payment_failed: no invoice of ours owns ${stripePaymentIntentId} ` +
+            `(stripe invoice ${stripeInvoiceId ?? 'absent'}) — ignoring`,
+        );
+        return;
+      }
+      const tenantId = invoice.tenantId;
+      const invoiceId = invoice.id;
+      this.assertTenantHintAgrees('payment_intent.payment_failed', paymentIntent, tenantId);
 
       const transactionId = `TXN-STRIPE-FAIL-${Date.now()}-${randomUUID().substring(0, 8).toUpperCase()}`;
 
@@ -315,12 +349,6 @@ export class StripeWebhookService {
     }
 
     const stripeSubscriptionId: string | undefined = stripeInvoice.subscription;
-    const tenantId: string | undefined = stripeInvoice.metadata?.tenantId;
-
-    if (!tenantId) {
-      this.logger.warn('invoice.payment_failed: missing tenantId in metadata');
-      return;
-    }
 
     if (!stripeSubscriptionId) {
       this.logger.warn('invoice.payment_failed: no subscription associated');
@@ -328,17 +356,21 @@ export class StripeWebhookService {
     }
 
     await this.dataSource.transaction(async (manager) => {
+      // Our subscription row decides whose invoice this is — see the class docblock.
       const subscription = await manager.findOne(Subscription, {
-        where: { stripeSubscriptionId, tenantId },
+        where: { stripeSubscriptionId },
         lock: { mode: 'pessimistic_write' },
       });
 
       if (!subscription) {
         this.logger.warn(
-          `invoice.payment_failed: subscription ${stripeSubscriptionId} not found for tenant ${tenantId}`,
+          `invoice.payment_failed: no subscription of ours owns ${stripeSubscriptionId} — ignoring`,
         );
         return;
       }
+
+      const tenantId = subscription.tenantId;
+      this.assertTenantHintAgrees('invoice.payment_failed', stripeInvoice, tenantId);
 
       if (subscription.status === SubscriptionStatus.PAST_DUE) {
         this.logger.log(
@@ -382,27 +414,22 @@ export class StripeWebhookService {
     }
 
     const stripeSubscriptionId: string = stripeSubscription.id;
-    const tenantId: string | undefined = stripeSubscription.metadata?.tenantId;
-
-    if (!tenantId) {
-      this.logger.warn(
-        `customer.subscription.deleted: missing tenantId in metadata for ${stripeSubscriptionId}`,
-      );
-      return;
-    }
 
     await this.dataSource.transaction(async (manager) => {
       const subscription = await manager.findOne(Subscription, {
-        where: { stripeSubscriptionId, tenantId },
+        where: { stripeSubscriptionId },
         lock: { mode: 'pessimistic_write' },
       });
 
       if (!subscription) {
         this.logger.warn(
-          `customer.subscription.deleted: subscription ${stripeSubscriptionId} not found for tenant ${tenantId}`,
+          `customer.subscription.deleted: no subscription of ours owns ${stripeSubscriptionId} — ignoring`,
         );
         return;
       }
+
+      const tenantId = subscription.tenantId;
+      this.assertTenantHintAgrees('customer.subscription.deleted', stripeSubscription, tenantId);
 
       if (subscription.status === SubscriptionStatus.CANCELLED) {
         this.logger.log(
@@ -467,25 +494,21 @@ export class StripeWebhookService {
     const amountTotalMoney = Money.fromMinorUnits(charge.amount ?? 0, currency);
     const isFullRefund = !amountRefundedMoney.lessThan(amountTotalMoney);
 
-    const tenantId: string | undefined = charge.metadata?.tenantId;
-
-    if (!tenantId) {
-      this.logger.warn(`charge.refunded: missing tenantId in metadata for ${stripeChargeId}`);
-      return;
-    }
-
     await this.dataSource.transaction(async (manager) => {
       const payment = await manager.findOne(Payment, {
-        where: { stripeChargeId, tenantId },
+        where: { stripeChargeId },
         lock: { mode: 'pessimistic_write' },
       });
 
       if (!payment) {
         this.logger.warn(
-          `charge.refunded: payment not found for stripeChargeId ${stripeChargeId}, tenant ${tenantId}`,
+          `charge.refunded: no payment of ours owns charge ${stripeChargeId} — ignoring`,
         );
         return;
       }
+
+      const tenantId = payment.tenantId;
+      this.assertTenantHintAgrees('charge.refunded', charge, tenantId);
 
       // Update payment status based on refund amount
       payment.status = isFullRefund ? PaymentStatus.REFUNDED : PaymentStatus.PARTIALLY_REFUNDED;
@@ -527,5 +550,29 @@ export class StripeWebhookService {
         `Amount: ${amountRefundedMoney} ${currency}`,
       );
     });
+  }
+
+  /**
+   * Compare the Stripe object's tenant HINT against the tenant our own row
+   * says it belongs to.
+   *
+   * A disagreement means either a stale object or someone writing metadata we
+   * did not write. It never changes the outcome — the row already decided —
+   * but it is exactly the signal an operator needs, so it is logged at ERROR.
+   * A missing hint is normal for objects Stripe created on its own (a payment
+   * intent raised for an invoice we finalized carries no metadata of ours).
+   */
+  private assertTenantHintAgrees(
+    eventType: string,
+    stripeObject: Record<string, unknown>,
+    resolvedTenantId: string,
+  ): void {
+    const hint = readStripeTenantHint(stripeObject['metadata']);
+    if (hint !== null && hint !== resolvedTenantId) {
+      this.logger.error(
+        `${eventType}: Stripe metadata claims tenant ${hint} but the owning row is ` +
+          `tenant ${resolvedTenantId}. The row wins; investigate the mismatch.`,
+      );
+    }
   }
 }

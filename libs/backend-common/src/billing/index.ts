@@ -11,6 +11,9 @@
  */
 
 export { StripeApiService } from './stripe-api.service';
+// ADR-0014: the ONE declaration of the Stripe↔tenant metadata key, read by
+// the producer and by every webhook consumer so the two cannot drift.
+export { STRIPE_TENANT_METADATA_KEY, readStripeTenantHint } from './stripe-metadata';
 export { StripeApiModule, STRIPE_API_CLIENT, STRIPE_AUDIT_RECORDER } from './stripe-api.module';
 // W1.1 (ADR-016): the production Stripe client factory — the one adapter that
 // constructs a real Stripe SDK instance. billing-service binds it to

@@ -36033,6 +36033,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/zcode/2026-09-05-composite-action-pin-scope.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/zcode/2026-09-05-pr1423-ci-repair.md",
       "prettier_managed": true
     },

@@ -13,7 +13,15 @@ updates:
   # ── GitHub Actions ────────────────────────────────────────────────
   # Weekly PRs bumping pinned SHAs to latest verified release.
   - package-ecosystem: github-actions
-    directory: /
+    # `/` covers .github/workflows/** only. Composite actions live in
+    # .github/actions/<name>/action.yml and are invisible to that scope, so
+    # their pins rot unwatched: when this glob was added, setup-node-env sat
+    # on setup-node v4.2.0 and docker-build-push on build-push-action v5.1.0
+    # while every workflow had been carried to v7.x. The glob covers any
+    # composite action added later without another edit here.
+    directories:
+      - /
+      - /.github/actions/*
     schedule:
       interval: weekly
       day: monday

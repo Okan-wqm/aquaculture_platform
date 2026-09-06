@@ -397,6 +397,10 @@ The 2026-06-20 registry close follow-up left no OTHER active CRITICAL in
 
 ## Resolved Evidence
 
+- `MOB-CRITICAL-021`: registry state is `RESOLVED` with closing commit `ff643ac84`
+  ("Merge branch 'main' into claude/mobile-graphql-contract-0jj9jg"), derived by
+  `finding-registry reconcile` once PR #1424 (`411c86835`) made it reachable from `main`.
+  Left the active table from bucket `already-fixed-needs-close`.
 - `INFRA-CRITICAL-149`: registry state is `RESOLVED` with closing commit `381e06271`
   ("fix(db-migrate): stamp a tenant ledger only when the schema can back it"), derived by
   `finding-registry reconcile` against `origin/main`. Left the active table from

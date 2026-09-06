@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react';
 import { federation } from '@module-federation/vite';
 import { resolve } from 'path';
 import { getSharedConfigWithReactFlow } from '../shared-ui/src/federation/federationSharedConfig';
+import { resolveSharedUiAlias } from '../shared-ui/src/federation/sharedUiAlias';
 
 /**
  * Vite Konfigürasyonu - Shell (Host) Uygulaması
@@ -13,7 +14,7 @@ import { getSharedConfigWithReactFlow } from '../shared-ui/src/federation/federa
  * FE-HIGH-004: Shared deps imported from federationSharedConfig.ts — single
  * source of truth with strictVersion:true enforced on ALL entries.
  */
-export default defineConfig(({ command }) => {
+export default defineConfig(({ command, mode }) => {
   // Development: local docker proxy at localhost:8080/mf/
   // Production build: relative /remotes/ paths resolved by nginx reverse proxy
   const isDev = command === 'serve';
@@ -42,7 +43,7 @@ export default defineConfig(({ command }) => {
     resolve: {
       alias: {
         '@': resolve(__dirname, 'src'),
-        '@aquaculture/shared-ui': resolve(__dirname, '../shared-ui/dist'),
+        '@aquaculture/shared-ui': resolveSharedUiAlias(resolve(__dirname, '../shared-ui'), mode),
       },
     },
     server: {

@@ -59,7 +59,10 @@ export async function isPlatformAuthenticatorAvailable(): Promise<boolean> {
 // GraphQL Operations
 // ============================================================================
 
-const REGISTRATION_CHALLENGE_MUTATION: TypedDocumentNode<WebAuthnRegistrationChallengeMutation, WebAuthnRegistrationChallengeMutationVariables> = gql`
+const REGISTRATION_CHALLENGE_MUTATION: TypedDocumentNode<
+  WebAuthnRegistrationChallengeMutation,
+  WebAuthnRegistrationChallengeMutationVariables
+> = gql`
   mutation WebAuthnRegistrationChallenge($input: WebAuthnRegistrationChallengeInput) {
     webAuthnRegistrationChallenge(input: $input) {
       challenge
@@ -71,7 +74,10 @@ const REGISTRATION_CHALLENGE_MUTATION: TypedDocumentNode<WebAuthnRegistrationCha
   }
 `;
 
-const REGISTER_CREDENTIAL_MUTATION: TypedDocumentNode<RegisterWebAuthnCredentialMutation, RegisterWebAuthnCredentialMutationVariables> = gql`
+const REGISTER_CREDENTIAL_MUTATION: TypedDocumentNode<
+  RegisterWebAuthnCredentialMutation,
+  RegisterWebAuthnCredentialMutationVariables
+> = gql`
   mutation RegisterWebAuthnCredential($input: WebAuthnRegisterCredentialInput!) {
     registerWebAuthnCredential(input: $input) {
       success
@@ -81,7 +87,10 @@ const REGISTER_CREDENTIAL_MUTATION: TypedDocumentNode<RegisterWebAuthnCredential
   }
 `;
 
-const LOGIN_CHALLENGE_MUTATION: TypedDocumentNode<WebAuthnLoginChallengeMutation, WebAuthnLoginChallengeMutationVariables> = gql`
+const LOGIN_CHALLENGE_MUTATION: TypedDocumentNode<
+  WebAuthnLoginChallengeMutation,
+  WebAuthnLoginChallengeMutationVariables
+> = gql`
   mutation WebAuthnLoginChallenge($input: WebAuthnLoginChallengeInput!) {
     webAuthnLoginChallenge(input: $input) {
       challenge
@@ -91,7 +100,10 @@ const LOGIN_CHALLENGE_MUTATION: TypedDocumentNode<WebAuthnLoginChallengeMutation
   }
 `;
 
-const VERIFY_LOGIN_MUTATION: TypedDocumentNode<VerifyWebAuthnLoginMutation, VerifyWebAuthnLoginMutationVariables> = gql`
+const VERIFY_LOGIN_MUTATION: TypedDocumentNode<
+  VerifyWebAuthnLoginMutation,
+  VerifyWebAuthnLoginMutationVariables
+> = gql`
   mutation VerifyWebAuthnLogin($input: WebAuthnVerifyLoginInput!) {
     verifyWebAuthnLogin(input: $input) {
       accessToken
@@ -108,7 +120,10 @@ const VERIFY_LOGIN_MUTATION: TypedDocumentNode<VerifyWebAuthnLoginMutation, Veri
   }
 `;
 
-const MY_CREDENTIALS_QUERY: TypedDocumentNode<MyWebAuthnCredentialsQuery, MyWebAuthnCredentialsQueryVariables> = gql`
+const MY_CREDENTIALS_QUERY: TypedDocumentNode<
+  MyWebAuthnCredentialsQuery,
+  MyWebAuthnCredentialsQueryVariables
+> = gql`
   query MyWebAuthnCredentials {
     myWebAuthnCredentials {
       credentialId
@@ -119,13 +134,19 @@ const MY_CREDENTIALS_QUERY: TypedDocumentNode<MyWebAuthnCredentialsQuery, MyWebA
   }
 `;
 
-const HAS_CREDENTIALS_QUERY: TypedDocumentNode<HasWebAuthnCredentialsQuery, HasWebAuthnCredentialsQueryVariables> = gql`
+const HAS_CREDENTIALS_QUERY: TypedDocumentNode<
+  HasWebAuthnCredentialsQuery,
+  HasWebAuthnCredentialsQueryVariables
+> = gql`
   query HasWebAuthnCredentials {
     hasWebAuthnCredentials
   }
 `;
 
-const REMOVE_CREDENTIAL_MUTATION: TypedDocumentNode<RemoveWebAuthnCredentialMutation, RemoveWebAuthnCredentialMutationVariables> = gql`
+const REMOVE_CREDENTIAL_MUTATION: TypedDocumentNode<
+  RemoveWebAuthnCredentialMutation,
+  RemoveWebAuthnCredentialMutationVariables
+> = gql`
   mutation RemoveWebAuthnCredential($credentialId: String!) {
     removeWebAuthnCredential(credentialId: $credentialId) {
       success

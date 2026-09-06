@@ -4,6 +4,7 @@ import react from '@vitejs/plugin-react';
 import { federation } from '@module-federation/vite';
 import { resolve } from 'path';
 import { getSharedConfigWithLucide } from '../../shared-ui/src/federation/federationSharedConfig';
+import { resolveSharedUiAlias } from '../../shared-ui/src/federation/sharedUiAlias';
 import createVitestTestPolicy from '@aquaculture/testing/vitest';
 
 /**
@@ -15,7 +16,7 @@ import createVitestTestPolicy from '@aquaculture/testing/vitest';
  * FE-HIGH-004: Shared deps imported from federationSharedConfig.ts — single
  * source of truth with strictVersion:true enforced on ALL entries.
  */
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [
     react(),
     federation({
@@ -40,7 +41,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
-      '@aquaculture/shared-ui': resolve(__dirname, '../../shared-ui/dist'),
+      '@aquaculture/shared-ui': resolveSharedUiAlias(resolve(__dirname, '../../shared-ui'), mode),
     },
   },
   base: '/remotes/tenant-admin/',
@@ -65,4 +66,4 @@ export default defineConfig({
     strictPort: true,
     cors: true,
   },
-});
+}));

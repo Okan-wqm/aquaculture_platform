@@ -1,6 +1,7 @@
 import { resolve } from 'path';
 
 import { getSharedConfigWithRecharts } from '@aquaculture/shared-ui/federation/federationSharedConfig';
+import { resolveSharedUiAlias } from '../../shared-ui/src/federation/sharedUiAlias';
 import { federation } from '@module-federation/vite';
 import react from '@vitejs/plugin-react';
 import { type PluginOption } from 'vite';
@@ -18,10 +19,7 @@ const farmModuleBase = process.env.VITE_FARM_MODULE_BASE ?? '/remotes/farm-modul
  * source of truth with strictVersion:true enforced on ALL entries.
  */
 export default defineConfig(({ mode }) => {
-  const sharedUiAlias =
-    mode === 'test'
-      ? resolve(__dirname, '../../shared-ui/src')
-      : resolve(__dirname, '../../shared-ui/dist');
+  const sharedUiAlias = resolveSharedUiAlias(resolve(__dirname, '../../shared-ui'), mode);
 
   return {
     envDir: resolve(__dirname, '../../..'),

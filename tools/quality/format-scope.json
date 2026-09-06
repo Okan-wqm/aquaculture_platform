@@ -36099,6 +36099,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/zcode/2026-09-06-walg-run-record-canonicality.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/zcode/2026-09-06-watchdog-report-serialisation.md",
       "prettier_managed": true
     },

@@ -280,6 +280,12 @@ model = {'services': {'postgres': {'image': image, 'container_name': 'aqua-postg
       timeout: 5s
       retries: 5
 ''')
+(base / 'legacy.yml').write_text('''services:
+  postgres:
+    image: timescale/timescaledb-ha:pg16
+    entrypoint: ['/bin/sh']
+    command: ['-c', 'exit 126']
+''')
 PY
   mode=healthy_upgrade
   [ "${scenario}" != degraded ] || mode=degraded_legacy_recovery
@@ -292,14 +298,13 @@ PY
     printf 'FORWARD_OVERRIDE=%q\nROLLBACK_OVERRIDE=%q\n' "${case_root}/journal/${run_key}/postgres-forward.override.yml" "${case_root}/journal/${run_key}/postgres-rollback.override.yml"
   } > "${case_root}/coordinates.sh"
   chmod 0400 "${case_root}/coordinates.sh"
-  docker volume create aqua-saas_postgres_data >/dev/null
-  docker run -d --name aqua-postgres --network "${fixture_network}" --user root \
-    --label com.docker.compose.project=aqua-saas --label com.docker.compose.service=postgres \
-    -e POSTGRES_USER=aquaculture -e POSTGRES_DB=aquaculture -e POSTGRES_PASSWORD="${DR_FIXTURE_PASSWORD}" \
-    -e PGDATA=/var/lib/postgresql/data -e POSTGRES_SSL=off -e WALG_ENABLED=off \
-    --health-cmd 'pg_isready -U aquaculture' --health-interval 1s --health-retries 30 \
-    --mount type=volume,source=aqua-saas_postgres_data,target=/var/lib/postgresql/data \
-    --entrypoint /usr/local/bin/postgres-ssl-entrypoint.sh "${image_id}" postgres >/dev/null
+  # The observed production service is Compose-owned. Seed through Compose so
+  # its config-hash/oneoff/service labels and volume ownership are real; adding
+  # only project/service labels to docker run leaves an unadoptable namesake.
+  DEPLOY_CERTS_DIR="${generation}/certs" docker compose \
+    --project-name aqua-saas --project-directory "${case_root}" \
+    --env-file "${generation}/.env" -f "${case_root}/compose.json" -f "${case_root}/rollback.yml" \
+    up -d --no-deps --no-build --pull never postgres >/dev/null
   for attempt in $(seq 1 60); do
     [ "$(docker inspect --format '{{.State.Health.Status}}' aqua-postgres)" != healthy ] || break
     sleep 1
@@ -310,15 +315,14 @@ PY
   docker exec --user root aqua-postgres /bin/bash -c 'printf "legacy-hosted-fixture\n" > /var/lib/postgresql/data/server.key; chmod 0600 /var/lib/postgresql/data/server.key'
   if [ "${scenario}" = degraded ]; then
     docker stop --time 120 aqua-postgres >/dev/null
-    docker rm aqua-postgres >/dev/null
-    docker run -d --name aqua-postgres --network "${fixture_network}" \
-      --label com.docker.compose.project=aqua-saas --label com.docker.compose.service=postgres \
-      -e POSTGRES_USER=aquaculture -e POSTGRES_DB=aquaculture -e POSTGRES_PASSWORD="${DR_FIXTURE_PASSWORD}" \
-      -e PGDATA=/var/lib/postgresql/data -e POSTGRES_SSL=on -e WALG_ENABLED=off \
-      --mount type=volume,source=aqua-saas_postgres_data,target=/var/lib/postgresql/data \
-      --entrypoint /bin/sh timescale/timescaledb-ha:pg16 -c 'exit 126' >/dev/null
+    DEPLOY_CERTS_DIR="${generation}/certs" docker compose \
+      --project-name aqua-saas --project-directory "${case_root}" \
+      --env-file "${generation}/.env" -f "${case_root}/compose.json" \
+      -f "${case_root}/rollback.yml" -f "${case_root}/legacy.yml" \
+      up -d --no-deps --no-build --force-recreate --pull never postgres >/dev/null
     [ "$(docker wait aqua-postgres)" = 126 ]
   fi
+  [ -n "$(docker inspect --format '{{index .Config.Labels "com.docker.compose.config-hash"}}' aqua-postgres)" ]
   docker run -d --name aqua-dr-fixture-writer --network "${fixture_network}" \
     --label com.docker.compose.project=aqua-saas --label com.docker.compose.service=fixture-writer \
     -e DR_FIXTURE_PASSWORD="${DR_FIXTURE_PASSWORD}" \

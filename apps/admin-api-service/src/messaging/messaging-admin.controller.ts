@@ -11,6 +11,7 @@
  *
  * @see ADR-012 Phase 3 (Compliance)
  */
+import { parseNatsRequestTimeout } from '@aquaculture/backend-common/nats';
 import {
   Controller,
   Get,
@@ -151,9 +152,10 @@ export class MessagingAdminController {
     private readonly natsClient: ClientProxy,
     private readonly configService: ConfigService,
   ) {
-    this.natsTimeoutMs = this.configService.get<number>(
-      'MESSAGING_NATS_TIMEOUT_MS',
+    this.natsTimeoutMs = parseNatsRequestTimeout(
+      this.configService.get<unknown>('MESSAGING_NATS_TIMEOUT_MS'),
       DEFAULT_NATS_TIMEOUT_MS,
+      'MESSAGING_NATS_TIMEOUT_MS',
     );
   }
 

@@ -23,6 +23,9 @@ const MARINE_CREDENTIAL_SUBJECTS = new Set([
 const MARINE_CREDENTIAL_INBOX = '_INBOXFARMMARINECFG.>';
 const AUTHORITY_TOKEN =
   /\b(?:authorization|accounts|operator|resolver|auth_callout|no_auth_user|default_permission|users?|username|password|pass|token|nkey)\b/i;
+const responsePolicy = parseJson(readFileSync(
+  new URL('../../libs/backend-common/src/nats/nats-response-policy.json', import.meta.url), 'utf8'),
+'nats-response-policy.json');
 
 function readRepoFile(path) {
   return readFileSync(resolve(repoRoot, path), 'utf8');
@@ -90,14 +93,23 @@ export function parseServicesRegistry(servicesYaml, servicesSchemaJson) {
     for (const subject of service.subscribe) {
       assertNatsSubject(subject, `services.yaml ${service.name}.subscribe`);
     }
+    if (service.responses !== undefined && (
+      ![responsePolicy.maxAckResponses, responsePolicy.maxUnaryResponses].includes(service.responses.max) ||
+      service.responses.expires !== `${responsePolicy.expirySeconds}s`
+    )) throw new Error(`services.yaml ${service.name}.responses differs from shared response policy`);
     registry.set(service.name, {
       application: service.application,
       description: service.description.trim().replace(/\s+/g, ' '),
       publish: new Set(service.publish),
       subscribe: new Set(service.subscribe),
+      ...(service.responses === undefined ? {} : {
+        responses: { max: service.responses.max, expires: service.responses.expires },
+      }),
     });
   }
   assertUnique(applications, 'services.yaml applications');
+  assertUnique([...registry.keys()].map((name) => name.toUpperCase().replace(/-/g, '_')),
+    'services.yaml inbox prefixes');
   return registry;
 }
 
@@ -106,11 +118,13 @@ function renderSubjectList(subjects) {
 }
 
 function renderServiceAuthorization(name, service) {
+  const responses = service.responses === undefined ? '' :
+    `        allow_responses: { max: ${service.responses.max}, expires: ${JSON.stringify(service.responses.expires)} }\n`;
   return `    # ── ${name}: ${service.description} ──
     {
       user: "CN=${name}",
       permissions: {
-        publish: {
+${responses}        publish: {
           allow: [
 ${renderSubjectList(service.publish)}
           ]
@@ -256,9 +270,14 @@ export function parseGeneratedNatsAuthorization(natsConf) {
     }
     const sectionEnd = userMarkers[index + 1]?.index ?? generated.length;
     const section = generated.slice(scalar.end, sectionEnd);
+    const responses = /\ballow_responses:\s*\{\s*max:\s*(\d+),\s*expires:\s*"([^"]+)"\s*\}/.exec(section);
+    if (/\ballow_responses\b/.test(section) && !responses) {
+      throw new Error(`nats.conf ${serviceName}.responses has invalid bounded syntax`);
+    }
     authorization.set(serviceName, {
       publish: parsePermissionList(section, 'publish', serviceName),
       subscribe: parsePermissionList(section, 'subscribe', serviceName),
+      ...(responses === null ? {} : { responses: { max: Number(responses[1]), expires: responses[2] } }),
     });
   }
   return authorization;
@@ -464,6 +483,9 @@ export function assertStaticAcl(registry, authorization, natsConf, includedConfi
     if (!generated) throw new Error(`generated NATS authorization is missing CN=${name}`);
     assertSameSet(generated.publish, service.publish, `${name}.publish`);
     assertSameSet(generated.subscribe, service.subscribe, `${name}.subscribe`);
+    if (JSON.stringify(generated.responses) !== JSON.stringify(service.responses)) {
+      throw new Error(`${name}.responses differs from services.yaml`);
+    }
   }
 
   const canonical = renderCanonicalNatsAuthorization(registry);

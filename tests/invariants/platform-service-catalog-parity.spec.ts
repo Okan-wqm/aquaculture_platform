@@ -144,6 +144,28 @@ describe('platform service catalog parity', () => {
     }
   });
 
+  it('binds every database consumer to the database selected by PostgreSQL and db-migrate', () => {
+    const compose = readYaml<{
+      services: { postgres: { environment: { POSTGRES_DB: string } } } &
+        Record<string, { environment?: Record<string, unknown> }>;
+    }>('docker-compose.droplet.yml');
+    const selectedDatabase = compose.services.postgres.environment.POSTGRES_DB;
+    expect(selectedDatabase).toBe('${POSTGRES_DB:-aquaculture}');
+    for (const service of ['db-migrate', 'observability-service']) {
+      expect(compose.services[service]).toMatchObject({
+        environment: { DATABASE_NAME: selectedDatabase },
+      });
+    }
+    for (const [service, definition] of Object.entries(compose.services)) {
+      if (definition.environment && 'DATABASE_NAME' in definition.environment) {
+        expect({ service, database: definition.environment.DATABASE_NAME }).toEqual({
+          service,
+          database: selectedDatabase,
+        });
+      }
+    }
+  });
+
   it('keeps service criticality levels in sync', () => {
     const manifest = readYaml<CriticalityManifest>(
       'infrastructure/deploy/service-criticality.yaml',

@@ -183,15 +183,20 @@ test.describe('Token Security', () => {
       const rawErrors = deniedBody['errors'];
       if (rawErrors !== undefined && !Array.isArray(rawErrors))
         throw new Error('Login rejection returned invalid GraphQL errors');
-      const errors: GraphQLError[] | undefined = rawErrors === undefined ? undefined :
-        rawErrors.map((error: unknown): GraphQLError => {
-          if (!isJsonObject(error) || typeof error['message'] !== 'string')
-            throw new Error('Login rejection returned an invalid GraphQL error');
-          const extensions = error['extensions'];
-          if (extensions !== undefined && !isJsonObject(extensions))
-            throw new Error('Login rejection returned invalid GraphQL error extensions');
-          return { message: error['message'], ...(extensions === undefined ? {} : { extensions }) };
-        });
+      const errors: GraphQLError[] | undefined =
+        rawErrors === undefined
+          ? undefined
+          : rawErrors.map((error: unknown): GraphQLError => {
+              if (!isJsonObject(error) || typeof error['message'] !== 'string')
+                throw new Error('Login rejection returned an invalid GraphQL error');
+              const extensions = error['extensions'];
+              if (extensions !== undefined && !isJsonObject(extensions))
+                throw new Error('Login rejection returned invalid GraphQL error extensions');
+              return {
+                message: error['message'],
+                ...(extensions === undefined ? {} : { extensions }),
+              };
+            });
       const data = deniedBody['data'];
       if (data !== undefined && data !== null && !isJsonObject(data))
         throw new Error('Login rejection returned invalid GraphQL data');

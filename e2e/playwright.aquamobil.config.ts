@@ -34,7 +34,7 @@ export default defineConfig({
     baseURL: process.env.AQUAMOBIL_URL ?? 'http://127.0.0.1:8090/mobile',
     // Offline-first flows exercise the service worker; keep it enabled.
     serviceWorkers: 'allow',
-    // The isolated stack uses an ephemeral localhost certificate.
+    // The isolated stack uses an ephemeral certificate for its reserved test domain.
     ignoreHTTPSErrors: process.env.HOSTED_E2E_ISOLATED === 'true',
   },
   projects: [

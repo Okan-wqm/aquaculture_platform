@@ -1,3 +1,5 @@
+import { lookup } from 'node:dns/promises';
+
 export const FIXTURE_PASSWORD = 'TestPassword123!';
 
 /** Fixture mutation is allowed only against the isolated hosted database. */
@@ -23,9 +25,16 @@ export function isJsonObject(value: unknown): value is Record<string, unknown> {
 
 /** Obtain the normal RS256 access token through the actual password login endpoint. */
 export async function loginFixtureUser(email: string, password: string): Promise<string> {
+  assertIsolatedFixtureDatabase();
   const gateway = process.env['GATEWAY_URL'];
-  if (!gateway || new URL(gateway).hostname !== 'localhost')
-    throw new Error('Explicit hosted localhost gateway required');
+  if (!gateway || gateway !== process.env['HOSTED_E2E_ORIGIN'])
+    throw new Error('Explicit isolated hosted gateway origin required');
+  const target = new URL(gateway);
+  const addresses = await lookup(target.hostname, { all: true });
+  if (
+    target.protocol !== 'https:' || target.origin !== gateway || addresses.length === 0 ||
+    addresses.some(({ address }) => address !== '127.0.0.1' && address !== '::1')
+  ) throw new Error('Fixture login must use the loopback-bound hosted HTTPS gateway');
   const response = await fetch(`${gateway}/graphql`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Apollo-Require-Preflight': 'true' },
@@ -37,8 +46,11 @@ export async function loginFixtureUser(email: string, password: string): Promise
   });
   const body: unknown = await response.json();
   if (
-    !response.ok || !isJsonObject(body) || body['errors'] ||
-    !isJsonObject(body['data']) || !isJsonObject(body['data']['login']) ||
+    !response.ok ||
+    !isJsonObject(body) ||
+    body['errors'] ||
+    !isJsonObject(body['data']) ||
+    !isJsonObject(body['data']['login']) ||
     typeof body['data']['login']['accessToken'] !== 'string' ||
     !body['data']['login']['accessToken']
   ) {
@@ -47,9 +59,7 @@ export async function loginFixtureUser(email: string, password: string): Promise
   const token = body['data']['login']['accessToken'];
   const encodedHeader = token.split('.')[0];
   if (!encodedHeader) throw new Error('Malformed fixture access token');
-  const header: unknown = JSON.parse(
-    Buffer.from(encodedHeader, 'base64url').toString('utf8'),
-  );
+  const header: unknown = JSON.parse(Buffer.from(encodedHeader, 'base64url').toString('utf8'));
   if (!isJsonObject(header) || header['alg'] !== 'RS256')
     throw new Error('Fixture login must use the production RS256 issuer');
   return token;

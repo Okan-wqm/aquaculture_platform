@@ -69,6 +69,8 @@ import {
 import Ajv from 'ajv';
 import { parse as yamlParse } from 'yaml';
 
+import responsePolicy from '../../../libs/backend-common/src/nats/nats-response-policy.json';
+
 // Faz C (ARCH-HIGH-001 / ARCH-MEDIUM-004): the config-runtime caller allowlists +
 // scoped-inbox token are the SSoT the config-service handler enforces; importing
 // them here binds the NATS ACL grants to that same SSoT (the generic RPC scan
@@ -90,6 +92,7 @@ interface Service {
   description: string;
   publish: string[];
   subscribe: string[];
+  responses?: { max: 1 | 2; expires: string };
 }
 
 interface ServicesYaml {
@@ -182,15 +185,16 @@ interface NatsUserEntry {
   name: string;
   publish: string[];
   subscribe: string[];
+  responses?: { max: number; expires: string };
 }
 
 function parseAuthBlockUsers(authBlock: string): NatsUserEntry[] {
   const users: NatsUserEntry[] = [];
   const entryRegex =
-    /user:\s*"CN=([A-Za-z0-9_-]+)",\s*[\s\S]*?allow:\s*\[([^\]]*)\][\s\S]*?allow:\s*\[([^\]]*)\]/g;
+    /user:\s*"CN=([A-Za-z0-9_-]+)",\s*permissions:\s*\{\s*(?:allow_responses:\s*\{\s*max:\s*(\d+),\s*expires:\s*"([^"]+)"\s*\}\s*)?publish:\s*\{\s*allow:\s*\[([^\]]*)\][\s\S]*?subscribe:\s*\{\s*allow:\s*\[([^\]]*)\]/g;
   let m: RegExpExecArray | null;
   while ((m = entryRegex.exec(authBlock)) !== null) {
-    const [, name, publishRaw, subscribeRaw] = m;
+    const [, name, responseMax, responseExpires, publishRaw, subscribeRaw] = m;
     const parseAllow = (raw: string): string[] =>
       raw
         .split(',')
@@ -200,6 +204,9 @@ function parseAuthBlockUsers(authBlock: string): NatsUserEntry[] {
       name: name,
       publish: parseAllow(publishRaw),
       subscribe: parseAllow(subscribeRaw),
+      ...(responseMax === undefined ? {} : {
+        responses: { max: Number(responseMax), expires: responseExpires },
+      }),
     });
   }
   return users;
@@ -581,8 +588,27 @@ describe('NATS SSoT Invariants (ADR-015 cert-is-identity + ORPHAN-HIGH-317 subje
             `  nats.conf: ${matched.subscribe.join(', ')}`,
         );
       }
+      expect(matched.responses).toEqual(svc.responses);
     },
   );
+
+  it('bounds replies to delivered messages and keeps every service inbox isolated', () => {
+    for (const svc of servicesDoc.services) {
+      expect(svc.publish).not.toContain('_INBOX.>');
+      expect(svc.publish.some((grant) => grant.startsWith('$JS.ACK.'))).toBe(false);
+      const genericInbox = `_INBOX${svc.name.toUpperCase().replace(/-/g, '_')}.probe`;
+      expect(isCovered(genericInbox, svc.subscribe)).toBe(true);
+      for (const other of servicesDoc.services.filter((item) => item.name !== svc.name)) {
+        expect(isCovered(genericInbox, other.subscribe)).toBe(false);
+        expect(isCovered(genericInbox, other.publish)).toBe(false);
+      }
+      if (svc.responses) {
+        expect([1, 2]).toContain(svc.responses.max);
+        expect(svc.responses.expires).toBe(`${responsePolicy.expirySeconds}s`);
+        expect(svc.publish).toContain('$JS.API.INFO');
+      }
+    }
+  });
 
   it('nats.conf GENERATED block contains ZERO password fields', () => {
     if (/password:/i.test(authBlock)) {

@@ -8,7 +8,8 @@
     "frontend",
     "types",
     "lint",
-    "graphql"
+    "graphql",
+    "nats"
   ],
   "checks": [
     {
@@ -90,7 +91,10 @@
         "tests/invariants/postgres-dr-bootstrap-control-plane.spec.ts",
         "tests/invariants/deploy-isolated-checkout-ssot.spec.ts",
         "tests/invariants/git-hook-binding.spec.ts",
-        "tests/invariants/e2e-graphql-success-contract.spec.ts"
+        "tests/invariants/e2e-graphql-success-contract.spec.ts",
+        "tests/invariants/deploy-ssot-contract.spec.ts",
+        "tests/invariants/platform-service-catalog-parity.spec.ts",
+        "tests/invariants/nats-storage-policy.spec.ts"
       ],
       "cwd": ".",
       "report": "artifacts/authentication-proof/release-invariants.json",
@@ -99,7 +103,10 @@
         "postgres-dr-bootstrap-control-plane.spec.ts",
         "deploy-isolated-checkout-ssot.spec.ts",
         "git-hook-binding.spec.ts",
-        "e2e-graphql-success-contract.spec.ts"
+        "e2e-graphql-success-contract.spec.ts",
+        "deploy-ssot-contract.spec.ts",
+        "platform-service-catalog-parity.spec.ts",
+        "nats-storage-policy.spec.ts"
       ]
     },
     {
@@ -253,6 +260,70 @@
         "web/shared-ui/src/generated"
       ],
       "cwd": "."
+    },
+    {
+      "id": "nats-client-policy",
+      "lane": "nats",
+      "command": [
+        "node",
+        "node_modules/jest/bin/jest.js",
+        "--config",
+        "libs/backend-common/jest.config.ts",
+        "--runInBand",
+        "--no-cache",
+        "--json",
+        "--outputFile=artifacts/authentication-proof/nats-client-policy.json",
+        "--runTestsByPath",
+        "libs/backend-common/src/nats/__tests__/nats-connection.factory.spec.ts",
+        "libs/backend-common/src/nats/__tests__/nats-v3-client.proxy.spec.ts",
+        "libs/backend-common/src/nats/__tests__/nats-response-policy.spec.ts"
+      ],
+      "cwd": ".",
+      "report": "artifacts/authentication-proof/nats-client-policy.json",
+      "required_files": [
+        "nats-connection.factory.spec.ts",
+        "nats-v3-client.proxy.spec.ts",
+        "nats-response-policy.spec.ts"
+      ]
+    },
+    {
+      "id": "nats-stream-storage-policy",
+      "lane": "nats",
+      "command": [
+        "node",
+        "node_modules/jest/bin/jest.js",
+        "--config",
+        "platform/libs/event-bus/jest.config.ts",
+        "--runInBand",
+        "--no-cache",
+        "--json",
+        "--outputFile=artifacts/authentication-proof/nats-stream-storage-policy.json",
+        "--runTestsByPath",
+        "platform/libs/event-bus/src/nats/__tests__/jetstream-storage-policy.spec.ts"
+      ],
+      "cwd": ".",
+      "report": "artifacts/authentication-proof/nats-stream-storage-policy.json",
+      "required_files": ["jetstream-storage-policy.spec.ts"]
+    },
+    {
+      "id": "nats-canonical-acl-reader",
+      "lane": "nats",
+      "command": ["node", "--test", "scripts/nats/messaging-acl-smoke.test.mjs"],
+      "cwd": "."
+    },
+    {
+      "id": "nats-canonical-acl",
+      "lane": "nats",
+      "command": ["node", "scripts/nats/messaging-acl-smoke.mjs", "--mode", "static"],
+      "cwd": "."
+    },
+    {
+      "id": "nats-production-acl",
+      "lane": "nats",
+      "command": ["bash", "scripts/ci/test-nats-production-acl.sh"],
+      "cwd": ".",
+      "report": "artifacts/authentication-proof/nats-acl.json",
+      "required_files": ["nats-production-acl.integration.spec.ts"]
     }
   ]
 }

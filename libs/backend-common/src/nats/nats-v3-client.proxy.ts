@@ -29,8 +29,10 @@ import { buildNatsConnectionOptions } from './nats-connection.factory';
 import { NatsV3RequestSerializer, NatsV3ResponseDeserializer } from './nats-v3-codec';
 
 /**
- * Client options. `serviceName` selects the mTLS client cert through
- * {@link buildNatsConnectionOptions} (ADR-015); `inboxPrefix` scopes the reply inbox.
+ * Client options. `serviceName` is the connection display name; the mounted
+ * certificate selects identity through {@link buildNatsConnectionOptions}.
+ * `inboxPrefix` selects an explicitly granted domain-specific reply contract.
+ * Otherwise replies use the factory's certificate-scoped inbox (ADR-015).
  */
 export interface NatsV3ClientOptions {
   serviceName?: string;
@@ -40,6 +42,7 @@ export interface NatsV3ClientOptions {
 export class NatsV3Client extends ClientProxy {
   private natsConnection: NatsConnection | null = null;
   private connectionPromise: Promise<NatsConnection> | null = null;
+  private replyInboxPrefix: string | undefined;
 
   constructor(private readonly options: NatsV3ClientOptions = {}) {
     super();
@@ -55,6 +58,7 @@ export class NatsV3Client extends ClientProxy {
     // is an excess field connect() ignores), mirroring the PR-A event-bus pattern.
     const factoryOptions = buildNatsConnectionOptions(this.options.serviceName);
     const connectionOptions: ConnectionOptions = { ...factoryOptions };
+    this.replyInboxPrefix = this.options.inboxPrefix ?? factoryOptions.inboxPrefix;
     this.connectionPromise = connect(connectionOptions);
     try {
       this.natsConnection = await this.connectionPromise;
@@ -93,7 +97,7 @@ export class NatsV3Client extends ClientProxy {
       const packet = this.assignPacketId(partialPacket);
       const channel = this.normalizePattern(partialPacket.pattern);
       const serialized = this.serializer.serialize(packet);
-      const inbox = createInbox(this.options.inboxPrefix);
+      const inbox = createInbox(this.replyInboxPrefix);
       // Inline non-async callback (contextually typed by @nats-io MsgCallback) that
       // fire-and-forgets the async reply handling — mirrors the server strategy's
       // subscribe pattern and avoids the Promise<void>-vs-void mismatch a returned

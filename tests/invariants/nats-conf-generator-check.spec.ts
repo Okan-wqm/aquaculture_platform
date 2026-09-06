@@ -46,10 +46,10 @@ interface GeneratorRun {
 }
 
 function runGenerator(root: string, args: readonly string[]): GeneratorRun {
-  const result = spawnSync('/usr/bin/python3', [join(root, GENERATOR), ...args], {
+  const result = spawnSync('python3', [join(root, GENERATOR), ...args], {
     cwd: root,
     encoding: 'utf8',
-    env: { PATH: '/usr/bin:/bin', HOME: root, LC_ALL: 'C' },
+    env: { ...process.env, HOME: root, LC_ALL: 'C', PYTHONDONTWRITEBYTECODE: '1' },
   });
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
@@ -60,7 +60,11 @@ function runGenerator(root: string, args: readonly string[]): GeneratorRun {
  */
 function createFixture(): string {
   const root = mkdtempSync(join(tmpdir(), 'aqua-nats-conf-check-'));
-  for (const relative of [GENERATOR, NATS_CONF, HELM_IDENTITIES, SERVICES_YAML]) {
+  for (const relative of [GENERATOR, NATS_CONF, HELM_IDENTITIES, SERVICES_YAML,
+    'platform/libs/event-bus/src/nats/jetstream-storage-policy.json',
+    'scripts/nats/jetstream_storage_policy.py',
+    'infrastructure/monitoring/droplet/rules/35-broker-jetstream.yml',
+    'libs/backend-common/src/nats/nats-response-policy.json']) {
     const destination = join(root, relative);
     mkdirSync(dirname(destination), { recursive: true });
     cpSync(join(REPO_ROOT, relative), destination);
@@ -144,16 +148,63 @@ describe('INVARIANT: the NATS generated-artifact gate is read-only and detects d
   it('keeps both CI drift gates on the read-only mode', () => {
     for (const workflow of [CI_AFFECTED, NATS_INVARIANTS]) {
       const source = readFileSync(workflow, 'utf8');
+      // The separate artifact-producing job is explicitly allowed to generate;
+      // it never judges freshness or publishes its patch to the branch.
+      const artifactJob = /^  source-generation:\n[\s\S]*?(?=^  [a-z][\w-]*:|$(?![\s\S]))/m.exec(source)?.[0] ?? '';
+      if (workflow === CI_AFFECTED) {
+        expect(artifactJob).toContain(`python3 ${GENERATOR}\n`);
+        expect(artifactJob).toContain('actions/upload-artifact@');
+        expect(artifactJob).not.toMatch(/git\s+(?:push|commit)/);
+      }
+      const gateSource = source.replace(artifactJob, '');
       // Anchored to the start of a line so the operator guidance that quotes
       // the write-mode command inside an `echo` is not read as an invocation.
       const invocations = [
-        ...source.matchAll(new RegExp(`^[ \\t]*(python3 ${GENERATOR}[^\\n]*)$`, 'gm')),
+        ...gateSource.matchAll(new RegExp(`^[ \\t]*(python3 ${GENERATOR}[^\\n]*)$`, 'gm')),
       ].map((match) => match[1]?.trim());
 
       expect({ workflow, invocations }).toEqual({
         workflow,
         invocations: [`python3 ${GENERATOR} --check`],
       });
+    }
+  });
+
+  it.each(['true', '{max: 0, expires: 120s}', '{max: -1, expires: 120s}',
+    '{max: 3, expires: 120s}', '{max: 2, expires: -1s}', '{max: 2, expires: 0s}',
+    '{max: 2, expires: 1h}', '{max: 2}', '{max: 2, expires: 120s, extra: true}'])
+  ('rejects an unbounded or malformed response permission: %s', (responses) => {
+    const root = createFixture();
+    try {
+      const source = read(root, SERVICES_YAML);
+      const changed = source.replace(/  responses:\n    max: 2\n    expires: 120s/, `  responses: ${responses}`);
+      expect(changed).not.toBe(source);
+      writeFileSync(join(root, SERVICES_YAML), changed);
+      const before = read(root, NATS_CONF);
+      const result = runGenerator(root, []);
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('responses');
+      expect(read(root, NATS_CONF)).toBe(before);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects distinct certificate CNs that map to the same reply-inbox prefix', () => {
+    const root = createFixture();
+    try {
+      const source = read(root, SERVICES_YAML);
+      const duplicate = '\n- name: auth-service\n  application: distinct-runtime\n' +
+        '  description: Deliberately colliding fixture identity\n' +
+        '  publish: [request.auth.fixture]\n  subscribe: [_INBOXAUTH_SERVICE.>]\n';
+      writeFileSync(join(root, SERVICES_YAML), source + duplicate);
+      const before = read(root, NATS_CONF);
+      const result = runGenerator(root, []);
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('inbox prefix');
+      expect(read(root, NATS_CONF)).toBe(before);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });

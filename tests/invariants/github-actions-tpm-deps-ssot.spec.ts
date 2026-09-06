@@ -7,7 +7,7 @@ const TPM_ACTION = '.github/actions/install-tpm-build-dependencies/action.yml';
 const WORKFLOWS = [
   '.github/workflows/ci-affected.yml',
   '.github/workflows/sens-api-gateway-ci.yml',
-];
+] as const;
 const ACTION_REF = 'uses: ./.github/actions/install-tpm-build-dependencies';
 
 const read = (relativePath: string): string =>
@@ -43,7 +43,11 @@ describe('GitHub Actions TPM dependency SSoT', () => {
     const workflow = parse(read(WORKFLOWS[0])) as {
       jobs: Record<string, { steps: Array<{ uses?: string; if?: string }> }>;
     };
-    const steps = workflow.jobs['hosted-validation'].steps;
+    const hostedValidation = workflow.jobs['hosted-validation'];
+    if (!hostedValidation) {
+      throw new Error('The required hosted-validation job must exist');
+    }
+    const steps = hostedValidation.steps;
     expect(steps.filter((step) => step.uses === './.github/actions/install-tpm-build-dependencies'))
       .toEqual([{ uses: './.github/actions/install-tpm-build-dependencies', if: "matrix.lane == 'rust'" }]);
   });

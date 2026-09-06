@@ -7,6 +7,7 @@
 
 export { buildNatsConnectionOptions, DEFAULT_NATS_URL } from './nats-connection.factory';
 export type { NatsAuthMode } from './nats-connection.factory';
+export { NATS_MAX_REQUEST_TIMEOUT_MS, parseNatsRequestTimeout } from './nats-response-policy';
 
 export { TenantValidatingConsumer } from './tenant-validating-consumer';
 export type { TenantValidationResult } from './tenant-validating-consumer';

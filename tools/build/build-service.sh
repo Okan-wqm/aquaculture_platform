@@ -21,6 +21,22 @@ npx tsc -p "apps/${SERVICE_NAME}/tsconfig.build.json"
 # so all require() calls resolve within the dist directory.
 npx tsc-alias -p "apps/${SERVICE_NAME}/tsconfig.build.json" --outDir "${DIST_DIR}"
 
+# Imported JSON is part of the emitted runtime contract. Refuse a backend
+# artifact if compilation omitted or changed the policy used by NatsEventBus.
+NATS_STORAGE_POLICY_DIR="platform/libs/event-bus/src/nats"
+if [ -f "${DIST_DIR}/${NATS_STORAGE_POLICY_DIR}/jetstream-storage-policy.js" ]; then
+  node - "${NATS_STORAGE_POLICY_DIR}/jetstream-storage-policy.json" \
+    "${DIST_DIR}/${NATS_STORAGE_POLICY_DIR}/jetstream-storage-policy.json" <<'NODE'
+const { deepStrictEqual } = require('node:assert');
+const { readFileSync } = require('node:fs');
+deepStrictEqual(
+  JSON.parse(readFileSync(process.argv[2], 'utf8')),
+  JSON.parse(readFileSync(process.argv[3], 'utf8')),
+  'Compiled NATS storage policy must equal the immutable source declaration',
+);
+NODE
+fi
+
 # ── Assets ──
 if [ -d "apps/${SERVICE_NAME}/src/assets" ]; then
   mkdir -p "${DIST_DIR}/apps/${SERVICE_NAME}/src/assets"

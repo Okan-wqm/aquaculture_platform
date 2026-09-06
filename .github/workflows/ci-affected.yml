@@ -162,7 +162,9 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
       - name: Install source generation dependencies on hosted runner
-        run: npm ci --ignore-scripts --no-audit
+        run: |
+          npm ci --ignore-scripts --no-audit
+          python3 -m pip install --quiet 'pyyaml==6.0.2'
       - name: Generate registry mirrors, formatting and ARIA authority patch
         env:
           FORMAT_BASE_SHA: ${{ needs.detect-changes.outputs.base_sha }}
@@ -170,6 +172,7 @@ jobs:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
+          python3 scripts/nats/generate-nats-conf.py
           node node_modules/ts-node/dist/bin.js --project tools/gates/tsconfig.json tools/gates/repin-debt-plan.ts
           node tools/quality/quality.mjs format-scope generate
           node tools/quality/quality.mjs format write-changed
@@ -205,7 +208,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        lane: [auth-unit, auth-postgres, db-migrate, release-invariants, frontend, types, lint, graphql]
+        lane: [auth-unit, auth-postgres, db-migrate, release-invariants, frontend, types, lint, graphql, nats]
     env:
       NODE_OPTIONS: '--max-old-space-size=6144'
       NX_DAEMON: 'false'
@@ -221,6 +224,9 @@ jobs:
           cache: npm
       - name: Install exact candidate dependencies on hosted runner
         run: npm ci --ignore-scripts --no-audit
+      - name: Install the production broker proof's YAML reader
+        if: matrix.lane == 'nats' || matrix.lane == 'release-invariants'
+        run: python3 -m pip install --quiet 'pyyaml==6.0.2'
       - name: Install standalone mobile dependencies and apply its tracked package setup
         if: matrix.lane == 'frontend' || matrix.lane == 'lint'
         run: |
@@ -656,6 +662,9 @@ jobs:
             npm cache verify --cache .npm-cache >/dev/null 2>&1 || true
             npm ci --ignore-scripts --no-audit
           fi
+
+      - name: Install the NATS generator regression's YAML reader
+        run: python3 -m pip install --quiet 'pyyaml==6.0.2'
 
       # 2026-05-05: Test targets include Rust crates. Prepare the exact
       # pinned toolchain before Nx starts parallel cargo-backed tasks.

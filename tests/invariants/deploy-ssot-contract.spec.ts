@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -449,9 +450,111 @@ describe('deploy SSOT contract', () => {
 
     expect(deploy).toContain('scope_services=()');
     expect(deploy).toContain('done < <(restartable_deploy_services)');
-    expect(deploy).toContain('Rollback scope had no restorable images.');
-    expect(deploy).toContain('up -d --no-deps --no-build --force-recreate "${scope_services[@]}"');
+    expect(deploy).toContain('ROLLBACK_SKIPPED_REASON=incomplete_runtime_snapshot');
+    expect(deploy).toContain(
+      'up -d --no-deps --no-build --force-recreate --pull never "${scope_services[@]}"',
+    );
     expect(deploy).not.toContain('up -d --no-build --remove-orphans');
+  });
+
+  it.each([
+    {
+      name: 'restarts only selected services and their shared-image consumers',
+      manifestServices: ['auth-service', 'tenant-schema-provisioner', 'farm-service'],
+      expectedStatus: 0,
+    },
+    {
+      name: 'refuses an incomplete selected snapshot before restarting any service',
+      manifestServices: ['auth-service', 'farm-service'],
+      expectedStatus: 1,
+    },
+  ])('selective rollback $name', ({ manifestServices, expectedStatus }) => {
+    const deploy = read('scripts/deploy/droplet-up.sh');
+    const rollback = /^rollback_deployed_services\(\) \{[\s\S]*?^\}/m.exec(deploy);
+    if (rollback === null) throw new Error('Production rollback function is missing');
+    const fixture = mkdtempSync(join(tmpdir(), 'aqua-selective-rollback-'));
+    const previousSha = 'a'.repeat(40);
+    const generation = `${previousSha}/1-1`;
+    const releases = join(fixture, 'releases');
+    const configs = join(fixture, 'configs');
+    const source = join(releases, generation);
+    const config = join(configs, generation);
+    const manifest = join(fixture, 'rollback.tsv');
+    const dockerLog = join(fixture, 'docker-arguments');
+    const image = `sha256:${'b'.repeat(64)}`;
+    mkdirSync(source, { recursive: true });
+    mkdirSync(config, { recursive: true });
+    writeFileSync(join(fixture, 'rollback-generation'), `${generation}\n`);
+    writeFileSync(join(config, 'contract.txt'), 'fixture generation\n');
+    writeFileSync(
+      join(config, 'sealed.sha256'),
+      `${createHash('sha256').update('fixture generation\n').digest('hex')}  contract.txt\n`,
+    );
+    writeFileSync(manifest, manifestServices.map((service) => `${service}\t${image}\n`).join(''));
+    writeFileSync(dockerLog, '');
+
+    try {
+      const result = spawnSync(
+        'bash',
+        [
+          '-c',
+          [
+            'set -euo pipefail',
+            'source scripts/deploy/lib/deployment-mode-policy.sh',
+            rollback[0],
+            // Repository identity and Docker are collaborators; execute the
+            // actual rollback scope, complete-snapshot check and Compose args.
+            'git() { if [ "${3:-}" = rev-parse ]; then printf "%s\\n" "${FIXTURE_PREVIOUS_SHA}"; fi; }',
+            'docker() { printf "%s\\0" "$@" >> "${FIXTURE_DOCKER_LOG}"; }',
+            'if rollback_deployed_services contract-test; then exit 0; fi',
+            'printf "rollback_skipped_reason=%s\\n" "${ROLLBACK_SKIPPED_REASON:-}" >&2',
+            'exit 1',
+          ].join('\n'),
+        ],
+        {
+          cwd: REPO_ROOT,
+          encoding: 'utf8',
+          timeout: 10_000,
+          env: {
+            ...process.env,
+            DEPLOY_STATE_DIR: fixture,
+            DEPLOY_RELEASES_ROOT: releases,
+            DEPLOY_CONFIG_ROOT: configs,
+            ROLLBACK_MANIFEST: manifest,
+            MIGRATIONS_APPLIED_THIS_RELEASE: '0',
+            FULL_DEPLOY: 'false',
+            PRESERVE_DATA_INFRASTRUCTURE: 'true',
+            APPLICATION_IMAGE_SERVICES: 'auth-service farm-service db-migrate',
+            DEPLOY_SERVICES: 'auth-service db-migrate',
+            SHARED_IMAGE_RESTART_SERVICES: 'db-migrate:tenant-schema-provisioner',
+            INFRA_IMAGE_SERVICES: 'postgres',
+            FIXTURE_PREVIOUS_SHA: previousSha,
+            FIXTURE_DOCKER_LOG: dockerLog,
+          },
+        },
+      );
+
+      expect(result.error).toBeUndefined();
+      expect(result.status).toBe(expectedStatus);
+      const dockerArguments = readFileSync(dockerLog, 'utf8');
+      if (expectedStatus !== 0) {
+        expect(result.stderr).toContain('rollback_skipped_reason=incomplete_runtime_snapshot');
+        expect(dockerArguments).toBe('');
+      } else {
+        expect(result.stderr).toBe('');
+        expect(dockerArguments.split('\0').filter(Boolean)).toEqual([
+          'compose', '--project-name', 'aqua-saas', '--project-directory', source,
+          '--env-file', join(config, '.env'), '-f', join(source, 'docker-compose.droplet.yml'),
+          '-f', join(fixture, 'rollback-compose.json'), 'up', '-d', '--no-deps', '--no-build',
+          '--force-recreate', '--pull', 'never', 'auth-service', 'tenant-schema-provisioner',
+        ]);
+        expect(JSON.parse(readFileSync(join(fixture, 'rollback-compose.json'), 'utf8'))).toEqual({
+          services: { 'auth-service': { image }, 'tenant-schema-provisioner': { image } },
+        });
+      }
+    } finally {
+      rmSync(fixture, { recursive: true, force: true });
+    }
   });
 
   it('restarts long-running compose consumers when their shared image is deployed', () => {

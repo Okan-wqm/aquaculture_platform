@@ -25,6 +25,8 @@ const project = `aqua-e2e-${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_
 const state = join(process.env.RUNNER_TEMP, project);
 const composePath = join(state, 'compose.json');
 const envPath = join(state, 'runtime.env');
+const frontendHostname = 'app.aqua-e2e.test';
+const frontendOrigin = `https://${frontendHostname}`;
 const catalog = JSON.parse(
   readFileSync('infrastructure/deploy/service-catalog.generated.json', 'utf8'),
 ).deploy;
@@ -64,6 +66,12 @@ function privateFile(path, value) {
 if (operation === 'prepare') {
   if (existsSync(state)) throw new Error('E2E runtime generation already exists');
   mkdirSync(state, { recursive: true, mode: 0o700 });
+  // Exercise production origin validation with a reserved test domain that can
+  // reach only this hosted runner's loopback-bound ingress.
+  run('sudo', ['tee', '-a', '/etc/hosts'], {
+    input: `127.0.0.1 ${frontendHostname}\n`,
+    stdio: ['pipe', 'ignore', 'inherit'],
+  });
   const source = readFileSync('docker-compose.droplet.yml', 'utf8');
   const values = {};
   for (const match of source.matchAll(/\$\{([A-Z_][A-Z0-9_]*):\?[^}]*\}/g))
@@ -79,9 +87,9 @@ if (operation === 'prepare') {
     DEPLOY_CERTS_DIR: join(state, 'certs'),
     SUPER_ADMIN_EMAIL: 'e2e-platform@example.test',
     SUPER_ADMIN_PASSWORD: `E2e-${randomBytes(20).toString('hex')}!`,
-    CORS_ORIGINS: 'https://localhost',
-    FRONTEND_URL: 'https://localhost',
-    WEBAUTHN_RP_ID: 'localhost',
+    CORS_ORIGINS: frontendOrigin,
+    FRONTEND_URL: frontendOrigin,
+    WEBAUTHN_RP_ID: frontendHostname,
     SERVICE_IDENTITY_SIGNING_KID: 'hosted-e2e',
     SERVICE_IDENTITY_KEYRING: JSON.stringify([
       { kid: 'hosted-e2e', secret: randomBytes(32).toString('hex'), status: 'active' },
@@ -115,7 +123,7 @@ if (operation === 'prepare') {
   ]);
   chmodSync(join(jwtDir, 'private.pem'), 0o400);
   run('sudo', ['chown', '1001:1001', join(jwtDir, 'private.pem')]);
-  const tlsDirectory = join(state, 'edge', 'live', 'localhost');
+  const tlsDirectory = join(state, 'edge', 'live', frontendHostname);
   mkdirSync(tlsDirectory, { recursive: true, mode: 0o700 });
   run(
     'openssl',
@@ -128,9 +136,9 @@ if (operation === 'prepare') {
       '-days',
       '1',
       '-subj',
-      '/CN=localhost',
+      `/CN=${frontendHostname}`,
       '-addext',
-      'subjectAltName=DNS:localhost,IP:127.0.0.1',
+      `subjectAltName=DNS:${frontendHostname}`,
       '-keyout',
       join(tlsDirectory, 'privkey.pem'),
       '-out',
@@ -143,7 +151,7 @@ if (operation === 'prepare') {
     join(state, 'nginx.conf'),
     readFileSync('infrastructure/nginx/droplet.conf', 'utf8').replaceAll(
       'app.suderra.com',
-      'localhost',
+      frontendHostname,
     ),
   );
   mkdirSync(join(state, 'certbot'), { recursive: true });
@@ -244,8 +252,9 @@ if (operation === 'prepare') {
   );
   const testEnv = {
     HOSTED_E2E_ISOLATED: 'true',
-    GATEWAY_URL: 'https://localhost',
-    AQUAMOBIL_URL: 'https://localhost/mobile/',
+    HOSTED_E2E_ORIGIN: frontendOrigin,
+    GATEWAY_URL: frontendOrigin,
+    AQUAMOBIL_URL: `${frontendOrigin}/mobile/`,
     ADMIN_API_URL: 'http://127.0.0.1:3008',
     DATABASE_URL: `postgresql://aquaculture:${values.POSTGRES_PASSWORD}@127.0.0.1:5432/aquaculture_e2e`,
     PASSWORD_PEPPER: values.PASSWORD_PEPPER,
@@ -386,7 +395,7 @@ if (operation === 'prepare') {
     '--show-error',
     '--cacert',
     process.env.NODE_EXTRA_CA_CERTS,
-    'https://localhost/mobile/health',
+    `${frontendOrigin}/mobile/health`,
   ]);
 } else if (operation === 'reset-rate-limits') {
   // Each suite owns fresh counting windows; preserve sessions and revocation state.

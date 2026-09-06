@@ -82,13 +82,14 @@ describe('Event route registry + telemetry stream (Task 2)', () => {
   let streamsUpdate: jest.Mock;
   let streamsInfo: jest.Mock;
 
-  async function boot(): Promise<NatsEventBus> {
+  async function boot(overrides: Record<string, unknown> = {}): Promise<NatsEventBus> {
     const configService = new ConfigService();
     const values: Record<string, unknown> = {
       NATS_URL: 'tls://nats:4222',
       NATS_STREAM_NAME: 'AQUACULTURE_EVENTS',
       SERVICE_NAME: 'sensor-service',
       NATS_MAX_RECONNECT_ATTEMPTS: '2',
+      ...overrides,
     };
     jest
       .spyOn(configService, 'get')
@@ -210,6 +211,18 @@ describe('Event route registry + telemetry stream (Task 2)', () => {
       expect(config['subjects']).toEqual(['telemetry.>']);
       expect(config['discard']).toBe('new');
       expect(Number(config['max_bytes'])).toBeGreaterThan(0);
+    });
+
+    it('applies bounded allocation reductions to the actual stream declarations', async () => {
+      await boot({ NATS_TELEMETRY_MAX_BYTES: '32768', NATS_DLQ_MAX_BYTES: '1024' });
+      expect(streamsAdd).toHaveBeenCalledWith(expect.objectContaining({
+        name: DEFAULT_TELEMETRY_STREAM_NAME,
+        max_bytes: 32768,
+      }));
+      expect(streamsAdd).toHaveBeenCalledWith(expect.objectContaining({
+        name: 'AQUACULTURE_DLQ',
+        max_bytes: 1024,
+      }));
     });
 
     it('publishes SensorReading onto the telemetry root', async () => {

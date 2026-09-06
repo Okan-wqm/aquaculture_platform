@@ -20,6 +20,7 @@ import { catchError, firstValueFrom, throwError, timeout } from 'rxjs';
 
 import { serviceIdentityAudienceForService } from '../../../../platform/libs/service-catalog/src/index';
 import { buildSignedInternalHeaders } from '../http/signed-http-client';
+import { parseNatsRequestTimeout } from '../nats/nats-response-policy';
 
 export const MARINE_PROVIDER_CREDENTIAL_NATS_CLIENT = 'MARINE_PROVIDER_CREDENTIAL_NATS_CLIENT';
 export const MARINE_PROVIDER_CREDENTIAL_CONSUMER_SERVICE_TOKEN =
@@ -60,12 +61,11 @@ export class MarineProviderCredentialClient {
     @Inject(MARINE_PROVIDER_CREDENTIAL_CONSUMER_SERVICE_TOKEN)
     private readonly consumerService: string,
   ) {
-    const configured = Number.parseInt(
-      process.env['MARINE_PROVIDER_CREDENTIAL_TIMEOUT_MS'] ?? '',
-      10,
+    this.timeoutMs = parseNatsRequestTimeout(
+      process.env['MARINE_PROVIDER_CREDENTIAL_TIMEOUT_MS'],
+      DEFAULT_TIMEOUT_MS,
+      'MARINE_PROVIDER_CREDENTIAL_TIMEOUT_MS',
     );
-    this.timeoutMs =
-      Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_TIMEOUT_MS;
   }
 
   async resolve(

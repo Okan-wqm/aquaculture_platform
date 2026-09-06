@@ -47,22 +47,29 @@ function authenticatorCode(base32: string): string {
 function accessClaims(token: string): AccessClaims {
   const [encodedHeader, encodedPayload] = token.split('.');
   if (!encodedHeader || !encodedPayload) throw new Error('MFA did not issue a JWT');
-  const header: unknown = JSON.parse(
-    Buffer.from(encodedHeader, 'base64url').toString('utf8'),
-  );
+  const header: unknown = JSON.parse(Buffer.from(encodedHeader, 'base64url').toString('utf8'));
   if (!isJsonObject(header)) throw new Error('MFA returned an invalid JWT header');
   expect(header['alg']).toBe('RS256');
   const payload: unknown = JSON.parse(Buffer.from(encodedPayload, 'base64url').toString('utf8'));
   if (
-    !isJsonObject(payload) || typeof payload['sub'] !== 'string' ||
-    typeof payload['tenantId'] !== 'string' || typeof payload['jti'] !== 'string' ||
-    typeof payload['iat'] !== 'number' || !Number.isSafeInteger(payload['iat']) ||
-    typeof payload['exp'] !== 'number' || !Number.isSafeInteger(payload['exp']) ||
+    !isJsonObject(payload) ||
+    typeof payload['sub'] !== 'string' ||
+    typeof payload['tenantId'] !== 'string' ||
+    typeof payload['jti'] !== 'string' ||
+    typeof payload['iat'] !== 'number' ||
+    !Number.isSafeInteger(payload['iat']) ||
+    typeof payload['exp'] !== 'number' ||
+    !Number.isSafeInteger(payload['exp']) ||
     typeof payload['mfaVerified'] !== 'boolean'
-  ) throw new Error('MFA returned invalid access claims');
+  )
+    throw new Error('MFA returned invalid access claims');
   return {
-    sub: payload['sub'], tenantId: payload['tenantId'], jti: payload['jti'],
-    iat: payload['iat'], exp: payload['exp'], mfaVerified: payload['mfaVerified'],
+    sub: payload['sub'],
+    tenantId: payload['tenantId'],
+    jti: payload['jti'],
+    iat: payload['iat'],
+    exp: payload['exp'],
+    mfaVerified: payload['mfaVerified'],
   };
 }
 

@@ -1563,9 +1563,9 @@ services:
       DATABASE_PORT: 5432
       DATABASE_USER: ${OBSERVABILITY_SERVICE_DB_USER:-observability_service}
       DATABASE_PASSWORD: ${OBSERVABILITY_SERVICE_DB_PASS:?OBSERVABILITY_SERVICE_DB_PASS required}
-      # Observability reads cross-service metrics from the main aquaculture DB
+      # Observability reads cross-service metrics from the selected platform DB
       # (sensor, auth, alert, farm schemas). No own entities — schema-based isolation.
-      DATABASE_NAME: aquaculture
+      DATABASE_NAME: ${POSTGRES_DB:-aquaculture}
       DB_MIGRATE_AUTHORITATIVE: 'true'
       DATABASE_MIGRATIONS_RUN: 'false'
       # Phase 6 Step 6 + SecurityEventsModule both import EventBusModule.forRoot();

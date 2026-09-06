@@ -156,9 +156,121 @@ and a failed-forward generation can coexist during restore. Admission now reserv
 full copies; restore retries recheck free space before stopping or moving data. Hosted coordinator
 proof includes initial scarcity and retry scarcity refusal before mutation.
 
-Latest completed evidence before the main integration: run 34025030636 built all candidate images and
-completed the authoritative migration. Auth unit tests reported 763 passed / 8 failed and PostgreSQL
-35 passed / 2 failed; the reported defects have source corrections awaiting the integrated run.
-Hosted full-stack startup stopped at config-service exit 1. Redacted service diagnostics now survive
-cleanup so the next failure can be diagnosed from runtime evidence. Neither full-stack login nor the
-actual signed recovery coordinator is yet proven. No local heavy validation or production mutation.
+The hosted coordinator also exposed two fixture defects: an unavailable ripgrep binary stopped the
+first assertion, and PostgreSQL created outside Compose could not be recreated by the real coordinator.
+The fixture now uses baseline shell tools and the same Compose ownership contract as deployment.
+Failure journals and bounded redacted diagnostics survive cleanup. Production recovery remains unproven.
+
+## ORPHAN-HIGH-822
+
+NATS reply subjects and JetStream initialization disagree with certificate authorization.
+
+State: IN-PROGRESS. Owner: codex / okan. Deadline: 2026-09-07.
+
+Run 34037290826 reports subscription denial for `_INBOXAQUACULTURE_CONFIG_SERVICE..*` while the
+certificate ACL permits `_INBOXCONFIG_SERVICE.>`. The factory derives identity from the display name
+and supplies a delimiter that the SDK adds again. The custom RPC client also ignores the factory's
+resolved default. Derive the default from the mounted X509 certificate subject, keep display naming
+separate and preserve explicit domain reply contracts.
+
+Independent review found the next two contract gaps before another rollout: the SDK's initial
+`$JS.API.INFO` request has no publish grant, and responder publish `_INBOX.>` cannot match a caller's
+certificate-scoped inbox. These require explicit least-privilege JetStream capability and bounded
+request-bound response permissions, with actual hosted mTLS broker proof. Universal inbox subscription
+permissions must remain absent; SEC-HIGH-098's isolation boundary remains in force.
+
+The bounded response policy supplies one terminal acknowledgement or two unary RPC frames, with a
+finite lifetime. Configured RPC timeouts must be valid positive values below that same lifetime;
+unsupported values fail configuration instead of promising a reply after authorization expires.
+
+Existing SENSOR-CRITICAL-108 also blocks startup: the three unchanged stream allocations total
+7.75 GiB while the broker permits 2 GiB. A shared declared storage policy supplies runtime allocations,
+generated broker capacity, the 1.25 deployment reserve and the existing 75% storage alert threshold.
+Memory, CPU and retention policy remain as declared. The measurement and 100-tenant sizing phase of
+SENSOR-CRITICAL-108 stays OPEN (owner zcode / architectural-arbiter / okan, deadline 2026-09-17);
+making current declarations consistent does not prove the workload fits those declarations.
+
+Evidence:
+
+- `libs/backend-common/src/nats/nats-connection.factory.ts`
+- `libs/backend-common/src/nats/nats-v3-client.proxy.ts`
+- `libs/backend-common/src/nats/nats-v3-server.strategy.ts`
+- `infrastructure/nats/services.yaml`
+
+## ORPHAN-HIGH-823
+
+Sensor erasure duplicates the MQTT authentication provider outside its owning module.
+
+State: IN-PROGRESS. Owner: codex / okan. Deadline: 2026-09-07.
+
+Run 34037290826 aborts sensor-service startup because `SensorErasureModule` re-provides
+`MqttAuthService` without its repository. `EdgeDeviceModule` owns and exports that service. Importing
+the owner both fixes resolution and makes erasure invalidate the same cache used by the HTTP ACL
+controller. The regression keeps those production modules, controller and cache real.
+
+Evidence:
+
+- `apps/sensor-service/src/compliance/erasure/erasure.module.ts`
+- `apps/sensor-service/src/edge-device/edge-device.module.ts`
+- `apps/sensor-service/src/compliance/erasure/__tests__/sensor-erasure-hooks.spec.ts`
+
+## ORPHAN-MEDIUM-824
+
+Three service throttlers select per-process storage despite production Redis configuration.
+
+State: OPEN. Owner: platform-kernel-expert / okan. Deadline: 2026-09-20.
+
+Run 34037290826 reports in-memory SlidingWindowStrategy storage in messaging, hydroponics and AI.
+Source selects Redis only when an optional `REDIS_CLIENT` token is present. This is a separate phase
+from login recovery: bind the canonical provider into the throttler's actual module scope, make
+production storage selection explicit, and prove two isolated instances share one atomic counter in
+GitHub Actions. It did not cause the observed mint or startup failure. No repair or closure is claimed.
+
+Evidence: `libs/backend-common/src/security/throttler/sliding-window.strategy.ts` and the three service
+app modules and `docker-compose.droplet.yml` listed in the registry.
+
+## ORPHAN-HIGH-825
+
+The DLQ replay CLI bypasses its documented production certificate connection contract.
+
+State: OPEN. Owner: platform-kernel-expert / okan. Deadline: 2026-09-17.
+
+`tools/scripts/telemetry-dlq-replay.ts` documents the shared factory and TLS inputs but calls
+`connect({ servers: url })`. It supplies neither the required client certificate material nor the
+declared replay inbox. The separate phase must use the certificate factory in the actual CLI and
+prove replay admission and acknowledgement against committed production ACLs in GitHub Actions.
+Related SENSOR-HIGH-093 covers the broader replay chain. The login E2E does not execute this CLI.
+
+## ORPHAN-HIGH-826
+
+The Rust ingest client uses request inboxes outside its certificate's subscription permissions.
+
+State: OPEN. Owner: sensor-expert / okan. Deadline: 2026-09-17.
+
+`crates/nats-client/src/lib.rs` configures TLS but leaves the pinned async-nats 0.49.1 inbox default
+at `_INBOX`; `services.yaml` permits `_INBOXSENSOR_INGESTION.>`. The request/PubAck paths disagree.
+The policy snapshot request also needs an explicit least-privilege capability review. TLS connection
+failure or unconditional process exit is not inferred from these request-path defects.
+
+The separate phase must bind the actual Rust wrapper's inbox identity, verify policy/PubAck against
+production certificate ACLs, and execute the catalog-required sidecar in hosted readiness coverage.
+The current image-derived login E2E omits that sidecar, and TypeScript clients do not prove its behavior.
+No complete platform-readiness or repair claim is made for this path.
+
+## Hosted evidence
+
+Run 34038125618, source `1dd00da00ad6f538fa01a2059f8481cec74810e0`, tested merge
+`82bf663ecd1e63fda3a6aec8f0b396f72cff8432`: auth unit 846/846, real PostgreSQL 61/61,
+mobile 407/407 and shell 23/23 passed. Auth types, strict lint, GraphQL and release invariants passed.
+The general types lane exposed two missing-value narrowings in the TPM workflow invariant, now
+corrected in source. The policy lane identified three formatting drifts; its exact hosted generation
+artifact was reviewed and applied without executing a local formatter.
+
+Full-stack diagnostics also confirmed the isolated origin `https://localhost` violates production's
+frontend URL contract and observability hardcodes database `aquaculture`. The harness now derives
+its TLS certificate, ingress and browser/API origins from one reserved test hostname bound to loopback;
+the production validator is unchanged. Observability consumes the same selected database as the
+other services and db-migrate, retaining the production default. These changes require another hosted run.
+
+Neither full-stack authenticated login nor the actual signed recovery coordinator has passed.
+All new runtime findings remain open for proof. No local heavy validation or production mutation.

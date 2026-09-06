@@ -63,6 +63,7 @@ import {
   streamNameForSubject,
   subjectRootForEventType,
 } from './event-route-registry';
+import { getJetStreamStorageBudget } from './jetstream-storage-policy';
 import type { EventBusModuleOptions } from './nats.module';
 
 export interface CoreNatsConnectionSnapshot {
@@ -175,10 +176,12 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
   private readonly streamName: string;
   /** Task 1.6: the dead-letter stream every terminal failure routes into. */
   private readonly dlqStreamName: string;
+  private readonly dlqMaxBytes: number;
   /** Deliveries before a failing message is dead-lettered (default 5). */
   private readonly dlqAfterDeliveries: number;
   /** Task 2: the stream owning the telemetry. subject root. */
   private readonly telemetryStreamName: string;
+  private readonly telemetryMaxBytes: number;
   private readonly streamReplicas: number;
   private readonly clientId: string;
   private reconnectPolicy: NatsReconnectPolicy | null = null;
@@ -202,10 +205,18 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
     this.natsUrl = this.configService.get<string>('NATS_URL', DEFAULT_NATS_URL);
     this.streamName = this.configService.get<string>('NATS_STREAM_NAME', DEFAULT_NATS_STREAM_NAME);
     this.dlqStreamName = this.configService.get<string>('NATS_DLQ_STREAM_NAME', 'AQUACULTURE_DLQ');
+    this.dlqMaxBytes = getJetStreamStorageBudget(
+      'dlq',
+      this.configService.get<unknown>('NATS_DLQ_MAX_BYTES'),
+    );
     this.dlqAfterDeliveries = Number(this.configService.get('NATS_DLQ_AFTER_DELIVERIES', 5));
     this.telemetryStreamName = this.configService.get<string>(
       'NATS_TELEMETRY_STREAM_NAME',
       DEFAULT_TELEMETRY_STREAM_NAME,
+    );
+    this.telemetryMaxBytes = getJetStreamStorageBudget(
+      'telemetry',
+      this.configService.get<unknown>('NATS_TELEMETRY_MAX_BYTES'),
     );
     // JetStream replica count is a property of the NATS DEPLOYMENT TOPOLOGY
     // (how many nodes the cluster has), NOT of the application environment.
@@ -1205,7 +1216,7 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
       retention: RetentionPolicy.Limits,
       storage: StorageType.File,
       max_age: 90 * 60 * 1_000_000_000, // 90 minutes in nanoseconds
-      max_bytes: Number(this.configService.get('NATS_TELEMETRY_MAX_BYTES', 6 * 1024 * 1024 * 1024)),
+      max_bytes: this.telemetryMaxBytes,
       max_msg_size: 1024 * 1024,
       discard: DiscardPolicy.New,
       duplicate_window: 2 * 60 * 1_000_000_000,
@@ -1227,7 +1238,7 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
       retention: RetentionPolicy.Limits,
       storage: StorageType.File,
       max_age: 72 * 60 * 60 * 1_000_000_000, // 72h in nanoseconds
-      max_bytes: Number(this.configService.get('NATS_DLQ_MAX_BYTES', 256 * 1024 * 1024)),
+      max_bytes: this.dlqMaxBytes,
       max_msg_size: 2 * 1024 * 1024,
       discard: DiscardPolicy.New,
       duplicate_window: 2 * 60 * 1_000_000_000,
@@ -1237,8 +1248,8 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
 
   /**
    * ARCH-031: Shared JetStream stream configuration.
-   * max_bytes MUST be less than nats.conf max_file_store (2GB) to leave headroom
-   * for metadata and potential additional streams.
+   * The declared policy reserves all stream allocations plus metadata headroom
+   * in both the generated broker configuration and deploy admission.
    */
   private getStreamConfig(replicas: number): Partial<StreamConfig> {
     return {
@@ -1246,7 +1257,7 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
       retention: RetentionPolicy.Limits,
       storage: StorageType.File,
       max_age: 7 * 24 * 60 * 60 * 1_000_000_000, // 7 days in nanoseconds
-      max_bytes: 1536 * 1024 * 1024, // 1.5GB — must be < nats.conf max_file_store (2GB)
+      max_bytes: getJetStreamStorageBudget('events'),
       max_msg_size: 1024 * 1024, // 1MB per message
       max_msgs: 1_000_000, // 1M messages safety net
       discard: DiscardPolicy.Old,

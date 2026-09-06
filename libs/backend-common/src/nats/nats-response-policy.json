@@ -1,0 +1,5 @@
+{
+  "expirySeconds": 120,
+  "maxUnaryResponses": 2,
+  "maxAckResponses": 1
+}

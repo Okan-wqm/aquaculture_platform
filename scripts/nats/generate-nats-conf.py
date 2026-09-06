@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Generate the NATS authorization and deployment identity artifacts from the
-SSoT at infrastructure/nats/services.yaml.
+Generate NATS authorization/identity artifacts from services.yaml and broker
+storage/admission monitoring from the runtime's declared storage policy.
 
 # Why Python instead of bash+yq
 
@@ -25,6 +25,8 @@ By default: reads infrastructure/nats/services.yaml, replaces the block
 between `# BEGIN GENERATED` / `# END GENERATED` sentinels in
 infrastructure/docker/nats/nats.conf, and writes the exact same identity
 roster to infrastructure/helm/aquaculture/files/nats-service-identities.yaml.
+The runtime's jetstream-storage-policy.json also owns max_file_store and the
+JetStreamStorageHigh alert threshold; all projections share this drift gate.
 
 With `--check`: reads and compares only. Nothing on disk is written; a stale
 artifact is named on stderr and reported through exit code 3.
@@ -67,6 +69,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
+# --check must remain read-only, including when loading the shared policy helper.
+sys.dont_write_bytecode = True
+from jetstream_storage_policy import load_storage_policy, required_file_store_bytes
+
 try:
     import yaml  # type: ignore[import-untyped]
 except ImportError:
@@ -81,6 +87,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SERVICES_YAML = REPO_ROOT / "infrastructure" / "nats" / "services.yaml"
 SERVICES_SCHEMA = REPO_ROOT / "infrastructure" / "nats" / "services.schema.json"
 NATS_CONF = REPO_ROOT / "infrastructure" / "docker" / "nats" / "nats.conf"
+BROKER_ALERTS = REPO_ROOT / "infrastructure/monitoring/droplet/rules/35-broker-jetstream.yml"
 HELM_IDENTITIES = (
     REPO_ROOT
     / "infrastructure"
@@ -96,6 +103,18 @@ END_MARKER = "    # END GENERATED"
 
 def load_services() -> list[dict[str, Any]]:
     """Load and validate services.yaml against services.schema.json."""
+    policy_path = REPO_ROOT / "libs/backend-common/src/nats/nats-response-policy.json"
+    response_policy = json.loads(policy_path.read_text())
+    policy_keys = {"expirySeconds", "maxUnaryResponses", "maxAckResponses"}
+    if (
+        not isinstance(response_policy, dict)
+        or set(response_policy) != policy_keys
+        or any(type(response_policy[key]) is not int or response_policy[key] <= 0 for key in policy_keys)
+        or response_policy["maxAckResponses"] != 1
+        or response_policy["maxUnaryResponses"] != 2
+    ):
+        sys.stderr.write("error: response policy must define a finite unary/ack protocol\n")
+        sys.exit(1)
     if not SERVICES_YAML.exists():
         sys.stderr.write(f"error: {SERVICES_YAML} not found\n")
         sys.exit(1)
@@ -143,11 +162,32 @@ def load_services() -> list[dict[str, Any]]:
         if not svc["publish"] or not svc["subscribe"]:
             sys.stderr.write(f"error: services[{i}].publish or .subscribe is empty\n")
             sys.exit(1)
+        if "responses" in svc:
+            responses = svc["responses"]
+            # NATS treats negative values as unlimited and zero as a default.
+            # Keep the supported unary/JetStream protocol finite by construction.
+            if (
+                not isinstance(responses, dict)
+                or set(responses) != {"max", "expires"}
+                or type(responses.get("max")) is not int
+                or responses["max"] not in (
+                    response_policy["maxAckResponses"], response_policy["maxUnaryResponses"]
+                )
+                or responses.get("expires") != f'{response_policy["expirySeconds"]}s'
+            ):
+                sys.stderr.write(
+                    f"error: services[{i}].responses must match the finite shared response policy\n"
+                )
+                sys.exit(1)
 
     # Assert uniqueness of service names.
     names = [s["name"] for s in services]
     if len(names) != len(set(names)):
         sys.stderr.write(f"error: duplicate service names in services.yaml\n")
+        sys.exit(1)
+    inbox_prefixes = [name.upper().replace("-", "_") for name in names]
+    if len(inbox_prefixes) != len(set(inbox_prefixes)):
+        sys.stderr.write("error: distinct certificate identities share an inbox prefix\n")
         sys.exit(1)
 
     applications = [s["application"] for s in services]
@@ -181,12 +221,19 @@ def render_user_entry(svc: dict[str, Any]) -> str:
     description = svc["description"].strip().replace("\n", " ")
     publish = render_subject_list(svc["publish"], "            ")
     subscribe = render_subject_list(svc["subscribe"], "            ")
+    responses = svc.get("responses")
+    response_permission = (
+        f'        allow_responses: {{ max: {responses["max"]}, expires: "{responses["expires"]}" }}\n'
+        if responses is not None
+        else ""
+    )
 
     return (
         f"    # ── {name}: {description} ──\n"
         f"    {{\n"
         f'      user: "CN={name}",\n'
         f"      permissions: {{\n"
+        f"{response_permission}"
         f"        publish: {{\n"
         f"          allow: [\n"
         f"{publish}\n"
@@ -288,6 +335,41 @@ def splice_into_nats_conf(generated_block: str) -> tuple[str, bool]:
     return new_contents, new_contents != original
 
 
+def render_storage_limit(contents: str, required_bytes: int) -> str:
+    updated, count = re.subn(
+        r"(?m)^([ \t]*)max_file_store:[^\n]*$",
+        lambda match: f"{match.group(1)}max_file_store: {required_bytes}",
+        contents,
+    )
+    if count != 1:
+        raise ValueError("nats.conf must declare exactly one max_file_store")
+    return updated
+
+
+def render_storage_alert(required_bytes: int) -> str:
+    threshold = required_bytes * 3 // 4
+    block = (
+        "      - alert: JetStreamStorageHigh\n"
+        "        # GENERATED from jetstream-storage-policy.json; 75% of the broker file store.\n"
+        f"        expr: nats_server_jetstream_total_storage_bytes > {threshold}\n"
+        "        for: 15m\n"
+        "        labels:\n"
+        "          severity: warning\n"
+        "        annotations:\n"
+        "          summary: 'JetStream file store above 75% of the configured budget'\n"
+        "          description: 'JetStream storage has exceeded 75% of the configured file store for 15 minutes; Discard-policy pressure is near.'\n"
+        "          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/jetstream-storage-high.md'\n"
+    )
+    updated, count = re.subn(
+        r"(?m)^      - alert: JetStreamStorageHigh\n[\s\S]*?(?=\n      - alert:|\Z)",
+        lambda _match: block,
+        BROKER_ALERTS.read_text(),
+    )
+    if count != 1:
+        raise ValueError("broker alerts must declare exactly one JetStreamStorageHigh rule")
+    return updated
+
+
 def main() -> int:
     args = sys.argv[1:]
     if args not in ([], ["--check"]):
@@ -295,18 +377,32 @@ def main() -> int:
         return 64
     check_only = args == ["--check"]
 
+    try:
+        required_bytes = required_file_store_bytes(load_storage_policy())
+    except (OSError, ValueError) as error:
+        sys.stderr.write(f"error: JetStream capacity policy: {error}\n")
+        return 1
+
     services = load_services()
     block = render_generated_block(services)
-    new_contents, nats_modified = splice_into_nats_conf(block)
+    new_contents, _ = splice_into_nats_conf(block)
+    try:
+        new_contents = render_storage_limit(new_contents, required_bytes)
+        alert_contents = render_storage_alert(required_bytes)
+    except (OSError, ValueError) as error:
+        sys.stderr.write(f"error: JetStream capacity artifact: {error}\n")
+        return 2
+    nats_modified = new_contents != NATS_CONF.read_text()
+    alerts_modified = alert_contents != BROKER_ALERTS.read_text()
     helm_contents = render_helm_identities(services)
     helm_modified = (
         not HELM_IDENTITIES.exists()
         or HELM_IDENTITIES.read_text() != helm_contents
     )
 
-    if not nats_modified and not helm_modified:
+    if not nats_modified and not helm_modified and not alerts_modified:
         sys.stdout.write(
-            "no change — NATS authorization and Helm identities already match SSoT\n"
+            "no change — NATS authorization, storage and identities already match SSoT\n"
         )
         return 0
 
@@ -319,12 +415,13 @@ def main() -> int:
             for path, modified in (
                 (NATS_CONF, nats_modified),
                 (HELM_IDENTITIES, helm_modified),
+                (BROKER_ALERTS, alerts_modified),
             )
             if modified
         ]
         sys.stderr.write(
             "error: generated artifacts do not match "
-            "infrastructure/nats/services.yaml; regenerate and commit them\n"
+            "NATS identity/storage policies; regenerate and commit them\n"
         )
         for path in stale:
             sys.stderr.write(f"  stale: {path}\n")
@@ -345,6 +442,9 @@ def main() -> int:
             f"regenerated — {HELM_IDENTITIES.relative_to(REPO_ROOT)} "
             f"(identities: {len(services)})\n"
         )
+    if alerts_modified:
+        BROKER_ALERTS.write_text(alert_contents)
+        sys.stdout.write(f"regenerated — {BROKER_ALERTS.relative_to(REPO_ROOT)}\n")
     return 0
 
 

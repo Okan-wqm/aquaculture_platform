@@ -16,6 +16,7 @@ import { catchError, firstValueFrom, throwError, timeout } from 'rxjs';
 // this adds no new cross-lib edge and cannot form a cycle.
 import { serviceIdentityAudienceForService } from '../../../../platform/libs/service-catalog/src/index';
 import { buildSignedInternalHeaders } from '../http/signed-http-client';
+import { parseNatsRequestTimeout } from '../nats/nats-response-policy';
 
 /**
  * DI token + injectable config for the config-runtime NATS ClientProxy the
@@ -67,11 +68,11 @@ export class ConfigRuntimeClient {
     @Inject(CONFIG_RUNTIME_CONSUMER_SERVICE)
     private readonly consumerService: string,
   ) {
-    const configured = Number.parseInt(process.env['CONFIG_RUNTIME_TIMEOUT_MS'] ?? '', 10);
-    this.timeoutMs =
-      Number.isFinite(configured) && configured > 0
-        ? configured
-        : DEFAULT_CONFIG_RUNTIME_TIMEOUT_MS;
+    this.timeoutMs = parseNatsRequestTimeout(
+      process.env['CONFIG_RUNTIME_TIMEOUT_MS'],
+      DEFAULT_CONFIG_RUNTIME_TIMEOUT_MS,
+      'CONFIG_RUNTIME_TIMEOUT_MS',
+    );
     // config-service is the receiver — bind its audience into the signature so a
     // captured signature cannot be replayed at a different receiver.
     this.audience = serviceIdentityAudienceForService('config-service');

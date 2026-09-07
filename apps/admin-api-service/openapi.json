@@ -13844,30 +13844,6 @@
         ]
       }
     },
-    "/system/performance/metrics/request": {
-      "post": {
-        "operationId": "PerformanceController_recordRequestMetric",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RecordRequestMetricDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Analytics"
-        ]
-      }
-    },
     "/system/performance/metrics/flush": {
       "post": {
         "operationId": "PerformanceController_flushMetrics",
@@ -24739,121 +24715,13 @@
             "type": "string"
           },
           "applicationMetrics": {
-            "type": "object",
-            "properties": {
-              "avgResponseTime": {
-                "type": "number"
-              },
-              "p95ResponseTime": {
-                "type": "number"
-              },
-              "p99ResponseTime": {
-                "type": "number"
-              },
-              "throughput": {
-                "type": "number"
-              },
-              "errorRate": {
-                "type": "number"
-              },
-              "apdexScore": {
-                "type": "number"
-              },
-              "activeRequests": {
-                "type": "number"
-              },
-              "totalRequests": {
-                "type": "number"
-              }
-            },
-            "required": [
-              "avgResponseTime",
-              "p95ResponseTime",
-              "p99ResponseTime",
-              "throughput",
-              "errorRate",
-              "apdexScore",
-              "activeRequests",
-              "totalRequests"
-            ]
+            "type": "object"
           },
           "databaseMetrics": {
-            "type": "object",
-            "properties": {
-              "activeConnections": {
-                "type": "number"
-              },
-              "poolSize": {
-                "type": "number"
-              },
-              "poolUtilization": {
-                "type": "number"
-              },
-              "avgQueryTime": {
-                "type": "number"
-              },
-              "slowQueryCount": {
-                "type": "number"
-              },
-              "cacheHitRatio": {
-                "type": "number"
-              },
-              "deadlockCount": {
-                "type": "number"
-              }
-            },
-            "required": [
-              "activeConnections",
-              "poolSize",
-              "poolUtilization",
-              "avgQueryTime",
-              "slowQueryCount",
-              "cacheHitRatio",
-              "deadlockCount"
-            ]
+            "type": "object"
           },
           "infrastructureMetrics": {
-            "type": "object",
-            "properties": {
-              "cpuUsage": {
-                "type": "number"
-              },
-              "memoryUsage": {
-                "type": "number"
-              },
-              "memoryTotal": {
-                "type": "number"
-              },
-              "diskUsage": {
-                "type": "number"
-              },
-              "diskTotal": {
-                "type": "number"
-              },
-              "networkLatency": {
-                "type": "number"
-              },
-              "containerCount": {
-                "type": "number"
-              },
-              "healthyContainers": {
-                "type": "number"
-              },
-              "podRestarts": {
-                "type": "number"
-              }
-            },
-            "required": [
-              "cpuUsage",
-              "memoryUsage",
-              "memoryTotal",
-              "diskUsage",
-              "diskTotal",
-              "networkLatency",
-              "containerCount",
-              "healthyContainers",
-              "podRestarts"
-            ]
+            "type": "object"
           },
           "alerts": {
             "type": "array",
@@ -24947,36 +24815,6 @@
           "metricType",
           "name",
           "value"
-        ]
-      },
-      "RecordRequestMetricDto": {
-        "type": "object",
-        "properties": {
-          "service": {
-            "type": "string",
-            "maxLength": 255
-          },
-          "endpoint": {
-            "type": "string",
-            "maxLength": 255
-          },
-          "method": {
-            "type": "string",
-            "maxLength": 10
-          },
-          "durationMs": {
-            "type": "number"
-          },
-          "isError": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "service",
-          "endpoint",
-          "method",
-          "durationMs",
-          "isError"
         ]
       },
       "ErrorGroup": {

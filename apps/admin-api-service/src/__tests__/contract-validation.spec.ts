@@ -997,7 +997,11 @@ describe('Frontend-Backend Contract Validation', () => {
     // `admin.user_sessions`' two session routes in the same change; main had
     // already deleted them (ADMIN-HIGH-100), so they are in the baseline and
     // only this one moves.
-    expect(count).toBe(460);
+    // 459: -1 for POST /system/performance/metrics/request. `recordRequestMetric`
+    // drained an in-memory map nothing ever filled — the route had no caller and
+    // the RED data it duplicated is already in Prometheus, so it goes with the
+    // aggregation cron that read it (ADMIN-HIGH-109).
+    expect(count).toBe(459);
   });
 
   it('frontend endpoint snapshot should be up to date', () => {

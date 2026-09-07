@@ -2237,6 +2237,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1808500000000-DropDeadAdminUserSessions.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/modules/__tests__/modules.controller.spec.ts",
       "prettier_managed": true
     },
@@ -36225,6 +36231,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/zcode/2026-09-07-admin-session-endpoints-report-success-and-do-nothing.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/zcode/2026-09-07-billing-cycle-price-agreement.md",
       "prettier_managed": true
     },
@@ -46173,6 +46185,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/service-identity-canonical-coverage.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/session-state-single-source.spec.ts",
       "prettier_managed": true
     },
     {

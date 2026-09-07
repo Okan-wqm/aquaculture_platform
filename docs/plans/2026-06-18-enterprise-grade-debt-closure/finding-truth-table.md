@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `f84751246b49d846198544d14c607f7771d519fcd4c4e31ddfb8103538f63adc`
+Registry tip: `c560a6af21e7bc525658914c1648beb258f27edb677aa313d964168c5eb510ba`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -253,10 +253,7 @@ Allowed truth buckets:
 | `BILLING-CRITICAL-012`  | OPEN           | 2026-09-05   | billing-expert             | real-open                 |
 | `CONTRACT-CRITICAL-004` | OPEN           | 2026-09-05   | contract-parity-enforcer   | real-open                 |
 | `DATA-CRITICAL-015`     | OPEN           | 2026-09-05   | data-expert                | real-open                 |
-| `DATA-CRITICAL-016`     | OPEN           | 2026-09-05   | data-expert                | real-open                 |
-| `INFRA-CRITICAL-164`    | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
 | `OBS-CRITICAL-007`      | OPEN           | 2026-09-05   | observability-expert       | real-open                 |
-| `SEC-CRITICAL-161`      | OPEN           | 2026-09-05   | auth-security-expert       | real-open                 |
 | `SEC-CRITICAL-162`      | OPEN           | 2026-09-05   | auth-security-expert       | real-open                 |
 | `SEC-CRITICAL-163`      | OPEN           | 2026-09-05   | auth-security-expert       | real-open                 |
 
@@ -788,4 +785,13 @@ tests/invariants/all-services-env-aware-migrations.spec.ts --runInBand`,
   Left the active table from bucket `real-open`.
 - `PLAT-CRITICAL-911`: registry state is `RESOLVED` with closing commit
   `b093f541c`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `real-open`.
+- `DATA-CRITICAL-016`: registry state is `RESOLVED` with closing commit
+  `048ffb312`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `real-open`.
+- `INFRA-CRITICAL-164`: registry state is `RESOLVED` with closing commit
+  `e32cb960b`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `real-open`.
+- `SEC-CRITICAL-161`: registry state is `RESOLVED` with closing commit
+  `f1f8240bb`, derived by `finding-registry reconcile` against `origin/main`.
   Left the active table from bucket `real-open`.

@@ -1473,6 +1473,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/config/__tests__/production-posture.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/config/production-posture.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/database-management/__tests__/migration-management.service.spec.ts",
       "prettier_managed": true
     },
@@ -1564,6 +1576,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/database/data-source.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/debug-tools/__tests__/debug-tools.module.spec.ts",
       "prettier_managed": true
     },
     {
@@ -44871,6 +44889,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/admin-api-health-probe-breakered.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/admin-api-production-posture.spec.ts",
       "prettier_managed": true
     },
     {

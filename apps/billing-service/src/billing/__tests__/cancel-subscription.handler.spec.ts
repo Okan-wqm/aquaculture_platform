@@ -46,8 +46,15 @@ function buildCommand(
   subscriptionId = 'sub-001',
   tenantId = 'tenant-001',
   userId = 'user-001',
+  cancelImmediately = false,
 ): CancelSubscriptionCommand {
-  return new CancelSubscriptionCommand(tenantId, subscriptionId, reason, userId);
+  return new CancelSubscriptionCommand(
+    tenantId,
+    subscriptionId,
+    reason,
+    userId,
+    cancelImmediately,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -129,7 +136,9 @@ describe('CancelSubscriptionHandler', () => {
       const args = mockStripe.cancelSubscription.mock.calls[0][0];
       expect(args.subscriptionId).toBe('sub_live_123');
       expect(args.immediately).toBe(false);
-      expect(args.idempotencyKey).toBe('sub-cancel:sub_live_123');
+      // ADR-0014: the key carries the immediacy, so a scheduled cancel and an
+      // immediate one are not the same Stripe request.
+      expect(args.idempotencyKey).toBe('sub-cancel:sub_live_123:period-end');
     });
 
     it('skips Stripe when the subscription has no Stripe id (local-only)', async () => {
@@ -205,6 +214,57 @@ describe('CancelSubscriptionHandler', () => {
       mockOutbox.enqueue.mockRejectedValue(new Error('outbox down'));
 
       await expect(handler.execute(buildCommand())).rejects.toThrow('outbox down');
+    });
+  });
+
+  // ADR-0014: the admin NATS path dispatches this command now instead of
+  // running a raw `UPDATE billing.subscriptions` that told Stripe nothing.
+  // Its `cancelImmediately` choice had to survive the move.
+  describe('immediate vs period-end cancellation (ADR-0014)', () => {
+    it('ends the subscription now and tells Stripe to cancel now', async () => {
+      const subscription = buildSubscription({ stripeSubscriptionId: 'sub_live_123' });
+      mockSubscriptionRepo.findOne.mockResolvedValue(subscription);
+      mockManager.findOne.mockResolvedValue(subscription);
+
+      const before = Date.now();
+      const saved = (await handler.execute(
+        buildCommand('Fraud', 'sub-001', 'tenant-001', 'user-001', true),
+      )) as Subscription;
+
+      expect(mockStripe.cancelSubscription.mock.calls[0][0].immediately).toBe(true);
+      // Not the period end the customer paid through: the service ends now.
+      expect(saved.endDate!.getTime()).toBeGreaterThanOrEqual(before);
+    });
+
+    it('defaults to period end, which is what the customer paid for', async () => {
+      const subscription = buildSubscription({ stripeSubscriptionId: 'sub_live_123' });
+      mockSubscriptionRepo.findOne.mockResolvedValue(subscription);
+      mockManager.findOne.mockResolvedValue(subscription);
+
+      const saved = (await handler.execute(buildCommand())) as Subscription;
+
+      expect(mockStripe.cancelSubscription.mock.calls[0][0].immediately).toBe(false);
+      expect(saved.endDate).toEqual(subscription.currentPeriodEnd);
+    });
+
+    it('distinguishes the two in the Stripe idempotency key', async () => {
+      // A fresh row per call: cancelling mutates the subscription, and a
+      // second cancel of the same object would be refused for its status.
+      const fresh = () => buildSubscription({ stripeSubscriptionId: 'sub_live_123' });
+      mockSubscriptionRepo.findOne.mockImplementation(() => Promise.resolve(fresh()));
+      mockManager.findOne.mockImplementation(() => Promise.resolve(fresh()));
+
+      await handler.execute(buildCommand());
+      await handler.execute(
+        buildCommand('Fraud', 'sub-001', 'tenant-001', 'user-001', true),
+      );
+
+      const [scheduled, immediate] = mockStripe.cancelSubscription.mock.calls.map(
+        (call: [{ idempotencyKey: string }]) => call[0].idempotencyKey,
+      );
+      // A shared key would make Stripe replay the scheduled cancellation and
+      // silently ignore the immediate one.
+      expect(scheduled).not.toBe(immediate);
     });
   });
 });

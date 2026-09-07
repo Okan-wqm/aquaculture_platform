@@ -43,6 +43,8 @@ import { BillingModulePriceNatsHandler } from './handlers/billing-module-price-n
 import { BillingCustomPlanNatsHandler } from './handlers/billing-custom-plan-nats.handler';
 import { BillingPlanNatsHandler } from './handlers/billing-plan-nats.handler';
 import { CancelSubscriptionHandler } from './handlers/cancel-subscription.handler';
+import { ExtendSubscriptionTrialHandler } from './handlers/extend-subscription-trial.handler';
+import { ReactivateSubscriptionHandler } from './handlers/reactivate-subscription.handler';
 import { ChangeSubscriptionPlanHandler } from './handlers/change-subscription-plan.handler';
 import { CreateInvoiceHandler } from './handlers/create-invoice.handler';
 import { CreatePlanHandler } from './handlers/create-plan.handler';
@@ -69,6 +71,8 @@ import { MeteringModule } from '../modules/metering/metering.module';
 const CommandHandlers = [
   CreateSubscriptionHandler,
   CancelSubscriptionHandler,
+  ReactivateSubscriptionHandler,
+  ExtendSubscriptionTrialHandler,
   CreateInvoiceHandler,
   FinalizeInvoiceHandler,
   VoidInvoiceHandler,

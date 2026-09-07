@@ -479,6 +479,68 @@ commands. Seed `billing.plans` for every cycle.
 and NATS grant derived from one declaration; metadata-key symmetry; no raw write to
 `billing.subscriptions` outside a command handler.
 
+**Implementation note — the webhook metadata asymmetry (landed 2026-09-06):** the first and most
+damaging half of this finding. `StripeApiService` binds the tenant into Stripe metadata under
+`internalTenantId`; all five webhook consumers read `metadata.tenantId` and warn-and-returned when
+it was absent — which it always was. **Every Stripe webhook this platform ever received was
+discarded**: no payment was recorded from Stripe, no subscription was ever moved to PAST_DUE or
+CANCELLED by Stripe, and no refund reached a payment row. It never surfaced because a
+warn-and-return is indistinguishable from a webhook for somebody else's object.
+
+The producer's key is NOT renamed — every Stripe object the platform has created carries it, and a
+rename would orphan all of them. Both sides read `STRIPE_TENANT_METADATA_KEY` from
+`libs/backend-common/src/billing/stripe-metadata.ts` instead. But renaming the read alone would have
+fixed the symptom and kept the flaw: Stripe metadata is writable by anyone who can reach the Stripe
+account, so a tenant id read out of it is an association hint, never proof (SECREV-CRITICAL-001).
+Each handler now resolves the tenant from the LOCAL row that owns the Stripe object — a payment by
+its payment-intent id, an invoice by its Stripe invoice id, a subscription by its Stripe
+subscription id — and `readStripeTenantHint` cross-checks the claim, logging a disagreement at ERROR
+without letting it change the outcome. `handlePaymentIntentSucceeded` additionally stopped depending
+on a `metadata.invoiceId` that no producer has ever written: it reaches the invoice through the
+payment intent's own `invoice` field, or through a payment row already opened for the same intent.
+
+**The service had no test at all** — that is how the defect survived; the only spec covered the
+controller's signature check, idempotency and routing. `stripe-webhook.service.spec.ts` adds
+thirteen, and nine of them FAIL against the pre-fix service, which is the evidence that they pin the
+behaviour rather than describe it.
+
+**Implementation note — the three raw-SQL lifecycle blocks (landed 2026-09-06):** cancel, reactivate
+and extend-trial each ran a raw `UPDATE billing.subscriptions` in the admin NATS handler while the
+corresponding CQRS handler sat unused. Every one of them told Stripe nothing, wrote no outbox event,
+projected nothing onto `auth.tenants` and validated no state transition under a lock — and each
+`WHERE tenant_id = $n AND is_deleted = false` named no subscription id, so a tenant with more than
+one row had all of them written.
+
+Concretely: a "reactivated" tenant kept its cancelled entitlements while Stripe went on stopping the
+subscription at period end; a tenant granted another fourteen trial days was invoiced on the
+ORIGINAL date, mid-trial, because Stripe never heard about the extension; and that same statement
+set `current_period_end = trial_end`, which on a monthly plan silently moved the next invoice date
+and on a plan whose period ran past the trial moved it BACKWARDS.
+
+`CancelSubscriptionCommand` gained the `cancelImmediately` the admin path had always offered — and
+the Stripe idempotency key now carries it, so a scheduled cancellation followed by an immediate one
+is not replayed as the first. `ReactivateSubscriptionHandler` and `ExtendSubscriptionTrialHandler`
+are new: Stripe-aware (`cancelAtPeriodEnd: false` and `trial_end` respectively, both added to the
+canonical client's `updateSubscription`, which mirrors Stripe's own), outbox-writing, projecting,
+and re-checking the state transition under the row lock rather than in a read that raced the write.
+The trial extension adds days in UTC arithmetic instead of `setDate`, which gains or loses an hour
+across a daylight-saving boundary, and sets `proration_behavior: 'none'` so moving a trial end does
+not raise an invoice.
+
+Twenty tests were added across the three handlers, each one asserting something the raw statements
+did not do.
+
+**Gate (parts i + ii of the ADR's three):** the new invariant derives every one of the 32
+`BILLING_ADMIN_COMMAND_SUBJECTS` members' sender, consumer `@MessagePattern` and `services.yaml`
+grant from the one subject map (96 assertions), and holds the metadata key to a single declaration:
+the producer may not write it as a literal, the webhook consumer may not reach into a Stripe
+object's metadata by hand, and no Stripe-surface file may read the old key. Verified by reverting
+both files — three assertions fail. Part (iii), "no raw write to `billing.subscriptions` outside a
+`@CommandHandler`", lands with the provisioning move: the three lifecycle `UPDATE`s are gone, and
+the one remaining raw statement is the provisioning `INSERT` that ADR-0014's first decision
+replaces. A gate carrying a carve-out for the exact statement it exists to forbid would be theatre,
+so it lands when the carve-out would not be needed.
+
 ## CONTRACT-CRITICAL-004 — No machine-readable FE↔BE contract
 
 **State:** OPEN · **Wave:** W2 (class DTOs) / W3 (artifact) · **ADR:** 0015

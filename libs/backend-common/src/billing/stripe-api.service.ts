@@ -145,18 +145,29 @@ export class StripeApiService {
     subscriptionId: string;
     priceId?: string;
     metadata?: StripeMetadata;
+    /** `false` un-schedules a pending cancellation (reactivation, ADR-0014). */
+    cancelAtPeriodEnd?: boolean;
+    /** Moves the trial's end date (trial extension, ADR-0014). */
+    trialEnd?: Date;
     idempotencyKey: StripeIdempotencyKey;
   }): Promise<StripeSubscription> {
     return this.executeMutation({
       tenantId: args.tenantId,
       action: 'stripe.subscription.update',
       resourceId: args.subscriptionId,
-      metadata: { subscriptionId: args.subscriptionId, priceId: args.priceId ?? null },
+      metadata: {
+        subscriptionId: args.subscriptionId,
+        priceId: args.priceId ?? null,
+        cancelAtPeriodEnd: args.cancelAtPeriodEnd ?? null,
+        trialEnd: args.trialEnd?.toISOString() ?? null,
+      },
       fn: () =>
         this.client.updateSubscription({
           subscriptionId: args.subscriptionId,
           priceId: args.priceId,
           metadata: args.metadata,
+          cancelAtPeriodEnd: args.cancelAtPeriodEnd,
+          trialEnd: args.trialEnd,
           idempotencyKey: args.idempotencyKey,
         }),
     });

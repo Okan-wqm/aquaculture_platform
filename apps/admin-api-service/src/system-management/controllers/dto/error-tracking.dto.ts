@@ -71,59 +71,6 @@ export class QueryErrorGroupsDto {
   sortOrder?: 'ASC' | 'DESC';
 }
 
-export class ReportErrorDto {
-  /** ADMIN-CRITICAL-009: whitelisted carrier key; the verified id arrives through @TenantParam('body'). */
-  @TenantIdCarrier()
-  readonly tenantId?: undefined;
-
-  @IsString()
-  message!: string;
-
-  @IsOptional()
-  @IsString()
-  errorType?: string;
-
-  @IsOptional()
-  @IsString()
-  stackTrace?: string;
-
-  @IsOptional()
-  @IsString()
-  severity?: ErrorSeverity;
-
-  @IsOptional()
-  @IsObject()
-  context?: ErrorContext;
-
-  @IsOptional()
-  @IsString()
-  service?: string;
-
-  @IsOptional()
-  @IsString()
-  environment?: string;
-
-  @IsOptional()
-  @IsString()
-  release?: string;
-
-  @IsOptional()
-  @IsString()
-  userId?: string;
-
-  @IsOptional()
-  @IsString()
-  ipAddress?: string;
-
-  @IsOptional()
-  @IsString()
-  userAgent?: string;
-
-  @IsOptional()
-  @IsObject()
-  metadata?: Record<string, unknown>;
-}
-
 export class UpdateErrorGroupDto {
   @IsOptional()
   @IsString()

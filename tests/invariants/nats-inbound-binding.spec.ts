@@ -48,7 +48,9 @@ function listFiles(...globs: string[]): string[] {
     .filter(Boolean);
 }
 
-const SERVICE_SOURCES = listFiles('apps/*/src/**/*.ts').filter(
+// `*` in a git pathspec matches across `/`; `**/` would require at least one
+// directory level and so skip `src/main.ts` and `src/app.module.ts` themselves.
+const SERVICE_SOURCES = listFiles('apps/*/src/*.ts').filter(
   (file) => !/\.(?:spec|test)\.ts$/.test(file) && !file.includes('__tests__'),
 );
 

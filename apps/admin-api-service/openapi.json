@@ -13946,37 +13946,6 @@
         ]
       }
     },
-    "/system/errors/report": {
-      "post": {
-        "operationId": "ErrorTrackingController_reportError",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ReportErrorDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOccurrence"
-                }
-              }
-            }
-          }
-        },
-        "tags": [
-          "Analytics"
-        ]
-      }
-    },
     "/system/errors/groups": {
       "get": {
         "operationId": "ErrorTrackingController_queryErrorGroups",
@@ -21382,8 +21351,8 @@
           "type": {
             "enum": [
               "info",
-              "warning",
               "critical",
+              "warning",
               "maintenance"
             ],
             "type": "string"
@@ -21517,8 +21486,8 @@
             "type": "string",
             "enum": [
               "info",
-              "warning",
               "critical",
+              "warning",
               "maintenance"
             ]
           },
@@ -21558,8 +21527,8 @@
             "type": "string",
             "enum": [
               "info",
-              "warning",
               "critical",
+              "warning",
               "maintenance"
             ]
           },
@@ -22221,8 +22190,8 @@
               "debug",
               "error",
               "info",
-              "warning",
-              "critical"
+              "critical",
+              "warning"
             ]
           },
           "action": {
@@ -22543,8 +22512,8 @@
                     "debug",
                     "error",
                     "info",
-                    "warning",
-                    "critical"
+                    "critical",
+                    "warning"
                   ]
                 }
               },
@@ -24901,149 +24870,6 @@
           "isError"
         ]
       },
-      "ReportErrorDto": {
-        "type": "object",
-        "properties": {
-          "tenantId": {
-            "type": "string",
-            "format": "uuid",
-            "description": "Tenant id. Resolved and verified server-side before the handler runs; the value a handler uses never comes from this key."
-          },
-          "message": {
-            "type": "string"
-          },
-          "errorType": {
-            "type": "string"
-          },
-          "stackTrace": {
-            "type": "string"
-          },
-          "severity": {
-            "type": "string",
-            "enum": [
-              "debug",
-              "info",
-              "warning",
-              "error",
-              "critical",
-              "fatal"
-            ]
-          },
-          "context": {
-            "type": "object"
-          },
-          "service": {
-            "type": "string"
-          },
-          "environment": {
-            "type": "string"
-          },
-          "release": {
-            "type": "string"
-          },
-          "userId": {
-            "type": "string"
-          },
-          "ipAddress": {
-            "type": "string"
-          },
-          "userAgent": {
-            "type": "string"
-          },
-          "metadata": {
-            "type": "object",
-            "additionalProperties": true
-          }
-        },
-        "required": [
-          "message"
-        ]
-      },
-      "ErrorOccurrence": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "groupId": {
-            "type": "string"
-          },
-          "fingerprint": {
-            "type": "string"
-          },
-          "severity": {
-            "enum": [
-              "debug",
-              "info",
-              "warning",
-              "error",
-              "critical",
-              "fatal"
-            ],
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "errorType": {
-            "type": "string"
-          },
-          "stackTrace": {
-            "type": "string"
-          },
-          "stackFrames": {
-            "type": "array",
-            "items": {
-              "type": "object"
-            }
-          },
-          "context": {
-            "type": "object"
-          },
-          "service": {
-            "type": "string"
-          },
-          "environment": {
-            "type": "string"
-          },
-          "release": {
-            "type": "string"
-          },
-          "tenantId": {
-            "type": "string"
-          },
-          "userId": {
-            "type": "string"
-          },
-          "ipAddress": {
-            "type": "string"
-          },
-          "userAgent": {
-            "type": "string"
-          },
-          "metadata": {
-            "type": "object",
-            "additionalProperties": true
-          },
-          "timestamp": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "createdAt": {
-            "format": "date-time",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "groupId",
-          "fingerprint",
-          "severity",
-          "message",
-          "timestamp",
-          "createdAt"
-        ]
-      },
       "ErrorGroup": {
         "type": "object",
         "properties": {
@@ -25235,6 +25061,91 @@
         "required": [
           "targetId",
           "sourceIds"
+        ]
+      },
+      "ErrorOccurrence": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "groupId": {
+            "type": "string"
+          },
+          "fingerprint": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "debug",
+              "info",
+              "warning",
+              "error",
+              "critical",
+              "fatal"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "errorType": {
+            "type": "string"
+          },
+          "stackTrace": {
+            "type": "string"
+          },
+          "stackFrames": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "context": {
+            "type": "object"
+          },
+          "service": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string"
+          },
+          "release": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string"
+          },
+          "userId": {
+            "type": "string"
+          },
+          "ipAddress": {
+            "type": "string"
+          },
+          "userAgent": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "timestamp": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "groupId",
+          "fingerprint",
+          "severity",
+          "message",
+          "timestamp",
+          "createdAt"
         ]
       },
       "ErrorAlertRule": {

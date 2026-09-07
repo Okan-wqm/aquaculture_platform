@@ -55,6 +55,8 @@ services:
     application: auth-service
     description: Authentication — tenant and user lifecycle, JWT issuance, invitations, password reset
     publish:
+      # ADMIN-HIGH-014: every service's captured defects (ErrorCaptureInterceptor).
+      - 'events.*.ServiceErrorCaptured'
       - 'events.*.AccessTokenInvalidationRequested'
       - 'events.*.InvitationAccepted'
       - 'events.*.PasswordResetCompleted'
@@ -85,6 +87,8 @@ services:
     application: farm-service
     description: Farm domain — batches, feedings, water quality, mortality/cull, ponds, equipment, feed inventory
     publish:
+      # ADMIN-HIGH-014: every service's captured defects (ErrorCaptureInterceptor).
+      - 'events.*.ServiceErrorCaptured'
       - 'events.*.BatchAllocatedToTank'
       - 'events.*.BatchClosed'
       - 'events.*.BatchCreated'
@@ -208,6 +212,8 @@ services:
     application: sensor-service
     description: Sensor/edge devices, VFD readings, LoRa, automation, ST Language runtime
     publish:
+      # ADMIN-HIGH-014: every service's captured defects (ErrorCaptureInterceptor).
+      - 'events.*.ServiceErrorCaptured'
       - 'events.*.AutomationFBDefinitionsChanged'
       - 'events.*.AutomationProgramDeployed'
       - 'events.*.AutomationProgramSaved'
@@ -271,6 +277,8 @@ services:
     application: admin-api-service
     description: Admin API — tenant lifecycle, erasure aggregation, ingest policy and admin RPC
     publish:
+      # ADMIN-HIGH-014: every service's captured defects (ErrorCaptureInterceptor).
+      - 'events.*.ServiceErrorCaptured'
       - 'events.*.ModuleRemovedFromTenant'
       - 'events.*.TenantActivated'
       - 'events.*.TenantArchived'
@@ -377,6 +385,8 @@ services:
       # admin.login_attempts and admin.api_usage_logs, so its anomaly detectors
       # count real rows instead of an empty table.
       - 'events.security.events.>'
+      # ADMIN-HIGH-014: admin-api is the error-tracking sink for the fleet.
+      - 'events.*.ServiceErrorCaptured'
       - 'policy.ingest_backend.snapshot'
       - '_INBOX.>'
       - '$JS.API.>'
@@ -411,6 +421,8 @@ services:
     application: notification-service
     description: Outbound push / email notification commands, delivery tracking
     publish:
+      # ADMIN-HIGH-014: every service's captured defects (ErrorCaptureInterceptor).
+      - 'events.*.ServiceErrorCaptured'
       - 'events.*.AlertTriggered'
       - 'events.*.NotificationDelivered'
       - 'events.*.NotificationFailed'
@@ -435,6 +447,8 @@ services:
     application: ai-service
     description: AI domain — model/tool execution and agent conversations
     publish:
+      # ADMIN-HIGH-014: every service's captured defects (ErrorCaptureInterceptor).
+      - 'events.*.ServiceErrorCaptured'
       - 'events.*.AiServiceTenantDataErased'
       - 'events.*.AiServiceTenantDataErasureFailed'
       - 'events.*.AiServiceTenantErasureBlocked'
@@ -468,6 +482,8 @@ services:
     application: billing-service
     description: Subscriptions, invoicing, Stripe payment processing
     publish:
+      # ADMIN-HIGH-014: every service's captured defects (ErrorCaptureInterceptor).
+      - 'events.*.ServiceErrorCaptured'
       - 'events.*.InvoiceGenerated'
       - 'events.*.PaymentFailed'
       - 'events.*.PaymentReceived'
@@ -511,6 +527,8 @@ services:
     application: alert-engine
     description: Sensor-reading → alert-rule evaluation, alert lifecycle events
     publish:
+      # ADMIN-HIGH-014: every service's captured defects (ErrorCaptureInterceptor).
+      - 'events.*.ServiceErrorCaptured'
       - 'events.*.AlertEscalated'
       - 'events.*.AlertResolved'
       - 'events.*.AlertTriggered'
@@ -533,6 +551,8 @@ services:
     application: hr-service
     description: HR domain — employees, leave, attendance, certifications, payroll, scheduling
     publish:
+      # ADMIN-HIGH-014: every service's captured defects (ErrorCaptureInterceptor).
+      - 'events.*.ServiceErrorCaptured'
       - 'events.*.CertificationAdded'
       - 'events.*.CertificationExpired'
       - 'events.*.CertificationRevoked'
@@ -574,6 +594,8 @@ services:
     application: messaging-service
     description: Messaging domain — channels, messages, retention policies, compliance audit
     publish:
+      # ADMIN-HIGH-014: every service's captured defects (ErrorCaptureInterceptor).
+      - 'events.*.ServiceErrorCaptured'
       - 'events.*.AnnouncementAcknowledged'
       - 'events.*.AnnouncementExpired'
       - 'events.*.AnnouncementPublished'
@@ -643,6 +665,8 @@ services:
     application: hydroponics-service
     description: Hydroponics domain — grow cycles, nutrient dosing, climate control
     publish:
+      # ADMIN-HIGH-014: every service's captured defects (ErrorCaptureInterceptor).
+      - 'events.*.ServiceErrorCaptured'
       - 'events.*.HydroponicsServiceTenantDataErased'
       - 'events.*.HydroponicsServiceTenantDataErasureFailed'
       - 'events.*.HydroponicsServiceTenantErasureBlocked'
@@ -663,6 +687,8 @@ services:
     application: observability-service
     description: Observability — migration audit sink, security events sink, Prometheus/OTEL exporter
     publish:
+      # ADMIN-HIGH-014: every service's captured defects (ErrorCaptureInterceptor).
+      - 'events.*.ServiceErrorCaptured'
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
       - '$JS.API.>'
@@ -684,6 +710,8 @@ services:
     application: config-service
     description: Dynamic per-tenant configuration — GDPR tenant-erasure target (proof publisher); config-runtime read responder
     publish:
+      # ADMIN-HIGH-014: every service's captured defects (ErrorCaptureInterceptor).
+      - 'events.*.ServiceErrorCaptured'
       - 'events.*.ConfigServiceTenantDataErased'
       - 'events.*.ConfigServiceTenantDataErasureFailed'
       - 'events.*.ConfigServiceTenantErasureBlocked'
@@ -720,6 +748,8 @@ services:
     application: event-store-service
     description: Event persistence + projections — GDPR tenant-erasure target (proof publisher)
     publish:
+      # ADMIN-HIGH-014: every service's captured defects (ErrorCaptureInterceptor).
+      - 'events.*.ServiceErrorCaptured'
       - 'events.*.EventStoreServiceTenantDataErased'
       - 'events.*.EventStoreServiceTenantDataErasureFailed'
       - 'events.*.EventStoreServiceTenantErasureBlocked'

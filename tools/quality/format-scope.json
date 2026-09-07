@@ -1076,7 +1076,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "0d04a9cacc21a7dbb95d4d129cf1511478c7f3f3011d6b12efc986c360da085a",
+      "content_sha256": "9e32e046c31edc04327f8b01f476008792500c8fa7cbe9e54f64d675e11e32fa",
       "hash_policy": "sha256",
       "owner": "admin-openapi-generator",
       "path": "apps/admin-api-service/openapi.json",
@@ -2765,6 +2765,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/system-management/entities/system-version.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/system-management/handlers/__tests__/error-capture-projection.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/system-management/handlers/error-capture-projection.handler.ts",
       "prettier_managed": true
     },
     {
@@ -39267,6 +39279,24 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/observability/__tests__/error-capture.interceptor.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/observability/error-capture.interceptor.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/observability/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/orchestrator-leader-election/index.ts",
       "prettier_managed": true
     },
@@ -40216,6 +40246,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/event-contracts/src/enums/tenant-status.machine.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/src/error-events.ts",
       "prettier_managed": true
     },
     {
@@ -44238,6 +44274,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/entity-schema-declaration.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/error-capture-ingress.spec.ts",
       "prettier_managed": true
     },
     {
@@ -49159,7 +49201,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "9e4dc279e27318473c0a059e52c971366a2cdfe49a72460982535252628bd880",
+      "content_sha256": "1c2a8e49a4dee224314e09ce09c11e0de001010526987fd4fb0a961a43223cec",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/modules/admin-panel/src/services/generated/admin-api.ts",

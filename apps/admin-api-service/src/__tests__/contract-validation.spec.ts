@@ -943,7 +943,12 @@ describe('Frontend-Backend Contract Validation', () => {
     // Bu, beklenmedik endpoint degisikliklerini yakalar.
     const count = backendEndpoints.length;
 
-    // 458 since ADMIN-HIGH-014 retired `admin.user_sessions` with its two
+    // 457 since ADMIN-HIGH-014 retired `POST /system/errors/report`: it was the
+    // only entry point to `reportError`, behind the platform-admin guard plus
+    // `@RequiresCapability('security-ops')`, so a service that had just thrown
+    // could never reach it and never did. Errors now arrive as
+    // `events.*.ServiceErrorCaptured`.
+    // (458 since ADMIN-HIGH-014 retired `admin.user_sessions` with its two
     // routes (`GET /security/activities/sessions/user/:userId` and the
     // `/terminate` POST): both read a table nothing wrote, so the list was
     // always empty and the terminate count always 0. The live session truth is
@@ -952,7 +957,7 @@ describe('Frontend-Backend Contract Validation', () => {
     // anomaly detection ran only when a SUPER_ADMIN pressed a button, and now
     // runs from the `events.security.events.auth.login.*` stream on every real
     // attempt. 461 since ADR-0013 removed `POST /billing/plans/seed`.)
-    expect(count).toBe(458);
+    expect(count).toBe(457);
   });
 
   it('frontend endpoint snapshot should be up to date', () => {

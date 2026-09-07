@@ -56,6 +56,7 @@ import type { HelmetOptions } from 'helmet';
 import { bootstrapSecrets } from '../config/secrets.provider';
 import { StructuredLoggerService } from '../logging';
 import { NatsV3Server } from '../nats/nats-v3-server.strategy';
+import { ErrorCaptureInterceptor, type ErrorCapturePublisher } from '../observability';
 
 import { mountEdgeHardening, resolveTrustProxy, type ServiceVisibility } from './edge-hardening';
 import { logBootstrapError } from './safe-error-logger';
@@ -607,6 +608,26 @@ const PLATFORM_SECRET_ENV_VARS: readonly string[] = [
   'OBSERVABILITY_INTERNAL_API_KEY',
 ];
 
+/**
+ * The event bus, if this service registered one.
+ *
+ * `app.get` throws for an unregistered token rather than returning undefined,
+ * and `gateway-api` deliberately has no `EventBusModule`. Capture must degrade
+ * to a no-op there instead of failing the boot of a service whose only defect
+ * is not publishing events.
+ */
+function resolveErrorCapturePublisher(
+  app: INestApplication,
+  logger: Logger,
+): ErrorCapturePublisher | undefined {
+  try {
+    return app.get<ErrorCapturePublisher>('EVENT_BUS', { strict: false });
+  } catch {
+    logger.log('No EVENT_BUS registered; error capture is inert for this service');
+    return undefined;
+  }
+}
+
 export async function createServiceApp(
   appModule: Type<unknown>,
   options: ServiceBootstrapOptions,
@@ -829,6 +850,30 @@ export async function createServiceApp(
   if (globalGuards.length > 0) {
     app.useGlobalGuards(...globalGuards);
   }
+
+  // -----------------------------------------------------------------------
+  // 7b. Error capture (ADMIN-HIGH-014 / OBS-CRITICAL-003)
+  //
+  // Registered here, once, for every service — the same shape
+  // `ServiceMetricsModule` uses for `/metrics`. Before this, the ONLY route
+  // into `ErrorTrackingService.reportError` was a platform-admin HTTP endpoint
+  // that nothing has ever called, so `admin.error_groups` was a page with no
+  // producer. Per-service wiring was not an option: 7 of the 15 services
+  // register no exception filter at all and the other 8 are divergent
+  // hand-copies, so anything that hooked "the service's filter" would have
+  // left half the fleet invisible.
+  //
+  // The interceptor re-throws untouched — whatever each service does with the
+  // response is unchanged — and degrades to a no-op when the service has no
+  // event bus (gateway-api today). See its docblock for what it deliberately
+  // does not capture.
+  // -----------------------------------------------------------------------
+  app.useGlobalInterceptors(
+    new ErrorCaptureInterceptor(serviceName, resolveErrorCapturePublisher(app, logger), {
+      environment: configService.get<string>('AQUA_ENV') ?? configService.get<string>('NODE_ENV'),
+      release: configService.get<string>('RELEASE_VERSION'),
+    }),
+  );
 
   // -----------------------------------------------------------------------
   // 8. Graceful shutdown hooks (SIGTERM + SIGINT)

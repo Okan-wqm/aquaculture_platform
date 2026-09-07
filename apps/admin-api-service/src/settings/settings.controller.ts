@@ -1,3 +1,4 @@
+import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import { ThrottleSensitive } from '@aquaculture/backend-common/security';
 import {
   BadRequestException,
@@ -138,6 +139,7 @@ export class SettingsController {
    * Fix: C6 -- JWT-based identity
    */
   @ThrottleSensitive()
+  @AuditedOperation({ resource: 'Setting', action: 'UPDATE' })
   @Put('key/:key')
   updateSetting(
     @Param('key') key: string,
@@ -154,6 +156,7 @@ export class SettingsController {
    * Fix: MEDIUM-003 -- audit trail with updatedBy from JWT
    */
   @ThrottleSensitive()
+  @AuditedOperation({ resource: 'ToDefault', action: 'RESET' })
   @Post('key/:key/reset')
   resetToDefault(@Param('key') key: string, @Req() req: Request): never {
     const userId = getAuthUserId(req);
@@ -166,6 +169,7 @@ export class SettingsController {
    * Fix: C6 -- JWT-based identity
    */
   @ThrottleSensitive()
+  @AuditedOperation({ resource: 'Update', action: 'BULK' })
   @Put('bulk')
   bulkUpdate(
     @Body() dto: BulkUpdateSettingsDto,
@@ -193,6 +197,7 @@ export class SettingsController {
    * Fix: C6 -- JWT-based identity
    */
   @ThrottleSensitive()
+  @AuditedOperation({ resource: 'EmailConfig', action: 'UPDATE' })
   @Put('config/email')
   updateEmailConfig(
     @Body() dto: UpdateEmailConfigDto,
@@ -204,6 +209,7 @@ export class SettingsController {
   }
 
   @ThrottleSensitive()
+  @AuditedOperation({ resource: 'EmailConfig', action: 'TEST' })
   @Post('config/email/test')
   async testEmailConfig(@Body() dto: TestEmailConfigDto): Promise<unknown> {
     const connection = await this.emailSenderService.testConnection();
@@ -247,6 +253,7 @@ export class SettingsController {
    * Fix: MEDIUM-002 -- rate-limit sensitive endpoint
    */
   @ThrottleSensitive()
+  @AuditedOperation({ resource: 'SecurityConfig', action: 'UPDATE' })
   @Put('config/security')
   updateSecurityConfig(
     @Body() body: UpdateSecurityConfigDto,
@@ -272,6 +279,7 @@ export class SettingsController {
    * Fix: MEDIUM-002 -- rate-limit sensitive endpoint
    */
   @ThrottleSensitive()
+  @AuditedOperation({ resource: 'RateLimitConfig', action: 'UPDATE' })
   @Put('config/rate-limits')
   updateRateLimitConfig(
     @Body() body: UpdateRateLimitConfigDto,
@@ -295,6 +303,7 @@ export class SettingsController {
    * Fix: C6 -- JWT-based identity
    */
   @ThrottleSensitive()
+  @AuditedOperation({ resource: 'MaintenanceMode', action: 'SET' })
   @Put('config/maintenance')
   setMaintenanceMode(
     @Body() dto: SetMaintenanceModeDto,
@@ -323,6 +332,7 @@ export class SettingsController {
    * Fix: C6 -- JWT-based identity
    */
   @ThrottleSensitive()
+  @AuditedOperation({ resource: 'BillingConfig', action: 'UPDATE' })
   @Put('config/billing')
   updateBillingConfig(
     @Body() dto: UpdateBillingConfigDto,
@@ -369,6 +379,7 @@ export class SettingsController {
    * Fix: C6 -- JWT-based identity
    */
   @ThrottleSensitive()
+  @AuditedOperation({ resource: 'Settings', action: 'IMPORT' })
   @Post('import')
   importSettings(
     @Body() dto: ImportSettingsDto,

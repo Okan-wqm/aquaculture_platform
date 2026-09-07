@@ -23,5 +23,6 @@ export const emailTemplatesApi = {
     apiFetch<{ html: string; text: string; subject: string }>(`/settings/email-templates/${id}/preview`),
   // Fix: backend body uses { recipientEmail, variables } (not { to, sampleData })
   sendTestEmail: (id: string, to: string, sampleData: Record<string, unknown>) =>
-    apiFetch<{ message: string; recipientEmail: string; rendered: unknown }>(`/settings/email-templates/${id}/test`, { method: 'POST', body: JSON.stringify({ recipientEmail: to, variables: sampleData }) }),
+    // The endpoint renders only (admin-api has no email dispatch path); `sent` is always false.
+    apiFetch<{ sent: false; reason: string; recipientEmail: string; rendered: unknown }>(`/settings/email-templates/${id}/test`, { method: 'POST', body: JSON.stringify({ recipientEmail: to, variables: sampleData }) }),
 };

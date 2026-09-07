@@ -5,6 +5,7 @@
  * SUPER_ADMIN için geliştirme ve debug amaçlı.
  */
 
+import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
   Get,
@@ -675,6 +676,7 @@ export class DatabaseExplorerController {
    */
   // Fix: H8 -- per-route throttle: DB write is sensitive (3 req / 5 min)
   @ThrottleSensitive()
+  @AuditedOperation({ resource: 'DatabaseExplorer', action: 'INSERT_ROW' })
   @Post('schemas/:schema/tables/:table/rows')
   async insertRow(
     @Param('schema') schema: string,
@@ -731,6 +733,7 @@ export class DatabaseExplorerController {
    */
   // Fix: H8 -- per-route throttle: DB write is sensitive (3 req / 5 min)
   @ThrottleSensitive()
+  @AuditedOperation({ resource: 'Row', action: 'UPDATE' })
   @Put('schemas/:schema/tables/:table/rows/:id')
   async updateRow(
     @Param('schema') schema: string,
@@ -800,6 +803,7 @@ export class DatabaseExplorerController {
    */
   // Fix: H8 -- per-route throttle: DB delete is sensitive (3 req / 5 min)
   @ThrottleSensitive()
+  @AuditedOperation({ resource: 'Row', action: 'DELETE' })
   @Delete('schemas/:schema/tables/:table/rows/:id')
   async deleteRow(
     @Param('schema') schema: string,
@@ -927,6 +931,7 @@ export class DatabaseExplorerController {
    */
   // Fix: H8 -- per-route throttle: raw SQL execution is sensitive (3 req / 5 min)
   @ThrottleSensitive()
+  @AuditedOperation({ resource: 'Query', action: 'EXECUTE' })
   @Post('query')
   async executeQuery(@Body() dto: ExecuteQueryDto, @Req() req: Request) {
     const { sql, params = [] } = dto;

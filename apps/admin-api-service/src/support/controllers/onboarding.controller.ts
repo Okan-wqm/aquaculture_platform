@@ -4,6 +4,7 @@
  * Tenant onboarding ve eğitim endpoint'leri.
  */
 
+import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
   Get,
@@ -127,6 +128,7 @@ export class OnboardingController {
     return this.onboardingService.getProgress(tenantId);
   }
 
+  @AuditedOperation({ resource: 'Onboarding', action: 'INITIALIZE_ONBOARDING' })
   @Post('initialize')
   @HttpCode(HttpStatus.CREATED)
   async initializeOnboarding(@Body() dto: InitializeOnboardingDto) {
@@ -137,6 +139,7 @@ export class OnboardingController {
     return this.onboardingService.initializeOnboarding(dto.tenantId, dto.tenantName);
   }
 
+  @AuditedOperation({ resource: 'Step', action: 'COMPLETE' })
   @Post(':tenantId/step/:stepId/complete')
   async completeStep(
     @Param('tenantId') tenantId: string,
@@ -145,6 +148,7 @@ export class OnboardingController {
     return this.onboardingService.completeStep(tenantId, stepId);
   }
 
+  @AuditedOperation({ resource: 'Onboarding', action: 'SKIP_STEP' })
   @Post(':tenantId/step/:stepId/skip')
   async skipStep(
     @Param('tenantId') tenantId: string,
@@ -153,6 +157,7 @@ export class OnboardingController {
     return this.onboardingService.skipStep(tenantId, stepId);
   }
 
+  @AuditedOperation({ resource: 'Onboarding', action: 'SKIP_ONBOARDING' })
   @Post(':tenantId/skip')
   async skipOnboarding(@Param('tenantId') tenantId: string) {
     return this.onboardingService.skipOnboarding(tenantId);
@@ -162,6 +167,7 @@ export class OnboardingController {
   // Welcome Email
   // ============================================================================
 
+  @AuditedOperation({ resource: 'WelcomeEmail', action: 'SEND' })
   @Post(':tenantId/welcome-email')
   async sendWelcomeEmail(
     @Param('tenantId') tenantId: string,
@@ -189,6 +195,7 @@ export class OnboardingController {
     return this.onboardingService.getTrainingResources(category);
   }
 
+  @AuditedOperation({ resource: 'TutorialView', action: 'RECORD' })
   @Post(':tenantId/tutorials/:tutorialId/view')
   async recordTutorialView(
     @Param('tenantId') tenantId: string,
@@ -197,6 +204,7 @@ export class OnboardingController {
     return this.onboardingService.recordTutorialView(tenantId, tutorialId);
   }
 
+  @AuditedOperation({ resource: 'GettingStartedView', action: 'RECORD' })
   @Post(':tenantId/getting-started/view')
   async recordGettingStartedView(@Param('tenantId') tenantId: string) {
     return this.onboardingService.recordGettingStartedView(tenantId);
@@ -206,6 +214,7 @@ export class OnboardingController {
   // Training Sessions
   // ============================================================================
 
+  @AuditedOperation({ resource: 'Onboarding', action: 'SCHEDULE_TRAINING' })
   @Post(':tenantId/training')
   @HttpCode(HttpStatus.CREATED)
   async scheduleTraining(
@@ -226,6 +235,7 @@ export class OnboardingController {
     });
   }
 
+  @AuditedOperation({ resource: 'Training', action: 'UPDATE' })
   @Put(':tenantId/training/:sessionId')
   async updateTraining(
     @Param('tenantId') tenantId: string,
@@ -248,6 +258,7 @@ export class OnboardingController {
   // Guide Assignment
   // ============================================================================
 
+  @AuditedOperation({ resource: 'Guide', action: 'ASSIGN' })
   @Post(':tenantId/assign-guide')
   async assignGuide(
     @Param('tenantId') tenantId: string,

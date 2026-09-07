@@ -1,3 +1,4 @@
+import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   BadRequestException,
   Body,
@@ -452,6 +453,7 @@ export class GlobalSettingsController {
   // Feature Toggles
   // ============================================================================
 
+  @AuditedOperation({ resource: 'FeatureToggle', action: 'CREATE' })
   @Post('feature-toggles')
   async createFeatureToggle(@Body() dto: CreateFeatureToggleDto) {
     return this.globalSettingsService.createFeatureToggle(dto);
@@ -481,17 +483,20 @@ export class GlobalSettingsController {
     return this.globalSettingsService.getFeatureToggle(id);
   }
 
+  @AuditedOperation({ resource: 'FeatureToggle', action: 'UPDATE' })
   @Put('feature-toggles/:id')
   async updateFeatureToggle(@Param('id') id: string, @Body() dto: UpdateFeatureToggleDto) {
     return this.globalSettingsService.updateFeatureToggle(id, dto);
   }
 
+  @AuditedOperation({ resource: 'FeatureToggle', action: 'DELETE' })
   @Delete('feature-toggles/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteFeatureToggle(@Param('id') id: string) {
     await this.globalSettingsService.deleteFeatureToggle(id);
   }
 
+  @AuditedOperation({ resource: 'GlobalSettings', action: 'EVALUATE_FEATURE_TOGGLE' })
   @Post('feature-toggles/evaluate')
   async evaluateFeatureToggle(
     @Query('key') key: string,
@@ -500,6 +505,7 @@ export class GlobalSettingsController {
     return this.globalSettingsService.evaluateFeatureToggle(key, context);
   }
 
+  @AuditedOperation({ resource: 'FeatureToggleCache', action: 'REFRESH' })
   @Post('feature-toggles/refresh-cache')
   @HttpCode(HttpStatus.NO_CONTENT)
   async refreshFeatureToggleCache() {
@@ -510,6 +516,7 @@ export class GlobalSettingsController {
   // Maintenance Mode
   // ============================================================================
 
+  @AuditedOperation({ resource: 'MaintenanceMode', action: 'CREATE' })
   @Post('maintenance')
   async createMaintenanceMode(@Body() dto: CreateMaintenanceDto) {
     return this.globalSettingsService.createMaintenanceMode({
@@ -562,6 +569,7 @@ export class GlobalSettingsController {
     return this.globalSettingsService.getMaintenanceMode(id);
   }
 
+  @AuditedOperation({ resource: 'MaintenanceMode', action: 'UPDATE' })
   @Put('maintenance/:id')
   async updateMaintenanceMode(@Param('id') id: string, @Body() dto: UpdateMaintenanceDto) {
     return this.globalSettingsService.updateMaintenanceMode(id, {
@@ -571,21 +579,25 @@ export class GlobalSettingsController {
     });
   }
 
+  @AuditedOperation({ resource: 'Maintenance', action: 'START' })
   @Post('maintenance/:id/start')
   async startMaintenance(@Param('id') id: string) {
     return this.globalSettingsService.startMaintenance(id);
   }
 
+  @AuditedOperation({ resource: 'GlobalSettings', action: 'END_MAINTENANCE' })
   @Post('maintenance/:id/end')
   async endMaintenance(@Param('id') id: string) {
     return this.globalSettingsService.endMaintenance(id);
   }
 
+  @AuditedOperation({ resource: 'Maintenance', action: 'CANCEL' })
   @Post('maintenance/:id/cancel')
   async cancelMaintenance(@Param('id') id: string) {
     return this.globalSettingsService.cancelMaintenance(id);
   }
 
+  @AuditedOperation({ resource: 'Maintenance', action: 'EXTEND' })
   @Post('maintenance/:id/extend')
   async extendMaintenance(@Param('id') id: string, @Body() dto: ExtendMaintenanceDto) {
     return this.globalSettingsService.extendMaintenance(id, dto.additionalMinutes);
@@ -595,6 +607,7 @@ export class GlobalSettingsController {
   // Version Management
   // ============================================================================
 
+  @AuditedOperation({ resource: 'Version', action: 'CREATE' })
   @Post('versions')
   async createVersion(@Body() dto: CreateVersionDto) {
     return this.globalSettingsService.createSystemVersion(dto);
@@ -620,11 +633,13 @@ export class GlobalSettingsController {
     return this.globalSettingsService.getCurrentVersion();
   }
 
+  @AuditedOperation({ resource: 'GlobalSettings', action: 'DEPLOY_VERSION' })
   @Post('versions/:id/deploy')
   async deployVersion(@Param('id') id: string, @Body() dto: DeployVersionDto) {
     return this.globalSettingsService.deployVersion(id, dto.deployedBy);
   }
 
+  @AuditedOperation({ resource: 'Version', action: 'ROLLBACK' })
   @Post('versions/:id/rollback')
   async rollbackVersion(@Param('id') id: string, @Body() dto: RollbackVersionDto) {
     return this.globalSettingsService.rollbackVersion(id, dto.reason, dto.rolledBackBy);
@@ -634,6 +649,7 @@ export class GlobalSettingsController {
   // Global Configuration
   // ============================================================================
 
+  @AuditedOperation({ resource: 'Config', action: 'CREATE' })
   @Post('configs')
   createConfig(@Body() dto: CreateConfigDto): never {
     return this.globalSettingsService.createConfig(dto);
@@ -661,11 +677,13 @@ export class GlobalSettingsController {
     return this.globalSettingsService.getConfigEntity(id);
   }
 
+  @AuditedOperation({ resource: 'Config', action: 'UPDATE' })
   @Put('configs/:id')
   updateConfig(@Param('id') id: string, @Body() dto: UpdateConfigDto): never {
     return this.globalSettingsService.updateConfig(id, dto.value, 'admin', dto.reason);
   }
 
+  @AuditedOperation({ resource: 'UpdateConfigs', action: 'BULK' })
   @Post('configs/bulk-update')
   bulkUpdateConfigs(@Body() dto: BulkUpdateConfigsDto): never {
     return this.globalSettingsService.bulkUpdateConfigs(dto.updates, 'admin');
@@ -682,6 +700,7 @@ export class GlobalSettingsController {
     return this.globalSettingsService.getProvisioningConfig();
   }
 
+  @AuditedOperation({ resource: 'ProvisioningConfig', action: 'UPDATE' })
   @Put('provisioning-config')
   updateProvisioningConfig(@Body() body: Record<string, string>, @Req() req: Request): never {
     if (!body || typeof body !== 'object' || Array.isArray(body)) {

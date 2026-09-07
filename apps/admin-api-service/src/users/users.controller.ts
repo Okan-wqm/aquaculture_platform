@@ -1,3 +1,4 @@
+import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import { ThrottleSensitive } from '@aquaculture/backend-common/security';
 import {
   BadRequestException,
@@ -294,6 +295,7 @@ export class UsersController {
   /**
    * Create new user (SUPER_ADMIN can create users for any tenant)
    */
+  @AuditedOperation({ resource: 'User', action: 'CREATE' })
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async createUser(@Body() dto: CreateUserDto) {
@@ -303,6 +305,7 @@ export class UsersController {
   /**
    * Update user
    */
+  @AuditedOperation({ resource: 'User', action: 'UPDATE' })
   @Put(':id')
   async updateUser(
     @Param('id', ParseUUIDPipe) id: string,
@@ -314,6 +317,7 @@ export class UsersController {
   /**
    * Activate user
    */
+  @AuditedOperation({ resource: 'User', action: 'ACTIVATE' })
   @Patch(':id/activate')
   async activateUser(@Param('id', ParseUUIDPipe) id: string) {
     return this.usersService.setUserStatus(id, true);
@@ -322,6 +326,7 @@ export class UsersController {
   /**
    * Deactivate user
    */
+  @AuditedOperation({ resource: 'User', action: 'DEACTIVATE' })
   @Patch(':id/deactivate')
   async deactivateUser(@Param('id', ParseUUIDPipe) id: string) {
     return this.usersService.setUserStatus(id, false);
@@ -330,6 +335,7 @@ export class UsersController {
   /**
    * Reset user password
    */
+  @AuditedOperation({ resource: 'UserPassword', action: 'RESET' })
   @Patch(':id/reset-password')
   async resetUserPassword(
     @Param('id', ParseUUIDPipe) id: string,
@@ -341,6 +347,7 @@ export class UsersController {
   /**
    * Force logout user (invalidate all sessions)
    */
+  @AuditedOperation({ resource: 'Users', action: 'FORCE_LOGOUT' })
   @Patch(':id/force-logout')
   async forceLogout(@Param('id', ParseUUIDPipe) id: string) {
     return this.usersService.forceLogout(id);
@@ -349,6 +356,7 @@ export class UsersController {
   /**
    * Delete user (soft delete)
    */
+  @AuditedOperation({ resource: 'User', action: 'DELETE' })
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteUser(@Param('id', ParseUUIDPipe) id: string) {
@@ -374,6 +382,7 @@ export class UsersController {
    * Validation is handled by class-validator decorators on InviteUserRequestDto
    */
   @ThrottleSensitive()
+  @AuditedOperation({ resource: 'User', action: 'INVITE' })
   @Post('invite')
   @HttpCode(HttpStatus.CREATED)
   async inviteUser(

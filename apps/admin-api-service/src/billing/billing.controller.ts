@@ -1,3 +1,4 @@
+import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import { ThrottleSensitive } from '@aquaculture/backend-common/security';
 import {
   Body,
@@ -139,6 +140,7 @@ export class BillingController {
     return this.planService.findByTier(tier);
   }
 
+  @AuditedOperation({ resource: 'Plan', action: 'CREATE' })
   @Post('plans')
   async createPlan(@Body() dto: CreatePlanDto, @Req() req: Request): Promise<unknown> {
     // SECURITY: Require authenticated user for plan creation — anonymous writes to billing data are forbidden.
@@ -147,6 +149,7 @@ export class BillingController {
     return this.planService.create({ ...dto, createdBy: userId });
   }
 
+  @AuditedOperation({ resource: 'Plan', action: 'UPDATE' })
   @Put('plans/:id')
   async updatePlan(@Param('id') id: string, @Body() dto: UpdatePlanDto, @Req() req: Request): Promise<unknown> {
     const userId = getAuthUserId(req);
@@ -154,6 +157,7 @@ export class BillingController {
     return this.planService.update(id, { ...dto, updatedBy: userId });
   }
 
+  @AuditedOperation({ resource: 'Plan', action: 'DEPRECATE' })
   @Post('plans/:id/deprecate')
   async deprecatePlan(
     @Param('id') id: string,
@@ -164,6 +168,7 @@ export class BillingController {
     return this.planService.deprecate(id, userId);
   }
 
+  @AuditedOperation({ resource: 'Plans', action: 'COMPARE' })
   @Post('plans/compare')
   async comparePlans(
     @Body() dto: ComparePlansDto,
@@ -176,6 +181,7 @@ export class BillingController {
     return this.planService.getDefaultLimitsForTier(tier);
   }
 
+  @AuditedOperation({ resource: 'Billing', action: 'SEED_PLANS' })
   @Post('plans/seed')
   async seedPlans(@Req() req: Request): Promise<unknown> {
     const userId = getAuthUserId(req);
@@ -224,6 +230,7 @@ export class BillingController {
     return { found: true, discount };
   }
 
+  @AuditedOperation({ resource: 'DiscountCode', action: 'CREATE' })
   @Post('discounts')
   async createDiscountCode(@Body() dto: CreateDiscountCodeDto, @Req() req: Request): Promise<unknown> {
     const userId = getAuthUserId(req);
@@ -231,6 +238,7 @@ export class BillingController {
     return this.discountService.create({ ...dto, createdBy: userId });
   }
 
+  @AuditedOperation({ resource: 'DiscountCode', action: 'UPDATE' })
   @Put('discounts/:id')
   async updateDiscountCode(
     @Param('id') id: string,
@@ -242,6 +250,7 @@ export class BillingController {
     return this.discountService.update(id, { ...dto, updatedBy: userId });
   }
 
+  @AuditedOperation({ resource: 'DiscountCode', action: 'DEACTIVATE' })
   @Post('discounts/:id/deactivate')
   async deactivateDiscountCode(
     @Param('id') id: string,
@@ -252,6 +261,7 @@ export class BillingController {
     return this.discountService.deactivate(id, userId);
   }
 
+  @AuditedOperation({ resource: 'DiscountCode', action: 'VALIDATE' })
   @Post('discounts/validate')
   async validateDiscountCode(
     @Body() dto: ValidateDiscountCodeDto,
@@ -259,6 +269,7 @@ export class BillingController {
     return this.discountService.validateCode(dto.code, dto.tenantId, dto.planId, dto.orderAmount);
   }
 
+  @AuditedOperation({ resource: 'DiscountCode', action: 'APPLY' })
   @Post('discounts/apply')
   async applyDiscountCode(
     @Body() dto: ApplyDiscountCodeDto,
@@ -286,6 +297,7 @@ export class BillingController {
     });
   }
 
+  @AuditedOperation({ resource: 'UniqueCode', action: 'GENERATE' })
   @Post('discounts/generate-code')
   async generateUniqueCode(
     @Body() dto: GenerateDiscountCodeDto,
@@ -294,6 +306,7 @@ export class BillingController {
     return { code };
   }
 
+  @AuditedOperation({ resource: 'CreateDiscountCodes', action: 'BULK' })
   @Post('discounts/bulk-create')
   async bulkCreateDiscountCodes(
     @Body() dto: BulkCreateDiscountCodesDto,
@@ -311,6 +324,7 @@ export class BillingController {
   // ============================================================================
 
   @ThrottleSensitive()
+  @AuditedOperation({ resource: 'Subscription', action: 'CREATE' })
   @Post('subscriptions')
   createSubscription(@Req() req: Request): never {
     const userId = getAuthUserId(req);
@@ -373,6 +387,7 @@ export class BillingController {
     return this.subscriptionService.getSubscriptionByTenant(tenantId);
   }
 
+  @AuditedOperation({ resource: 'Plan', action: 'CHANGE' })
   @Post('subscriptions/change-plan')
   async changePlan(@Body() request: PlanChangeRequest, @Req() req: Request): Promise<unknown> {
     const userId = getAuthUserId(req);
@@ -383,6 +398,7 @@ export class BillingController {
 
   // Fix: H8 -- per-route throttle: subscription cancel is sensitive (3 req / 5 min)
   @ThrottleSensitive()
+  @AuditedOperation({ resource: 'Subscription', action: 'CANCEL' })
   @Post('subscriptions/tenant/:tenantId/cancel')
   async cancelSubscription(
     @Param('tenantId') tenantId: string,
@@ -394,6 +410,7 @@ export class BillingController {
     return this.billingAdminCommands.cancelSubscription(tenantId, dto.reason, dto.cancelImmediately, userId);
   }
 
+  @AuditedOperation({ resource: 'Billing', action: 'REACTIVATE_SUBSCRIPTION' })
   @Post('subscriptions/tenant/:tenantId/reactivate')
   async reactivateSubscription(
     @Param('tenantId') tenantId: string,
@@ -404,6 +421,7 @@ export class BillingController {
     return this.billingAdminCommands.reactivateSubscription(tenantId, userId);
   }
 
+  @AuditedOperation({ resource: 'Trial', action: 'EXTEND' })
   @Post('subscriptions/tenant/:tenantId/extend-trial')
   async extendTrial(
     @Param('tenantId') tenantId: string,
@@ -416,6 +434,7 @@ export class BillingController {
   }
 
   @ThrottleSensitive()
+  @AuditedOperation({ resource: 'Billing', action: 'PROCESS_RENEWALS' })
   @Post('subscriptions/process-renewals')
   @HttpCode(HttpStatus.OK)
   processRenewals(): never {
@@ -474,11 +493,13 @@ export class BillingController {
     });
   }
 
+  @AuditedOperation({ resource: 'ModulePricing', action: 'SET' })
   @Post('module-pricing')
   async setModulePricing(@Body() dto: SetModulePricingDto): Promise<unknown> {
     return this.modulePricingService.setModulePricing(dto);
   }
 
+  @AuditedOperation({ resource: 'ModulePricing', action: 'UPDATE' })
   @Put('module-pricing/:pricingId')
   async updateModulePricing(
     @Param('pricingId') pricingId: string,
@@ -487,12 +508,14 @@ export class BillingController {
     return this.modulePricingService.updateModulePricing(pricingId, dto);
   }
 
+  @AuditedOperation({ resource: 'ModulePricing', action: 'DEACTIVATE' })
   @Post('module-pricing/:pricingId/deactivate')
   async deactivateModulePricing(@Param('pricingId') pricingId: string): Promise<unknown> {
     await this.modulePricingService.deactivatePricing(pricingId);
     return { success: true };
   }
 
+  @AuditedOperation({ resource: 'Billing', action: 'SEED_MODULE_PRICING' })
   @Post('module-pricing/seed')
   async seedModulePricing(@Body() dto: SeedModulePricingDto): Promise<unknown> {
     const map = new Map(Object.entries(dto.moduleIdMap));
@@ -504,11 +527,13 @@ export class BillingController {
   // Pricing Calculator / Quotes
   // ============================================================================
 
+  @AuditedOperation({ resource: 'Pricing', action: 'CALCULATE' })
   @Post('pricing/calculate')
   async calculatePricing(@Body() request: QuoteRequest): Promise<unknown> {
     return this.pricingCalculator.calculatePricing(request);
   }
 
+  @AuditedOperation({ resource: 'Billing', action: 'GET_QUICK_ESTIMATE' })
   @Post('pricing/quick-estimate')
   async getQuickEstimate(
     @Body() dto: QuickEstimateDto,
@@ -516,6 +541,7 @@ export class BillingController {
     return this.pricingCalculator.getQuickEstimate(dto.moduleCodes, dto.tier, dto.quantities);
   }
 
+  @AuditedOperation({ resource: 'Pricing', action: 'COMPARE' })
   @Post('pricing/compare')
   async comparePricing(
     @Body() dto: ComparePricingDto,
@@ -559,6 +585,7 @@ export class BillingController {
     return this.customPlanService.getCustomPlanByTenant(tenantId);
   }
 
+  @AuditedOperation({ resource: 'CustomPlan', action: 'CREATE' })
   @Post('custom-plans')
   async createCustomPlan(@Body() dto: CreateCustomPlanDto, @Req() req: Request): Promise<unknown> {
     const userId = getAuthUserId(req);
@@ -566,6 +593,7 @@ export class BillingController {
     return this.customPlanService.createCustomPlan({ ...dto, createdBy: userId });
   }
 
+  @AuditedOperation({ resource: 'CustomPlan', action: 'UPDATE' })
   @Put('custom-plans/:planId')
   async updateCustomPlan(
     @Param('planId') planId: string,
@@ -577,11 +605,13 @@ export class BillingController {
     return this.customPlanService.updateCustomPlan(planId, { ...dto, updatedBy: userId });
   }
 
+  @AuditedOperation({ resource: 'CustomPlanForApproval', action: 'SUBMIT' })
   @Post('custom-plans/:planId/submit')
   async submitCustomPlanForApproval(@Param('planId') planId: string): Promise<unknown> {
     return this.customPlanService.submitForApproval(planId);
   }
 
+  @AuditedOperation({ resource: 'CustomPlan', action: 'APPROVE' })
   @Post('custom-plans/:planId/approve')
   async approveCustomPlan(
     @Param('planId') planId: string,
@@ -592,6 +622,7 @@ export class BillingController {
     return this.customPlanService.approvePlan(planId, userId);
   }
 
+  @AuditedOperation({ resource: 'CustomPlan', action: 'REJECT' })
   @Post('custom-plans/:planId/reject')
   async rejectCustomPlan(
     @Param('planId') planId: string,
@@ -603,17 +634,20 @@ export class BillingController {
     return this.customPlanService.rejectPlan(planId, dto.reason, userId);
   }
 
+  @AuditedOperation({ resource: 'CustomPlan', action: 'ACTIVATE' })
   @Post('custom-plans/:planId/activate')
   async activateCustomPlan(@Param('planId') planId: string): Promise<unknown> {
     return this.customPlanService.activatePlan(planId);
   }
 
+  @AuditedOperation({ resource: 'CustomPlan', action: 'DELETE' })
   @Delete('custom-plans/:planId')
   async deleteCustomPlan(@Param('planId') planId: string): Promise<unknown> {
     await this.customPlanService.deletePlan(planId);
     return { success: true };
   }
 
+  @AuditedOperation({ resource: 'CustomPlan', action: 'CLONE' })
   @Post('custom-plans/:planId/clone')
   async cloneCustomPlan(
     @Param('planId') planId: string,
@@ -679,6 +713,7 @@ export class BillingController {
   }
 
   @ThrottleSensitive()
+  @AuditedOperation({ resource: 'Invoice', action: 'CREATE' })
   @Post('invoices')
   async createInvoice(@Body() dto: CreateInvoiceRequest, @Req() req: Request): Promise<unknown> {
     const userId = getAuthUserId(req);
@@ -703,6 +738,7 @@ export class BillingController {
 
   // Fix: H8 -- per-route throttle: mark invoice paid is sensitive (3 req / 5 min)
   @ThrottleSensitive()
+  @AuditedOperation({ resource: 'InvoiceAsPaid', action: 'MARK' })
   @Post('invoices/:invoiceId/mark-paid')
   async markInvoiceAsPaid(
     @Param('invoiceId') invoiceId: string,
@@ -717,6 +753,7 @@ export class BillingController {
 
   // Fix: H8 -- per-route throttle: invoice void is sensitive (3 req / 5 min)
   @ThrottleSensitive()
+  @AuditedOperation({ resource: 'Billing', action: 'VOID_INVOICE' })
   @Post('invoices/:invoiceId/void')
   async voidInvoice(
     @Param('invoiceId') invoiceId: string,
@@ -730,6 +767,7 @@ export class BillingController {
   }
 
   @ThrottleSensitive()
+  @AuditedOperation({ resource: 'OverdueStatus', action: 'UPDATE' })
   @Post('invoices/update-overdue')
   @HttpCode(HttpStatus.OK)
   updateOverdueStatus(): never {
@@ -781,6 +819,7 @@ export class BillingController {
   }
 
   @ThrottleSensitive()
+  @AuditedOperation({ resource: 'Payment', action: 'RECORD' })
   @Post('payments')
   async recordPayment(@Body() dto: RecordPaymentDto, @Req() req: Request): Promise<unknown> {
     const userId = getAuthUserId(req);
@@ -789,6 +828,7 @@ export class BillingController {
   }
 
   @ThrottleSensitive()
+  @AuditedOperation({ resource: 'Billing', action: 'REFUND_PAYMENT' })
   @Post('payments/refund')
   async refundPayment(@Body() dto: RefundPaymentDto, @Req() req: Request): Promise<unknown> {
     const userId = getAuthUserId(req);

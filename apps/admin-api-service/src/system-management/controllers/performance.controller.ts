@@ -1,3 +1,4 @@
+import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
   Get,
@@ -211,6 +212,7 @@ export class PerformanceController {
     return this.performanceService.getThresholds();
   }
 
+  @AuditedOperation({ resource: 'Thresholds', action: 'UPDATE' })
   @Post('thresholds')
   updateThresholds(@Body() dto: UpdateThresholdsDto) {
     this.performanceService.updateThresholds(dto.thresholds);
@@ -257,12 +259,14 @@ export class PerformanceController {
   // Metric Recording (for internal use)
   // ============================================================================
 
+  @AuditedOperation({ resource: 'Metric', action: 'RECORD' })
   @Post('metrics')
   async recordMetric(@Body() dto: RecordMetricDto) {
     await this.performanceService.recordMetric(dto);
     return { success: true };
   }
 
+  @AuditedOperation({ resource: 'RequestMetric', action: 'RECORD' })
   @Post('metrics/request')
   async recordRequestMetric(
     @Body() dto: RecordRequestMetricDto,
@@ -277,6 +281,7 @@ export class PerformanceController {
     return { success: true };
   }
 
+  @AuditedOperation({ resource: 'Performance', action: 'FLUSH_METRICS' })
   @Post('metrics/flush')
   async flushMetrics() {
     await this.performanceService.flushMetrics();

@@ -3,6 +3,7 @@
  */
 
 import type { ApiSchema } from '../contract';
+import type { PaginatedResult } from './common';
 
 // ============================================================================
 // Billing Enums

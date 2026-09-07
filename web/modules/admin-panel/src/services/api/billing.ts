@@ -3,6 +3,7 @@
  */
 
 import { apiFetch, buildQueryString } from '../http-client';
+import type { PaginatedResult, PaginationParams } from '../types/common';
 import type {
   CreateDiscountCodeDto,
   PlanDefinition,

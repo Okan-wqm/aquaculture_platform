@@ -2221,6 +2221,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/billing/payments/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["BillingController_getPaymentStats"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/billing/payments": {
         parameters: {
             query?: never;
@@ -4669,38 +4685,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/security/activities/sessions/user/{userId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["ActivityLogController_getUserSessions"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/security/activities/sessions/user/{userId}/terminate": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["ActivityLogController_terminateUserSessions"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/security/audit": {
         parameters: {
             query?: never;
@@ -6371,6 +6355,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/messaging/monitoring/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get messaging monitoring statistics */
+        get: operations["MessagingAdminController_getMonitoringStats"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/messaging/audit": {
         parameters: {
             query?: never;
@@ -6380,6 +6381,23 @@ export interface paths {
         };
         /** Get compliance audit log entries */
         get: operations["MessagingAdminController_getAuditLog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/messaging/tenants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List tenants with messaging stats */
+        get: operations["MessagingAdminController_getTenants"];
         put?: never;
         post?: never;
         delete?: never;
@@ -7432,7 +7450,7 @@ export interface components {
             /** @enum {string} */
             snapshotType: "monthly" | "daily" | "weekly" | "yearly";
             /** @enum {string} */
-            category: "user" | "system" | "financial" | "tenant" | "usage";
+            category: "system" | "tenant" | "user" | "financial" | "usage";
             /** Format: date-time */
             snapshotDate: string;
             metrics: Record<string, never>;
@@ -7453,7 +7471,7 @@ export interface components {
             /** @enum {string} */
             status: "draft" | "active" | "inactive";
             /** @enum {string} */
-            schedule: "monthly" | "daily" | "weekly" | "manual";
+            schedule: "monthly" | "manual" | "daily" | "weekly";
             defaultFilters?: {
                 [key: string]: unknown;
             };
@@ -7715,7 +7733,7 @@ export interface components {
             /** @enum {string} */
             priority: "critical" | "high" | "low" | "medium";
             /** @enum {string} */
-            status: "closed" | "open" | "in_progress" | "resolved" | "waiting_customer";
+            status: "open" | "closed" | "in_progress" | "resolved" | "waiting_customer";
             assignedTo?: string;
             assignedToName?: string;
             tags?: string[];
@@ -7779,7 +7797,7 @@ export interface components {
             /** @enum {string} */
             priority?: "critical" | "high" | "low" | "medium";
             /** @enum {string} */
-            status?: "closed" | "open" | "in_progress" | "resolved" | "waiting_customer";
+            status?: "open" | "closed" | "in_progress" | "resolved" | "waiting_customer";
             tags?: string[];
             dueAt?: string;
         };
@@ -7789,7 +7807,7 @@ export interface components {
         };
         ChangeStatusDto: {
             /** @enum {string} */
-            status: "closed" | "open" | "in_progress" | "resolved" | "waiting_customer";
+            status: "open" | "closed" | "in_progress" | "resolved" | "waiting_customer";
         };
         ChangePriorityDto: {
             /** @enum {string} */
@@ -7919,37 +7937,6 @@ export interface components {
             /** Format: date-time */
             createdAt: string;
         };
-        UserSession: {
-            id: string;
-            sessionToken: string;
-            userId: string;
-            userName: string;
-            tenantId?: string | null;
-            tenantName?: string | null;
-            isActive: boolean;
-            /** Format: date-time */
-            expiresAt: string;
-            ipAddress: string;
-            geoLocation?: Record<string, never> | null;
-            deviceInfo?: Record<string, never> | null;
-            requestCount: number;
-            /** Format: date-time */
-            lastActivityAt: string;
-            lastActivityPath?: string | null;
-            /** Format: date-time */
-            terminatedAt?: string | null;
-            /** @enum {string|null} */
-            terminationReason?: "security" | "logout" | "expired" | "forced" | null;
-            terminatedBy?: string | null;
-            /** Format: date-time */
-            createdAt: string;
-            /** Format: date-time */
-            updatedAt: string;
-        };
-        TerminateUserSessionsDto: {
-            /** @enum {string} */
-            reason: "logout" | "forced" | "security";
-        };
         ExportAuditTrailDto: {
             /**
              * Format: uuid
@@ -8021,7 +8008,7 @@ export interface components {
             /** @enum {string} */
             requestType: "access" | "deletion" | "portability" | "rectification" | "restriction";
             /** @enum {string} */
-            status: "pending" | "completed" | "expired" | "rejected" | "in_progress";
+            status: "pending" | "rejected" | "completed" | "expired" | "in_progress";
             /** @enum {string} */
             complianceFramework: "gdpr" | "ccpa" | "hipaa" | "pci_dss" | "sox" | "iso27001";
             tenantId: string;
@@ -8070,7 +8057,7 @@ export interface components {
         };
         UpdateDataRequestDto: {
             /** @enum {string} */
-            status?: "pending" | "completed" | "expired" | "rejected" | "in_progress";
+            status?: "pending" | "rejected" | "completed" | "expired" | "in_progress";
             assignedTo?: string;
             assignedToName?: string;
             completionNotes?: string;
@@ -8210,7 +8197,7 @@ export interface components {
             /** @enum {string} */
             severity: "critical" | "high" | "low" | "medium";
             /** @enum {string} */
-            status: "closed" | "open" | "investigating" | "contained" | "eradicated" | "recovered";
+            status: "open" | "closed" | "investigating" | "contained" | "eradicated" | "recovered";
             category: string;
             attackVector?: string | null;
             affectedSystems?: string[] | null;
@@ -9095,7 +9082,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": Record<string, never>;
+                };
             };
         };
     };
@@ -10257,9 +10246,7 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": Record<string, never>;
-                };
+                content?: never;
             };
         };
     };
@@ -12304,6 +12291,25 @@ export interface operations {
         };
         responses: {
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    BillingController_getPaymentStats: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -16046,50 +16052,6 @@ export interface operations {
             };
         };
     };
-    ActivityLogController_getUserSessions: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                userId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["UserSession"][];
-                };
-            };
-        };
-    };
-    ActivityLogController_terminateUserSessions: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                userId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["TerminateUserSessionsDto"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
     AuditTrailController_queryAuditTrail: {
         parameters: {
             query?: {
@@ -16327,7 +16289,7 @@ export interface operations {
                 limit?: number;
                 tenantId?: string;
                 requestType?: "access" | "deletion" | "portability" | "rectification" | "restriction";
-                status?: "pending" | "completed" | "expired" | "rejected" | "in_progress";
+                status?: "pending" | "rejected" | "completed" | "expired" | "in_progress";
                 complianceFramework?: "gdpr" | "ccpa" | "hipaa" | "pci_dss" | "sox" | "iso27001";
                 startDate?: string;
                 endDate?: string;
@@ -18858,6 +18820,25 @@ export interface operations {
             };
         };
     };
+    MessagingAdminController_getMonitoringStats: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
     MessagingAdminController_getAuditLog: {
         parameters: {
             query?: {
@@ -18869,6 +18850,25 @@ export interface operations {
                 startDate?: string;
                 endDate?: string;
             };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    MessagingAdminController_getTenants: {
+        parameters: {
+            query?: never;
             header?: never;
             path?: never;
             cookie?: never;

@@ -16,8 +16,6 @@
  *   api/settings.ts       -- settingsApi, systemSettingsApi
  *   api/tenant-config.ts  -- tenantConfigApi   (extracted from settings)
  *   api/email-templates.ts-- emailTemplatesApi  (extracted from settings)
- *   api/impersonation.ts  -- impersonationApi
- *   api/debug.ts          -- debugApi
  *   api/tenants.ts        -- tenantsApi
  *   api/users.ts          -- usersApi
  *   api/modules.ts        -- modulesApi
@@ -41,8 +39,6 @@ export { securityApi } from './api/security';
 export { settingsApi, systemSettingsApi } from './api/settings';
 export { tenantConfigApi } from './api/tenant-config';
 export { emailTemplatesApi } from './api/email-templates';
-export { impersonationApi } from './api/impersonation';
-export { debugApi } from './api/debug';
 export { tenantsApi } from './api/tenants';
 export { usersApi } from './api/users';
 export { modulesApi } from './api/modules';

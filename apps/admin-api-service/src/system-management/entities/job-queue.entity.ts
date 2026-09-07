@@ -94,13 +94,13 @@ export class BackgroundJob {
   @Column({ type: 'uuid', nullable: true })
   userId?: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   scheduledAt?: Date;
 
-  @Column({ nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   startedAt?: Date;
 
-  @Column({ nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   completedAt?: Date;
 
   @Column({ type: 'int', nullable: true })
@@ -115,16 +115,16 @@ export class BackgroundJob {
   @Column({ type: 'jsonb', nullable: true })
   retryPolicy?: JobRetryPolicy;
 
-  @Column({ nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   nextRetryAt?: Date;
 
   @Column({ type: 'text', nullable: true })
   cronExpression?: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   lastRunAt?: Date;
 
-  @Column({ nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   nextRunAt?: Date;
 
   @Column({ type: 'int', default: 3600000 })
@@ -151,10 +151,10 @@ export class BackgroundJob {
   @Column({ default: false })
   isPaused!: boolean;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
 }
 
@@ -174,10 +174,10 @@ export class JobExecutionLog {
   @Column({ type: 'varchar', length: 50 })
   status!: JobStatus;
 
-  @Column()
+  @Column({ type: 'timestamptz' })
   startedAt!: Date;
 
-  @Column({ nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   completedAt?: Date;
 
   @Column({ type: 'int', nullable: true })
@@ -209,10 +209,10 @@ export class JobExecutionLog {
   @Column({ type: 'float', nullable: true })
   memoryUsage?: number;
 
-  @Column()
+  @Column({ type: 'timestamptz' })
   timestamp!: Date;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 }
 
@@ -264,15 +264,15 @@ export class JobQueue {
   @Column({ type: 'float', nullable: true })
   avgProcessingTimeMs?: number;
 
-  @Column({ nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   lastJobAt?: Date;
 
   @Column({ type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown>;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
 }

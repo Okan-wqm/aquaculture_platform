@@ -99,8 +99,13 @@ export class RetireAdminUserSessions1809400000000 implements MigrationInterface 
          "terminatedAt" TIMESTAMP WITH TIME ZONE,
          "terminationReason" character varying(50),
          "terminatedBy" character varying(100),
-         "createdAt" TIMESTAMP NOT NULL DEFAULT now(),
-         "updatedAt" TIMESTAMP NOT NULL DEFAULT now(),
+         -- timestamptz, not the TIMESTAMP the baseline declared: the table is
+         -- empty by construction (the forward step refuses to drop a non-empty
+         -- one), so there is no data whose type could be misread, and
+         -- recreating it below the schema's current standard would restore a
+         -- defect rather than a table (ADMIN-HIGH-012).
+         "createdAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
+         "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
          CONSTRAINT "UQ_cd183bcb9ffe40bd858ed6b6b87" UNIQUE ("sessionToken"),
          CONSTRAINT "PK_e93e031a5fed190d4789b6bfd83" PRIMARY KEY ("id")
        )`,

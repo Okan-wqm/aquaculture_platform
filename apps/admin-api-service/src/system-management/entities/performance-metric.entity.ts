@@ -112,7 +112,7 @@ export class PerformanceMetric {
   @Column({ type: 'float', nullable: true })
   maxValue?: number;
 
-  @Column()
+  @Column({ type: 'timestamptz' })
   timestamp!: Date;
 
   @Column({ type: 'int', default: 60 })
@@ -121,7 +121,7 @@ export class PerformanceMetric {
   @Column({ type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown>;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 }
 
@@ -182,7 +182,7 @@ export class PerformanceSnapshot {
   @Column({ length: 100, nullable: true })
   service?: string;
 
-  @Column()
+  @Column({ type: 'timestamptz' })
   timestamp!: Date;
 
   @Column({ type: 'jsonb' })
@@ -205,6 +205,6 @@ export class PerformanceSnapshot {
   @Column({ type: 'float', nullable: true })
   overallHealthScore?: number;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 }

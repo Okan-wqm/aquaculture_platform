@@ -101,7 +101,7 @@ export class SystemVersion {
   @Column({ type: 'text', nullable: true })
   upgradeGuide?: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   deployedAt?: Date;
 
   @Column({ nullable: true })
@@ -137,6 +137,6 @@ export class SystemVersion {
   @Column({ nullable: true })
   createdBy?: string;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 }

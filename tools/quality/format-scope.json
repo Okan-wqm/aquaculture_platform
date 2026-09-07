@@ -2200,6 +2200,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1809600000000-AdminSchemaTimestamptz.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/modules/__tests__/modules.controller.spec.ts",
       "prettier_managed": true
     },
@@ -43854,6 +43860,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/admin-openapi-artifact-parity.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/admin-physical-types.spec.ts",
       "prettier_managed": true
     },
     {

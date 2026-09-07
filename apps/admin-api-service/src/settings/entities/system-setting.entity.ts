@@ -89,10 +89,10 @@ export class EmailTemplate {
   @Column({ nullable: true })
   tenantId?: string; // null = global template
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
 
   @Column({ nullable: true })

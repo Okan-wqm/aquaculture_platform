@@ -96,7 +96,7 @@ export class PlanModuleAssignment {
   @Column({ type: 'text', nullable: true })
   notes!: string | null;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
   // ============================================

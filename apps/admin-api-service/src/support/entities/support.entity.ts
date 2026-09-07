@@ -72,10 +72,10 @@ export class MessageThread {
   @OneToMany(() => Message, message => message.thread)
   messages!: Message[];
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
 }
 
@@ -125,7 +125,7 @@ export class Message {
   @JoinColumn({ name: 'threadId' })
   thread!: MessageThread;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 }
 
@@ -187,10 +187,10 @@ export class Announcement {
   @OneToMany(() => AnnouncementAcknowledgment, ack => ack.announcement)
   acknowledgments!: AnnouncementAcknowledgment[];
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
 }
 
@@ -228,7 +228,7 @@ export class AnnouncementAcknowledgment {
   @JoinColumn({ name: 'announcementId' })
   announcement!: Announcement;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 }
 
@@ -322,10 +322,10 @@ export class SupportTicket {
   @OneToMany(() => TicketComment, comment => comment.ticket)
   comments!: TicketComment[];
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
 }
 
@@ -369,7 +369,7 @@ export class TicketComment {
   @JoinColumn({ name: 'ticketId' })
   ticket!: SupportTicket;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 }
 
@@ -432,10 +432,10 @@ export class OnboardingProgress {
   @Column({ type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown>;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
 }
 

@@ -677,12 +677,14 @@ export class AppModule implements NestModule {
      * path traversal, command injection) by validating and sanitizing request
      * bodies, query parameters, headers, and URL paths.
      *
-     * Applied only to REST routes (upload endpoints, v2 API proxy routes) because
-     * GraphQL requests are already validated by Apollo Server's query parser, and
-     * applying request-body sanitization to GraphQL would corrupt query strings.
+     * Applied only to REST routes (upload endpoints) because GraphQL requests are
+     * already validated by Apollo Server's query parser, and applying request-body
+     * sanitization to GraphQL would corrupt query strings. The former
+     * `api/v2/{*path}` entry named a proxy that never existed (routes/v2 was an
+     * empty module and nginx forwarded /api/v2/ai/ into a 404).
      */
     consumer
       .apply(RequestValidatorMiddleware)
-      .forRoutes('upload', 'upload/{*path}', 'api/v2/{*path}');
+      .forRoutes('upload', 'upload/{*path}');
   }
 }

@@ -1,135 +1,20 @@
-import {
-  IsString,
-  IsOptional,
-  IsBoolean,
-  IsNumber,
-  IsArray,
-  IsObject,
-  IsEmail,
-  MaxLength,
-  Min,
-  Max,
-  ArrayMaxSize,
-  ValidateNested,
-  IsInt,
-  IsIP,
-} from 'class-validator';
-import { Type } from 'class-transformer';
+/**
+ * Request bodies for `settings.controller.ts` (CONTRACT-CRITICAL-003).
+ *
+ * DTO classes live in a `*.dto.ts` file, never inside the controller: the
+ * `@nestjs/swagger` plugin visits a file EITHER as a controller (typing the
+ * responses) or as a model (typing the DTOs), never as both, so a DTO declared
+ * beside its routes costs the whole file's response schemas.
+ */
+import { IsEmail } from 'class-validator';
 
-// ============================================================================
-// Bulk Update
-// ============================================================================
-
-class SettingUpdateItem {
-  @IsString()
-  @MaxLength(255)
-  key!: string;
-
-  @IsString()
-  @MaxLength(10000)
-  value!: string;
-}
-
-export class BulkUpdateSettingsDto {
-  @IsArray()
-  @ArrayMaxSize(100)
-  @ValidateNested({ each: true })
-  @Type(() => SettingUpdateItem)
-  updates!: SettingUpdateItem[];
-}
-
-// ============================================================================
-// Email Config
-// ============================================================================
-
-export class UpdateEmailConfigDto {
-  @IsOptional()
-  @IsString()
-  @MaxLength(255)
-  smtpHost?: string;
-
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  @Max(65535)
-  smtpPort?: number;
-
-  @IsOptional()
-  @IsBoolean()
-  smtpSecure?: boolean;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(255)
-  smtpUsername?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(255)
-  smtpPassword?: string;
-
-  @IsOptional()
+/**
+ * System settings are READ here and owned by config-service (ORPHAN-HIGH-373):
+ * every write went through a retired store and answered 410 Gone, so the
+ * write routes are gone with it (ADMIN-HIGH-011). Only the env-backed reads,
+ * the live SMTP test-send and the system-info summary remain.
+ */
+export class TestEmailConfigDto {
   @IsEmail()
-  fromAddress?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(255)
-  fromName?: string;
-}
-
-// ============================================================================
-// Maintenance Mode
-// ============================================================================
-
-export class SetMaintenanceModeDto {
-  @IsBoolean()
-  enabled!: boolean;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(1000)
-  message?: string;
-
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  @ArrayMaxSize(100)
-  allowedIps?: string[];
-}
-
-// ============================================================================
-// Billing Config
-// ============================================================================
-
-export class UpdateBillingConfigDto {
-  @IsOptional()
-  @IsBoolean()
-  stripeEnabled?: boolean;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(10)
-  defaultCurrency?: string;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  @Max(100)
-  taxRate?: number;
-
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  @Max(90)
-  invoiceDueDays?: number;
-}
-
-// ============================================================================
-// Import Settings
-// ============================================================================
-
-export class ImportSettingsDto {
-  @IsObject()
-  data!: Record<string, unknown>;
+  to!: string;
 }

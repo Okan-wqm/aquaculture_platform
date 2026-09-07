@@ -4,6 +4,12 @@
  * Admin-tenant mesajlaşma endpoint'leri.
  */
 
+import {
+  AddMessageDto,
+  BulkMessageDto,
+  CreateThreadDto,
+} from './dto/messaging.dto';
+import { Destructive, RequiresCapability, TenantParam, TenantIdCarrier } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -24,62 +30,6 @@ import { CurrentUser, CurrentUserData } from '../../decorators/current-user.deco
 import { PlatformAdminOnly } from '../../decorators/roles.decorator';
 import { MessageAttachment, AnnouncementTarget } from '../entities/support.entity';
 import { MessagingService } from '../services/messaging.service';
-
-// ============================================================================
-// DTOs
-// ============================================================================
-
-class CreateThreadDto {
-  @IsString()
-  tenantId!: string;
-
-  @IsString()
-  subject!: string;
-
-  @IsString()
-  content!: string;
-
-  @IsOptional()
-  @IsString()
-  senderName?: string;
-}
-
-class AddMessageDto {
-  @IsString()
-  content!: string;
-
-  @IsOptional()
-  @IsString()
-  senderName?: string;
-
-  @IsOptional()
-  @IsBoolean()
-  isInternal?: boolean;
-
-  @IsOptional()
-  @IsArray()
-  attachments?: MessageAttachment[];
-}
-
-class BulkMessageDto {
-  @IsString()
-  subject!: string;
-
-  @IsString()
-  content!: string;
-
-  @IsOptional()
-  @IsObject()
-  targetCriteria?: AnnouncementTarget;
-
-  @IsOptional()
-  @IsArray()
-  tenantIds?: string[];
-
-  @IsOptional()
-  @IsBoolean()
-  sendEmail?: boolean;
-}
 
 // ============================================================================
 // Controller
@@ -117,24 +67,26 @@ export class MessagingController {
 
   @Get('threads/tenant/:tenantId')
   @PlatformAdminOnly()
-  async getThreadsForTenant(@Param('tenantId') tenantId: string) {
+  async getThreadsForTenant(@TenantParam('param') tenantId: string) {
     return this.messagingService.getThreadsForTenant(tenantId);
   }
 
   @AuditedOperation({ resource: 'Thread', action: 'CREATE' })
+  @RequiresCapability('support-ops')
   @Post('threads')
   @PlatformAdminOnly()
   @HttpCode(HttpStatus.CREATED)
   async createThread(
+    @TenantParam('body') tenantId: string,
     @Body() dto: CreateThreadDto,
     @CurrentUser() user: CurrentUserData,
   ) {
-    if (!dto.tenantId || !dto.subject || !dto.content) {
+    if (!tenantId || !dto.subject || !dto.content) {
       throw new BadRequestException('tenantId, subject, and content are required');
     }
 
     return this.messagingService.createThread(
-      dto.tenantId,
+      tenantId,
       dto.subject,
       dto.content,
       user.id,
@@ -144,18 +96,22 @@ export class MessagingController {
   }
 
   @AuditedOperation({ resource: 'Thread', action: 'CLOSE' })
+  @RequiresCapability('support-ops')
   @Post('threads/:threadId/close')
   async closeThread(@Param('threadId') threadId: string) {
     return this.messagingService.closeThread(threadId);
   }
 
   @AuditedOperation({ resource: 'Thread', action: 'REOPEN' })
+  @RequiresCapability('support-ops')
   @Post('threads/:threadId/reopen')
   async reopenThread(@Param('threadId') threadId: string) {
     return this.messagingService.reopenThread(threadId);
   }
 
   @AuditedOperation({ resource: 'Thread', action: 'ARCHIVE' })
+  @Destructive()
+  @RequiresCapability('support-ops')
   @Post('threads/:threadId/archive')
   async archiveThread(@Param('threadId') threadId: string) {
     return this.messagingService.archiveThread(threadId);
@@ -181,6 +137,7 @@ export class MessagingController {
   }
 
   @AuditedOperation({ resource: 'Message', action: 'ADD' })
+  @RequiresCapability('support-ops')
   @Post('threads/:threadId/messages')
   @PlatformAdminOnly()
   @HttpCode(HttpStatus.CREATED)
@@ -204,6 +161,7 @@ export class MessagingController {
   }
 
   @AuditedOperation({ resource: 'AsRead', action: 'MARK' })
+  @RequiresCapability('support-ops')
   @Post('threads/:threadId/read')
   @PlatformAdminOnly()
   async markAsRead(@Param('threadId') threadId: string) {
@@ -216,6 +174,7 @@ export class MessagingController {
   // ============================================================================
 
   @AuditedOperation({ resource: 'BulkMessage', action: 'SEND' })
+  @RequiresCapability('support-ops')
   @Post('bulk')
   @HttpCode(HttpStatus.OK)
   async sendBulkMessage(

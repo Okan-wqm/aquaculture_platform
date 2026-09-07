@@ -5,8 +5,13 @@
  * graceful fallback, and index optimization recommendations.
  */
 
-import { Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import {
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import { CronExpression } from '@nestjs/schedule';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, LessThan, QueryRunner, Repository } from 'typeorm';
 
@@ -81,6 +86,7 @@ export class DatabaseMonitoringService {
     private readonly slowQueryRepository: Repository<SlowQueryLog>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
 
   // ============================================================================
@@ -1095,7 +1101,10 @@ export class DatabaseMonitoringService {
   /**
    * Collect and store metrics (runs every 5 minutes)
    */
-  @Cron(CronExpression.EVERY_5_MINUTES)
+  @ScheduledJob({
+    name: 'database-monitoring.collect-metrics',
+    cron: CronExpression.EVERY_5_MINUTES,
+  })
   async collectMetrics(): Promise<void> {
     this.logger.debug('Collecting database metrics');
 

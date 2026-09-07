@@ -1,3 +1,4 @@
+import { TENANT_ACTIVE_CHECK } from '@aquaculture/backend-common/middleware';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { CqrsModule, CommandBus, QueryBus } from '@nestjs/cqrs';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -31,7 +32,6 @@ import {
   ListTenantsHandler,
   GetTenantStatsHandler,
   GetTenantUsageHandler,
-  GetTenantsApproachingLimitsHandler,
   GetExpiringTrialsHandler,
   SearchTenantsHandler,
 } from '../query-handlers/tenant-query.handlers';
@@ -259,6 +259,12 @@ describe('Tenant Integration Tests', () => {
       imports: [CqrsModule],
       controllers: [TenantAdminController],
       providers: [
+        // ADMIN-CRITICAL-009: @TenantParam resolves ids through the kernel
+        // port; these suites exercise the controllers, not the lookup.
+        {
+          provide: TENANT_ACTIVE_CHECK,
+          useValue: { lookupTenant: () => Promise.resolve({ status: TenantStatus.ACTIVE }) },
+        },
         {
           provide: getRepositoryToken(Tenant),
           useValue: mockTenantRepository,
@@ -335,7 +341,6 @@ describe('Tenant Integration Tests', () => {
         ListTenantsHandler,
         GetTenantStatsHandler,
         GetTenantUsageHandler,
-        GetTenantsApproachingLimitsHandler,
         GetExpiringTrialsHandler,
         SearchTenantsHandler,
       ],
@@ -558,18 +563,6 @@ describe('Tenant Integration Tests', () => {
         ]);
 
         // Execute stats query
-      });
-    });
-
-    describe('GetTenantsApproachingLimitsQuery', () => {
-      it('should return tenants above usage threshold', async () => {
-        const nearLimitTenant = createMockTenant({
-          maxUsers: 50,
-          // Assume current users is 45 (90%)
-        });
-        mockTenantRepository.createQueryBuilder().getMany.mockResolvedValueOnce([nearLimitTenant]);
-
-        // Query should find tenants at 80% or more of their limits
       });
     });
   });

@@ -11,6 +11,7 @@ import { User } from '../authentication/entities/user.entity';
 import { Module as SystemModule } from '../system-module/entities/module.entity';
 
 import { MobileUserSettings } from './entities/mobile-user-settings.entity';
+import { PlatformCapabilityGrant } from './entities/platform-capability-grant.entity';
 import { TenantModule as TenantModuleEntity } from './entities/tenant-module.entity';
 import { TenantRolePermission } from './entities/tenant-role-permission.entity';
 import { TenantRole } from './entities/tenant-role.entity';
@@ -26,6 +27,7 @@ import { TenantResolver } from './resolvers/tenant.resolver';
 import { CapabilityAuthorityService } from './services/capability-authority';
 import { FarmSiteAssignmentValidator } from './services/farm-site-assignment-validator.service';
 import { MobileSettingsService } from './services/mobile-settings.service';
+import { PlatformCapabilityService } from './services/platform-capability.service';
 import { TenantAdminService } from './services/tenant-admin.service';
 import { TenantProvisioningCommandService } from './services/tenant-provisioning-command.service';
 import { TenantRoleService } from './services/tenant-role.service';
@@ -53,6 +55,8 @@ import { EventDedupService } from '@aquaculture/backend-common/event-dedup';
       TenantRole,
       TenantRolePermission,
       UserRoleAssignment,
+      // ADR-0016: platform-operator capability grants, projected into the JWT.
+      PlatformCapabilityGrant,
     ]),
   ],
   // AuthAdminNatsHandler is declared in `controllers` (not `providers`) —
@@ -72,6 +76,8 @@ import { EventDedupService } from '@aquaculture/backend-common/event-dedup';
     UserLifecycleService,
     TenantProvisioningCommandService,
     MobileSettingsService,
+    // ADR-0016: single writer of auth.platform_capability_grants.
+    PlatformCapabilityService,
     TenantResolver,
     TenantAdminResolver,
     TenantRoleResolver,
@@ -98,6 +104,7 @@ import { EventDedupService } from '@aquaculture/backend-common/event-dedup';
     TenantRoleService,
     UserLifecycleService,
     MobileSettingsService,
+    PlatformCapabilityService,
     TypeOrmModule,
   ],
 })

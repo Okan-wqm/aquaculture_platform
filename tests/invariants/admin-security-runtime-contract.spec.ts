@@ -83,16 +83,19 @@ describe('INVARIANT: /security/audit reads immutable audit logs', () => {
 
 describe('INVARIANT: security monitoring DTOs match entity enum contracts', () => {
   it('rejects stale frontend-only status and indicator aliases at the backend boundary', () => {
-    const controller = readRepoFile(
-      'apps/admin-api-service/src/security/controllers/security-monitoring.controller.ts',
+    // CONTRACT-CRITICAL-004 moved the request bodies out of the controller into
+    // class DTOs; the vocabulary they validate against moved with them, so the
+    // DTO module is where this contract now lives.
+    const dto = readRepoFile(
+      'apps/admin-api-service/src/security/controllers/dto/security-monitoring.dto.ts',
     );
 
-    expect(controller).toContain('SECURITY_EVENT_TYPES');
-    expect(controller).toContain('SECURITY_EVENT_STATUSES');
-    expect(controller).toContain('THREAT_INDICATOR_TYPES');
-    expect(controller).not.toContain("'resolved'");
-    expect(controller).not.toContain("'file_hash'");
-    expect(controller).not.toContain("'authentication', 'authorization', 'data_access', 'system'");
+    expect(dto).toContain('SECURITY_EVENT_TYPES');
+    expect(dto).toContain('SECURITY_EVENT_STATUSES');
+    expect(dto).toContain('THREAT_INDICATOR_TYPES');
+    expect(dto).not.toContain("'resolved'");
+    expect(dto).not.toContain("'file_hash'");
+    expect(dto).not.toContain("'authentication', 'authorization', 'data_access', 'system'");
   });
 });
 

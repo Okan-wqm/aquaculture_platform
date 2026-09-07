@@ -60,7 +60,6 @@ export interface SecurityConfig {
   passwordRequireUppercase: boolean;
   passwordRequireNumbers: boolean;
   passwordRequireSymbols: boolean;
-  mfaEnabled: boolean;
   enforceHttps: boolean;
 }
 
@@ -116,7 +115,6 @@ export const DEFAULT_PLATFORM_SETTINGS: PlatformSettingsSnapshot = {
     passwordRequireUppercase: true,
     passwordRequireNumbers: true,
     passwordRequireSymbols: false,
-    mfaEnabled: true,
     enforceHttps: true,
   },
   billing: {
@@ -255,7 +253,6 @@ export function mapPlatformSettings(
         'security.password_require_symbols',
         defaults.security.passwordRequireSymbols,
       ),
-      mfaEnabled: readBoolean(map, 'security.mfa_enabled', defaults.security.mfaEnabled),
       enforceHttps: readBoolean(map, 'security.enforce_https', defaults.security.enforceHttps),
     },
     billing: {
@@ -321,7 +318,6 @@ export function buildSecurityWrites(config: SecurityConfig): PlatformConfigurati
     { key: 'security.password_require_uppercase', value: String(config.passwordRequireUppercase) },
     { key: 'security.password_require_numbers', value: String(config.passwordRequireNumbers) },
     { key: 'security.password_require_symbols', value: String(config.passwordRequireSymbols) },
-    { key: 'security.mfa_enabled', value: String(config.mfaEnabled) },
     { key: 'security.enforce_https', value: String(config.enforceHttps) },
   ];
 }

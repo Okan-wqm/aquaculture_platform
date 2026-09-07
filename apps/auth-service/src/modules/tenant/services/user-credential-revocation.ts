@@ -16,7 +16,9 @@ export type UserCredentialInvalidationOperation =
   // ADR-046: a tenant turning MFA enforcement on terminates the sessions of
   // its users that carry no second factor, so their next login walks the
   // enrollment gate instead of resuming an unenrolled session.
-  | 'tenant-mfa-enforcement-enabled';
+  | 'tenant-mfa-enforcement-enabled'
+  // ADR-0016: a capability grant or revoke changes what the next token carries.
+  | 'platform-capability-changed';
 
 /**
  * Canonical transaction fence for tenant-owned credential mutations.

@@ -4,6 +4,12 @@
  * Platform duyuru yönetimi endpoint'leri.
  */
 
+import {
+  AcknowledgeDto,
+  CreateAnnouncementDto,
+  UpdateAnnouncementDto,
+} from './dto/announcement.dto';
+import { Destructive, RequiresCapability, TenantParam, TenantIdCarrier } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -26,85 +32,6 @@ import { CurrentUser, CurrentUserData } from '../../decorators/current-user.deco
 import { PlatformAdminOnly } from '../../decorators/roles.decorator';
 import { AnnouncementType, AnnouncementStatus, AnnouncementTarget } from '../entities/support.entity';
 import { AnnouncementService } from '../services/announcement.service';
-
-// ============================================================================
-// DTOs
-// ============================================================================
-
-class CreateAnnouncementDto {
-  @IsString()
-  title!: string;
-
-  @IsString()
-  content!: string;
-
-  @IsString()
-  type!: AnnouncementType;
-
-  @IsBoolean()
-  isGlobal!: boolean;
-
-  @IsOptional()
-  @IsObject()
-  targetCriteria?: AnnouncementTarget;
-
-  @IsOptional()
-  @IsString()
-  publishAt?: string;
-
-  @IsOptional()
-  @IsString()
-  expiresAt?: string;
-
-  @IsOptional()
-  @IsBoolean()
-  requiresAcknowledgment?: boolean;
-}
-
-class UpdateAnnouncementDto {
-  @IsOptional()
-  @IsString()
-  title?: string;
-
-  @IsOptional()
-  @IsString()
-  content?: string;
-
-  @IsOptional()
-  @IsString()
-  type?: AnnouncementType;
-
-  @IsOptional()
-  @IsBoolean()
-  isGlobal?: boolean;
-
-  @IsOptional()
-  @IsObject()
-  targetCriteria?: AnnouncementTarget;
-
-  @IsOptional()
-  @IsString()
-  publishAt?: string;
-
-  @IsOptional()
-  @IsString()
-  expiresAt?: string;
-
-  @IsOptional()
-  @IsBoolean()
-  requiresAcknowledgment?: boolean;
-}
-
-class AcknowledgeDto {
-  @IsString()
-  tenantId!: string;
-
-  @IsString()
-  userId!: string;
-
-  @IsString()
-  userName!: string;
-}
 
 // ============================================================================
 // Controller
@@ -147,6 +74,7 @@ export class AnnouncementController {
   }
 
   @AuditedOperation({ resource: 'Announcement', action: 'CREATE' })
+  @RequiresCapability('support-ops')
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async createAnnouncement(
@@ -172,6 +100,7 @@ export class AnnouncementController {
   }
 
   @AuditedOperation({ resource: 'Announcement', action: 'UPDATE' })
+  @RequiresCapability('support-ops')
   @Put(':id')
   async updateAnnouncement(
     @Param('id') id: string,
@@ -190,6 +119,8 @@ export class AnnouncementController {
   }
 
   @AuditedOperation({ resource: 'Announcement', action: 'DELETE' })
+  @Destructive()
+  @RequiresCapability('support-ops')
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteAnnouncement(@Param('id') id: string) {
@@ -201,12 +132,14 @@ export class AnnouncementController {
   // ============================================================================
 
   @AuditedOperation({ resource: 'Announcement', action: 'PUBLISH' })
+  @RequiresCapability('support-ops')
   @Post(':id/publish')
   async publishAnnouncement(@Param('id') id: string) {
     return this.announcementService.publishAnnouncement(id);
   }
 
   @AuditedOperation({ resource: 'Announcement', action: 'CANCEL' })
+  @RequiresCapability('support-ops')
   @Post(':id/cancel')
   async cancelAnnouncement(@Param('id') id: string) {
     return this.announcementService.cancelAnnouncement(id);
@@ -218,14 +151,14 @@ export class AnnouncementController {
 
   @Get('tenant/:tenantId/active')
   @PlatformAdminOnly()
-  async getActiveForTenant(@Param('tenantId') tenantId: string) {
+  async getActiveForTenant(@TenantParam('param') tenantId: string) {
     return this.announcementService.getActiveAnnouncementsForTenant(tenantId);
   }
 
   @Get('tenant/:tenantId/pending')
   @PlatformAdminOnly()
   async getPendingAcknowledgments(
-    @Param('tenantId') tenantId: string,
+    @TenantParam('param') tenantId: string,
     @Query('userId') userId: string,
   ) {
     if (!userId) {
@@ -244,38 +177,42 @@ export class AnnouncementController {
   }
 
   @AuditedOperation({ resource: 'View', action: 'RECORD' })
+  @RequiresCapability('support-ops')
   @Post(':id/view')
   @PlatformAdminOnly()
   async recordView(
     @Param('id') id: string,
+    @TenantParam('body') tenantId: string,
     @Body() dto: AcknowledgeDto,
   ) {
-    if (!dto.tenantId || !dto.userId) {
+    if (!tenantId || !dto.userId) {
       throw new BadRequestException('tenantId and userId are required');
     }
 
     return this.announcementService.recordView(
       id,
-      dto.tenantId,
+      tenantId,
       dto.userId,
       dto.userName || 'Unknown User',
     );
   }
 
   @AuditedOperation({ resource: 'Acknowledgment', action: 'RECORD' })
+  @RequiresCapability('support-ops')
   @Post(':id/acknowledge')
   @PlatformAdminOnly()
   async recordAcknowledgment(
     @Param('id') id: string,
+    @TenantParam('body') tenantId: string,
     @Body() dto: AcknowledgeDto,
   ) {
-    if (!dto.tenantId || !dto.userId) {
+    if (!tenantId || !dto.userId) {
       throw new BadRequestException('tenantId and userId are required');
     }
 
     return this.announcementService.recordAcknowledgment(
       id,
-      dto.tenantId,
+      tenantId,
       dto.userId,
       dto.userName || 'Unknown User',
     );

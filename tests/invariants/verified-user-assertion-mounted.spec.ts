@@ -113,12 +113,12 @@ describe('INVARIANT (SEC-HIGH-156): VerifiedUserAssertionMiddleware mounted in e
    * carrying no gateway service identity) MUST `.exclude()` that surface from
    * VerifiedUserAssertionMiddleware — otherwise it 400s "requires service
    * identity" in production. These are the surfaces a prior revision missed
-   * (sensor /install + /api/devices, ai /api/v2/ai), so they are pinned here.
+   * (sensor /install + /api/devices), so they are pinned here. The ai /api/v2/ai
+   * REST proxy never existed on the gateway and its exclusion was retired.
    */
   const REQUIRED_EXCLUSIONS: ReadonlyArray<[string, ReadonlyArray<string>]> = [
     ['sensor-service', ['mqtt', 'install', 'api/devices']],
     ['billing-service', ['webhooks']],
-    ['ai-service', ['api/v2/ai']],
   ];
 
   it.each(REQUIRED_EXCLUSIONS)(

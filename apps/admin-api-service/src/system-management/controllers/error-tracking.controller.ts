@@ -1,3 +1,14 @@
+import {
+  AssignErrorGroupDto,
+  CreateAlertRuleDto,
+  MergeErrorGroupsDto,
+  QueryErrorGroupsDto,
+  ReportErrorDto,
+  ResolveErrorGroupDto,
+  UpdateErrorAlertRuleDto,
+  UpdateErrorGroupDto,
+} from './dto/error-tracking.dto';
+import { Destructive, RequiresCapability, TenantParam, TenantIdCarrier } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -34,233 +45,6 @@ import { ErrorGroup, ErrorSeverity, ErrorStatus, ErrorContext } from '../entitie
 import { ErrorTrackingService, ErrorReport } from '../services/error-tracking.service';
 import { ERROR_GROUP_SORT_FIELDS, ErrorGroupSortField } from '../sorting/error-group-sort';
 import type { PaginationResultV1 } from '@platform/pagination-contracts';
-
-// ============================================================================
-// DTOs
-// ============================================================================
-
-/**
- * SEC-HIGH №1/№17 (2026-08-23 scan): the groups query previously bound bare
- * @Query primitives with NO runtime validation — `sortBy` reached
- * `orderBy(`g.${sortBy}`)` verbatim (SQL injection) and `limit` reached
- * `.take()` uncapped. The DTO validates both at the boundary; `sortBy` is
- * typed against the ERROR_GROUP_SORT_FIELDS allowlist.
- */
-export class QueryErrorGroupsDto {
-  @IsOptional()
-  @IsString()
-  status?: ErrorStatus;
-
-  @IsOptional()
-  @IsString()
-  severity?: ErrorSeverity;
-
-  @IsOptional()
-  @IsString()
-  service?: string;
-
-  @IsOptional()
-  @IsString()
-  search?: string;
-
-  @IsOptional()
-  @IsString()
-  assignedTo?: string;
-
-  @IsOptional()
-  @Transform(({ value }) => value === 'true' || value === true)
-  @IsBoolean()
-  isRegression?: boolean;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  page?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(100)
-  limit?: number;
-
-  @IsOptional()
-  @IsIn(ERROR_GROUP_SORT_FIELDS)
-  sortBy?: ErrorGroupSortField;
-
-  @IsOptional()
-  @IsIn(['ASC', 'DESC'])
-  sortOrder?: 'ASC' | 'DESC';
-}
-
-class ReportErrorDto {
-  @IsString()
-  message!: string;
-
-  @IsOptional()
-  @IsString()
-  errorType?: string;
-
-  @IsOptional()
-  @IsString()
-  stackTrace?: string;
-
-  @IsOptional()
-  @IsString()
-  severity?: ErrorSeverity;
-
-  @IsOptional()
-  @IsObject()
-  context?: ErrorContext;
-
-  @IsOptional()
-  @IsString()
-  service?: string;
-
-  @IsOptional()
-  @IsString()
-  environment?: string;
-
-  @IsOptional()
-  @IsString()
-  release?: string;
-
-  @IsOptional()
-  @IsString()
-  tenantId?: string;
-
-  @IsOptional()
-  @IsString()
-  userId?: string;
-
-  @IsOptional()
-  @IsString()
-  ipAddress?: string;
-
-  @IsOptional()
-  @IsString()
-  userAgent?: string;
-
-  @IsOptional()
-  @IsObject()
-  metadata?: Record<string, unknown>;
-}
-
-class UpdateErrorGroupDto {
-  @IsOptional()
-  @IsString()
-  status?: ErrorStatus;
-
-  @IsOptional()
-  @IsString()
-  assignedTo?: string;
-
-  @IsOptional()
-  @IsString()
-  notes?: string;
-
-  @IsOptional()
-  @IsString()
-  linkedTicketUrl?: string;
-}
-
-class ResolveErrorGroupDto {
-  @IsOptional()
-  @IsString()
-  @MaxLength(255)
-  userId?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(2000)
-  notes?: string;
-}
-
-class AssignErrorGroupDto {
-  @IsString()
-  @MaxLength(255)
-  assigneeId!: string;
-}
-
-class MergeErrorGroupsDto {
-  @IsString()
-  targetId!: string;
-
-  @IsArray()
-  @IsString({ each: true })
-  @ArrayMaxSize(50)
-  sourceIds!: string[];
-}
-
-class UpdateErrorAlertRuleDto {
-  @IsOptional()
-  @IsString()
-  @MaxLength(255)
-  name?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(1000)
-  description?: string;
-
-  @IsOptional()
-  @IsObject()
-  conditions?: {
-    severity?: ErrorSeverity[];
-    service?: string[];
-    errorType?: string[];
-    messagePattern?: string;
-    occurrenceThreshold?: number;
-    timeWindowMinutes?: number;
-    userCountThreshold?: number;
-  };
-
-  @IsOptional()
-  @IsArray()
-  actions?: Array<{
-    type: 'email' | 'slack' | 'pagerduty' | 'webhook' | 'sms';
-    config: Record<string, unknown>;
-  }>;
-
-  @IsOptional()
-  @IsNumber()
-  cooldownMinutes?: number;
-
-  @IsOptional()
-  @IsBoolean()
-  isActive?: boolean;
-}
-
-class CreateAlertRuleDto {
-  @IsString()
-  name!: string;
-
-  @IsOptional()
-  @IsString()
-  description?: string;
-
-  @IsObject()
-  conditions!: {
-    severity?: ErrorSeverity[];
-    service?: string[];
-    errorType?: string[];
-    messagePattern?: string;
-    occurrenceThreshold?: number;
-    timeWindowMinutes?: number;
-    userCountThreshold?: number;
-  };
-
-  @IsArray()
-  actions!: Array<{
-    type: 'email' | 'slack' | 'pagerduty' | 'webhook' | 'sms';
-    config: Record<string, unknown>;
-  }>;
-
-  @IsOptional()
-  @IsNumber()
-  cooldownMinutes?: number;
-}
 
 // ============================================================================
 // Controller
@@ -306,6 +90,7 @@ export class ErrorTrackingController {
   // ============================================================================
 
   @AuditedOperation({ resource: 'ErrorTracking', action: 'REPORT_ERROR' })
+  @RequiresCapability('security-ops')
   @Post('report')
   async reportError(@Body() dto: ReportErrorDto) {
     return this.errorTrackingService.reportError(dto);
@@ -339,6 +124,7 @@ export class ErrorTrackingController {
   }
 
   @AuditedOperation({ resource: 'ErrorGroup', action: 'UPDATE' })
+  @RequiresCapability('security-ops')
   @Put('groups/:id')
   async updateErrorGroup(@Param('id') id: string, @Body() dto: UpdateErrorGroupDto) {
     let result = await this.errorTrackingService.getErrorGroup(id);
@@ -360,6 +146,7 @@ export class ErrorTrackingController {
   }
 
   @AuditedOperation({ resource: 'ErrorGroup', action: 'RESOLVE' })
+  @RequiresCapability('security-ops')
   @Post('groups/:id/resolve')
   async resolveErrorGroup(@Param('id') id: string, @Body() dto: ResolveErrorGroupDto) {
     return this.errorTrackingService.updateErrorGroupStatus(
@@ -371,24 +158,28 @@ export class ErrorTrackingController {
   }
 
   @AuditedOperation({ resource: 'ErrorGroup', action: 'ACKNOWLEDGE' })
+  @RequiresCapability('security-ops')
   @Post('groups/:id/acknowledge')
   async acknowledgeErrorGroup(@Param('id') id: string) {
     return this.errorTrackingService.updateErrorGroupStatus(id, ErrorStatus.ACKNOWLEDGED);
   }
 
   @AuditedOperation({ resource: 'ErrorTracking', action: 'IGNORE_ERROR_GROUP' })
+  @RequiresCapability('security-ops')
   @Post('groups/:id/ignore')
   async ignoreErrorGroup(@Param('id') id: string) {
     return this.errorTrackingService.updateErrorGroupStatus(id, ErrorStatus.IGNORED);
   }
 
   @AuditedOperation({ resource: 'ErrorGroup', action: 'ASSIGN' })
+  @RequiresCapability('security-ops')
   @Post('groups/:id/assign')
   async assignErrorGroup(@Param('id') id: string, @Body() dto: AssignErrorGroupDto) {
     return this.errorTrackingService.assignErrorGroup(id, dto.assigneeId);
   }
 
   @AuditedOperation({ resource: 'ErrorGroups', action: 'MERGE' })
+  @RequiresCapability('security-ops')
   @Post('groups/merge')
   async mergeErrorGroups(@Body() dto: MergeErrorGroupsDto) {
     return this.errorTrackingService.mergeErrorGroups(dto.targetId, dto.sourceIds);
@@ -402,7 +193,7 @@ export class ErrorTrackingController {
   async queryOccurrences(
     @Query('service') service?: string,
     @Query('severity') severity?: ErrorSeverity,
-    @Query('tenantId') tenantId?: string,
+    @TenantParam('query', { optional: true }) tenantId?: string,
     @Query('userId') userId?: string,
     @Query('environment') environment?: string,
     @Query('startDate') startDate?: string,
@@ -445,6 +236,7 @@ export class ErrorTrackingController {
   // ============================================================================
 
   @AuditedOperation({ resource: 'AlertRule', action: 'CREATE' })
+  @RequiresCapability('security-ops')
   @Post('alert-rules')
   async createAlertRule(@Body() dto: CreateAlertRuleDto) {
     return this.errorTrackingService.createAlertRule(dto);
@@ -456,12 +248,15 @@ export class ErrorTrackingController {
   }
 
   @AuditedOperation({ resource: 'AlertRule', action: 'UPDATE' })
+  @RequiresCapability('security-ops')
   @Put('alert-rules/:id')
   async updateAlertRule(@Param('id') id: string, @Body() dto: UpdateErrorAlertRuleDto) {
     return this.errorTrackingService.updateAlertRule(id, dto);
   }
 
   @AuditedOperation({ resource: 'AlertRule', action: 'DELETE' })
+  @Destructive()
+  @RequiresCapability('security-ops')
   @Delete('alert-rules/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteAlertRule(@Param('id') id: string) {

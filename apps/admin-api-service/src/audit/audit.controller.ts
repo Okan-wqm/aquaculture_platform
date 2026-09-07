@@ -1,3 +1,4 @@
+import { TenantParam } from '@aquaculture/backend-common/decorators';
 import { Controller, Get, Query, Param, ParseUUIDPipe } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { PaginationQueryDto } from '../shared/pagination-query.dto';
@@ -32,7 +33,7 @@ export class AuditLogController {
     @Query('action') action?: string,
     @Query('entityType') entityType?: string,
     @Query('entityId') entityId?: string,
-    @Query('tenantId') tenantId?: string,
+    @TenantParam('query', { optional: true }) tenantId?: string,
     @Query('performedBy') performedBy?: string,
     @Query('severity') severity?: AuditSeverity,
     @Query('startDate') startDate?: string,
@@ -90,7 +91,7 @@ export class AuditLogController {
 
   @Get('security')
   async getSecurityLogs(
-    @Query('tenantId') tenantId?: string,
+    @TenantParam('query', { optional: true }) tenantId?: string,
     @Query('limit') limit?: string,
   ): Promise<AuditLog[]> {
     // ADMIN-MEDIUM-003: meta-audit -- security log access is especially sensitive
@@ -101,7 +102,7 @@ export class AuditLogController {
 
   @Get('statistics')
   async getStatistics(
-    @Query('tenantId') tenantId?: string,
+    @TenantParam('query', { optional: true }) tenantId?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
   ) {

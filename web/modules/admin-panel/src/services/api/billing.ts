@@ -3,9 +3,9 @@
  */
 
 import { apiFetch, buildQueryString } from '../http-client';
+import type { PaginatedResult, PaginationParams } from '../types/common';
 import type {
-  PaginatedResult,
-  PaginationParams,
+  CreateDiscountCodeDto,
   PlanDefinition,
   PlanTier,
   DiscountCode,
@@ -25,8 +25,6 @@ import type {
   QuoteRequest,
   PricingCalculation,
   PricingComparisonResult,
-  CreateSubscriptionDto,
-  CreateSubscriptionResult,
   CustomPlan,
   CustomPlanFilter,
   PaginatedCustomPlans,
@@ -73,10 +71,11 @@ export const billingApi = {
   getDiscountStats: () => apiFetch<DiscountStats>('/billing/discounts/stats'),
   getDiscountById: (id: string) => apiFetch<DiscountCode>(`/billing/discounts/${id}`),
   getDiscountByCode: (code: string) => apiFetch<{ found: boolean; discount?: DiscountCode }>(`/billing/discounts/code/${code}`),
-  createDiscountCode: (data: Partial<DiscountCode>) => {
-    const { createdBy: _createdBy, ...payload } = data;
-    return apiFetch<DiscountCode>('/billing/discounts', { method: 'POST', body: JSON.stringify(payload) });
-  },
+  // The actor is never a body property: the server reads it from the verified
+  // principal and REFUSES a body that claims one (ADMIN-CRITICAL-008), and the
+  // contract type no longer has the field to strip.
+  createDiscountCode: (data: CreateDiscountCodeDto) =>
+    apiFetch<DiscountCode>('/billing/discounts', { method: 'POST', body: JSON.stringify(data) }),
   updateDiscountCode: (id: string, data: Partial<DiscountCode>) =>
     apiFetch<DiscountCode>(`/billing/discounts/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deactivateDiscountCode: (id: string, _updatedBy?: string) =>
@@ -104,8 +103,6 @@ export const billingApi = {
     apiFetch<Array<{ id: string; discountCode: string; redeemedAt: string; amount: number }>>(`/billing/tenant/${tenantId}/redemptions`),
 
   // Subscriptions
-  createSubscription: (data: CreateSubscriptionDto) =>
-    apiFetch<CreateSubscriptionResult>('/billing/subscriptions', { method: 'POST', body: JSON.stringify(data) }),
   getSubscriptions: (filters?: {
     status?: SubscriptionStatus[];
     planTier?: PlanTier[];
@@ -135,10 +132,6 @@ export const billingApi = {
     apiFetch<{ success: boolean; newTrialEnd: string }>(`/billing/subscriptions/tenant/${tenantId}/extend-trial`, {
       method: 'POST',
       body: JSON.stringify({ additionalDays }),
-    }),
-  processRenewals: () =>
-    apiFetch<{ processed: number; failed: number; renewals: Array<{ tenantId: string; success: boolean; message?: string }> }>('/billing/subscriptions/process-renewals', {
-      method: 'POST',
     }),
 
   // Invoices
@@ -260,10 +253,10 @@ export const billingApi = {
     apiFetch<CustomPlan>(`/billing/custom-plans/${planId}`),
   getCustomPlanByTenant: (tenantId: string) =>
     apiFetch<CustomPlan | null>(`/billing/custom-plans/tenant/${tenantId}`),
-  createCustomPlan: (data: CreateCustomPlanDto) => {
-    const { createdBy: _createdBy, ...payload } = data;
-    return apiFetch<CustomPlan>('/billing/custom-plans', { method: 'POST', body: JSON.stringify(payload) });
-  },
+  // The actor is never a body property: the server reads it from the verified
+  // principal and REFUSES a body that claims one (ADMIN-CRITICAL-008).
+  createCustomPlan: (data: CreateCustomPlanDto) =>
+    apiFetch<CustomPlan>('/billing/custom-plans', { method: 'POST', body: JSON.stringify(data) }),
   updateCustomPlan: (planId: string, data: UpdateCustomPlanDto) =>
     apiFetch<CustomPlan>(`/billing/custom-plans/${planId}`, { method: 'PUT', body: JSON.stringify(data) }),
   submitCustomPlanForApproval: (planId: string) =>

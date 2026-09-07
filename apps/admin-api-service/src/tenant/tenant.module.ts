@@ -38,7 +38,6 @@ import {
   ListTenantsHandler,
   GetTenantStatsHandler,
   GetTenantUsageHandler,
-  GetTenantsApproachingLimitsHandler,
   GetExpiringTrialsHandler,
   SearchTenantsHandler,
 } from './query-handlers/tenant-query.handlers';
@@ -65,7 +64,6 @@ const QueryHandlers = [
   ListTenantsHandler,
   GetTenantStatsHandler,
   GetTenantUsageHandler,
-  GetTenantsApproachingLimitsHandler,
   GetExpiringTrialsHandler,
   SearchTenantsHandler,
 ];

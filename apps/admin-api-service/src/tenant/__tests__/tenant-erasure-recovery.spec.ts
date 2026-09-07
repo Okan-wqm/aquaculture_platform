@@ -1,3 +1,4 @@
+import { type ScheduledJobExecutor } from '@aquaculture/backend-common/scheduling';
 import { DataSource, EntityManager } from 'typeorm';
 
 import {
@@ -7,6 +8,14 @@ import {
   TenantErasureOutboxPublisher,
   TenantErasureProofHandler,
 } from '../handlers/tenant-erasure.handler';
+
+/** ADMIN-HIGH-013: scheduled ticks run through the kernel runner; these suites exercise the bodies. */
+const passThroughScheduledJobs: ScheduledJobExecutor = {
+  run: async (_job, body) => {
+    await body();
+    return 'ran';
+  },
+};
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111';
 const USER_ID = '22222222-2222-4222-8222-222222222222';
@@ -50,7 +59,13 @@ function handlerFixture(query: jest.Mock, enqueue = jest.fn().mockResolvedValue(
   const legalHold: TenantErasureLegalHoldService = {
     assertNoHold: jest.fn().mockResolvedValue(undefined),
   };
-  const handler = new TenantErasureProofHandler(eventBus, dataSource, outbox, legalHold);
+  const handler = new TenantErasureProofHandler(
+    eventBus,
+    dataSource,
+    outbox,
+    legalHold,
+    passThroughScheduledJobs,
+  );
   return { handler, manager, outbox };
 }
 

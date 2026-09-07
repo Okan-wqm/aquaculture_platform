@@ -67,7 +67,10 @@ describe('INVARIANT: admin-api audit rows name the operator (ADMIN-HIGH-097, fro
 
   it('finds the controllers it is meant to govern', () => {
     // A walker that matched nothing would make the case below vacuous.
-    expect(files.length).toBeGreaterThanOrEqual(30);
+    // 29, not 30: the IP access-rule controller and the tenant-configuration
+    // controller are gone — one guarded nothing (SEC-HIGH-165), the other
+    // synthesised defaults on read and refused every write (ADMIN-HIGH-106).
+    expect(files.length).toBeGreaterThanOrEqual(29);
   });
 
   it('writes no attribution field as a string literal', () => {

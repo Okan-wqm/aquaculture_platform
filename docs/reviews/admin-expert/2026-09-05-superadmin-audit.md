@@ -185,6 +185,34 @@ WAL-G epoch; strike `database-restore-drill.md:548`.
 backup cron.
 **Sequencing:** gates every destructive migration in this plan.
 
+## INFRA-CRITICAL-170 — nginx and service route tables disagree on five production paths
+
+**State:** OPEN · **Wave:** W3 · **ADR:** 0006 (edge topology derived from nginx)
+
+**Evidence:** `infrastructure/nginx/droplet.conf` forwarded `/api/upload/*` verbatim to a gateway
+serving `/api/v1/upload/*`; `/api/csp-report` to a controller mounted at `/api/v1/api/csp-report`;
+`/install/*` and `/api/devices/*` — the surface the installer script and the Rust edge agent call —
+to a sensor service serving them under `/api/v1`; `/api/v2/ai/*` to a gateway proxy that never
+existed (`routes/v2` is an empty module and the AI chat REST path became NATS long ago); and the
+SCADA websocket, for which the client and sensor-service had agreed on a dedicated `/scada-ws/`
+engine.io path precisely so nginx could route it, had no nginx location at all. Each 404s in
+production while every unit test stays green, because nothing compared the two tables. Surfaced
+while closing the W0 open item on the upload path.
+
+**Fix (Tier-2):** nginx rewrites `/api/upload/` to `/api/v1/upload/` (the rewrite the admin
+catch-all already uses); gateway-api excludes `api/csp-report` from its global prefix as marine
+does; sensor-service excludes `install/*` and `api/devices/*` as it does `mqtt/*`; the dead
+`/api/v2/ai/` location, the gateway's `api/v2/{*path}` validator route, the empty `routes/v2`
+module, the unregistered `api/v1/sensors` proxy controller and ai-service's exclusions for the
+retired path are deleted; nginx gains a `/scada-ws/` websocket location to sensor-service.
+
+**Gate:** `tests/invariants/nginx-route-resolution.spec.ts` derives the nginx location table (path,
+modifier, rewrite, upstream) and every public service's served route table from source, and asserts
+both directions — every proxied location resolves after its rewrite to a route the upstream serves,
+and every route a public service serves outside its prefix is covered by an nginx location unless
+the kernel marks it Docker-internal, the service catalog marks its `/graphql` a federated subgraph,
+or `.claude/allowlists/internal-only-http-routes.yaml` declares it with a reason.
+
 ## INFRA-HIGH-165 — CI quarantine policy is ungoverned prose (R12)
 
 **State:** OPEN · **Wave:** W0 · **ADR:** 0017
@@ -250,6 +278,82 @@ emitted from Nest DTOs via the existing `SwaggerModule.createDocument` into a co
 generated client) and `admin-body-dto-is-class.spec.ts` (no `@Body()`/`@Query()` resolving to
 `Object`).
 
+**Implementation note — class DTOs (landed 2026-09-07):** the hard precondition is done. The 21
+remaining `interface`-typed `@Body()` parameters (of the 29; eight were converted in W2/W3 as their
+routes were touched) are classes with class-validator decorators, nested one level down as well:
+`apps/admin-api-service/src/billing/dto/billing.dto.ts` gains the twelve billing bodies plus
+thirteen nested value objects (plan limits, per-cycle pricing, features and add-ons, pricing
+metrics, tier multipliers, module quantities and selections, billing address, invoice line items and
+tax), `modules/dto/module-request.dto.ts` and `messaging/dto/messaging-admin.dto.ts` are new, and
+the three email-template bodies join `settings/dto/email-template.dto.ts`. Every nested shape is
+reached through `@ValidateNested` + `@Type`, so `whitelist` / `forbidNonWhitelisted` apply at every
+level rather than only at the envelope — a legal hold can no longer be opened with an empty reason,
+a retention window is bounded to 1–3650 days, and a plan tier must be a `PlanTier`. No DTO declares
+an actor (`createdBy` / `updatedBy` / `changedBy`): the ESLint rule `no-actor-in-input-dto` makes
+that a build error, so a body that claims one is now REFUSED (400) rather than silently overwritten,
+which is the stronger half of ADMIN-CRITICAL-102; `billing.controller.spec.ts` asserts the refusal
+and the JWT-sourced actor separately. Three bodies that carried a raw `tenantId`
+(`PlanChangeRequest`, `CreateCustomPlanDto`, `CreateInvoiceDto`, plus the two email-template bodies)
+now use the `@TenantIdCarrier()` + `@TenantParam('body')` form from ADMIN-CRITICAL-103. Gate:
+`tests/invariants/admin-body-dto-is-class.spec.ts` over `tests/invariants/lib/dto-resolution.ts` —
+every unkeyed `@Body()` / `@Query()` must resolve, through imports, barrels and path aliases, to a
+`class` carrying at least one class-validator decorator on itself or an ancestor; an unresolvable
+type fails rather than being assumed good. Still open under this finding: the committed
+`openapi.json` artifact and its Nx target, the `openapi-typescript` client for admin-panel with
+`services/types/*` deleted, the single `Paginated<T>` envelope, and the retirement of
+`contract-validation.spec.ts` with its `KNOWN_EXCEPTIONS`.
+
+**Implementation note — the artifact (landed 2026-09-07):** `apps/admin-api-service/openapi.json` is
+committed and generated by `nx run admin-api-service:openapi`
+(`tools/openapi/generate-admin-openapi.cjs` → `src/openapi/generate-openapi.ts`). The app is created
+in Nest PREVIEW mode: the full module graph is built and every controller registered, but no
+provider is instantiated and no lifecycle hook runs, so generation touches neither Postgres, Redis
+nor NATS and takes about twelve seconds anywhere. The runner registers `@nestjs/swagger/plugin` as a
+TypeScript transformer before the module graph loads — without it a Nest DTO's shape stays in its TS
+types and class-validator decorators and every schema is `{}`, which is the same vacuous contract an
+interface DTO produced. The document now carries 401 paths and 148 schemas with real properties:
+`required` lists, `minLength`/`maxLength` from the validators, enum members from the enums, and
+`$ref`s into the nested value objects. The `DocumentBuilder` configuration moved to
+`libs/backend-common/src/bootstrap/openapi-config.ts` so the served document and the artifact are
+built by one function, and `@TenantIdCarrier()` now also describes itself to OpenAPI as an optional
+uuid string — the wire contract carries the key even though the handler's type for it is
+`undefined`. Gate: `tests/invariants/admin-openapi-artifact-parity.spec.ts` regenerates and asserts
+byte-equality with the committed file, that every controller route appears in it, and that NO schema
+is empty — the last is what stops a silently dropped transformer from making a vacuous artifact
+agree with itself. The artifact is in `.prettierignore` because reformatting it would break that
+equality. Debt, tracked under this finding (owner okan, deadline 2026-12-31): the runtime build is
+plain `tsc`, which cannot apply the transformer, so the dev-only `/docs` UI shows the same routes
+with thinner schemas than the artifact; closing it means adding the plugin to
+`tools/build/build-service.sh` for every service. Still open: the `openapi-typescript` client for
+admin-panel with `services/types/*` deleted, the single `Paginated<T>` envelope, and retiring
+`contract-validation.spec.ts` with its `KNOWN_EXCEPTIONS`.
+
+**Implementation note — the generated client (landed 2026-09-07):**
+`web/modules/admin-panel/src/services/generated/admin-api.ts` is produced from the artifact by
+`openapi-typescript` (`nx run admin-panel:openapi-client`), and the parity gate now asserts that
+link too: a client regenerated from a stale artifact fails the same spec. Responses are typed as
+well as requests — moving the 56 DTO classes that were declared inside `*.controller.ts` files into
+sibling `dto/*.dto.ts` files was the precondition, because the `@nestjs/swagger` plugin visits a
+file EITHER as a controller (typing responses) or as a model (typing DTOs), never as both, so a DTO
+beside its routes cost that whole controller's response schemas. The artifact now carries 334 typed
+responses and 185 schemas, none empty. Consumption has started where it proves the most:
+`services/contract.ts` exposes `ApiSchema<'Name'>`, and eleven hand-written request types in
+`services/types/*` are now aliases of it. The compiler immediately found five real drifts that had
+been invisible, and each is fixed rather than cast away: the custom-plan builder and the discount
+page were sending a hardcoded `createdBy: 'admin'` (a fabricated actor the server now REFUSES,
+ADMIN-CRITICAL-008); the tenant-create form's tier union contained `custom`, which `POST /tenants`
+does not accept, so that path could only ever have 400'd; the tenant-detail edit form prefilled a
+`custom` tier into an update body that rejects it, and now leaves it unset behind an
+`isEditableTenantTier` guard; and two TypeScript `enum`s (`DiscountType`, `TenantProvisioningState`)
+were nominal, so their members were not assignable to the strings the API actually exchanges — both
+are now unions derived from the contract with a const object preserving every call site. Still open
+under this finding (owner okan, deadline 2026-12-31): the remaining sixteen hand-written types in
+`services/types/*` that shadow a generated schema (entities like `Tenant`, `SupportTicket`,
+`FeatureToggle`) are not yet aliased — each has a wide page-level blast radius and is its own
+change; the single `Paginated<T>` envelope; and retiring `contract-validation.spec.ts` with its
+`KNOWN_EXCEPTIONS`, which stays until those pages are migrated so the URL-shape check is not lost in
+the meantime.
+
 ## ADMIN-CRITICAL-102 — Actor from client strings; 273 mutations unaudited
 
 **State:** OPEN · **Wave:** W2
@@ -270,6 +374,28 @@ runs. Erasure targets become an explicit per-table registry (`tenant-column | ca
 excluded-with-reason`).
 **Gate:** every table in `MODULE_SCHEMAS[].tables` is classified in the erasure registry; e2e erases
 a tenant holding support threads, invoices and audit rows.
+
+**Implementation note (landed 2026-09-05):** `@TenantParam(source, { key?, optional?, allow? })`
+(kernel `decorators/`) attaches `VerifiedTenantPipe` (kernel `tenant/`), which resolves the id
+through the `TENANT_ACTIVE_CHECK` port bound by admin-api's global `TenantLookupModule` (read-only
+`auth.tenants`, D14): missing → 400 unless optional, non-UUID → 400, unknown → 404, and a lifecycle
+check — a mutation admits ACTIVE only unless the route states `allow` (lifecycle, provisioning,
+billing and schema routes say `'any'`), a read admits every existing tenant. 115
+`@Param('tenantId')` / `@Query('tenantId')` sites, the tenant controller's 15 `:id` routes and 23
+body DTOs (`tenantId` removed from the class, taken by `@TenantParam('body')` on the handler) were
+converted; the ESLint rule `no-unverified-tenant-param` (admin scope, error) and
+`tests/invariants/admin-tenant-param-verified.spec.ts` keep the raw forms out. Erasure:
+`libs/backend-common/src/compliance/tenant-erasure/tenant-erasure-table-policy.ts` — every
+source-schema target declares `tenant-column | cascade-via | excluded(reason)` for every registered
+table; the executor refuses to construct on an incomplete set, confirms every named column against
+`information_schema` before deleting, orders cascade children before parents without relying on a
+database FK, and derives nothing from column names;
+`tests/invariants/tenant-erasure-table-policy.spec.ts` checks completeness and that every named
+column is declared in source. Not done here: bulk `tenantIds[]` bodies (bulk suspend/activate,
+broadcast targets) still pass arrays the pipe does not resolve (owner okan, W3, this finding); the
+live e2e that erases a tenant holding support threads, invoices and audit rows needs the running
+platform and is not written in this session — the kernel cascade spec
+(`tenant-erasure-target-executor.cascade.spec.ts`) covers the same paths against a fake database.
 
 ## ADMIN-CRITICAL-104 — Email template preview iframe has no sandbox (SA-008)
 
@@ -303,6 +429,44 @@ linter orders static segments before parameterised ones.
 **Gate:** no controller method body reduces to a thrown Gone / Conflict / NotImplemented; smoke gate
 that every FE-called route returns something other than 404/410/501 on a booted app.
 
+**Implementation note (landed 2026-09-07):** every route that existed only to refuse is deleted with
+its service method, DTO, frontend client and page control in one commit: the whole
+tenant-configuration stack (controller, service, DTOs, entity file, the provisioning saga's fake
+`create_default_config` step, the admin-panel page, route and client — it synthesised defaults on
+read and answered 410 on write); the nine system-settings write routes and the
+`SystemSettingService` writers behind them; the global-config CRUD routes, `PUT provisioning-config`
+and the `ConfigCategory`/`ConfigValueType` vocabulary (the env-backed `GET provisioning-config`
+stays: sensor-service's installer-script generator reads it); the messaging AI Dashboard page and
+the persona toggle; `GET tenants/approaching-limits` (501) with its query, handler and client; the
+409 refusals — `POST billing/subscriptions`, `process-renewals`, `invoices/update-overdue`, four
+schema routes (create, suspend, activate, refresh-stats), three migration routes (run, rollback,
+batch run) — with the `never`-typed service methods behind them, the unreferenced
+`SchemaMigrationService`, the provisioning saga's `create_schema` step that could only throw, and
+every frontend button that called them. Custom-plan activation, which called the retired
+`createSubscription` writer and therefore could never activate a plan, now sends billing-service's
+`ProvisionTenantSubscription` command with the plan's priced modules and the plan discount allocated
+across them; both command identifiers derive from the plan id so a retry replays billing's receipt
+(`custom-plan.activation.spec.ts`). Two literal routes shadowed by `data-requests/:id` (`stats`)
+were reordered.
+
+**Correction at land time (2026-09-07):** the audit counted three messaging 501s — `GET
+messaging/monitoring/stats`, `GET messaging/tenants` and the monitoring page behind them — in the
+deletion set. Main answered them instead: `258856330` gave both routes real cross-tenant aggregates
+from messaging-service, cached there for 60 seconds (ADMIN-HIGH-009). A route that returns real data
+is not a stub, so those two routes, their client functions and the Monitoring and Tenants pages
+stay. The deletion set shrinks to the AI Dashboard page and the persona toggle, which still have no
+producer.
+
+**Gates:** `tests/invariants/admin-no-stub-routes.spec.ts` (no `NotImplementedException` in
+admin-api; `GoneException` only in the allowlisted report-download expiry; no route handler whose
+body reduces to a throw, a `throw*` helper call, or a `never` type) and
+`tests/invariants/admin-route-registration-order.spec.ts` (a parameterised route declared before a
+literal sibling it would match fails, within a controller and across controllers sharing a prefix),
+both over `tests/invariants/lib/admin-route-table.ts` (TypeScript-AST route enumeration). The FE↔BE
+contract test's `matchPath` no longer treats a frontend literal as matching a backend parameter, so
+a client for `/jobs/scheduled` can no longer pass against `/jobs/:id`; the two clients that did were
+deleted.
+
 ## ADMIN-HIGH-107 — Permissive physical types in the admin schema (C11)
 
 **State:** OPEN · **Wave:** W2
@@ -323,6 +487,37 @@ columns.
 shared batched-delete helper.
 **Gate:** every `@Cron` / `@Interval` in the fleet is leader-wrapped and heartbeated;
 `CronJobNeverRan` / `CronJobFailingEveryRun` rules are the runtime half.
+
+**Implementation note (landed 2026-09-07):** the primitive is one decorator, `@ScheduledJob({ name,
+cron | every, scope? })` (`libs/backend-common/src/scheduling/`), which applies the NestJS schedule
+decorator itself and wraps the tick in `ScheduledJobRunner.run`: a Postgres transaction-scoped
+advisory lock keyed on (service, job) — `pg_try_advisory_xact_lock(hashtext(service),
+hashtext(job))`, released with the transaction and therefore with a crashed replica's connection —
+and `CronHeartbeatService.track` for the tick that wins; a losing replica records
+`outcome="skipped"`. The decorator is typed against `HasScheduledJobRunner`, so a class without a
+`scheduledJobs` runner does not compile, and every job name is declared at boot so `CronJobNeverRan`
+has a series to alert on. `scope: 'each-replica'` is for per-process housekeeping (the
+error-tracking cooldown map) and skips the lock, never the heartbeat. All 21 admin-api scheduled
+methods (13 classes) are converted; `ScheduledJobModule.forRoot({ serviceName: 'admin-api-service'
+})` is registered. Job claiming in `JobQueueService` is one transaction — `SELECT … FOR UPDATE SKIP
+LOCKED`, dependency check, the RUNNING transition — so two replicas or two overlapping ticks cannot
+execute the same row (`job-queue.claim.spec.ts`). The single retention authority now disposes in
+ctid-addressed batches through the shared `deleteInBatches` helper
+(`libs/backend-common/src/database/batched-delete.ts`). Gate:
+`tests/invariants/scheduled-jobs-leased.spec.ts` over
+`tests/invariants/lib/scheduled-method-table.ts` (TypeScript-AST enumeration of every
+`@Cron`/`@Interval`/`@Timeout`/`@ScheduledJob` in apps, libs and platform libs): a raw decorator
+fails unless it is a governed entry in `.claude/allowlists/unleased-scheduled-jobs.yaml` (owner,
+expiry 2026-12-31, ADMIN-HIGH-013, ceiling that only decreases, entries that must still exist);
+admin-api may have no entries; job names must be literal, well-formed and unique per service; every
+service declaring a `@ScheduledJob` registers the module; `CronHeartbeatService` is reached only
+through the runner. The three existing cron invariants now count `@ScheduledJob` as a scheduler
+entry point. The runtime half (`CronJobNeverRan`, `CronJobFailingEveryRun` in
+`infrastructure/monitoring/droplet/rules/60-dataflow-integrity.yml`) already exists and now covers
+every admin job by construction. Not done here: the 67 raw scheduler sites in the other eight
+services and the two platform libs are frozen in the ratchet with owner okan and expiry 2026-12-31
+under this finding; each converts by adding the runner and swapping the decorator, and the ratchet
+fails when one is converted without its entry being removed.
 
 ## ADMIN-HIGH-109 — Detective stores with no producer (C16)
 
@@ -361,6 +556,29 @@ after the 15 s request timeout.
 **Fix:** add the grant and regenerate `nats.conf` in one commit; extend the provisioning SSoT
 invariant so every subject a service publishes (derived from the command contract) must appear in
 that service's publish ACL.
+
+## INFRA-MEDIUM-171 — The changed-file lint gate skips module-boundary rules on the base side
+
+**State:** OPEN · **Wave:** W3 · **ADR:** —
+
+**Evidence:** `scripts/ci/lint-changed-files.mjs` is the blocking lint gate on every pull request:
+it checks out `origin/main` into a scratch worktree, lints the base version of each changed file
+there, and fails the build on any error the head version reports and the base version does not. The
+worktree is freshly added, so it carries no Nx project graph — and `@nx/enforce-module-boundaries`,
+finding none, does not fail: it prints `No cached ProjectGraph is available. The rule will be
+skipped.` and reports zero. Head runs in the real checkout, where the graph is warm. Every
+module-boundary violation already on main therefore reads as `base=0, head=1` and blocks the first
+pull request that happens to touch the file. This wave hit it on the `backend-common` ↔ `outbox`
+cycle: both of its edges (`schema-manager.service.ts` importing the erasure proof-ledger table name,
+`tenant-erasure-target.module.ts` importing `OutboxPublisher`, and `event-bus` importing
+`backend-common/nats` on the way back) are unchanged main code. Warming the graph inside a pristine
+`origin/main` worktree makes the base side report the identical error, which is the proof.
+
+**Fix (Tier-3):** the gate builds the graph in the base worktree before linting — one
+`nx show projects` with the daemon disabled, so it cannot answer from the real checkout's socket —
+and treats a graph that fails to materialise as fatal rather than continuing with the rule silently
+off. Both sides now run the same rules, the same way, and the base-vs-head delta means what the
+gate's own docblock says it means. The cycle it uncovered stays open debt, owned where it lives.
 
 ## CLAUDE-LOW-017 — CLAUDE.md "Migration Runners" matches no service (ARCH-LOW-012, C7)
 

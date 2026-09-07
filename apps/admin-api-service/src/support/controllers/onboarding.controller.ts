@@ -4,6 +4,14 @@
  * Tenant onboarding ve eğitim endpoint'leri.
  */
 
+import {
+  AssignGuideDto,
+  InitializeOnboardingDto,
+  ScheduleTrainingDto,
+  SendWelcomeEmailDto,
+  UpdateTrainingDto,
+} from './dto/onboarding.dto';
+import { RequiresCapability, TenantParam, TenantIdCarrier } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -23,64 +31,6 @@ import { IsString, IsOptional, IsNumber, IsIn } from 'class-validator';
 
 import { OnboardingStatus, TrainingSession } from '../entities/support.entity';
 import { OnboardingService } from '../services/onboarding.service';
-
-// ============================================================================
-// DTOs
-// ============================================================================
-
-class InitializeOnboardingDto {
-  @IsString()
-  tenantId!: string;
-
-  @IsString()
-  tenantName!: string;
-}
-
-class SendWelcomeEmailDto {
-  @IsString()
-  recipientEmail!: string;
-
-  @IsString()
-  recipientName!: string;
-}
-
-class ScheduleTrainingDto {
-  @IsString()
-  title!: string;
-
-  @IsIn(['video_call', 'webinar', 'in_person'])
-  type!: 'video_call' | 'webinar' | 'in_person';
-
-  @IsString()
-  scheduledAt!: string;
-
-  @IsNumber()
-  duration!: number;
-
-  @IsString()
-  trainer!: string;
-
-  @IsOptional()
-  @IsString()
-  meetingUrl?: string;
-}
-
-class UpdateTrainingDto {
-  @IsIn(['completed', 'cancelled'])
-  status!: 'completed' | 'cancelled';
-
-  @IsOptional()
-  @IsString()
-  notes?: string;
-}
-
-class AssignGuideDto {
-  @IsString()
-  guideId!: string;
-
-  @IsString()
-  guideName!: string;
-}
 
 // ============================================================================
 // Controller
@@ -124,42 +74,46 @@ export class OnboardingController {
   }
 
   @Get(':tenantId')
-  async getProgress(@Param('tenantId') tenantId: string) {
+  async getProgress(@TenantParam('param', { allow: 'any' }) tenantId: string) {
     return this.onboardingService.getProgress(tenantId);
   }
 
   @AuditedOperation({ resource: 'Onboarding', action: 'INITIALIZE_ONBOARDING' })
+  @RequiresCapability('support-ops')
   @Post('initialize')
   @HttpCode(HttpStatus.CREATED)
-  async initializeOnboarding(@Body() dto: InitializeOnboardingDto) {
-    if (!dto.tenantId || !dto.tenantName) {
+  async initializeOnboarding(@TenantParam('body', { allow: 'any' }) tenantId: string, @Body() dto: InitializeOnboardingDto) {
+    if (!tenantId || !dto.tenantName) {
       throw new BadRequestException('tenantId and tenantName are required');
     }
 
-    return this.onboardingService.initializeOnboarding(dto.tenantId, dto.tenantName);
+    return this.onboardingService.initializeOnboarding(tenantId, dto.tenantName);
   }
 
   @AuditedOperation({ resource: 'Step', action: 'COMPLETE' })
+  @RequiresCapability('support-ops')
   @Post(':tenantId/step/:stepId/complete')
   async completeStep(
-    @Param('tenantId') tenantId: string,
+    @TenantParam('param', { allow: 'any' }) tenantId: string,
     @Param('stepId') stepId: string,
   ) {
     return this.onboardingService.completeStep(tenantId, stepId);
   }
 
   @AuditedOperation({ resource: 'Onboarding', action: 'SKIP_STEP' })
+  @RequiresCapability('support-ops')
   @Post(':tenantId/step/:stepId/skip')
   async skipStep(
-    @Param('tenantId') tenantId: string,
+    @TenantParam('param', { allow: 'any' }) tenantId: string,
     @Param('stepId') stepId: string,
   ) {
     return this.onboardingService.skipStep(tenantId, stepId);
   }
 
   @AuditedOperation({ resource: 'Onboarding', action: 'SKIP_ONBOARDING' })
+  @RequiresCapability('support-ops')
   @Post(':tenantId/skip')
-  async skipOnboarding(@Param('tenantId') tenantId: string) {
+  async skipOnboarding(@TenantParam('param', { allow: 'any' }) tenantId: string) {
     return this.onboardingService.skipOnboarding(tenantId);
   }
 
@@ -168,9 +122,10 @@ export class OnboardingController {
   // ============================================================================
 
   @AuditedOperation({ resource: 'WelcomeEmail', action: 'SEND' })
+  @RequiresCapability('support-ops')
   @Post(':tenantId/welcome-email')
   async sendWelcomeEmail(
-    @Param('tenantId') tenantId: string,
+    @TenantParam('param', { allow: 'any' }) tenantId: string,
     @Body() dto: SendWelcomeEmailDto,
   ) {
     if (!dto.recipientEmail || !dto.recipientName) {
@@ -196,17 +151,19 @@ export class OnboardingController {
   }
 
   @AuditedOperation({ resource: 'TutorialView', action: 'RECORD' })
+  @RequiresCapability('support-ops')
   @Post(':tenantId/tutorials/:tutorialId/view')
   async recordTutorialView(
-    @Param('tenantId') tenantId: string,
+    @TenantParam('param', { allow: 'any' }) tenantId: string,
     @Param('tutorialId') tutorialId: string,
   ) {
     return this.onboardingService.recordTutorialView(tenantId, tutorialId);
   }
 
   @AuditedOperation({ resource: 'GettingStartedView', action: 'RECORD' })
+  @RequiresCapability('support-ops')
   @Post(':tenantId/getting-started/view')
-  async recordGettingStartedView(@Param('tenantId') tenantId: string) {
+  async recordGettingStartedView(@TenantParam('param', { allow: 'any' }) tenantId: string) {
     return this.onboardingService.recordGettingStartedView(tenantId);
   }
 
@@ -215,10 +172,11 @@ export class OnboardingController {
   // ============================================================================
 
   @AuditedOperation({ resource: 'Onboarding', action: 'SCHEDULE_TRAINING' })
+  @RequiresCapability('support-ops')
   @Post(':tenantId/training')
   @HttpCode(HttpStatus.CREATED)
   async scheduleTraining(
-    @Param('tenantId') tenantId: string,
+    @TenantParam('param', { allow: 'any' }) tenantId: string,
     @Body() dto: ScheduleTrainingDto,
   ) {
     if (!dto.title || !dto.type || !dto.scheduledAt || !dto.trainer) {
@@ -236,9 +194,10 @@ export class OnboardingController {
   }
 
   @AuditedOperation({ resource: 'Training', action: 'UPDATE' })
+  @RequiresCapability('support-ops')
   @Put(':tenantId/training/:sessionId')
   async updateTraining(
-    @Param('tenantId') tenantId: string,
+    @TenantParam('param', { allow: 'any' }) tenantId: string,
     @Param('sessionId') sessionId: string,
     @Body() dto: UpdateTrainingDto,
   ) {
@@ -259,9 +218,10 @@ export class OnboardingController {
   // ============================================================================
 
   @AuditedOperation({ resource: 'Guide', action: 'ASSIGN' })
+  @RequiresCapability('support-ops')
   @Post(':tenantId/assign-guide')
   async assignGuide(
-    @Param('tenantId') tenantId: string,
+    @TenantParam('param', { allow: 'any' }) tenantId: string,
     @Body() dto: AssignGuideDto,
   ) {
     if (!dto.guideId || !dto.guideName) {

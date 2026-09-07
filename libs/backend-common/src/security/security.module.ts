@@ -6,7 +6,6 @@ import { IpValidatorService } from './ip-validation';
 import { SessionManagerModule } from './session-manager';
 import { ThrottlerModule } from './throttler';
 import { TimingSafeService } from './timing-safe';
-import { IdorGuard } from './validators/idor-guard';
 import { InputSanitizerService } from './validators/input-sanitizer.service';
 
 /**
@@ -20,7 +19,6 @@ import { InputSanitizerService } from './validators/input-sanitizer.service';
  * - Timing attack protection
  * - IP validation and extraction
  * - Input sanitization
- * - IDOR protection
  *
  * Usage:
  * ```typescript
@@ -41,7 +39,6 @@ import { InputSanitizerService } from './validators/input-sanitizer.service';
     TimingSafeService,
     IpValidatorService,
     InputSanitizerService,
-    IdorGuard,
     {
       provide: IP_VALIDATOR,
       useExisting: IpValidatorService,
@@ -55,7 +52,6 @@ import { InputSanitizerService } from './validators/input-sanitizer.service';
     TimingSafeService,
     IpValidatorService,
     InputSanitizerService,
-    IdorGuard,
     IP_VALIDATOR,
   ],
 })

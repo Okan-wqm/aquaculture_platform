@@ -1,5 +1,4 @@
 import {
-  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
@@ -12,7 +11,6 @@ import { BillingCycle } from '../entities/plan-definition.entity';
 import { DiscountCodeService } from './discount-code.service';
 import { PlanDefinitionService } from './plan-definition.service';
 import { SubscriptionCoreService } from './subscription-core.service';
-import { PlanChangeRequest } from './subscription-types';
 
 /**
  * Subscription Plan Change Service
@@ -30,16 +28,6 @@ export class SubscriptionPlanChangeService {
     private readonly discountService: DiscountCodeService,
     private readonly subscriptionCore: SubscriptionCoreService,
   ) {}
-
-  /**
-   * Change subscription plan (upgrade/downgrade)
-   */
-  changePlan(request: PlanChangeRequest): never {
-    void request;
-    throw new ConflictException(
-      'Subscription plan changes are billing-service-owned. Use BillingAdminCommandClientService.changeSubscriptionPlan.',
-    );
-  }
 
   /**
    * Preview plan change without executing

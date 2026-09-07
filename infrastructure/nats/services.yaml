@@ -280,6 +280,9 @@ services:
   - request.auth.admin.createModule
   - request.auth.admin.updateModule
   - request.auth.admin.deleteModule
+  - request.auth.admin.grantPlatformCapability
+  - request.auth.admin.revokePlatformCapability
+  - request.auth.admin.listPlatformCapabilityGrants
   - policy.ingest_backend.changed
   - events.platform.schema-migration.>
   - events.security.events.>

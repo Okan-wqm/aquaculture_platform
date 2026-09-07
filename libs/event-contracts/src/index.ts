@@ -21,6 +21,8 @@ export * from './billing/billing-plan-tier';
 // PENDING_CAPACITY → ACTIVE → SUPERSEDED/RELEASED state machine.
 export * from './billing/telemetry-capacity';
 export * from './enums/tenant-status.enum';
+// ADR-0016: closed platform-operator capability set, minted into the JWT by auth-service.
+export * from './enums/platform-capability.enum';
 // Tenant lifecycle transition authority (auth-audit HIGH-007). Pure,
 // dependency-free logic that gates every status change + login + erasure.
 export * from './enums/tenant-status.machine';

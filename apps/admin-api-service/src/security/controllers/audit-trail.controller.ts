@@ -4,6 +4,18 @@
  * Endpoints for audit trail queries, export, retention policies, and alerts.
  */
 
+import {
+  CreateAlertRuleDto,
+  ExportAuditTrailDto,
+  QueryAuditTrailDto,
+  UpdateAuditAlertRuleDto,
+} from './dto/audit-trail.dto';
+import {
+  Destructive,
+  RequiresCapability,
+  TenantParam,
+  TenantIdCarrier,
+} from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -45,210 +57,6 @@ import {
   RetentionStats,
 } from '../services/audit-trail.service';
 import { ACTIVITY_LOG_SORT_FIELDS, ActivityLogSortField } from '../sorting/activity-log-sort';
-
-// ============================================================================
-// DTOs
-// ============================================================================
-
-export class QueryAuditTrailDto {
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  @Min(1)
-  page?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  @Min(1)
-  @Max(100)
-  limit?: number;
-
-  @IsOptional()
-  @IsString()
-  tenantId?: string;
-
-  @IsOptional()
-  @IsString()
-  userId?: string;
-
-  @IsOptional()
-  @IsString()
-  performedBy?: string;
-
-  @IsOptional()
-  @IsString()
-  userEmail?: string;
-
-  @IsOptional()
-  @IsIn([
-    'user_action',
-    'system_event',
-    'api_call',
-    'data_access',
-    'security_event',
-    'configuration',
-    'authentication',
-  ])
-  category?: ActivityCategory;
-
-  @IsOptional()
-  @IsString()
-  severity?: string; // Comma-separated
-
-  @IsOptional()
-  @IsString()
-  action?: string;
-
-  @IsOptional()
-  @IsString()
-  actions?: string; // Comma-separated
-
-  @IsOptional()
-  @IsString()
-  entityType?: string;
-
-  @IsOptional()
-  @IsString()
-  entityId?: string;
-
-  @IsOptional()
-  @IsString()
-  ipAddress?: string;
-
-  @IsOptional()
-  @Transform(({ value }) => value === 'true' || value === true)
-  @IsBoolean()
-  success?: boolean;
-
-  @IsOptional()
-  @IsString()
-  startDate?: string;
-
-  @IsOptional()
-  @IsString()
-  endDate?: string;
-
-  @IsOptional()
-  @IsString()
-  search?: string;
-
-  @IsOptional()
-  @IsString()
-  searchQuery?: string;
-
-  @IsOptional()
-  @IsString()
-  tags?: string; // Comma-separated
-
-  @IsOptional()
-  @IsIn(ACTIVITY_LOG_SORT_FIELDS)
-  sortBy?: ActivityLogSortField;
-
-  @IsOptional()
-  @IsIn(['ASC', 'DESC'])
-  sortOrder?: 'ASC' | 'DESC';
-}
-
-class ExportAuditTrailDto {
-  @IsIn(['csv', 'json', 'pdf'])
-  format!: 'csv' | 'json' | 'pdf';
-
-  @IsOptional()
-  @IsString()
-  tenantId?: string;
-
-  @IsOptional()
-  @IsString()
-  userId?: string;
-
-  @IsOptional()
-  @IsString()
-  category?: ActivityCategory;
-
-  @IsString()
-  startDate!: string;
-
-  @IsString()
-  endDate!: string;
-
-  @IsOptional()
-  @IsBoolean()
-  includeMetadata?: boolean;
-
-  @IsOptional()
-  @IsBoolean()
-  includeChanges?: boolean;
-}
-
-class CreateAlertRuleDto {
-  @IsString()
-  name!: string;
-
-  @IsString()
-  description!: string;
-
-  @IsBoolean()
-  isActive!: boolean;
-
-  @IsObject()
-  conditions!: {
-    category?: ActivityCategory[];
-    severity?: ActivitySeverity[];
-    actions?: string[];
-    entityTypes?: string[];
-    successOnly?: boolean;
-    failureOnly?: boolean;
-    ipPatterns?: string[];
-  };
-
-  @IsArray()
-  alertChannels!: ('email' | 'webhook' | 'slack' | 'sms')[];
-
-  @IsArray()
-  recipients!: string[];
-
-  @IsNumber()
-  cooldownMinutes!: number;
-}
-
-class UpdateAuditAlertRuleDto {
-  @IsOptional()
-  @IsString()
-  name?: string;
-
-  @IsOptional()
-  @IsString()
-  description?: string;
-
-  @IsOptional()
-  @IsBoolean()
-  isActive?: boolean;
-
-  @IsOptional()
-  @IsObject()
-  conditions?: {
-    category?: ActivityCategory[];
-    severity?: ActivitySeverity[];
-    actions?: string[];
-    entityTypes?: string[];
-    successOnly?: boolean;
-    failureOnly?: boolean;
-    ipPatterns?: string[];
-  };
-
-  @IsOptional()
-  @IsArray()
-  alertChannels?: ('email' | 'webhook' | 'slack' | 'sms')[];
-
-  @IsOptional()
-  @IsArray()
-  recipients?: string[];
-
-  @IsOptional()
-  @IsNumber()
-  cooldownMinutes?: number;
-}
 
 // ============================================================================
 // Controller
@@ -341,7 +149,7 @@ export class AuditTrailController {
    */
   @Get('summary')
   async getAuditSummary(
-    @Query('tenantId') tenantId?: string,
+    @TenantParam('query', { optional: true }) tenantId?: string,
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
   ): Promise<{
@@ -366,11 +174,17 @@ export class AuditTrailController {
    * Export audit trail
    */
   @AuditedOperation({ resource: 'AuditTrail', action: 'EXPORT' })
+  @Destructive()
+  @RequiresCapability('security-ops')
   @Post('export')
-  async exportAuditTrail(@Body() dto: ExportAuditTrailDto, @Res() res: Response): Promise<void> {
+  async exportAuditTrail(
+    @TenantParam('body', { optional: true, allow: 'any' }) tenantId: string | undefined,
+    @Body() dto: ExportAuditTrailDto,
+    @Res() res: Response,
+  ): Promise<void> {
     const options: AuditExportOptions = {
       format: dto.format,
-      tenantId: dto.tenantId,
+      tenantId: tenantId,
       userId: dto.userId,
       category: dto.category,
       startDate: new Date(dto.startDate),
@@ -433,6 +247,7 @@ export class AuditTrailController {
    * Create alert rule
    */
   @AuditedOperation({ resource: 'AlertRule', action: 'CREATE' })
+  @RequiresCapability('security-ops')
   @Post('alert-rules')
   @HttpCode(HttpStatus.CREATED)
   createAlertRule(@Body() dto: CreateAlertRuleDto): AuditAlertRule {
@@ -443,6 +258,7 @@ export class AuditTrailController {
    * Update alert rule
    */
   @AuditedOperation({ resource: 'AlertRule', action: 'UPDATE' })
+  @RequiresCapability('security-ops')
   @Put('alert-rules/:id')
   updateAlertRule(
     @Param('id') id: string,
@@ -455,6 +271,8 @@ export class AuditTrailController {
    * Delete alert rule
    */
   @AuditedOperation({ resource: 'AlertRule', action: 'DELETE' })
+  @Destructive()
+  @RequiresCapability('security-ops')
   @Delete('alert-rules/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
   deleteAlertRule(@Param('id') id: string): void {

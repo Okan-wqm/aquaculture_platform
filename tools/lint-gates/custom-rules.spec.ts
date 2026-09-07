@@ -26,6 +26,7 @@ import { describe, it } from 'node:test';
 import { RuleTester } from 'eslint';
 
 import { rules } from '../eslint-rules';
+import noActorInInputDto from '../eslint-rules/rules/no-actor-in-input-dto';
 import noBareGraphqlQueryString from '../eslint-rules/rules/no-bare-graphql-query-string';
 import noBareTenantQueryKey from '../eslint-rules/rules/no-bare-tenant-query-key';
 import noClaudeSdkRawCall from '../eslint-rules/rules/no-claude-sdk-raw-call';
@@ -90,6 +91,7 @@ const testedRuleNames = [
   'no-bare-graphql-query-string',
   'no-unpinned-ssrf-fetch',
   'no-unsandboxed-html-frame',
+  'no-actor-in-input-dto',
 ] as const;
 
 void it('has a RuleTester suite for every exported rule', () => {
@@ -223,6 +225,50 @@ ruleTester.run('no-unsandboxed-html-frame', asRule(noUnsandboxedHtmlFrame), {
       code: 'const a = <iframe srcDoc={html} sandbox="" title="t" />;',
       filename: 'web/modules/tenant-admin/src/pages/Announcements.tsx',
       errors: [{ messageId: 'srcDocOutsideSandboxedPreview' }],
+    },
+  ],
+});
+
+ruleTester.run('no-actor-in-input-dto', asRule(noActorInInputDto), {
+  valid: [
+    {
+      // Filtering BY actor on a read is allowed.
+      code: 'class AuditQueryDto { @IsOptional() @IsString() performedBy?: string; }',
+      filename: 'apps/admin-api-service/src/security/controllers/audit-trail.controller.ts',
+    },
+    {
+      // An entity column is not a request body.
+      code: "class TenantActivity { @Column({ type: 'varchar' }) performedBy!: string; }",
+      filename: 'apps/admin-api-service/src/tenant/entities/tenant-activity.entity.ts',
+    },
+    {
+      // A plain response shape carries no validator, so it is not an input DTO.
+      code: 'class TenantDetailDto { createdBy?: string; }',
+      filename: 'apps/admin-api-service/src/tenant/dto/tenant-detail.dto.ts',
+    },
+    {
+      code: 'class SuspendTenantDto { @IsString() @MaxLength(500) reason!: string; }',
+      filename: 'apps/admin-api-service/src/tenant/dto/suspend-tenant.dto.ts',
+    },
+  ],
+  invalid: [
+    {
+      code: "class TerminateUserSessionsDto { @IsIn(['logout']) reason!: string; @IsOptional() @IsString() terminatedBy?: string; }",
+      filename: 'apps/admin-api-service/src/security/controllers/activity-log.controller.ts',
+      errors: [{ messageId: 'actorFromClient', data: { name: 'terminatedBy' } }],
+    },
+    {
+      code: 'class LogActivityDto { @IsString() action!: string; @IsOptional() @IsString() performedBy?: string; @IsOptional() @IsString() performedByEmail?: string; }',
+      filename: 'apps/admin-api-service/src/security/controllers/activity-log.controller.ts',
+      errors: [
+        { messageId: 'actorFromClient', data: { name: 'performedBy' } },
+        { messageId: 'actorFromClient', data: { name: 'performedByEmail' } },
+      ],
+    },
+    {
+      code: 'class CreateTicketDto { @IsString() title!: string; @IsString() createdByName!: string; }',
+      filename: 'apps/admin-api-service/src/support/controllers/ticket.controller.ts',
+      errors: [{ messageId: 'actorFromClient', data: { name: 'createdByName' } }],
     },
   ],
 });

@@ -97,8 +97,6 @@ const STATIC_SEGMENTS = new Set([
   'support',
   'tickets',
   'onboarding',
-  'impersonation',
-  'debug-tools',
 ]);
 
 /**

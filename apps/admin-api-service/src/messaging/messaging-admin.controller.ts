@@ -11,6 +11,7 @@
  *
  * @see ADR-012 Phase 3 (Compliance)
  */
+import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
   Get,
@@ -45,7 +46,6 @@ interface CreateLegalHoldDto {
   reason: string;
   legalMatterId: string;
   legalMatterDescription?: string;
-  requestedBy?: string;
   expiresAt?: string;
 }
 
@@ -194,6 +194,7 @@ export class MessagingAdminController {
   /**
    * Create a new legal hold on messaging data.
    */
+  @AuditedOperation({ resource: 'LegalHold', action: 'CREATE' })
   @Post('compliance/legal-holds')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Create a legal hold' })
@@ -210,7 +211,8 @@ export class MessagingAdminController {
         reason: dto.reason,
         legalMatterId: dto.legalMatterId,
         legalMatterDescription: dto.legalMatterDescription,
-        requestedBy: dto.requestedBy,
+        // ADMIN-CRITICAL-102: the requesting actor is the verified principal.
+        requestedBy: user.id,
         expiresAt: dto.expiresAt,
       },
     );
@@ -220,6 +222,7 @@ export class MessagingAdminController {
    * Release (deactivate) an existing legal hold.
    * @param id - UUID of the legal hold to release
    */
+  @AuditedOperation({ resource: 'LegalHold', action: 'RELEASE' })
   @Delete('compliance/legal-holds/:id')
   @ApiOperation({ summary: 'Release a legal hold' })
   async releaseLegalHold(
@@ -258,6 +261,7 @@ export class MessagingAdminController {
    * Create or update a retention policy.
    * @param id - Tenant ID (used as scope identifier)
    */
+  @AuditedOperation({ resource: 'RetentionPolicy', action: 'UPDATE' })
   @Put('retention/policies/:id')
   @ApiOperation({ summary: 'Update a retention policy' })
   async updateRetentionPolicy(
@@ -351,6 +355,7 @@ export class MessagingAdminController {
    * Trigger a data export for a specific tenant.
    * @param id - UUID of the tenant to export
    */
+  @AuditedOperation({ resource: 'Export', action: 'TRIGGER' })
   @Post('tenants/:id/export')
   @HttpCode(HttpStatus.ACCEPTED)
   @ApiOperation({ summary: 'Trigger tenant data export' })
@@ -391,6 +396,7 @@ export class MessagingAdminController {
    * Not yet implemented in messaging-service (personas are currently static).
    * @param id - Persona ID
    */
+  @AuditedOperation({ resource: 'Persona', action: 'UPDATE' })
   @Put('personas/:id')
   @ApiOperation({ summary: 'Update AI persona configuration' })
   async updatePersona(

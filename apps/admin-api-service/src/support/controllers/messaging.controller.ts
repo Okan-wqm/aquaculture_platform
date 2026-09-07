@@ -4,6 +4,7 @@
  * Admin-tenant mesajlaşma endpoint'leri.
  */
 
+import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
   Get,
@@ -120,6 +121,7 @@ export class MessagingController {
     return this.messagingService.getThreadsForTenant(tenantId);
   }
 
+  @AuditedOperation({ resource: 'Thread', action: 'CREATE' })
   @Post('threads')
   @PlatformAdminOnly()
   @HttpCode(HttpStatus.CREATED)
@@ -141,16 +143,19 @@ export class MessagingController {
     );
   }
 
+  @AuditedOperation({ resource: 'Thread', action: 'CLOSE' })
   @Post('threads/:threadId/close')
   async closeThread(@Param('threadId') threadId: string) {
     return this.messagingService.closeThread(threadId);
   }
 
+  @AuditedOperation({ resource: 'Thread', action: 'REOPEN' })
   @Post('threads/:threadId/reopen')
   async reopenThread(@Param('threadId') threadId: string) {
     return this.messagingService.reopenThread(threadId);
   }
 
+  @AuditedOperation({ resource: 'Thread', action: 'ARCHIVE' })
   @Post('threads/:threadId/archive')
   async archiveThread(@Param('threadId') threadId: string) {
     return this.messagingService.archiveThread(threadId);
@@ -175,6 +180,7 @@ export class MessagingController {
     });
   }
 
+  @AuditedOperation({ resource: 'Message', action: 'ADD' })
   @Post('threads/:threadId/messages')
   @PlatformAdminOnly()
   @HttpCode(HttpStatus.CREATED)
@@ -197,6 +203,7 @@ export class MessagingController {
     });
   }
 
+  @AuditedOperation({ resource: 'AsRead', action: 'MARK' })
   @Post('threads/:threadId/read')
   @PlatformAdminOnly()
   async markAsRead(@Param('threadId') threadId: string) {
@@ -208,6 +215,7 @@ export class MessagingController {
   // Bulk Messaging
   // ============================================================================
 
+  @AuditedOperation({ resource: 'BulkMessage', action: 'SEND' })
   @Post('bulk')
   @HttpCode(HttpStatus.OK)
   async sendBulkMessage(

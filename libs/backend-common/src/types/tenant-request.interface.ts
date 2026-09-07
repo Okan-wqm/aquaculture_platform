@@ -5,6 +5,27 @@ import { Request } from 'express';
  * Emitted by gateway-api, verified by every tenant-scoped subgraph, and used
  * across guards, decorators, middleware, and repositories as the SSoT identity.
  */
+/**
+ * ADR-0007: the claims a SUPER_ADMIN cross-tenant act-as carries through the
+ * signed assertion so every downstream audit row records who acted from where
+ * and why. Absent when the request is not a cross-tenant act-as.
+ */
+export interface ActAsAssertionClaims {
+  /** The actor's own tenant — null for a platform (SUPER_ADMIN) account. */
+  homeTenantId: string | null;
+  /** Operator-supplied justification (X-Act-As-Reason), 1–512 chars. */
+  reason: string;
+  /** Ticket reference (X-Act-As-Ticket) when supplied. */
+  ticket: string | null;
+}
+
+/** The validated act-as context an ingress resolves and a subgraph rebuilds from the assertion. */
+export interface ActAsContext extends ActAsAssertionClaims {
+  /** The tenant acted on — always equals the request's effectiveTenantId. */
+  targetTenantId: string;
+  mfaVerified: boolean;
+}
+
 export interface VerifiedUserAssertion {
   issuer: 'gateway-api';
   subject: string;
@@ -15,6 +36,8 @@ export interface VerifiedUserAssertion {
   mfaVerified: boolean;
   issuedAt: string;
   assertionId?: string;
+  /** ADR-0007: present only for a validated SUPER_ADMIN cross-tenant act-as. */
+  actAs?: ActAsAssertionClaims;
   /**
    * SEC-HIGH-051: farm-service Site ids the user is assigned to. Threaded from
    * the JWT `assignedSiteIds` claim through the HMAC-bound assertion so the
@@ -127,4 +150,6 @@ export interface TenantRequest extends Request {
   verifiedIdentity?: VerifiedServiceIdentity;
   /** Gateway-minted business identity assertion. */
   verifiedUserAssertion?: VerifiedUserAssertion;
+  /** ADR-0007: validated cross-tenant act-as context (ingress-resolved or assertion-derived). */
+  actAs?: ActAsContext;
 }

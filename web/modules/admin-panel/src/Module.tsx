@@ -70,8 +70,6 @@ const MaintenancePage = lazy(() => import('./pages/system/MaintenancePage'));
 const PerformanceDashboardPage = lazy(() => import('./pages/system/PerformanceDashboardPage'));
 const ErrorTrackingPage = lazy(() => import('./pages/system/ErrorTrackingPage'));
 const JobQueuePage = lazy(() => import('./pages/system/JobQueuePage'));
-const ImpersonationPage = lazy(() => import('./pages/system/ImpersonationPage'));
-const DebugToolsPage = lazy(() => import('./pages/system/DebugToolsPage'));
 
 // ============================================================================
 // Suspense Fallback
@@ -164,8 +162,6 @@ const AdminPanelModule: React.FC = () => {
         <Route path="system/performance" element={<PerformanceDashboardPage />} />
         <Route path="system/errors" element={<ErrorTrackingPage />} />
         <Route path="system/jobs" element={<JobQueuePage />} />
-        <Route path="system/impersonation" element={<ImpersonationPage />} />
-        <Route path="system/debug" element={<DebugToolsPage />} />
 
         {/* Database */}
         <Route path="database" element={<DatabaseManagementPage />} />

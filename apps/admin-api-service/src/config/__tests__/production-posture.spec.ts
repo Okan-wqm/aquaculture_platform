@@ -6,7 +6,6 @@ import {
 
 const SOUND_PRODUCTION_ENV = {
   NODE_ENV: 'production',
-  ENABLE_DEBUG_TOOLS: 'false',
   ENABLE_DB_EXPLORER_WRITES: 'false',
   ENABLE_RAW_SQL_EXPLORER: 'false',
   WALG_BACKUP_EPOCH: 'epoch-20260716-001',
@@ -53,7 +52,7 @@ describe('admin-api production posture', () => {
 
   it('is a no-op outside production so local toggles keep working', () => {
     expect(() =>
-      assertProductionPosture({ NODE_ENV: 'development', ENABLE_DEBUG_TOOLS: 'true' }),
+      assertProductionPosture({ NODE_ENV: 'development', ENABLE_RAW_SQL_EXPLORER: 'true' }),
     ).not.toThrow();
     expect(() => assertProductionPosture({ NODE_ENV: 'test' })).not.toThrow();
   });

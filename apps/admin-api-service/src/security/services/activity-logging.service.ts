@@ -174,17 +174,6 @@ export class ActivityLoggingService implements OnModuleInit {
   }
 
   /**
-   * Log activity immediately (bypass buffer)
-   */
-  async logActivityImmediate(params: LogActivityParams): Promise<ActivityLog> {
-    const log = this.activityRepository.create({
-      ...params,
-      severity: params.severity || this.determineSeverity(params),
-    });
-    return this.activityRepository.save(log);
-  }
-
-  /**
    * Flush the log buffer to database
    */
   private async flushBuffer(): Promise<void> {
@@ -746,34 +735,6 @@ export class ActivityLoggingService implements OnModuleInit {
         count: parseInt(a.count, 10),
       })),
     };
-  }
-
-  // ============================================================================
-  // Cleanup & Maintenance
-  // ============================================================================
-
-  /**
-   * Archive old activity logs
-   */
-  @Cron(CronExpression.EVERY_DAY_AT_2AM)
-  async archiveOldLogs(): Promise<void> {
-    const archiveDate = new Date();
-    archiveDate.setDate(archiveDate.getDate() - 90); // Archive logs older than 90 days
-
-    const result = await this.activityRepository.update(
-      {
-        createdAt: LessThan(archiveDate),
-        isArchived: false,
-      },
-      {
-        isArchived: true,
-        archivedAt: new Date(),
-      },
-    );
-
-    if (result.affected && result.affected > 0) {
-      this.logger.log(`Archived ${result.affected} activity logs`);
-    }
   }
 
   // ============================================================================

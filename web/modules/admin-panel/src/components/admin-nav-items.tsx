@@ -207,8 +207,6 @@ export const adminNavItems: NavigationItem[] = [
       { id: 'system-performance', label: 'Performance', path: '/admin/system/performance', icon: 'analytics' },
       { id: 'system-errors', label: 'Error Tracking', path: '/admin/system/errors', icon: 'security' },
       { id: 'system-jobs', label: 'Job Queue', path: '/admin/system/jobs', icon: 'modules' },
-      { id: 'system-impersonation', label: 'Impersonation', path: '/admin/system/impersonation', icon: 'users' },
-      { id: 'system-debug', label: 'Debug Tools', path: '/admin/system/debug', icon: 'system' },
     ],
   },
   { id: 'database', label: 'Database', path: '/admin/database', icon: 'database' },

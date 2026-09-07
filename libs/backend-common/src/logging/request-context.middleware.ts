@@ -73,6 +73,7 @@ export class RequestContextMiddleware implements NestMiddleware {
       method: req.method,
       url: req.originalUrl || req.url,
       ip: req.ip ?? 'unknown',
+      ...(typeof req.headers['user-agent'] === 'string' ? { userAgent: req.headers['user-agent'] } : {}),
     };
 
     // Propagate correlation ID back to the caller

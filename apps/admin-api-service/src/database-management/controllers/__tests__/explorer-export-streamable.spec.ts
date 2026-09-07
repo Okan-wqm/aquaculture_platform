@@ -72,7 +72,10 @@ describe('DatabaseExplorerController export StreamableFile contract', () => {
     jest.spyOn(Logger.prototype, 'warn').mockImplementation();
 
     const dataSource = { createQueryRunner: jest.fn(() => makeQueryRunner()) };
-    const auditLogService = { log: jest.fn().mockResolvedValue({ id: 'audit-1' }) };
+    // The explorer writes through the fail-closed writer (ADMIN-CRITICAL-102),
+    // which takes an AuditEntry and reads the actor from the request frame. A
+    // mock that still offered the retired `log` would make every export 403.
+    const auditLogService = { record: jest.fn().mockResolvedValue({ id: 'audit-1' }) };
 
     const moduleRef: TestingModule = await Test.createTestingModule({
       controllers: [DatabaseExplorerController],

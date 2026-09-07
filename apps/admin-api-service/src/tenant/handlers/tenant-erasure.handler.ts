@@ -78,7 +78,7 @@ interface TenantErasureRecoveryRow {
 export type TenantErasureEventSubscriber = Pick<IEventBus, 'subscribeWildcard'>;
 export type TenantErasureOutboxPublisher = Pick<OutboxPublisher, 'enqueue'>;
 export type TenantErasureLegalHoldService = Pick<LegalHoldService, 'assertNoHold'>;
-export type TenantErasureAuditLogger = Pick<AuditLogService, 'log'>;
+export type TenantErasureAuditLogger = Pick<AuditLogService, 'record'>;
 
 export const TENANT_ERASURE_REQUEST_RECOVERY_STALE_SECONDS = 120;
 
@@ -209,11 +209,10 @@ export class RequestTenantErasureHandler
       await queryRunner.release();
     }
 
-    await this.auditLogService.log({
+    await this.auditLogService.record({
       action: 'TENANT_ERASURE_REQUESTED',
       entityType: 'tenant',
       entityId: command.tenantId,
-      performedBy: command.requestedBy,
       details: {
         operationId,
         reason: command.reason,

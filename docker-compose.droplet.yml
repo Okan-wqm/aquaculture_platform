@@ -1198,7 +1198,6 @@ services:
       # X-Forwarded-For hop and without it every per-IP throttle bucket is the
       # bridge address (AUTH-010). The posture check requires it to be set and
       # non-empty, which the existing value satisfies.
-      ENABLE_DEBUG_TOOLS: 'false'
       ENABLE_DB_EXPLORER_WRITES: 'false'
       ENABLE_RAW_SQL_EXPLORER: 'false'
       # ADR-0009: a tenant schema drop records the WAL-G recovery point (this

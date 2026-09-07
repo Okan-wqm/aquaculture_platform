@@ -5,6 +5,7 @@
  * SUPER_ADMIN için geliştirme ve debug amaçlı.
  */
 
+import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
   Get,
@@ -26,10 +27,9 @@ import { Type, Transform } from 'class-transformer';
 import { IsOptional, IsNumber, IsString, IsIn, IsObject, Matches } from 'class-validator';
 import { Request } from 'express';
 import { DataSource } from 'typeorm';
-import type { AuditLogInput } from '../../audit/audit.service';
+import type { AuditEntry } from '../../audit/audit.service';
 import { AuditLogService } from '../../audit/audit.service';
 import { AuditSeverity } from '../../audit/audit.entity';
-import { getAuthUserEmail, requireAuthUserId } from '../../shared/authenticated-request';
 
 import { ThrottleSensitive, ThrottleExport } from '@aquaculture/backend-common/security';
 import { MODULE_SCHEMAS, DEFAULT_TENANT_MODULES } from '@aquaculture/backend-common/database';
@@ -319,15 +319,20 @@ export class DatabaseExplorerController {
     }
   }
 
-  private async requireAuditLog(input: AuditLogInput): Promise<void> {
-    const auditLog = await this.auditLogService.log(input);
-    if (!auditLog) {
+  private async requireAuditLog(entry: AuditEntry): Promise<void> {
+    // The writer fails closed (ADMIN-CRITICAL-102); a refused audit row is a
+    // refused explorer operation, surfaced as 403 rather than a bare 500.
+    try {
+      await this.auditLogService.record(entry);
+    } catch (error) {
+      this.logger.error(
+        `Database explorer operation refused: audit row could not be written (${(error as Error).message})`,
+      );
       throw new ForbiddenException('Database explorer operation could not be audited');
     }
   }
 
   private async auditExplorerWriteIntent(
-    req: Request,
     operation: ExplorerWriteOperation,
     schema: string,
     table: string,
@@ -336,10 +341,6 @@ export class DatabaseExplorerController {
     await this.requireAuditLog({
       action: `DATABASE_EXPLORER_${operation.toUpperCase()}_INTENT`,
       entityType: 'DatabaseTable',
-      performedBy: requireAuthUserId(req),
-      performedByEmail: getAuthUserEmail(req),
-      ipAddress: req.ip,
-      userAgent: req.get('user-agent'),
       severity: AuditSeverity.CRITICAL,
       details: {
         schema,
@@ -522,8 +523,6 @@ export class DatabaseExplorerController {
       await this.requireAuditLog({
         action: 'DATABASE_EXPLORER_READ',
         entityType: 'DatabaseTable',
-        performedBy: requireAuthUserId(req),
-        performedByEmail: getAuthUserEmail(req),
         details: { schema, table, page, limit, rowsReturned: rows.length },
       });
 
@@ -602,8 +601,6 @@ export class DatabaseExplorerController {
       await this.requireAuditLog({
         action: 'DATABASE_EXPLORER_EXPORT',
         entityType: 'DatabaseTable',
-        performedBy: requireAuthUserId(req),
-        performedByEmail: getAuthUserEmail(req),
         severity: AuditSeverity.WARNING,
         details: { schema, table, format, rowsExported: rows.length },
       });
@@ -679,6 +676,7 @@ export class DatabaseExplorerController {
    */
   // Fix: H8 -- per-route throttle: DB write is sensitive (3 req / 5 min)
   @ThrottleSensitive()
+  @AuditedOperation({ resource: 'DatabaseExplorer', action: 'INSERT_ROW' })
   @Post('schemas/:schema/tables/:table/rows')
   async insertRow(
     @Param('schema') schema: string,
@@ -707,7 +705,7 @@ export class DatabaseExplorerController {
       }
     }
 
-    await this.auditExplorerWriteIntent(req, 'insert', schema, table, { columns });
+    await this.auditExplorerWriteIntent('insert', schema, table, { columns });
 
     // WHY: Write operations must use a write-capable runner, not the read-only runner.
     // Previously createReadOnlyQueryRunner() set SET TRANSACTION READ ONLY,
@@ -735,6 +733,7 @@ export class DatabaseExplorerController {
    */
   // Fix: H8 -- per-route throttle: DB write is sensitive (3 req / 5 min)
   @ThrottleSensitive()
+  @AuditedOperation({ resource: 'Row', action: 'UPDATE' })
   @Put('schemas/:schema/tables/:table/rows/:id')
   async updateRow(
     @Param('schema') schema: string,
@@ -774,7 +773,7 @@ export class DatabaseExplorerController {
         throw new BadRequestException('Table has no primary key');
       }
 
-      await this.auditExplorerWriteIntent(req, 'update', schema, table, {
+      await this.auditExplorerWriteIntent('update', schema, table, {
         rowId: id,
         primaryKeyColumn: pkColumn,
         columns,
@@ -804,6 +803,7 @@ export class DatabaseExplorerController {
    */
   // Fix: H8 -- per-route throttle: DB delete is sensitive (3 req / 5 min)
   @ThrottleSensitive()
+  @AuditedOperation({ resource: 'Row', action: 'DELETE' })
   @Delete('schemas/:schema/tables/:table/rows/:id')
   async deleteRow(
     @Param('schema') schema: string,
@@ -828,7 +828,7 @@ export class DatabaseExplorerController {
         throw new BadRequestException('Table has no primary key');
       }
 
-      await this.auditExplorerWriteIntent(req, 'delete', schema, table, {
+      await this.auditExplorerWriteIntent('delete', schema, table, {
         rowId: id,
         primaryKeyColumn: pkColumn,
       });
@@ -931,6 +931,7 @@ export class DatabaseExplorerController {
    */
   // Fix: H8 -- per-route throttle: raw SQL execution is sensitive (3 req / 5 min)
   @ThrottleSensitive()
+  @AuditedOperation({ resource: 'Query', action: 'EXECUTE' })
   @Post('query')
   async executeQuery(@Body() dto: ExecuteQueryDto, @Req() req: Request) {
     const { sql, params = [] } = dto;
@@ -1066,8 +1067,6 @@ export class DatabaseExplorerController {
       await this.requireAuditLog({
         action: 'DATABASE_EXPLORER_RAW_SQL',
         entityType: 'DatabaseQuery',
-        performedBy: requireAuthUserId(req),
-        performedByEmail: getAuthUserEmail(req),
         severity: AuditSeverity.WARNING,
         details: {
           sql: sql.substring(0, 2000),

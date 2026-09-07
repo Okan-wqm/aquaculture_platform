@@ -13,9 +13,12 @@ import {
 import { RequestContextMiddleware } from '@aquaculture/backend-common/logging';
 import { MetricsMiddleware } from '@aquaculture/backend-common/metrics';
 import {
+  CaptureRequestedTenantMiddleware,
   CorrelationIdMiddleware,
+  EffectiveTenantMiddleware,
   RequestLoggingMiddleware,
   StripInternalHeadersMiddleware,
+  TENANT_ACTIVE_CHECK,
   TenantContextMiddleware,
   UserContextMiddleware,
 } from '@aquaculture/backend-common/middleware';
@@ -67,10 +70,6 @@ import { TenantIsolationGuard } from './guards/tenant-isolation.guard';
 import { HealthModule } from './health/health.module';
 import { RequestLoggingInterceptor } from './interceptors/request-logging.interceptor';
 import { GatewayMetricsModule } from './metrics/metrics.module';
-import {
-  CaptureRequestedTenantMiddleware,
-  EffectiveTenantMiddleware,
-} from './middleware/effective-tenant.middleware';
 import { JwtMiddleware } from './middleware/jwt.middleware';
 import { RequestValidatorMiddleware } from './middleware/request-validator.middleware';
 import { SecurityHeadersMiddleware } from './middleware/security-headers.middleware';
@@ -523,6 +522,10 @@ function positiveIntConfig(
     // TenantContextMiddleware uses @Optional() @Inject(TenantLookupService), so
     // registration here makes it available in production where it queries auth-service.
     TenantLookupService,
+    // ADR-0007: bind the kernel act-as authority's tenant-ACTIVE port to the
+    // gateway's lookup service. EffectiveTenantMiddleware fails closed in
+    // production without this provider.
+    { provide: TENANT_ACTIVE_CHECK, useExisting: TenantLookupService },
     // Authentication strategy services (injected into AuthGuard)
     ApiKeyAuthStrategy,
     BasicAuthStrategy,

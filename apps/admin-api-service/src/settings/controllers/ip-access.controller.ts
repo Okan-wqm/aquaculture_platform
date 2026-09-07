@@ -1,3 +1,4 @@
+import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
   Get,
@@ -124,6 +125,7 @@ export class IpAccessController {
    * Create a new rule
    * Fix: C6 -- JWT-based identity
    */
+  @AuditedOperation({ resource: 'Rule', action: 'CREATE' })
   @Post()
   async createRule(
     @Body() dto: CreateIpAccessRuleDto,
@@ -139,6 +141,7 @@ export class IpAccessController {
   /**
    * Update a rule
    */
+  @AuditedOperation({ resource: 'Rule', action: 'UPDATE' })
   @Put(':id')
   async updateRule(
     @Param('id') id: string,
@@ -150,6 +153,7 @@ export class IpAccessController {
   /**
    * Delete a rule
    */
+  @AuditedOperation({ resource: 'Rule', action: 'DELETE' })
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteRule(@Param('id') id: string) {
@@ -163,6 +167,7 @@ export class IpAccessController {
   /**
    * Check if an IP is allowed
    */
+  @AuditedOperation({ resource: 'IpAccess', action: 'CHECK_IP_ACCESS' })
   @Post('check')
   async checkIpAccess(
     @Body() dto: CheckIpAccessDto,
@@ -178,6 +183,7 @@ export class IpAccessController {
    * Bulk add to whitelist
    * H23 fix: BulkIpDto with @ArrayMaxSize(500) + @IsIP validation; createdBy from JWT
    */
+  @AuditedOperation({ resource: 'Whitelist', action: 'BULK' })
   @Post('whitelist/bulk')
   async bulkWhitelist(
     @Body() dto: BulkIpDto,
@@ -198,6 +204,7 @@ export class IpAccessController {
    * Bulk add to blacklist
    * H23 fix: BulkIpDto with @ArrayMaxSize(500) + @IsIP validation; createdBy from JWT
    */
+  @AuditedOperation({ resource: 'Blacklist', action: 'BULK' })
   @Post('blacklist/bulk')
   async bulkBlacklist(
     @Body() dto: BulkIpDto,
@@ -217,6 +224,7 @@ export class IpAccessController {
   /**
    * Clear all rules of a type
    */
+  @AuditedOperation({ resource: 'Rules', action: 'CLEAR' })
   @Delete('type/:ruleType/clear')
   async clearRules(
     @Param('ruleType') ruleType: 'whitelist' | 'blacklist',
@@ -241,6 +249,7 @@ export class IpAccessController {
   /**
    * Cleanup expired rules
    */
+  @AuditedOperation({ resource: 'IpAccess', action: 'CLEANUP_EXPIRED_RULES' })
   @Post('cleanup')
   async cleanupExpiredRules() {
     const deleted = await this.ipAccessService.cleanupExpiredRules();

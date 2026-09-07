@@ -1,3 +1,4 @@
+import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
   Get,
@@ -148,6 +149,7 @@ export class ModulesController {
   /**
    * Create new system module
    */
+  @AuditedOperation({ resource: 'Module', action: 'CREATE' })
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async createModule(@Body() dto: CreateModuleDto) {
@@ -157,6 +159,7 @@ export class ModulesController {
   /**
    * Update module
    */
+  @AuditedOperation({ resource: 'Module', action: 'UPDATE' })
   @Put(':id')
   async updateModule(
     @Param('id', ParseUUIDPipe) id: string,
@@ -168,6 +171,7 @@ export class ModulesController {
   /**
    * Activate module
    */
+  @AuditedOperation({ resource: 'Module', action: 'ACTIVATE' })
   @Patch(':id/activate')
   async activateModule(@Param('id', ParseUUIDPipe) id: string) {
     return this.modulesService.setModuleStatus(id, true);
@@ -176,6 +180,7 @@ export class ModulesController {
   /**
    * Deactivate module
    */
+  @AuditedOperation({ resource: 'Module', action: 'DEACTIVATE' })
   @Patch(':id/deactivate')
   async deactivateModule(@Param('id', ParseUUIDPipe) id: string) {
     return this.modulesService.setModuleStatus(id, false);
@@ -184,6 +189,7 @@ export class ModulesController {
   /**
    * Delete module
    */
+  @AuditedOperation({ resource: 'Module', action: 'DELETE' })
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteModule(@Param('id', ParseUUIDPipe) id: string) {
@@ -193,6 +199,7 @@ export class ModulesController {
   /**
    * Assign module to tenant
    */
+  @AuditedOperation({ resource: 'ModuleToTenant', action: 'ASSIGN' })
   @Post('assignments')
   @HttpCode(HttpStatus.CREATED)
   async assignModuleToTenant(@Body() dto: AssignModuleDto) {
@@ -202,6 +209,7 @@ export class ModulesController {
   /**
    * Remove module from tenant
    */
+  @AuditedOperation({ resource: 'ModuleFromTenant', action: 'DELETE' })
   @Delete('assignments/:tenantId/:moduleId')
   @HttpCode(HttpStatus.NO_CONTENT)
   async removeModuleFromTenant(

@@ -19,6 +19,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.rules = void 0;
+const no_actor_in_input_dto_1 = __importDefault(require("./rules/no-actor-in-input-dto"));
 const no_bare_graphql_query_string_1 = __importDefault(require("./rules/no-bare-graphql-query-string"));
 const no_bare_tenant_query_key_1 = __importDefault(require("./rules/no-bare-tenant-query-key"));
 const no_claude_sdk_raw_call_1 = __importDefault(require("./rules/no-claude-sdk-raw-call"));
@@ -36,5 +37,6 @@ exports.rules = {
     'no-bare-graphql-query-string': no_bare_graphql_query_string_1.default,
     'no-unpinned-ssrf-fetch': no_unpinned_ssrf_fetch_1.default,
     'no-unsandboxed-html-frame': no_unsandboxed_html_frame_1.default,
+    'no-actor-in-input-dto': no_actor_in_input_dto_1.default,
 };
 //# sourceMappingURL=index.js.map

@@ -4,6 +4,7 @@
  * Destek ticket yönetimi endpoint'leri.
  */
 
+import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
   Get,
@@ -42,13 +43,6 @@ class CreateTicketDto {
   @IsOptional()
   @IsString()
   tenantName?: string;
-
-  @IsString()
-  createdByName!: string;
-
-  @IsOptional()
-  @IsString()
-  createdByEmail?: string;
 
   @IsString()
   subject!: string;
@@ -127,19 +121,11 @@ class AddCommentDto {
 class ChangeStatusDto {
   @IsString()
   status!: TicketStatus;
-
-  @IsOptional()
-  @IsString()
-  changedByName?: string;
 }
 
 class ChangePriorityDto {
   @IsString()
   priority!: TicketPriority;
-
-  @IsOptional()
-  @IsString()
-  changedByName?: string;
 }
 
 class SatisfactionRatingDto {
@@ -258,22 +244,23 @@ export class TicketController {
     });
   }
 
+  @AuditedOperation({ resource: 'Ticket', action: 'CREATE' })
   @Post()
   @PlatformAdminOnly()
   @HttpCode(HttpStatus.CREATED)
   async createTicket(@Body() dto: CreateTicketDto, @CurrentUser() user: CurrentUserData) {
-    if (!dto.tenantId || !dto.subject || !dto.description || !dto.createdByName) {
-      throw new BadRequestException(
-        'tenantId, subject, description, and createdByName are required',
-      );
+    if (!dto.tenantId || !dto.subject || !dto.description) {
+      throw new BadRequestException('tenantId, subject, and description are required');
     }
 
+    // ADMIN-CRITICAL-102: the creator is the verified platform admin, not a
+    // name the request body offers.
     return this.ticketService.createTicket({
       tenantId: dto.tenantId,
       tenantName: dto.tenantName,
       createdBy: user.id,
-      createdByName: dto.createdByName,
-      createdByEmail: dto.createdByEmail,
+      createdByName: user.email,
+      createdByEmail: user.email,
       subject: dto.subject,
       description: dto.description,
       category: dto.category,
@@ -282,6 +269,7 @@ export class TicketController {
     });
   }
 
+  @AuditedOperation({ resource: 'Ticket', action: 'UPDATE' })
   @Put(':id')
   async updateTicket(@Param('id') id: string, @Body() dto: UpdateTicketDto) {
     return this.ticketService.updateTicket(id, {
@@ -299,6 +287,7 @@ export class TicketController {
   // Actions
   // ============================================================================
 
+  @AuditedOperation({ resource: 'Ticket', action: 'ASSIGN' })
   @Post(':id/assign')
   async assignTicket(@Param('id') id: string, @Body() dto: AssignTicketDto) {
     if (!dto.assignedTo || !dto.assignedToName) {
@@ -308,6 +297,7 @@ export class TicketController {
     return this.ticketService.assignTicket(id, dto.assignedTo, dto.assignedToName);
   }
 
+  @AuditedOperation({ resource: 'Status', action: 'CHANGE' })
   @Post(':id/status')
   async changeStatus(
     @Param('id') id: string,
@@ -318,14 +308,10 @@ export class TicketController {
       throw new BadRequestException('status is required');
     }
 
-    return this.ticketService.changeStatus(
-      id,
-      dto.status,
-      user.id,
-      dto.changedByName || user.email,
-    );
+    return this.ticketService.changeStatus(id, dto.status, user.id, user.email);
   }
 
+  @AuditedOperation({ resource: 'Priority', action: 'CHANGE' })
   @Post(':id/priority')
   async changePriority(
     @Param('id') id: string,
@@ -336,12 +322,7 @@ export class TicketController {
       throw new BadRequestException('priority is required');
     }
 
-    return this.ticketService.changePriority(
-      id,
-      dto.priority,
-      user.id,
-      dto.changedByName || user.email,
-    );
+    return this.ticketService.changePriority(id, dto.priority, user.id, user.email);
   }
 
   // ============================================================================
@@ -362,6 +343,7 @@ export class TicketController {
     });
   }
 
+  @AuditedOperation({ resource: 'Comment', action: 'ADD' })
   @Post(':id/comments')
   @PlatformAdminOnly()
   @HttpCode(HttpStatus.CREATED)
@@ -403,6 +385,7 @@ export class TicketController {
     });
   }
 
+  @AuditedOperation({ resource: 'Reply', action: 'ADD' })
   @Post(':id/replies')
   @PlatformAdminOnly()
   @HttpCode(HttpStatus.CREATED)
@@ -429,6 +412,7 @@ export class TicketController {
   // Satisfaction
   // ============================================================================
 
+  @AuditedOperation({ resource: 'SatisfactionRating', action: 'SUBMIT' })
   @Post(':id/satisfaction')
   @PlatformAdminOnly()
   async submitSatisfactionRating(@Param('id') id: string, @Body() dto: SatisfactionRatingDto) {

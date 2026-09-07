@@ -4,6 +4,7 @@
  * Tenant schema oluşturma, yönetim ve izolasyon endpoint'leri.
  */
 
+import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
   Get,
@@ -95,6 +96,7 @@ export class SchemaController {
     return this.schemaService.getSchemaInfo(tenantId);
   }
 
+  @AuditedOperation({ resource: 'Schema', action: 'CREATE' })
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async createSchema(@Body() dto: CreateSchemaDto) {
@@ -104,22 +106,26 @@ export class SchemaController {
     return this.schemaService.createTenantSchema(dto.tenantId);
   }
 
+  @AuditedOperation({ resource: 'Schemas', action: 'SYNC' })
   @Post('sync')
   async syncSchemas(@Body() dto: SyncSchemasDto) {
     return this.schemaService.syncExistingTenantSchemas(dto.tenantId, dto.modules);
   }
 
+  @AuditedOperation({ resource: 'Schema', action: 'SUSPEND' })
   @Post(':tenantId/suspend')
   async suspendSchema(@Param('tenantId', ParseUUIDPipe) tenantId: string) {
     return this.schemaService.suspendSchema(tenantId);
   }
 
+  @AuditedOperation({ resource: 'Schema', action: 'ACTIVATE' })
   @Post(':tenantId/activate')
   async activateSchema(@Param('tenantId', ParseUUIDPipe) tenantId: string) {
     return this.schemaService.activateSchema(tenantId);
   }
 
   // SECURITY: destructive action requires confirmation token and audit
+  @AuditedOperation({ resource: 'Schema', action: 'DELETE' })
   @Delete(':tenantId')
   @Roles('SUPER_ADMIN')
   @HttpCode(HttpStatus.NO_CONTENT)
@@ -167,6 +173,7 @@ export class SchemaController {
     return this.schemaService.validateSchemaIsolation(tenantId);
   }
 
+  @AuditedOperation({ resource: 'SchemaStats', action: 'REFRESH' })
   @Post(':tenantId/refresh-stats')
   async refreshSchemaStats(@Param('tenantId', ParseUUIDPipe) tenantId: string) {
     return this.schemaService.updateSchemaStats(tenantId);
@@ -190,6 +197,7 @@ export class SchemaController {
   // Backfill
   // ============================================================================
 
+  @AuditedOperation({ resource: 'Schema', action: 'BACKFILL_TRACKING_RECORDS' })
   @Post('backfill-tracking')
   async backfillTrackingRecords() {
     return this.schemaService.backfillTrackingRecords();

@@ -4,6 +4,7 @@
  * Endpoints for security events, incidents, threat intelligence, and dashboard.
  */
 
+import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
   Get,
@@ -402,6 +403,7 @@ export class SecurityMonitoringController {
   /**
    * Create security event
    */
+  @AuditedOperation({ resource: 'SecurityEvent', action: 'CREATE' })
   @Post('events')
   @HttpCode(HttpStatus.CREATED)
   async createSecurityEvent(@Body() dto: CreateSecurityEventDto): Promise<SecurityEvent> {
@@ -461,6 +463,7 @@ export class SecurityMonitoringController {
   /**
    * Update security event status
    */
+  @AuditedOperation({ resource: 'SecurityEventStatus', action: 'UPDATE' })
   @Put('events/:id/status')
   async updateSecurityEventStatus(
     @Param('id') id: string,
@@ -538,6 +541,7 @@ export class SecurityMonitoringController {
   /**
    * Update incident
    */
+  @AuditedOperation({ resource: 'Incident', action: 'UPDATE' })
   @Put('incidents/:id')
   async updateIncident(
     @Param('id') id: string,
@@ -587,6 +591,7 @@ export class SecurityMonitoringController {
   /**
    * Add threat indicator
    */
+  @AuditedOperation({ resource: 'ThreatIndicator', action: 'ADD' })
   @Post('threat-intelligence')
   @HttpCode(HttpStatus.CREATED)
   async addThreatIndicator(@Body() dto: AddThreatIndicatorDto): Promise<ThreatIntelligence> {
@@ -671,6 +676,7 @@ export class SecurityMonitoringController {
   /**
    * Analyze login attempt for anomalies
    */
+  @AuditedOperation({ resource: 'SecurityMonitoring', action: 'ANALYZE_LOGIN' })
   @Post('analyze/login')
   @HttpCode(HttpStatus.OK)
   async analyzeLogin(

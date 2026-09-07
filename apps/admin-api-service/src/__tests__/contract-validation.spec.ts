@@ -593,25 +593,6 @@ const KNOWN_EXCEPTIONS: Array<{ url: string; method: string; reason: string }> =
     reason: 'Backend uses /security/monitoring/health-score (matches)',
   },
 
-  // Impersonation permissions check via query params
-  {
-    url: '/impersonation/permissions/check',
-    method: 'GET',
-    reason: 'Backend uses /impersonation/permissions/:superAdminId/check/:tenantId',
-  },
-
-  // Impersonation sessions actions (frontend uses /actions, backend uses /log-action)
-  {
-    url: '/impersonation/sessions/:param/actions',
-    method: 'GET',
-    reason: 'No GET actions endpoint; actions are write-only',
-  },
-  {
-    url: '/impersonation/sessions/:param/actions',
-    method: 'POST',
-    reason: 'Backend uses /sessions/:id/log-action',
-  },
-
   // Feature toggle key lookup
   {
     url: '/system/settings/feature-toggles/key/:param',
@@ -848,8 +829,6 @@ describe('Frontend-Backend Contract Validation', () => {
     { domain: 'reports', description: 'Reports API' },
     { domain: 'support', description: 'Support API' },
     { domain: 'settings', description: 'Settings API' },
-    { domain: 'impersonation', description: 'Impersonation API' },
-    { domain: 'debug', description: 'Debug Tools API' },
     { domain: 'security', description: 'Security API' },
     { domain: 'health', description: 'Health API' },
     { domain: 'database', description: 'Database Management API' },
@@ -909,19 +888,6 @@ describe('Frontend-Backend Contract Validation', () => {
 
       const be = backendEndpoints.find(
         (e) => matchPath(e.path, '/support/announcements/:id/cancel') && e.method === 'POST',
-      );
-      expect(be).toBeDefined();
-    });
-
-    it('impersonation revoke should use /terminate path', () => {
-      // H21 fix: frontend revokeSession -> /impersonation/sessions/:id/terminate
-      const fe = frontendEndpoints.find(
-        (e) => e.url === '/impersonation/sessions/:param/terminate' && e.method === 'POST',
-      );
-      expect(fe).toBeDefined();
-
-      const be = backendEndpoints.find(
-        (e) => matchPath(e.path, '/impersonation/sessions/:id/terminate') && e.method === 'POST',
       );
       expect(be).toBeDefined();
     });
@@ -993,7 +959,14 @@ describe('Frontend-Backend Contract Validation', () => {
     // backup subsystem WAL-G already replaced (INFRA-CRITICAL-164).
     // 585: -5 for the runtime retention-policy CRUD, replaced by the
     // registry's read-only view (DATA-CRITICAL-016).
-    expect(count).toBe(585);
+    // 539: -46 for the /impersonation/* and /debug-tools/* surfaces, deleted
+    // with the subsystem that had no consumer (SEC-CRITICAL-162). The audit
+    // wave counted 47 there; main had already deleted GET /impersonation/stats
+    // as the all-time twin of the audit summary (ADMIN-MEDIUM-084), so one of
+    // the 47 was gone before this branch touched it.
+    // 538: -1 for POST /security/activities, whose body named the actor
+    // through userId / userName / userEmail / ipAddress (ADMIN-CRITICAL-102).
+    expect(count).toBe(538);
   });
 
   it('frontend endpoint snapshot should be up to date', () => {

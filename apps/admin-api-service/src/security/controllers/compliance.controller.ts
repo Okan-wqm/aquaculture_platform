@@ -4,6 +4,7 @@
  * Endpoints for data subject requests, compliance reports, and GDPR management.
  */
 
+import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
   Get,
@@ -223,6 +224,7 @@ export class ComplianceController {
    * Create data subject request
    * Fix: C6 -- JWT-based identity
    */
+  @AuditedOperation({ resource: 'DataRequest', action: 'CREATE' })
   @Post('data-requests')
   @HttpCode(HttpStatus.CREATED)
   async createDataRequest(
@@ -266,6 +268,7 @@ export class ComplianceController {
    * Update data request
    * Fix: C6 -- JWT-based identity (was hardcoded 'admin')
    */
+  @AuditedOperation({ resource: 'DataRequest', action: 'UPDATE' })
   @Put('data-requests/:id')
   async updateDataRequest(
     @Param('id') id: string,
@@ -288,6 +291,7 @@ export class ComplianceController {
    * Verify requester identity
    * Fix: C6 -- JWT-based identity
    */
+  @AuditedOperation({ resource: 'Identity', action: 'VERIFY' })
   @Post('data-requests/:id/verify')
   @HttpCode(HttpStatus.OK)
   async verifyIdentity(
@@ -308,6 +312,7 @@ export class ComplianceController {
    * Complete data request
    * Fix: C6 -- JWT-based identity
    */
+  @AuditedOperation({ resource: 'DataRequest', action: 'COMPLETE' })
   @Post('data-requests/:id/complete')
   @HttpCode(HttpStatus.OK)
   async completeDataRequest(
@@ -329,6 +334,7 @@ export class ComplianceController {
   /**
    * Record download of data request
    */
+  @AuditedOperation({ resource: 'Download', action: 'RECORD' })
   @Post('data-requests/:id/download')
   @HttpCode(HttpStatus.OK)
   async recordDownload(@Param('id') id: string): Promise<{ success: boolean }> {
@@ -368,6 +374,7 @@ export class ComplianceController {
    * Generate compliance report
    * Fix: C6 -- JWT-based identity
    */
+  @AuditedOperation({ resource: 'Report', action: 'GENERATE' })
   @Post('reports')
   @HttpCode(HttpStatus.CREATED)
   async generateReport(

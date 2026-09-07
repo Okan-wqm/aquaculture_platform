@@ -66,3 +66,29 @@ access authority on the platform.
   invariant relaxed (ADR-0008).
 - `tests/invariants/tenant-context-ssot.spec.ts` and both `app.module.ts` files change import paths
   and mount order.
+
+## Implementation note (landed 2026-09-05)
+
+- `CaptureRequestedTenantMiddleware` and `EffectiveTenantMiddleware` live in
+  `libs/backend-common/src/middleware/effective-tenant.middleware.ts`; the tenant-ACTIVE check is a
+  port (`TENANT_ACTIVE_CHECK`) an ingress binds to its lookup service. A cross-tenant act-as now
+  requires `X-Act-As-Reason` (≤ 512 chars) and accepts `X-Act-As-Ticket` (≤ 128 chars,
+  ticket-reference charset); both are kernel CORS defaults.
+- The claims ride in the signed user-assertion (`actAs: { homeTenantId, reason, ticket }`).
+  `VerifiedUserAssertionMiddleware` rebuilds `req.actAs`; `AuditedOperationInterceptor` writes
+  `actorHomeTenantId` from it (previously it wrote the acted-on tenant into both columns) and
+  persists `metadata.actAs`. `AccessLogMiddleware` records the effective tenant, so read access
+  under act-as is attributed to the target tenant.
+- Mount point: the middleware mounts where a JWT middleware populates `req.user` before guards —
+  gateway-api. admin-api-service authenticates in a guard, reads no tenant header, and addresses
+  tenants by route parameter; mounting the act-as chain there would run before `req.user` exists and
+  resolve nothing. Its actor/tenant attribution is ADMIN-CRITICAL-102 / ADMIN-CRITICAL-103 (C8/C9).
+  The decision text's "every internet-reachable ingress" is therefore implemented as "every ingress
+  whose middleware chain authenticates the browser", which `cross-tenant-authority-ssot.spec.ts`
+  asserts alongside single-implementation, CORS-default, reason-required, assertion and audit
+  checks.
+- The web has no SUPER_ADMIN tenant switcher today (`switchTenant` was an unimplemented stub); the
+  shared-ui client now exposes `setActAsContext()` and attaches the three headers, and
+  `switchTenant(tenant, { reason, ticket })` is the only way a super admin selects a tenant. The
+  switcher UI itself is delivered with the admin-panel FE architecture work (ADMIN-HIGH-105, W6,
+  owner okan, 2026-12-31).

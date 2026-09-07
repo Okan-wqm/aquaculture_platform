@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 
-import type { VerifiedUserAssertion } from '../types/tenant-request.interface';
+import type { ActAsAssertionClaims, VerifiedUserAssertion } from '../types/tenant-request.interface';
 
 export interface GatewayVerifiedUserAssertionInput {
   readonly subject: string;
@@ -28,6 +28,8 @@ export interface GatewayVerifiedUserAssertionInput {
   readonly clientIp?: string | null;
   /** ORPHAN-MEDIUM-319: end-client User-Agent as received by the gateway. */
   readonly clientUserAgent?: string | null;
+  /** ADR-0007: cross-tenant act-as claims resolved by EffectiveTenantMiddleware. */
+  readonly actAs?: ActAsAssertionClaims;
 }
 
 /**
@@ -79,6 +81,19 @@ export function buildGatewayVerifiedUserAssertion(
     // the assertionHash with no signing change, same as the claims above.
     ...(input.clientIp ? { clientIp: input.clientIp } : {}),
     ...(input.clientUserAgent ? { clientUserAgent: input.clientUserAgent } : {}),
+    // ADR-0007: carry the act-as justification into the HMAC-protected blob
+    // only for a cross-tenant act-as, so subgraph audit rows record the actor's
+    // home tenant, the reason and the ticket. Integrity-protected by the
+    // assertionHash with no signing change, same as the claims above.
+    ...(input.actAs
+      ? {
+          actAs: {
+            homeTenantId: input.actAs.homeTenantId,
+            reason: input.actAs.reason,
+            ticket: input.actAs.ticket,
+          },
+        }
+      : {}),
   };
 
   return Buffer.from(JSON.stringify(assertion), 'utf8').toString('base64url');

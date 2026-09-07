@@ -10,12 +10,8 @@ import {
   DatabaseMetric,
   SlowQueryLog,
 } from '../database-management/entities/database-management.entity';
-import {
-  CacheEntrySnapshot,
-  CapturedApiCall,
-  CapturedQuery,
-} from '../impersonation/entities/debug-session.entity';
 import { ActivityLog } from '../security/entities/security.entity';
+import { TenantActivity } from '../tenant/entities/tenant-activity.entity';
 import { ErrorGroup, ErrorOccurrence } from '../system-management/entities/error-tracking.entity';
 import {
   BackgroundJob,
@@ -99,6 +95,18 @@ export class AdminApiRetentionBootstrapModule implements OnModuleInit {
       entity: ActivityLog,
       timestampProperty: 'createdAt',
       retentionDays: SEVEN_YEARS,
+      // ADR-0008: a WORM ledger — held rows are never disposed.
+      legalHoldProperty: 'legalHold',
+    });
+    // admin.tenant_activities is the per-tenant activity ledger (plan changes,
+    // suspensions, notes) — the same evidence class as activity_logs, same window.
+    registerRetentionPolicy({
+      id: 'admin.tenant_activities.7y',
+      ownerTag: 'soc2-cc4',
+      entity: TenantActivity,
+      timestampProperty: 'createdAt',
+      retentionDays: SEVEN_YEARS,
+      legalHoldProperty: 'legalHold',
     });
 
     // ── Request-level observability stream (AUDITTRAIL-HIGH-004) ──
@@ -182,30 +190,6 @@ export class AdminApiRetentionBootstrapModule implements OnModuleInit {
       entity: JobExecutionLog,
       timestampProperty: 'timestamp',
       retentionDays: 30,
-    });
-
-    // ── Debug captures (raw tenant SQL and request bodies; ADR-0007 deletes
-    //    the module — until then their residue is bounded here) ──
-    registerRetentionPolicy({
-      id: 'admin.captured_queries.7d',
-      ownerTag: 'debug-tools',
-      entity: CapturedQuery,
-      timestampProperty: 'timestamp',
-      retentionDays: 7,
-    });
-    registerRetentionPolicy({
-      id: 'admin.captured_api_calls.7d',
-      ownerTag: 'debug-tools',
-      entity: CapturedApiCall,
-      timestampProperty: 'timestamp',
-      retentionDays: 7,
-    });
-    registerRetentionPolicy({
-      id: 'admin.cache_entries_snapshot.7d',
-      ownerTag: 'debug-tools',
-      entity: CacheEntrySnapshot,
-      timestampProperty: 'capturedAt',
-      retentionDays: 7,
     });
   }
 }

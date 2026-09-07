@@ -10,6 +10,7 @@ import { Type, Transform } from 'class-transformer';
 
 import { IsOptional, IsNumber, IsString, IsIn, IsBoolean, Min, Max } from 'class-validator';
 
+import { CurrentUser, CurrentUserData } from '../../decorators/current-user.decorator';
 import { ActivityLog, ActivityCategory, ActivitySeverity } from '../entities/security.entity';
 import {
   ActivityLoggingService,
@@ -107,97 +108,6 @@ export class QueryActivitiesDto {
   sortOrder?: 'ASC' | 'DESC';
 }
 
-class LogActivityDto {
-  @IsIn([
-    'user_action',
-    'system_event',
-    'api_call',
-    'data_access',
-    'security_event',
-    'configuration',
-    'authentication',
-  ])
-  category!: ActivityCategory;
-
-  @IsString()
-  action!: string;
-
-  @IsString()
-  description!: string;
-
-  @IsOptional()
-  @IsIn(['debug', 'info', 'warning', 'error', 'critical'])
-  severity?: ActivitySeverity;
-
-  @IsOptional()
-  @IsString()
-  tenantId?: string;
-
-  @IsOptional()
-  @IsString()
-  tenantName?: string;
-
-  @IsOptional()
-  @IsString()
-  userId?: string;
-
-  @IsOptional()
-  @IsString()
-  userName?: string;
-
-  @IsOptional()
-  @IsString()
-  userEmail?: string;
-
-  @IsOptional()
-  @IsString()
-  entityType?: string;
-
-  @IsOptional()
-  @IsString()
-  entityId?: string;
-
-  @IsOptional()
-  @IsString()
-  entityName?: string;
-
-  @IsString()
-  ipAddress!: string;
-
-  @IsOptional()
-  @IsString()
-  sessionId?: string;
-
-  @IsOptional()
-  @IsString()
-  correlationId?: string;
-
-  @IsOptional()
-  previousValue?: Record<string, unknown>;
-
-  @IsOptional()
-  newValue?: Record<string, unknown>;
-
-  @IsOptional()
-  metadata?: Record<string, unknown>;
-
-  @IsOptional()
-  tags?: string[];
-
-  @IsOptional()
-  @IsBoolean()
-  success?: boolean;
-
-  @IsOptional()
-  @IsString()
-  errorMessage?: string;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  duration?: number;
-}
-
 class ActivityStatsQueryDto {
   @IsOptional()
   @IsString()
@@ -276,16 +186,6 @@ export class ActivityLogController {
       entityId,
       limit ? parseInt(String(limit), 10) : 50,
     );
-  }
-
-  /**
-   * Log activity manually (for external services)
-   */
-  @Post()
-  @HttpCode(HttpStatus.CREATED)
-  async logActivity(@Body() dto: LogActivityDto): Promise<{ success: boolean }> {
-    await this.activityService.logActivityImmediate(dto);
-    return { success: true };
   }
 
   /**

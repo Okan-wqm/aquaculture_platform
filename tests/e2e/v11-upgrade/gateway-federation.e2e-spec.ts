@@ -18,8 +18,9 @@
  *
  * @see docs/architecture/ADR-013-nestjs-v11-upgrade.md
  */
+import type { Server } from 'http';
+
 import { TenantConnectionLimiter, WsTokenRevalidator } from '@aquaculture/backend-common/websocket';
-import { Test, TestingModule } from '@nestjs/testing';
 import {
   INestApplication,
   Controller,
@@ -35,9 +36,11 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService, JwtModule } from '@nestjs/jwt';
-import request from 'supertest';
+import { Test, TestingModule } from '@nestjs/testing';
 import { Request, Response, NextFunction } from 'express';
-import type { Server } from 'http';
+// helmet: the same package the production gateway's main.ts configures.
+import helmet from 'helmet';
+import request from 'supertest';
 
 // ============================================================================
 // Section 1: Middleware Chain Execution Order
@@ -589,9 +592,6 @@ describe('3. Tenant Isolation Through Middleware', () => {
  * NOTE: The production gateway sets contentSecurityPolicy: false because
  * nginx handles CSP. We test the other headers that Helmet manages.
  */
-
-// Import helmet -- same package used by the production gateway main.ts
-import helmet from 'helmet';
 
 @Controller()
 class SecurityHeadersController {

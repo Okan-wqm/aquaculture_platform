@@ -2224,6 +2224,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1810000000000-RetireAdminTenantBillingInfo.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/modules/__tests__/modules.controller.spec.ts",
       "prettier_managed": true
     },
@@ -3035,6 +3041,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/tenant/query-handlers/tenant-query.handlers.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/tenant/services/__tests__/tenant-billing-summary.spec.ts",
       "prettier_managed": true
     },
     {

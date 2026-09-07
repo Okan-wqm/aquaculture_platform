@@ -16,7 +16,8 @@ import {
   SuspendTenantCommand,
 } from '../commands/tenant.commands';
 import { SuspendTenantDto } from '../dto/tenant.dto';
-import { TenantActivity, TenantNote, TenantBillingInfo } from '../entities/tenant-activity.entity';
+import { SubscriptionReadOnly, InvoiceReadOnly } from '../../analytics/entities/external';
+import { TenantActivity, TenantNote } from '../entities/tenant-activity.entity';
 import { Tenant, TenantInvitation, TenantStatus, TenantTier } from '../entities/tenant.entity';
 import {
   SuspendTenantHandler,
@@ -194,7 +195,10 @@ const mockTenantRepository = createMockRepository();
 const mockInvitationRepository = createMockRepository();
 const mockActivityRepository = createMockRepository();
 const mockNoteRepository = createMockRepository();
-const mockBillingRepository = createMockRepository();
+// admin.tenant_billing_info retired (ADMIN-HIGH-012): the tenant-detail
+// billing block reads billing's own tables.
+const mockSubscriptionRepository = createMockRepository();
+const mockInvoiceRepository = createMockRepository();
 
 const mockQueryRunner = {
   connect: jest.fn(),
@@ -282,8 +286,12 @@ describe('Tenant Integration Tests', () => {
           useValue: mockNoteRepository,
         },
         {
-          provide: getRepositoryToken(TenantBillingInfo),
-          useValue: mockBillingRepository,
+          provide: getRepositoryToken(SubscriptionReadOnly),
+          useValue: mockSubscriptionRepository,
+        },
+        {
+          provide: getRepositoryToken(InvoiceReadOnly),
+          useValue: mockInvoiceRepository,
         },
         {
           provide: DataSource,

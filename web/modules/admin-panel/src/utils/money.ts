@@ -64,3 +64,22 @@ export function formatDecimalAmount(amount: string | undefined, scale = 2): stri
     maximumFractionDigits: scale,
   });
 }
+
+/**
+ * An amount that may be absent, beside the currency it is denominated in.
+ *
+ * `formatCurrencyAmount` defaults a missing amount to zero. That is right for a
+ * form field and wrong for a report: "billing has issued no invoice yet" and
+ * "an invoice for nothing" are different facts, and rendering the first as the
+ * second is the fabricated reading this audit exists to remove. An absent
+ * amount — or an amount with no currency to denominate it — renders as an em
+ * dash, which is what the operator should see.
+ */
+export function formatBillingAmount(
+  amount: number | string | null | undefined,
+  currency: string | null | undefined,
+): string {
+  if (amount === null || amount === undefined) return '—';
+  if (currency === null || currency === undefined || currency === '') return '—';
+  return formatCurrencyAmount(String(amount), currency);
+}

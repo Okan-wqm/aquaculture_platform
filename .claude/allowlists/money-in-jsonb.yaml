@@ -131,14 +131,8 @@ entries:
 # a product, a price or a customer for the same thing and neither row can be
 # trusted. billing is the authoritative half in every pair below, so each entry
 # names the OTHER declaration — the one that goes away.
-duplicateStripeIdentifiers:
-  - site: 'apps/admin-api-service/src/tenant/entities/tenant-activity.entity.ts#TenantBillingInfo.stripeCustomerId'
-    owner: okan
-    expiry: 2026-12-31
-    findingId: BILLING-CRITICAL-003
-    reason: admin.tenant_billing_info duplicates billing.subscriptions' Stripe customer; the table is on the kill list and its writer is retired with the provisioning rework
-  - site: 'apps/admin-api-service/src/tenant/entities/tenant-activity.entity.ts#TenantBillingInfo.stripeSubscriptionId'
-    owner: okan
-    expiry: 2026-12-31
-    findingId: BILLING-CRITICAL-003
-    reason: admin.tenant_billing_info duplicates billing.subscriptions' Stripe subscription; the table is on the kill list and its writer is retired with the provisioning rework
+# Empty since 2026-09-07: `admin.tenant_billing_info` held the last two, and
+# the table itself retired under ADMIN-HIGH-012 rather than being re-typed —
+# it had no writer, so its Stripe identifiers were a second writable home that
+# never held a row. billing is the sole writer of every Stripe identifier.
+duplicateStripeIdentifiers: []

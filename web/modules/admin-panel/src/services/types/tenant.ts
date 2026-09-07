@@ -162,13 +162,24 @@ export interface TenantDetail extends Tenant {
   }>;
   recentActivities?: TenantActivity[];
   notes?: TenantNote[];
+  /**
+   * Read from billing.subscriptions + billing.invoices (rule D14). Absent when
+   * billing holds no subscription for the tenant. There is no `monthlyAmount`:
+   * the only per-cycle figure outside an invoice is a float in a jsonb blob
+   * that also excludes the usage components — see `BillingSummary` in
+   * `apps/admin-api-service/src/tenant/dto/tenant-detail.dto.ts`.
+   */
   billing?: {
     currentPlan: string;
-    monthlyAmount: number;
-    currency: string;
+    planTier: string;
     billingCycle: string;
-    paymentStatus: string;
+    subscriptionStatus: string;
     nextBillingDate: string | null;
+    lastInvoiceAmount: number | null;
+    lastInvoiceIssuedAt: string | null;
+    lastInvoicePeriodStart: string | null;
+    lastInvoicePeriodEnd: string | null;
+    currency: string | null;
     lastPaymentDate: string | null;
     lastPaymentAmount: number | null;
   };

@@ -134,13 +134,16 @@ const mockPricings = [
  * A quote as billing returns it. FREE is a permanent $0 tier and billing
  * clamps it there — the wizard shows that answer rather than deciding it.
  */
-const quoteFor = (monthlyTotal: string, tier: string): PricingCalculation => ({
+const quoteFor = (monthlyTotal: string, tier: PricingCalculation['tier']): PricingCalculation => ({
   modules: [],
   subtotal: monthlyTotal,
   tierDiscount: '0',
   cycleDiscountAmount: '0',
   cycleDiscountPercent: '0',
   discountAmount: '0',
+  // A negotiated custom-plan discount; this wizard quotes catalogue plans,
+  // so billing answers zero rather than omitting the field.
+  negotiatedDiscountAmount: '0',
   tax: '0',
   taxRate: '0',
   total: monthlyTotal,

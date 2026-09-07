@@ -14,9 +14,7 @@
 // Mock the logging subpath BEFORE importing the handler so the context spy is
 // in place; the database subpath (isValidUUID/getTenantSchemaName) stays REAL
 // so the security validation + schema derivation behave as in production.
-const mockRun = jest.fn(
-  (_context: unknown, fn: () => Promise<void>): Promise<void> => fn(),
-);
+const mockRun = jest.fn((_context: unknown, fn: () => Promise<void>): Promise<void> => fn());
 
 jest.mock('@aquaculture/backend-common/logging', () => ({
   requestContextStorage: { run: mockRun },
@@ -107,18 +105,23 @@ describe('WaterQualityCriticalEventHandler', () => {
   });
 
   /**
-   * W7 / FARM-MEDIUM-260 — the OPPOSITE of the behaviour this spec used to pin.
+   * W7 / FARM-MEDIUM-260 + PLAT-HIGH-902 — the OPPOSITE of the behaviour this
+   * spec used to pin, expressed as a value rather than a throw.
    *
    * `WaterQualityCritical` is classified `one_shot`: farm emits it per critical
    * measurement, at write time, and no sweep re-raises it. Swallowing a handler
    * error therefore deleted a life-safety signal outright. The handler now
-   * rethrows so the bus NAKs, retries, and finally shelves the message in
-   * the platform dead-letter stream instead of dropping it.
+   * returns a `retry` outcome, so the bus NAKs, backs off, and shelves the
+   * message in the platform dead-letter stream when the budget is spent — the
+   * same delivery the rethrow bought, minus the ambiguity of an exception that
+   * could also mean "the handler itself is broken".
    */
-  it('rethrows service errors so the one-shot signal reaches the dead-letter shelf', async () => {
+  it('reports a service failure as a retry outcome so the one-shot signal reaches the dead-letter shelf', async () => {
     const { handler, service } = makeHandler();
     service.recordCriticalWaterQuality.mockRejectedValueOnce(new Error('db down'));
 
-    await expect(handler.handle(makeEvent(TENANT_ID))).rejects.toThrow('db down');
+    await expect(handler.handle(makeEvent(TENANT_ID))).resolves.toEqual(
+      expect.objectContaining({ kind: 'retry' }),
+    );
   });
 });

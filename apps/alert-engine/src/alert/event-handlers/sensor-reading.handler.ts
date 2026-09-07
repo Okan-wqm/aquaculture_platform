@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Inject } from '@nestjs/common';
-import { IEventBus, IEventHandler } from '@platform/event-bus';
+import { IEventBus, IEventHandler, HandlerOutcome, outcomeForError } from '@platform/event-bus';
 import {
   PARAMETER_BY_READING_FIELD,
   requiresDurableDelivery,
@@ -77,7 +77,7 @@ export class SensorReadingEventHandler implements IEventHandler<SensorReadingEve
 
   // getTenantSchemaName imported from @aquaculture/backend-common
 
-  async handle(event: SensorReadingEvent): Promise<void> {
+  async handle(event: SensorReadingEvent): Promise<HandlerOutcome> {
     this.logger.debug(`Processing sensor reading from ${event.sensorId}`);
 
     // SECURITY: tenantId is required for multi-tenant isolation
@@ -87,7 +87,7 @@ export class SensorReadingEventHandler implements IEventHandler<SensorReadingEve
         `Missing tenantId for sensor reading from ${event.sensorId}. ` +
           'Skipping alert evaluation to prevent multi-tenant isolation breach.',
       );
-      return;
+      return HandlerOutcome.terminate('SensorReading: missing or invalid tenantId');
     }
 
     // Validate UUID format to prevent schema name injection
@@ -95,7 +95,7 @@ export class SensorReadingEventHandler implements IEventHandler<SensorReadingEve
       this.logger.error(
         `Invalid tenantId format for sensor reading from ${event.sensorId}: ${event.tenantId}. Skipping.`,
       );
-      return;
+      return HandlerOutcome.terminate('SensorReading: missing or invalid tenantId');
     }
 
     // NATS handlers have NO AsyncLocalStorage context.
@@ -126,7 +126,11 @@ export class SensorReadingEventHandler implements IEventHandler<SensorReadingEve
           timestamp: event.timestamp,
         });
       });
+      return HandlerOutcome.ack();
     } catch (error) {
+      // PLAT-HIGH-902: no swallowing. A validation/domain rejection can never
+      // succeed and is dead-lettered; anything else is retried within the
+      // consumer's delivery budget and dead-lettered when it is spent.
       this.logger.error(
         `Error processing sensor reading: ${(error as Error).message}`,
         (error as Error).stack,
@@ -140,9 +144,9 @@ export class SensorReadingEventHandler implements IEventHandler<SensorReadingEve
       // subject for no gain", with the next reading seconds later re-evaluating
       // every rule. Deferring keeps one authority over delivery semantics; a
       // one-shot event routed through this handler still rethrows.
-      if (requiresDurableDelivery(event.eventType)) {
-        throw error;
-      }
+      return outcomeForError('SensorReading', error, {
+        reproducible: !requiresDurableDelivery(event.eventType),
+      });
     }
   }
 }

@@ -49,6 +49,23 @@ class TypedOperatorApprovalTests(unittest.TestCase):
         with self.assertRaises(OperatorApprovalUnrecorded):
             verify_operator_approval_ref("gov:evt-forged", base_dir=self.root, surface="test")
 
+    def test_governance_proof_refuses_uninitialized_store_without_writes(self) -> None:
+        self._record_governance_event("evt-123")
+        (self.root / "repo_identity.json").unlink()
+        before = {str(p): (p.read_bytes(), p.stat().st_mtime_ns) for p in self.root.rglob("*") if p.is_file()}
+        with self.assertRaises(OperatorApprovalUnrecorded):
+            verify_operator_approval_ref("gov:evt-123", base_dir=self.root, surface="test")
+        self.assertEqual(before, {str(p): (p.read_bytes(), p.stat().st_mtime_ns) for p in self.root.rglob("*") if p.is_file()})
+
+    def test_governance_proof_does_not_bypass_or_reap_foreign_tools_lock(self) -> None:
+        self._record_governance_event("evt-123")
+        lock = self.root / "tools.lock"
+        lock.write_text(json.dumps({"pid": 987654321, "started_at": "2000-01-01T00:00:00Z"}))
+        before = lock.read_bytes(), lock.stat().st_mtime_ns
+        with self.assertRaises(OperatorApprovalUnrecorded):
+            verify_operator_approval_ref("gov:evt-123", base_dir=self.root, surface="test")
+        self.assertEqual(before, (lock.read_bytes(), lock.stat().st_mtime_ns))
+
     def test_review_reference_requires_the_anchor_on_disk(self) -> None:
         doc = self._tmp / "review.md"
         doc.write_text("## OP-1 approved\n", encoding="utf-8")

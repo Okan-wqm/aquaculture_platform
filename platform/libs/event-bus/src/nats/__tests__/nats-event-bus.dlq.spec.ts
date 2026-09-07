@@ -54,8 +54,15 @@ function noConnectionStatuses(): AsyncIterable<Status> {
 /**
  * Task 1 Step 1.6 (SENSOR-HIGH-093): the dead-letter chain. A message that
  * keeps failing is moved to AQUACULTURE_DLQ as an envelope — the original
- * is ACKed only AFTER the DLQ copy's PubAck; if the DLQ hop itself fails,
- * the original is NAK'd (never acked into loss).
+ * is finished only AFTER the DLQ copy's PubAck; if the DLQ hop itself fails,
+ * the original is NAK'd (never finished into loss).
+ *
+ * PLAT-HIGH-902 finishes it with `term()` rather than `ack()`. The ordering
+ * property this suite exists to pin is unchanged — the DLQ PubAck still
+ * strictly precedes it — but acking a dead-lettered message spells failure
+ * the same way as success, which is the conflation that finding closes.
+ * `term()` also raises the JetStream MSG_TERMINATED advisory an operator can
+ * alert on, where an ack is silent.
  */
 // The doubles whose recorded calls the assertions read back are typed FROM the
 // real API signatures, so `mock.calls` is checked against what the bus actually
@@ -89,6 +96,7 @@ describe('NatsEventBus dead-letter chain (Task 1.6)', () => {
     info: { deliveryCount: number };
     ack: jest.Mock;
     nak: jest.Mock;
+    term: jest.Mock;
   } {
     return {
       string: () => JSON.stringify(EVENT),
@@ -97,6 +105,7 @@ describe('NatsEventBus dead-letter chain (Task 1.6)', () => {
       info: { deliveryCount },
       ack: jest.fn(),
       nak: jest.fn(),
+      term: jest.fn(),
     };
   }
 
@@ -203,6 +212,7 @@ describe('NatsEventBus dead-letter chain (Task 1.6)', () => {
 
     expect(msg.nak).toHaveBeenCalled();
     expect(msg.ack).not.toHaveBeenCalled();
+    expect(msg.term).not.toHaveBeenCalled();
     expect(jsPublish).not.toHaveBeenCalled();
   });
 
@@ -234,17 +244,18 @@ describe('NatsEventBus dead-letter chain (Task 1.6)', () => {
     // Identity-preserving msgID: replay tooling relies on it for dedup.
     expect(opts?.msgID).toContain('77');
 
-    expect(msg.ack).toHaveBeenCalledTimes(1);
+    expect(msg.term).toHaveBeenCalledTimes(1);
+    expect(msg.ack).not.toHaveBeenCalled();
     // Ordering: the DLQ copy must be durably stored BEFORE the original dies.
     const publishOrder = jsPublish.mock.invocationCallOrder[0];
-    const ackOrder = msg.ack.mock.invocationCallOrder[0];
-    if (publishOrder === undefined || ackOrder === undefined) {
+    const termOrder = msg.term.mock.invocationCallOrder[0];
+    if (publishOrder === undefined || termOrder === undefined) {
       throw new Error('ordering evidence missing');
     }
-    expect(publishOrder).toBeLessThan(ackOrder);
+    expect(publishOrder).toBeLessThan(termOrder);
   });
 
-  it('never acks into loss when the DLQ hop itself fails — NAK instead', async () => {
+  it('never finishes into loss when the DLQ hop itself fails — NAK instead', async () => {
     await boot();
     jsPublish.mockRejectedValue(new Error('dlq stream unavailable'));
     const msg = makeMsg(9);
@@ -255,6 +266,7 @@ describe('NatsEventBus dead-letter chain (Task 1.6)', () => {
     await new Promise((r) => setTimeout(r, 0));
 
     expect(msg.ack).not.toHaveBeenCalled();
+    expect(msg.term).not.toHaveBeenCalled();
     expect(msg.nak).toHaveBeenCalled();
   });
 });

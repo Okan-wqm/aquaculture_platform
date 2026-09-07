@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from .ledger import LedgerIntegrityError, append_declared_jsonl, load_declared_jsonl
+from .ledger import LedgerIntegrityError, append_declared_jsonl, load_declared_jsonl, state_transaction
 from .runtime_profile import (
     DEFAULT_SCHEDULER_PROFILE_CEILING,
     PROFILES_WITH_ACTION_AUTHORITY,
@@ -227,6 +227,54 @@ def verdict_from_rows(
     )
 
 
+def recovery_admissible_acceptance_rows(
+    rows: list[dict[str, Any]], events: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], tuple[str, ...]]:
+    """Storage restoration cannot revalidate historical execution or grant credit.
+
+    The exact logical chain prefix is captured while holding the acceptance lock.
+    Even a later timestamp is not an independent validation contract. Until the
+    acceptance owner has such a verifier, recovery keeps positive credits blocked.
+    Negative evidence remains counted, including future-dated historical rows.
+    """
+    from .runtime_artifact_recovery import STARTED, COMPLETED, _digest, _plain
+    recovery_events = [row for row in events if row.get('event') in {STARTED, COMPLETED}]
+    if not recovery_events:
+        return rows, ()
+    blockers = {'artifact_recovery_acceptance_needs_revalidation'}
+    intents: dict[str, dict[str, Any]] = {}
+    completed: set[str] = set()
+    for event in recovery_events:
+        recovery_id = str(event.get('recovery_id') or '')
+        boundary = event.get('acceptance_boundary')
+        valid = isinstance(boundary, dict)
+        count = boundary.get('row_count') if valid else None
+        valid = (valid and isinstance(count, int) and not isinstance(count, bool)
+                 and 0 <= count <= len(rows))
+        if valid:
+            prefix = rows[:count]
+            valid = (boundary.get('rows_digest') == _digest([_plain(row) for row in prefix])
+                     and 'tip_ledger_hash' in boundary
+                     and boundary['tip_ledger_hash'] == (prefix[-1].get('ledger_hash') if prefix else None))
+        if not valid:
+            blockers.add('artifact_recovery_acceptance_boundary_invalid')
+        if event.get('event') == STARTED:
+            if not recovery_id or recovery_id in intents:
+                blockers.add('artifact_recovery_acceptance_boundary_invalid')
+            intents[recovery_id] = event
+        else:
+            intent = intents.get(recovery_id)
+            if (intent is None or recovery_id in completed
+                    or intent.get('acceptance_boundary') != boundary
+                    or intent.get('expected_state_sha') != event.get('expected_state_sha')
+                    or intent.get('target_plan_digest') != event.get('target_plan_digest')):
+                blockers.add('artifact_recovery_acceptance_boundary_invalid')
+            completed.add(recovery_id)
+    if intents.keys() - completed:
+        blockers.add('artifact_recovery_incomplete')
+    return [row for row in rows if row.get('status') != 'success' or row.get('event_type') == 'critical_violation'], tuple(sorted(blockers))
+
+
 def evaluate_autonomy_unlock(
     *,
     lane: str,
@@ -241,11 +289,18 @@ def evaluate_autonomy_unlock(
             requirements={},
             reasons=(f"autonomy_unlock_lane_not_supported:{lane}",),
         )
-    rows = load_declared_jsonl(
-        ensure_tools_dir(base_dir) / "enterprise" / "acceptance-events.jsonl",
-        expected_surface="enterprise_acceptance_events",
+    root = ensure_tools_dir(base_dir)
+    acceptance_path = root / "enterprise/acceptance-events.jsonl"
+    retention_path = root / "retention/events.jsonl"
+    with state_transaction([acceptance_path, retention_path]) as transaction:
+        rows = transaction.load_declared_jsonl(acceptance_path, expected_surface="enterprise_acceptance_events")
+        events = transaction.load_declared_jsonl(retention_path, expected_surface="retention_events")
+        admitted, blockers = recovery_admissible_acceptance_rows(rows, events)
+    verdict = verdict_from_rows(admitted, lane=lane, policy=policy)
+    return AutonomyUnlockVerdict(
+        valid=verdict.valid and not blockers, lane=verdict.lane, counts=verdict.counts,
+        requirements=verdict.requirements, reasons=tuple(sorted(set(verdict.reasons) | set(blockers))),
     )
-    return verdict_from_rows(rows, lane=lane, policy=policy)
 
 
 def assert_autonomy_unlocked(

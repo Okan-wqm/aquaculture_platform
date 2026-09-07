@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-import { IEventBus, IEventHandler } from '@platform/event-bus';
+import { IEventBus, IEventHandler, HandlerOutcome } from '@platform/event-bus';
 import {
   createBaseEvent,
   deriveEventId,
@@ -180,7 +180,7 @@ export class NatsIngestionConsumerService
    * (DB unavailable) — the platform's redelivery is the right answer
    * there.
    */
-  async handle(event: SensorMetricIngestedEvent): Promise<void> {
+  async handle(event: SensorMetricIngestedEvent): Promise<HandlerOutcome> {
     this.receivedCount++;
 
     // 0. JSON Schema validation — defence-in-depth at the trust
@@ -188,8 +188,9 @@ export class NatsIngestionConsumerService
     //    rejects shape drift on the publish side; this validator
     //    rejects anything that arrives malformed (extra field, wrong
     //    discriminator, range violation on qualityCode/producerTs).
-    //    Drops here NEVER throw — we want JetStream to ack-and-discard
-    //    a poison payload, not redeliver it forever.
+    //    A poison payload can never become valid: it is TERMINATED
+    //    (dead-lettered with its reason, PLAT-HIGH-902), never
+    //    redelivered and never silently acknowledged.
     const schemaResult = validateSensorEvent('SensorMetricIngested', event);
     if (!schemaResult.valid) {
       this.rejectedSchemaCount++;
@@ -198,7 +199,7 @@ export class NatsIngestionConsumerService
           (event as { eventId?: unknown }).eventId ?? 'unknown'
         }): ${schemaResult.errors}`,
       );
-      return;
+      return HandlerOutcome.terminate(`SensorMetricIngested: ${schemaResult.errors}`);
     }
 
     // 1. Sensor metadata lookup (cached) — needed for tenantId
@@ -209,7 +210,9 @@ export class NatsIngestionConsumerService
       this.logger.debug(
         `SensorMetricIngested for unknown sensorId=${event.sensorId} (tenant=${event.tenantId}); dropping`,
       );
-      return;
+      // Not applicable to this deployment (a sensor this service does not know
+      // about); a drop by design, acknowledged.
+      return HandlerOutcome.ack();
     }
 
     // 2. ADR-025 § Threat 2 sanity: the sidecar already enforces
@@ -220,7 +223,7 @@ export class NatsIngestionConsumerService
       this.logger.warn(
         `Tenant mismatch on SensorMetricIngested: event.tenantId=${event.tenantId} sensor.tenantId=${sensor.tenantId}; dropping`,
       );
-      return;
+      return HandlerOutcome.terminate('SensorMetricIngested: tenant binding mismatch');
     }
 
     // 3. Channel lookup (cached). The sidecar identifies the channel
@@ -233,7 +236,7 @@ export class NatsIngestionConsumerService
       this.logger.debug(
         `SensorMetricIngested for unknown channelId=${event.channelId} on sensor=${event.sensorId}; dropping`,
       );
-      return;
+      return HandlerOutcome.ack();
     }
 
     // 4. Build the SensorMetricInput and hand to the existing
@@ -303,11 +306,15 @@ export class NatsIngestionConsumerService
         await this.eventBus.publish<SensorReadingEvent>(typed);
         this.publishedCount++;
       } catch (e) {
+        // The metric row is already enqueued for persistence; the typed
+        // re-emit is a best-effort fan-out (alert-engine has its own path),
+        // so a publish failure does not redeliver the ingested metric.
         this.logger.warn(
           `Failed to publish typed SensorReadingEvent (sensor=${event.sensorId}): ${(e as Error).message}`,
         );
       }
     }
+    return HandlerOutcome.ack();
   }
 
   /**

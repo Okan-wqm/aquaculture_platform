@@ -2606,14 +2606,21 @@ def _verify_snapshot_and_collect_evidence(
         name: [] for name in (*ARTIFACT_PROJECTION_PATHS, "retention_events")
     }
     artifact_blobs: dict[str, tuple[str, int]] = {}
+    acceptance_rows: list[dict[str, Any]] = []
+    unlock_rows: list[dict[str, Any]] = []
 
     def consume_verified_row(name: str, row: dict[str, Any], consumed: bool) -> None:
         if consumed:
-            accumulator.consume(name, row)
+            if name == "enterprise_acceptance_events":
+                acceptance_rows.append(row)
+            elif name == "enterprise_autonomy_unlock_events":
+                unlock_rows.append(row)
+            else:
+                accumulator.consume(name, row)
         if name in artifact_rows:
-            # Keep only graph fields; full payloads remain in the bounded
-            # streaming verifier and are never duplicated in this projection.
-            artifact_rows[name].append({key: row[key] for key in (
+            # Projection rows retain graph fields. Retention recovery intents
+            # carry the bounded metadata plan needed to verify provenance.
+            artifact_rows[name].append(dict(row) if name in {"retention_events", "runtime_artifact_index"} else {key: row[key] for key in (
                 "artifact_id", "current_uri", "uri", "path", "sha256", "event",
                 "kind", "new_path", "archive_path", "archive_sha256", "bytes", "size_bytes",
                 "original_path", "source_path", "source_sha256", "size",
@@ -2696,6 +2703,9 @@ def _verify_snapshot_and_collect_evidence(
     )
     if artifact_issues:
         raise RuntimeError("state_artifact_graph_invalid:" + json.dumps(artifact_issues[:10], sort_keys=True))
+    accumulator.consume_recovery_bound_acceptance(
+        acceptance_rows, unlock_rows, artifact_rows["retention_events"],
+    )
     return accumulator
 
 
@@ -2966,6 +2976,19 @@ class _StreamingEvidenceAccumulator:
                 for observed in targets:
                     self._retain_target(capability, contract, observed)
 
+    def consume_recovery_bound_acceptance(
+        self, acceptance_rows: list[dict[str, Any]], unlock_rows: list[dict[str, Any]],
+        retention_events: list[dict[str, Any]],
+    ) -> None:
+        from .autonomy_unlock import recovery_admissible_acceptance_rows
+        admitted, blockers = recovery_admissible_acceptance_rows(acceptance_rows, retention_events)
+        self.native_blockers["autonomy_unlock"].update(blockers)
+        for row in admitted:
+            self.consume("enterprise_acceptance_events", row)
+        for row in unlock_rows:
+            if not blockers or row.get("valid") is not True:
+                self.consume("enterprise_autonomy_unlock_events", row)
+
     def _retain_target(
         self,
         capability: str,
@@ -3203,7 +3226,7 @@ class _StreamingEvidenceAccumulator:
                 counts.update(unlock_counts)
             else:  # pragma: no cover - roster is exhaustive above
                 unlock_blocker = None
-            blockers: set[str] = set()
+            blockers: set[str] = set(self.native_blockers[capability])
             if capability in self.count_rejected:
                 counts = {
                     surface: self.surface_counts[surface]

@@ -21,6 +21,7 @@ import { DataSource } from 'typeorm';
 import type { RegulatoryReportSubmissionFailedEvent } from '@platform/event-contracts';
 import { createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
+import { classifyHttpStatus } from '@aquaculture/backend-common/http';
 import { runInTenantTransaction } from '@aquaculture/backend-common/database';
 
 import {
@@ -296,20 +297,19 @@ export class RegulatorySubmissionService {
     });
   }
 
-  /** Transient (retryable) vs permanent (terminal) — the retry-decision SSoT. */
+  /**
+   * Transient (retryable) vs permanent (terminal) — the retry decision. The
+   * HTTP-status half is the platform-wide classifier (classifyHttpStatus,
+   * PLAT-HIGH-902); the Mattilsynet-specific halves (network error, a
+   * valideringsfeil list) stay here.
+   */
   static classifyFailure(result: MattilsynetApiResponse): RegulatoryFailureClass {
     if (result.isNetworkError) return RegulatoryFailureClass.TRANSIENT;
-    const status = result.httpStatus;
     // A schema/validation rejection is never fixed by retrying.
     if (result.valideringsfeil?.length) return RegulatoryFailureClass.PERMANENT;
-    if (status === undefined) return RegulatoryFailureClass.TRANSIENT;
-    if (status >= 500) return RegulatoryFailureClass.TRANSIENT;
-    // Auth/token, request-timeout and rate-limit are recoverable.
-    if (status === 401 || status === 403 || status === 408 || status === 429) {
-      return RegulatoryFailureClass.TRANSIENT;
-    }
-    // Any other 4xx (400/422/…) is a client-side rejection — terminal.
-    return RegulatoryFailureClass.PERMANENT;
+    return classifyHttpStatus(result.httpStatus) === 'transient'
+      ? RegulatoryFailureClass.TRANSIENT
+      : RegulatoryFailureClass.PERMANENT;
   }
 
   /**

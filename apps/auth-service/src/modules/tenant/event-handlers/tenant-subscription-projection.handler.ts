@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IEventBus, IEventHandler } from '@platform/event-bus';
+import { IEventBus, IEventHandler, HandlerOutcome } from '@platform/event-bus';
 import { TenantPlan, type TenantSubscriptionChangedEvent } from '@platform/event-contracts';
 import { Repository } from 'typeorm';
 
@@ -63,7 +63,7 @@ export class TenantSubscriptionProjectionHandler
     return 'TenantSubscriptionChanged';
   }
 
-  async handle(event: TenantSubscriptionChangedEvent): Promise<void> {
+  async handle(event: TenantSubscriptionChangedEvent): Promise<HandlerOutcome> {
     // SEC-MEDIUM-101 (№46): at-least-once delivery makes redelivery normal;
     // claim the eventId so a replayed duplicate is a no-op.
     if (this.eventDedup && event.eventId) {
@@ -76,7 +76,8 @@ export class TenantSubscriptionProjectionHandler
         this.logger.log(
           `TenantSubscriptionChanged eventId=${event.eventId} already projected — skipping`,
         );
-        return;
+        // PLAT-HIGH-902: a duplicate is DONE, not swallowed — the ack says so.
+        return HandlerOutcome.ack('duplicate eventId already projected');
       }
     }
 
@@ -95,7 +96,7 @@ export class TenantSubscriptionProjectionHandler
         this.logger.log(
           `TenantSubscriptionChanged for ${event.tenantId} is STALE (event=${event.timestamp}) — skipping to avoid regression`,
         );
-        return;
+        return HandlerOutcome.ack('stale event, a newer projection already applied');
       }
     }
 
@@ -103,7 +104,7 @@ export class TenantSubscriptionProjectionHandler
       this.logger.error(
         `TenantSubscriptionChanged has an invalid/missing tenantId ('${event.tenantId}') — projection skipped to avoid a cross-tenant write.`,
       );
-      return;
+      return HandlerOutcome.terminate('TenantSubscriptionChanged: missing or invalid tenantId');
     }
 
     const patch: Partial<Pick<Tenant, 'plan' | 'trialEndsAt' | 'subscriptionEndsAt'>> = {};
@@ -127,7 +128,7 @@ export class TenantSubscriptionProjectionHandler
     }
 
     if (Object.keys(patch).length === 0) {
-      return;
+      return HandlerOutcome.ack();
     }
 
     const result = await this.tenantRepository.update({ id: event.tenantId }, patch);
@@ -135,10 +136,11 @@ export class TenantSubscriptionProjectionHandler
       this.logger.warn(
         `TenantSubscriptionChanged for tenant ${event.tenantId} matched no auth.tenants row — projection skipped.`,
       );
-      return;
+      return HandlerOutcome.ack();
     }
     this.logger.log(
       `Projected subscription state onto auth.tenants for tenant ${event.tenantId} (plan=${event.newPlan}).`,
     );
+    return HandlerOutcome.ack();
   }
 }

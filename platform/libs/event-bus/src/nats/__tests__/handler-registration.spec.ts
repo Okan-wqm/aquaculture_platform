@@ -1,16 +1,18 @@
 import 'reflect-metadata';
-import { Test, TestingModule } from '@nestjs/testing';
 import { Injectable, Module } from '@nestjs/common';
-import { DiscoveryModule, DiscoveryService, MetadataScanner } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
+import { DiscoveryModule, DiscoveryService, MetadataScanner } from '@nestjs/core';
+import { Test, TestingModule } from '@nestjs/testing';
+
 import {
   EVENT_HANDLER_METADATA,
   EVENT_SUBSCRIPTION_METADATA,
   SubscribeToOptions,
 } from '../../decorators/event-handler.decorator';
+import { IEventHandler, IEvent, SubscriptionOptions } from '../../interfaces/event-bus.interface';
+import { HandlerOutcome } from '../../interfaces/handler-outcome';
 import { NatsEventBus } from '../nats-event-bus';
 import { EventHandlerRegistryModule } from '../nats.module';
-import { IEventHandler, IEvent, SubscriptionOptions } from '../../interfaces/event-bus.interface';
 
 /**
  * Lightweight SubscribeTo decorator for testing that applies metadata
@@ -62,8 +64,8 @@ class TestSensorService {
  */
 @Injectable()
 class TestAlertHandler implements IEventHandler {
-  handle(_event: IEvent): Promise<void> {
-    return Promise.resolve();
+  handle(_event: IEvent): Promise<HandlerOutcome> {
+    return Promise.resolve(HandlerOutcome.ack());
   }
 
   getEventType(): string {

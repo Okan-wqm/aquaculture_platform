@@ -14,10 +14,23 @@ import {
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsString, IsOptional, IsBoolean, IsArray, IsNumber, IsObject, IsDefined, MaxLength, Min, Max, ArrayMaxSize, ValidateNested } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsBoolean,
+  IsArray,
+  IsNumber,
+  IsObject,
+  IsDefined,
+  MaxLength,
+  Min,
+  Max,
+  ArrayMaxSize,
+  ValidateNested,
+} from 'class-validator';
 import { Request } from 'express';
 
-import { getAuthUser } from '../../shared/authenticated-request';
+import { getAuthUser, requireAuthUserName } from '../../shared/authenticated-request';
 import {
   FeatureToggleScope,
   FeatureToggleStatus,
@@ -182,7 +195,11 @@ class CreateMaintenanceDto {
 
   @IsOptional()
   @IsArray()
-  affectedServices?: Array<{ name: string; status: 'unavailable' | 'degraded' | 'read_only'; message?: string }>;
+  affectedServices?: Array<{
+    name: string;
+    status: 'unavailable' | 'degraded' | 'read_only';
+    message?: string;
+  }>;
 
   @IsDefined()
   scheduledStart!: Date;
@@ -344,7 +361,11 @@ class UpdateMaintenanceDto {
 
   @IsOptional()
   @IsArray()
-  affectedServices?: Array<{ name: string; status: 'unavailable' | 'degraded' | 'read_only'; message?: string }>;
+  affectedServices?: Array<{
+    name: string;
+    status: 'unavailable' | 'degraded' | 'read_only';
+    message?: string;
+  }>;
 
   @IsOptional()
   scheduledStart?: Date;
@@ -461,10 +482,7 @@ export class GlobalSettingsController {
   }
 
   @Put('feature-toggles/:id')
-  async updateFeatureToggle(
-    @Param('id') id: string,
-    @Body() dto: UpdateFeatureToggleDto,
-  ) {
+  async updateFeatureToggle(@Param('id') id: string, @Body() dto: UpdateFeatureToggleDto) {
     return this.globalSettingsService.updateFeatureToggle(id, dto);
   }
 
@@ -545,10 +563,7 @@ export class GlobalSettingsController {
   }
 
   @Put('maintenance/:id')
-  async updateMaintenanceMode(
-    @Param('id') id: string,
-    @Body() dto: UpdateMaintenanceDto,
-  ) {
+  async updateMaintenanceMode(@Param('id') id: string, @Body() dto: UpdateMaintenanceDto) {
     return this.globalSettingsService.updateMaintenanceMode(id, {
       ...dto,
       scheduledStart: dto.scheduledStart ? new Date(dto.scheduledStart) : undefined,
@@ -572,10 +587,7 @@ export class GlobalSettingsController {
   }
 
   @Post('maintenance/:id/extend')
-  async extendMaintenance(
-    @Param('id') id: string,
-    @Body() dto: ExtendMaintenanceDto,
-  ) {
+  async extendMaintenance(@Param('id') id: string, @Body() dto: ExtendMaintenanceDto) {
     return this.globalSettingsService.extendMaintenance(id, dto.additionalMinutes);
   }
 
@@ -614,10 +626,7 @@ export class GlobalSettingsController {
   }
 
   @Post('versions/:id/rollback')
-  async rollbackVersion(
-    @Param('id') id: string,
-    @Body() dto: RollbackVersionDto,
-  ) {
+  async rollbackVersion(@Param('id') id: string, @Body() dto: RollbackVersionDto) {
     return this.globalSettingsService.rollbackVersion(id, dto.reason, dto.rolledBackBy);
   }
 
@@ -653,17 +662,12 @@ export class GlobalSettingsController {
   }
 
   @Put('configs/:id')
-  updateConfig(
-    @Param('id') id: string,
-    @Body() dto: UpdateConfigDto,
-  ): never {
+  updateConfig(@Param('id') id: string, @Body() dto: UpdateConfigDto): never {
     return this.globalSettingsService.updateConfig(id, dto.value, 'admin', dto.reason);
   }
 
   @Post('configs/bulk-update')
-  bulkUpdateConfigs(
-    @Body() dto: BulkUpdateConfigsDto,
-  ): never {
+  bulkUpdateConfigs(@Body() dto: BulkUpdateConfigsDto): never {
     return this.globalSettingsService.bulkUpdateConfigs(dto.updates, 'admin');
   }
 
@@ -679,16 +683,11 @@ export class GlobalSettingsController {
   }
 
   @Put('provisioning-config')
-  updateProvisioningConfig(
-    @Body() body: Record<string, string>,
-    @Req() req: Request,
-  ): never {
+  updateProvisioningConfig(@Body() body: Record<string, string>, @Req() req: Request): never {
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
       throw new BadRequestException('Invalid configuration payload');
     }
-    const user = getAuthUser(req);
-    const updatedBy = user?.email || user?.id || 'admin';
-    return this.globalSettingsService.updateProvisioningConfig(body, updatedBy);
+    return this.globalSettingsService.updateProvisioningConfig(body, requireAuthUserName(req));
   }
 
   // ============================================================================

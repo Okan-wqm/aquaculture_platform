@@ -9,7 +9,7 @@
  * mapping. `synchronize: false` keeps admin's schema synchroniser out of a
  * table it does not own.
  */
-import { MoneyColumn } from '@aquaculture/backend-common/monetary';
+import { MoneyColumn, DecimalValueTransformer } from '@aquaculture/backend-common/monetary';
 import type {
   BillingCycle,
   BillingPlanFeaturesInput,
@@ -30,12 +30,16 @@ import {
   VersionColumn,
 } from 'typeorm';
 
-const PERCENT_TRANSFORMER = {
-  to: (value: Decimal | null | undefined): string | null =>
-    value === null || value === undefined ? null : value.toString(),
-  from: (value: string | null | undefined): Decimal | null =>
-    value === null || value === undefined ? null : new Decimal(value),
-};
+/**
+ * A rate, not money — but the DEFAULT rule is the same one money columns need.
+ *
+ * The local copy these entities carried collapsed `undefined` into `null`, so a
+ * rate the caller did not name was written as an explicit NULL instead of being
+ * left out of the INSERT for its `DEFAULT 0` to apply. `DecimalValueTransformer`
+ * is the platform's one implementation of that rule and passes `undefined`
+ * through, which is what makes `default: 0` mean anything.
+ */
+const RATE_TRANSFORMER = new DecimalValueTransformer();
 
 @Entity('plans', { schema: 'billing', synchronize: false })
 export class PlanReadOnly {
@@ -170,7 +174,7 @@ export class PlanCyclePriceReadOnly {
     precision: 5,
     scale: 2,
     name: 'discount_percent',
-    transformer: PERCENT_TRANSFORMER,
+    transformer: RATE_TRANSFORMER,
   })
   discountPercent!: Decimal;
 }

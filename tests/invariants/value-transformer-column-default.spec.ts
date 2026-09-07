@@ -91,7 +91,13 @@ interface RegisteredTransformer {
 const TRANSFORMERS: readonly RegisteredTransformer[] = [
   { aliases: ['DecimalTransformer'], create: () => new DecimalTransformer() },
   {
-    aliases: ['DecimalValueTransformer', 'DECIMAL_TRANSFORMER'],
+    // RATE_TRANSFORMER is the same implementation under a local name: the
+    // billing catalogue entities declare rates (a percentage, a tier
+    // multiplier) rather than money, but the DEFAULT rule they need is the one
+    // this class implements, so they instantiate it instead of writing a fourth
+    // copy that collapses `undefined` into `null` — which is what they did
+    // before ADR-0013, so `default: 0` never applied to an unnamed rate.
+    aliases: ['DecimalValueTransformer', 'DECIMAL_TRANSFORMER', 'RATE_TRANSFORMER'],
     create: () => new DecimalValueTransformer(),
   },
   { aliases: ['BigIntTransformer'], create: () => new BigIntTransformer() },

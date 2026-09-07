@@ -12,7 +12,7 @@
  * Same pattern as `analytics/entities/external/*` — see that directory for the
  * cross-service read precedent.
  */
-import { MoneyColumn } from '@aquaculture/backend-common/monetary';
+import { MoneyColumn, DecimalValueTransformer } from '@aquaculture/backend-common/monetary';
 import type {
   BillingDiscountAppliesTo,
   BillingDiscountDuration,
@@ -28,15 +28,15 @@ import {
 } from 'typeorm';
 
 /**
- * A percentage is a rate, not money: `numeric(5,2)` cannot hold a nonsense
- * one, and the transformer keeps it exact through the read.
+ * A rate, not money — but the DEFAULT rule is the same one money columns need.
+ *
+ * The local copy these entities carried collapsed `undefined` into `null`, so a
+ * rate the caller did not name was written as an explicit NULL instead of being
+ * left out of the INSERT for its `DEFAULT 0` to apply. `DecimalValueTransformer`
+ * is the platform's one implementation of that rule and passes `undefined`
+ * through, which is what makes `default: 0` mean anything.
  */
-const PERCENT_TRANSFORMER = {
-  to: (value: Decimal | null | undefined): string | null =>
-    value === null || value === undefined ? null : value.toString(),
-  from: (value: string | null | undefined): Decimal | null =>
-    value === null || value === undefined ? null : new Decimal(value),
-};
+const RATE_TRANSFORMER = new DecimalValueTransformer();
 
 @Entity('discount_codes', { schema: 'billing', synchronize: false })
 export class DiscountCodeReadOnly {
@@ -61,7 +61,7 @@ export class DiscountCodeReadOnly {
     scale: 2,
     nullable: true,
     name: 'percent_off',
-    transformer: PERCENT_TRANSFORMER,
+    transformer: RATE_TRANSFORMER,
   })
   percentOff!: Decimal | null;
 

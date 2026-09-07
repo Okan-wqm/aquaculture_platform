@@ -8,7 +8,7 @@
  * does not own — the contract `apps/admin-api-service/CLAUDE.md` states and
  * `admin-api-schema-boundaries.spec.ts` enforces.
  */
-import { MoneyColumn } from '@aquaculture/backend-common/monetary';
+import { MoneyColumn, DecimalValueTransformer } from '@aquaculture/backend-common/monetary';
 import type { BillingPlanTier, BillingPricingMetricType } from '@platform/event-contracts';
 import Decimal from 'decimal.js';
 import {
@@ -22,12 +22,16 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
-const RATE_TRANSFORMER = {
-  to: (value: Decimal | null | undefined): string | null =>
-    value === null || value === undefined ? null : value.toString(),
-  from: (value: string | null | undefined): Decimal | null =>
-    value === null || value === undefined ? null : new Decimal(value),
-};
+/**
+ * A rate, not money — but the DEFAULT rule is the same one money columns need.
+ *
+ * The local copy these entities carried collapsed `undefined` into `null`, so a
+ * rate the caller did not name was written as an explicit NULL instead of being
+ * left out of the INSERT for its `DEFAULT 0` to apply. `DecimalValueTransformer`
+ * is the platform's one implementation of that rule and passes `undefined`
+ * through, which is what makes `default: 0` mean anything.
+ */
+const RATE_TRANSFORMER = new DecimalValueTransformer();
 
 @Entity('module_prices', { schema: 'billing', synchronize: false })
 export class ModulePriceReadOnly {

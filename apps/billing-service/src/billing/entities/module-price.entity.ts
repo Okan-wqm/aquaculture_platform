@@ -13,7 +13,7 @@
  * previous window rather than editing it, so an invoice can always be read
  * back against the prices that produced it.
  */
-import { MoneyColumn } from '@aquaculture/backend-common/monetary';
+import { MoneyColumn, DecimalValueTransformer } from '@aquaculture/backend-common/monetary';
 import type { BillingPlanTier, BillingPricingMetricType } from '@platform/event-contracts';
 import Decimal from 'decimal.js';
 import {
@@ -30,15 +30,15 @@ import {
 } from 'typeorm';
 
 /**
- * A tier multiplier is a rate, not money: `numeric(6,4)` in (0, 10] cannot
- * hold the nonsense a `numeric(19,4)` money column would accept.
+ * A rate, not money — but the DEFAULT rule is the same one money columns need.
+ *
+ * The local copy these entities carried collapsed `undefined` into `null`, so a
+ * rate the caller did not name was written as an explicit NULL instead of being
+ * left out of the INSERT for its `DEFAULT 0` to apply. `DecimalValueTransformer`
+ * is the platform's one implementation of that rule and passes `undefined`
+ * through, which is what makes `default: 0` mean anything.
  */
-const RATE_TRANSFORMER = {
-  to: (value: Decimal | null | undefined): string | null =>
-    value === null || value === undefined ? null : value.toString(),
-  from: (value: string | null | undefined): Decimal | null =>
-    value === null || value === undefined ? null : new Decimal(value),
-};
+const RATE_TRANSFORMER = new DecimalValueTransformer();
 
 @Entity('module_prices', { schema: 'billing' })
 @Index(['moduleId'])

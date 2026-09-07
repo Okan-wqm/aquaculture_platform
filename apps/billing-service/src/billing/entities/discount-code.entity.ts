@@ -17,7 +17,7 @@
  * (`percent_off <= 100`), makes the currency of an amount explicit, and makes
  * the calculation total.
  */
-import { MoneyColumn } from '@aquaculture/backend-common/monetary';
+import { MoneyColumn, DecimalValueTransformer } from '@aquaculture/backend-common/monetary';
 import Decimal from 'decimal.js';
 import {
   Column,
@@ -49,16 +49,15 @@ export enum DiscountDuration {
 }
 
 /**
- * A percentage is not money: it is a rate in (0, 100] with two decimals, and
- * `numeric(5,2)` is the widest column that cannot hold a nonsense rate.
- * `MoneyColumn`'s `numeric(19,4)` would accept 4 000 000 000 000 00.0000%.
+ * A rate, not money — but the DEFAULT rule is the same one money columns need.
+ *
+ * The local copy these entities carried collapsed `undefined` into `null`, so a
+ * rate the caller did not name was written as an explicit NULL instead of being
+ * left out of the INSERT for its `DEFAULT 0` to apply. `DecimalValueTransformer`
+ * is the platform's one implementation of that rule and passes `undefined`
+ * through, which is what makes `default: 0` mean anything.
  */
-const PERCENT_TRANSFORMER = {
-  to: (value: Decimal | null | undefined): string | null =>
-    value === null || value === undefined ? null : value.toString(),
-  from: (value: string | null | undefined): Decimal | null =>
-    value === null || value === undefined ? null : new Decimal(value),
-};
+const RATE_TRANSFORMER = new DecimalValueTransformer();
 
 @Entity('discount_codes', { schema: 'billing' })
 @Index(['code'], { unique: true })
@@ -89,7 +88,7 @@ export class DiscountCode {
     scale: 2,
     nullable: true,
     name: 'percent_off',
-    transformer: PERCENT_TRANSFORMER,
+    transformer: RATE_TRANSFORMER,
   })
   percentOff!: Decimal | null;
 

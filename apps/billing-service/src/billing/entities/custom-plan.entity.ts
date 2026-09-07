@@ -13,7 +13,7 @@
  * amount is `numeric(19,4)` under `CHECK (>= 0)`, `discount_percent` is
  * CHECKed into [0, 100], and the plan cannot be worth less than nothing.
  */
-import { MoneyColumn } from '@aquaculture/backend-common/monetary';
+import { MoneyColumn, DecimalValueTransformer } from '@aquaculture/backend-common/monetary';
 import type {
   BillingCustomPlanStatus,
   BillingModuleQuantities,
@@ -36,16 +36,19 @@ import {
 
 import { BillingCycle, PlanTier } from './subscription.entity';
 
-/** A rate, not money — bounded to [0, 100] by a CHECK the jsonb never had. */
-const PERCENT_TRANSFORMER = {
-  to: (value: Decimal | null | undefined): string | null =>
-    value === null || value === undefined ? null : value.toString(),
-  from: (value: string | null | undefined): Decimal | null =>
-    value === null || value === undefined ? null : new Decimal(value),
-};
-
 /** Counts and flags, so they stay a jsonb blob — there is no money in here. */
 export type CustomPlanQuantities = Omit<BillingModuleQuantities, 'moduleId'>;
+
+/**
+ * A rate, not money — but the DEFAULT rule is the same one money columns need.
+ *
+ * The local copy these entities carried collapsed `undefined` into `null`, so a
+ * rate the caller did not name was written as an explicit NULL instead of being
+ * left out of the INSERT for its `DEFAULT 0` to apply. `DecimalValueTransformer`
+ * is the platform's one implementation of that rule and passes `undefined`
+ * through, which is what makes `default: 0` mean anything.
+ */
+const RATE_TRANSFORMER = new DecimalValueTransformer();
 
 @Entity('custom_plans', { schema: 'billing' })
 @Index(['tenantId'])
@@ -95,7 +98,7 @@ export class CustomPlan {
     scale: 2,
     default: 0,
     name: 'discount_percent',
-    transformer: PERCENT_TRANSFORMER,
+    transformer: RATE_TRANSFORMER,
   })
   discountPercent!: Decimal;
 

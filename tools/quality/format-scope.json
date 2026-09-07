@@ -36740,6 +36740,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/runbooks/monitoring/admin-api-slo.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/runbooks/monitoring/alert-delivery.md",
       "prettier_managed": true
     },
@@ -45434,6 +45440,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/agent-size-limit.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/alert-rules-select-real-series.spec.ts",
       "prettier_managed": true
     },
     {

@@ -605,7 +605,7 @@ aws s3 ls "s3://${SPACES_BUCKET}/pg-backups/$(date -u +%Y/%m/%d)/" \
 
 Copy the full object key — example:
 
-```
+```text
 pg-backups/2026/04/14/aquaculture-20260414T030000Z.dump.gpg
 ```
 

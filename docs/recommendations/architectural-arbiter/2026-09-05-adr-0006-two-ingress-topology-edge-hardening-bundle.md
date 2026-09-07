@@ -71,6 +71,18 @@ reproduces the defect: a second hand-maintained list is exactly what produced AR
 
 ## Implementation note (landed 2026-09-05)
 
-- The bundle the factory applies is `TRUST_PROXY` (mandatory in production for a public service, resolved by `resolveTrustProxy`) and `AccessLogMiddleware` (`mountEdgeHardening`), both in `libs/backend-common/src/bootstrap/edge-hardening.ts`. `RequestContextMiddleware` needed no second mount: `LoggingModule` already installs it for every importer.
-- `StripInternalHeadersMiddleware` stays in each service's module chain rather than the factory. gateway-api must run `CaptureRequestedTenantMiddleware` before the strip deletes `x-act-as-tenant`; a factory-level mount would run ahead of it. The merged invariant enforces the strip on every bootstrapped Nest service with no exclusion list, which is stronger than the decision text: the four services the old spec deferred (admin-api, config, event-store, observability) now mount it.
-- `serviceVisibility` is a required boot option. The compiler refuses a service that does not declare it; the invariant refuses a declaration that disagrees with nginx, a public service whose compose entry lacks a literal `TRUST_PROXY`, and an internal service whose compose entry carries edge configuration. nginx proxies four Nest services: gateway-api, admin-api-service, sensor-service, billing-service. The last two had never set `TRUST_PROXY`.
+- The bundle the factory applies is `TRUST_PROXY` (mandatory in production for a public service,
+  resolved by `resolveTrustProxy`) and `AccessLogMiddleware` (`mountEdgeHardening`), both in
+  `libs/backend-common/src/bootstrap/edge-hardening.ts`. `RequestContextMiddleware` needed no second
+  mount: `LoggingModule` already installs it for every importer.
+- `StripInternalHeadersMiddleware` stays in each service's module chain rather than the factory.
+  gateway-api must run `CaptureRequestedTenantMiddleware` before the strip deletes
+  `x-act-as-tenant`; a factory-level mount would run ahead of it. The merged invariant enforces the
+  strip on every bootstrapped Nest service with no exclusion list, which is stronger than the
+  decision text: the four services the old spec deferred (admin-api, config, event-store,
+  observability) now mount it.
+- `serviceVisibility` is a required boot option. The compiler refuses a service that does not
+  declare it; the invariant refuses a declaration that disagrees with nginx, a public service whose
+  compose entry lacks a literal `TRUST_PROXY`, and an internal service whose compose entry carries
+  edge configuration. nginx proxies four Nest services: gateway-api, admin-api-service,
+  sensor-service, billing-service. The last two had never set `TRUST_PROXY`.

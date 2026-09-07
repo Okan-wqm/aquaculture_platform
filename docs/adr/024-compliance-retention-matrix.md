@@ -1,19 +1,25 @@
 # ADR-024: Compliance Retention Matrix
 
-**Status**: Accepted (2026-09-05, ADR-0012 in `docs/recommendations/architectural-arbiter/`) — enforced by the single registry-driven `RetentionEnforcementService`; windows are declared entity-typed in each service's retention bootstrap module
+**Status**: Accepted (2026-09-05, ADR-0012 in `docs/recommendations/architectural-arbiter/`)
+— enforced by the single registry-driven `RetentionEnforcementService`; windows are
+declared entity-typed in each service's retention bootstrap module
 **Plan reference**: `docs/plans/2026-04-21-db-migrate-enterprise-refactor.md` §v3 R17
 **Related**: ADR-022 (HMAC pepper), ADR-023 (encrypted columns)
 
 ## Context
 
-Plan v2 specified disparate retentions across migration-adjacent artifacts (90d for `migration_events`, 30d for `_archive/`, 30d for schema snapshots, unspecified for `schema_object_history`, unlimited for `findings.jsonl`). Compliance-expert audit (v3) flagged:
+Plan v2 specified disparate retentions across migration-adjacent artifacts (90d for
+`migration_events`, 30d for `_archive/`, 30d for schema snapshots, unspecified for
+`schema_object_history`, unlimited for `findings.jsonl`). Compliance-expert audit (v3) flagged:
 
 - 90d for `migration_events` < SOC2 12-month minimum (CC4.1 change-management evidence)
 - 30d for `_archive/` disqualifying for SOC2 Type II audit window
 - Unspecified `schema_object_history` fails auditor "show me PII column history" question
 - Unlimited `findings.jsonl` without PII-scrub gate risks Art 5(e) minimisation concern
 
-GDPR Art 5 (data minimisation — retention only as long as necessary) and SOC2 CC4.1 (change-management evidence — typically 12mo+) create competing pressure. Without a principled policy, retentions drift per-table without traceability.
+GDPR Art 5 (data minimisation — retention only as long as necessary) and SOC2 CC4.1
+(change-management evidence — typically 12mo+) create competing pressure. Without a principled
+policy, retentions drift per-table without traceability.
 
 ## Decision
 
@@ -44,10 +50,14 @@ On match: PR fails with pointer to the leaking field; author must redact or use 
 
 ### Implementation notes
 
-- `migration_events` partitioning: monthly via TimescaleDB retention policy `SELECT add_retention_policy('migration_events', INTERVAL '13 months')`
-- `schema_object_history` 7y retention: pg_cron job monthly moves rows older than 13mo to cold-storage schema `observability.archive` (same table shape)
-- `_archive/` Glacier transition: GitHub Actions monthly job packages `_archive/*.ts` → tarball → S3 Glacier; index maintained in `docs/compliance/archive-index.md`
-- Findings hash-chain: already implemented in `tools/gates/finding-registry.ts`; CI invariant `e2e/tests/integration/registry-hash-chain-intact.spec.ts` ships in Phase 5
+- `migration_events` partitioning: monthly via TimescaleDB retention policy `SELECT
+add_retention_policy('migration_events', INTERVAL '13 months')`
+- `schema_object_history` 7y retention: pg_cron job monthly moves rows older than 13mo to
+  cold-storage schema `observability.archive` (same table shape)
+- `_archive/` Glacier transition: GitHub Actions monthly job packages `_archive/*.ts` → tarball → S3
+  Glacier; index maintained in `docs/compliance/archive-index.md`
+- Findings hash-chain: already implemented in `tools/gates/finding-registry.ts`; CI invariant
+  `e2e/tests/integration/registry-hash-chain-intact.spec.ts` ships in Phase 5
 
 ## Consequences
 
@@ -62,20 +72,27 @@ On match: PR fails with pointer to the leaking field; author must redact or use 
 
 - Cold-storage automation (pg_cron + Glacier transition + git-LFS) is additional infra to maintain
 - Separate retention per table means migrations must declare retention explicitly going forward
-- PII-scrub false-positives may block legitimate finding entries — mitigated by explicit whitelist exceptions
+- PII-scrub false-positives may block legitimate finding entries — mitigated by explicit whitelist
+  exceptions
 
 ## Alternatives Considered
 
-1. **Uniform 7-year retention for everything**: simplicity, but violates GDPR minimisation for snapshots + operational data
+1. **Uniform 7-year retention for everything**: simplicity, but violates GDPR minimisation for
+   snapshots + operational data
 2. **Uniform 90-day retention**: simplicity, but disqualifies SOC2 change-mgmt evidence
-3. **External retention-management tool (AWS Macie, Varonis)**: over-engineered for current scale; revisit at >1000 tenants
+3. **External retention-management tool (AWS Macie, Varonis)**: over-engineered for current scale;
+   revisit at >1000 tenants
 
 ## Validation
 
-- Unit: `tools/gates/__tests__/findings-pii-scan.spec.ts` — positive (leaking field → fail) + negative (redacted → pass)
-- Integration: `e2e/tests/integration/retention-policy-active.spec.ts` — TimescaleDB policy exists per table; cron job configured
-- Audit: compliance-expert primary; observability-expert (TimescaleDB retention mechanics); infra-expert (Glacier + git-LFS cost model)
-- E2E: auditor walkthrough — "show me all schema changes to PII columns in Q3 2026" → SQL query against `schema_object_history` returns answer
+- Unit: `tools/gates/__tests__/findings-pii-scan.spec.ts` — positive (leaking field → fail) +
+  negative (redacted → pass)
+- Integration: `e2e/tests/integration/retention-policy-active.spec.ts` — TimescaleDB policy exists
+  per table; cron job configured
+- Audit: compliance-expert primary; observability-expert (TimescaleDB retention mechanics);
+  infra-expert (Glacier + git-LFS cost model)
+- E2E: auditor walkthrough — "show me all schema changes to PII columns in Q3 2026" → SQL query
+  against `schema_object_history` returns answer
 
 ## Exit Criteria
 

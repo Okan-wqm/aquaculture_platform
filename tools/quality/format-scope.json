@@ -47045,112 +47045,202 @@
       "prettier_managed": true
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "generated",
+      "content_sha256": "95660999b02f9d474dc7d4fe184faa974fd36e64d8c903b3d5f260901978c14f",
+      "hash_policy": "sha256",
+      "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/index.d.ts",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "tsc output pinned byte-for-byte by the banned-phrase-gate CI check, which rebuilds it and diffs; formatting it makes the committed artifact differ from what the gate builds",
+      "review_required": true,
+      "source_of_truth": "generator"
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "generated",
+      "content_sha256": "295094e6792ce86db929545221bac3404da9cc89e06ef3059e5698b908f2b0b4",
+      "hash_policy": "sha256",
+      "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/index.js",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "tsc output pinned byte-for-byte by the banned-phrase-gate CI check, which rebuilds it and diffs; formatting it makes the committed artifact differ from what the gate builds",
+      "review_required": true,
+      "source_of_truth": "generator"
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "generated",
+      "content_sha256": "7a028b95821a099bed65c17159d2d180e6a5596b202fdbe1f84bd98c0825d89d",
+      "hash_policy": "sha256",
+      "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/rules/no-bare-graphql-query-string.d.ts",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "tsc output pinned byte-for-byte by the banned-phrase-gate CI check, which rebuilds it and diffs; formatting it makes the committed artifact differ from what the gate builds",
+      "review_required": true,
+      "source_of_truth": "generator"
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "generated",
+      "content_sha256": "6ff386e50f29a09b5c490377314107ddbd0e0dd001d4ba46b8256d93691fa6db",
+      "hash_policy": "sha256",
+      "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/rules/no-bare-graphql-query-string.js",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "tsc output pinned byte-for-byte by the banned-phrase-gate CI check, which rebuilds it and diffs; formatting it makes the committed artifact differ from what the gate builds",
+      "review_required": true,
+      "source_of_truth": "generator"
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "generated",
+      "content_sha256": "85dc0498615d0779c0aa2d92d372795624d9be60f3bfd94e7143868cfd1ba22a",
+      "hash_policy": "sha256",
+      "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/rules/no-bare-tenant-query-key.d.ts",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "tsc output pinned byte-for-byte by the banned-phrase-gate CI check, which rebuilds it and diffs; formatting it makes the committed artifact differ from what the gate builds",
+      "review_required": true,
+      "source_of_truth": "generator"
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "generated",
+      "content_sha256": "afb61135b1b30e93f75951fa9c86413e714507f58f1f1e6767da3f4cac15fd01",
+      "hash_policy": "sha256",
+      "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/rules/no-bare-tenant-query-key.js",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "tsc output pinned byte-for-byte by the banned-phrase-gate CI check, which rebuilds it and diffs; formatting it makes the committed artifact differ from what the gate builds",
+      "review_required": true,
+      "source_of_truth": "generator"
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "generated",
+      "content_sha256": "acffa2fc4438ed57e2ea70fd350dd8e2c3bbcb000192ad4e1ea64679d97b2c36",
+      "hash_policy": "sha256",
+      "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/rules/no-claude-sdk-raw-call.d.ts",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "tsc output pinned byte-for-byte by the banned-phrase-gate CI check, which rebuilds it and diffs; formatting it makes the committed artifact differ from what the gate builds",
+      "review_required": true,
+      "source_of_truth": "generator"
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "generated",
+      "content_sha256": "f26e82fbd74d862876c60adc5e1954ce8b234b4b88f8e411617f5849d4df4d2d",
+      "hash_policy": "sha256",
+      "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/rules/no-claude-sdk-raw-call.js",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "tsc output pinned byte-for-byte by the banned-phrase-gate CI check, which rebuilds it and diffs; formatting it makes the committed artifact differ from what the gate builds",
+      "review_required": true,
+      "source_of_truth": "generator"
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "generated",
+      "content_sha256": "35a8b80244ee31bf6ecd2ba91179d14816bed9d4a3efc6168a99fb9ac8444713",
+      "hash_policy": "sha256",
+      "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/rules/no-direct-event-publish.d.ts",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "tsc output pinned byte-for-byte by the banned-phrase-gate CI check, which rebuilds it and diffs; formatting it makes the committed artifact differ from what the gate builds",
+      "review_required": true,
+      "source_of_truth": "generator"
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "generated",
+      "content_sha256": "d3f997c6a79328d2b2076594dd9b28d27c036670134920ef7c69ced5390b1715",
+      "hash_policy": "sha256",
+      "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/rules/no-direct-event-publish.js",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "tsc output pinned byte-for-byte by the banned-phrase-gate CI check, which rebuilds it and diffs; formatting it makes the committed artifact differ from what the gate builds",
+      "review_required": true,
+      "source_of_truth": "generator"
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "generated",
+      "content_sha256": "340edecdf31c4feffd4b83b7e1585f149dedde97c2b05a968b4564f5ef055c47",
+      "hash_policy": "sha256",
+      "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/rules/no-high-cardinality-metric-label.d.ts",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "tsc output pinned byte-for-byte by the banned-phrase-gate CI check, which rebuilds it and diffs; formatting it makes the committed artifact differ from what the gate builds",
+      "review_required": true,
+      "source_of_truth": "generator"
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "generated",
+      "content_sha256": "75464bbecc5f5b7c0a8c00363de65943ee73ff6a305a0f60ec3a75a24fdb5e2c",
+      "hash_policy": "sha256",
+      "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/rules/no-high-cardinality-metric-label.js",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "tsc output pinned byte-for-byte by the banned-phrase-gate CI check, which rebuilds it and diffs; formatting it makes the committed artifact differ from what the gate builds",
+      "review_required": true,
+      "source_of_truth": "generator"
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "generated",
+      "content_sha256": "54404347775a64bc234cc1d94428fbc82fd54cf4f29949cba14a5b457557b45f",
+      "hash_policy": "sha256",
+      "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/rules/no-unpinned-ssrf-fetch.d.ts",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "tsc output pinned byte-for-byte by the banned-phrase-gate CI check, which rebuilds it and diffs; formatting it makes the committed artifact differ from what the gate builds",
+      "review_required": true,
+      "source_of_truth": "generator"
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "generated",
+      "content_sha256": "da18f61f686bcd92b6b06c5bb8190a5c038bb684ee8814d7d3b5fa8a2ee0865a",
+      "hash_policy": "sha256",
+      "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/rules/no-unpinned-ssrf-fetch.js",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "tsc output pinned byte-for-byte by the banned-phrase-gate CI check, which rebuilds it and diffs; formatting it makes the committed artifact differ from what the gate builds",
+      "review_required": true,
+      "source_of_truth": "generator"
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "generated",
+      "content_sha256": "5b58308b097492c803b2236fcae883a1b3d6eac27d3a965a2650db4155dc7df5",
+      "hash_policy": "sha256",
+      "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/rules/no-unsandboxed-html-frame.d.ts",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "tsc output pinned byte-for-byte by the banned-phrase-gate CI check, which rebuilds it and diffs; formatting it makes the committed artifact differ from what the gate builds",
+      "review_required": true,
+      "source_of_truth": "generator"
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "generated",
+      "content_sha256": "f861c4921441d8dc9e020a624aa8354accc60c7e85f55e8c33aaeb7e5d0c65bc",
+      "hash_policy": "sha256",
+      "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/rules/no-unsandboxed-html-frame.js",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "tsc output pinned byte-for-byte by the banned-phrase-gate CI check, which rebuilds it and diffs; formatting it makes the committed artifact differ from what the gate builds",
+      "review_required": true,
+      "source_of_truth": "generator"
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "generated",
+      "content_sha256": "1b5bbe41afedb5f9a8b1edeec626b32fdcef2bee6967206ea307c0653d3ffb0b",
+      "hash_policy": "sha256",
+      "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/rules/require-entity-schema.d.ts",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "tsc output pinned byte-for-byte by the banned-phrase-gate CI check, which rebuilds it and diffs; formatting it makes the committed artifact differ from what the gate builds",
+      "review_required": true,
+      "source_of_truth": "generator"
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "generated",
+      "content_sha256": "ddc1e39c00848e45985adf607afd7b0b86b199380161fc3b528c67e4e6c0d326",
+      "hash_policy": "sha256",
+      "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/rules/require-entity-schema.js",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "tsc output pinned byte-for-byte by the banned-phrase-gate CI check, which rebuilds it and diffs; formatting it makes the committed artifact differ from what the gate builds",
+      "review_required": true,
+      "source_of_truth": "generator"
     },
     {
       "class": "canonical_source",

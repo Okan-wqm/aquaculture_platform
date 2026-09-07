@@ -249,6 +249,14 @@ function classifyFormatFile(path) {
       'generated artifact; source generator is canonical',
     );
   }
+  if (path.startsWith('tools/eslint-rules/dist/')) {
+    return excluded(
+      path,
+      'generated',
+      'eslint-rules-owner',
+      'tsc output pinned byte-for-byte by the banned-phrase-gate CI check, which rebuilds it and diffs; formatting it makes the committed artifact differ from what the gate builds',
+    );
+  }
   if (
     path.includes('/public/libs/') &&
     (path.endsWith('.umd.js') || path.endsWith('.bundle.js') || path.endsWith('.min.js'))

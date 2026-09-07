@@ -47,8 +47,8 @@ function isAudited(handler: AdminMutationHandler): boolean {
 }
 
 describe('INVARIANT (ADMIN-CRITICAL-102): every admin mutation handler is audited', () => {
-  const files = controllerFiles();
-  const handlers = files.flatMap(mutationHandlers);
+  const files = adminControllerFiles();
+  const handlers = files.flatMap(adminMutationHandlers);
   const unaudited = handlers
     .filter((h) => !isAudited(h))
     .map((h) => h.id)

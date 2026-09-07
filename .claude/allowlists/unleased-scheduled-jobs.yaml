@@ -10,7 +10,7 @@
 # admin-api-service — the finding's surface — is fully converted and may not
 # appear here. The remaining services are the fleet half of the same finding.
 version: 1
-ceiling: 67
+ceiling: 58
 entries:
   - site: apps/auth-service/src/audit/audit-log.service.ts#scheduledLogCleanup
     owner: okan
@@ -77,62 +77,17 @@ entries:
     expiry: 2026-12-31
     findingId: ADMIN-HIGH-013
     reason: raw @Interval in billing-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
-  - site: apps/farm-service/src/feeding-protocol/services/feeding-cron-v2.service.ts#dailySummary
+  - site: apps/farm-service/src/feeding-protocol/services/feeding-cron-v2.service.ts#hourlyTick
     owner: okan
     expiry: 2026-12-31
-    findingId: ADMIN-HIGH-013
-    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
-  - site: apps/farm-service/src/feeding-protocol/services/feeding-cron-v2.service.ts#fcrAlertSweep
-    owner: okan
-    expiry: 2026-12-31
-    findingId: ADMIN-HIGH-013
-    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
-  - site: apps/farm-service/src/feeding-protocol/services/feeding-cron-v2.service.ts#generateDayPlans
-    owner: okan
-    expiry: 2026-12-31
-    findingId: ADMIN-HIGH-013
-    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
+    findingId: ADMIN-HIGH-108
+    reason: farm-service consolidated the feeding sweeps into one hourly tick; it converts with the rest of the service
   - site: apps/farm-service/src/feeding-protocol/services/feeding-cron-v2.service.ts#mealWindowSweep
     owner: okan
     expiry: 2026-12-31
     findingId: ADMIN-HIGH-013
     reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
-  - site: apps/farm-service/src/feeding-protocol/services/feeding-cron-v2.service.ts#morningSweep
-    owner: okan
-    expiry: 2026-12-31
-    findingId: ADMIN-HIGH-013
-    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
   - site: apps/farm-service/src/feeding-protocol/services/feeding-cron-v2.service.ts#retentionCleanup
-    owner: okan
-    expiry: 2026-12-31
-    findingId: ADMIN-HIGH-013
-    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
-  - site: apps/farm-service/src/feeding-protocol/services/feeding-cron-v2.service.ts#stockCoverageSweep
-    owner: okan
-    expiry: 2026-12-31
-    findingId: ADMIN-HIGH-013
-    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
-  - site: apps/farm-service/src/feeding/services/feeding-cron.service.ts#applyDailyGrowthRollup
-    owner: okan
-    expiry: 2026-12-31
-    findingId: ADMIN-HIGH-013
-    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
-  - site: apps/farm-service/src/feeding/services/feeding-cron.service.ts#checkFeedTransitions
-    owner: okan
-    expiry: 2026-12-31
-    findingId: ADMIN-HIGH-013
-    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
-  - site: apps/farm-service/src/feeding/services/feeding-cron.service.ts#cleanupOldExecutions
-    owner: okan
-    expiry: 2026-12-31
-    findingId: ADMIN-HIGH-013
-    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
-  - site: apps/farm-service/src/feeding/services/feeding-cron.service.ts#generateDailyPlans
-    owner: okan
-    expiry: 2026-12-31
-    findingId: ADMIN-HIGH-013
-    reason: raw @Cron in farm-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
-  - site: apps/farm-service/src/feeding/services/feeding-cron.service.ts#updateTemperatureReadings
     owner: okan
     expiry: 2026-12-31
     findingId: ADMIN-HIGH-013

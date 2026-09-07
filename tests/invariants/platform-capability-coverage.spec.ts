@@ -158,7 +158,9 @@ describe('INVARIANT (ADR-0016): platform capabilities — one enum, one projecti
       'request.auth.admin.revokePlatformCapability',
       'request.auth.admin.listPlatformCapabilityGrants',
     ]) {
-      expect(adminBlock).toContain(`'${subject}'`);
+      // The generator writes plain YAML scalars — `- request.auth.…` — so the
+      // assertion matches the list entry, not a quoted form the file never had.
+      expect(adminBlock).toContain(`- ${subject}`);
     }
   });
 });

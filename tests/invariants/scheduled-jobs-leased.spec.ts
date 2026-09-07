@@ -114,7 +114,11 @@ describe('INVARIANT (ADMIN-HIGH-013): every scheduled method is leased and heart
 
   it('sees the fleet', () => {
     expect(methods.length).toBeGreaterThan(50);
-    expect(leased.length).toBeGreaterThanOrEqual(21);
+    // 20, not 21: `sessions.cleanup-expired` converted with the rest of
+    // admin-api on the audit branch, but `admin.user_sessions` — the table it
+    // swept — was deleted before this wave landed (ADMIN-HIGH-100), so the job
+    // has nothing to clean and does not come back with the conversion.
+    expect(leased.length).toBeGreaterThanOrEqual(20);
   });
 
   it('has no raw @Cron / @Interval / @Timeout outside the governed ratchet', () => {

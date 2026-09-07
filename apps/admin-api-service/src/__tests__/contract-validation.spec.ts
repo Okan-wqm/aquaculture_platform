@@ -965,9 +965,10 @@ describe('Frontend-Backend Contract Validation', () => {
     // the 47 was gone before this branch touched it.
     // 538: -1 for POST /security/activities, whose body named the actor
     // through userId / userName / userEmail / ipAddress (ADMIN-CRITICAL-102).
-    // 526: -12 for the /settings/ip-access surface, deleted with both IP
-    // access-rule stacks — the admin-api CRUD wrote a table no guard read, and
-    // the gateway's IpWhitelistGuard was registered nowhere (SEC-HIGH-165).
+    // 526: -12 for the twelve routes of the settings IP allow-list surface,
+    // deleted with both access-rule stacks — the admin-api CRUD wrote a table
+    // no guard read, and the gateway guard was registered nowhere
+    // (SEC-HIGH-165).
     // 529: +3 for the platform-capability grant surface, which narrows the
     // SUPER_ADMIN bit to named capabilities (SEC-HIGH-164).
     // 463: -66 for every route that existed only to refuse — the

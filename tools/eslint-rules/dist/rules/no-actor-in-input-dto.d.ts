@@ -18,13 +18,8 @@
 import { ESLintUtils } from '@typescript-eslint/utils';
 /** Property names that claim an actor. Extend here, never per-file. */
 export declare const ACTOR_PROPERTY_NAMES: ReadonlySet<string>;
-declare const _default: ESLintUtils.RuleModule<
-  'actorFromClient',
-  [],
-  unknown,
-  ESLintUtils.RuleListener
-> & {
-  name: string;
+declare const _default: ESLintUtils.RuleModule<"actorFromClient", [], unknown, ESLintUtils.RuleListener> & {
+    name: string;
 };
 export default _default;
 //# sourceMappingURL=no-actor-in-input-dto.d.ts.map

@@ -46938,7 +46938,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "71ff7d0ce0eb73dba22eef8856657b1f65f94d77fe09d6c36990d44a3a21c464",
+      "content_sha256": "79f208fe11706ae0ac66ca1edce91722626d904c4c5bd76e53c04ce534254a0e",
       "hash_policy": "sha256",
       "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/index.d.ts",
@@ -46949,7 +46949,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "74a2d09f193c2261a855d867b7debef5d8129292caf861c8a67e9d5b63d2fc4b",
+      "content_sha256": "a2c008a69328d35f1b452c7ce4a40213cc86be81f16d3afd5b9e81f009f4d0d1",
       "hash_policy": "sha256",
       "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/index.js",
@@ -46960,7 +46960,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "d555511524ae54ce594960e4161415ee69eceafdaa5bd5cca9c6305ca9c3e7a2",
+      "content_sha256": "a2f35026d4f0f228d9e5dbb76bcb6111564ee57e9a5dc118ae0c095f785aaf4a",
       "hash_policy": "sha256",
       "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/rules/no-actor-in-input-dto.d.ts",
@@ -46971,7 +46971,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "b1c80e21ddaab8f91346e99dfcd13fd7dac7894ae2c687d6a2e9ec4cadda32f5",
+      "content_sha256": "9ea72ea093f02b59588a7440ac40372c6a6f6ad3f2046a2bfe290b850a620097",
       "hash_policy": "sha256",
       "owner": "eslint-rules-owner",
       "path": "tools/eslint-rules/dist/rules/no-actor-in-input-dto.js",

@@ -159,22 +159,32 @@ class MemoryHookImplBehavioralTests(unittest.TestCase):
     def tearDown(self) -> None:
         shutil.rmtree(self.tmp, ignore_errors=True)
 
+    def _converge(self, plan_id: str) -> None:
+        from tests.test_implementation_lifecycle_continuity import (
+            drive_plan_to_converged, seed_reviewer_agent,
+        )
+
+        seed_reviewer_agent(self.tmp)
+        drive_plan_to_converged(
+            plan_id=plan_id, tools=self.base, workspace_root=self.tmp,
+            plan_content={
+                "schema_version": 1, "title": "t", "summary": "x",
+                "affected_surfaces": ["x.py"],
+                "key_changes": [{"id": "k1", "description": "d", "paths": ["x.py"]}],
+                "validation_commands": [{"cmd": "echo", "timeout_ms": 1000, "expected_exit": 0}],
+                "evidence_refs": [f"x.py:{line}" for line in range(1, 6)],
+            },
+        )
+
     def test_i_v31_c2_05_returns_canonical_dict_shape(self) -> None:
         """Plan ARIA-V3.1-C2-05 — record() returns a dict with the
         documented keys regardless of stability/convention outcome."""
         from aria_kernel.cycle_phases import MemoryHookImpl
+        self._converge("plan-test")
         hook = MemoryHookImpl()
         result = hook.record(
             cycle_id="cyc-test", plan_id="plan-test",
             workspace_root=self.tmp, base_dir=self.base,
-            converged_plan={
-                "schema_version": 1, "title": "t", "summary": "x",
-                "affected_surfaces": ["x.py"],
-                "key_changes": [{"id": "k1", "description": "d", "paths": ["x.py"]}],
-                "validation_commands": [{"cmd": "echo", "timeout_ms": 1000,
-                                          "expected_exit": 0}],
-                "evidence_refs": ["x.py:1"],
-            },
             plan_envelope_metadata={"_pressure_source_type": "git_diff"},
             profile="standard",
             signer_key_fp=None,  # No signing → record_convention skipped.
@@ -187,12 +197,80 @@ class MemoryHookImplBehavioralTests(unittest.TestCase):
             self.assertIn(key, result, f"result missing key {key!r}")
         # signer_key_fp absent → no convention recorded.
         self.assertFalse(result["convention_recorded"])
+        self.assertEqual(result["status"], "needs_signing")
+        self.assertIsNone(result["chain_verified"])
+
+    def test_real_key_fingerprint_records_only_a_hypothesis(self) -> None:
+        from aria_kernel.cycle_phases import MemoryHookImpl
+        from aria_kernel.gh_token_factory import mint_signing_key, revoke_signing_key
+        from aria_kernel.knowledge_graph import lookup_pattern
+
+        self._converge("plan-fingerprint")
+        key = mint_signing_key(cycle_id="cyc-fingerprint", workspace_root=self.tmp)
+        try:
+            result = MemoryHookImpl().record(
+                cycle_id="cyc-fingerprint", plan_id="plan-fingerprint",
+                workspace_root=self.tmp, base_dir=self.base,
+                plan_envelope_metadata={}, profile="standard",
+                signer_key_fp=key.fingerprint,
+            )
+        finally:
+            revoke_signing_key(cycle_id="cyc-fingerprint", workspace_root=self.tmp)
+        self.assertEqual(result["status"], "memory_hook_recorded")
+        self.assertTrue(result["convention_recorded"])
+        self.assertTrue(result["chain_verified"])
+        pattern = lookup_pattern(
+            f"conv_cyc-fingerprint_{result['pattern_signature'][:16]}",
+            workspace_root=self.tmp, min_confidence=0.0,
+        )
+        self.assertIsNotNone(pattern)
+        self.assertEqual(pattern["signer_key_fp"], key.fingerprint)
+        self.assertEqual(pattern["plan_id"], "plan-fingerprint")
+        self.assertEqual(pattern["outcome_status"], "hypothesis")
+        self.assertEqual(pattern["confidence"], 0.5)
+
+    def test_unsigned_replay_discloses_the_same_plan_revision_once(self) -> None:
+        from aria_kernel.cycle_phases import MemoryHookImpl
+        from aria_kernel.ledger import load_jsonl
+
+        self._converge("plan-replay")
+        hook = MemoryHookImpl()
+        for cycle_id in ("cyc-original", "cyc-original", "cyc-resumed"):
+            result = hook.record(
+                cycle_id=cycle_id, plan_id="plan-replay",
+                workspace_root=self.tmp, base_dir=self.base,
+                plan_envelope_metadata={}, profile="standard", signer_key_fp=None,
+            )
+            self.assertEqual(result["status"], "needs_signing")
+            self.assertFalse(result["convention_recorded"])
+            self.assertIsNone(result["chain_verified"])
+        pending = [
+            row for row in load_jsonl(self.base / "governance.jsonl")
+            if row.get("kind") == "convention_record_needs_signing"
+        ]
+        self.assertEqual(len(pending), 1)
+        self.assertEqual(pending[0]["details"]["plan_id"], "plan-replay")
+        self.assertFalse((self.base / "knowledge-graph" / "conventions.jsonl").exists())
+
+    def test_invalid_fingerprint_is_a_recording_failure(self) -> None:
+        from aria_kernel.cycle_phases import MemoryHookImpl
+
+        self._converge("plan-invalid-fingerprint")
+        result = MemoryHookImpl().record(
+            cycle_id="cyc-invalid-fingerprint", plan_id="plan-invalid-fingerprint",
+            workspace_root=self.tmp, base_dir=self.base,
+            plan_envelope_metadata={}, profile="standard", signer_key_fp="invalid",
+        )
+        self.assertEqual(result["status"], "convention_record_failed")
+        self.assertFalse(result["convention_recorded"])
+        self.assertIsNone(result["chain_verified"])
 
     def test_i_v31_c2_06_stable_triggers_human_required(self) -> None:
         """Plan ARIA-V3.1-C2-06 — when check_pattern_signature_stability
         returns stable=True, MemoryHookImpl invokes record_human_required
         + emits skill_genesis_human_required_dispatched event."""
         from aria_kernel.cycle_phases import MemoryHookImpl
+        self._converge("plan-stable")
         called: dict[str, object] = {}
         def _fake_human_required(*, request_id, severity, reason,
                                  base_dir=None, now=None):
@@ -219,14 +297,6 @@ class MemoryHookImplBehavioralTests(unittest.TestCase):
             result = hook.record(
                 cycle_id="cyc-stable", plan_id="plan-stable",
                 workspace_root=self.tmp, base_dir=self.base,
-                converged_plan={
-                    "schema_version": 1, "title": "t", "summary": "x",
-                    "affected_surfaces": ["x.py"],
-                    "key_changes": [{"id": "k1", "description": "d", "paths": ["x.py"]}],
-                    "validation_commands": [{"cmd": "echo", "timeout_ms": 1000,
-                                              "expected_exit": 0}],
-                    "evidence_refs": ["x.py:1"],
-                },
                 plan_envelope_metadata={"_pressure_source_type": "operator_feedback"},
                 profile="standard",
                 signer_key_fp=None,

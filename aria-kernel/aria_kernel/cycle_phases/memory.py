@@ -52,7 +52,8 @@ class MemoryHook(Protocol):
 
     Called after `convergence_resolved` when `arbiter_verdict ==
     "converged"`. Returns a summary dict for the cycle summary +
-    governance event.
+    governance event. The implementation reads the reviewed plan body
+    from its owning ledger, using plan_id; callers supply no copy.
     """
 
     def record(
@@ -62,7 +63,6 @@ class MemoryHook(Protocol):
         plan_id: str,
         workspace_root: Path,
         base_dir: Path,
-        converged_plan: Mapping[str, Any],
         plan_envelope_metadata: Mapping[str, Any],
         profile: str,
         signer_key_fp: str | None,
@@ -88,7 +88,6 @@ class NoOpMemoryHook:
         plan_id: str,
         workspace_root: Path,
         base_dir: Path,
-        converged_plan: Mapping[str, Any],
         plan_envelope_metadata: Mapping[str, Any],
         profile: str,
         signer_key_fp: str | None,
@@ -120,9 +119,9 @@ class MemoryHookImpl:
             * distinct_cross_reviewer_agent_ids >= 2
             * OPERATOR_FEEDBACK ∈ distinct_sources (V3.1-C-4 anchor)
 
-      3. record_convention if pattern_signature is non-empty — the
-         convention row is the cycle's contribution to the
-         knowledge graph (V9.0-F lock-safe write via V3.1-P-3).
+      3. record_convention if pattern_signature and a signer are present.
+         Without the cycle signer, record a needs_signing observation
+         with the canonical plan revision and hash; no convention is written.
 
       4. verify_chain_or_quarantine AFTER record — Tier-3 detect
          (closes V3.1-C MEDIUM-012). The V3.1-P-3 lock guarantees
@@ -139,7 +138,8 @@ class MemoryHookImpl:
     Frozen / observe profile: this hook IS NOT INVOKED by the
     orchestrator (the orchestrator's profile_announce_allowed gate
     blocks the post-CONVERGED phase under those profiles). Standard
-    / strict / autonomous all run the full pipeline.
+    / strict / autonomous run the hook; convention writing still requires
+    its signer.
     """
 
     def record(
@@ -149,7 +149,6 @@ class MemoryHookImpl:
         plan_id: str,
         workspace_root: Path,
         base_dir: Path,
-        converged_plan: Mapping[str, Any],
         plan_envelope_metadata: Mapping[str, Any],
         profile: str,
         signer_key_fp: str | None,
@@ -160,11 +159,23 @@ class MemoryHookImpl:
             record_convention, verify_chain_or_quarantine,
         )
         from ..plan_synthesizer import compute_pattern_signature
+        from ..plan_convergence import fold_plan_state, plan_body_from_state
         from ..skill_genesis_drainer import check_pattern_signature_stability
-        from ..tool_registry import append_tools_governance
+        from ..tool_registry import (
+            GovernanceError, append_tools_governance, append_tools_governance_once,
+        )
         from datetime import datetime, timezone
 
-        plan_content = dict(converged_plan or {})
+        # The plan ledger owns both convergence and its reviewed body. A
+        # caller-supplied copy can be absent or name a different revision.
+        state = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
+        if state.get("state") != "CONVERGED":
+            raise GovernanceError(
+                f"memory_requires_converged_plan: plan_id={plan_id!r} "
+                f"is in state {state.get('state')!r}"
+            )
+        body = plan_body_from_state(state)
+        plan_content = body["plan_content"]
         pattern_signature = compute_pattern_signature(plan_content) or ""
 
         # Phase 1 — bounded governance read (scales with limit, not
@@ -189,7 +200,23 @@ class MemoryHookImpl:
         # is non-empty AND signer_key_fp is the cycle's ephemeral key).
         convention_recorded = False
         convention_path: Path | None = None
-        if pattern_signature and signer_key_fp and signer_key_fp.startswith("SHA256:"):
+        convention_status = "no_pattern_signature"
+        if pattern_signature and signer_key_fp is None:
+            convention_status = "needs_signing"
+            append_tools_governance_once(
+                base_dir, "convention_record_needs_signing",
+                {
+                    "cycle_id": cycle_id,
+                    "plan_id": plan_id,
+                    "plan_revision_id": body["revision_id"],
+                    "plan_content_hash": body["content_hash"],
+                    "pattern_signature": pattern_signature,
+                    "reason": "cycle_signer_unavailable",
+                    "convention_recorded": False,
+                },
+                claim_keys=("plan_id", "plan_revision_id", "plan_content_hash", "reason"),
+            )
+        if pattern_signature and signer_key_fp is not None:
             pattern_id = f"conv_{cycle_id}_{pattern_signature[:16]}"
             pattern = Pattern(
                 pattern_id=pattern_id,
@@ -230,6 +257,7 @@ class MemoryHookImpl:
                     signer_key_fp=signer_key_fp,
                 )
                 convention_recorded = True
+                convention_status = "memory_hook_recorded"
                 append_tools_governance(
                     base_dir, "convention_recorded",
                     {
@@ -240,6 +268,7 @@ class MemoryHookImpl:
                     bypass_profile_gate=True,
                 )
             except Exception as exc:
+                convention_status = "convention_record_failed"
                 append_tools_governance(
                     base_dir, "convention_record_failed",
                     {
@@ -251,12 +280,13 @@ class MemoryHookImpl:
                 )
 
         # Phase 4 — verify_chain_or_quarantine AFTER record.
-        chain_verified = True
+        chain_verified: bool | None = None
         if convention_path is not None:
             try:
                 ok, _broken = verify_chain_or_quarantine(convention_path)
                 chain_verified = bool(ok)
                 if not ok:
+                    convention_status = "convention_chain_invalid"
                     append_tools_governance(
                         base_dir, "knowledge_graph_quarantined",
                         {
@@ -268,6 +298,7 @@ class MemoryHookImpl:
                     )
             except Exception:
                 chain_verified = False
+                convention_status = "convention_chain_invalid"
 
         # Phase 5 — skill genesis dispatch ONLY if stability fires.
         skill_genesis_dispatched = False
@@ -309,7 +340,9 @@ class MemoryHookImpl:
                 )
 
         return {
-            "status": "memory_hook_recorded",
+            "status": convention_status,
+            "plan_revision_id": body["revision_id"],
+            "plan_content_hash": body["content_hash"],
             "pattern_signature": pattern_signature,
             "stability_result": stability_result,
             "convention_recorded": convention_recorded,

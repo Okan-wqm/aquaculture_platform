@@ -34,6 +34,7 @@ from aria_kernel.plan_convergence import fold_plan_state
 from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import ensure_tools_dir
 from tests.test_implementation_lifecycle_continuity import (
+    drive_plan_to_converged,
     drive_plan_to_implementation_requested,
     seed_reviewer_agent,
 )
@@ -291,6 +292,86 @@ class AutonomyOrchestratorTests(unittest.TestCase):
         )
         kwargs.update(overrides)
         return run_autonomy_orchestrator(**kwargs)
+
+    def _run_with_real_memory(self, *, plan_state: str = "converged") -> dict[str, Any]:
+        from aria_kernel.cycle_phases import select_memory_hook
+        from aria_kernel.plan_convergence import start_plan
+
+        seed_reviewer_agent(self.tmp)
+        plan_content = {
+            "schema_version": 1,
+            "title": "Canonical memory fixture",
+            "summary": "Read the plan whose reviewed revision is in the ledger.",
+            "affected_surfaces": ["fixture/canonical.py"],
+            "key_changes": [{"id": "memory-owner", "description": "Refactor the memory owner",
+                             "paths": ["fixture/canonical.py"]}],
+            "validation_commands": [{"cmd": "python3 -m unittest tests.test_memory"}],
+            "evidence_refs": [f"fixture/canonical.py:{line}" for line in range(1, 6)],
+        }
+
+        def converge(**kwargs: Any) -> dict[str, Any]:
+            plan_id = kwargs["plan_id"]
+            if plan_state in {"converged", "tampered"}:
+                drive_plan_to_converged(
+                    plan_id=plan_id, tools=self.base, workspace_root=self.tmp,
+                    plan_content=plan_content,
+                )
+            elif plan_state == "started":
+                start_plan(plan_id=plan_id, initial_revision_id="rev-0",
+                           plan_content=plan_content, base_dir=self.base)
+            if plan_state == "tampered":
+                ledger = self.base / "plans" / "events.jsonl"
+                ledger.write_text(
+                    ledger.read_text(encoding="utf-8").replace(
+                        "Canonical memory fixture", "Tampered memory fixture"
+                    ), encoding="utf-8",
+                )
+            # The envelope is deliberately not a second plan-body source.
+            result = _fake_convergence_runner(**kwargs)
+            result.pop("converged_plan")
+            return result
+
+        return self._run(
+            convergence_runner=converge,
+            memory_hook=select_memory_hook(profile="standard"),
+        )
+
+    def test_selected_memory_reads_canonical_plan_and_reports_missing_signer(self) -> None:
+        result = self._run_with_real_memory()
+        summary = result["per_cycle"][0]
+        self.assertIn("memory_hook", summary)
+        memory = summary["memory_hook"]
+        self.assertEqual(memory["status"], "needs_signing")
+        self.assertFalse(memory["convention_recorded"])
+        self.assertIsNone(memory["chain_verified"])
+        self.assertEqual(memory["plan_revision_id"], "rev-0")
+        self.assertTrue(memory["plan_content_hash"].startswith("sha256:"))
+        self.assertIsNotNone(memory["pattern_signature"])
+        governance = load_jsonl(self.base / "governance.jsonl")
+        self.assertFalse(any(row.get("kind") == "memory_hook_failed" for row in governance))
+        pending = [row for row in governance if row.get("kind") == "convention_record_needs_signing"]
+        self.assertEqual(len(pending), 1)
+        self.assertEqual(pending[0]["details"]["plan_content_hash"], memory["plan_content_hash"])
+        self.assertFalse((self.base / "knowledge-graph" / "conventions.jsonl").exists())
+
+    def test_selected_memory_refuses_missing_unconverged_or_tampered_plan(self) -> None:
+        for plan_state, reason in (
+            ("missing", "memory_requires_converged_plan"),
+            ("started", "memory_requires_converged_plan"),
+            ("tampered", "ledger_hash_mismatch"),
+        ):
+            with self.subTest(plan_state=plan_state):
+                result = self._run_with_real_memory(plan_state=plan_state)
+                self.assertNotIn("memory_hook", result["per_cycle"][0])
+                failures = [row for row in load_jsonl(self.base / "governance.jsonl")
+                            if row.get("kind") == "memory_hook_failed"]
+                self.assertTrue(failures)
+                self.assertIn(reason, failures[-1]["details"]["error_message"])
+                self.assertFalse((self.base / "knowledge-graph" / "conventions.jsonl").exists())
+                # Each case owns a new store; a corrupt ledger must not leak
+                # into the next orchestrator's pre-cycle reconciliation.
+                shutil.rmtree(self.base)
+                set_profile("standard", operator_approval_ref="f1-t", base_dir=self.base)
 
     def test_full_chain_happy_path(self) -> None:
         result = self._run(max_cycles=2)

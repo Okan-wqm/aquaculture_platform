@@ -1867,10 +1867,10 @@ def run_autonomy_orchestrator(
                 # memory pillar per cycle (closes V31-C2 follow-up).
                 #
                 # Placed BEFORE specialist_review_started so the V10
-                # memory contribution lands per CONVERGED cycle even
-                # when specialist_review rejects. The MemoryHook is
-                # idempotent for crash recovery — the convention row
-                # is keyed by pattern_signature.
+                # memory observation lands per CONVERGED cycle even
+                # when specialist_review rejects. Without a cycle signer,
+                # the hook discloses needs_signing once per plan revision;
+                # replay does not append another identical observation.
                 try:
                     _v31c2_memory_result = memory_hook.record(
                         cycle_id=cycle_id,
@@ -1883,7 +1883,10 @@ def run_autonomy_orchestrator(
                             ),
                         },
                         profile=str(profile_snapshot or "standard"),
-                        signer_key_fp=None,  # V31-D2 will thread the cycle key fp here
+                        # The implementation runner owns a later, short-lived
+                        # key. No authenticated cycle signer exists here;
+                        # memory records needs_signing, never a placeholder.
+                        signer_key_fp=None,
                     )
                     cycle_summary["memory_hook"] = _v31c2_memory_result
                     AutonomyStateReducer.transition(

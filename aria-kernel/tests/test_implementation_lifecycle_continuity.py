@@ -55,6 +55,7 @@ def seed_reviewer_agent(workspace_root: Path) -> None:
 
 def drive_plan_to_converged(
     *, plan_id: str, tools: Path, workspace_root: Path, title: str = "E2 plan",
+    plan_content: dict | None = None,
 ) -> None:
     """CONVERGED via the direct evaluator path (zero-risk round one).
 
@@ -68,7 +69,7 @@ def drive_plan_to_converged(
     start_plan(
         plan_id=plan_id,
         initial_revision_id="rev-0",
-        plan_content=_plan_content(title),
+        plan_content=plan_content if plan_content is not None else _plan_content(title),
         base_dir=tools,
     )
     content_hash = fold_plan_state(

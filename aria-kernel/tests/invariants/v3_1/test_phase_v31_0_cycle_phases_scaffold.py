@@ -238,7 +238,7 @@ class CyclePhasesScaffoldTests(unittest.TestCase):
         out = memory.record(
             cycle_id="cyc-test", plan_id="plan-test",
             workspace_root=repo, base_dir=tools,
-            converged_plan={}, plan_envelope_metadata={},
+            plan_envelope_metadata={},
             profile="standard", signer_key_fp=None,
         )
         self.assertFalse(out["convention_recorded"])

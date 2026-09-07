@@ -1076,7 +1076,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "9e32e046c31edc04327f8b01f476008792500c8fa7cbe9e54f64d675e11e32fa",
+      "content_sha256": "bbaa8deefed9e7cac32e6a142c189ec0033655da79de6999e1a06e98e2c6f165",
       "hash_policy": "sha256",
       "owner": "admin-openapi-generator",
       "path": "apps/admin-api-service/openapi.json",
@@ -2795,6 +2795,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/system-management/services/__tests__/job-queue.claim.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/system-management/services/__tests__/performance-honest-metrics.spec.ts",
       "prettier_managed": true
     },
     {
@@ -44909,6 +44915,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/performance-metrics-honesty.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/pii-events-mandatory-crypto-shred.spec.ts",
       "prettier_managed": true
     },
@@ -49201,7 +49213,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "1c2a8e49a4dee224314e09ce09c11e0de001010526987fd4fb0a961a43223cec",
+      "content_sha256": "de823ff55922e28bffaca3cfbde447ac381a2f2187c45a627cc19ad6d8558a60",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/modules/admin-panel/src/services/generated/admin-api.ts",

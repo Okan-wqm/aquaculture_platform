@@ -943,7 +943,11 @@ describe('Frontend-Backend Contract Validation', () => {
     // Bu, beklenmedik endpoint degisikliklerini yakalar.
     const count = backendEndpoints.length;
 
-    // 457 since ADMIN-HIGH-014 retired `POST /system/errors/report`: it was the
+    // 456 since ADMIN-HIGH-014 retired `POST /system/performance/metrics/request`:
+    // its service method fed an in-memory Map with zero callers, which a
+    // per-minute scheduled job then drained empty. The RED data it duplicated is
+    // already in Prometheus.
+    // (457 since ADMIN-HIGH-014 retired `POST /system/errors/report`: it was the
     // only entry point to `reportError`, behind the platform-admin guard plus
     // `@RequiresCapability('security-ops')`, so a service that had just thrown
     // could never reach it and never did. Errors now arrive as
@@ -957,7 +961,7 @@ describe('Frontend-Backend Contract Validation', () => {
     // anomaly detection ran only when a SUPER_ADMIN pressed a button, and now
     // runs from the `events.security.events.auth.login.*` stream on every real
     // attempt. 461 since ADR-0013 removed `POST /billing/plans/seed`.)
-    expect(count).toBe(457);
+    expect(count).toBe(456);
   });
 
   it('frontend endpoint snapshot should be up to date', () => {

@@ -53,26 +53,6 @@ export class RecordMetricDto {
   sampleCount?: number;
 }
 
-export class RecordRequestMetricDto {
-  @IsString()
-  @MaxLength(255)
-  service!: string;
-
-  @IsString()
-  @MaxLength(255)
-  endpoint!: string;
-
-  @IsString()
-  @MaxLength(10)
-  method!: string;
-
-  @IsNumber()
-  durationMs!: number;
-
-  @IsBoolean()
-  isError!: boolean;
-}
-
 export class UpdateThresholdsDto {
   @IsArray()
   thresholds!: MetricThreshold[];

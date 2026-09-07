@@ -5661,22 +5661,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/system/performance/metrics/request": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["PerformanceController_recordRequestMetric"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/system/performance/metrics/flush": {
         parameters: {
             query?: never;
@@ -8843,36 +8827,9 @@ export interface components {
             service?: string;
             /** Format: date-time */
             timestamp: string;
-            applicationMetrics: {
-                avgResponseTime: number;
-                p95ResponseTime: number;
-                p99ResponseTime: number;
-                throughput: number;
-                errorRate: number;
-                apdexScore: number;
-                activeRequests: number;
-                totalRequests: number;
-            };
-            databaseMetrics: {
-                activeConnections: number;
-                poolSize: number;
-                poolUtilization: number;
-                avgQueryTime: number;
-                slowQueryCount: number;
-                cacheHitRatio: number;
-                deadlockCount: number;
-            };
-            infrastructureMetrics: {
-                cpuUsage: number;
-                memoryUsage: number;
-                memoryTotal: number;
-                diskUsage: number;
-                diskTotal: number;
-                networkLatency: number;
-                containerCount: number;
-                healthyContainers: number;
-                podRestarts: number;
-            };
+            applicationMetrics: Record<string, never>;
+            databaseMetrics: Record<string, never>;
+            infrastructureMetrics: Record<string, never>;
             alerts?: string[];
             overallHealthScore?: number;
             /** Format: date-time */
@@ -8895,13 +8852,6 @@ export interface components {
                 p99?: number;
             };
             sampleCount?: number;
-        };
-        RecordRequestMetricDto: {
-            service: string;
-            endpoint: string;
-            method: string;
-            durationMs: number;
-            isError: boolean;
         };
         ErrorGroup: {
             id: string;
@@ -17980,27 +17930,6 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["RecordMetricDto"];
-            };
-        };
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    PerformanceController_recordRequestMetric: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RecordRequestMetricDto"];
             };
         };
         responses: {

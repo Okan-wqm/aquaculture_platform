@@ -7,6 +7,8 @@
  * empty payload (the aggregates are platform-wide), return the reply
  * unmodified, and map NATS timeouts to 504.
  */
+import { TENANT_ACTIVE_CHECK } from '@aquaculture/backend-common/middleware';
+import { TenantStatus } from '@platform/event-contracts';
 import { HttpException, HttpStatus } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
@@ -49,6 +51,12 @@ describe('MessagingAdminController — monitoring endpoints (ADMIN-HIGH-009)', (
     const moduleRef = await Test.createTestingModule({
       controllers: [MessagingAdminController],
       providers: [
+        // ADMIN-CRITICAL-103: @TenantParam resolves ids through the kernel
+        // port; this suite exercises the controller, not the lookup.
+        {
+          provide: TENANT_ACTIVE_CHECK,
+          useValue: { lookupTenant: () => Promise.resolve({ status: TenantStatus.ACTIVE }) },
+        },
         { provide: 'MESSAGING_NATS_CLIENT', useValue: { send } },
         {
           provide: ConfigService,

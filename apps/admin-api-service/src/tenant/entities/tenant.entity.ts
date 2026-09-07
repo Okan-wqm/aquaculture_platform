@@ -159,7 +159,7 @@ export class Tenant {
   // non-persisted compatibility prop with USER-ACTIVITY semantics that no
   // auth.tenants column ever backed — every read was undefined and the one
   // write (activate handler) was silently dropped. Tenant activity is owned
-  // by admin.tenant_activities / admin.user_sessions, not the tenant row.
+  // by admin.tenant_activities, not the tenant row.
   billingEmail?: string;
   primaryContact?: { name: string; email: string; phone?: string; role: string };
   billingContact?: { name: string; email: string; phone?: string; role: string };

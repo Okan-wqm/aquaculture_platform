@@ -29,7 +29,6 @@ import {
   ComplianceReport,
   LoginAttempt,
   ApiUsageLog,
-  UserSession,
 } from './entities/security.entity';
 import { ActivityLoggingService } from './services/activity-logging.service';
 import { AuditTrailService } from './services/audit-trail.service';
@@ -46,7 +45,6 @@ import { SecurityMonitoringService } from './services/security-monitoring.servic
       ActivityLog,
       LoginAttempt,
       ApiUsageLog,
-      UserSession,
       // Security
       SecurityEvent,
       SecurityIncident,

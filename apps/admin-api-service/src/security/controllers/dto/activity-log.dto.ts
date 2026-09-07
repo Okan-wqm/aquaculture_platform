@@ -99,11 +99,6 @@ export class QueryActivitiesDto {
   sortOrder?: 'ASC' | 'DESC';
 }
 
-export class TerminateUserSessionsDto {
-  @IsIn(['logout', 'forced', 'security'])
-  reason!: 'logout' | 'forced' | 'security';
-}
-
 export class ActivityStatsQueryDto {
   @IsOptional()
   @IsString()

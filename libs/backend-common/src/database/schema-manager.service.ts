@@ -916,7 +916,6 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'compliance_reports',
       'login_attempts',
       'api_usage_logs',
-      'user_sessions',
       // DB-ADMIN-MEDIUM-002: admin-schema data tables that were absent from this
       // registry, so the ADR-012 drift validator + orphan-drop presence checks
       // did not cover them (an unregistered real table is neither protected nor

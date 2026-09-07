@@ -1076,7 +1076,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "d3c75b1d458b0fb5b4cab4aed938fea86fce163c2d596df5c8a5048560f25505",
+      "content_sha256": "2fcf75a9fea249eede8b4c73482d610f4a0e5d17413e6f78a4bbde4f82a49113",
       "hash_policy": "sha256",
       "owner": "admin-openapi-generator",
       "path": "apps/admin-api-service/openapi.json",
@@ -2183,6 +2183,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/migrations/1809300000000-ProjectionSourceEventIdentity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1809400000000-RetireAdminUserSessions.ts",
       "prettier_managed": true
     },
     {
@@ -49141,7 +49147,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "4cb57fbe4ad2b97ed1081ac963c12366a110f3d0a40b158a66276511867d0fb7",
+      "content_sha256": "41f64c7fd9b7ce2965d53b2b31b61089a45e14966754eda1fa38d4cb8932492b",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/modules/admin-panel/src/services/generated/admin-api.ts",

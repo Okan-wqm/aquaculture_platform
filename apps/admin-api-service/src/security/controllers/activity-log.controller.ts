@@ -7,7 +7,6 @@
 import {
   ActivityStatsQueryDto,
   QueryActivitiesDto,
-  TerminateUserSessionsDto,
 } from './dto/activity-log.dto';
 import { Destructive, RequiresCapability } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
@@ -125,31 +124,5 @@ export class ActivityLogController {
       ipAddress,
       minutes ? parseInt(String(minutes), 10) : 15,
     );
-  }
-
-  /**
-   * Get active sessions for user
-   */
-  @Get('sessions/user/:userId')
-  async getUserSessions(@Param('userId') userId: string) {
-    return this.activityService.getActiveSessionsForUser(userId);
-  }
-
-  /**
-   * Terminate user sessions
-   */
-  @AuditedOperation({ resource: 'UserSessions', action: 'TERMINATE' })
-  @Destructive()
-  @RequiresCapability('security-ops')
-  @Post('sessions/user/:userId/terminate')
-  @HttpCode(HttpStatus.OK)
-  async terminateUserSessions(
-    @Param('userId') userId: string,
-    @Body() dto: TerminateUserSessionsDto,
-    @CurrentUser() user: CurrentUserData,
-  ) {
-    // ADMIN-CRITICAL-008: the terminating actor is the verified principal.
-    const count = await this.activityService.terminateAllUserSessions(userId, dto.reason, user.id);
-    return { terminated: count };
   }
 }

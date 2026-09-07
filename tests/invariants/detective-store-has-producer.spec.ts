@@ -153,12 +153,14 @@ describe('INVARIANT (ADMIN-HIGH-014): a detective store has a producer that is r
     const inputs = injected.filter((entity) => !OUTPUTS.includes(entity));
     const declared = DETECTIVE_STORES.map((store) => store.entity);
 
-    expect(inputs.filter((entity) => !declared.includes(entity))).toEqual([
-      // UserSession is read by `checkSessionHijacking`, which has no caller.
-      // Its producer-or-delete decision is ADMIN-HIGH-014's remaining half and
-      // is tracked there; it is named here so the omission is deliberate.
-      'UserSession',
-    ]);
+    // Nothing is omitted any more. `UserSession` used to sit here as the one
+    // deliberate exception — a store read by `checkSessionHijacking`, which had
+    // no caller. That producer-or-delete decision was made: `admin.user_sessions`
+    // and its detector were retired (migration `1809400000000`), because
+    // `auth.refresh_tokens` already holds the session facts and no
+    // session-lifecycle event exists to project from. An empty list is the
+    // finding's end state, not an assertion nobody maintains.
+    expect(inputs.filter((entity) => !declared.includes(entity))).toEqual([]);
   });
 
   it('has no admin service reading a detective store it does not declare', () => {

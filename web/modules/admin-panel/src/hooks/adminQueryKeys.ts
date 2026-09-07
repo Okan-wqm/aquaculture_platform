@@ -87,7 +87,6 @@ export const adminKeys = {
     all: () => [...adminKeys.all, 'security'] as const,
     audit: (filters?: Record<string, unknown>) =>
       [...adminKeys.security.all(), 'audit', filters] as const,
-    sessions: () => [...adminKeys.security.all(), 'sessions'] as const,
   },
 
   // ── Billing ──

@@ -4653,38 +4653,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/security/activities/sessions/user/{userId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["ActivityLogController_getUserSessions"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/security/activities/sessions/user/{userId}/terminate": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["ActivityLogController_terminateUserSessions"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/security/audit": {
         parameters: {
             query?: never;
@@ -8280,37 +8248,6 @@ export interface components {
             sourceEventId?: string | null;
             /** Format: date-time */
             createdAt: string;
-        };
-        UserSession: {
-            id: string;
-            sessionToken: string;
-            userId: string;
-            userName: string;
-            tenantId?: string | null;
-            tenantName?: string | null;
-            isActive: boolean;
-            /** Format: date-time */
-            expiresAt: string;
-            ipAddress: string;
-            geoLocation?: Record<string, never> | null;
-            deviceInfo?: Record<string, never> | null;
-            requestCount: number;
-            /** Format: date-time */
-            lastActivityAt: string;
-            lastActivityPath?: string | null;
-            /** Format: date-time */
-            terminatedAt?: string | null;
-            /** @enum {string|null} */
-            terminationReason?: "security" | "expired" | "logout" | "forced" | null;
-            terminatedBy?: string | null;
-            /** Format: date-time */
-            createdAt: string;
-            /** Format: date-time */
-            updatedAt: string;
-        };
-        TerminateUserSessionsDto: {
-            /** @enum {string} */
-            reason: "logout" | "forced" | "security";
         };
         ExportAuditTrailDto: {
             /**
@@ -16374,50 +16311,6 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["LoginAttempt"][];
                 };
-            };
-        };
-    };
-    ActivityLogController_getUserSessions: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                userId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["UserSession"][];
-                };
-            };
-        };
-    };
-    ActivityLogController_terminateUserSessions: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                userId: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["TerminateUserSessionsDto"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
             };
         };
     };

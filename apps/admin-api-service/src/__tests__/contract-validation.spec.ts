@@ -943,11 +943,16 @@ describe('Frontend-Backend Contract Validation', () => {
     // Bu, beklenmedik endpoint degisikliklerini yakalar.
     const count = backendEndpoints.length;
 
-    // 460 since ADMIN-HIGH-014 removed `POST /security/monitoring/analyze/login`:
+    // 458 since ADMIN-HIGH-014 retired `admin.user_sessions` with its two
+    // routes (`GET /security/activities/sessions/user/:userId` and the
+    // `/terminate` POST): both read a table nothing wrote, so the list was
+    // always empty and the terminate count always 0. The live session truth is
+    // `auth.refresh_tokens`, reachable at `GET /users/:id/sessions`.
+    // (460 since the same finding removed `POST /security/monitoring/analyze/login`:
     // anomaly detection ran only when a SUPER_ADMIN pressed a button, and now
     // runs from the `events.security.events.auth.login.*` stream on every real
-    // attempt. (461 since ADR-0013 removed `POST /billing/plans/seed`.)
-    expect(count).toBe(460);
+    // attempt. 461 since ADR-0013 removed `POST /billing/plans/seed`.)
+    expect(count).toBe(458);
   });
 
   it('frontend endpoint snapshot should be up to date', () => {

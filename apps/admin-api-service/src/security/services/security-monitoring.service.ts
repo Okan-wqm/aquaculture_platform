@@ -22,7 +22,6 @@ import {
   ThreatIntelligence,
   LoginAttempt,
   ApiUsageLog,
-  UserSession,
   GeoLocation,
   AnomalyDetails,
 } from '../entities/security.entity';
@@ -42,10 +41,6 @@ export interface AnomalyDetectionConfig {
   apiAbuseThreshold: number;
   apiAbuseWindowMinutes: number;
   rateLimitAbuseEnabled: boolean;
-
-  // Session anomalies
-  concurrentSessionLimit: number;
-  sessionHijackingDetection: boolean;
 
   // Time anomalies
   offHoursThreshold: number;
@@ -101,8 +96,6 @@ const DEFAULT_ANOMALY_CONFIG: AnomalyDetectionConfig = {
   apiAbuseThreshold: 1000,
   apiAbuseWindowMinutes: 5,
   rateLimitAbuseEnabled: true,
-  concurrentSessionLimit: 5,
-  sessionHijackingDetection: true,
   offHoursThreshold: 100,
   offHoursStart: 22,
   offHoursEnd: 6,
@@ -130,8 +123,6 @@ export class SecurityMonitoringService implements OnModuleInit {
     private readonly loginAttemptRepository: Repository<LoginAttempt>,
     @InjectRepository(ApiUsageLog)
     private readonly apiUsageRepository: Repository<ApiUsageLog>,
-    @InjectRepository(UserSession)
-    private readonly sessionRepository: Repository<UserSession>,
     @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
 
@@ -579,56 +570,6 @@ export class SecurityMonitoringService implements OnModuleInit {
     }
   }
 
-  /**
-   * Check for session hijacking
-   */
-  async checkSessionHijacking(params: {
-    sessionToken: string;
-    userId: string;
-    ipAddress: string;
-    userAgent: string;
-  }): Promise<boolean> {
-    if (!this.config.sessionHijackingDetection) return false;
-
-    const session = await this.sessionRepository.findOne({
-      where: { sessionToken: params.sessionToken, isActive: true },
-    });
-
-    if (!session) return false;
-
-    // Check if IP changed
-    if (session.ipAddress !== params.ipAddress) {
-      await this.createSecurityEvent({
-        eventType: 'session_hijacking',
-        threatLevel: 'critical',
-        title: `Potential session hijacking detected`,
-        description: `Session IP changed from ${session.ipAddress} to ${params.ipAddress}`,
-        ipAddress: params.ipAddress,
-        userId: params.userId,
-        detectionSource: 'session_monitor',
-        confidenceScore: 0.8,
-        rawData: {
-          originalIP: session.ipAddress,
-          newIP: params.ipAddress,
-          sessionId: session.id,
-        },
-      });
-
-      // Terminate the session
-      await this.sessionRepository.update(
-        { id: session.id },
-        {
-          isActive: false,
-          terminatedAt: new Date(),
-          terminationReason: 'security',
-        },
-      );
-
-      return true;
-    }
-
-    return false;
-  }
 
   // ============================================================================
   // Threat Intelligence

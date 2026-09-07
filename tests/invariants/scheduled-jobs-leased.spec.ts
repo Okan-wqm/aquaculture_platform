@@ -113,8 +113,13 @@ describe('INVARIANT (ADMIN-HIGH-013): every scheduled method is leased and heart
   const allowedSites = new Set(allowlist.entries.map((e) => e.site));
 
   it('sees the fleet', () => {
+    // A floor, not a ratchet: it exists so a rename that breaks the parser
+    // cannot make every case below vacuously pass. 20 since ADMIN-HIGH-014
+    // retired `sessions.cleanup-expired`, an hourly job that expired rows in
+    // `admin.user_sessions` — a table no code ever inserted into. W7 raises
+    // this number as the fleet's 67 raw @Cron sites convert.
     expect(methods.length).toBeGreaterThan(50);
-    expect(leased.length).toBeGreaterThanOrEqual(21);
+    expect(leased.length).toBeGreaterThanOrEqual(20);
   });
 
   it('has no raw @Cron / @Interval / @Timeout outside the governed ratchet', () => {

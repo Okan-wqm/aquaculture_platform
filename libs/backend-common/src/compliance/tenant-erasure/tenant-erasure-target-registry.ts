@@ -52,7 +52,6 @@ const ADMIN_TABLES: TenantErasureTablePolicies = {
   data_requests: { kind: 'tenant-column', column: 'tenantId' },
   login_attempts: { kind: 'tenant-column', column: 'tenantId' },
   api_usage_logs: { kind: 'tenant-column', column: 'tenantId' },
-  user_sessions: { kind: 'tenant-column', column: 'tenantId' },
   database_metrics: { kind: 'tenant-column', column: 'tenantId' },
   slow_query_logs: { kind: 'tenant-column', column: 'tenantId' },
   schema_migrations: { kind: 'tenant-column', column: 'tenantId' },

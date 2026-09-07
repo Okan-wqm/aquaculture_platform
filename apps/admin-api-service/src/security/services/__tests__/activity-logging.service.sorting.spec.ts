@@ -5,12 +5,7 @@ import {
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 
-import {
-  ActivityLog,
-  ApiUsageLog,
-  LoginAttempt,
-  UserSession,
-} from '../../entities/security.entity';
+import { ActivityLog, ApiUsageLog, LoginAttempt } from '../../entities/security.entity';
 import { ActivityLoggingService } from '../activity-logging.service';
 
 /** ADMIN-HIGH-013: scheduled ticks run through the kernel runner; these suites exercise the bodies. */
@@ -48,7 +43,6 @@ describe('ActivityLoggingService sort safety', () => {
         },
         { provide: getRepositoryToken(LoginAttempt), useValue: {} },
         { provide: getRepositoryToken(ApiUsageLog), useValue: {} },
-        { provide: getRepositoryToken(UserSession), useValue: {} },
       ],
     }).compile();
 

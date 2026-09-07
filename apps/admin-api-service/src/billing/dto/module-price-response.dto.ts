@@ -9,6 +9,7 @@
  * `@nestjs/swagger` plugin can type the responses from them, which an
  * interface cannot do.
  */
+import { ApiProperty } from '@nestjs/swagger';
 import type {
   BillingCycle,
   BillingDiscountRejectionReason,
@@ -73,6 +74,11 @@ export class ModulePriceResponseDto {
  * bridge at `libs/backend-common/src/pagination/pagination.dto.ts`.
  */
 export class ModulePricePageDto implements PaginationResultV1<ModulePriceResponseDto> {
+  // The plugin infers a property's schema from its declared type and cannot
+  // read `readonly T[]`: it falls back to the declaring class and reports a
+  // circular dependency. An explicit lazy resolver is the documented way out,
+  // and it keeps the `readonly` the authority's type requires.
+  @ApiProperty({ type: () => [ModulePriceResponseDto] })
   readonly items!: readonly ModulePriceResponseDto[];
   readonly total!: number;
   readonly page!: number;

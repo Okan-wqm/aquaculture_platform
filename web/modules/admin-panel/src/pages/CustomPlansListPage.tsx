@@ -12,9 +12,9 @@ import {
   billingApi,
   CustomPlan,
   CustomPlanStatus,
-  CustomPlanPage,
   PlanTier,
 } from '../services/adminApi';
+import type { PaginatedResult } from '../services/types/common';
 import { expectedTotalPages } from '@platform/pagination-contracts';
 
 import { formatCurrencyAmount } from '../utils/money';
@@ -89,7 +89,7 @@ const CustomPlansListPage: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const result: CustomPlanPage = await billingApi.getCustomPlans({
+      const result: PaginatedResult<CustomPlan> = await billingApi.getCustomPlans({
         status: statusFilter !== 'all' ? statusFilter : undefined,
         search: searchQuery || undefined,
         page,

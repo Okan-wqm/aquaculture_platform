@@ -8,6 +8,7 @@
  * classes state the JSON, and — being classes in a `.dto.ts` file — the
  * `@nestjs/swagger` plugin can type the responses from them.
  */
+import { ApiProperty } from '@nestjs/swagger';
 import type {
   BillingCustomPlanSnapshot,
   BillingCustomPlanStatus,
@@ -98,6 +99,11 @@ export class CustomPlanResponseDto {
  * bridge at `libs/backend-common/src/pagination/pagination.dto.ts`.
  */
 export class CustomPlanPageDto implements PaginationResultV1<CustomPlanResponseDto> {
+  // The plugin infers a property's schema from its declared type and cannot
+  // read `readonly T[]`: it falls back to the declaring class and reports a
+  // circular dependency. An explicit lazy resolver is the documented way out,
+  // and it keeps the `readonly` the authority's type requires.
+  @ApiProperty({ type: () => [CustomPlanResponseDto] })
   readonly items!: readonly CustomPlanResponseDto[];
   readonly total!: number;
   readonly page!: number;

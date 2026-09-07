@@ -44,7 +44,6 @@ import type {
   PricingComparisonResult,
   CustomPlan,
   CustomPlanFilter,
-  CustomPlanPage,
   CustomPlanLookup,
   CreateCustomPlanDto,
   UpdateCustomPlanDto,
@@ -326,8 +325,14 @@ export const billingApi = {
     }),
 
   // Custom Plans
+  // `CustomPlanPage` in the contract is the HANDLER's return — `items` plus the
+  // page metadata. The response interceptor lifts `items` into the envelope's
+  // `data` slot, and `apiFetch` decodes that into `PaginatedResult<T>`, so this
+  // is the shape the browser actually holds (ADMIN-HIGH-004).
   getCustomPlans: (filter?: CustomPlanFilter) =>
-    apiFetch<CustomPlanPage>(`/billing/custom-plans?${buildQueryString((filter || {}) as Record<string, unknown>)}`),
+    apiFetch<PaginatedResult<CustomPlan>>(
+      `/billing/custom-plans?${buildQueryString((filter || {}) as Record<string, unknown>)}`,
+    ),
   getCustomPlan: (planId: string) =>
     apiFetch<CustomPlan>(`/billing/custom-plans/${planId}`),
   // A tenant with no plan in force today is an answer, not a 404, so the

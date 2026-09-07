@@ -220,7 +220,14 @@
         ],
         "responses": {
           "200": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           }
         },
         "summary": "List all tenants with filtering and pagination",
@@ -1928,14 +1935,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object"
-                }
-              }
-            }
+            "description": ""
           }
         },
         "tags": [
@@ -4992,6 +4992,27 @@
         },
         "responses": {
           "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Billing"
+        ]
+      }
+    },
+    "/billing/payments/stats": {
+      "get": {
+        "operationId": "BillingController_getPaymentStats",
+        "parameters": [],
+        "responses": {
+          "200": {
             "description": "",
             "content": {
               "application/json": {
@@ -10810,72 +10831,6 @@
         ]
       }
     },
-    "/security/activities/sessions/user/{userId}": {
-      "get": {
-        "operationId": "ActivityLogController_getUserSessions",
-        "parameters": [
-          {
-            "name": "userId",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/UserSession"
-                  }
-                }
-              }
-            }
-          }
-        },
-        "tags": [
-          "Security"
-        ]
-      }
-    },
-    "/security/activities/sessions/user/{userId}/terminate": {
-      "post": {
-        "operationId": "ActivityLogController_terminateUserSessions",
-        "parameters": [
-          {
-            "name": "userId",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/TerminateUserSessionsDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Security"
-        ]
-      }
-    },
     "/security/audit": {
       "get": {
         "operationId": "AuditTrailController_queryAuditTrail",
@@ -15525,6 +15480,28 @@
         ]
       }
     },
+    "/messaging/monitoring/stats": {
+      "get": {
+        "operationId": "MessagingAdminController_getMonitoringStats",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Get messaging monitoring statistics",
+        "tags": [
+          "Messaging Admin"
+        ]
+      }
+    },
     "/messaging/audit": {
       "get": {
         "operationId": "MessagingAdminController_getAuditLog",
@@ -15599,6 +15576,28 @@
           }
         },
         "summary": "Get compliance audit log entries",
+        "tags": [
+          "Messaging Admin"
+        ]
+      }
+    },
+    "/messaging/tenants": {
+      "get": {
+        "operationId": "MessagingAdminController_getTenants",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        },
+        "summary": "List tenants with messaging stats",
         "tags": [
           "Messaging Admin"
         ]
@@ -18322,7 +18321,7 @@
       "DiscountCodePageDto": {
         "type": "object",
         "properties": {
-          "data": {
+          "items": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/DiscountCodeResponseDto"
@@ -18336,13 +18335,25 @@
           },
           "limit": {
             "type": "number"
+          },
+          "totalPages": {
+            "type": "number"
+          },
+          "hasNextPage": {
+            "type": "boolean"
+          },
+          "hasPreviousPage": {
+            "type": "boolean"
           }
         },
         "required": [
-          "data",
+          "items",
           "total",
           "page",
-          "limit"
+          "limit",
+          "totalPages",
+          "hasNextPage",
+          "hasPreviousPage"
         ]
       },
       "DiscountTopCodeDto": {
@@ -18455,7 +18466,7 @@
       "DiscountRedemptionPageDto": {
         "type": "object",
         "properties": {
-          "data": {
+          "items": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/DiscountRedemptionResponseDto"
@@ -18469,13 +18480,25 @@
           },
           "limit": {
             "type": "number"
+          },
+          "totalPages": {
+            "type": "number"
+          },
+          "hasNextPage": {
+            "type": "boolean"
+          },
+          "hasPreviousPage": {
+            "type": "boolean"
           }
         },
         "required": [
-          "data",
+          "items",
           "total",
           "page",
-          "limit"
+          "limit",
+          "totalPages",
+          "hasNextPage",
+          "hasPreviousPage"
         ]
       },
       "CreateDiscountCodeDto": {
@@ -19183,7 +19206,7 @@
       "ModulePricePageDto": {
         "type": "object",
         "properties": {
-          "data": {
+          "items": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ModulePriceResponseDto"
@@ -19197,13 +19220,25 @@
           },
           "limit": {
             "type": "number"
+          },
+          "totalPages": {
+            "type": "number"
+          },
+          "hasNextPage": {
+            "type": "boolean"
+          },
+          "hasPreviousPage": {
+            "type": "boolean"
           }
         },
         "required": [
-          "data",
+          "items",
           "total",
           "page",
-          "limit"
+          "limit",
+          "totalPages",
+          "hasNextPage",
+          "hasPreviousPage"
         ]
       },
       "PricingMetricDto": {
@@ -20068,7 +20103,7 @@
       "CustomPlanPageDto": {
         "type": "object",
         "properties": {
-          "data": {
+          "items": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/CustomPlanResponseDto"
@@ -20085,14 +20120,22 @@
           },
           "totalPages": {
             "type": "number"
+          },
+          "hasNextPage": {
+            "type": "boolean"
+          },
+          "hasPreviousPage": {
+            "type": "boolean"
           }
         },
         "required": [
-          "data",
+          "items",
           "total",
           "page",
           "limit",
-          "totalPages"
+          "totalPages",
+          "hasNextPage",
+          "hasPreviousPage"
         ]
       },
       "CustomPlanLookupDto": {
@@ -20801,10 +20844,10 @@
           "category": {
             "type": "string",
             "enum": [
-              "user",
               "system",
-              "financial",
               "tenant",
+              "user",
+              "financial",
               "usage"
             ]
           },
@@ -20876,9 +20919,9 @@
           "schedule": {
             "enum": [
               "monthly",
+              "manual",
               "daily",
-              "weekly",
-              "manual"
+              "weekly"
             ],
             "type": "string"
           },
@@ -22470,116 +22513,6 @@
           "ipAddress",
           "success",
           "createdAt"
-        ]
-      },
-      "UserSession": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "sessionToken": {
-            "type": "string"
-          },
-          "userId": {
-            "type": "string"
-          },
-          "userName": {
-            "type": "string"
-          },
-          "tenantId": {
-            "type": "string",
-            "nullable": true
-          },
-          "tenantName": {
-            "type": "string",
-            "nullable": true
-          },
-          "isActive": {
-            "type": "boolean"
-          },
-          "expiresAt": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "ipAddress": {
-            "type": "string"
-          },
-          "geoLocation": {
-            "type": "object",
-            "nullable": true
-          },
-          "deviceInfo": {
-            "type": "object",
-            "nullable": true
-          },
-          "requestCount": {
-            "type": "number"
-          },
-          "lastActivityAt": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "lastActivityPath": {
-            "type": "string",
-            "nullable": true
-          },
-          "terminatedAt": {
-            "format": "date-time",
-            "type": "string",
-            "nullable": true
-          },
-          "terminationReason": {
-            "type": "string",
-            "nullable": true,
-            "enum": [
-              "security",
-              "expired",
-              "logout",
-              "forced"
-            ]
-          },
-          "terminatedBy": {
-            "type": "string",
-            "nullable": true
-          },
-          "createdAt": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "updatedAt": {
-            "format": "date-time",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "sessionToken",
-          "userId",
-          "userName",
-          "isActive",
-          "expiresAt",
-          "ipAddress",
-          "requestCount",
-          "lastActivityAt",
-          "createdAt",
-          "updatedAt"
-        ]
-      },
-      "TerminateUserSessionsDto": {
-        "type": "object",
-        "properties": {
-          "reason": {
-            "type": "string",
-            "enum": [
-              "logout",
-              "forced",
-              "security"
-            ]
-          }
-        },
-        "required": [
-          "reason"
         ]
       },
       "ExportAuditTrailDto": {

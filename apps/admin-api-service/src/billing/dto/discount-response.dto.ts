@@ -15,6 +15,7 @@
  * snapshot loses a field these classes require, the build fails here rather
  * than the admin panel rendering `undefined`.
  */
+import { ApiProperty } from '@nestjs/swagger';
 import type { PaginationResultV1 } from '@platform/pagination-contracts';
 
 import type {
@@ -94,6 +95,11 @@ export class DiscountRedemptionResponseDto {
  * bridge at `libs/backend-common/src/pagination/pagination.dto.ts`.
  */
 export class DiscountCodePageDto implements PaginationResultV1<DiscountCodeResponseDto> {
+  // The plugin infers a property's schema from its declared type and cannot
+  // read `readonly T[]`: it falls back to the declaring class and reports a
+  // circular dependency. An explicit lazy resolver is the documented way out,
+  // and it keeps the `readonly` the authority's type requires.
+  @ApiProperty({ type: () => [DiscountCodeResponseDto] })
   readonly items!: readonly DiscountCodeResponseDto[];
   readonly total!: number;
   readonly page!: number;
@@ -120,6 +126,11 @@ export class DiscountCodePageDto implements PaginationResultV1<DiscountCodeRespo
 export class DiscountRedemptionPageDto
   implements PaginationResultV1<DiscountRedemptionResponseDto>
 {
+  // The plugin infers a property's schema from its declared type and cannot
+  // read `readonly T[]`: it falls back to the declaring class and reports a
+  // circular dependency. An explicit lazy resolver is the documented way out,
+  // and it keeps the `readonly` the authority's type requires.
+  @ApiProperty({ type: () => [DiscountRedemptionResponseDto] })
   readonly items!: readonly DiscountRedemptionResponseDto[];
   readonly total!: number;
   readonly page!: number;

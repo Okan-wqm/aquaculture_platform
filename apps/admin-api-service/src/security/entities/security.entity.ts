@@ -172,13 +172,13 @@ export class ActivityLog {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ type: 'varchar', length: 100, nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   tenantId?: string | null;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
   tenantName?: string | null;
 
-  @Column({ type: 'varchar', length: 100, nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   userId?: string | null;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
@@ -317,10 +317,10 @@ export class SecurityEvent {
   deviceInfo?: DeviceInfo | null;
 
   // Target info
-  @Column({ type: 'varchar', length: 100, nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   tenantId?: string | null;
 
-  @Column({ type: 'varchar', length: 100, nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   userId?: string | null;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
@@ -363,7 +363,7 @@ export class SecurityEvent {
   investigationNotes?: string | null;
 
   // Assignment
-  @Column({ type: 'varchar', length: 100, nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   assignedTo?: string | null;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
@@ -379,7 +379,7 @@ export class SecurityEvent {
   @Column({ type: 'timestamptz', nullable: true })
   resolvedAt?: Date | null;
 
-  @Column({ type: 'varchar', length: 100, nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   resolvedBy?: string | null;
 
   // Metadata
@@ -619,7 +619,7 @@ export class DataRequest {
   complianceFramework!: ComplianceType;
 
   // Requester info
-  @Column({ type: 'varchar', length: 100 })
+  @Column({ type: 'uuid' })
   tenantId!: string;
 
   @Column({ type: 'varchar', length: 255 })
@@ -661,7 +661,7 @@ export class DataRequest {
   @Column({ type: 'timestamptz' })
   dueDate!: Date;
 
-  @Column({ type: 'varchar', length: 100, nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   assignedTo?: string | null;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
@@ -834,10 +834,10 @@ export class LoginAttempt {
   @Column({ type: 'jsonb', nullable: true })
   deviceInfo?: DeviceInfo | null;
 
-  @Column({ type: 'varchar', length: 100, nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   tenantId?: string | null;
 
-  @Column({ type: 'varchar', length: 100, nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   userId?: string | null;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
@@ -872,10 +872,10 @@ export class ApiUsageLog {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ type: 'varchar', length: 100, nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   tenantId?: string | null;
 
-  @Column({ type: 'varchar', length: 100, nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   userId?: string | null;
 
   @Column({ type: 'varchar', length: 255, nullable: true })

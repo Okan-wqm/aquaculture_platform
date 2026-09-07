@@ -214,7 +214,7 @@ export class SlowQueryLog {
   @Column({ type: 'varchar', length: 200, nullable: true })
   sourceTable!: string;
 
-  @Column({ type: 'varchar', length: 100, nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   userId!: string;
 
   @Column({ type: 'timestamptz' })

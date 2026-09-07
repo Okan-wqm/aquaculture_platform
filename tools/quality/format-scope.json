@@ -6305,6 +6305,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/billing-service/src/billing/controllers/__tests__/stripe-webhook.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/billing-service/src/billing/controllers/stripe-webhook.controller.ts",
       "prettier_managed": true
     },
@@ -6766,6 +6772,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/billing-service/src/database/migrations/1802200000000-CreateTelemetryCapacityEntitlements.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/billing-service/src/database/migrations/1802300000000-StripeObjectOwnershipUniqueIndexes.ts",
       "prettier_managed": true
     },
     {
@@ -36207,6 +36219,18 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/zcode/2026-09-07-billing-cycle-price-agreement.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/zcode/2026-09-07-stripe-webhook-tenant-resolution.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/runbooks/2026-04-14-teardown-rollout.md",
       "prettier_managed": true
     },
@@ -38340,6 +38364,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/billing/__tests__/billing-cycle-terms.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/billing/__tests__/canary-tenant.registry.spec.ts",
       "prettier_managed": true
     },
@@ -38353,6 +38383,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/billing/__tests__/stripe-api.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/billing/billing-cycle-terms.ts",
       "prettier_managed": true
     },
     {
@@ -38413,6 +38449,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/billing/stripe-client.factory.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/billing/stripe-metadata.ts",
       "prettier_managed": true
     },
     {
@@ -45002,6 +45044,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/billing-cycle-terms-single-source.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/billing-money-decimal-coexistence.spec.ts",
       "prettier_managed": true
     },
@@ -46203,6 +46251,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/stripe-calls-via-canonical-client.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/stripe-webhook-tenant-resolution.spec.ts",
       "prettier_managed": true
     },
     {

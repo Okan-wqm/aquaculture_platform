@@ -36,7 +36,7 @@ import { MeterType } from '../../modules/metering/usage-metering.service';
 
 const TENANT_ID = 'tenant-001';
 
-function buildSubscription(): Partial<Subscription> {
+function buildSubscription(overrides: Partial<Subscription> = {}): Partial<Subscription> {
   return {
     id: 'sub-001',
     tenantId: TENANT_ID,
@@ -59,6 +59,7 @@ function buildSubscription(): Partial<Subscription> {
     currentPeriodStart: new Date('2026-07-01T00:00:00Z'),
     currentPeriodEnd: new Date('2026-08-01T00:00:00Z'),
     createdAt: new Date('2026-01-01T00:00:00Z'),
+    ...overrides,
   } as Partial<Subscription>;
 }
 
@@ -162,6 +163,24 @@ describe('GetTenantBillingHandler', () => {
 
     handler = moduleRef.get(GetTenantBillingHandler);
   }
+
+  // BILLING-CRITICAL-007: `pricing.basePrice` is the MONTHLY rate — the invoice
+  // scheduler multiplies it by the cycle's months, and create-subscription
+  // publishes it as `monthlyPrice` on SubscriptionCreated. This handler DIVIDED
+  // it by the same number, so an annual tenant on $99/month was reported as
+  // $8.25/month. Every cycle now reports the rate the column holds.
+  it.each([
+    [BillingCycle.MONTHLY, 'monthly'],
+    [BillingCycle.QUARTERLY, 'quarterly'],
+    [BillingCycle.SEMI_ANNUAL, 'semi-annual'],
+    [BillingCycle.ANNUAL, 'annual'],
+  ])('reports the stored monthly rate on a %s subscription', async (billingCycle) => {
+    await buildHandler(buildSubscription({ billingCycle }), buildMonthUsage(), buildPricingModel());
+
+    const result = await handler.execute(new GetTenantBillingQuery(TENANT_ID));
+
+    expect(result.subscription?.monthlyPrice).toBe(99);
+  });
 
   it('reads month usage from the metering SSoT, pinned to the query tenant', async () => {
     await buildHandler(buildSubscription(), buildMonthUsage(), buildPricingModel());

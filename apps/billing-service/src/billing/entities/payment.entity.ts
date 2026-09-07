@@ -156,7 +156,13 @@ export class Payment {
   @Column({ nullable: true, name: 'stripe_payment_intent_id' })
   stripePaymentIntentId?: string;
 
+  // SECREV-CRITICAL-001: charge.refunded resolves the owning payment (and
+  // therefore the tenant) from this column alone. A duplicate would let
+  // findOne pick an arbitrary tenant's row, so uniqueness is not an
+  // optimisation here — it is what makes the resolution sound. Partial so
+  // the column stays nullable for non-Stripe payment methods.
   @HideField()
+  @Index('IDX_payment_stripe_charge', { unique: true, where: '"stripe_charge_id" IS NOT NULL' })
   @Column({ nullable: true, name: 'stripe_charge_id' })
   stripeChargeId?: string;
 

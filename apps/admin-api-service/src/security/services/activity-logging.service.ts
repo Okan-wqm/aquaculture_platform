@@ -20,7 +20,6 @@ import {
   RequestInfo,
   LoginAttempt,
   ApiUsageLog,
-  UserSession,
 } from '../entities/security.entity';
 import {
   ACTIVITY_LOG_SORT_COLUMNS,
@@ -115,8 +114,6 @@ export class ActivityLoggingService implements OnModuleInit {
     private readonly loginAttemptRepository: Repository<LoginAttempt>,
     @InjectRepository(ApiUsageLog)
     private readonly apiUsageRepository: Repository<ApiUsageLog>,
-    @InjectRepository(UserSession)
-    private readonly sessionRepository: Repository<UserSession>,
   ) {}
 
   onModuleInit(): void {
@@ -507,105 +504,6 @@ export class ActivityLoggingService implements OnModuleInit {
   }
 
   // ============================================================================
-  // Session Management
-  // ============================================================================
-
-  /**
-   * Create session record
-   */
-  async createSession(params: {
-    sessionToken: string;
-    userId: string;
-    userName: string;
-    tenantId?: string;
-    tenantName?: string;
-    expiresAt: Date;
-    ipAddress: string;
-    geoLocation?: GeoLocation;
-    deviceInfo?: DeviceInfo;
-  }): Promise<UserSession> {
-    const session = this.sessionRepository.create({
-      sessionToken: params.sessionToken,
-      userId: params.userId,
-      userName: params.userName,
-      tenantId: params.tenantId || null,
-      tenantName: params.tenantName || null,
-      isActive: true,
-      expiresAt: params.expiresAt,
-      ipAddress: params.ipAddress,
-      geoLocation: params.geoLocation || null,
-      deviceInfo: params.deviceInfo || null,
-      requestCount: 0,
-      lastActivityAt: new Date(),
-    });
-
-    return this.sessionRepository.save(session);
-  }
-
-  /**
-   * Update session activity
-   */
-  async updateSessionActivity(sessionToken: string, path: string): Promise<void> {
-    await this.sessionRepository.update(
-      { sessionToken, isActive: true },
-      {
-        requestCount: () => 'request_count + 1',
-        lastActivityAt: new Date(),
-        lastActivityPath: path,
-      },
-    );
-  }
-
-  /**
-   * Terminate session
-   */
-  async terminateSession(
-    sessionToken: string,
-    reason: 'logout' | 'expired' | 'forced' | 'security',
-    terminatedBy?: string,
-  ): Promise<void> {
-    await this.sessionRepository.update(
-      { sessionToken },
-      {
-        isActive: false,
-        terminatedAt: new Date(),
-        terminationReason: reason,
-        terminatedBy: terminatedBy || null,
-      },
-    );
-  }
-
-  /**
-   * Get active sessions for user
-   */
-  async getActiveSessionsForUser(userId: string): Promise<UserSession[]> {
-    return this.sessionRepository.find({
-      where: { userId, isActive: true },
-      order: { lastActivityAt: 'DESC' },
-    });
-  }
-
-  /**
-   * Terminate all sessions for user
-   */
-  async terminateAllUserSessions(
-    userId: string,
-    reason: 'logout' | 'forced' | 'security',
-    terminatedBy?: string,
-  ): Promise<number> {
-    const result = await this.sessionRepository.update(
-      { userId, isActive: true },
-      {
-        isActive: false,
-        terminatedAt: new Date(),
-        terminationReason: reason,
-        terminatedBy: terminatedBy || null,
-      },
-    );
-    return result.affected || 0;
-  }
-
-  // ============================================================================
   // Query Activities
   // ============================================================================
 
@@ -875,28 +773,6 @@ export class ActivityLoggingService implements OnModuleInit {
 
     if (result.affected && result.affected > 0) {
       this.logger.log(`Archived ${result.affected} activity logs`);
-    }
-  }
-
-  /**
-   * Clean up expired sessions
-   */
-  @Cron(CronExpression.EVERY_HOUR)
-  async cleanupExpiredSessions(): Promise<void> {
-    const result = await this.sessionRepository.update(
-      {
-        isActive: true,
-        expiresAt: LessThan(new Date()),
-      },
-      {
-        isActive: false,
-        terminatedAt: new Date(),
-        terminationReason: 'expired',
-      },
-    );
-
-    if (result.affected && result.affected > 0) {
-      this.logger.log(`Cleaned up ${result.affected} expired sessions`);
     }
   }
 

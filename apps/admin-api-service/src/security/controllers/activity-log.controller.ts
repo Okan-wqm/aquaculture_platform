@@ -8,16 +8,7 @@ import { Controller, Get, Post, Query, Param, Body, HttpCode, HttpStatus } from 
 import { ApiTags } from '@nestjs/swagger';
 import { Type, Transform } from 'class-transformer';
 
-import {
-  IsOptional,
-  IsNumber,
-  IsString,
-  IsIn,
-  IsBoolean,
-  Min,
-  Max,
-  MaxLength,
-} from 'class-validator';
+import { IsOptional, IsNumber, IsString, IsIn, IsBoolean, Min, Max } from 'class-validator';
 
 import { ActivityLog, ActivityCategory, ActivitySeverity } from '../entities/security.entity';
 import {
@@ -207,16 +198,6 @@ class LogActivityDto {
   duration?: number;
 }
 
-class TerminateUserSessionsDto {
-  @IsIn(['logout', 'forced', 'security'])
-  reason!: 'logout' | 'forced' | 'security';
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(255)
-  terminatedBy?: string;
-}
-
 class ActivityStatsQueryDto {
   @IsOptional()
   @IsString()
@@ -333,28 +314,13 @@ export class ActivityLogController {
     );
   }
 
-  /**
-   * Get active sessions for user
-   */
-  @Get('sessions/user/:userId')
-  async getUserSessions(@Param('userId') userId: string) {
-    return this.activityService.getActiveSessionsForUser(userId);
-  }
-
-  /**
-   * Terminate user sessions
-   */
-  @Post('sessions/user/:userId/terminate')
-  @HttpCode(HttpStatus.OK)
-  async terminateUserSessions(
-    @Param('userId') userId: string,
-    @Body() dto: TerminateUserSessionsDto,
-  ) {
-    const count = await this.activityService.terminateAllUserSessions(
-      userId,
-      dto.reason,
-      dto.terminatedBy,
-    );
-    return { terminated: count };
-  }
+  // Session read + termination are NOT served here. Session state is owned by
+  // auth-service (`auth.refresh_tokens` plus the Redis SessionManager), and the
+  // admin surface for it is `GET /users/:id/sessions` and
+  // `PATCH /users/:id/force-logout`, which delegate to auth over NATS
+  // (AUTH_ADMIN_COMMAND_SUBJECTS.FORCE_LOGOUT_USER). The two endpoints that
+  // used to live here read and wrote `admin.user_sessions`, a table this
+  // service never populated, so the read always answered "no sessions" and the
+  // terminate always answered "0 terminated" while every real session stayed
+  // live (ADMIN-HIGH-100).
 }

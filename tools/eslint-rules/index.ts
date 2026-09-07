@@ -14,6 +14,7 @@
  * See `/root/.claude/plans/declarative-riding-shamir.md` BLOCKER-20.
  */
 
+import noActorInInputDto from './rules/no-actor-in-input-dto';
 import noBareGraphqlQueryString from './rules/no-bare-graphql-query-string';
 import noBareTenantQueryKey from './rules/no-bare-tenant-query-key';
 import noClaudeSdkRawCall from './rules/no-claude-sdk-raw-call';
@@ -32,4 +33,5 @@ export const rules = {
   'no-bare-graphql-query-string': noBareGraphqlQueryString,
   'no-unpinned-ssrf-fetch': noUnpinnedSsrfFetch,
   'no-unsandboxed-html-frame': noUnsandboxedHtmlFrame,
+  'no-actor-in-input-dto': noActorInInputDto,
 };

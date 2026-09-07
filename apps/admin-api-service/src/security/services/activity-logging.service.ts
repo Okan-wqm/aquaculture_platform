@@ -174,17 +174,6 @@ export class ActivityLoggingService implements OnModuleInit {
   }
 
   /**
-   * Log activity immediately (bypass buffer)
-   */
-  async logActivityImmediate(params: LogActivityParams): Promise<ActivityLog> {
-    const log = this.activityRepository.create({
-      ...params,
-      severity: params.severity || this.determineSeverity(params),
-    });
-    return this.activityRepository.save(log);
-  }
-
-  /**
    * Flush the log buffer to database
    */
   private async flushBuffer(): Promise<void> {

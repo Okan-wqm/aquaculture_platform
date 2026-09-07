@@ -45,7 +45,6 @@ interface CreateLegalHoldDto {
   reason: string;
   legalMatterId: string;
   legalMatterDescription?: string;
-  requestedBy?: string;
   expiresAt?: string;
 }
 
@@ -210,7 +209,8 @@ export class MessagingAdminController {
         reason: dto.reason,
         legalMatterId: dto.legalMatterId,
         legalMatterDescription: dto.legalMatterDescription,
-        requestedBy: dto.requestedBy,
+        // ADMIN-CRITICAL-102: the requesting actor is the verified principal.
+        requestedBy: user.id,
         expiresAt: dto.expiresAt,
       },
     );

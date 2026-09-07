@@ -961,7 +961,9 @@ describe('Frontend-Backend Contract Validation', () => {
     // registry's read-only view (DATA-CRITICAL-016).
     // 538: -47 for the /impersonation/* and /debug-tools/* surfaces, deleted
     // with the subsystem that had no consumer (SEC-CRITICAL-162).
-    expect(count).toBe(538);
+    // 537: -1 for the route that let a request body name the actor
+    // (ADMIN-CRITICAL-102).
+    expect(count).toBe(537);
   });
 
   it('frontend endpoint snapshot should be up to date', () => {

@@ -45,3 +45,7 @@ export type {
   StripeMeterEvent,
 } from './stripe-api.types';
 export * from './canary-tenant.registry';
+// SECREV-CRITICAL-001 cure: the one wire key both the Stripe producer and the
+// inbound webhook consumers import, plus the hint reader that keeps the value
+// out of authoritative tenant resolution.
+export { STRIPE_TENANT_METADATA_KEY, readStripeTenantHint } from './stripe-metadata';

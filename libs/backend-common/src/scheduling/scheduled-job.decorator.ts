@@ -23,8 +23,8 @@
  */
 import { Cron, Interval } from '@nestjs/schedule';
 
-import { registerScheduledJobName } from './scheduled-job.registry';
 import type { ScheduledJobExecutor, ScheduledJobScope } from './scheduled-job-runner.service';
+import { registerScheduledJobName } from './scheduled-job.registry';
 
 export interface HasScheduledJobRunner {
   readonly scheduledJobs: ScheduledJobExecutor;

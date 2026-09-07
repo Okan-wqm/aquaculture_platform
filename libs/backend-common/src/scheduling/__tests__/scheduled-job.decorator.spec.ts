@@ -5,12 +5,12 @@ import {
   SCHEDULE_INTERVAL_OPTIONS,
 } from '@nestjs/schedule/dist/schedule.constants';
 
-import { ScheduledJob } from '../scheduled-job.decorator';
 import type {
   ScheduledJobExecutor,
   ScheduledJobOutcome,
   ScheduledJobScope,
 } from '../scheduled-job-runner.service';
+import { ScheduledJob } from '../scheduled-job.decorator';
 import { clearScheduledJobRegistry, registeredScheduledJobNames } from '../scheduled-job.registry';
 
 /**
@@ -41,9 +41,13 @@ describe('@ScheduledJob', () => {
 
       constructor(readonly scheduledJobs: RecordingExecutor) {}
 
+      // A scheduled method's contract is `() => Promise<void>`; these fixtures
+      // return the promise directly rather than being `async` with nothing to
+      // await, so the contract is exercised without an empty async body.
       @ScheduledJob({ name: 'sweeper.hourly', cron: '0 * * * *' })
-      async hourly(): Promise<void> {
+      hourly(): Promise<void> {
         this.ran.push('hourly');
+        return Promise.resolve();
       }
     }
     const executor = new RecordingExecutor();
@@ -64,7 +68,9 @@ describe('@ScheduledJob', () => {
       constructor(readonly scheduledJobs: RecordingExecutor) {}
 
       @ScheduledJob({ name: 'cache.sweep', every: 30_000, scope: 'each-replica' })
-      async sweep(): Promise<void> {}
+      sweep(): Promise<void> {
+        return Promise.resolve();
+      }
     }
     const executor = new RecordingExecutor();
     const cache = new Cache(executor);
@@ -83,13 +89,17 @@ describe('@ScheduledJob', () => {
         constructor(readonly scheduledJobs: RecordingExecutor) {}
 
         @ScheduledJob({ name: 'dup.job', every: 1_000 })
-        async one(): Promise<void> {}
+        one(): Promise<void> {
+          return Promise.resolve();
+        }
       }
       class B {
         constructor(readonly scheduledJobs: RecordingExecutor) {}
 
         @ScheduledJob({ name: 'dup.job', every: 1_000 })
-        async two(): Promise<void> {}
+        two(): Promise<void> {
+          return Promise.resolve();
+        }
       }
       return [A, B];
     }).toThrow(/declared by both A#one and B#two/);
@@ -99,7 +109,9 @@ describe('@ScheduledJob', () => {
         constructor(readonly scheduledJobs: RecordingExecutor) {}
 
         @ScheduledJob({ name: 'Not A Name', every: 1_000 })
-        async run(): Promise<void> {}
+        run(): Promise<void> {
+          return Promise.resolve();
+        }
       }
       return C;
     }).toThrow(/must be lower-case words/);

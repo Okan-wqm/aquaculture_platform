@@ -13,6 +13,7 @@
  * TypeScript `Program` outside `--transpile-only`, and the plugin reads the
  * checker to resolve a property's declared type into a schema.
  */
+const fs = require('node:fs');
 const path = require('node:path');
 
 const PROJECT = path.resolve(__dirname, '../../apps/admin-api-service/tsconfig.app.json');
@@ -46,11 +47,35 @@ require('tsconfig-paths').register({
   paths: require(path.resolve(__dirname, '../../tsconfig.base.json')).compilerOptions.paths,
 });
 
-const { writeAdminOpenApiArtifact } = require(
-  path.resolve(__dirname, '../../apps/admin-api-service/src/openapi/generate-openapi.ts'),
+const OPENAPI_SRC = path.resolve(
+  __dirname,
+  '../../apps/admin-api-service/src/openapi/generate-openapi.ts',
 );
 
-writeAdminOpenApiArtifact().catch((error) => {
+const { generateAdminOpenApiDocument } = require(OPENAPI_SRC);
+const { ADMIN_OPENAPI_ARTIFACT } = require(
+  path.resolve(__dirname, '../../apps/admin-api-service/src/openapi/admin-openapi.options.ts'),
+);
+
+const REPO_ROOT = path.resolve(__dirname, '../..');
+
+/**
+ * Serialising the document is this runner's job, not the service's. Two spaces
+ * and a trailing newline: the artifact is reviewed as a diff, and byte-equality
+ * is what `tests/invariants/admin-openapi-artifact-parity.spec.ts` asserts.
+ *
+ * `ADMIN_OPENAPI_OUT` redirects the output so that gate can regenerate into a
+ * scratch path and compare bytes without touching the committed artifact.
+ */
+async function main() {
+  const document = await generateAdminOpenApiDocument();
+  const serialized = `${JSON.stringify(document, null, 2)}\n`;
+  const target = process.env.ADMIN_OPENAPI_OUT ?? path.resolve(REPO_ROOT, ADMIN_OPENAPI_ARTIFACT);
+  fs.writeFileSync(target, serialized, 'utf8');
+  process.stdout.write(`openapi: wrote ${target} (${serialized.length} bytes)\n`);
+}
+
+main().catch((error) => {
   process.stderr.write(
     `openapi: generation failed: ${error && error.stack ? error.stack : String(error)}\n`,
   );

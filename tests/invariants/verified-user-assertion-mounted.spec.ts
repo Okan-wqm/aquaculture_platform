@@ -14,7 +14,7 @@
  * intermediary that stripped/forged the tenant header (without the bound
  * assertion) was a larger surface than necessary.
  *
- * # Source-level, same rationale as strip-internal-headers-mounted.spec.ts:
+ * # Source-level, same rationale as public-service-edge-hardening.spec.ts:
  * one grep+position pass over every service fires on every PR — fastest
  * feedback for a class of regression that would otherwise ship as a silently
  * weaker trust boundary.

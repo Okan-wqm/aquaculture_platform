@@ -7,6 +7,9 @@ import { RETIRED_SENTINEL_PREFIX_EXCLUSIONS } from './sentinel-hub/sentinel-hub-
 
 bootstrapService(AppModule, {
   serviceName: 'farm-service',
+  // ADR-0006: reached only over the Docker network (gateway federation / NATS);
+  // nginx proxies nothing here, so no CORS and no edge bundle.
+  serviceVisibility: 'internal',
   portEnvVar: 'FARM_SERVICE_PORT',
   hasGraphQL: true,
   // The gateway signs and calls this internal binary surface at its explicit

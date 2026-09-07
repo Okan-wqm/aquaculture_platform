@@ -1,4 +1,5 @@
-import { Module } from '@nestjs/common';
+import { StripInternalHeadersMiddleware } from '@aquaculture/backend-common/middleware';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { APP_GUARD, Reflector } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import {
@@ -127,4 +128,16 @@ const ObservabilitySchemaVersionGate = createSchemaVersionGate('observability', 
     },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  /**
+   * SEC-CRITICAL-002 / ADR-0006: strip the spoofable internal trust headers
+   * (x-user-payload, x-user-id, x-user-roles, x-tenant-id, …) from every
+   * request that does not carry a verified service-identity signature. A
+   * Docker-network caller could otherwise plant SUPER_ADMIN context on an
+   * unauthenticated path. Every bootstrapped service mounts this first;
+   * enforced by tests/invariants/public-service-edge-hardening.spec.ts.
+   */
+  configure(consumer: MiddlewareConsumer): void {
+    consumer.apply(StripInternalHeadersMiddleware).forRoutes('*');
+  }
+}

@@ -34,6 +34,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService, JwtModule } from '@nestjs/jwt';
+import { TenantConnectionLimiter, WsTokenRevalidator } from '@aquaculture/backend-common/websocket';
 import request from 'supertest';
 import { Request, Response, NextFunction } from 'express';
 import type { Server } from 'http';
@@ -77,7 +78,6 @@ const LoggingTracker = createOrderTrackingMiddleware('logging');
 const RateLimitTracker = createOrderTrackingMiddleware('rate-limit');
 const MetricsTracker = createOrderTrackingMiddleware('metrics');
 const StripHeadersTracker = createOrderTrackingMiddleware('strip-internal-headers');
-const CsrfTracker = createOrderTrackingMiddleware('csrf');
 const JwtTracker = createOrderTrackingMiddleware('jwt');
 const UserContextTracker = createOrderTrackingMiddleware('user-context');
 
@@ -102,7 +102,7 @@ class MiddlewareOrderController {
  *
  * Production ordering (from app.module.ts):
  *   MetricsMiddleware -> CorrelationIdMiddleware -> RequestContextMiddleware ->
- *   StripInternalHeadersMiddleware -> CsrfMiddleware -> JwtMiddleware ->
+ *   StripInternalHeadersMiddleware -> JwtMiddleware ->
  *   UserContextMiddleware -> TenantContextMiddleware -> RequestLoggingMiddleware
  */
 @Module({ controllers: [MiddlewareOrderController] })
@@ -113,7 +113,6 @@ class MiddlewareOrderModule implements NestModule {
         MetricsTracker,
         CorrelationIdTracker,
         StripHeadersTracker,
-        CsrfTracker,
         JwtTracker,
         UserContextTracker,
         TenantContextTracker,
@@ -152,7 +151,6 @@ describe('1. Middleware Chain Execution Order', () => {
       'metrics',
       'correlation-id',
       'strip-internal-headers',
-      'csrf',
       'jwt',
       'user-context',
       'tenant-context',
@@ -790,6 +788,19 @@ const mockConfigService = {
   }),
 } as unknown as ConfigService;
 
+/**
+ * SEC-MEDIUM-073/082 (2026-08-23 scans №26/№18) added a per-tenant socket
+ * ceiling and a periodic revocation re-check to the gateway constructors.
+ * They are plain option-object collaborators, so the instantiation tests
+ * build real ones rather than a mock that would not prove constructibility.
+ * `WsTokenRevalidator` owns a `setInterval`, so every one built here is
+ * disposed in the same test that builds it.
+ */
+const newConnectionLimiter = (): TenantConnectionLimiter => new TenantConnectionLimiter();
+
+const newTokenRevalidator = (): WsTokenRevalidator =>
+  new WsTokenRevalidator({ isStillValid: async () => true });
+
 describe('5. WebSocket Gateway Initialization', () => {
   describe('MessagingGateway', () => {
     let gateway: InstanceType<
@@ -813,12 +824,16 @@ describe('5. WebSocket Gateway Initialization', () => {
       }
 
       expect(() => {
+        const tokenRevalidator = newTokenRevalidator();
         gateway = new MessagingGatewayClass(
           mockJwtService as JwtService,
           mockConfigService as ConfigService,
+          newConnectionLimiter(),
+          tokenRevalidator,
           undefined, // redisService
           undefined, // natsClient
         );
+        tokenRevalidator.onModuleDestroy();
       }).not.toThrow();
       expect(gateway).toBeDefined();
     });
@@ -867,12 +882,16 @@ describe('5. WebSocket Gateway Initialization', () => {
 
       expect(() => {
         const deviceOwnershipService = new DeviceOwnershipServiceClass(mockConfigService);
+        const tokenRevalidator = newTokenRevalidator();
         gateway = new SensorReadingsGatewayClass(
           mockJwtService as JwtService,
           deviceOwnershipService,
           mockConfigService as ConfigService,
+          newConnectionLimiter(),
+          tokenRevalidator,
           undefined, // sensorAuthService
         );
+        tokenRevalidator.onModuleDestroy();
         deviceOwnershipService.onModuleDestroy();
       }).not.toThrow();
       expect(gateway).toBeDefined();
@@ -918,10 +937,13 @@ describe('5. WebSocket Gateway Initialization', () => {
       }
 
       expect(() => {
+        const tokenRevalidator = newTokenRevalidator();
         gateway = new STLanguageGatewayClass(
           mockJwtService as JwtService,
           mockConfigService as ConfigService,
+          tokenRevalidator,
         );
+        tokenRevalidator.onModuleDestroy();
       }).not.toThrow();
       expect(gateway).toBeDefined();
     });

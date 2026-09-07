@@ -5,13 +5,6 @@ const ADMIN_API_URL = getEnvString(import.meta.env.VITE_ADMIN_API_URL) ?? '/api'
 
 const SHARED_AUTH_STATE_KEY = '__AQUACULTURE_AUTH_STATE_V2__';
 
-const CSRF_PROTECTED_METHODS: ReadonlySet<string> = new Set([
-  'POST',
-  'PUT',
-  'PATCH',
-  'DELETE',
-]);
-
 interface BlobApiError extends Error {
   status?: number;
   code?: string;
@@ -183,12 +176,6 @@ const getAuthHeader = (): Record<string, string> => {
 
 const generateRequestId = (): string => crypto.randomUUID();
 
-const getCsrfTokenFromCookie = (): string | null => {
-  if (typeof document === 'undefined') return null;
-  const match = document.cookie.match(/(?:^|;\s*)XSRF-TOKEN=([^;]+)/);
-  return match?.[1] ? decodeURIComponent(match[1]) : null;
-};
-
 const createApiError = (
   message: string,
   status?: number,
@@ -251,13 +238,6 @@ export async function apiFetchBlob(
     const tenantId = getTenantId();
     if (tenantId) {
       headers['X-Tenant-Id'] = tenantId;
-    }
-
-    if (CSRF_PROTECTED_METHODS.has(method)) {
-      const csrfToken = getCsrfTokenFromCookie();
-      if (csrfToken) {
-        headers['X-CSRF-Token'] = csrfToken;
-      }
     }
 
     const response = await fetch(`${ADMIN_API_URL}${endpoint}`, {

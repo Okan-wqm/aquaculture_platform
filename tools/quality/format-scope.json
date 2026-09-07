@@ -18626,18 +18626,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/gateway-api/src/middleware/csrf.middleware.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/gateway-api/src/middleware/csrf.middleware.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/gateway-api/src/middleware/device-fingerprint.middleware.ts",
       "prettier_managed": true
     },
@@ -38586,7 +38574,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/bootstrap/__tests__/edge-hardening.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/bootstrap/create-service-app.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/bootstrap/edge-hardening.ts",
       "prettier_managed": true
     },
     {
@@ -44870,12 +44870,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "tests/invariants/access-log-middleware-mounted.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "tests/invariants/access-log-stream-shape.spec.ts",
       "prettier_managed": true
     },
@@ -46178,6 +46172,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/public-service-edge-hardening.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/rbac-vocabulary-ssot.spec.ts",
       "prettier_managed": true
     },
@@ -46395,12 +46395,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/strict-property-initialization-ssot.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "tests/invariants/strip-internal-headers-mounted.spec.ts",
       "prettier_managed": true
     },
     {

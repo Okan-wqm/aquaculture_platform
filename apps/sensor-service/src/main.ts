@@ -28,6 +28,9 @@ const flattenErrors = (errors: ValidationError[], parent = ''): string[] => {
 
 bootstrapService(AppModule, {
   serviceName: 'sensor-service',
+  // ADR-0006: nginx upstream (infrastructure/nginx/droplet.conf). The factory
+  // requires TRUST_PROXY in production and mounts the access log on every request.
+  serviceVisibility: 'public',
   portEnvVar: 'SENSOR_SERVICE_PORT',
   enableTelemetry: true,
   hasGraphQL: true,

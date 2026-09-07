@@ -65,8 +65,11 @@ billing-service invoices — and a rule spanning a boundary cannot be owned by o
 
 - **Tier 2 (automatic).** The quote and the invoice both call `cycleAmountFor`. Stating different
   prices now requires changing one function.
-- **Tier 3 (detectable).** `tests/invariants/billing-cycle-terms-single-source.spec.ts` fails on
-  any commitment-discount rate table declared outside that file.
+- **Tier 3 (detectable).** `tests/invariants/billing-cycle-terms-single-source.spec.ts` fails on a
+  commitment-discount rate table declared outside that file, in either spelling the codebase uses —
+  a fraction in a rate map (`annual: 0.15`) or an integer percent inside a per-cycle pricing object
+  (`annual: { …, discountPercent: 20 }`). One site is allowed by name under BILLING-HIGH-009 below;
+  a second unlisted one fails.
 
 `cycleAmountFor` returns the invoice's decomposition — `gross`, `commitmentDiscount`, `net` — and
 the scheduler writes the gross on the line item and the discount into the invoice's own `discount`
@@ -96,6 +99,34 @@ rounded both and is what forced this distinction.
   cases fail** and the invariant reports **3 offending sites**. Against the fix, all pass.
 - `apps/billing-service` full suite 630/630; `admin-api-service` billing/pricing 40/40;
   `npm run type-check` 41/41 projects green.
+
+## BILLING-HIGH-009 — the catalogue promises 10/15/20 and the platform charges 5/10/15
+
+**Severity:** HIGH. **Owner:** billing-expert. **Deadline:** 2026-10-05. **State:** OPEN.
+
+Found by re-reading my own fix above, and it exposed a gap in that fix's gate. The first version of
+the invariant matched only the fractional spelling, so it asserted "exactly one place" while a
+second table sat outside its sight.
+
+`plan-definition.service.ts:421-484` seeds each tier's per-cycle terms as an integer percent —
+`quarterly: 10`, `semiAnnual: 15`, `annual: 20` — with absolute per-cycle base prices that agree
+with those rates. Starter is monthly 99: quarterly 267 is 10.1% off 297, annual 950 is 20.0% off 1188. The pricing calculator applies 5/10/15. Two internally coherent price books, differing.
+
+Nothing reads a plan definition's per-cycle `discountPercent`. The only readers of that field name
+are `custom-plan.service.ts` and `custom-plan.entity.ts`, which is a custom plan's own discount — a
+different concept, not keyed on a cycle.
+
+**Not established, and deliberately not claimed:** which price book actually bills a given tenant.
+`plan-definition.service.ts:522` returns `pricing.<cycle>.basePrice` to a caller this pass did not
+trace. Settling it means deciding whether commitment terms are per-plan — operator-editable, and
+therefore snapshotted at the sale so an edit cannot silently re-price existing customers — or
+platform-wide. That is a commercial decision, not a refactor, which is why this is raised rather
+than fixed here.
+
+The invariant now matches both spellings and allows that one file **by name**, tied to this
+finding. Removing the entry is how this closes; a third table fails the gate. A separate case
+asserts the allowlisted file still produces a real match, so the exception cannot quietly become
+vacuous and make this finding look closed.
 
 ## BILLING-HIGH-008 — nine more copies of the months-per-cycle table
 

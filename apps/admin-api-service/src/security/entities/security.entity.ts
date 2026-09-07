@@ -261,7 +261,7 @@ export class ActivityLog {
   @Column({ type: 'int', nullable: true })
   duration?: number | null;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
   /**
@@ -389,10 +389,10 @@ export class SecurityEvent {
   @Column({ type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown> | null;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
 }
 
@@ -508,10 +508,10 @@ export class SecurityIncident {
   @Column({ type: 'varchar', length: 100 })
   createdBy!: string;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
 }
 
@@ -583,10 +583,10 @@ export class ThreatIntelligence {
   @Column({ type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown> | null;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
 }
 
@@ -797,10 +797,10 @@ export class ComplianceReport {
   @Column({ type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown> | null;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
 }
 
@@ -854,7 +854,7 @@ export class LoginAttempt {
   @Column({ type: 'uuid', nullable: true })
   sourceEventId?: string | null;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 }
 
@@ -950,6 +950,6 @@ export class ApiUsageLog {
   @Column({ type: 'uuid', nullable: true })
   sourceEventId?: string | null;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 }

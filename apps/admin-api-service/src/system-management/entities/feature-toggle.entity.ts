@@ -96,7 +96,7 @@ export class FeatureToggle {
   @Column({ default: false })
   isExperimental!: boolean;
 
-  @Column({ nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   deprecatedAt?: Date;
 
   @Column({ type: 'text', nullable: true })
@@ -108,9 +108,9 @@ export class FeatureToggle {
   @Column({ nullable: true })
   updatedBy?: string;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
 }

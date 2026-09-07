@@ -76,6 +76,45 @@ describe('convertAuditColumnsToTimestamptz', () => {
     }
   });
 
+  describe("columnScope: 'every-timestamp' (ADMIN-HIGH-012)", () => {
+    /**
+     * The name list is a list, and a list is maintained by whoever remembers
+     * it. `expiresAt`, `lastSeenAt`, `recordedAt`, `acknowledgedAt` and thirty
+     * more carry exactly the DST drift this helper removes and were simply not
+     * on it. These two cases pin the difference between the two scopes.
+     */
+    it('drops the column-name predicate so a column nobody listed is still found', async () => {
+      const { runner, calls } = makeMockRunner([
+        [{ setting: 'UTC' }],
+        [{ table_name: 'login_attempts', column_name: 'expiresAt' }],
+        undefined,
+      ]);
+
+      await convertAuditColumnsToTimestamptz(runner, {
+        schemaOverride: 'admin',
+        columnScope: 'every-timestamp',
+      });
+
+      // calls[0] is the session-TimeZone audit read; discovery is calls[1].
+      const discovery = calls[1];
+      expect(discovery).toBeDefined();
+      expect(discovery?.sql).toContain("data_type = 'timestamp without time zone'");
+      expect(discovery?.sql).not.toContain('column_name = ANY');
+      // Only the schema is bound — there is no name array to bind.
+      expect(discovery?.params).toEqual(['admin']);
+      expect(calls[2]?.sql).toContain('"expiresAt" TYPE TIMESTAMPTZ');
+    });
+
+    it('keeps the name predicate by default, so no existing caller widens', async () => {
+      const { runner, calls } = makeMockRunner([[{ setting: 'UTC' }], []]);
+
+      await convertAuditColumnsToTimestamptz(runner, { schemaOverride: 'admin' });
+
+      expect(calls[1]?.sql).toContain('column_name = ANY');
+      expect(calls[1]?.params?.[1]).toEqual(expect.arrayContaining(['createdAt', 'updatedAt']));
+    });
+  });
+
   describe('happy path', () => {
     it('discovers TIMESTAMP audit columns and emits one ALTER per table', async () => {
       const replies = [

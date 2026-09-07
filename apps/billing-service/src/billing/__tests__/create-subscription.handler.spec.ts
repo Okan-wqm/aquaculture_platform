@@ -15,6 +15,8 @@ import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import { StripeApiService } from '@aquaculture/backend-common/billing';
+
+import { StripeSubscriptionProvisionerService } from '../services/stripe-subscription-provisioner.service';
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource, QueryRunner } from 'typeorm';
 import { CreateSubscriptionHandler } from '../../billing/handlers/create-subscription.handler';
@@ -140,6 +142,9 @@ describe('CreateSubscriptionHandler', () => {
         CreateSubscriptionHandler,
         { provide: DataSource, useValue: mockDS },
         { provide: OutboxPublisher, useValue: mockOutbox },
+        // The REAL provisioner over a mocked Stripe client, so these cases still
+        // assert what actually reaches Stripe rather than a stub of the mint.
+        StripeSubscriptionProvisionerService,
         { provide: StripeApiService, useValue: mockStripe },
         { provide: getRepositoryToken(Plan), useValue: mockPlanRepo },
         { provide: RedisService, useValue: mockRedisService },
@@ -464,7 +469,10 @@ describe('CreateSubscriptionHandler', () => {
           CreateSubscriptionHandler,
           { provide: DataSource, useValue: mockDS },
           { provide: OutboxPublisher, useValue: mockOutbox },
-          { provide: StripeApiService, useValue: mockStripe },
+          // The REAL provisioner over a mocked Stripe client, so these cases still
+        // assert what actually reaches Stripe rather than a stub of the mint.
+        StripeSubscriptionProvisionerService,
+        { provide: StripeApiService, useValue: mockStripe },
           { provide: getRepositoryToken(Plan), useValue: mockPlanRepo },
         ],
       }).compile();

@@ -49,6 +49,7 @@ import {
   Subscription,
   SubscriptionStatus,
 } from '../entities/subscription.entity';
+import { StripeSubscriptionProvisionerService } from '../services/stripe-subscription-provisioner.service';
 
 interface TenantLookupRow {
   tenantId: string;
@@ -109,6 +110,7 @@ export class BillingAdminNatsHandler {
     private readonly commandBus: CommandBus,
     private readonly dataSource: DataSource,
     private readonly bypassRls: BypassRlsService,
+    private readonly stripeProvisioner: StripeSubscriptionProvisionerService,
   ) {}
 
   /**
@@ -180,6 +182,33 @@ export class BillingAdminNatsHandler {
         // (VALIDATION_ERROR) — before the transaction opens, never mid-transaction
         // after a subscription row is written (the silent-rollback class removed).
         this.assertProvisioningModuleItems(command);
+
+        // The plan and the tenant's Stripe objects are resolved BEFORE the
+        // transaction opens, for two reasons that both point the same way: a
+        // pool connection is never held across a network call (SSOT-C-12), and
+        // a SERIALIZABLE transaction that waits on Stripe holds a
+        // serialization slot for the length of an HTTP round trip.
+        //
+        // Safe against this handler's own short-circuits because the mint is
+        // idempotent on (tenant, tier, cycle): a receipt replay re-resolves the
+        // same Stripe objects rather than minting a second pair, and a command
+        // naming a plan the tenant does not end up on is REJECTED by
+        // assertActiveSubscriptionReplayMatches below rather than silently
+        // returning — so no orphan Stripe subscription is created.
+        //
+        // A Stripe failure now fails the command instead of quietly producing a
+        // tenant nothing can charge (BILLING-CRITICAL-010). That is the
+        // fail-closed rule every billable mutation already follows, and the
+        // command is retryable: its receipt is keyed on the payload hash.
+        const plan = await this.resolveProvisioningPlan(this.dataSource.manager, command);
+        const stripeObjects = await this.stripeProvisioner.ensureStripeObjects({
+          tenantId: command.tenantId,
+          tier: plan.tier,
+          billingCycle: plan.billingCycle,
+          stripePriceIds: plan.stripePriceIds,
+          name: command.tenantName,
+        });
+
         return await this.dataSource.transaction('SERIALIZABLE', async (manager) => {
           const receipt = await this.prepareBillingReceipt(
             manager,
@@ -191,7 +220,6 @@ export class BillingAdminNatsHandler {
             return this.replayProvisioningResult(manager, command, receipt);
           }
 
-          const plan = await this.resolveProvisioningPlan(manager, command);
           const existing = await this.findActiveSubscription(manager, command.tenantId, true);
           if (existing) {
             await this.assertActiveSubscriptionReplayMatches(manager, command, existing, plan);
@@ -213,6 +241,7 @@ export class BillingAdminNatsHandler {
             command,
             plan,
             moduleItemsMonthlyTotal,
+            stripeObjects,
           );
           const moduleItemCount = await this.reconcileSubscriptionModuleItems(
             manager,
@@ -633,6 +662,7 @@ export class BillingAdminNatsHandler {
     command: BillingTenantProvisioningCommand,
     plan: Plan,
     moduleItemsMonthlyTotal: number,
+    stripeObjects: { stripeCustomerId?: string; stripeSubscriptionId?: string },
   ): Promise<{ id: string; status: SubscriptionStatus }> {
     if (command.trialDays && command.trialDays > 30) {
       throw new ConflictException('Trial period cannot exceed 30 days');
@@ -680,6 +710,12 @@ export class BillingAdminNatsHandler {
          current_period_end,
          trial_end_date,
          auto_renew,
+         -- BILLING-CRITICAL-010: these two were omitted from this column list
+         -- entirely, so every operator-provisioned tenant carried NULLs that
+         -- nothing else ever filled. The only other writer is the GraphQL
+         -- path, which this flow does not use.
+         stripe_customer_id,
+         stripe_subscription_id,
          created_by,
          updated_by,
          version,
@@ -688,7 +724,7 @@ export class BillingAdminNatsHandler {
          "updatedAt"
        ) VALUES (
          $1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $9, $10, $11,
-         true, $12, $12, 1, false, NOW(), NOW()
+         true, $12, $13, $14, $14, 1, false, NOW(), NOW()
        )
        RETURNING id, status`,
       [
@@ -703,6 +739,8 @@ export class BillingAdminNatsHandler {
         startDate,
         currentPeriodEnd,
         trialEndDate,
+        stripeObjects.stripeCustomerId ?? null,
+        stripeObjects.stripeSubscriptionId ?? null,
         command.actorId,
       ],
     );

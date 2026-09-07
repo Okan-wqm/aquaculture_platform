@@ -9,6 +9,8 @@ const LEGACY_IDENTITY_HEADERS = [
   'x-user-id',
   'x-user-roles',
   'x-act-as-tenant',
+  'x-act-as-reason',
+  'x-act-as-ticket',
 ] as const;
 
 const ASSERTION_MAX_AGE_MS = 5 * 60 * 1000;
@@ -61,6 +63,28 @@ export class VerifiedUserAssertionMiddleware implements NestMiddleware {
 
         req.verifiedUserAssertion = assertion;
         req.tenantId = assertion.effectiveTenantId ?? assertion.tenantId ?? undefined;
+        // ADR-0007: rebuild the validated act-as context from the signed claims
+        // so the audit interceptor attributes the write to the actor's home
+        // tenant and records the justification.
+        if (assertion.actAs) {
+          if (typeof assertion.actAs.reason !== 'string' || assertion.actAs.reason.length === 0) {
+            throw new BadRequestException(
+              'Verified user assertion act-as claims are missing a reason',
+            );
+          }
+          if (!req.tenantId) {
+            throw new BadRequestException(
+              'Verified user assertion act-as claims require an effective tenant',
+            );
+          }
+          req.actAs = {
+            homeTenantId: assertion.actAs.homeTenantId ?? null,
+            reason: assertion.actAs.reason,
+            ticket: assertion.actAs.ticket ?? null,
+            targetTenantId: req.tenantId,
+            mfaVerified: assertion.mfaVerified === true,
+          };
+        }
         req.user = {
           sub: assertion.subject,
           tenantId: req.tenantId,

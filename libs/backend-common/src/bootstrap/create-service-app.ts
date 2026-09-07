@@ -233,6 +233,11 @@ const DEFAULT_CORS_HEADERS: string[] = [
   'X-Tenant-Id',
   'X-Correlation-Id',
   'X-Request-Id',
+  // ADR-0007: SUPER_ADMIN act-as intent + justification, validated by the
+  // kernel EffectiveTenantMiddleware on every browser-authenticating ingress.
+  'X-Act-As-Tenant',
+  'X-Act-As-Reason',
+  'X-Act-As-Ticket',
 ];
 
 /** Standard CORS allowed methods for the aquaculture platform. */

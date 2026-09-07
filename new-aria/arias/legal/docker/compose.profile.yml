@@ -57,8 +57,8 @@ services:
       # so "Run inventory" works on a fresh volume with no operator shell command.
       # /api/v1/health reports the registry's answer under `legal.adapter`.
       ARIA_KERNEL_BIN: /opt/new-aria/bin/aria
-      # The legal instance never reaches a model provider until an operator turns it on.
-      CLAUDE_CLI_MOCK: ${LEGAL_CLAUDE_CLI_MOCK:-1}
+      # No mock fallback; live analysis still requires runtime acceptance and is reported unavailable until then.
+      CLAUDE_CLI_MOCK: ${LEGAL_CLAUDE_CLI_MOCK:-0}
     ports:
       - "${LEGAL_UI_BIND:-127.0.0.1}:${LEGAL_UI_PORT:-8481}:8480"
     volumes:

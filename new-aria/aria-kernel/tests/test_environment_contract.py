@@ -25,6 +25,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
+from subprocess import CompletedProcess
 
 from aria_kernel.ledger import append_declared_jsonl
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
@@ -173,13 +174,13 @@ class AttestationProducerTest(unittest.TestCase):
 
 class PreClaimGateTest(unittest.TestCase):
     def _gate(self, tools: Path):
-        return ci_executor._pre_claim_environment_gate(tools_dir=tools)
+        return ci_executor._pre_claim_environment_gate(tools_dir=tools, model="fable")
 
     def test_broken_auth_is_named_and_the_request_is_never_claimed(self) -> None:
         with TemporaryDirectory() as tmp:
             tools = Path(tmp)
             with patch.object(ci_executor, "_MOCK_MODE_AT_ENTRY", False), \
-                 patch.object(ci_executor, "preflight_claude_auth",
+                 patch.object(ci_executor, "preflight_claude_dispatch",
                               side_effect=ci_executor.ClaudeAuthUnavailable("no session")), \
                  patch.object(ci_executor, "_append_tools_governance") as gov:
                 kind = self._gate(tools)
@@ -188,10 +189,27 @@ class PreClaimGateTest(unittest.TestCase):
         gov.assert_called_once()
         self.assertEqual(gov.call_args.args[1], "claude_auth_unavailable")
 
+    def test_consumer_list_path_checks_pending_agents_selected_model(self) -> None:
+        pending = [{"request_id": "req-1", "target_agent": "aria-evidence-judge"}]
+        processes = [
+            CompletedProcess([], 0, json.dumps(pending), ""),
+            CompletedProcess([], 0, "done", ""),
+        ]
+        with TemporaryDirectory() as tmp, \
+             patch.object(ci_executor.subprocess, "run", side_effect=processes), \
+             patch.object(ci_executor, "preflight_claude_dispatch", return_value={"status": "ok"}) as pf:
+            result = ci_executor.claim_and_dispatch_one(
+                role="evidence_judgment", tools_dir=Path(tmp), repo_root=_REPO_ROOT,
+            )
+        from aria_kernel.agent_runtime_profile import read_agent_runtime_profile
+        expected = read_agent_runtime_profile("aria-evidence-judge", repo_root=_REPO_ROOT).model
+        pf.assert_called_once_with(model=expected)
+        self.assertEqual(result["status"], "dispatched")
+
     def test_missing_sandbox_is_the_second_named_fault(self) -> None:
         with TemporaryDirectory() as tmp:
             with patch.object(ci_executor, "_MOCK_MODE_AT_ENTRY", False), \
-                 patch.object(ci_executor, "preflight_claude_auth",
+                 patch.object(ci_executor, "preflight_claude_dispatch",
                               return_value={"status": "ok"}), \
                  patch.object(ci_executor, "_sandbox_backend", return_value=None), \
                  patch.object(ci_executor, "_append_tools_governance") as gov:
@@ -208,7 +226,7 @@ class PreClaimGateTest(unittest.TestCase):
             os.chdir(workspace)
             try:
                 with patch.object(ci_executor, "_MOCK_MODE_AT_ENTRY", False), \
-                     patch.object(ci_executor, "preflight_claude_auth",
+                     patch.object(ci_executor, "preflight_claude_dispatch",
                                   return_value={"status": "ok"}), \
                      patch.object(ci_executor, "_sandbox_backend",
                                   return_value="bwrap"):
@@ -221,7 +239,7 @@ class PreClaimGateTest(unittest.TestCase):
     def test_mock_mode_skips_the_gate(self) -> None:
         with TemporaryDirectory() as tmp:
             with patch.object(ci_executor, "_MOCK_MODE_AT_ENTRY", True), \
-                 patch.object(ci_executor, "preflight_claude_auth") as pf:
+                 patch.object(ci_executor, "preflight_claude_dispatch") as pf:
                 kind = self._gate(Path(tmp))
 
         self.assertIsNone(kind)

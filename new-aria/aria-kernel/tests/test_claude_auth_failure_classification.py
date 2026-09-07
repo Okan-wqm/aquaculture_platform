@@ -80,6 +80,37 @@ class AuthFailureDetectionTest(unittest.TestCase):
 
 
 class AuthFailureIsNotRetriedTest(unittest.TestCase):
+    def test_local_auth_exception_uses_single_cross_provider_retry(self) -> None:
+        attempts: list[tuple[str, str]] = []
+        ok = _result(returncode=0)
+        def run(model: str, effort: str) -> cr.ClaudeRunResult:
+            attempts.append((model, effort))
+            if len(attempts) == 1:
+                raise cr.ClaudeAuthUnavailable("local unavailable")
+            return ok
+        self.assertIs(cr.run_with_model_fallback(run=run, model="fable", effort="high"), ok)
+        self.assertEqual(attempts, [("fable", "high"), ("glm-5.3", "high")])
+
+    def test_retry_local_auth_exception_remains_typed_and_bounded(self) -> None:
+        attempts: list[tuple[str, str]] = []
+        def run(model: str, effort: str) -> cr.ClaudeRunResult:
+            attempts.append((model, effort))
+            raise cr.ClaudeAuthUnavailable("local unavailable")
+        with self.assertRaises(cr.ClaudeAuthUnavailable):
+            cr.run_with_model_fallback(run=run, model="fable", effort="high")
+        self.assertEqual(attempts, [("fable", "high"), ("glm-5.3", "high")])
+
+    def test_local_exception_then_provider_rejection_is_provider_auth_failure(self) -> None:
+        attempts: list[tuple[str, str]] = []
+        def run(model: str, effort: str) -> cr.ClaudeRunResult:
+            attempts.append((model, effort))
+            if len(attempts) == 1:
+                raise cr.ClaudeAuthUnavailable("local unavailable")
+            return _result(auth_failure={"marker": "invalid api key", "remedy": "replace key"})
+        with self.assertRaises(cr.ClaudeAuthFailure):
+            cr.run_with_model_fallback(run=run, model="fable", effort="high")
+        self.assertEqual(attempts, [("fable", "high"), ("glm-5.3", "high")])
+
     def test_raises_instead_of_returning_a_result_that_reads_like_an_answer(self) -> None:
         attempts: list[tuple[str, str]] = []
 

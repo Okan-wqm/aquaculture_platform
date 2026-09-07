@@ -181,6 +181,10 @@ export function buildRoutes(config: ServerConfig, jobs: JobTable, readiness: Leg
           toolsDirPresent: await existsInside(config.toolsDir),
           actionsEnabled: config.allowActions,
           legal: await readLegalReadiness(config, readiness.boot),
+          legalAnalysis: {
+            state: 'unavailable',
+            reason: config.claudeCliMock ? 'mock_mode' : 'not_connected',
+          },
           ledgerSigning: readiness.signer === null ? null : { keyId: readiness.signer.keyId, publicKeyPem: readiness.signer.publicKeyPem },
           identity: readiness.principals === null ? 'shared_token' : 'principals_file',
           generatedAt: new Date().toISOString(),

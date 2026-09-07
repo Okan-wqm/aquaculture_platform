@@ -33793,6 +33793,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/codex/2026-09-07-legal-e2e-plan-review.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/compliance-expert/2026-04-28-core-platform-review.md",
       "prettier_managed": true
     },
@@ -42277,7 +42283,7 @@
     },
     {
       "class": "archive_immutable",
-      "content_sha256": "37ffb7af0bbc64ea62ba487547f2bc6fa21571d85faf9b39408de8433c36564a",
+      "content_sha256": "18523965dcab9d132da3d769165744bb1b2fb1e5ca2f80514d63094b81512beb",
       "hash_policy": "sha256",
       "owner": "aria-transport-copy",
       "path": "new-aria/arias/legal/docs/YOL-HARITASI.md",
@@ -44994,7 +45000,7 @@
     },
     {
       "class": "archive_immutable",
-      "content_sha256": "c4b0d2dc70410500247a92e707fd2a3845081eb18f23d58d42de98fec6702fd2",
+      "content_sha256": "158305cc8b1ead200ddef0317d281d875f11623711762965bcca644acf75e88b",
       "hash_policy": "sha256",
       "owner": "aria-transport-copy",
       "path": "new-aria/ui/server/src/config.ts",
@@ -45368,7 +45374,7 @@
     },
     {
       "class": "archive_immutable",
-      "content_sha256": "c82d786f58caddf828676889e45aa22182fadaafe69ee45846e0b381dacd5c93",
+      "content_sha256": "fe4e35a0ce4a13123a9063b5230b6bfaa8ba8a31cd6865597c215090c35f8be7",
       "hash_policy": "sha256",
       "owner": "aria-transport-copy",
       "path": "new-aria/ui/server/src/routes.ts",
@@ -45742,7 +45748,7 @@
     },
     {
       "class": "archive_immutable",
-      "content_sha256": "2e3c557311cf87c5850e8833b33878c68f20e7cfaf8ff6498b9d7026879dd53e",
+      "content_sha256": "1d6df24238ba2b0248102350f462e90a40bbbdac93bef9f1e7e39ee7302c23bb",
       "hash_policy": "sha256",
       "owner": "aria-transport-copy",
       "path": "new-aria/ui/server/test/legal-routes.test.ts",
@@ -45863,7 +45869,7 @@
     },
     {
       "class": "archive_immutable",
-      "content_sha256": "ffd91c3530ed7244aa1634fb18c4e7efba854d95b02696fb62edd078d256ab7a",
+      "content_sha256": "2a8cccd637ee88b17813909010292fb95734166741ecd12dc13c738df131d66b",
       "hash_policy": "sha256",
       "owner": "aria-transport-copy",
       "path": "new-aria/ui/shared/api-contract.ts",
@@ -46765,7 +46771,7 @@
     },
     {
       "class": "archive_immutable",
-      "content_sha256": "8272c78a4c97b3d1e4a9dc93976b6d6a8aa0a84a84bae498bb2029752c101a5b",
+      "content_sha256": "1fadbffa2640ec3f200b4e7207772a404cfafa6d39aaad3400ba112fb7f7354c",
       "hash_policy": "sha256",
       "owner": "aria-transport-copy",
       "path": "new-aria/ui/web/src/features/legal/IntakeTab.tsx",
@@ -46776,7 +46782,7 @@
     },
     {
       "class": "archive_immutable",
-      "content_sha256": "8e722ecc1aba434872ad8216d9027e1d1dcc94fbe01d752419b11ae9609f29a0",
+      "content_sha256": "eeb6e8da6d22ccb504e3d5317b9b431b9d1d2790564717171aeda6a77ac74872",
       "hash_policy": "sha256",
       "owner": "aria-transport-copy",
       "path": "new-aria/ui/web/src/features/legal/IntakeTabTracking.test.tsx",

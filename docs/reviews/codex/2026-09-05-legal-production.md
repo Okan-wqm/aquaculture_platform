@@ -382,3 +382,117 @@ imaj/konteyner adımlarına ulaşmadı; LEGAL-CRITICAL-011 açık kalır.
 Bağımlılık kurulumu temiz örnek dizinde doğrulandı. Yayın testlerinin 48’i
 uid 65534 ile geçti; readonly dosya modu ve değiştirilmiş artifactın imza/hash
 reddi korunur. Sunucu tip denetimi ve workflow yapısı doğrulandı.
+
+<a id="managed-claude-auth-preflight"></a>
+
+## LEGAL-HIGH-022
+
+Claude yönetilen oturum ön kontrolünün ayar dosyasını giriş kanıtı sayması.
+
+Durum: IN-PROGRESS. Sahip: Codex. Hedef: 2026-09-07. Faz: P0-A.
+
+`new-aria/tools/aria-poc/claude_runtime.py` içindeki eski ön kontrol, yalnız
+`config.json` veya `.credentials.json` varlığından oturumu hazır kabul ediyordu.
+Boş ayar dosyası gerçek oturum kanıtı değildir. Yerel kurulu CLI 2.1.261
+`claude auth status` destekliyor; bu komut çıkarım başlatmadan yerel kimlik
+biçimini bildiriyor. Komutun resmi sözleşmesi:
+[Claude CLI reference](https://code.claude.com/docs/en/cli-reference).
+
+Kabul: varsayılan yönetilen yol için CLI'ın yapılandırılmış yerel durumunda `loggedIn=true`, yönetilen
+`claude.ai` yöntemi ve `firstParty` sağlayıcısı doğrulanır. Eksik/bozuk durum,
+başka kimlik yöntemi, süreç hatası veya süre aşımı çıkarım başlamadan reddedilir.
+Hesap alanları ve ham auth çıktısı kullanıcıya veya hata zincirine taşınmaz.
+Açık dry-run atlama sonucu `ok` olarak gösterilmez.
+
+Bağımsız inceleme ilk değişiklikte iki ek durum buldu: geçersiz auth çıktı
+kodlaması ve genel runtime'ın zaten yetkilendirilmiş Z.ai yolunun yönetilen
+girişe bağlanması. İkinci durum için kabul, seçilen sağlayıcının kendi mevcut
+politika/kimlik koşullarını denetlemektir. Alternatif yolun yerel ayarı
+`route_configured` olarak bildirilir; yönetilen oturum veya gerçek sağlayıcı
+erişimi kanıtı sayılmaz. Genel dispatch'in mevcut yeniden deneme sözleşmesi
+korunur. Hukuk ürününün yalnız yönetilen Claude kullanma koşulu devam eder.
+
+2026-09-07 oturum kurtarma doğrulaması: runtime ve CI yürütücüsünün SHA-256
+değerleri kesilen oturumun teslim kaydıyla aynı. Agent-env invariantını da içeren
+dokuz Python modülünün kayıtlı regresyon komutu yeniden çalıştırıldı:
+147 test ve 28 alt test, çıkış 0. İkinci bağımsız inceleme önceki iki kod
+bulgusunu giderilmiş buldu; zorunlu tüketici senaryolarında eksik test kapsamı
+saptadı. Tüketici kapsamı tamamlandıktan sonra bağımsız kapsam ve kalite
+incelemesi kabul verdi: açık kod veya test bulgusu kalmadı.
+
+Son kapsamlı komut 166 test ve 45 alt testle çıkış 0 verdi. İki CI girişinde
+gerçek profil/ön kontrol, iş almadan ret, worker model aktarımı, yetkisiz
+yeniden denemenin reddi ve bozuk karakterlerle gelen hesap bilgisinin
+gizlenmesi doğrulandı. Ayrı çalışma kopyasında ilgili davranışların kaldırılması
+beklenen test hatalarını üretti; çalışan kaynak ağacı değiştirilmedi.
+Yeniden çalıştırma, `new-aria/` içinde:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.:aria-kernel python3 -m pytest -q \
+  aria-kernel/tests/test_auth_consumer_routes.py \
+  aria-kernel/tests/test_claude_auth*.py \
+  aria-kernel/tests/test_provider_redirect.py \
+  aria-kernel/tests/test_credit_fallback.py \
+  aria-kernel/tests/test_claude_runtime_contract.py \
+  aria-kernel/tests/test_environment_contract.py \
+  aria-kernel/tests/invariants/v12/test_phase_v12_b_agent_env.py \
+  aria-kernel/tests/test_ci_executor*.py
+```
+
+Etkin kök `.github/workflows/new-aria-legal.yml`, iç runtime/çekirdek/süit
+yollarında PR ve push ile tetiklenir; mevcut süit çalıştırıcısıyla 10 runtime
+test modülünü seçer. Aynı komut yerelde 158 unittest testiyle çıkış 0 verdi;
+pytest bölümü aynı 158 testi tekrar çalıştırmadı. Yerelde `/opt/venv` olmadığı
+için Python 3.12.3 kullanıldı; hosted kurulumun çalıştığı henüz kanıtlanmadı.
+İş akışının YAML kapsamı doğrulandı; `actionlint` kurulu olmadığı için çalışmadı.
+Kanıtlar `.superpowers/sdd/YOL-HARITASI/task-p0-auth-fix2-*` ve
+`task-p0-ci-*` kayıtlarında; canlı model, imaj veya dağıtım kabulü değildir.
+
+Bu bulgu yerel ön kontrolün doğruluğuyla sınırlıdır. Gerçek model cevabı,
+sağlayıcı erişiminin geçerliliği, kimlik yenileme, rootless runner ve harcama
+rezervasyonu ayrı P0 kabulleridir; dosya/CLI durumunun olumlu olması bunları kapatmaz.
+
+<a id="legal-analysis-readiness"></a>
+
+## LEGAL-HIGH-023
+
+Mekanik envanterin hazır olması ile gerçek AI analizinin bağlı olmasının ayrılmaması.
+
+Durum: IN-PROGRESS. Sahip: Codex. Hedef: 2026-09-07. Faz: P0-B.
+
+Başlangıçta `/api/v1/health` yalnız hukuk envanter adapter'ının kayıt durumunu
+bildiriyordu; legal compose profili de modeli mock varsayılanıyla başlatıyordu. Kayıtlı envanter,
+gerçek modelle dava analizinin bağlı olduğuna kanıt değildir.
+
+Kabul: sunucu ve İngilizce belge alım ekranı bağımsız analiz kullanılabilirliği
+bildirir. Mock açık veya gerçek analiz henüz bağlı değilken analiz hazır sayılmaz;
+belge alımı ve mekanik envanter kendi yetki/kayıt koşullarıyla kullanılabilir.
+Üretim legal profilinde mock varsayılanı kapalıdır. Env bayrağı açılması veya
+kapanması tek başına “gerçek analiz hazır” sonucu üretemez.
+
+2026-09-07 yerel kanıt: yeni HTTP testleri önce 2 hata, yeni ekran testleri önce
+2 hata verdi; uygulamadan sonra hedefli 37 sunucu ve 9 ekran testi geçti.
+Bağımsız incelemede bulunan yeni testteki yasak çift tip dönüşümü kaldırıldı;
+değişen HTTP testlerinin 2'si ve sunucu tip denetimi yeniden geçti. Birleşik
+`npm run legal:check` çıkış 0: 237 sunucu, 78 arayüz testi, iki tip denetimi,
+iki derleme ve adapter/korpus kontrolleri. `npm run aria:instances:test` 4/4
+geçti. Compose çözümlemesi yalnız ilgili alanı okuyarak legal-ui mock
+varsayılanının `0` olduğunu doğruladı; sır veya gerçek veri kullanılmadı.
+
+Şema ve tüketici birlikte değişti: `HealthResponse.legalAnalysis` zorunlu
+alanı yalnız `unavailable` durumunu temsil eder. İngilizce ekranda gerekçe
+anlaşılır metne çevrilir. Bağımsız kapsam/kalite yeniden incelemesi geçti.
+Test kayıtları ve bağımsız inceleme,
+`.superpowers/sdd/YOL-HARITASI/task-p0-readiness-*` altında saklanır.
+
+Kesilen oturumdan sonra aynı çalışma ağacında `npm run legal:check` yeniden
+çıkış 0 verdi: 237 sunucu ve 78 arayüz testi, tip denetimleri, derlemeler ve
+adapter/korpus kontrolleri geçti (`resume-legal-check.log`). Zorunlu Nx test/lint
+komutları da çıkış 0 ile tamamlandı; etkilenen Nx projesi bulunmadığından
+`No tasks were run` sonucu verdi. Bu sonuç hukuk testinin yerine geçmez.
+Önceki Nx eklenti zaman aşımı, eklentileri aynı süreçte çalıştıran ve bu plana
+ait ayrı önbellek kullanan çağrıyla aşıldı; hiçbir eklenti veya kontrol çıkarılmadı.
+
+Bu bulgu yalnız kullanılabilirliğin doğru sunulmasını kapsar. Eski 8480 kurulumunda
+örnek veri göçü yapılmış sayılmaz; gerçek AI analizi, runner, bütçe ve canlı geçiş
+P0/P6 kabulü tamamlanmadan etkinleştirilmiş olarak raporlanmaz.

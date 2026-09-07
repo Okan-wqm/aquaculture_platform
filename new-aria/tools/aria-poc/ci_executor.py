@@ -64,7 +64,7 @@ from claude_runtime import (
     extract_usage,
     is_mock_mode as _claude_is_mock_mode,
     parse_claude_jsonl,
-    preflight_claude_auth,
+    preflight_claude_dispatch,
     run_claude_exec,
     run_with_model_fallback,
 )
@@ -665,15 +665,6 @@ def claim_and_dispatch_one(
             f"(must be one of {sorted(SUPPORTED_ROLES)})"
         )
 
-    try:
-        preflight_claude_auth()
-    except (ClaudeAuthUnavailable, ClaudeCliUnavailable, ClaudePolicyViolation) as exc:
-        return {
-            "status": "dispatchers_unavailable",
-            "role": role,
-            "reason": f"claude_preflight_failed: {exc}",
-        }
-
     # Find next pending request for this role.
     list_proc = subprocess.run(
         [
@@ -717,6 +708,19 @@ def claim_and_dispatch_one(
         }
 
     target_agent = request.get("target_agent", "")
+    from aria_kernel.agent_runtime_profile import read_agent_runtime_profile
+    selected_model = read_agent_runtime_profile(target_agent, repo_root=repo_root).model
+    try:
+        preflight_claude_dispatch(model=selected_model)
+    except (
+        ClaudeAuthUnavailable, ClaudeCliUnavailable, ClaudePolicyViolation,
+        ProviderRedirectUnavailable,
+    ) as exc:
+        return {
+            "status": "dispatchers_unavailable",
+            "role": role,
+            "reason": f"claude_preflight_failed: {exc}",
+        }
     dispatch_proc = subprocess.run(
         ["python3", str(Path(__file__).resolve()), request_id, target_agent],
         capture_output=True,
@@ -2155,7 +2159,7 @@ def _record_mock_mode_audit(tools_dir: Path) -> None:
     )
 
 
-def _pre_claim_environment_gate(*, tools_dir: Path) -> str | None:
+def _pre_claim_environment_gate(*, tools_dir: Path, model: str) -> str | None:
     """Refuse to CLAIM a request the environment cannot host (FAZ 5b).
 
     The correct shape existed in the dead `--consume` loop: preflight the
@@ -2176,8 +2180,11 @@ def _pre_claim_environment_gate(*, tools_dir: Path) -> str | None:
     kind: str | None = None
     detail = ""
     try:
-        preflight_claude_auth()
-    except (ClaudeAuthUnavailable, ClaudeCliUnavailable, ClaudePolicyViolation) as exc:
+        preflight_claude_dispatch(model=model)
+    except (
+        ClaudeAuthUnavailable, ClaudeCliUnavailable, ClaudePolicyViolation,
+        ProviderRedirectUnavailable,
+    ) as exc:
         kind, detail = "claude_auth_unavailable", str(exc)
     if kind is None and _sandbox_backend is not None and _sandbox_backend() is None:
         kind, detail = "sandbox_unavailable", (
@@ -2306,7 +2313,9 @@ def main(argv: list[str] | None = None) -> int:
         # it deliberately: the claim already exists there (the planner made
         # it), so the request is already spent from the queue's perspective
         # and refusing here would strand a held lease instead of saving one.
-        gate_kind = _pre_claim_environment_gate(tools_dir=tools_dir)
+        from aria_kernel.agent_runtime_profile import read_agent_runtime_profile
+        selected_model = read_agent_runtime_profile(subagent_type, repo_root=repo).model
+        gate_kind = _pre_claim_environment_gate(tools_dir=tools_dir, model=selected_model)
         if gate_kind is not None:
             return 1
         # Step 1 — claim the request through the kernel CLI.

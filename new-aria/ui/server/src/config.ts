@@ -45,6 +45,8 @@ export interface ServerConfig {
    * policy decides them per action class (see gates.ts).
    */
   readonly allowActions: boolean;
+  /** Effective model mock mode, parsed once at startup for honest capability reporting. */
+  readonly claudeCliMock: boolean;
   readonly actionTimeoutMs: number;
   readonly version: string;
   /** Root of the per-case intake directories the console writes. */
@@ -117,6 +119,13 @@ function flag(env: NodeJS.ProcessEnv, name: string): boolean {
   return raw === '1' || raw === 'true';
 }
 
+function strictFlag(env: NodeJS.ProcessEnv, name: string): boolean {
+  const value = env[name]?.trim().toLowerCase() ?? '';
+  if (['1', 'true', 'on', 'yes'].includes(value)) return true;
+  if (['', '0', 'false', 'off', 'no'].includes(value)) return false;
+  throw new ConfigError(name, 'must be one of 1, true, on, yes, 0, false, off or no');
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   const principalsRaw = env['ARIA_UI_PRINCIPALS_FILE'];
   const principalsFile = principalsRaw !== undefined && principalsRaw.trim() !== '' ? resolve(principalsRaw.trim()) : null;
@@ -153,6 +162,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     kernelBin: env['ARIA_KERNEL_BIN']?.trim() || '/opt/new-aria/bin/aria',
     staticDir: resolve(env['ARIA_UI_STATIC_DIR']?.trim() || resolve(UI_ROOT, 'web', 'dist')),
     allowActions: effectiveAllowActions(flag(env, 'ARIA_UI_ALLOW_ACTIONS'), instancePolicy),
+    claudeCliMock: strictFlag(env, 'CLAUDE_CLI_MOCK'),
     actionTimeoutMs: integer(env, 'ARIA_UI_ACTION_TIMEOUT_MS', 600_000, 1_000, 86_400_000),
     version: readVersion(),
     // The corpus mount is read-only in a legal deployment, so intake writes to

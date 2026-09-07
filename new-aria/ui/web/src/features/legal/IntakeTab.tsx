@@ -123,6 +123,7 @@ export function IntakeTab(): ReactNode {
   // The kernel's own word on whether it will run the inventory tool; the button
   // is disabled with that word rather than failing after the click.
   const adapter = health.state.status === 'success' ? health.state.data.legal : null;
+  const legalAnalysis = health.state.status === 'success' ? health.state.data.legalAnalysis : null;
   const { state, reload } = useRequest((signal) => getLegalIntake(caseId, signal), [caseId]);
   const [reports, setReports] = useState<ReadonlyArray<UploadReport>>([]);
   const [busy, setBusy] = useState(false);
@@ -235,6 +236,15 @@ export function IntakeTab(): ReactNode {
         and hashes every file again; a digest that disagrees with its receipt is a finding, not a
         silent correction.
       </Callout>
+
+      {legalAnalysis === null ? null : (
+        <Callout tone="warning" title="AI case analysis unavailable">
+          {legalAnalysis.reason === 'mock_mode'
+            ? 'AI analysis is unavailable in this demonstration setup.'
+            : 'AI case analysis is not connected yet.'}{' '}
+          Documents can still be uploaded and inventoried.
+        </Callout>
+      )}
 
       {health.can('case_intake') ? (
         <Card

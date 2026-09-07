@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Outlet, Route, Routes } from 'react-router-dom';
-import type { JobResponse } from '../../../../shared/api-contract.ts';
+import type { HealthResponse, JobResponse } from '../../../../shared/api-contract.ts';
 import type {
   LegalCaseDetailResponse,
   LegalIntakeResponse,
@@ -9,12 +9,17 @@ import type {
 import { setToken } from '../../api/token-store.ts';
 import { IntakeTab } from './IntakeTab.tsx';
 
+const healthState = vi.hoisted(() => ({
+  legalAnalysis: { state: 'unavailable', reason: 'not_connected' } as HealthResponse['legalAnalysis'],
+}));
+
 vi.mock('../../app/HealthProvider.tsx', () => ({
   useHealth: () => ({
     state: {
       status: 'success',
       data: {
         legal: { toolId: 'legal-document-inventory', adapter: 'registered', detail: null },
+        legalAnalysis: healthState.legalAnalysis,
       },
     },
     can: (actionClass: string) =>
@@ -74,6 +79,34 @@ afterEach(() => {
 });
 
 describe('IntakeTab inventory tracking', () => {
+  it.each([
+    ['mock_mode', 'AI analysis is unavailable in this demonstration setup.'],
+    ['not_connected', 'AI case analysis is not connected yet.'],
+  ] as const)('explains %s analysis unavailability while keeping intake and inventory available', async (reason, message) => {
+    healthState.legalAnalysis = { state: 'unavailable', reason };
+    setToken('test-token');
+    vi.stubGlobal('fetch', async (): Promise<Response> => Response.json(INTAKE));
+
+    render(
+      <MemoryRouter initialEntries={['/legal/cases/case-pending/intake']}>
+        <Routes>
+          <Route element={<Outlet context={{ caseId: 'case-pending', detail: DETAIL, reloadCase: vi.fn() }} />}>
+            <Route path="/legal/cases/:caseId/intake" element={<IntakeTab />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    const analysisCallout = (await screen.findByText('AI case analysis unavailable')).parentElement;
+    expect(analysisCallout?.textContent).toContain(message);
+    expect(analysisCallout?.textContent).toContain('Documents can still be uploaded and inventoried.');
+    expect(screen.getByLabelText('Documents to add to this case')).toBeDefined();
+    expect(screen.getByRole('button', { name: 'Choose files' }).hasAttribute('disabled')).toBe(false);
+    expect(screen.getByRole('button', { name: 'Run inventory' }).hasAttribute('disabled')).toBe(false);
+    expect(document.body.textContent).not.toContain(reason);
+    expect(document.body.textContent).not.toContain('CLAUDE_CLI_MOCK');
+  });
+
   it('polls the accepted job to success, refreshes the case, and exposes no process streams', async () => {
     setToken('test-token');
     const reloadCase = vi.fn();

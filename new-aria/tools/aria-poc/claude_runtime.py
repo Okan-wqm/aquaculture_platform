@@ -412,16 +412,16 @@ def _assert_budget_before_spawn() -> None:
     assert_within_budget(tools_dir, estimated_run_usd=estimate)
 
 
-def preflight_claude_auth(*, timeout_seconds: int = 20) -> dict[str, Any]:
-    """Verify the Claude Code CLI is present and managed-auth is usable
-    without spending tokens.
+def preflight_claude_auth(
+    *, timeout_seconds: int = 20, model: str | None = None,
+) -> dict[str, Any]:
+    """Verify local managed-auth readiness without making a provider request.
 
-    The Claude Code CLI does not expose a token-free ``login status --json``
-    probe, so the preflight is: (1) policy-environment check (no API-key /
-    proxy billing leak), (2) ``claude --version`` must succeed, (3) a
-    managed-auth credential surface must exist on the runner (the logged-in
-    session file). If the credential surface is absent, real mode fails
-    closed. Local tests may set ``ARIA_CLAUDE_AUTH_PREFLIGHT_SKIP=1``.
+    The preflight checks the billing-policy environment, CLI version, and the
+    structured output of ``claude auth status``. A successful result proves
+    only that the local CLI reports an approved managed credential shape; it
+    does not prove that a provider or requested model will accept a live turn.
+    Local dry runs may set ``ARIA_CLAUDE_AUTH_PREFLIGHT_SKIP=1``.
     """
     assert_claude_policy_environment()
     binary = claude_binary()
@@ -444,40 +444,58 @@ def preflight_claude_auth(*, timeout_seconds: int = 20) -> dict[str, Any]:
         )
     version = version_proc.stdout.strip() or version_proc.stderr.strip()
 
+    redirect = PROVIDER_REDIRECTS.get(str(model or ""))
+    if redirect is not None:
+        provider_redirect_env(model)
+        return {"status": "route_configured", "provider": redirect["provider"], "version": version}
+
     if _parse_bool(
         os.environ.get(AUTH_PREFLIGHT_SKIP_ENV_VAR, "0"),
         env_name=AUTH_PREFLIGHT_SKIP_ENV_VAR,
     ):
         return {"status": "skipped_by_env", "version": version}
 
-    if not _managed_auth_present():
-        raise ClaudeAuthUnavailable(
-            "claude_managed_auth_absent: no logged-in Claude Code session found; "
-            "run `claude` login on the runner or set "
-            "ARIA_CLAUDE_AUTH_PREFLIGHT_SKIP=1 for a dry-run"
+    try:
+        auth_proc = subprocess.run(
+            [binary, "auth", "status"],
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+            check=False,
         )
+    except subprocess.TimeoutExpired:
+        raise ClaudeAuthUnavailable("claude_auth_status_timeout") from None
+    except UnicodeDecodeError:
+        raise ClaudeAuthUnavailable("claude_auth_status_invalid_encoding") from None
+    except OSError:
+        raise ClaudeAuthUnavailable("claude_auth_status_execution_failed") from None
+    if auth_proc.returncode != 0:
+        raise ClaudeAuthUnavailable(
+            f"claude_auth_status_failed: exit {auth_proc.returncode}"
+        )
+    try:
+        auth_status = json.loads(auth_proc.stdout)
+    except (json.JSONDecodeError, TypeError):
+        raise ClaudeAuthUnavailable("claude_auth_status_malformed") from None
+    if not isinstance(auth_status, dict):
+        raise ClaudeAuthUnavailable("claude_auth_status_not_object")
+    if (
+        auth_status.get("loggedIn") is not True
+        or auth_status.get("authMethod") != "claude.ai"
+        or auth_status.get("apiProvider") != "firstParty"
+    ):
+        raise ClaudeAuthUnavailable("claude_managed_auth_unavailable")
     return {"status": "ok", "version": version}
 
 
-def _managed_auth_present() -> bool:
-    """True when a logged-in Claude Code session credential surface exists.
-
-    Claude Code persists the managed session under ``$CLAUDE_CONFIG_DIR``
-    (default ``~/.claude``). We probe for the credentials file or the
-    config dir's auth record rather than invoking a billable turn.
-    """
-    config_dir = os.environ.get("CLAUDE_CONFIG_DIR")
-    candidates = []
-    if config_dir:
-        candidates.append(Path(config_dir))
-    home = Path(os.path.expanduser("~"))
-    candidates.append(home / ".claude")
-    for base in candidates:
-        if (base / ".credentials.json").is_file():
-            return True
-        if (base / "config.json").is_file():
-            return True
-    return False
+def preflight_claude_dispatch(*, model: str, timeout_seconds: int = 20) -> dict[str, Any]:
+    try:
+        return preflight_claude_auth(timeout_seconds=timeout_seconds, model=model)
+    except ClaudeAuthUnavailable:
+        fallback = _cross_provider_auth_fallback(model)
+        if fallback is None:
+            raise
+        return preflight_claude_auth(timeout_seconds=timeout_seconds, model=fallback)
 
 
 def build_claude_exec_argv(
@@ -1102,7 +1120,7 @@ def run_claude_exec(
     # Plan 032 Faz 032e — cancel polling + live progress observer.
     spawn_control: SpawnControl | None = None,
 ) -> ClaudeRunResult:
-    preflight_claude_auth()
+    preflight_claude_auth(model=model)
     assert_write_runner_ok(skip_permissions=skip_permissions, permission_mode=permission_mode)
     _assert_budget_before_spawn()
     timeout_seconds = _clamp_timeout_to_job_deadline(timeout_seconds)
@@ -1487,7 +1505,12 @@ def run_with_model_fallback(
     stderr). Hooks never alter control flow, and on_credit fires BEFORE a raise
     so an unrecoverable exhaustion is still recorded.
     """
-    completed = run(model, effort)
+    try:
+        completed = run(model, effort)
+    except ClaudeAuthUnavailable:
+        return _run_cross_provider_auth_retry(
+            run=run, model=model, effort=effort, initial_failure=None,
+        )
     # Checked FIRST and never retried: a different tier authenticates through
     # the same credential, so the ladder would burn a second attempt to learn
     # the same thing, and then report the second failure as if it were the
@@ -1501,20 +1524,9 @@ def run_with_model_fallback(
         # is the failure terminal. This is what lets the lane keep working
         # with real providers while one subscription is absent; there is no
         # mock verdict anywhere on this path.
-        cross = _cross_provider_auth_fallback(model)
-        if cross is not None:
-            retried = run(cross, effort)
-            if retried.auth_failure is None:
-                return retried
-            raise ClaudeAuthFailure(
-                f"claude_auth_failure: {completed.auth_failure.get('marker')} on "
-                f"{model!r}, and the cross-provider rung {cross!r} failed auth "
-                f"too ({retried.auth_failure.get('marker')}) — both providers "
-                f"are unavailable; remedy: {completed.auth_failure.get('remedy')}"
-            )
-        raise ClaudeAuthFailure(
-            f"claude_auth_failure: {completed.auth_failure.get('marker')} — "
-            f"{completed.auth_failure.get('remedy')}"
+        return _run_cross_provider_auth_retry(
+            run=run, model=model, effort=effort,
+            initial_failure=completed.auth_failure,
         )
     fallback_model = MODEL_FALLBACK_TIER.get(model)
     if fallback_model is None:
@@ -1539,6 +1551,29 @@ def run_with_model_fallback(
             on_refusal(completed.refusal)
         return _reject_exhausted(run(fallback_model, effort), fallback_model)
     return completed
+
+
+def _run_cross_provider_auth_retry(
+    *, run: Callable[[str, str], ClaudeRunResult], model: str, effort: str,
+    initial_failure: dict[str, Any] | None,
+) -> ClaudeRunResult:
+    cross = _cross_provider_auth_fallback(model)
+    if cross is None:
+        if initial_failure is None:
+            raise ClaudeAuthUnavailable("claude_auth_unavailable_no_cross_provider_route")
+        raise ClaudeAuthFailure(
+            f"claude_auth_failure: {initial_failure.get('marker')} — "
+            f"{initial_failure.get('remedy')}"
+        )
+    retried = run(cross, effort)
+    if retried.auth_failure is None:
+        return retried
+    origin = initial_failure.get("marker") if initial_failure is not None else "local_auth_unavailable"
+    raise ClaudeAuthFailure(
+        f"claude_auth_failure: {origin} on {model!r}, and the cross-provider "
+        f"rung {cross!r} failed auth too ({retried.auth_failure.get('marker')}); "
+        "both providers are unavailable"
+    )
 
 
 def _reject_exhausted(result: ClaudeRunResult, model: str) -> ClaudeRunResult:

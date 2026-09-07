@@ -21,7 +21,7 @@ import type { HealthResponse, JobResponse, WhoAmIResponse } from '../../shared/a
 import type { LegalCaseCreatedResponse, LegalCasesResponse, LegalIntakeResponse, LegalUploadResponse } from '../../shared/legal-contract.ts';
 import { accessCanonical, ACCESS_LEDGER } from '../src/access-log.ts';
 import type { AccessRecord } from '../src/access-log.ts';
-import { loadConfig } from '../src/config.ts';
+import { ConfigError, loadConfig } from '../src/config.ts';
 import { createConsoleServer, prepareLegalReadiness } from '../src/index.ts';
 import { acquireInstallationLock, installationStoragePaths } from '../src/installation-lock.ts';
 import { readHead, verifyLedger } from '../src/ledger.ts';
@@ -49,7 +49,7 @@ interface Harness {
  * a kernel stand-in that records its argv and exits 0, and a principals file
  * seeded with the operator plus one lawyer assigned to sak-24-001.
  */
-async function harness(registryStatus: string | null, allowActions = false, bodyStarted?: () => void): Promise<Harness> {
+async function harness(registryStatus: string | null, allowActions = false, bodyStarted?: () => void, claudeCliMock?: string): Promise<Harness> {
   const workspace = mkdtempSync(join(tmpdir(), 'aria-routes-ws-'));
   mkdirSync(join(workspace, 'packs', 'legal', 'adapters'), { recursive: true });
   writeFileSync(join(workspace, LEGAL_ADAPTER_MANIFEST), '{"tool_id":"legal-document-inventory"}');
@@ -74,6 +74,7 @@ async function harness(registryStatus: string | null, allowActions = false, body
     ARIA_UI_ALLOW_ACTIONS: allowActions ? '1' : '0',
     ARIA_UI_HOST: '127.0.0.1',
     ARIA_UI_PORT: '8480',
+    CLAUDE_CLI_MOCK: claudeCliMock,
     ARIA_UI_LEDGER_KEY_FILE: join(workspace, 'keys', 'ledger-ed25519.pem'),
     ARIA_UI_PRINCIPALS_FILE: principalsFile,
   });
@@ -109,6 +110,40 @@ async function harness(registryStatus: string | null, allowActions = false, body
     close: () => new Promise<void>((resolveClose) => server.close(() => { lease.close(); resolveClose(); })),
   };
 }
+
+test('health distinguishes registered inventory from unavailable model analysis using the startup mock setting', async () => {
+  for (const [configured, reason] of [
+    ['  TrUe  ', 'mock_mode'],
+    ['1', 'mock_mode'],
+    ['ON', 'mock_mode'],
+    ['yes', 'mock_mode'],
+    [' FaLsE ', 'not_connected'],
+    ['0', 'not_connected'],
+    ['off', 'not_connected'],
+    ['NO', 'not_connected'],
+    ['', 'not_connected'],
+  ] as const) {
+    const h = await harness('SHADOW', false, undefined, configured);
+    try {
+      const health = (await call(h.base, OPERATOR_TOKEN, 'GET', '/api/v1/health')).body;
+      assert.deepEqual(health['legal'], {
+        toolId: 'legal-document-inventory',
+        adapter: 'registered',
+        detail: null,
+      });
+      assert.deepEqual(health['legalAnalysis'], { state: 'unavailable', reason });
+    } finally {
+      await h.close();
+    }
+  }
+});
+
+test('startup rejects malformed CLAUDE_CLI_MOCK instead of guessing analysis availability', () => {
+  assert.throws(
+    () => loadConfig({ ARIA_UI_TOKEN: OPERATOR_TOKEN, ARIA_TOOLS_DIR: '/tmp/tools', CLAUDE_CLI_MOCK: 'sometimes' }),
+    (error: unknown) => error instanceof ConfigError && error.variable === 'CLAUDE_CLI_MOCK',
+  );
+});
 
 async function call(base: string, token: string, method: string, path: string, body?: unknown, headers: Record<string, string> = {}): Promise<{ status: number; body: Record<string, unknown> }> {
   const init: RequestInit = { method, headers: { authorization: `Bearer ${token}`, ...headers } };

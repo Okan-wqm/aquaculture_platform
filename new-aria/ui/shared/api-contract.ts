@@ -191,6 +191,11 @@ export interface HealthResponse {
   readonly actionsEnabled: boolean;
   /** The legal pack's adapter, as the kernel registry reports it right now. */
   readonly legal: PackReadiness;
+  /** Model-backed legal analysis is unavailable until an approved live integration provides runtime evidence. */
+  readonly legalAnalysis: {
+    readonly state: 'unavailable';
+    readonly reason: 'mock_mode' | 'not_connected';
+  };
   /**
    * The key this console signs its custody ledgers with. The public half is
    * published here so a client can verify a receipt without trusting the

@@ -7,7 +7,10 @@ on:
       - 'new-aria/arias/legal/**'
       - 'new-aria/packs/legal/**'
       - 'new-aria/scripts/ci/aria-adapters-test.sh'
+      - 'new-aria/scripts/ci/aria-suite-run.sh'
       - 'new-aria/tools/aria-adapters/**'
+      - 'new-aria/tools/aria-poc/**'
+      - 'new-aria/aria-kernel/**'
       - 'new-aria/ui/**'
       - 'new-aria/package.json'
       - 'new-aria/Dockerfile'
@@ -23,7 +26,10 @@ on:
       - 'new-aria/arias/legal/**'
       - 'new-aria/packs/legal/**'
       - 'new-aria/scripts/ci/aria-adapters-test.sh'
+      - 'new-aria/scripts/ci/aria-suite-run.sh'
       - 'new-aria/tools/aria-adapters/**'
+      - 'new-aria/tools/aria-poc/**'
+      - 'new-aria/aria-kernel/**'
       - 'new-aria/ui/**'
       - 'new-aria/package.json'
       - 'new-aria/Dockerfile'
@@ -78,6 +84,17 @@ jobs:
           sudo apparmor_parser --skip-kernel-load --skip-cache new-aria/arias/legal/docker/apparmor.profile
           python3 -m json.tool new-aria/arias/legal/docker/seccomp.json > /dev/null
           sudo apparmor_parser --add new-aria/arias/legal/docker/apparmor.profile
+      - name: Run P0-A runtime regression tests
+        working-directory: new-aria
+        run: |
+          PATH=/opt/venv/bin:$PATH bash scripts/ci/aria-suite-run.sh \
+            aria-kernel/tests/test_claude_auth*.py \
+            aria-kernel/tests/test_claude_runtime_contract.py \
+            aria-kernel/tests/test_provider_redirect.py \
+            aria-kernel/tests/test_credit_fallback.py \
+            aria-kernel/tests/test_environment_contract.py \
+            aria-kernel/tests/test_ci_executor*.py \
+            aria-kernel/tests/test_auth_consumer_routes.py
       - name: Check the complete legal surface
         working-directory: new-aria
         run: aa-exec --profile=aria-legal -- npm run legal:check

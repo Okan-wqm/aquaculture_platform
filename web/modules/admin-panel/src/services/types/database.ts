@@ -33,23 +33,6 @@ export interface SchemaMigration {
   createdAt: string;
 }
 
-export interface DatabaseBackup {
-  id: string;
-  type: 'full' | 'incremental' | 'schema_only' | 'data_only';
-  status: 'pending' | 'running' | 'completed' | 'failed';
-  tenantId?: string;
-  schemaName?: string;
-  sizeBytes?: number;
-  location: string;
-  compressionType?: string;
-  encryptionKey?: string;
-  startedAt: string;
-  completedAt?: string;
-  expiresAt?: string;
-  error?: string;
-  createdBy: string;
-}
-
 export interface DatabaseStats {
   totalSize: string;
   tableCount: number;

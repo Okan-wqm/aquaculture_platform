@@ -512,18 +512,6 @@ const KNOWN_EXCEPTIONS: Array<{ url: string; method: string; reason: string }> =
     reason: 'Frontend list pending, backend /database/migrations/tenant/:tenantId/pending',
   },
 
-  // Database backup frontend expects different paths
-  {
-    url: '/database/backups/schedule',
-    method: 'POST',
-    reason: 'Backup scheduling not in controller (uses /database/backups/schedule GET)',
-  },
-  {
-    url: '/database/backups/:param/restore',
-    method: 'POST',
-    reason: 'Frontend uses /backups/:id/restore, backend uses /database/backups/restore POST',
-  },
-
   // Security activities export - frontend uses GET with query, backend uses POST
   {
     url: '/security/activities/export',
@@ -1001,7 +989,9 @@ describe('Frontend-Backend Contract Validation', () => {
     // `{ terminated: 0 }` while every real session stayed live. Session state
     // is auth-service's, reachable at GET /users/:id/sessions and
     // PATCH /users/:id/force-logout (ADMIN-HIGH-100).
-    expect(count).toBe(601);
+    // 590: -11 for the /database/backups surface, deleted with the pg_dump
+    // backup subsystem WAL-G already replaced (INFRA-CRITICAL-164).
+    expect(count).toBe(590);
   });
 
   it('frontend endpoint snapshot should be up to date', () => {

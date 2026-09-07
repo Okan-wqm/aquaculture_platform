@@ -18,7 +18,7 @@ import { getDataSourceToken, getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource, QueryRunner, Repository } from 'typeorm';
 
 import { TenantSchema } from '../../database-management/entities/database-management.entity';
-import { BackupRestoreService } from '../../database-management/services/backup-restore.service';
+import { WalgRecoveryPointService } from '../../database-management/services/recovery-point.service';
 import { TenantConfigurationService } from '../../settings/services/tenant-configuration.service';
 import { Tenant, TenantStatus, TenantTier, TenantPlan } from '../entities/tenant.entity';
 import { AuthTenantProvisioningClientService } from '../services/auth-tenant-provisioning-client.service';
@@ -133,6 +133,7 @@ const mockTenantClaimQuery = (sql: string): Promise<unknown[]> => {
 
 describe('TenantProvisioningService', () => {
   let service: TenantProvisioningService;
+  let createTenantSchemaSpy: jest.SpyInstance;
   let tenantRepository: jest.Mocked<Repository<Tenant>>;
   let tenantSchemaRepository: jest.Mocked<Repository<TenantSchema>>;
   let dataSource: jest.Mocked<DataSource>;
@@ -208,13 +209,13 @@ describe('TenantProvisioningService', () => {
       }),
     };
 
-    const mockBackupRestoreService = {
-      createBackup: jest.fn().mockResolvedValue({
-        id: 'backup-id',
-        status: 'completed',
-        checksum: 'a'.repeat(64),
-        sizeBytes: 1024,
-        isEncrypted: true,
+    const mockRecoveryPointService = {
+      capture: jest.fn().mockResolvedValue({
+        authority: 'wal-g',
+        backupEpoch: 'epoch-20260716-001',
+        walLsn: '0/1A2B3C4D',
+        database: 'aquaculture',
+        capturedAt: '2026-09-05T12:00:00.000Z',
       }),
     };
 
@@ -246,8 +247,8 @@ describe('TenantProvisioningService', () => {
           useValue: mockAuthProvisioningClient,
         },
         {
-          provide: BackupRestoreService,
-          useValue: mockBackupRestoreService,
+          provide: WalgRecoveryPointService,
+          useValue: mockRecoveryPointService,
         },
         {
           provide: LegalHoldService,
@@ -262,9 +263,15 @@ describe('TenantProvisioningService', () => {
     dataSource = module.get(getDataSourceToken());
     authProvisioningClient = module.get(AuthTenantProvisioningClientService);
     tenantConfigurationService = module.get(TenantConfigurationService);
-    (service as unknown as {
-      createTenantSchema: jest.Mock;
-    }).createTenantSchema = jest.fn().mockResolvedValue(undefined);
+    // Schema DDL is db-migrate's; the orchestrator's private step is stubbed
+    // on the prototype so no test path reaches the schema manager.
+    createTenantSchemaSpy = jest
+      .spyOn(Object.getPrototypeOf(service), 'createTenantSchema')
+      .mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    createTenantSchemaSpy.mockRestore();
   });
 
   afterEach(() => {
@@ -519,9 +526,7 @@ describe('TenantProvisioningService', () => {
       // Arrange
       const tenant = createMockTenant({ status: TenantStatus.PENDING });
       tenantRepository.findOne.mockResolvedValue(tenant);
-      (service as unknown as {
-        createTenantSchema: jest.Mock;
-      }).createTenantSchema.mockRejectedValue(new Error('Database error'));
+      createTenantSchemaSpy.mockRejectedValue(new Error('Database error'));
 
       // Act
       const result = await service.provisionTenant(tenant.id, { skipSchemaCreation: false });
@@ -543,9 +548,11 @@ describe('TenantProvisioningService', () => {
       // Arrange
       const tenant = createMockTenant({ status: TenantStatus.PENDING });
       tenantRepository.findOne.mockResolvedValue(tenant);
-      tenantConfigurationService.requestDefaultConfigurationProvisioning.mockImplementationOnce(() => {
-        throw new Error('Config handoff error');
-      });
+      tenantConfigurationService.requestDefaultConfigurationProvisioning.mockImplementationOnce(
+        () => {
+          throw new Error('Config handoff error');
+        },
+      );
 
       // Act
       const result = await service.provisionTenant(tenant.id);
@@ -656,7 +663,7 @@ describe('TenantProvisioningService', () => {
       expect(result.success).toBe(true);
     });
 
-    it('deprovisioning sırasında backup alınır', async () => {
+    it("deprovisioning sırasında WAL-G recovery point yakalanır ve ledger'a yazılır (ADR-0009)", async () => {
       // Arrange
       const tenant = createMockTenant({ status: TenantStatus.DEACTIVATED });
       tenantRepository.findOne.mockResolvedValue(tenant);
@@ -671,8 +678,30 @@ describe('TenantProvisioningService', () => {
       const result = await service.deprovisionTenant(tenant.id);
 
       // Assert
-      const backupStep = result.steps.find((s) => s.name === 'backup_data');
-      expect(backupStep?.status).toBe('completed');
+      const step = result.steps.find((s) => s.name === 'capture_recovery_point');
+      expect(step?.status).toBe('completed');
+      const ledgerWrite = (dataSource.query as jest.Mock).mock.calls.find(
+        (call: unknown[]) =>
+          typeof call[0] === 'string' && call[0].includes('"recoveryPointEpoch"'),
+      );
+      expect(ledgerWrite).toBeDefined();
+      expect(ledgerWrite?.[1]).toEqual(
+        expect.arrayContaining(['epoch-20260716-001', '0/1A2B3C4D', '2026-09-05T12:00:00.000Z']),
+      );
+      const deletionRequest = (dataSource.query as jest.Mock).mock.calls.find(
+        (call: unknown[]) =>
+          typeof call[0] === 'string' &&
+          call[0].includes('platform.request_tenant_schema_deletion'),
+      );
+      expect(deletionRequest).toBeDefined();
+      const payload = JSON.parse(String(deletionRequest?.[1]?.[3])) as {
+        cleanupProof: { recoveryPoint: { authority: string; walLsn: string }; backup?: unknown };
+      };
+      expect(payload.cleanupProof.recoveryPoint).toMatchObject({
+        authority: 'wal-g',
+        walLsn: '0/1A2B3C4D',
+      });
+      expect(payload.cleanupProof.backup).toBeUndefined();
     });
 
     it('deprovisioning sırasında schema temizlenir', async () => {
@@ -779,7 +808,7 @@ describe('TenantProvisioningService', () => {
   // ===========================================================================
 
   describe('Module Assignment', () => {
-    it('modüller tenant\'a atanır', async () => {
+    it("modüller tenant'a atanır", async () => {
       // Arrange
       const tenant = createMockTenant({ status: TenantStatus.PENDING });
       tenantRepository.findOne.mockResolvedValue(tenant);
@@ -797,7 +826,7 @@ describe('TenantProvisioningService', () => {
       expect(modulesStep?.status).toBe('completed');
     });
 
-    it('modül ataması hatası provisioning\'i durdurur', async () => {
+    it("modül ataması hatası provisioning'i durdurur", async () => {
       // Arrange
       const tenant = createMockTenant({ status: TenantStatus.PENDING });
       tenantRepository.findOne.mockResolvedValue(tenant);
@@ -816,7 +845,7 @@ describe('TenantProvisioningService', () => {
       expect(result.error).toContain('Could not assign modules');
     });
 
-    it('boş modül listesi ile assign_modules step\'i oluşmaz', async () => {
+    it("boş modül listesi ile assign_modules step'i oluşmaz", async () => {
       // Arrange
       const tenant = createMockTenant({ status: TenantStatus.PENDING });
       tenantRepository.findOne.mockResolvedValue(tenant);
@@ -841,15 +870,22 @@ describe('TenantProvisioningService', () => {
   describe('Concurrent İşlemler', () => {
     it('aynı anda birden fazla tenant provision edilebilir', async () => {
       // Arrange
-      const tenant1 = createMockTenant({ id: '00000000-0000-4000-8000-000000000001', status: TenantStatus.PENDING });
-      const tenant2 = createMockTenant({ id: '00000000-0000-4000-8000-000000000002', status: TenantStatus.PENDING });
+      const tenant1 = createMockTenant({
+        id: '00000000-0000-4000-8000-000000000001',
+        status: TenantStatus.PENDING,
+      });
+      const tenant2 = createMockTenant({
+        id: '00000000-0000-4000-8000-000000000002',
+        status: TenantStatus.PENDING,
+      });
 
       tenantRepository.findOne
         .mockResolvedValue(tenant1)
         .mockResolvedValueOnce(tenant1)
         .mockResolvedValueOnce(tenant2);
-      tenantRepository.save
-        .mockResolvedValue({ ...tenant1, status: TenantStatus.ACTIVE } as any);
+      tenantRepository.save.mockResolvedValue(
+        createMockTenant({ ...tenant1, status: TenantStatus.ACTIVE }),
+      );
 
       // Act
       const [result1, result2] = await Promise.all([

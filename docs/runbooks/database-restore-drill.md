@@ -544,9 +544,10 @@ exercised is not a backup — it's optimism. Closes
 - Once per calendar quarter.
 - After any change that touches `tools/scripts/database/backup-databases.sh`,
   `tools/scripts/database/restore-databases.sh`,
-  `tools/scripts/database/database-verification.sql`, the `pg_dump`/`pg_restore`
-  flags in `apps/admin-api-service/src/database-management/services/backup-restore.service.ts`,
-  or the schema ownership model.
+  `tools/scripts/database/database-verification.sql`, the WAL-G scripts under
+  `tools/scripts/database/`, or the schema ownership model. (admin-api has no
+  backup executor of its own since ADR-0009; it only records the WAL-G
+  recovery point a tenant schema drop must carry.)
 - Before any planned PostgreSQL major-version upgrade.
 
 **Owner:** infra on-call. Runs during a business-hours window; nothing touches

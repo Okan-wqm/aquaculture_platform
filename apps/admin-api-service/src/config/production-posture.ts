@@ -28,8 +28,12 @@ export const ADMIN_API_PRODUCTION_POSTURE = Object.freeze({
     'ENABLE_DB_EXPLORER_WRITES',
     'ENABLE_RAW_SQL_EXPLORER',
   ] as const),
-  /** Variables a public, nginx-fronted service cannot run without. */
-  required: Object.freeze(['TRUST_PROXY'] as const),
+  /**
+   * Variables the service cannot run without: TRUST_PROXY because it is a
+   * public, nginx-fronted service; WALG_BACKUP_EPOCH because a tenant schema
+   * drop must name the WAL-G archive that can restore it (ADR-0009).
+   */
+  required: Object.freeze(['TRUST_PROXY', 'WALG_BACKUP_EPOCH'] as const),
 });
 
 export type ProductionPostureEnv = Readonly<Record<string, string | undefined>>;

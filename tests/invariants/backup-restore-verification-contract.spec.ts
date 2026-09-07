@@ -4,6 +4,7 @@ import {
   copyFileSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   symlinkSync,
@@ -422,5 +423,68 @@ describe('backup and isolated restore verification contract', () => {
     } finally {
       rmSync(fixture.root, { recursive: true, force: true });
     }
+  });
+});
+
+/**
+ * ADR-0009 — WAL-G is the SOLE backup and restore authority.
+ *
+ * admin-api carried a second one until 2026-09-05: an in-process pg_dump
+ * subsystem with three ledger tables, three crons and a restore executor that
+ * rejected unconditionally. Two authorities for one invariant meant the UI
+ * asserted a recovery capability the platform did not have. Nothing outside
+ * `tools/scripts/database/` (and the DR workflows that call it) may spawn
+ * `pg_dump`/`pg_restore` or schedule a backup job.
+ */
+describe('single backup authority (ADR-0009)', () => {
+  const SOURCE_ROOTS = ['apps', 'libs', 'platform/libs', 'scripts'];
+  const SPAWN_RE =
+    /\b(?:spawn|spawnSync|exec|execSync|execFile|execFileSync)\s*\([^)]*pg_(?:dump|restore)/;
+  const BACKUP_CRON_RE = /@(?:Cron|Interval|Timeout)\([^)]*\)\s*(?:async\s+)?\w*[Bb]ackup\w*\s*\(/;
+
+  function walkSources(dir: string, out: string[]): string[] {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (
+        entry.name === 'node_modules' ||
+        entry.name === '.archive' ||
+        entry.name === '__tests__' ||
+        entry.name === 'dist'
+      )
+        continue;
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) walkSources(full, out);
+      else if (/\.(?:ts|mjs|js)$/.test(entry.name) && !/\.(?:spec|test)\.ts$/.test(entry.name))
+        out.push(full);
+    }
+    return out;
+  }
+
+  it('no service, library or script outside tools/scripts/database spawns pg_dump or pg_restore', () => {
+    const offenders: string[] = [];
+    for (const root of SOURCE_ROOTS) {
+      for (const file of walkSources(join(REPO_ROOT, root), [])) {
+        if (SPAWN_RE.test(read(file))) offenders.push(file.slice(REPO_ROOT.length + 1));
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('no Nest service schedules a backup job', () => {
+    const offenders: string[] = [];
+    for (const file of walkSources(join(REPO_ROOT, 'apps'), [])) {
+      if (BACKUP_CRON_RE.test(read(file))) offenders.push(file.slice(REPO_ROOT.length + 1));
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('admin-api keeps no backup ledger of its own — the drop evidence is a WAL-G recovery point', () => {
+    const schemaManager = read(
+      join(REPO_ROOT, 'libs/backend-common/src/database/schema-manager.service.ts'),
+    );
+    for (const retired of ['schema_backups', 'schema_restores', 'retired_schema_backups']) {
+      expect(schemaManager).not.toMatch(new RegExp(`'${retired}'`));
+    }
+    expect(schemaManager).toContain("'retired_backup_ledger'");
+    expect(schemaManager).toContain("readonly authority: 'wal-g'");
   });
 });

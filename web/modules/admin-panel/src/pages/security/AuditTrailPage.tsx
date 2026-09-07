@@ -58,13 +58,11 @@ interface AuditEntry {
 
 interface RetentionPolicy {
   id: string;
-  name: string;
-  entityTypes: string[];
+  ownerTag: string;
+  table: string;
+  timestampColumn: string;
   retentionDays: number;
-  archiveBeforeDelete: boolean;
-  enabled: boolean;
-  createdAt: string;
-  updatedAt?: string;
+  legalHoldAware: boolean;
 }
 
 interface AlertRule {
@@ -142,12 +140,8 @@ async function fetchAuditSummary(): Promise<AuditStats> {
   const summary = await securityApi.getAuditSummary();
   return {
     totalEntries: summary.totalLogs,
-    byAction: Object.fromEntries(
-      summary.byAction.map((item) => [item.action, item.count]),
-    ),
-    bySeverity: Object.fromEntries(
-      summary.bySeverity.map((item) => [item.severity, item.count]),
-    ),
+    byAction: Object.fromEntries(summary.byAction.map((item) => [item.action, item.count])),
+    bySeverity: Object.fromEntries(summary.bySeverity.map((item) => [item.severity, item.count])),
     byEntityType: Object.fromEntries(
       summary.byEntityType.map((item) => [item.entityType, item.count]),
     ),
@@ -160,16 +154,13 @@ async function fetchAuditSummary(): Promise<AuditStats> {
 
 async function fetchRetentionPolicies(): Promise<RetentionPolicy[]> {
   const policies = await securityApi.getRetentionPolicies();
-  // Map API response to local RetentionPolicy type
   return policies.map((policy) => ({
     id: policy.id,
-    name: policy.name,
-    entityTypes: [policy.category ?? policy.entityType ?? 'activity'],
+    ownerTag: policy.ownerTag,
+    table: `${policy.schema}.${policy.tableName}`,
+    timestampColumn: policy.timestampColumn,
     retentionDays: policy.retentionDays,
-    archiveBeforeDelete: policy.archiveAfterDays !== undefined,
-    enabled: policy.isActive,
-    createdAt: policy.createdAt ?? '',
-    updatedAt: policy.updatedAt,
+    legalHoldAware: policy.legalHoldAware,
   }));
 }
 
@@ -196,10 +187,7 @@ function buildAuditChanges(
     return undefined;
   }
 
-  const fields = new Set([
-    ...Object.keys(previousValue ?? {}),
-    ...Object.keys(newValue ?? {}),
-  ]);
+  const fields = new Set([...Object.keys(previousValue ?? {}), ...Object.keys(newValue ?? {})]);
 
   return Array.from(fields).map((field) => ({
     field,
@@ -311,13 +299,17 @@ const AuditDetailModal: React.FC<{
             </div>
             <div>
               <span className="text-sm font-medium text-gray-500">Action</span>
-              <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getActionColor(entry.action)}`}>
+              <span
+                className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getActionColor(entry.action)}`}
+              >
                 {entry.action}
               </span>
             </div>
             <div>
               <span className="text-sm font-medium text-gray-500">Severity</span>
-              <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(entry.severity)}`}>
+              <span
+                className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(entry.severity)}`}
+              >
                 {getSeverityIcon(entry.severity)}
                 {entry.severity}
               </span>
@@ -629,7 +621,9 @@ export const AuditTrailPage: React.FC = () => {
               </div>
               <div>
                 <p className="text-sm text-gray-500">Retention Policies</p>
-                <p className="text-2xl font-bold text-gray-900">{stats?.retentionPoliciesCount ?? 0}</p>
+                <p className="text-2xl font-bold text-gray-900">
+                  {stats?.retentionPoliciesCount ?? 0}
+                </p>
               </div>
             </div>
           </div>
@@ -752,11 +746,15 @@ export const AuditTrailPage: React.FC = () => {
                   entries.map((entry) => (
                     <tr key={entry.id} className="hover:bg-gray-50">
                       <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">{formatTimeAgo(entry.createdAt)}</div>
+                        <div className="text-sm text-gray-900">
+                          {formatTimeAgo(entry.createdAt)}
+                        </div>
                         <div className="text-xs text-gray-500">{formatDate(entry.createdAt)}</div>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
-                        <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getActionColor(entry.action)}`}>
+                        <span
+                          className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getActionColor(entry.action)}`}
+                        >
                           {entry.action}
                         </span>
                       </td>
@@ -769,13 +767,17 @@ export const AuditTrailPage: React.FC = () => {
                         <div className="text-xs text-gray-500">{entry.tenantName}</div>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
-                        <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(entry.severity)}`}>
+                        <span
+                          className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(entry.severity)}`}
+                        >
                           {getSeverityIcon(entry.severity)}
                           {entry.severity}
                         </span>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
-                        <span className="text-sm font-mono text-gray-600">{entry.ipAddress || '-'}</span>
+                        <span className="text-sm font-mono text-gray-600">
+                          {entry.ipAddress || '-'}
+                        </span>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap text-right">
                         <button
@@ -820,65 +822,63 @@ export const AuditTrailPage: React.FC = () => {
 
       {activeTab === 'retention' && (
         <div className="space-y-4">
-          <div className="flex justify-end">
-            <button className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700">
-              <Plus className="w-4 h-4" />
-              Add Policy
-            </button>
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-900">
+            Retention windows are compliance commitments declared in code and enforced by the
+            platform&apos;s single retention service. They are reviewed as code, not edited here.
           </div>
 
-          <div className="grid gap-4">
+          <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">
             {retentionPolicies.length === 0 ? (
-              <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-gray-500">
-                No retention policies configured
-              </div>
+              <div className="p-8 text-center text-gray-500">No retention policies registered</div>
             ) : (
-              retentionPolicies.map((policy) => (
-                <div key={policy.id} className="bg-white rounded-lg border border-gray-200 p-6">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <div className="flex items-center gap-3">
-                        <h3 className="text-lg font-semibold text-gray-900">{policy.name}</h3>
-                        <span
-                          className={`px-2 py-1 rounded-full text-xs font-medium ${
-                            policy.enabled ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-                          }`}
-                        >
-                          {policy.enabled ? 'Active' : 'Disabled'}
-                        </span>
-                      </div>
-                      <p className="text-sm text-gray-500 mt-1">
-                        Entity types: {policy.entityTypes.join(', ')}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button className="p-2 text-gray-500 hover:text-gray-600">
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                      <button className="p-2 text-gray-500 hover:text-red-600">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 grid grid-cols-3 gap-4 text-sm">
-                    <div>
-                      <span className="text-gray-500">Retention Period:</span>{' '}
-                      <span className="text-gray-900 font-medium">{policy.retentionDays} days</span>
-                    </div>
-                    <div>
-                      <span className="text-gray-500">Archive Before Delete:</span>{' '}
-                      <span className="text-gray-900 font-medium">
-                        {policy.archiveBeforeDelete ? 'Yes' : 'No'}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-gray-500">Created:</span>{' '}
-                      <span className="text-gray-900">{formatDate(policy.createdAt)}</span>
-                    </div>
-                  </div>
-                </div>
-              ))
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Policy
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Table
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Age column
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Window
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Owner
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                      Legal hold
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {retentionPolicies.map((policy) => (
+                    <tr key={policy.id}>
+                      <td className="px-6 py-3 text-sm font-medium text-gray-900">{policy.id}</td>
+                      <td className="px-6 py-3 text-sm text-gray-700 font-mono">{policy.table}</td>
+                      <td className="px-6 py-3 text-sm text-gray-700 font-mono">
+                        {policy.timestampColumn}
+                      </td>
+                      <td className="px-6 py-3 text-sm text-gray-900">
+                        {policy.retentionDays} days
+                      </td>
+                      <td className="px-6 py-3 text-sm text-gray-700">{policy.ownerTag}</td>
+                      <td className="px-6 py-3 text-sm">
+                        {policy.legalHoldAware ? (
+                          <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                            held rows preserved
+                          </span>
+                        ) : (
+                          <span className="text-gray-400">n/a</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             )}
           </div>
         </div>
@@ -907,12 +907,16 @@ export const AuditTrailPage: React.FC = () => {
                         <h3 className="text-lg font-semibold text-gray-900">{rule.name}</h3>
                         <span
                           className={`px-2 py-1 rounded-full text-xs font-medium ${
-                            rule.enabled ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                            rule.enabled
+                              ? 'bg-green-100 text-green-800'
+                              : 'bg-gray-100 text-gray-800'
                           }`}
                         >
                           {rule.enabled ? 'Active' : 'Disabled'}
                         </span>
-                        <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(rule.severity)}`}>
+                        <span
+                          className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(rule.severity)}`}
+                        >
                           {getSeverityIcon(rule.severity)}
                           {rule.severity}
                         </span>
@@ -958,10 +962,7 @@ export const AuditTrailPage: React.FC = () => {
 
       {/* Detail Modal */}
       {selectedEntry && (
-        <AuditDetailModal
-          entry={selectedEntry}
-          onClose={() => setSelectedEntry(null)}
-        />
+        <AuditDetailModal entry={selectedEntry} onClose={() => setSelectedEntry(null)} />
       )}
     </div>
   );

@@ -27,7 +27,6 @@ import {
   ThreatIntelligence,
   DataRequest,
   ComplianceReport,
-  RetentionPolicyEntity,
   LoginAttempt,
   ApiUsageLog,
 } from './entities/security.entity';
@@ -53,7 +52,6 @@ import { SecurityMonitoringService } from './services/security-monitoring.servic
       DataRequest,
       ComplianceReport,
       // Configuration
-      RetentionPolicyEntity,
     ]),
   ],
   controllers: [

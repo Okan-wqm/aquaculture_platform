@@ -991,7 +991,9 @@ describe('Frontend-Backend Contract Validation', () => {
     // PATCH /users/:id/force-logout (ADMIN-HIGH-100).
     // 590: -11 for the /database/backups surface, deleted with the pg_dump
     // backup subsystem WAL-G already replaced (INFRA-CRITICAL-164).
-    expect(count).toBe(590);
+    // 585: -5 for the runtime retention-policy CRUD, replaced by the
+    // registry's read-only view (DATA-CRITICAL-016).
+    expect(count).toBe(585);
   });
 
   it('frontend endpoint snapshot should be up to date', () => {

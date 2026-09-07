@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThan } from 'typeorm';
+import { Repository } from 'typeorm';
 
 import { CacheEntrySnapshot } from '../entities/debug-session.entity';
 
@@ -180,17 +179,5 @@ export class CacheInspectorService {
         size: stats.size,
       })),
     };
-  }
-
-  /**
-   * Cleanup old cache snapshot data
-   */
-  @Cron(CronExpression.EVERY_DAY_AT_5AM)
-  async cleanupOldData(): Promise<void> {
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - 7);
-
-    await this.cacheSnapshotRepo.delete({ capturedAt: LessThan(cutoff) });
-    this.logger.log('Cleaned up old cache snapshot data');
   }
 }

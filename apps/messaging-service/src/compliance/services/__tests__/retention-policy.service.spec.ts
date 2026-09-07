@@ -18,6 +18,8 @@ import {
   MockQueryRunner,
   TENANT_A,
 } from '../../../__tests__/test-helpers';
+import { ScheduledJobRunner } from '@aquaculture/backend-common/scheduling';
+import { createScheduledJobTestExecutor } from '@aquaculture/backend-common/scheduling/testing';
 
 describe('RetentionPolicyService', () => {
   let service: RetentionPolicyService;
@@ -69,6 +71,7 @@ describe('RetentionPolicyService', () => {
         { provide: LegalHoldService, useValue: legalHoldService },
         { provide: ComplianceAuditService, useValue: auditService },
         { provide: AttachmentObjectPurgeService, useValue: attachmentPurge },
+              { provide: ScheduledJobRunner, useValue: createScheduledJobTestExecutor().executor },
       ],
     }).compile();
 

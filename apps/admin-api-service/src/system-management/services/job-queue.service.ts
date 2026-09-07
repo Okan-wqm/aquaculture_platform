@@ -749,30 +749,6 @@ export class JobQueueService {
     return result.affected || 0;
   }
 
-  // ============================================================================
-  // Cleanup
-  // ============================================================================
-
-  @Cron(CronExpression.EVERY_DAY_AT_4AM)
-  async cleanupOldJobs(): Promise<void> {
-    // Clean up completed jobs older than 30 days
-    await this.purgeCompletedJobs(30);
-
-    // Clean up old execution logs
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - 30);
-
-    await this.logRepo.delete({ timestamp: LessThan(cutoff) });
-
-    // Clean up cancelled jobs older than 7 days
-    await this.jobRepo.delete({
-      status: JobStatus.CANCELLED,
-      updatedAt: LessThan(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)),
-    });
-
-    this.logger.log('Completed job cleanup');
-  }
-
   @Cron(CronExpression.EVERY_MINUTE)
   async processScheduledRecurringJobs(): Promise<void> {
     const now = new Date();

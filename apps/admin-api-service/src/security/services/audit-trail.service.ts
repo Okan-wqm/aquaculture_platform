@@ -1,24 +1,18 @@
 /**
  * Audit Trail Service
  *
- * Comprehensive audit trail management with filtering, export,
- * retention policies, and real-time alerts.
+ * Comprehensive audit trail management with filtering, export, retention
+ * statistics and real-time alerts. Retention itself is the platform's single
+ * registry-driven enforcer (ADR-0012); this service never disposes rows.
  */
 
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan, Between, In } from 'typeorm';
 import { safeSortField, safeSortOrder } from '@aquaculture/backend-common/pagination';
 import { safeRegex } from '@aquaculture/backend-common/security';
 
-import {
-  ActivityLog,
-  ActivityCategory,
-  ActivitySeverity,
-  RetentionPolicyEntity,
-  ComplianceType,
-} from '../entities/security.entity';
+import { ActivityLog, ActivityCategory, ActivitySeverity } from '../entities/security.entity';
 import {
   ACTIVITY_LOG_SORT_FIELDS,
   AUDIT_TRAIL_SORT_COLUMNS,
@@ -107,8 +101,6 @@ export class AuditTrailService {
   constructor(
     @InjectRepository(ActivityLog)
     private readonly activityRepository: Repository<ActivityLog>,
-    @InjectRepository(RetentionPolicyEntity)
-    private readonly retentionRepository: Repository<RetentionPolicyEntity>,
   ) {
     this.initializeDefaultAlertRules();
   }
@@ -671,90 +663,8 @@ export class AuditTrailService {
   }
 
   // ============================================================================
-  // Retention Policies
+  // Retention Statistics (disposal itself is the kernel RetentionEnforcementService)
   // ============================================================================
-
-  /**
-   * Get all retention policies
-   */
-  async getRetentionPolicies(): Promise<RetentionPolicyEntity[]> {
-    return this.retentionRepository.find({
-      order: { category: 'ASC' },
-    });
-  }
-
-  /**
-   * Get retention policy by ID
-   */
-  async getRetentionPolicy(id: string): Promise<RetentionPolicyEntity> {
-    const policy = await this.retentionRepository.findOne({ where: { id } });
-    if (!policy) {
-      throw new NotFoundException(`Retention policy not found: ${id}`);
-    }
-    return policy;
-  }
-
-  /**
-   * Create retention policy
-   */
-  async createRetentionPolicy(data: {
-    name: string;
-    category: ActivityCategory;
-    description?: string;
-    retentionDays: number;
-    archiveAfterDays?: number;
-    deleteAfterArchiveDays?: number;
-    isGlobal?: boolean;
-    specificTenants?: string[];
-    complianceFrameworks?: ComplianceType[];
-    createdBy: string;
-  }): Promise<RetentionPolicyEntity> {
-    const policy = this.retentionRepository.create({
-      name: data.name,
-      category: data.category,
-      description: data.description || null,
-      retentionDays: data.retentionDays,
-      archiveAfterDays: data.archiveAfterDays || null,
-      deleteAfterArchiveDays: data.deleteAfterArchiveDays || null,
-      isGlobal: data.isGlobal ?? true,
-      specificTenants: data.specificTenants || null,
-      complianceFrameworks: data.complianceFrameworks || null,
-      isActive: true,
-      createdBy: data.createdBy,
-    });
-
-    return this.retentionRepository.save(policy);
-  }
-
-  /**
-   * Update retention policy
-   */
-  async updateRetentionPolicy(
-    id: string,
-    data: Partial<{
-      name: string;
-      description: string;
-      retentionDays: number;
-      archiveAfterDays: number;
-      deleteAfterArchiveDays: number;
-      isGlobal: boolean;
-      specificTenants: string[];
-      complianceFrameworks: ComplianceType[];
-      isActive: boolean;
-    }>,
-    updatedBy: string,
-  ): Promise<RetentionPolicyEntity> {
-    const policy = await this.getRetentionPolicy(id);
-    Object.assign(policy, data, { updatedBy });
-    return this.retentionRepository.save(policy);
-  }
-
-  /**
-   * Delete retention policy
-   */
-  async deleteRetentionPolicy(id: string): Promise<void> {
-    await this.retentionRepository.delete({ id });
-  }
 
   /**
    * Get retention statistics
@@ -813,77 +723,6 @@ export class AuditTrailService {
       storageEstimateMB: Math.round(storageEstimateMB * 100) / 100,
       byCategory,
     };
-  }
-
-  /**
-   * Apply retention policies
-   */
-  @Cron(CronExpression.EVERY_DAY_AT_3AM)
-  async applyRetentionPolicies(): Promise<void> {
-    this.logger.log('Applying retention policies...');
-
-    const policies = await this.retentionRepository.find({
-      where: { isActive: true },
-    });
-
-    for (const policy of policies) {
-      await this.applyRetentionPolicy(policy);
-    }
-
-    this.logger.log('Retention policies applied successfully');
-  }
-
-  /**
-   * Apply a single retention policy
-   */
-  private async applyRetentionPolicy(policy: RetentionPolicyEntity): Promise<void> {
-    const now = new Date();
-
-    // Archive logs
-    if (policy.archiveAfterDays) {
-      const archiveDate = new Date(now);
-      archiveDate.setDate(archiveDate.getDate() - policy.archiveAfterDays);
-
-      const qb = this.activityRepository
-        .createQueryBuilder()
-        .update(ActivityLog)
-        .set({ isArchived: true, archivedAt: now })
-        .where('category = :category', { category: policy.category })
-        .andWhere('createdAt < :archiveDate', { archiveDate })
-        .andWhere('isArchived = :isArchived', { isArchived: false });
-
-      if (!policy.isGlobal && policy.specificTenants?.length) {
-        qb.andWhere('tenantId IN (:...tenants)', { tenants: policy.specificTenants });
-      }
-
-      const result = await qb.execute();
-      if (result.affected && result.affected > 0) {
-        this.logger.log(`Archived ${result.affected} logs for policy: ${policy.name}`);
-      }
-    }
-
-    // Delete archived logs
-    if (policy.deleteAfterArchiveDays) {
-      const deleteDate = new Date(now);
-      deleteDate.setDate(deleteDate.getDate() - policy.deleteAfterArchiveDays);
-
-      const qb = this.activityRepository
-        .createQueryBuilder()
-        .delete()
-        .from(ActivityLog)
-        .where('category = :category', { category: policy.category })
-        .andWhere('isArchived = :isArchived', { isArchived: true })
-        .andWhere('archivedAt < :deleteDate', { deleteDate });
-
-      if (!policy.isGlobal && policy.specificTenants?.length) {
-        qb.andWhere('tenantId IN (:...tenants)', { tenants: policy.specificTenants });
-      }
-
-      const result = await qb.execute();
-      if (result.affected && result.affected > 0) {
-        this.logger.log(`Deleted ${result.affected} archived logs for policy: ${policy.name}`);
-      }
-    }
   }
 
   // ============================================================================
@@ -989,11 +828,7 @@ export class AuditTrailService {
     if (conditions.failureOnly && activity.success) return false;
 
     if (conditions.ipPatterns?.length) {
-      // SEC-LOW №11 (2026-08-23 scan): shared ReDoS gate; unsafe patterns
-      // fail closed.
-      const matches = conditions.ipPatterns.some(
-        (p) => safeRegex(p)?.test(activity.ipAddress) === true,
-      );
+      const matches = conditions.ipPatterns.some((p) => new RegExp(p).test(activity.ipAddress));
       if (!matches) return false;
     }
 

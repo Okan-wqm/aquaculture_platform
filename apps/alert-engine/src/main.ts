@@ -5,6 +5,9 @@ import { AppModule } from './app.module';
 
 bootstrapService(AppModule, {
   serviceName: 'alert-engine',
+  // ADR-0006: reached only over the Docker network (gateway federation / NATS);
+  // nginx proxies nothing here, so no CORS and no edge bundle.
+  serviceVisibility: 'internal',
   portEnvVar: 'ALERT_ENGINE_PORT',
   hasGraphQL: true,
   /** SEC-M12: Disable implicit type conversion to prevent type confusion attacks.

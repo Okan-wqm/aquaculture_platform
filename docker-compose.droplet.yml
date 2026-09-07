@@ -833,7 +833,6 @@ services:
       NODE_ENV: production
       AUTH_SERVICE_PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=384'
-      CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       # DEPLOY-HIGH-016: the origin every invitation / password-reset link in
       # e-mail points at. auth-service mints those links; without this it fell
       # back to http://localhost:8080 and shipped dead links to real users.
@@ -927,7 +926,6 @@ services:
       NODE_ENV: production
       FARM_SERVICE_PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=256'
-      CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
       # SSL off — Postgres is on the same Docker bridge (no MITM surface).
       DATABASE_SSL: 'false'
@@ -1013,6 +1011,8 @@ services:
       TRUST_PROXY: '1'
       NODE_OPTIONS: '--max-old-space-size=256'
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
+      # TRUST_PROXY is already set above for this service (SEC-MEDIUM-070);
+      # ADR-0006's edge bundle reads the same key, so one declaration serves both.
       DATABASE_HOST: postgres
       # SSL off — Postgres is on the same Docker bridge (no MITM surface).
       DATABASE_SSL: 'false'
@@ -1201,6 +1201,9 @@ services:
       ENABLE_DEBUG_TOOLS: 'false'
       ENABLE_DB_EXPLORER_WRITES: 'false'
       ENABLE_RAW_SQL_EXPLORER: 'false'
+      # ADR-0009: a tenant schema drop records the WAL-G recovery point (this
+      # epoch + pg_current_wal_lsn()) the PITR workflow restores from.
+      WALG_BACKUP_EPOCH: ${WALG_BACKUP_EPOCH:?WALG_BACKUP_EPOCH required}
     depends_on:
       postgres:
         condition: service_healthy
@@ -1243,7 +1246,6 @@ services:
       NODE_ENV: production
       ALERT_ENGINE_PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=256'
-      CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
       # SSL off — Postgres is on the same Docker bridge (no MITM surface).
       DATABASE_SSL: 'false'
@@ -1300,6 +1302,9 @@ services:
       BILLING_SERVICE_PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=256'
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
+      # ADR-0006: nginx upstream — Express must trust the nginx hop so req.ip is the
+      # client, not the bridge address; the factory refuses to boot without it.
+      TRUST_PROXY: 'true'
       DATABASE_HOST: postgres
       # SSL off — Postgres is on the same Docker bridge (no MITM surface).
       DATABASE_SSL: 'false'
@@ -1391,7 +1396,6 @@ services:
       NODE_ENV: production
       HR_SERVICE_PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=256'
-      CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
       # SSL off — Postgres is on the same Docker bridge (no MITM surface).
       DATABASE_SSL: 'false'
@@ -1447,7 +1451,6 @@ services:
       NODE_ENV: production
       HYDROPONICS_SERVICE_PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=256'
-      CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
       # SSL off — Postgres is on the same Docker bridge (no MITM surface).
       DATABASE_SSL: 'false'
@@ -1503,7 +1506,6 @@ services:
       NODE_ENV: production
       NOTIFICATION_SERVICE_PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=256'
-      CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
       # SSL off — Postgres is on the same Docker bridge (no MITM surface).
       DATABASE_SSL: 'false'
@@ -1633,7 +1635,6 @@ services:
       PORT: 3000
       CONFIG_SERVICE_PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=256'
-      CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
       DATABASE_HOST: postgres
       # SSL off — Postgres is on the same Docker bridge (no MITM surface).
       DATABASE_SSL: 'false'
@@ -1786,8 +1787,6 @@ services:
       # SEC-NEW02: MinIO credentials must be provided — no default fallback for object storage access
       MINIO_ACCESS_KEY: ${MINIO_USER:?MINIO_USER is required}
       MINIO_SECRET_KEY: ${MINIO_PASSWORD:?MINIO_PASSWORD is required}
-      TRUST_PROXY: 'true'
-      CORS_ORIGINS: ${CORS_ORIGINS:-https://aquamonitoring.net}
     volumes:
       - *nats-ca-mount
       - *nats-messaging-cert-mount
@@ -1863,8 +1862,6 @@ services:
       SERVICE_IDENTITY_SIGNING_KID: ${SERVICE_IDENTITY_SIGNING_KID:?SERVICE_IDENTITY_SIGNING_KID required}
       # BYOK: AES-256-GCM decrypt of the per-tenant AI credentials at rest.
       AI_TENANT_SECRET_ENCRYPTION_KEY: ${AI_TENANT_SECRET_ENCRYPTION_KEY:?AI_TENANT_SECRET_ENCRYPTION_KEY required}
-      TRUST_PROXY: 'true'
-      CORS_ORIGINS: ${CORS_ORIGINS:-https://aquamonitoring.net}
     volumes:
       - *nats-ca-mount
       - *nats-ai-cert-mount

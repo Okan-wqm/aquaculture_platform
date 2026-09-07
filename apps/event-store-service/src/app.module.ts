@@ -1,3 +1,4 @@
+import { StripInternalHeadersMiddleware } from '@aquaculture/backend-common/middleware';
 import { TenantExecutionContextModule } from '@aquaculture/backend-common/context';
 import {
   RlsModule,
@@ -14,7 +15,7 @@ import { EventBusModule, buildEventBusConfig } from '@platform/event-bus';
 import { EventStoreOutboxModule } from './outbox/event-store-outbox.module';
 import { CryptoShredModule } from './crypto-shred/crypto-shred.module';
 import { StoredEventsCryptoShredHook } from './crypto-shred/stored-events-crypto-shred.hook';
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
@@ -142,4 +143,16 @@ const EventStoreSchemaVersionGate = createSchemaVersionGate('event_store');
     },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  /**
+   * SEC-CRITICAL-002 / ADR-0006: strip the spoofable internal trust headers
+   * (x-user-payload, x-user-id, x-user-roles, x-tenant-id, …) from every
+   * request that does not carry a verified service-identity signature. A
+   * Docker-network caller could otherwise plant SUPER_ADMIN context on an
+   * unauthenticated path. Every bootstrapped service mounts this first;
+   * enforced by tests/invariants/public-service-edge-hardening.spec.ts.
+   */
+  configure(consumer: MiddlewareConsumer): void {
+    consumer.apply(StripInternalHeadersMiddleware).forRoutes('*');
+  }
+}

@@ -1,5 +1,6 @@
 // Schema Manager
 export * from './schema-manager.service';
+export * from './recovery-point';
 
 // SQL identifier validator — single canonical helper for identifier
 // interpolation (DDL paths use it instead of inlining a private regex).

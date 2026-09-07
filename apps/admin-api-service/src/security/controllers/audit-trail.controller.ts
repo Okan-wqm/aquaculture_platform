@@ -35,13 +35,10 @@ import { Request, Response } from 'express';
 
 import { AuditLog, AuditSeverity as ImmutableAuditSeverity } from '../../audit/audit.entity';
 import { AuditLogFilter, AuditLogService, PaginatedAuditLogs } from '../../audit/audit.service';
-import { getAuthUser, requireAuthUserId } from '../../shared/authenticated-request';
-import {
-  ActivityCategory,
-  ActivitySeverity,
-  RetentionPolicyEntity,
-  ComplianceType,
-} from '../entities/security.entity';
+import { getAuthUser } from '../../shared/authenticated-request';
+import { listRetentionPolicies } from '@aquaculture/backend-common/database';
+
+import { ActivityCategory, ActivitySeverity } from '../entities/security.entity';
 import {
   AuditTrailService,
   AuditExportOptions,
@@ -190,79 +187,6 @@ class ExportAuditTrailDto {
   includeChanges?: boolean;
 }
 
-class CreateRetentionPolicyDto {
-  @IsString()
-  name!: string;
-
-  @IsString()
-  category!: ActivityCategory;
-
-  @IsOptional()
-  @IsString()
-  description?: string;
-
-  @IsNumber()
-  retentionDays!: number;
-
-  @IsOptional()
-  @IsNumber()
-  archiveAfterDays?: number;
-
-  @IsOptional()
-  @IsNumber()
-  deleteAfterArchiveDays?: number;
-
-  @IsOptional()
-  @IsBoolean()
-  isGlobal?: boolean;
-
-  @IsOptional()
-  @IsArray()
-  specificTenants?: string[];
-
-  @IsOptional()
-  @IsArray()
-  complianceFrameworks?: ComplianceType[];
-}
-
-class UpdateRetentionPolicyDto {
-  @IsOptional()
-  @IsString()
-  name?: string;
-
-  @IsOptional()
-  @IsString()
-  description?: string;
-
-  @IsOptional()
-  @IsNumber()
-  retentionDays?: number;
-
-  @IsOptional()
-  @IsNumber()
-  archiveAfterDays?: number;
-
-  @IsOptional()
-  @IsNumber()
-  deleteAfterArchiveDays?: number;
-
-  @IsOptional()
-  @IsBoolean()
-  isGlobal?: boolean;
-
-  @IsOptional()
-  @IsArray()
-  specificTenants?: string[];
-
-  @IsOptional()
-  @IsArray()
-  complianceFrameworks?: ComplianceType[];
-
-  @IsOptional()
-  @IsBoolean()
-  isActive?: boolean;
-}
-
 class CreateAlertRuleDto {
   @IsString()
   name!: string;
@@ -335,6 +259,16 @@ class UpdateAuditAlertRuleDto {
 // ============================================================================
 // Controller
 // ============================================================================
+
+export interface RetentionPolicyView {
+  id: string;
+  ownerTag: string;
+  schema: string;
+  tableName: string;
+  timestampColumn: string;
+  retentionDays: number;
+  legalHoldAware: boolean;
+}
 
 @ApiTags('Security')
 @Controller('security/audit')
@@ -472,59 +406,26 @@ export class AuditTrailController {
   }
 
   // ============================================================================
-  // Retention Policies
+  // Retention Policies — READ-ONLY view of the build-time registry (ADR-0012)
   // ============================================================================
 
   /**
-   * Get all retention policies
+   * The retention windows in force, straight from the kernel registry.
+   * Windows are compliance commitments declared in code
+   * (AdminApiRetentionBootstrapModule) and enforced by the single platform
+   * enforcer; there is no runtime editor and no per-policy "apply".
    */
   @Get('retention-policies')
-  async getRetentionPolicies(): Promise<RetentionPolicyEntity[]> {
-    return this.auditService.getRetentionPolicies();
-  }
-
-  /**
-   * Get retention policy by ID
-   */
-  @Get('retention-policies/:id')
-  async getRetentionPolicy(@Param('id') id: string): Promise<RetentionPolicyEntity> {
-    return this.auditService.getRetentionPolicy(id);
-  }
-
-  /**
-   * Create retention policy
-   */
-  @Post('retention-policies')
-  @HttpCode(HttpStatus.CREATED)
-  async createRetentionPolicy(
-    @Body() dto: CreateRetentionPolicyDto,
-    @Req() req: Request,
-  ): Promise<RetentionPolicyEntity> {
-    return this.auditService.createRetentionPolicy({
-      ...dto,
-      createdBy: requireAuthUserId(req),
-    });
-  }
-
-  /**
-   * Update retention policy
-   */
-  @Put('retention-policies/:id')
-  async updateRetentionPolicy(
-    @Param('id') id: string,
-    @Body() dto: UpdateRetentionPolicyDto,
-    @Req() req: Request,
-  ): Promise<RetentionPolicyEntity> {
-    return this.auditService.updateRetentionPolicy(id, dto, requireAuthUserId(req));
-  }
-
-  /**
-   * Delete retention policy
-   */
-  @Delete('retention-policies/:id')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  async deleteRetentionPolicy(@Param('id') id: string): Promise<void> {
-    await this.auditService.deleteRetentionPolicy(id);
+  getRetentionPolicies(): RetentionPolicyView[] {
+    return listRetentionPolicies().map((policy) => ({
+      id: policy.id,
+      ownerTag: policy.ownerTag,
+      schema: policy.schema,
+      tableName: policy.tableName,
+      timestampColumn: policy.timestampColumn,
+      retentionDays: policy.retentionDays,
+      legalHoldAware: policy.legalHoldAware,
+    }));
   }
 
   /**
@@ -533,16 +434,6 @@ export class AuditTrailController {
   @Get('retention-stats')
   async getRetentionStats(): Promise<RetentionStats> {
     return this.auditService.getRetentionStats();
-  }
-
-  /**
-   * Apply retention policies manually
-   */
-  @Post('retention-policies/apply')
-  @HttpCode(HttpStatus.OK)
-  async applyRetentionPolicies(): Promise<{ success: boolean }> {
-    await this.auditService.applyRetentionPolicies();
-    return { success: true };
   }
 
   // ============================================================================

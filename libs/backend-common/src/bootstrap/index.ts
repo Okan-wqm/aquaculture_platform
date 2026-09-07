@@ -11,6 +11,15 @@ export {
 } from './create-service-app';
 
 export {
+  mountEdgeHardening,
+  resolveTrustProxy,
+  type EdgeHardeningHost,
+  type EdgeRequestHandler,
+  type ServiceVisibility,
+  type TrustProxySetting,
+} from './edge-hardening';
+
+export {
   sanitizeForLogging,
   truncateStack,
   logBootstrapError,

@@ -1509,12 +1509,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/admin-api-service/src/database-management/controllers/backup.controller.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/admin-api-service/src/database-management/controllers/explorer.controller.ts",
       "prettier_managed": true
     },
@@ -1551,12 +1545,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/admin-api-service/src/database-management/services/backup-restore.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/admin-api-service/src/database-management/services/database-monitoring.service.ts",
       "prettier_managed": true
     },
@@ -1564,6 +1552,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/database-management/services/migration-management.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/database-management/services/recovery-point.service.ts",
       "prettier_managed": true
     },
     {
@@ -2256,6 +2250,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/migrations/1808500000000-DropDeadAdminUserSessions.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1808600000000-RetireAdminBackupSubsystem.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1808700000000-RetireRuntimeRetentionPolicies.ts",
       "prettier_managed": true
     },
     {
@@ -18615,18 +18621,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/gateway-api/src/middleware/correlation-id.middleware.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/gateway-api/src/middleware/csrf.middleware.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/gateway-api/src/middleware/csrf.middleware.ts",
       "prettier_managed": true
     },
     {
@@ -38580,7 +38574,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/bootstrap/__tests__/edge-hardening.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/bootstrap/create-service-app.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/bootstrap/edge-hardening.ts",
       "prettier_managed": true
     },
     {
@@ -38880,6 +38886,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/database/__tests__/recovery-point.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/database/__tests__/schema-drift-validator.service.spec.ts",
       "prettier_managed": true
     },
@@ -39163,6 +39175,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/database/query-result-normalizer.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/database/recovery-point.ts",
       "prettier_managed": true
     },
     {
@@ -44852,12 +44870,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "tests/invariants/access-log-middleware-mounted.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "tests/invariants/access-log-stream-shape.spec.ts",
       "prettier_managed": true
     },
@@ -44907,12 +44919,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/admin-audit-actor-attribution.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "tests/invariants/admin-backup-encryption-ssot.spec.ts",
       "prettier_managed": true
     },
     {
@@ -46166,6 +46172,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/public-service-edge-hardening.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/rbac-vocabulary-ssot.spec.ts",
       "prettier_managed": true
     },
@@ -46191,6 +46203,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/restore-mutation-tenant-admin.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/retention-authority-ssot.spec.ts",
       "prettier_managed": true
     },
     {
@@ -46377,12 +46395,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/strict-property-initialization-ssot.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "tests/invariants/strip-internal-headers-mounted.spec.ts",
       "prettier_managed": true
     },
     {

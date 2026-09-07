@@ -1,14 +1,9 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThan } from 'typeorm';
+import { Repository } from 'typeorm';
 import { isSensitiveField } from '@aquaculture/backend-common/security';
 
-import {
-  CapturedApiCall,
-  DebugSession,
-  DebugSessionType,
-} from '../entities/debug-session.entity';
+import { CapturedApiCall, DebugSession, DebugSessionType } from '../entities/debug-session.entity';
 
 import { ApiLogResult, ApiUsageSummary } from './debug-tools-types';
 
@@ -119,7 +114,9 @@ export class ApiCallInspectorService {
     query.where('a.tenantId = :tenantId', { tenantId: params.tenantId });
 
     if (params.debugSessionId) {
-      query.andWhere('a.debugSessionId = :debugSessionId', { debugSessionId: params.debugSessionId });
+      query.andWhere('a.debugSessionId = :debugSessionId', {
+        debugSessionId: params.debugSessionId,
+      });
     }
     if (params.method) {
       query.andWhere('a.method = :method', { method: params.method });
@@ -289,7 +286,7 @@ export class ApiCallInspectorService {
       totalCalls,
       avgResponseTime: parseFloat(summaryRaw?.avgResponseTime) || 0,
       errorRate: totalCalls > 0 ? (errorCount / totalCalls) * 100 : 0,
-      topEndpoints: topEndpointsRaw.map(e => ({
+      topEndpoints: topEndpointsRaw.map((e) => ({
         endpoint: e.endpoint,
         count: parseInt(e.count, 10),
         avgDuration: parseFloat(e.avgDuration) || 0,
@@ -394,17 +391,5 @@ export class ApiCallInspectorService {
       this.logger.error('Failed to flush API call buffer', error);
       this.apiCallBuffer.push(...calls);
     }
-  }
-
-  /**
-   * Cleanup old API call data
-   */
-  @Cron(CronExpression.EVERY_DAY_AT_5AM)
-  async cleanupOldData(): Promise<void> {
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - 7);
-
-    await this.apiCallRepo.delete({ timestamp: LessThan(cutoff) });
-    this.logger.log('Cleaned up old API call data');
   }
 }

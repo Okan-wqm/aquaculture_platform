@@ -816,35 +816,8 @@ export class ErrorTrackingService {
   }
 
   // ============================================================================
-  // Cleanup
+  // Alert cooldowns
   // ============================================================================
-
-  @Cron(CronExpression.EVERY_DAY_AT_3AM)
-  async cleanupOldErrors(): Promise<void> {
-    const retentionDays = 90;
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - retentionDays);
-
-    // Delete old occurrences
-    const deleteResult = await this.occurrenceRepo.delete({
-      timestamp: LessThan(cutoff),
-    });
-
-    // Update group counts and delete empty groups
-    const emptyGroups = await this.groupRepo
-      .createQueryBuilder('g')
-      .leftJoin('error_occurrences', 'o', 'o.groupId = g.id')
-      .where('o.id IS NULL')
-      .getMany();
-
-    if (emptyGroups.length > 0) {
-      await this.groupRepo.delete({ id: In(emptyGroups.map((g) => g.id)) });
-    }
-
-    this.logger.log(
-      `Cleaned up ${deleteResult.affected} error occurrences and ${emptyGroups.length} empty groups`,
-    );
-  }
 
   @Cron(CronExpression.EVERY_HOUR)
   async clearExpiredCooldowns(): Promise<void> {

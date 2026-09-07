@@ -58,8 +58,19 @@ import { Batch, BatchInputType } from '../../../batch/entities/batch.entity';
 import { BatchDocument } from '../../../batch/entities/batch-document.entity';
 import { TankAllocation, AllocationType } from '../../../batch/entities/tank-allocation.entity';
 import { TankBatch } from '../../../batch/entities/tank-batch.entity';
+import { TankOperation } from '../../../batch/entities/tank-operation.entity';
 import { AllocateToTankHandler } from '../../../batch/handlers/allocate-to-tank.handler';
 import { CreateBatchHandler } from '../../../batch/handlers/create-batch.handler';
+import { TransferBatchHandler } from '../../../batch/handlers/transfer-batch.handler';
+import { GetBatchHandler } from '../../../batch/query-handlers/get-batch.handler';
+import { RemovalQuantityPolicyService } from '../../../batch/services/removal-quantity-policy.service';
+import { FeedingDayPlan } from '../../../feeding-protocol/entities/feeding-day-plan.entity';
+import { FeedingMeal } from '../../../feeding-protocol/entities/feeding-meal.entity';
+import { FeedingProtocolV2 } from '../../../feeding-protocol/entities/feeding-protocol-v2.entity';
+import { ProtocolAssignment } from '../../../feeding-protocol/entities/protocol-assignment.entity';
+import { DayPlanRecalcService } from '../../../feeding-protocol/services/day-plan-recalc.service';
+import { ProtocolRateService } from '../../../feeding-protocol/services/protocol-rate.service';
+import { ProtocolResolutionService } from '../../../feeding-protocol/services/protocol-resolution.service';
 import { TankBatchService } from '../../../batch/services/tank-batch.service';
 import { AuditLog } from '../../../database/entities/audit-log.entity';
 import { CodeSequence } from '../../../database/entities/code-sequence.entity';
@@ -154,13 +165,16 @@ export const FIXTURE_ENTITIES = [
   BatchLocation,
   TankAllocation,
   TankBatch,
+  // The transfer handler records TRANSFER_OUT / TRANSFER_IN rows.
+  TankOperation,
   CodeSequence,
   AuditLog,
   FarmOutbox,
   // The rest of Equipment/Site/Batch's relation closure. TypeORM resolves a
   // relation only when its TARGET is registered, so metadata construction needs
   // the whole graph even though the fixture writes none of these. Registering
-  // is not cloning: FIXTURE_TENANT_TABLES stays limited to what is written.
+  // is not cloning: `createTenantSchemaDerived` decides what each tenant schema
+  // gets, from the entities' own schema declarations.
   Farm,
   Pond,
   SiteContact,
@@ -172,37 +186,23 @@ export const FIXTURE_ENTITIES = [
   FeedingRecord,
   GrowthMeasurement,
   MortalityRecord,
-] as const;
-
-/**
- * The PER-TENANT tables the fixture writes, to clone into the tenant schema.
- *
- * `farm_audit_logs` is deliberately absent: it declares `schema: 'farm'` and is
- * cross-tenant infrastructure (ADR-011), so it stays in the source schema. Same
- * for `farm_outbox`.
- */
-export const FIXTURE_TENANT_TABLES = [
-  'sites',
-  'departments',
-  'tanks',
-  'species',
-  'equipment',
-  'equipment_types',
-  'sub_systems',
-  'systems',
-  'batches_v2',
-  'batch_documents',
-  'tank_allocations',
-  'tank_batches',
-  'code_sequences',
-  'farm_stock_container_snapshots',
-  'farm_stock_batch_snapshots',
+  // TransferBatchHandler recalculates the affected units' day plans
+  // (transfer-batch.handler.ts:524), so the feeding-protocol closure is part of
+  // the writers' requirement too — this is the exact entity FARM-HIGH-316's
+  // original incident tripped over.
+  FeedingProtocolV2,
+  ProtocolAssignment,
+  FeedingDayPlan,
+  FeedingMeal,
 ] as const;
 
 /** The production command handlers a fixture needs to stock a tank. */
 export interface FixtureBatchWriters {
   createBatch: CreateBatchHandler;
   allocateToTank: AllocateToTankHandler;
+  transferBatch: TransferBatchHandler;
+  /** The production read path, so a suite asserting visibility uses it too. */
+  getBatch: GetBatchHandler;
 }
 
 /**
@@ -257,7 +257,29 @@ export function createFixtureBatchWriters(dataSource: DataSource): FixtureBatchW
     new MobileCommandReceiptService(),
   );
 
-  return { createBatch, allocateToTank };
+  const transferBatch = new TransferBatchHandler(
+    dataSource,
+    dataSource.getRepository(Batch),
+    dataSource.getRepository(TankAllocation),
+    dataSource.getRepository(TankOperation),
+    dataSource.getRepository(TankBatch),
+    dataSource.getRepository(Equipment),
+    dataSource.getRepository(Tank),
+    dataSource.getRepository(EquipmentType),
+    outboxPublisher,
+    new DayPlanRecalcService(
+      outboxPublisher,
+      new ProtocolResolutionService(new ProtocolRateService()),
+    ),
+    new RemovalQuantityPolicyService(),
+    tankCapacityService,
+    new SiteAuthorizationService(),
+    tankBatchService,
+    new FarmStockProjectionService(),
+    new MobileCommandReceiptService(),
+  );
+
+  return { createBatch, allocateToTank, transferBatch, getBatch: new GetBatchHandler(dataSource) };
 }
 
 /**

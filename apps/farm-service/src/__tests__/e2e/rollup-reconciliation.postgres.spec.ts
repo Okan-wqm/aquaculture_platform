@@ -91,12 +91,11 @@ import {
   createFarmTenantFixture,
   createFixtureBatchWriters,
   FIXTURE_ENTITIES,
-  FIXTURE_TENANT_TABLES,
 } from './helpers/farm-tenant-fixture';
 import {
   createFarmOutboxTable,
   createFarmStockReadModelTables,
-  createTenantSchemaFromSource,
+  createTenantSchemaDerived,
 } from './helpers/tenant-schema-harness';
 
 jest.setTimeout(120_000);
@@ -106,15 +105,6 @@ const USER_ID = 'f1b7b266-5e20-4c37-8ab2-b7ef18db3a21';
 const PROTOCOL_ID = '33333333-3333-4333-8333-333333333333';
 const ASSIGNMENT_ID = '22222222-2222-4222-8222-222222222222';
 const FEED_ID = '66666666-6666-4666-8666-666666666666';
-
-const TENANT_BUSINESS_TABLES = [
-  ...FIXTURE_TENANT_TABLES,
-  'tank_operations',
-  'feeding_protocols_v2',
-  'feeding_protocol_assignments',
-  'feeding_day_plans',
-  'feeding_meals',
-] as const;
 
 /** FCR 1.0 keeps the arithmetic legible: every kg fed is a kg of growth. */
 const EXPECTED_FCR = 1;
@@ -183,11 +173,6 @@ describe('DAILY rollup reconciliation — real Postgres', () => {
         // The fixture's production writers declare what they need; this suite
         // adds only what IT needs on top (FARM-HIGH-109).
         ...FIXTURE_ENTITIES,
-        TankOperation,
-        FeedingProtocolV2,
-        ProtocolAssignment,
-        FeedingDayPlan,
-        FeedingMeal,
       ],
       synchronize: true,
       logging: false,
@@ -199,11 +184,7 @@ describe('DAILY rollup reconciliation — real Postgres', () => {
 
     const TenantConnectionBootstrap = createTenantConnectionBootstrap('farm');
     new TenantConnectionBootstrap(dataSource).onModuleInit();
-    await createTenantSchemaFromSource(
-      dataSource,
-      getTenantSchemaName(TENANT),
-      TENANT_BUSINESS_TABLES,
-    );
+    await createTenantSchemaDerived(dataSource, getTenantSchemaName(TENANT));
 
     const fixture = await createFarmTenantFixture(
       dataSource,

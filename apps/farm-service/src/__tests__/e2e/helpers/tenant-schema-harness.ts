@@ -14,6 +14,44 @@ import { AssertFarmStockBatchSnapshotMetadata1800500000000 } from '../../../data
 import { ExtendFarmStockReadModelFanout1800600000000 } from '../../../database/migrations/1800600000000-ExtendFarmStockReadModelFanout';
 import { AddFarmStockBatchSnapshotSpecies1805200000000 } from '../../../database/migrations/1805200000000-AddFarmStockBatchSnapshotSpecies';
 
+/**
+ * Clone every PER-TENANT table `farm` currently holds into `schema`, DERIVED
+ * rather than listed.
+ *
+ * The per-tenant/cross-tenant split is read from the entities themselves: an
+ * `@Entity` that declares `schema:` is cross-tenant infrastructure (ADR-011)
+ * and must stay in the source schema, everything else is tenant-owned. The
+ * table set comes from `information_schema`, so tables that are not TypeORM
+ * entities at all — the farm-stock read model, the mobile command receipts —
+ * are included as long as they were created before this runs.
+ *
+ * This is the shape FARM-HIGH-316 asks for: a harness that DERIVES what it
+ * provisions from the code under test. A hand-kept list drifts the moment a
+ * handler reaches one more table, and it fails as a runtime error inside the
+ * handler rather than at the boundary.
+ */
+export async function createTenantSchemaDerived(
+  dataSource: DataSource,
+  schema: string,
+): Promise<void> {
+  await dataSource.query(`CREATE SCHEMA "${schema}"`);
+  const crossTenant = new Set(
+    dataSource.entityMetadatas
+      .filter((metadata) => metadata.schema !== undefined)
+      .map((metadata) => metadata.tableName),
+  );
+  const sourceTables: Array<{ table_name: string }> = await dataSource.query(
+    `SELECT table_name FROM information_schema.tables
+     WHERE table_schema = 'farm' AND table_type = 'BASE TABLE'`,
+  );
+  for (const { table_name: table } of sourceTables) {
+    if (crossTenant.has(table)) continue;
+    await dataSource.query(
+      `CREATE TABLE "${schema}"."${table}" (LIKE "farm"."${table}" INCLUDING ALL)`,
+    );
+  }
+}
+
 export async function createTenantSchemaFromSource(
   dataSource: DataSource,
   schema: string,

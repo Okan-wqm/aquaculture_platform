@@ -70,7 +70,6 @@ import { System } from '../../system/entities/system.entity';
 import { Tank } from '../../tank/entities/tank.entity';
 import {
   FIXTURE_ENTITIES,
-  FIXTURE_TENANT_TABLES,
   createFarmTenantFixture,
   createFixtureBatchWriters,
   type FixtureBatchWriters,
@@ -79,20 +78,12 @@ import {
   createFarmOutboxTable,
   createFarmStockReadModelTables,
   createSourceEquipmentTypesReferenceTable,
-  createTenantSchemaFromSource,
+  createTenantSchemaDerived,
 } from './helpers/tenant-schema-harness';
 
 const TENANT_A = '4b529829-ea79-48da-982c-cd6fbec8ffb7';
 const TENANT_B = '7c2f4e10-3d2a-4b4e-9f18-f8b16f0d5a10';
 const USER_ID = 'f1b7b266-5e20-4c37-8ab2-b7ef18db3a21';
-const TENANT_BUSINESS_TABLES = [
-  ...FIXTURE_TENANT_TABLES,
-  'tank_operations',
-  'mortality_records',
-  'harvest_plans',
-  'harvest_records',
-] as const;
-
 interface TenantFixture {
   site: Site;
   department: Department;
@@ -138,7 +129,6 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
         // The fixture's production writers declare their own closure; this
         // suite adds only what IT needs on top (FARM-HIGH-109).
         ...FIXTURE_ENTITIES,
-        TankOperation,
         HarvestPlan,
         HarvestRecord,
       ],
@@ -156,16 +146,8 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
     const TenantConnectionBootstrap = createTenantConnectionBootstrap('farm');
     new TenantConnectionBootstrap(dataSource).onModuleInit();
 
-    await createTenantSchemaFromSource(
-      dataSource,
-      getTenantSchemaName(TENANT_A),
-      TENANT_BUSINESS_TABLES,
-    );
-    await createTenantSchemaFromSource(
-      dataSource,
-      getTenantSchemaName(TENANT_B),
-      TENANT_BUSINESS_TABLES,
-    );
+    await createTenantSchemaDerived(dataSource, getTenantSchemaName(TENANT_A));
+    await createTenantSchemaDerived(dataSource, getTenantSchemaName(TENANT_B));
 
     siteRepository = dataSource.getRepository(Site);
     departmentRepository = dataSource.getRepository(Department);

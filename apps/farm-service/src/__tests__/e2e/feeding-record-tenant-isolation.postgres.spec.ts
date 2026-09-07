@@ -24,14 +24,24 @@ import {
   shutdownHarness,
 } from '@platform/migration-harness';
 import { OutboxPublisher } from '@platform/outbox';
+
+import { createFarmStockReadModelTables } from './helpers/tenant-schema-harness';
 import { DataSource, Repository } from 'typeorm';
 
+import { Role } from '@aquaculture/backend-common/decorators';
+
+import { AllocateToTankCommand } from '../../batch/commands/allocate-to-tank.command';
+import { CreateBatchCommand } from '../../batch/commands/create-batch.command';
 import { Batch, BatchInputType, BatchStatus } from '../../batch/entities/batch.entity';
+import {
+  createFixtureBatchWriters,
+  FIXTURE_ENTITIES,
+  type FixtureBatchWriters,
+} from './helpers/farm-tenant-fixture';
 import { BatchDocument } from '../../batch/entities/batch-document.entity';
 import { TankAllocation, AllocationType } from '../../batch/entities/tank-allocation.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { TankOperation } from '../../batch/entities/tank-operation.entity';
-import { BatchService } from '../../batch/services/batch.service';
 import { BatchDomainService } from '../../batch/services/batch-domain.service';
 import { BatchLifecyclePolicyService } from '../../batch/services/batch-lifecycle-policy.service';
 import { MortalityCullPolicyService } from '../../batch/services/mortality-cull-policy.service';
@@ -121,7 +131,7 @@ describe('Feeding record tenant isolation on real Postgres', () => {
   let operationRepository: Repository<TankOperation>;
   let feedRepository: Repository<Feed>;
   let feedingRecordRepository: Repository<FeedingRecord>;
-  let batchService: BatchService;
+  let batchWriters: FixtureBatchWriters;
   let createFeedingRecord: CreateFeedingRecordHandler;
   let getFeedingRecords: GetFeedingRecordsHandler;
   let getFeedingSummary: GetFeedingSummaryHandler;
@@ -135,22 +145,15 @@ describe('Feeding record tenant isolation on real Postgres', () => {
       ...pg.connectionOptions,
       name: `farm-service-feeding-record-${randomBytes(4).toString('hex')}`,
       entities: [
-        Site,
-        Department,
-        Tank,
-        Species,
-        Batch,
-        BatchDocument,
-        TankAllocation,
-        TankBatch,
-        TankOperation,
-        Feed,
-        Supplier,
+        // The fixture's production writers declare their own closure — Equipment
+        // and its relation graph, the feeding-protocol entities the transfer
+        // path recalculates, the code sequences createBatch allocates from
+        // (FARM-HIGH-109). This suite adds only what IT needs on top.
+        ...FIXTURE_ENTITIES,
         StorageLocation,
         StorageInventory,
         StockMovement,
         StorageLotMix,
-        FeedingRecord,
         // FeedingLedgerService owns feed cost for every caller (C-16) and reads
         // the tenant's default currency through FinanceSettingsService. Its
         // in-transaction variant does NOT swallow a missing row the way the
@@ -158,18 +161,6 @@ describe('Feeding record tenant isolation on real Postgres', () => {
         // `EntityMetadataNotFoundError` from inside recordFeed rather than as a
         // currency fallback. Production registers it; the harness must too.
         FinanceSettings,
-        // The handler binds the unit's active day plan (create-feeding-record
-        // handler, D-7), and the REAL DayPlanRecalcService this fixture wires
-        // reads meals, the protocol and its assignment while recalculating.
-        // Production never had to list them — TypeORM autoLoadEntities picks up
-        // whatever forFeature registers — which is exactly why a bare test
-        // DataSource drifts behind the code the moment a handler reaches one
-        // more table.
-        FeedingDayPlan,
-        FeedingMeal,
-        FeedingProtocolV2,
-        ProtocolAssignment,
-        FarmOutbox,
       ],
       synchronize: true,
       logging: false,
@@ -180,6 +171,7 @@ describe('Feeding record tenant isolation on real Postgres', () => {
 
     await dataSource.initialize();
     await createFarmOutboxTable(dataSource);
+    await createFarmStockReadModelTables(dataSource);
 
     const TenantConnectionBootstrap = createTenantConnectionBootstrap('farm');
     new TenantConnectionBootstrap(dataSource).onModuleInit();
@@ -198,15 +190,8 @@ describe('Feeding record tenant isolation on real Postgres', () => {
     feedRepository = dataSource.getRepository(Feed);
     feedingRecordRepository = dataSource.getRepository(FeedingRecord);
 
-    batchService = new BatchService(
-      batchRepository,
-      allocationRepository,
-      tankBatchRepository,
-      operationRepository,
-      tankRepository,
-      dataSource,
-      new MortalityCullPolicyService(),
-    );
+    // Stocking goes through the production command handlers (FARM-HIGH-109).
+    batchWriters = createFixtureBatchWriters(dataSource);
 
     const outboxPublisher = new OutboxPublisher(FarmOutbox);
     const backdatePolicy = { validate: jest.fn() };
@@ -401,11 +386,21 @@ describe('Feeding record tenant isolation on real Postgres', () => {
 
     const tenantAOutboxRows = await outboxRows(TENANT_A);
     const tenantBOutboxRows = await outboxRows(TENANT_B);
+    // `BatchCreated` / `BatchAllocatedToTank` come from STOCKING the fixture
+    // tank. They are new here only because stocking used to go through
+    // `BatchService`, which emitted no domain events at all — this suite had
+    // encoded that silence as the expectation (FARM-HIGH-109). The
+    // tenant-scoping assertion below now covers them too.
     expect(tenantAOutboxRows.map((row) => row.eventType).sort()).toEqual([
+      'BatchAllocatedToTank',
+      'BatchCreated',
       'FeedingRecorded',
       'LowStockDetected',
     ]);
-    expect(tenantBOutboxRows).toHaveLength(0);
+    expect(tenantBOutboxRows.map((row) => row.eventType).sort()).toEqual([
+      'BatchAllocatedToTank',
+      'BatchCreated',
+    ]);
     expect(tenantAOutboxRows.every((row) => row.payload?.tenantId === TENANT_A)).toBe(true);
   });
 
@@ -484,28 +479,38 @@ describe('Feeding record tenant isolation on real Postgres', () => {
       ),
     );
     const batch = await withTenantContext(tenantId, () =>
-      batchService.createBatch({
-        tenantId,
-        batchNumber: 'BATCH-SHARED-FEEDING',
-        speciesId: species.id,
-        inputType: BatchInputType.FRY,
-        initialQuantity: 100,
-        initialAvgWeightG: 10,
-        stockedAt: new Date('2026-04-29T00:00:00.000Z'),
-        currency: 'USD',
-        createdBy: USER_ID,
-      }),
+      batchWriters.createBatch.execute(
+        new CreateBatchCommand(
+          tenantId,
+          {
+            batchNumber: 'BATCH-SHARED-FEEDING',
+            speciesId: species.id,
+            inputType: BatchInputType.FRY,
+            initialQuantity: 100,
+            initialAvgWeightG: 10,
+            stockedAt: new Date('2026-04-29T00:00:00.000Z'),
+            currency: 'USD',
+          },
+          USER_ID,
+        ),
+      ),
     );
     await withTenantContext(tenantId, () =>
-      batchService.allocateBatchToTank({
-        tenantId,
-        batchId: batch.id,
-        tankId: tank.id,
-        quantity: 100,
-        avgWeightG: 10,
-        allocationType: AllocationType.INITIAL_STOCKING,
-        allocatedBy: USER_ID,
-      }),
+      batchWriters.allocateToTank.execute(
+        new AllocateToTankCommand(
+          tenantId,
+          batch.id,
+          {
+            tankId: tank.id,
+            quantity: 100,
+            avgWeightG: 10,
+            allocationType: AllocationType.INITIAL_STOCKING,
+          },
+          USER_ID,
+          // MODULE_MANAGER bypasses the object-level site gate (SEC-HIGH-051).
+          [Role.MODULE_MANAGER],
+        ),
+      ),
     );
     const feed = await withTenantContext(tenantId, () =>
       feedRepository.save(

@@ -594,7 +594,7 @@ export class ActivityLoggingService implements OnModuleInit {
     }
 
     if (tags && tags.length > 0) {
-      qb.andWhere('activity.tags && ARRAY[:...tags]', { tags });
+      qb.andWhere('activity.tags && ARRAY[:...tags]::text[]', { tags });
     }
 
     // SEC-HIGH №1 (2026-08-23 scan): orderBy interpolates verbatim — the column

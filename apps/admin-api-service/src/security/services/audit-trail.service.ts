@@ -268,7 +268,7 @@ export class AuditTrailService {
 
     // Tag filter
     if (tags && tags.length > 0) {
-      qb.andWhere('log.tags && ARRAY[:...tags]::varchar[]', { tags });
+      qb.andWhere('log.tags && ARRAY[:...tags]::text[]', { tags });
     }
 
     // Sorting and pagination

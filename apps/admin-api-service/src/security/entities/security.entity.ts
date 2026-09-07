@@ -249,7 +249,7 @@ export class ActivityLog {
   metadata?: Record<string, unknown> | null;
 
   // Tags for categorization
-  @Column({ type: 'simple-array', nullable: true })
+  @Column({ type: 'text', array: true, nullable: true })
   tags?: string[] | null;
 
   // Outcome
@@ -359,14 +359,14 @@ export class SecurityEvent {
   @Column({ type: 'jsonb', nullable: true })
   rawData?: Record<string, unknown> | null;
 
-  @Column({ type: 'simple-array', nullable: true })
+  @Column({ type: 'text', array: true, nullable: true })
   relatedActivityIds?: string[] | null;
 
   // Response
   @Column({ type: 'boolean', default: false })
   autoMitigated!: boolean;
 
-  @Column({ type: 'simple-array', nullable: true })
+  @Column({ type: 'text', array: true, nullable: true })
   mitigationActions?: string[] | null;
 
   @Column({ type: 'text', nullable: true })
@@ -393,7 +393,7 @@ export class SecurityEvent {
   resolvedBy?: string | null;
 
   // Metadata
-  @Column({ type: 'simple-array', nullable: true })
+  @Column({ type: 'text', array: true, nullable: true })
   tags?: string[] | null;
 
   @Column({ type: 'jsonb', nullable: true })
@@ -439,10 +439,10 @@ export class SecurityIncident {
   @Column({ type: 'varchar', length: 100, nullable: true })
   attackVector?: string | null;
 
-  @Column({ type: 'simple-array', nullable: true })
+  @Column({ type: 'text', array: true, nullable: true })
   affectedSystems?: string[] | null;
 
-  @Column({ type: 'simple-array', nullable: true })
+  @Column({ type: 'text', array: true, nullable: true })
   affectedTenants?: string[] | null;
 
   // Impact assessment
@@ -481,11 +481,11 @@ export class SecurityIncident {
   @Column({ type: 'varchar', length: 255, nullable: true })
   leadInvestigatorName?: string | null;
 
-  @Column({ type: 'simple-array', nullable: true })
+  @Column({ type: 'text', array: true, nullable: true })
   teamMembers?: string[] | null;
 
   // Related events
-  @Column({ type: 'simple-array', nullable: true })
+  @Column({ type: 'text', array: true, nullable: true })
   relatedSecurityEvents?: string[] | null;
 
   // Documentation
@@ -554,10 +554,10 @@ export class ThreatIntelligence {
   description?: string | null;
 
   // Classification
-  @Column({ type: 'simple-array', nullable: true })
+  @Column({ type: 'text', array: true, nullable: true })
   threatTypes?: string[] | null;
 
-  @Column({ type: 'simple-array', nullable: true })
+  @Column({ type: 'text', array: true, nullable: true })
   tags?: string[] | null;
 
   // Confidence & validity
@@ -584,7 +584,7 @@ export class ThreatIntelligence {
   firstSeenAt?: Date | null;
 
   // Related data
-  @Column({ type: 'simple-array', nullable: true })
+  @Column({ type: 'text', array: true, nullable: true })
   relatedIndicators?: string[] | null;
 
   @Column({ type: 'jsonb', nullable: true })
@@ -648,7 +648,7 @@ export class DataRequest {
   @Column({ type: 'text' })
   description!: string;
 
-  @Column({ type: 'simple-array', nullable: true })
+  @Column({ type: 'text', array: true, nullable: true })
   dataCategories?: string[] | null;
 
   @Column({ type: 'text', nullable: true })
@@ -745,7 +745,7 @@ export class ComplianceReport {
   reportPeriodEnd!: Date;
 
   // Scope
-  @Column({ type: 'simple-array', nullable: true })
+  @Column({ type: 'text', array: true, nullable: true })
   includedTenants?: string[] | null;
 
   @Column({ type: 'boolean', default: true })

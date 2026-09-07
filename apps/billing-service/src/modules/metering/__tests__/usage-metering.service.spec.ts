@@ -10,6 +10,10 @@ import {
   UsageThreshold,
   ThresholdBreachEvent,
 } from '../usage-metering.service';
+import { ScheduledJobRunner } from '@aquaculture/backend-common/scheduling';
+import { createScheduledJobTestExecutor } from '@aquaculture/backend-common/scheduling/testing';
+
+const scheduledJobs = createScheduledJobTestExecutor();
 
 describe('UsageMeteringService', () => {
   let service: UsageMeteringService;
@@ -50,6 +54,7 @@ describe('UsageMeteringService', () => {
           provide: RedisService,
           useValue: mockRedisService,
         },
+        { provide: ScheduledJobRunner, useValue: scheduledJobs.executor },
       ],
     }).compile();
 

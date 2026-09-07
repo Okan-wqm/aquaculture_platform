@@ -7,8 +7,19 @@
  * OPTIMIZED: Redis persistence for distributed consistency and fault tolerance.
  */
 
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Optional } from '@nestjs/common';
-import { Interval } from '@nestjs/schedule';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  OnModuleInit,
+  OnModuleDestroy,
+  Optional,
+} from '@nestjs/common';
+import {
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { isCanaryTenant } from '@aquaculture/backend-common/billing';
 import { RedisService } from '@aquaculture/backend-common/redis';
@@ -199,6 +210,7 @@ export class UsageMeteringService implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     private readonly eventEmitter: EventEmitter2,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
     @Optional()
     private readonly redisService?: RedisService,
   ) {}
@@ -248,8 +260,11 @@ export class UsageMeteringService implements OnModuleInit, OnModuleDestroy {
    * WHAT: every 5s, drain the in-memory event buffer into per-tenant meter
    * readings. `flushEventBuffer` is a no-op when the buffer is empty.
    */
-  @Interval('metering-flush-events', 5000)
-  runScheduledFlush(): void {
+  // `each-replica`: the buffer being drained is THIS process's. A cluster
+  // lock would leave every other replica's events in memory until restart,
+  // which is unbilled usage, not a skipped tick.
+  @ScheduledJob({ name: 'metering.flush-events', every: 5_000, scope: 'each-replica' })
+  async runScheduledFlush(): Promise<void> {
     this.flushEventBuffer();
   }
 
@@ -263,7 +278,9 @@ export class UsageMeteringService implements OnModuleInit, OnModuleDestroy {
    *
    * WHAT: every 10s, upsert dirty tenant meter states to Redis.
    */
-  @Interval('metering-redis-sync', 10000)
+  // `each-replica`: `dirtyTenants` is per-process, so the durability write
+  // has to happen on the process that holds the dirt.
+  @ScheduledJob({ name: 'metering.redis-sync', every: 10_000, scope: 'each-replica' })
   async runScheduledRedisSync(): Promise<void> {
     await this.syncToRedis();
   }
@@ -282,8 +299,9 @@ export class UsageMeteringService implements OnModuleInit, OnModuleDestroy {
    * WHAT: hourly, evict idempotency keys older than 1h and tenant states idle
    * beyond the staleness window.
    */
-  @Interval('metering-cleanup', 3600000)
-  runScheduledCleanup(): void {
+  // `each-replica`: both sweeps walk this process's own maps.
+  @ScheduledJob({ name: 'metering.cleanup', every: 3_600_000, scope: 'each-replica' })
+  async runScheduledCleanup(): Promise<void> {
     this.cleanupOldIdempotencyKeys();
     this.cleanupStaleTenantStates();
   }

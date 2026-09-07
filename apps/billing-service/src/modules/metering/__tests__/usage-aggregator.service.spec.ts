@@ -11,6 +11,10 @@ import {
   UsageTrendPoint,
 } from '../usage-aggregator.service';
 import { UsageMeteringService, MeterType } from '../usage-metering.service';
+import { ScheduledJobRunner } from '@aquaculture/backend-common/scheduling';
+import { createScheduledJobTestExecutor } from '@aquaculture/backend-common/scheduling/testing';
+
+const scheduledJobs = createScheduledJobTestExecutor();
 
 describe('UsageAggregatorService', () => {
   let service: UsageAggregatorService;
@@ -65,6 +69,7 @@ describe('UsageAggregatorService', () => {
           provide: EventEmitter2,
           useValue: mockEventEmitter,
         },
+        { provide: ScheduledJobRunner, useValue: scheduledJobs.executor },
       ],
     }).compile();
 

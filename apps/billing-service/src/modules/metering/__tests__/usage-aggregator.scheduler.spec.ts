@@ -4,8 +4,10 @@
  * Before Faz E the metering rollup chain was dead: `performRollup` had zero
  * callers and every `RollupConfig.aggregateOnSchedule` flag was written but
  * never read. This suite pins the scheduler contract:
- *   - `runScheduledRollups` is registered as an hourly `@Cron`.
- *   - `flushDirtyDataOnInterval` is registered as a 30s `@Interval`.
+ *   - `runScheduledRollups` is registered hourly and runs under a lease.
+ *   - `flushDirtyDataOnInterval` is registered every 30s and runs on EVERY
+ *     replica, because the dirty aggregations it persists are in this
+ *     process's memory (ADMIN-HIGH-013).
  *   - `runScheduledRollups` reads `rollupConfigs` and drives `performRollup`
  *     for the full hourly→daily→weekly/monthly chain.
  *   - the pass is idempotent and no-ops safely before any usage is ingested
@@ -20,13 +22,16 @@ import { CronExpression } from '@nestjs/schedule';
 import { DataSource } from 'typeorm';
 import { UsageAggregatorService, AggregationPeriod } from '../usage-aggregator.service';
 import { UsageMeteringService, MeterType } from '../usage-metering.service';
+import { ScheduledJobRunner } from '@aquaculture/backend-common/scheduling';
+import { createScheduledJobTestExecutor } from '@aquaculture/backend-common/scheduling/testing';
 
 // @nestjs/schedule attaches its decorator metadata through Nest's `SetMetadata`
 // under these keys. The constants are the package's public decorator contract
 // but are not re-exported from the entrypoint, so we reference the literals.
 const SCHEDULE_CRON_OPTIONS = 'SCHEDULE_CRON_OPTIONS';
 const SCHEDULE_INTERVAL_OPTIONS = 'SCHEDULE_INTERVAL_OPTIONS';
-const SCHEDULER_NAME = 'SCHEDULER_NAME';
+
+const scheduledJobs = createScheduledJobTestExecutor();
 
 describe('UsageAggregatorService — scheduled rollup wiring (Faz E)', () => {
   let service: UsageAggregatorService;
@@ -55,6 +60,7 @@ describe('UsageAggregatorService — scheduled rollup wiring (Faz E)', () => {
         { provide: DataSource, useValue: mockDataSource },
         { provide: UsageMeteringService, useValue: mockUsageMeteringService },
         { provide: EventEmitter2, useValue: mockEventEmitter },
+        { provide: ScheduledJobRunner, useValue: scheduledJobs.executor },
       ],
     }).compile();
 
@@ -64,10 +70,11 @@ describe('UsageAggregatorService — scheduled rollup wiring (Faz E)', () => {
 
   afterEach(() => {
     jest.clearAllMocks();
+    scheduledJobs.reset();
   });
 
-  describe('@Cron / @Interval registration', () => {
-    it('registers runScheduledRollups as an EVERY_HOUR @Cron', () => {
+  describe('schedule and lease registration', () => {
+    it('registers runScheduledRollups hourly and runs it under a cluster lease', async () => {
       const cron = Reflect.getMetadata(
         SCHEDULE_CRON_OPTIONS,
         UsageAggregatorService.prototype.runScheduledRollups,
@@ -75,12 +82,16 @@ describe('UsageAggregatorService — scheduled rollup wiring (Faz E)', () => {
 
       expect(cron).toBeDefined();
       expect(cron.cronTime).toBe(CronExpression.EVERY_HOUR);
-      expect(
-        Reflect.getMetadata(SCHEDULER_NAME, UsageAggregatorService.prototype.runScheduledRollups),
-      ).toBe('metering-aggregator-rollup');
+
+      // The rollup rebuilds SHARED `usage_aggregations` rows, so exactly one
+      // replica may run it — the schedule alone never guaranteed that.
+      await service.runScheduledRollups();
+      expect(scheduledJobs.entries).toEqual([
+        { job: 'metering-aggregator.rollup', scope: 'cluster-single' },
+      ]);
     });
 
-    it('registers flushDirtyDataOnInterval as a 30s @Interval', () => {
+    it('registers flushDirtyDataOnInterval every 30s and runs it on every replica', async () => {
       const interval = Reflect.getMetadata(
         SCHEDULE_INTERVAL_OPTIONS,
         UsageAggregatorService.prototype.flushDirtyDataOnInterval,
@@ -88,12 +99,14 @@ describe('UsageAggregatorService — scheduled rollup wiring (Faz E)', () => {
 
       expect(interval).toBeDefined();
       expect(interval.timeout).toBe(30_000);
-      expect(
-        Reflect.getMetadata(
-          SCHEDULER_NAME,
-          UsageAggregatorService.prototype.flushDirtyDataOnInterval,
-        ),
-      ).toBe('metering-aggregator-persist');
+
+      // `each-replica`, deliberately: the dirty data is per-process, so a
+      // leader-only tick would leave every other replica's aggregations
+      // unpersisted — silent metering loss, not a skipped tick.
+      await service.flushDirtyDataOnInterval();
+      expect(scheduledJobs.entries).toEqual([
+        { job: 'metering-aggregator.persist', scope: 'each-replica' },
+      ]);
     });
   });
 

@@ -11,6 +11,7 @@ import { CANARY_TENANT_IDS_ENV } from '@aquaculture/backend-common/billing';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import { UsageMeteringMetrics, UsageMeteringService } from '../usage-metering.service';
+import { createScheduledJobTestExecutor } from '@aquaculture/backend-common/scheduling/testing';
 
 const CANARY = '11111111-2222-4333-8444-555555555555';
 const CUSTOMER = '80424281-4ce3-4e13-b44b-0ea497dc34c4';
@@ -23,6 +24,8 @@ function usageEvent(tenantId: string): Parameters<UsageMeteringService['recordUs
   } as Parameters<UsageMeteringService['recordUsage']>[0];
 }
 
+const scheduledJobs = createScheduledJobTestExecutor();
+
 describe('UsageMeteringService canary exemption', () => {
   let service: UsageMeteringService;
   let previous: string | undefined;
@@ -31,7 +34,7 @@ describe('UsageMeteringService canary exemption', () => {
     previous = process.env[CANARY_TENANT_IDS_ENV];
     process.env[CANARY_TENANT_IDS_ENV] = CANARY;
     // Only recordUsage is under test; it emits nothing and needs no Redis.
-    service = new UsageMeteringService(new EventEmitter2());
+    service = new UsageMeteringService(new EventEmitter2(), scheduledJobs.executor);
   });
 
   afterEach(() => {

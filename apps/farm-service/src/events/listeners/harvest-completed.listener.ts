@@ -65,8 +65,9 @@ import { withTenantContext } from '@aquaculture/backend-common/context';
 import { RedisService } from '@aquaculture/backend-common/redis';
 import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IEventBus, IEventHandler } from '@platform/event-bus';
-import { toEventIso,
+import { IEventBus, IEventHandler, HandlerOutcome } from '@platform/event-bus';
+import {
+  toEventIso,
   createBaseEvent,
   type BatchHarvestedEvent,
   type BatchProductionCompletedEvent,
@@ -108,9 +109,7 @@ export interface HarvestReport {
 }
 
 @Injectable()
-export class HarvestCompletedListener
-  implements IEventHandler<BatchHarvestedEvent>, OnModuleInit
-{
+export class HarvestCompletedListener implements IEventHandler<BatchHarvestedEvent>, OnModuleInit {
   private readonly logger = new Logger(HarvestCompletedListener.name);
 
   /**
@@ -125,7 +124,8 @@ export class HarvestCompletedListener
     private readonly batchRepository: Repository<Batch>,
     @InjectRepository(TankBatch)
     private readonly tankBatchRepository: Repository<TankBatch>,
-    @Optional() @Inject('EVENT_BUS')
+    @Optional()
+    @Inject('EVENT_BUS')
     private readonly eventBus?: IEventBus,
     // RedisService is provided globally (RedisModule @Global). @Optional() keeps
     // the listener constructible in NATS-/Redis-less unit harnesses; without it
@@ -136,7 +136,8 @@ export class HarvestCompletedListener
     // type is NARROWED to the two methods the listener actually uses
     // (Tier-1 "depend on exactly what you need") — this also lets unit tests
     // pass a minimal double with no unsafe casts cast.
-    @Optional() @Inject(RedisService)
+    @Optional()
+    @Inject(RedisService)
     private readonly redisService?: Pick<RedisService, 'setNx' | 'del'>,
   ) {}
 
@@ -166,16 +167,17 @@ export class HarvestCompletedListener
    * Handle a BatchHarvested contract event.
    *
    * Fault-tolerant: the harvest record is already committed (outbox guarantee),
-   * so a failure here must not redeliver indefinitely. Errors are logged and
-   * swallowed.
+   * so a failure here is a bounded retry (the idempotency claim is released
+   * first), dead-lettered once the consumer's delivery budget is spent —
+   * never a silent acknowledgement (PLAT-HIGH-902).
    */
-  async handle(event: BatchHarvestedEvent): Promise<void> {
+  async handle(event: BatchHarvestedEvent): Promise<HandlerOutcome> {
     if (!event.tenantId || !isValidUUID(event.tenantId)) {
       this.logger.error(
         'BatchHarvested event has missing/invalid tenantId — skipping to ' +
           'prevent cross-tenant status corruption.',
       );
-      return;
+      return HandlerOutcome.terminate('BatchHarvested: missing or invalid tenantId');
     }
 
     // TOLERANT READER (contract mandate): a missing/undefined `isFinal` MUST be
@@ -199,7 +201,7 @@ export class HarvestCompletedListener
         `[BatchHarvested] eventId=${event.eventId} already processed — ` +
           'skipping to avoid duplicate follow-ups.',
       );
-      return;
+      return HandlerOutcome.ack();
     }
 
     try {
@@ -214,18 +216,21 @@ export class HarvestCompletedListener
         await this.publishFollowUps(event, isFinal, remainingQuantity, report);
       });
 
-      this.logger.log(
-        `[BatchHarvested] Successfully processed batch=${event.batchId}`,
-      );
+      this.logger.log(`[BatchHarvested] Successfully processed batch=${event.batchId}`);
+      return HandlerOutcome.ack();
     } catch (error) {
-      // Release the idempotency claim so a legitimate redelivery (NATS
-      // max_deliver) can retry the side effects rather than being permanently
-      // suppressed by a transient failure.
+      // Release the idempotency claim so the redelivery (NATS max_deliver)
+      // can retry the side effects rather than being permanently suppressed
+      // by a transient failure.
       await this.releaseEvent(event);
       this.logger.error(
         `[BatchHarvested] Failed to process batch=${event.batchId}: ` +
           `${(error as Error).message}`,
         (error as Error).stack,
+      );
+      return HandlerOutcome.retry(
+        `BatchHarvested: follow-ups failed for batch ${event.batchId}`,
+        error,
       );
     }
   }
@@ -253,9 +258,7 @@ export class HarvestCompletedListener
         HarvestCompletedListener.DEDUP_TTL_SECONDS,
       );
     } catch (error) {
-      this.logger.warn(
-        `Idempotency claim failed (treating as won): ${(error as Error).message}`,
-      );
+      this.logger.warn(`Idempotency claim failed (treating as won): ${(error as Error).message}`);
       return true;
     }
   }
@@ -268,9 +271,7 @@ export class HarvestCompletedListener
     try {
       await this.redisService.del(this.dedupKey(event));
     } catch (error) {
-      this.logger.warn(
-        `Idempotency claim release failed: ${(error as Error).message}`,
-      );
+      this.logger.warn(`Idempotency claim release failed: ${(error as Error).message}`);
     }
   }
 
@@ -279,10 +280,7 @@ export class HarvestCompletedListener
    * post-write `currentQuantity` (the contract carries no `remainingQuantity`,
    * so it is the source of truth derived from the aggregate).
    */
-  private async updateBatchStatus(
-    event: BatchHarvestedEvent,
-    isFinal: boolean,
-  ): Promise<number> {
+  private async updateBatchStatus(event: BatchHarvestedEvent, isFinal: boolean): Promise<number> {
     const batch = await this.batchRepository.findOne({
       where: { id: event.batchId, tenantId: event.tenantId },
     });
@@ -302,9 +300,7 @@ export class HarvestCompletedListener
         batch.statusReason = 'Partial harvest in progress';
         batch.updatedBy = event.userId;
         await this.batchRepository.save(batch);
-        this.logger.log(
-          `Batch ${event.batchId} status updated to HARVESTING`,
-        );
+        this.logger.log(`Batch ${event.batchId} status updated to HARVESTING`);
       }
     }
 
@@ -314,9 +310,7 @@ export class HarvestCompletedListener
   /**
    * Generate a harvest report from the batch aggregate + the contract figures.
    */
-  private async generateHarvestReport(
-    event: BatchHarvestedEvent,
-  ): Promise<HarvestReport> {
+  private async generateHarvestReport(event: BatchHarvestedEvent): Promise<HarvestReport> {
     const batch = await this.batchRepository.findOne({
       where: { id: event.batchId, tenantId: event.tenantId },
     });
@@ -437,11 +431,11 @@ export class HarvestCompletedListener
           `Tank ${tankBatch.tankCode || tankBatch.tankId} cleared after final harvest`,
         );
         const tankCleared: TankClearedEvent = {
-          ...createBaseEvent<TankClearedEvent>(
-            'TankCleared',
-            event.tenantId,
-            { ...lineage, aggregateId: tankBatch.tankId, aggregateType: 'Tank' },
-          ),
+          ...createBaseEvent<TankClearedEvent>('TankCleared', event.tenantId, {
+            ...lineage,
+            aggregateId: tankBatch.tankId,
+            aggregateType: 'Tank',
+          }),
           tankId: tankBatch.tankId,
           tankCode: tankBatch.tankCode,
           previousBatchId: event.batchId,

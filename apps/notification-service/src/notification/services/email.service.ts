@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
+import type { HttpFailureClass } from '@aquaculture/backend-common/http';
 import { maskEmail } from '@aquaculture/backend-common/utils';
 
 /**
@@ -110,6 +111,33 @@ export const FISKERIDIREKTORATET_EMAIL = 'postmottak@fiskeridir.no';
  * Email Service
  * Handles email notifications using nodemailer
  */
+/**
+ * A failed e-mail delivery, classified for the bus (PLAT-HIGH-902).
+ * `failureClass` is the duck-typed marker outcomeForError reads.
+ */
+export class EmailDeliveryError extends Error {
+  constructor(
+    message: string,
+    readonly failureClass: HttpFailureClass,
+    readonly cause?: unknown,
+  ) {
+    super(message);
+    this.name = 'EmailDeliveryError';
+  }
+
+  /** nodemailer surfaces the SMTP reply code as `responseCode`; 5xx is final. */
+  static fromTransport(error: unknown): EmailDeliveryError {
+    if (error instanceof EmailDeliveryError) return error;
+    const message = error instanceof Error ? error.message : String(error);
+    const responseCode =
+      typeof error === 'object' && error !== null
+        ? (error as { responseCode?: unknown }).responseCode
+        : undefined;
+    const permanent = typeof responseCode === 'number' && responseCode >= 500;
+    return new EmailDeliveryError(message, permanent ? 'permanent' : 'transient', error);
+  }
+}
+
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
@@ -118,10 +146,7 @@ export class EmailService {
   private readonly isEnabled: boolean;
 
   constructor(private readonly configService: ConfigService) {
-    this.fromAddress = this.configService.get(
-      'SMTP_FROM',
-      'noreply@aquaculture-platform.com',
-    );
+    this.fromAddress = this.configService.get('SMTP_FROM', 'noreply@aquaculture-platform.com');
     this.isEnabled = this.configService.get('SMTP_ENABLED', 'true') === 'true';
 
     if (this.isEnabled) {
@@ -160,18 +185,19 @@ export class EmailService {
   }
 
   /**
-   * Send a generic email
+   * Send a generic email.
+   *
+   * Throws EmailDeliveryError with the failure already classified
+   * (PLAT-HIGH-902): no transporter is a deployment fact that redelivery
+   * cannot change (permanent); an SMTP 5xx is the server's final answer for
+   * this message (permanent); everything else — connection, timeout, 4xx
+   * greylisting — is transient and worth the bus's retry budget.
    */
-  async sendEmail(
-    to: string,
-    subject: string,
-    html: string,
-    text?: string,
-  ): Promise<string> {
+  async sendEmail(to: string, subject: string, html: string, text?: string): Promise<string> {
     if (!this.transporter) {
       // SECURITY: Mask email in logs to prevent PII exposure (H-14)
       this.logger.warn(`Email not sent (disabled): ${subject} to ${maskEmail(to)}`);
-      throw new Error('SMTP transporter is not configured');
+      throw new EmailDeliveryError('SMTP transporter is not configured', 'permanent');
     }
 
     try {
@@ -188,10 +214,8 @@ export class EmailService {
       return result.messageId;
     } catch (error) {
       // SECURITY: Mask email in logs to prevent PII exposure (H-14)
-      this.logger.error(
-        `Failed to send email to ${maskEmail(to)}: ${(error as Error).message}`,
-      );
-      throw error;
+      this.logger.error(`Failed to send email to ${maskEmail(to)}: ${(error as Error).message}`);
+      throw EmailDeliveryError.fromTransport(error);
     }
   }
 
@@ -202,7 +226,10 @@ export class EmailService {
     // Sanitize recipient email to prevent header injection
     const sanitizedTo = this.sanitizeEmailAddress(to);
     // Strip CRLF from subject to prevent SMTP header injection
-    const subject = `[${alertData.severity.toUpperCase()}] ${alertData.ruleName}`.replace(/[\r\n]/g, '');
+    const subject = `[${alertData.severity.toUpperCase()}] ${alertData.ruleName}`.replace(
+      /[\r\n]/g,
+      '',
+    );
     const html = this.generateAlertEmailTemplate(alertData);
 
     return await this.sendEmail(sanitizedTo, subject, html);
@@ -357,24 +384,36 @@ export class EmailService {
                 <div class="field-label">Message</div>
                 <div class="field-value">${escapeHtml(data.message)}</div>
               </div>
-              ${data.farmName ? `
+              ${
+                data.farmName
+                  ? `
               <div class="field">
                 <div class="field-label">Farm</div>
                 <div class="field-value">${escapeHtml(data.farmName)}</div>
               </div>
-              ` : ''}
-              ${data.pondName ? `
+              `
+                  : ''
+              }
+              ${
+                data.pondName
+                  ? `
               <div class="field">
                 <div class="field-label">Pond</div>
                 <div class="field-value">${escapeHtml(data.pondName)}</div>
               </div>
-              ` : ''}
-              ${data.sensorId ? `
+              `
+                  : ''
+              }
+              ${
+                data.sensorId
+                  ? `
               <div class="field">
                 <div class="field-label">Sensor ID</div>
                 <div class="field-value">${escapeHtml(data.sensorId)}</div>
               </div>
-              ` : ''}
+              `
+                  : ''
+              }
               <div class="field">
                 <div class="field-label">Time</div>
                 <div class="field-value">${escapeHtml((data.timestamp || new Date()).toLocaleString())}</div>
@@ -415,7 +454,9 @@ export class EmailService {
 
     // Enforce RFC 5321 maximum email address length (254 characters)
     if (sanitized.length > 254) {
-      this.logger.warn(`Email address exceeds maximum length (254 chars): ${sanitized.substring(0, 20)}...`);
+      this.logger.warn(
+        `Email address exceeds maximum length (254 chars): ${sanitized.substring(0, 20)}...`,
+      );
       throw new Error('Email address exceeds maximum allowed length');
     }
 
@@ -458,17 +499,11 @@ export class EmailService {
 
     // SECURITY FIX: Sanitize all recipient email addresses to prevent header injection
     // This prevents CRLF injection attacks that could manipulate email headers (BCC injection, etc.)
-    const sanitizedRecipients = recipients.map(email => this.sanitizeEmailAddress(email));
+    const sanitizedRecipients = recipients.map((email) => this.sanitizeEmailAddress(email));
 
-    const messageId = await this.sendEmail(
-      sanitizedRecipients.join(', '),
-      subject,
-      html,
-    );
+    const messageId = await this.sendEmail(sanitizedRecipients.join(', '), subject, html);
 
-    this.logger.log(
-      `Regulatory report email sent: ${data.reportType} for ${data.siteName}`,
-    );
+    this.logger.log(`Regulatory report email sent: ${data.reportType} for ${data.siteName}`);
 
     return { messageId, sentTo: sanitizedRecipients };
   }
@@ -505,9 +540,9 @@ export class EmailService {
    */
   private generateRegulatoryReportTemplate(data: RegulatoryReportEmailData): string {
     const reportColors = {
-      welfare: '#dc3545',   // Red
-      disease: '#ff6600',   // Orange
-      escape: '#9c27b0',    // Purple
+      welfare: '#dc3545', // Red
+      disease: '#ff6600', // Orange
+      escape: '#9c27b0', // Purple
     };
 
     const reportIcons = {
@@ -604,12 +639,16 @@ export class EmailService {
                   <span class="field-label">Email:</span>
                   <span class="field-value">${escapeHtml(data.contactEmail)}</span>
                 </div>
-                ${data.contactPhone ? `
+                ${
+                  data.contactPhone
+                    ? `
                 <div class="field">
                   <span class="field-label">Phone / Telefon:</span>
                   <span class="field-value">${escapeHtml(data.contactPhone)}</span>
                 </div>
-                ` : ''}
+                `
+                    : ''
+                }
               </div>
 
               <!-- Report Metadata -->
@@ -645,7 +684,9 @@ export class EmailService {
   /**
    * Generate welfare event section HTML
    */
-  private generateWelfareSection(data: NonNullable<RegulatoryReportEmailData['welfareData']>): string {
+  private generateWelfareSection(
+    data: NonNullable<RegulatoryReportEmailData['welfareData']>,
+  ): string {
     return `
       <div class="section">
         <div class="section-title">Welfare Event Details / Velferdshendelsedetaljer</div>
@@ -659,29 +700,37 @@ export class EmailService {
             ${escapeHtml(data.severity.toUpperCase())}
           </span>
         </div>
-        ${data.mortalityRate !== undefined ? `
+        ${
+          data.mortalityRate !== undefined
+            ? `
         <div class="highlight-box">
           <div class="field">
             <span class="field-label">Mortality Rate / Dodelighet:</span>
             <span class="field-value"><strong>${escapeHtml(String(data.mortalityRate))}%</strong> (${escapeHtml(data.mortalityPeriod || 'N/A')})</span>
           </div>
         </div>
-        ` : ''}
+        `
+            : ''
+        }
         <div class="field">
           <span class="field-label">Description / Beskrivelse:</span>
           <span class="field-value">${escapeHtml(data.description)}</span>
         </div>
-        ${data.affectedBatches && data.affectedBatches.length > 0 ? `
+        ${
+          data.affectedBatches && data.affectedBatches.length > 0
+            ? `
         <div class="field">
           <span class="field-label">Affected Batches / Berorte partier:</span>
-          <span class="field-value">${data.affectedBatches.map(b => escapeHtml(b)).join(', ')}</span>
+          <span class="field-value">${data.affectedBatches.map((b) => escapeHtml(b)).join(', ')}</span>
         </div>
-        ` : ''}
+        `
+            : ''
+        }
         <div class="field">
           <span class="field-label">Immediate Actions / Strakstiltak:</span>
           <span class="field-value">
             <ul class="list-items">
-              ${data.immediateActions.map(action => `<li>${escapeHtml(action)}</li>`).join('')}
+              ${data.immediateActions.map((action) => `<li>${escapeHtml(action)}</li>`).join('')}
             </ul>
           </span>
         </div>
@@ -692,7 +741,9 @@ export class EmailService {
   /**
    * Generate disease outbreak section HTML
    */
-  private generateDiseaseSection(data: NonNullable<RegulatoryReportEmailData['diseaseData']>): string {
+  private generateDiseaseSection(
+    data: NonNullable<RegulatoryReportEmailData['diseaseData']>,
+  ): string {
     const categoryDescriptions: Record<string, string> = {
       A: 'Liste A - Exotic Disease / Eksotisk sykdom',
       C: 'Liste C - Non-Exotic Notifiable / Meldepliktig ikke-eksotisk',
@@ -726,7 +777,7 @@ export class EmailService {
           <span class="field-label">Clinical Signs / Kliniske tegn:</span>
           <span class="field-value">
             <ul class="list-items">
-              ${data.clinicalSigns.map(sign => `<li>${escapeHtml(sign)}</li>`).join('')}
+              ${data.clinicalSigns.map((sign) => `<li>${escapeHtml(sign)}</li>`).join('')}
             </ul>
           </span>
         </div>
@@ -743,7 +794,9 @@ export class EmailService {
   /**
    * Generate escape incident section HTML
    */
-  private generateEscapeSection(data: NonNullable<RegulatoryReportEmailData['escapeData']>): string {
+  private generateEscapeSection(
+    data: NonNullable<RegulatoryReportEmailData['escapeData']>,
+  ): string {
     return `
       <div class="section">
         <div class="section-title">Escape Incident Details / Rommingshendelsedetaljer</div>
@@ -771,7 +824,7 @@ export class EmailService {
         </div>
         <div class="field">
           <span class="field-label">Affected Units / Berorte enheter:</span>
-          <span class="field-value">${data.affectedUnits.map(u => escapeHtml(u)).join(', ')}</span>
+          <span class="field-value">${data.affectedUnits.map((u) => escapeHtml(u)).join(', ')}</span>
         </div>
         <div class="field">
           <span class="field-label">Recovery Ongoing / Bergingsoperasjon pagaar:</span>

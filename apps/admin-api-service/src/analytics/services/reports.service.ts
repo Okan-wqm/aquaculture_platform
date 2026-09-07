@@ -154,6 +154,28 @@ export class ReportsService {
   ) {}
 
   /**
+   * A report generator refuses rather than answering with a zeroed body.
+   *
+   * The three financial and system reports used to catch every failure, log it,
+   * and return `{ data: [], summary: { …: 0, error: '…' } }` with a 200. The
+   * `error` marker was never read anywhere in the repository, so what reached
+   * the operator was a structurally valid report of zero revenue, zero invoices
+   * or zero API calls — indistinguishable from a real period with none. Two of
+   * the three run through `getCachedOrCompute`, so the zeroed body was written
+   * to Redis and served for the whole TTL.
+   *
+   * The admin panel already renders a failure ("Failed to generate report: …"),
+   * it just never saw one, because the request succeeded. Throwing hands it the
+   * case it was written for. The upstream message stays in the log rather than
+   * the response, so a driver error cannot reach the browser.
+   */
+  private reportGenerationFailed(reportName: string, error: unknown): InternalServerErrorException {
+    const detail = error instanceof Error ? error.message : String(error);
+    this.logger.error(`Failed to generate ${reportName} report: ${detail}`);
+    return new InternalServerErrorException(`Failed to generate the ${reportName} report`);
+  }
+
+  /**
    * Get cached report data or compute it
    */
   private async getCachedOrCompute<T>(cacheKey: string, compute: () => Promise<T>): Promise<T> {
@@ -553,16 +575,7 @@ export class ReportsService {
         },
       };
     } catch (error) {
-      this.logger.error(`Failed to generate revenue report: ${(error as Error).message}`);
-      return {
-        data: [],
-        summary: {
-          totalRevenue: 0,
-          totalNewSubscriptions: 0,
-          totalNetRevenue: 0,
-          error: 'Failed to generate revenue report',
-        },
-      };
+      throw this.reportGenerationFailed('revenue', error);
     }
   }
 
@@ -649,17 +662,7 @@ export class ReportsService {
         },
       };
     } catch (error) {
-      this.logger.error(`Failed to generate payments report: ${(error as Error).message}`);
-      return {
-        data: [],
-        summary: {
-          totalInvoices: 0,
-          totalPaid: 0,
-          totalPending: 0,
-          totalOverdue: 0,
-          error: 'Failed to generate payments report',
-        },
-      };
+      throw this.reportGenerationFailed('payments', error);
     }
   }
 
@@ -871,17 +874,7 @@ export class ReportsService {
         },
       };
     } catch (error) {
-      this.logger.error(`Failed to generate performance report: ${(error as Error).message}`);
-      return {
-        data: [],
-        summary: {
-          avgResponseTime: 0,
-          avgErrorRate: 0,
-          avgUptime: 0,
-          totalApiCalls: 0,
-          error: 'Failed to generate performance report',
-        },
-      };
+      throw this.reportGenerationFailed('performance', error);
     }
   }
 

@@ -19,7 +19,7 @@
  */
 import { isValidUUID, runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
-import { IEventBus, IEventHandler } from '@platform/event-bus';
+import { IEventBus, IEventHandler, HandlerOutcome } from '@platform/event-bus';
 import type { BaseEvent, SensorReadingEvent } from '@platform/event-contracts';
 import { DataSource } from 'typeorm';
 
@@ -60,19 +60,19 @@ export class SensorTemperatureProjectionListener implements IEventHandler<BaseEv
     return 'SensorReading';
   }
 
-  async handle(event: BaseEvent): Promise<void> {
+  async handle(event: BaseEvent): Promise<HandlerOutcome> {
     if (!event.tenantId || !isValidUUID(event.tenantId)) {
       this.logger.error(
         'SensorReading has missing/invalid tenantId — skipping to prevent ' +
           'cross-tenant read-model corruption.',
       );
-      return;
+      return HandlerOutcome.terminate('SensorReading: missing or invalid tenantId');
     }
 
     const reading = event as SensorReadingEvent;
     // Only temperature-bearing readings feed this projection.
     if (reading.readingTemperature == null || !isValidUUID(reading.sensorId)) {
-      return;
+      return HandlerOutcome.ack();
     }
     // Plausibility clamp (GSEC-MEDIUM-002): the projection feeds the feed-rate
     // calculation, so a miscalibrated/poisoned sensor must not be able to store
@@ -88,11 +88,11 @@ export class SensorTemperatureProjectionListener implements IEventHandler<BaseEv
         `SensorReading temperature ${String(temperature)} outside plausible bounds ` +
           `(${WATER_TEMPERATURE_MIN_C}..${WATER_TEMPERATURE_MAX_C} °C) — reading dropped.`,
       );
-      return;
+      return HandlerOutcome.ack();
     }
     const measuredAt = new Date(event.timestamp);
     if (Number.isNaN(measuredAt.getTime())) {
-      return;
+      return HandlerOutcome.ack();
     }
     // Future-timestamp guard (GSEC-MEDIUM-002): the newest-wins upsert compares
     // measuredAt, so a single far-future timestamp would pin a wrong temperature
@@ -101,7 +101,7 @@ export class SensorTemperatureProjectionListener implements IEventHandler<BaseEv
       this.logger.warn(
         `SensorReading timestamp ${event.timestamp} is in the future — reading dropped.`,
       );
-      return;
+      return HandlerOutcome.ack();
     }
 
     // Day bucket is computed in UTC here so the daily rollup is independent of
@@ -154,14 +154,16 @@ export class SensorTemperatureProjectionListener implements IEventHandler<BaseEv
           ],
         );
       });
+      return HandlerOutcome.ack();
     } catch (error) {
       this.logger.error(
         `SensorReading projection failed for tenant ${event.tenantId.substring(0, 8)}...: ` +
           `${(error as Error).message}`,
         (error as Error).stack,
       );
-      // Rethrow so the projection converges via NATS redelivery (idempotent upsert).
-      throw error;
+      // Retry so the projection converges via NATS redelivery (idempotent
+      // upsert), dead-lettered once the delivery budget is spent.
+      return HandlerOutcome.retry('SensorReading: temperature projection failed', error);
     }
   }
 }

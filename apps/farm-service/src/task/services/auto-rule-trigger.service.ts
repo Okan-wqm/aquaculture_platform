@@ -19,19 +19,17 @@
  *
  * @module Task/Services
  */
-import {
-  Injectable,
-  Logger,
-  OnModuleInit,
-  Inject,
-  Optional,
-} from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, Inject, Optional } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, QueryRunner } from 'typeorm';
-import { NatsEventBus, IEventHandler } from '@platform/event-bus';
+import { NatsEventBus, IEventHandler, HandlerOutcome } from '@platform/event-bus';
 import { createBaseEvent } from '@platform/event-contracts';
-import { listTenantSchemas, getTenantSchemaName, isValidUUID } from '@aquaculture/backend-common/database';
+import {
+  listTenantSchemas,
+  getTenantSchemaName,
+  isValidUUID,
+} from '@aquaculture/backend-common/database';
 import { AutoRule, AutoRuleTrigger } from '../entities/auto-rule.entity';
 import { Task, TaskStatus } from '../entities/task.entity';
 
@@ -55,15 +53,14 @@ export class AutoRuleTriggerService implements OnModuleInit {
     @InjectRepository(Task)
     private readonly taskRepository: Repository<Task>,
     private readonly dataSource: DataSource,
-    @Optional() @Inject('EVENT_BUS')
+    @Optional()
+    @Inject('EVENT_BUS')
     private readonly eventBus?: NatsEventBus,
   ) {}
 
   async onModuleInit(): Promise<void> {
     if (!this.eventBus) {
-      this.logger.warn(
-        'EVENT_BUS not available — AutoRule triggers will not fire from events',
-      );
+      this.logger.warn('EVENT_BUS not available — AutoRule triggers will not fire from events');
       return;
     }
 
@@ -72,13 +69,11 @@ export class AutoRuleTriggerService implements OnModuleInit {
       try {
         await this.eventBus.subscribe(eventName, {
           getEventType: () => eventName,
-          handle: (event: any) => this.handleEvent(eventName, event),
+          handle: (event: any): Promise<HandlerOutcome> => this.handleEvent(eventName, event),
         } as IEventHandler<any>);
         this.logger.log(`Subscribed to ${eventName} for AutoRule triggers`);
       } catch (err) {
-        this.logger.warn(
-          `Failed to subscribe to ${eventName}: ${(err as Error).message}`,
-        );
+        this.logger.warn(`Failed to subscribe to ${eventName}: ${(err as Error).message}`);
       }
     }
   }
@@ -92,21 +87,21 @@ export class AutoRuleTriggerService implements OnModuleInit {
    * no TenantSchemaMiddleware. We must use a dedicated QueryRunner with
    * explicit SET search_path for tenant schema isolation.
    */
-  async handleEvent(eventName: string, event: any): Promise<void> {
+  async handleEvent(eventName: string, event: any): Promise<HandlerOutcome> {
     const tenantId = event?.tenantId;
     if (!tenantId) {
       this.logger.warn(`Event ${eventName} has no tenantId, skipping`);
-      return;
+      return HandlerOutcome.terminate(`${eventName}: missing tenantId`);
     }
 
     // Validate UUID format to prevent SQL injection via search_path
     if (!isValidUUID(tenantId)) {
       this.logger.error(`Event ${eventName} has invalid tenantId format: ${tenantId}`);
-      return;
+      return HandlerOutcome.terminate(`${eventName}: invalid tenantId`);
     }
 
     const triggerType = TRIGGER_EVENT_MAP[eventName];
-    if (!triggerType) return;
+    if (!triggerType) return HandlerOutcome.ack();
 
     this.logger.debug(`Processing ${eventName} for tenant ${tenantId}`);
 
@@ -126,21 +121,26 @@ export class AutoRuleTriggerService implements OnModuleInit {
         },
       });
 
-      if (matchingRules.length === 0) return;
+      if (matchingRules.length === 0) return HandlerOutcome.ack();
 
       for (const rule of matchingRules) {
         try {
           await this.executeRuleWithQueryRunner(rule, event, queryRunner);
         } catch (err) {
-          this.logger.error(
-            `Failed to execute AutoRule ${rule.id}: ${(err as Error).message}`,
-          );
+          // One rule failing must not block its siblings; the failure is
+          // logged per rule and the trigger is acknowledged (a rule's task is
+          // recreated by the next matching trigger, not by redelivery).
+          this.logger.error(`Failed to execute AutoRule ${rule.id}: ${(err as Error).message}`);
         }
       }
+      return HandlerOutcome.ack();
     } catch (err) {
       this.logger.error(
         `Failed to process ${eventName} for tenant ${tenantId}: ${(err as Error).message}`,
       );
+      // The rule lookup itself failed (search_path / DB) — retry within the
+      // delivery budget instead of acknowledging a lost trigger.
+      return HandlerOutcome.retry(`${eventName}: auto-rule lookup failed`, err);
     } finally {
       await queryRunner.query('RESET search_path').catch(() => {});
       await queryRunner.release();
@@ -166,11 +166,9 @@ export class AutoRuleTriggerService implements OnModuleInit {
       category: rule.taskCategory,
       priority: rule.taskPriority,
       status: TaskStatus.PENDING,
-      assignedTo:
-        rule.assignTo || triggerEvent.userId || triggerEvent.assignedTo,
+      assignedTo: rule.assignTo || triggerEvent.userId || triggerEvent.assignedTo,
       assignedToName: 'Otomatik Atama',
-      createdBy:
-        rule.assignTo || triggerEvent.userId || 'system',
+      createdBy: rule.assignTo || triggerEvent.userId || 'system',
       dueDate: new Date(), // Due today
       checklistItems: [],
       notes: [],
@@ -266,16 +264,11 @@ export class AutoRuleTriggerService implements OnModuleInit {
             }
 
             if (rule.lastTriggered) {
-              const elapsed =
-                (now.getTime() - new Date(rule.lastTriggered).getTime()) / 3600000;
+              const elapsed = (now.getTime() - new Date(rule.lastTriggered).getTime()) / 3600000;
               if (elapsed < intervalHours) continue;
             }
 
-            await this.executeRuleWithQueryRunner(
-              rule,
-              { tenantId: rule.tenantId },
-              queryRunner,
-            );
+            await this.executeRuleWithQueryRunner(rule, { tenantId: rule.tenantId }, queryRunner);
           } catch (err) {
             this.logger.error(
               `Failed to process SCHEDULE rule ${rule.id}: ${(err as Error).message}`,

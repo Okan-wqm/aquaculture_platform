@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
-import { IEventBus, IEventHandler } from '@platform/event-bus';
+import { IEventBus, IEventHandler, HandlerOutcome, outcomeForError } from '@platform/event-bus';
 import type {
   InvoiceOverdueEvent,
   PaymentFailedEvent,
@@ -22,9 +22,7 @@ type BillingNotificationEvent = InvoiceOverdueEvent | PaymentFailedEvent | Subsc
  * - SubscriptionCreated: Send welcome/confirmation email
  */
 @Injectable()
-export class BillingEventHandler
-  implements IEventHandler<BillingNotificationEvent>, OnModuleInit
-{
+export class BillingEventHandler implements IEventHandler<BillingNotificationEvent>, OnModuleInit {
   private readonly logger = new Logger(BillingEventHandler.name);
 
   constructor(
@@ -44,27 +42,27 @@ export class BillingEventHandler
     await this.eventBus.subscribeWildcard('InvoiceOverdue', this);
     await this.eventBus.subscribeWildcard('PaymentFailed', this);
     await this.eventBus.subscribeWildcard('SubscriptionCreated', this);
-    this.logger.log('Subscribed to InvoiceOverdue, PaymentFailed, and SubscriptionCreated events (cross-tenant wildcard)');
+    this.logger.log(
+      'Subscribed to InvoiceOverdue, PaymentFailed, and SubscriptionCreated events (cross-tenant wildcard)',
+    );
   }
 
   getEventType(): string {
     return 'BillingEvent';
   }
 
-  async handle(event: BillingNotificationEvent): Promise<void> {
+  async handle(event: BillingNotificationEvent): Promise<HandlerOutcome> {
     // SECURITY: Validate tenantId format to ensure data isolation
     if (!event.tenantId || !UUID_REGEX.test(event.tenantId)) {
       this.logger.error(
         `Billing event has invalid or missing tenantId. ` +
-        'Skipping to prevent cross-tenant notification leakage.',
+          'Skipping to prevent cross-tenant notification leakage.',
       );
-      return;
+      return HandlerOutcome.terminate('Billing event: missing or invalid tenantId');
     }
 
     const eventType = event.eventType;
-    this.logger.log(
-      `Processing ${eventType} for tenant ${event.tenantId.substring(0, 8)}...`,
-    );
+    this.logger.log(`Processing ${eventType} for tenant ${event.tenantId.substring(0, 8)}...`);
 
     try {
       switch (eventType) {
@@ -79,12 +77,15 @@ export class BillingEventHandler
           break;
         default:
           this.logger.warn(`Unknown billing event type: ${eventType}`);
+          return HandlerOutcome.terminate(`Unknown billing event type: ${eventType}`);
       }
+      return HandlerOutcome.ack();
     } catch (error) {
       this.logger.error(
         `Error processing ${eventType} event: ${(error as Error).message}`,
         (error as Error).stack,
       );
+      return outcomeForError(`${eventType} billing notification`, error);
     }
   }
 
@@ -99,8 +100,8 @@ export class BillingEventHandler
     // (no finding ID yet — separate from this PR).
     this.logger.warn(
       `InvoiceOverdue: invoice ${event.invoiceNumber} for tenant ${event.tenantId.substring(0, 8)}... ` +
-      `is ${event.daysOverdue} days overdue (${event.currency} ${event.amount}). ` +
-      `Email dispatch requires billing contact lookup — skipping until tenant registry is available.`,
+        `is ${event.daysOverdue} days overdue (${event.currency} ${event.amount}). ` +
+        `Email dispatch requires billing contact lookup — skipping until tenant registry is available.`,
     );
   }
 
@@ -110,8 +111,8 @@ export class BillingEventHandler
   private async handlePaymentFailed(event: PaymentFailedEvent): Promise<void> {
     this.logger.warn(
       `PaymentFailed: payment ${event.paymentId} for tenant ${event.tenantId.substring(0, 8)}... ` +
-      `failed (${event.failureReason}). Retry ${event.retryCount}, will retry: ${event.willRetry}. ` +
-      `Email dispatch requires billing contact lookup — skipping until tenant registry is available.`,
+        `failed (${event.failureReason}). Retry ${event.retryCount}, will retry: ${event.willRetry}. ` +
+        `Email dispatch requires billing contact lookup — skipping until tenant registry is available.`,
     );
   }
 
@@ -121,8 +122,8 @@ export class BillingEventHandler
   private async handleSubscriptionCreated(event: SubscriptionCreatedEvent): Promise<void> {
     this.logger.log(
       `SubscriptionCreated: subscription ${event.subscriptionId} for tenant ${event.tenantId.substring(0, 8)}... ` +
-      `tier=${event.tier}, price=${event.currency} ${event.monthlyPrice}/mo. ` +
-      `Email dispatch requires billing contact lookup — skipping until tenant registry is available.`,
+        `tier=${event.tier}, price=${event.currency} ${event.monthlyPrice}/mo. ` +
+        `Email dispatch requires billing contact lookup — skipping until tenant registry is available.`,
     );
   }
 }

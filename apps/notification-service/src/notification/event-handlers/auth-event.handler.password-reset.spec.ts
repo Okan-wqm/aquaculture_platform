@@ -6,10 +6,10 @@ import type { PasswordResetRequestedEvent, UserInvitedEvent } from '@platform/ev
 import { AuthEventHandler } from './auth-event.handler';
 import { EmailService } from '../services/email.service';
 
-import { signedFetch } from '@aquaculture/backend-common/http';
+import { signedFetchJson } from '@aquaculture/backend-common/http';
 
 jest.mock('@aquaculture/backend-common/http', () => ({
-  signedFetch: jest.fn(),
+  signedFetchJson: jest.fn(),
 }));
 
 /**
@@ -23,7 +23,7 @@ jest.mock('@aquaculture/backend-common/http', () => ({
 describe('AuthEventHandler — PasswordResetRequested / UserInvited tenancy scope (SEC-HIGH-159)', () => {
   const TENANT = '11111111-1111-4111-8111-111111111111';
   const ACTION_TOKEN_ID = '22222222-2222-4222-8222-222222222222';
-  const mockSignedFetch = signedFetch as jest.MockedFunction<typeof signedFetch>;
+  const mockSignedFetch = signedFetchJson as jest.MockedFunction<typeof signedFetchJson>;
 
   const emailService = {
     sendEmail: jest.fn().mockResolvedValue('message-id-1'),
@@ -79,7 +79,7 @@ describe('AuthEventHandler — PasswordResetRequested / UserInvited tenancy scop
       ...overrides,
     }) as UserInvitedEvent;
 
-  /** signedFetch double that answers the PII, tenant-info and action-url routes. */
+  /** signedFetchJson double that answers the PII, tenant-info and action-url routes. */
   function answerInternalApi(): void {
     mockSignedFetch.mockImplementation((url: string | URL) => {
       const path = String(url);
@@ -88,7 +88,7 @@ describe('AuthEventHandler — PasswordResetRequested / UserInvited tenancy scop
         : path.includes('/info')
           ? { name: 'Acme Farms' }
           : { actionUrl: `https://app.example.test/reset-password/${ACTION_TOKEN_ID}` };
-      return Promise.resolve({ ok: true, json: () => Promise.resolve(body) } as Response);
+      return Promise.resolve({ ok: true as const, status: 200, body });
     });
   }
 
@@ -101,7 +101,7 @@ describe('AuthEventHandler — PasswordResetRequested / UserInvited tenancy scop
   it('a tenant user reset binds the tenant id into both internal calls', async () => {
     answerInternalApi();
 
-    await handler.handle(resetEvent());
+    await expect(handler.handle(resetEvent())).resolves.toEqual({ kind: 'ack' });
 
     const bindings = mockSignedFetch.mock.calls.map(([url, init]) => [String(url), init?.tenantId]);
     expect(bindings).toEqual(
@@ -119,7 +119,9 @@ describe('AuthEventHandler — PasswordResetRequested / UserInvited tenancy scop
   it('a super admin reset (platform scope) is delivered through the platform-scope identity, never dropped', async () => {
     answerInternalApi();
 
-    await handler.handle(resetEvent({ tenantId: 'system' }));
+    await expect(handler.handle(resetEvent({ tenantId: 'system' }))).resolves.toEqual({
+      kind: 'ack',
+    });
 
     const bindings = mockSignedFetch.mock.calls.map(([url, init]) => [String(url), init?.tenantId]);
     expect(bindings).toEqual(
@@ -131,18 +133,51 @@ describe('AuthEventHandler — PasswordResetRequested / UserInvited tenancy scop
     expect(emailService.sendEmail).toHaveBeenCalledTimes(1);
   });
 
-  it('a malformed scope throws to the bus instead of being acknowledged', async () => {
-    await expect(handler.handle(resetEvent({ tenantId: 'tenant-1' }))).rejects.toThrow(
-      InvalidEventTenantScopeError,
+  it('a malformed scope is terminated instead of being acknowledged or redelivered', async () => {
+    await expect(handler.handle(resetEvent({ tenantId: 'tenant-1' }))).resolves.toEqual(
+      expect.objectContaining({
+        kind: 'terminate',
+        cause: expect.any(InvalidEventTenantScopeError),
+      }),
     );
     expect(mockSignedFetch).not.toHaveBeenCalled();
     expect(emailService.sendEmail).not.toHaveBeenCalled();
   });
 
+  it('classifies a failed resolution: 503 retries, 404 terminates', async () => {
+    mockSignedFetch.mockResolvedValue({
+      ok: false,
+      status: 503,
+      failureClass: 'transient',
+      error: 'HTTP 503',
+    });
+    await expect(handler.handle(resetEvent())).resolves.toEqual(
+      expect.objectContaining({ kind: 'retry' }),
+    );
+
+    mockSignedFetch.mockResolvedValue({
+      ok: false,
+      status: 404,
+      failureClass: 'permanent',
+      error: 'HTTP 404',
+    });
+    await expect(handler.handle(resetEvent())).resolves.toEqual(
+      expect.objectContaining({ kind: 'terminate' }),
+    );
+    expect(emailService.sendEmail).not.toHaveBeenCalled();
+  });
+
+  it('terminates a legacy shape carrying a raw token or PII', async () => {
+    await expect(
+      handler.handle({ ...resetEvent(), resetToken: 'raw' } as PasswordResetRequestedEvent),
+    ).resolves.toEqual(expect.objectContaining({ kind: 'terminate' }));
+    expect(mockSignedFetch).not.toHaveBeenCalled();
+  });
+
   it('a tenant invitation resolves PII, tenant info and the link under the tenant binding', async () => {
     answerInternalApi();
 
-    await handler.handle(inviteEvent());
+    await expect(handler.handle(inviteEvent())).resolves.toEqual({ kind: 'ack' });
 
     expect(mockSignedFetch).toHaveBeenCalledWith(
       expect.stringContaining(`/internal/tenants/${TENANT}/info`),
@@ -158,9 +193,11 @@ describe('AuthEventHandler — PasswordResetRequested / UserInvited tenancy scop
   });
 
   it('UserInvited refuses the platform scope: an invitation always targets a tenant', async () => {
-    // The scope violation is a contract error and surfaces through the
-    // handler's error boundary as a logged, non-delivered event.
-    await handler.handle(inviteEvent({ tenantId: 'system' }));
+    // The scope violation is a contract error: terminated (dead-lettered),
+    // never delivered and never redelivered.
+    await expect(handler.handle(inviteEvent({ tenantId: 'system' }))).resolves.toEqual(
+      expect.objectContaining({ kind: 'terminate' }),
+    );
 
     expect(mockSignedFetch).not.toHaveBeenCalled();
     expect(emailService.sendWelcomeEmail).not.toHaveBeenCalled();

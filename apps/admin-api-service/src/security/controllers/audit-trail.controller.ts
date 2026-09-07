@@ -35,7 +35,7 @@ import { Request, Response } from 'express';
 
 import { AuditLog, AuditSeverity as ImmutableAuditSeverity } from '../../audit/audit.entity';
 import { AuditLogFilter, AuditLogService, PaginatedAuditLogs } from '../../audit/audit.service';
-import { getAuthUser } from '../../shared/authenticated-request';
+import { getAuthUser, requireAuthUserId } from '../../shared/authenticated-request';
 import {
   ActivityCategory,
   ActivitySeverity,
@@ -498,10 +498,11 @@ export class AuditTrailController {
   @HttpCode(HttpStatus.CREATED)
   async createRetentionPolicy(
     @Body() dto: CreateRetentionPolicyDto,
+    @Req() req: Request,
   ): Promise<RetentionPolicyEntity> {
     return this.auditService.createRetentionPolicy({
       ...dto,
-      createdBy: 'admin', // Would come from auth context
+      createdBy: requireAuthUserId(req),
     });
   }
 
@@ -512,8 +513,9 @@ export class AuditTrailController {
   async updateRetentionPolicy(
     @Param('id') id: string,
     @Body() dto: UpdateRetentionPolicyDto,
+    @Req() req: Request,
   ): Promise<RetentionPolicyEntity> {
-    return this.auditService.updateRetentionPolicy(id, dto, 'admin');
+    return this.auditService.updateRetentionPolicy(id, dto, requireAuthUserId(req));
   }
 
   /**

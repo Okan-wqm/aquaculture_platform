@@ -1,5 +1,11 @@
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
-import { IEventBus, IEventHandler, IEvent } from '@platform/event-bus';
+import {
+  IEventBus,
+  IEventHandler,
+  IEvent,
+  HandlerOutcome,
+  outcomeForError,
+} from '@platform/event-bus';
 import type { EventId } from '@platform/event-contracts';
 import { NotificationDispatcherService } from '../services/notification-dispatcher.service';
 import { InAppNotificationService } from '../services/in-app.service';
@@ -119,16 +125,16 @@ export class TaskAssignedEventHandler
     return 'TaskAssigned';
   }
 
-  async handle(event: TaskAssignedEvent | TaskOverdueEvent): Promise<void> {
+  async handle(event: TaskAssignedEvent | TaskOverdueEvent): Promise<HandlerOutcome> {
     const { payload } = event;
 
     // SECURITY: Validate tenantId format to ensure data isolation
     if (!payload.tenantId || !UUID_REGEX.test(payload.tenantId)) {
       this.logger.error(
         `Task event has invalid or missing tenantId. ` +
-        'Skipping to prevent cross-tenant notification leakage.',
+          'Skipping to prevent cross-tenant notification leakage.',
       );
-      return;
+      return HandlerOutcome.terminate('Task event: missing or invalid tenantId');
     }
 
     // Validate required fields
@@ -136,14 +142,14 @@ export class TaskAssignedEventHandler
       this.logger.error(
         `Task event missing required fields (taskId, assigneeId, or title). Skipping.`,
       );
-      return;
+      return HandlerOutcome.terminate('Task event: missing taskId, assigneeId or title');
     }
 
     const eventType = event.eventType || 'TaskAssigned';
 
     this.logger.log(
       `Processing ${eventType} for task ${payload.taskId.substring(0, 8)}... ` +
-      `in tenant ${payload.tenantId.substring(0, 8)}...`,
+        `in tenant ${payload.tenantId.substring(0, 8)}...`,
     );
 
     // Acquire semaphore slot before processing to enforce backpressure
@@ -155,11 +161,13 @@ export class TaskAssignedEventHandler
       } else {
         await this.handleTaskAssigned(event as TaskAssignedEvent);
       }
+      return HandlerOutcome.ack();
     } catch (error) {
       this.logger.error(
         `Error processing ${eventType} event: ${(error as Error).message}`,
         (error as Error).stack,
       );
+      return outcomeForError(`${eventType} notification`, error);
     } finally {
       this.semaphore.release();
     }
@@ -175,19 +183,13 @@ export class TaskAssignedEventHandler
       ? payload.description.substring(0, 500)
       : `Size yeni bir g\u00F6rev atand\u0131: ${payload.title}`;
 
-    await this.inAppService.createNotification(
-      payload.tenantId,
-      payload.assigneeId,
-      title,
-      body,
-      {
-        type: 'TaskAssigned',
-        taskId: payload.taskId,
-        assignedBy: payload.assignedBy,
-        dueDate: payload.dueDate,
-        priority: payload.priority,
-      },
-    );
+    await this.inAppService.createNotification(payload.tenantId, payload.assigneeId, title, body, {
+      type: 'TaskAssigned',
+      taskId: payload.taskId,
+      assignedBy: payload.assignedBy,
+      dueDate: payload.dueDate,
+      priority: payload.priority,
+    });
 
     this.logger.debug(
       `In-app notification created for TaskAssigned: task ${payload.taskId.substring(0, 8)}...`,
@@ -202,18 +204,12 @@ export class TaskAssignedEventHandler
     const title = `Gecikmi\u015F g\u00F6rev: ${payload.title}`;
     const body = `G\u00F6reviniz gecikmi\u015F durumda: ${payload.title}`;
 
-    await this.inAppService.createNotification(
-      payload.tenantId,
-      payload.assigneeId,
-      title,
-      body,
-      {
-        type: 'TaskOverdue',
-        taskId: payload.taskId,
-        dueDate: payload.dueDate,
-        priority: payload.priority,
-      },
-    );
+    await this.inAppService.createNotification(payload.tenantId, payload.assigneeId, title, body, {
+      type: 'TaskOverdue',
+      taskId: payload.taskId,
+      dueDate: payload.dueDate,
+      priority: payload.priority,
+    });
 
     this.logger.debug(
       `In-app notification created for TaskOverdue: task ${payload.taskId.substring(0, 8)}...`,

@@ -574,8 +574,12 @@ describe('Tenant API Integration Tests', () => {
       it('should delete a note', async () => {
         mockActivityService.deleteNote.mockResolvedValueOnce(undefined);
 
+        // SEC-CRITICAL-163: an irreversible operation is never anonymous —
+        // DestructiveActionGuard refuses a request with no principal, so the
+        // test frame carries the same actor header the archive case does.
         const response = await request(app.getHttpServer())
-          .delete(`/admin/tenants/${TENANT_UUID}/notes/${NOTE_UUID}`);
+          .delete(`/admin/tenants/${TENANT_UUID}/notes/${NOTE_UUID}`)
+          .set('x-user-id', 'admin-123');
 
         expect(response.status).toBe(HttpStatus.NO_CONTENT);
       });

@@ -23,11 +23,27 @@ describe('buildGatewayEdgeConfig', () => {
     });
   });
 
-  it('maps literal login/upload paths and the segment-exact marine render route', () => {
+  it('keys each bucket on something the gateway actually serves', () => {
+    // These values used to be `/api/auth/login` and `/api/files/upload`, which
+    // no service registers: login is the GraphQL `login` mutation and the
+    // uploads are the two `/api/v1/upload/*` routes, so the login bucket never
+    // matched a request and brute-force protection never engaged
+    // (SEC-HIGH-166). The literals below are derived from the registered
+    // controllers and the auth-service resolvers by
+    // `tests/invariants/gateway-rate-limit-buckets-resolve.spec.ts`, which
+    // fails if a bucket names something unroutable — so restoring the old
+    // paths here would fail there.
     const edge = buildGatewayEdgeConfig(config());
     expect(edge.endpointBuckets).toEqual([
-      { tier: 'login', paths: ['/api/auth/login', '/auth/login'] },
-      { tier: 'upload', paths: ['/api/files/upload', '/api/v1/files/upload'] },
+      {
+        tier: 'login',
+        paths: [],
+        graphqlMutations: ['login', 'verifyMfaLogin', 'verifyWebAuthnLogin'],
+      },
+      {
+        tier: 'upload',
+        paths: ['/api/v1/upload/chemical-document', '/api/v1/upload/batch-document'],
+      },
       {
         tier: 'marineRender',
         paths: [],

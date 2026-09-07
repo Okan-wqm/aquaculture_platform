@@ -185,7 +185,7 @@ WAL-G epoch; strike `database-restore-drill.md:548`.
 backup cron.
 **Sequencing:** gates every destructive migration in this plan.
 
-## INFRA-CRITICAL-169 — nginx and service route tables disagree on five production paths
+## INFRA-CRITICAL-170 — nginx and service route tables disagree on five production paths
 
 **State:** OPEN · **Wave:** W3 · **ADR:** 0006 (edge topology derived from nginx)
 

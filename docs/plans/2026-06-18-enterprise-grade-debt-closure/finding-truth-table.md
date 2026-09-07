@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `447f7937bfad2acfa93ea1d3eaad40b42fa74a04fb4fc7219f44c57fbc680862`
+Registry tip: `5ac11845147903b87a371c1114ad9e202bfdf1feb4b6bfd5b91c7a0ca37cbe9a`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -247,16 +247,13 @@ Allowed truth buckets:
 | `ADMIN-CRITICAL-087`    | OPEN           | 2026-09-04   | admin-expert               | real-open                 |
 | `SENSOR-CRITICAL-111`   | OPEN           | 2026-09-05   | sensor-expert              | real-open                 |
 | `DEPLOY-CRITICAL-017`   | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
-| `ADMIN-CRITICAL-102`    | OPEN           | 2026-09-05   | admin-expert               | real-open                 |
 | `ADMIN-CRITICAL-103`    | OPEN           | 2026-09-05   | admin-expert               | real-open                 |
 | `BILLING-CRITICAL-011`  | OPEN           | 2026-09-05   | billing-expert             | real-open                 |
 | `BILLING-CRITICAL-012`  | OPEN           | 2026-09-05   | billing-expert             | real-open                 |
 | `CONTRACT-CRITICAL-004` | OPEN           | 2026-09-05   | contract-parity-enforcer   | real-open                 |
-| `DATA-CRITICAL-015`     | OPEN           | 2026-09-05   | data-expert                | real-open                 |
 | `OBS-CRITICAL-007`      | OPEN           | 2026-09-05   | observability-expert       | real-open                 |
-| `SEC-CRITICAL-162`      | OPEN           | 2026-09-05   | auth-security-expert       | real-open                 |
 | `SEC-CRITICAL-163`      | OPEN           | 2026-09-05   | auth-security-expert       | real-open                 |
-| `INFRA-CRITICAL-169`    | OPEN           | 2026-09-07   | infra-expert               | real-open                 |
+| `INFRA-CRITICAL-170`    | OPEN           | 2026-09-07   | infra-expert               | real-open                 |
 
 ## Mutation Rules
 
@@ -795,4 +792,13 @@ tests/invariants/all-services-env-aware-migrations.spec.ts --runInBand`,
   Left the active table from bucket `real-open`.
 - `SEC-CRITICAL-161`: registry state is `RESOLVED` with closing commit
   `f1f8240bb`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `real-open`.
+- `ADMIN-CRITICAL-102`: registry state is `RESOLVED` with closing commit
+  `6feb89c29`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `real-open`.
+- `DATA-CRITICAL-015`: registry state is `RESOLVED` with closing commit
+  `7a5afad3e`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `real-open`.
+- `SEC-CRITICAL-162`: registry state is `RESOLVED` with closing commit
+  `a546170a0`, derived by `finding-registry reconcile` against `origin/main`.
   Left the active table from bucket `real-open`.

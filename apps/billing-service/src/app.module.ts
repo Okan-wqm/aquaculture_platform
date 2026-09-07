@@ -19,6 +19,7 @@ import {
 import { TenantGuard, RolesGuard, ServiceIdentityGuard } from '@aquaculture/backend-common/guards';
 import { LoggingModule } from '@aquaculture/backend-common/logging';
 import { ServiceMetricsModule } from '@aquaculture/backend-common/metrics';
+import { ScheduledJobModule } from '@aquaculture/backend-common/scheduling';
 import {
   UserContextMiddleware,
   TenantContextMiddleware,
@@ -180,6 +181,10 @@ const billingSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env
     TenantErasureTargetModule.forService('billing-service'),
     // Schedule module — single forRoot() for the entire service
     ScheduleModule.forRoot(),
+    // ADMIN-HIGH-013: every @ScheduledJob tick routes through the runner's
+    // advisory-lock lease and heartbeat. Must sit beside ScheduleModule and
+    // ServiceMetricsModule (the heartbeat's home) or the service does not boot.
+    ScheduledJobModule.forRoot({ serviceName: 'billing-service' }),
     // Event Emitter — single forRoot() for the entire service
     EventEmitterModule.forRoot(),
     BillingModule,

@@ -131,6 +131,9 @@
       "@aquaculture/backend-common/scheduling": [
         "libs/backend-common/src/scheduling/index.ts"
       ],
+      "@aquaculture/backend-common/scheduling/testing": [
+        "libs/backend-common/src/scheduling/testing.ts"
+      ],
       "@aquaculture/backend-common/security": [
         "libs/backend-common/src/security/index.ts"
       ],

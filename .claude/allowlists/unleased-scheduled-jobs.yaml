@@ -10,7 +10,7 @@
 # admin-api-service — the finding's surface — is fully converted and may not
 # appear here. The remaining services are the fleet half of the same finding.
 version: 1
-ceiling: 58
+ceiling: 47
 entries:
   - site: apps/auth-service/src/audit/audit-log.service.ts#scheduledLogCleanup
     owner: okan
@@ -22,61 +22,6 @@ entries:
     expiry: 2026-12-31
     findingId: ADMIN-HIGH-013
     reason: raw @Cron in auth-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
-  - site: apps/billing-service/src/billing/billing-scheduler.service.ts#applyScheduledPlanChanges
-    owner: okan
-    expiry: 2026-12-31
-    findingId: ADMIN-HIGH-013
-    reason: raw @Cron in billing-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
-  - site: apps/billing-service/src/billing/billing-scheduler.service.ts#generateMonthlyInvoices
-    owner: okan
-    expiry: 2026-12-31
-    findingId: ADMIN-HIGH-013
-    reason: raw @Cron in billing-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
-  - site: apps/billing-service/src/billing/billing-scheduler.service.ts#handleOverdueInvoices
-    owner: okan
-    expiry: 2026-12-31
-    findingId: ADMIN-HIGH-013
-    reason: raw @Cron in billing-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
-  - site: apps/billing-service/src/billing/billing-scheduler.service.ts#handleSubscriptionExpiry
-    owner: okan
-    expiry: 2026-12-31
-    findingId: ADMIN-HIGH-013
-    reason: raw @Cron in billing-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
-  - site: apps/billing-service/src/billing/billing-scheduler.service.ts#handleTrialExpiry
-    owner: okan
-    expiry: 2026-12-31
-    findingId: ADMIN-HIGH-013
-    reason: raw @Cron in billing-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
-  - site: apps/billing-service/src/modules/metering/metered-billing.service.ts#warnOnStaleExchangeRates
-    owner: okan
-    expiry: 2026-12-31
-    findingId: ADMIN-HIGH-013
-    reason: raw @Cron in billing-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
-  - site: apps/billing-service/src/modules/metering/usage-aggregator.service.ts#flushDirtyDataOnInterval
-    owner: okan
-    expiry: 2026-12-31
-    findingId: ADMIN-HIGH-013
-    reason: raw @Interval in billing-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
-  - site: apps/billing-service/src/modules/metering/usage-aggregator.service.ts#runScheduledRollups
-    owner: okan
-    expiry: 2026-12-31
-    findingId: ADMIN-HIGH-013
-    reason: raw @Cron in billing-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
-  - site: apps/billing-service/src/modules/metering/usage-metering.service.ts#runScheduledCleanup
-    owner: okan
-    expiry: 2026-12-31
-    findingId: ADMIN-HIGH-013
-    reason: raw @Interval in billing-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
-  - site: apps/billing-service/src/modules/metering/usage-metering.service.ts#runScheduledFlush
-    owner: okan
-    expiry: 2026-12-31
-    findingId: ADMIN-HIGH-013
-    reason: raw @Interval in billing-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
-  - site: apps/billing-service/src/modules/metering/usage-metering.service.ts#runScheduledRedisSync
-    owner: okan
-    expiry: 2026-12-31
-    findingId: ADMIN-HIGH-013
-    reason: raw @Interval in billing-service; runs on every replica with no lease and no heartbeat until converted to @ScheduledJob
   - site: apps/farm-service/src/feeding-protocol/services/feeding-cron-v2.service.ts#hourlyTick
     owner: okan
     expiry: 2026-12-31

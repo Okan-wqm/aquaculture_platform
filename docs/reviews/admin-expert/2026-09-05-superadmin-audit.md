@@ -557,6 +557,29 @@ after the 15 s request timeout.
 invariant so every subject a service publishes (derived from the command contract) must appear in
 that service's publish ACL.
 
+## INFRA-MEDIUM-171 — The changed-file lint gate skips module-boundary rules on the base side
+
+**State:** OPEN · **Wave:** W3 · **ADR:** —
+
+**Evidence:** `scripts/ci/lint-changed-files.mjs` is the blocking lint gate on every pull request:
+it checks out `origin/main` into a scratch worktree, lints the base version of each changed file
+there, and fails the build on any error the head version reports and the base version does not. The
+worktree is freshly added, so it carries no Nx project graph — and `@nx/enforce-module-boundaries`,
+finding none, does not fail: it prints `No cached ProjectGraph is available. The rule will be
+skipped.` and reports zero. Head runs in the real checkout, where the graph is warm. Every
+module-boundary violation already on main therefore reads as `base=0, head=1` and blocks the first
+pull request that happens to touch the file. This wave hit it on the `backend-common` ↔ `outbox`
+cycle: both of its edges (`schema-manager.service.ts` importing the erasure proof-ledger table name,
+`tenant-erasure-target.module.ts` importing `OutboxPublisher`, and `event-bus` importing
+`backend-common/nats` on the way back) are unchanged main code. Warming the graph inside a pristine
+`origin/main` worktree makes the base side report the identical error, which is the proof.
+
+**Fix (Tier-3):** the gate builds the graph in the base worktree before linting — one
+`nx show projects` with the daemon disabled, so it cannot answer from the real checkout's socket —
+and treats a graph that fails to materialise as fatal rather than continuing with the rule silently
+off. Both sides now run the same rules, the same way, and the base-vs-head delta means what the
+gate's own docblock says it means. The cycle it uncovered stays open debt, owned where it lives.
+
 ## CLAUDE-LOW-017 — CLAUDE.md "Migration Runners" matches no service (ARCH-LOW-012, C7)
 
 **State:** OPEN · **Wave:** W7

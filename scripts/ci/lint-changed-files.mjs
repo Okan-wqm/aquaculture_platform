@@ -377,6 +377,49 @@ function syncLintConfigFromHead(worktree) {
   }
 }
 
+/**
+ * Materialise the Nx ProjectGraph inside the base worktree.
+ *
+ * `@nx/enforce-module-boundaries` reads the CACHED graph. A freshly-added
+ * worktree has none, and the rule does not fail there — it prints
+ * `No cached ProjectGraph is available. The rule will be skipped.` and reports
+ * zero. Head runs in the real repository, where the graph is warm. So every
+ * pre-existing boundary violation — a circular dependency that has been on the
+ * base branch for months — read as base=0, head=1 and blocked the first pull
+ * request that happened to touch the file. The gate compared a rule that ran
+ * against a rule that did not.
+ *
+ * Any Nx invocation writes the cache, so one `nx show projects` is enough. The
+ * daemon is off: it would bind to the real repository's socket and answer with
+ * the HEAD graph, which is the opposite of what this side must measure.
+ *
+ * A graph that fails to materialise is fatal rather than silent — a skipped
+ * rule is exactly the failure mode this function exists to remove.
+ */
+function warmProjectGraph(worktree) {
+  const result = spawnSync(
+    process.execPath,
+    [join(repoRoot, 'tools/toolchain/run.mjs'), 'nx', 'show', 'projects'],
+    {
+      cwd: worktree,
+      encoding: 'utf8',
+      env: { ...process.env, NX_DAEMON: 'false' },
+      maxBuffer: 64 * 1024 * 1024,
+    },
+  );
+
+  if (result.status !== 0 || !existsSync(join(worktree, '.nx/workspace-data'))) {
+    if (result.stdout) process.stdout.write(result.stdout);
+    if (result.stderr) process.stderr.write(result.stderr);
+    console.error(
+      'lint-changed-files: could not build the base worktree ProjectGraph. ' +
+        'Module-boundary rules would silently report zero on the base side and ' +
+        'every pre-existing violation would surface as a new regression.',
+    );
+    process.exit(result.status === 0 ? 1 : (result.status ?? 1));
+  }
+}
+
 function prepareBaseWorktree() {
   const parent = mkdtempSync(join(tmpdir(), 'aqua-lint-base-'));
   const worktree = join(parent, 'repo');
@@ -391,6 +434,8 @@ function prepareBaseWorktree() {
   // Lint the base CONTENT with HEAD's CONFIG (see syncLintConfigFromHead) so the
   // base-vs-head delta reflects code changes, not lint-config changes.
   syncLintConfigFromHead(worktree);
+  // ...and with the same graph-derived rules actually RUNNING (see above).
+  warmProjectGraph(worktree);
 
   return { parent, worktree };
 }

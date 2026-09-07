@@ -959,11 +959,14 @@ describe('Frontend-Backend Contract Validation', () => {
     // backup subsystem WAL-G already replaced (INFRA-CRITICAL-164).
     // 585: -5 for the runtime retention-policy CRUD, replaced by the
     // registry's read-only view (DATA-CRITICAL-016).
-    // 538: -47 for the /impersonation/* and /debug-tools/* surfaces, deleted
-    // with the subsystem that had no consumer (SEC-CRITICAL-162).
-    // 537: -1 for the route that let a request body name the actor
-    // (ADMIN-CRITICAL-102).
-    expect(count).toBe(537);
+    // 539: -46 for the /impersonation/* and /debug-tools/* surfaces, deleted
+    // with the subsystem that had no consumer (SEC-CRITICAL-162). The audit
+    // wave counted 47 there; main had already deleted GET /impersonation/stats
+    // as the all-time twin of the audit summary (ADMIN-MEDIUM-084), so one of
+    // the 47 was gone before this branch touched it.
+    // 538: -1 for POST /security/activities, whose body named the actor
+    // through userId / userName / userEmail / ipAddress (ADMIN-CRITICAL-102).
+    expect(count).toBe(538);
   });
 
   it('frontend endpoint snapshot should be up to date', () => {

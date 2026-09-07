@@ -1,13 +1,28 @@
-import { Controller, Logger } from '@nestjs/common';
-import { EventPattern, Payload } from '@nestjs/microservices';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
+import { SubscribeTo } from '@platform/event-bus';
 import type {
   TenantOnboardingAckEvent,
   TenantOnboardingFailedEvent,
 } from '@platform/event-contracts';
 import { DataSource } from 'typeorm';
 
-@Controller()
+/**
+ * The provisioning ACK ledger's writer (ADMIN-HIGH-014, ADR-0018).
+ *
+ * This class was written with `@EventPattern`, which binds through a Nest
+ * microservice transport that admin-api never attaches — its `bootstrapService`
+ * call declares no `natsTransport` — so both handlers bound to nothing and
+ * `admin.tenant_onboarding_acks` recorded every service as never having
+ * acknowledged. `@SubscribeTo` binds through `EventHandlerRegistryModule`,
+ * which fails the boot rather than the binding, and delivers over a
+ * durable JetStream consumer so an ACK published while admin-api is restarting
+ * is redelivered instead of lost. The upsert below was already idempotent, so
+ * at-least-once delivery needs nothing further from it.
+ *
+ * Closes: docs/reviews/admin-expert/2026-09-05-superadmin-audit.md#ADMIN-HIGH-014
+ */
+@Injectable()
 export class TenantOnboardingAckHandler {
   private readonly logger = new Logger(TenantOnboardingAckHandler.name);
 
@@ -16,13 +31,13 @@ export class TenantOnboardingAckHandler {
     private readonly dataSource: DataSource,
   ) {}
 
-  @EventPattern('events.*.TenantOnboardingAck')
-  async handleAck(@Payload() event: TenantOnboardingAckEvent): Promise<void> {
+  @SubscribeTo({ topic: 'events.*.TenantOnboardingAck', durable: true, startFrom: 'latest' })
+  async handleAck(event: TenantOnboardingAckEvent): Promise<void> {
     await this.record(event.operationId, event.tenantId, event.service, 'ACK', null);
   }
 
-  @EventPattern('events.*.TenantOnboardingFailed')
-  async handleFailed(@Payload() event: TenantOnboardingFailedEvent): Promise<void> {
+  @SubscribeTo({ topic: 'events.*.TenantOnboardingFailed', durable: true, startFrom: 'latest' })
+  async handleFailed(event: TenantOnboardingFailedEvent): Promise<void> {
     await this.record(event.operationId, event.tenantId, event.service, 'FAILED', event.error);
   }
 

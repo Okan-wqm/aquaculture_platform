@@ -36,7 +36,11 @@ import { CqrsModule } from '@nestjs/cqrs';
 import { JwtService } from '@nestjs/jwt';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { EventBusModule, buildEventBusConfig } from '@platform/event-bus';
+import {
+  EventBusModule,
+  EventHandlerRegistryModule,
+  buildEventBusConfig,
+} from '@platform/event-bus';
 import { StorageModule } from '@platform/storage';
 
 import { AnalyticsModule } from './analytics/analytics.module';
@@ -210,6 +214,18 @@ const getAdminStoragePort = (configService: ConfigService): number => {
       inject: [ConfigService],
       useFactory: buildEventBusConfig,
     }),
+    // ADMIN-HIGH-014 / ADR-0018: the INBOUND half. admin-api declares no
+    // `natsTransport` in main.ts, so every @EventPattern in this service bound
+    // to nothing — the security projection and the tenant-onboarding ACK
+    // ledger both shipped and never received a message. This registry binds
+    // @SubscribeTo over the JetStream event bus and is fail-closed: a
+    // subscription it cannot register aborts the boot instead of leaving a
+    // reader watching a table nobody writes. (A bus that is not connected yet
+    // queues the registration and drains it on connect — that is a reconnect
+    // path, not a silent no-binding.)
+    // `tests/invariants/nats-inbound-binding.spec.ts` keeps the two mechanisms
+    // from being mixed again.
+    EventHandlerRegistryModule,
     LoggingModule,
     ThrottlerModule,
     // APA-367: token-revocation primitives for PlatformAdminGuard. admin-api is a

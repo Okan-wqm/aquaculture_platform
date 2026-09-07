@@ -33,11 +33,15 @@ interface Harness {
 async function build(): Promise<Harness> {
   const order: string[] = [];
   const activityLogging = {
+    // The writers report whether the row was actually stored: `null` / `false`
+    // mean the source event was already projected and this is a redelivery.
     recordLoginAttempt: jest.fn(async () => {
       order.push('write');
+      return { id: 'row-1' };
     }),
     logApiUsage: jest.fn(async () => {
       order.push('write');
+      return true;
     }),
   };
   const monitoring = {
@@ -49,8 +53,10 @@ async function build(): Promise<Harness> {
     }),
   };
   const moduleRef = await Test.createTestingModule({
-    controllers: [SecuritySignalProjectionHandler],
+    // A PROVIDER: EventHandlerRegistryModule discovers @SubscribeTo over
+    // getProviders(), so a controller registration would never be scanned.
     providers: [
+      SecuritySignalProjectionHandler,
       { provide: ActivityLoggingService, useValue: activityLogging },
       { provide: SecurityMonitoringService, useValue: monitoring },
     ],
@@ -157,12 +163,54 @@ describe('SecuritySignalProjectionHandler', () => {
     expect(monitoring.analyzeLoginAttempt).not.toHaveBeenCalled();
   });
 
-  it('swallows a projection failure — the auth ledger is the system of record', async () => {
-    // Throwing here would nak the subject into a redelivery storm.
+  it('re-raises a projection failure so JetStream redelivers instead of losing the fact', async () => {
+    // The previous version swallowed it. Under a durable consumer that means a
+    // transient database blip permanently drops a failed-login row, and the
+    // fifth attempt in a burst looks like the fourth. Re-raising NAKs the
+    // message; the retry is safe because the write is idempotent on eventId.
     const { handler, activityLogging } = await build();
     activityLogging.recordLoginAttempt.mockRejectedValue(new Error('db down'));
 
-    await expect(handler.onLoginFailed(loginFailed())).resolves.toBeUndefined();
+    await expect(handler.onLoginFailed(loginFailed())).rejects.toThrow('db down');
+  });
+
+  it('carries the source event id, which is what makes the retry safe', async () => {
+    const { handler, activityLogging } = await build();
+
+    await handler.onLoginFailed(loginFailed());
+
+    expect(activityLogging.recordLoginAttempt.mock.calls[0][0].sourceEventId).toBe('evt-1');
+  });
+
+  it('does not re-run the detectors when a redelivery finds the row already stored', async () => {
+    // Counting the same failed login twice manufactures a brute_force_attempt.
+    const { handler, activityLogging, monitoring } = await build();
+    activityLogging.recordLoginAttempt.mockResolvedValue(null);
+
+    await handler.onLoginFailed(loginFailed());
+
+    expect(monitoring.analyzeLoginAttempt).not.toHaveBeenCalled();
+  });
+
+  it('does not re-run checkApiAbuse on a redelivered rate-limit signal', async () => {
+    const { handler, activityLogging, monitoring } = await build();
+    activityLogging.logApiUsage.mockResolvedValue(false);
+
+    await handler.onRateLimitExceeded({
+      eventId: 'evt-2',
+      eventType: 'RateLimitExceeded',
+      securityEventType: SecurityEventType.RATE_LIMIT_EXCEEDED,
+      tenantId: TENANT,
+      timestamp: '2026-09-06T12:00:00.000Z',
+      version: 1,
+      ip: IP,
+      key: 'login:203.0.113.7',
+      limit: 20,
+      windowMs: 60_000,
+      count: 21,
+    } as RateLimitExceededEvent);
+
+    expect(monitoring.checkApiAbuse).not.toHaveBeenCalled();
   });
 
   it('projects a rate-limit rejection as the API-abuse fact checkApiAbuse counts', async () => {

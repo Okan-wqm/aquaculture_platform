@@ -62,15 +62,18 @@ import { SecurityMonitoringService } from './services/security-monitoring.servic
     AuditTrailController,
     ComplianceController,
     SecurityMonitoringController,
-    // The sink for `events.security.events.>`. A @Controller because a NATS
-    // @EventPattern handler is a controller to Nest, not a provider.
-    SecuritySignalProjectionHandler,
   ],
   providers: [
     ActivityLoggingService,
     AuditTrailService,
     ComplianceService,
     SecurityMonitoringService,
+    // The sink for `events.security.events.>`. A PROVIDER, not a controller:
+    // `EventHandlerRegistryModule` discovers @SubscribeTo over
+    // DiscoveryService.getProviders(), and a class registered under
+    // `controllers` is invisible to it — which is also why the previous
+    // @EventPattern version bound to nothing at all.
+    SecuritySignalProjectionHandler,
   ],
   exports: [
     ActivityLoggingService,

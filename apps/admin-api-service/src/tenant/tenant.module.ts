@@ -94,7 +94,7 @@ const QueryHandlers = [
     AdminOutboxModule,
     TenantErasureTargetModule.forService('admin-api-service'),
   ],
-  controllers: [TenantPublicController, TenantAdminController, TenantOnboardingAckHandler],
+  controllers: [TenantPublicController, TenantAdminController],
   providers: [
     ...CommandHandlers,
     ...QueryHandlers,
@@ -106,6 +106,9 @@ const QueryHandlers = [
     TenantDetailService,
     ModuleAssignmentService,
     TenantErasureProofHandler,
+    // A PROVIDER, not a controller: EventHandlerRegistryModule discovers
+    // @SubscribeTo over DiscoveryService.getProviders().
+    TenantOnboardingAckHandler,
   ],
   exports: [
     TenantProvisioningService,

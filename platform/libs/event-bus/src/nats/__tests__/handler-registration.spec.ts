@@ -1,16 +1,18 @@
 import 'reflect-metadata';
-import { Test, TestingModule } from '@nestjs/testing';
-import { Injectable, Module } from '@nestjs/common';
-import { DiscoveryModule, DiscoveryService, MetadataScanner } from '@nestjs/core';
+
+import { DynamicModule, Global, Injectable, Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { DiscoveryModule } from '@nestjs/core';
+import { Test, TestingModule } from '@nestjs/testing';
+
 import {
   EVENT_HANDLER_METADATA,
   EVENT_SUBSCRIPTION_METADATA,
   SubscribeToOptions,
 } from '../../decorators/event-handler.decorator';
+import { IEventHandler, IEvent, SubscriptionOptions } from '../../interfaces/event-bus.interface';
 import { NatsEventBus } from '../nats-event-bus';
 import { EventHandlerRegistryModule } from '../nats.module';
-import { IEventHandler, IEvent, SubscriptionOptions } from '../../interfaces/event-bus.interface';
 
 /**
  * Lightweight SubscribeTo decorator for testing that applies metadata
@@ -79,6 +81,97 @@ Reflect.defineMetadata(EVENT_HANDLER_METADATA, { eventName: 'events.alert.trigge
   exports: [TestSensorService, TestAlertHandler],
 })
 class TestHandlersModule {}
+
+/**
+ * ADMIN-HIGH-014: the registry must resolve when it is IMPORTED as a module.
+ *
+ * The suite below registers `EventHandlerRegistryModule` as a PROVIDER beside a
+ * root-imported `DiscoveryModule`, which exercises the discovery logic while
+ * hiding the wiring defect that made the class unusable: it declared
+ * `@Module({})` and injected `DiscoveryService` + `MetadataScanner`, which
+ * `EventBusModule` imports but does not re-export. Every service that tried to
+ * import it got an unresolved-dependency error, so no `@SubscribeTo` in the
+ * platform was ever bound — and a service could ship an event handler that
+ * silently received nothing.
+ */
+describe('EventHandlerRegistryModule — usable as an imported module', () => {
+  /**
+   * Stands in for the @Global() EventBusModule every service registers: it is
+   * where NatsEventBus comes from in production. DiscoveryService and
+   * MetadataScanner deliberately are NOT provided here — the registry must
+   * bring those itself, which is exactly what was broken.
+   */
+  type SubscribeToMock = jest.Mock<
+    Promise<void>,
+    [string, IEventHandler, SubscriptionOptions | undefined]
+  >;
+
+  function eventBusStub(subscribeTo: SubscribeToMock): DynamicModule {
+    @Global()
+    @Module({
+      providers: [{ provide: NatsEventBus, useValue: { subscribeTo, subscribe: jest.fn() } }],
+      exports: [NatsEventBus],
+    })
+    class StubEventBusModule {}
+    return { module: StubEventBusModule };
+  }
+
+  it('resolves its own dependencies when a service imports it', async () => {
+    const subscribeTo: SubscribeToMock = jest.fn<
+      Promise<void>,
+      [string, IEventHandler, SubscriptionOptions | undefined]
+    >();
+
+    // No DiscoveryModule at the root: the registry must bring its own.
+    const moduleRef = await Test.createTestingModule({
+      imports: [
+        ConfigModule.forRoot({ isGlobal: true }),
+        eventBusStub(subscribeTo),
+        TestHandlersModule,
+        EventHandlerRegistryModule,
+      ],
+    }).compile();
+
+    await moduleRef.init();
+    expect(subscribeTo).toHaveBeenCalled();
+    await moduleRef.close();
+  });
+
+  it('passes startFrom through to the subscription, not just groupId and durable', async () => {
+    // The decorator declares `startFrom` and `subscribeTo` accepts it; the
+    // registry dropped it, so every durable consumer silently took JetStream's
+    // DeliverPolicy.New default — the opposite of what a projection rebuilding
+    // its table asks for.
+    const subscribeTo: SubscribeToMock = jest.fn<
+      Promise<void>,
+      [string, IEventHandler, SubscriptionOptions | undefined]
+    >();
+
+    @Injectable()
+    class ReplayService {
+      @SubscribeTo({ topic: 'events.replay.all', durable: true, startFrom: 'beginning' })
+      async handleReplay(_event: IEvent): Promise<void> {
+        // handler body
+      }
+    }
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [
+        ConfigModule.forRoot({ isGlobal: true }),
+        eventBusStub(subscribeTo),
+        EventHandlerRegistryModule,
+      ],
+      providers: [ReplayService],
+    }).compile();
+
+    await moduleRef.init();
+
+    const call = subscribeTo.mock.calls.find((entry) => entry[0] === 'events.replay.all');
+    expect(call).toBeDefined();
+    expect(call?.[2]).toMatchObject({ durable: true, startFrom: 'beginning' });
+    await moduleRef.close();
+  });
+});
 
 describe('EventHandlerRegistryModule — handler registration', () => {
   let moduleRef: TestingModule;

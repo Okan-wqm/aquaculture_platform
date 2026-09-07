@@ -347,6 +347,20 @@ export class ActivityLoggingService implements OnModuleInit {
   /**
    * Record login attempt
    */
+  /**
+   * Project one login fact into `admin.login_attempts` (ADMIN-HIGH-014).
+   *
+   * Returns the stored row, or `null` when `sourceEventId` names an event that
+   * was already projected — the caller then knows this delivery is a replay and
+   * must not re-run the detectors over a row that is already counted.
+   *
+   * The insert is `ON CONFLICT DO NOTHING` against the partial unique index on
+   * `sourceEventId` (migration `1809300000000`) rather than a read-then-write:
+   * the JetStream consumer that drives this method NAKs on failure, so the same
+   * event can legitimately arrive twice, and two concurrent deliveries would
+   * pass a `findOne` guard together. PostgreSQL is the only thing that can
+   * decide this race, so it decides it.
+   */
   async recordLoginAttempt(params: {
     email: string;
     ipAddress: string;
@@ -357,20 +371,34 @@ export class ActivityLoggingService implements OnModuleInit {
     tenantId?: string;
     userId?: string;
     sessionId?: string;
-  }): Promise<LoginAttempt> {
-    const attempt = this.loginAttemptRepository.create({
-      email: params.email,
-      ipAddress: params.ipAddress,
-      success: params.success,
-      failureReason: params.failureReason || null,
-      geoLocation: params.geoLocation || null,
-      deviceInfo: params.deviceInfo || null,
-      tenantId: params.tenantId || null,
-      userId: params.userId || null,
-      sessionId: params.sessionId || null,
-    });
+    sourceEventId?: string;
+  }): Promise<LoginAttempt | null> {
+    const insert = await this.loginAttemptRepository
+      .createQueryBuilder()
+      .insert()
+      .values({
+        email: params.email,
+        ipAddress: params.ipAddress,
+        success: params.success,
+        failureReason: params.failureReason || null,
+        geoLocation: params.geoLocation || null,
+        deviceInfo: params.deviceInfo || null,
+        tenantId: params.tenantId || null,
+        userId: params.userId || null,
+        sessionId: params.sessionId || null,
+        sourceEventId: params.sourceEventId || null,
+      })
+      .orIgnore()
+      .returning('*')
+      .execute();
 
-    const saved = await this.loginAttemptRepository.save(attempt);
+    const saved = (insert.raw as LoginAttempt[])[0];
+    if (!saved) {
+      // A replay of an event whose row is already stored. Writing the paired
+      // activity entry anyway would put a second "Failed login attempt for …"
+      // line in the ledger an operator reads as a count.
+      return null;
+    }
 
     // Also log as activity
     await this.logActivity({
@@ -447,6 +475,13 @@ export class ActivityLoggingService implements OnModuleInit {
   /**
    * Log API usage
    */
+  /**
+   * Project one API-usage fact into `admin.api_usage_logs` (ADMIN-HIGH-014).
+   *
+   * Returns `false` when `sourceEventId` names an event already projected —
+   * see `recordLoginAttempt` for why the decision belongs to PostgreSQL and
+   * not to a read-then-write guard in this process.
+   */
   async logApiUsage(params: {
     tenantId?: string;
     userId?: string;
@@ -454,7 +489,7 @@ export class ActivityLoggingService implements OnModuleInit {
     method: string;
     endpoint: string;
     path: string;
-    queryParams?: Record<string, unknown>;
+    queryParams?: Record<string, string | string[]>;
     requestSize?: number;
     statusCode: number;
     responseSize?: number;
@@ -468,31 +503,39 @@ export class ActivityLoggingService implements OnModuleInit {
     errorCode?: string;
     errorMessage?: string;
     correlationId?: string;
-  }): Promise<void> {
-    const log = this.apiUsageRepository.create({
-      tenantId: params.tenantId || null,
-      userId: params.userId || null,
-      apiKeyId: params.apiKeyId || null,
-      method: params.method,
-      endpoint: params.endpoint,
-      path: params.path,
-      queryParams: params.queryParams || null,
-      requestSize: params.requestSize || null,
-      statusCode: params.statusCode,
-      responseSize: params.responseSize || null,
-      responseTimeMs: params.responseTimeMs,
-      ipAddress: params.ipAddress,
-      userAgent: params.userAgent || null,
-      geoLocation: params.geoLocation || null,
-      rateLimitRemaining: params.rateLimitRemaining || null,
-      rateLimitExceeded: params.rateLimitExceeded || false,
-      isError: params.isError || params.statusCode >= 400,
-      errorCode: params.errorCode || null,
-      errorMessage: params.errorMessage || null,
-      correlationId: params.correlationId || null,
-    });
+    sourceEventId?: string;
+  }): Promise<boolean> {
+    const insert = await this.apiUsageRepository
+      .createQueryBuilder()
+      .insert()
+      .values({
+        tenantId: params.tenantId || null,
+        userId: params.userId || null,
+        apiKeyId: params.apiKeyId || null,
+        method: params.method,
+        endpoint: params.endpoint,
+        path: params.path,
+        queryParams: params.queryParams || null,
+        requestSize: params.requestSize || null,
+        statusCode: params.statusCode,
+        responseSize: params.responseSize || null,
+        responseTimeMs: params.responseTimeMs,
+        ipAddress: params.ipAddress,
+        userAgent: params.userAgent || null,
+        geoLocation: params.geoLocation || null,
+        rateLimitRemaining: params.rateLimitRemaining || null,
+        rateLimitExceeded: params.rateLimitExceeded || false,
+        isError: params.isError || params.statusCode >= 400,
+        errorCode: params.errorCode || null,
+        errorMessage: params.errorMessage || null,
+        correlationId: params.correlationId || null,
+        sourceEventId: params.sourceEventId || null,
+      })
+      .orIgnore()
+      .returning('id')
+      .execute();
 
-    await this.apiUsageRepository.save(log);
+    return (insert.raw as { id: string }[]).length > 0;
   }
 
   // ============================================================================

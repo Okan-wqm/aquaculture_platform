@@ -35,7 +35,8 @@ const DETECTOR_SERVICE =
   'apps/admin-api-service/src/security/services/security-monitoring.service.ts';
 
 /** A class that the runtime can enter: a NATS consumer, a scheduled job, a route. */
-const ENTRY_POINT_RE = /@(EventPattern|MessagePattern|ScheduledJob|Get|Post|Put|Patch|Delete)\(/;
+const ENTRY_POINT_RE =
+  /@(SubscribeTo|EventHandler|EventPattern|MessagePattern|ScheduledJob|Get|Post|Put|Patch|Delete)\(/;
 
 interface DetectiveStore {
   /** The TypeORM entity the detectors read. */
@@ -122,8 +123,10 @@ describe('INVARIANT (ADMIN-HIGH-014): a detective store has a producer that is r
     // …and the writer really writes THAT entity, not merely shares a name.
     const repoField = new RegExp(`private readonly (\\w+): Repository<${entity}>`).exec(source);
     expect(repoField).not.toBeNull();
+    // `.save(`, `.insert(` or the query-builder insert the idempotent
+    // projection uses (`this.repo.createQueryBuilder().insert()`).
     expect(source.slice(declaration)).toMatch(
-      new RegExp(`this\\.${repoField![1]!}\\.(save|insert)\\(`),
+      new RegExp(`this\\.${repoField![1]!}\\s*\\.\\s*(save|insert|createQueryBuilder)\\(`),
     );
   });
 

@@ -1,5 +1,5 @@
-import { Controller, Logger } from '@nestjs/common';
-import { EventPattern, Payload } from '@nestjs/microservices';
+import { Injectable, Logger } from '@nestjs/common';
+import { SubscribeTo } from '@platform/event-bus';
 import type {
   AuthLoginFailedEvent,
   AuthLoginSuccessEvent,
@@ -31,8 +31,29 @@ const PLATFORM_SCOPE = 'system';
  * Ordering matters: the row is written BEFORE the analysis runs, because the
  * detectors count rows including this one. Analysing first would make every
  * threshold off by one and the fifth failed login look like the fourth.
+ *
+ * # Why @SubscribeTo and not @EventPattern
+ *
+ * This class was first written with `@EventPattern`, which binds through a Nest
+ * microservice transport. admin-api's `bootstrapService` call declares no
+ * `natsTransport`, so no NATS server strategy is ever attached and every
+ * `@EventPattern` in this service binds to nothing — silently. The projection
+ * shipped, the waivers were retired, and not one row was written.
+ * `@SubscribeTo` binds through `EventHandlerRegistryModule`, which is
+ * fail-closed: a subscription it cannot register stops the boot.
+ * `tests/invariants/nats-inbound-binding.spec.ts` makes the mismatch a CI
+ * failure so it cannot return.
+ *
+ * # Why a failure re-raises
+ *
+ * A JetStream delivery that throws is NAK'd and redelivered with backoff, so a
+ * transient database error costs a retry instead of a security fact. That is
+ * only safe because the write is idempotent on the source event id (migration
+ * `1809300000000`): the second delivery of an event whose row is already stored
+ * is dropped by a partial unique index, and the detectors are not re-run over a
+ * row that is already counted.
  */
-@Controller()
+@Injectable()
 export class SecuritySignalProjectionHandler {
   private readonly logger = new Logger(SecuritySignalProjectionHandler.name);
 
@@ -41,13 +62,21 @@ export class SecuritySignalProjectionHandler {
     private readonly monitoring: SecurityMonitoringService,
   ) {}
 
-  @EventPattern('events.security.events.auth.login.failed')
-  async onLoginFailed(@Payload() event: AuthLoginFailedEvent): Promise<void> {
+  @SubscribeTo({
+    topic: 'events.security.events.auth.login.failed',
+    durable: true,
+    startFrom: 'latest',
+  })
+  async onLoginFailed(event: AuthLoginFailedEvent): Promise<void> {
     await this.project(event, false, event.reason);
   }
 
-  @EventPattern('events.security.events.auth.login.success')
-  async onLoginSuccess(@Payload() event: AuthLoginSuccessEvent): Promise<void> {
+  @SubscribeTo({
+    topic: 'events.security.events.auth.login.success',
+    durable: true,
+    startFrom: 'latest',
+  })
+  async onLoginSuccess(event: AuthLoginSuccessEvent): Promise<void> {
     await this.project(event, true, undefined);
   }
 
@@ -58,38 +87,43 @@ export class SecuritySignalProjectionHandler {
    * set. Projecting only the rejections — not every request — keeps the table
    * the size of the signal rather than the size of the traffic.
    */
-  @EventPattern('events.security.events.rate_limit.exceeded')
-  async onRateLimitExceeded(@Payload() event: RateLimitExceededEvent): Promise<void> {
+  @SubscribeTo({
+    topic: 'events.security.events.rate_limit.exceeded',
+    durable: true,
+    startFrom: 'latest',
+  })
+  async onRateLimitExceeded(event: RateLimitExceededEvent): Promise<void> {
     const tenantId = this.tenantOf(event);
-    try {
-      await this.activityLogging.logApiUsage({
-        // The rate-limit key is the only route identity the signal carries;
-        // it is neither an HTTP method nor a path, and inventing either would
-        // put a fiction in a table an operator reads.
-        method: 'UNKNOWN',
-        endpoint: event.key,
-        path: event.key,
-        statusCode: 429,
-        responseTimeMs: 0,
-        ipAddress: event.ip ?? 'unknown',
-        userAgent: event.userAgent,
-        rateLimitExceeded: true,
-        tenantId,
-        userId: event.userId,
-        correlationId: event.correlationId,
-      });
-      await this.monitoring.checkApiAbuse({
-        tenantId,
-        userId: event.userId,
-        ipAddress: event.ip ?? 'unknown',
-        endpoint: event.key,
-        rateLimitExceeded: true,
-      });
-    } catch (error) {
-      this.logger.error(
-        `Failed to project rate-limit signal for key=${event.key}: ${(error as Error).message}`,
-      );
+    const written = await this.activityLogging.logApiUsage({
+      // The rate-limit key is the only route identity the signal carries;
+      // it is neither an HTTP method nor a path, and inventing either would
+      // put a fiction in a table an operator reads.
+      method: 'UNKNOWN',
+      endpoint: event.key,
+      path: event.key,
+      statusCode: 429,
+      responseTimeMs: 0,
+      ipAddress: event.ip ?? 'unknown',
+      userAgent: event.userAgent,
+      rateLimitExceeded: true,
+      tenantId,
+      userId: event.userId,
+      correlationId: event.correlationId,
+      sourceEventId: event.eventId,
+    });
+
+    if (!written) {
+      this.logger.debug(`Rate-limit signal ${event.eventId} already projected; skipping analysis`);
+      return;
     }
+
+    await this.monitoring.checkApiAbuse({
+      tenantId,
+      userId: event.userId,
+      ipAddress: event.ip ?? 'unknown',
+      endpoint: event.key,
+      rateLimitExceeded: true,
+    });
   }
 
   private async project(
@@ -100,36 +134,34 @@ export class SecuritySignalProjectionHandler {
     const email = event.email;
     if (!email) {
       // The detectors key on email; a signal without one cannot feed them and
-      // would write a row no query can find.
+      // would write a row no query can find. Nothing to retry, so it is acked.
       this.logger.warn(`Login signal ${event.eventId} carried no email; not projected`);
       return;
     }
 
     const tenantId = this.tenantOf(event);
-    try {
-      await this.activityLogging.recordLoginAttempt({
-        email,
-        ipAddress: event.ip ?? 'unknown',
-        success,
-        failureReason,
-        tenantId,
-        userId: event.userId,
-      });
+    const stored = await this.activityLogging.recordLoginAttempt({
+      email,
+      ipAddress: event.ip ?? 'unknown',
+      success,
+      failureReason,
+      tenantId,
+      userId: event.userId,
+      sourceEventId: event.eventId,
+    });
 
-      await this.monitoring.analyzeLoginAttempt({
-        email,
-        ipAddress: event.ip ?? 'unknown',
-        success,
-        userId: event.userId,
-        tenantId,
-      });
-    } catch (error) {
-      // A projection failure must not nak the subject into a redelivery storm;
-      // the audit ledger in auth.audit_logs remains the system of record.
-      this.logger.error(
-        `Failed to project login signal ${event.eventId}: ${(error as Error).message}`,
-      );
+    if (!stored) {
+      this.logger.debug(`Login signal ${event.eventId} already projected; skipping analysis`);
+      return;
     }
+
+    await this.monitoring.analyzeLoginAttempt({
+      email,
+      ipAddress: event.ip ?? 'unknown',
+      success,
+      userId: event.userId,
+      tenantId,
+    });
   }
 
   /** `'system'` means "no tenant yet" on the wire; the admin tables want absent. */

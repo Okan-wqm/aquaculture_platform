@@ -17,7 +17,6 @@ import { BillingCycle } from '../entities/plan-definition.entity';
 import { BillingAdminCommandClientService } from '../services/billing-admin-command-client.service';
 import { CustomPlanService } from '../services/custom-plan.service';
 import { ModulePricingService } from '../services/module-pricing.service';
-import { PricingCalculatorService } from '../services/pricing-calculator.service';
 
 const PLAN_ID = 'a1b2c3d4-0000-4000-8000-000000000001';
 const TENANT_ID = 'a1b2c3d4-0000-4000-8000-000000000002';
@@ -83,7 +82,6 @@ describe('CustomPlanService.activatePlan (ADMIN-HIGH-011)', () => {
         CustomPlanService,
         { provide: getRepositoryToken(CustomPlan), useValue: planRepo },
         { provide: getRepositoryToken(Tenant), useValue: tenantRepo },
-        { provide: PricingCalculatorService, useValue: {} },
         { provide: ModulePricingService, useValue: {} },
         { provide: BillingAdminCommandClientService, useValue: billingCommands },
       ],
@@ -127,15 +125,17 @@ describe('CustomPlanService.activatePlan (ADMIN-HIGH-011)', () => {
   it('allocates the plan discount across module rows in proportion to subtotal, summing exactly', () => {
     const command = service.buildProvisioningCommand(approvedPlan(), 'Blue Fjord AS', 'admin-user');
     const items = command.moduleItems ?? [];
-    expect(items.map((item) => item.discountAmount)).toEqual([25, 8.33]);
-    expect(items.map((item) => item.total)).toEqual([275, 91.67]);
-    expect(items.reduce((sum, item) => sum + item.discountAmount, 0)).toBeCloseTo(33.33, 2);
+    // ADR-0013: the provisioning contract carries exact decimal strings, so
+    // the allocation is asserted as the text billing receives.
+    expect(items.map((item) => item.discountAmount)).toEqual(['25', '8.33']);
+    expect(items.map((item) => item.total)).toEqual(['275', '91.67']);
+    expect(items.reduce((sum, item) => sum + Number(item.discountAmount), 0)).toBeCloseTo(33.33, 2);
     expect(items[0]).toMatchObject({
       moduleId: 'mod-farm',
       code: 'farm',
       name: 'Farm',
       quantities: { moduleId: 'mod-farm', users: 10, farms: 2 },
-      subtotal: 300,
+      subtotal: '300',
     });
   });
 

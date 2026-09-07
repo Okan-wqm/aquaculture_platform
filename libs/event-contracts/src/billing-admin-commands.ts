@@ -1,4 +1,6 @@
 import type { BillingCycle, PlanTier } from './base-event';
+import type { BillingPlanTier } from './billing/billing-plan-tier';
+import type { BillingPricingMetricType } from './billing/pricing-metric';
 
 /**
  * Platform-admin billing command contracts.
@@ -29,6 +31,13 @@ export const BILLING_ADMIN_COMMAND_SUBJECTS = {
   GENERATE_DISCOUNT_CODE: 'request.billing.admin.generateDiscountCode',
   VALIDATE_DISCOUNT_CODE: 'request.billing.admin.validateDiscountCode',
   APPLY_DISCOUNT_CODE: 'request.billing.admin.applyDiscountCode',
+  // Module price sheet (ADR-0013 / BILLING-CRITICAL-002). billing owns what a
+  // module costs, so it also owns the arithmetic that turns a module selection
+  // into a price — admin asks for the quote instead of recomputing it.
+  SET_MODULE_PRICE: 'request.billing.admin.setModulePrice',
+  DEACTIVATE_MODULE_PRICE: 'request.billing.admin.deactivateModulePrice',
+  SEED_MODULE_PRICES: 'request.billing.admin.seedModulePrices',
+  QUOTE_MODULE_SELECTION: 'request.billing.admin.quoteModuleSelection',
 } as const;
 
 export interface BillingAdminCommandMeta {
@@ -63,9 +72,16 @@ export interface BillingModuleQuantities {
  * source for module rows and the subscription's computed monthly price;
  * `moduleIds`/`moduleQuantities` remain for back-compat during the transition.
  *
- * A module with no `admin.module_pricing` catalog entry legitimately resolves to
- * subtotal/discountAmount/total = 0 (free/core tier) — an absent price is not an
- * error and must never fail provisioning.
+ * A module with no active `billing.module_prices` sheet legitimately resolves to
+ * subtotal/discountAmount/total = '0' (free/core tier) — an absent price is not
+ * an error and must never fail provisioning.
+ *
+ * ADR-0013: the three money fields are exact decimal STRINGS. They are billing's
+ * own quote travelling back to billing, and a round trip through IEEE-754 was
+ * the one place that could make the priced item disagree with the quote the
+ * operator approved. (That the round trip happens at all is redundancy
+ * BILLING-CRITICAL-003 removes when provisioning moves onto
+ * `CreateSubscriptionHandler`; until then it is at least lossless.)
  */
 export interface BillingProvisioningModuleItem {
   moduleId: string;
@@ -73,9 +89,10 @@ export interface BillingProvisioningModuleItem {
   name: string;
   quantities?: BillingModuleQuantities;
   lineItems?: unknown[];
-  subtotal: number;
-  discountAmount: number;
-  total: number;
+  /** Exact decimal strings. */
+  subtotal: string;
+  discountAmount: string;
+  total: string;
 }
 
 export interface BillingTenantProvisioningCommand {
@@ -523,6 +540,189 @@ export interface BillingAdminApplyDiscountCodeResult {
   grantedTrialExtensionDays?: number;
   redemptionId?: string;
   message?: string;
+  errorCode?: BillingAdminCommandErrorCode;
+  error?: string;
+}
+
+// ============================================================================
+// Module price sheet and quotes (ADR-0013 / BILLING-CRITICAL-002)
+//
+// `admin.module_pricing` kept its prices and its tier multipliers as `number`
+// fields inside two `jsonb` columns, so nothing could CHECK a negative price
+// or a multiplier of 40, and every sum went through IEEE-754. Here a price
+// sheet is a row, each metric is a row, each tier multiplier is a row, and
+// every amount crosses as an exact decimal string.
+//
+// The quote moves with the sheet. admin-api used to fetch the sheet and do the
+// arithmetic itself — then send the result back to billing as the priced
+// module items of a provisioning command. Whoever owns the prices owns the
+// multiplication.
+// ============================================================================
+
+export interface BillingModulePriceMetricInput {
+  metricType: BillingPricingMetricType;
+  /** Exact decimal string, >= 0, denominated in the sheet's currency. */
+  price: string;
+  description?: string;
+  minQuantity?: number;
+  maxQuantity?: number;
+  /** Quantity granted before the metric starts charging. */
+  includedQuantity?: number;
+}
+
+/**
+ * A tier's price multiplier: 1 is full price, 0.9 is a 10% tier discount.
+ * Exact decimal string — 0.9 as a float multiplied across a line total is how
+ * a quote and an invoice end up a cent apart.
+ */
+export interface BillingModulePriceTierMultiplierInput {
+  tier: BillingPlanTier;
+  multiplier: string;
+}
+
+export interface BillingModulePriceInput {
+  moduleId: string;
+  moduleCode: string;
+  /** ISO-4217, upper-case. Defaults to USD. */
+  currency?: string;
+  effectiveFrom?: string;
+  effectiveTo?: string | null;
+  notes?: string;
+  metrics: BillingModulePriceMetricInput[];
+  tierMultipliers?: BillingModulePriceTierMultiplierInput[];
+}
+
+export interface BillingModulePriceSnapshot {
+  id: string;
+  moduleId: string;
+  moduleCode: string;
+  currency: string;
+  effectiveFrom: string;
+  effectiveTo?: string | null;
+  isActive: boolean;
+  version: number;
+  notes?: string | null;
+  metrics: BillingModulePriceMetricInput[];
+  tierMultipliers: BillingModulePriceTierMultiplierInput[];
+  createdAt: string;
+  updatedAt: string;
+  createdBy?: string | null;
+  updatedBy?: string | null;
+}
+
+export interface BillingAdminSetModulePriceCommand extends BillingAdminCommandMeta {
+  input: BillingModulePriceInput;
+}
+
+export interface BillingAdminDeactivateModulePriceCommand extends BillingAdminCommandMeta {
+  modulePriceId: string;
+}
+
+/**
+ * Seed the default sheet for modules that have none. `moduleIds` maps a module
+ * code to the `auth.modules` id admin resolved — billing holds no grant on
+ * that schema, so the caller supplies the mapping rather than billing guessing.
+ */
+export interface BillingAdminSeedModulePricesCommand extends BillingAdminCommandMeta {
+  moduleIds: Array<{ moduleCode: string; moduleId: string }>;
+}
+
+export interface BillingAdminModulePriceCommandResult {
+  success: boolean;
+  modulePrice?: BillingModulePriceSnapshot;
+  errorCode?: BillingAdminCommandErrorCode;
+  error?: string;
+}
+
+export interface BillingAdminSeedModulePricesResult {
+  success: boolean;
+  seeded?: number;
+  errorCode?: BillingAdminCommandErrorCode;
+  error?: string;
+}
+
+// ── Quoting ────────────────────────────────────────────────────────────────
+
+export interface BillingModuleQuoteSelection {
+  moduleId: string;
+  moduleCode: string;
+  moduleName?: string;
+  /**
+   * The selection already names the module, so `moduleId` is not repeated
+   * inside its own quantities — the redundant copy is what let a caller send
+   * a quantity block belonging to a different module.
+   */
+  quantities: Omit<BillingModuleQuantities, 'moduleId'>;
+}
+
+export interface BillingAdminQuoteModuleSelectionCommand extends BillingAdminCommandMeta {
+  tier: BillingPlanTier;
+  billingCycle: BillingCycle;
+  modules: BillingModuleQuoteSelection[];
+  /** Required when `discountCode` is set — every discount rule is tenant-relative. */
+  tenantId?: string;
+  discountCode?: string;
+  subscriptionChange?: BillingDiscountSubscriptionChange;
+  /** Exact decimal string percentage, 0-100. */
+  taxRate?: string;
+}
+
+export interface BillingModuleQuoteLineItem {
+  metric: BillingPricingMetricType;
+  metricLabel: string;
+  quantity: number;
+  includedQuantity: number;
+  billableQuantity: number;
+  /** Exact decimal strings. */
+  listUnitPrice: string;
+  unitPrice: string;
+  total: string;
+  tierMultiplier: string;
+}
+
+export interface BillingModuleQuoteBreakdown {
+  moduleId: string;
+  moduleCode: string;
+  moduleName: string;
+  lineItems: BillingModuleQuoteLineItem[];
+  /** Exact decimal strings. */
+  subtotal: string;
+  tierDiscount: string;
+  total: string;
+}
+
+export interface BillingModuleQuote {
+  modules: BillingModuleQuoteBreakdown[];
+  /** Exact decimal strings throughout. */
+  subtotal: string;
+  tierDiscount: string;
+  cycleDiscountAmount: string;
+  cycleDiscountPercent: string;
+  discountCode?: string;
+  discountDescription?: string;
+  discountAmount: string;
+  discountReason?: BillingDiscountRejectionReason;
+  tax: string;
+  taxRate: string;
+  total: string;
+  monthlyTotal: string;
+  annualTotal: string;
+  billingCycle: BillingCycle;
+  billingCycleMultiplier: number;
+  currency: string;
+  tier: BillingPlanTier;
+  calculatedAt: string;
+  /**
+   * Module codes with no active price sheet. An absent sheet is not an error
+   * (a free/core module legitimately has none), but a quote that silently
+   * omits a module the operator selected is a lie, so it says which.
+   */
+  unpricedModuleCodes: string[];
+}
+
+export interface BillingAdminQuoteModuleSelectionResult {
+  success: boolean;
+  quote?: BillingModuleQuote;
   errorCode?: BillingAdminCommandErrorCode;
   error?: string;
 }

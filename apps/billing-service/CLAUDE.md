@@ -12,7 +12,9 @@ Pre-fix the numbers were hand-copied across five per-plan catalogs and drifted a
 
 ## …but billing DOES own everything that prices a subscription (ADR-0013)
 
-This reverses the former clause here that made plan definitions, pricing and discount codes admin-owned. Anything participating in pricing a subscription or an invoice lives in `billing`: admin-panel remains the editing UI, admin-api forwards `request.billing.admin.*` commands and maps the rows read-only (`schema: 'billing'`, `synchronize: false`). `billing.discount_codes` / `discount_redemptions` moved first (BILLING-CRITICAL-002, migration `1802000000000`); `admin.plan_definitions`, `module_pricing` and `custom_plans` follow.
+This reverses the former clause here that made plan definitions, pricing and discount codes admin-owned. Anything participating in pricing a subscription or an invoice lives in `billing`: admin-panel remains the editing UI, admin-api forwards `request.billing.admin.*` commands and maps the rows read-only (`schema: 'billing'`, `synchronize: false`). `discount_codes` / `discount_redemptions` moved first (migration `1802000000000`), then `module_prices` + its metric and tier-multiplier rows (`1802100000000`); `admin.plan_definitions` and `custom_plans` follow.
+
+**The arithmetic lives with the prices.** billing answers `request.billing.admin.quoteModuleSelection`; admin-api multiplies nothing. Four float copies of that calculation used to exist (the admin calculator, the custom-plan service and two admin-panel pages), and the browser ones rendered a total the server would not have charged.
 
 Money uses `MoneyColumn` (`numeric(19,4)`) — never a `number` inside a `jsonb` blob, which no CHECK can constrain. A discount's value is a column per kind (`percent_off`, `amount_off`, `free_months`, `trial_extension_days`) under one CHECK, because a single polymorphic value column cannot tell 150% from $150. Gate: `tests/invariants/plan-catalog-ssot.spec.ts` + the ratchet in `.claude/allowlists/money-in-jsonb.yaml`.
 

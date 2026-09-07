@@ -3,15 +3,16 @@ import * as crypto from 'crypto';
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { EventBus } from '@nestjs/cqrs';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { createBaseEvent, type BillingProvisioningModuleItem } from '@platform/event-contracts';
+import {
+  createBaseEvent,
+  type BillingModuleQuote,
+  type BillingModuleQuoteSelection,
+  type BillingProvisioningModuleItem,
+} from '@platform/event-contracts';
 import { DataSource } from 'typeorm';
 
 import { PlanTier, BillingCycle } from '../../../billing/entities/plan-definition.entity';
-import {
-  PricingCalculatorService,
-  ModuleSelection,
-  PricingCalculation,
-} from '../../../billing/services/pricing-calculator.service';
+import { ModulePricingService } from '../../../billing/services/module-pricing.service';
 import { AuthTenantProvisioningClientService } from '../../../tenant/services/auth-tenant-provisioning-client.service';
 
 /**
@@ -65,7 +66,7 @@ export interface ModuleAssignmentResult {
   tenantId: string;
   assignedModules: string[];
   failedModules: Array<{ moduleId: string; error: string }>;
-  pricing?: PricingCalculation;
+  pricing?: BillingModuleQuote;
   totalMonthlyPrice: number;
 }
 
@@ -115,7 +116,7 @@ export class ModuleAssignmentService {
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly eventBus: EventBus,
-    private readonly pricingCalculator: PricingCalculatorService,
+    private readonly modulePricing: ModulePricingService,
     private readonly authProvisioningClient: AuthTenantProvisioningClientService,
   ) {}
 
@@ -146,7 +147,7 @@ export class ModuleAssignmentService {
     const moduleInfoMap = await this.getModuleInfoMap(modules.map((m) => m.moduleId));
 
     // Prepare modules for pricing calculation
-    const moduleSelections: ModuleSelection[] = [];
+    const moduleSelections: BillingModuleQuoteSelection[] = [];
 
     for (const moduleRequest of modules) {
       const { moduleId, quantities = {} } = moduleRequest;
@@ -199,17 +200,16 @@ export class ModuleAssignmentService {
     }
 
     // Calculate pricing for assigned modules
-    let pricing: PricingCalculation | undefined;
+    let pricing: BillingModuleQuote | undefined;
     let totalMonthlyPrice = 0;
 
     if (moduleSelections.length > 0) {
       try {
-        pricing = await this.pricingCalculator.calculatePricing({
-          modules: moduleSelections,
-          tier,
-          billingCycle,
-        });
-        totalMonthlyPrice = pricing.monthlyTotal;
+        pricing = await this.modulePricing.quote(
+          { modules: moduleSelections, tier, billingCycle },
+          assignedBy,
+        );
+        totalMonthlyPrice = Number(pricing.monthlyTotal);
 
         // Update pricing on tenant_modules
         await this.updateTenantModulesPricing(tenantId, pricing);
@@ -341,27 +341,33 @@ export class ModuleAssignmentService {
    *
    * This is the single writer boundary's answer to the billing-subscription
    * break (ORPHAN-CRITICAL-393 / ORPHAN-HIGH-394): admin-api OWNS module
-   * code/name resolution (`auth.modules`, via its own grant) AND pricing
-   * (`admin.module_pricing` via PricingCalculatorService), so it resolves every
-   * selected module into `{moduleId, code, name, quantities, lineItems,
+   * code/name resolution (`auth.modules`, via its own grant), so it resolves
+   * every selected module into `{moduleId, code, name, quantities, lineItems,
    * subtotal, discountAmount, total}` HERE and passes it in the command.
    * billing then writes `billing.subscription_module_items` directly with no
    * schema-unqualified `modules` query (which failed → tx rollback → lost
    * subscription) and no invented $0 prices.
    *
+   * ADR-0013 changed WHO prices it: the sheet is `billing.module_prices` and
+   * the multiplication happens in billing, asked for over
+   * `request.billing.admin.quoteModuleSelection`. admin still resolves the
+   * identity of each module, because `auth.modules` is admin's grant.
+   *
    * Side-effect-free by design: unlike assignModulesToTenant it does NOT call
    * auth-service, publish events, or write audit rows — it is a pure pricing
    * resolution safe to run inside the idempotent `create_subscription` saga step.
    *
-   * A module with no `admin.module_pricing` catalog entry is legitimately free
-   * (PricingCalculatorService drops it from the breakdown); it still yields a
-   * $0 module row rather than throwing — provisioning must not fail on absent
-   * catalog pricing (that is the very rollback this fix removes).
+   * A module with no active price sheet is legitimately free; it yields a $0
+   * module row rather than throwing — provisioning must not fail on absent
+   * catalog pricing (that is the very rollback this fix removes) — and the
+   * quote names it in `unpricedModuleCodes`.
    */
   async resolveProvisioningModuleItems(params: {
     modules: Array<{ moduleId: string; quantities?: ModuleQuantities }>;
     tier: PlanTier;
     billingCycle: BillingCycle;
+    /** Recorded by billing against the quote; never a client-supplied string. */
+    actorId: string;
   }): Promise<BillingProvisioningModuleItem[]> {
     const moduleIds = params.modules.map((m) => m.moduleId);
     if (moduleIds.length === 0) {
@@ -370,7 +376,7 @@ export class ModuleAssignmentService {
 
     const moduleInfoMap = await this.getModuleInfoMap(moduleIds);
 
-    const moduleSelections: ModuleSelection[] = params.modules.map((m) => {
+    const moduleSelections: BillingModuleQuoteSelection[] = params.modules.map((m) => {
       const info = moduleInfoMap.get(m.moduleId);
       if (!info) {
         // Modules are validated + assigned at the assign_modules step BEFORE
@@ -390,13 +396,20 @@ export class ModuleAssignmentService {
       };
     });
 
-    const pricing = await this.pricingCalculator.calculatePricing({
-      modules: moduleSelections,
-      tier: params.tier,
-      billingCycle: params.billingCycle,
-    });
+    // ADR-0013: billing owns the price sheet, so billing does the
+    // multiplication. admin used to compute these totals itself and send them
+    // back to billing in the provisioning command — the service that owns the
+    // prices trusting someone else's arithmetic.
+    const quote = await this.modulePricing.quote(
+      {
+        modules: moduleSelections,
+        tier: params.tier,
+        billingCycle: params.billingCycle,
+      },
+      params.actorId,
+    );
     const breakdownByModuleId = new Map(
-      pricing.modules.map((breakdown) => [breakdown.moduleId, breakdown]),
+      quote.modules.map((breakdown) => [breakdown.moduleId, breakdown]),
     );
 
     return moduleSelections.map((selection) => {
@@ -407,9 +420,11 @@ export class ModuleAssignmentService {
         name: selection.moduleName ?? selection.moduleCode,
         quantities: { moduleId: selection.moduleId, ...selection.quantities },
         lineItems: breakdown?.lineItems ?? [],
-        subtotal: breakdown?.subtotal ?? 0,
-        discountAmount: breakdown?.tierDiscount ?? 0,
-        total: breakdown?.total ?? 0,
+        // A module with no active price sheet resolves to 0 — free/core tier
+        // is a legitimate answer, and `quote.unpricedModuleCodes` names them.
+        subtotal: breakdown?.subtotal ?? '0',
+        discountAmount: breakdown?.tierDiscount ?? '0',
+        total: breakdown?.total ?? '0',
       };
     });
   }
@@ -448,28 +463,27 @@ export class ModuleAssignmentService {
    */
   async recalculateTenantPricing(
     tenantId: string,
+    actorId: string,
     tier: PlanTier = PlanTier.STARTER,
     billingCycle: BillingCycle = BillingCycle.MONTHLY,
-  ): Promise<PricingCalculation> {
+  ): Promise<BillingModuleQuote> {
     const modules = await this.getTenantModulesWithPricing(tenantId);
 
-    const moduleSelections: ModuleSelection[] = modules.map((m) => ({
+    const moduleSelections: BillingModuleQuoteSelection[] = modules.map((m) => ({
       moduleId: m.moduleId,
       moduleCode: m.moduleCode,
       moduleName: m.moduleName,
       quantities: m.quantities,
     }));
 
-    const pricing = await this.pricingCalculator.calculatePricing({
-      modules: moduleSelections,
-      tier,
-      billingCycle,
-    });
+    const quote = await this.modulePricing.quote(
+      { modules: moduleSelections, tier, billingCycle },
+      actorId,
+    );
 
-    // Update pricing in database
-    await this.updateTenantModulesPricing(tenantId, pricing);
+    await this.updateTenantModulesPricing(tenantId, quote);
 
-    return pricing;
+    return quote;
   }
 
   // ============== Private Helper Methods ==============
@@ -514,7 +528,7 @@ export class ModuleAssignmentService {
 
   private async updateTenantModulesPricing(
     tenantId: string,
-    pricing: PricingCalculation,
+    pricing: BillingModuleQuote,
   ): Promise<void> {
     // monthly_price column does not exist in tenant_modules; pricing is tracked by the pricing service.
     // Just log the calculated pricing for observability.
@@ -528,7 +542,7 @@ export class ModuleAssignmentService {
   private publishModulesAssignedEvent(
     tenantId: string,
     moduleIds: string[],
-    pricing: PricingCalculation | undefined,
+    pricing: BillingModuleQuote | undefined,
     assignedBy: string,
   ): void {
     this.eventBus.publish({
@@ -537,8 +551,8 @@ export class ModuleAssignmentService {
         aggregateType: 'Tenant',
       }),
       moduleIds,
-      pricingMonthlyTotal: pricing?.monthlyTotal,
-      pricingAnnualTotal: pricing?.annualTotal,
+      pricingMonthlyTotal: pricing ? Number(pricing.monthlyTotal) : undefined,
+      pricingAnnualTotal: pricing ? Number(pricing.annualTotal) : undefined,
       pricingTier: pricing?.tier,
       pricingCurrency: pricing?.currency,
       assignedBy,

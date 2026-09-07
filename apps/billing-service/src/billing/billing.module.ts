@@ -20,6 +20,11 @@ import { StripeWebhookController } from './controllers/stripe-webhook.controller
 import { StripeWebhookService } from './controllers/stripe-webhook.service';
 import { DiscountCode, DiscountRedemption } from './entities/discount-code.entity';
 import { Invoice } from './entities/invoice.entity';
+import {
+  ModulePrice,
+  ModulePriceMetric,
+  ModulePriceTierMultiplier,
+} from './entities/module-price.entity';
 import { Payment } from './entities/payment.entity';
 import { Plan } from './entities/plan.entity';
 import { ScheduledPlanChange } from './entities/scheduled-plan-change.entity';
@@ -32,6 +37,7 @@ import { Subscription } from './entities/subscription.entity';
 import { ConfigurationChangedHandler } from './event-handlers/configuration-changed.handler';
 import { BillingAdminNatsHandler } from './handlers/billing-admin-nats.handler';
 import { BillingDiscountNatsHandler } from './handlers/billing-discount-nats.handler';
+import { BillingModulePriceNatsHandler } from './handlers/billing-module-price-nats.handler';
 import { CancelSubscriptionHandler } from './handlers/cancel-subscription.handler';
 import { ChangeSubscriptionPlanHandler } from './handlers/change-subscription-plan.handler';
 import { CreateInvoiceHandler } from './handlers/create-invoice.handler';
@@ -51,6 +57,7 @@ import { GetSubscriptionHandler } from './query-handlers/get-subscription.handle
 import { GetTenantBillingHandler } from './query-handlers/get-tenant-billing.handler';
 import { PlanSeedService } from './seed/plan-seed.service';
 import { DiscountCodeService } from './services/discount-code.service';
+import { ModulePricingService } from './services/module-pricing.service';
 import { MeteringModule } from '../modules/metering/metering.module';
 
 const CommandHandlers = [
@@ -91,6 +98,9 @@ const EventHandlers: never[] = [];
       TelemetryCapacityEntitlementEntity,
       DiscountCode,
       DiscountRedemption,
+      ModulePrice,
+      ModulePriceMetric,
+      ModulePriceTierMultiplier,
     ]),
     CqrsModule,
     ScheduleModule,
@@ -124,7 +134,12 @@ const EventHandlers: never[] = [];
   ],
   // BillingAdminNatsHandler must be a controller so Nest microservice
   // transport registers its @MessagePattern subscribers.
-  controllers: [StripeWebhookController, BillingAdminNatsHandler, BillingDiscountNatsHandler],
+  controllers: [
+    StripeWebhookController,
+    BillingAdminNatsHandler,
+    BillingDiscountNatsHandler,
+    BillingModulePriceNatsHandler,
+  ],
   providers: [
     BillingResolver,
     ...BillingDecimalResolvers,
@@ -139,6 +154,7 @@ const EventHandlers: never[] = [];
     // reservations — PENDING_CAPACITY/ACTIVE/SUPERSEDED/RELEASED machine.
     TelemetryCapacityService,
     DiscountCodeService,
+    ModulePricingService,
     // Faz C: invalidates the DynamicStripeClientProvider snapshot when an
     // operator saves a platform/billing.* config row (subscribes in onModuleInit).
     ConfigurationChangedHandler,

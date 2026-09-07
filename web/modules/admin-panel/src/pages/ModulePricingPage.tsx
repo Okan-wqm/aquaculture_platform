@@ -20,20 +20,27 @@ import {
 // Metric Labels
 // ============================================================================
 
+/**
+ * ADR-0013: every metric the contract declares — the previous map omitted
+ * `per_gb_transfer` and `per_workflow`, so a sheet pricing either could not be
+ * labelled or edited here at all.
+ */
 const METRIC_LABELS: Record<PricingMetricType, string> = {
-  [PricingMetricType.BASE_PRICE]: 'Base Price',
-  [PricingMetricType.PER_USER]: 'Per User',
-  [PricingMetricType.PER_FARM]: 'Per Farm',
-  [PricingMetricType.PER_POND]: 'Per Pond/Tank',
-  [PricingMetricType.PER_SENSOR]: 'Per Sensor',
-  [PricingMetricType.PER_DEVICE]: 'Per Device',
-  [PricingMetricType.PER_GB_STORAGE]: 'Per GB Storage',
-  [PricingMetricType.PER_API_CALL]: 'Per API Call',
-  [PricingMetricType.PER_ALERT]: 'Per Alert',
-  [PricingMetricType.PER_REPORT]: 'Per Report',
-  [PricingMetricType.PER_SMS]: 'Per SMS',
-  [PricingMetricType.PER_EMAIL]: 'Per Email',
-  [PricingMetricType.PER_INTEGRATION]: 'Per Integration',
+  base_price: 'Base Price',
+  per_user: 'Per User',
+  per_farm: 'Per Farm',
+  per_pond: 'Per Pond/Tank',
+  per_sensor: 'Per Sensor',
+  per_device: 'Per Device',
+  per_gb_storage: 'Per GB Storage',
+  per_gb_transfer: 'Per GB Transfer',
+  per_api_call: 'Per API Call',
+  per_alert: 'Per Alert',
+  per_report: 'Per Report',
+  per_sms: 'Per SMS',
+  per_email: 'Per Email',
+  per_integration: 'Per Integration',
+  per_workflow: 'Per Workflow',
 };
 
 // All available metric types for adding new metrics
@@ -75,35 +82,17 @@ const getModuleIcon = (iconName: string | undefined | null): string => {
   return ICON_MAP[normalizedIcon] || ICON_MAP.default;
 };
 
-// Helper to check if metric is BASE_PRICE (handles both string and enum)
-const isBasePrice = (metricType: string | PricingMetricType): boolean => {
-  const normalized = String(metricType).toLowerCase();
-  return normalized === 'base_price' || normalized === 'base_fee';
-};
+/**
+ * ADR-0013: a metric type is one of the fifteen the contract declares, and
+ * `billing.module_price_metrics` CHECKs the column against exactly that set.
+ * The case-normalising, `base_fee`-remapping, Title-Case-fallback versions of
+ * these helpers existed because the value used to be whatever a jsonb blob
+ * happened to hold; none of those shapes is representable now.
+ */
+const isBasePrice = (metricType: PricingMetricType): boolean =>
+  metricType === PricingMetricType.BASE_PRICE;
 
-// Helper to get metric label (handles both uppercase and lowercase metric types)
-const getMetricLabel = (metricType: string | PricingMetricType): string => {
-  // Normalize to lowercase for lookup
-  const normalized = String(metricType).toLowerCase();
-
-  // Map legacy 'base_fee' to 'base_price'
-  const mappedType = normalized === 'base_fee' ? 'base_price' : normalized;
-
-  // Find matching enum value
-  const enumKey = Object.values(PricingMetricType).find(
-    (v) => v.toLowerCase() === mappedType
-  );
-
-  if (enumKey && METRIC_LABELS[enumKey]) {
-    return METRIC_LABELS[enumKey];
-  }
-
-  // Fallback: convert snake_case to Title Case
-  return metricType
-    .toString()
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, (c) => c.toUpperCase());
-};
+const getMetricLabel = (metricType: PricingMetricType): string => METRIC_LABELS[metricType];
 
 // ============================================================================
 // Types
@@ -167,23 +156,28 @@ const ModulePricingPage: React.FC = () => {
     }).format(amount);
   };
 
+  // Multipliers arrive as exact decimal strings (ADR-0013); compare them as
+  // numbers only for display.
   const getTierDiscount = (tier: PlanTier, multipliers: TierMultipliers) => {
-    const multiplier = multipliers[tier];
-    if (multiplier === undefined || multiplier === 1) return null;
-    if (multiplier === 0) return 'Free';
+    const raw = multipliers[tier as keyof TierMultipliers];
+    if (raw === undefined) return null;
+    const multiplier = Number(raw);
+    if (multiplier === 1) return null;
     const discount = Math.round((1 - multiplier) * 100);
     return `${discount}% off`;
   };
 
-  const calculateBaseMonthlyPrice = (pricing: ModulePricingWithModule): number => {
-    const metrics = pricing.pricingMetrics || [];
-    return metrics.reduce((sum, metric) => {
-      if (isBasePrice(metric.type)) {
-        return sum + (metric.price || 0);
-      }
-      return sum;
-    }, 0);
-  };
+  const calculateBaseMonthlyPrice = (pricing: ModulePricingWithModule): number =>
+    (pricing.metrics ?? []).reduce(
+      (sum, metric) => (isBasePrice(metric.metricType) ? sum + Number(metric.price) : sum),
+      0,
+    );
+
+  /** The read side lists multipliers as rows; the edit form keys them by tier. */
+  const toTierMultiplierForm = (
+    rows: ModulePricingWithModule['tierMultipliers'],
+  ): TierMultipliers =>
+    Object.fromEntries(rows.map((row) => [row.tier, row.multiplier])) as TierMultipliers;
 
   // Open edit modal
   const handleEdit = (pricing: ModulePricingWithModule) => {
@@ -192,8 +186,8 @@ const ModulePricingPage: React.FC = () => {
       moduleId: pricing.moduleId,
       moduleCode: pricing.moduleCode,
       moduleName: pricing.moduleName || pricing.moduleCode,
-      pricingMetrics: [...(pricing.pricingMetrics || [])],
-      tierMultipliers: { ...(pricing.tierMultipliers || {}) },
+      pricingMetrics: pricing.metrics.map((metric) => ({ ...metric })),
+      tierMultipliers: toTierMultiplierForm(pricing.tierMultipliers ?? []),
       currency: pricing.currency || 'USD',
       notes: pricing.notes || '',
     });
@@ -206,9 +200,10 @@ const ModulePricingPage: React.FC = () => {
   const handleMetricPriceChange = (metricType: PricingMetricType, value: string) => {
     if (!editForm) return;
 
-    const price = parseFloat(value) || 0;
+    // Kept as the operator typed it: an exact decimal string is what the
+    // contract takes, and a round trip through Number would round it here.
     const updatedMetrics = editForm.pricingMetrics.map((m) =>
-      m.type === metricType ? { ...m, price } : m
+      m.metricType === metricType ? { ...m, price: value.trim() } : m,
     );
 
     setEditForm({ ...editForm, pricingMetrics: updatedMetrics });
@@ -220,7 +215,7 @@ const ModulePricingPage: React.FC = () => {
 
     const includedQuantity = parseInt(value) || 0;
     const updatedMetrics = editForm.pricingMetrics.map((m) =>
-      m.type === metricType ? { ...m, includedQuantity } : m
+      m.metricType === metricType ? { ...m, includedQuantity } : m,
     );
 
     setEditForm({ ...editForm, pricingMetrics: updatedMetrics });
@@ -230,10 +225,12 @@ const ModulePricingPage: React.FC = () => {
   const handleTierMultiplierChange = (tier: string, value: string) => {
     if (!editForm) return;
 
-    const multiplier = parseFloat(value) || 0;
+    // Kept as typed: the contract takes an exact decimal string in (0, 10],
+    // and the server refuses anything outside it rather than silently
+    // coercing — `parseFloat(value) || 0` used to turn a typo into a free tier.
     setEditForm({
       ...editForm,
-      tierMultipliers: { ...editForm.tierMultipliers, [tier]: multiplier },
+      tierMultipliers: { ...editForm.tierMultipliers, [tier]: value.trim() },
     });
   };
 
@@ -242,14 +239,13 @@ const ModulePricingPage: React.FC = () => {
     if (!editForm) return;
 
     // Check if metric already exists
-    if (editForm.pricingMetrics.some((m) => m.type === metricType)) {
+    if (editForm.pricingMetrics.some((m) => m.metricType === metricType)) {
       return;
     }
 
     const newMetric: PricingMetric = {
-      type: metricType,
-      price: 0,
-      currency: 'USD',
+      metricType,
+      price: '0',
       includedQuantity: 0,
     };
 
@@ -268,7 +264,7 @@ const ModulePricingPage: React.FC = () => {
 
     setEditForm({
       ...editForm,
-      pricingMetrics: editForm.pricingMetrics.filter((m) => m.type !== metricType),
+      pricingMetrics: editForm.pricingMetrics.filter((m) => m.metricType !== metricType),
     });
   };
 
@@ -309,7 +305,7 @@ const ModulePricingPage: React.FC = () => {
   // Get available metrics that can be added
   const getAvailableMetrics = () => {
     if (!editForm) return [];
-    const existingTypes = editForm.pricingMetrics.map((m) => m.type);
+    const existingTypes = editForm.pricingMetrics.map((m) => m.metricType);
     return ALL_METRIC_TYPES.filter((type) => !existingTypes.includes(type));
   };
 
@@ -406,14 +402,14 @@ const ModulePricingPage: React.FC = () => {
             {/* Metrics Summary */}
             <div className="space-y-2 mb-4">
               <div className="text-xs font-medium text-gray-500 uppercase">Usage Metrics</div>
-              {(pricing.pricingMetrics || [])
-                .filter((m) => !isBasePrice(m.type))
+              {(pricing.metrics ?? [])
+                .filter((m) => !isBasePrice(m.metricType))
                 .slice(0, 4)
                 .map((metric) => (
-                  <div key={metric.type} className="flex justify-between text-sm">
-                    <span className="text-gray-600">{getMetricLabel(metric.type)}</span>
+                  <div key={metric.metricType} className="flex justify-between text-sm">
+                    <span className="text-gray-600">{getMetricLabel(metric.metricType)}</span>
                     <span className="font-medium">
-                      {formatCurrency(metric.price)}
+                      {formatCurrency(Number(metric.price))}
                       {metric.includedQuantity ? (
                         <span className="text-gray-500 text-xs ml-1">
                           ({metric.includedQuantity} free)
@@ -422,9 +418,9 @@ const ModulePricingPage: React.FC = () => {
                     </span>
                   </div>
                 ))}
-              {(pricing.pricingMetrics || []).filter((m) => !isBasePrice(m.type)).length > 4 && (
+              {(pricing.metrics ?? []).filter((m) => !isBasePrice(m.metricType)).length > 4 && (
                 <div className="text-xs text-gray-500">
-                  +{(pricing.pricingMetrics || []).filter((m) => !isBasePrice(m.type)).length - 4} more metrics
+                  +{(pricing.metrics ?? []).filter((m) => !isBasePrice(m.metricType)).length - 4} more metrics
                 </div>
               )}
             </div>
@@ -433,8 +429,8 @@ const ModulePricingPage: React.FC = () => {
             <div className="mb-4">
               <div className="text-xs font-medium text-gray-500 uppercase mb-2">Tier Discounts</div>
               <div className="flex flex-wrap gap-2">
-                {Object.entries(pricing.tierMultipliers || {}).map(([tier, multiplier]) => {
-                  const discount = getTierDiscount(tier as PlanTier, pricing.tierMultipliers || {});
+                {Object.entries(toTierMultiplierForm(pricing.tierMultipliers ?? [])).map(([tier, multiplier]) => {
+                  const discount = getTierDiscount(tier as PlanTier, toTierMultiplierForm(pricing.tierMultipliers ?? []));
                   if (!discount) return null;
                   return (
                     <span
@@ -507,25 +503,25 @@ const ModulePricingPage: React.FC = () => {
             <div className="mb-6">
               <h3 className="text-lg font-semibold mb-3">Pricing Metrics</h3>
               <div className="space-y-3">
-                {(selectedPricing.pricingMetrics || []).map((metric) => (
+                {(selectedPricing.metrics ?? []).map((metric) => (
                   <div
-                    key={metric.type}
+                    key={metric.metricType}
                     className={`p-4 rounded-lg ${
-                      isBasePrice(metric.type)
+                      isBasePrice(metric.metricType)
                         ? 'bg-indigo-50 border border-indigo-200'
                         : 'bg-gray-50'
                     }`}
                   >
                     <div className="flex justify-between items-start">
                       <div>
-                        <div className="font-medium">{getMetricLabel(metric.type)}</div>
+                        <div className="font-medium">{getMetricLabel(metric.metricType)}</div>
                         {metric.description && (
                           <div className="text-sm text-gray-500">{metric.description}</div>
                         )}
                       </div>
                       <div className="text-right">
-                        <div className="font-bold text-lg">{formatCurrency(metric.price)}</div>
-                        {!isBasePrice(metric.type) && (
+                        <div className="font-bold text-lg">{formatCurrency(Number(metric.price))}</div>
+                        {!isBasePrice(metric.metricType) && (
                           <div className="text-xs text-gray-500">per unit/mo</div>
                         )}
                       </div>
@@ -544,15 +540,13 @@ const ModulePricingPage: React.FC = () => {
             <div className="mb-6">
               <h3 className="text-lg font-semibold mb-3">Tier Multipliers</h3>
               <div className="grid grid-cols-5 gap-2">
-                {Object.entries(selectedPricing.tierMultipliers || {}).map(([tier, multiplier]) => (
+                {Object.entries(toTierMultiplierForm(selectedPricing.tierMultipliers ?? [])).map(([tier, multiplier]) => (
                   <div key={tier} className="p-3 bg-gray-50 rounded-lg text-center">
                     <div className="text-xs text-gray-500 uppercase mb-1">{tier}</div>
-                    <div className="font-bold">
-                      {multiplier === 0 ? 'Free' : `${(multiplier || 1) * 100}%`}
-                    </div>
-                    {multiplier && multiplier < 1 && multiplier > 0 && (
+                    <div className="font-bold">{`${Number(multiplier ?? '1') * 100}%`}</div>
+                    {Number(multiplier ?? '1') < 1 && (
                       <div className="text-xs text-green-600">
-                        {Math.round((1 - multiplier) * 100)}% off
+                        {Math.round((1 - Number(multiplier)) * 100)}% off
                       </div>
                     )}
                   </div>
@@ -623,20 +617,20 @@ const ModulePricingPage: React.FC = () => {
               <div className="space-y-4">
                 {editForm.pricingMetrics.map((metric) => (
                   <div
-                    key={metric.type}
+                    key={metric.metricType}
                     className={`p-4 rounded-lg border ${
-                      isBasePrice(metric.type)
+                      isBasePrice(metric.metricType)
                         ? 'bg-indigo-50 border-indigo-200'
                         : 'bg-gray-50 border-gray-200'
                     }`}
                   >
                     <div className="flex justify-between items-center mb-3">
-                      <div className="font-medium">{getMetricLabel(metric.type)}</div>
-                      {!isBasePrice(metric.type) && (
+                      <div className="font-medium">{getMetricLabel(metric.metricType)}</div>
+                      {!isBasePrice(metric.metricType) && (
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => handleRemoveMetric(metric.type)}
+                          onClick={() => handleRemoveMetric(metric.metricType)}
                           className="text-red-600 hover:text-red-700"
                         >
                           Remove
@@ -651,17 +645,17 @@ const ModulePricingPage: React.FC = () => {
                           step="0.01"
                           min="0"
                           value={metric.price}
-                          onChange={(e) => handleMetricPriceChange(metric.type, e.target.value)}
+                          onChange={(e) => handleMetricPriceChange(metric.metricType, e.target.value)}
                         />
                       </div>
-                      {!isBasePrice(metric.type) && (
+                      {!isBasePrice(metric.metricType) && (
                         <div>
                           <label className="block text-sm text-gray-600 mb-1">Included Free</label>
                           <Input
                             type="number"
                             min="0"
                             value={metric.includedQuantity || 0}
-                            onChange={(e) => handleMetricIncludedChange(metric.type, e.target.value)}
+                            onChange={(e) => handleMetricIncludedChange(metric.metricType, e.target.value)}
                           />
                         </div>
                       )}

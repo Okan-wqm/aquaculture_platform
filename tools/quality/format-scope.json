@@ -1076,7 +1076,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "b356ac9fc8d16622660810cea3e7672dad596773e765abf5e8dc9b02b8d20bdd",
+      "content_sha256": "a0b68682735db1474df78a9a954a6eace39500b221787dc22f090815def5a2ed",
       "hash_policy": "sha256",
       "owner": "admin-openapi-generator",
       "path": "apps/admin-api-service/openapi.json",
@@ -1316,12 +1316,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/admin-api-service/src/billing/__tests__/pricing-calculator-free-tier.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/admin-api-service/src/billing/billing.controller.ts",
       "prettier_managed": true
     },
@@ -1329,12 +1323,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/billing/billing.module.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/admin-api-service/src/billing/data/default-module-pricing.ts",
       "prettier_managed": true
     },
     {
@@ -1352,6 +1340,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/billing/dto/module-price-response.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/billing/entities/custom-plan.entity.ts",
       "prettier_managed": true
     },
@@ -1364,13 +1358,13 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/admin-api-service/src/billing/entities/index.ts",
+      "path": "apps/admin-api-service/src/billing/entities/external/module-price.entity.ts",
       "prettier_managed": true
     },
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/admin-api-service/src/billing/entities/module-pricing.entity.ts",
+      "path": "apps/admin-api-service/src/billing/entities/index.ts",
       "prettier_managed": true
     },
     {
@@ -1383,12 +1377,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/billing/entities/plan-module-assignment.entity.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/admin-api-service/src/billing/entities/pricing-metric.enum.ts",
       "prettier_managed": true
     },
     {
@@ -1455,12 +1443,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/billing/services/plan-definition.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/admin-api-service/src/billing/services/pricing-calculator.service.ts",
       "prettier_managed": true
     },
     {
@@ -2201,6 +2183,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/migrations/1809200000000-RetireAdminDiscountCatalogue.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1809300000000-RetireAdminModulePricing.ts",
       "prettier_managed": true
     },
     {
@@ -6226,6 +6214,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/billing-service/src/billing/__tests__/module-quote.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/billing-service/src/billing/__tests__/payment.service.spec.ts",
       "prettier_managed": true
     },
@@ -6436,6 +6430,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/billing-service/src/billing/entities/module-price.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/billing-service/src/billing/entities/payment.entity.ts",
       "prettier_managed": true
     },
@@ -6503,6 +6503,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/billing-service/src/billing/handlers/billing-discount-nats.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/billing-service/src/billing/handlers/billing-module-price-nats.handler.ts",
       "prettier_managed": true
     },
     {
@@ -6664,6 +6670,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/billing-service/src/billing/services/default-module-prices.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/billing-service/src/billing/services/discount-code.service.ts",
       "prettier_managed": true
     },
@@ -6671,6 +6683,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/billing-service/src/billing/services/discount-rules.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/billing-service/src/billing/services/module-pricing.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/billing-service/src/billing/services/module-quote.ts",
       "prettier_managed": true
     },
     {
@@ -6873,6 +6897,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/billing-service/src/database/migrations/1802300000000-StripeObjectOwnershipUniqueIndexes.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/billing-service/src/database/migrations/1802400000000-CreateModulePriceSheet.ts",
       "prettier_managed": true
     },
     {
@@ -41267,6 +41297,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/event-contracts/src/billing/pricing-metric.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/event-contracts/src/billing/telemetry-capacity.ts",
       "prettier_managed": true
     },
@@ -50849,7 +50885,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "f8e2a567fc0786955b6dd25b6b585d1511c79ac5939f7c449a1aaf8879410736",
+      "content_sha256": "9d7ad711b3dd8249ee859b248a5f65f321e4ebc3779a6daed58b6fde926a21ad",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/modules/admin-panel/src/services/generated/admin-api.ts",

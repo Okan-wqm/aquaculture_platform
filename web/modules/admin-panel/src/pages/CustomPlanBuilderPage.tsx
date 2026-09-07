@@ -50,33 +50,40 @@ interface PlanConfig {
 // Metric Labels
 // ============================================================================
 
+/**
+ * ADR-0013: every metric the contract declares. The previous map omitted
+ * `per_gb_transfer` and `per_workflow`, so a sheet pricing either rendered its
+ * raw key; exhaustiveness is checked against the generated union now.
+ */
 const METRIC_LABELS: Record<PricingMetricType, string> = {
-  [PricingMetricType.BASE_PRICE]: 'Base Price',
-  [PricingMetricType.PER_USER]: 'Users',
-  [PricingMetricType.PER_FARM]: 'Farms',
-  [PricingMetricType.PER_POND]: 'Ponds/Tanks',
-  [PricingMetricType.PER_SENSOR]: 'Sensors',
-  [PricingMetricType.PER_DEVICE]: 'Devices',
-  [PricingMetricType.PER_GB_STORAGE]: 'Storage (GB)',
-  [PricingMetricType.PER_API_CALL]: 'API Calls',
-  [PricingMetricType.PER_ALERT]: 'Alerts',
-  [PricingMetricType.PER_REPORT]: 'Reports',
-  [PricingMetricType.PER_SMS]: 'SMS',
-  [PricingMetricType.PER_EMAIL]: 'Emails',
-  [PricingMetricType.PER_INTEGRATION]: 'Integrations',
+  base_price: 'Base Price',
+  per_user: 'Users',
+  per_farm: 'Farms',
+  per_pond: 'Ponds/Tanks',
+  per_sensor: 'Sensors',
+  per_device: 'Devices',
+  per_gb_storage: 'Storage (GB)',
+  per_gb_transfer: 'Data Transfer (GB)',
+  per_api_call: 'API Calls',
+  per_alert: 'Alerts',
+  per_report: 'Reports',
+  per_sms: 'SMS',
+  per_email: 'Emails',
+  per_integration: 'Integrations',
+  per_workflow: 'Workflows',
 };
 
 const QUANTITY_FIELD_MAP: Partial<Record<PricingMetricType, keyof ModuleQuantities>> = {
-  [PricingMetricType.PER_USER]: 'users',
-  [PricingMetricType.PER_FARM]: 'farms',
-  [PricingMetricType.PER_POND]: 'ponds',
-  [PricingMetricType.PER_SENSOR]: 'sensors',
-  [PricingMetricType.PER_DEVICE]: 'devices',
-  [PricingMetricType.PER_GB_STORAGE]: 'storageGb',
-  [PricingMetricType.PER_API_CALL]: 'apiCalls',
-  [PricingMetricType.PER_ALERT]: 'alerts',
-  [PricingMetricType.PER_REPORT]: 'reports',
-  [PricingMetricType.PER_INTEGRATION]: 'integrations',
+  per_user: 'users',
+  per_farm: 'farms',
+  per_pond: 'ponds',
+  per_sensor: 'sensors',
+  per_device: 'devices',
+  per_gb_storage: 'storageGb',
+  per_api_call: 'apiCalls',
+  per_alert: 'alerts',
+  per_report: 'reports',
+  per_integration: 'integrations',
 };
 
 // ============================================================================
@@ -88,6 +95,8 @@ const CustomPlanBuilderPage: React.FC = () => {
   const [availableModules, setAvailableModules] = useState<ModulePricingWithModule[]>([]);
   const [loading, setLoading] = useState(true);
   const [calculating, setCalculating] = useState(false);
+  /** Why billing could not price the plan — shown instead of a number. */
+  const [pricingError, setPricingError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -147,25 +156,16 @@ const CustomPlanBuilderPage: React.FC = () => {
         billingCycle: config.billingCycle,
       });
       setPricing(result);
+      setPricingError(null);
     } catch (err) {
-      // Calculate locally if API fails
-      const localTotal = calculateLocalPricing();
-      setPricing({
-        modules: [],
-        subtotal: localTotal,
-        tierDiscount: 0,
-        discount: { amount: 0, percent: 0 },
-        tax: 0,
-        taxRate: 0,
-        total: localTotal,
-        monthlyTotal: localTotal,
-        annualTotal: localTotal * 12,
-        billingCycle: config.billingCycle,
-        billingCycleMultiplier: 1,
-        currency: 'USD',
-        tier: config.tier,
-        calculatedAt: new Date().toISOString(),
-      });
+      // ADR-0013: there is one price authority. The fallback here recomputed
+      // the total in the browser with hardcoded tier multipliers (0.7 / 0.9 /
+      // 1.0) that came from no sheet at all, so a failed call quietly showed a
+      // price the server would not have charged.
+      setPricing(null);
+      setPricingError(
+        err instanceof Error ? err.message : 'Could not price this plan right now',
+      );
     } finally {
       setCalculating(false);
     }
@@ -178,32 +178,6 @@ const CustomPlanBuilderPage: React.FC = () => {
     return () => clearTimeout(timer);
   }, [calculatePricing]);
 
-  const calculateLocalPricing = (): number => {
-    let total = 0;
-    const tierMultiplier = config.tier === PlanTier.ENTERPRISE ? 0.7 : config.tier === PlanTier.PROFESSIONAL ? 0.9 : 1.0;
-
-    for (const selectedModule of config.modules) {
-      const modulePricing = availableModules.find((m) => m.moduleCode === selectedModule.moduleCode);
-      if (!modulePricing) continue;
-
-      for (const metric of modulePricing.pricingMetrics) {
-        if (metric.type === PricingMetricType.BASE_PRICE) {
-          total += metric.price * tierMultiplier;
-        } else {
-          const field = QUANTITY_FIELD_MAP[metric.type];
-          if (field) {
-            const qty = selectedModule.quantities[field] || 0;
-            const included = metric.includedQuantity || 0;
-            const billable = Math.max(0, qty - included);
-            total += billable * metric.price * tierMultiplier;
-          }
-        }
-      }
-    }
-
-    return total;
-  };
-
   const toggleModule = (module: ModulePricingWithModule) => {
     const isSelected = config.modules.some((m) => m.moduleCode === module.moduleCode);
 
@@ -215,8 +189,8 @@ const CustomPlanBuilderPage: React.FC = () => {
     } else {
       // Initialize with default quantities
       const defaultQuantities: ModuleQuantities = {};
-      module.pricingMetrics.forEach((metric) => {
-        const field = QUANTITY_FIELD_MAP[metric.type];
+      module.metrics.forEach((metric) => {
+        const field = QUANTITY_FIELD_MAP[metric.metricType];
         if (field) {
           defaultQuantities[field] = metric.includedQuantity || 1;
         }
@@ -456,9 +430,9 @@ const CustomPlanBuilderPage: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {availableModules.map((module) => {
                 const isSelected = config.modules.some((m) => m.moduleCode === module.moduleCode);
-                const basePrice = module.pricingMetrics.find(
-                  (m) => m.type === PricingMetricType.BASE_PRICE
-                )?.price || 0;
+                const basePrice =
+                  module.metrics.find((m) => m.metricType === PricingMetricType.BASE_PRICE)
+                    ?.price ?? '0';
 
                 return (
                   <div
@@ -474,7 +448,7 @@ const CustomPlanBuilderPage: React.FC = () => {
                       <div className="text-2xl">{module.moduleIcon || '📦'}</div>
                       <div className="flex-1">
                         <div className="font-medium">{module.moduleName}</div>
-                        <div className="text-sm text-gray-500">{formatCurrency(basePrice)}/mo base</div>
+                        <div className="text-sm text-gray-500">{formatCurrency(Number(basePrice))}/mo base</div>
                       </div>
                       {isSelected && (
                         <svg className="w-6 h-6 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
@@ -510,16 +484,16 @@ const CustomPlanBuilderPage: React.FC = () => {
                         <span className="font-medium">{modulePricing.moduleName}</span>
                       </div>
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        {modulePricing.pricingMetrics
-                          .filter((m) => m.type !== PricingMetricType.BASE_PRICE)
+                        {modulePricing.metrics
+                          .filter((m) => m.metricType !== PricingMetricType.BASE_PRICE)
                           .map((metric) => {
-                            const field = QUANTITY_FIELD_MAP[metric.type];
+                            const field = QUANTITY_FIELD_MAP[metric.metricType];
                             if (!field) return null;
 
                             return (
-                              <div key={metric.type}>
+                              <div key={metric.metricType}>
                                 <label className="block text-xs text-gray-500 mb-1">
-                                  {METRIC_LABELS[metric.type]}
+                                  {METRIC_LABELS[metric.metricType]}
                                   {metric.includedQuantity && (
                                     <span className="text-green-600 ml-1">
                                       ({metric.includedQuantity} free)
@@ -610,14 +584,14 @@ const CustomPlanBuilderPage: React.FC = () => {
                       (mp) => mp.moduleCode === m.moduleCode
                     );
                     const basePrice =
-                      modulePricing?.pricingMetrics.find(
-                        (metric) => metric.type === PricingMetricType.BASE_PRICE
-                      )?.price || 0;
+                      modulePricing?.metrics.find(
+                        (metric) => metric.metricType === PricingMetricType.BASE_PRICE,
+                      )?.price ?? '0';
 
                     return (
                       <div key={m.moduleCode} className="flex justify-between text-sm">
                         <span className="text-gray-600">{m.moduleName}</span>
-                        <span className="font-medium">{formatCurrency(basePrice)}</span>
+                        <span className="font-medium">{formatCurrency(Number(basePrice))}</span>
                       </div>
                     );
                   })}
@@ -628,19 +602,22 @@ const CustomPlanBuilderPage: React.FC = () => {
                     <>
                       <div className="flex justify-between text-sm">
                         <span className="text-gray-500">Subtotal</span>
-                        <span>{formatCurrency(pricing.subtotal)}</span>
+                        <span>{formatCurrency(Number(pricing.subtotal))}</span>
                       </div>
-                      {pricing.tierDiscount > 0 && (
+                      {Number(pricing.tierDiscount) > 0 && (
                         <div className="flex justify-between text-sm text-green-600">
                           <span>Tier Discount</span>
-                          <span>-{formatCurrency(pricing.tierDiscount)}</span>
+                          <span>-{formatCurrency(Number(pricing.tierDiscount))}</span>
                         </div>
                       )}
                       {config.discountPercent > 0 && (
                         <div className="flex justify-between text-sm text-green-600">
                           <span>Custom Discount ({config.discountPercent}%)</span>
                           <span>
-                            -{formatCurrency((pricing.monthlyTotal * config.discountPercent) / 100)}
+                            -
+                            {formatCurrency(
+                              (Number(pricing.monthlyTotal) * config.discountPercent) / 100,
+                            )}
                           </span>
                         </div>
                       )}
@@ -662,10 +639,10 @@ const CustomPlanBuilderPage: React.FC = () => {
                         ? formatCurrency(
                             Math.max(
                               0,
-                              pricing.monthlyTotal -
-                                (pricing.monthlyTotal * config.discountPercent) / 100 -
-                                config.discountAmount
-                            )
+                              Number(pricing.monthlyTotal) -
+                                (Number(pricing.monthlyTotal) * config.discountPercent) / 100 -
+                                config.discountAmount,
+                            ),
                           )
                         : '-'}
                     </span>
@@ -675,10 +652,10 @@ const CustomPlanBuilderPage: React.FC = () => {
                       {formatCurrency(
                         Math.max(
                           0,
-                          pricing.annualTotal -
-                            (pricing.annualTotal * config.discountPercent) / 100 -
-                            config.discountAmount * 12
-                        )
+                          Number(pricing.annualTotal) -
+                            (Number(pricing.annualTotal) * config.discountPercent) / 100 -
+                            config.discountAmount * 12,
+                        ),
                       )}{' '}
                       /year
                     </div>

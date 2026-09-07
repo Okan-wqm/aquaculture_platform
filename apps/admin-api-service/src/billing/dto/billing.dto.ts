@@ -27,15 +27,26 @@ import {
   type ValidationOptions,
   type ValidatorConstraintInterface,
 } from 'class-validator';
+import { BILLING_PRICING_METRIC_TYPES } from '@platform/event-contracts';
 import type {
   BillingDiscountAppliesTo,
   BillingDiscountDuration,
   BillingDiscountSubscriptionChange,
   BillingDiscountType,
+  BillingPricingMetricType,
 } from '@platform/event-contracts';
 
 import { BillingCycle, PlanTier, PlanVisibility } from '../entities/plan-definition.entity';
-import { PricingMetricType } from '../entities/pricing-metric.enum';
+
+/**
+ * An exact decimal string. Money and rates cross the admin boundary as text
+ * for the same reason they do on the NATS wire: '12.50' is the same value on
+ * both sides, 12.5 is not necessarily (ADR-0013).
+ */
+const MONEY_STRING = /^\d{1,13}(\.\d{1,4})?$/;
+const PERCENT_STRING = /^\d{1,3}(\.\d{1,2})?$/;
+/** A tier multiplier: (0, 10] with up to four decimals. */
+const MULTIPLIER_STRING = /^(10(\.0{1,4})?|\d(\.\d{1,4})?)$/;
 
 // ============================================================================
 // Nested value objects (CONTRACT-CRITICAL-003)
@@ -112,10 +123,15 @@ export class PlanFeaturesDto {
   addOns!: PlanAddOnDto[];
 }
 
+/**
+ * One metric on a module price sheet (ADR-0013). `price` is an exact decimal
+ * STRING, and the currency belongs to the sheet, not to each metric — a sheet
+ * with a per-user price in EUR and a per-sensor price in USD could not be
+ * summed, and the old per-metric `currency` made that representable.
+ */
 export class PricingMetricDto {
-  @IsEnum(PricingMetricType) type!: PricingMetricType;
-  @IsNumber() @Min(0) price!: number;
-  @IsString() @MaxLength(10) currency!: string;
+  @IsIn(BILLING_PRICING_METRIC_TYPES) metricType!: BillingPricingMetricType;
+  @Matches(MONEY_STRING, { message: 'price must be a decimal string' }) price!: string;
   @IsOptional() @IsString() @MaxLength(500) description?: string;
   @IsOptional() @IsInt() @Min(0) minQuantity?: number;
   @IsOptional() @IsInt() @Min(0) maxQuantity?: number;
@@ -126,12 +142,18 @@ export class PricingMetricDto {
  * Multipliers keyed by tier. The property names ARE the `PlanTier` values, so
  * this class is structurally the `TierMultipliers` index the entity declares.
  */
+/**
+ * A tier's price multiplier as an exact decimal string in (0, 10]: 1 is full
+ * price, 0.9 a 10% tier discount. The bound is the same one
+ * `billing.module_price_tier_multipliers` CHECKs — 0 would make a metric free
+ * by accident rather than by an explicit price of 0.
+ */
 export class TierMultipliersDto {
-  @IsOptional() @IsNumber() @Min(0) free?: number;
-  @IsOptional() @IsNumber() @Min(0) starter?: number;
-  @IsOptional() @IsNumber() @Min(0) professional?: number;
-  @IsOptional() @IsNumber() @Min(0) enterprise?: number;
-  @IsOptional() @IsNumber() @Min(0) custom?: number;
+  @IsOptional() @Matches(MULTIPLIER_STRING) free?: string;
+  @IsOptional() @Matches(MULTIPLIER_STRING) starter?: string;
+  @IsOptional() @Matches(MULTIPLIER_STRING) professional?: string;
+  @IsOptional() @Matches(MULTIPLIER_STRING) enterprise?: string;
+  @IsOptional() @Matches(MULTIPLIER_STRING) custom?: string;
 }
 
 export class ModuleQuantitiesDto {
@@ -248,14 +270,6 @@ export class UpdatePlanDto {
 // ============================================================================
 // Discount codes
 // ============================================================================
-
-/**
- * An exact decimal string. Money and rates cross the admin boundary as text
- * for the same reason they do on the NATS wire: '12.50' is the same value on
- * both sides, 12.5 is not necessarily (ADR-0013).
- */
-const MONEY_STRING = /^\d{1,13}(\.\d{1,4})?$/;
-const PERCENT_STRING = /^\d{1,3}(\.\d{1,2})?$/;
 
 const DISCOUNT_TYPES: readonly BillingDiscountType[] = [
   'percentage',
@@ -418,9 +432,14 @@ export class UpdateDiscountCodeDto {
 // Module pricing + quotes
 // ============================================================================
 
+/**
+ * Publish a price sheet for a module. Every publish opens a NEW effective
+ * window and closes the previous one — a price is never edited in place, so an
+ * invoice can always be read back against the prices that produced it.
+ */
 export class SetModulePricingDto {
   @IsUUID('4') moduleId!: string;
-  @IsString() @MaxLength(100) moduleCode!: string;
+  @IsString() @MaxLength(50) moduleCode!: string;
   @IsArray()
   @ArrayMaxSize(50)
   @ValidateNested({ each: true })
@@ -430,9 +449,11 @@ export class SetModulePricingDto {
   @ValidateNested()
   @Type(() => TierMultipliersDto)
   tierMultipliers?: TierMultipliersDto;
-  @IsOptional() @IsString() @MaxLength(10) currency?: string;
-  @IsOptional() @Type(() => Date) @IsDate() effectiveFrom?: Date;
-  @IsOptional() @Type(() => Date) @IsDate() effectiveTo?: Date | null;
+  @IsOptional()
+  @Matches(/^[A-Z]{3}$/, { message: 'currency must be an ISO-4217 code' })
+  currency?: string;
+  @IsOptional() @IsISO8601() effectiveFrom?: string;
+  @IsOptional() @IsISO8601() effectiveTo?: string;
   @IsOptional() @IsString() @MaxLength(500) notes?: string;
 }
 
@@ -453,7 +474,10 @@ export class QuoteRequest {
   @IsEnum(PlanTier) tier!: PlanTier;
   @IsEnum(BillingCycle) billingCycle!: BillingCycle;
   @IsOptional() @IsString() @MaxLength(64) discountCode?: string;
-  @IsOptional() @IsNumber() @Min(0) @Max(100) taxRate?: number;
+  /** Exact decimal string percentage, 0-100. */
+  @IsOptional()
+  @Matches(PERCENT_STRING, { message: 'taxRate must be a decimal string' })
+  taxRate?: string;
 }
 
 // ============================================================================
@@ -557,16 +581,11 @@ export class RefundPaymentDto {
 // Module Pricing
 // ============================================================================
 
+/**
+ * Republish a sheet with changes. Anything omitted keeps the value the sheet
+ * in force already carries; the result is still a NEW window, never an edit.
+ */
 export class UpdateModulePricingDto {
-  @IsOptional()
-  @IsUUID('4')
-  moduleId?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(100)
-  moduleCode?: string;
-
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(50)
@@ -580,15 +599,16 @@ export class UpdateModulePricingDto {
   tierMultipliers?: TierMultipliersDto;
 
   @IsOptional()
-  @IsString()
-  @MaxLength(10)
+  @Matches(/^[A-Z]{3}$/, { message: 'currency must be an ISO-4217 code' })
   currency?: string;
 
   @IsOptional()
-  effectiveFrom?: Date;
+  @IsISO8601()
+  effectiveFrom?: string;
 
   @IsOptional()
-  effectiveTo?: Date | null;
+  @IsISO8601()
+  effectiveTo?: string;
 
   @IsOptional()
   @IsString()
@@ -596,9 +616,17 @@ export class UpdateModulePricingDto {
   notes?: string;
 }
 
+/**
+ * Seed the default sheet for the named module codes. The code → id mapping is
+ * resolved server-side from `auth.modules` — admin's grant — rather than
+ * supplied by the client, which could otherwise point a module's prices at
+ * another module's id.
+ */
 export class SeedModulePricingDto {
-  @IsObject()
-  moduleIdMap!: Record<string, string>;
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsString({ each: true })
+  moduleCodes!: string[];
 }
 
 // ============================================================================

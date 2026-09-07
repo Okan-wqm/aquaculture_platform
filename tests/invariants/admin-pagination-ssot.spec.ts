@@ -72,6 +72,7 @@ const DECLARATION_EXEMPT = [
   // `implements PaginationResultV1<…>` and CONSTRUCT nothing: rules (b) and
   // (c) still apply to them, so the page arithmetic stays in one place.
   'apps/admin-api-service/src/billing/dto/discount-response.dto.ts',
+  'apps/admin-api-service/src/billing/dto/module-price-response.dto.ts',
 ];
 
 function productionFiles(): string[] {

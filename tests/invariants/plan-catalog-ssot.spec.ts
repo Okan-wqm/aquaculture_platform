@@ -45,10 +45,24 @@ const ALLOWLIST = '.claude/allowlists/money-in-jsonb.yaml';
 const SCHEMA_MANAGER = 'libs/backend-common/src/database/schema-manager.service.ts';
 
 /** Tables that price something. `plans` was always billing's; the rest are moving. */
-const CATALOGUE_TABLES = ['discount_codes', 'discount_redemptions', 'plans'] as const;
+const CATALOGUE_TABLES = [
+  'discount_codes',
+  'discount_redemptions',
+  'plans',
+  'module_prices',
+  'module_price_metrics',
+  'module_price_tier_multipliers',
+] as const;
 
 /** Already moved under ADR-0013 — nothing may declare them in `admin` again. */
 const MIGRATED_FROM_ADMIN = ['discount_codes', 'discount_redemptions'] as const;
+
+/**
+ * Admin table names ADR-0013 retired outright — no entity may declare them at
+ * all. `module_pricing` was replaced by `module_prices` plus its two child
+ * tables, so a reappearance of the old name is a resurrection, not a move.
+ */
+const RETIRED_ADMIN_TABLES = ['module_pricing'] as const;
 
 interface AllowlistEntry {
   site: string;
@@ -133,11 +147,22 @@ describe('INVARIANT (BILLING-CRITICAL-002): one catalogue of record, money in nu
     expect(moduleTableBlock('admin')).not.toContain(`'${table}'`);
   });
 
-  it('keeps money out of jsonb in the discount catalogue', () => {
-    const inDiscounts = allJsonbMoneyFields()
-      .filter((field) => /discount-code\.entity\.ts$/.test(field.entityFile))
+  it.each(RETIRED_ADMIN_TABLES)('leaves no entity declaring the retired %s', (table) => {
+    const declaring = entities
+      .filter((entity) => entity.table === table)
+      .map((entity) => `${entity.id} (schema=${entity.schema})`);
+    expect(declaring).toEqual([]);
+    expect(moduleTableBlock('admin')).not.toContain(`'${table}'`);
+  });
+
+  it('keeps money out of jsonb in the catalogue tables ADR-0013 has already moved', () => {
+    // The discount code and the module price sheet are the tables the ADR has
+    // normalised: every amount on them is its own numeric column, so neither
+    // may contribute a money-in-jsonb site — not even a governed one.
+    const moved = allJsonbMoneyFields()
+      .filter((field) => /(discount-code|module-price)\.entity\.ts$/.test(field.entityFile))
       .map((field) => `${field.id} is ${field.propertyType}`);
-    expect(inDiscounts).toEqual([]);
+    expect(moved).toEqual([]);
   });
 
   it('governs every remaining money-in-jsonb site on the billing surface', () => {

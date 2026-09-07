@@ -1837,22 +1837,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/billing/module-pricing/{moduleId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["BillingController_getModulePricing"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/billing/module-pricing/code/{moduleCode}": {
         parameters: {
             query?: never;
@@ -1877,6 +1861,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["BillingController_getModulePricingHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/billing/module-pricing/{moduleId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["BillingController_getModulePricing"];
         put?: never;
         post?: never;
         delete?: never;
@@ -7260,22 +7260,62 @@ export interface components {
         ExtendTrialDto: {
             additionalDays: number;
         };
+        ModulePriceMetricDto: {
+            /** @enum {string} */
+            metricType: "base_price" | "per_user" | "per_farm" | "per_pond" | "per_sensor" | "per_device" | "per_gb_storage" | "per_gb_transfer" | "per_api_call" | "per_alert" | "per_report" | "per_sms" | "per_email" | "per_integration" | "per_workflow";
+            price: string;
+            description?: string;
+            minQuantity?: number;
+            maxQuantity?: number;
+            includedQuantity?: number;
+        };
+        ModulePriceTierMultiplierDto: {
+            /** @enum {string} */
+            tier: "free" | "starter" | "professional" | "enterprise" | "custom";
+            multiplier: string;
+        };
+        ModulePriceResponseDto: {
+            id: string;
+            moduleId: string;
+            moduleCode: string;
+            currency: string;
+            effectiveFrom: string;
+            effectiveTo?: string;
+            isActive: boolean;
+            version: number;
+            notes?: string;
+            metrics: components["schemas"]["ModulePriceMetricDto"][];
+            tierMultipliers: components["schemas"]["ModulePriceTierMultiplierDto"][];
+            createdAt: string;
+            updatedAt: string;
+            createdBy?: string;
+            updatedBy?: string;
+            moduleName?: string;
+            moduleDescription?: string;
+            moduleIcon?: string;
+            isModuleActive?: boolean;
+        };
+        ModulePricePageDto: {
+            data: components["schemas"]["ModulePriceResponseDto"][];
+            total: number;
+            page: number;
+            limit: number;
+        };
         PricingMetricDto: {
             /** @enum {string} */
-            type: "base_price" | "per_user" | "per_farm" | "per_pond" | "per_sensor" | "per_device" | "per_gb_storage" | "per_gb_transfer" | "per_api_call" | "per_alert" | "per_report" | "per_sms" | "per_email" | "per_integration" | "per_workflow";
-            price: number;
-            currency: string;
+            metricType: "base_price" | "per_user" | "per_farm" | "per_pond" | "per_sensor" | "per_device" | "per_gb_storage" | "per_gb_transfer" | "per_api_call" | "per_alert" | "per_report" | "per_sms" | "per_email" | "per_integration" | "per_workflow";
+            price: string;
             description?: string;
             minQuantity?: number;
             maxQuantity?: number;
             includedQuantity?: number;
         };
         TierMultipliersDto: {
-            free?: number;
-            starter?: number;
-            professional?: number;
-            enterprise?: number;
-            custom?: number;
+            free?: string;
+            starter?: string;
+            professional?: string;
+            enterprise?: string;
+            custom?: string;
         };
         SetModulePricingDto: {
             /** Format: uuid */
@@ -7284,29 +7324,24 @@ export interface components {
             pricingMetrics: components["schemas"]["PricingMetricDto"][];
             tierMultipliers?: components["schemas"]["TierMultipliersDto"];
             currency?: string;
-            /** Format: date-time */
             effectiveFrom?: string;
-            /** Format: date-time */
-            effectiveTo?: string | null;
+            effectiveTo?: string;
             notes?: string;
         };
         UpdateModulePricingDto: {
-            /** Format: uuid */
-            moduleId?: string;
-            moduleCode?: string;
             pricingMetrics?: components["schemas"]["PricingMetricDto"][];
             tierMultipliers?: components["schemas"]["TierMultipliersDto"];
             currency?: string;
-            /** Format: date-time */
             effectiveFrom?: string;
-            /** Format: date-time */
-            effectiveTo?: string | null;
+            effectiveTo?: string;
             notes?: string;
         };
         SeedModulePricingDto: {
-            moduleIdMap: {
-                [key: string]: string;
-            };
+            moduleCodes: string[];
+        };
+        SeedModulePricesResultDto: {
+            success: boolean;
+            seeded: number;
         };
         ModuleQuantitiesDto: {
             users?: number;
@@ -7339,13 +7374,65 @@ export interface components {
             /** @enum {string} */
             billingCycle: "monthly" | "quarterly" | "semi_annual" | "annual";
             discountCode?: string;
-            taxRate?: number;
+            taxRate?: string;
+        };
+        ModuleQuoteLineItemDto: {
+            /** @enum {string} */
+            metric: "base_price" | "per_user" | "per_farm" | "per_pond" | "per_sensor" | "per_device" | "per_gb_storage" | "per_gb_transfer" | "per_api_call" | "per_alert" | "per_report" | "per_sms" | "per_email" | "per_integration" | "per_workflow";
+            metricLabel: string;
+            quantity: number;
+            includedQuantity: number;
+            billableQuantity: number;
+            listUnitPrice: string;
+            unitPrice: string;
+            total: string;
+            tierMultiplier: string;
+        };
+        ModuleQuoteBreakdownDto: {
+            moduleId: string;
+            moduleCode: string;
+            moduleName: string;
+            lineItems: components["schemas"]["ModuleQuoteLineItemDto"][];
+            subtotal: string;
+            tierDiscount: string;
+            total: string;
+        };
+        ModuleQuoteResponseDto: {
+            modules: components["schemas"]["ModuleQuoteBreakdownDto"][];
+            subtotal: string;
+            tierDiscount: string;
+            cycleDiscountAmount: string;
+            cycleDiscountPercent: string;
+            discountCode?: string;
+            discountDescription?: string;
+            discountAmount: string;
+            /** @enum {string} */
+            discountReason?: "upgrades_only" | "new_subscriptions_only" | "unknown_code" | "inactive" | "not_yet_valid" | "expired" | "redemption_limit_reached" | "tenant_limit_reached" | "plan_not_eligible" | "below_minimum_order";
+            tax: string;
+            taxRate: string;
+            total: string;
+            monthlyTotal: string;
+            annualTotal: string;
+            /** @enum {string} */
+            billingCycle: "monthly" | "quarterly" | "semi_annual" | "annual";
+            billingCycleMultiplier: number;
+            currency: string;
+            /** @enum {string} */
+            tier: "free" | "starter" | "professional" | "enterprise" | "custom";
+            calculatedAt: string;
+            unpricedModuleCodes: string[];
         };
         QuickEstimateDto: {
             moduleCodes: string[];
             /** @enum {string} */
             tier: "free" | "starter" | "professional" | "enterprise" | "custom";
             quantities?: components["schemas"]["ModuleQuantitiesDto"];
+        };
+        QuickEstimateResponseDto: {
+            monthlyTotal: string;
+            annualTotal: string;
+            currency: string;
+            unpricedModuleCodes: string[];
         };
         ComparePricingDto: {
             /**
@@ -7355,6 +7442,13 @@ export interface components {
             tenantId?: string;
             config1: components["schemas"]["QuoteRequest"];
             config2: components["schemas"]["QuoteRequest"];
+        };
+        ModuleQuoteComparisonDto: {
+            config1: components["schemas"]["ModuleQuoteResponseDto"];
+            config2: components["schemas"]["ModuleQuoteResponseDto"];
+            monthlyDifference: string;
+            percentDifference: string;
+            recommendation: string;
         };
         CustomPlanModuleDto: {
             /** Format: uuid */
@@ -11754,7 +11848,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["ModulePriceResponseDto"][];
                 };
             };
         };
@@ -11777,7 +11871,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["ModulePriceResponseDto"];
                 };
             };
         };
@@ -11796,28 +11890,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
-                };
-            };
-        };
-    };
-    BillingController_getModulePricing: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                moduleId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["ModulePriceResponseDto"][];
                 };
             };
         };
@@ -11864,6 +11937,27 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    "application/json": components["schemas"]["ModulePricePageDto"];
+                };
+            };
+        };
+    };
+    BillingController_getModulePricing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                moduleId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
                     "application/json": Record<string, never>;
                 };
             };
@@ -11889,7 +11983,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["ModulePriceResponseDto"];
                 };
             };
         };
@@ -11910,7 +12004,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["ModulePriceResponseDto"];
                 };
             };
         };
@@ -11933,7 +12027,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["SeedModulePricesResultDto"];
                 };
             };
         };
@@ -11956,7 +12050,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["ModuleQuoteResponseDto"];
                 };
             };
         };
@@ -11979,7 +12073,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["QuickEstimateResponseDto"];
                 };
             };
         };
@@ -12002,7 +12096,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["ModuleQuoteComparisonDto"];
                 };
             };
         };

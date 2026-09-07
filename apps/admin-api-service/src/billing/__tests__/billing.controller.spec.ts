@@ -35,7 +35,6 @@ import { InvoiceManagementService } from '../services/invoice-management.service
 import { ModulePricingService } from '../services/module-pricing.service';
 import { PaymentManagementService } from '../services/payment-management.service';
 import { PlanDefinitionService } from '../services/plan-definition.service';
-import { PricingCalculatorService } from '../services/pricing-calculator.service';
 import { SubscriptionManagementService } from '../services/subscription-management.service';
 import { UsageMeteringManagementService } from '../services/usage-metering-management.service';
 
@@ -209,7 +208,6 @@ describe('BillingController', () => {
         { provide: DiscountCodeService, useValue: mockDiscountService },
         { provide: SubscriptionManagementService, useValue: mockSubscriptionService },
         { provide: ModulePricingService, useValue: mockModulePricingService },
-        { provide: PricingCalculatorService, useValue: mockPricingCalculator },
         { provide: CustomPlanService, useValue: mockCustomPlanService },
         { provide: InvoiceManagementService, useValue: mockInvoiceService },
         { provide: PaymentManagementService, useValue: mockPaymentService },

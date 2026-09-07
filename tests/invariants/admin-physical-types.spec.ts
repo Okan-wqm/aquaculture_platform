@@ -232,6 +232,94 @@ describe('INVARIANT (ADMIN-HIGH-012): the admin schema stores instants as instan
     expect(offenders).toEqual([]);
   });
 
+  it('no admin entity declares a simple-array column', () => {
+    // `simple-array` is not a Postgres type. TypeORM stores the list as `text`
+    // joined with commas and reads it back by splitting on commas, with no
+    // escaping — so an element CONTAINING a comma becomes two elements on the
+    // next read, silently and permanently. These columns hold typed-in values
+    // (`affectedSystems`, `threatTypes`, `dataCategories`, `tags`), which is
+    // exactly where a comma appears.
+    const joined = columns
+      .filter((column) => /type:\s*'simple-array'/.test(column.options))
+      .map((column) => `${column.file}: ${column.entity}.${column.property}`);
+    expect(joined).toEqual([]);
+  });
+
+  it('every admin string[] column is a real array or jsonb', () => {
+    // The banned type above has variants — `simple-json`, or a bare `text`
+    // column with a hand-rolled join. A list is stored as a list: `text[]`
+    // when the elements are scalars, `jsonb` when they are objects.
+    const flattened = columns
+      .filter((column) => /^(?:readonly\s+)?[A-Za-z]\w*\[\]/.test(column.tsType))
+      .filter((column) => !/\barray:\s*true\b/.test(column.options))
+      .filter((column) => !/(?:type:\s*)?'jsonb?'/.test(column.options))
+      .map(
+        (column) =>
+          `${column.file}: ${column.entity}.${column.property} — @${column.decorator}(${column.options})`,
+      );
+    expect(flattened).toEqual([]);
+  });
+
+  it('every column filtered with the array-overlap operator is a real array column', () => {
+    // `&&` has no `text` operand form. Against a `simple-array` column Postgres
+    // answers `operator does not exist: text && text[]`, so the query is a 500
+    // and not a filter — which is what BOTH the activity-log list and the
+    // audit-trail list did whenever a caller passed `?tags=`. The predicate was
+    // written against the type the column should have had; this case keeps the
+    // two from drifting apart again in either direction.
+    //
+    // The alias is resolved to its entity rather than matched by property name:
+    // four admin entities declare a `tags`, and three of them store objects in
+    // jsonb quite correctly. A name-only check would call those offenders.
+    const arrayByEntity = new Map<string, boolean>();
+    for (const column of columns) {
+      arrayByEntity.set(
+        `${column.entity}.${column.property}`,
+        /\barray:\s*true\b/.test(column.options),
+      );
+    }
+
+    const sources = listFiles('apps/admin-api-service/src/**/*.ts').filter(
+      (file) => !/\.(?:spec|test)\.ts$/.test(file) && !file.includes('__tests__'),
+    );
+
+    const offenders: string[] = [];
+    let predicates = 0;
+    for (const file of sources) {
+      const source = read(file);
+
+      // `private readonly xRepository: Repository<Entity>` — the field names
+      // its entity in its own type, so no import graph is needed.
+      const entityByField = new Map<string, string>();
+      for (const match of source.matchAll(/\b(\w+):\s*Repository<(\w+)>/g)) {
+        entityByField.set(match[1] as string, match[2] as string);
+      }
+
+      // `this.xRepository.createQueryBuilder('alias')` — the alias every
+      // predicate in that builder is written against.
+      const entityByAlias = new Map<string, string>();
+      for (const match of source.matchAll(/this\.(\w+)\.createQueryBuilder\('(\w+)'\)/g)) {
+        const entity = entityByField.get(match[1] as string);
+        if (entity) entityByAlias.set(match[2] as string, entity);
+      }
+
+      for (const match of source.matchAll(/\b(\w+)\.(\w+)\s+&&\s+ARRAY\[/g)) {
+        const entity = entityByAlias.get(match[1] as string);
+        if (!entity) continue;
+        predicates += 1;
+        const key = `${entity}.${match[2] as string}`;
+        if (arrayByEntity.get(key) === false) {
+          offenders.push(`${file}: ${key} is filtered with && but is not an array column`);
+        }
+      }
+    }
+
+    // A refactor that renamed the builder idiom would otherwise make this case
+    // pass by seeing nothing at all.
+    expect(predicates).toBeGreaterThan(0);
+    expect(offenders).toEqual([]);
+  });
+
   it('no admin migration after the baseline creates a naked TIMESTAMP column', () => {
     // The baseline itself is history and is corrected forward by
     // `1809600000000-AdminSchemaTimestamptz`; hand-editing a migration is

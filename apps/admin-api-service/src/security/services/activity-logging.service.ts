@@ -591,7 +591,7 @@ export class ActivityLoggingService implements OnModuleInit {
     }
 
     if (tags && tags.length > 0) {
-      qb.andWhere('activity.tags && ARRAY[:...tags]', { tags });
+      qb.andWhere('activity.tags && ARRAY[:...tags]::text[]', { tags });
     }
 
     const normalizedSortField = safeSortField(

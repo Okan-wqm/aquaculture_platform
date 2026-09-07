@@ -14321,27 +14321,45 @@ export type PinnedMessage = {
 };
 
 export type Plan = {
+  badge?: Maybe<Scalars['String']['output']>;
   /** @deprecated Use basePriceDecimal (exact decimal string, ADR-0004). */
   basePrice: Scalars['Float']['output'];
   basePriceDecimal: Scalars['Decimal']['output'];
   billingCycle: BillingCycle;
+  code?: Maybe<Scalars['String']['output']>;
+  color?: Maybe<Scalars['String']['output']>;
   createdAt: Scalars['DateTime']['output'];
   createdBy?: Maybe<Scalars['String']['output']>;
   currency: Scalars['String']['output'];
   deletedAt?: Maybe<Scalars['DateTime']['output']>;
-  features: Array<Scalars['String']['output']>;
+  description?: Maybe<Scalars['String']['output']>;
+  downgradeWarning?: Maybe<Scalars['String']['output']>;
+  features: PlanFeatures;
+  gracePeriodDays?: Maybe<Scalars['Int']['output']>;
+  icon?: Maybe<Scalars['String']['output']>;
   id: Scalars['ID']['output'];
   isActive: Scalars['Boolean']['output'];
   isDeleted: Scalars['Boolean']['output'];
   isPublic: Scalars['Boolean']['output'];
+  isRecommended: Scalars['Boolean']['output'];
   limits: PlanLimits;
   name: Scalars['String']['output'];
   pricing: PlanPricing;
+  shortDescription?: Maybe<Scalars['String']['output']>;
   sortOrder: Scalars['Int']['output'];
   tier: PlanTier;
+  trialDays?: Maybe<Scalars['Int']['output']>;
   updatedAt: Scalars['DateTime']['output'];
   updatedBy?: Maybe<Scalars['String']['output']>;
+  upgradeMessage?: Maybe<Scalars['String']['output']>;
   version: Scalars['Int']['output'];
+  visibility: PlanVisibility;
+};
+
+export type PlanFeatures = {
+  advancedFeatures: Array<Scalars['String']['output']>;
+  coreFeatures: Array<Scalars['String']['output']>;
+  premiumFeatures: Array<Scalars['String']['output']>;
 };
 
 export type PlanLimits = {
@@ -14398,6 +14416,11 @@ export type PlanTier =
   | 'FREE'
   | 'PROFESSIONAL'
   | 'STARTER';
+
+export type PlanVisibility =
+  | 'DEPRECATED'
+  | 'PRIVATE'
+  | 'PUBLIC';
 
 export type PlannedFeeding = {
   actualAmountKg: Scalars['Float']['output'];

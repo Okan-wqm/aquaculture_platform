@@ -134,15 +134,15 @@ export class Plan {
   // copy of a plan was authored somewhere nothing consulted.
 
   /** Operator-facing catalogue key, e.g. `starter_2024`. Unique when set. */
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   @Column({ type: 'varchar', length: 100, nullable: true, unique: true })
   code?: string | null;
 
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   @Column({ type: 'text', nullable: true })
   description?: string | null;
 
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   @Column({ type: 'text', nullable: true, name: 'short_description' })
   shortDescription?: string | null;
 
@@ -166,24 +166,24 @@ export class Plan {
   @Column({ type: 'int', nullable: true, name: 'grace_period_days' })
   gracePeriodDays?: number | null;
 
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   @Column({ type: 'text', nullable: true, name: 'upgrade_message' })
   upgradeMessage?: string | null;
 
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   @Column({ type: 'text', nullable: true, name: 'downgrade_warning' })
   downgradeWarning?: string | null;
 
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   @Column({ type: 'varchar', length: 64, nullable: true })
   icon?: string | null;
 
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   @Column({ type: 'varchar', length: 32, nullable: true })
   color?: string | null;
 
   /** e.g. 'Best Value', 'Most Popular'. */
-  @Field({ nullable: true })
+  @Field(() => String, { nullable: true })
   @Column({ type: 'varchar', length: 64, nullable: true })
   badge?: string | null;
 

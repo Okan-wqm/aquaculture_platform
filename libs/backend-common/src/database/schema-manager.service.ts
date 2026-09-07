@@ -835,6 +835,31 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       // same class as command_receipts above).
       'plans',
       'stripe_webhook_events',
+      // ADR-0013 / BILLING-CRITICAL-002: the discount catalogue moved here
+      // from `admin`. discount_codes is a cross-tenant catalogue with no
+      // tenant column; discount_redemptions is tenant-scoped and carries the
+      // canonical billing RLS predicate.
+      'discount_codes',
+      'discount_redemptions',
+      // ADR-0013 / BILLING-CRITICAL-002: the module price sheet moved here from
+      // `admin`, with its metrics and tier multipliers as rows instead of two
+      // jsonb blobs. All three are cross-tenant catalogue tables.
+      'module_prices',
+      'module_price_metrics',
+      'module_price_tier_multipliers',
+      // ADR-0013 / BILLING-CRITICAL-002: `admin.plan_definitions` folded into
+      // `billing.plans`, and the four-cycle price matrix + the add-ons it held
+      // inside jsonb became these two child tables. Both are cross-tenant
+      // catalogue tables, like the plan they belong to.
+      'plan_cycle_prices',
+      'plan_add_ons',
+      // ADR-0013 / BILLING-CRITICAL-002: `admin.custom_plans` moved here with
+      // its priced selection expanded into rows. Unlike the rest of the
+      // catalogue these ARE tenant-scoped — a custom plan belongs to one
+      // tenant — so erasure deletes them by `tenant_id`.
+      'custom_plans',
+      'custom_plan_modules',
+      'custom_plan_line_items',
     ],
   },
   {
@@ -873,8 +898,10 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       'tenant_activities',
       'tenant_notes',
       'tenant_billing_info',
-      'discount_redemptions',
-      'custom_plans',
+      // discount_redemptions retired 2026-09-05 and custom_plans 2026-09-06
+      // (ADR-0013 / BILLING-CRITICAL-002): moved to billing alongside
+      // billing.discount_codes and billing.plans — billing is the sole writer
+      // of anything that prices a subscription.
       'message_threads',
       'messages',
       'announcement_acknowledgments',
@@ -907,9 +934,9 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
       // registry, so the ADR-012 drift validator + orphan-drop presence checks
       // did not cover them (an unregistered real table is neither protected nor
       // reconciled). All are @Entity(..., { schema: 'admin' }).
-      'discount_codes',
-      'module_pricing',
-      'plan_definitions',
+      // discount_codes retired 2026-09-05, module_pricing and plan_definitions
+      // 2026-09-06 (ADR-0013 / BILLING-CRITICAL-002) — see billing.discount_codes,
+      // billing.module_prices and billing.plans above.
       'plan_module_assignments',
       'threat_intelligence',
       'database_metrics',

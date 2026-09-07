@@ -79,7 +79,7 @@ export class SubscriptionManagementService {
     tenantId: string,
     currentPlanId: string,
     newPlanId: string,
-    newBillingCycle?: import('../entities/plan-definition.entity').BillingCycle,
+    newBillingCycle?: import('@platform/event-contracts').BillingCycle,
   ) {
     return this.planChangeService.previewPlanChange(
       tenantId,

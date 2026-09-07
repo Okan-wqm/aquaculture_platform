@@ -96,6 +96,13 @@ export interface Resolution {
   readonly kind: DeclarationKind;
   readonly file: string | null;
   readonly node: ts.ClassDeclaration | null;
+  /**
+   * The interface declaration when `kind === 'interface'`. The DTO gates only
+   * care whether a body resolved to a class, but the money-typing gate
+   * (BILLING-CRITICAL-002) needs the members of a jsonb column's value type,
+   * and those are almost always an interface.
+   */
+  readonly interfaceNode?: ts.InterfaceDeclaration | null;
 }
 
 const UNRESOLVED: Resolution = { kind: 'unresolved', file: null, node: null };
@@ -122,7 +129,7 @@ export function resolveDeclaration(
     if (ts.isClassDeclaration(node) && node.name?.text === name) {
       found = { kind: 'class', file: source.fileName, node };
     } else if (ts.isInterfaceDeclaration(node) && node.name.text === name) {
-      found = { kind: 'interface', file: source.fileName, node: null };
+      found = { kind: 'interface', file: source.fileName, node: null, interfaceNode: node };
     } else if (ts.isTypeAliasDeclaration(node) && node.name.text === name) {
       found = { kind: 'type-alias', file: source.fileName, node: null };
     } else if (

@@ -97,6 +97,17 @@ export interface IStripeApiClient {
     subscriptionId: string;
     priceId?: string;
     metadata?: StripeMetadata;
+    /**
+     * Set `false` to un-schedule a pending cancellation — the Stripe half of
+     * reactivating a subscription. Without it, a subscription "reactivated"
+     * locally still stops billing at period end (ADR-0014).
+     */
+    cancelAtPeriodEnd?: boolean;
+    /**
+     * Move the trial's end. The Stripe half of extending a trial: a local-only
+     * extension leaves Stripe charging on the original date (ADR-0014).
+     */
+    trialEnd?: Date;
     idempotencyKey: StripeIdempotencyKey;
   }): Promise<StripeSubscription>;
 

@@ -37,8 +37,6 @@ const ADMIN_TABLES: TenantErasureTablePolicies = {
   tenant_activities: { kind: 'excluded', reason: WORM_LEDGER },
   tenant_notes: { kind: 'tenant-column', column: 'tenantId' },
   tenant_billing_info: { kind: 'tenant-column', column: 'tenantId' },
-  discount_redemptions: { kind: 'tenant-column', column: 'tenantId' },
-  custom_plans: { kind: 'tenant-column', column: 'tenantId' },
   message_threads: { kind: 'tenant-column', column: 'tenantId' },
   messages: { kind: 'cascade-via', parent: 'message_threads', foreignKey: 'threadId' },
   announcement_acknowledgments: { kind: 'tenant-column', column: 'tenantId' },
@@ -101,9 +99,6 @@ const ADMIN_TABLES: TenantErasureTablePolicies = {
   threat_intelligence: { kind: 'excluded', reason: PLATFORM_REFERENCE },
   compliance_reports: { kind: 'excluded', reason: PLATFORM_REFERENCE },
   announcements: { kind: 'excluded', reason: PLATFORM_REFERENCE },
-  discount_codes: { kind: 'excluded', reason: PLATFORM_REFERENCE },
-  module_pricing: { kind: 'excluded', reason: PLATFORM_REFERENCE },
-  plan_definitions: { kind: 'excluded', reason: PLATFORM_REFERENCE },
   plan_module_assignments: { kind: 'excluded', reason: PLATFORM_REFERENCE },
   job_queues: { kind: 'excluded', reason: PLATFORM_REFERENCE },
   system_versions: { kind: 'excluded', reason: PLATFORM_REFERENCE },
@@ -124,6 +119,34 @@ const BILLING_TABLES: TenantErasureTablePolicies = {
   usage_hourly_data: { kind: 'tenant-column', column: 'tenant_id' },
   command_receipts: { kind: 'tenant-column', column: 'tenantId' },
   plans: { kind: 'excluded', reason: PLATFORM_REFERENCE },
+  // ADR-0013 / BILLING-CRITICAL-002: the discount catalogue moved from admin.
+  // A redemption is a tenant's row and is erased with the tenant; the code
+  // itself is a platform-wide catalogue entry with no tenant column.
+  discount_codes: { kind: 'excluded', reason: PLATFORM_REFERENCE },
+  discount_redemptions: { kind: 'tenant-column', column: 'tenant_id' },
+  // ADR-0013: the module price sheet and its child rows are a platform-wide
+  // catalogue priced per module, not per tenant.
+  module_prices: { kind: 'excluded', reason: PLATFORM_REFERENCE },
+  module_price_metrics: { kind: 'excluded', reason: PLATFORM_REFERENCE },
+  module_price_tier_multipliers: { kind: 'excluded', reason: PLATFORM_REFERENCE },
+  // ADR-0013: the plan's per-cycle prices and its priced add-ons belong to the
+  // catalogue plan, not to a tenant — the same reason `plans` itself is excluded.
+  plan_cycle_prices: { kind: 'excluded', reason: PLATFORM_REFERENCE },
+  plan_add_ons: { kind: 'excluded', reason: PLATFORM_REFERENCE },
+  // ADR-0013: a custom plan is negotiated FOR one tenant, so unlike the rest
+  // of the catalogue it is that tenant's data and is erased with them. The
+  // child rows cascade from the plan's own foreign key.
+  custom_plans: { kind: 'tenant-column', column: 'tenant_id' },
+  custom_plan_modules: {
+    kind: 'cascade-via',
+    parent: 'custom_plans',
+    foreignKey: 'custom_plan_id',
+  },
+  custom_plan_line_items: {
+    kind: 'cascade-via',
+    parent: 'custom_plan_modules',
+    foreignKey: 'custom_plan_module_id',
+  },
   stripe_webhook_events: {
     kind: 'excluded',
     reason: 'Stripe webhook idempotency ledger keyed by Stripe event id; carries no tenant column and is the evidence of what Stripe delivered',

@@ -3,13 +3,9 @@ import {
   Column,
   PrimaryGeneratedColumn,
   CreateDateColumn,
-  ManyToOne,
-  JoinColumn,
   Index,
   Unique,
 } from 'typeorm';
-
-import { PlanDefinition } from './plan-definition.entity';
 
 /**
  * Included quantities for a module in a plan
@@ -47,14 +43,14 @@ export class PlanModuleAssignment {
   id!: string;
 
   /**
-   * Reference to plan definition
+   * The catalogue plan this bundle belongs to (`billing.plans.id`).
+   *
+   * A soft reference for the same reason `CustomPlan.basePlanId` is one: the
+   * catalogue moved to billing (ADR-0013), and admin does not constrain
+   * another service's table.
    */
   @Column('uuid')
   planId!: string;
-
-  @ManyToOne(() => PlanDefinition, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'plan_id' })
-  plan!: PlanDefinition;
 
   /**
    * Reference to system module (system_modules.id)

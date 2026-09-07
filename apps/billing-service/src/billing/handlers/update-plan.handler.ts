@@ -87,7 +87,15 @@ export class UpdatePlanHandler
         // Keep top-level basePrice in sync
         plan.basePrice = new Decimal(input.pricing.basePrice);
       }
-      if (input.features !== undefined) plan.features = input.features;
+      if (input.features !== undefined) {
+        // ADR-0013: a flat GraphQL list carries no grouping, so it replaces
+        // the core set and leaves the advanced/premium sets as authored.
+        plan.features = {
+          coreFeatures: input.features,
+          advancedFeatures: plan.features?.advancedFeatures ?? [],
+          premiumFeatures: plan.features?.premiumFeatures ?? [],
+        };
+      }
       if (input.isPublic !== undefined) plan.isPublic = input.isPublic;
       if (input.sortOrder !== undefined) plan.sortOrder = input.sortOrder;
 

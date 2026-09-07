@@ -119,7 +119,7 @@ describe('TenantErasureTargetExecutor — declared cascade (admin-api-service po
       'tenant_erasure_operations',
       'tenant_schemas',
       'cleanup_runs',
-      'plan_definitions',
+      'plan_module_assignments',
       'announcements',
       'admin_outbox',
       'tenant_erasure_target_proofs',

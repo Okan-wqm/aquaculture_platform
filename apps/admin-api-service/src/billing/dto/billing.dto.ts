@@ -17,16 +17,44 @@ import {
   Min,
   Max,
   ArrayMaxSize,
+  IsIn,
+  Matches,
+  ValidateIf,
   ValidateNested,
+  ValidatorConstraint,
+  registerDecorator,
+  type ValidationArguments,
+  type ValidationOptions,
+  type ValidatorConstraintInterface,
 } from 'class-validator';
-
 import {
-  DiscountAppliesTo,
-  DiscountDuration,
-  DiscountType,
-} from '../entities/discount-code.entity';
-import { BillingCycle, PlanTier, PlanVisibility } from '../entities/plan-definition.entity';
-import { PricingMetricType } from '../entities/pricing-metric.enum';
+  BILLING_CYCLES,
+  BILLING_PLAN_VISIBILITIES,
+  BILLING_PRICING_METRIC_TYPES,
+  BillingPlanTier,
+} from '@platform/event-contracts';
+import type {
+  BillingCycle,
+  BillingDiscountAppliesTo,
+  BillingDiscountDuration,
+  BillingDiscountSubscriptionChange,
+  BillingDiscountType,
+  BillingPlanVisibility,
+  BillingPricingMetricType,
+} from '@platform/event-contracts';
+
+/**
+ * An exact decimal string. Money and rates cross the admin boundary as text
+ * for the same reason they do on the NATS wire: '12.50' is the same value on
+ * both sides, 12.5 is not necessarily (ADR-0013).
+ */
+const MONEY_STRING = /^\d{1,13}(\.\d{1,4})?$/;
+/** A percentage in [0, 100] with up to two decimals — the range the DB CHECKs. */
+const PERCENT_STRING = /^(100(\.0{1,2})?|\d{1,2}(\.\d{1,2})?)$/;
+/** A tier multiplier: (0, 10] with up to four decimals. */
+const MULTIPLIER_STRING = /^(10(\.0{1,4})?|\d(\.\d{1,4})?)$/;
+/** A calendar day. A plan's validity window is a day, never an instant. */
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 // ============================================================================
 // Nested value objects (CONTRACT-CRITICAL-003)
@@ -59,54 +87,63 @@ export class PlanLimitsDto {
   @IsBoolean() dedicatedAccountManager!: boolean;
 }
 
-export class PlanCyclePricingDto {
-  @IsNumber() @Min(0) basePrice!: number;
-  @IsNumber() @Min(0) perUserPrice!: number;
-  @IsNumber() @Min(0) perFarmPrice!: number;
-  @IsNumber() @Min(0) perModulePrice!: number;
+/**
+ * What a plan costs on ONE billing cycle (ADR-0013). One object per cycle the
+ * plan is actually sold on, replacing the fixed four-key `pricing` matrix that
+ * forced every plan to price all four cycles and hid its money inside jsonb.
+ * Prices are exact decimal strings for the same reason they are `numeric(19,4)`
+ * in `billing.plan_cycle_prices`.
+ */
+export class PlanCyclePriceDto {
+  @IsIn(BILLING_CYCLES) billingCycle!: BillingCycle;
+  @Matches(MONEY_STRING, { message: 'basePrice must be a decimal string' }) basePrice!: string;
+  @Matches(MONEY_STRING, { message: 'perUserPrice must be a decimal string' })
+  perUserPrice!: string;
+  @Matches(MONEY_STRING, { message: 'perFarmPrice must be a decimal string' })
+  perFarmPrice!: string;
+  @Matches(MONEY_STRING, { message: 'perModulePrice must be a decimal string' })
+  perModulePrice!: string;
+  @Matches(PERCENT_STRING, { message: 'discountPercent must be a decimal string in [0, 100]' })
+  discountPercent!: string;
 }
 
-export class PlanDiscountedCyclePricingDto extends PlanCyclePricingDto {
-  @IsNumber() @Min(0) @Max(100) discountPercent!: number;
-}
-
-export class PlanPricingDto {
-  @ValidateNested() @Type(() => PlanCyclePricingDto) monthly!: PlanCyclePricingDto;
-  @ValidateNested()
-  @Type(() => PlanDiscountedCyclePricingDto)
-  quarterly!: PlanDiscountedCyclePricingDto;
-  @ValidateNested()
-  @Type(() => PlanDiscountedCyclePricingDto)
-  semiAnnual!: PlanDiscountedCyclePricingDto;
-  @ValidateNested()
-  @Type(() => PlanDiscountedCyclePricingDto)
-  annual!: PlanDiscountedCyclePricingDto;
-  @IsString() @MaxLength(10) currency!: string;
-}
-
+/** A priced extra. It is a row in `billing.plan_add_ons`, not a feature string. */
 export class PlanAddOnDto {
   @IsString() @MaxLength(100) code!: string;
   @IsString() @MaxLength(255) name!: string;
-  @IsString() @MaxLength(1000) description!: string;
-  @IsNumber() @Min(0) price!: number;
-  @IsEnum(BillingCycle) billingCycle!: BillingCycle;
+  @IsOptional() @IsString() @MaxLength(1000) description?: string;
+  @Matches(MONEY_STRING, { message: 'price must be a decimal string' }) price!: string;
+  @IsIn(BILLING_CYCLES) billingCycle!: BillingCycle;
 }
 
+/**
+ * The named feature sets a plan advertises. Add-ons used to live in here; they
+ * carry a price, so they are their own rows and their own request field —
+ * money two levels inside a features blob is money no CHECK can reach.
+ */
 export class PlanFeaturesDto {
   @IsArray() @IsString({ each: true }) @ArrayMaxSize(200) coreFeatures!: string[];
   @IsArray() @IsString({ each: true }) @ArrayMaxSize(200) advancedFeatures!: string[];
   @IsArray() @IsString({ each: true }) @ArrayMaxSize(200) premiumFeatures!: string[];
-  @IsArray()
-  @ArrayMaxSize(100)
-  @ValidateNested({ each: true })
-  @Type(() => PlanAddOnDto)
-  addOns!: PlanAddOnDto[];
 }
 
+/** Stripe price id per billing cycle. Keys ARE the `BillingCycle` values. */
+export class StripePriceIdsDto {
+  @IsOptional() @IsString() @MaxLength(255) monthly?: string;
+  @IsOptional() @IsString() @MaxLength(255) quarterly?: string;
+  @IsOptional() @IsString() @MaxLength(255) semi_annual?: string;
+  @IsOptional() @IsString() @MaxLength(255) annual?: string;
+}
+
+/**
+ * One metric on a module price sheet (ADR-0013). `price` is an exact decimal
+ * STRING, and the currency belongs to the sheet, not to each metric — a sheet
+ * with a per-user price in EUR and a per-sensor price in USD could not be
+ * summed, and the old per-metric `currency` made that representable.
+ */
 export class PricingMetricDto {
-  @IsEnum(PricingMetricType) type!: PricingMetricType;
-  @IsNumber() @Min(0) price!: number;
-  @IsString() @MaxLength(10) currency!: string;
+  @IsIn(BILLING_PRICING_METRIC_TYPES) metricType!: BillingPricingMetricType;
+  @Matches(MONEY_STRING, { message: 'price must be a decimal string' }) price!: string;
   @IsOptional() @IsString() @MaxLength(500) description?: string;
   @IsOptional() @IsInt() @Min(0) minQuantity?: number;
   @IsOptional() @IsInt() @Min(0) maxQuantity?: number;
@@ -117,12 +154,18 @@ export class PricingMetricDto {
  * Multipliers keyed by tier. The property names ARE the `PlanTier` values, so
  * this class is structurally the `TierMultipliers` index the entity declares.
  */
+/**
+ * A tier's price multiplier as an exact decimal string in (0, 10]: 1 is full
+ * price, 0.9 a 10% tier discount. The bound is the same one
+ * `billing.module_price_tier_multipliers` CHECKs — 0 would make a metric free
+ * by accident rather than by an explicit price of 0.
+ */
 export class TierMultipliersDto {
-  @IsOptional() @IsNumber() @Min(0) free?: number;
-  @IsOptional() @IsNumber() @Min(0) starter?: number;
-  @IsOptional() @IsNumber() @Min(0) professional?: number;
-  @IsOptional() @IsNumber() @Min(0) enterprise?: number;
-  @IsOptional() @IsNumber() @Min(0) custom?: number;
+  @IsOptional() @Matches(MULTIPLIER_STRING) free?: string;
+  @IsOptional() @Matches(MULTIPLIER_STRING) starter?: string;
+  @IsOptional() @Matches(MULTIPLIER_STRING) professional?: string;
+  @IsOptional() @Matches(MULTIPLIER_STRING) enterprise?: string;
+  @IsOptional() @Matches(MULTIPLIER_STRING) custom?: string;
 }
 
 export class ModuleQuantitiesDto {
@@ -185,17 +228,33 @@ export class InvoiceTaxDto {
 // ============================================================================
 
 export class CreatePlanDto {
-  @IsString() @MaxLength(100) code!: string;
+  @IsOptional() @IsString() @MaxLength(100) code?: string;
   @IsString() @MaxLength(255) name!: string;
   @IsOptional() @IsString() @MaxLength(2000) description?: string;
   @IsOptional() @IsString() @MaxLength(500) shortDescription?: string;
-  @IsEnum(PlanTier) tier!: PlanTier;
-  @IsOptional() @IsEnum(PlanVisibility) visibility?: PlanVisibility;
+  @IsEnum(BillingPlanTier) tier!: BillingPlanTier;
+  /** ISO-4217, upper-case. Denominates every price on the plan. */
+  @IsOptional()
+  @Matches(/^[A-Z]{3}$/, { message: 'currency must be an ISO-4217 code' })
+  currency?: string;
+  /** The cycle a subscription defaults to when the caller names none. */
+  @IsOptional() @IsIn(BILLING_CYCLES) defaultBillingCycle?: BillingCycle;
+  @IsOptional() @IsIn(BILLING_PLAN_VISIBILITIES) visibility?: BillingPlanVisibility;
   @IsOptional() @IsBoolean() isRecommended?: boolean;
   @IsOptional() @IsInt() @Min(0) sortOrder?: number;
   @ValidateNested() @Type(() => PlanLimitsDto) limits!: PlanLimitsDto;
-  @ValidateNested() @Type(() => PlanPricingDto) pricing!: PlanPricingDto;
-  @ValidateNested() @Type(() => PlanFeaturesDto) features!: PlanFeaturesDto;
+  @IsOptional() @ValidateNested() @Type(() => PlanFeaturesDto) features?: PlanFeaturesDto;
+  @IsArray()
+  @ArrayMaxSize(4)
+  @ValidateNested({ each: true })
+  @Type(() => PlanCyclePriceDto)
+  cyclePrices!: PlanCyclePriceDto[];
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(100)
+  @ValidateNested({ each: true })
+  @Type(() => PlanAddOnDto)
+  addOns?: PlanAddOnDto[];
   @IsOptional() @IsInt() @Min(0) @Max(365) trialDays?: number;
   @IsOptional() @IsInt() @Min(0) @Max(365) gracePeriodDays?: number;
   @IsOptional() @IsString() @MaxLength(1000) upgradeMessage?: string;
@@ -203,30 +262,54 @@ export class CreatePlanDto {
   @IsOptional() @IsString() @MaxLength(100) icon?: string;
   @IsOptional() @IsString() @MaxLength(32) color?: string;
   @IsOptional() @IsString() @MaxLength(100) badge?: string;
+  /** `billing.plans` is the ONE writable home for the Stripe catalogue ids. */
+  @IsOptional() @IsString() @MaxLength(255) stripeProductId?: string;
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => StripePriceIdsDto)
+  stripePriceIds?: StripePriceIdsDto;
 }
 
 /** An update may send a subset of a nested object, so the nested shapes are partial. */
 export class PartialPlanLimitsDto extends PartialType(PlanLimitsDto) {}
-export class PartialPlanPricingDto extends PartialType(PlanPricingDto) {}
 export class PartialPlanFeaturesDto extends PartialType(PlanFeaturesDto) {}
 
+/**
+ * `cyclePrices` and `addOns` are NOT partial: each is the complete set for the
+ * plan. Sending half a price row would leave the other half at whatever the DB
+ * default is, which for money is a silent 0.
+ */
 export class UpdatePlanDto {
+  @IsOptional() @IsString() @MaxLength(100) code?: string;
   @IsOptional() @IsString() @MaxLength(255) name?: string;
   @IsOptional() @IsString() @MaxLength(2000) description?: string;
   @IsOptional() @IsString() @MaxLength(500) shortDescription?: string;
-  @IsOptional() @IsEnum(PlanVisibility) visibility?: PlanVisibility;
+  @IsOptional() @IsEnum(BillingPlanTier) tier?: BillingPlanTier;
+  @IsOptional()
+  @Matches(/^[A-Z]{3}$/, { message: 'currency must be an ISO-4217 code' })
+  currency?: string;
+  @IsOptional() @IsIn(BILLING_CYCLES) defaultBillingCycle?: BillingCycle;
+  @IsOptional() @IsIn(BILLING_PLAN_VISIBILITIES) visibility?: BillingPlanVisibility;
   @IsOptional() @IsBoolean() isActive?: boolean;
   @IsOptional() @IsBoolean() isRecommended?: boolean;
   @IsOptional() @IsInt() @Min(0) sortOrder?: number;
   @IsOptional() @ValidateNested() @Type(() => PartialPlanLimitsDto) limits?: PartialPlanLimitsDto;
   @IsOptional()
   @ValidateNested()
-  @Type(() => PartialPlanPricingDto)
-  pricing?: PartialPlanPricingDto;
-  @IsOptional()
-  @ValidateNested()
   @Type(() => PartialPlanFeaturesDto)
   features?: PartialPlanFeaturesDto;
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(4)
+  @ValidateNested({ each: true })
+  @Type(() => PlanCyclePriceDto)
+  cyclePrices?: PlanCyclePriceDto[];
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(100)
+  @ValidateNested({ each: true })
+  @Type(() => PlanAddOnDto)
+  addOns?: PlanAddOnDto[];
   @IsOptional() @IsInt() @Min(0) @Max(365) trialDays?: number;
   @IsOptional() @IsInt() @Min(0) @Max(365) gracePeriodDays?: number;
   @IsOptional() @IsString() @MaxLength(1000) upgradeMessage?: string;
@@ -234,31 +317,140 @@ export class UpdatePlanDto {
   @IsOptional() @IsString() @MaxLength(100) icon?: string;
   @IsOptional() @IsString() @MaxLength(32) color?: string;
   @IsOptional() @IsString() @MaxLength(100) badge?: string;
+  @IsOptional() @IsString() @MaxLength(255) stripeProductId?: string;
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => StripePriceIdsDto)
+  stripePriceIds?: StripePriceIdsDto;
 }
 
 // ============================================================================
 // Discount codes
 // ============================================================================
 
+const DISCOUNT_TYPES: readonly BillingDiscountType[] = [
+  'percentage',
+  'fixed_amount',
+  'free_months',
+  'free_trial_extension',
+];
+const DISCOUNT_APPLIES_TO: readonly BillingDiscountAppliesTo[] = [
+  'all_plans',
+  'specific_plans',
+  'upgrades_only',
+  'new_subscriptions_only',
+];
+const DISCOUNT_DURATIONS: readonly BillingDiscountDuration[] = ['once', 'repeating', 'forever'];
+const SUBSCRIPTION_CHANGES: readonly BillingDiscountSubscriptionChange[] = [
+  'new',
+  'upgrade',
+  'other',
+];
+
+/** Which field carries the value, per kind — the same split billing's CHECK enforces. */
+const VALUE_FIELD_BY_TYPE: Readonly<Record<BillingDiscountType, string>> = {
+  percentage: 'percentOff',
+  fixed_amount: 'amountOff',
+  free_months: 'freeMonths',
+  free_trial_extension: 'trialExtensionDays',
+};
+
+/**
+ * Exactly one value field, and it must be the one the kind names.
+ *
+ * `@ValidateIf` cannot express this per-property: two conditions on one
+ * property are ANDed, so "required for my kind AND forbidden for the others"
+ * has to be asked once, over the whole object.
+ */
+@ValidatorConstraint({ name: 'discountValueBranch', async: false })
+class DiscountValueBranchConstraint implements ValidatorConstraintInterface {
+  validate(_value: unknown, args: ValidationArguments): boolean {
+    const object = args.object as Record<string, unknown>;
+    const kind = object['discountType'];
+    if (typeof kind !== 'string' || !(kind in VALUE_FIELD_BY_TYPE)) return false;
+    const expected = VALUE_FIELD_BY_TYPE[kind as BillingDiscountType];
+    if (object[expected] === undefined || object[expected] === null) return false;
+    return Object.entries(VALUE_FIELD_BY_TYPE)
+      .filter(([type]) => type !== kind)
+      .every(([, field]) => object[field] === undefined || object[field] === null);
+  }
+
+  defaultMessage(args: ValidationArguments): string {
+    const kind = (args.object as Record<string, unknown>)['discountType'];
+    const expected =
+      typeof kind === 'string' && kind in VALUE_FIELD_BY_TYPE
+        ? VALUE_FIELD_BY_TYPE[kind as BillingDiscountType]
+        : null;
+    return expected
+      ? `a ${String(kind)} discount must set ${expected} and no other value field`
+      : `discountType must be one of ${DISCOUNT_TYPES.join(', ')}`;
+  }
+}
+
+function DiscountValueBranch(options?: ValidationOptions): PropertyDecorator {
+  return (object: object, propertyName: string | symbol): void => {
+    registerDecorator({
+      name: 'discountValueBranch',
+      target: object.constructor,
+      propertyName: propertyName as string,
+      options,
+      validator: DiscountValueBranchConstraint,
+    });
+  };
+}
+
 /** Everything a discount code carries except its code — the bulk-create template. */
 export class DiscountCodeTemplateDto {
   @IsString() @MaxLength(255) name!: string;
   @IsOptional() @IsString() @MaxLength(2000) description?: string;
-  @IsEnum(DiscountType) discountType!: DiscountType;
-  @IsNumber() @Min(0) discountValue!: number;
-  @IsOptional() @IsEnum(DiscountAppliesTo) appliesTo?: DiscountAppliesTo;
+
+  @IsIn(DISCOUNT_TYPES)
+  @DiscountValueBranch()
+  discountType!: BillingDiscountType;
+
+  // ── The value, by kind. `billing.discount_codes` holds these same four
+  // columns under one CHECK; the previous single `discountValue` could not be
+  // constrained because 150 was a legal 150% and a legal $150 at once.
+  @ValidateIf((o: DiscountCodeTemplateDto) => o.discountType === 'percentage')
+  @Matches(PERCENT_STRING, { message: 'percentOff must be a decimal string with up to 2 places' })
+  percentOff?: string;
+
+  @ValidateIf((o: DiscountCodeTemplateDto) => o.discountType === 'fixed_amount')
+  @Matches(MONEY_STRING, { message: 'amountOff must be a decimal string with up to 4 places' })
+  amountOff?: string;
+
+  @ValidateIf((o: DiscountCodeTemplateDto) => o.discountType === 'free_months')
+  @IsInt()
+  @Min(1)
+  @Max(120)
+  freeMonths?: number;
+
+  @ValidateIf((o: DiscountCodeTemplateDto) => o.discountType === 'free_trial_extension')
+  @IsInt()
+  @Min(1)
+  @Max(3650)
+  trialExtensionDays?: number;
+
+  /** ISO-4217, upper-case. Denominates amountOff and minimumOrderAmount. */
+  @IsOptional()
+  @Matches(/^[A-Z]{3}$/, { message: 'currency must be an ISO-4217 code' })
+  currency?: string;
+
+  @IsOptional() @IsIn(DISCOUNT_APPLIES_TO) appliesTo?: BillingDiscountAppliesTo;
   @IsOptional()
   @IsArray()
   @IsUUID('4', { each: true })
   @ArrayMaxSize(200)
   applicablePlanIds?: string[];
-  @IsOptional() @IsEnum(DiscountDuration) duration?: DiscountDuration;
+  @IsOptional() @IsIn(DISCOUNT_DURATIONS) duration?: BillingDiscountDuration;
   @IsOptional() @IsInt() @Min(1) @Max(120) durationInMonths?: number;
-  @IsOptional() @Type(() => Date) @IsDate() validFrom?: Date;
-  @IsOptional() @Type(() => Date) @IsDate() validUntil?: Date;
+  @IsOptional() @IsISO8601() validFrom?: string;
+  @IsOptional() @IsISO8601() validUntil?: string;
   @IsOptional() @IsInt() @Min(1) maxRedemptions?: number;
   @IsOptional() @IsInt() @Min(1) maxRedemptionsPerTenant?: number;
-  @IsOptional() @IsNumber() @Min(0) minimumOrderAmount?: number;
+  @IsOptional()
+  @Matches(MONEY_STRING, { message: 'minimumOrderAmount must be a decimal string' })
+  minimumOrderAmount?: string;
   @IsOptional() @IsString() @MaxLength(100) campaignId?: string;
   @IsOptional() @IsString() @MaxLength(255) campaignName?: string;
   @IsOptional() @IsBoolean() isReferralCode?: boolean;
@@ -267,15 +459,27 @@ export class DiscountCodeTemplateDto {
 }
 
 export class CreateDiscountCodeDto extends DiscountCodeTemplateDto {
-  @IsString() @MaxLength(64) code!: string;
+  @Matches(/^[A-Za-z0-9_-]{3,64}$/, {
+    message: 'code must be 3-64 characters of letters, digits, _ or -',
+  })
+  code!: string;
 }
 
+/**
+ * The mutable half. The value branch, the code and the campaign are absent on
+ * purpose: a code already handed to a customer that silently changes what it
+ * is worth is a repudiation risk, so a different offer is a different code.
+ *
+ * Absent is the enforcement, not an omission — `forbidNonWhitelisted: true`
+ * (the global ValidationPipe) refuses a body carrying `discountType`,
+ * `percentOff`, `amountOff` or `code` with 400 rather than ignoring them.
+ */
 export class UpdateDiscountCodeDto {
   @IsOptional() @IsString() @MaxLength(255) name?: string;
   @IsOptional() @IsString() @MaxLength(2000) description?: string;
   @IsOptional() @IsBoolean() isActive?: boolean;
-  @IsOptional() @Type(() => Date) @IsDate() validFrom?: Date;
-  @IsOptional() @Type(() => Date) @IsDate() validUntil?: Date;
+  @IsOptional() @IsISO8601() validFrom?: string;
+  @IsOptional() @IsISO8601() validUntil?: string;
   @IsOptional() @IsInt() @Min(1) maxRedemptions?: number;
   @IsOptional() @IsInt() @Min(1) maxRedemptionsPerTenant?: number;
   @IsOptional() @IsObject() metadata?: Record<string, unknown>;
@@ -285,9 +489,14 @@ export class UpdateDiscountCodeDto {
 // Module pricing + quotes
 // ============================================================================
 
+/**
+ * Publish a price sheet for a module. Every publish opens a NEW effective
+ * window and closes the previous one — a price is never edited in place, so an
+ * invoice can always be read back against the prices that produced it.
+ */
 export class SetModulePricingDto {
   @IsUUID('4') moduleId!: string;
-  @IsString() @MaxLength(100) moduleCode!: string;
+  @IsString() @MaxLength(50) moduleCode!: string;
   @IsArray()
   @ArrayMaxSize(50)
   @ValidateNested({ each: true })
@@ -297,22 +506,49 @@ export class SetModulePricingDto {
   @ValidateNested()
   @Type(() => TierMultipliersDto)
   tierMultipliers?: TierMultipliersDto;
-  @IsOptional() @IsString() @MaxLength(10) currency?: string;
-  @IsOptional() @Type(() => Date) @IsDate() effectiveFrom?: Date;
-  @IsOptional() @Type(() => Date) @IsDate() effectiveTo?: Date | null;
+  @IsOptional()
+  @Matches(/^[A-Z]{3}$/, { message: 'currency must be an ISO-4217 code' })
+  currency?: string;
+  @IsOptional() @IsISO8601() effectiveFrom?: string;
+  @IsOptional() @IsISO8601() effectiveTo?: string;
   @IsOptional() @IsString() @MaxLength(500) notes?: string;
 }
 
 export class QuoteRequest {
+  /**
+   * ADMIN-CRITICAL-009: whitelisted carrier key; the verified id arrives
+   * through @TenantParam('body'). Required only when `discountCode` is set —
+   * a discount is quoted for a tenant or not at all (ADR-0013).
+   */
+  @TenantIdCarrier()
+  readonly tenantId?: undefined;
+
   @IsArray()
   @ArrayMaxSize(100)
   @ValidateNested({ each: true })
   @Type(() => ModuleSelectionDto)
   modules!: ModuleSelectionDto[];
-  @IsEnum(PlanTier) tier!: PlanTier;
-  @IsEnum(BillingCycle) billingCycle!: BillingCycle;
+  @IsEnum(BillingPlanTier) tier!: BillingPlanTier;
+  @IsIn(BILLING_CYCLES) billingCycle!: BillingCycle;
   @IsOptional() @IsString() @MaxLength(64) discountCode?: string;
-  @IsOptional() @IsNumber() @Min(0) @Max(100) taxRate?: number;
+  /** Exact decimal string percentage, 0-100. */
+  @IsOptional()
+  @Matches(PERCENT_STRING, { message: 'taxRate must be a decimal string' })
+  taxRate?: string;
+  /**
+   * A negotiated discount the operator is entering by hand (ADR-0013). The
+   * custom-plan builder quotes with these so the total it previews is the one
+   * billing will store — it used to recompute that total in the browser, in
+   * floats, and its annual figure took the fixed discount off twelve times.
+   */
+  @IsOptional()
+  @Matches(PERCENT_STRING, {
+    message: 'negotiatedDiscountPercent must be a decimal string in [0, 100]',
+  })
+  negotiatedDiscountPercent?: string;
+  @IsOptional()
+  @Matches(MONEY_STRING, { message: 'negotiatedDiscountAmount must be a decimal string' })
+  negotiatedDiscountAmount?: string;
 }
 
 // ============================================================================
@@ -326,7 +562,7 @@ export class PlanChangeRequest {
 
   @IsUUID('4') currentPlanId!: string;
   @IsUUID('4') newPlanId!: string;
-  @IsOptional() @IsEnum(BillingCycle) newBillingCycle?: BillingCycle;
+  @IsOptional() @IsIn(BILLING_CYCLES) newBillingCycle?: BillingCycle;
   @IsOptional() @IsString() @MaxLength(64) discountCode?: string;
   @IsOptional() @IsBoolean() effectiveImmediately?: boolean;
 }
@@ -339,18 +575,34 @@ export class CreateCustomPlanDto {
   @IsString() @MaxLength(255) name!: string;
   @IsOptional() @IsString() @MaxLength(2000) description?: string;
   @IsOptional() @IsUUID('4') basePlanId?: string;
-  @IsOptional() @IsEnum(PlanTier) tier?: PlanTier;
-  @IsOptional() @IsEnum(BillingCycle) billingCycle?: BillingCycle;
+  @IsOptional() @IsEnum(BillingPlanTier) tier?: BillingPlanTier;
+  @IsOptional() @IsIn(BILLING_CYCLES) billingCycle?: BillingCycle;
   @IsArray()
   @ArrayMaxSize(100)
   @ValidateNested({ each: true })
   @Type(() => CustomPlanModuleDto)
   modules!: CustomPlanModuleDto[];
-  @IsOptional() @IsNumber() @Min(0) @Max(100) discountPercent?: number;
-  @IsOptional() @IsNumber() @Min(0) discountAmount?: number;
+  // ADR-0013: money and rates cross the boundary as exact decimal strings.
+  // `discountPercent` was an unbounded `number` on a `numeric(5,2)` column, so
+  // a 400% discount was storable and floored the plan's total to zero rather
+  // than being refused.
+  @IsOptional()
+  @Matches(PERCENT_STRING, { message: 'discountPercent must be a decimal string in [0, 100]' })
+  discountPercent?: string;
+  @IsOptional()
+  @Matches(MONEY_STRING, { message: 'discountAmount must be a decimal string' })
+  discountAmount?: string;
   @IsOptional() @IsString() @MaxLength(500) discountReason?: string;
-  @Type(() => Date) @IsDate() validFrom!: Date;
-  @IsOptional() @Type(() => Date) @IsDate() validTo?: Date;
+  /** ISO-4217, upper-case. Defaults to the price sheet's own currency. */
+  @IsOptional()
+  @Matches(/^[A-Z]{3}$/, { message: 'currency must be an ISO-4217 code' })
+  currency?: string;
+  /** ISO-8601 dates: a plan's validity is a day, never an instant. */
+  @Matches(ISO_DATE, { message: 'validFrom must be an ISO-8601 date (YYYY-MM-DD)' })
+  validFrom!: string;
+  @IsOptional()
+  @Matches(ISO_DATE, { message: 'validTo must be an ISO-8601 date (YYYY-MM-DD)' })
+  validTo?: string;
   @IsOptional() @IsString() @MaxLength(2000) notes?: string;
 }
 
@@ -363,11 +615,23 @@ export class UpdateCustomPlanDto {
   @ValidateNested({ each: true })
   @Type(() => CustomPlanModuleDto)
   modules?: CustomPlanModuleDto[];
-  @IsOptional() @IsNumber() @Min(0) @Max(100) discountPercent?: number;
-  @IsOptional() @IsNumber() @Min(0) discountAmount?: number;
+  @IsOptional() @IsIn(BILLING_CYCLES) billingCycle?: BillingCycle;
+  @IsOptional()
+  @Matches(PERCENT_STRING, { message: 'discountPercent must be a decimal string in [0, 100]' })
+  discountPercent?: string;
+  @IsOptional()
+  @Matches(MONEY_STRING, { message: 'discountAmount must be a decimal string' })
+  discountAmount?: string;
   @IsOptional() @IsString() @MaxLength(500) discountReason?: string;
-  @IsOptional() @Type(() => Date) @IsDate() validFrom?: Date;
-  @IsOptional() @Type(() => Date) @IsDate() validTo?: Date;
+  @IsOptional()
+  @Matches(/^[A-Z]{3}$/, { message: 'currency must be an ISO-4217 code' })
+  currency?: string;
+  @IsOptional()
+  @Matches(ISO_DATE, { message: 'validFrom must be an ISO-8601 date (YYYY-MM-DD)' })
+  validFrom?: string;
+  @IsOptional()
+  @Matches(ISO_DATE, { message: 'validTo must be an ISO-8601 date (YYYY-MM-DD)' })
+  validTo?: string;
   @IsOptional() @IsString() @MaxLength(2000) notes?: string;
 }
 
@@ -416,16 +680,11 @@ export class RefundPaymentDto {
 // Module Pricing
 // ============================================================================
 
+/**
+ * Republish a sheet with changes. Anything omitted keeps the value the sheet
+ * in force already carries; the result is still a NEW window, never an edit.
+ */
 export class UpdateModulePricingDto {
-  @IsOptional()
-  @IsUUID('4')
-  moduleId?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(100)
-  moduleCode?: string;
-
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(50)
@@ -439,15 +698,16 @@ export class UpdateModulePricingDto {
   tierMultipliers?: TierMultipliersDto;
 
   @IsOptional()
-  @IsString()
-  @MaxLength(10)
+  @Matches(/^[A-Z]{3}$/, { message: 'currency must be an ISO-4217 code' })
   currency?: string;
 
   @IsOptional()
-  effectiveFrom?: Date;
+  @IsISO8601()
+  effectiveFrom?: string;
 
   @IsOptional()
-  effectiveTo?: Date | null;
+  @IsISO8601()
+  effectiveTo?: string;
 
   @IsOptional()
   @IsString()
@@ -455,9 +715,17 @@ export class UpdateModulePricingDto {
   notes?: string;
 }
 
+/**
+ * Seed the default sheet for the named module codes. The code → id mapping is
+ * resolved server-side from `auth.modules` — admin's grant — rather than
+ * supplied by the client, which could otherwise point a module's prices at
+ * another module's id.
+ */
 export class SeedModulePricingDto {
-  @IsObject()
-  moduleIdMap!: Record<string, string>;
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsString({ each: true })
+  moduleCodes!: string[];
 }
 
 // ============================================================================
@@ -489,10 +757,18 @@ export class ValidateDiscountCodeDto {
   @IsUUID('4')
   planId?: string;
 
+  /**
+   * What the redemption is for. An `upgrades_only` / `new_subscriptions_only`
+   * code cannot be decided without it, and billing refuses one rather than
+   * assuming — the two restrictions used to permit everything.
+   */
   @IsOptional()
-  @IsNumber()
-  @Min(0)
-  orderAmount?: number;
+  @IsIn(SUBSCRIPTION_CHANGES)
+  subscriptionChange?: BillingDiscountSubscriptionChange;
+
+  @IsOptional()
+  @Matches(MONEY_STRING, { message: 'orderAmount must be a decimal string' })
+  orderAmount?: string;
 }
 
 export class ApplyDiscountCodeDto {
@@ -504,9 +780,8 @@ export class ApplyDiscountCodeDto {
   @MaxLength(100)
   code!: string;
 
-  @IsNumber()
-  @Min(0)
-  originalAmount!: number;
+  @Matches(MONEY_STRING, { message: 'orderAmount must be a decimal string' })
+  orderAmount!: string;
 
   @IsOptional()
   @IsUUID('4')
@@ -519,25 +794,32 @@ export class ApplyDiscountCodeDto {
   @IsOptional()
   @IsUUID('4')
   planId?: string;
+
+  /** See ValidateDiscountCodeDto.subscriptionChange. */
+  @IsOptional()
+  @IsIn(SUBSCRIPTION_CHANGES)
+  subscriptionChange?: BillingDiscountSubscriptionChange;
 }
 
 export class GenerateDiscountCodeDto {
   @IsOptional()
-  @IsString()
-  @MaxLength(20)
+  @Matches(/^[A-Za-z0-9_]{1,20}$/, { message: 'prefix must be letters, digits or _' })
   prefix?: string;
 
   @IsOptional()
-  @IsNumber()
+  @IsInt()
   @Min(4)
   @Max(32)
   length?: number;
 }
 
 export class BulkCreateDiscountCodesDto {
-  @IsNumber()
+  // 500 is billing's own ceiling — the codes are minted one at a time so each
+  // gets its own uniqueness check, and a larger batch would hold the command
+  // open past the NATS request timeout.
+  @IsInt()
   @Min(1)
-  @Max(1000)
+  @Max(500)
   count!: number;
 
   @ValidateNested()
@@ -581,8 +863,8 @@ export class QuickEstimateDto {
   @ArrayMaxSize(50)
   moduleCodes!: string[];
 
-  @IsEnum(PlanTier)
-  tier!: PlanTier;
+  @IsEnum(BillingPlanTier)
+  tier!: BillingPlanTier;
 
   @IsOptional()
   @ValidateNested()
@@ -591,6 +873,10 @@ export class QuickEstimateDto {
 }
 
 export class ComparePricingDto {
+  /** ADMIN-CRITICAL-009: whitelisted carrier key; see QuoteRequest.tenantId. */
+  @TenantIdCarrier()
+  readonly tenantId?: undefined;
+
   @ValidateNested()
   @Type(() => QuoteRequest)
   config1!: QuoteRequest;

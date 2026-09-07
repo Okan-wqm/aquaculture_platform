@@ -979,7 +979,14 @@ describe('Frontend-Backend Contract Validation', () => {
     // audit counted here are NOT in that number: main answered them with real
     // cross-tenant aggregates before this landed (ADMIN-HIGH-009), and a route
     // that returns real data is not a stub.
-    expect(count).toBe(463);
+    // 462: -1 for POST /billing/plans/seed. Seeding the plan catalogue is
+    // billing's own boot-time concern once `billing.plans` is the only
+    // catalogue, not an admin route (ADR-0013 / BILLING-CRITICAL-011). The
+    // discount and module-price surfaces moved in the same wave and are NOT in
+    // this number: their rows moved to billing, but admin-api keeps every route
+    // — it reads the rows read-only and forwards each write as a command, so
+    // the operator surface is unchanged and only its backing store moved.
+    expect(count).toBe(462);
   });
 
   it('frontend endpoint snapshot should be up to date', () => {

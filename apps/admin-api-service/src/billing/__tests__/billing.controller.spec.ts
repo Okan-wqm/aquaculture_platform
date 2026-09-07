@@ -35,7 +35,6 @@ import { InvoiceManagementService } from '../services/invoice-management.service
 import { ModulePricingService } from '../services/module-pricing.service';
 import { PaymentManagementService } from '../services/payment-management.service';
 import { PlanDefinitionService } from '../services/plan-definition.service';
-import { PricingCalculatorService } from '../services/pricing-calculator.service';
 import { SubscriptionManagementService } from '../services/subscription-management.service';
 import { UsageMeteringManagementService } from '../services/usage-metering-management.service';
 
@@ -99,17 +98,17 @@ const mockPricingCalculator = {
 };
 
 const mockCustomPlanService = {
-  listCustomPlans: jest.fn().mockResolvedValue({ data: [], total: 0 }),
-  getCustomPlan: jest.fn().mockResolvedValue({}),
-  getCustomPlanByTenant: jest.fn().mockResolvedValue({}),
-  createCustomPlan: jest.fn().mockResolvedValue({ id: 'cp-new' }),
-  updateCustomPlan: jest.fn().mockResolvedValue({ id: 'cp-1' }),
+  list: jest.fn().mockResolvedValue({ data: [], total: 0, page: 1, limit: 20, totalPages: 1 }),
+  findById: jest.fn().mockResolvedValue({}),
+  findActiveForTenant: jest.fn().mockResolvedValue(null),
+  create: jest.fn().mockResolvedValue({ id: 'cp-new' }),
+  update: jest.fn().mockResolvedValue({ id: 'cp-1' }),
   submitForApproval: jest.fn().mockResolvedValue({}),
-  approvePlan: jest.fn().mockResolvedValue({}),
-  rejectPlan: jest.fn().mockResolvedValue({}),
-  activatePlan: jest.fn().mockResolvedValue({}),
-  deletePlan: jest.fn().mockResolvedValue(undefined),
-  clonePlan: jest.fn().mockResolvedValue({}),
+  approve: jest.fn().mockResolvedValue({}),
+  reject: jest.fn().mockResolvedValue({}),
+  activate: jest.fn().mockResolvedValue({}),
+  remove: jest.fn().mockResolvedValue(undefined),
+  clone: jest.fn().mockResolvedValue({}),
 };
 
 const mockInvoiceService = {
@@ -209,7 +208,6 @@ describe('BillingController', () => {
         { provide: DiscountCodeService, useValue: mockDiscountService },
         { provide: SubscriptionManagementService, useValue: mockSubscriptionService },
         { provide: ModulePricingService, useValue: mockModulePricingService },
-        { provide: PricingCalculatorService, useValue: mockPricingCalculator },
         { provide: CustomPlanService, useValue: mockCustomPlanService },
         { provide: InvoiceManagementService, useValue: mockInvoiceService },
         { provide: PaymentManagementService, useValue: mockPaymentService },
@@ -295,36 +293,32 @@ describe('BillingController', () => {
         prioritySupport: false,
         dedicatedAccountManager: false,
       },
-      pricing: {
-        monthly: { basePrice: 29, perUserPrice: 5, perFarmPrice: 10, perModulePrice: 4 },
-        quarterly: {
-          basePrice: 82,
-          perUserPrice: 5,
-          perFarmPrice: 10,
-          perModulePrice: 4,
-          discountPercent: 5,
+      currency: 'USD',
+      // ADR-0013: one object per cycle the plan is actually sold on, prices as
+      // exact decimal strings. The old fixed four-key `pricing` matrix forced a
+      // plan to price every cycle and carried its money as floats in jsonb.
+      cyclePrices: [
+        {
+          billingCycle: 'monthly',
+          basePrice: '29.00',
+          perUserPrice: '5.00',
+          perFarmPrice: '10.00',
+          perModulePrice: '4.00',
+          discountPercent: '0',
         },
-        semiAnnual: {
-          basePrice: 160,
-          perUserPrice: 5,
-          perFarmPrice: 10,
-          perModulePrice: 4,
-          discountPercent: 8,
+        {
+          billingCycle: 'annual',
+          basePrice: '300.00',
+          perUserPrice: '5.00',
+          perFarmPrice: '10.00',
+          perModulePrice: '4.00',
+          discountPercent: '14',
         },
-        annual: {
-          basePrice: 300,
-          perUserPrice: 5,
-          perFarmPrice: 10,
-          perModulePrice: 4,
-          discountPercent: 14,
-        },
-        currency: 'USD',
-      },
+      ],
       features: {
         coreFeatures: ['dashboard'],
         advancedFeatures: [],
         premiumFeatures: [],
-        addOns: [],
       },
     };
 
@@ -350,26 +344,48 @@ describe('BillingController', () => {
       expect(mockPlanService.create).not.toHaveBeenCalled();
     });
 
-    it('uses the JWT user.id as createdBy', async () => {
+    it('refuses a price that is not an exact decimal string', async () => {
+      const res = await request(httpServer())
+        .post('/billing/plans')
+        .send({
+          ...validPlanDto,
+          cyclePrices: [{ ...validPlanDto.cyclePrices[0], basePrice: 29.99 }],
+        });
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST);
+      expect(mockPlanService.create).not.toHaveBeenCalled();
+    });
+
+    it('refuses a cycle discount above 100 percent', async () => {
+      const res = await request(httpServer())
+        .post('/billing/plans')
+        .send({
+          ...validPlanDto,
+          cyclePrices: [{ ...validPlanDto.cyclePrices[0], discountPercent: '400' }],
+        });
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST);
+      expect(mockPlanService.create).not.toHaveBeenCalled();
+    });
+
+    it('passes the JWT user.id as the actor, beside the plan input', async () => {
       await request(httpServer()).post('/billing/plans').send(validPlanDto);
 
       expect(mockPlanService.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          createdBy: authenticatedUser.id,
-        }),
+        expect.objectContaining({ name: 'Starter Plan', tier: 'starter' }),
+        authenticatedUser.id,
       );
     });
 
-    it('should ignore x-admin-id header for createdBy', async () => {
+    it('should ignore x-admin-id header for the actor', async () => {
       await request(httpServer())
         .post('/billing/plans')
         .set('x-admin-id', 'header-injected-id')
         .send(validPlanDto);
 
       expect(mockPlanService.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          createdBy: authenticatedUser.id,
-        }),
+        expect.anything(),
+        authenticatedUser.id,
       );
     });
   });
@@ -390,15 +406,25 @@ describe('BillingController', () => {
 
     it('should use JWT user.id even when updatedBy is absent', async () => {
       await request(httpServer())
-        .put('/billing/plans/plan-1')
+        .put('/billing/plans/8f3c1a2b-4d5e-4f60-9a71-2b3c4d5e6f7a')
         .send({ name: 'Updated Plan' });
 
       expect(mockPlanService.update).toHaveBeenCalledWith(
-        'plan-1',
-        expect.objectContaining({
-          updatedBy: authenticatedUser.id,
-        }),
+        '8f3c1a2b-4d5e-4f60-9a71-2b3c4d5e6f7a',
+        { name: 'Updated Plan' },
+        authenticatedUser.id,
       );
+    });
+
+    it('omits an absent field instead of sending it as undefined', async () => {
+      // A spread of the DTO would put `description: undefined` on the command,
+      // which billing cannot tell from "clear this column".
+      await request(httpServer())
+        .put('/billing/plans/8f3c1a2b-4d5e-4f60-9a71-2b3c4d5e6f7a')
+        .send({ name: 'Updated Plan' });
+
+      const [, input] = mockPlanService.update.mock.calls[0] as [string, object, string];
+      expect(Object.keys(input)).toEqual(['name']);
     });
   });
 
@@ -459,7 +485,7 @@ describe('BillingController', () => {
           template: {
             name: 'Bulk Discount',
             discountType: 'percentage',
-            discountValue: 10,
+            percentOff: '10',
             createdBy: 'attacker-id',
           },
           codePrefix: 'BLK',
@@ -479,15 +505,16 @@ describe('BillingController', () => {
           template: {
             name: 'Test Discount',
             discountType: 'fixed_amount',
-            discountValue: 5,
+            amountOff: '5.00',
           },
         });
 
+      // ADR-0013: the actor is a separate argument, never a template property —
+      // billing records it as `created_by` on every minted code.
       expect(mockDiscountService.bulkCreate).toHaveBeenCalledWith(
         3,
-        expect.objectContaining({
-          createdBy: authenticatedUser.id,
-        }),
+        expect.objectContaining({ discountType: 'fixed_amount', amountOff: '5.00' }),
+        authenticatedUser.id,
         undefined,
       );
     });
@@ -505,7 +532,7 @@ describe('BillingController', () => {
           code: 'SPRING2026',
           name: 'Spring Sale',
           discountType: 'percentage',
-          discountValue: 15,
+          percentOff: '15',
           createdBy: 'attacker-id',
         });
 
@@ -520,13 +547,13 @@ describe('BillingController', () => {
           code: 'SPRING2026',
           name: 'Spring Sale',
           discountType: 'percentage',
-          discountValue: 15,
+          percentOff: '15',
         });
 
       expect(mockDiscountService.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          createdBy: authenticatedUser.id,
-        }),
+        'SPRING2026',
+        expect.objectContaining({ discountType: 'percentage', percentOff: '15' }),
+        authenticatedUser.id,
       );
     });
   });
@@ -538,7 +565,7 @@ describe('BillingController', () => {
   describe('PUT /billing/discounts/:id (updateDiscountCode)', () => {
     it('refuses a body that claims an actor', async () => {
       const res = await request(httpServer())
-        .put('/billing/discounts/disc-1')
+        .put('/billing/discounts/8f3c1a2b-4d5e-4f60-9a71-2b3c4d5e6f7a')
         .send({
           name: 'Updated Discount',
           updatedBy: 'attacker-id',
@@ -548,16 +575,24 @@ describe('BillingController', () => {
       expect(mockDiscountService.update).not.toHaveBeenCalled();
     });
 
+    it('refuses an id that is not a uuid before the handler runs', async () => {
+      const res = await request(httpServer())
+        .put('/billing/discounts/disc-1')
+        .send({ name: 'Updated Discount' });
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST);
+      expect(mockDiscountService.update).not.toHaveBeenCalled();
+    });
+
     it('should use JWT user.id as updatedBy', async () => {
-      await request(httpServer()).put('/billing/discounts/disc-1').send({
+      await request(httpServer()).put('/billing/discounts/8f3c1a2b-4d5e-4f60-9a71-2b3c4d5e6f7a').send({
         name: 'Updated Discount',
       });
 
       expect(mockDiscountService.update).toHaveBeenCalledWith(
-        'disc-1',
-        expect.objectContaining({
-          updatedBy: authenticatedUser.id,
-        }),
+        '8f3c1a2b-4d5e-4f60-9a71-2b3c4d5e6f7a',
+        expect.objectContaining({ name: 'Updated Discount' }),
+        authenticatedUser.id,
       );
     });
   });
@@ -569,23 +604,24 @@ describe('BillingController', () => {
   describe('POST /billing/plans/:id/deprecate', () => {
     it('should use JWT user.id for deprecation', async () => {
       await request(httpServer())
-        .post('/billing/plans/plan-old/deprecate');
+        .post('/billing/plans/8f3c1a2b-4d5e-4f60-9a71-2b3c4d5e6f7a/deprecate');
 
       expect(mockPlanService.deprecate).toHaveBeenCalledWith(
-        'plan-old',
+        '8f3c1a2b-4d5e-4f60-9a71-2b3c4d5e6f7a',
         authenticatedUser.id,
       );
     });
   });
 
+  // ADR-0013: there is no `POST /billing/plans/seed`. Seeding the catalogue is
+  // billing's own boot-time concern (`PlanSeedService`, `OnModuleInit`), not an
+  // operator button in another service — the admin route seeded a SECOND
+  // catalogue nothing resolved.
   describe('POST /billing/plans/seed', () => {
-    it('should use JWT user.id for seed operation', async () => {
-      await request(httpServer())
-        .post('/billing/plans/seed');
+    it('is gone', async () => {
+      const res = await request(httpServer()).post('/billing/plans/seed');
 
-      expect(mockPlanService.seedDefaultPlans).toHaveBeenCalledWith(
-        authenticatedUser.id,
-      );
+      expect(res.status).toBe(HttpStatus.NOT_FOUND);
     });
   });
 
@@ -662,6 +698,7 @@ describe('BillingController', () => {
   // ==========================================================================
 
   describe('Custom plan JWT identity overrides', () => {
+    const CUSTOM_PLAN_ID = '9c2e5f10-1a2b-4c3d-8e4f-5a6b7c8d9e0f';
     const validCustomPlanDto = {
       tenantId: '11111111-1111-4111-8111-111111111111',
       name: 'Enterprise Custom',
@@ -673,7 +710,9 @@ describe('BillingController', () => {
           quantities: { users: 10, farms: 2 },
         },
       ],
-      validFrom: '2026-09-05T00:00:00.000Z',
+      // ADR-0013: a plan's validity is a DAY, not an instant — the column is
+      // `date`, so an ISO timestamp is no longer accepted.
+      validFrom: '2026-09-05',
     };
 
     it('POST /billing/custom-plans refuses a body that claims an actor', async () => {
@@ -682,51 +721,96 @@ describe('BillingController', () => {
         .send({ ...validCustomPlanDto, createdBy: 'attacker-id' });
 
       expect(res.status).toBe(HttpStatus.BAD_REQUEST);
-      expect(mockCustomPlanService.createCustomPlan).not.toHaveBeenCalled();
+      expect(mockCustomPlanService.create).not.toHaveBeenCalled();
     });
 
-    it('POST /billing/custom-plans should use JWT createdBy', async () => {
+    it('refuses a discount that is not an exact decimal string', async () => {
+      const res = await request(httpServer())
+        .post('/billing/custom-plans')
+        .send({ ...validCustomPlanDto, discountAmount: 33.33 });
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST);
+      expect(mockCustomPlanService.create).not.toHaveBeenCalled();
+    });
+
+    it('refuses a discount above 100 percent', async () => {
+      // `admin.custom_plans.discountPercent` was an unbounded `number`, so 400
+      // was storable and floored the plan's total to zero.
+      const res = await request(httpServer())
+        .post('/billing/custom-plans')
+        .send({ ...validCustomPlanDto, discountPercent: '400' });
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST);
+      expect(mockCustomPlanService.create).not.toHaveBeenCalled();
+    });
+
+    it('POST /billing/custom-plans passes the JWT actor beside the plan input', async () => {
       await request(httpServer()).post('/billing/custom-plans').send(validCustomPlanDto);
 
-      expect(mockCustomPlanService.createCustomPlan).toHaveBeenCalledWith(
+      expect(mockCustomPlanService.create).toHaveBeenCalledWith(
         expect.objectContaining({
           tenantId: validCustomPlanDto.tenantId,
-          createdBy: authenticatedUser.id,
+          name: 'Enterprise Custom',
+          validFrom: '2026-09-05',
         }),
-      );
-    });
-
-    it('PUT /billing/custom-plans/:planId should use JWT updatedBy', async () => {
-      await request(httpServer())
-        .put('/billing/custom-plans/cp-1')
-        .send({ name: 'Updated Custom' });
-
-      expect(mockCustomPlanService.updateCustomPlan).toHaveBeenCalledWith(
-        'cp-1',
-        expect.objectContaining({
-          updatedBy: authenticatedUser.id,
-        }),
-      );
-    });
-
-    it('POST /billing/custom-plans/:planId/approve should use JWT approvedBy', async () => {
-      await request(httpServer())
-        .post('/billing/custom-plans/cp-1/approve');
-
-      expect(mockCustomPlanService.approvePlan).toHaveBeenCalledWith(
-        'cp-1',
         authenticatedUser.id,
       );
     });
 
-    it('POST /billing/custom-plans/:planId/reject should use JWT rejectedBy', async () => {
+    it('PUT /billing/custom-plans/:planId omits an absent field instead of clearing it', async () => {
       await request(httpServer())
-        .post('/billing/custom-plans/cp-1/reject')
+        .put(`/billing/custom-plans/${CUSTOM_PLAN_ID}`)
+        .send({ name: 'Updated Custom' });
+
+      expect(mockCustomPlanService.update).toHaveBeenCalledWith(
+        CUSTOM_PLAN_ID,
+        { name: 'Updated Custom' },
+        authenticatedUser.id,
+      );
+    });
+
+    it('POST /billing/custom-plans/:planId/approve should use the JWT actor', async () => {
+      await request(httpServer()).post(`/billing/custom-plans/${CUSTOM_PLAN_ID}/approve`);
+
+      expect(mockCustomPlanService.approve).toHaveBeenCalledWith(
+        CUSTOM_PLAN_ID,
+        authenticatedUser.id,
+      );
+    });
+
+    it('POST /billing/custom-plans/:planId/submit should use the JWT actor', async () => {
+      // The actor was missing entirely: `submitForApproval` took no actor, so
+      // the transition was recorded against nobody.
+      await request(httpServer()).post(`/billing/custom-plans/${CUSTOM_PLAN_ID}/submit`);
+
+      expect(mockCustomPlanService.submitForApproval).toHaveBeenCalledWith(
+        CUSTOM_PLAN_ID,
+        authenticatedUser.id,
+      );
+    });
+
+    it('POST /billing/custom-plans/:planId/reject should use the JWT actor', async () => {
+      await request(httpServer())
+        .post(`/billing/custom-plans/${CUSTOM_PLAN_ID}/reject`)
         .send({ reason: 'Pricing too low' });
 
-      expect(mockCustomPlanService.rejectPlan).toHaveBeenCalledWith(
-        'cp-1',
+      expect(mockCustomPlanService.reject).toHaveBeenCalledWith(
+        CUSTOM_PLAN_ID,
         'Pricing too low',
+        authenticatedUser.id,
+      );
+    });
+
+    it('POST /billing/custom-plans/:planId/clone should use the JWT actor', async () => {
+      // The clone used to be credited to whoever wrote the ORIGINAL plan: the
+      // route took no actor and the service spread the source row wholesale.
+      await request(httpServer())
+        .post(`/billing/custom-plans/${CUSTOM_PLAN_ID}/clone`)
+        .send({ newTenantId: '11111111-1111-4111-8111-111111111111' });
+
+      expect(mockCustomPlanService.clone).toHaveBeenCalledWith(
+        CUSTOM_PLAN_ID,
+        '11111111-1111-4111-8111-111111111111',
         authenticatedUser.id,
       );
     });
@@ -739,10 +823,10 @@ describe('BillingController', () => {
   describe('POST /billing/discounts/:id/deactivate', () => {
     it('should use JWT user.id for deactivation', async () => {
       await request(httpServer())
-        .post('/billing/discounts/disc-1/deactivate');
+        .post('/billing/discounts/8f3c1a2b-4d5e-4f60-9a71-2b3c4d5e6f7a/deactivate');
 
       expect(mockDiscountService.deactivate).toHaveBeenCalledWith(
-        'disc-1',
+        '8f3c1a2b-4d5e-4f60-9a71-2b3c4d5e6f7a',
         authenticatedUser.id,
       );
     });
@@ -753,23 +837,89 @@ describe('BillingController', () => {
   // ==========================================================================
 
   describe('POST /billing/discounts/apply', () => {
-    it('should use JWT user.id as redeemedBy', async () => {
-      await request(httpServer())
+    it('forwards the JWT actor as the redeemer and the amount as an exact decimal string', async () => {
+      const res = await request(httpServer())
         .post('/billing/discounts/apply')
         .send({
           code: 'SPRING2026',
           tenantId: 'd4e5f6a7-b8c9-4d0e-af1a-2b3c4d5e6f7a',
-          originalAmount: 100,
+          orderAmount: '100.00',
+          subscriptionChange: 'upgrade',
         });
 
+      expect(res.status).toBe(HttpStatus.CREATED);
       expect(mockDiscountService.applyDiscount).toHaveBeenCalledWith(
         'SPRING2026',
         'd4e5f6a7-b8c9-4d0e-af1a-2b3c4d5e6f7a',
-        100,
-        expect.objectContaining({
-          redeemedBy: authenticatedUser.id,
-        }),
+        '100.00',
+        authenticatedUser.id,
+        expect.objectContaining({ subscriptionChange: 'upgrade' }),
       );
+    });
+
+    it('refuses an order amount sent as a float — money never crosses as IEEE-754 (ADR-0013)', async () => {
+      mockDiscountService.applyDiscount.mockClear();
+      const res = await request(httpServer())
+        .post('/billing/discounts/apply')
+        .send({
+          code: 'SPRING2026',
+          tenantId: 'd4e5f6a7-b8c9-4d0e-af1a-2b3c4d5e6f7a',
+          orderAmount: 100,
+        });
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST);
+      expect(mockDiscountService.applyDiscount).not.toHaveBeenCalled();
+    });
+  });
+
+  // ==========================================================================
+  // 14b. the discount value branch (ADR-0013 / BILLING-CRITICAL-002)
+  // ==========================================================================
+
+  describe('POST /billing/discounts (value branch)', () => {
+    beforeEach(() => mockDiscountService.create.mockClear());
+
+    it('refuses a percentage code that carries no percentOff', async () => {
+      const res = await request(httpServer())
+        .post('/billing/discounts')
+        .send({ code: 'NOVALUE', name: 'No value', discountType: 'percentage' });
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST);
+      expect(mockDiscountService.create).not.toHaveBeenCalled();
+    });
+
+    it('refuses a percentage code that also carries an amount', async () => {
+      const res = await request(httpServer()).post('/billing/discounts').send({
+        code: 'BOTH',
+        name: 'Both',
+        discountType: 'percentage',
+        percentOff: '10',
+        amountOff: '50.00',
+      });
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST);
+      expect(mockDiscountService.create).not.toHaveBeenCalled();
+    });
+
+    it('accepts a free_months code with a whole month count', async () => {
+      const res = await request(httpServer())
+        .post('/billing/discounts')
+        .send({ code: 'TWOFREE', name: 'Two free', discountType: 'free_months', freeMonths: 2 });
+
+      expect(res.status).toBe(HttpStatus.CREATED);
+      expect(mockDiscountService.create).toHaveBeenCalledWith(
+        'TWOFREE',
+        expect.objectContaining({ discountType: 'free_months', freeMonths: 2 }),
+        authenticatedUser.id,
+      );
+    });
+
+    it('refuses a body that tries to change a minted code value', async () => {
+      const res = await request(httpServer())
+        .put('/billing/discounts/8f3c1a2b-4d5e-4f60-9a71-2b3c4d5e6f7a')
+        .send({ name: 'Renamed', percentOff: '99' });
+
+      expect(res.status).toBe(HttpStatus.BAD_REQUEST);
     });
   });
 
@@ -836,7 +986,9 @@ describe('BillingController', () => {
         new NotFoundException('Plan not found'),
       );
 
-      const res = await request(httpServer()).get('/billing/plans/non-existent');
+      const res = await request(httpServer()).get(
+        '/billing/plans/8f3c1a2b-4d5e-4f60-9a71-2b3c4d5e6f7a',
+      );
 
       expect(res.status).toBe(HttpStatus.NOT_FOUND);
     });
@@ -848,7 +1000,7 @@ describe('BillingController', () => {
 
       const res = await request(httpServer())
         .post('/billing/discounts')
-        .send({ code: 'DUP', name: 'Dup', discountType: 'fixed_amount', discountValue: 5 });
+        .send({ code: 'DUP', name: 'Dup', discountType: 'fixed_amount', amountOff: '5.00' });
 
       expect(res.status).toBe(HttpStatus.CONFLICT);
     });

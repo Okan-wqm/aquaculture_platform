@@ -10,10 +10,12 @@
  * subscription row could not map back to a tier. Those copies live at:
  *
  *   - apps/billing-service/.../entities/subscription.entity.ts   (GraphQL enum)
- *   - apps/admin-api-service/.../billing/entities/plan-definition.entity.ts
  *   - apps/admin-api-service/.../analytics/entities/external/subscription.entity.ts
  *   - web/modules/admin-panel/src/services/types/billing.ts       (PlanTier)
  *   - web/modules/admin-panel/src/services/types/tenant.ts        (TenantTier)
+ *
+ * (`plan-definition.entity.ts` is gone since ADR-0013 — `admin.plan_definitions`
+ * folded into `billing.plans` — so admin-billing imports this enum directly.)
  *
  * Every backend copy now RE-EXPORTS this enum. The two frontend copies cannot
  * import an `@platform/*` library (web modules never bundle backend libs — see

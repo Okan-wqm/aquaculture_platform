@@ -1,4 +1,6 @@
 import type { BillingCycle, PlanTier } from './base-event';
+import type { BillingPlanTier } from './billing/billing-plan-tier';
+import type { BillingPricingMetricType } from './billing/pricing-metric';
 
 /**
  * Platform-admin billing command contracts.
@@ -19,6 +21,40 @@ export const BILLING_ADMIN_COMMAND_SUBJECTS = {
   CANCEL_SUBSCRIPTION: 'request.billing.admin.cancelSubscription',
   REACTIVATE_SUBSCRIPTION: 'request.billing.admin.reactivateSubscription',
   EXTEND_SUBSCRIPTION_TRIAL: 'request.billing.admin.extendSubscriptionTrial',
+  // Discount catalogue (ADR-0013): billing owns every row that prices a
+  // subscription or an invoice. admin-api authors through these commands and
+  // reads the rows back through a read-only mapping of the billing table.
+  CREATE_DISCOUNT_CODE: 'request.billing.admin.createDiscountCode',
+  UPDATE_DISCOUNT_CODE: 'request.billing.admin.updateDiscountCode',
+  DEACTIVATE_DISCOUNT_CODE: 'request.billing.admin.deactivateDiscountCode',
+  BULK_CREATE_DISCOUNT_CODES: 'request.billing.admin.bulkCreateDiscountCodes',
+  GENERATE_DISCOUNT_CODE: 'request.billing.admin.generateDiscountCode',
+  VALIDATE_DISCOUNT_CODE: 'request.billing.admin.validateDiscountCode',
+  APPLY_DISCOUNT_CODE: 'request.billing.admin.applyDiscountCode',
+  // Module price sheet (ADR-0013 / BILLING-CRITICAL-002). billing owns what a
+  // module costs, so it also owns the arithmetic that turns a module selection
+  // into a price — admin asks for the quote instead of recomputing it.
+  SET_MODULE_PRICE: 'request.billing.admin.setModulePrice',
+  DEACTIVATE_MODULE_PRICE: 'request.billing.admin.deactivateModulePrice',
+  SEED_MODULE_PRICES: 'request.billing.admin.seedModulePrices',
+  QUOTE_MODULE_SELECTION: 'request.billing.admin.quoteModuleSelection',
+  // Plan catalogue (ADR-0013 / BILLING-CRITICAL-002). `billing.plans` is the
+  // sole catalogue of record; `admin.plan_definitions` was a shadow copy whose
+  // ids never resolved at execution.
+  CREATE_PLAN: 'request.billing.admin.createPlan',
+  UPDATE_PLAN: 'request.billing.admin.updatePlan',
+  DEPRECATE_PLAN: 'request.billing.admin.deprecatePlan',
+  // Custom plans (ADR-0013 / BILLING-CRITICAL-002). A negotiated per-tenant
+  // plan prices a subscription, so it lives with the prices and the lifecycle
+  // that spends them; admin-panel stays the builder UI.
+  CREATE_CUSTOM_PLAN: 'request.billing.admin.createCustomPlan',
+  UPDATE_CUSTOM_PLAN: 'request.billing.admin.updateCustomPlan',
+  SUBMIT_CUSTOM_PLAN: 'request.billing.admin.submitCustomPlan',
+  APPROVE_CUSTOM_PLAN: 'request.billing.admin.approveCustomPlan',
+  REJECT_CUSTOM_PLAN: 'request.billing.admin.rejectCustomPlan',
+  ACTIVATE_CUSTOM_PLAN: 'request.billing.admin.activateCustomPlan',
+  CLONE_CUSTOM_PLAN: 'request.billing.admin.cloneCustomPlan',
+  DELETE_CUSTOM_PLAN: 'request.billing.admin.deleteCustomPlan',
 } as const;
 
 export interface BillingAdminCommandMeta {
@@ -53,9 +89,16 @@ export interface BillingModuleQuantities {
  * source for module rows and the subscription's computed monthly price;
  * `moduleIds`/`moduleQuantities` remain for back-compat during the transition.
  *
- * A module with no `admin.module_pricing` catalog entry legitimately resolves to
- * subtotal/discountAmount/total = 0 (free/core tier) — an absent price is not an
- * error and must never fail provisioning.
+ * A module with no active `billing.module_prices` sheet legitimately resolves to
+ * subtotal/discountAmount/total = '0' (free/core tier) — an absent price is not
+ * an error and must never fail provisioning.
+ *
+ * ADR-0013: the three money fields are exact decimal STRINGS. They are billing's
+ * own quote travelling back to billing, and a round trip through IEEE-754 was
+ * the one place that could make the priced item disagree with the quote the
+ * operator approved. (That the round trip happens at all is redundancy
+ * BILLING-CRITICAL-003 removes when provisioning moves onto
+ * `CreateSubscriptionHandler`; until then it is at least lossless.)
  */
 export interface BillingProvisioningModuleItem {
   moduleId: string;
@@ -63,9 +106,10 @@ export interface BillingProvisioningModuleItem {
   name: string;
   quantities?: BillingModuleQuantities;
   lineItems?: unknown[];
-  subtotal: number;
-  discountAmount: number;
-  total: number;
+  /** Exact decimal strings. */
+  subtotal: string;
+  discountAmount: string;
+  total: string;
 }
 
 export interface BillingTenantProvisioningCommand {
@@ -268,6 +312,798 @@ export interface BillingAdminSubscriptionCommandResult {
   effectiveDate?: string;
   newTrialEnd?: string;
   message?: string;
+  errorCode?: BillingAdminCommandErrorCode;
+  error?: string;
+}
+
+// ============================================================================
+// Discount catalogue (ADR-0013 / BILLING-CRITICAL-002)
+//
+// The discount code, its redemptions and the money they move live in
+// `billing`. Two rules make the shape honest on the wire:
+//
+//  1. Money and percentages cross as exact decimal STRINGS, never as
+//     IEEE-754 numbers: '12.50' is the same value on both sides of the
+//     transport, 12.5 is not necessarily.
+//  2. A discount's VALUE is a discriminated union, not one polymorphic
+//     `discountValue` column. `admin.discount_codes` stored a percentage
+//     and an amount of money in the same `numeric(10,2)`, which is why no
+//     CHECK constraint could exist: `150` was a legal 150% and a legal
+//     $150 at once, and `free_months` silently computed a discount of 0.
+//     Here the branch names its own field, so a percentage cannot exceed
+//     100 and an amount must state its currency — the same split the
+//     database CHECK constraints enforce.
+// ============================================================================
+
+export type BillingDiscountType =
+  | 'percentage'
+  | 'fixed_amount'
+  | 'free_trial_extension'
+  | 'free_months';
+
+export type BillingDiscountAppliesTo =
+  | 'all_plans'
+  | 'specific_plans'
+  | 'upgrades_only'
+  | 'new_subscriptions_only';
+
+export type BillingDiscountDuration = 'once' | 'repeating' | 'forever';
+
+/**
+ * What the redemption is being applied to. `appliesTo` restricts a code to
+ * upgrades or to new subscriptions, and until now nothing carried the fact
+ * that would decide it — so both restrictions permitted everything. The
+ * caller states the change kind; a code that restricts one and is offered no
+ * kind is refused, because "cannot tell" must not mean "allowed".
+ */
+export type BillingDiscountSubscriptionChange = 'new' | 'upgrade' | 'other';
+
+/**
+ * What the code takes off, by kind. Exactly one branch is inhabited, and the
+ * branch determines which field carries the value — `billing.discount_codes`
+ * holds the same four columns under the same CHECK.
+ */
+export type BillingDiscountValue =
+  /** Exact decimal string in (0, 100]. */
+  | { discountType: 'percentage'; percentOff: string }
+  /** Exact decimal string > 0, denominated in the code's `currency`. */
+  | { discountType: 'fixed_amount'; amountOff: string }
+  /** Whole billing cycles granted free; moves no money at redemption time. */
+  | { discountType: 'free_months'; freeMonths: number }
+  /** Days added to the trial; moves no money at redemption time. */
+  | { discountType: 'free_trial_extension'; trialExtensionDays: number };
+
+/** Everything a discount code carries except its code and its value branch. */
+export interface BillingDiscountCodeAttributes {
+  name: string;
+  description?: string;
+  /** ISO-4217, upper-case. Denominates `amountOff` and `minimumOrderAmount`. */
+  currency?: string;
+  appliesTo?: BillingDiscountAppliesTo;
+  applicablePlanIds?: string[];
+  duration?: BillingDiscountDuration;
+  durationInMonths?: number;
+  validFrom?: string;
+  validUntil?: string;
+  maxRedemptions?: number;
+  maxRedemptionsPerTenant?: number;
+  /** Exact decimal string. */
+  minimumOrderAmount?: string;
+  campaignId?: string;
+  campaignName?: string;
+  isReferralCode?: boolean;
+  referrerId?: string;
+  metadata?: Record<string, unknown>;
+}
+
+/** The authoring payload: attributes plus exactly one value branch. */
+export type BillingDiscountCodeInput = BillingDiscountCodeAttributes & BillingDiscountValue;
+
+/** A row of `billing.discount_codes` as it crosses the wire. */
+export type BillingDiscountCodeSnapshot = BillingDiscountCodeAttributes &
+  BillingDiscountValue & {
+    id: string;
+    code: string;
+    currency: string;
+    isActive: boolean;
+    currentRedemptions: number;
+    stripePromotionCodeId?: string | null;
+    stripeCouponId?: string | null;
+    createdAt: string;
+    updatedAt: string;
+    createdBy?: string | null;
+    updatedBy?: string | null;
+  };
+
+/** A row of `billing.discount_redemptions` as it crosses the wire. */
+export interface BillingDiscountRedemptionSnapshot {
+  id: string;
+  discountCodeId: string;
+  tenantId: string;
+  subscriptionId?: string | null;
+  invoiceId?: string | null;
+  /** Exact decimal string. */
+  discountAmount: string;
+  currency: string;
+  redeemedAt: string;
+  redeemedBy?: string | null;
+}
+
+export interface BillingAdminCreateDiscountCodeCommand extends BillingAdminCommandMeta {
+  code: string;
+  input: BillingDiscountCodeInput;
+}
+
+/**
+ * The mutable half of a discount code. The value branch, the code and the
+ * campaign are immutable once minted: a code already handed to a customer
+ * that silently changes what it is worth is a repudiation risk, so a
+ * different offer is a different code.
+ */
+export interface BillingAdminUpdateDiscountCodeInput {
+  name?: string;
+  description?: string;
+  isActive?: boolean;
+  validFrom?: string;
+  validUntil?: string;
+  maxRedemptions?: number;
+  maxRedemptionsPerTenant?: number;
+  metadata?: Record<string, unknown>;
+}
+
+export interface BillingAdminUpdateDiscountCodeCommand extends BillingAdminCommandMeta {
+  discountCodeId: string;
+  input: BillingAdminUpdateDiscountCodeInput;
+}
+
+export interface BillingAdminDeactivateDiscountCodeCommand extends BillingAdminCommandMeta {
+  discountCodeId: string;
+}
+
+export interface BillingAdminBulkCreateDiscountCodesCommand extends BillingAdminCommandMeta {
+  count: number;
+  codePrefix?: string;
+  template: BillingDiscountCodeInput;
+}
+
+export interface BillingAdminGenerateDiscountCodeCommand extends BillingAdminCommandMeta {
+  prefix?: string;
+  length?: number;
+}
+
+export interface BillingAdminValidateDiscountCodeCommand extends BillingAdminCommandMeta {
+  code: string;
+  tenantId: string;
+  planId?: string;
+  subscriptionChange?: BillingDiscountSubscriptionChange;
+  /** Exact decimal string. */
+  orderAmount?: string;
+}
+
+export interface BillingAdminApplyDiscountCodeCommand extends BillingAdminCommandMeta {
+  code: string;
+  tenantId: string;
+  /** Exact decimal string. */
+  orderAmount: string;
+  planId?: string;
+  subscriptionChange?: BillingDiscountSubscriptionChange;
+  subscriptionId?: string;
+  invoiceId?: string;
+}
+
+/**
+ * Why a code was refused. The caller renders the reason; it does not
+ * re-derive it, so the rule and its message have one home (billing).
+ */
+export type BillingDiscountRejectionReason =
+  | 'unknown_code'
+  | 'inactive'
+  | 'not_yet_valid'
+  | 'expired'
+  | 'redemption_limit_reached'
+  | 'tenant_limit_reached'
+  | 'plan_not_eligible'
+  | 'upgrades_only'
+  | 'new_subscriptions_only'
+  | 'below_minimum_order';
+
+export interface BillingAdminDiscountCodeCommandResult {
+  success: boolean;
+  discountCode?: BillingDiscountCodeSnapshot;
+  errorCode?: BillingAdminCommandErrorCode;
+  error?: string;
+}
+
+export interface BillingAdminBulkDiscountCodeCommandResult {
+  success: boolean;
+  discountCodes?: BillingDiscountCodeSnapshot[];
+  errorCode?: BillingAdminCommandErrorCode;
+  error?: string;
+}
+
+export interface BillingAdminGenerateDiscountCodeResult {
+  success: boolean;
+  code?: string;
+  errorCode?: BillingAdminCommandErrorCode;
+  error?: string;
+}
+
+export interface BillingAdminValidateDiscountCodeResult {
+  success: boolean;
+  valid: boolean;
+  reason?: BillingDiscountRejectionReason;
+  message?: string;
+  /**
+   * Exact decimal string. Present only when the caller supplied an
+   * `orderAmount` AND the branch moves money — a `free_months` code is valid
+   * and takes nothing off this invoice, which is not the same as `'0'`.
+   */
+  discountAmount?: string;
+  discountCode?: BillingDiscountCodeSnapshot;
+  errorCode?: BillingAdminCommandErrorCode;
+  error?: string;
+}
+
+export interface BillingAdminApplyDiscountCodeResult {
+  success: boolean;
+  valid?: boolean;
+  reason?: BillingDiscountRejectionReason;
+  /** Exact decimal strings. */
+  originalAmount?: string;
+  discountAmount?: string;
+  finalAmount?: string;
+  /** Set by the `free_months` / `free_trial_extension` branches. */
+  grantedFreeMonths?: number;
+  grantedTrialExtensionDays?: number;
+  redemptionId?: string;
+  message?: string;
+  errorCode?: BillingAdminCommandErrorCode;
+  error?: string;
+}
+
+// ============================================================================
+// Module price sheet and quotes (ADR-0013 / BILLING-CRITICAL-002)
+//
+// `admin.module_pricing` kept its prices and its tier multipliers as `number`
+// fields inside two `jsonb` columns, so nothing could CHECK a negative price
+// or a multiplier of 40, and every sum went through IEEE-754. Here a price
+// sheet is a row, each metric is a row, each tier multiplier is a row, and
+// every amount crosses as an exact decimal string.
+//
+// The quote moves with the sheet. admin-api used to fetch the sheet and do the
+// arithmetic itself — then send the result back to billing as the priced
+// module items of a provisioning command. Whoever owns the prices owns the
+// multiplication.
+// ============================================================================
+
+export interface BillingModulePriceMetricInput {
+  metricType: BillingPricingMetricType;
+  /** Exact decimal string, >= 0, denominated in the sheet's currency. */
+  price: string;
+  description?: string;
+  minQuantity?: number;
+  maxQuantity?: number;
+  /** Quantity granted before the metric starts charging. */
+  includedQuantity?: number;
+}
+
+/**
+ * A tier's price multiplier: 1 is full price, 0.9 is a 10% tier discount.
+ * Exact decimal string — 0.9 as a float multiplied across a line total is how
+ * a quote and an invoice end up a cent apart.
+ */
+export interface BillingModulePriceTierMultiplierInput {
+  tier: BillingPlanTier;
+  multiplier: string;
+}
+
+export interface BillingModulePriceInput {
+  moduleId: string;
+  moduleCode: string;
+  /** ISO-4217, upper-case. Defaults to USD. */
+  currency?: string;
+  effectiveFrom?: string;
+  effectiveTo?: string | null;
+  notes?: string;
+  metrics: BillingModulePriceMetricInput[];
+  tierMultipliers?: BillingModulePriceTierMultiplierInput[];
+}
+
+export interface BillingModulePriceSnapshot {
+  id: string;
+  moduleId: string;
+  moduleCode: string;
+  currency: string;
+  effectiveFrom: string;
+  effectiveTo?: string | null;
+  isActive: boolean;
+  version: number;
+  notes?: string | null;
+  metrics: BillingModulePriceMetricInput[];
+  tierMultipliers: BillingModulePriceTierMultiplierInput[];
+  createdAt: string;
+  updatedAt: string;
+  createdBy?: string | null;
+  updatedBy?: string | null;
+}
+
+export interface BillingAdminSetModulePriceCommand extends BillingAdminCommandMeta {
+  input: BillingModulePriceInput;
+}
+
+export interface BillingAdminDeactivateModulePriceCommand extends BillingAdminCommandMeta {
+  modulePriceId: string;
+}
+
+/**
+ * Seed the default sheet for modules that have none. `moduleIds` maps a module
+ * code to the `auth.modules` id admin resolved — billing holds no grant on
+ * that schema, so the caller supplies the mapping rather than billing guessing.
+ */
+export interface BillingAdminSeedModulePricesCommand extends BillingAdminCommandMeta {
+  moduleIds: Array<{ moduleCode: string; moduleId: string }>;
+}
+
+export interface BillingAdminModulePriceCommandResult {
+  success: boolean;
+  modulePrice?: BillingModulePriceSnapshot;
+  errorCode?: BillingAdminCommandErrorCode;
+  error?: string;
+}
+
+export interface BillingAdminSeedModulePricesResult {
+  success: boolean;
+  seeded?: number;
+  errorCode?: BillingAdminCommandErrorCode;
+  error?: string;
+}
+
+// ── Quoting ────────────────────────────────────────────────────────────────
+
+export interface BillingModuleQuoteSelection {
+  moduleId: string;
+  moduleCode: string;
+  moduleName?: string;
+  /**
+   * The selection already names the module, so `moduleId` is not repeated
+   * inside its own quantities — the redundant copy is what let a caller send
+   * a quantity block belonging to a different module.
+   */
+  quantities: Omit<BillingModuleQuantities, 'moduleId'>;
+}
+
+export interface BillingAdminQuoteModuleSelectionCommand extends BillingAdminCommandMeta {
+  tier: BillingPlanTier;
+  billingCycle: BillingCycle;
+  modules: BillingModuleQuoteSelection[];
+  /** Required when `discountCode` is set — every discount rule is tenant-relative. */
+  tenantId?: string;
+  discountCode?: string;
+  subscriptionChange?: BillingDiscountSubscriptionChange;
+  /** Exact decimal string percentage, 0-100. */
+  taxRate?: string;
+  /**
+   * A negotiated discount the operator is entering by hand, as opposed to a
+   * code: the percentage comes off the subtotal, then the fixed amount comes
+   * off what is left, and the result is floored at zero.
+   *
+   * A custom plan is priced through this, so the total the builder previews
+   * and the total the plan stores are the SAME number from the SAME code —
+   * the admin-panel used to recompute it in the browser in floats, and its
+   * annual figure applied the fixed discount twelve times where the server
+   * applies it once.
+   */
+  negotiatedDiscountPercent?: string;
+  negotiatedDiscountAmount?: string;
+}
+
+export interface BillingModuleQuoteLineItem {
+  metric: BillingPricingMetricType;
+  metricLabel: string;
+  quantity: number;
+  includedQuantity: number;
+  billableQuantity: number;
+  /** Exact decimal strings. */
+  listUnitPrice: string;
+  unitPrice: string;
+  total: string;
+  tierMultiplier: string;
+}
+
+export interface BillingModuleQuoteBreakdown {
+  moduleId: string;
+  moduleCode: string;
+  moduleName: string;
+  lineItems: BillingModuleQuoteLineItem[];
+  /** Exact decimal strings. */
+  subtotal: string;
+  tierDiscount: string;
+  total: string;
+}
+
+export interface BillingModuleQuote {
+  modules: BillingModuleQuoteBreakdown[];
+  /** Exact decimal strings throughout. */
+  subtotal: string;
+  tierDiscount: string;
+  cycleDiscountAmount: string;
+  cycleDiscountPercent: string;
+  discountCode?: string;
+  discountDescription?: string;
+  discountAmount: string;
+  discountReason?: BillingDiscountRejectionReason;
+  /** What the negotiated discount took off, if one was quoted. */
+  negotiatedDiscountAmount: string;
+  tax: string;
+  taxRate: string;
+  total: string;
+  monthlyTotal: string;
+  annualTotal: string;
+  billingCycle: BillingCycle;
+  billingCycleMultiplier: number;
+  currency: string;
+  tier: BillingPlanTier;
+  calculatedAt: string;
+  /**
+   * Module codes with no active price sheet. An absent sheet is not an error
+   * (a free/core module legitimately has none), but a quote that silently
+   * omits a module the operator selected is a lie, so it says which.
+   */
+  unpricedModuleCodes: string[];
+}
+
+export interface BillingAdminQuoteModuleSelectionResult {
+  success: boolean;
+  quote?: BillingModuleQuote;
+  errorCode?: BillingAdminCommandErrorCode;
+  error?: string;
+}
+
+// ============================================================================
+// Plan catalogue (ADR-0013 / BILLING-CRITICAL-002)
+//
+// `admin.plan_definitions` kept a second catalogue beside `billing.plans`:
+// its own ids (which no runtime path ever resolved), its own Stripe product
+// and price ids, and a per-cycle price matrix inside a `jsonb` column. Here
+// `billing.plans` is the only catalogue, the per-cycle prices are rows, and
+// an add-on's price is a `numeric` column instead of a `number` nested two
+// levels inside a features blob.
+// ============================================================================
+
+/**
+ * What a plan permits. Counts and flags only — no money, which is why it stays
+ * a `jsonb` column: nothing here needs a CHECK a numeric column would give.
+ * `-1` means unlimited, the convention `PLAN_CATALOG` already uses (ADR-037).
+ */
+export interface BillingPlanLimitsInput {
+  maxUsers: number;
+  maxFarms: number;
+  maxPonds: number;
+  maxSensors: number;
+  maxModules: number;
+  storageGB: number;
+  dataRetentionDays: number;
+  apiRateLimit: number;
+  alertsEnabled: boolean;
+  reportsEnabled: boolean;
+  customBrandingEnabled: boolean;
+  apiAccessEnabled: boolean;
+  customIntegrationsEnabled: boolean;
+  ssoEnabled: boolean;
+  auditLogEnabled: boolean;
+  prioritySupport: boolean;
+  dedicatedAccountManager: boolean;
+}
+
+/** The named feature sets a plan advertises. Add-ons are priced, so they are rows. */
+export interface BillingPlanFeaturesInput {
+  coreFeatures: string[];
+  advancedFeatures: string[];
+  premiumFeatures: string[];
+}
+
+/**
+ * What the plan costs for one billing cycle. One row per cycle the plan is
+ * sold on — the shape `admin.plan_definitions.pricing` held as a jsonb object
+ * of four sub-objects, where no CHECK could reach a negative price and
+ * `discountPercent` could be 400.
+ */
+export interface BillingPlanCyclePriceInput {
+  billingCycle: BillingCycle;
+  /** Exact decimal strings, >= 0, in the plan's currency. */
+  basePrice: string;
+  perUserPrice: string;
+  perFarmPrice: string;
+  perModulePrice: string;
+  /** Exact decimal string, 0-100. The commitment discount for this cycle. */
+  discountPercent: string;
+}
+
+export interface BillingPlanAddOnInput {
+  code: string;
+  name: string;
+  description?: string;
+  /** Exact decimal string, >= 0. */
+  price: string;
+  billingCycle: BillingCycle;
+}
+
+export type BillingPlanVisibility = 'public' | 'private' | 'deprecated';
+
+/** Enumerable at runtime, for the same reason as `BILLING_CYCLES`. */
+export const BILLING_PLAN_VISIBILITIES = ['public', 'private', 'deprecated'] as const;
+
+export type BillingPlanVisibilityRuntimeParity =
+  BillingPlanVisibility extends (typeof BILLING_PLAN_VISIBILITIES)[number]
+    ? (typeof BILLING_PLAN_VISIBILITIES)[number] extends BillingPlanVisibility
+      ? true
+      : never
+    : never;
+
+export interface BillingPlanInput {
+  /** Operator-facing catalogue key, e.g. `starter_2024`. Unique. */
+  code?: string;
+  name: string;
+  description?: string;
+  shortDescription?: string;
+  tier: BillingPlanTier;
+  /** ISO-4217, upper-case. */
+  currency?: string;
+  /** The cycle a subscription defaults to when none is stated. */
+  defaultBillingCycle?: BillingCycle;
+  visibility?: BillingPlanVisibility;
+  isRecommended?: boolean;
+  sortOrder?: number;
+  limits: BillingPlanLimitsInput;
+  features?: BillingPlanFeaturesInput;
+  cyclePrices: BillingPlanCyclePriceInput[];
+  addOns?: BillingPlanAddOnInput[];
+  trialDays?: number;
+  gracePeriodDays?: number;
+  upgradeMessage?: string;
+  downgradeWarning?: string;
+  icon?: string;
+  color?: string;
+  badge?: string;
+  stripeProductId?: string;
+  /** Billing cycle → Stripe price id. The ONE writable home for these. */
+  stripePriceIds?: Record<string, string>;
+}
+
+/** Everything on `BillingPlanInput` may be revised; the plan's id may not. */
+export type BillingPlanUpdateInput = Partial<BillingPlanInput> & { isActive?: boolean };
+
+export interface BillingPlanSnapshot {
+  id: string;
+  code?: string | null;
+  name: string;
+  description?: string | null;
+  shortDescription?: string | null;
+  tier: BillingPlanTier;
+  currency: string;
+  defaultBillingCycle: BillingCycle;
+  visibility: BillingPlanVisibility;
+  isActive: boolean;
+  isRecommended: boolean;
+  sortOrder: number;
+  limits: BillingPlanLimitsInput;
+  features: BillingPlanFeaturesInput;
+  cyclePrices: BillingPlanCyclePriceInput[];
+  addOns: BillingPlanAddOnInput[];
+  trialDays?: number | null;
+  gracePeriodDays?: number | null;
+  upgradeMessage?: string | null;
+  downgradeWarning?: string | null;
+  icon?: string | null;
+  color?: string | null;
+  badge?: string | null;
+  stripeProductId?: string | null;
+  stripePriceIds?: Record<string, string> | null;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+  createdBy?: string | null;
+  updatedBy?: string | null;
+}
+
+export interface BillingAdminCreatePlanCommand extends BillingAdminCommandMeta {
+  input: BillingPlanInput;
+}
+
+export interface BillingAdminUpdatePlanCommand extends BillingAdminCommandMeta {
+  planId: string;
+  input: BillingPlanUpdateInput;
+}
+
+/**
+ * Retire a plan from sale. Never a delete: existing subscriptions reference
+ * the row, so it becomes invisible and unsellable while staying resolvable.
+ */
+export interface BillingAdminDeprecatePlanCommand extends BillingAdminCommandMeta {
+  planId: string;
+}
+
+export interface BillingAdminPlanCommandResult {
+  success: boolean;
+  plan?: BillingPlanSnapshot;
+  errorCode?: BillingAdminCommandErrorCode;
+  error?: string;
+}
+
+// ============================================================================
+// Custom plans (ADR-0013 / BILLING-CRITICAL-002)
+//
+// A custom plan is a negotiated per-tenant price: a module selection, a
+// discount and a validity window that together decide what a subscription
+// costs. `admin.custom_plans` held the whole of it — the per-module subtotal
+// and every line item's unit price — inside one `jsonb` column of IEEE-754
+// numbers, and priced it in admin with float arithmetic beside billing's own.
+// The rows are `billing.custom_plans` + `custom_plan_modules` +
+// `custom_plan_line_items` now, every amount a `numeric` column, and billing
+// prices the plan with the same code that will price its invoice.
+// ============================================================================
+
+export type BillingCustomPlanStatus =
+  | 'draft'
+  | 'pending_approval'
+  | 'approved'
+  | 'active'
+  | 'expired'
+  | 'rejected';
+
+/** Enumerable at runtime, for the same reason as `BILLING_CYCLES`. */
+export const BILLING_CUSTOM_PLAN_STATUSES = [
+  'draft',
+  'pending_approval',
+  'approved',
+  'active',
+  'expired',
+  'rejected',
+] as const;
+
+export type BillingCustomPlanStatusRuntimeParity =
+  BillingCustomPlanStatus extends (typeof BILLING_CUSTOM_PLAN_STATUSES)[number]
+    ? (typeof BILLING_CUSTOM_PLAN_STATUSES)[number] extends BillingCustomPlanStatus
+      ? true
+      : never
+    : never;
+
+/** A module the operator put on the plan. What it COSTS is billing's answer. */
+export interface BillingCustomPlanModuleSelection {
+  moduleId: string;
+  moduleCode: string;
+  moduleName: string;
+  quantities: Omit<BillingModuleQuantities, 'moduleId'>;
+}
+
+/** One priced line of one module, as billing computed it. Exact decimals. */
+export interface BillingCustomPlanLineItem {
+  metric: BillingPricingMetricType;
+  metricLabel: string;
+  quantity: number;
+  unitPrice: string;
+  total: string;
+}
+
+export interface BillingCustomPlanModule {
+  moduleId: string;
+  moduleCode: string;
+  moduleName: string;
+  quantities: Omit<BillingModuleQuantities, 'moduleId'>;
+  lineItems: BillingCustomPlanLineItem[];
+  /** Exact decimal string. */
+  subtotal: string;
+}
+
+export interface BillingCustomPlanInput {
+  tenantId: string;
+  name: string;
+  description?: string;
+  /** A `billing.plans` id this was derived from, if any. */
+  basePlanId?: string;
+  tier?: BillingPlanTier;
+  billingCycle?: BillingCycle;
+  modules: BillingCustomPlanModuleSelection[];
+  /** Exact decimal string in [0, 100]. */
+  discountPercent?: string;
+  /** Exact decimal string, >= 0, in the plan's currency. */
+  discountAmount?: string;
+  discountReason?: string;
+  /** ISO-4217, upper-case. */
+  currency?: string;
+  /** ISO-8601 dates. `validTo` absent means the plan does not expire. */
+  validFrom: string;
+  validTo?: string;
+  notes?: string;
+}
+
+/**
+ * A revision of a plan that has not been approved yet. `modules` is the whole
+ * selection, never a partial one: billing reprices the plan from it, and half
+ * a selection would be priced as the whole plan.
+ */
+export type BillingCustomPlanUpdateInput = Partial<
+  Omit<BillingCustomPlanInput, 'tenantId' | 'basePlanId' | 'tier'>
+>;
+
+export interface BillingCustomPlanSnapshot {
+  id: string;
+  tenantId: string;
+  name: string;
+  description?: string | null;
+  basePlanId?: string | null;
+  tier: BillingPlanTier;
+  billingCycle: BillingCycle;
+  modules: BillingCustomPlanModule[];
+  /** Exact decimal strings. */
+  monthlySubtotal: string;
+  discountPercent: string;
+  discountAmount: string;
+  discountReason?: string | null;
+  monthlyTotal: string;
+  currency: string;
+  status: BillingCustomPlanStatus;
+  validFrom: string;
+  validTo?: string | null;
+  approvedBy?: string | null;
+  approvedAt?: string | null;
+  rejectionReason?: string | null;
+  notes?: string | null;
+  subscriptionId?: string | null;
+  /**
+   * Module codes the plan selected that carry no active price sheet. A plan
+   * whose total silently omits a module the operator chose is a lie.
+   */
+  unpricedModuleCodes: string[];
+  /**
+   * The plan's modules in the shape the provisioning command wants, with the
+   * plan-level discount already allocated across them in exact decimals.
+   *
+   * billing computes this because billing owns the money: the caller copies
+   * the strings verbatim into `moduleItems` and multiplies nothing. admin-api
+   * used to allocate the discount itself, in floats, over amounts it had read
+   * out of a jsonb column.
+   */
+  provisioningModuleItems: BillingProvisioningModuleItem[];
+  createdAt: string;
+  updatedAt: string;
+  createdBy?: string | null;
+  updatedBy?: string | null;
+}
+
+export interface BillingAdminCreateCustomPlanCommand extends BillingAdminCommandMeta {
+  input: BillingCustomPlanInput;
+}
+
+export interface BillingAdminUpdateCustomPlanCommand extends BillingAdminCommandMeta {
+  customPlanId: string;
+  input: BillingCustomPlanUpdateInput;
+}
+
+export interface BillingAdminCustomPlanTransitionCommand extends BillingAdminCommandMeta {
+  customPlanId: string;
+}
+
+export interface BillingAdminRejectCustomPlanCommand extends BillingAdminCommandMeta {
+  customPlanId: string;
+  reason: string;
+}
+
+export interface BillingAdminCloneCustomPlanCommand extends BillingAdminCommandMeta {
+  customPlanId: string;
+  targetTenantId: string;
+}
+
+export interface BillingAdminCustomPlanCommandResult {
+  success: boolean;
+  customPlan?: BillingCustomPlanSnapshot;
+  errorCode?: BillingAdminCommandErrorCode;
+  error?: string;
+}
+
+export interface BillingAdminDeleteCustomPlanResult {
+  success: boolean;
+  deleted?: boolean;
   errorCode?: BillingAdminCommandErrorCode;
   error?: string;
 }

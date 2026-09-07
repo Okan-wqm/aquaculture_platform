@@ -52,145 +52,120 @@ export const DiscountType = {
   FREE_MONTHS: 'free_months',
 } as const satisfies Record<string, DiscountType>;
 
-export enum DiscountAppliesTo {
-  ALL_PLANS = 'all_plans',
-  SPECIFIC_PLANS = 'specific_plans',
-  UPGRADES_ONLY = 'upgrades_only',
-  NEW_SUBSCRIPTIONS_ONLY = 'new_subscriptions_only',
-}
+/**
+ * ADR-0013: the same reason `DiscountType` stopped being a TypeScript `enum`.
+ * These were nominal enums whose members were not assignable to the strings
+ * the API exchanges, so the request the panel sent and the type it claimed
+ * could differ without the compiler noticing.
+ */
+export type DiscountAppliesTo = NonNullable<ApiSchema<'CreateDiscountCodeDto'>['appliesTo']>;
+export const DiscountAppliesTo = {
+  ALL_PLANS: 'all_plans',
+  SPECIFIC_PLANS: 'specific_plans',
+  UPGRADES_ONLY: 'upgrades_only',
+  NEW_SUBSCRIPTIONS_ONLY: 'new_subscriptions_only',
+} as const satisfies Record<string, DiscountAppliesTo>;
 
-export enum DiscountDuration {
-  ONCE = 'once',
-  FOREVER = 'forever',
-  REPEATING = 'repeating',
-}
+export type DiscountDuration = NonNullable<ApiSchema<'CreateDiscountCodeDto'>['duration']>;
+export const DiscountDuration = {
+  ONCE: 'once',
+  FOREVER: 'forever',
+  REPEATING: 'repeating',
+} as const satisfies Record<string, DiscountDuration>;
 
-export enum PricingMetricType {
-  BASE_PRICE = 'base_price',
-  PER_USER = 'per_user',
-  PER_FARM = 'per_farm',
-  PER_POND = 'per_pond',
-  PER_SENSOR = 'per_sensor',
-  PER_DEVICE = 'per_device',
-  PER_GB_STORAGE = 'per_gb_storage',
-  PER_API_CALL = 'per_api_call',
-  PER_ALERT = 'per_alert',
-  PER_REPORT = 'per_report',
-  PER_SMS = 'per_sms',
-  PER_EMAIL = 'per_email',
-  PER_INTEGRATION = 'per_integration',
-}
+/** What a redemption is for — decides an upgrades-only / new-subscriptions-only code. */
+export type DiscountSubscriptionChange = NonNullable<
+  ApiSchema<'ApplyDiscountCodeDto'>['subscriptionChange']
+>;
 
-export enum CustomPlanStatus {
-  DRAFT = 'draft',
-  PENDING_APPROVAL = 'pending_approval',
-  APPROVED = 'approved',
-  REJECTED = 'rejected',
-  ACTIVE = 'active',
-  EXPIRED = 'expired',
-  CANCELLED = 'cancelled',
-}
+/**
+ * ADR-0013: derived from the contract, not re-declared. The hand-written enum
+ * was missing `per_gb_transfer` and `per_workflow` entirely, so a sheet that
+ * priced either rendered its raw key — and being a nominal TypeScript enum its
+ * members were not assignable to the strings the API exchanges.
+ */
+export type PricingMetricType = ApiSchema<'PricingMetricDto'>['metricType'];
+export const PricingMetricType = {
+  BASE_PRICE: 'base_price',
+  PER_USER: 'per_user',
+  PER_FARM: 'per_farm',
+  PER_POND: 'per_pond',
+  PER_SENSOR: 'per_sensor',
+  PER_DEVICE: 'per_device',
+  PER_GB_STORAGE: 'per_gb_storage',
+  PER_GB_TRANSFER: 'per_gb_transfer',
+  PER_API_CALL: 'per_api_call',
+  PER_ALERT: 'per_alert',
+  PER_REPORT: 'per_report',
+  PER_SMS: 'per_sms',
+  PER_EMAIL: 'per_email',
+  PER_INTEGRATION: 'per_integration',
+  PER_WORKFLOW: 'per_workflow',
+} as const satisfies Record<string, PricingMetricType>;
+
+/**
+ * ADR-0013: the lifecycle billing enforces, derived from the contract.
+ *
+ * The hand-written enum carried a seventh member, `cancelled`, that the
+ * backend never had — no column, no transition, no row could ever hold it —
+ * so the list page offered a filter that always returned nothing and a badge
+ * that could never render.
+ */
+export type CustomPlanStatus = ApiSchema<'CustomPlanResponseDto'>['status'];
+
+export const CustomPlanStatus = {
+  DRAFT: 'draft',
+  PENDING_APPROVAL: 'pending_approval',
+  APPROVED: 'approved',
+  REJECTED: 'rejected',
+  ACTIVE: 'active',
+  EXPIRED: 'expired',
+} as const satisfies Record<string, CustomPlanStatus>;
 
 // ============================================================================
 // Plan Types
 // ============================================================================
 
-export interface PlanPricing {
-  basePrice: number;
-  perUserPrice: number;
-  perFarmPrice: number;
-  perModulePrice: number;
-  discountPercent?: number;
-}
-
-export interface PlanLimits {
-  maxUsers: number;
-  maxFarms: number;
-  maxSensors: number;
-  maxPonds: number;
-  storageGB: number;
-  apiCallsPerMonth: number;
-  dataRetentionDays: number;
-  customReports: boolean;
-  advancedAnalytics: boolean;
-  apiAccess: boolean;
-  whiteLabeling: boolean;
-  ssoEnabled: boolean;
-  prioritySupport: boolean;
-  [key: string]: number | boolean;
-}
-
-export interface PlanFeatures {
-  coreFeatures: string[];
-  advancedFeatures: string[];
-  premiumFeatures: string[];
-}
-
-export interface PlanDefinition {
-  id: string;
-  code: string;
-  name: string;
-  description?: string;
-  shortDescription?: string;
-  tier: PlanTier;
-  visibility: string;
-  isActive: boolean;
-  isRecommended: boolean;
-  sortOrder: number;
-  badge?: string;
-  limits: PlanLimits;
-  pricing: {
-    monthly: PlanPricing;
-    quarterly: PlanPricing;
-    semiAnnual: PlanPricing;
-    annual: PlanPricing;
-  };
-  features: PlanFeatures;
-  trialDays?: number;
-  gracePeriodDays?: number;
-  createdAt: string;
-  updatedAt: string;
-}
+/**
+ * ADR-0013 / CONTRACT-CRITICAL-003: `billing.plans` is the sole catalogue and
+ * these are the backend contract's shapes, generated from it.
+ *
+ * The hand-written versions carried `pricing` as a fixed four-cycle object of
+ * IEEE-754 `number`s. billing now prices per cycle in `numeric(19,4)` and puts
+ * exact decimal STRINGS on the wire, so a plan sold only monthly no longer
+ * publishes three zeroed cycles, and $19.99 stays $19.99 in the browser.
+ */
+export type PlanDefinition = ApiSchema<'PlanResponseDto'>;
+export type PlanCyclePrice = ApiSchema<'PlanCyclePriceResponseDto'>;
+export type PlanAddOn = ApiSchema<'PlanAddOnResponseDto'>;
+export type PlanLimits = ApiSchema<'PlanLimitsResponseDto'>;
+export type PlanFeatures = ApiSchema<'PlanFeaturesResponseDto'>;
+export type PlanComparison = ApiSchema<'PlanComparisonResponseDto'>;
+export type CreatePlanDto = ApiSchema<'CreatePlanDto'>;
+export type UpdatePlanDto = ApiSchema<'UpdatePlanDto'>;
 
 // ============================================================================
 // Discount Types
 // ============================================================================
 
-export interface DiscountCode {
-  id: string;
-  code: string;
-  name: string;
-  description?: string;
-  discountType: DiscountType;
-  discountValue: number;
-  appliesTo: DiscountAppliesTo;
-  duration: DiscountDuration;
-  durationInMonths?: number;
-  isActive: boolean;
-  validFrom?: string;
-  validUntil?: string;
-  maxRedemptions?: number;
-  maxRedemptionsPerTenant?: number;
-  currentRedemptions: number;
-  campaignId?: string;
-  campaignName?: string;
-  createdBy: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface DiscountStats {
-  totalCodes: number;
-  activeCodes: number;
-  expiredCodes: number;
-  totalRedemptions: number;
-  totalDiscountAmount: number;
-  topCodes: Array<{
-    code: string;
-    redemptions: number;
-    totalDiscount: number;
-  }>;
-}
+/**
+ * ADR-0013: billing owns the discount catalogue, and these are its shapes as
+ * the contract declares them. The hand-written version carried a single
+ * `discountValue: number` — a percentage for one code and an amount of money
+ * for the next, which is exactly the ambiguity the backend removed. Each kind
+ * now names its own field, and money is an exact decimal string.
+ */
+export type DiscountCode = ApiSchema<'DiscountCodeResponseDto'>;
+export type DiscountCodePage = ApiSchema<'DiscountCodePageDto'>;
+export type DiscountRedemption = ApiSchema<'DiscountRedemptionResponseDto'>;
+export type DiscountRedemptionPage = ApiSchema<'DiscountRedemptionPageDto'>;
+export type DiscountStats = ApiSchema<'DiscountStatsDto'>;
+export type DiscountValidation = ApiSchema<'DiscountValidationResponseDto'>;
+export type DiscountApplication = ApiSchema<'DiscountApplicationResponseDto'>;
+export type DiscountCodeLookup = ApiSchema<'DiscountCodeLookupDto'>;
+export type UpdateDiscountCodeDto = ApiSchema<'UpdateDiscountCodeDto'>;
+export type BulkCreateDiscountCodesDto = ApiSchema<'BulkCreateDiscountCodesDto'>;
+export type DiscountCodeTemplate = ApiSchema<'DiscountCodeTemplateDto'>;
 
 /** Generated from the backend contract (CONTRACT-CRITICAL-003). */
 export type CreateDiscountCodeDto = ApiSchema<'CreateDiscountCodeDto'>;
@@ -353,49 +328,25 @@ export type RefundPaymentDto = ApiSchema<'RefundPaymentDto'>;
 // Module Pricing Types
 // ============================================================================
 
-export interface PricingMetric {
-  type: PricingMetricType;
-  price: number;
-  currency: string;
-  description?: string;
-  minQuantity?: number;
-  maxQuantity?: number;
-  includedQuantity?: number;
-}
-
-export interface TierMultipliers {
-  [PlanTier.FREE]?: number;
-  [PlanTier.STARTER]?: number;
-  [PlanTier.PROFESSIONAL]?: number;
-  [PlanTier.ENTERPRISE]?: number;
-  [PlanTier.CUSTOM]?: number;
-}
-
-export interface ModulePricing {
-  id: string;
-  moduleId: string;
-  moduleCode: string;
-  pricingMetrics: PricingMetric[];
-  tierMultipliers: TierMultipliers;
-  currency: string;
-  effectiveFrom: string;
-  effectiveTo: string | null;
-  isActive: boolean;
-  notes: string | null;
-  version: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface ModulePricingWithModule extends ModulePricing {
-  moduleName?: string;
-  moduleDescription?: string;
-  moduleIcon?: string;
-  isModuleActive?: boolean;
-}
-
-/** Generated from the backend contract (CONTRACT-CRITICAL-003). */
+/**
+ * ADR-0013: billing owns the module price sheet, and these are its shapes as
+ * the contract declares them. Every price is an exact decimal STRING; the
+ * hand-written versions used `number`, which is how a sheet a customer is
+ * quoted from and the invoice they receive drift apart.
+ */
+export type PricingMetric = ApiSchema<'ModulePriceMetricDto'>;
+export type TierMultiplier = ApiSchema<'ModulePriceTierMultiplierDto'>;
+export type ModulePricing = ApiSchema<'ModulePriceResponseDto'>;
+export type ModulePricingPage = ApiSchema<'ModulePricePageDto'>;
+/** The sheet joined to its module (name, icon) — the same response shape. */
+export type ModulePricingWithModule = ModulePricing;
 export type SetModulePricingDto = ApiSchema<'SetModulePricingDto'>;
+export type UpdateModulePricingDto = ApiSchema<'UpdateModulePricingDto'>;
+export type SeedModulePricingDto = ApiSchema<'SeedModulePricingDto'>;
+export type SeedModulePricesResult = ApiSchema<'SeedModulePricesResultDto'>;
+
+/** The write-side multiplier block, keyed by tier. */
+export type TierMultipliers = NonNullable<SetModulePricingDto['tierMultipliers']>;
 
 export interface ModuleQuantities {
   users?: number;
@@ -420,56 +371,17 @@ export interface ModuleSelection {
 /** Generated from the backend contract (CONTRACT-CRITICAL-003). */
 export type QuoteRequest = ApiSchema<'QuoteRequest'>;
 
-export interface PricingLineItem {
-  metric: PricingMetricType;
-  metricLabel: string;
-  quantity: number;
-  includedQuantity: number;
-  billableQuantity: number;
-  unitPrice: number;
-  total: number;
-  tierMultiplier: number;
-}
-
-export interface ModulePriceBreakdown {
-  moduleId: string;
-  moduleCode: string;
-  moduleName: string;
-  lineItems: PricingLineItem[];
-  subtotal: number;
-  tierDiscount: number;
-  total: number;
-}
-
-export interface PricingCalculation {
-  modules: ModulePriceBreakdown[];
-  subtotal: number;
-  tierDiscount: number;
-  discount: {
-    code?: string;
-    description?: string;
-    amount: number;
-    percent: number;
-  };
-  tax: number;
-  taxRate: number;
-  total: number;
-  monthlyTotal: number;
-  annualTotal: number;
-  billingCycle: BillingCycle;
-  billingCycleMultiplier: number;
-  currency: string;
-  tier: PlanTier;
-  calculatedAt: string;
-}
-
-export interface PricingComparisonResult {
-  config1: PricingCalculation;
-  config2: PricingCalculation;
-  difference: number;
-  percentDifference: number;
-  recommendation: string;
-}
+/**
+ * ADR-0013: the quote comes from billing, and these are its shapes as the
+ * contract declares them. Every amount is an exact decimal STRING — the
+ * hand-written `number` versions were the reason a quote could render a cent
+ * away from what the invoice would charge.
+ */
+export type PricingLineItem = ApiSchema<'ModuleQuoteLineItemDto'>;
+export type ModulePriceBreakdown = ApiSchema<'ModuleQuoteBreakdownDto'>;
+export type PricingCalculation = ApiSchema<'ModuleQuoteResponseDto'>;
+export type PricingComparisonResult = ApiSchema<'ModuleQuoteComparisonDto'>;
+export type QuickEstimateResult = ApiSchema<'QuickEstimateResponseDto'>;
 
 // ============================================================================
 // Subscription Creation Types
@@ -496,51 +408,22 @@ export interface SubscriptionModuleConfig {
 // Custom Plan Types
 // ============================================================================
 
-export interface CustomPlanLineItem {
-  metric: string;
-  description: string;
-  quantity: number;
-  unitPrice: number;
-  total: number;
-}
-
-export interface CustomPlanModule {
-  moduleId: string;
-  moduleCode: string;
-  moduleName: string;
-  quantities: ModuleQuantities;
-  lineItems: CustomPlanLineItem[];
-  subtotal: number;
-}
-
-export interface CustomPlan {
-  id: string;
-  tenantId: string;
-  name: string;
-  description?: string;
-  basePlanId?: string;
-  tier: PlanTier;
-  billingCycle: BillingCycle;
-  modules: CustomPlanModule[];
-  monthlySubtotal: number;
-  discountPercent: number;
-  discountAmount: number;
-  discountReason?: string;
-  monthlyTotal: number;
-  currency: string;
-  status: CustomPlanStatus;
-  validFrom: string;
-  validTo?: string;
-  notes?: string;
-  approvedBy?: string;
-  approvedAt?: string;
-  rejectionReason?: string;
-  subscriptionId?: string;
-  createdBy?: string;
-  updatedBy?: string;
-  createdAt: string;
-  updatedAt: string;
-}
+/**
+ * ADR-0013 / CONTRACT-CRITICAL-003: `billing.custom_plans` and its two child
+ * tables are the plan; these are the backend contract's shapes, generated.
+ *
+ * The hand-written versions typed every amount as an IEEE-754 `number` — the
+ * plan's own totals AND every module subtotal and line-item price inside what
+ * used to be a single jsonb column. They are `numeric(19,4)` columns now and
+ * cross the wire as exact decimal strings.
+ */
+export type CustomPlan = ApiSchema<'CustomPlanResponseDto'>;
+export type CustomPlanModule = ApiSchema<'CustomPlanModuleResponseDto'>;
+export type CustomPlanLineItem = ApiSchema<'CustomPlanLineItemResponseDto'>;
+export type CustomPlanPage = ApiSchema<'CustomPlanPageDto'>;
+export type CustomPlanLookup = ApiSchema<'CustomPlanLookupDto'>;
+export type CreateCustomPlanDto = ApiSchema<'CreateCustomPlanDto'>;
+export type UpdateCustomPlanDto = ApiSchema<'UpdateCustomPlanDto'>;
 
 export interface CustomPlanFilter {
   tenantId?: string;
@@ -553,12 +436,6 @@ export interface CustomPlanFilter {
 
 /** Custom plans arrive under the platform page contract like every other list. */
 export type PaginatedCustomPlans = PaginatedResult<CustomPlan>;
-
-/** Generated from the backend contract (CONTRACT-CRITICAL-003). */
-export type CreateCustomPlanDto = ApiSchema<'CreateCustomPlanDto'>;
-
-/** Generated from the backend contract (CONTRACT-CRITICAL-003). */
-export type UpdateCustomPlanDto = ApiSchema<'UpdateCustomPlanDto'>;
 
 // ============================================================================
 // Usage Metering Types

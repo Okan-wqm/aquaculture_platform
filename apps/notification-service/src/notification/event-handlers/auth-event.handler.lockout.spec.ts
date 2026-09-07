@@ -4,12 +4,12 @@ import { InvalidEventTenantScopeError } from '@platform/event-contracts';
 import type { UserAccountLockedEvent } from '@platform/event-contracts';
 
 import { AuthEventHandler } from './auth-event.handler';
-import { EmailService } from '../services/email.service';
+import { EmailDeliveryError, EmailService } from '../services/email.service';
 
-import { signedFetch } from '@aquaculture/backend-common/http';
+import { signedFetchJson } from '@aquaculture/backend-common/http';
 
 jest.mock('@aquaculture/backend-common/http', () => ({
-  signedFetch: jest.fn(),
+  signedFetchJson: jest.fn(),
 }));
 
 /**
@@ -23,7 +23,7 @@ jest.mock('@aquaculture/backend-common/http', () => ({
  */
 describe('AuthEventHandler — UserAccountLocked (ORPHAN-MEDIUM-320)', () => {
   const TENANT = '11111111-1111-4111-8111-111111111111';
-  const mockSignedFetch = signedFetch as jest.MockedFunction<typeof signedFetch>;
+  const mockSignedFetch = signedFetchJson as jest.MockedFunction<typeof signedFetchJson>;
 
   const emailService = {
     sendEmail: jest.fn().mockResolvedValue('message-id-1'),
@@ -75,10 +75,11 @@ describe('AuthEventHandler — UserAccountLocked (ORPHAN-MEDIUM-320)', () => {
   it('resolves PII at delivery time and emails the unlock instant + reset guidance', async () => {
     mockSignedFetch.mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({ email: 'owner@example.test', firstName: 'Okan' }),
-    } as Response);
+      status: 200,
+      body: { email: 'owner@example.test', firstName: 'Okan' },
+    });
 
-    await handler.handle(lockEvent());
+    await expect(handler.handle(lockEvent())).resolves.toEqual({ kind: 'ack' });
 
     // PII endpoint, not the event bus, is the address source.
     expect(mockSignedFetch).toHaveBeenCalledWith(
@@ -94,21 +95,44 @@ describe('AuthEventHandler — UserAccountLocked (ORPHAN-MEDIUM-320)', () => {
     expect(html).toContain('resetting your password');
   });
 
-  it('skips (no email) when PII resolution fails — never throws into the bus', async () => {
-    mockSignedFetch.mockResolvedValue({ ok: false, status: 503 } as Response);
+  it('asks for a retry when auth-service is unavailable (503), sending nothing', async () => {
+    mockSignedFetch.mockResolvedValue({
+      ok: false,
+      status: 503,
+      failureClass: 'transient',
+      error: 'HTTP 503',
+    });
 
-    await handler.handle(lockEvent());
+    await expect(handler.handle(lockEvent())).resolves.toEqual(
+      expect.objectContaining({ kind: 'retry' }),
+    );
+    expect(emailService.sendEmail).not.toHaveBeenCalled();
+  });
 
+  it('terminates when the principal does not exist for this scope (404): redelivery cannot fix it', async () => {
+    mockSignedFetch.mockResolvedValue({
+      ok: false,
+      status: 404,
+      failureClass: 'permanent',
+      error: 'HTTP 404',
+    });
+
+    await expect(handler.handle(lockEvent())).resolves.toEqual(
+      expect.objectContaining({ kind: 'terminate' }),
+    );
     expect(emailService.sendEmail).not.toHaveBeenCalled();
   });
 
   it('SEC-HIGH-159: a platform-scoped lockout (super admin) resolves PII through the platform-scope identity', async () => {
     mockSignedFetch.mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({ email: 'root@example.test', firstName: 'Root' }),
-    } as Response);
+      status: 200,
+      body: { email: 'root@example.test', firstName: 'Root' },
+    });
 
-    await handler.handle(lockEvent({ tenantId: 'system' }));
+    await expect(handler.handle(lockEvent({ tenantId: 'system' }))).resolves.toEqual({
+      kind: 'ack',
+    });
 
     expect(mockSignedFetch).toHaveBeenCalledWith(
       expect.stringContaining('/internal/users/user-1/pii'),
@@ -118,19 +142,45 @@ describe('AuthEventHandler — UserAccountLocked (ORPHAN-MEDIUM-320)', () => {
     expect(emailService.sendEmail.mock.calls[0]?.[0]).toBe('root@example.test');
   });
 
-  it('SEC-HIGH-159: a malformed tenancy scope throws to the bus instead of being acknowledged', async () => {
-    await expect(handler.handle(lockEvent({ tenantId: 'not-a-tenant' }))).rejects.toThrow(
-      InvalidEventTenantScopeError,
+  it('SEC-HIGH-057 / PLAT-HIGH-902: a malformed tenancy scope is terminated, never acknowledged or redelivered', async () => {
+    await expect(handler.handle(lockEvent({ tenantId: 'not-a-tenant' }))).resolves.toEqual(
+      expect.objectContaining({
+        kind: 'terminate',
+        cause: expect.any(InvalidEventTenantScopeError),
+      }),
     );
 
     expect(mockSignedFetch).not.toHaveBeenCalled();
     expect(emailService.sendEmail).not.toHaveBeenCalled();
   });
 
-  it('skips malformed events missing lockedUntil', async () => {
+  it('terminates malformed events missing lockedUntil', async () => {
     // Empty string models a malformed producer — falsy, caught by the guard.
-    await handler.handle(lockEvent({ lockedUntil: '' }));
+    await expect(handler.handle(lockEvent({ lockedUntil: '' }))).resolves.toEqual(
+      expect.objectContaining({ kind: 'terminate' }),
+    );
 
     expect(emailService.sendEmail).not.toHaveBeenCalled();
+  });
+
+  it('PLAT-HIGH-902: a transient SMTP failure is a retry, a permanent one a terminate', async () => {
+    mockSignedFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: { email: 'owner@example.test', firstName: 'Okan' },
+    });
+    emailService.sendEmail.mockRejectedValueOnce(
+      new EmailDeliveryError('450 greylisted', 'transient'),
+    );
+    await expect(handler.handle(lockEvent())).resolves.toEqual(
+      expect.objectContaining({ kind: 'retry' }),
+    );
+
+    emailService.sendEmail.mockRejectedValueOnce(
+      new EmailDeliveryError('SMTP transporter is not configured', 'permanent'),
+    );
+    await expect(handler.handle(lockEvent())).resolves.toEqual(
+      expect.objectContaining({ kind: 'terminate' }),
+    );
   });
 });

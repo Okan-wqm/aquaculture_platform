@@ -946,6 +946,7 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
             f"{_KERNEL}evidence_validator.py",
             f"{_KERNEL}genesis_lifecycle.py",
             f"{_KERNEL}plan_convergence.py",
+            "tools/aria-poc/ci_executor.py",
         ),
         contracts=(EvidenceContract(
             surface="agent_invocation_results",

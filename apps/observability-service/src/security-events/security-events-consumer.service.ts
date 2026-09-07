@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
-import { NatsEventBus } from '@platform/event-bus';
+import { NatsEventBus, HandlerOutcome } from '@platform/event-bus';
 import type { SecurityEvent } from '@platform/event-contracts';
 import { SecurityMetricsService } from './security-metrics.service';
 
@@ -30,8 +30,9 @@ export class SecurityEventsConsumerService implements OnModuleInit, OnModuleDest
       await this.eventBus.subscribeTo(
         'events.security.events.>',
         {
-          handle: async (event) => {
+          handle: async (event): Promise<HandlerOutcome> => {
             await this.handleSecurityEvent(event as unknown as SecurityEvent);
+            return HandlerOutcome.ack();
           },
           getEventType: () => 'security.events.>',
         },
@@ -46,7 +47,7 @@ export class SecurityEventsConsumerService implements OnModuleInit, OnModuleDest
     } catch (error) {
       this.logger.warn(
         `Failed to subscribe to security events: ${(error as Error).message}. ` +
-        'Security event consumption will be unavailable until NATS reconnects.',
+          'Security event consumption will be unavailable until NATS reconnects.',
       );
     }
   }

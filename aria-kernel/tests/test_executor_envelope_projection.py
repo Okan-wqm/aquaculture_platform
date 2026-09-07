@@ -28,17 +28,25 @@ from aria_kernel.agent_invocations import (
 EXECUTOR = Path(__file__).resolve().parents[2] / "tools" / "aria-poc" / "ci_executor.py"
 
 
-def _main_function() -> ast.FunctionDef:
+def _envelope_owner() -> ast.FunctionDef:
     tree = ast.parse(EXECUTOR.read_text(encoding="utf-8"))
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == "main":
-            return node
-    raise AssertionError("ci_executor.main not found")
+    functions = {
+        node.name: node for node in tree.body if isinstance(node, ast.FunctionDef)
+    }
+    main = functions["main"]
+    calls = [
+        node for node in ast.walk(main)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        and node.func.id == "_run_claimed_attempt"
+    ]
+    if len(calls) != 1:
+        raise AssertionError("main must invoke exactly one claimed-attempt lifecycle")
+    return functions["_run_claimed_attempt"]
 
 
 class ExecutorUsesTheKernelProjectionTest(unittest.TestCase):
     def test_the_envelope_comes_from_the_kernel_fusion(self) -> None:
-        fn = _main_function()
+        fn = _envelope_owner()
 
         fusion_calls = [
             node
@@ -47,10 +55,10 @@ class ExecutorUsesTheKernelProjectionTest(unittest.TestCase):
             and isinstance(node.func, ast.Name)
             and node.func.id == "_fuse_prompt_envelope"
         ]
-        self.assertTrue(fusion_calls, "main must build the envelope via the kernel fusion")
+        self.assertEqual(len(fusion_calls), 1, "the claimed attempt must use the kernel fusion once")
 
     def test_no_hand_built_projection_of_render_fields(self) -> None:
-        """No dict literal in `main` may re-project a render-relevant field
+        """No dict literal in the envelope owner may re-project a render-relevant field
         out of the claim with a defaulting `or`.
 
         That construct — `"forbidden_scope": claim.get(...) or []` — is the
@@ -65,7 +73,7 @@ class ExecutorUsesTheKernelProjectionTest(unittest.TestCase):
             "convergence_id", "expected_output_path", "prompt_hash",
         }
         offenders: list[str] = []
-        for node in ast.walk(_main_function()):
+        for node in ast.walk(_envelope_owner()):
             if not isinstance(node, ast.Dict):
                 continue
             for key in node.keys:
@@ -79,7 +87,7 @@ class ExecutorUsesTheKernelProjectionTest(unittest.TestCase):
         self.assertEqual(
             offenders,
             [],
-            f"main re-projects render fields by hand: {offenders} — "
+            f"the claimed attempt re-projects render fields by hand: {offenders} — "
             "use fuse_prompt_envelope; a second copy is how the binding died twice",
         )
 

@@ -187,6 +187,44 @@ class LivePathFetchTests(unittest.TestCase):
         self.assertEqual(receipt["disposition"], "result_accepted")
         self.assertEqual(receipt["process_exit_code"], 0)
 
+    def test_main_preserves_the_kernel_prompt_projection_at_the_runtime_boundary(self) -> None:
+        from aria_kernel.agent_invocations import fuse_prompt_envelope, _sha256_text
+
+        claim = json.loads(self.claim_response.stdout)
+        for field in ("forbidden_scope", "impact_graph_refs", "validation_commands"):
+            claim.pop(field, None)
+        claim["repository_map"] = {"projects": ["aria-kernel"], "indexed_sha": "a" * 40}
+        claim["prompt_hash"] = _sha256_text(render_invocation_prompt(claim))
+        self.claim_response.stdout = json.dumps(claim)
+        fake_run = _make_fake_run_sequence(self.claim_response, self.submit_response_ok)
+        with patch.object(ci_executor, "_fuse_prompt_envelope", wraps=fuse_prompt_envelope) as fusion:
+            with patch.object(ci_executor, "invoke_claude_cli", wraps=ci_executor.invoke_claude_cli) as invoke:
+                rc, receipt = self._terminal_run(fake_run)
+        self.assertEqual(rc, 0)
+        self.assertEqual(receipt["disposition"], "result_accepted")
+        fusion.assert_called_once_with(claim)
+        invoke.assert_called_once()
+        envelope = invoke.call_args.kwargs["request_envelope"]
+        self.assertEqual(_sha256_text(render_invocation_prompt(envelope)), claim["prompt_hash"])
+        self.assertEqual(envelope["repository_map"], claim["repository_map"])
+        self.assertNotIn("lease_token", envelope)
+        for field in ("forbidden_scope", "impact_graph_refs", "validation_commands"):
+            self.assertNotIn(field, envelope)
+
+    def test_auth_failure_releases_under_auth_reason_and_cannot_report_success(self) -> None:
+        fake_run = _make_fake_run_sequence(self.claim_response, self.release_response_ok)
+        rc, receipt = self._terminal_run(fake_run, **{
+            "ci_executor.invoke_claude_cli": {"side_effect": ci_executor.ClaudeAuthFailure("session expired")},
+        })
+        self.assertEqual(rc, 1)
+        self.assertEqual(receipt["outcome"], "failed")
+        self.assertEqual(receipt["failure_class"], "auth_failed")
+        self.assertEqual(receipt["disposition"], "released")
+        releases = [argv for argv in fake_run.captured if "release" in argv]
+        self.assertEqual(len(releases), 1)
+        self.assertEqual(releases[0][releases[0].index("--reason") + 1], "claude_cli_auth_failure")
+        self.assertFalse(any("submit-result" in argv for argv in fake_run.captured))
+
     def test_submit_timeout_is_final_failure_and_releases_claim(self) -> None:
         import subprocess
         calls = []

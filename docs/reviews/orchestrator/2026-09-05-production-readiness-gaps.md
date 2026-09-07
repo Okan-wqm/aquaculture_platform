@@ -235,7 +235,7 @@ deadline 2026-11-15.
 
 **Measured set (2026-09-05, the invariant's allowlist — the SSoT for this burn-down).** The
 shared detector (`tests/invariants/helpers/nats-event-handler.ts`: implements `IEventHandler`
-and subscribes on the bus) finds **25** handlers carrying a hand-rolled `tenantId` guard, not
+and subscribes on the bus) found **25** handlers carrying a hand-rolled `tenantId` guard, not
 the twelve enumerated above — the alert-engine and farm-service handlers use backend-common's
 `isValidUUID(event.tenantId)` for the same `return`-on-miss shape:
 
@@ -248,7 +248,9 @@ the twelve enumerated above — the alert-engine and farm-service handlers use b
   `task/services/auto-rule-trigger.service.ts`, `water-quality/event-handlers/tenant-onboarding.event-handler.ts`
 - ai-service (1): `conversation/conversation-privacy-event.handler.ts`
 - auth-service (1): `modules/tenant/event-handlers/tenant-subscription-projection.handler.ts`
-- backend-common (1): `database/tenant-schema-cache/tenant-schema-cache-invalidation.subscriber.ts`
+- ~~backend-common (1):
+  `database/tenant-schema-cache/tenant-schema-cache-invalidation.subscriber.ts`~~ —
+  migrated to `requireTenantScope` with PLAT-HIGH-902 B3 (2026-09-05); **24** remain.
 
 The allowlist only shrinks: a file that stops matching the guard pattern must be removed from
 it (staleness fails the spec), and the spec fails if this finding is RESOLVED while the list is

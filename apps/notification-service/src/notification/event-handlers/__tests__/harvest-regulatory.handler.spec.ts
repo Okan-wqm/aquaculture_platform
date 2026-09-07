@@ -24,11 +24,10 @@ function makeEvent(
   overrides: Partial<HarvestRegulatoryRecordedEvent> = {},
 ): HarvestRegulatoryRecordedEvent {
   return {
-    ...createBaseEvent<HarvestRegulatoryRecordedEvent>(
-      'HarvestRegulatoryRecorded',
-      TENANT_ID,
-      { aggregateId: BATCH_ID, aggregateType: 'Batch' },
-    ),
+    ...createBaseEvent<HarvestRegulatoryRecordedEvent>('HarvestRegulatoryRecorded', TENANT_ID, {
+      aggregateId: BATCH_ID,
+      aggregateType: 'Batch',
+    }),
     eventType: 'HarvestRegulatoryRecorded',
     batchId: BATCH_ID,
     harvestedQuantity: 200,
@@ -93,9 +92,11 @@ describe('HarvestRegulatoryRecordedEventHandler', () => {
     expect(inApp.createNotification).not.toHaveBeenCalled();
   });
 
-  it('swallows downstream errors so NATS does not redeliver a poison message', async () => {
+  it('reports a downstream failure as a retry outcome (the bus owns redelivery and dead-lettering)', async () => {
     const { handler, inApp } = makeHandler();
     inApp.createNotification.mockRejectedValueOnce(new Error('db down'));
-    await expect(handler.handle(makeEvent())).resolves.toBeUndefined();
+    await expect(handler.handle(makeEvent())).resolves.toEqual(
+      expect.objectContaining({ kind: 'retry' }),
+    );
   });
 });

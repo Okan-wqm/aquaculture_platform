@@ -131,9 +131,9 @@ class ExecutorReleasesUnderItsOwnReasonTest(unittest.TestCase):
         """Node-shape, not text: Plan 026R §H.1 forbids asserting on source
         markers, and it is right to — a string match passes on a handler that
         was commented out. This parses the module and looks for the actual
-        `except ClaudeAuthFailure` node, then for a `_release_claim` call
-        inside it whose `reason` is the distinct one. Constructing a full
-        dispatch instead would mock the very boundary under test.
+        `except ClaudeAuthFailure` node, then its lifecycle release call.
+        The wrapper must forward to the kernel release owner and return the
+        actual result so finalization can distinguish a stranded claim.
         """
         import ast
 
@@ -156,7 +156,7 @@ class ExecutorReleasesUnderItsOwnReasonTest(unittest.TestCase):
             for node in ast.walk(handlers[0])
             if isinstance(node, ast.Call)
             and isinstance(node.func, ast.Name)
-            and node.func.id == "_release_claim"
+            and node.func.id == "_release"
             for keyword in node.keywords
             if keyword.arg == "reason" and isinstance(keyword.value, ast.Constant)
         ]
@@ -164,6 +164,26 @@ class ExecutorReleasesUnderItsOwnReasonTest(unittest.TestCase):
         # A generic reason here is what made five nights of failures look like
         # five agent crashes.
         self.assertEqual(reasons, ["claude_cli_auth_failure"])
+        attempt = next(
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "_run_claimed_attempt"
+        )
+        self.assertIn(handlers[0], list(ast.walk(attempt)))
+        release = next(
+            node for node in attempt.body
+            if isinstance(node, ast.FunctionDef) and node.name == "_release"
+        )
+        forwarded = [
+            node for node in ast.walk(release)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+            and node.func.id == "_release_claim"
+        ]
+        self.assertEqual(len(forwarded), 1)
+        self.assertEqual(len(forwarded[0].keywords), 1)
+        self.assertIsNone(forwarded[0].keywords[0].arg)
+        self.assertEqual(ast.dump(forwarded[0].keywords[0].value), "Name(id='kwargs', ctx=Load())")
+        self.assertIsInstance(release.body[-1], ast.Return)
+        self.assertEqual(ast.dump(release.body[-1].value), "Name(id='released', ctx=Load())")
 
 
 if __name__ == "__main__":

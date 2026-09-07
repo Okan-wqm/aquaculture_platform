@@ -2024,6 +2024,10 @@ HARNESS_FAULT_RELEASE_REASONS: frozenset[str] = frozenset({
     "claude_cli_auth_failure",
     "claude_spawn_refused",
     "dispatch_budget_refused",
+    # The kernel submit CLI returned an unusable acceptance receipt and its
+    # accepted-results ledger did not confirm acceptance. That broken reply
+    # is an executor/kernel transport contract, not a defect in the request.
+    "submit_receipt_invalid",
     # Y5 (ORPHAN-706) — a judge envelope without a readable verdict block is
     # released BEFORE submit instead of sealed as an accepted-but-unfoldable
     # result. The malformed output says nothing about the REQUEST (the same
@@ -2055,6 +2059,12 @@ REQUEST_FAULT_RELEASE_REASONS: frozenset[str] = frozenset({
     "request_envelope_missing_role",
     "submit_rejected",
 })
+
+# The lifecycle perimeter caught an exception without an established fault
+# owner. Naming that case makes producer coverage exhaustive without falsely
+# blaming the request or granting unlimited retries. The existing unclassified
+# derivation still consumes the bounded retry budget and escalates to a human.
+UNRESOLVED_FAULT_RELEASE_REASONS: frozenset[str] = frozenset({"executor_exception"})
 
 # Plan 032 Faz 032a — the executor also releases with PARAMETERISED reasons
 # (an f-string carrying an exit code, a timeout, a validation error class).

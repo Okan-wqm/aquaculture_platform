@@ -36,6 +36,9 @@ export const PLATFORM_SCOPE: PlatformEventScope = Object.freeze({ kind: 'platfor
 const UUID_REGEX = new RegExp(UUID_PATTERN, 'i');
 
 export class InvalidEventTenantScopeError extends TypeError {
+  /** A malformed scope never becomes valid on redelivery (PLAT-HIGH-902). */
+  readonly failureClass = 'permanent' as const;
+
   constructor(
     readonly eventType: string,
     readonly tenantId: unknown,

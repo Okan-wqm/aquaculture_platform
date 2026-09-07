@@ -265,6 +265,7 @@ EXPECTED_CONSUMERS = {
         f"{KERNEL}convergence_drainer.py", f"{KERNEL}evidence_validator.py",
         f"{KERNEL}genesis_lifecycle.py",
         f"{KERNEL}plan_convergence.py",
+        "tools/aria-poc/ci_executor.py",
     ),
     "finding_funnel": (
         f"{KERNEL}finding_promotion.py", f"{KERNEL}funnel_health.py",

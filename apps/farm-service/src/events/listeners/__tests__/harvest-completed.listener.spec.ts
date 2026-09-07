@@ -108,9 +108,7 @@ function makeBatch(overrides: Partial<Batch> = {}): Batch {
   return fixture as Batch;
 }
 
-function makeEvent(
-  overrides: Partial<BatchHarvestedEvent> = {},
-): BatchHarvestedEvent {
+function makeEvent(overrides: Partial<BatchHarvestedEvent> = {}): BatchHarvestedEvent {
   return {
     ...createBaseEvent<BatchHarvestedEvent>('BatchHarvested', TENANT_ID, {
       aggregateId: BATCH_ID,
@@ -140,23 +138,14 @@ function makeListener(opts: {
   redis?: RedisDouble;
 } {
   const batchRepo = createMockRepository<Batch>();
-  batchRepo.findOne.mockResolvedValue(
-    opts.batch === null ? null : opts.batch ?? makeBatch(),
-  );
+  batchRepo.findOne.mockResolvedValue(opts.batch === null ? null : (opts.batch ?? makeBatch()));
 
   const tankBatchRepo = createMockRepository<TankBatch>();
-  tankBatchRepo.find.mockResolvedValue(
-    (opts.tankBatches ?? []) as TankBatch[],
-  );
+  tankBatchRepo.find.mockResolvedValue((opts.tankBatches ?? []) as TankBatch[]);
 
   // The listener's redis param is narrowed to Pick<RedisService,'setNx'|'del'>,
   // so the double slots in with NO cast.
-  const listener = new HarvestCompletedListener(
-    batchRepo,
-    tankBatchRepo,
-    opts.bus,
-    opts.redis,
-  );
+  const listener = new HarvestCompletedListener(batchRepo, tankBatchRepo, opts.bus, opts.redis);
   return { listener, batchRepo, redis: opts.redis };
 }
 
@@ -263,13 +252,13 @@ describe('HarvestCompletedListener (NATS contract migration)', () => {
     expect(batchRepo.save).not.toHaveBeenCalled();
   });
 
-  it('swallows downstream errors so NATS does not redeliver a poison message', async () => {
+  it('reports a downstream failure as a retry outcome (bounded by the bus, then dead-lettered)', async () => {
     const bus = makeBus();
     const { listener } = makeListener({ bus, batch: null });
     // batch not found → generateHarvestReport throws; handle must still resolve.
-    await expect(
-      listener.handle(makeEvent({ isFinal: false })),
-    ).resolves.toBeUndefined();
+    await expect(listener.handle(makeEvent({ isFinal: false }))).resolves.toEqual(
+      expect.objectContaining({ kind: 'retry' }),
+    );
   });
 
   // ── Blocker 1 / 7: each follow-up carries a DISTINCT, fresh eventId ──────
@@ -322,7 +311,7 @@ describe('HarvestCompletedListener (NATS contract migration)', () => {
         harvestedAt: '2026-06-10T08:00:00.000Z',
       }),
     );
-    await expect(listener.handle(wireEvent)).resolves.toBeUndefined();
+    await expect(listener.handle(wireEvent)).resolves.toEqual({ kind: 'ack' });
 
     const events = publishedEvents(bus);
     const regulatory = events.find((e) => e.eventType === 'HarvestRegulatoryRecorded');
@@ -374,9 +363,9 @@ describe('HarvestCompletedListener (NATS contract migration)', () => {
     // batch null → generateHarvestReport throws inside the try block.
     const { listener } = makeListener({ bus, batch: null, redis });
 
-    await expect(
-      listener.handle(makeEvent({ isFinal: false })),
-    ).resolves.toBeUndefined();
+    await expect(listener.handle(makeEvent({ isFinal: false }))).resolves.toEqual(
+      expect.objectContaining({ kind: 'retry' }),
+    );
 
     expect(redis.setNx).toHaveBeenCalledTimes(1);
     expect(redis.del).toHaveBeenCalledTimes(1);

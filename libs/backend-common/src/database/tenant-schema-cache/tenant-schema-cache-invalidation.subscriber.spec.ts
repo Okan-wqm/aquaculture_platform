@@ -51,42 +51,45 @@ describe('TenantSchemaCacheInvalidationSubscriber (new-tenant negative-cache clo
     } as TenantProvisionedEvent;
   }
 
-  it('end-to-end: a request that lands BEFORE provisioning caches a negative, ' +
-    'and TenantProvisioned clears it so the very next check re-queries', async () => {
-    const cache = new TenantSchemaCacheService();
-    const subscriber = new TenantSchemaCacheInvalidationSubscriber(cache, undefined);
+  it(
+    'end-to-end: a request that lands BEFORE provisioning caches a negative, ' +
+      'and TenantProvisioned clears it so the very next check re-queries',
+    async () => {
+      const cache = new TenantSchemaCacheService();
+      const subscriber = new TenantSchemaCacheInvalidationSubscriber(cache, undefined);
 
-    let dbChecks = 0;
+      let dbChecks = 0;
 
-    // T0: request arrives before aqua-db-migrate created the schema → negative cached.
-    const before = await cache.getOrCheck(SCHEMA_NAME, () => {
-      dbChecks += 1;
-      return Promise.resolve(false);
-    });
-    expect(before).toBe(false);
-    expect(dbChecks).toBe(1);
+      // T0: request arrives before aqua-db-migrate created the schema → negative cached.
+      const before = await cache.getOrCheck(SCHEMA_NAME, () => {
+        dbChecks += 1;
+        return Promise.resolve(false);
+      });
+      expect(before).toBe(false);
+      expect(dbChecks).toBe(1);
 
-    // T1: schema now exists in the DB, but a second check within the 30s
-    // negative TTL would WITHOUT invalidation still serve the stale `false`
-    // (checker not invoked) — this is the bug.
-    const stale = await cache.getOrCheck(SCHEMA_NAME, () => {
-      dbChecks += 1;
-      return Promise.resolve(true);
-    });
-    expect(stale).toBe(false);
-    expect(dbChecks).toBe(1); // served from negative cache — checker NOT called
+      // T1: schema now exists in the DB, but a second check within the 30s
+      // negative TTL would WITHOUT invalidation still serve the stale `false`
+      // (checker not invoked) — this is the bug.
+      const stale = await cache.getOrCheck(SCHEMA_NAME, () => {
+        dbChecks += 1;
+        return Promise.resolve(true);
+      });
+      expect(stale).toBe(false);
+      expect(dbChecks).toBe(1); // served from negative cache — checker NOT called
 
-    // T2: provisioning completes → TenantProvisioned → subscriber invalidates.
-    await subscriber.handle(provisioned(TENANT_ID));
+      // T2: provisioning completes → TenantProvisioned → subscriber invalidates.
+      await subscriber.handle(provisioned(TENANT_ID));
 
-    // T3: the next check re-queries the DB and sees the freshly created schema.
-    const after = await cache.getOrCheck(SCHEMA_NAME, () => {
-      dbChecks += 1;
-      return Promise.resolve(true);
-    });
-    expect(after).toBe(true);
-    expect(dbChecks).toBe(2); // negative entry was cleared → checker ran again
-  });
+      // T3: the next check re-queries the DB and sees the freshly created schema.
+      const after = await cache.getOrCheck(SCHEMA_NAME, () => {
+        dbChecks += 1;
+        return Promise.resolve(true);
+      });
+      expect(after).toBe(true);
+      expect(dbChecks).toBe(2); // negative entry was cleared → checker ran again
+    },
+  );
 
   it('subscribes to TenantProvisioned on init when an event bus is present', async () => {
     const cache = new TenantSchemaCacheService();
@@ -110,8 +113,16 @@ describe('TenantSchemaCacheInvalidationSubscriber (new-tenant negative-cache clo
     const invalidateSpy = jest.spyOn(cache, 'invalidate');
     const subscriber = new TenantSchemaCacheInvalidationSubscriber(cache, undefined);
 
-    await subscriber.handle(provisioned(''));
-    await subscriber.handle(provisioned('not-a-uuid'));
+    await expect(subscriber.handle(provisioned(''))).resolves.toEqual(
+      expect.objectContaining({ kind: 'terminate' }),
+    );
+    await expect(subscriber.handle(provisioned('not-a-uuid'))).resolves.toEqual(
+      expect.objectContaining({ kind: 'terminate' }),
+    );
+    // The platform segment is a valid scope but not a tenant — terminated too.
+    await expect(subscriber.handle(provisioned('system'))).resolves.toEqual(
+      expect.objectContaining({ kind: 'terminate' }),
+    );
 
     expect(invalidateSpy).not.toHaveBeenCalled();
   });

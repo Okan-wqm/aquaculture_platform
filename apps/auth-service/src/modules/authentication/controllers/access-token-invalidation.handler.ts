@@ -1,6 +1,6 @@
 import { ITokenBlacklist, TOKEN_BLACKLIST } from '@aquaculture/backend-common/security';
 import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
-import { IEventBus, IEventHandler } from '@platform/event-bus';
+import { IEventBus, IEventHandler, HandlerOutcome } from '@platform/event-bus';
 import {
   isAccessTokenInvalidationRequestedEvent,
   type AccessTokenInvalidationRequestedEvent,
@@ -28,14 +28,18 @@ export class AccessTokenInvalidationHandler
     return 'AccessTokenInvalidationRequested';
   }
 
-  async handle(payload: unknown): Promise<void> {
+  async handle(payload: unknown): Promise<HandlerOutcome> {
     if (!isAccessTokenInvalidationRequestedEvent(payload)) {
-      throw new Error('Invalid AccessTokenInvalidationRequested event');
+      // PLAT-HIGH-902: an invalid payload can never become a valid one — on
+      // this unlimited-redelivery consumer a throw was an endless NAK loop.
+      // Dead-letter it; a Redis outage below still throws and retries.
+      return HandlerOutcome.terminate('Invalid AccessTokenInvalidationRequested event');
     }
     await this.tokenBlacklist.add(
       payload.targetJti,
       new Date(payload.expiresAtEpochSeconds * 1000),
       payload.reason,
     );
+    return HandlerOutcome.ack();
   }
 }

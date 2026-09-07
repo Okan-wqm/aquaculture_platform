@@ -23,7 +23,7 @@
  */
 import { isValidUUID, runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { Inject, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
-import { IEventBus, IEventHandler } from '@platform/event-bus';
+import { HandlerOutcome, IEventBus, IEventHandler } from '@platform/event-bus';
 import { requireTenantScope } from '@platform/event-contracts';
 import type { BaseEvent, FeedingWindowReadinessEvent } from '@platform/event-contracts';
 import { DataSource } from 'typeorm';
@@ -58,7 +58,7 @@ export class FeedingWindowReadinessListener implements IEventHandler<BaseEvent>,
     return 'FeedingWindowReadiness';
   }
 
-  async handle(event: BaseEvent): Promise<void> {
+  async handle(event: BaseEvent): Promise<HandlerOutcome> {
     // PLAT-MEDIUM-910: the tenancy scope is PARSED, not guarded. Skipping on a
     // malformed tenantId acked a poison message — the projection stayed stale
     // and nothing said so. `requireTenantScope` throws instead, so redelivery
@@ -67,8 +67,10 @@ export class FeedingWindowReadinessListener implements IEventHandler<BaseEvent>,
 
     const verdict = event as FeedingWindowReadinessEvent;
     if (!isValidUUID(verdict.mealId)) {
-      this.logger.error('FeedingWindowReadiness carries a non-UUID mealId — skipping.');
-      return;
+      // PLAT-HIGH-902: a non-UUID mealId is a payload defect no redelivery can
+      // repair — terminate so it lands in the dead-letter lane instead of
+      // being acked as if the projection had converged.
+      return HandlerOutcome.terminate('FeedingWindowReadiness carries a non-UUID mealId');
     }
 
     const readiness: MealReadiness = {
@@ -95,5 +97,7 @@ export class FeedingWindowReadinessListener implements IEventHandler<BaseEvent>,
         [JSON.stringify(readiness), verdict.mealId, tenantId, readiness.evaluatedAt],
       );
     });
+
+    return HandlerOutcome.ack();
   }
 }

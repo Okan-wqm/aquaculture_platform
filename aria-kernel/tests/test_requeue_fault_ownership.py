@@ -22,6 +22,7 @@ from aria_kernel.agent_invocations import (
     DEFAULT_MAX_REQUEUES,
     HARNESS_FAULT_RELEASE_REASONS,
     REQUEST_FAULT_RELEASE_REASONS,
+    UNRESOLVED_FAULT_RELEASE_REASONS,
     _request_fault_requeue_count,
 )
 
@@ -43,6 +44,19 @@ class FaultOwnedCountingTest(unittest.TestCase):
         rows = _requeue("R", "lease_expired", 3)
 
         self.assertEqual(_request_fault_requeue_count(rows, "R"), 3)
+
+    def test_unresolved_executor_exceptions_retain_bounded_escalation(self) -> None:
+        from aria_kernel.agent_invocations import classify_release_reason
+
+        self.assertIn("executor_exception", UNRESOLVED_FAULT_RELEASE_REASONS)
+        self.assertEqual(classify_release_reason("executor_exception"), "unclassified")
+        self.assertEqual(_request_fault_requeue_count(_requeue("R", "executor_exception", 3), "R"), 3)
+
+    def test_invalid_kernel_submit_receipts_do_not_charge_the_request(self) -> None:
+        from aria_kernel.agent_invocations import classify_release_reason
+
+        self.assertEqual(classify_release_reason("submit_receipt_invalid"), "harness")
+        self.assertEqual(_request_fault_requeue_count(_requeue("R", "submit_receipt_invalid", 3), "R"), 0)
 
     def test_mixed_history_counts_only_the_request_faults(self) -> None:
         # The live shape of the three stuck requests: two harness-fault
@@ -66,6 +80,11 @@ class FaultOwnedCountingTest(unittest.TestCase):
             HARNESS_FAULT_RELEASE_REASONS & REQUEST_FAULT_RELEASE_REASONS,
             frozenset(),
         )
+        self.assertEqual(
+            UNRESOLVED_FAULT_RELEASE_REASONS
+            & (HARNESS_FAULT_RELEASE_REASONS | REQUEST_FAULT_RELEASE_REASONS),
+            frozenset(),
+        )
 
     def test_every_executor_release_reason_is_classified(self) -> None:
         # The executor's release sites are the source of these strings. A new
@@ -78,7 +97,10 @@ class FaultOwnedCountingTest(unittest.TestCase):
             Path(__file__).resolve().parents[2] / "tools" / "aria-poc" / "ci_executor.py"
         ).read_text(encoding="utf-8")
         reasons = set(re.findall(r'reason="([a-z_]+)"', executor))
-        classified = HARNESS_FAULT_RELEASE_REASONS | REQUEST_FAULT_RELEASE_REASONS
+        classified = (
+            HARNESS_FAULT_RELEASE_REASONS | REQUEST_FAULT_RELEASE_REASONS
+            | UNRESOLVED_FAULT_RELEASE_REASONS
+        )
 
         unclassified = sorted(reasons - classified)
         self.assertEqual(

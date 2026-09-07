@@ -61,7 +61,9 @@
  *
  * # ADR
  *
- * See `docs/adr/018-protected-tables-ssot.md` (Faz 7 of the day-one reset).
+ * See `docs/recommendations/architectural-arbiter/2026-09-05-adr-0008-protected-tables-classification-principle.md`
+ * (ADR-0008 — the record the earlier `018-protected-tables-ssot` citation
+ * pointed at was never written; `docs/adr/018-` is the edge RBAC model).
  *
  * # ADDING A NEW PROTECTED TABLE
  *
@@ -127,6 +129,11 @@ export const PROTECTED_TABLES = [
   // ── Auth audit (SOC 2 CC7.2 detective control) ──
   'auth.audit_logs',
   'admin.audit_logs',
+  // ADR-0008: the SUPER_ADMIN activity ledger and the per-tenant activity
+  // ledger are write-once evidence; they carry legalHold + the canonical two
+  // triggers from migration 1808600000000.
+  'admin.activity_logs',
+  'admin.tenant_activities',
   // admin.impersonation_sessions left this list with its deletion (ADR-0007);
   // the row is physically gone, the invariant did not relax (ADR-0008).
 
@@ -169,6 +176,36 @@ export const COMPLIANCE_WAIVER_MARKER_RE =
   /--\s*COMPLIANCE-WAIVER:\s*\S+/i;
 
 export type ProtectedTable = (typeof PROTECTED_TABLES)[number];
+
+/**
+ * WORM ledgers (ADR-0008) — the subset of PROTECTED_TABLES that is write-once
+ * at ROW granularity: no application code path issues UPDATE against an
+ * existing row, the table physically carries `id` + `legalHold boolean NOT
+ * NULL DEFAULT false`, and a migration applies `auditImmutabilityStatements()`
+ * verbatim (UPDATE refused unconditionally, DELETE refused under legal hold).
+ *
+ * PROTECTED_TABLES as a whole guards DDL (no DROP/TRUNCATE without a
+ * compliance waiver) and legitimately holds mutable state such as GDPR
+ * requests, consents and outboxes. Row immutability is the stricter contract
+ * and lives here. Column-scoped triggers are rejected: a mutable aggregate
+ * that needs immutable evidence is split into a lifecycle row plus append-only
+ * event rows (`cleanup_runs` / `cleanup_run_events` precedent).
+ *
+ * `tests/invariants/audit-immutability-triggers.spec.ts` iterates this list
+ * and asserts, per entry: the entity declares `legalHold`, an effective
+ * migration applies the canonical statements, and no repository in the fleet
+ * updates or deletes rows of that entity.
+ */
+export const WORM_LEDGERS = [
+  'shared.audit_logs',
+  'auth.audit_logs',
+  'admin.audit_logs',
+  'admin.activity_logs',
+  'admin.tenant_activities',
+  'farm.farm_audit_logs',
+] as const satisfies readonly ProtectedTable[];
+
+export type WormLedger = (typeof WORM_LEDGERS)[number];
 
 /**
  * Type-narrow a string against the protected list.

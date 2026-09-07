@@ -1,3 +1,19 @@
+/**
+ * INVARIANT (FARM-CRITICAL-050): stock mutations use MortalityCullPolicyService SSoT.
+ *
+ * Mortality, cull and cleaner-mortality must run the policy guards — batch is
+ * mutable, quantity within current, aggregate within initial — BEFORE they
+ * touch a stock counter. Otherwise a removal larger than the batch holds is
+ * persisted and only discovered as a negative count downstream.
+ *
+ * This used to be asserted in two places: the three CQRS handlers, and
+ * `BatchService.recordOperation` — a second write path that carried its own
+ * copy of the guard chain. That path had no production caller and was deleted
+ * (FARM-HIGH-109 / FARM-LOW-211), so its assertion went with it. The guarantee
+ * did not: every surviving entry point is covered below, and
+ * `farm-stock-mutation-central-only.spec.ts` fails the build if a bypass is
+ * reintroduced.
+ */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -7,19 +23,7 @@ function read(path: string): string {
   return readFileSync(resolve(REPO_ROOT, path), 'utf8');
 }
 
-function expectBefore(source: string, before: string, after: string, label: string): void {
-  const beforeIndex = source.indexOf(before);
-  const afterIndex = source.indexOf(after);
-  expect(beforeIndex).toBeGreaterThanOrEqual(0);
-  expect(afterIndex).toBeGreaterThanOrEqual(0);
-  expect(beforeIndex).toBeLessThan(afterIndex);
-  if (beforeIndex >= afterIndex) {
-    throw new Error(`${label}: expected "${before}" before "${after}"`);
-  }
-}
-
 describe('INVARIANT (FARM-CRITICAL-050): stock mutations use MortalityCullPolicyService SSoT', () => {
-  const batchService = read('apps/farm-service/src/batch/services/batch.service.ts');
   const recordMortalityHandler = read(
     'apps/farm-service/src/batch/handlers/record-mortality.handler.ts',
   );
@@ -27,27 +31,6 @@ describe('INVARIANT (FARM-CRITICAL-050): stock mutations use MortalityCullPolicy
   const recordCleanerMortalityHandler = read(
     'apps/farm-service/src/batch/handlers/record-cleaner-mortality.handler.ts',
   );
-
-  it('guards the legacy BatchService recordOperation path before operation persistence', () => {
-    expect(batchService).toMatch(/MortalityCullPolicyService/);
-    expect(batchService).toMatch(/private readonly mortalityCullPolicy: MortalityCullPolicyService/);
-    expect(batchService).toMatch(/private assertStockRemovalAllowed\(/);
-    expect(batchService).toMatch(/assertStockMutable\(batch\)/);
-    expect(batchService).toMatch(/assertQuantityWithinCurrent\(\{/);
-    expect(batchService).toMatch(/assertAggregateWithinInitial\(\{/);
-    expectBefore(
-      batchService,
-      'this.assertStockRemovalAllowed(batch, input);',
-      'const operation = this.operationRepository.create',
-      'BatchService.recordOperation',
-    );
-    expectBefore(
-      batchService,
-      'this.assertStockRemovalAllowed(batch, input);',
-      'await this.updateBatchAfterOperation(batch, input);',
-      'BatchService.recordOperation',
-    );
-  });
 
   it('guards every CQRS mortality/cull entry point before mutating stock counters', () => {
     for (const [label, source] of [

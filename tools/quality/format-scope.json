@@ -1076,7 +1076,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "09d9e755d56d28948898fc9fe4cc7698739bee417b73fe646bb867023173f94f",
+      "content_sha256": "e978f0e208cb7e9d99459261394ccc6083b01f982f130268bcf44450aa0bf039",
       "hash_policy": "sha256",
       "owner": "admin-openapi-generator",
       "path": "apps/admin-api-service/openapi.json",
@@ -2254,6 +2254,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1810200000000-RetireAdminTenantBillingInfo.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/modules/__tests__/modules.controller.spec.ts",
       "prettier_managed": true
     },
@@ -3083,6 +3089,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/tenant/query-handlers/tenant-query.handlers.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/tenant/services/__tests__/tenant-billing-summary.spec.ts",
       "prettier_managed": true
     },
     {
@@ -51233,7 +51245,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "18bfd010178073c0aa0965ddcc80fb7d8b685aa7fab9400bf6c9e99f09f3b12a",
+      "content_sha256": "225adfa96cead285690a1c674ded2792a102f29e1a729c120c5a69483a8ca443",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/modules/admin-panel/src/services/generated/admin-api.ts",

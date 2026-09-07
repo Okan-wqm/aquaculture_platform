@@ -320,6 +320,48 @@ describe('INVARIANT (ADMIN-HIGH-012): the admin schema stores instants as instan
     expect(offenders).toEqual([]);
   });
 
+  it('every admin money column is a MoneyColumn', () => {
+    // `@Column({ type: 'decimal', precision: 10, scale: 2, transformer: new
+    // DecimalTransformer() })` is the platform's pre-ADR-0013 money shape, and
+    // that transformer widens through `parseFloat` — the value leaves the
+    // database exact and reaches the service as an IEEE-754 double. Two cents
+    // per read is not a rounding detail on a revenue dashboard that sums it.
+    // `@MoneyColumn()` is `numeric(19,4)` behind a Decimal.js transformer.
+    //
+    // The admin schema currently declares NO money column at all: the last two
+    // lived on `admin.tenant_billing_info`, which retired under this finding
+    // rather than being re-typed, because it had no writer. The mirrors onto
+    // `billing.invoices` are billing-owned DDL and out of this scope by the
+    // same rule that exempts every other mirror above.
+    const money = columns
+      .filter((column) => /(?:type:\s*)?'(?:decimal|numeric)'/.test(column.options))
+      .filter(
+        (column) => column.decorator !== 'MoneyColumn' && column.decorator !== 'PercentColumn',
+      )
+      .map(
+        (column) =>
+          `${column.file}: ${column.entity}.${column.property} — @${column.decorator}(${column.options})`,
+      );
+    expect(money).toEqual([]);
+  });
+
+  it('no admin entity declares the parseFloat decimal transformer', () => {
+    // `DecimalTransformer` (backend-common/database) is the parseFloat one.
+    // `DecimalValueTransformer` / `@MoneyColumn` (backend-common/monetary) is
+    // the exact one. An admin-owned entity reaching for the first is reaching
+    // for the shape ADR-0013 replaced.
+    const offenders = listFiles('apps/admin-api-service/src/**/*.entity.ts')
+      .filter((file) => {
+        const source = read(file);
+        return (
+          /@Entity\([^)]*schema:\s*'admin'/.test(source) &&
+          /\bnew DecimalTransformer\(\)/.test(source)
+        );
+      })
+      .map((file) => `${file}: an admin-owned entity uses the parseFloat DecimalTransformer`);
+    expect(offenders).toEqual([]);
+  });
+
   it('no admin migration after the baseline creates a naked TIMESTAMP column', () => {
     // The baseline itself is history and is corrected forward by
     // `1809600000000-AdminSchemaTimestamptz`; hand-editing a migration is

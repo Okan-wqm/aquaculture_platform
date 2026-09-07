@@ -780,8 +780,7 @@ deleted.
 
 ## ADMIN-HIGH-107 — Permissive physical types in the admin schema (C11)
 
-**State:** OPEN — timestamptz and uuid classes landed in W6; inet, arrays and
-money remain · **Wave:** W6 (moved from W2)
+**State:** RESOLVED — all five classes landed in W6 · **Wave:** W6 (moved from W2)
 
 **Fix:** one forward migration per class (timestamptz, uuid tenantId, numeric
 money, real arrays, inet) landed together with the decorators.
@@ -803,13 +802,26 @@ correct in a migration a squash then replaced.
 
 **Landed (W6):**
 
-| class       | scope                                 | outcome                                                                                                                                               |
-| ----------- | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| timestamptz | 81 columns / 35 tables; 73 decorators | migration `1809600000000` + every decorator; `snapshotDate` stays `'date'` — a calendar day is a different thing and now says so                      |
-| uuid        | 14 of 26 id-shaped varchars           | migration `1809700000000`, which COUNTS non-uuid rows per column and RAISES with table, column and count rather than letting the cast fail mid-deploy |
+| class       | scope                                 | outcome                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ----------- | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| timestamptz | 81 columns / 35 tables; 73 decorators | migration `1809600000000` + every decorator; `snapshotDate` stays `'date'` — a calendar day is a different thing and now says so                                                                                                                                                                                                                                                                                                                                                                                       |
+| uuid        | 14 of 26 id-shaped varchars           | migration `1809700000000`, which COUNTS non-uuid rows per column and RAISES with table, column and count rather than letting the cast fail mid-deploy                                                                                                                                                                                                                                                                                                                                                                  |
+| inet        | 4 `varchar(45)` IP columns            | migration `1809800000000`. Removing the W5 projection's `'unknown'` placeholder exposed THREE detectors that read the address straight into a TypeORM `where` — and TypeORM drops a `where` key whose value is `undefined`, so the first address-less signal would have counted the whole window and raised a critical brute-force against nobody                                                                                                                                                                      |
+| arrays      | 13 `simple-array` columns             | migration `1809900000000` → `text[]`. `simple-array` is not a Postgres type: TypeORM comma-joins into `text` with no escaping, so an element containing a comma becomes two on the next read. The two live `tags` filters already used the array-overlap operator `&&`, which has no `text` form — both the activity-log list and the audit-trail list returned a 500 on `?tags=` and never filtered anything                                                                                                          |
+| money       | 2 `numeric(10,2)`                     | migration `1810000000000` RETIRES `admin.tenant_billing_info` instead of widening it. Its only writer, `createOrUpdateBillingInfo`, had zero callers, so the table was empty and the tenant-detail billing block was blank for every tenant (DB-ADMIN-MEDIUM-005). Rounding a column in an empty table is not a fix; the read path moved to `billing.subscriptions` + `billing.invoices` per D14, which removes the columns rather than re-typing them. The last two `duplicateStripeIdentifiers` waivers went with it |
 
-**Still open:** `inet` (4 columns), real arrays (13 `simple-array` + 20
-admin-owned jsonb scalar arrays), money (2 `numeric(10,2)`).
+**Not converted, deliberately:** the ~20 admin-owned jsonb SCALAR arrays. They
+are already stored as a structured type Postgres can index and query; the
+corruption this class was about is specific to the comma-joined text
+representation. Converting `error_groups.affectedTenants` / `affectedReleases`
+in particular would mean rewriting the `jsonb_build_array` / `@>` upsert SQL in
+`error-tracking.service.ts`, which is a change to working code for no defect —
+so it stays, and the gate scopes to arrays that are not already jsonb.
+
+**Split out:** `InvoiceReadOnly`'s four `numeric(12,2)` columns widen through
+`parseFloat` on the way in (ADMIN-MEDIUM-120). They are billing-owned DDL, but
+the transformer is admin's own; three consumers read it, one of them
+`getFinancialMetrics`, which W11 makes an exact SQL aggregate.
 
 **Split out:** the actor columns (`performedBy`, `createdBy`, `updatedBy`) are
 NOT a uuid problem — see ADMIN-MEDIUM-117.
@@ -837,6 +849,27 @@ writes the pair so no callsite decides for itself.
 **Carried by:** `ACTOR_COLUMNS` in `tests/invariants/admin-physical-types.spec.ts`,
 whose own case fails when an entry names a column that no longer exists — the
 exemption cannot outlive its subject.
+
+## ADMIN-MEDIUM-120 — The billing mirrors widen money through parseFloat (W6 split)
+
+**State:** OPEN · **Owner:** okan · **Deadline:** 2027-03-31
+
+`InvoiceReadOnly`'s `subtotal`, `total`, `amountPaid` and `amountDue`
+(`analytics/entities/external/invoice.entity.ts:46,49,52,55`) are
+`numeric(12,2)` behind `DecimalTransformer`, which widens through `parseFloat`.
+The value leaves Postgres exact and reaches the service as an IEEE-754 double,
+before `getFinancialMetrics` (`analytics.service.ts:476`) sums it in a JS loop.
+
+The `numeric(12,2)` DDL is billing's and stays billing's — but the transformer
+is admin's own code and swapping it for the platform's exact
+`DecimalValueTransformer` needs no DDL change at all, because a `numeric` column
+reads losslessly into a Decimal. What it does need is the three consumers moved
+with it: `analytics.service.ts`, `invoice-management.service.ts` and
+`tenant-detail.service.ts`.
+
+**Fix:** sequence it with W11's `getFinancialMetrics` rewrite — that query
+becomes a SQL aggregate, which is where the exactness actually has to hold, and
+converting the transformer separately would touch the same three files twice.
 
 ## ADMIN-HIGH-108 — Crons without leader election, heartbeat or lease (C12)
 
@@ -1083,7 +1116,7 @@ gate's own docblock says it means. The cycle it uncovered stays open debt, owned
 | **W2 — write boundary + authority**       | class DTOs (CONTRACT-CRITICAL-003 precondition) + ADMIN-HIGH-012 migrations; SEC-CRITICAL-057; DATA-CRITICAL-012; ADMIN-CRITICAL-008                | class DTOs re-arm ValidationPipe fleet-wide in one change; audit must fail closed before the destructive ledger is a control                                            |
 | **W3 — contract, authz, execution model** | CONTRACT-CRITICAL-003 artifact; SEC-CRITICAL-058; SEC-HIGH-059; SEC-HIGH-060; ADMIN-CRITICAL-009; ADMIN-HIGH-011; ADMIN-HIGH-013                    | generation precedes FE cleanup; MFA and capabilities mount on the single act-as authority                                                                               |
 | **W4 — money**                            | BILLING-CRITICAL-002 then BILLING-CRITICAL-003                                                                                                      | `CreateSubscriptionHandler` resolves `billing.plans`; receipts before catalogue migration                                                                               |
-| **W6 — physical types**                   | ADMIN-HIGH-107 (timestamptz + uuid landed; inet, arrays, money remain) → ADMIN-MEDIUM-117                                                           | the type is the cheapest constraint; the decorator is what a baseline squash reads                                                                                      |
+| **W6 — physical types**                   | ADMIN-HIGH-107 (all five classes landed) → ADMIN-MEDIUM-117, ADMIN-MEDIUM-120                                                                       | the type is the cheapest constraint; the decorator is what a baseline squash reads                                                                                      |
 | **W5 — detective stores + observability** | ADMIN-HIGH-014 (landed); OBS-CRITICAL-003 (partial → OBS-HIGH-005, OBS-HIGH-006)                                                                    | honest replacement before deleting the dishonest window                                                                                                                 |
 | **W6 — FE architecture**                  | ADMIN-HIGH-010                                                                                                                                      | consumes the generated contract                                                                                                                                         |
 | **W7 — kill list + docs**                 | §4; CLAUDE-LOW-016                                                                                                                                  | dead set is machine-derived after W3                                                                                                                                    |

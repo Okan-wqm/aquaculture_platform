@@ -36,7 +36,6 @@ const ADMIN_TABLES: TenantErasureTablePolicies = {
   // Tenant-owned rows, reached by their own tenant column.
   tenant_activities: { kind: 'excluded', reason: WORM_LEDGER },
   tenant_notes: { kind: 'tenant-column', column: 'tenantId' },
-  tenant_billing_info: { kind: 'tenant-column', column: 'tenantId' },
   message_threads: { kind: 'tenant-column', column: 'tenantId' },
   messages: { kind: 'cascade-via', parent: 'message_threads', foreignKey: 'threadId' },
   announcement_acknowledgments: { kind: 'tenant-column', column: 'tenantId' },

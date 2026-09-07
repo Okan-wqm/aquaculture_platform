@@ -6620,12 +6620,19 @@ export interface components {
         };
         BillingSummary: {
             currentPlan: string;
-            monthlyAmount: number;
-            currency: string;
+            planTier: string;
             billingCycle: string;
-            paymentStatus: string;
+            subscriptionStatus: string;
             /** Format: date-time */
             nextBillingDate: string | null;
+            lastInvoiceAmount: number | null;
+            /** Format: date-time */
+            lastInvoiceIssuedAt: string | null;
+            /** Format: date-time */
+            lastInvoicePeriodStart: string | null;
+            /** Format: date-time */
+            lastInvoicePeriodEnd: string | null;
+            currency: string | null;
             /** Format: date-time */
             lastPaymentDate: string | null;
             lastPaymentAmount: number | null;

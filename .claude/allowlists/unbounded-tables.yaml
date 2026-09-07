@@ -46,21 +46,7 @@ scheduledDisposers:
       Monthly feeding-event archival runs inside per-tenant schemas via
       search_path, which the cross-tenant registry does not serve.
 entries:
-  - table: admin.login_attempts
-    owner: okan
-    expiry: 2026-12-31
-    findingId: ADMIN-HIGH-014
-    reason: >-
-      Detective store with no producer; the decision is producer-or-delete
-      (ADMIN-HIGH-014). A window over a table nothing writes would be a claim
-      of coverage the platform does not have.
   - table: admin.user_sessions
-    owner: okan
-    expiry: 2026-12-31
-    findingId: ADMIN-HIGH-014
-    reason: >-
-      Detective store with no producer; producer-or-delete decision pending.
-  - table: admin.api_usage_logs
     owner: okan
     expiry: 2026-12-31
     findingId: ADMIN-HIGH-014

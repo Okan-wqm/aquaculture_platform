@@ -10,7 +10,7 @@ import {
   DatabaseMetric,
   SlowQueryLog,
 } from '../database-management/entities/database-management.entity';
-import { ActivityLog } from '../security/entities/security.entity';
+import { ActivityLog, ApiUsageLog, LoginAttempt } from '../security/entities/security.entity';
 import { TenantActivity } from '../tenant/entities/tenant-activity.entity';
 import { ErrorGroup, ErrorOccurrence } from '../system-management/entities/error-tracking.entity';
 import {
@@ -135,6 +135,35 @@ export class AdminApiRetentionBootstrapModule implements OnModuleInit {
       entity: ErrorGroup,
       timestampProperty: 'lastSeenAt',
       retentionDays: 90,
+    });
+
+    // ── Security detection input (ADMIN-HIGH-014) ──
+    //
+    // These two carried an `unbounded-tables` waiver whose reason was "detective
+    // store with no producer; a window over a table nothing writes would be a
+    // claim of coverage the platform does not have". They have a producer now —
+    // the `events.security.events.>` projection — so the waiver is spent and the
+    // window is real.
+    //
+    // 90 days because the geo-anomaly detector builds its "normal location"
+    // baseline from the last 30 days of SUCCESSFUL logins; a 30-day window would
+    // erode that baseline from under it at exactly the boundary it reads.
+    registerRetentionPolicy({
+      id: 'admin.login_attempts.90d',
+      ownerTag: 'ops-security-detection',
+      entity: LoginAttempt,
+      timestampProperty: 'createdAt',
+      retentionDays: 90,
+    });
+    // Only rate-limit REJECTIONS are projected here, not every request, so this
+    // is the size of the signal rather than the size of the traffic. The
+    // API-abuse detector reads a window of minutes; 30 days is evidence.
+    registerRetentionPolicy({
+      id: 'admin.api_usage_logs.30d',
+      ownerTag: 'ops-security-detection',
+      entity: ApiUsageLog,
+      timestampProperty: 'createdAt',
+      retentionDays: 30,
     });
 
     // ── Database + performance metrics ──

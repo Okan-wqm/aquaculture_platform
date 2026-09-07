@@ -86,7 +86,7 @@ export class EmailTemplate {
   @Column({ default: false })
   isSystem!: boolean; // System templates cannot be deleted
 
-  @Column({ nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   tenantId?: string; // null = global template
 
   @CreateDateColumn({ type: 'timestamptz' })

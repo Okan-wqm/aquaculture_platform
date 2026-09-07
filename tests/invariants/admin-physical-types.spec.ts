@@ -102,6 +102,32 @@ function migrationsAfterBaseline(): string[] {
   });
 }
 
+/** Property names that name a platform entity and therefore hold a uuid. */
+const IDENTITY_PROPERTIES = new Set(['tenantId', 'userId', 'assignedTo', 'resolvedBy']);
+
+/**
+ * Actor columns, which are exempt and must stay so until they get a type that
+ * fits them.
+ *
+ * `users.service.ts:678` writes `performedBy: 'admin-api-service'` and
+ * `security-monitoring.service.ts:758` writes `createdBy: 'system'`, both
+ * correctly: an audit actor may be a service, and a detector-raised incident
+ * has no human author. That is not a uuid problem, it is a missing sum type —
+ * an actor is `{ kind: 'user' | 'service', id }`. Forcing these into uuid would
+ * mean minting a fake uuid for `'system'`, replacing an honest string with a
+ * dishonest identifier.
+ *
+ * Tracked as ADMIN-MEDIUM-117 (owner okan, 2027-03-31) with the typed-actor
+ * design named. This set is not a place to park a column somebody did not want
+ * to convert: the case below fails when an entry names a column that no longer
+ * exists, so the exemption cannot outlive its subject.
+ */
+const ACTOR_COLUMNS = new Set([
+  'AuditLog.performedBy',
+  'TenantActivity.performedBy',
+  'SecurityIncident.createdBy',
+]);
+
 describe('INVARIANT (ADMIN-HIGH-012): the admin schema stores instants as instants', () => {
   const columns = adminColumns();
 
@@ -143,6 +169,38 @@ describe('INVARIANT (ADMIN-HIGH-012): the admin schema stores instants as instan
       .filter((column) => /type:\s*'timestamp'/.test(column.options))
       .map((column) => `${column.file}: ${column.entity}.${column.property}`);
     expect(naked).toEqual([]);
+  });
+
+  it('every admin tenant-id and user-id column is a uuid', () => {
+    // A varchar accepts '', a trimmed id, a truncated one, and an id from a
+    // different platform. These columns hold `auth.tenants.id` and
+    // `auth.users.id` and nothing else, so the type says so.
+    const stringy = columns
+      .filter((column) => IDENTITY_PROPERTIES.has(column.property))
+      .filter((column) => !ACTOR_COLUMNS.has(`${column.entity}.${column.property}`))
+      .filter((column) => !/type:\s*'uuid'/.test(column.options))
+      .map(
+        (column) =>
+          `${column.file}: ${column.entity}.${column.property} — @${column.decorator}(${column.options})`,
+      );
+    expect(stringy).toEqual([]);
+  });
+
+  it('no uuid column carries a length', () => {
+    // `length` on a uuid is meaningless to Postgres and reads as a varchar the
+    // author forgot to finish converting — it is drift wearing the right type.
+    const withLength = columns
+      .filter((column) => /type:\s*'uuid'/.test(column.options) && /\blength:/.test(column.options))
+      .map((column) => `${column.file}: ${column.entity}.${column.property}`);
+    expect(withLength).toEqual([]);
+  });
+
+  it('the actor-column exemption names only columns that still exist', () => {
+    // An exemption for a column nobody declares any more is a waiver with no
+    // subject, and it hides the day the column comes back as a uuid.
+    const declared = new Set(columns.map((column) => `${column.entity}.${column.property}`));
+    const stale = [...ACTOR_COLUMNS].filter((entry) => !declared.has(entry));
+    expect(stale).toEqual([]);
   });
 
   it('no admin migration after the baseline creates a naked TIMESTAMP column', () => {

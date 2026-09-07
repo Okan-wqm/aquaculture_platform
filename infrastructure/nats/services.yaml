@@ -276,6 +276,10 @@ services:
   - request.auth.tenant.ArchiveTenant
   - request.auth.tenant.RemoveModule
   - request.auth.tenant.RollbackProvisioning
+  - request.auth.tenant.BeginProvisioning
+  - request.auth.admin.createModule
+  - request.auth.admin.updateModule
+  - request.auth.admin.deleteModule
   - policy.ingest_backend.changed
   - events.platform.schema-migration.>
   - events.security.events.>

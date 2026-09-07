@@ -471,6 +471,18 @@ export default [
     rules: { 'aquaculture/no-bare-tenant-query-key': 'warn' },
   },
 
+  // ── override 8a: no-unsandboxed-html-frame (web, NON-project only) ──
+  // 'error' from the first commit: the one existing violation (the admin
+  // email-template preview) was migrated to SandboxedHtmlPreview in the same
+  // change. A bare <iframe> without `sandbox`, or `srcDoc` outside the shared
+  // component, is a same-origin XSS path to the operator session. ADMIN-CRITICAL-104.
+  {
+    files: ['web/**/*.tsx', 'web/**/*.jsx'],
+    ignores: [...PROJECT_GLOBS, 'web/**/*.spec.tsx', 'web/**/*.test.tsx', 'web/**/__tests__/**'],
+    plugins: { aquaculture },
+    rules: { 'aquaculture/no-unsandboxed-html-frame': 'error' },
+  },
+
   // ── override 9: no-direct-event-publish (NON-project only) ──
   {
     files: ['apps/**/src/**/*.ts', 'libs/**/src/**/*.ts', 'platform/libs/**/src/**/*.ts'],

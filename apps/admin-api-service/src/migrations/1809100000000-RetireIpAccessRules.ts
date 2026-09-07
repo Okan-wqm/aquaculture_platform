@@ -22,8 +22,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * kept as evidence for whoever writes the nginx block; they never carried
  * bearer material.
  */
-export class RetireIpAccessRules1808800000000 implements MigrationInterface {
-  name = 'RetireIpAccessRules1808800000000';
+export class RetireIpAccessRules1809100000000 implements MigrationInterface {
+  name = 'RetireIpAccessRules1809100000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`SET LOCAL lock_timeout = '5s'`);

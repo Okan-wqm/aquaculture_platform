@@ -125,7 +125,7 @@ describe('INVARIANT (ADR-0016): platform capabilities — one enum, one projecti
     expect(enumFile).toMatch(/'break-glass',\n\] as const;/);
     // The writer's CHECK constraint mirrors the enum by design and is pinned to it here.
     const migration = readRepoFile(
-      'apps/auth-service/src/migrations/1808500000000-PlatformCapabilityGrants.ts',
+      'apps/auth-service/src/migrations/1819100000000-PlatformCapabilityGrants.ts',
     );
     for (const capability of [
       'billing-ops',

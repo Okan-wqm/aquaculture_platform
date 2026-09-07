@@ -14,8 +14,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * Row DML on a configuration table — the setting carried no evidence value,
  * so it is deleted rather than archived.
  */
-export class RetireMfaEnabledSetting1808700000000 implements MigrationInterface {
-  name = 'RetireMfaEnabledSetting1808700000000';
+export class RetireMfaEnabledSetting1809000000000 implements MigrationInterface {
+  name = 'RetireMfaEnabledSetting1809000000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`SET LOCAL lock_timeout = '5s'`);

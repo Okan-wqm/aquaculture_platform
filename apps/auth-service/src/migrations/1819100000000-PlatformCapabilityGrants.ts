@@ -1,7 +1,7 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
 /**
- * PlatformCapabilityGrants1808500000000 — `auth.platform_capability_grants`
+ * PlatformCapabilityGrants1819100000000 — `auth.platform_capability_grants`
  * (ADR-0016, SEC-HIGH-059).
  *
  * WHY: the SUPER_ADMIN role was the whole authorization model of the
@@ -21,8 +21,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * after a partial apply grants nothing twice. Forward-only: dropping the table
  * would silently return the surface to one-bit authorization.
  */
-export class PlatformCapabilityGrants1808500000000 implements MigrationInterface {
-  name = 'PlatformCapabilityGrants1808500000000';
+export class PlatformCapabilityGrants1819100000000 implements MigrationInterface {
+  name = 'PlatformCapabilityGrants1819100000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`SET LOCAL lock_timeout = '5s'`);
@@ -67,7 +67,7 @@ export class PlatformCapabilityGrants1808500000000 implements MigrationInterface
     await queryRunner.query(`
       INSERT INTO "auth"."platform_capability_grants" ("userId", "capability", "grantedBy", "reason")
       SELECT u."id", c.capability, u."id",
-             'ADR-0016 bootstrap (PlatformCapabilityGrants1808500000000): pre-capability SUPER_ADMIN reach preserved'
+             'ADR-0016 bootstrap (PlatformCapabilityGrants1819100000000): pre-capability SUPER_ADMIN reach preserved'
         FROM "auth"."users" u
         CROSS JOIN (VALUES ('billing-ops'), ('support-ops'), ('security-ops')) AS c(capability)
        WHERE u."role" = 'SUPER_ADMIN'

@@ -44,7 +44,7 @@ in `.claude/allowlists/unregistered-guards.yaml` carrying `{owner, expiry, reaso
   `IpAccessService`, the `IpAccessRule` entity, `IpAccessRulesPage.tsx`, its client functions and
   type, the `settings/integrations` route and both navigation entries that pointed at it.
   `admin.ip_access_rules` is archived into `admin.retired_config_backups` (jsonb, count-verified)
-  and dropped by `1808800000000-RetireIpAccessRules.ts`; the table leaves
+  and dropped by `1809100000000-RetireIpAccessRules.ts`; the table leaves
   `MODULE_SCHEMAS[].infrastructureTables`. The admin route contract shrinks by the twelve
   `settings/ip-access` routes.
 - The gate is derived, not listed: `tests/invariants/no-dead-guards.spec.ts` scans every

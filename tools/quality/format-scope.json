@@ -2164,12 +2164,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/admin-api-service/src/migrations/1808700000000-RetireMfaEnabledSetting.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/admin-api-service/src/migrations/1808700000000-RetireRuntimeRetentionPolicies.ts",
       "prettier_managed": true
     },
@@ -2182,13 +2176,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/admin-api-service/src/migrations/1808800000000-RetireIpAccessRules.ts",
+      "path": "apps/admin-api-service/src/migrations/1808900000000-ProtectAdminLedgers.ts",
       "prettier_managed": true
     },
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/admin-api-service/src/migrations/1808900000000-ProtectAdminLedgers.ts",
+      "path": "apps/admin-api-service/src/migrations/1809000000000-RetireMfaEnabledSetting.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1809100000000-RetireIpAccessRules.ts",
       "prettier_managed": true
     },
     {
@@ -5014,12 +5014,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/auth-service/src/migrations/1808500000000-PlatformCapabilityGrants.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/auth-service/src/migrations/1808500000000-ResetWebAuthnCredentialsForAttestationVerification.ts",
       "prettier_managed": true
     },
@@ -5027,6 +5021,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/auth-service/src/migrations/1819000000000-AddTenantAuthSecurityPolicy.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/migrations/1819100000000-PlatformCapabilityGrants.ts",
       "prettier_managed": true
     },
     {

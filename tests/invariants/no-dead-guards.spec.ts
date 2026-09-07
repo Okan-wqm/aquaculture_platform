@@ -320,7 +320,7 @@ describe('INVARIANT: both IP access-rule stacks stay deleted (ADR-0010)', () => 
     const migration = readFileSync(
       resolve(
         REPO_ROOT,
-        'apps/admin-api-service/src/migrations/1808800000000-RetireIpAccessRules.ts',
+        'apps/admin-api-service/src/migrations/1809100000000-RetireIpAccessRules.ts',
       ),
       'utf8',
     );

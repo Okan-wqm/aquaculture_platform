@@ -8,6 +8,9 @@ import type {
 } from '@platform/event-contracts';
 import { DataSource } from 'typeorm';
 
+import { StripeApiService } from '@aquaculture/backend-common/billing';
+
+import { StripeSubscriptionProvisionerService } from '../../services/stripe-subscription-provisioner.service';
 import { BillingAdminNatsHandler } from '../billing-admin-nats.handler';
 
 /**
@@ -33,6 +36,7 @@ describe('BillingAdminNatsHandler.provisionTenantSubscription', () => {
   let dataSourceQuery: jest.Mock;
   let bypassRls: { withBypass: jest.Mock };
   let planFindOne: jest.Mock;
+  let stripeApi: { createCustomer: jest.Mock; createSubscription: jest.Mock };
 
   const plan = {
     id: 'plan-starter-1',
@@ -147,6 +151,11 @@ describe('BillingAdminNatsHandler.provisionTenantSubscription', () => {
         async (_level: string, cb: (m: typeof mockManager) => Promise<unknown>) => cb(mockManager),
       ),
       query: dataSourceQuery,
+      // BILLING-CRITICAL-010: the plan and the tenant's Stripe objects are now
+      // resolved BEFORE the SERIALIZABLE transaction opens, so the handler reads
+      // the catalogue through dataSource.manager. Same recorded-query mock, so
+      // the plan lookup still shows up in query order.
+      manager: mockManager,
     };
 
     // London-style collaborator: the real BypassRlsService.withBypass sets
@@ -161,12 +170,30 @@ describe('BillingAdminNatsHandler.provisionTenantSubscription', () => {
       }),
     };
 
+    // Recorded into the SAME ordered log as the SQL, the way the bypass grant
+    // already is, so a case can prove Stripe is called BEFORE the transaction
+    // opens rather than inside it.
+    stripeApi = {
+      createCustomer: jest.fn(async () => {
+        recordedQueries.push({ sql: '__STRIPE_CUSTOMER_CREATED__', params: [] });
+        return { id: 'cus_provisioned' };
+      }),
+      createSubscription: jest.fn(async () => {
+        recordedQueries.push({ sql: '__STRIPE_SUBSCRIPTION_CREATED__', params: [] });
+        return { id: 'sub_provisioned', customer: 'cus_provisioned' };
+      }),
+    };
+
     const moduleRef = await Test.createTestingModule({
       controllers: [BillingAdminNatsHandler],
       providers: [
         { provide: CommandBus, useValue: { execute: jest.fn() } },
         { provide: DataSource, useValue: mockDataSource },
         { provide: BypassRlsService, useValue: bypassRls },
+        // The REAL provisioner over a mocked Stripe client, so these cases
+        // assert what actually reaches Stripe and what lands in the INSERT.
+        StripeSubscriptionProvisionerService,
+        { provide: StripeApiService, useValue: stripeApi },
       ],
     }).compile();
 
@@ -211,6 +238,98 @@ describe('BillingAdminNatsHandler.provisionTenantSubscription', () => {
     // pricing jsonb is param index 7 (JSON.stringify(pricing)).
     const pricing = JSON.parse(subInsert?.params[7] as string);
     expect(pricing.basePrice).toBe(150); // 100 + 50, NOT the catalog base (49)
+  });
+
+  /**
+   * BILLING-CRITICAL-010. This INSERT's column list omitted stripe_customer_id
+   * and stripe_subscription_id entirely, so every operator-provisioned tenant
+   * carried NULLs that nothing else ever filled — the only other writer is the
+   * GraphQL path, which this flow does not use. Nothing charged them, and two
+   * of the five Stripe webhook handlers resolve the tenant from
+   * stripe_subscription_id, so those stayed inert for them too.
+   */
+  describe('Stripe objects (BILLING-CRITICAL-010)', () => {
+    const billablePlan = { ...plan, stripePriceIds: { monthly: 'price_monthly_1' } };
+
+    function subscriptionInsert(): { sql: string; params: unknown[] } | undefined {
+      return recordedQueries.find((q) => /INSERT INTO billing\.subscriptions/.test(q.sql));
+    }
+
+    it('writes the minted customer and subscription ids onto the row', async () => {
+      planFindOne.mockResolvedValue(billablePlan);
+
+      const result = await handler.provisionTenantSubscription(buildCommand());
+
+      expect(result.success).toBe(true);
+      // Params: [...trialEndDate(10), stripeCustomerId(11), stripeSubscriptionId(12), actorId(13)]
+      expect(subscriptionInsert()?.params[11]).toBe('cus_provisioned');
+      expect(subscriptionInsert()?.params[12]).toBe('sub_provisioned');
+    });
+
+    it('derives the idempotency keys from the tenant and plan, so a replay reuses the objects', async () => {
+      planFindOne.mockResolvedValue(billablePlan);
+
+      await handler.provisionTenantSubscription(buildCommand());
+
+      expect(stripeApi.createCustomer).toHaveBeenCalledWith(
+        expect.objectContaining({
+          idempotencyKey: `cust-create:22222222-2222-4222-8222-222222222222`,
+        }),
+      );
+      expect(stripeApi.createSubscription).toHaveBeenCalledWith(
+        expect.objectContaining({
+          priceId: 'price_monthly_1',
+          idempotencyKey: `sub-create:22222222-2222-4222-8222-222222222222:starter:monthly`,
+        }),
+      );
+    });
+
+    it('calls Stripe BEFORE the transaction opens, never holding a connection across the round trip', async () => {
+      planFindOne.mockResolvedValue(billablePlan);
+
+      await handler.provisionTenantSubscription(buildCommand());
+
+      const stripeAt = recordedQueries.findIndex(
+        (q) => q.sql === '__STRIPE_SUBSCRIPTION_CREATED__',
+      );
+      const insertAt = recordedQueries.findIndex((q) =>
+        /INSERT INTO billing\.subscriptions/.test(q.sql),
+      );
+      expect(stripeAt).toBeGreaterThanOrEqual(0);
+      expect(insertAt).toBeGreaterThanOrEqual(0);
+      expect(stripeAt).toBeLessThan(insertAt);
+    });
+
+    it('mints nothing for a FREE tier, which is a permanent $0 plan', async () => {
+      planFindOne.mockResolvedValue({ ...billablePlan, tier: 'free' });
+
+      await handler.provisionTenantSubscription(buildCommand());
+
+      expect(stripeApi.createCustomer).not.toHaveBeenCalled();
+      expect(stripeApi.createSubscription).not.toHaveBeenCalled();
+      expect(subscriptionInsert()?.params[11]).toBeNull();
+      expect(subscriptionInsert()?.params[12]).toBeNull();
+    });
+
+    it('records a local-only subscription when the plan has no configured price', async () => {
+      planFindOne.mockResolvedValue({ ...plan, stripePriceIds: {} });
+
+      const result = await handler.provisionTenantSubscription(buildCommand());
+
+      expect(result.success).toBe(true);
+      expect(stripeApi.createSubscription).not.toHaveBeenCalled();
+      expect(subscriptionInsert()?.params[12]).toBeNull();
+    });
+
+    it('fails the command when Stripe does, instead of provisioning a tenant nothing can charge', async () => {
+      planFindOne.mockResolvedValue(billablePlan);
+      stripeApi.createSubscription.mockRejectedValue(new Error('stripe unavailable'));
+
+      const result = await handler.provisionTenantSubscription(buildCommand());
+
+      expect(result.success).toBe(false);
+      expect(subscriptionInsert()).toBeUndefined();
+    });
   });
 
   it('rejects a command that selects modules but carries no moduleItems (VALIDATION_ERROR)', async () => {

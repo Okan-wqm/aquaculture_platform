@@ -24,6 +24,7 @@ import { Plan } from './entities/plan.entity';
 import { ScheduledPlanChange } from './entities/scheduled-plan-change.entity';
 import { StripeWebhookEventEntity } from './entities/stripe-webhook-event.entity';
 import { TelemetryCapacityEntitlementEntity } from './entities/telemetry-capacity-entitlement.entity';
+import { StripeSubscriptionProvisionerService } from './services/stripe-subscription-provisioner.service';
 import { TelemetryCapacityService } from './services/telemetry-capacity.service';
 import { SubscriptionModuleItem } from './entities/subscription-module-item.entity';
 import { Subscription } from './entities/subscription.entity';
@@ -125,6 +126,10 @@ const EventHandlers: never[] = [];
     BillingSchedulerService,
     StripeWebhookService,
     PlanSeedService,
+    // BILLING-CRITICAL-010: the one mint for a tenant's Stripe objects, shared
+    // by the GraphQL path and operator provisioning so neither carries its own
+    // copy of the idempotency keys or the no-price rule.
+    StripeSubscriptionProvisionerService,
     // Task 8 (100-tenant readiness): telemetry capacity envelope
     // reservations — PENDING_CAPACITY/ACTIVE/SUPERSEDED/RELEASED machine.
     TelemetryCapacityService,

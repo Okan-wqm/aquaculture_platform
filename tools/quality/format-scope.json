@@ -6593,6 +6593,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/billing-service/src/billing/services/stripe-subscription-provisioner.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/billing-service/src/billing/services/telemetry-capacity.service.ts",
       "prettier_managed": true
     },
@@ -36225,6 +36231,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/zcode/2026-09-07-operator-provisioned-tenants-have-no-stripe-objects.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/zcode/2026-09-07-reconcile-lane-refuses-its-own-success.md",
       "prettier_managed": true
     },
@@ -46257,6 +46269,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/stripe-calls-via-canonical-client.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/stripe-subscription-mint-single-source.spec.ts",
       "prettier_managed": true
     },
     {

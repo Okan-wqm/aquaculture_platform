@@ -74,39 +74,73 @@ describe('INVARIANT (BILLING-CRITICAL-001): StripeApiService is the only outboun
     }
   });
 
-  it('the money handlers INJECT and CALL the canonical StripeApiService (not the dead service)', () => {
+  it('the money callsites INJECT and CALL the canonical StripeApiService (not the dead service)', () => {
     // W1.1: before this PR the StripeApiService had zero consumers — the invariant
     // passed vacuously while subscriptions were a local-DB no-op. Pin each money
-    // handler to (a) import the canonical service and (b) actually call it on the
+    // callsite to (a) import the canonical service and (b) actually call it on the
     // hot path, so a regression that drops the Stripe call fails CI.
-    const handlers: { file: string; method: string }[] = [
+    //
+    // BILLING-CRITICAL-010 moved the subscription mint out of
+    // create-subscription.handler.ts into StripeSubscriptionProvisionerService so
+    // that the operator-provisioning path could share one copy of the idempotency
+    // keys and the no-price rule. This list follows the calls to where they now
+    // live; it is not relaxed to accommodate the move.
+    const callsites: { file: string; methods: string[] }[] = [
       {
-        file: 'apps/billing-service/src/billing/handlers/create-subscription.handler.ts',
-        method: 'createSubscription',
+        file: 'apps/billing-service/src/billing/services/stripe-subscription-provisioner.service.ts',
+        methods: ['createCustomer', 'createSubscription'],
       },
       {
         file: 'apps/billing-service/src/billing/handlers/cancel-subscription.handler.ts',
-        method: 'cancelSubscription',
+        methods: ['cancelSubscription'],
       },
       {
         file: 'apps/billing-service/src/billing/handlers/refund-payment.handler.ts',
-        method: 'createRefund',
+        methods: ['createRefund'],
       },
       {
         file: 'apps/billing-service/src/billing/handlers/change-subscription-plan.handler.ts',
-        method: 'updateSubscription',
+        methods: ['updateSubscription'],
       },
       {
         file: 'apps/billing-service/src/billing/handlers/finalize-invoice.handler.ts',
-        method: 'finalizeInvoice',
+        methods: ['finalizeInvoice'],
       },
     ];
-    for (const { file, method } of handlers) {
+    for (const { file, methods } of callsites) {
       const src = readFileSync(resolve(REPO_ROOT, file), 'utf8');
       expect(src).toMatch(
         /import\s*\{[^}]*\bStripeApiService\b[^}]*\}\s*from\s*['"]@aquaculture\/backend-common\/billing['"]/,
       );
-      expect(src).toMatch(new RegExp(`this\\.stripeApi\\.${method}\\(`));
+      for (const method of methods) {
+        expect(src).toMatch(new RegExp(`this\\.stripeApi\\.${method}\\(`));
+      }
+    }
+  });
+
+  it('BOTH subscription-creating paths reach Stripe through the shared provisioner', () => {
+    // BILLING-CRITICAL-010: the GraphQL path minted the Stripe objects, but
+    // operator provisioning raw-INSERTed into billing.subscriptions with
+    // stripe_customer_id / stripe_subscription_id omitted from the column list
+    // entirely. Those tenants had a subscription this platform believed in and
+    // Stripe had never heard of — nothing charged them. The previous case above
+    // could not catch that: it pinned one handler and said nothing about the
+    // second writer, so half the platform's subscriptions were a local-DB no-op
+    // while this invariant stayed green.
+    //
+    // Persistence of the returned ids is enforced separately by
+    // tests/invariants/stripe-subscription-mint-single-source.spec.ts; this case
+    // enforces that neither writer can stop calling Stripe at all.
+    const PROVISIONER_IMPORT =
+      /import\s*\{[^}]*\bStripeSubscriptionProvisionerService\b[^}]*\}\s*from\s*['"][^'"]*stripe-subscription-provisioner\.service['"]/;
+    const subscriptionWriters = [
+      'apps/billing-service/src/billing/handlers/create-subscription.handler.ts',
+      'apps/billing-service/src/billing/handlers/billing-admin-nats.handler.ts',
+    ];
+    for (const file of subscriptionWriters) {
+      const src = readFileSync(resolve(REPO_ROOT, file), 'utf8');
+      expect(src).toMatch(PROVISIONER_IMPORT);
+      expect(src).toMatch(/\bensureStripeObjects\(/);
     }
   });
 

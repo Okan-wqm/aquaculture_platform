@@ -36219,6 +36219,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/zcode/2026-09-07-billing-cycle-price-agreement.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/zcode/2026-09-07-stripe-webhook-tenant-resolution.md",
       "prettier_managed": true
     },
@@ -38358,6 +38364,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/billing/__tests__/billing-cycle-terms.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/billing/__tests__/canary-tenant.registry.spec.ts",
       "prettier_managed": true
     },
@@ -38371,6 +38383,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/billing/__tests__/stripe-api.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/billing/billing-cycle-terms.ts",
       "prettier_managed": true
     },
     {
@@ -45021,6 +45039,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/backup-ssh-broker-contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/billing-cycle-terms-single-source.spec.ts",
       "prettier_managed": true
     },
     {

@@ -265,23 +265,18 @@ export class GetTenantBillingHandler
   // ============================================================================
 
   /**
-   * Calculate the effective monthly price from the subscription pricing.
-   * For annual plans, divides by 12.
+   * The effective monthly price of a subscription.
+   *
+   * `pricing.basePrice` IS the monthly rate — create-subscription publishes it
+   * as `monthlyPrice` on SubscriptionCreated, and the invoice scheduler
+   * MULTIPLIES it by the cycle's months to get what a period costs. This method
+   * DIVIDED it by the same number (BILLING-CRITICAL-007), so the two readers of
+   * one column disagreed about its unit and an annual tenant on $49/month was
+   * shown $4.08. There is no conversion to do: the column already holds what
+   * this returns.
    */
   private calculateMonthlyPrice(sub: Subscription): number {
-    const basePrice = Number(sub.pricing?.basePrice ?? 0);
-
-    switch (sub.billingCycle) {
-      case BillingCycle.ANNUAL:
-        return Math.round((basePrice / 12) * 100) / 100;
-      case BillingCycle.SEMI_ANNUAL:
-        return Math.round((basePrice / 6) * 100) / 100;
-      case BillingCycle.QUARTERLY:
-        return Math.round((basePrice / 3) * 100) / 100;
-      case BillingCycle.MONTHLY:
-      default:
-        return basePrice;
-    }
+    return Number(sub.pricing?.basePrice ?? 0);
   }
 
   /**

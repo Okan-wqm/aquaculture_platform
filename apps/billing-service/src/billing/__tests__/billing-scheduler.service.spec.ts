@@ -518,7 +518,12 @@ describe('BillingSchedulerService', () => {
       expect(activeSub.currentPeriodEnd.getMonth()).toBe(3); // April
     });
 
-    it('should multiply base price by cycle months for non-monthly billing', async () => {
+    // CORRECTED, not adapted (BILLING-CRITICAL-007). This case asserted
+    // `100 * 3 = 300` for a QUARTERLY subscription, which is the price the
+    // scheduler charged and 5% above the price the operator's quote states.
+    // The assertion encoded the defect, so 285 is the correction — the same
+    // number `PricingCalculatorService` has always quoted.
+    it('should bill a non-monthly cycle at the quoted price, commitment discount included', async () => {
       const quarterlySub = buildSubscription({
         status: SubscriptionStatus.ACTIVE,
         currentPeriodEnd: PAST,
@@ -531,7 +536,11 @@ describe('BillingSchedulerService', () => {
       await service.generateMonthlyInvoices();
 
       const createdInvoice = (invRepo.create as jest.Mock).mock.calls[0][0];
-      expect(createdInvoice.total.equals(300)).toBe(true); // 100 * 3
+      // Gross stays on the line item; the commitment discount is named.
+      expect(createdInvoice.subtotal.equals(300)).toBe(true); // 100 * 3
+      expect(createdInvoice.discount.equals(15)).toBe(true); // 5% quarterly
+      expect(createdInvoice.total.equals(285)).toBe(true);
+      expect(createdInvoice.amountDue.equals(285)).toBe(true);
     });
 
     it('should generate invoice number with INV- prefix', async () => {

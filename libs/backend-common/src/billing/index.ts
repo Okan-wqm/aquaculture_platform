@@ -49,3 +49,13 @@ export * from './canary-tenant.registry';
 // inbound webhook consumers import, plus the hint reader that keeps the value
 // out of authoritative tenant resolution.
 export { STRIPE_TENANT_METADATA_KEY, readStripeTenantHint } from './stripe-metadata';
+// BILLING-CRITICAL-007 cure: the commercial terms of a billing cycle, shared by
+// the service that quotes a price and the service that invoices it.
+export {
+  BILLING_CYCLES,
+  BILLING_CYCLE_MONTHS,
+  BILLING_CYCLE_COMMITMENT_DISCOUNT,
+  cycleAmountFor,
+  isBillingCycleValue,
+} from './billing-cycle-terms';
+export type { BillingCycleValue, CycleAmount } from './billing-cycle-terms';

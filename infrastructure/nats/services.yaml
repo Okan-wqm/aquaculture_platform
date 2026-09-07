@@ -25,6 +25,7 @@ services:
   - $JS.API.STREAM.UPDATE.>
   - $JS.API.CONSUMER.>
   - _INBOX.>
+  - events.*.ServiceErrorCaptured
   subscribe:
   - request.auth.user.validateTenantMembership
   - request.auth.>
@@ -137,6 +138,7 @@ services:
   - $JS.API.STREAM.UPDATE.>
   - $JS.API.CONSUMER.>
   - _INBOX.>
+  - events.*.ServiceErrorCaptured
   subscribe:
   - request.farm.createTask
   - request.farm.getTankRegistry
@@ -187,6 +189,7 @@ services:
   - $JS.API.STREAM.UPDATE.>
   - $JS.API.CONSUMER.>
   - _INBOX.>
+  - events.*.ServiceErrorCaptured
   subscribe:
   - request.sensor.>
   - telemetry.>
@@ -315,7 +318,9 @@ services:
   - _INBOX.>
   - request.auth.public.requestPasswordReset
   - request.auth.public.resetPassword
+  - events.*.ServiceErrorCaptured
   subscribe:
+  - events.*.ServiceErrorCaptured
   - events.security.events.>
   - events.*.TenantOnboardingAck
   - events.*.TenantOnboardingFailed
@@ -368,6 +373,7 @@ services:
   - $JS.API.STREAM.UPDATE.>
   - $JS.API.CONSUMER.>
   - _INBOX.>
+  - events.*.ServiceErrorCaptured
   subscribe:
   - commands.notification.sendEmail
   - commands.notification.sendPush
@@ -396,6 +402,7 @@ services:
   - $JS.API.STREAM.UPDATE.>
   - $JS.API.CONSUMER.>
   - _INBOX.>
+  - events.*.ServiceErrorCaptured
   subscribe:
   - request.ai.chat
   - request.ai.executeAction
@@ -438,6 +445,7 @@ services:
   - $JS.API.STREAM.UPDATE.>
   - $JS.API.CONSUMER.>
   - _INBOX.>
+  - events.*.ServiceErrorCaptured
   subscribe:
   - request.billing.admin.>
   - request.billing.tenant.>
@@ -466,6 +474,7 @@ services:
   - $JS.API.STREAM.UPDATE.>
   - $JS.API.CONSUMER.>
   - _INBOX.>
+  - events.*.ServiceErrorCaptured
   subscribe:
   - $JS.API.STREAM.INFO.>
   - $JS.API.STREAM.CREATE.>
@@ -509,6 +518,7 @@ services:
   - $JS.API.STREAM.UPDATE.>
   - $JS.API.CONSUMER.>
   - _INBOX.>
+  - events.*.ServiceErrorCaptured
   subscribe:
   - $JS.API.STREAM.INFO.>
   - $JS.API.STREAM.CREATE.>
@@ -565,6 +575,7 @@ services:
   - $JS.API.STREAM.UPDATE.>
   - $JS.API.CONSUMER.>
   - _INBOX.>
+  - events.*.ServiceErrorCaptured
   subscribe:
   - request.messaging.verifyMembership
   - request.messaging.getChannelMembers
@@ -602,6 +613,7 @@ services:
   - $JS.API.STREAM.UPDATE.>
   - $JS.API.CONSUMER.>
   - _INBOX.>
+  - events.*.ServiceErrorCaptured
   subscribe:
   - $JS.API.STREAM.INFO.>
   - $JS.API.STREAM.CREATE.>
@@ -619,6 +631,7 @@ services:
   - $JS.API.STREAM.UPDATE.>
   - $JS.API.CONSUMER.>
   - _INBOX.>
+  - events.*.ServiceErrorCaptured
   subscribe:
   - events.platform.schema-migration.>
   - events.security.events.>
@@ -644,6 +657,7 @@ services:
   - $JS.API.STREAM.UPDATE.>
   - $JS.API.CONSUMER.>
   - _INBOX.>
+  - events.*.ServiceErrorCaptured
   subscribe:
   - config.runtime.get
   - config.runtime.get_secret
@@ -668,6 +682,7 @@ services:
   - $JS.API.STREAM.UPDATE.>
   - $JS.API.CONSUMER.>
   - _INBOX.>
+  - events.*.ServiceErrorCaptured
   subscribe:
   - $JS.API.STREAM.INFO.>
   - $JS.API.STREAM.CREATE.>

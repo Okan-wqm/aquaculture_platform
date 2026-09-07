@@ -5741,22 +5741,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/system/errors/report": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["ErrorTrackingController_reportError"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/system/errors/groups": {
         parameters: {
             query?: never;
@@ -8022,7 +8006,7 @@ export interface components {
             title: string;
             content: string;
             /** @enum {string} */
-            type: "info" | "warning" | "critical" | "maintenance";
+            type: "info" | "critical" | "warning" | "maintenance";
             /** @enum {string} */
             status: "draft" | "cancelled" | "expired" | "scheduled" | "published";
             isGlobal: boolean;
@@ -8063,7 +8047,7 @@ export interface components {
             title: string;
             content: string;
             /** @enum {string} */
-            type: "info" | "warning" | "critical" | "maintenance";
+            type: "info" | "critical" | "warning" | "maintenance";
             isGlobal: boolean;
             targetCriteria?: Record<string, never>;
             publishAt?: string;
@@ -8074,7 +8058,7 @@ export interface components {
             title?: string;
             content?: string;
             /** @enum {string} */
-            type?: "info" | "warning" | "critical" | "maintenance";
+            type?: "info" | "critical" | "warning" | "maintenance";
             isGlobal?: boolean;
             targetCriteria?: Record<string, never>;
             publishAt?: string;
@@ -8264,7 +8248,7 @@ export interface components {
             /** @enum {string} */
             category: "authentication" | "configuration" | "user_action" | "system_event" | "api_call" | "data_access" | "security_event";
             /** @enum {string} */
-            severity: "debug" | "error" | "info" | "warning" | "critical";
+            severity: "debug" | "error" | "info" | "critical" | "warning";
             action: string;
             description: string;
             entityType?: string | null;
@@ -8347,7 +8331,7 @@ export interface components {
             isActive?: boolean;
             conditions?: {
                 category?: ("authentication" | "configuration" | "user_action" | "system_event" | "api_call" | "data_access" | "security_event")[];
-                severity?: ("debug" | "error" | "info" | "warning" | "critical")[];
+                severity?: ("debug" | "error" | "info" | "critical" | "warning")[];
                 actions?: string[];
                 entityTypes?: string[];
                 successOnly?: boolean;
@@ -8980,54 +8964,6 @@ export interface components {
             durationMs: number;
             isError: boolean;
         };
-        ReportErrorDto: {
-            /**
-             * Format: uuid
-             * @description Tenant id. Resolved and verified server-side before the handler runs; the value a handler uses never comes from this key.
-             */
-            tenantId?: string;
-            message: string;
-            errorType?: string;
-            stackTrace?: string;
-            /** @enum {string} */
-            severity?: "debug" | "info" | "warning" | "error" | "critical" | "fatal";
-            context?: Record<string, never>;
-            service?: string;
-            environment?: string;
-            release?: string;
-            userId?: string;
-            ipAddress?: string;
-            userAgent?: string;
-            metadata?: {
-                [key: string]: unknown;
-            };
-        };
-        ErrorOccurrence: {
-            id: string;
-            groupId: string;
-            fingerprint: string;
-            /** @enum {string} */
-            severity: "debug" | "info" | "warning" | "error" | "critical" | "fatal";
-            message: string;
-            errorType?: string;
-            stackTrace?: string;
-            stackFrames?: Record<string, never>[];
-            context?: Record<string, never>;
-            service?: string;
-            environment?: string;
-            release?: string;
-            tenantId?: string;
-            userId?: string;
-            ipAddress?: string;
-            userAgent?: string;
-            metadata?: {
-                [key: string]: unknown;
-            };
-            /** Format: date-time */
-            timestamp: string;
-            /** Format: date-time */
-            createdAt: string;
-        };
         ErrorGroup: {
             id: string;
             fingerprint: string;
@@ -9082,6 +9018,32 @@ export interface components {
         MergeErrorGroupsDto: {
             targetId: string;
             sourceIds: string[];
+        };
+        ErrorOccurrence: {
+            id: string;
+            groupId: string;
+            fingerprint: string;
+            /** @enum {string} */
+            severity: "debug" | "info" | "warning" | "error" | "critical" | "fatal";
+            message: string;
+            errorType?: string;
+            stackTrace?: string;
+            stackFrames?: Record<string, never>[];
+            context?: Record<string, never>;
+            service?: string;
+            environment?: string;
+            release?: string;
+            tenantId?: string;
+            userId?: string;
+            ipAddress?: string;
+            userAgent?: string;
+            metadata?: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            timestamp: string;
+            /** Format: date-time */
+            createdAt: string;
         };
         ErrorAlertRule: {
             id: string;
@@ -18188,29 +18150,6 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
-            };
-        };
-    };
-    ErrorTrackingController_reportError: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ReportErrorDto"];
-            };
-        };
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorOccurrence"];
-                };
             };
         };
     };

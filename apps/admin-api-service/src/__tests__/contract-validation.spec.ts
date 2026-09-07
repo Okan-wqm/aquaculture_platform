@@ -990,7 +990,14 @@ describe('Frontend-Backend Contract Validation', () => {
     // ran only when a SUPER_ADMIN pressed a button; it now runs from the
     // `events.security.events.auth.login.*` stream on every real attempt, so
     // the route had nothing left to trigger (ADMIN-HIGH-109).
-    expect(count).toBe(461);
+    // 460: -1 for POST /system/errors/report, whose replacement is the
+    // `events.*.ServiceErrorCaptured` stream every service publishes: a defect
+    // reaches the store because it happened, not because something remembered
+    // to POST it. The audit wave counted -3 here, expecting to retire
+    // `admin.user_sessions`' two session routes in the same change; main had
+    // already deleted them (ADMIN-HIGH-100), so they are in the baseline and
+    // only this one moves.
+    expect(count).toBe(460);
   });
 
   it('frontend endpoint snapshot should be up to date', () => {

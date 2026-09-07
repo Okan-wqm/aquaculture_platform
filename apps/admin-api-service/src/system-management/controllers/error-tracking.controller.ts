@@ -3,7 +3,6 @@ import {
   CreateAlertRuleDto,
   MergeErrorGroupsDto,
   QueryErrorGroupsDto,
-  ReportErrorDto,
   ResolveErrorGroupDto,
   UpdateErrorAlertRuleDto,
   UpdateErrorGroupDto,
@@ -87,14 +86,16 @@ export class ErrorTrackingController {
 
   // ============================================================================
   // Error Reporting
+  //
+  // `POST report` is gone (ADMIN-HIGH-014). It was the only entry point to
+  // `reportError` and it had zero callers, which was structural rather than
+  // accidental: the route sits behind the global `PlatformAdminGuard` plus
+  // `@RequiresCapability('security-ops')`, and a service that has just thrown
+  // cannot authenticate as a platform admin. Errors now arrive as
+  // `events.*.ServiceErrorCaptured` and are folded in by
+  // `ErrorCaptureProjectionHandler` — asynchronously, so admin-api's database
+  // is not on the synchronous failure path of every other service.
   // ============================================================================
-
-  @AuditedOperation({ resource: 'ErrorTracking', action: 'REPORT_ERROR' })
-  @RequiresCapability('security-ops')
-  @Post('report')
-  async reportError(@Body() dto: ReportErrorDto) {
-    return this.errorTrackingService.reportError(dto);
-  }
 
   // ============================================================================
   // Error Groups

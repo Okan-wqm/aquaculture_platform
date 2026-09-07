@@ -18,6 +18,7 @@
  *
  * @see docs/architecture/ADR-013-nestjs-v11-upgrade.md
  */
+import { TenantConnectionLimiter, WsTokenRevalidator } from '@aquaculture/backend-common/websocket';
 import { Test, TestingModule } from '@nestjs/testing';
 import {
   INestApplication,
@@ -34,7 +35,6 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService, JwtModule } from '@nestjs/jwt';
-import { TenantConnectionLimiter, WsTokenRevalidator } from '@aquaculture/backend-common/websocket';
 import request from 'supertest';
 import { Request, Response, NextFunction } from 'express';
 import type { Server } from 'http';
@@ -799,7 +799,7 @@ const mockConfigService = {
 const newConnectionLimiter = (): TenantConnectionLimiter => new TenantConnectionLimiter();
 
 const newTokenRevalidator = (): WsTokenRevalidator =>
-  new WsTokenRevalidator({ isStillValid: async () => true });
+  new WsTokenRevalidator({ isStillValid: () => Promise.resolve(true) });
 
 describe('5. WebSocket Gateway Initialization', () => {
   describe('MessagingGateway', () => {

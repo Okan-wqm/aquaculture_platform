@@ -111,12 +111,30 @@ export interface RetentionPolicy {
 
 const registeredPolicies = new Map<string, RetentionPolicy>();
 
-function entityTargets(entity: Function): Function[] {
-  const targets: Function[] = [];
-  let current: Function | null = entity;
-  while (current && current !== Function.prototype && current !== Object) {
-    targets.push(current);
-    current = Object.getPrototypeOf(current) as Function | null;
+/**
+ * An entity class or any class above it in the prototype chain. TypeORM keys
+ * column metadata on whichever class in that chain declared the column, and a
+ * base class there may be abstract, so the walk is typed on the widest shape
+ * the chain can hold rather than on `EntityClass<T>`.
+ */
+type EntityClassTarget = abstract new (...args: never[]) => object;
+
+function isEntityClassTarget(value: unknown): value is EntityClassTarget {
+  return typeof value === 'function' && value !== Function.prototype && value !== Object;
+}
+
+/**
+ * The identity set of every class in the entity's prototype chain. Returned as
+ * a set of `unknown` because it is only ever compared against TypeORM's
+ * column-metadata target, which the ORM types as a class OR a string; identity
+ * is the whole question, so widening beats casting either side to match.
+ */
+function entityTargets(entity: EntityClassTarget): ReadonlySet<unknown> {
+  const targets = new Set<unknown>();
+  let current: unknown = entity;
+  while (isEntityClassTarget(current)) {
+    targets.add(current);
+    current = Object.getPrototypeOf(current);
   }
   return targets;
 }
@@ -126,7 +144,7 @@ interface ResolvedTable {
   tableName: string;
 }
 
-function resolveTable(entity: Function, policyId: string): ResolvedTable {
+function resolveTable(entity: EntityClassTarget, policyId: string): ResolvedTable {
   const table = getMetadataArgsStorage().tables.find((t) => t.target === entity);
   if (!table) {
     throw new TypeError(
@@ -146,10 +164,10 @@ function resolveTable(entity: Function, policyId: string): ResolvedTable {
   return { schema: table.schema, tableName: table.name };
 }
 
-function resolveColumn(entity: Function, property: string, policyId: string): string {
+function resolveColumn(entity: EntityClassTarget, property: string, policyId: string): string {
   const targets = entityTargets(entity);
   const column = getMetadataArgsStorage().columns.find(
-    (c) => targets.includes(c.target as Function) && c.propertyName === property,
+    (c) => targets.has(c.target) && c.propertyName === property,
   );
   if (!column) {
     throw new TypeError(
@@ -163,12 +181,11 @@ function resolveColumn(entity: Function, property: string, policyId: string): st
   return physical;
 }
 
-function entityDeclaresLegalHold(entity: Function): boolean {
+function entityDeclaresLegalHold(entity: EntityClassTarget): boolean {
   const targets = entityTargets(entity);
   return getMetadataArgsStorage().columns.some(
     (c) =>
-      targets.includes(c.target as Function) &&
-      (c.propertyName === 'legalHold' || c.options.name === 'legalHold'),
+      targets.has(c.target) && (c.propertyName === 'legalHold' || c.options.name === 'legalHold'),
   );
 }
 

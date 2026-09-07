@@ -288,9 +288,11 @@ export class AppModule implements NestModule {
     //    x-user-id / x-user-roles / x-tenant-id from req.headers so
     //    UserContextMiddleware cannot pick up a forged SUPER_ADMIN
     //    payload from a Docker-network attacker. The Stripe webhook
-    //    controller is @Public() and previously trusted unvalidated
-    //    metadata.tenantId — closing this header path closes the
-    //    forge-on-public-route surface SECREV-CRITICAL-001 references.
+    //    controller is @Public(), so this closes the forge-on-public-route
+    //    half of SECREV-CRITICAL-001. The other half — the tenant read out
+    //    of the payload's own metadata bag — is closed in
+    //    controllers/stripe-webhook.service.ts, which resolves the tenant
+    //    from the local row owning the Stripe object.
     // 1. VerifiedUserAssertionMiddleware (SEC-HIGH-156) - resolve req.user /
     //    req.tenantId from the gateway-signed verified-user assertion.
     // 2. UserContextMiddleware - Parse x-user-payload header from gateway (sets req.user)

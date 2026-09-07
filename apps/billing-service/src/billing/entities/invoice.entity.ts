@@ -217,7 +217,11 @@ export class Invoice {
   @Column({ type: 'text', nullable: true })
   notes?: string;
 
+  // SECREV-CRITICAL-001: payment_intent.* falls back to resolving the owning
+  // invoice (and therefore the tenant) from this column alone — see the note
+  // on Payment.stripeChargeId. Partial so local-only invoices keep NULL.
   @HideField()
+  @Index('IDX_invoice_stripe_invoice', { unique: true, where: '"stripe_invoice_id" IS NOT NULL' })
   @Column({ nullable: true, name: 'stripe_invoice_id' })
   stripeInvoiceId?: string;
 

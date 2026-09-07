@@ -1,4 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Money } from '@aquaculture/backend-common/monetary';
+import { cycleAmountFor } from '@aquaculture/backend-common/billing';
 
 import { ModulePricing } from '../entities/module-pricing.entity';
 import { PlanTier, BillingCycle } from '../entities/plan-definition.entity';
@@ -98,24 +100,18 @@ const METRIC_TO_QUANTITY_MAP: Partial<Record<PricingMetricType, keyof ModuleQuan
 };
 
 /**
- * Billing cycle multipliers (months per cycle)
+ * The currency this calculator quotes in. It was already hardcoded to USD in the
+ * returned calculation; naming it makes the Money arithmetic below use the same
+ * one rather than introduce a second assumption.
  */
-const BILLING_CYCLE_MONTHS: Record<BillingCycle, number> = {
-  [BillingCycle.MONTHLY]: 1,
-  [BillingCycle.QUARTERLY]: 3,
-  [BillingCycle.SEMI_ANNUAL]: 6,
-  [BillingCycle.ANNUAL]: 12,
-};
+const QUOTE_CURRENCY = 'USD';
 
-/**
- * Billing cycle discounts
- */
-const BILLING_CYCLE_DISCOUNTS: Record<BillingCycle, number> = {
-  [BillingCycle.MONTHLY]: 0,
-  [BillingCycle.QUARTERLY]: 0.05, // 5% discount
-  [BillingCycle.SEMI_ANNUAL]: 0.1, // 10% discount
-  [BillingCycle.ANNUAL]: 0.15, // 15% discount
-};
+// BILLING-CRITICAL-007: the months-per-cycle and commitment-discount tables used
+// to live here as local constants, and billing-service's invoice scheduler
+// carried its own copy of the first and none of the second — so a quote approved
+// here was invoiced 15% higher there, every year. Both sides now read the same
+// terms from backend-common, and `cycleAmountFor` is the one place the
+// arithmetic happens.
 
 /**
  * Pricing Calculator Service
@@ -163,19 +159,18 @@ export class PricingCalculatorService {
       totalTierDiscount += breakdown.tierDiscount;
     }
 
-    // Apply billing cycle
-    const cycleMonths = BILLING_CYCLE_MONTHS[billingCycle];
-    const cycleDiscount = BILLING_CYCLE_DISCOUNTS[billingCycle];
-
     // Calculate monthly total (after tier discounts)
     const monthlyTotal = subtotal - totalTierDiscount;
 
-    // Calculate cycle total
-    let cycleTotal = monthlyTotal * cycleMonths;
-
-    // Apply cycle discount
-    const cycleDiscountAmount = cycleTotal * cycleDiscount;
-    cycleTotal -= cycleDiscountAmount;
+    // Price the requested cycle through the shared commercial terms — the same
+    // function billing-service's invoice scheduler uses, so what is quoted here
+    // is what gets invoiced there.
+    const monthlyMoney = Money.of(monthlyTotal, QUOTE_CURRENCY);
+    const cycle = cycleAmountFor(monthlyMoney, billingCycle);
+    const cycleMonths = cycle.months;
+    const cycleDiscount = cycle.discountRate;
+    const cycleDiscountAmount = cycle.commitmentDiscount.toDecimal().toNumber();
+    let cycleTotal = cycle.net.toDecimal().toNumber();
 
     // Apply discount code
     let discountAmount = 0;
@@ -210,10 +205,14 @@ export class PricingCalculatorService {
       taxRate,
       total,
       monthlyTotal,
-      annualTotal: monthlyTotal * 12 * (1 - cycleDiscount),
+      // The annual figure shown beside any quote is what an ANNUAL commitment
+      // costs. It used to apply whichever rate the REQUESTED cycle carried, so a
+      // monthly quote computed it at 0% and overstated the annual price by 15% —
+      // making the commitment look worse than it is.
+      annualTotal: cycleAmountFor(monthlyMoney, 'annual').net.toDecimal().toNumber(),
       billingCycle,
       billingCycleMultiplier: cycleMonths,
-      currency: 'USD',
+      currency: QUOTE_CURRENCY,
       tier,
       calculatedAt: new Date(),
     };

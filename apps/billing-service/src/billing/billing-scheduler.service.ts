@@ -5,7 +5,11 @@ import { Repository, DataSource, LessThanOrEqual, LessThan, In } from 'typeorm';
 import { NatsEventBus } from '@platform/event-bus';
 import { toEventIso, createBaseEvent, InvoiceGeneratedEvent } from '@platform/event-contracts';
 import { Money } from '@aquaculture/backend-common/monetary';
-import { StripeApiService } from '@aquaculture/backend-common/billing';
+import {
+  StripeApiService,
+  cycleAmountFor,
+  BILLING_CYCLE_MONTHS,
+} from '@aquaculture/backend-common/billing';
 import { Subscription, SubscriptionStatus, BillingCycle } from './entities/subscription.entity';
 import { Plan } from './entities/plan.entity';
 import { ScheduledPlanChange, ScheduledChangeStatus } from './entities/scheduled-plan-change.entity';
@@ -286,23 +290,36 @@ export class BillingSchedulerService {
           continue;
         }
 
-        // Build line items from subscription pricing using Money
+        // Build line items from subscription pricing using Money.
+        //
+        // `pricing.basePrice` is the MONTHLY rate by contract — create-subscription
+        // publishes it as `monthlyPrice` on SubscriptionCreated — so the cycle
+        // amount is derived, never read. `cycleAmountFor` is the same function the
+        // operator's quote goes through, which is what stops the invoice from
+        // charging above the agreed price (BILLING-CRITICAL-007).
         const pricingCurrency = sub.pricing.currency || 'USD';
-        const basePriceMoney = Money.of(sub.pricing.basePrice || 0, pricingCurrency);
+        const monthlyPrice = Money.of(sub.pricing.basePrice || 0, pricingCurrency);
+        const cycle = cycleAmountFor(monthlyPrice, sub.billingCycle);
         const lineItems = [
           {
-            description: `${sub.planName} - Base subscription`,
+            description:
+              cycle.months > 1
+                ? `${sub.planName} - Base subscription (${cycle.months} months)`
+                : `${sub.planName} - Base subscription`,
             quantity: 1,
-            unitPrice: basePriceMoney.toDecimal().toNumber(),
+            unitPrice: cycle.gross.toDecimal().toNumber(),
           },
         ];
 
-        // Calculate cycle multiplier for non-monthly billing
-        const cycleMonths = this.cycleToMonths(sub.billingCycle);
-        if (cycleMonths > 1 && lineItems[0]) {
-          lineItems[0].description = `${sub.planName} - Base subscription (${cycleMonths} months)`;
-          lineItems[0].unitPrice = basePriceMoney.multiply(cycleMonths).toDecimal().toNumber();
-        }
+        // The line items are the GROSS cycle amount; the commitment discount is
+        // the invoice's own `discount`, so what the customer was granted is named
+        // on the document rather than folded into a unit price nobody can
+        // reconcile against the quote.
+        const lineItemsTotal = lineItems.reduce(
+          (sum, item) => sum.add(Money.of(item.unitPrice, pricingCurrency).multiply(item.quantity)),
+          Money.zero(pricingCurrency),
+        );
+        const invoiceTotal = lineItemsTotal.subtract(cycle.commitmentDiscount);
 
         // Generate invoice number
         const invoiceNumber = this.generateInvoiceNumber(sub.tenantId);
@@ -333,19 +350,14 @@ export class BillingSchedulerService {
               amount: lineMoney.toDecimal().toNumber(),
             };
           }),
-          subtotal: lineItems.reduce(
-            (sum, item) => sum.add(Money.of(item.unitPrice, pricingCurrency).multiply(item.quantity)),
-            Money.zero(pricingCurrency),
-          ).toDecimal(),
-          total: lineItems.reduce(
-            (sum, item) => sum.add(Money.of(item.unitPrice, pricingCurrency).multiply(item.quantity)),
-            Money.zero(pricingCurrency),
-          ).toDecimal(),
+          subtotal: lineItemsTotal.toDecimal(),
+          // Always written, including the monthly zero: a stored 0 says the
+          // commitment discount was computed and none applied, where NULL would
+          // be indistinguishable from an invoice issued before this rule existed.
+          discount: cycle.commitmentDiscount.toDecimal(),
+          total: invoiceTotal.toDecimal(),
           amountPaid: Money.zero(pricingCurrency).toDecimal(),
-          amountDue: lineItems.reduce(
-            (sum, item) => sum.add(Money.of(item.unitPrice, pricingCurrency).multiply(item.quantity)),
-            Money.zero(pricingCurrency),
-          ).toDecimal(),
+          amountDue: invoiceTotal.toDecimal(),
           currency: pricingCurrency,
           issueDate: now,
           dueDate,
@@ -465,17 +477,7 @@ export class BillingSchedulerService {
   // ─── Helpers ─────────────────────────────────────────────────────────
 
   private calculatePeriodEnd(startDate: Date, billingCycle: BillingCycle): Date {
-    const months = this.cycleToMonths(billingCycle);
-    return this.addMonthsClamped(startDate, months);
-  }
-
-  private cycleToMonths(billingCycle: BillingCycle): number {
-    switch (billingCycle) {
-      case BillingCycle.MONTHLY:     return 1;
-      case BillingCycle.QUARTERLY:   return 3;
-      case BillingCycle.SEMI_ANNUAL: return 6;
-      case BillingCycle.ANNUAL:      return 12;
-    }
+    return this.addMonthsClamped(startDate, BILLING_CYCLE_MONTHS[billingCycle]);
   }
 
   /**

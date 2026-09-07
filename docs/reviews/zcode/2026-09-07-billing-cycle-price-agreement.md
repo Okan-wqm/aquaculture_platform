@@ -110,7 +110,9 @@ second table sat outside its sight.
 
 `plan-definition.service.ts:421-484` seeds each tier's per-cycle terms as an integer percent —
 `quarterly: 10`, `semiAnnual: 15`, `annual: 20` — with absolute per-cycle base prices that agree
-with those rates. Starter is monthly 99: quarterly 267 is 10.1% off 297, annual 950 is 20.0% off 1188. The pricing calculator applies 5/10/15. Two internally coherent price books, differing.
+with those rates: Starter's monthly 99 becomes a quarterly 267, which is 10.1% off 297, and an
+annual 950, which is 20.0% off 1188. The pricing calculator applies 5/10/15. Two internally
+coherent price books, differing.
 
 Nothing reads a plan definition's per-cycle `discountPercent`. The only readers of that field name
 are `custom-plan.service.ts` and `custom-plan.entity.ts`, which is a custom plan's own discount — a

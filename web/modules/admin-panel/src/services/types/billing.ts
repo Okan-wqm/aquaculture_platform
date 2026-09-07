@@ -437,12 +437,6 @@ export interface CustomPlanFilter {
 /** Custom plans arrive under the platform page contract like every other list. */
 export type PaginatedCustomPlans = PaginatedResult<CustomPlan>;
 
-/** Generated from the backend contract (CONTRACT-CRITICAL-003). */
-export type CreateCustomPlanDto = ApiSchema<'CreateCustomPlanDto'>;
-
-/** Generated from the backend contract (CONTRACT-CRITICAL-003). */
-export type UpdateCustomPlanDto = ApiSchema<'UpdateCustomPlanDto'>;
-
 // ============================================================================
 // Usage Metering Types
 // ============================================================================

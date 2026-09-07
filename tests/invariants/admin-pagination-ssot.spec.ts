@@ -73,6 +73,7 @@ const DECLARATION_EXEMPT = [
   // (c) still apply to them, so the page arithmetic stays in one place.
   'apps/admin-api-service/src/billing/dto/discount-response.dto.ts',
   'apps/admin-api-service/src/billing/dto/module-price-response.dto.ts',
+  'apps/admin-api-service/src/billing/dto/custom-plan-response.dto.ts',
 ];
 
 function productionFiles(): string[] {

@@ -59,20 +59,27 @@ export class ModulePriceResponseDto {
 }
 
 /**
- * The page contract as the swagger plugin can see it — see the same note on
- * `DiscountCodePageDto`. `@platform/pagination-contracts` still owns the shape
- * and is the only place that CONSTRUCTS one; `implements PaginationResultV1<…>`
- * is the compile-time binding, and this file carries the matching declaration
- * exemption in `tests/invariants/admin-pagination-ssot.spec.ts`.
+ * The page contract as the swagger plugin can see it (ADMIN-HIGH-004).
+ *
+ * `@platform/pagination-contracts` owns the shape and is the only place that
+ * CONSTRUCTS one — this class never assembles a page, it only restates the
+ * field set so `@nestjs/swagger` can type the response. The plugin reads
+ * declared property types from a class in a `.dto.ts` file; it can generate
+ * nothing from `PaginationResultV1<T>`, a generic alias in a library, which is
+ * why every paginated admin route before these was typed `{type: object}` in
+ * the artifact. `implements PaginationResultV1<…>` is the compile-time binding:
+ * a field added to the authority is an error here, not a silent omission on the
+ * wire. Same rationale, and the same declaration exemption, as the GraphQL
+ * bridge at `libs/backend-common/src/pagination/pagination.dto.ts`.
  */
 export class ModulePricePageDto implements PaginationResultV1<ModulePriceResponseDto> {
-  items!: ModulePriceResponseDto[];
-  total!: number;
-  page!: number;
-  limit!: number;
-  totalPages!: number;
-  hasNextPage!: boolean;
-  hasPreviousPage!: boolean;
+  readonly items!: readonly ModulePriceResponseDto[];
+  readonly total!: number;
+  readonly page!: number;
+  readonly limit!: number;
+  readonly totalPages!: number;
+  readonly hasNextPage!: boolean;
+  readonly hasPreviousPage!: boolean;
 }
 
 export class SeedModulePricesResultDto {

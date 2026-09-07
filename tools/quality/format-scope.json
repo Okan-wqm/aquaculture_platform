@@ -2639,12 +2639,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/admin-api-service/src/shared/structured-logger.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/admin-api-service/src/support/controllers/announcement.controller.ts",
       "prettier_managed": true
     },
@@ -46377,6 +46371,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/stripe-webhook-tenant-resolution.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/structured-logger-single-authority.spec.ts",
       "prettier_managed": true
     },
     {

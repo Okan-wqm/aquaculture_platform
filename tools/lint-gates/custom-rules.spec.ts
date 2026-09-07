@@ -26,6 +26,7 @@ import { describe, it } from 'node:test';
 import { RuleTester } from 'eslint';
 
 import { rules } from '../eslint-rules';
+import noActorInInputDto from '../eslint-rules/rules/no-actor-in-input-dto';
 import noBareGraphqlQueryString from '../eslint-rules/rules/no-bare-graphql-query-string';
 import noBareTenantQueryKey from '../eslint-rules/rules/no-bare-tenant-query-key';
 import noClaudeSdkRawCall from '../eslint-rules/rules/no-claude-sdk-raw-call';
@@ -33,7 +34,6 @@ import noDirectEventPublish from '../eslint-rules/rules/no-direct-event-publish'
 import noHighCardinalityMetricLabel from '../eslint-rules/rules/no-high-cardinality-metric-label';
 import noUnpinnedSsrfFetch from '../eslint-rules/rules/no-unpinned-ssrf-fetch';
 import noUnsandboxedHtmlFrame from '../eslint-rules/rules/no-unsandboxed-html-frame';
-import noActorInInputDto from '../eslint-rules/rules/no-actor-in-input-dto';
 import requireEntitySchema from '../eslint-rules/rules/require-entity-schema';
 
 // Bind RuleTester's static hooks to node:test so the cases run under the

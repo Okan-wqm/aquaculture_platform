@@ -9,7 +9,8 @@
 **Resolves:**
 
 - db-audit-platform-admin#DB-ADMIN-CRITICAL-001, #DB-ADMIN-CRITICAL-003, #DB-ADMIN-HIGH-106;
-  database-reviewer#DB-REVIEW-001; audit-trail-completeness-auditor#TRAIL-013, #TRAIL-018, #TRAIL-032
+  database-reviewer#DB-REVIEW-001; audit-trail-completeness-auditor#TRAIL-013, #TRAIL-018,
+  #TRAIL-032
 
 **Finding reference:** docs/reviews/admin-expert/2026-09-05-superadmin-audit.md#DATA-CRITICAL-015
 
@@ -62,7 +63,25 @@ targeting that entity.
 
 ## Implementation note (landed 2026-09-05)
 
-- The principle governs a named registry, not `PROTECTED_TABLES` as a whole. `PROTECTED_TABLES` guards DDL (no DROP/TRUNCATE/DROP COLUMN without a compliance waiver) and legitimately holds mutable compliance state — GDPR requests, consents, outboxes, event-store snapshots. Applying "write-once at row granularity" to that list would have unprotected them. `WORM_LEDGERS` (`libs/backend-common/src/constants/protected-tables.ts`), typed as a subset of `PROTECTED_TABLES`, is the set the two conditions define; `tests/invariants/audit-immutability-triggers.spec.ts` iterates it and asserts, per entry, `id` + `legalHold` on the entity, no lifecycle flag, canonical statements applied by an effective migration anywhere in the fleet, and no repository that updates or deletes rows of the entity.
-- Migration 1808600000000 makes `admin.activity_logs` and `admin.tenant_activities` WORM ledgers. The `isArchived` / `archivedAt` flags and the 02:00 cron that UPDATEd them are gone (disposal is the retention kernel's, ADR-0012, and both ledgers now register 7-year, legal-hold-aware policies); `tenant_activities.performedBy` is backfilled `'system:legacy'` and NOT NULL. `admin.audit_logs` gains the ten mandatory columns; the admin audit writer populates them under ADMIN-CRITICAL-102.
-- The `018-protected-tables-ssot` citation is repointed at this record rather than creating a second `docs/adr/018-*` file (the number is taken by the edge RBAC model, and filename collisions are the drift CLAUDE.md warns about).
-- Ledgers with older hand-written triggers (`hr.payroll_audit`, `ai.tool_execution_audit`, `alert.alert_audit_log`, `messaging.compliance_audit_log`, `sensor.*_audit_logs`, `farm.tenant_erasure_audit`) stay in `PROTECTED_TABLES` and join `WORM_LEDGERS` only when their owning service applies the canonical statements — each is that service's finding, not this one's.
+- The principle governs a named registry, not `PROTECTED_TABLES` as a whole. `PROTECTED_TABLES`
+  guards DDL (no DROP/TRUNCATE/DROP COLUMN without a compliance waiver) and legitimately holds
+  mutable compliance state — GDPR requests, consents, outboxes, event-store snapshots. Applying
+  "write-once at row granularity" to that list would have unprotected them. `WORM_LEDGERS`
+  (`libs/backend-common/src/constants/protected-tables.ts`), typed as a subset of
+  `PROTECTED_TABLES`, is the set the two conditions define;
+  `tests/invariants/audit-immutability-triggers.spec.ts` iterates it and asserts, per entry, `id` +
+  `legalHold` on the entity, no lifecycle flag, canonical statements applied by an effective
+  migration anywhere in the fleet, and no repository that updates or deletes rows of the entity.
+- Migration 1808600000000 makes `admin.activity_logs` and `admin.tenant_activities` WORM ledgers.
+  The `isArchived` / `archivedAt` flags and the 02:00 cron that UPDATEd them are gone (disposal is
+  the retention kernel's, ADR-0012, and both ledgers now register 7-year, legal-hold-aware
+  policies); `tenant_activities.performedBy` is backfilled `'system:legacy'` and NOT NULL.
+  `admin.audit_logs` gains the ten mandatory columns; the admin audit writer populates them under
+  ADMIN-CRITICAL-102.
+- The `018-protected-tables-ssot` citation is repointed at this record rather than creating a second
+  `docs/adr/018-*` file (the number is taken by the edge RBAC model, and filename collisions are the
+  drift CLAUDE.md warns about).
+- Ledgers with older hand-written triggers (`hr.payroll_audit`, `ai.tool_execution_audit`,
+  `alert.alert_audit_log`, `messaging.compliance_audit_log`, `sensor.*_audit_logs`,
+  `farm.tenant_erasure_audit`) stay in `PROTECTED_TABLES` and join `WORM_LEDGERS` only when their
+  owning service applies the canonical statements — each is that service's finding, not this one's.

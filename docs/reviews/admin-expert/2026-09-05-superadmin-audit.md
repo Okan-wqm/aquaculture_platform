@@ -465,7 +465,7 @@ all three move together with the subscription money path. The allowlist ceiling 
 for that reason — this wave removed no money-in-jsonb site, and saying otherwise would be the audit
 theater the traceability rule exists to prevent.
 
-## BILLING-HIGH-013 — Provisioning still raw-INSERTs a subscription, and no admin billing command is idempotent
+## BILLING-HIGH-014 — Provisioning still raw-INSERTs a subscription, and no admin billing command is idempotent
 
 **State:** OPEN · **Wave:** W4c · **ADR:** 0014
 

@@ -1076,7 +1076,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "846d6a3d88636414d900b69c2b264715b00c661d1410c700409683b1187f06d1",
+      "content_sha256": "09d9e755d56d28948898fc9fe4cc7698739bee417b73fe646bb867023173f94f",
       "hash_policy": "sha256",
       "owner": "admin-openapi-generator",
       "path": "apps/admin-api-service/openapi.json",
@@ -2242,6 +2242,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1810000000000-AdminIpColumnsToInet.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/modules/__tests__/modules.controller.spec.ts",
       "prettier_managed": true
     },
@@ -2471,6 +2477,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/security/services/__tests__/audit-trail.service.sorting.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/security/services/__tests__/security-monitoring-absent-ip.spec.ts",
       "prettier_managed": true
     },
     {
@@ -51215,7 +51227,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "67338d7c1c0b7dd30190f61859a969e98a8fe2b219c57a8db7c914f8b068e0cb",
+      "content_sha256": "18bfd010178073c0aa0965ddcc80fb7d8b685aa7fab9400bf6c9e99f09f3b12a",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/modules/admin-panel/src/services/generated/admin-api.ts",

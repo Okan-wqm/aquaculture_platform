@@ -53,7 +53,8 @@ export interface LogActivityParams {
   entityType?: string;
   entityId?: string;
   entityName?: string;
-  ipAddress: string;
+  /** Absent when the source signal carried no address (ADMIN-HIGH-012). */
+  ipAddress?: string;
   geoLocation?: GeoLocation;
   deviceInfo?: DeviceInfo;
   requestInfo?: RequestInfo;
@@ -369,7 +370,8 @@ export class ActivityLoggingService implements OnModuleInit {
    */
   async recordLoginAttempt(params: {
     email: string;
-    ipAddress: string;
+    /** Absent when the login signal carried no address (ADMIN-HIGH-012). */
+    ipAddress?: string;
     success: boolean;
     failureReason?: string;
     geoLocation?: GeoLocation;
@@ -384,7 +386,7 @@ export class ActivityLoggingService implements OnModuleInit {
       .insert()
       .values({
         email: params.email,
-        ipAddress: params.ipAddress,
+        ipAddress: params.ipAddress ?? null,
         success: params.success,
         failureReason: params.failureReason || null,
         geoLocation: params.geoLocation || null,
@@ -497,7 +499,8 @@ export class ActivityLoggingService implements OnModuleInit {
     statusCode: number;
     responseSize?: number;
     responseTimeMs: number;
-    ipAddress: string;
+    /** Absent when the source signal carried no address (ADMIN-HIGH-012). */
+    ipAddress?: string;
     userAgent?: string;
     geoLocation?: GeoLocation;
     rateLimitRemaining?: number;
@@ -523,7 +526,7 @@ export class ActivityLoggingService implements OnModuleInit {
         statusCode: params.statusCode,
         responseSize: params.responseSize || null,
         responseTimeMs: params.responseTimeMs,
-        ipAddress: params.ipAddress,
+        ipAddress: params.ipAddress ?? null,
         userAgent: params.userAgent || null,
         geoLocation: params.geoLocation || null,
         rateLimitRemaining: params.rateLimitRemaining || null,

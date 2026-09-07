@@ -8414,7 +8414,7 @@ export interface components {
             entityType?: string | null;
             entityId?: string | null;
             entityName?: string | null;
-            ipAddress: string;
+            ipAddress?: string | null;
             geoLocation?: Record<string, never> | null;
             deviceInfo?: Record<string, never> | null;
             requestInfo?: Record<string, never> | null;
@@ -8442,7 +8442,7 @@ export interface components {
         LoginAttempt: {
             id: string;
             email: string;
-            ipAddress: string;
+            ipAddress?: string | null;
             success: boolean;
             failureReason?: string | null;
             geoLocation?: Record<string, never> | null;
@@ -8661,7 +8661,7 @@ export interface components {
             status: "confirmed" | "detected" | "investigating" | "mitigated" | "false_positive" | "escalated";
             title: string;
             description: string;
-            ipAddress: string;
+            ipAddress?: string | null;
             geoLocation?: Record<string, never> | null;
             deviceInfo?: Record<string, never> | null;
             tenantId?: string | null;

@@ -2,6 +2,9 @@ import { createMockDataSource } from '@platform/testing';
 import { DataSource } from 'typeorm';
 
 import { PartitionManagerService } from './partition-manager.service';
+import { createScheduledJobTestExecutor } from '@aquaculture/backend-common/scheduling/testing';
+
+const scheduledJobs = createScheduledJobTestExecutor();
 
 describe('PartitionManagerService', () => {
   it('fails closed when partition DDL fails unexpectedly', async () => {
@@ -15,7 +18,7 @@ describe('PartitionManagerService', () => {
     } as unknown as DataSource;
 
     await expect(
-      new PartitionManagerService(dataSource).onApplicationBootstrap(),
+      new PartitionManagerService(dataSource, scheduledJobs.executor).onApplicationBootstrap(),
     ).rejects.toThrow('"messaging"."messages" is not partitioned');
   });
 
@@ -33,7 +36,7 @@ describe('PartitionManagerService', () => {
       { schema_name: 'tenant_0123456789abcdef' },
     ]);
 
-    await new PartitionManagerService(mockDataSource).onApplicationBootstrap();
+    await new PartitionManagerService(mockDataSource, scheduledJobs.executor).onApplicationBootstrap();
 
     const calls = mockDataSource.query.mock.calls.slice(1);
     expect(calls.length).toBeGreaterThan(0);

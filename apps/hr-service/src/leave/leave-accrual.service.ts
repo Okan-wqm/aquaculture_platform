@@ -1,5 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import { CronExpression } from '@nestjs/schedule';
+import {
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { listTenantSchemas } from '@aquaculture/backend-common/database';
@@ -42,6 +47,7 @@ export class LeaveAccrualService {
     @InjectRepository(Employee)
     private readonly employeeRepository: Repository<Employee>,
     private readonly dataSource: DataSource,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -51,7 +57,10 @@ export class LeaveAccrualService {
   // ---------------------------------------------------------------------------
   // Monthly accrual – 1st of every month at midnight
   // ---------------------------------------------------------------------------
-  @Cron(CronExpression.EVERY_1ST_DAY_OF_MONTH_AT_MIDNIGHT)
+  @ScheduledJob({
+    name: 'leave-accrual.monthly',
+    cron: CronExpression.EVERY_1ST_DAY_OF_MONTH_AT_MIDNIGHT,
+  })
   async processMonthlyAccrual(): Promise<void> {
     this.logger.log('Starting monthly leave accrual processing...');
     const now = new Date();
@@ -243,7 +252,7 @@ export class LeaveAccrualService {
   // ---------------------------------------------------------------------------
   // Year-end rollover – January 1st at midnight
   // ---------------------------------------------------------------------------
-  @Cron('0 0 1 1 *')
+  @ScheduledJob({ name: 'leave-accrual.year-end-rollover', cron: '0 0 1 1 *' })
   async processYearEndRollover(): Promise<void> {
     this.logger.log('Starting year-end leave balance rollover...');
 

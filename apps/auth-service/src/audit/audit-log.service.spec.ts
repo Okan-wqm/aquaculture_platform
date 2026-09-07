@@ -12,6 +12,8 @@ import { DataSource } from 'typeorm';
 import { AuditLog, AuditLogSeverity } from './audit-log.entity';
 import { AuditLogService } from './audit-log.service';
 import { AuditModule } from './audit.module';
+import { ScheduledJobRunner } from '@aquaculture/backend-common/scheduling';
+import { createScheduledJobTestExecutor } from '@aquaculture/backend-common/scheduling/testing';
 
 /**
  * AuditLogService.log — manager-aware overload coverage (FINDING #5 / SEC-MEDIUM-002)
@@ -91,6 +93,7 @@ describe('AuditLogService.log — manager-aware overload (FINDING #5)', () => {
             ),
           },
         },
+        { provide: ScheduledJobRunner, useValue: createScheduledJobTestExecutor().executor },
       ],
     }).compile();
 

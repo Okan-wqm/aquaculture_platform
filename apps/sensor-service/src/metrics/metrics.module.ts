@@ -1,5 +1,5 @@
 import { Module, Global } from '@nestjs/common';
-import { ServiceMetricsService } from '@aquaculture/backend-common/metrics';
+import { CronHeartbeatService, ServiceMetricsService } from '@aquaculture/backend-common/metrics';
 
 import { SensorMetricsController } from './metrics.controller';
 
@@ -12,7 +12,9 @@ import { SensorMetricsController } from './metrics.controller';
 @Global()
 @Module({
   controllers: [SensorMetricsController],
-  providers: [ServiceMetricsService],
-  exports: [ServiceMetricsService],
+  // CronHeartbeatService rides whichever module owns /metrics — see the note
+  // in the shared ServiceMetricsModule. sensor-service has a bespoke one.
+  providers: [ServiceMetricsService, CronHeartbeatService],
+  exports: [ServiceMetricsService, CronHeartbeatService],
 })
 export class SensorMetricsModule {}

@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 
 import {
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
@@ -9,7 +10,11 @@ import {
   ForbiddenException,
   Optional,
 } from '@nestjs/common';
-import { Interval } from '@nestjs/schedule';
+import {
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, EntityManager, In, LessThan } from 'typeorm';
 import {
@@ -106,6 +111,7 @@ export class AutomationService {
     private readonly variableRepo: Repository<ProgramVariable>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
     @Optional()
     private readonly edgeDeviceService: EdgeDeviceService,
     @Optional()
@@ -2776,7 +2782,7 @@ export class AutomationService {
    * Programs in DEPLOYING state for longer than 5 minutes are reverted to
    * APPROVED and their deployment logs are marked as FAILED with a timeout message.
    */
-  @Interval(60_000)
+  @ScheduledJob({ name: 'automation.check-deploy-timeout', every: 60_000 })
   async checkDeployTimeout(): Promise<void> {
     const cutoff = new Date(Date.now() - AutomationService.DEPLOY_TIMEOUT_MS);
 

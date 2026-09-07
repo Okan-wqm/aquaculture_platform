@@ -38,9 +38,28 @@ interface ScheduledJobBaseOptions {
   readonly scope?: ScheduledJobScope;
 }
 
+interface ScheduledCronOptions extends ScheduledJobBaseOptions {
+  readonly cron: string;
+  readonly every?: never;
+  /**
+   * IANA zone the cron expression is read in, e.g. `'UTC'`.
+   *
+   * Omitted means the process's zone, which is what a bare `@Cron` uses and is
+   * only safe while every replica agrees on it. A nightly cleanup written as
+   * `'0 2 * * *'` runs at a different instant on a container started in
+   * Europe/Istanbul than on one in UTC, and nothing reports the difference —
+   * so a job that means a specific hour says which zone that hour is in.
+   */
+  readonly timeZone?: string;
+}
+
 export type ScheduledJobOptions =
-  | (ScheduledJobBaseOptions & { readonly cron: string; readonly every?: never })
-  | (ScheduledJobBaseOptions & { readonly every: number; readonly cron?: never });
+  | ScheduledCronOptions
+  | (ScheduledJobBaseOptions & {
+      readonly every: number;
+      readonly cron?: never;
+      readonly timeZone?: never;
+    });
 
 export function ScheduledJob(options: ScheduledJobOptions) {
   return function decorate<T extends HasScheduledJobRunner>(
@@ -62,7 +81,10 @@ export function ScheduledJob(options: ScheduledJobOptions) {
     descriptor.value = wrapped;
     // The NestJS decorator reads metadata off `descriptor.value`, so it must
     // see the wrapper: the scheduler then invokes the leased, heartbeated tick.
-    const schedule = options.cron !== undefined ? Cron(options.cron) : Interval(options.every);
+    const schedule =
+      options.cron !== undefined
+        ? Cron(options.cron, options.timeZone !== undefined ? { timeZone: options.timeZone } : {})
+        : Interval(options.every);
     schedule(target, propertyKey, descriptor);
   };
 }

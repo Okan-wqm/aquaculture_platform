@@ -1,7 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, LessThan, IsNull, EntityManager } from 'typeorm';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import {
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
 
 import {
   pinTenantTransactionSearchPath,
@@ -51,6 +55,7 @@ export class RetentionPolicyService {
     private readonly auditService: ComplianceAuditService,
     // MSG-CRITICAL-058: retention deletes DB rows AND the MinIO attachment objects.
     private readonly attachmentObjectPurge: AttachmentObjectPurgeService,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
 
   /**
@@ -189,7 +194,7 @@ export class RetentionPolicyService {
    * Iterates all retention policies, deletes expired messages that are
    * not under legal hold, and cascades attachment cleanup.
    */
-  @Cron('0 2 * * *', { name: 'retention-cleanup' })
+  @ScheduledJob({ name: 'messaging-retention.cleanup', cron: '0 2 * * *' })
   async executeRetentionCleanup(): Promise<void> {
     this.logger.log('Starting nightly retention cleanup...');
     const startTime = Date.now();

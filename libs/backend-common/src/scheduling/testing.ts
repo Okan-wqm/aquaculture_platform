@@ -22,10 +22,13 @@
  * denial case is available by default instead of being re-derived — the copies
  * that grow otherwise are all pass-throughs.
  */
-import type {
-  ScheduledJobExecutor,
-  ScheduledJobOutcome,
-  ScheduledJobScope,
+import { DynamicModule, Global, Module } from '@nestjs/common';
+
+import {
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+  type ScheduledJobOutcome,
+  type ScheduledJobScope,
 } from './scheduled-job-runner.service';
 
 export interface ScheduledJobTestEntry {
@@ -70,4 +73,34 @@ export function createScheduledJobTestExecutor(): ScheduledJobTestExecutor {
       },
     },
   };
+}
+
+/**
+ * A `@Global()` stand-in for `ScheduledJobModule`, for DI smoke tests.
+ *
+ * `ScheduledJobModule` is global in every app, so a service that injects the
+ * runner resolves it wherever it lives. A testing module that imports a real
+ * feature module has no such global unless it says so — and the failure is
+ * `Nest can't resolve dependencies of the X (…, ?)`, which reads like a bug in
+ * the module under test rather than a missing global. Importing this alongside
+ * the feature module reproduces the app's shape.
+ *
+ *     Test.createTestingModule({ imports: [AuditModule, ScheduledJobTestModule.forRoot()] })
+ *
+ * `forRoot` returns a fresh executor per call so two suites cannot share one
+ * recording.
+ */
+@Global()
+@Module({})
+export class ScheduledJobTestModule {
+  static forRoot(
+    executor: ScheduledJobTestExecutor = createScheduledJobTestExecutor(),
+  ): DynamicModule {
+    return {
+      module: ScheduledJobTestModule,
+      global: true,
+      providers: [{ provide: ScheduledJobRunner, useValue: executor.executor }],
+      exports: [ScheduledJobRunner],
+    };
+  }
 }

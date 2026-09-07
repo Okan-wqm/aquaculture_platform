@@ -22,6 +22,8 @@ import { of } from 'rxjs';
 import { EmbeddingService } from '../embedding.service';
 import { AiEgressGateService } from '../ai-egress-gate.service';
 import { createMockNatsClient, fakeUuid, resetUuidCounter, MockNatsClient } from '../../../__tests__/test-helpers';
+import { ScheduledJobRunner } from '@aquaculture/backend-common/scheduling';
+import { createScheduledJobTestExecutor } from '@aquaculture/backend-common/scheduling/testing';
 
 const SCHEMA_A = 'tenant_aaaaaaaaaaaaaaaa';
 const SCHEMA_B = 'tenant_bbbbbbbbbbbbbbbb';
@@ -79,6 +81,7 @@ async function buildService(dataSource: object, natsClient: MockNatsClient, allo
       { provide: DataSource, useValue: dataSource },
       { provide: 'NATS_SERVICE', useValue: natsClient },
       { provide: AiEgressGateService, useValue: egressGate },
+      { provide: ScheduledJobRunner, useValue: createScheduledJobTestExecutor().executor },
     ],
   }).compile();
   return { service: module.get(EmbeddingService), egressGate };

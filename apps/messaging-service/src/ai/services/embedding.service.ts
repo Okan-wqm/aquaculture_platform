@@ -11,7 +11,11 @@
  * @see ADR-012 section 12.1 (Embedding Pipeline)
  */
 import { Injectable, Logger, Inject, OnModuleDestroy } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
+import {
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
 import { ClientProxy } from '@nestjs/microservices';
 import { DataSource, QueryRunner } from 'typeorm';
 
@@ -54,6 +58,7 @@ export class EmbeddingService implements OnModuleDestroy {
     @Inject('NATS_SERVICE')
     private readonly natsClient: ClientProxy,
     private readonly egressGate: AiEgressGateService,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
 
   onModuleDestroy(): void {
@@ -65,7 +70,7 @@ export class EmbeddingService implements OnModuleDestroy {
    * Batching amortizes model loading overhead. At 20K messages/day,
    * average batch is ~70 messages, processed in < 1 second.
    */
-  @Cron('*/5 * * * *')
+  @ScheduledJob({ name: 'embedding.process-unembedded', cron: '*/5 * * * *' })
   async processUnembeddedMessages(): Promise<void> {
     if (this.isProcessing) {
       this.logger.debug('Embedding batch already in progress, skipping');

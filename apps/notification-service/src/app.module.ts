@@ -55,6 +55,7 @@ import { NotificationModule } from './notification/notification.module';
 import { NotificationOutboxModule } from './outbox/notification-outbox.module';
 import { HealthModule } from './health/health.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
+import { ScheduledJobModule } from '@aquaculture/backend-common/scheduling';
 
 @Module({
   imports: [
@@ -200,6 +201,10 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
 
     // Schedule module — single forRoot() for the entire service
     ScheduleModule.forRoot(),
+    // ADMIN-HIGH-013: every @ScheduledJob tick routes through the runner's
+    // advisory-lock lease and heartbeat. Must sit beside ScheduleModule and
+    // the module that owns /metrics (the heartbeat's home).
+    ScheduledJobModule.forRoot({ serviceName: 'notification-service' }),
 
     // Feature modules
     NotificationModule,

@@ -1,0 +1,100 @@
+# admin-api SLO rules for the DROPLET Prometheus (OBS-CRITICAL-003).
+#
+# The fleet-wide baseline in 10-service-health.yml and 20-latency.yml already
+# selects `namespace="aquaculture"` and groups `by (app)`, so admin-api is
+# ALREADY covered for ServiceDown, HighErrorRate, CriticalErrorRate, HighLatency
+# and CriticalLatency. None of those is repeated here: duplicating them would
+# produce two alerts per incident, which is how an on-call rota learns to
+# silence a receiver.
+#
+# What is here is admin-api-specific, using only series the code actually emits:
+#   - http_request_duration_seconds_bucket / http_requests_total /
+#     http_requests_in_flight, from the shared metrics middleware
+#     (libs/backend-common/src/metrics/metrics.service.ts), labels
+#     {method, route, status_code} plus app/namespace from the file_sd targets;
+#   - tenant_provisioning_* from
+#     apps/admin-api-service/src/tenant/services/tenant-provisioning-metrics.service.ts;
+#   - cron_job_last_success_timestamp_seconds from the shared heartbeat.
+#
+# No metric is invented. The audit's "fabricated dashboards" finding is about
+# panels querying series no code emits, and a rule that can never fire is the
+# same defect with a pager attached.
+groups:
+  - name: aquaculture.admin-api.slo
+    rules:
+      # Writes are the operator's actual work: provisioning a tenant, changing a
+      # plan, issuing a refund. The fleet p95 rule covers reads and writes
+      # together, where a fast dashboard read hides a slow mutation.
+      - alert: AdminApiWriteLatencyP99High
+        expr: |
+          histogram_quantile(
+            0.99,
+            sum(rate(http_request_duration_seconds_bucket{
+              namespace="aquaculture",
+              app="admin-api-service",
+              method=~"POST|PUT|PATCH|DELETE"
+            }[5m])) by (le)
+          ) > 2
+        for: 10m
+        labels:
+          severity: warning
+          target_auditor: admin-expert
+        annotations:
+          summary: 'admin-api write latency p99 above 2s'
+          description: 'p99 latency of admin-api mutations has been above 2s for 10 minutes. Reads are excluded, so this is operator work, not dashboard polling.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/admin-api-slo.md'
+
+      # admin-api is a platform-admin surface reachable directly (prod nginx
+      # routes /api/ straight here, bypassing gateway-api). A burst of 401/403
+      # is either a broken guard chain after a deploy or someone trying the
+      # door; both want a human. The traffic guard keeps a single failed login
+      # on an idle night from paging.
+      - alert: AdminApiAuthzDenialSpike
+        expr: |
+          sum(rate(http_requests_total{
+            namespace="aquaculture",
+            app="admin-api-service",
+            status_code=~"40[13]"
+          }[5m])) > 1
+          and
+          sum(rate(http_requests_total{namespace="aquaculture",app="admin-api-service"}[5m])) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          target_auditor: auth-security-expert
+        annotations:
+          summary: 'admin-api authorization denials are spiking'
+          description: 'admin-api has been returning more than 1 rps of 401/403 for 10 minutes. Either a guard chain broke on the last deploy or the platform-admin surface is being probed.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/admin-api-slo.md'
+
+      # Saturation, not latency: in-flight requests climbing means the pool or
+      # the event loop is behind, and it climbs BEFORE p99 does.
+      - alert: AdminApiSaturated
+        expr: |
+          max(http_requests_in_flight{namespace="aquaculture",app="admin-api-service"}) > 50
+        for: 5m
+        labels:
+          severity: warning
+          target_auditor: performance-expert
+        annotations:
+          summary: 'admin-api has more than 50 requests in flight'
+          description: 'Concurrent in-flight requests on admin-api have been above 50 for 5 minutes. admin-api reads across admin/auth/billing/shared on one 40-connection pool.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/admin-api-slo.md'
+
+      # A provisioning run that started and never reached a terminal state is a
+      # tenant stuck half-created — invisible in a 5xx rate, because nothing
+      # returned an error.
+      - alert: AdminApiTenantProvisioningStalled
+        expr: |
+          max(tenant_provisioning_oldest_active_run_age_seconds{
+            namespace="aquaculture",
+            app="admin-api-service"
+          }) > 1800
+        for: 5m
+        labels:
+          severity: critical
+          target_auditor: multi-tenant-saas-expert
+        annotations:
+          summary: 'A tenant provisioning run has been active for over 30 minutes'
+          description: 'The oldest active tenant provisioning run is older than 30 minutes. A run that never reaches a terminal state leaves a tenant partially created and returns no error to alert on.'
+          runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/admin-api-slo.md'

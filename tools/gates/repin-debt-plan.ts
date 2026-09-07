@@ -17,11 +17,29 @@
  *   npx jest --config tests/invariants/jest.config.ts \
  *     --runTestsByPath tests/invariants/enterprise-grade-debt-plan-contract.spec.ts
  *
- * `active_critical_ids` is deliberately NOT rewritten. The spec compares it with
- * `toEqual`, so order is load-bearing, and a new active CRITICAL also needs a
- * truth-table row with an owner and a bucket — judgement, not arithmetic. When a
- * CRITICAL count changes this script says so and stops, rather than silently
- * producing a manifest whose id list no longer matches its own table.
+ * `active_critical_ids` moves in exactly one direction without a human:
+ * SHRINKING. The two cases are not symmetric, and version two treated them as
+ * if they were.
+ *
+ *   * An ADDED active CRITICAL still refuses. A new one needs a truth-table row
+ *     with an owner, a deadline and a bucket — judgement, not arithmetic — and
+ *     the spec compares the id list with `toEqual`, so a manifest that lists an
+ *     id its own table does not carry is a lie in a file whose whole job is to
+ *     be true.
+ *
+ *   * A REMOVED one is recorded. A CRITICAL leaves the active set because a
+ *     merged commit closed it and `finding-registry reconcile` marked it
+ *     RESOLVED — the most mechanical fact in this system, and the exact fact
+ *     the closure-reconcile lane exists to publish. Its row leaves the active
+ *     table and an entry is appended to `Resolved Evidence` naming the closing
+ *     commit and the bucket it left.
+ *
+ * Version two refused on ANY change, which made the lane structurally unable to
+ * finish its own job: reconcile would resolve a CRITICAL, and the repin two
+ * steps later would refuse BECAUSE it had. Every merge closing a CRITICAL left
+ * the drift gate red for the next contributor — the tax the lane was built to
+ * remove, now paid on the lane's own success (ORPHAN-MEDIUM-444's failure mode
+ * in a new costume).
  *
  * Three properties are load-bearing, and each one is here because its absence
  * shipped first (ORPHAN-MEDIUM-444):
@@ -55,11 +73,15 @@ const REPO_ROOT = resolve(__dirname, '..', '..');
 const PLAN_DIR = resolve(REPO_ROOT, 'docs/plans/2026-06-18-enterprise-grade-debt-closure');
 const REGISTRY = resolve(REPO_ROOT, 'docs/reviews/_registry/findings.jsonl');
 
+/** Matches the short form the hand-written Resolved Evidence entries use. */
+const SHORT_SHA_LENGTH = 9;
+
 interface RegistryEntry {
   readonly id: string;
   readonly severity: string;
   readonly state: string;
   readonly content_hash: string;
+  readonly closing_commits?: readonly string[];
 }
 
 /** The five scalars the plan artifacts mirror, plus the id list they pin. */
@@ -70,10 +92,12 @@ interface RegistryState {
   readonly in_progress_findings_count: number;
   readonly active_critical_count: number;
   readonly active_critical_ids: readonly string[];
+  /** Closing commit per id, for the Resolved Evidence entry a removal writes. */
+  readonly closing_commit_by_id: Readonly<Record<string, string>>;
 }
 
 /** Only the scalars — the keys `repinManifest` rewrites one by one. */
-type MirroredKey = Exclude<keyof RegistryState, 'active_critical_ids'>;
+type MirroredKey = Exclude<keyof RegistryState, 'active_critical_ids' | 'closing_commit_by_id'>;
 
 const MIRRORED_KEYS: readonly MirroredKey[] = [
   'registry_tip_hash',
@@ -100,6 +124,15 @@ function registryState(): RegistryState {
     in_progress_findings_count: entries.filter((e) => e.state === 'IN-PROGRESS').length,
     active_critical_count: activeCritical.length,
     active_critical_ids: activeCritical.map((e) => e.id),
+    // Later entries supersede earlier ones: the registry is append-only, so the
+    // last row carrying an id is its current state.
+    closing_commit_by_id: Object.fromEntries(
+      entries.flatMap((e) => {
+        const commits = e.closing_commits ?? [];
+        const latest = commits[commits.length - 1];
+        return latest === undefined ? [] : [[e.id, latest] as const];
+      }),
+    ),
   };
 }
 
@@ -157,21 +190,100 @@ function planManifest(state: RegistryState): { write: PlannedWrite; changed: str
     changed.push(`${key}: ${String(from)} -> ${String(to)}`);
   }
 
+  if (
+    JSON.stringify(current['active_critical_ids']) !== JSON.stringify(state.active_critical_ids)
+  ) {
+    raw = planActiveCriticalIds(raw, state.active_critical_ids);
+    changed.push(
+      `active_critical_ids: ${(current['active_critical_ids'] as unknown[]).length} -> ${state.active_critical_ids.length}`,
+    );
+  }
+
   return { write: { path, contents: raw }, changed };
 }
 
-function planTruthTable(state: RegistryState): PlannedWrite {
+/**
+ * Rewrites just the `active_critical_ids` array block, preserving the file's
+ * two-space object / four-space element indentation. A whole-file reserialize
+ * would churn hundreds of prettier-dirty lines — see planManifest's note.
+ */
+function planActiveCriticalIds(raw: string, ids: readonly string[]): string {
+  const anchor = '  "active_critical_ids": [';
+  const start = raw.indexOf(anchor);
+  if (start === -1) {
+    throw new Error('manifest.json[active_critical_ids]: anchor not found');
+  }
+  const end = raw.indexOf('\n  ]', start);
+  if (end === -1) {
+    throw new Error('manifest.json[active_critical_ids]: array is unterminated');
+  }
+  const body = ids.map((id) => `    ${JSON.stringify(id)}`).join(',\n');
+  return `${raw.slice(0, start)}${anchor}\n${body}${raw.slice(end)}`;
+}
+
+/**
+ * Appends an entry to the END OF THE `Resolved Evidence` SECTION, not the end of
+ * the file. Those coincide today because it is the last section; writing to the
+ * file's end would keep working until someone adds a section after it, and then
+ * silently misfile every future closure.
+ */
+function appendToResolvedEvidence(raw: string, entry: string): string {
+  const heading = '\n## Resolved Evidence\n';
+  const start = raw.indexOf(heading);
+  if (start === -1) {
+    throw new Error('finding-truth-table.md: no `## Resolved Evidence` section to append to');
+  }
+  const afterHeading = start + heading.length;
+  const nextHeading = raw.indexOf('\n## ', afterHeading);
+  const sectionEnd = nextHeading === -1 ? raw.length : nextHeading;
+  const section = raw.slice(afterHeading, sectionEnd);
+  return `${raw.slice(0, afterHeading)}${section.trimEnd()}\n${entry}\n${raw.slice(sectionEnd)}`;
+}
+
+/**
+ * Repins the tip hash, and for each CRITICAL that left the active set, lifts its
+ * row out of the active table into `Resolved Evidence` — the move the two
+ * entries already there were made by hand.
+ */
+function planTruthTable(state: RegistryState, resolved: readonly string[]): PlannedWrite {
   const path = resolve(PLAN_DIR, 'finding-truth-table.md');
-  const raw = readFileSync(path, 'utf8');
-  return {
-    path,
-    contents: replaceLineOrThrow(
-      raw,
-      /^Registry tip: `(?:[0-9a-f]{64})`$/gm,
-      `Registry tip: \`${state.registry_tip_hash}\``,
-      'finding-truth-table.md registry tip',
-    ),
-  };
+  let raw = replaceLineOrThrow(
+    readFileSync(path, 'utf8'),
+    /^Registry tip: `(?:[0-9a-f]{64})`$/gm,
+    `Registry tip: \`${state.registry_tip_hash}\``,
+    'finding-truth-table.md registry tip',
+  );
+
+  for (const id of resolved) {
+    const row = new RegExp(`^\\| \`${id}\`.*$\\n`, 'm');
+    const match = raw.match(row);
+    if (!match?.[0]) {
+      throw new Error(`finding-truth-table.md: no active-table row for resolved ${id}`);
+    }
+    // Last cell of the pipe row is the bucket the finding is leaving.
+    const cells = match[0]
+      .trim()
+      .split('|')
+      .map((cell) => cell.trim());
+    const bucket = cells[cells.length - 2] ?? 'unknown';
+    const commit = state.closing_commit_by_id[id];
+    if (!commit) {
+      throw new Error(`finding-truth-table.md: ${id} left the active set with no closing commit`);
+    }
+
+    raw = raw.replace(row, '');
+    // Wrapped to the prose width the docs gate enforces, and abbreviated to the
+    // short sha the entries already there use. MD013 exempts tables and code
+    // blocks; a bullet is neither, so an unwrapped line here fails docs-check.
+    const entry = [
+      `- \`${id}\`: registry state is \`RESOLVED\` with closing commit`,
+      `  \`${commit.slice(0, SHORT_SHA_LENGTH)}\`, derived by \`finding-registry reconcile\` against \`origin/main\`.`,
+      `  Left the active table from bucket \`${bucket}\`.`,
+    ].join('\n');
+    raw = appendToResolvedEvidence(raw, entry);
+  }
+
+  return { path, contents: raw };
 }
 
 function planReadme(state: RegistryState): PlannedWrite {
@@ -221,22 +333,36 @@ function main(): number {
   ) as RegistryState;
   const state = registryState();
 
-  // PRECONDITION — nothing below this point may run if the id list moved.
-  if (JSON.stringify(previous.active_critical_ids) !== JSON.stringify(state.active_critical_ids)) {
+  // PRECONDITION — nothing below this point may run if a CRITICAL was ADDED.
+  // A removal is mechanical and is recorded below; an addition is judgement.
+  const added = state.active_critical_ids.filter(
+    (id) => !previous.active_critical_ids.includes(id),
+  );
+  if (added.length > 0) {
     process.stderr.write(
-      'debt-plan repin: active_critical_ids CHANGED — refusing, nothing was written.\n' +
-        '  A new active CRITICAL needs a truth-table row with an owner and a bucket,\n' +
-        '  and the spec compares the id list with toEqual so order is load-bearing.\n' +
+      'debt-plan repin: active CRITICAL(s) ADDED — refusing, nothing was written.\n' +
+        `  added: ${JSON.stringify(added)}\n` +
+        '  A new active CRITICAL needs a truth-table row with an owner, a deadline\n' +
+        '  and a bucket, and the spec compares the id list with toEqual so order is\n' +
+        '  load-bearing. Add the row by hand, then re-run.\n' +
         `  registry: ${JSON.stringify(state.active_critical_ids)}\n` +
         `  manifest: ${JSON.stringify(previous.active_critical_ids)}\n`,
     );
     return 1;
   }
 
+  const resolved = previous.active_critical_ids.filter(
+    (id) => !state.active_critical_ids.includes(id),
+  );
+
   // PLAN EVERYTHING FIRST. Any anchor miss throws here, with the filesystem
   // untouched — see property 2 in the header.
   const manifest = planManifest(state);
-  const writes: PlannedWrite[] = [manifest.write, planTruthTable(state), planReadme(state)];
+  const writes: PlannedWrite[] = [
+    manifest.write,
+    planTruthTable(state, resolved),
+    planReadme(state),
+  ];
   for (const { path, contents } of writes) writeFileSync(path, contents, 'utf8');
   const { changed } = manifest;
 

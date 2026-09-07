@@ -36225,6 +36225,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/zcode/2026-09-07-reconcile-lane-refuses-its-own-success.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/zcode/2026-09-07-stripe-webhook-tenant-resolution.md",
       "prettier_managed": true
     },

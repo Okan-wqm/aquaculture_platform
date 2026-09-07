@@ -87,10 +87,15 @@ import { FarmOutbox } from '../../outbox/farm-outbox.entity';
 import { Species } from '../../species/entities/species.entity';
 import { Site } from '../../site/entities/site.entity';
 import { Tank } from '../../tank/entities/tank.entity';
-import { createFarmTenantFixture, createFixtureBatchService } from './helpers/farm-tenant-fixture';
+import {
+  createFarmTenantFixture,
+  createFixtureBatchWriters,
+  FIXTURE_ENTITIES,
+} from './helpers/farm-tenant-fixture';
 import {
   createFarmOutboxTable,
-  createTenantSchemaFromSource,
+  createFarmStockReadModelTables,
+  createTenantSchemaDerived,
 } from './helpers/tenant-schema-harness';
 
 jest.setTimeout(120_000);
@@ -100,22 +105,6 @@ const USER_ID = 'f1b7b266-5e20-4c37-8ab2-b7ef18db3a21';
 const PROTOCOL_ID = '33333333-3333-4333-8333-333333333333';
 const ASSIGNMENT_ID = '22222222-2222-4222-8222-222222222222';
 const FEED_ID = '66666666-6666-4666-8666-666666666666';
-
-const TENANT_BUSINESS_TABLES = [
-  'sites',
-  'departments',
-  'tanks',
-  'species',
-  'batches_v2',
-  'batch_documents',
-  'tank_allocations',
-  'tank_batches',
-  'tank_operations',
-  'feeding_protocols_v2',
-  'feeding_protocol_assignments',
-  'feeding_day_plans',
-  'feeding_meals',
-] as const;
 
 /** FCR 1.0 keeps the arithmetic legible: every kg fed is a kg of growth. */
 const EXPECTED_FCR = 1;
@@ -181,20 +170,9 @@ describe('DAILY rollup reconciliation — real Postgres', () => {
       ...pg.connectionOptions,
       name: `farm-service-rollup-${randomBytes(4).toString('hex')}`,
       entities: [
-        Site,
-        Department,
-        Tank,
-        Species,
-        Batch,
-        BatchDocument,
-        TankAllocation,
-        TankBatch,
-        TankOperation,
-        FeedingProtocolV2,
-        ProtocolAssignment,
-        FeedingDayPlan,
-        FeedingMeal,
-        FarmOutbox,
+        // The fixture's production writers declare what they need; this suite
+        // adds only what IT needs on top (FARM-HIGH-109).
+        ...FIXTURE_ENTITIES,
       ],
       synchronize: true,
       logging: false,
@@ -202,18 +180,15 @@ describe('DAILY rollup reconciliation — real Postgres', () => {
     });
     await dataSource.initialize();
     await createFarmOutboxTable(dataSource);
+    await createFarmStockReadModelTables(dataSource);
 
     const TenantConnectionBootstrap = createTenantConnectionBootstrap('farm');
     new TenantConnectionBootstrap(dataSource).onModuleInit();
-    await createTenantSchemaFromSource(
-      dataSource,
-      getTenantSchemaName(TENANT),
-      TENANT_BUSINESS_TABLES,
-    );
+    await createTenantSchemaDerived(dataSource, getTenantSchemaName(TENANT));
 
     const fixture = await createFarmTenantFixture(
       dataSource,
-      createFixtureBatchService(dataSource),
+      createFixtureBatchWriters(dataSource),
       {
         tenantId: TENANT,
         codePrefix: 'ROLLUP',

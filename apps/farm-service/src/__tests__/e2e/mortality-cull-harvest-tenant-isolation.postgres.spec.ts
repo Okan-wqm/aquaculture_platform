@@ -42,7 +42,6 @@ import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { TankOperation, OperationType } from '../../batch/entities/tank-operation.entity';
 import { RecordCullHandler } from '../../batch/handlers/record-cull.handler';
 import { RecordMortalityHandler } from '../../batch/handlers/record-mortality.handler';
-import { BatchService } from '../../batch/services/batch.service';
 import { MortalityCullPolicyService } from '../../batch/services/mortality-cull-policy.service';
 import { RemovalQuantityPolicyService } from '../../batch/services/removal-quantity-policy.service';
 import { TankBatchService } from '../../batch/services/tank-batch.service';
@@ -69,35 +68,22 @@ import { Site } from '../../site/entities/site.entity';
 import { SubSystem } from '../../system/entities/sub-system.entity';
 import { System } from '../../system/entities/system.entity';
 import { Tank } from '../../tank/entities/tank.entity';
-import { createFarmTenantFixture } from './helpers/farm-tenant-fixture';
+import {
+  FIXTURE_ENTITIES,
+  createFarmTenantFixture,
+  createFixtureBatchWriters,
+  type FixtureBatchWriters,
+} from './helpers/farm-tenant-fixture';
 import {
   createFarmOutboxTable,
+  createFarmStockReadModelTables,
   createSourceEquipmentTypesReferenceTable,
-  createTenantSchemaFromSource,
+  createTenantSchemaDerived,
 } from './helpers/tenant-schema-harness';
 
 const TENANT_A = '4b529829-ea79-48da-982c-cd6fbec8ffb7';
 const TENANT_B = '7c2f4e10-3d2a-4b4e-9f18-f8b16f0d5a10';
 const USER_ID = 'f1b7b266-5e20-4c37-8ab2-b7ef18db3a21';
-const TENANT_BUSINESS_TABLES = [
-  'sites',
-  'departments',
-  'systems',
-  'sub_systems',
-  'equipment',
-  'equipment_systems',
-  'tanks',
-  'species',
-  'batches_v2',
-  'batch_documents',
-  'tank_allocations',
-  'tank_batches',
-  'tank_operations',
-  'mortality_records',
-  'harvest_plans',
-  'harvest_records',
-] as const;
-
 interface TenantFixture {
   site: Site;
   department: Department;
@@ -123,7 +109,7 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
   let equipmentRepository: Repository<Equipment>;
   let equipmentTypeRepository: Repository<EquipmentType>;
   let harvestRepository: Repository<HarvestRecord>;
-  let batchService: BatchService;
+  let batchWriters: FixtureBatchWriters;
   let recordMortality: RecordMortalityHandler;
   let recordCull: RecordCullHandler;
   let createHarvest: CreateHarvestRecordHandler;
@@ -140,24 +126,11 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
       ...pg.connectionOptions,
       name: `farm-service-stock-ops-${randomBytes(4).toString('hex')}`,
       entities: [
-        Site,
-        Department,
-        System,
-        SubSystem,
-        Equipment,
-        EquipmentSystem,
-        EquipmentType,
-        Tank,
-        Species,
-        Batch,
-        BatchDocument,
-        TankAllocation,
-        TankBatch,
-        TankOperation,
-        MortalityRecord,
+        // The fixture's production writers declare their own closure; this
+        // suite adds only what IT needs on top (FARM-HIGH-109).
+        ...FIXTURE_ENTITIES,
         HarvestPlan,
         HarvestRecord,
-        FarmOutbox,
       ],
       synchronize: true,
       logging: false,
@@ -168,20 +141,13 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
 
     await dataSource.initialize();
     await createFarmOutboxTable(dataSource);
+    await createFarmStockReadModelTables(dataSource);
 
     const TenantConnectionBootstrap = createTenantConnectionBootstrap('farm');
     new TenantConnectionBootstrap(dataSource).onModuleInit();
 
-    await createTenantSchemaFromSource(
-      dataSource,
-      getTenantSchemaName(TENANT_A),
-      TENANT_BUSINESS_TABLES,
-    );
-    await createTenantSchemaFromSource(
-      dataSource,
-      getTenantSchemaName(TENANT_B),
-      TENANT_BUSINESS_TABLES,
-    );
+    await createTenantSchemaDerived(dataSource, getTenantSchemaName(TENANT_A));
+    await createTenantSchemaDerived(dataSource, getTenantSchemaName(TENANT_B));
 
     siteRepository = dataSource.getRepository(Site);
     departmentRepository = dataSource.getRepository(Department);
@@ -196,15 +162,9 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
     equipmentTypeRepository = dataSource.getRepository(EquipmentType);
     harvestRepository = dataSource.getRepository(HarvestRecord);
 
-    batchService = new BatchService(
-      batchRepository,
-      allocationRepository,
-      tankBatchRepository,
-      operationRepository,
-      tankRepository,
-      dataSource,
-      new MortalityCullPolicyService(),
-    );
+    // The stocked-tank fixture writes through the production command handlers
+    // (FARM-HIGH-109); this suite no longer builds a BatchService of its own.
+    batchWriters = createFixtureBatchWriters(dataSource);
 
     const outboxPublisher = new OutboxPublisher(FarmOutbox);
     const backdatePolicy = { validate: jest.fn() };
@@ -244,7 +204,9 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
     const mobileCommandReceipts = {
       // A non-legacy 'started' receipt lets the stock-mutating handler proceed
       // without touching the receipts table; complete() is a no-op stub.
-      begin: jest.fn().mockResolvedValue({ mode: 'started', receiptId: randomBytes(8).toString('hex') }),
+      begin: jest
+        .fn()
+        .mockResolvedValue({ mode: 'started', receiptId: randomBytes(8).toString('hex') }),
       complete: jest.fn().mockResolvedValue(undefined),
     };
     recordMortality = new RecordMortalityHandler(
@@ -503,13 +465,28 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
     // HarvestRecordCancelled is emitted by the delete-harvest step (now wired
     // with a working farmStockProjection stub) — it is correctly tenant-scoped
     // to TENANT_A's outbox, which is exactly what this isolation e2e asserts.
+    //
+    // `BatchCreated` and `BatchAllocatedToTank` come from STOCKING the fixture
+    // tank. They are new to this assertion only because the fixture used to
+    // stock through `BatchService`, which emitted nothing at all: creating a
+    // batch and putting fish in a tank produced no domain event, and this
+    // suite encoded that silence as the expectation. Routing the fixture
+    // through the real command handlers (FARM-HIGH-109) makes the outbox show
+    // what production actually publishes — and the tenant-scoping assertion
+    // below now covers those two events too.
     expect(tenantAOutboxRows.map((row) => row.eventType).sort()).toEqual([
+      'BatchAllocatedToTank',
+      'BatchCreated',
       'BatchHarvested',
       'CullRecorded',
       'HarvestRecordCancelled',
       'MortalityRecorded',
     ]);
-    expect(tenantBOutboxRows.map((row) => row.eventType)).toEqual(['MortalityRecorded']);
+    expect(tenantBOutboxRows.map((row) => row.eventType).sort()).toEqual([
+      'BatchAllocatedToTank',
+      'BatchCreated',
+      'MortalityRecorded',
+    ]);
     expect(tenantAOutboxRows.every((row) => row.payload?.tenantId === TENANT_A)).toBe(true);
   });
 
@@ -521,7 +498,7 @@ describe('Mortality, cull, and harvest tenant isolation on real Postgres', () =>
    * drift apart silently.
    */
   async function createTenantFixture(tenantId: string, codePrefix: string): Promise<TenantFixture> {
-    return createFarmTenantFixture(dataSource!, batchService, {
+    return createFarmTenantFixture(dataSource!, batchWriters, {
       tenantId,
       codePrefix,
       userId: USER_ID,

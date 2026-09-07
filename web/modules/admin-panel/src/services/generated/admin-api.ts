@@ -8979,7 +8979,6 @@ export interface components {
             service?: string;
             culprit?: string;
             occurrenceCount: number;
-            userCount: number;
             /** Format: date-time */
             firstSeenAt: string;
             /** Format: date-time */

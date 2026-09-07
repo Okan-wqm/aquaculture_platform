@@ -32,11 +32,12 @@
  * REGISTRATION time — before any runtime query can see it — so
  * inlining is safe in the enforcer (ADR-0012).
  */
-import { Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import { CronExpression } from '@nestjs/schedule';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
+import { ScheduledJob, ScheduledJobRunner, type ScheduledJobExecutor } from '../../scheduling';
 import { deleteInBatches } from '../batched-delete';
 
 import { listRetentionPolicies, type RetentionPolicy } from './retention-policy';
@@ -58,9 +59,18 @@ export class RetentionEnforcementService {
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
 
-  @Cron(CronExpression.EVERY_DAY_AT_3AM)
+  /**
+   * The scheduled entry point. `enforceAll` keeps its reports for the callers
+   * that ask for them; a tick has nobody to hand them to.
+   */
+  @ScheduledJob({ name: 'retention.enforce-all', cron: CronExpression.EVERY_DAY_AT_3AM })
+  async enforceAllTick(): Promise<void> {
+    await this.enforceAll();
+  }
+
   async enforceAll(): Promise<readonly RetentionEnforcementReport[]> {
     return this.enforceAllOnce();
   }

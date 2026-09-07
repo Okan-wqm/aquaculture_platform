@@ -30,6 +30,10 @@ import { SparePart } from '../../maintenance/entities/spare-part.entity';
 import { WorkOrder } from '../../maintenance/entities/work-order.entity';
 import { MaintenanceScheduleService } from '../../maintenance/services/maintenance-schedule.service';
 import { SparePartService } from '../../maintenance/services/spare-part.service';
+import { ScheduledJobRunner } from '@aquaculture/backend-common/scheduling';
+import { createScheduledJobTestExecutor } from '@aquaculture/backend-common/scheduling/testing';
+
+const scheduledJobs = createScheduledJobTestExecutor();
 
 const TENANT_A = '4b529829-ea79-48da-982c-cd6fbec8ffb7';
 const SCHEMA_A = 'tenant_4b529829ea7948da';
@@ -98,6 +102,7 @@ async function makeService(
     { provide: SchedulerRegistry, useValue: {} },
     { provide: EventEmitter2, useValue: {} },
     { provide: ConfigService, useValue: {} },
+    { provide: ScheduledJobRunner, useValue: scheduledJobs.executor },
   ];
   if (orphanCleanup) {
     providers.push({ provide: FarmOrphanCleanupService, useValue: orphanCleanup });

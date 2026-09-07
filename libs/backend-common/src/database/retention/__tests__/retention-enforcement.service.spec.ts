@@ -2,9 +2,12 @@ import 'reflect-metadata';
 import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
 import type { DataSource } from 'typeorm';
 
+import { createScheduledJobTestExecutor } from '../../../scheduling/testing';
 import { DEFAULT_DELETE_BATCH_SIZE } from '../../batched-delete';
 import { RetentionEnforcementService } from '../retention-enforcement.service';
 import { clearRetentionPolicyRegistry, registerRetentionPolicy } from '../retention-policy';
+
+const scheduledJobs = createScheduledJobTestExecutor();
 
 @Entity('migration_events', { schema: 'observability' })
 class MigrationEventFixture {
@@ -109,7 +112,7 @@ describe('RetentionEnforcementService', () => {
   it('noop when no policies registered', async () => {
     const calls: Array<{ sql: string; params?: unknown[] }> = [];
     const ds = makeDs({ calls });
-    const svc = new RetentionEnforcementService(ds);
+    const svc = new RetentionEnforcementService(ds, scheduledJobs.executor);
     const reports = await svc.enforceAllOnce();
     expect(reports).toEqual([]);
     expect(calls).toEqual([]);
@@ -125,7 +128,7 @@ describe('RetentionEnforcementService', () => {
     });
     const calls: Array<{ sql: string; params?: unknown[] }> = [];
     const ds = makeDs({ rowsPerQuery: Array.from({ length: 7 }), calls });
-    const svc = new RetentionEnforcementService(ds);
+    const svc = new RetentionEnforcementService(ds, scheduledJobs.executor);
     const now = new Date('2026-04-21T12:00:00.000Z');
     const reports = await svc.enforceAllOnce(now);
     expect(reports).toHaveLength(1);
@@ -155,7 +158,7 @@ describe('RetentionEnforcementService', () => {
     });
     const calls: Array<{ sql: string; params?: unknown[] }> = [];
     const ds = makeDs({ rowsPerQuery: [], calls });
-    const svc = new RetentionEnforcementService(ds);
+    const svc = new RetentionEnforcementService(ds, scheduledJobs.executor);
     await svc.enforceAllOnce(new Date('2026-04-21T12:00:00.000Z'));
     expect(calls[0]!.sql).toContain('AND NOT (revoked_at IS NULL AND expires_at > NOW())');
   });
@@ -181,7 +184,7 @@ describe('RetentionEnforcementService', () => {
       rowsPerQuery: Array.from({ length: 3 }),
       calls,
     });
-    const svc = new RetentionEnforcementService(ds);
+    const svc = new RetentionEnforcementService(ds, scheduledJobs.executor);
     const reports = await svc.enforceAllOnce();
     expect(reports).toHaveLength(2);
     expect(reports[0]?.error).toBeDefined(); // broken_table
@@ -214,7 +217,7 @@ describe('RetentionEnforcementService', () => {
     });
     const calls: Array<{ sql: string; params?: unknown[] }> = [];
     const ds = makeDs({ rowsPerQuery: [], calls });
-    const svc = new RetentionEnforcementService(ds);
+    const svc = new RetentionEnforcementService(ds, scheduledJobs.executor);
     const reports = await svc.enforceAllOnce();
     expect(reports.map((r) => r.policyId)).toEqual(['a', 'b', 'c']);
     expect(calls.map((c) => c.sql.match(/"([a-z_]+_table)"/)?.[1])).toEqual([
@@ -233,7 +236,7 @@ describe('RetentionEnforcementService', () => {
       retentionDays: 30,
     });
     const ds = makeDs({ rowsPerQuery: Array.from({ length: 11 }) });
-    const svc = new RetentionEnforcementService(ds);
+    const svc = new RetentionEnforcementService(ds, scheduledJobs.executor);
     const deleted = await svc.enforceOne(policy, new Date());
     expect(deleted).toBe(11);
   });
@@ -248,7 +251,7 @@ describe('RetentionEnforcementService', () => {
     });
     const calls: Array<{ sql: string; params?: unknown[] }> = [];
     const ds = makeDs({ rowsPerQuery: [], calls });
-    const svc = new RetentionEnforcementService(ds);
+    const svc = new RetentionEnforcementService(ds, scheduledJobs.executor);
     const now = new Date('2026-04-21T00:00:00.000Z');
     await svc.enforceAllOnce(now);
     expect(calls[0]!.params?.[0]).toBe('2026-04-14T00:00:00.000Z');
@@ -269,7 +272,7 @@ describe('RetentionEnforcementService — equality filters (ADR-0012)', () => {
       where: { status: 'completed' },
     });
     const calls: Array<{ sql: string; params?: unknown[] }> = [];
-    const svc = new RetentionEnforcementService(makeDs({ calls }));
+    const svc = new RetentionEnforcementService(makeDs({ calls }), scheduledJobs.executor);
     const now = new Date('2026-09-05T12:00:00.000Z');
     await svc.enforceAllOnce(now);
     expect(calls).toHaveLength(1);

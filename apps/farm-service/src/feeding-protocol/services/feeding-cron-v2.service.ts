@@ -30,8 +30,12 @@
  */
 import * as crypto from 'crypto';
 
-import { Injectable, Logger } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import {
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In, QueryRunner } from 'typeorm';
 import { listTenantSchemas, runInTenantTransaction } from '@aquaculture/backend-common/database';
@@ -150,13 +154,18 @@ export class FeedingCronV2Service {
     private readonly outboxPublisher: OutboxPublisher,
     // 07:00 stok kapsama süpürmesi — snapshot yenileme (K-10, plan §5).
     private readonly forecastService: ProtocolFeedForecastService,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
 
   // ==========================================================================
   // 06:00 — GÜN PLANI ÜRETİMİ + D-5 TESPİTİ
   // ==========================================================================
 
-  @Cron('0 6 * * *', { name: 'feeding-v2-generate-day-plans', timeZone: 'Europe/Istanbul' })
+  @ScheduledJob({
+    name: 'feeding-v2.generate-day-plans',
+    cron: '0 6 * * *',
+    timeZone: 'Europe/Istanbul',
+  })
   async generateDayPlans(): Promise<void> {
     await this.runExclusive('feeding-v2-generate-day-plans', async () => {
       const tenants = await this.activeTenants();
@@ -414,7 +423,7 @@ export class FeedingCronV2Service {
   // */15dk — MEAL WINDOW (K-2 TOPLU ŞEKİL)
   // ==========================================================================
 
-  @Cron('*/15 * * * *', { name: 'feeding-v2-meal-window' })
+  @ScheduledJob({ name: 'feeding-v2.meal-window', cron: '*/15 * * * *' })
   async mealWindowSweep(): Promise<void> {
     await this.runExclusive('feeding-v2-meal-window', async () => {
       const tenants = await this.activeTenants();
@@ -498,7 +507,11 @@ export class FeedingCronV2Service {
   // 05:30 — SABAH SÜPÜRMESİ (missed + bayat partial finalize + DAILY rollup)
   // ==========================================================================
 
-  @Cron('30 5 * * *', { name: 'feeding-v2-morning-sweep', timeZone: 'Europe/Istanbul' })
+  @ScheduledJob({
+    name: 'feeding-v2.morning-sweep',
+    cron: '30 5 * * *',
+    timeZone: 'Europe/Istanbul',
+  })
   async morningSweep(): Promise<void> {
     await this.runExclusive('feeding-v2-morning-sweep', async () => {
       const tenants = await this.activeTenants();
@@ -676,7 +689,11 @@ export class FeedingCronV2Service {
   // 20:00 — GÜNLÜK ÖZET + GÜN-SEVİYESİ AZ-ATIM (D-16)
   // ==========================================================================
 
-  @Cron('0 20 * * *', { name: 'feeding-v2-daily-summary', timeZone: 'Europe/Istanbul' })
+  @ScheduledJob({
+    name: 'feeding-v2.daily-summary',
+    cron: '0 20 * * *',
+    timeZone: 'Europe/Istanbul',
+  })
   async dailySummary(): Promise<void> {
     await this.runExclusive('feeding-v2-daily-summary', async () => {
       const tenants = await this.activeTenants();
@@ -796,7 +813,11 @@ export class FeedingCronV2Service {
    * kapsama event'leri (FeedStockoutForecast/FeedTransitionUpcoming) GraphQL
    * + alert-engine dilimiyle birlikte bağlanır (görev #8 takipte).
    */
-  @Cron('0 7 * * *', { name: 'feeding-v2-stock-coverage', timeZone: 'Europe/Istanbul' })
+  @ScheduledJob({
+    name: 'feeding-v2.stock-coverage',
+    cron: '0 7 * * *',
+    timeZone: 'Europe/Istanbul',
+  })
   async stockCoverageSweep(): Promise<void> {
     await this.runExclusive('feeding-v2-stock-coverage', async () => {
       const tenants = await this.tenantsWithActiveBatches();
@@ -812,7 +833,7 @@ export class FeedingCronV2Service {
     });
   }
 
-  @Cron('0 18 * * *', { name: 'feeding-v2-fcr-alerts', timeZone: 'Europe/Istanbul' })
+  @ScheduledJob({ name: 'feeding-v2.fcr-alerts', cron: '0 18 * * *', timeZone: 'Europe/Istanbul' })
   async fcrAlertSweep(): Promise<void> {
     await this.runExclusive('feeding-v2-fcr-alerts', async () => {
       // Batch-scoped sinyal: keşif aktif ATAMALARA değil aktif BATCH'lere
@@ -888,7 +909,7 @@ export class FeedingCronV2Service {
    * meal status guard'ı + stock-movement idempotency anahtarı iki bağımsız
    * katmandır (NFR). Ayın 1'i 04:00 Istanbul; advisory-lock tek instance.
    */
-  @Cron('0 4 1 * *', { name: 'feeding-v2-retention', timeZone: 'Europe/Istanbul' })
+  @ScheduledJob({ name: 'feeding-v2.retention', cron: '0 4 1 * *', timeZone: 'Europe/Istanbul' })
   async retentionCleanup(): Promise<void> {
     await this.runExclusive('feeding-v2-retention', async () => {
       const tenants = await this.tenantsForRetention();

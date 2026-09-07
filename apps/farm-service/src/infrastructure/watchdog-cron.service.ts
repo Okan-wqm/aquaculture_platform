@@ -5,16 +5,19 @@
  * Detects: source schema contamination, cross-tenant data leaks, schema drift.
  * CRITICAL violations are logged at ERROR level for alerting.
  */
-import { Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import { CronExpression } from '@nestjs/schedule';
+import {
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
 import { DataSource } from 'typeorm';
 import { WatchdogRunner, WatchdogReport } from '@aquaculture/backend-common/database';
-import { CronHeartbeatService } from '@aquaculture/backend-common/metrics';
 
 import { FarmDomainMetricsService } from '../common/metrics/farm-domain-metrics.service';
 
 /** Heartbeat series name. A code constant, not user input — see the label discipline note. */
-const WATCHDOG_JOB = 'farm-tenant-isolation-watchdog';
 
 @Injectable()
 export class WatchdogCronService {
@@ -30,19 +33,25 @@ export class WatchdogCronService {
   constructor(
     private readonly runner: WatchdogRunner,
     private readonly metrics: FarmDomainMetricsService,
-    private readonly heartbeat: CronHeartbeatService,
-  ) {
-    // Declared before the first run so "this job has never executed" is a
-    // value someone can alert on rather than an absent series.
-    this.heartbeat.declare(WATCHDOG_JOB);
-  }
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
+  ) {}
 
   /**
    * Run full watchdog scan every 15 minutes.
    */
-  @Cron(CronExpression.EVERY_10_MINUTES)
+  // The heartbeat this used to take itself now comes with the lease:
+  // `ScheduledJobRunner` declares the job at boot (so "never ran" is a value,
+  // not an absent series) and tracks every tick. Keeping the direct
+  // `heartbeat.track` beside it would double-count each run.
+  @ScheduledJob({
+    // Literal, not the const: the invariant enumerates job names from the AST
+    // and cannot follow an identifier. The string is unchanged, so the existing
+    // heartbeat series keeps its name.
+    name: 'farm-tenant-isolation-watchdog',
+    cron: CronExpression.EVERY_10_MINUTES,
+  })
   async runScheduledScan(): Promise<void> {
-    await this.heartbeat.track(WATCHDOG_JOB, async () => this.scan());
+    await this.scan();
   }
 
   private async scan(): Promise<void> {

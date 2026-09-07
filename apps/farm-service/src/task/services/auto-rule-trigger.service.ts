@@ -19,14 +19,12 @@
  *
  * @module Task/Services
  */
+import { Injectable, Logger, OnModuleInit, Inject, Optional } from '@nestjs/common';
 import {
-  Injectable,
-  Logger,
-  OnModuleInit,
-  Inject,
-  Optional,
-} from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, QueryRunner } from 'typeorm';
 import { NatsEventBus, IEventHandler } from '@platform/event-bus';
@@ -55,6 +53,7 @@ export class AutoRuleTriggerService implements OnModuleInit {
     @InjectRepository(Task)
     private readonly taskRepository: Repository<Task>,
     private readonly dataSource: DataSource,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
     @Optional() @Inject('EVENT_BUS')
     private readonly eventBus?: NatsEventBus,
   ) {}
@@ -230,7 +229,7 @@ export class AutoRuleTriggerService implements OnModuleInit {
    * Cron jobs also run outside HTTP request context, so we must iterate
    * tenant schemas with dedicated QueryRunners (same pattern as cron-jobs.service.ts).
    */
-  @Cron('0 0 * * * *')
+  @ScheduledJob({ name: 'task.process-schedule-rules', cron: '0 0 * * * *' })
   async processScheduleRules(): Promise<void> {
     this.logger.debug('Checking SCHEDULE-type AutoRules...');
 

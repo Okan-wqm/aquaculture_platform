@@ -31,6 +31,9 @@ import {
   RegulatoryReportDraft,
   ReportDraftStatus,
 } from '../entities/regulatory-report-draft.entity';
+import { createScheduledJobTestExecutor } from '@aquaculture/backend-common/scheduling/testing';
+
+const scheduledJobs = createScheduledJobTestExecutor();
 
 const TENANT = 'aaaaaaaa-1111-4222-8333-444444444444';
 const SITE = 'ssssssss-1111-4222-8333-444444444444';
@@ -127,6 +130,7 @@ function makeService(options: {
     draftSubmissionService,
     outboxPublisher,
     metrics,
+    scheduledJobs.executor,
   );
   return {
     service,

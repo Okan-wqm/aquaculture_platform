@@ -3,8 +3,12 @@ import {
   listRetainedTenantSchemaIdentities,
   type TenantSchemaIdentity,
 } from '@aquaculture/backend-common/database';
-import { Injectable, Logger } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import {
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
 import { DataSource } from 'typeorm';
 
 import {
@@ -52,13 +56,10 @@ export class EnvironmentCronService {
     private readonly store: EnvironmentSyncStore,
     private readonly ingestion: EnvironmentIngestionService,
     private readonly metrics: FarmDomainMetricsService,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
 
-  @Cron('*/15 * * * *', {
-    name: 'environmentProviderSync',
-    timeZone: 'UTC',
-    waitForCompletion: true,
-  })
+  @ScheduledJob({ name: 'environment.provider-sync', cron: '*/15 * * * *', timeZone: 'UTC' })
   async syncDueProviders(): Promise<void> {
     const startedAt = Date.now();
     if (!this.gate.isEnabled()) {
@@ -120,11 +121,7 @@ export class EnvironmentCronService {
     }
   }
 
-  @Cron('0 3 * * *', {
-    name: 'environmentObservationRetention',
-    timeZone: 'UTC',
-    waitForCompletion: true,
-  })
+  @ScheduledJob({ name: 'environment.observation-retention', cron: '0 3 * * *', timeZone: 'UTC' })
   async retainCanonicalObservations(): Promise<void> {
     const startedAt = Date.now();
     this.metrics.recordEnvironmentCronHeartbeat('retention');

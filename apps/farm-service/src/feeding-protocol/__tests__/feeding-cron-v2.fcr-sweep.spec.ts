@@ -30,6 +30,9 @@ import { FCRCalculationService } from '../../growth/services/fcr-calculation.ser
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource } from 'typeorm';
 import type { FCRAlertEvent } from '@platform/event-contracts';
+import { createScheduledJobTestExecutor } from '@aquaculture/backend-common/scheduling/testing';
+
+const scheduledJobs = createScheduledJobTestExecutor();
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 
@@ -50,6 +53,7 @@ describe('FeedingCronV2Service.sweepFcrForTenant (C-1)', () => {
     mock<FCRCalculationService>({ getTargetFCRForBatch, analyzeFCRTrend }),
     mock<OutboxPublisher>({ enqueue }),
     mock<ProtocolFeedForecastService>({}),
+    scheduledJobs.executor,
   );
 
   beforeEach(() => {

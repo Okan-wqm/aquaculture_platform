@@ -12,14 +12,7 @@
  *
  * @module Scheduler
  */
-import {
-  Injectable,
-  Logger,
-  OnModuleInit,
-  OnModuleDestroy,
-  NotFoundException,
-  BadRequestException,
-} from '@nestjs/common';
+import { Inject, BadRequestException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import {
   Repository,
@@ -40,7 +33,12 @@ import {
   createManagedInterval,
   type ManagedInterval,
 } from '@aquaculture/backend-common/utils';
-import { Cron, CronExpression, SchedulerRegistry } from '@nestjs/schedule';
+import { CronExpression, SchedulerRegistry } from '@nestjs/schedule';
+import {
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
 // Entities
@@ -185,6 +183,7 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
     private readonly schedulerRegistry: SchedulerRegistry,
     private readonly eventEmitter: EventEmitter2,
     private readonly dataSource: DataSource,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
 
   async onModuleInit() {
@@ -767,8 +766,9 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
    * Her gün saat 05:00'da çalışır - Günlük yemleme planı oluşturma
    * Iterates ALL tenant schemas with dedicated QueryRunner per tenant.
    */
-  @Cron(CronExpression.EVERY_DAY_AT_5AM, {
-    name: 'generateDailyFeedingPlan',
+  @ScheduledJob({
+    name: 'feeding-scheduler.generate-daily-plan',
+    cron: CronExpression.EVERY_DAY_AT_5AM,
     timeZone: 'Europe/Istanbul',
   })
   async generateDailyFeedingPlan(): Promise<void> {
@@ -830,8 +830,9 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
    * Her saat başı çalışır - Yemleme hatırlatmaları
    * Iterates ALL tenant schemas with dedicated QueryRunner per tenant.
    */
-  @Cron(CronExpression.EVERY_HOUR, {
-    name: 'sendFeedingReminders',
+  @ScheduledJob({
+    name: 'feeding-scheduler.send-reminders',
+    cron: CronExpression.EVERY_HOUR,
     timeZone: 'Europe/Istanbul',
   })
   async sendFeedingReminders(): Promise<void> {
@@ -904,8 +905,9 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
    * Her gün saat 20:00'da çalışır - Günlük yemleme özeti ve analizi
    * Iterates ALL tenant schemas with dedicated QueryRunner per tenant.
    */
-  @Cron(CronExpression.EVERY_DAY_AT_8PM, {
-    name: 'dailyFeedingSummary',
+  @ScheduledJob({
+    name: 'feeding-scheduler.daily-summary',
+    cron: CronExpression.EVERY_DAY_AT_8PM,
     timeZone: 'Europe/Istanbul',
   })
   async dailyFeedingSummary(): Promise<void> {
@@ -976,8 +978,9 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
    * Her gün saat 18:00'da çalışır - FCR analizi ve uyarıları
    * Iterates ALL tenant schemas with dedicated QueryRunner per tenant.
    */
-  @Cron(CronExpression.EVERY_DAY_AT_6PM, {
-    name: 'analyzeFCR',
+  @ScheduledJob({
+    name: 'feeding-scheduler.analyze-fcr',
+    cron: CronExpression.EVERY_DAY_AT_6PM,
     timeZone: 'Europe/Istanbul',
   })
   async analyzeFCR(): Promise<void> {
@@ -1052,8 +1055,9 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
    * Her gün saat 10:00'da çalışır - Yem stok kontrolü
    * Iterates ALL tenant schemas with dedicated QueryRunner per tenant.
    */
-  @Cron(CronExpression.EVERY_DAY_AT_10AM, {
-    name: 'checkFeedStock',
+  @ScheduledJob({
+    name: 'feeding-scheduler.check-feed-stock',
+    cron: CronExpression.EVERY_DAY_AT_10AM,
     timeZone: 'Europe/Istanbul',
   })
   async checkFeedStock(): Promise<void> {
@@ -1135,8 +1139,9 @@ export class FeedingSchedulerService implements OnModuleInit, OnModuleDestroy {
    * Her hafta Pazartesi saat 07:00'da çalışır - Haftalık yem tüketim tahmini
    * Iterates ALL tenant schemas with dedicated QueryRunner per tenant.
    */
-  @Cron('0 7 * * 1', {
-    name: 'weeklyFeedForecast',
+  @ScheduledJob({
+    name: 'feeding-scheduler.weekly-forecast',
+    cron: '0 7 * * 1',
     timeZone: 'Europe/Istanbul',
   })
   async weeklyFeedForecast(): Promise<void> {

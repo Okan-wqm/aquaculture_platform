@@ -394,12 +394,76 @@ converting the transformer separately would touch the same three files twice.
 
 ## ADMIN-HIGH-013 — Crons without leader election, heartbeat or lease (C12)
 
-**State:** OPEN · **Wave:** W3
+**State:** RESOLVED — 65 of 67 converted in W7; the remaining 2 are split out as
+PLAT-MEDIUM-903 · **Wave:** W3 (admin-api) + W7 (fleet)
 
 **Fix:** `@LeaderOnly()` / `pg_try_advisory_lock` primitive in backend-common placed beside `CronHeartbeatService` so adopting one forces the other; job claiming via `FOR UPDATE SKIP LOCKED`; shared batched-delete helper.
 **Gate:** every `@Cron` / `@Interval` in the fleet is leader-wrapped and heartbeated; `CronJobNeverRan` / `CronJobFailingEveryRun` rules are the runtime half.
 
-**Implementation note (landed 2026-09-05):** the primitive is one decorator, `@ScheduledJob({ name, cron | every, scope? })` (`libs/backend-common/src/scheduling/`), which applies the NestJS schedule decorator itself and wraps the tick in `ScheduledJobRunner.run`: a Postgres transaction-scoped advisory lock keyed on (service, job) — `pg_try_advisory_xact_lock(hashtext(service), hashtext(job))`, released with the transaction and therefore with a crashed replica's connection — and `CronHeartbeatService.track` for the tick that wins; a losing replica records `outcome="skipped"`. The decorator is typed against `HasScheduledJobRunner`, so a class without a `scheduledJobs` runner does not compile, and every job name is declared at boot so `CronJobNeverRan` has a series to alert on. `scope: 'each-replica'` is for per-process housekeeping (the error-tracking cooldown map) and skips the lock, never the heartbeat. All 21 admin-api scheduled methods (13 classes) are converted; `ScheduledJobModule.forRoot({ serviceName: 'admin-api-service' })` is registered. Job claiming in `JobQueueService` is one transaction — `SELECT … FOR UPDATE SKIP LOCKED`, dependency check, the RUNNING transition — so two replicas or two overlapping ticks cannot execute the same row (`job-queue.claim.spec.ts`). The single retention authority now disposes in ctid-addressed batches through the shared `deleteInBatches` helper (`libs/backend-common/src/database/batched-delete.ts`). Gate: `tests/invariants/scheduled-jobs-leased.spec.ts` over `tests/invariants/lib/scheduled-method-table.ts` (TypeScript-AST enumeration of every `@Cron`/`@Interval`/`@Timeout`/`@ScheduledJob` in apps, libs and platform libs): a raw decorator fails unless it is a governed entry in `.claude/allowlists/unleased-scheduled-jobs.yaml` (owner, expiry 2026-12-31, ADMIN-HIGH-013, ceiling that only decreases, entries that must still exist); admin-api may have no entries; job names must be literal, well-formed and unique per service; every service declaring a `@ScheduledJob` registers the module; `CronHeartbeatService` is reached only through the runner. The three existing cron invariants now count `@ScheduledJob` as a scheduler entry point. The runtime half (`CronJobNeverRan`, `CronJobFailingEveryRun` in `infrastructure/monitoring/droplet/rules/60-dataflow-integrity.yml`) already exists and now covers every admin job by construction. Not done here: the 67 raw scheduler sites in the other eight services and the two platform libs are frozen in the ratchet with owner okan and expiry 2026-12-31 under this finding; each converts by adding the runner and swapping the decorator, and the ratchet fails when one is converted without its entry being removed.
+**Implementation note (landed 2026-09-05):** the primitive is one decorator, `@ScheduledJob({ name, cron | every, scope? })` (`libs/backend-common/src/scheduling/`), which applies the NestJS schedule decorator itself and wraps the tick in `ScheduledJobRunner.run`: a Postgres transaction-scoped advisory lock keyed on (service, job) — `pg_try_advisory_xact_lock(hashtext(service), hashtext(job))`, released with the transaction and therefore with a crashed replica's connection — and `CronHeartbeatService.track` for the tick that wins; a losing replica records `outcome="skipped"`. The decorator is typed against `HasScheduledJobRunner`, so a class without a `scheduledJobs` runner does not compile, and every job name is declared at boot so `CronJobNeverRan` has a series to alert on. `scope: 'each-replica'` is for per-process housekeeping (the error-tracking cooldown map) and skips the lock, never the heartbeat. All 21 admin-api scheduled methods (13 classes) are converted; `ScheduledJobModule.forRoot({ serviceName: 'admin-api-service' })` is registered. Job claiming in `JobQueueService` is one transaction — `SELECT … FOR UPDATE SKIP LOCKED`, dependency check, the RUNNING transition — so two replicas or two overlapping ticks cannot execute the same row (`job-queue.claim.spec.ts`). The single retention authority now disposes in ctid-addressed batches through the shared `deleteInBatches` helper (`libs/backend-common/src/database/batched-delete.ts`). Gate: `tests/invariants/scheduled-jobs-leased.spec.ts` over `tests/invariants/lib/scheduled-method-table.ts` (TypeScript-AST enumeration of every `@Cron`/`@Interval`/`@Timeout`/`@ScheduledJob` in apps, libs and platform libs): a raw decorator fails unless it is a governed entry in `.claude/allowlists/unleased-scheduled-jobs.yaml` (owner, expiry 2026-12-31, ADMIN-HIGH-013, ceiling that only decreases, entries that must still exist); admin-api may have no entries; job names must be literal, well-formed and unique per service; every service declaring a `@ScheduledJob` registers the module; `CronHeartbeatService` is reached only through the runner. The three existing cron invariants now count `@ScheduledJob` as a scheduler entry point. The runtime half (`CronJobNeverRan`, `CronJobFailingEveryRun` in `infrastructure/monitoring/droplet/rules/60-dataflow-integrity.yml`) already exists and now covers every admin job by construction. Not done in W3: the 67 raw scheduler sites in the other eight services and the two platform libs, frozen in the ratchet.
+
+**W7 (landed 2026-09-07): 65 of those 67 converted, ceiling 67 -> 2.** billing
+(11), auth (2), notification (2), messaging (5), sensor (3), hr (3),
+observability (1), farm (37) and the retention enforcer (1). Four things the
+conversion required rather than merely applied:
+
+- **A leaking lock, not a missing one.** `generateMonthlyInvoices` already took
+  `pg_try_advisory_lock` — through `dataSource.query`, which creates a query
+  runner and releases it back to the pool (`DataSource.js:346`). A
+  session-scoped lock belongs to the connection that took it, so the unlock, on
+  whatever connection came next, returned false rather than releasing; and
+  `pg_advisory_unlock` reports that by RETURNING false, not throwing, so the
+  `.catch` never fired. The lock stayed held for the life of that connection and
+  the next monthly tick skipped. Invoice generation stopped after the first run.
+- **`timeZone` had nowhere to go.** Two notification crons and ten farm crons
+  carry one (`UTC`, `Europe/Oslo`, `Europe/Istanbul`); dropping it would have
+  moved a nightly job to a different instant per container, silently. The
+  decorator's cron form now takes it; its interval form rejects it at compile
+  time.
+- **Three services could not construct the heartbeat.** auth and sensor have
+  bespoke metrics modules predating the shared one; observability keeps its own
+  registry and has no `ServiceMetricsService` at all. The first two now provide
+  `CronHeartbeatService`; observability's `PrometheusService` gained the same
+  narrow `registerContributor` port and the token binds to it, so the heartbeat
+  lands on that service's own /metrics instead of nowhere.
+- **A double heartbeat.** `WatchdogCronService` took `heartbeat.track` itself.
+  The runner does that now, so the direct call went — keeping both would
+  double-count every run. Its job name is unchanged, so the existing series and
+  any rule reading it survive.
+
+Scope is a judgment per job: `cluster-single` wherever the tick writes shared
+rows, `each-replica` for the four metering flush/sync/cleanup jobs whose subject
+is this process's own memory — a leader-only tick there would leave every other
+replica's events unwritten, which is unbilled usage rather than a skipped tick.
+
+`createScheduledJobTestExecutor` + `ScheduledJobTestModule`
+(`backend-common/scheduling/testing`) replaced the pass-through double that was
+being copied per spec: a pass-through cannot tell a leased job from an unleased
+one, and `grant(false)` can.
+
+## PLAT-MEDIUM-903 — The scheduling kernel sits above the outbox (W7 split)
+
+**State:** OPEN · **Owner:** okan · **Deadline:** 2027-03-31
+
+The outbox worker's two scheduled methods are the last raw ones in the fleet,
+and not because the work was left: `@ScheduledJob` lives in
+`@aquaculture/backend-common/scheduling`, and backend-common already imports
+`@platform/outbox` (`OutboxPublisher` in the erasure module, the proof-ledger
+constant in `schema-manager.service.ts`). Importing it back inverts that, and
+the eslint boundary rule reports the cycle — verified, not assumed.
+
+Neither method is a correctness hole today. `pollAndPublish` MUST stay
+per-replica: its concurrency control is the row lease (`FOR UPDATE SKIP LOCKED`
+
+- `leasedBy`), so a cluster lock would serialise the relay and divide throughput
+  by the replica count; and it already publishes
+  `outbox_relay_last_cycle_timestamp_seconds`, the same liveness fact the
+  heartbeat carries. `cleanupPublished` would take the lease, but its DELETE is
+  idempotent and by-age, so a race costs contention, not correctness.
+
+**Fix:** extract `scheduling` into a lib below both — the decorator depends on
+`@nestjs/schedule` and one interface, nothing else in backend-common — then
+convert both methods and take the ratchet to zero.
 
 ## ADMIN-HIGH-014 — Detective stores with no producer (C16)
 

@@ -18,8 +18,12 @@
  *
  * @module Feeding
  */
-import { Injectable, Logger } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import {
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, QueryRunner } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -101,6 +105,7 @@ export class FeedingCronService {
     private readonly programService: FeedingProgramService,
     private readonly dataSource: DataSource,
     private readonly eventEmitter: EventEmitter2,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
 
   // ==========================================================================
@@ -309,8 +314,9 @@ export class FeedingCronService {
    * - Event emission for monitoring
    * - Structured logging with correlation IDs
    */
-  @Cron('0 6 * * *', {
-    name: 'generate-daily-feeding-plans',
+  @ScheduledJob({
+    name: 'feeding.generate-daily-plans',
+    cron: '0 6 * * *',
     timeZone: 'Europe/Istanbul',
   })
   async generateDailyPlans(): Promise<void> {
@@ -543,8 +549,9 @@ export class FeedingCronService {
    * stamped), so only DAILY executions are pending. applyPendingDailyGrowth is
    * idempotent, so a retry or an extra run never double-applies growth.
    */
-  @Cron('0 5 * * *', {
-    name: 'apply-daily-growth-rollup',
+  @ScheduledJob({
+    name: 'feeding.apply-growth-rollup',
+    cron: '0 5 * * *',
     timeZone: 'Europe/Istanbul',
   })
   async applyDailyGrowthRollup(): Promise<void> {
@@ -619,8 +626,9 @@ export class FeedingCronService {
    * TODO: Implement sensor service integration when available.
    * WARNING: Currently this method only logs pending executions without updating them.
    */
-  @Cron('15 * * * *', {
-    name: 'update-temperature-readings',
+  @ScheduledJob({
+    name: 'feeding.update-temperature-readings',
+    cron: '15 * * * *',
     timeZone: 'Europe/Istanbul',
   })
   async updateTemperatureReadings(): Promise<void> {
@@ -641,8 +649,9 @@ export class FeedingCronService {
    *
    * Uses GIN index hint for JSONB transition warning queries
    */
-  @Cron('0 7 * * *', {
-    name: 'check-feed-transitions',
+  @ScheduledJob({
+    name: 'feeding.check-feed-transitions',
+    cron: '0 7 * * *',
     timeZone: 'Europe/Istanbul',
   })
   async checkFeedTransitions(): Promise<void> {
@@ -791,8 +800,9 @@ export class FeedingCronService {
    *
    * Uses batch delete with limit to avoid unbounded operations
    */
-  @Cron('0 2 1 * *', {
-    name: 'cleanup-old-executions',
+  @ScheduledJob({
+    name: 'feeding.cleanup-old-executions',
+    cron: '0 2 1 * *',
     timeZone: 'Europe/Istanbul',
   })
   async cleanupOldExecutions(): Promise<void> {

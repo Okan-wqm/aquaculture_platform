@@ -138,6 +138,7 @@ import { GraphQLContextModule } from './common/graphql-context.module';
 // twice via the manifest import graph.
 import { AuditedOperationModule } from '@aquaculture/backend-common/audit';
 import { FARM_MIGRATIONS } from './database/migrations/manifest';
+import { ScheduledJobModule } from '@aquaculture/backend-common/scheduling';
 
 @Module({
   imports: [
@@ -319,6 +320,11 @@ import { FARM_MIGRATIONS } from './database/migrations/manifest';
 
     // Schedule module — single forRoot() for the entire service
     ScheduleModule.forRoot(),
+    // ADMIN-HIGH-013: every @ScheduledJob tick routes through the runner's
+    // advisory-lock lease and heartbeat. farm-service ran 37 unleased crons —
+    // the largest half of the finding — so this line is the one that makes a
+    // second replica safe.
+    ScheduledJobModule.forRoot({ serviceName: 'farm-service' }),
 
     /**
      * Global EventEmitter2 registration — single forRoot() for the entire service.

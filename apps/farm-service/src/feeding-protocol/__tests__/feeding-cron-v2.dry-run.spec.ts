@@ -42,6 +42,9 @@ import {
   FeedingUnitType,
 } from '../entities/protocol-assignment.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
+import { createScheduledJobTestExecutor } from '@aquaculture/backend-common/scheduling/testing';
+
+const scheduledJobs = createScheduledJobTestExecutor();
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
 const SITE = '88888888-8888-4888-8888-888888888888';
@@ -147,6 +150,7 @@ function makeService(fixture: DryRunFixture): {
     mock<FCRCalculationService>({}),
     mock<OutboxPublisher>({ enqueue }),
     mock<ProtocolFeedForecastService>({}),
+    scheduledJobs.executor,
   );
   return { service, persistDayPlan, enqueue };
 }

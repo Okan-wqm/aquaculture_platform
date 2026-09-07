@@ -20,6 +20,9 @@ import { FCRCalculationService } from '../../growth/services/fcr-calculation.ser
 import { FeedingMeal, FeedingMealStatus } from '../entities/feeding-meal.entity';
 import { FeedingDayPlan } from '../entities/feeding-day-plan.entity';
 import { FeedingProtocolV2 } from '../entities/feeding-protocol-v2.entity';
+import { createScheduledJobTestExecutor } from '@aquaculture/backend-common/scheduling/testing';
+
+const scheduledJobs = createScheduledJobTestExecutor();
 
 jest.mock('@aquaculture/backend-common/database', () => ({
   ...jest.requireActual('@aquaculture/backend-common/database'),
@@ -94,6 +97,7 @@ function makeHarness(fixture: SweepFixture) {
       }),
     }),
     mock<ProtocolFeedForecastService>({}),
+    scheduledJobs.executor,
   );
 
   return { service, callOrder, enqueued, lockUnitForGrowth, applyGrowth, save };

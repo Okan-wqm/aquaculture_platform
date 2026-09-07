@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `3edaf954e211d08589f2bd8f4360c5da12047a2a53f723937f7b4d112f585eab`
+Registry tip: `f84751246b49d846198544d14c607f7771d519fcd4c4e31ddfb8103538f63adc`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -249,7 +249,6 @@ Allowed truth buckets:
 | `DEPLOY-CRITICAL-017`   | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
 | `ADMIN-CRITICAL-102`    | OPEN           | 2026-09-05   | admin-expert               | real-open                 |
 | `ADMIN-CRITICAL-103`    | OPEN           | 2026-09-05   | admin-expert               | real-open                 |
-| `ADMIN-CRITICAL-104`    | OPEN           | 2026-09-05   | admin-expert               | real-open                 |
 | `BILLING-CRITICAL-011`  | OPEN           | 2026-09-05   | billing-expert             | real-open                 |
 | `BILLING-CRITICAL-012`  | OPEN           | 2026-09-05   | billing-expert             | real-open                 |
 | `CONTRACT-CRITICAL-004` | OPEN           | 2026-09-05   | contract-parity-enforcer   | real-open                 |
@@ -257,8 +256,6 @@ Allowed truth buckets:
 | `DATA-CRITICAL-016`     | OPEN           | 2026-09-05   | data-expert                | real-open                 |
 | `INFRA-CRITICAL-164`    | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
 | `OBS-CRITICAL-007`      | OPEN           | 2026-09-05   | observability-expert       | real-open                 |
-| `OBS-CRITICAL-008`      | OPEN           | 2026-09-05   | observability-expert       | real-open                 |
-| `PLAT-CRITICAL-911`     | OPEN           | 2026-09-05   | platform-kernel-expert     | real-open                 |
 | `SEC-CRITICAL-161`      | OPEN           | 2026-09-05   | auth-security-expert       | real-open                 |
 | `SEC-CRITICAL-162`      | OPEN           | 2026-09-05   | auth-security-expert       | real-open                 |
 | `SEC-CRITICAL-163`      | OPEN           | 2026-09-05   | auth-security-expert       | real-open                 |
@@ -782,4 +779,13 @@ tests/invariants/all-services-env-aware-migrations.spec.ts --runInBand`,
   Left the active table from bucket `real-open`.
 - `BILLING-CRITICAL-010`: registry state is `RESOLVED` with closing commit
   `63619406e`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `real-open`.
+- `ADMIN-CRITICAL-104`: registry state is `RESOLVED` with closing commit
+  `eddde31b7`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `real-open`.
+- `OBS-CRITICAL-008`: registry state is `RESOLVED` with closing commit
+  `d1d2c1d40`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `real-open`.
+- `PLAT-CRITICAL-911`: registry state is `RESOLVED` with closing commit
+  `b093f541c`, derived by `finding-registry reconcile` against `origin/main`.
   Left the active table from bucket `real-open`.

@@ -203,6 +203,35 @@ describe('INVARIANT (ADMIN-HIGH-012): the admin schema stores instants as instan
     expect(stale).toEqual([]);
   });
 
+  it('every admin IP column is inet', () => {
+    // `varchar(45)` is the length of the longest IPv6 text form — the column
+    // was sized for an address and then typed as text, so it accepts anything
+    // that fits. It held the word "unknown". `inet` validates on write,
+    // normalises `::ffff:192.0.2.1`, sorts correctly and supports the subnet
+    // operators any real "is this in the attacker's range" query needs.
+    const stringy = columns
+      .filter((column) => /^(ipAddress|clientIp)$/.test(column.property))
+      .filter((column) => !/type:\s*'inet'/.test(column.options))
+      .map(
+        (column) =>
+          `${column.file}: ${column.entity}.${column.property} — @${column.decorator}(${column.options})`,
+      );
+    expect(stringy).toEqual([]);
+  });
+
+  it('nothing writes a placeholder into an IP column', () => {
+    // The W5 projection wrote `event.ip ?? 'unknown'`, which an inet column
+    // rejects and a varchar keeps forever while every equality query silently
+    // fails to match it. An absent address is absent.
+    const writers = listFiles('apps/admin-api-service/src/**/*.ts').filter(
+      (file) => !/\.(?:spec|test)\.ts$/.test(file) && !file.includes('__tests__'),
+    );
+    const offenders = writers
+      .filter((file) => /ipAddress:[^,;\n]*\?\?\s*'[^']+'/.test(read(file)))
+      .map((file) => `${file}: writes a literal fallback into an IP column`);
+    expect(offenders).toEqual([]);
+  });
+
   it('no admin migration after the baseline creates a naked TIMESTAMP column', () => {
     // The baseline itself is history and is corrected forward by
     // `1809600000000-AdminSchemaTimestamptz`; hand-editing a migration is

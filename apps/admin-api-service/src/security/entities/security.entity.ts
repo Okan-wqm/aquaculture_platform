@@ -210,8 +210,13 @@ export class ActivityLog {
   entityName?: string | null;
 
   // Request details
-  @Column({ type: 'varchar', length: 45 })
-  ipAddress!: string;
+  /**
+   * `inet`, and nullable: a client address is validated and normalised by the
+   * type, and an absent one is absent rather than the word "unknown"
+   * (ADMIN-HIGH-012, migration `1809800000000`).
+   */
+  @Column({ type: 'inet', nullable: true })
+  ipAddress?: string | null;
 
   @Column({ type: 'jsonb', nullable: true })
   geoLocation?: GeoLocation | null;
@@ -307,8 +312,13 @@ export class SecurityEvent {
   description!: string;
 
   // Source info
-  @Column({ type: 'varchar', length: 45 })
-  ipAddress!: string;
+  /**
+   * `inet`, and nullable: a client address is validated and normalised by the
+   * type, and an absent one is absent rather than the word "unknown"
+   * (ADMIN-HIGH-012, migration `1809800000000`).
+   */
+  @Column({ type: 'inet', nullable: true })
+  ipAddress?: string | null;
 
   @Column({ type: 'jsonb', nullable: true })
   geoLocation?: GeoLocation | null;
@@ -819,8 +829,13 @@ export class LoginAttempt {
   @Column({ type: 'varchar', length: 255 })
   email!: string;
 
-  @Column({ type: 'varchar', length: 45 })
-  ipAddress!: string;
+  /**
+   * `inet`, and nullable: a client address is validated and normalised by the
+   * type, and an absent one is absent rather than the word "unknown"
+   * (ADMIN-HIGH-012, migration `1809800000000`).
+   */
+  @Column({ type: 'inet', nullable: true })
+  ipAddress?: string | null;
 
   @Column({ type: 'boolean' })
   success!: boolean;
@@ -914,8 +929,13 @@ export class ApiUsageLog {
   responseTimeMs!: number;
 
   // Source
-  @Column({ type: 'varchar', length: 45 })
-  ipAddress!: string;
+  /**
+   * `inet`, and nullable: a client address is validated and normalised by the
+   * type, and an absent one is absent rather than the word "unknown"
+   * (ADMIN-HIGH-012, migration `1809800000000`).
+   */
+  @Column({ type: 'inet', nullable: true })
+  ipAddress?: string | null;
 
   @Column({ type: 'varchar', length: 500, nullable: true })
   userAgent?: string | null;

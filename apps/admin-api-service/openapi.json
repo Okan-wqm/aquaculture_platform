@@ -22189,7 +22189,8 @@
             "nullable": true
           },
           "ipAddress": {
-            "type": "string"
+            "type": "string",
+            "nullable": true
           },
           "geoLocation": {
             "type": "object",
@@ -22269,7 +22270,6 @@
           "severity",
           "action",
           "description",
-          "ipAddress",
           "success",
           "createdAt",
           "legalHold"
@@ -22285,7 +22285,8 @@
             "type": "string"
           },
           "ipAddress": {
-            "type": "string"
+            "type": "string",
+            "nullable": true
           },
           "success": {
             "type": "boolean"
@@ -22326,7 +22327,6 @@
         "required": [
           "id",
           "email",
-          "ipAddress",
           "success",
           "createdAt"
         ]
@@ -23144,7 +23144,8 @@
             "type": "string"
           },
           "ipAddress": {
-            "type": "string"
+            "type": "string",
+            "nullable": true
           },
           "geoLocation": {
             "type": "object",
@@ -23272,7 +23273,6 @@
           "status",
           "title",
           "description",
-          "ipAddress",
           "detectionSource",
           "autoMitigated",
           "createdAt",

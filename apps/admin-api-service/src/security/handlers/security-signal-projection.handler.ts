@@ -103,7 +103,7 @@ export class SecuritySignalProjectionHandler {
       path: event.key,
       statusCode: 429,
       responseTimeMs: 0,
-      ipAddress: event.ip ?? 'unknown',
+      ipAddress: event.ip,
       userAgent: event.userAgent,
       rateLimitExceeded: true,
       tenantId,
@@ -120,7 +120,7 @@ export class SecuritySignalProjectionHandler {
     await this.monitoring.checkApiAbuse({
       tenantId,
       userId: event.userId,
-      ipAddress: event.ip ?? 'unknown',
+      ipAddress: event.ip,
       endpoint: event.key,
       rateLimitExceeded: true,
     });
@@ -142,7 +142,7 @@ export class SecuritySignalProjectionHandler {
     const tenantId = this.tenantOf(event);
     const stored = await this.activityLogging.recordLoginAttempt({
       email,
-      ipAddress: event.ip ?? 'unknown',
+      ipAddress: event.ip,
       success,
       failureReason,
       tenantId,
@@ -157,7 +157,7 @@ export class SecuritySignalProjectionHandler {
 
     await this.monitoring.analyzeLoginAttempt({
       email,
-      ipAddress: event.ip ?? 'unknown',
+      ipAddress: event.ip,
       success,
       userId: event.userId,
       tenantId,

@@ -39,20 +39,6 @@ scheduledDisposers:
       migrating it to the registry moves the window into code, which is the
       intended end state and is notification-service's change to make.
 entries:
-  - table: admin.login_attempts
-    owner: okan
-    expiry: 2026-12-31
-    findingId: ADMIN-HIGH-109
-    reason: >-
-      Detective store with no producer; the decision is producer-or-delete
-      (ADMIN-HIGH-109). A window over a table nothing writes would be a claim
-      of coverage the platform does not have.
-  - table: admin.api_usage_logs
-    owner: okan
-    expiry: 2026-12-31
-    findingId: ADMIN-HIGH-109
-    reason: >-
-      Detective store with no producer; producer-or-delete decision pending.
   - table: admin.security_events
     owner: okan
     expiry: 2026-12-31

@@ -465,6 +465,39 @@ all three move together with the subscription money path. The allowlist ceiling 
 for that reason — this wave removed no money-in-jsonb site, and saying otherwise would be the audit
 theater the traceability rule exists to prevent.
 
+## BILLING-HIGH-013 — Provisioning still raw-INSERTs a subscription, and no admin billing command is idempotent
+
+**State:** OPEN · **Wave:** W4c · **ADR:** 0014
+
+**Evidence:** main closed BILLING-CRITICAL-010 independently of this wave (`63619406e`) with
+`StripeSubscriptionProvisionerService`, which mints a tenant's Stripe objects and fills
+`stripe_customer_id` / `stripe_subscription_id`. It did not touch the write itself:
+`billing-admin-nats.handler.ts:693` still runs `INSERT INTO billing.subscriptions` beside the
+`@CommandHandler`s that do the same thing properly — telling Stripe nothing beyond the mint, writing
+no outbox event, projecting nothing onto `auth.tenants` and validating no state transition under a
+lock. Separately, no admin billing command carries an `idempotencyKey`, so every NATS retry of a
+refund, an invoice or a plan change executes again; `billing.command_receipts` does not exist.
+
+**Why it is a finding rather than part of W4:** the wave's own gate,
+`tests/invariants/billing-command-contract-ssot.spec.ts`, is already written and already fails
+against main's tree on exactly this line — which is the finding, not an accident. Landing it means
+extracting the writer against main's provisioner rather than transplanting the audit branch's
+`SubscriptionWriterService`, and `create-subscription.handler` reaches the table through the
+repository rather than raw SQL, so "both paths use one writer" has to be designed here, not
+cherry-picked. Shipping the gate without that work would be a weakened gate; shipping the writer
+without the gate would be a fix nothing holds in place.
+
+**Fix (Tier-1/Tier-2):** one writer for `billing.subscriptions`, taking the caller's
+`EntityManager` so the GraphQL path and operator provisioning share it across their different
+transactions, with `ensureStripeObjects` ahead of either; then `BillingAdminCommandMeta` gains a
+required `idempotencyKey` + `correlationId`, and a `BillingCommandReceiptInterceptor` bound to every
+NATS controller writes a `(tenantId, commandType, idempotencyKey)` receipt before acting, so
+at-most-once is the default rather than something 32 handler methods each remember.
+The implementation exists on `claude/superadmin-panel-audit-dm2t1v` at `c7f82ec77` and is the
+starting point, not the answer.
+
+**Gate:** `tests/invariants/billing-command-contract-ssot.spec.ts`, landing with the fix.
+
 ## BILLING-CRITICAL-012 — Raw SQL against subscriptions; dead Stripe reconciliation
 
 **State:** OPEN · **Wave:** W4 · **ADR:** 0014 (depends on 0013)

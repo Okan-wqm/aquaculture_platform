@@ -36494,6 +36494,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/zcode/2026-09-08-gate-suite-teardown-race.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/zcode/2026-09-08-pr-1031-1034-closure-evidence.md",
       "prettier_managed": true
     },
@@ -45991,6 +45997,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/fixture-tree-removal-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/fixtures/plan-020/banned-phrase-positive.md",
       "prettier_managed": true
     },
@@ -48111,6 +48123,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/gates/finding-traceability.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/fixture-tree.ts",
       "prettier_managed": true
     },
     {

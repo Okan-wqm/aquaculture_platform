@@ -17,10 +17,11 @@
  * mirroring CI.
  */
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
+import { removeFixtureTree } from '../../../tools/gates/fixture-tree';
 /** Repo root, resolved from this file's location (tests/invariants/helpers). */
 export const REPO_ROOT = resolve(__dirname, '..', '..', '..');
 
@@ -78,7 +79,7 @@ function projectGraph(): ReadonlyMap<string, NxProjectNode> {
     graphCache = nodes;
     return nodes;
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    removeFixtureTree(dir);
   }
 }
 

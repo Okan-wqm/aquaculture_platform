@@ -46,7 +46,7 @@
 
 import { strict as assert } from 'node:assert';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { test } from 'node:test';
 
@@ -61,7 +61,7 @@ import {
   validateCommit,
   type Commit,
 } from './commit-msg-validator';
-
+import { removeFixtureTree } from './fixture-tree';
 // Plan 018 Phase 4 fixtures live under aria-findings/.test-fixtures/ +
 // aria-debts/.test-fixtures/. The kernel's _refresh_index globs
 // `F-*.json` / `DEBT-*.json` so dot-prefixed dirs are excluded; commit-
@@ -529,7 +529,7 @@ void test('validateCommit: ARIA finding trailer routes to filesystem (no registr
       `expected zero violations on the ARIA finding routing happy path, got: ${JSON.stringify(violations)}`,
     );
   } finally {
-    rmSync(FIXTURE_FINDINGS_DIR, { recursive: true, force: true });
+    removeFixtureTree(FIXTURE_FINDINGS_DIR);
   }
 });
 
@@ -625,7 +625,7 @@ void test('validateCommit: ARIA finding trailer with matching finding_id passes 
       `expected zero violations on ID match, got: ${JSON.stringify(violations)}`,
     );
   } finally {
-    rmSync(FIXTURE_FINDINGS_DIR, { recursive: true, force: true });
+    removeFixtureTree(FIXTURE_FINDINGS_DIR);
   }
 });
 
@@ -656,7 +656,7 @@ void test('validateCommit: ARIA finding trailer with mismatched finding_id fires
       `expected ID mismatch violation, got: ${JSON.stringify(violations)}`,
     );
   } finally {
-    rmSync(FIXTURE_FINDINGS_DIR, { recursive: true, force: true });
+    removeFixtureTree(FIXTURE_FINDINGS_DIR);
   }
 });
 
@@ -684,7 +684,7 @@ void test('validateCommit: ARIA debt trailer with malformed JSON fires unreadabl
       `expected unreadable violation, got: ${JSON.stringify(violations)}`,
     );
   } finally {
-    rmSync(FIXTURE_DEBTS_DIR, { recursive: true, force: true });
+    removeFixtureTree(FIXTURE_DEBTS_DIR);
   }
 });
 
@@ -697,6 +697,6 @@ void test('readAriaArtifactId returns finding_id for aria-findings/ path', () =>
     const result = readAriaArtifactId(fixturePath, 'aria-findings/.test-fixtures/F-902.json');
     assert.deepStrictEqual(result, { kind: 'ok', value: 'F-902' });
   } finally {
-    rmSync(FIXTURE_FINDINGS_DIR, { recursive: true, force: true });
+    removeFixtureTree(FIXTURE_FINDINGS_DIR);
   }
 });

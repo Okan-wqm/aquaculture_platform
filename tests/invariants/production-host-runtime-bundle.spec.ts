@@ -11,7 +11,6 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
-  rmSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -20,6 +19,7 @@ import { dirname, join, resolve } from 'node:path';
 
 import { resolveEsbuildNodeModules } from './_constants';
 
+import { removeFixtureTree } from '../../tools/gates/fixture-tree';
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const PRODUCER = join(REPO_ROOT, 'tools/scripts/ci/prepare-production-host-runtime-bundle.sh');
 
@@ -189,7 +189,7 @@ describe('production host exact-SHA runtime bundle', () => {
         'signals-runtime',
       );
     } finally {
-      rmSync(fixture.root, { recursive: true, force: true });
+      removeFixtureTree(fixture.root);
     }
   });
 
@@ -203,7 +203,7 @@ describe('production host exact-SHA runtime bundle', () => {
       expect(`${result.stdout}${result.stderr}`).toContain('non-regular tracked entry rejected');
       expect(existsSync(fixture.output)).toBe(false);
     } finally {
-      rmSync(fixture.root, { recursive: true, force: true });
+      removeFixtureTree(fixture.root);
     }
   });
 
@@ -233,7 +233,7 @@ describe('production host exact-SHA runtime bundle', () => {
         expect(existsSync(fixture.output)).toBe(false);
       }
     } finally {
-      rmSync(fixture.root, { recursive: true, force: true });
+      removeFixtureTree(fixture.root);
     }
   });
 
@@ -264,7 +264,7 @@ describe('production host exact-SHA runtime bundle', () => {
       expect(`${result.stdout}${result.stderr}`).toContain('non-regular tracked entry rejected');
       expect(existsSync(fixture.output)).toBe(false);
     } finally {
-      rmSync(fixture.root, { recursive: true, force: true });
+      removeFixtureTree(fixture.root);
     }
   });
 
@@ -283,8 +283,8 @@ describe('production host exact-SHA runtime bundle', () => {
         'protected commit bytes\n',
       );
     } finally {
-      rmSync(exactProducerRoot, { recursive: true, force: true });
-      rmSync(fixture.root, { recursive: true, force: true });
+      removeFixtureTree(exactProducerRoot);
+      removeFixtureTree(fixture.root);
     }
   });
 });

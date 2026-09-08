@@ -26,10 +26,11 @@
  * finding to be inert.
  */
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
+import { removeFixtureTree } from '../../tools/gates/fixture-tree';
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const EXCEPTIONS_PATH = join(REPO_ROOT, 'scripts', 'ci', 'npm-audit-exceptions.json');
 const GATE = join(REPO_ROOT, 'scripts', 'ci', 'npm-audit-gate.mjs');
@@ -114,7 +115,7 @@ function runGate(
       };
     }
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    removeFixtureTree(dir);
   }
 }
 

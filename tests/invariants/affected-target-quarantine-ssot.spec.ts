@@ -29,13 +29,14 @@
  * `test` quarantine count downward.
  */
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import { ORPHAN_MD_HEADING_REGEX } from '../../tools/gates/finding-registry-store';
 import { nxProjects } from './helpers/nx';
 
+import { removeFixtureTree } from '../../tools/gates/fixture-tree';
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const POLICY_PATH = join(REPO_ROOT, 'scripts/ci/affected-target-policy.json');
 const WRITER_PATH = join(REPO_ROOT, 'scripts/ci/write-affected-target-report.mjs');
@@ -149,7 +150,7 @@ function runWriter(policy: unknown): { status: number; stderr: string } {
       return { status: failure.status ?? 1, stderr: failure.stderr ?? '' };
     }
   } finally {
-    rmSync(dir, { recursive: true, force: true });
+    removeFixtureTree(dir);
   }
 }
 

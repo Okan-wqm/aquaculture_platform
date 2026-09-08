@@ -6,7 +6,6 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
-  rmSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -14,6 +13,7 @@ import { join, resolve } from 'node:path';
 
 import yaml from 'js-yaml';
 
+import { removeFixtureTree } from '../../tools/gates/fixture-tree';
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const ACTION_PATH = join(
   REPO_ROOT,
@@ -183,7 +183,7 @@ describe('Linux platform-binary installer authority', () => {
         );
         expect(readdirSync(fixture.runnerTemp)).toEqual([]);
       } finally {
-        rmSync(fixture.directory, { recursive: true, force: true });
+        removeFixtureTree(fixture.directory);
       }
     }
   });
@@ -202,7 +202,7 @@ describe('Linux platform-binary installer authority', () => {
         );
         expect(readdirSync(fixture.runnerTemp)).toEqual([]);
       } finally {
-        rmSync(fixture.directory, { recursive: true, force: true });
+        removeFixtureTree(fixture.directory);
       }
     }
   });
@@ -218,7 +218,7 @@ describe('Linux platform-binary installer authority', () => {
       );
       expect(readdirSync(fixture.runnerTemp)).toEqual([]);
     } finally {
-      rmSync(fixture.directory, { recursive: true, force: true });
+      removeFixtureTree(fixture.directory);
     }
   });
 
@@ -255,7 +255,7 @@ describe('Linux platform-binary installer authority', () => {
       expect(result.status).toBe(143);
       expect(readdirSync(runnerTemp)).toEqual([]);
     } finally {
-      rmSync(directory, { recursive: true, force: true });
+      removeFixtureTree(directory);
     }
   });
 });

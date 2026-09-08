@@ -1,8 +1,9 @@
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
+import { removeFixtureTree } from '../../tools/gates/fixture-tree';
 const REPO_ROOT = resolve(__dirname, '..', '..');
 
 function read(path: string): string {
@@ -148,7 +149,7 @@ function runCapacityAutoGcScenario(scenario: CapacityAutoGcScenario): CapacityAu
       dockerInvocations: readFileSync(dockerInvocationLog, 'utf8').split('\0').filter(Boolean),
     };
   } finally {
-    rmSync(fakeBin, { recursive: true, force: true });
+    removeFixtureTree(fakeBin);
   }
 }
 
@@ -807,7 +808,7 @@ describe('deploy SSOT contract', () => {
         );
       }
     } finally {
-      rmSync(fakeBin, { recursive: true, force: true });
+      removeFixtureTree(fakeBin);
     }
   });
 
@@ -876,7 +877,7 @@ describe('deploy SSOT contract', () => {
       );
       expect(failing.stdout).toContain('Capacity preflight failed');
     } finally {
-      rmSync(fakeBin, { recursive: true, force: true });
+      removeFixtureTree(fakeBin);
     }
   });
 
@@ -944,7 +945,7 @@ describe('deploy SSOT contract', () => {
         `disk_usage_unavailable path=${fakeBin} reason=du_timeout detail=124 global_timeout_seconds=3 scope_timeout_seconds=`,
       );
     } finally {
-      rmSync(fakeBin, { recursive: true, force: true });
+      removeFixtureTree(fakeBin);
     }
   });
 
@@ -1043,9 +1044,9 @@ describe('deploy SSOT contract', () => {
         expect(timeoutInvocations).toContain(`15s\t${hotspotScope}`);
       }
     } finally {
-      rmSync(fakeBin, { recursive: true, force: true });
+      removeFixtureTree(fakeBin);
       for (const hotspotScope of hotspotScopes) {
-        rmSync(hotspotScope, { recursive: true, force: true });
+        removeFixtureTree(hotspotScope);
       }
     }
   });
@@ -1104,7 +1105,7 @@ describe('deploy SSOT contract', () => {
       );
       expect(report.stdout).toContain('truncated=true');
     } finally {
-      rmSync(fakeBin, { recursive: true, force: true });
+      removeFixtureTree(fakeBin);
     }
   });
 
@@ -1192,8 +1193,8 @@ describe('deploy SSOT contract', () => {
           .filter((scope) => scope === encodedHostileScope),
       ).toHaveLength(1);
     } finally {
-      rmSync(fakeBin, { recursive: true, force: true });
-      rmSync(hostileScope, { recursive: true, force: true });
+      removeFixtureTree(fakeBin);
+      removeFixtureTree(hostileScope);
     }
   });
 

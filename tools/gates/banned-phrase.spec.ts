@@ -20,11 +20,12 @@
 
 import { strict as assert } from 'node:assert';
 import { execFileSync, ExecFileSyncOptions } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
 
+import { removeFixtureTree } from './fixture-tree';
 const REPO_ROOT = (() => {
   try {
     return execFileSync('git', ['rev-parse', '--show-toplevel'], {
@@ -144,6 +145,6 @@ void test('PostgreSQL constraint timing syntax is accepted while ordinary prose 
     );
     assert.match(proseResult.stderr, /Banned-phrase violations detected/);
   } finally {
-    rmSync(fixtureDir, { recursive: true, force: true });
+    removeFixtureTree(fixtureDir);
   }
 });

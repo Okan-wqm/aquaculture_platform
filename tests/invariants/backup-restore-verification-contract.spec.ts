@@ -6,7 +6,6 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
-  rmSync,
   symlinkSync,
   unlinkSync,
   writeFileSync,
@@ -20,6 +19,7 @@ import {
   renderDatabaseVerificationSql,
 } from '../../tools/scripts/database/generate-database-verification-sql';
 
+import { removeFixtureTree } from '../../tools/gates/fixture-tree';
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const BACKUP_SCRIPT_PATH = join(REPO_ROOT, 'tools/scripts/database/backup-databases.sh');
 const RESTORE_SCRIPT_PATH = join(REPO_ROOT, 'tools/scripts/database/restore-databases.sh');
@@ -88,6 +88,19 @@ function runFixtureGit(root: string, args: readonly string[]): string {
       LC_ALL: 'C',
       GIT_CONFIG_NOSYSTEM: '1',
       GIT_CONFIG_GLOBAL: '/dev/null',
+      // `git commit` finishes by running `git maintenance run --auto --quiet`
+      // (visible under GIT_TRACE=1), and `gc.autoDetach` defaults to true, so
+      // the gc task daemonises and keeps writing under `.git` after spawnSync
+      // has returned. The fixture root is deleted moments later, which is how
+      // teardown reached `ENOTEMPTY: rmdir '.../.git'` on a green assertion
+      // run (INFRA-HIGH-172). Supplying the two knobs through the environment
+      // rather than per-invocation `-c` flags means every git call this helper
+      // ever makes inherits them, including ones added later.
+      GIT_CONFIG_COUNT: '2',
+      GIT_CONFIG_KEY_0: 'gc.auto',
+      GIT_CONFIG_VALUE_0: '0',
+      GIT_CONFIG_KEY_1: 'maintenance.auto',
+      GIT_CONFIG_VALUE_1: 'false',
     },
   });
   if (result.status !== 0) {
@@ -386,7 +399,7 @@ describe('backup and isolated restore verification contract', () => {
       expect(archivedContent.status).toBe(0);
       expect(archivedContent.stdout).toBe(protectedContent);
     } finally {
-      rmSync(fixture.root, { recursive: true, force: true });
+      removeFixtureTree(fixture.root);
     }
   });
 
@@ -421,7 +434,7 @@ describe('backup and isolated restore verification contract', () => {
         'protected runtime tree entry is not a regular file',
       );
     } finally {
-      rmSync(fixture.root, { recursive: true, force: true });
+      removeFixtureTree(fixture.root);
     }
   });
 });

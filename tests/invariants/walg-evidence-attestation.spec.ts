@@ -1,8 +1,9 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
+import { removeFixtureTree } from '../../tools/gates/fixture-tree';
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const TOOL = join(REPO_ROOT, 'tools/scripts/database/walg-evidence-attestation.mjs');
 const MAIN_SHA = 'a'.repeat(40);
@@ -24,7 +25,7 @@ describe('WAL-G GitHub OIDC/Rekor evidence attestation contract', () => {
   });
 
   afterEach(() => {
-    rmSync(directory, { recursive: true, force: true });
+    removeFixtureTree(directory);
   });
 
   function createSuccessfulRun(): string {

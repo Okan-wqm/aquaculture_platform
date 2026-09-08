@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
+import { removeFixtureTree } from '../../tools/gates/fixture-tree';
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const POLICY_PATH = join(REPO_ROOT, '.github/manifests/backup-ssh-broker-policy.json');
 const BROKER_SOURCE_PATH = join(REPO_ROOT, 'tools/backup-ssh-broker/main.rs');
@@ -203,7 +204,7 @@ describe('protected backup SSH broker substrate', () => {
       expect(dynamic.status).toBe(0);
       expect(dynamic.stdout).not.toContain('(NEEDED)');
     } finally {
-      rmSync(directory, { recursive: true, force: true });
+      removeFixtureTree(directory);
     }
   });
 
@@ -224,7 +225,7 @@ describe('protected backup SSH broker substrate', () => {
         PATH: '/usr/sbin:/usr/bin:/sbin:/bin',
       },
     });
-    rmSync(bashEnvDirectory, { recursive: true, force: true });
+    removeFixtureTree(bashEnvDirectory);
     const inheritedFunctionProbe = spawnSync(PROVISIONER_PATH, [], {
       cwd: REPO_ROOT,
       encoding: 'utf8',

@@ -29,6 +29,7 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 import AuditLogPage from '../AuditLogPage';
 import { auditApi, tenantsApi } from '../../services/adminApi';
 import type { AuditLog, AuditLogStats, PaginatedResult, Tenant } from '../../services/adminApi';
+import { derivePaginationMetadataV1 } from '@platform/pagination-contracts';
 
 vi.mock('../../services/adminApi', () => ({
   auditApi: { query: vi.fn(), getStatistics: vi.fn() },
@@ -57,12 +58,55 @@ function auditLog(overrides: Partial<AuditLog> = {}): AuditLog {
     severity: 'critical',
     ipAddress: '203.0.113.4',
     createdAt: '2026-09-08T10:00:00.000Z',
+    // Every REQUIRED field of the contract's `AuditLog`, spelled out. These are
+    // the W2 WORM-ledger columns; a double that omits them is a double the page
+    // can never actually receive, and until admin-panel's specs entered a type
+    // gate nothing said so (ADMIN-HIGH-105).
+    legalHold: false,
+    actorHomeTenantId: null,
+    actedOnTenantId: null,
+    method: 'HTTP',
+    mfaVerified: false,
+    result: 'SUCCESS',
+    preStateHash: null,
+    postStateHash: null,
+    justification: null,
+    relatedAuditIds: [],
+    correlationId: null,
     ...overrides,
-  } as AuditLog;
+  };
+}
+
+function auditStats(): AuditLogStats {
+  return {
+    totalLogs: 137,
+    last24Hours: 4,
+    bySeverity: [{ severity: 'critical', count: 2 }],
+    byAction: [{ action: 'TENANT_SUSPENDED', count: 2 }],
+    // A DIFFERENT address from the table row's, so `findByText` for the row
+    // cannot accidentally match the "Most Active User" card instead.
+    topUsers: [{ userId: 'user-2', email: 'most-active@example.com', count: 9 }],
+  };
+}
+
+function tenant(): Tenant {
+  return {
+    id: 'tenant-1',
+    name: 'Reference Farm',
+    slug: 'reference-farm',
+    status: 'ACTIVE',
+    tier: 'PROFESSIONAL',
+    userCount: 3,
+    farmCount: 1,
+    sensorCount: 8,
+    isTrialActive: false,
+    createdAt: '2026-01-01T00:00:00.000Z',
+  };
 }
 
 function logPage(total: number, rows: AuditLog[]): PaginatedResult<AuditLog> {
-  return { data: rows, total, page: 1, limit: 20 } as PaginatedResult<AuditLog>;
+  // Metadata from its own SSoT, never three hand-written fields.
+  return { ...derivePaginationMetadataV1(total, 1, 20), data: rows };
 }
 
 function renderPage(): { client: QueryClient } {
@@ -84,13 +128,11 @@ describe('AuditLogPage on the admin data layer (ADMIN-HIGH-105)', () => {
     vi.clearAllMocks();
     window.history.replaceState({}, '', '/');
     queryMock.mockResolvedValue(logPage(137, [auditLog()]));
-    statsMock.mockResolvedValue({ totalLogs: 137, last24Hours: 4 } as AuditLogStats);
+    statsMock.mockResolvedValue(auditStats());
     tenantListMock.mockResolvedValue({
-      data: [{ id: 'tenant-1', name: 'Reference Farm' } as Tenant],
-      total: 1,
-      page: 1,
-      limit: 100,
-    } as PaginatedResult<Tenant>);
+      ...derivePaginationMetadataV1(1, 1, 100),
+      data: [tenant()],
+    });
   });
 
   it('renders logs from the query cache and takes the row count from settled data', async () => {

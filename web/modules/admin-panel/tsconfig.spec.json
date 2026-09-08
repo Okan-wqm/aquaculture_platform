@@ -1,0 +1,22 @@
+{
+  // admin-panel's spec sources, type-checked (ADMIN-HIGH-105).
+  //
+  // `tsconfig.json` EXCLUDES `*.spec.ts(x)` and `*.test.ts(x)`, and vitest
+  // transpiles without checking types — so until this file existed no gate
+  // anywhere read a spec in this package. A double could claim to be an
+  // `AuditLog` while missing half the contract's fields, and the suite would
+  // pass against a shape the page can never receive. Wired into
+  // `npm run type-check` so the compiler reads these files on every PR.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["vite/client", "vitest/globals", "@testing-library/jest-dom"]
+  },
+  "include": [
+    "src/**/*.spec.ts",
+    "src/**/*.spec.tsx",
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "src"
+  ],
+  "exclude": []
+}

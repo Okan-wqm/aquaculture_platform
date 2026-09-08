@@ -5,8 +5,13 @@
  * API calls, data access, and security events.
  */
 
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import {
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
+import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, LessThan, MoreThan, In, Like } from 'typeorm';
 import { safeSortField, safeSortOrder } from '@aquaculture/backend-common/pagination';
@@ -114,6 +119,7 @@ export class ActivityLoggingService implements OnModuleInit {
     private readonly loginAttemptRepository: Repository<LoginAttempt>,
     @InjectRepository(ApiUsageLog)
     private readonly apiUsageRepository: Repository<ApiUsageLog>,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
 
   onModuleInit(): void {

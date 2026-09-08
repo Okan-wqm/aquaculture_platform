@@ -1,18 +1,44 @@
 import {
-  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
+import type { BillingCycle } from '@platform/event-contracts';
 import { DataSource } from 'typeorm';
 
-import { BillingCycle } from '../entities/plan-definition.entity';
+import { PlanResponseDto } from '../dto/plan-response.dto';
 
 import { DiscountCodeService } from './discount-code.service';
 import { PlanDefinitionService } from './plan-definition.service';
 import { SubscriptionCoreService } from './subscription-core.service';
-import { PlanChangeRequest } from './subscription-types';
+
+export interface PlanChangePreview {
+  isUpgrade: boolean;
+  isDowngrade: boolean;
+  /** Exact decimal string; positive = the customer pays, negative = credited. */
+  proratedAmount: string;
+  /** Exact decimal string: the new plan's base price on `billingCycle`. */
+  newCyclePrice: string;
+  billingCycle: BillingCycle;
+  /** ISO-8601. */
+  effectiveDate: string;
+  warnings: string[];
+  featureChanges: {
+    added: string[];
+    removed: string[];
+  };
+}
+
+/**
+ * The new plan's base price for the cycle the change lands on. `billing.plans`
+ * prices per cycle now, so there is no single "monthly price" to quote when
+ * the customer is moving onto an annual commitment.
+ */
+function priceForCycle(plan: PlanResponseDto, billingCycle: BillingCycle): string {
+  const row = plan.cyclePrices.find((price) => price.billingCycle === billingCycle);
+  return row?.basePrice ?? '0';
+}
 
 /**
  * Subscription Plan Change Service
@@ -32,16 +58,6 @@ export class SubscriptionPlanChangeService {
   ) {}
 
   /**
-   * Change subscription plan (upgrade/downgrade)
-   */
-  changePlan(request: PlanChangeRequest): never {
-    void request;
-    throw new ConflictException(
-      'Subscription plan changes are billing-service-owned. Use BillingAdminCommandClientService.changeSubscriptionPlan.',
-    );
-  }
-
-  /**
    * Preview plan change without executing
    */
   async previewPlanChange(
@@ -49,18 +65,7 @@ export class SubscriptionPlanChangeService {
     currentPlanId: string,
     newPlanId: string,
     newBillingCycle?: BillingCycle,
-  ): Promise<{
-    isUpgrade: boolean;
-    isDowngrade: boolean;
-    proratedAmount: number;
-    newMonthlyPrice: number;
-    effectiveDate: Date;
-    warnings: string[];
-    featureChanges: {
-      added: string[];
-      removed: string[];
-    };
-  }> {
+  ): Promise<PlanChangePreview> {
     const subscription = await this.subscriptionCore.getSubscriptionByTenant(tenantId);
     if (!subscription) {
       throw new NotFoundException(`No subscription found for tenant ${tenantId}`);
@@ -90,9 +95,12 @@ export class SubscriptionPlanChangeService {
     return {
       isUpgrade: comparison.isUpgrade,
       isDowngrade: comparison.isDowngrade,
+      // Exact decimal strings: this preview is what the operator quotes, and a
+      // float here would disagree with the invoice billing actually raises.
       proratedAmount: proration.proratedAmount,
-      newMonthlyPrice: newPlan.pricing.monthly.basePrice,
-      effectiveDate: new Date(),
+      newCyclePrice: priceForCycle(newPlan, billingCycle),
+      billingCycle,
+      effectiveDate: proration.effectiveDate,
       warnings: comparison.warnings,
       featureChanges,
     };

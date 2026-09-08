@@ -4,6 +4,21 @@
  * Endpoints for security events, incidents, threat intelligence, and dashboard.
  */
 
+import {
+  AddThreatIndicatorDto,
+  AnalyzeLoginDto,
+  CreateSecurityEventDto,
+  QueryIncidentsDto,
+  QuerySecurityEventsDto,
+  QueryThreatIntelligenceDto,
+  UpdateIncidentDto,
+  UpdateSecurityEventStatusDto,
+} from './dto/security-monitoring.dto';
+import {
+  RequiresCapability,
+  TenantParam,
+  TenantIdCarrier,
+} from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -56,337 +71,6 @@ import type { PaginationResultV1 } from '@platform/pagination-contracts';
 // DTOs
 // ============================================================================
 
-const SECURITY_EVENT_TYPES: readonly SecurityEventType[] = [
-  'failed_login',
-  'brute_force_attempt',
-  'suspicious_activity',
-  'unauthorized_access',
-  'privilege_escalation',
-  'data_exfiltration',
-  'malware_detected',
-  'api_abuse',
-  'rate_limit_exceeded',
-  'sql_injection_attempt',
-  'xss_attempt',
-  'csrf_attempt',
-  'account_lockout',
-  'password_spray',
-  'credential_stuffing',
-  'session_hijacking',
-  'ip_blacklisted',
-  'geo_anomaly',
-  'device_anomaly',
-  'time_anomaly',
-];
-
-const SECURITY_EVENT_STATUSES: readonly SecurityEventStatus[] = [
-  'detected',
-  'investigating',
-  'confirmed',
-  'mitigated',
-  'false_positive',
-  'escalated',
-];
-
-const INCIDENT_STATUSES: readonly IncidentStatus[] = [
-  'open',
-  'investigating',
-  'contained',
-  'eradicated',
-  'recovered',
-  'closed',
-];
-
-const THREAT_INDICATOR_TYPES: ReadonlyArray<ThreatIntelligence['indicatorType']> = [
-  'ip',
-  'domain',
-  'url',
-  'hash',
-  'email',
-  'user_agent',
-  'cidr',
-];
-
-class CreateSecurityEventDto {
-  @IsIn(SECURITY_EVENT_TYPES)
-  eventType!: SecurityEventType;
-
-  @IsIn(['low', 'medium', 'high', 'critical'])
-  threatLevel!: ThreatLevel;
-
-  @IsString()
-  title!: string;
-
-  @IsString()
-  description!: string;
-
-  @IsString()
-  ipAddress!: string;
-
-  @IsOptional()
-  geoLocation?: GeoLocation;
-
-  @IsOptional()
-  @IsString()
-  tenantId?: string;
-
-  @IsOptional()
-  @IsString()
-  userId?: string;
-
-  @IsOptional()
-  @IsString()
-  userName?: string;
-
-  @IsOptional()
-  @IsString()
-  targetResource?: string;
-
-  @IsOptional()
-  @IsString()
-  targetEndpoint?: string;
-
-  @IsString()
-  detectionSource!: string;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  confidenceScore?: number;
-
-  @IsOptional()
-  rawData?: Record<string, unknown>;
-}
-
-class QuerySecurityEventsDto {
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  @Min(1)
-  page?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  @Min(1)
-  @Max(100)
-  limit?: number;
-
-  @IsOptional()
-  @IsIn(SECURITY_EVENT_TYPES)
-  eventType?: SecurityEventType;
-
-  @IsOptional()
-  @IsString()
-  threatLevel?: string; // comma-separated list for multiple levels
-
-  @IsOptional()
-  @IsIn(SECURITY_EVENT_STATUSES)
-  status?: SecurityEventStatus;
-
-  @IsOptional()
-  @IsString()
-  ipAddress?: string;
-
-  @IsOptional()
-  @IsString()
-  tenantId?: string;
-
-  @IsOptional()
-  @IsString()
-  userId?: string;
-
-  @IsOptional()
-  @IsString()
-  startDate?: string;
-
-  @IsOptional()
-  @IsString()
-  endDate?: string;
-
-  @IsOptional()
-  @IsString()
-  searchQuery?: string;
-}
-
-class UpdateSecurityEventStatusDto {
-  @IsIn(SECURITY_EVENT_STATUSES)
-  status!: SecurityEventStatus;
-
-  @IsOptional()
-  @IsString()
-  assignedTo?: string;
-
-  @IsOptional()
-  @IsString()
-  assignedToName?: string;
-
-  @IsOptional()
-  @IsString()
-  investigationNotes?: string;
-
-  @IsOptional()
-  @IsString()
-  resolution?: string;
-
-  @IsOptional()
-  @IsString()
-  resolvedBy?: string;
-}
-
-class UpdateIncidentDto {
-  @IsOptional()
-  @IsIn(INCIDENT_STATUSES)
-  status?: IncidentStatus;
-
-  @IsOptional()
-  @IsIn(['low', 'medium', 'high', 'critical'])
-  severity?: IncidentSeverity;
-
-  @IsOptional()
-  @IsString()
-  leadInvestigator?: string;
-
-  @IsOptional()
-  @IsString()
-  leadInvestigatorName?: string;
-
-  @IsOptional()
-  @IsString()
-  containmentActions?: string;
-
-  @IsOptional()
-  @IsString()
-  eradicationSteps?: string;
-
-  @IsOptional()
-  @IsString()
-  recoveryPlan?: string;
-
-  @IsOptional()
-  @IsString()
-  rootCauseAnalysis?: string;
-
-  @IsOptional()
-  @IsString()
-  lessonsLearned?: string;
-
-  @IsOptional()
-  @IsString()
-  impactDescription?: string;
-}
-
-class QueryIncidentsDto {
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  @Min(1)
-  page?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  @Min(1)
-  @Max(100)
-  limit?: number;
-
-  @IsOptional()
-  @IsIn(INCIDENT_STATUSES)
-  status?: IncidentStatus;
-
-  @IsOptional()
-  @IsIn(['low', 'medium', 'high', 'critical'])
-  severity?: IncidentSeverity;
-
-  @IsOptional()
-  @IsString()
-  startDate?: string;
-
-  @IsOptional()
-  @IsString()
-  endDate?: string;
-}
-
-class AddThreatIndicatorDto {
-  @IsIn(THREAT_INDICATOR_TYPES)
-  indicatorType!: ThreatIntelligence['indicatorType'];
-
-  @IsString()
-  value!: string;
-
-  @IsIn(['low', 'medium', 'high', 'critical'])
-  threatLevel!: ThreatLevel;
-
-  @IsString()
-  source!: string;
-
-  @IsOptional()
-  @IsString()
-  description?: string;
-
-  @IsOptional()
-  @IsArray()
-  threatTypes?: string[];
-
-  @IsOptional()
-  @IsString()
-  validUntil?: string;
-}
-
-class QueryThreatIntelligenceDto {
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  @Min(1)
-  page?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  @Min(1)
-  @Max(100)
-  limit?: number;
-
-  @IsOptional()
-  @IsIn(THREAT_INDICATOR_TYPES)
-  indicatorType?: ThreatIntelligence['indicatorType'];
-
-  @IsOptional()
-  @IsIn(['low', 'medium', 'high', 'critical'])
-  threatLevel?: ThreatLevel;
-
-  @IsOptional()
-  @Transform(({ value }) => value === 'true' || value === true)
-  @IsBoolean()
-  isActive?: boolean;
-
-  @IsOptional()
-  @IsString()
-  searchQuery?: string;
-}
-
-class AnalyzeLoginDto {
-  @IsString()
-  email!: string;
-
-  @IsString()
-  ipAddress!: string;
-
-  @IsBoolean()
-  success!: boolean;
-
-  @IsOptional()
-  geoLocation?: GeoLocation;
-
-  @IsOptional()
-  @IsString()
-  userId?: string;
-
-  @IsOptional()
-  @IsString()
-  tenantId?: string;
-}
-
 // ============================================================================
 // Controller
 // ============================================================================
@@ -404,9 +88,13 @@ export class SecurityMonitoringController {
    * Create security event
    */
   @AuditedOperation({ resource: 'SecurityEvent', action: 'CREATE' })
+  @RequiresCapability('security-ops')
   @Post('events')
   @HttpCode(HttpStatus.CREATED)
-  async createSecurityEvent(@Body() dto: CreateSecurityEventDto): Promise<SecurityEvent> {
+  async createSecurityEvent(
+    @TenantParam('body', { optional: true, allow: 'any' }) tenantId: string | undefined,
+    @Body() dto: CreateSecurityEventDto,
+  ): Promise<SecurityEvent> {
     return this.securityMonitoringService.createSecurityEvent({
       eventType: dto.eventType,
       threatLevel: dto.threatLevel,
@@ -414,7 +102,7 @@ export class SecurityMonitoringController {
       description: dto.description,
       ipAddress: dto.ipAddress,
       geoLocation: dto.geoLocation,
-      tenantId: dto.tenantId,
+      tenantId: tenantId,
       userId: dto.userId,
       userName: dto.userName,
       targetResource: dto.targetResource,
@@ -464,6 +152,7 @@ export class SecurityMonitoringController {
    * Update security event status
    */
   @AuditedOperation({ resource: 'SecurityEventStatus', action: 'UPDATE' })
+  @RequiresCapability('security-ops')
   @Put('events/:id/status')
   async updateSecurityEventStatus(
     @Param('id') id: string,
@@ -542,6 +231,7 @@ export class SecurityMonitoringController {
    * Update incident
    */
   @AuditedOperation({ resource: 'Incident', action: 'UPDATE' })
+  @RequiresCapability('security-ops')
   @Put('incidents/:id')
   async updateIncident(
     @Param('id') id: string,
@@ -592,6 +282,7 @@ export class SecurityMonitoringController {
    * Add threat indicator
    */
   @AuditedOperation({ resource: 'ThreatIndicator', action: 'ADD' })
+  @RequiresCapability('security-ops')
   @Post('threat-intelligence')
   @HttpCode(HttpStatus.CREATED)
   async addThreatIndicator(@Body() dto: AddThreatIndicatorDto): Promise<ThreatIntelligence> {
@@ -677,9 +368,11 @@ export class SecurityMonitoringController {
    * Analyze login attempt for anomalies
    */
   @AuditedOperation({ resource: 'SecurityMonitoring', action: 'ANALYZE_LOGIN' })
+  @RequiresCapability('security-ops')
   @Post('analyze/login')
   @HttpCode(HttpStatus.OK)
   async analyzeLogin(
+    @TenantParam('body', { optional: true, allow: 'any' }) tenantId: string | undefined,
     @Body() dto: AnalyzeLoginDto,
   ): Promise<{ analyzed: boolean; message: string }> {
     await this.securityMonitoringService.analyzeLoginAttempt({
@@ -688,7 +381,7 @@ export class SecurityMonitoringController {
       success: dto.success,
       geoLocation: dto.geoLocation,
       userId: dto.userId,
-      tenantId: dto.tenantId,
+      tenantId,
     });
 
     return {

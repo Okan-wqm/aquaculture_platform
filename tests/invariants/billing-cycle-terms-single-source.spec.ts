@@ -58,9 +58,15 @@ const TERMS_DECLARATION = 'libs/backend-common/src/billing/billing-cycle-terms.t
  * new one still fails. Removing an entry is how the finding closes; adding one
  * needs a finding of its own.
  */
-const TRACKED_SECOND_TABLES: Readonly<Record<string, string>> = {
-  'apps/admin-api-service/src/billing/services/plan-definition.service.ts': 'BILLING-HIGH-009',
-};
+// Empty, and that is the ratchet working. The one tracked exception was
+// `apps/admin-api-service/src/billing/services/plan-definition.service.ts`,
+// which held a second 10/15/20 commitment-discount table against the
+// calculator's 5/10/15 (BILLING-HIGH-009). ADR-0013 moved the plan catalogue
+// into billing and deleted `PricingCalculatorService` with it, so neither table
+// is in admin-api any more and the file no longer matches. An entry that stops
+// matching would make this gate pass on a file it believes it is holding, so it
+// is removed rather than kept as decoration.
+const TRACKED_SECOND_TABLES: Readonly<Record<string, string>> = {};
 
 /**
  * A commitment-discount rate keyed on a cycle, in either spelling the codebase

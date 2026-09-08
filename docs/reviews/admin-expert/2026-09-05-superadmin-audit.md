@@ -185,6 +185,34 @@ WAL-G epoch; strike `database-restore-drill.md:548`.
 backup cron.
 **Sequencing:** gates every destructive migration in this plan.
 
+## INFRA-CRITICAL-170 — nginx and service route tables disagree on five production paths
+
+**State:** OPEN · **Wave:** W3 · **ADR:** 0006 (edge topology derived from nginx)
+
+**Evidence:** `infrastructure/nginx/droplet.conf` forwarded `/api/upload/*` verbatim to a gateway
+serving `/api/v1/upload/*`; `/api/csp-report` to a controller mounted at `/api/v1/api/csp-report`;
+`/install/*` and `/api/devices/*` — the surface the installer script and the Rust edge agent call —
+to a sensor service serving them under `/api/v1`; `/api/v2/ai/*` to a gateway proxy that never
+existed (`routes/v2` is an empty module and the AI chat REST path became NATS long ago); and the
+SCADA websocket, for which the client and sensor-service had agreed on a dedicated `/scada-ws/`
+engine.io path precisely so nginx could route it, had no nginx location at all. Each 404s in
+production while every unit test stays green, because nothing compared the two tables. Surfaced
+while closing the W0 open item on the upload path.
+
+**Fix (Tier-2):** nginx rewrites `/api/upload/` to `/api/v1/upload/` (the rewrite the admin
+catch-all already uses); gateway-api excludes `api/csp-report` from its global prefix as marine
+does; sensor-service excludes `install/*` and `api/devices/*` as it does `mqtt/*`; the dead
+`/api/v2/ai/` location, the gateway's `api/v2/{*path}` validator route, the empty `routes/v2`
+module, the unregistered `api/v1/sensors` proxy controller and ai-service's exclusions for the
+retired path are deleted; nginx gains a `/scada-ws/` websocket location to sensor-service.
+
+**Gate:** `tests/invariants/nginx-route-resolution.spec.ts` derives the nginx location table (path,
+modifier, rewrite, upstream) and every public service's served route table from source, and asserts
+both directions — every proxied location resolves after its rewrite to a route the upstream serves,
+and every route a public service serves outside its prefix is covered by an nginx location unless
+the kernel marks it Docker-internal, the service catalog marks its `/graphql` a federated subgraph,
+or `.claude/allowlists/internal-only-http-routes.yaml` declares it with a reason.
+
 ## INFRA-HIGH-165 — CI quarantine policy is ungoverned prose (R12)
 
 **State:** OPEN · **Wave:** W0 · **ADR:** 0017
@@ -210,8 +238,12 @@ without a variable refuses to start.
 
 ## BILLING-CRITICAL-011 — Two plan catalogues; money in jsonb (R7, C10)
 
-**State:** OPEN · **Wave:** W4 · **ADR:** 0013 (extends ADR-037; reverses the
+**State:** IN-PROGRESS · **Wave:** W4 · **ADR:** 0013 (extends ADR-037; reverses the
 `apps/billing-service/CLAUDE.md` ownership clause)
+
+All four tables have moved (discount codes, module pricing, the plan catalogue, custom plans). What
+remains under this ID is the `PlanPricing` snapshot shape, re-attributed to BILLING-CRITICAL-012 —
+see the closing note below.
 
 **Fix (Tier-1):** `billing.plans` is the sole catalogue of record for plan id, price, cycle and
 Stripe ids. Delete `admin.plan_definitions`, `module_pricing`, `custom_plans`, `discount_codes`;
@@ -220,6 +252,251 @@ BETWEEN 0 AND 100`. Admin keeps authoring and forwards commands.
 **Gate:** `tests/invariants/plan-catalog-ssot.spec.ts` — no plan/price/discount entity outside
 billing; no money-typed field inside `jsonb`/`simple-json` fleet-wide; Stripe ids in exactly one
 entity.
+
+**Implementation note — the discount catalogue (landed 2026-09-06):** the first of the four tables
+has moved. `billing.discount_codes` and `billing.discount_redemptions` are created by
+`apps/billing-service/src/database/migrations/1802000000000-CreateDiscountCatalogue.ts`, which also
+copies the `admin` rows;
+`apps/admin-api-service/src/migrations/1809200000000-RetireAdminDiscountCatalogue.ts` then
+re-verifies every source row by id in billing and RAISES rather than dropping if one is missing
+(`SCHEMA_REGISTRY` runs billing at slot 8 and admin at slot 11, so the copy always precedes the
+drop). `MODULE_SCHEMAS` and the tenant-erasure registry moved with them — a redemption is erased by
+`tenant_id`, the code itself is platform reference data.
+
+The value model is the part worth stating. `admin.discount_codes.discountValue` was one
+`numeric(10,2)` holding a percentage for one row and an amount of money for the next, so no CHECK
+could constrain it (`150` was a legal 150% and a legal $150 at once) and the two non-monetary kinds
+had nowhere to put their number — `calculateDiscountAmount` returned a silent `0` for `free_months`
+and `free_trial_extension`, so a "2 months free" code reported success and discounted nothing. Each
+kind now has its own column (`percent_off numeric(5,2)`, `amount_off` via the platform
+`MoneyColumn`, `free_months`, `trial_extension_days`) under one CHECK asserting that exactly the
+matching one is populated, with ISO-4217 `currency` and `CHECK (current_redemptions <=
+max_redemptions)` so the database refuses an over-redemption even if code races. **Deviation from
+ADR-0013, deliberate:** the ADR specified `numeric(12,2)`; money uses `MoneyColumn`
+(`numeric(19,4)`), which is the platform's money SSoT — introducing a second money precision inside
+`billing` would be the drift the finding is about — and a percentage, not being money, gets
+`numeric(5,2)`, the widest column that cannot hold a nonsense rate. The contract mirrors the split
+as a discriminated union (`BillingDiscountValue` in
+`libs/event-contracts/src/billing-admin-commands.ts`), so a mixed payload does not typecheck, and
+every amount crosses the wire as an exact decimal string.
+
+Two real defects were fixed rather than carried across. The redemption path had a TOCTOU: it
+validated, inserted a redemption, then read-modify-wrote `currentRedemptions`, so two requests
+racing on the last remaining use both passed and both redeemed; `DiscountCodeService.apply` now
+takes the code row `FOR UPDATE` before asking any rule, so concurrent redeemers of one code
+serialise. And `appliesTo` had two decorative members: `upgrades_only` and `new_subscriptions_only`
+were never checked anywhere, so both permitted every redemption, and `specific_plans` was only
+checked when a plan happened to be named. The rule is now "a restriction that cannot be evaluated
+REFUSES" — the caller states a `subscriptionChange` (`new` / `upgrade` / `other`) or the restricted
+code is refused.
+
+Seven commands
+(`request.billing.admin.{create,update,deactivate,bulkCreate,generate,validate,apply}DiscountCode*`)
+carry the writes; admin-api holds only read-only external entities (`schema: 'billing'`,
+`synchronize: false` — the contract `apps/admin-api-service/CLAUDE.md` states) and forwards. A code
+refused by a rule comes back as `success: true, valid: false` with a typed reason, so the panel
+renders "expired" instead of a 502. `PricingCalculatorService` stopped re-implementing the
+arithmetic and validating against a fabricated `'system-quote'` tenant: it asks billing for the
+amount, and a `discountCode` quoted without a tenant is refused rather than previewed against
+nobody. Both the OpenAPI artifact and the admin-panel client were regenerated; the ten discount
+routes are `$ref`-typed on both sides and `services/types/billing.ts` now derives `DiscountCode`,
+`DiscountAppliesTo` and `DiscountDuration` from the contract (the last two were nominal TypeScript
+enums, the same class of drift as `DiscountType` in W3).
+
+**Gate:** `tests/invariants/plan-catalog-ssot.spec.ts` — a catalogue table has exactly one writable
+entity and it is in `billing`; a migrated table leaves no `admin` declaration behind, in the
+entities or in `MODULE_SCHEMAS`; the discount catalogue holds no money inside jsonb; every remaining
+money-in-jsonb site on the billing surface and every duplicated Stripe identifier is governed by
+`.claude/allowlists/money-in-jsonb.yaml` (owner + expiry + finding + reason, ceiling 24, entries
+only shrink). Deliberately NOT fleet-wide: a name-based money detector cannot tell `totalFeedGiven`
+(kilograms) from `totalAmount` (currency), so running it over farm-service would be a heuristic
+dressed as an invariant; the billing surface is where the words mean money and is the surface this
+finding is about.
+
+**Still open under this finding (owner okan, deadline 2026-12-31):** `admin.plan_definitions`,
+`admin.module_pricing` and `admin.custom_plans` have NOT moved — they follow the same template in
+W4b, and the twenty-four allowlist entries plus the four duplicated Stripe identifiers are the
+machine-readable list of what that wave removes. `billing.plans.pricing` is still a jsonb price
+matrix (four of those entries); normalising it into per-cycle rows is part of the same wave.
+
+**Implementation note — the module price sheet and the quote (landed 2026-09-06):** the second of
+the four tables has moved, and the arithmetic moved with it. `billing.module_prices` +
+`module_price_metrics` + `module_price_tier_multipliers` replace `admin.module_pricing`, whose
+`pricingMetrics` and `tierMultipliers` were two `jsonb` columns of `number`s: no CHECK could reach a
+negative price or a tier multiplier of 40, a duplicate metric on one sheet was representable, no
+index could reach a price, and every arithmetic step ran on doubles because a jsonb number IS one.
+Now a sheet is a row, each metric is a row with `numeric(19,4) CHECK (price >= 0)` and a
+`metric_type` CHECKed against the fifteen the contract declares, and each tier multiplier is a row
+with `numeric(6,4) CHECK (multiplier > 0 AND multiplier <= 10)`. Migrations:
+`1802400000000-CreateModulePriceSheet` expands the jsonb arrays with `jsonb_array_elements` /
+`jsonb_each_text` and aborts on anything it cannot represent exactly;
+`1809300000000-RetireAdminModulePricing` re-verifies every sheet AND every metric by id in billing
+before dropping.
+
+**Four copies of the same multiplication became one.** `PricingCalculatorService` (admin-api),
+`CustomPlanService.calculatePlanPricing`, `CreateTenantPage` and `CustomPlanBuilderPage` each read
+the sheet and computed a price in floats. The two frontend copies were the worst: `CreateTenantPage`
+ignored the tier multiplier entirely and rendered ITS total, not the server's, falling back to it
+silently whenever the API call failed; `CustomPlanBuilderPage` hardcoded 0.7 / 0.9 / 1.0 multipliers
+that came from no sheet at all. Both showed operators a price the server would not charge. billing
+now owns `quoteModuleSelection`, every step is `Decimal`, the tier discount is computed from the
+list price rather than recovered by dividing the discounted price back out (the float trap, and 0/0
+= NaN on a zero multiplier), and each line is rounded once to the currency's own minor unit. The
+calculator, the seed's fifth copy of the default price table, and `admin.module_pricing`'s entity
+are deleted. `PricingMetricType` moved to `libs/event-contracts` as a union with its labels and
+quantity map; the admin-panel derives it from the generated contract and gained the two members
+every hand-written copy had been missing (`per_gb_transfer`, `per_workflow`).
+
+`BillingProvisioningModuleItem`'s three money fields are exact decimal strings now: they are
+billing's own quote travelling back to billing, and the round trip through IEEE-754 was the one
+place a priced item could disagree with the quote an operator approved. That the round trip happens
+at all is redundancy BILLING-CRITICAL-003 removes when provisioning moves onto
+`CreateSubscriptionHandler`; until then it is at least lossless. The one remaining widening is
+`sumModuleItemsTotal`, which sums in `Decimal` and converts once into
+`billing.subscriptions.pricing.basePrice` — still a jsonb `number`, still in the allowlist.
+
+**Gate:** `tests/invariants/plan-catalog-ssot.spec.ts` extends to the three new tables, adds a rule
+that the retired `admin.module_pricing` name may not reappear in any entity or in `MODULE_SCHEMAS`,
+and asserts that the tables ADR-0013 has already normalised contribute no money-in-jsonb site at all
+— not even a governed one. The allowlist ceiling dropped 24 → 23 as `module_pricing`'s entry
+disappeared, which is the ratchet working: the gate FAILED on the stale entry before it was removed.
+
+**Implementation note — the plan catalogue (landed 2026-09-06):** the third of the four tables has
+moved, and with it the last duplicated Stripe identifier. `admin.plan_definitions` was a SECOND
+catalogue whose ids no runtime path ever resolved — `create-subscription.handler`,
+`change-subscription-plan.handler`, `billing-scheduler.service` and the provisioning handler all
+resolve `billing.plans` — carrying its own `stripeProductId` / `stripePriceIds` (a Stripe object has
+one owner; two writable homes means two services can mint a product for the same plan) and a
+four-cycle price matrix inside a `jsonb` column where no CHECK could reject a negative price or a
+`discountPercent` of 400.
+
+`1802500000000-MergePlanCatalogue` folds it in. Identity is `billing.plans.name`, the catalogue's
+own UNIQUE business key: a definition whose name matches UPDATES the live plan, so the operator's
+authored copy lands on the row the runtime actually uses, and one whose name is new is INSERTed
+keeping its id. The price matrix expands into `billing.plan_cycle_prices` — one row per (plan,
+cycle), `numeric(19,4)` prices under `CHECK (>= 0)` and `discount_percent` CHECKed into [0, 100] —
+and `features.addOns[]`, which was money nested two levels inside a features blob, becomes
+`billing.plan_add_ons` rows. `1809400000000-RetireAdminPlanDefinitions` re-verifies by name that
+every definition, every cycle it priced and every add-on it sold has a counterpart, RAISES rather
+than dropping if one is missing, re-points `admin.plan_module_assignments.plan_id` and
+`admin.custom_plans.base_plan_id` at the surviving billing id (the merge discards a matched
+definition's own id), drops their FK constraints — admin does not constrain another service's table
+— and only then drops the table.
+
+**Three shapes collapsed into one.** `PlanTier`, `BillingCycle` and `PlanVisibility` were declared
+on the deleted entity and imported by eleven admin files; `BillingCycle` in particular existed
+twice, as an admin TypeScript `enum` and as the contract's string union, and
+`tenant-provisioning-workflow.service` carried two enum-to-enum mappers whose only job was to
+convert between them. `BILLING_CYCLES` and `BILLING_PLAN_VISIBILITIES` are now runtime-enumerable
+consts beside their unions in `@platform/event-contracts`, each pinned to its union by a
+compile-time parity type, so a `class-validator` `@IsIn`, a TypeORM `enum:` column and the contract
+all read one list. Both mappers are deleted.
+
+The write DTOs follow: `pricing` (a fixed four-cycle object of floats) became `cyclePrices:
+PlanCyclePriceDto[]` of exact decimal strings, `features.addOns` became a top-level `addOns` of
+priced rows, and `PERCENT_STRING` was tightened from "up to three digits" to the [0, 100] the
+columns CHECK — it had been accepting 999.99 for discount codes too. `POST /billing/plans/seed` is
+gone: seeding the catalogue is billing's own boot-time concern (`PlanSeedService`), and an admin
+route seeding a second catalogue was the finding in miniature. The admin-panel's hand-written
+`PlanDefinition` / `PlanPricing` / `PlanLimits` / `PlanFeatures` are replaced by the generated
+contract types (four of CONTRACT-CRITICAL-003's sixteen shadow types), and `PlanManagementPage`
+renders every cycle the plan is actually sold on, in the plan's own currency, through a shared
+decimal formatter — it previously read `plan.pricing.monthly.basePrice` unconditionally and
+formatted with a hardcoded `'USD'` and `minimumFractionDigits: 0`, which rendered a $19.99 plan as
+"$20".
+
+One defect was found while writing the billing-side spec: `PlanCatalogService` re-read the plan
+after a write without its relations, so the snapshot returned by `createPlan` / `updatePlan` /
+`deprecatePlan` carried `cyclePrices: []` — indistinguishable on the wire from a plan with no prices
+at all. Every read of a plan now loads its priced children.
+
+**Gate:** `tests/invariants/plan-catalog-ssot.spec.ts` extends to `plan_cycle_prices` and
+`plan_add_ons` and adds `plan_definitions` to the retired names that may not reappear. Both
+duplicated Stripe identifiers left the allowlist, so `duplicateStripeIdentifiers` is down to the two
+`admin.tenant_billing_info` entries that BILLING-CRITICAL-012 owns.
+
+**Implementation note — custom plans (landed 2026-09-06):** the last of the four tables has moved,
+and BILLING-CRITICAL-011's table list is now empty. `admin.custom_plans` held the whole priced
+selection inside ONE `jsonb` column — every module's `subtotal` and every line item's `unitPrice`
+and `total` — where a jsonb number IS an IEEE-754 double and no CHECK can reach it, and priced it in
+admin with the fourth float copy of billing's own arithmetic. `1802600000000-MoveCustomPlans`
+creates `billing.custom_plans` + `custom_plan_modules` + `custom_plan_line_items`, keeps the plan's
+id (nothing outside billing resolves one), resolves `basePlanId` against the merged `billing.plans`
+— an id that resolves to nothing becomes NULL rather than a dangling FK — and expands the jsonb
+selection into rows; `1809500000000-RetireAdminCustomPlans` re-verifies every plan AND every priced
+module by id before dropping.
+
+**One rule now prices a negotiated plan.** The discount was applied in three places that had to
+agree: `CustomPlanService.calculateFinalTotal`, the entity's own `calculateDiscount()`, and
+`CustomPlanBuilderPage` in the browser. The browser's copy was wrong outright — its annual figure
+took the fixed discount off TWELVE times where the server takes it off once, so an operator
+negotiating "$500/mo off" was shown a yearly price $5,500 below what billing would charge.
+`quoteModuleSelection` now accepts `negotiatedDiscountPercent` / `negotiatedDiscountAmount`, applies
+them in `Decimal` and returns the total; the builder quotes with them and renders the number it gets
+back, and `CustomPlanService.create/update` store that same number. There is no second
+implementation left to drift. `roundToCurrency`, which had two byte-identical copies inside
+billing-service, moved to `@aquaculture/backend-common/monetary` beside `getCurrencyScale`.
+
+**Four defects fixed rather than carried across.** (a) `discountPercent` was an unbounded `number`
+on a `numeric(5,2)` column: 400 was storable, and `Math.max(0, …)` turned it into a plan priced at
+zero instead of an error — it is CHECKed into [0, 100] now and refused at the DTO, the service and
+the column. (b) Nothing in the platform ever set a plan to `expired`, and `isValid()` existed but
+was called from nowhere, so `getCustomPlanByTenant` returned plans whose `validTo` had passed years
+earlier as the tenant's current price — the window is part of the query now, and activation refuses
+a lapsed plan. (c) `clonePlan` spread the source row wholesale and took no actor, so a clone was
+credited to whoever wrote the original and carried its rejection reason and subscription id; it is
+credited to the operator who cloned it and starts clean. (d) `submitForApproval` recorded no actor
+at all. Separately, `admin.custom_plans` carried the base-plan reference in TWO columns —
+`"basePlanId"`, which the ORM wrote, and `base_plan_id`, which the FK was built on and nothing ever
+populated; the plan-catalogue drop migration re-points both, having originally re-pointed only the
+dead one.
+
+**Gate:** `tests/invariants/plan-catalog-ssot.spec.ts` extends to the three new tables and adds
+`custom_plans` to the names that may not reappear under `schema: 'admin'`. The money-in-jsonb
+ceiling dropped 23 → 22 as `CustomPlanModule.subtotal` disappeared — the gate FAILED on the stale
+entry before it was removed, which is the ratchet working.
+
+**Still open under this finding (owner okan, deadline 2026-12-31):** the twelve `PlanPricing`
+allowlist entries were RE-ATTRIBUTED from this finding to BILLING-CRITICAL-012 rather than closed:
+`billing.plans.pricing` is not the per-cycle matrix (that is now rows) but the flat per-unit rate
+card a subscription snapshots at signup, byte-identical in shape to `billing.subscriptions.pricing`
+and `scheduled_plan_changes.pricing`. Normalising one without all three would split the snapshot, so
+all three move together with the subscription money path. The allowlist ceiling is unchanged at 23
+for that reason — this wave removed no money-in-jsonb site, and saying otherwise would be the audit
+theater the traceability rule exists to prevent.
+
+## BILLING-HIGH-014 — Provisioning raw-INSERTs a subscription; no billing command is idempotent
+
+**State:** OPEN · **Wave:** W4c · **ADR:** 0014
+
+**Evidence:** main closed BILLING-CRITICAL-010 independently of this wave (`63619406e`) with
+`StripeSubscriptionProvisionerService`, which mints a tenant's Stripe objects and fills
+`stripe_customer_id` / `stripe_subscription_id`. It did not touch the write itself:
+`billing-admin-nats.handler.ts:693` still runs `INSERT INTO billing.subscriptions` beside the
+`@CommandHandler`s that do the same thing properly — telling Stripe nothing beyond the mint, writing
+no outbox event, projecting nothing onto `auth.tenants` and validating no state transition under a
+lock. Separately, no admin billing command carries an `idempotencyKey`, so every NATS retry of a
+refund, an invoice or a plan change executes again; `billing.command_receipts` does not exist.
+
+**Why it is a finding rather than part of W4:** the wave's own gate,
+`tests/invariants/billing-command-contract-ssot.spec.ts`, is already written and already fails
+against main's tree on exactly this line — which is the finding, not an accident. Landing it means
+extracting the writer against main's provisioner rather than transplanting the audit branch's
+`SubscriptionWriterService`, and `create-subscription.handler` reaches the table through the
+repository rather than raw SQL, so "both paths use one writer" has to be designed here, not
+cherry-picked. Shipping the gate without that work would be a weakened gate; shipping the writer
+without the gate would be a fix nothing holds in place.
+
+**Fix (Tier-1/Tier-2):** one writer for `billing.subscriptions`, taking the caller's
+`EntityManager` so the GraphQL path and operator provisioning share it across their different
+transactions, with `ensureStripeObjects` ahead of either; then `BillingAdminCommandMeta` gains a
+required `idempotencyKey` + `correlationId`, and a `BillingCommandReceiptInterceptor` bound to every
+NATS controller writes a `(tenantId, commandType, idempotencyKey)` receipt before acting, so
+at-most-once is the default rather than something 32 handler methods each remember.
+The implementation exists on `claude/superadmin-panel-audit-dm2t1v` at `c7f82ec77` and is the
+starting point, not the answer.
+
+**Gate:** `tests/invariants/billing-command-contract-ssot.spec.ts`, landing with the fix.
 
 ## BILLING-CRITICAL-012 — Raw SQL against subscriptions; dead Stripe reconciliation
 
@@ -235,6 +512,68 @@ commands. Seed `billing.plans` for every cycle.
 and NATS grant derived from one declaration; metadata-key symmetry; no raw write to
 `billing.subscriptions` outside a command handler.
 
+**Implementation note — the webhook metadata asymmetry (landed 2026-09-06):** the first and most
+damaging half of this finding. `StripeApiService` binds the tenant into Stripe metadata under
+`internalTenantId`; all five webhook consumers read `metadata.tenantId` and warn-and-returned when
+it was absent — which it always was. **Every Stripe webhook this platform ever received was
+discarded**: no payment was recorded from Stripe, no subscription was ever moved to PAST_DUE or
+CANCELLED by Stripe, and no refund reached a payment row. It never surfaced because a
+warn-and-return is indistinguishable from a webhook for somebody else's object.
+
+The producer's key is NOT renamed — every Stripe object the platform has created carries it, and a
+rename would orphan all of them. Both sides read `STRIPE_TENANT_METADATA_KEY` from
+`libs/backend-common/src/billing/stripe-metadata.ts` instead. But renaming the read alone would have
+fixed the symptom and kept the flaw: Stripe metadata is writable by anyone who can reach the Stripe
+account, so a tenant id read out of it is an association hint, never proof (SECREV-CRITICAL-001).
+Each handler now resolves the tenant from the LOCAL row that owns the Stripe object — a payment by
+its payment-intent id, an invoice by its Stripe invoice id, a subscription by its Stripe
+subscription id — and `readStripeTenantHint` cross-checks the claim, logging a disagreement at ERROR
+without letting it change the outcome. `handlePaymentIntentSucceeded` additionally stopped depending
+on a `metadata.invoiceId` that no producer has ever written: it reaches the invoice through the
+payment intent's own `invoice` field, or through a payment row already opened for the same intent.
+
+**The service had no test at all** — that is how the defect survived; the only spec covered the
+controller's signature check, idempotency and routing. `stripe-webhook.service.spec.ts` adds
+thirteen, and nine of them FAIL against the pre-fix service, which is the evidence that they pin the
+behaviour rather than describe it.
+
+**Implementation note — the three raw-SQL lifecycle blocks (landed 2026-09-06):** cancel, reactivate
+and extend-trial each ran a raw `UPDATE billing.subscriptions` in the admin NATS handler while the
+corresponding CQRS handler sat unused. Every one of them told Stripe nothing, wrote no outbox event,
+projected nothing onto `auth.tenants` and validated no state transition under a lock — and each
+`WHERE tenant_id = $n AND is_deleted = false` named no subscription id, so a tenant with more than
+one row had all of them written.
+
+Concretely: a "reactivated" tenant kept its cancelled entitlements while Stripe went on stopping the
+subscription at period end; a tenant granted another fourteen trial days was invoiced on the
+ORIGINAL date, mid-trial, because Stripe never heard about the extension; and that same statement
+set `current_period_end = trial_end`, which on a monthly plan silently moved the next invoice date
+and on a plan whose period ran past the trial moved it BACKWARDS.
+
+`CancelSubscriptionCommand` gained the `cancelImmediately` the admin path had always offered — and
+the Stripe idempotency key now carries it, so a scheduled cancellation followed by an immediate one
+is not replayed as the first. `ReactivateSubscriptionHandler` and `ExtendSubscriptionTrialHandler`
+are new: Stripe-aware (`cancelAtPeriodEnd: false` and `trial_end` respectively, both added to the
+canonical client's `updateSubscription`, which mirrors Stripe's own), outbox-writing, projecting,
+and re-checking the state transition under the row lock rather than in a read that raced the write.
+The trial extension adds days in UTC arithmetic instead of `setDate`, which gains or loses an hour
+across a daylight-saving boundary, and sets `proration_behavior: 'none'` so moving a trial end does
+not raise an invoice.
+
+Twenty tests were added across the three handlers, each one asserting something the raw statements
+did not do.
+
+**Gate (parts i + ii of the ADR's three):** the new invariant derives every one of the 32
+`BILLING_ADMIN_COMMAND_SUBJECTS` members' sender, consumer `@MessagePattern` and `services.yaml`
+grant from the one subject map (96 assertions), and holds the metadata key to a single declaration:
+the producer may not write it as a literal, the webhook consumer may not reach into a Stripe
+object's metadata by hand, and no Stripe-surface file may read the old key. Verified by reverting
+both files — three assertions fail. Part (iii), "no raw write to `billing.subscriptions` outside a
+`@CommandHandler`", lands with the provisioning move: the three lifecycle `UPDATE`s are gone, and
+the one remaining raw statement is the provisioning `INSERT` that ADR-0014's first decision
+replaces. A gate carrying a carve-out for the exact statement it exists to forbid would be theatre,
+so it lands when the carve-out would not be needed.
+
 ## CONTRACT-CRITICAL-004 — No machine-readable FE↔BE contract
 
 **State:** OPEN · **Wave:** W2 (class DTOs) / W3 (artifact) · **ADR:** 0015
@@ -249,6 +588,82 @@ emitted from Nest DTOs via the existing `SwaggerModule.createDocument` into a co
 **Gates:** `tests/invariants/admin-openapi-artifact-parity.spec.ts` (byte-equality of artifact and
 generated client) and `admin-body-dto-is-class.spec.ts` (no `@Body()`/`@Query()` resolving to
 `Object`).
+
+**Implementation note — class DTOs (landed 2026-09-07):** the hard precondition is done. The 21
+remaining `interface`-typed `@Body()` parameters (of the 29; eight were converted in W2/W3 as their
+routes were touched) are classes with class-validator decorators, nested one level down as well:
+`apps/admin-api-service/src/billing/dto/billing.dto.ts` gains the twelve billing bodies plus
+thirteen nested value objects (plan limits, per-cycle pricing, features and add-ons, pricing
+metrics, tier multipliers, module quantities and selections, billing address, invoice line items and
+tax), `modules/dto/module-request.dto.ts` and `messaging/dto/messaging-admin.dto.ts` are new, and
+the three email-template bodies join `settings/dto/email-template.dto.ts`. Every nested shape is
+reached through `@ValidateNested` + `@Type`, so `whitelist` / `forbidNonWhitelisted` apply at every
+level rather than only at the envelope — a legal hold can no longer be opened with an empty reason,
+a retention window is bounded to 1–3650 days, and a plan tier must be a `PlanTier`. No DTO declares
+an actor (`createdBy` / `updatedBy` / `changedBy`): the ESLint rule `no-actor-in-input-dto` makes
+that a build error, so a body that claims one is now REFUSED (400) rather than silently overwritten,
+which is the stronger half of ADMIN-CRITICAL-102; `billing.controller.spec.ts` asserts the refusal
+and the JWT-sourced actor separately. Three bodies that carried a raw `tenantId`
+(`PlanChangeRequest`, `CreateCustomPlanDto`, `CreateInvoiceDto`, plus the two email-template bodies)
+now use the `@TenantIdCarrier()` + `@TenantParam('body')` form from ADMIN-CRITICAL-103. Gate:
+`tests/invariants/admin-body-dto-is-class.spec.ts` over `tests/invariants/lib/dto-resolution.ts` —
+every unkeyed `@Body()` / `@Query()` must resolve, through imports, barrels and path aliases, to a
+`class` carrying at least one class-validator decorator on itself or an ancestor; an unresolvable
+type fails rather than being assumed good. Still open under this finding: the committed
+`openapi.json` artifact and its Nx target, the `openapi-typescript` client for admin-panel with
+`services/types/*` deleted, the single `Paginated<T>` envelope, and the retirement of
+`contract-validation.spec.ts` with its `KNOWN_EXCEPTIONS`.
+
+**Implementation note — the artifact (landed 2026-09-07):** `apps/admin-api-service/openapi.json` is
+committed and generated by `nx run admin-api-service:openapi`
+(`tools/openapi/generate-admin-openapi.cjs` → `src/openapi/generate-openapi.ts`). The app is created
+in Nest PREVIEW mode: the full module graph is built and every controller registered, but no
+provider is instantiated and no lifecycle hook runs, so generation touches neither Postgres, Redis
+nor NATS and takes about twelve seconds anywhere. The runner registers `@nestjs/swagger/plugin` as a
+TypeScript transformer before the module graph loads — without it a Nest DTO's shape stays in its TS
+types and class-validator decorators and every schema is `{}`, which is the same vacuous contract an
+interface DTO produced. The document now carries 401 paths and 148 schemas with real properties:
+`required` lists, `minLength`/`maxLength` from the validators, enum members from the enums, and
+`$ref`s into the nested value objects. The `DocumentBuilder` configuration moved to
+`libs/backend-common/src/bootstrap/openapi-config.ts` so the served document and the artifact are
+built by one function, and `@TenantIdCarrier()` now also describes itself to OpenAPI as an optional
+uuid string — the wire contract carries the key even though the handler's type for it is
+`undefined`. Gate: `tests/invariants/admin-openapi-artifact-parity.spec.ts` regenerates and asserts
+byte-equality with the committed file, that every controller route appears in it, and that NO schema
+is empty — the last is what stops a silently dropped transformer from making a vacuous artifact
+agree with itself. The artifact is in `.prettierignore` because reformatting it would break that
+equality. Debt, tracked under this finding (owner okan, deadline 2026-12-31): the runtime build is
+plain `tsc`, which cannot apply the transformer, so the dev-only `/docs` UI shows the same routes
+with thinner schemas than the artifact; closing it means adding the plugin to
+`tools/build/build-service.sh` for every service. Still open: the `openapi-typescript` client for
+admin-panel with `services/types/*` deleted, the single `Paginated<T>` envelope, and retiring
+`contract-validation.spec.ts` with its `KNOWN_EXCEPTIONS`.
+
+**Implementation note — the generated client (landed 2026-09-07):**
+`web/modules/admin-panel/src/services/generated/admin-api.ts` is produced from the artifact by
+`openapi-typescript` (`nx run admin-panel:openapi-client`), and the parity gate now asserts that
+link too: a client regenerated from a stale artifact fails the same spec. Responses are typed as
+well as requests — moving the 56 DTO classes that were declared inside `*.controller.ts` files into
+sibling `dto/*.dto.ts` files was the precondition, because the `@nestjs/swagger` plugin visits a
+file EITHER as a controller (typing responses) or as a model (typing DTOs), never as both, so a DTO
+beside its routes cost that whole controller's response schemas. The artifact now carries 334 typed
+responses and 185 schemas, none empty. Consumption has started where it proves the most:
+`services/contract.ts` exposes `ApiSchema<'Name'>`, and eleven hand-written request types in
+`services/types/*` are now aliases of it. The compiler immediately found five real drifts that had
+been invisible, and each is fixed rather than cast away: the custom-plan builder and the discount
+page were sending a hardcoded `createdBy: 'admin'` (a fabricated actor the server now REFUSES,
+ADMIN-CRITICAL-008); the tenant-create form's tier union contained `custom`, which `POST /tenants`
+does not accept, so that path could only ever have 400'd; the tenant-detail edit form prefilled a
+`custom` tier into an update body that rejects it, and now leaves it unset behind an
+`isEditableTenantTier` guard; and two TypeScript `enum`s (`DiscountType`, `TenantProvisioningState`)
+were nominal, so their members were not assignable to the strings the API actually exchanges — both
+are now unions derived from the contract with a const object preserving every call site. Still open
+under this finding (owner okan, deadline 2026-12-31): the remaining sixteen hand-written types in
+`services/types/*` that shadow a generated schema (entities like `Tenant`, `SupportTicket`,
+`FeatureToggle`) are not yet aliased — each has a wide page-level blast radius and is its own
+change; the single `Paginated<T>` envelope; and retiring `contract-validation.spec.ts` with its
+`KNOWN_EXCEPTIONS`, which stays until those pages are migrated so the URL-shape check is not lost in
+the meantime.
 
 ## ADMIN-CRITICAL-102 — Actor from client strings; 273 mutations unaudited
 
@@ -270,6 +685,28 @@ runs. Erasure targets become an explicit per-table registry (`tenant-column | ca
 excluded-with-reason`).
 **Gate:** every table in `MODULE_SCHEMAS[].tables` is classified in the erasure registry; e2e erases
 a tenant holding support threads, invoices and audit rows.
+
+**Implementation note (landed 2026-09-05):** `@TenantParam(source, { key?, optional?, allow? })`
+(kernel `decorators/`) attaches `VerifiedTenantPipe` (kernel `tenant/`), which resolves the id
+through the `TENANT_ACTIVE_CHECK` port bound by admin-api's global `TenantLookupModule` (read-only
+`auth.tenants`, D14): missing → 400 unless optional, non-UUID → 400, unknown → 404, and a lifecycle
+check — a mutation admits ACTIVE only unless the route states `allow` (lifecycle, provisioning,
+billing and schema routes say `'any'`), a read admits every existing tenant. 115
+`@Param('tenantId')` / `@Query('tenantId')` sites, the tenant controller's 15 `:id` routes and 23
+body DTOs (`tenantId` removed from the class, taken by `@TenantParam('body')` on the handler) were
+converted; the ESLint rule `no-unverified-tenant-param` (admin scope, error) and
+`tests/invariants/admin-tenant-param-verified.spec.ts` keep the raw forms out. Erasure:
+`libs/backend-common/src/compliance/tenant-erasure/tenant-erasure-table-policy.ts` — every
+source-schema target declares `tenant-column | cascade-via | excluded(reason)` for every registered
+table; the executor refuses to construct on an incomplete set, confirms every named column against
+`information_schema` before deleting, orders cascade children before parents without relying on a
+database FK, and derives nothing from column names;
+`tests/invariants/tenant-erasure-table-policy.spec.ts` checks completeness and that every named
+column is declared in source. Not done here: bulk `tenantIds[]` bodies (bulk suspend/activate,
+broadcast targets) still pass arrays the pipe does not resolve (owner okan, W3, this finding); the
+live e2e that erases a tenant holding support threads, invoices and audit rows needs the running
+platform and is not written in this session — the kernel cascade spec
+(`tenant-erasure-target-executor.cascade.spec.ts`) covers the same paths against a fake database.
 
 ## ADMIN-CRITICAL-104 — Email template preview iframe has no sandbox (SA-008)
 
@@ -303,6 +740,44 @@ linter orders static segments before parameterised ones.
 **Gate:** no controller method body reduces to a thrown Gone / Conflict / NotImplemented; smoke gate
 that every FE-called route returns something other than 404/410/501 on a booted app.
 
+**Implementation note (landed 2026-09-07):** every route that existed only to refuse is deleted with
+its service method, DTO, frontend client and page control in one commit: the whole
+tenant-configuration stack (controller, service, DTOs, entity file, the provisioning saga's fake
+`create_default_config` step, the admin-panel page, route and client — it synthesised defaults on
+read and answered 410 on write); the nine system-settings write routes and the
+`SystemSettingService` writers behind them; the global-config CRUD routes, `PUT provisioning-config`
+and the `ConfigCategory`/`ConfigValueType` vocabulary (the env-backed `GET provisioning-config`
+stays: sensor-service's installer-script generator reads it); the messaging AI Dashboard page and
+the persona toggle; `GET tenants/approaching-limits` (501) with its query, handler and client; the
+409 refusals — `POST billing/subscriptions`, `process-renewals`, `invoices/update-overdue`, four
+schema routes (create, suspend, activate, refresh-stats), three migration routes (run, rollback,
+batch run) — with the `never`-typed service methods behind them, the unreferenced
+`SchemaMigrationService`, the provisioning saga's `create_schema` step that could only throw, and
+every frontend button that called them. Custom-plan activation, which called the retired
+`createSubscription` writer and therefore could never activate a plan, now sends billing-service's
+`ProvisionTenantSubscription` command with the plan's priced modules and the plan discount allocated
+across them; both command identifiers derive from the plan id so a retry replays billing's receipt
+(`custom-plan.activation.spec.ts`). Two literal routes shadowed by `data-requests/:id` (`stats`)
+were reordered.
+
+**Correction at land time (2026-09-07):** the audit counted three messaging 501s — `GET
+messaging/monitoring/stats`, `GET messaging/tenants` and the monitoring page behind them — in the
+deletion set. Main answered them instead: `258856330` gave both routes real cross-tenant aggregates
+from messaging-service, cached there for 60 seconds (ADMIN-HIGH-009). A route that returns real data
+is not a stub, so those two routes, their client functions and the Monitoring and Tenants pages
+stay. The deletion set shrinks to the AI Dashboard page and the persona toggle, which still have no
+producer.
+
+**Gates:** `tests/invariants/admin-no-stub-routes.spec.ts` (no `NotImplementedException` in
+admin-api; `GoneException` only in the allowlisted report-download expiry; no route handler whose
+body reduces to a throw, a `throw*` helper call, or a `never` type) and
+`tests/invariants/admin-route-registration-order.spec.ts` (a parameterised route declared before a
+literal sibling it would match fails, within a controller and across controllers sharing a prefix),
+both over `tests/invariants/lib/admin-route-table.ts` (TypeScript-AST route enumeration). The FE↔BE
+contract test's `matchPath` no longer treats a frontend literal as matching a backend parameter, so
+a client for `/jobs/scheduled` can no longer pass against `/jobs/:id`; the two clients that did were
+deleted.
+
 ## ADMIN-HIGH-107 — Permissive physical types in the admin schema (C11)
 
 **State:** OPEN · **Wave:** W2
@@ -323,6 +798,37 @@ columns.
 shared batched-delete helper.
 **Gate:** every `@Cron` / `@Interval` in the fleet is leader-wrapped and heartbeated;
 `CronJobNeverRan` / `CronJobFailingEveryRun` rules are the runtime half.
+
+**Implementation note (landed 2026-09-07):** the primitive is one decorator, `@ScheduledJob({ name,
+cron | every, scope? })` (`libs/backend-common/src/scheduling/`), which applies the NestJS schedule
+decorator itself and wraps the tick in `ScheduledJobRunner.run`: a Postgres transaction-scoped
+advisory lock keyed on (service, job) — `pg_try_advisory_xact_lock(hashtext(service),
+hashtext(job))`, released with the transaction and therefore with a crashed replica's connection —
+and `CronHeartbeatService.track` for the tick that wins; a losing replica records
+`outcome="skipped"`. The decorator is typed against `HasScheduledJobRunner`, so a class without a
+`scheduledJobs` runner does not compile, and every job name is declared at boot so `CronJobNeverRan`
+has a series to alert on. `scope: 'each-replica'` is for per-process housekeeping (the
+error-tracking cooldown map) and skips the lock, never the heartbeat. All 21 admin-api scheduled
+methods (13 classes) are converted; `ScheduledJobModule.forRoot({ serviceName: 'admin-api-service'
+})` is registered. Job claiming in `JobQueueService` is one transaction — `SELECT … FOR UPDATE SKIP
+LOCKED`, dependency check, the RUNNING transition — so two replicas or two overlapping ticks cannot
+execute the same row (`job-queue.claim.spec.ts`). The single retention authority now disposes in
+ctid-addressed batches through the shared `deleteInBatches` helper
+(`libs/backend-common/src/database/batched-delete.ts`). Gate:
+`tests/invariants/scheduled-jobs-leased.spec.ts` over
+`tests/invariants/lib/scheduled-method-table.ts` (TypeScript-AST enumeration of every
+`@Cron`/`@Interval`/`@Timeout`/`@ScheduledJob` in apps, libs and platform libs): a raw decorator
+fails unless it is a governed entry in `.claude/allowlists/unleased-scheduled-jobs.yaml` (owner,
+expiry 2026-12-31, ADMIN-HIGH-013, ceiling that only decreases, entries that must still exist);
+admin-api may have no entries; job names must be literal, well-formed and unique per service; every
+service declaring a `@ScheduledJob` registers the module; `CronHeartbeatService` is reached only
+through the runner. The three existing cron invariants now count `@ScheduledJob` as a scheduler
+entry point. The runtime half (`CronJobNeverRan`, `CronJobFailingEveryRun` in
+`infrastructure/monitoring/droplet/rules/60-dataflow-integrity.yml`) already exists and now covers
+every admin job by construction. Not done here: the 67 raw scheduler sites in the other eight
+services and the two platform libs are frozen in the ratchet with owner okan and expiry 2026-12-31
+under this finding; each converts by adding the runner and swapping the decorator, and the ratchet
+fails when one is converted without its entry being removed.
 
 ## ADMIN-HIGH-109 — Detective stores with no producer (C16)
 
@@ -361,6 +867,29 @@ after the 15 s request timeout.
 **Fix:** add the grant and regenerate `nats.conf` in one commit; extend the provisioning SSoT
 invariant so every subject a service publishes (derived from the command contract) must appear in
 that service's publish ACL.
+
+## INFRA-MEDIUM-171 — The changed-file lint gate skips module-boundary rules on the base side
+
+**State:** OPEN · **Wave:** W3 · **ADR:** —
+
+**Evidence:** `scripts/ci/lint-changed-files.mjs` is the blocking lint gate on every pull request:
+it checks out `origin/main` into a scratch worktree, lints the base version of each changed file
+there, and fails the build on any error the head version reports and the base version does not. The
+worktree is freshly added, so it carries no Nx project graph — and `@nx/enforce-module-boundaries`,
+finding none, does not fail: it prints `No cached ProjectGraph is available. The rule will be
+skipped.` and reports zero. Head runs in the real checkout, where the graph is warm. Every
+module-boundary violation already on main therefore reads as `base=0, head=1` and blocks the first
+pull request that happens to touch the file. This wave hit it on the `backend-common` ↔ `outbox`
+cycle: both of its edges (`schema-manager.service.ts` importing the erasure proof-ledger table name,
+`tenant-erasure-target.module.ts` importing `OutboxPublisher`, and `event-bus` importing
+`backend-common/nats` on the way back) are unchanged main code. Warming the graph inside a pristine
+`origin/main` worktree makes the base side report the identical error, which is the proof.
+
+**Fix (Tier-3):** the gate builds the graph in the base worktree before linting — one
+`nx show projects` with the daemon disabled, so it cannot answer from the real checkout's socket —
+and treats a graph that fails to materialise as fatal rather than continuing with the rule silently
+off. Both sides now run the same rules, the same way, and the base-vs-head delta means what the
+gate's own docblock says it means. The cycle it uncovered stays open debt, owned where it lives.
 
 ## CLAUDE-LOW-017 — CLAUDE.md "Migration Runners" matches no service (ARCH-LOW-012, C7)
 

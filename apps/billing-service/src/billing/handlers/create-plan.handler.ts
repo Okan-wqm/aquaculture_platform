@@ -64,7 +64,13 @@ export class CreatePlanHandler
           perUserPrice: input.pricing.perUserPrice,
           currency: input.pricing.currency || 'USD',
         },
-        features: input.features || [],
+        // ADR-0013: `features` became grouped when admin.plan_definitions
+        // merged in. A flat GraphQL list has no grouping, so it is all core.
+        features: {
+          coreFeatures: input.features ?? [],
+          advancedFeatures: [],
+          premiumFeatures: [],
+        },
         isActive: true,
         isPublic: input.isPublic !== false,
         sortOrder: input.sortOrder || 0,

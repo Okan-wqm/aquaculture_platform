@@ -257,6 +257,28 @@ services:
   - request.billing.admin.cancelSubscription
   - request.billing.admin.reactivateSubscription
   - request.billing.admin.extendSubscriptionTrial
+  - request.billing.admin.createDiscountCode
+  - request.billing.admin.updateDiscountCode
+  - request.billing.admin.deactivateDiscountCode
+  - request.billing.admin.bulkCreateDiscountCodes
+  - request.billing.admin.generateDiscountCode
+  - request.billing.admin.validateDiscountCode
+  - request.billing.admin.applyDiscountCode
+  - request.billing.admin.setModulePrice
+  - request.billing.admin.deactivateModulePrice
+  - request.billing.admin.seedModulePrices
+  - request.billing.admin.quoteModuleSelection
+  - request.billing.admin.createPlan
+  - request.billing.admin.updatePlan
+  - request.billing.admin.deprecatePlan
+  - request.billing.admin.createCustomPlan
+  - request.billing.admin.updateCustomPlan
+  - request.billing.admin.submitCustomPlan
+  - request.billing.admin.approveCustomPlan
+  - request.billing.admin.rejectCustomPlan
+  - request.billing.admin.activateCustomPlan
+  - request.billing.admin.cloneCustomPlan
+  - request.billing.admin.deleteCustomPlan
   - request.billing.tenant.provisionSubscription
   - request.auth.admin.createUser
   - request.auth.admin.resetUserPassword
@@ -280,6 +302,9 @@ services:
   - request.auth.admin.createModule
   - request.auth.admin.updateModule
   - request.auth.admin.deleteModule
+  - request.auth.admin.grantPlatformCapability
+  - request.auth.admin.revokePlatformCapability
+  - request.auth.admin.listPlatformCapabilityGrants
   - policy.ingest_backend.changed
   - events.platform.schema-migration.>
   - events.security.events.>

@@ -1,3 +1,9 @@
+import {
+  RecordMetricDto,
+  RecordRequestMetricDto,
+  UpdateThresholdsDto,
+} from './dto/performance.dto';
+import { RequiresCapability } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -12,66 +18,6 @@ import { IsString, IsOptional, IsNumber, IsObject, IsArray, IsBoolean, MaxLength
 
 import { MetricType } from '../entities/performance-metric.entity';
 import { PerformanceMonitoringService, MetricThreshold } from '../services/performance-monitoring.service';
-
-// ============================================================================
-// DTOs
-// ============================================================================
-
-class RecordMetricDto {
-  @IsString()
-  metricType!: MetricType;
-
-  @IsString()
-  name!: string;
-
-  @IsNumber()
-  value!: number;
-
-  @IsOptional()
-  @IsString()
-  unit?: string;
-
-  @IsOptional()
-  @IsString()
-  service?: string;
-
-  @IsOptional()
-  @IsObject()
-  dimensions?: Record<string, string | undefined>;
-
-  @IsOptional()
-  @IsObject()
-  percentiles?: { p50?: number; p90?: number; p95?: number; p99?: number };
-
-  @IsOptional()
-  @IsNumber()
-  sampleCount?: number;
-}
-
-class RecordRequestMetricDto {
-  @IsString()
-  @MaxLength(255)
-  service!: string;
-
-  @IsString()
-  @MaxLength(255)
-  endpoint!: string;
-
-  @IsString()
-  @MaxLength(10)
-  method!: string;
-
-  @IsNumber()
-  durationMs!: number;
-
-  @IsBoolean()
-  isError!: boolean;
-}
-
-class UpdateThresholdsDto {
-  @IsArray()
-  thresholds!: MetricThreshold[];
-}
 
 // ============================================================================
 // Controller
@@ -213,6 +159,7 @@ export class PerformanceController {
   }
 
   @AuditedOperation({ resource: 'Thresholds', action: 'UPDATE' })
+  @RequiresCapability('security-ops')
   @Post('thresholds')
   updateThresholds(@Body() dto: UpdateThresholdsDto) {
     this.performanceService.updateThresholds(dto.thresholds);
@@ -260,6 +207,7 @@ export class PerformanceController {
   // ============================================================================
 
   @AuditedOperation({ resource: 'Metric', action: 'RECORD' })
+  @RequiresCapability('security-ops')
   @Post('metrics')
   async recordMetric(@Body() dto: RecordMetricDto) {
     await this.performanceService.recordMetric(dto);
@@ -267,6 +215,7 @@ export class PerformanceController {
   }
 
   @AuditedOperation({ resource: 'RequestMetric', action: 'RECORD' })
+  @RequiresCapability('security-ops')
   @Post('metrics/request')
   async recordRequestMetric(
     @Body() dto: RecordRequestMetricDto,
@@ -282,6 +231,7 @@ export class PerformanceController {
   }
 
   @AuditedOperation({ resource: 'Performance', action: 'FLUSH_METRICS' })
+  @RequiresCapability('security-ops')
   @Post('metrics/flush')
   async flushMetrics() {
     await this.performanceService.flushMetrics();

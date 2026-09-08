@@ -3,13 +3,26 @@
  */
 
 import { apiFetch, buildQueryString } from '../http-client';
+import type { PaginatedResult, PaginationParams } from '../types/common';
 import type {
-  PaginatedResult,
-  PaginationParams,
+  BulkCreateDiscountCodesDto,
+  CreateDiscountCodeDto,
+  CreatePlanDto,
+  PlanComparison,
   PlanDefinition,
+  PlanLimits,
+  UpdatePlanDto,
   PlanTier,
+  DiscountApplication,
   DiscountCode,
+  DiscountCodeLookup,
+  DiscountCodePage,
+  DiscountCodeTemplate,
+  DiscountRedemptionPage,
   DiscountStats,
+  DiscountSubscriptionChange,
+  DiscountValidation,
+  UpdateDiscountCodeDto,
   PaymentOverview,
   RecordPaymentDto,
   RefundPaymentDto,
@@ -19,17 +32,19 @@ import type {
   InvoiceOverview,
   InvoiceStats,
   ModulePricing,
+  ModulePricingPage,
   ModulePricingWithModule,
+  QuickEstimateResult,
+  SeedModulePricesResult,
+  UpdateModulePricingDto,
   SetModulePricingDto,
   ModuleQuantities,
   QuoteRequest,
   PricingCalculation,
   PricingComparisonResult,
-  CreateSubscriptionDto,
-  CreateSubscriptionResult,
   CustomPlan,
   CustomPlanFilter,
-  PaginatedCustomPlans,
+  CustomPlanLookup,
   CreateCustomPlanDto,
   UpdateCustomPlanDto,
   UsageSummaryStats,
@@ -48,64 +63,106 @@ export const billingApi = {
   getPublicPlans: () => apiFetch<PlanDefinition[]>('/billing/plans/public'),
   getPlanById: (id: string) => apiFetch<PlanDefinition>(`/billing/plans/${id}`),
   getPlanByCode: (code: string) => apiFetch<PlanDefinition>(`/billing/plans/code/${code}`),
-  createPlan: (data: Partial<PlanDefinition>) =>
+  // ADR-0013: admin-api forwards these to `request.billing.admin.*Plan`; the
+  // actor comes from the verified principal, never from the body, so no
+  // `createdBy` / `updatedBy` argument exists to pass.
+  createPlan: (data: CreatePlanDto) =>
     apiFetch<PlanDefinition>('/billing/plans', { method: 'POST', body: JSON.stringify(data) }),
-  updatePlan: (id: string, data: Partial<PlanDefinition>) =>
+  updatePlan: (id: string, data: UpdatePlanDto) =>
     apiFetch<PlanDefinition>(`/billing/plans/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  deprecatePlan: (id: string, _updatedBy?: string) =>
+  deprecatePlan: (id: string) =>
     apiFetch<PlanDefinition>(`/billing/plans/${id}/deprecate`, { method: 'POST' }),
   comparePlans: (currentPlanId: string, newPlanId: string) =>
-    apiFetch<Record<string, unknown>>('/billing/plans/compare', { method: 'POST', body: JSON.stringify({ currentPlanId, newPlanId }) }),
-  seedPlans: (_createdBy?: string) =>
-    apiFetch<{ success: boolean }>('/billing/plans/seed', { method: 'POST' }),
+    apiFetch<PlanComparison>('/billing/plans/compare', { method: 'POST', body: JSON.stringify({ currentPlanId, newPlanId }) }),
   getPlanByTier: (tier: string) =>
-    apiFetch<PlanDefinition>(`/billing/plans/tier/${tier}`),
+    apiFetch<PlanDefinition | null>(`/billing/plans/tier/${tier}`),
+  // The canonical PLAN_CATALOG limits for a tier (ADR-037), as the backend
+  // publishes them — the previous hand-written five-field shape named none of
+  // the seventeen fields the endpoint actually returns.
   getDefaultLimitsForTier: (tier: string) =>
-    apiFetch<{ users: number; farms: number; sensors: number; storage: number; apiCallsPerDay: number }>(`/billing/plans/defaults/${tier}`),
+    apiFetch<PlanLimits>(`/billing/plans/defaults/${tier}`),
 
   // Discount Codes
-  // Paginated: `DiscountCodeService.findAll` returns `createStandardPaginatedResult`,
-  // so this arrives as the envelope, not an array. Declaring it `DiscountCode[]`
-  // is what let `DiscountCodePage` "guard" the envelope with
-  // `Array.isArray(...) ? ... : []` and render an empty table forever.
-  getDiscountCodes: (options?: { isActive?: boolean; includeExpired?: boolean } & PaginationParams) =>
+  //
+  // ADR-0013: billing owns the catalogue and admin-api forwards every write.
+  // Paginated: `DiscountCodeService.findAll` returns
+  // `createStandardPaginatedResult`, so this arrives as the decoded envelope,
+  // not an array. Declaring it `DiscountCode[]` is what let `DiscountCodePage`
+  // "guard" the envelope with `Array.isArray(...) ? ... : []` and render an
+  // empty table forever (ADMIN-HIGH-004).
+  getDiscountCodes: (
+    options?: { isActive?: boolean; campaignId?: string; includeExpired?: boolean } &
+      PaginationParams,
+  ) =>
     apiFetch<PaginatedResult<DiscountCode>>(`/billing/discounts?${buildQueryString(options || {})}`),
   getDiscountStats: () => apiFetch<DiscountStats>('/billing/discounts/stats'),
   getDiscountById: (id: string) => apiFetch<DiscountCode>(`/billing/discounts/${id}`),
-  getDiscountByCode: (code: string) => apiFetch<{ found: boolean; discount?: DiscountCode }>(`/billing/discounts/code/${code}`),
-  createDiscountCode: (data: Partial<DiscountCode>) => {
-    const { createdBy: _createdBy, ...payload } = data;
-    return apiFetch<DiscountCode>('/billing/discounts', { method: 'POST', body: JSON.stringify(payload) });
-  },
-  updateDiscountCode: (id: string, data: Partial<DiscountCode>) =>
-    apiFetch<DiscountCode>(`/billing/discounts/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  deactivateDiscountCode: (id: string, _updatedBy?: string) =>
+  getDiscountByCode: (code: string) =>
+    apiFetch<DiscountCodeLookup>(`/billing/discounts/code/${code}`),
+  // The actor is never a body property: the server reads it from the verified
+  // principal and REFUSES a body that claims one (ADMIN-CRITICAL-008), and the
+  // contract type no longer has the field to strip.
+  createDiscountCode: (data: CreateDiscountCodeDto) =>
+    apiFetch<DiscountCode>('/billing/discounts', { method: 'POST', body: JSON.stringify(data) }),
+  // Only the mutable half: a code's value, its code and its campaign are minted
+  // once, and the server refuses a body that tries to change them.
+  updateDiscountCode: (id: string, data: UpdateDiscountCodeDto) =>
+    apiFetch<DiscountCode>(`/billing/discounts/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  deactivateDiscountCode: (id: string) =>
     apiFetch<DiscountCode>(`/billing/discounts/${id}/deactivate`, { method: 'POST' }),
-  validateDiscountCode: (code: string, tenantId: string, planId?: string, orderAmount?: number) =>
-    apiFetch<{ valid: boolean; discountCode?: DiscountCode; discountAmount?: number }>('/billing/discounts/validate', {
+  validateDiscountCode: (
+    code: string,
+    tenantId: string,
+    options?: {
+      planId?: string;
+      subscriptionChange?: DiscountSubscriptionChange;
+      /** Exact decimal string. */
+      orderAmount?: string;
+    },
+  ) =>
+    apiFetch<DiscountValidation>('/billing/discounts/validate', {
       method: 'POST',
-      body: JSON.stringify({ code, tenantId, planId, orderAmount }),
+      body: JSON.stringify({ code, tenantId, ...options }),
     }),
   generateUniqueCode: (prefix?: string, length?: number) =>
-    apiFetch<{ code: string }>('/billing/discounts/generate-code', { method: 'POST', body: JSON.stringify({ prefix, length }) }),
-  applyDiscount: (code: string, tenantId: string, originalAmount: number, options?: { subscriptionId?: string; invoiceId?: string; planId?: string; redeemedBy?: string }) =>
-    apiFetch<{ success: boolean; originalAmount: number; discountAmount: number; finalAmount: number; redemptionId?: string }>('/billing/discounts/apply', {
+    apiFetch<{ code: string }>('/billing/discounts/generate-code', {
       method: 'POST',
-      body: JSON.stringify({ code, tenantId, originalAmount, ...options }),
+      body: JSON.stringify({ prefix, length }),
     }),
-  bulkCreateDiscounts: (count: number, template: Omit<Partial<DiscountCode>, 'code'>, codePrefix?: string) =>
-    apiFetch<{ success: boolean; count: number; codes: DiscountCode[] }>('/billing/discounts/bulk-create', {
+  applyDiscount: (
+    code: string,
+    tenantId: string,
+    /** Exact decimal string — money is never sent as a float. */
+    orderAmount: string,
+    options?: {
+      subscriptionId?: string;
+      invoiceId?: string;
+      planId?: string;
+      subscriptionChange?: DiscountSubscriptionChange;
+    },
+  ) =>
+    apiFetch<DiscountApplication>('/billing/discounts/apply', {
       method: 'POST',
-      body: JSON.stringify({ count, template, codePrefix }),
+      body: JSON.stringify({ code, tenantId, orderAmount, ...options }),
     }),
-  getDiscountRedemptions: (discountId: string) =>
-    apiFetch<Array<{ id: string; tenantId: string; tenantName: string; redeemedAt: string; amount: number }>>(`/billing/discounts/${discountId}/redemptions`),
-  getTenantRedemptions: (tenantId: string) =>
-    apiFetch<Array<{ id: string; discountCode: string; redeemedAt: string; amount: number }>>(`/billing/tenant/${tenantId}/redemptions`),
+  bulkCreateDiscounts: (count: number, template: DiscountCodeTemplate, codePrefix?: string) =>
+    apiFetch<{ success: boolean; count: number; codes: DiscountCode[] }>(
+      '/billing/discounts/bulk-create',
+      { method: 'POST', body: JSON.stringify({ count, template, codePrefix }) },
+    ),
+  getDiscountRedemptions: (discountId: string, options?: { page?: number; limit?: number }) =>
+    apiFetch<DiscountRedemptionPage>(
+      `/billing/discounts/${discountId}/redemptions?${buildQueryString(options || {})}`,
+    ),
+  getTenantRedemptions: (tenantId: string, options?: { page?: number; limit?: number }) =>
+    apiFetch<DiscountRedemptionPage>(
+      `/billing/tenant/${tenantId}/redemptions?${buildQueryString(options || {})}`,
+    ),
 
   // Subscriptions
-  createSubscription: (data: CreateSubscriptionDto) =>
-    apiFetch<CreateSubscriptionResult>('/billing/subscriptions', { method: 'POST', body: JSON.stringify(data) }),
   getSubscriptions: (filters?: {
     status?: SubscriptionStatus[];
     planTier?: PlanTier[];
@@ -135,10 +192,6 @@ export const billingApi = {
     apiFetch<{ success: boolean; newTrialEnd: string }>(`/billing/subscriptions/tenant/${tenantId}/extend-trial`, {
       method: 'POST',
       body: JSON.stringify({ additionalDays }),
-    }),
-  processRenewals: () =>
-    apiFetch<{ processed: number; failed: number; renewals: Array<{ tenantId: string; success: boolean; message?: string }> }>('/billing/subscriptions/process-renewals', {
-      method: 'POST',
     }),
 
   // Invoices
@@ -221,29 +274,47 @@ export const billingApi = {
     }),
 
   // Module Pricing
-  getModulePricings: () =>
-    apiFetch<ModulePricing[]>('/billing/module-pricing'),
+  //
+  // ADR-0013: billing owns `billing.module_prices` and admin-api forwards every
+  // write. A price change publishes a NEW effective window rather than editing
+  // one, so an invoice can be read back against the prices that produced it.
+  getModulePricings: () => apiFetch<ModulePricing[]>('/billing/module-pricing'),
   getModulePricingByCode: (moduleCode: string) =>
     apiFetch<ModulePricing | null>(`/billing/module-pricing/code/${moduleCode}`),
   getModulePricingWithModules: () =>
     apiFetch<ModulePricingWithModule[]>('/billing/module-pricing/with-modules'),
+  getModulePricingHistory: (moduleId: string, options?: { page?: number; limit?: number }) =>
+    apiFetch<ModulePricingPage>(
+      `/billing/module-pricing/${moduleId}/history?${buildQueryString(options || {})}`,
+    ),
   setModulePricing: (data: SetModulePricingDto) =>
-    apiFetch<ModulePricing>('/billing/module-pricing', { method: 'POST', body: JSON.stringify(data) }),
-  updateModulePricing: (pricingId: string, data: Partial<SetModulePricingDto>) =>
-    apiFetch<ModulePricing>(`/billing/module-pricing/${pricingId}`, { method: 'PUT', body: JSON.stringify(data) }),
-  deactivateModulePricing: (pricingId: string) =>
-    apiFetch<{ success: boolean }>(`/billing/module-pricing/${pricingId}/deactivate`, { method: 'POST' }),
-  seedModulePricing: (moduleIdMap: Record<string, string>) =>
-    apiFetch<{ success: boolean; seededCount: number }>('/billing/module-pricing/seed', {
+    apiFetch<ModulePricing>('/billing/module-pricing', {
       method: 'POST',
-      body: JSON.stringify({ moduleIdMap }),
+      body: JSON.stringify(data),
+    }),
+  updateModulePricing: (pricingId: string, data: UpdateModulePricingDto) =>
+    apiFetch<ModulePricing>(`/billing/module-pricing/${pricingId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  deactivateModulePricing: (pricingId: string) =>
+    apiFetch<ModulePricing>(`/billing/module-pricing/${pricingId}/deactivate`, { method: 'POST' }),
+  // The code → id mapping is resolved server-side from `auth.modules`; a
+  // client-supplied map could point one module's prices at another module.
+  seedModulePricing: (moduleCodes: string[]) =>
+    apiFetch<SeedModulePricesResult>('/billing/module-pricing/seed', {
+      method: 'POST',
+      body: JSON.stringify({ moduleCodes }),
     }),
 
-  // Pricing Calculator
+  // Quotes — billing does the arithmetic; nothing here recomputes a total.
   calculatePricing: (request: QuoteRequest) =>
-    apiFetch<PricingCalculation>('/billing/pricing/calculate', { method: 'POST', body: JSON.stringify(request) }),
+    apiFetch<PricingCalculation>('/billing/pricing/calculate', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    }),
   getQuickEstimate: (moduleCodes: string[], tier: PlanTier, quantities?: ModuleQuantities) =>
-    apiFetch<{ monthlyTotal: number; annualTotal: number }>('/billing/pricing/quick-estimate', {
+    apiFetch<QuickEstimateResult>('/billing/pricing/quick-estimate', {
       method: 'POST',
       body: JSON.stringify({ moduleCodes, tier, quantities }),
     }),
@@ -254,23 +325,32 @@ export const billingApi = {
     }),
 
   // Custom Plans
+  // `CustomPlanPage` in the contract is the HANDLER's return — `items` plus the
+  // page metadata. The response interceptor lifts `items` into the envelope's
+  // `data` slot, and `apiFetch` decodes that into `PaginatedResult<T>`, so this
+  // is the shape the browser actually holds (ADMIN-HIGH-004).
   getCustomPlans: (filter?: CustomPlanFilter) =>
-    apiFetch<PaginatedCustomPlans>(`/billing/custom-plans?${buildQueryString((filter || {}) as Record<string, unknown>)}`),
+    apiFetch<PaginatedResult<CustomPlan>>(
+      `/billing/custom-plans?${buildQueryString((filter || {}) as Record<string, unknown>)}`,
+    ),
   getCustomPlan: (planId: string) =>
     apiFetch<CustomPlan>(`/billing/custom-plans/${planId}`),
+  // A tenant with no plan in force today is an answer, not a 404, so the
+  // response says so explicitly rather than sending a bare `null` body the
+  // client has to guess at.
   getCustomPlanByTenant: (tenantId: string) =>
-    apiFetch<CustomPlan | null>(`/billing/custom-plans/tenant/${tenantId}`),
-  createCustomPlan: (data: CreateCustomPlanDto) => {
-    const { createdBy: _createdBy, ...payload } = data;
-    return apiFetch<CustomPlan>('/billing/custom-plans', { method: 'POST', body: JSON.stringify(payload) });
-  },
+    apiFetch<CustomPlanLookup>(`/billing/custom-plans/tenant/${tenantId}`),
+  // The actor is never a body property: the server reads it from the verified
+  // principal and REFUSES a body that claims one (ADMIN-CRITICAL-008).
+  createCustomPlan: (data: CreateCustomPlanDto) =>
+    apiFetch<CustomPlan>('/billing/custom-plans', { method: 'POST', body: JSON.stringify(data) }),
   updateCustomPlan: (planId: string, data: UpdateCustomPlanDto) =>
     apiFetch<CustomPlan>(`/billing/custom-plans/${planId}`, { method: 'PUT', body: JSON.stringify(data) }),
   submitCustomPlanForApproval: (planId: string) =>
     apiFetch<CustomPlan>(`/billing/custom-plans/${planId}/submit`, { method: 'POST' }),
-  approveCustomPlan: (planId: string, _approverId?: string) =>
+  approveCustomPlan: (planId: string) =>
     apiFetch<CustomPlan>(`/billing/custom-plans/${planId}/approve`, { method: 'POST' }),
-  rejectCustomPlan: (planId: string, reason: string, _rejectedBy?: string) =>
+  rejectCustomPlan: (planId: string, reason: string) =>
     apiFetch<CustomPlan>(`/billing/custom-plans/${planId}/reject`, { method: 'POST', body: JSON.stringify({ reason }) }),
   activateCustomPlan: (planId: string) =>
     apiFetch<CustomPlan>(`/billing/custom-plans/${planId}/activate`, { method: 'POST' }),

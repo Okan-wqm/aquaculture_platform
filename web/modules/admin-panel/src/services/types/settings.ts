@@ -18,39 +18,6 @@ export interface SystemSetting {
   updatedBy?: string;
 }
 
-export interface TenantConfiguration {
-  tenantId: string;
-  configuration: Record<string, unknown>;
-  branding?: {
-    logo?: string;
-    primaryColor?: string;
-    secondaryColor?: string;
-    favicon?: string;
-    customCss?: string;
-  };
-  integrations?: Array<{
-    type: string;
-    isEnabled: boolean;
-    config: Record<string, unknown>;
-  }>;
-  apiKeys?: Array<{
-    id: string;
-    name: string;
-    prefix: string;
-    scopes: string[];
-    lastUsedAt?: string;
-    expiresAt?: string;
-  }>;
-  webhooks?: Array<{
-    id: string;
-    url: string;
-    events: string[];
-    isActive: boolean;
-    secretHash?: string;
-  }>;
-  updatedAt: string;
-}
-
 export interface EmailTemplateVariable {
   name: string;
   description: string;
@@ -74,20 +41,6 @@ export interface EmailTemplate {
   createdAt: string;
   updatedAt: string;
   updatedBy?: string;
-}
-
-export interface IpAccessRule {
-  id: string;
-  tenantId?: string;
-  ruleType: 'whitelist' | 'blacklist';
-  ipAddress: string;
-  description?: string;
-  isActive: boolean;
-  expiresAt?: string;
-  hitCount: number;
-  lastHitAt?: string;
-  createdBy?: string;
-  createdAt: string;
 }
 
 // ============================================================================

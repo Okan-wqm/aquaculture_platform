@@ -192,11 +192,24 @@ class RealStripeClient implements IStripeApiClient {
     subscriptionId: string;
     priceId?: string;
     metadata?: StripeMetadata;
+    cancelAtPeriodEnd?: boolean;
+    trialEnd?: Date;
     idempotencyKey: StripeIdempotencyKey;
   }): Promise<StripeSubscription> {
     const params: Stripe.SubscriptionUpdateParams = {};
     if (args.metadata) {
       params.metadata = { ...args.metadata };
+    }
+    if (args.cancelAtPeriodEnd !== undefined) {
+      params.cancel_at_period_end = args.cancelAtPeriodEnd;
+    }
+    if (args.trialEnd) {
+      // Stripe takes unix SECONDS; milliseconds would land the trial ~50,000
+      // years out and silently stop billing the customer forever.
+      params.trial_end = Math.floor(args.trialEnd.getTime() / 1000);
+      // Stripe's default is to invoice immediately when a trial end moves;
+      // an extension must not raise an invoice for a customer still in trial.
+      params.proration_behavior = 'none';
     }
     if (args.priceId) {
       // Swap the single subscription item to the new price (proration default).

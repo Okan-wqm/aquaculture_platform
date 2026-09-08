@@ -20,7 +20,10 @@ export * from './billing/billing-plan-tier';
 // the billing-side SSoT for per-tenant M/R envelope reservations and the
 // PENDING_CAPACITY → ACTIVE → SUPERSEDED/RELEASED state machine.
 export * from './billing/telemetry-capacity';
+export * from './billing/pricing-metric';
 export * from './enums/tenant-status.enum';
+// ADR-0016: closed platform-operator capability set, minted into the JWT by auth-service.
+export * from './enums/platform-capability.enum';
 // Tenant lifecycle transition authority (auth-audit HIGH-007). Pure,
 // dependency-free logic that gates every status change + login + erasure.
 export * from './enums/tenant-status.machine';

@@ -4,6 +4,20 @@
  * Destek ticket yönetimi endpoint'leri.
  */
 
+import {
+  AddCommentDto,
+  AssignTicketDto,
+  ChangePriorityDto,
+  ChangeStatusDto,
+  CreateTicketDto,
+  SatisfactionRatingDto,
+  UpdateTicketDto,
+} from './dto/ticket.dto';
+import {
+  RequiresCapability,
+  TenantParam,
+  TenantIdCarrier,
+} from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -33,111 +47,6 @@ import {
 import { TicketService } from '../services/ticket.service';
 
 // ============================================================================
-// DTOs
-// ============================================================================
-
-class CreateTicketDto {
-  @IsString()
-  tenantId!: string;
-
-  @IsOptional()
-  @IsString()
-  tenantName?: string;
-
-  @IsString()
-  subject!: string;
-
-  @IsString()
-  description!: string;
-
-  @IsOptional()
-  @IsString()
-  category?: TicketCategory;
-
-  @IsOptional()
-  @IsString()
-  priority?: TicketPriority;
-
-  @IsOptional()
-  @IsArray()
-  tags?: string[];
-}
-
-class UpdateTicketDto {
-  @IsOptional()
-  @IsString()
-  subject?: string;
-
-  @IsOptional()
-  @IsString()
-  description?: string;
-
-  @IsOptional()
-  @IsString()
-  category?: TicketCategory;
-
-  @IsOptional()
-  @IsString()
-  priority?: TicketPriority;
-
-  @IsOptional()
-  @IsString()
-  status?: TicketStatus;
-
-  @IsOptional()
-  @IsArray()
-  tags?: string[];
-
-  @IsOptional()
-  @IsString()
-  dueAt?: string;
-}
-
-class AssignTicketDto {
-  @IsString()
-  assignedTo!: string;
-
-  @IsString()
-  assignedToName!: string;
-}
-
-class AddCommentDto {
-  @IsString()
-  content!: string;
-
-  @IsOptional()
-  @IsString()
-  authorName?: string;
-
-  @IsOptional()
-  @IsBoolean()
-  isInternal?: boolean;
-
-  @IsOptional()
-  @IsArray()
-  attachments?: TicketAttachment[];
-}
-
-class ChangeStatusDto {
-  @IsString()
-  status!: TicketStatus;
-}
-
-class ChangePriorityDto {
-  @IsString()
-  priority!: TicketPriority;
-}
-
-class SatisfactionRatingDto {
-  @IsNumber()
-  rating!: number;
-
-  @IsOptional()
-  @IsString()
-  feedback?: string;
-}
-
-// ============================================================================
 // Controller
 // ============================================================================
 
@@ -156,7 +65,7 @@ export class TicketController {
     @Query('priority') priority?: TicketPriority,
     @Query('category') category?: TicketCategory,
     @Query('assignedTo') assignedTo?: string,
-    @Query('tenantId') tenantId?: string,
+    @TenantParam('query', { optional: true }) tenantId?: string,
     @Query('search') search?: string,
     @Query() pagination?: PaginationQueryDto,
   ) {
@@ -220,7 +129,7 @@ export class TicketController {
   @Get('tenant/:tenantId')
   @PlatformAdminOnly()
   async getTicketsForTenant(
-    @Param('tenantId') tenantId: string,
+    @TenantParam('param') tenantId: string,
     @Query('status') status?: TicketStatus,
     @Query() pagination?: PaginationQueryDto,
   ) {
@@ -245,18 +154,23 @@ export class TicketController {
   }
 
   @AuditedOperation({ resource: 'Ticket', action: 'CREATE' })
+  @RequiresCapability('support-ops')
   @Post()
   @PlatformAdminOnly()
   @HttpCode(HttpStatus.CREATED)
-  async createTicket(@Body() dto: CreateTicketDto, @CurrentUser() user: CurrentUserData) {
-    if (!dto.tenantId || !dto.subject || !dto.description) {
+  async createTicket(
+    @TenantParam('body') tenantId: string,
+    @Body() dto: CreateTicketDto,
+    @CurrentUser() user: CurrentUserData,
+  ) {
+    if (!tenantId || !dto.subject || !dto.description) {
       throw new BadRequestException('tenantId, subject, and description are required');
     }
 
     // ADMIN-CRITICAL-102: the creator is the verified platform admin, not a
     // name the request body offers.
     return this.ticketService.createTicket({
-      tenantId: dto.tenantId,
+      tenantId: tenantId,
       tenantName: dto.tenantName,
       createdBy: user.id,
       createdByName: user.email,
@@ -270,6 +184,7 @@ export class TicketController {
   }
 
   @AuditedOperation({ resource: 'Ticket', action: 'UPDATE' })
+  @RequiresCapability('support-ops')
   @Put(':id')
   async updateTicket(@Param('id') id: string, @Body() dto: UpdateTicketDto) {
     return this.ticketService.updateTicket(id, {
@@ -288,6 +203,7 @@ export class TicketController {
   // ============================================================================
 
   @AuditedOperation({ resource: 'Ticket', action: 'ASSIGN' })
+  @RequiresCapability('support-ops')
   @Post(':id/assign')
   async assignTicket(@Param('id') id: string, @Body() dto: AssignTicketDto) {
     if (!dto.assignedTo || !dto.assignedToName) {
@@ -298,6 +214,7 @@ export class TicketController {
   }
 
   @AuditedOperation({ resource: 'Status', action: 'CHANGE' })
+  @RequiresCapability('support-ops')
   @Post(':id/status')
   async changeStatus(
     @Param('id') id: string,
@@ -312,6 +229,7 @@ export class TicketController {
   }
 
   @AuditedOperation({ resource: 'Priority', action: 'CHANGE' })
+  @RequiresCapability('support-ops')
   @Post(':id/priority')
   async changePriority(
     @Param('id') id: string,
@@ -344,6 +262,7 @@ export class TicketController {
   }
 
   @AuditedOperation({ resource: 'Comment', action: 'ADD' })
+  @RequiresCapability('support-ops')
   @Post(':id/comments')
   @PlatformAdminOnly()
   @HttpCode(HttpStatus.CREATED)
@@ -386,6 +305,7 @@ export class TicketController {
   }
 
   @AuditedOperation({ resource: 'Reply', action: 'ADD' })
+  @RequiresCapability('support-ops')
   @Post(':id/replies')
   @PlatformAdminOnly()
   @HttpCode(HttpStatus.CREATED)
@@ -413,6 +333,7 @@ export class TicketController {
   // ============================================================================
 
   @AuditedOperation({ resource: 'SatisfactionRating', action: 'SUBMIT' })
+  @RequiresCapability('support-ops')
   @Post(':id/satisfaction')
   @PlatformAdminOnly()
   async submitSatisfactionRating(@Param('id') id: string, @Body() dto: SatisfactionRatingDto) {

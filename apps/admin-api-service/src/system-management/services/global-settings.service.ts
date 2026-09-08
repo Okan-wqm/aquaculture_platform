@@ -1,15 +1,20 @@
+import {
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
 import * as crypto from 'crypto';
 
 import {
-  GoneException,
+  BadRequestException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
-  BadRequestException,
   OnModuleInit,
 } from '@nestjs/common';
 import { safeRegex } from '@aquaculture/backend-common/security';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { LessThanOrEqual, Repository } from 'typeorm';
 
@@ -19,7 +24,6 @@ import {
   FeatureToggleStatus,
   FeatureCondition,
 } from '../entities/feature-toggle.entity';
-import { ConfigCategory, ConfigValueType } from '../entities/global-config.entity';
 import {
   MaintenanceMode,
   MaintenanceScope,
@@ -66,7 +70,6 @@ export interface SystemHealthStatus {
   environment: string;
   maintenanceMode: boolean;
   featureToggles: number;
-  activeConfigs: number;
 }
 
 // ============================================================================
@@ -87,6 +90,7 @@ export class GlobalSettingsService implements OnModuleInit {
     private readonly maintenanceModeRepo: Repository<MaintenanceMode>,
     @InjectRepository(SystemVersion)
     private readonly systemVersionRepo: Repository<SystemVersion>,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -735,81 +739,6 @@ export class GlobalSettingsService implements OnModuleInit {
   }
 
   // ============================================================================
-  // Global Configuration Management
-  // ============================================================================
-
-  createConfig(data: {
-    key: string;
-    name: string;
-    description?: string;
-    category?: ConfigCategory;
-    valueType?: ConfigValueType;
-    value: unknown;
-    defaultValue?: unknown;
-    validation?: {
-      required?: boolean;
-      min?: number;
-      max?: number;
-      minLength?: number;
-      maxLength?: number;
-      pattern?: string;
-      allowedValues?: unknown[];
-    };
-    isSecret?: boolean;
-    isReadOnly?: boolean;
-    requiresRestart?: boolean;
-    helpText?: string;
-    createdBy?: string;
-  }): never {
-    void data;
-    this.throwGlobalConfigGone();
-  }
-
-  updateConfig(id: string, value: unknown, updatedBy: string, reason?: string): never {
-    void id;
-    void value;
-    void updatedBy;
-    void reason;
-    this.throwGlobalConfigGone();
-  }
-
-  getConfig(key: string): unknown {
-    return this.provisioningDefault(key);
-  }
-
-  getConfigEntity(id: string): never {
-    void id;
-    this.throwGlobalConfigGone();
-  }
-
-  queryConfigs(params: {
-    category?: ConfigCategory;
-    isSecret?: boolean;
-    search?: string;
-    page?: number;
-    limit?: number;
-    // The global_configs surface is retired (the GlobalConfig entity no longer
-    // exists), so this always yields an EMPTY page — but an empty page is still
-    // a page. The hand-built `{ items, total }` it used to return keyed on
-    // `items` like the canonical envelope while carrying none of the numerics,
-    // so `isStandardPaginatedResult` did not recognise it, the response
-    // interceptor did not lift it, and `GET /system/settings/configs` shipped a
-    // shape one level off from what any consumer's `PaginatedResult<T>` says.
-    // Minting through the authority costs nothing and makes the retired surface
-    // answer in the only page contract there is.
-  }): PaginationResultV1<never> {
-    const page = params.page ?? 1;
-    const limit = params.limit ?? 20;
-    return createStandardPaginatedResult<never>([], 0, page, limit);
-  }
-
-  bulkUpdateConfigs(updates: Array<{ key: string; value: unknown }>, updatedBy: string): never {
-    void updates;
-    void updatedBy;
-    this.throwGlobalConfigGone();
-  }
-
-  // ============================================================================
   // Cache Management
   // ============================================================================
 
@@ -834,7 +763,7 @@ export class GlobalSettingsService implements OnModuleInit {
   // Scheduled Tasks
   // ============================================================================
 
-  @Cron(CronExpression.EVERY_MINUTE)
+  @ScheduledJob({ name: 'maintenance.start-scheduled', cron: CronExpression.EVERY_MINUTE })
   async handleScheduledMaintenanceStart(): Promise<void> {
     const now = new Date();
     const upcoming = await this.maintenanceModeRepo.find({
@@ -850,7 +779,10 @@ export class GlobalSettingsService implements OnModuleInit {
     }
   }
 
-  @Cron(CronExpression.EVERY_5_MINUTES)
+  @ScheduledJob({
+    name: 'feature-toggles.scheduled-rollouts',
+    cron: CronExpression.EVERY_5_MINUTES,
+  })
   async handleScheduledFeatureRollouts(): Promise<void> {
     const now = new Date();
     const scheduled = await this.featureToggleRepo.find({
@@ -888,7 +820,7 @@ export class GlobalSettingsService implements OnModuleInit {
   }
 
   // ============================================================================
-  // System Status
+  // Provisioning Configuration (env-backed read; sensor-service installer scripts)
   // ============================================================================
 
   /**
@@ -916,15 +848,6 @@ export class GlobalSettingsService implements OnModuleInit {
     };
   }
 
-  /**
-   * Update provisioning configuration
-   */
-  updateProvisioningConfig(updates: Record<string, string>, updatedBy: string): never {
-    void updates;
-    void updatedBy;
-    this.throwGlobalConfigGone();
-  }
-
   // ============================================================================
   // System Status
   // ============================================================================
@@ -942,7 +865,6 @@ export class GlobalSettingsService implements OnModuleInit {
       environment: process.env['NODE_ENV'] || 'development',
       maintenanceMode: maintenanceCheck.isInMaintenance,
       featureToggles: toggleCount,
-      activeConfigs: 0,
     };
   }
 
@@ -960,11 +882,5 @@ export class GlobalSettingsService implements OnModuleInit {
         process.env['PROVISIONING_GITHUB_REPO'] ?? 'Okan-wqm/aquaculture_platform',
     };
     return defaults[key] ?? '';
-  }
-
-  private throwGlobalConfigGone(): never {
-    throw new GoneException(
-      'admin-api direct global_configs writes are retired; use config-service effective configuration APIs',
-    );
   }
 }

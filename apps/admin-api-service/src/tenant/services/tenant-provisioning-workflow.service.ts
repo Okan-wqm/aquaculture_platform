@@ -1,29 +1,32 @@
+import {
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
 import * as crypto from 'crypto';
 
 import { getTenantSchemaName, queryRowsNormalized } from '@aquaculture/backend-common/database';
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { CronExpression } from '@nestjs/schedule';
 import { InjectDataSource } from '@nestjs/typeorm';
 import {
+  BillingPlanTier as ModulePlanTier,
   createBaseEvent,
   type BaseEvent,
-  type BillingCycle as BillingCommandBillingCycle,
+  type BillingCycle,
   type PlanTier as BillingCommandPlanTier,
 } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { DataSource, EntityManager } from 'typeorm';
 
 import { AuditLogService } from '../../audit/audit.service';
-import {
-  BillingCycle as ModuleBillingCycle,
-  PlanTier as ModulePlanTier,
-} from '../../billing/entities/plan-definition.entity';
 import { BillingAdminCommandClientService } from '../../billing/services/billing-admin-command-client.service';
 import {
   ModuleAssignmentService,
@@ -139,6 +142,7 @@ export class TenantProvisioningWorkflowService {
     private readonly authProvisioningClient: AuthTenantProvisioningClientService,
     private readonly billingCommandClient: BillingAdminCommandClientService,
     private readonly metrics: TenantProvisioningMetricsService,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
 
   async createTenantOperation(
@@ -553,7 +557,10 @@ export class TenantProvisioningWorkflowService {
     }
   }
 
-  @Cron(CronExpression.EVERY_10_SECONDS)
+  @ScheduledJob({
+    name: 'tenant-provisioning.process-queued-operations',
+    cron: CronExpression.EVERY_10_SECONDS,
+  })
   async processQueuedOperations(): Promise<void> {
     if (this.processingQueue) return;
     this.processingQueue = true;
@@ -1045,7 +1052,7 @@ export class TenantProvisioningWorkflowService {
       modules: this.buildModuleQuantityInputs(data),
       assignedBy,
       tier: this.toModulePlanTier(tenant.tier),
-      billingCycle: this.toModuleBillingCycle(data.billingCycle),
+      billingCycle: this.toBillingCycle(data.billingCycle),
     });
 
     if (!result.success) {
@@ -1060,17 +1067,21 @@ export class TenantProvisioningWorkflowService {
     tenant: Tenant,
     data: CreateTenantDto,
   ): Promise<void> {
-    // ORPHAN-CRITICAL-393 / ORPHAN-HIGH-394: resolve each module's code, name,
-    // and REAL price (admin.module_pricing via PricingCalculatorService) in
-    // admin-api — the schema owner of that data — and pass priced moduleItems in
-    // the command. billing writes the module rows directly from these values, so
-    // it never runs the schema-unqualified `modules` query that failed (no
-    // billing grant on auth.modules) and rolled the whole subscription back, and
-    // never invents $0 module prices.
+    // ORPHAN-CRITICAL-393 / ORPHAN-HIGH-394: resolve each module's code and
+    // name in admin-api — the schema owner of `auth.modules` — and pass priced
+    // moduleItems in the command. billing writes the module rows directly from
+    // these values, so it never runs the schema-unqualified `modules` query
+    // that failed (no billing grant on auth.modules) and rolled the whole
+    // subscription back, and never invents $0 module prices.
+    //
+    // ADR-0013: the PRICES now come from `billing.module_prices` through
+    // `request.billing.admin.quoteModuleSelection` — the service that owns the
+    // sheet does the multiplication, in exact decimals.
     const moduleItems = await this.moduleAssignmentService.resolveProvisioningModuleItems({
       modules: this.buildModuleQuantityInputs(data),
       tier: this.toModulePlanTier(tenant.tier),
-      billingCycle: this.toModuleBillingCycle(data.billingCycle),
+      billingCycle: this.toBillingCycle(data.billingCycle),
+      actorId: run.actorUserId,
     });
 
     const result = await this.billingCommandClient.provisionTenantSubscription({
@@ -1081,7 +1092,7 @@ export class TenantProvisioningWorkflowService {
       actorId: run.actorUserId,
       tenantName: tenant.name,
       tier: this.toBillingCommandPlanTier(tenant.tier),
-      billingCycle: this.toBillingCommandCycle(data.billingCycle),
+      billingCycle: this.toBillingCycle(data.billingCycle),
       moduleIds: data.moduleIds ?? [],
       moduleQuantities: data.moduleQuantities,
       moduleItems,
@@ -1139,7 +1150,8 @@ export class TenantProvisioningWorkflowService {
         quantities: module.quantities,
       })),
       tier: this.toModulePlanTier(tenant.tier),
-      billingCycle: this.toModuleBillingCycle(billingCycle),
+      billingCycle: this.toBillingCycle(billingCycle),
+      actorId,
     });
 
     // Deterministic operation identity so repeated reconciles converge on ONE
@@ -1166,7 +1178,7 @@ export class TenantProvisioningWorkflowService {
       actorId,
       tenantName: tenant.name,
       tier: this.toBillingCommandPlanTier(tenant.tier),
-      billingCycle: this.toBillingCommandCycle(billingCycle),
+      billingCycle: this.toBillingCycle(billingCycle),
       moduleIds: assignedModules.map((module) => module.moduleId),
       moduleItems,
     });
@@ -1266,16 +1278,6 @@ export class TenantProvisioningWorkflowService {
     return tierMap[value?.toLowerCase() ?? 'starter'] ?? ModulePlanTier.STARTER;
   }
 
-  private toModuleBillingCycle(value: CreateTenantDto['billingCycle']): ModuleBillingCycle {
-    const cycleMap: Record<string, ModuleBillingCycle> = {
-      monthly: ModuleBillingCycle.MONTHLY,
-      quarterly: ModuleBillingCycle.QUARTERLY,
-      semi_annual: ModuleBillingCycle.SEMI_ANNUAL,
-      annual: ModuleBillingCycle.ANNUAL,
-    };
-    return cycleMap[value ?? 'monthly'] ?? ModuleBillingCycle.MONTHLY;
-  }
-
   private toBillingCommandPlanTier(value: string | undefined): BillingCommandPlanTier {
     // FREE passes through on the wire (Billing Revival Faz B): the billing
     // command's PlanTier now legitimately accepts 'free', so a FREE tenant
@@ -1291,16 +1293,14 @@ export class TenantProvisioningWorkflowService {
     return tierMap[value?.toLowerCase() ?? 'starter'] ?? 'starter';
   }
 
-  private toBillingCommandCycle(
-    value: CreateTenantDto['billingCycle'],
-  ): BillingCommandBillingCycle {
-    const cycleMap: Record<string, BillingCommandBillingCycle> = {
-      monthly: 'monthly',
-      quarterly: 'quarterly',
-      semi_annual: 'semi_annual',
-      annual: 'annual',
-    };
-    return cycleMap[value ?? 'monthly'] ?? 'monthly';
+  /**
+   * The cycle a tenant is provisioned on. Since ADR-0013 there is ONE
+   * `BillingCycle` type — the contract's — so the two enum-to-enum mappers this
+   * replaced (one per direction) had nothing left to convert: the DTO already
+   * carries the value both the module assignment and the billing command want.
+   */
+  private toBillingCycle(value: CreateTenantDto['billingCycle']): BillingCycle {
+    return value ?? 'monthly';
   }
 
   private getFirstName(fullName?: string): string {

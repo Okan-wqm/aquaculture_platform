@@ -1,3 +1,4 @@
+import { TENANT_ACTIVE_CHECK } from '@aquaculture/backend-common/middleware';
 import { INestApplication, HttpStatus, ValidationPipe } from '@nestjs/common';
 import { CommandBus, QueryBus, CqrsModule } from '@nestjs/cqrs';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -89,6 +90,12 @@ describe('Tenant API Integration Tests', () => {
       imports: [CqrsModule],
       controllers: [TenantPublicController, TenantAdminController],
       providers: [
+        // ADMIN-CRITICAL-009: @TenantParam resolves ids through the kernel
+        // port; these suites exercise the controllers, not the lookup.
+        {
+          provide: TENANT_ACTIVE_CHECK,
+          useValue: { lookupTenant: () => Promise.resolve({ status: TenantStatus.ACTIVE }) },
+        },
         {
           provide: CommandBus,
           useValue: mockCommandBus,
@@ -357,28 +364,6 @@ describe('Tenant API Integration Tests', () => {
     });
   });
 
-  describe('GET /admin/tenants/approaching-limits', () => {
-    it('should return tenants near usage limits', async () => {
-      const nearLimitTenants = [createMockTenant()];
-      mockQueryBus.execute.mockResolvedValueOnce(nearLimitTenants);
-
-      const response = await request(app.getHttpServer())
-        .get('/admin/tenants/approaching-limits')
-        .query({ threshold: 80 });
-
-      expect(response.status).toBe(HttpStatus.OK);
-    });
-
-    it('should use default threshold if not provided', async () => {
-      mockQueryBus.execute.mockResolvedValueOnce([]);
-
-      const response = await request(app.getHttpServer())
-        .get('/admin/tenants/approaching-limits');
-
-      expect(response.status).toBe(HttpStatus.OK);
-    });
-  });
-
   describe('GET /admin/tenants/expiring-trials', () => {
     it('should return tenants with expiring trials', async () => {
       const expiringTenants = [createMockTenant({ isTrialActive: true })];
@@ -574,8 +559,12 @@ describe('Tenant API Integration Tests', () => {
       it('should delete a note', async () => {
         mockActivityService.deleteNote.mockResolvedValueOnce(undefined);
 
+        // SEC-CRITICAL-163: an irreversible operation is never anonymous —
+        // DestructiveActionGuard refuses a request with no principal, so the
+        // test frame carries the same actor header the archive case does.
         const response = await request(app.getHttpServer())
-          .delete(`/admin/tenants/${TENANT_UUID}/notes/${NOTE_UUID}`);
+          .delete(`/admin/tenants/${TENANT_UUID}/notes/${NOTE_UUID}`)
+          .set('x-user-id', 'admin-123');
 
         expect(response.status).toBe(HttpStatus.NO_CONTENT);
       });

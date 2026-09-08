@@ -8,10 +8,37 @@ import React, { useState, useEffect } from 'react';
 import { Card, Button, Badge, Input } from '@aquaculture/shared-ui';
 import {
   billingApi,
+  PlanCyclePrice,
   PlanDefinition,
-  PlanTier,
-  BillingCycle,
 } from '../services/adminApi';
+import { formatCurrencyAmount } from '../utils/money';
+
+/**
+ * The plan's price on ONE cycle (ADR-0013). `billing.plans` prices per cycle
+ * now, and a plan sold only annually has no monthly row — the previous
+ * `plan.pricing.monthly.basePrice` read a fixed four-cycle object that always
+ * existed and so always rendered a price, zero or not.
+ */
+const cyclePrice = (
+  plan: PlanDefinition,
+  billingCycle: PlanCyclePrice['billingCycle'],
+): PlanCyclePrice | undefined =>
+  plan.cyclePrices.find((price) => price.billingCycle === billingCycle);
+
+const TIER_COLORS: Readonly<Record<PlanDefinition['tier'], string>> = {
+  free: 'bg-gray-100 text-gray-800',
+  starter: 'bg-blue-100 text-blue-800',
+  professional: 'bg-purple-100 text-purple-800',
+  enterprise: 'bg-yellow-100 text-yellow-800',
+  custom: 'bg-pink-100 text-pink-800',
+};
+
+const CYCLE_LABELS: Readonly<Record<PlanCyclePrice['billingCycle'], string>> = {
+  monthly: 'aylik',
+  quarterly: '3 aylik',
+  semi_annual: '6 aylik',
+  annual: 'yillik',
+};
 
 // ============================================================================
 // Plan Management Page
@@ -43,44 +70,21 @@ const PlanManagementPage: React.FC = () => {
     }
   };
 
-  const handleSeedPlans = async () => {
-    try {
-      await billingApi.seedPlans('admin');
-      loadPlans();
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  };
-
   const handleDeprecatePlan = async (planId: string) => {
     if (!confirm('Are you sure you want to deprecate this plan?')) return;
 
     try {
-      await billingApi.deprecatePlan(planId, 'admin');
+      await billingApi.deprecatePlan(planId);
       loadPlans();
     } catch (err) {
       setError((err as Error).message);
     }
   };
 
-  const getTierColor = (tier: PlanTier): string => {
-    const colors: Record<PlanTier, string> = {
-      [PlanTier.FREE]: 'bg-gray-100 text-gray-800',
-      [PlanTier.STARTER]: 'bg-blue-100 text-blue-800',
-      [PlanTier.PROFESSIONAL]: 'bg-purple-100 text-purple-800',
-      [PlanTier.ENTERPRISE]: 'bg-yellow-100 text-yellow-800',
-      [PlanTier.CUSTOM]: 'bg-pink-100 text-pink-800',
-    };
-    return colors[tier] || 'bg-gray-100 text-gray-800';
-  };
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 0,
-    }).format(amount);
-  };
+  // Keyed by the CONTRACT's tier union rather than the local enum: the plan
+  // comes off the generated client, so a tier the backend adds is a compile
+  // error here instead of an unstyled badge.
+  const getTierColor = (tier: PlanDefinition['tier']): string => TIER_COLORS[tier];
 
   const formatLimitValue = (value: number) => {
     if (value === -1) return 'Unlimited';
@@ -117,9 +121,6 @@ const PlanManagementPage: React.FC = () => {
           </p>
         </div>
         <div className="mt-4 sm:mt-0 flex gap-2">
-          {plans.length === 0 && (
-            <Button onClick={handleSeedPlans}>Seed Default Plans</Button>
-          )}
           <Button variant="primary">Create New Plan</Button>
         </div>
       </div>
@@ -131,7 +132,7 @@ const PlanManagementPage: React.FC = () => {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
           <span className="text-sm text-blue-800">
-            Tum fiyatlar <strong>aylik</strong> olarak belirlenmistir. Modul bazli fiyatlandirma aktiftir.
+            Her plan <strong>satildigi her donem icin ayri</strong> fiyatlandirilir. Modul bazli fiyatlandirma aktiftir.
           </span>
         </div>
       </Card>
@@ -161,14 +162,23 @@ const PlanManagementPage: React.FC = () => {
               <p className="mt-1 text-sm text-gray-500">{plan.shortDescription}</p>
             </div>
 
-            {/* Price - Monthly Only */}
+            {/* Price — the plan's own default cycle, in its own currency */}
             <div className="text-center mb-4">
-              <div className="text-3xl font-bold text-gray-900">
-                {formatCurrency(plan.pricing.monthly.basePrice)}
-              </div>
-              <div className="text-sm text-gray-500">
-                aylik
-              </div>
+              {(() => {
+                const price = cyclePrice(plan, plan.defaultBillingCycle);
+                return price ? (
+                  <>
+                    <div className="text-3xl font-bold text-gray-900">
+                      {formatCurrencyAmount(price.basePrice, plan.currency)}
+                    </div>
+                    <div className="text-sm text-gray-500">
+                      {CYCLE_LABELS[price.billingCycle]}
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-sm text-gray-500">Fiyatlandirilmamis</div>
+                );
+              })()}
             </div>
 
             {/* Key Limits */}
@@ -275,41 +285,88 @@ const PlanManagementPage: React.FC = () => {
               </Button>
             </div>
 
-            {/* Pricing Details - Monthly Only */}
+            {/* Every cycle the plan is actually sold on — not a fixed four */}
             <div className="mb-6">
-              <h3 className="text-lg font-semibold mb-3">Monthly Price</h3>
-              <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-sm text-gray-500 mb-1">Temel Fiyat</div>
-                    <div className="text-2xl font-bold text-blue-600">{formatCurrency(selectedPlan.pricing.monthly.basePrice)}/ay</div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-xs text-gray-500">Modul bazli fiyatlandirma</div>
-                    <div className="text-sm text-gray-700">+ Secilen modullerin toplam fiyati</div>
-                  </div>
+              <h3 className="text-lg font-semibold mb-3">Fiyatlandirma</h3>
+              {selectedPlan.cyclePrices.length === 0 ? (
+                <div className="p-4 bg-gray-50 rounded-lg text-sm text-gray-500">
+                  Bu plan icin fiyat tanimlanmamis.
                 </div>
-              </div>
+              ) : (
+                <div className="space-y-4">
+                  {selectedPlan.cyclePrices.map((price) => (
+                    <div
+                      key={price.billingCycle}
+                      className="p-4 bg-blue-50 rounded-lg border border-blue-200"
+                    >
+                      <div className="flex items-center justify-between mb-3">
+                        <div>
+                          <div className="text-sm text-gray-500 mb-1">
+                            {CYCLE_LABELS[price.billingCycle]} — Temel Fiyat
+                          </div>
+                          <div className="text-2xl font-bold text-blue-600">
+                            {formatCurrencyAmount(price.basePrice, selectedPlan.currency)}
+                          </div>
+                        </div>
+                        {Number(price.discountPercent) > 0 && (
+                          <Badge variant="success">%{price.discountPercent} indirim</Badge>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-3 gap-4">
+                        <div className="p-3 bg-white rounded-lg">
+                          <div className="text-xs text-gray-500 mb-1">Per User</div>
+                          <div className="font-bold">
+                            {formatCurrencyAmount(price.perUserPrice, selectedPlan.currency)}
+                          </div>
+                        </div>
+                        <div className="p-3 bg-white rounded-lg">
+                          <div className="text-xs text-gray-500 mb-1">Per Farm</div>
+                          <div className="font-bold">
+                            {formatCurrencyAmount(price.perFarmPrice, selectedPlan.currency)}
+                          </div>
+                        </div>
+                        <div className="p-3 bg-white rounded-lg">
+                          <div className="text-xs text-gray-500 mb-1">Per Module</div>
+                          <div className="font-bold">
+                            {formatCurrencyAmount(price.perModulePrice, selectedPlan.currency)}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
-            {/* Per-Unit Pricing */}
-            <div className="mb-6">
-              <h3 className="text-lg font-semibold mb-3">Per-Unit Pricing (Monthly)</h3>
-              <div className="grid grid-cols-3 gap-4">
-                <div className="p-3 bg-gray-50 rounded-lg">
-                  <div className="text-xs text-gray-500 mb-1">Per User</div>
-                  <div className="font-bold">{formatCurrency(selectedPlan.pricing.monthly.perUserPrice)}</div>
-                </div>
-                <div className="p-3 bg-gray-50 rounded-lg">
-                  <div className="text-xs text-gray-500 mb-1">Per Farm</div>
-                  <div className="font-bold">{formatCurrency(selectedPlan.pricing.monthly.perFarmPrice)}</div>
-                </div>
-                <div className="p-3 bg-gray-50 rounded-lg">
-                  <div className="text-xs text-gray-500 mb-1">Per Module</div>
-                  <div className="font-bold">{formatCurrency(selectedPlan.pricing.monthly.perModulePrice)}</div>
+            {/* Priced add-ons — rows in billing.plan_add_ons, not feature strings */}
+            {selectedPlan.addOns.length > 0 && (
+              <div className="mb-6">
+                <h3 className="text-lg font-semibold mb-3">Ek Paketler</h3>
+                <div className="space-y-2">
+                  {selectedPlan.addOns.map((addOn) => (
+                    <div
+                      key={addOn.code}
+                      className="p-3 bg-gray-50 rounded-lg flex items-center justify-between"
+                    >
+                      <div>
+                        <div className="font-medium">{addOn.name}</div>
+                        {addOn.description && (
+                          <div className="text-xs text-gray-500">{addOn.description}</div>
+                        )}
+                      </div>
+                      <div className="text-right">
+                        <div className="font-bold">
+                          {formatCurrencyAmount(addOn.price, selectedPlan.currency)}
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          {CYCLE_LABELS[addOn.billingCycle]}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
-            </div>
+            )}
 
             {/* Limits */}
             <div className="mb-6">

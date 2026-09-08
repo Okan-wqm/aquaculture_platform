@@ -1,3 +1,12 @@
+import {
+  CreateUserDto,
+  GrantPlatformCapabilityDto,
+  InviteUserRequestDto,
+  ListUsersQueryDto,
+  RevokePlatformCapabilityDto,
+  UpdateUserDto,
+} from './dto/users.dto';
+import { Destructive, RequiresCapability, TenantParam, TenantIdCarrier } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import { ThrottleSensitive } from '@aquaculture/backend-common/security';
 import {
@@ -17,6 +26,12 @@ import {
   Req,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import {
+  PLATFORM_CAPABILITIES,
+  isPlatformCapability,
+  type PlatformCapability,
+  type PlatformCapabilityGrantSnapshot,
+} from '@platform/event-contracts';
 import { Type } from 'class-transformer';
 import {
   IsString,
@@ -32,6 +47,8 @@ import {
   Min,
   Max,
   Matches,
+  IsIn,
+  IsISO8601,
 } from 'class-validator';
 
 import { ResetPasswordByAdminDto } from './dto/reset-password.dto';
@@ -48,155 +65,6 @@ import {
 import { UsersService, UserFilter, PaginatedUsers } from './users.service';
 
 // Allowed sort fields whitelist for security
-const ALLOWED_SORT_FIELDS = ['createdAt', 'updatedAt', 'email', 'firstName', 'lastName', 'role'] as const;
-type SortField = typeof ALLOWED_SORT_FIELDS[number];
-
-export class CreateUserDto {
-  @IsEmail({}, { message: 'Invalid email format' })
-  @MaxLength(255)
-  email!: string;
-
-  @IsString()
-  @MinLength(1)
-  @MaxLength(100)
-  firstName!: string;
-
-  @IsString()
-  @MinLength(1)
-  @MaxLength(100)
-  lastName!: string;
-
-  @IsString()
-  @MinLength(8, { message: 'Password must be at least 8 characters' })
-  @MaxLength(128)
-  @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/, {
-    message: 'Password must contain uppercase, lowercase, number and special character',
-  })
-  password!: string;
-
-  @IsString()
-  @IsEnum(['SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER'], {
-    message: 'Invalid role',
-  })
-  role!: string;
-
-  @IsOptional()
-  @IsUUID('4', { message: 'Invalid tenant ID format' })
-  tenantId?: string;
-}
-
-export class UpdateUserDto {
-  @IsOptional()
-  @IsString()
-  @MinLength(1)
-  @MaxLength(100)
-  firstName?: string;
-
-  @IsOptional()
-  @IsString()
-  @MinLength(1)
-  @MaxLength(100)
-  lastName?: string;
-
-  @IsOptional()
-  @IsString()
-  @IsEnum(['SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER'], {
-    message: 'Invalid role',
-  })
-  role?: string;
-
-  @IsOptional()
-  @IsUUID('4', { message: 'Invalid tenant ID format' })
-  tenantId?: string;
-
-  @IsOptional()
-  @IsBoolean()
-  isActive?: boolean;
-}
-
-export class InviteUserRequestDto {
-  @IsUUID('4', { message: 'Invalid tenant ID format' })
-  tenantId!: string;
-
-  @IsEmail({}, { message: 'Invalid email format' })
-  @MaxLength(255)
-  email!: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(100)
-  firstName?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(100)
-  lastName?: string;
-
-  @IsString()
-  @IsEnum(['TENANT_ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER'], {
-    message: 'Invalid role for invitation',
-  })
-  role!: string;
-
-  @IsOptional()
-  @IsArray()
-  @IsUUID('4', { each: true })
-  moduleIds?: string[];
-
-  @IsOptional()
-  @IsUUID('4')
-  primaryModuleId?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(1000)
-  message?: string;
-}
-
-// Query DTO for list users with validation
-export class ListUsersQueryDto {
-  @IsOptional()
-  @IsUUID('4')
-  tenantId?: string;
-
-  @IsOptional()
-  @IsString()
-  @IsEnum(['SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER'])
-  role?: string;
-
-  @IsOptional()
-  @IsEnum(['active', 'inactive', 'all'])
-  status?: 'active' | 'inactive' | 'all';
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(100)
-  @Matches(/^[a-zA-Z0-9@._\-\s]*$/, { message: 'Invalid search characters' })
-  search?: string;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(1000)
-  page?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(100)
-  limit?: number;
-
-  @IsOptional()
-  @IsString()
-  @IsEnum(ALLOWED_SORT_FIELDS, { message: 'Invalid sort field' })
-  sortBy?: SortField;
-
-  @IsOptional()
-  @IsEnum(['ASC', 'DESC'])
-  sortOrder?: 'ASC' | 'DESC';
-}
 
 @ApiTags('Users')
 @Controller('users')
@@ -241,7 +109,7 @@ export class UsersController {
    */
   @Get('by-tenant/:tenantId')
   async getUsersByTenant(
-    @Param('tenantId', ParseUUIDPipe) tenantId: string,
+    @TenantParam('param') tenantId: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ): Promise<PaginatedUsers> {
@@ -296,6 +164,7 @@ export class UsersController {
    * Create new user (SUPER_ADMIN can create users for any tenant)
    */
   @AuditedOperation({ resource: 'User', action: 'CREATE' })
+  @RequiresCapability('security-ops')
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async createUser(@Body() dto: CreateUserDto) {
@@ -306,9 +175,11 @@ export class UsersController {
    * Update user
    */
   @AuditedOperation({ resource: 'User', action: 'UPDATE' })
+  @RequiresCapability('security-ops')
   @Put(':id')
   async updateUser(
     @Param('id', ParseUUIDPipe) id: string,
+    @TenantParam('body', { optional: true, allow: 'any' }) tenantId: string | undefined,
     @Body() dto: UpdateUserDto,
   ) {
     return this.usersService.updateUser(id, dto);
@@ -318,6 +189,7 @@ export class UsersController {
    * Activate user
    */
   @AuditedOperation({ resource: 'User', action: 'ACTIVATE' })
+  @RequiresCapability('security-ops')
   @Patch(':id/activate')
   async activateUser(@Param('id', ParseUUIDPipe) id: string) {
     return this.usersService.setUserStatus(id, true);
@@ -327,6 +199,7 @@ export class UsersController {
    * Deactivate user
    */
   @AuditedOperation({ resource: 'User', action: 'DEACTIVATE' })
+  @RequiresCapability('security-ops')
   @Patch(':id/deactivate')
   async deactivateUser(@Param('id', ParseUUIDPipe) id: string) {
     return this.usersService.setUserStatus(id, false);
@@ -336,6 +209,7 @@ export class UsersController {
    * Reset user password
    */
   @AuditedOperation({ resource: 'UserPassword', action: 'RESET' })
+  @RequiresCapability('security-ops')
   @Patch(':id/reset-password')
   async resetUserPassword(
     @Param('id', ParseUUIDPipe) id: string,
@@ -348,6 +222,7 @@ export class UsersController {
    * Force logout user (invalidate all sessions)
    */
   @AuditedOperation({ resource: 'Users', action: 'FORCE_LOGOUT' })
+  @RequiresCapability('security-ops')
   @Patch(':id/force-logout')
   async forceLogout(@Param('id', ParseUUIDPipe) id: string) {
     return this.usersService.forceLogout(id);
@@ -357,6 +232,8 @@ export class UsersController {
    * Delete user (soft delete)
    */
   @AuditedOperation({ resource: 'User', action: 'DELETE' })
+  @Destructive()
+  @RequiresCapability('security-ops')
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   async deleteUser(@Param('id', ParseUUIDPipe) id: string) {
@@ -372,7 +249,7 @@ export class UsersController {
    */
   @Get('tenant/:tenantId/limit')
   async checkUserLimit(
-    @Param('tenantId', ParseUUIDPipe) tenantId: string,
+    @TenantParam('param') tenantId: string,
   ): Promise<UserLimitCheckResult> {
     return this.userProvisioningService.checkUserLimit(tenantId);
   }
@@ -383,14 +260,16 @@ export class UsersController {
    */
   @ThrottleSensitive()
   @AuditedOperation({ resource: 'User', action: 'INVITE' })
+  @RequiresCapability('security-ops')
   @Post('invite')
   @HttpCode(HttpStatus.CREATED)
   async inviteUser(
+    @TenantParam('body') tenantId: string,
     @Body() dto: InviteUserRequestDto,
     @Req() req: { user: { id: string } },
   ) {
     const result = await this.userProvisioningService.inviteUser({
-      tenantId: dto.tenantId,
+      tenantId,
       email: dto.email,
       firstName: dto.firstName,
       lastName: dto.lastName,
@@ -412,6 +291,65 @@ export class UsersController {
       deliveryStatus: result.deliveryStatus ?? 'queued',
       message: 'Invitation created successfully. Notification delivery queued.',
     };
+  }
+
+  // ============================================
+  // Platform Capability Endpoints (ADR-0016)
+  // ============================================
+
+  /**
+   * Every capability grant of a SUPER_ADMIN, live and historical, plus the
+   * live set the next token carries.
+   */
+  @Get(':id/capabilities')
+  async listPlatformCapabilities(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<{ grants: PlatformCapabilityGrantSnapshot[]; active: PlatformCapability[] }> {
+    return this.usersService.listPlatformCapabilities(id);
+  }
+
+  /**
+   * Grant a capability. `security-ops` is the only capability that grants
+   * capabilities; `break-glass` must come from another SUPER_ADMIN, with an
+   * expiry within four hours (enforced by auth-service, the single writer).
+   */
+  @AuditedOperation({ resource: 'PlatformCapability', action: 'GRANT' })
+  @RequiresCapability('security-ops')
+  @Post(':id/capabilities')
+  async grantPlatformCapability(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: GrantPlatformCapabilityDto,
+    @Req() req: { user: { id: string } },
+  ): Promise<PlatformCapabilityGrantSnapshot> {
+    return this.usersService.grantPlatformCapability({
+      userId: id,
+      capability: dto.capability,
+      grantedBy: req.user.id,
+      expiresAt: dto.expiresAt,
+      reason: dto.reason,
+    });
+  }
+
+  /** Revoke the live grant of one capability; the target's sessions are revoked with it. */
+  @AuditedOperation({ resource: 'PlatformCapability', action: 'REVOKE' })
+  @RequiresCapability('security-ops')
+  @Destructive({ requiresBreakGlass: false, reason: 'revokes an operator capability and their sessions' })
+  @Post(':id/capabilities/:capability/revoke')
+  async revokePlatformCapability(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('capability') capability: string,
+    @Body() dto: RevokePlatformCapabilityDto,
+    @Req() req: { user: { id: string } },
+  ): Promise<PlatformCapabilityGrantSnapshot> {
+    if (!isPlatformCapability(capability)) {
+      throw new BadRequestException(`'${capability}' is not a platform capability`);
+    }
+    return this.usersService.revokePlatformCapability({
+      userId: id,
+      capability,
+      revokedBy: req.user.id,
+      reason: dto.reason,
+    });
   }
 
   // ============================================

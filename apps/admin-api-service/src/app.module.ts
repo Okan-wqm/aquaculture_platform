@@ -11,6 +11,7 @@ import {
 import { LoggingModule } from '@aquaculture/backend-common/logging';
 import { StripInternalHeadersMiddleware } from '@aquaculture/backend-common/middleware';
 import { ServiceMetricsModule } from '@aquaculture/backend-common/metrics';
+import { ScheduledJobModule } from '@aquaculture/backend-common/scheduling';
 import { RedisModule, buildRedisOptions } from '@aquaculture/backend-common/redis';
 import { CircuitBreakerModule } from '@aquaculture/backend-common/resilience';
 import {
@@ -44,7 +45,10 @@ import { PasswordResetModule } from './auth/password-reset.module';
 import { BillingModule } from './billing/billing.module';
 import { DatabaseManagementModule } from './database-management/database-management.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
+import { PlatformCapabilityGuard } from '@aquaculture/backend-common/guards';
+
 import { PlatformAdminGuard } from './guards/platform-admin.guard';
+import { TenantLookupModule } from './tenant/tenant-lookup.module';
 import { HealthModule } from './health/health.module';
 import { GracefulShutdownService } from './lifecycle/graceful-shutdown.service';
 import { MessagingAdminModule } from './messaging/messaging-admin.module';
@@ -197,6 +201,9 @@ const getAdminStoragePort = (configService: ConfigService): number => {
     CircuitBreakerModule,
     // Schedule module — single forRoot() for the entire service
     ScheduleModule.forRoot(),
+    // ADMIN-HIGH-013: every @ScheduledJob tick takes a per-(service, job)
+    // advisory lock and reports a heartbeat through this runner.
+    ScheduledJobModule.forRoot({ serviceName: 'admin-api-service' }),
     // NATS Event Bus for cross-service event publishing
     EventBusModule.forRootAsync({
       imports: [ConfigModule],
@@ -290,6 +297,9 @@ const getAdminStoragePort = (configService: ConfigService): number => {
      * See ADR-012 + docs/runbooks/schema-drift-response.md.
      */
     SchemaDriftModule.forRoot({ serviceName: 'admin-api' }),
+    // ADMIN-CRITICAL-009: binds the kernel TENANT_ACTIVE_CHECK port so every
+    // @TenantParam() resolves against auth.tenants before a handler runs.
+    TenantLookupModule,
   ],
   providers: [
     AdminSchemaVersionGate,
@@ -348,6 +358,15 @@ const getAdminStoragePort = (configService: ConfigService): number => {
     {
       provide: APP_GUARD,
       useExisting: ThrottlerGuard,
+    },
+    // ADR-0016: the third guard. It runs only on requests PlatformAdminGuard
+    // has admitted and ANDs the route's @RequiresCapability against the
+    // platformCapabilities claim, so a grant can narrow but never widen what
+    // the SUPER_ADMIN role admits. Registered AFTER the throttler so a
+    // capability refusal still counts against the operator's bucket.
+    {
+      provide: APP_GUARD,
+      useClass: PlatformCapabilityGuard,
     },
     {
       provide: APP_INTERCEPTOR,

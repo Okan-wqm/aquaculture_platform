@@ -139,7 +139,6 @@ const superAdminNavigation: NavigationItem[] = [
     children: [
       { id: 'settings-general', label: 'General', path: '/admin/settings' },
       { id: 'settings-email', label: 'Email Templates', path: '/admin/settings/email' },
-      { id: 'settings-integrations', label: 'Integrations', path: '/admin/settings/integrations' },
     ],
   },
 ];

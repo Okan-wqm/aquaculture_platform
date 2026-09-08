@@ -1,5 +1,4 @@
 import {
-  ConflictException,
   Injectable,
   Logger,
 } from '@nestjs/common';
@@ -166,15 +165,6 @@ export class SubscriptionRenewalService {
   }
 
   /**
-   * Process subscription renewals
-   */
-  processRenewals(): never {
-    throw new ConflictException(
-      'Subscription renewal reconciliation is billing-service-owned and cannot run through admin-api direct writers.',
-    );
-  }
-
-  /**
    * Get expiring subscriptions within days
    */
   async getExpiringSubscriptions(withinDays: number): Promise<SubscriptionOverview[]> {
@@ -206,26 +196,6 @@ export class SubscriptionRenewalService {
     );
 
     return rows.map(mapSubscriptionOverview);
-  }
-
-  /**
-   * Mark subscription as past due
-   */
-  markAsPastDue(subscriptionId: string): never {
-    void subscriptionId;
-    throw new ConflictException(
-      'Past-due subscription transitions are billing-service-owned and cannot run through admin-api direct writers.',
-    );
-  }
-
-  /**
-   * Suspend subscription for non-payment
-   */
-  suspendForNonPayment(subscriptionId: string): never {
-    void subscriptionId;
-    throw new ConflictException(
-      'Non-payment suspension is billing-service-owned and cannot run through admin-api direct writers.',
-    );
   }
 
   /**

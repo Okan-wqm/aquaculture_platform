@@ -20,12 +20,7 @@ const ACTIVITY_SORT_FIELDS = [
   'success',
   'duration',
 ] as const;
-const ERROR_GROUP_SORT_FIELDS = [
-  'occurrenceCount',
-  'lastSeenAt',
-  'firstSeenAt',
-  'userCount',
-] as const;
+const ERROR_GROUP_SORT_FIELDS = ['occurrenceCount', 'lastSeenAt', 'firstSeenAt'] as const;
 
 const sortValidationErrors = async (
   dtoClass: ClassConstructor<SortDto>,

@@ -50,6 +50,8 @@ export * from './billing-admin-commands';
 export * from './ai-events';
 export * from './task-events';
 export * from './edge-device-events';
+// Cross-cutting: every service's captured defects (ADMIN-HIGH-014).
+export * from './error-events';
 export * from './water-quality-events';
 export * from './messaging-events';
 export * from './messaging-event-registry';

@@ -5149,22 +5149,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/security/monitoring/analyze/login": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["SecurityMonitoringController_analyzeLogin"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/security/monitoring/config/anomaly-detection": {
         parameters: {
             query?: never;
@@ -5693,22 +5677,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/system/performance/metrics/request": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["PerformanceController_recordRequestMetric"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/system/performance/metrics/flush": {
         parameters: {
             query?: never;
@@ -5751,22 +5719,6 @@ export interface paths {
         get: operations["ErrorTrackingController_getErrorStats"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/system/errors/report": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["ErrorTrackingController_reportError"];
         delete?: never;
         options?: never;
         head?: never;
@@ -8002,7 +7954,7 @@ export interface components {
             /** @enum {string} */
             snapshotType: "monthly" | "daily" | "weekly" | "yearly";
             /** @enum {string} */
-            category: "system" | "tenant" | "user" | "financial" | "usage";
+            category: "user" | "system" | "tenant" | "financial" | "usage";
             /** Format: date-time */
             snapshotDate: string;
             metrics: Record<string, never>;
@@ -8172,7 +8124,7 @@ export interface components {
             threadId: string;
             senderId: string;
             /** @enum {string} */
-            senderType: "admin" | "system" | "tenant_admin";
+            senderType: "system" | "admin" | "tenant_admin";
             senderName?: string;
             content: string;
             /** @enum {string} */
@@ -8214,7 +8166,7 @@ export interface components {
             title: string;
             content: string;
             /** @enum {string} */
-            type: "info" | "warning" | "critical" | "maintenance";
+            type: "info" | "critical" | "warning" | "maintenance";
             /** @enum {string} */
             status: "draft" | "cancelled" | "expired" | "scheduled" | "published";
             isGlobal: boolean;
@@ -8255,7 +8207,7 @@ export interface components {
             title: string;
             content: string;
             /** @enum {string} */
-            type: "info" | "warning" | "critical" | "maintenance";
+            type: "info" | "critical" | "warning" | "maintenance";
             isGlobal: boolean;
             targetCriteria?: Record<string, never>;
             publishAt?: string;
@@ -8266,7 +8218,7 @@ export interface components {
             title?: string;
             content?: string;
             /** @enum {string} */
-            type?: "info" | "warning" | "critical" | "maintenance";
+            type?: "info" | "critical" | "warning" | "maintenance";
             isGlobal?: boolean;
             targetCriteria?: Record<string, never>;
             publishAt?: string;
@@ -8328,7 +8280,7 @@ export interface components {
             ticketId: string;
             authorId: string;
             /** @enum {string} */
-            authorType: "admin" | "system" | "tenant_user";
+            authorType: "system" | "admin" | "tenant_user";
             authorName?: string;
             content: string;
             isInternal: boolean;
@@ -8456,7 +8408,7 @@ export interface components {
             /** @enum {string} */
             category: "authentication" | "configuration" | "user_action" | "system_event" | "api_call" | "data_access" | "security_event";
             /** @enum {string} */
-            severity: "debug" | "error" | "info" | "warning" | "critical";
+            severity: "debug" | "error" | "info" | "critical" | "warning";
             action: string;
             description: string;
             entityType?: string | null;
@@ -8498,6 +8450,7 @@ export interface components {
             tenantId?: string | null;
             userId?: string | null;
             sessionId?: string | null;
+            sourceEventId?: string | null;
             /** Format: date-time */
             createdAt: string;
         };
@@ -8538,7 +8491,7 @@ export interface components {
             isActive?: boolean;
             conditions?: {
                 category?: ("authentication" | "configuration" | "user_action" | "system_event" | "api_call" | "data_access" | "security_event")[];
-                severity?: ("debug" | "error" | "info" | "warning" | "critical")[];
+                severity?: ("debug" | "error" | "info" | "critical" | "warning")[];
                 actions?: string[];
                 entityTypes?: string[];
                 successOnly?: boolean;
@@ -8868,18 +8821,6 @@ export interface components {
             /** Format: date-time */
             updatedAt: string;
         };
-        AnalyzeLoginDto: {
-            /**
-             * Format: uuid
-             * @description Tenant id. Resolved and verified server-side before the handler runs; the value a handler uses never comes from this key.
-             */
-            tenantId?: string;
-            email: string;
-            ipAddress: string;
-            success: boolean;
-            geoLocation?: Record<string, never>;
-            userId?: string;
-        };
         CreateFeatureToggleDto: {
             key: string;
             name: string;
@@ -9123,36 +9064,9 @@ export interface components {
             service?: string;
             /** Format: date-time */
             timestamp: string;
-            applicationMetrics: {
-                avgResponseTime: number;
-                p95ResponseTime: number;
-                p99ResponseTime: number;
-                throughput: number;
-                errorRate: number;
-                apdexScore: number;
-                activeRequests: number;
-                totalRequests: number;
-            };
-            databaseMetrics: {
-                activeConnections: number;
-                poolSize: number;
-                poolUtilization: number;
-                avgQueryTime: number;
-                slowQueryCount: number;
-                cacheHitRatio: number;
-                deadlockCount: number;
-            };
-            infrastructureMetrics: {
-                cpuUsage: number;
-                memoryUsage: number;
-                memoryTotal: number;
-                diskUsage: number;
-                diskTotal: number;
-                networkLatency: number;
-                containerCount: number;
-                healthyContainers: number;
-                podRestarts: number;
-            };
+            applicationMetrics: Record<string, never>;
+            databaseMetrics: Record<string, never>;
+            infrastructureMetrics: Record<string, never>;
             alerts?: string[];
             overallHealthScore?: number;
             /** Format: date-time */
@@ -9176,61 +9090,6 @@ export interface components {
             };
             sampleCount?: number;
         };
-        RecordRequestMetricDto: {
-            service: string;
-            endpoint: string;
-            method: string;
-            durationMs: number;
-            isError: boolean;
-        };
-        ReportErrorDto: {
-            /**
-             * Format: uuid
-             * @description Tenant id. Resolved and verified server-side before the handler runs; the value a handler uses never comes from this key.
-             */
-            tenantId?: string;
-            message: string;
-            errorType?: string;
-            stackTrace?: string;
-            /** @enum {string} */
-            severity?: "debug" | "info" | "warning" | "error" | "critical" | "fatal";
-            context?: Record<string, never>;
-            service?: string;
-            environment?: string;
-            release?: string;
-            userId?: string;
-            ipAddress?: string;
-            userAgent?: string;
-            metadata?: {
-                [key: string]: unknown;
-            };
-        };
-        ErrorOccurrence: {
-            id: string;
-            groupId: string;
-            fingerprint: string;
-            /** @enum {string} */
-            severity: "debug" | "info" | "warning" | "error" | "critical" | "fatal";
-            message: string;
-            errorType?: string;
-            stackTrace?: string;
-            stackFrames?: Record<string, never>[];
-            context?: Record<string, never>;
-            service?: string;
-            environment?: string;
-            release?: string;
-            tenantId?: string;
-            userId?: string;
-            ipAddress?: string;
-            userAgent?: string;
-            metadata?: {
-                [key: string]: unknown;
-            };
-            /** Format: date-time */
-            timestamp: string;
-            /** Format: date-time */
-            createdAt: string;
-        };
         ErrorGroup: {
             id: string;
             fingerprint: string;
@@ -9243,7 +9102,6 @@ export interface components {
             service?: string;
             culprit?: string;
             occurrenceCount: number;
-            userCount: number;
             /** Format: date-time */
             firstSeenAt: string;
             /** Format: date-time */
@@ -9286,6 +9144,32 @@ export interface components {
         MergeErrorGroupsDto: {
             targetId: string;
             sourceIds: string[];
+        };
+        ErrorOccurrence: {
+            id: string;
+            groupId: string;
+            fingerprint: string;
+            /** @enum {string} */
+            severity: "debug" | "info" | "warning" | "error" | "critical" | "fatal";
+            message: string;
+            errorType?: string;
+            stackTrace?: string;
+            stackFrames?: Record<string, never>[];
+            context?: Record<string, never>;
+            service?: string;
+            environment?: string;
+            release?: string;
+            tenantId?: string;
+            userId?: string;
+            ipAddress?: string;
+            userAgent?: string;
+            metadata?: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            timestamp: string;
+            /** Format: date-time */
+            createdAt: string;
         };
         ErrorAlertRule: {
             id: string;
@@ -17444,27 +17328,6 @@ export interface operations {
             };
         };
     };
-    SecurityMonitoringController_analyzeLogin: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AnalyzeLoginDto"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
     SecurityMonitoringController_getAnomalyConfig: {
         parameters: {
             query?: never;
@@ -18334,27 +18197,6 @@ export interface operations {
             };
         };
     };
-    PerformanceController_recordRequestMetric: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RecordRequestMetricDto"];
-            };
-        };
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
     PerformanceController_flushMetrics: {
         parameters: {
             query?: never;
@@ -18416,29 +18258,6 @@ export interface operations {
             };
         };
     };
-    ErrorTrackingController_reportError: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ReportErrorDto"];
-            };
-        };
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorOccurrence"];
-                };
-            };
-        };
-    };
     ErrorTrackingController_queryErrorGroups: {
         parameters: {
             query?: {
@@ -18450,7 +18269,7 @@ export interface operations {
                 isRegression?: boolean;
                 page?: number;
                 limit?: number;
-                sortBy?: "occurrenceCount" | "lastSeenAt" | "firstSeenAt" | "userCount";
+                sortBy?: "occurrenceCount" | "lastSeenAt" | "firstSeenAt";
                 sortOrder?: "ASC" | "DESC";
             };
             header?: never;

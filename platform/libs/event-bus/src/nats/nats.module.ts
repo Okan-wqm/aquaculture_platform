@@ -14,12 +14,16 @@ import { createDefaultRegistry } from '@platform/event-contracts';
 import {
   EVENT_HANDLER_METADATA,
   EVENT_SUBSCRIPTION_METADATA,
+  type EventHandlerOptions,
+  type SubscribeToOptions,
 } from '../decorators/event-handler.decorator';
 import {
   EVENT_DEAD_LETTER_SINK,
   LoggingDeadLetterSink,
   type IDeadLetterSink,
 } from '../interfaces/dead-letter-sink';
+import type { IEvent, IEventHandler } from '../interfaces/event-bus.interface';
+import type { HandlerOutcome } from '../interfaces/handler-outcome';
 
 import { NatsEventBus } from './nats-event-bus';
 import { NatsRequestReply } from './nats-request-reply';
@@ -184,15 +188,35 @@ export class EventBusModule {
   }
 }
 
+/** Narrows a discovered provider instance to the class-level handler contract. */
+function isEventHandlerInstance(instance: object): instance is IEventHandler {
+  return typeof (instance as { handle?: unknown }).handle === 'function';
+}
+
 /**
  * Event Handler Registry - Auto-discovers and registers event handlers
  *
  * IMPORTANT: fail-closed — all subscription registrations are awaited.
  * If any registration fails, the entire module init fails, preventing
  * the service from booting with missing event handlers.
+ *
+ * # Why this module imports DiscoveryModule
+ *
+ * It declared `@Module({})` and injected `DiscoveryService` + `MetadataScanner`
+ * in its constructor. `EventBusModule` imports `DiscoveryModule` but does not
+ * re-export it, and `@Global()` publishes a module's EXPORTS, not its imports —
+ * so this class could not be resolved as a module by any service, and every
+ * `@SubscribeTo` in the platform went unregistered. The only thing that ever
+ * exercised it was `__tests__/handler-registration.spec.ts`, which registers it
+ * as a PROVIDER beside a root-imported `DiscoveryModule` and therefore proved
+ * the discovery logic while hiding the wiring defect.
+ *
+ * Importing `DiscoveryModule` here makes the fail-closed guarantee in the
+ * paragraph above real rather than aspirational: a service that imports this
+ * module either binds every declared subscription or does not boot.
  */
 @Global()
-@Module({})
+@Module({ imports: [DiscoveryModule] })
 export class EventHandlerRegistryModule {
   private readonly logger = new Logger(EventHandlerRegistryModule.name);
 
@@ -222,15 +246,24 @@ export class EventHandlerRegistryModule {
     const failures: Array<{ subject: string; error: Error }> = [];
 
     for (const wrapper of providers) {
-      const { instance, metatype } = wrapper;
-      if (!instance || !metatype) {
+      // `wrapper.instance` is `any`; narrowing it once here keeps every use
+      // below type-checked instead of propagating `any` through the loop.
+      const instance: unknown = wrapper.instance;
+      const metatype = wrapper.metatype;
+      if (!instance || typeof instance !== 'object' || !metatype) {
         continue;
       }
 
       // ── Class-level @EventHandler decorator ──
-      const handlerMetadata = Reflect.getMetadata(EVENT_HANDLER_METADATA, metatype);
+      // Read through the typed accessors rather than Reflect.getMetadata, whose
+      // `any` return let a misspelled option (or a dropped one — `startFrom`)
+      // pass the compiler and the linter alike.
+      const handlerMetadata: EventHandlerOptions | undefined = Reflect.getMetadata(
+        EVENT_HANDLER_METADATA,
+        metatype,
+      ) as EventHandlerOptions | undefined;
 
-      if (handlerMetadata && typeof instance.handle === 'function') {
+      if (handlerMetadata && isEventHandlerInstance(instance)) {
         try {
           await this.eventBus.subscribe(handlerMetadata.eventName, instance);
         } catch (err) {
@@ -243,18 +276,28 @@ export class EventHandlerRegistryModule {
       }
 
       // ── Method-level @SubscribeTo decorators ──
-      for (const methodKey of this.metadataScanner.getAllMethodNames(
-        Object.getPrototypeOf(instance),
-      )) {
-        const subscriptionMetadata = Reflect.getMetadata(
+      const prototype: object | null = Object.getPrototypeOf(instance) as object | null;
+      for (const methodKey of this.metadataScanner.getAllMethodNames(prototype)) {
+        const subscriptionMetadata: SubscribeToOptions | undefined = Reflect.getMetadata(
           EVENT_SUBSCRIPTION_METADATA,
           instance,
           methodKey,
-        );
+        ) as SubscribeToOptions | undefined;
 
-        if (subscriptionMetadata) {
-          const handler = {
-            handle: (instance[methodKey] as Function).bind(instance),
+        const method: unknown = (instance as Record<string, unknown>)[methodKey];
+        if (subscriptionMetadata && typeof method === 'function') {
+          // PLAT-CRITICAL-917: the bound method IS the handler the bus folds an
+          // outcome from, so it is typed as the contract — not as
+          // `Promise<void>`, and not through the bare `Function` this used to
+          // cast to. `foldHandlerOutcomes` treats a non-`HandlerOutcome` return
+          // as a contract violation and TERMINATES the message: a subscriber
+          // returning `void` dead-lettered every delivery on its first attempt,
+          // silently, because an untyped bind satisfied `IEventHandler`
+          // structurally. Typing it here is what makes that a compile error at
+          // the subscriber instead of a lost message in production.
+          const bound = method.bind(instance) as (event: IEvent) => Promise<HandlerOutcome>;
+          const handler: IEventHandler = {
+            handle: bound,
             getEventType: () => subscriptionMetadata.topic,
           };
 
@@ -262,9 +305,15 @@ export class EventHandlerRegistryModule {
           // init fails if any subscription cannot be established.  Previously
           // fire-and-forget allowed services to boot with missing subscriptions.
           try {
+            // `startFrom` is part of SubscribeToOptions and decides whether a
+            // NEW durable consumer replays the stream from the beginning or
+            // starts at the head. Dropping it silently forced every
+            // subscription to the `DeliverPolicy.New` default, which is the
+            // opposite of what a projection rebuilding its table asks for.
             await this.eventBus.subscribeTo(subscriptionMetadata.topic, handler, {
               groupId: subscriptionMetadata.groupId,
               durable: subscriptionMetadata.durable,
+              startFrom: subscriptionMetadata.startFrom,
             });
           } catch (err) {
             const error = err instanceof Error ? err : new Error(String(err));

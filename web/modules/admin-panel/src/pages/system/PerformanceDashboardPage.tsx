@@ -85,6 +85,29 @@ const formatTrendLabel = (timestamp: string): string => {
     : date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
 };
 
+/**
+ * What the server can report about the database, with `null` for anything it
+ * could not measure (ADMIN-HIGH-014).
+ */
+interface DatabaseMetricsView {
+  activeConnections: number | null;
+  poolSize: number | null;
+  poolUtilization: number | null;
+  avgQueryTime: number | null;
+  slowQueryCount: number | null;
+  cacheHitRatio: number | null;
+}
+
+/**
+ * Render a measurement, or an em dash when there is none.
+ *
+ * A dash reads as "we do not know". A zero reads as "we measured, and it is
+ * zero" — which is what this page said about an unreachable database.
+ */
+function formatMetric(value: number | null | undefined, suffix = ''): string {
+  return value === null || value === undefined ? '—' : `${value}${suffix}`;
+}
+
 export const PerformanceDashboardPage: React.FC = () => {
   // State
   const [dashboard, setDashboard] = useState<PerformanceDashboard | null>(null);
@@ -96,14 +119,13 @@ export const PerformanceDashboardPage: React.FC = () => {
     containerCount: 0,
     healthyContainers: 0,
   });
-  const [database, setDatabase] = useState({
-    activeConnections: 0,
-    poolSize: 0,
-    poolUtilization: 0,
-    avgQueryTime: 0,
-    slowQueryCount: 0,
-    cacheHitRatio: 0,
-  });
+  // ADMIN-HIGH-014: `null` is "not measured", which is a different fact from 0.
+  // These started as all-zero objects and the catch below reset them to
+  // all-zero, so a page that had failed to load anything rendered a database
+  // with 0 connections, a 0 ms average query and a 0% cache hit ratio — beside
+  // an error banner an operator can dismiss, leaving numbers that look like a
+  // measurement.
+  const [database, setDatabase] = useState<DatabaseMetricsView | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [timeRange, setTimeRange] = useState<TimeRange>(getTimeRanges()[2]); // Default to 1h
@@ -155,23 +177,12 @@ export const PerformanceDashboardPage: React.FC = () => {
     } catch (err) {
       console.error('Failed to load performance data:', err);
       setError('Failed to load performance data. Please try again.');
+      // `setDashboard(null)` is what the page reads: the `!dashboard` guard
+      // above renders the failure state and returns, so nothing below is drawn.
+      // Re-seeding infrastructure with zeros here only made the failure look
+      // like a measurement to anyone reading this code.
       setDashboard(null);
-      setInfrastructure({
-        cpuUsage: 0,
-        memoryUsage: 0,
-        diskUsage: 0,
-        networkLatency: 0,
-        containerCount: 0,
-        healthyContainers: 0,
-      });
-      setDatabase({
-        activeConnections: 0,
-        poolSize: 0,
-        poolUtilization: 0,
-        avgQueryTime: 0,
-        slowQueryCount: 0,
-        cacheHitRatio: 0,
-      });
+      setDatabase(null);
     } finally {
       setLoading(false);
     }
@@ -497,12 +508,14 @@ export const PerformanceDashboardPage: React.FC = () => {
           <div>
             <div className="text-sm text-gray-500 mb-1">DB Connections</div>
             <div className="text-xl font-bold text-gray-900">
-              {database.activeConnections}/{database.poolSize}
+              {formatMetric(database?.activeConnections)}/{formatMetric(database?.poolSize)}
             </div>
           </div>
           <div>
             <div className="text-sm text-gray-500 mb-1">Cache Hit Ratio</div>
-            <div className="text-xl font-bold text-green-600">{database.cacheHitRatio}%</div>
+            <div className="text-xl font-bold text-green-600">
+              {formatMetric(database?.cacheHitRatio, '%')}
+            </div>
           </div>
         </div>
       </Card>
@@ -594,7 +607,9 @@ export const PerformanceDashboardPage: React.FC = () => {
           </div>
           <div className="flex items-center justify-between">
             <span className="text-sm text-gray-500">Avg Query Time</span>
-            <span className="text-lg font-bold text-gray-900">{database.avgQueryTime} ms</span>
+            <span className="text-lg font-bold text-gray-900">
+              {formatMetric(database?.avgQueryTime, ' ms')}
+            </span>
           </div>
         </div>
       </Card>

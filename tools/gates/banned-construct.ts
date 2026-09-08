@@ -104,6 +104,14 @@ interface BannedConstructRule {
   readonly remedy: string;
   /** Per-rule path exemptions on top of the global EXEMPT_PATHS. */
   readonly exemptPaths?: readonly RegExp[];
+  /**
+   * Match the line as written, comments included.
+   *
+   * A suppression directive IS a comment — `// @ts-ignore` has no other
+   * spelling — so blanking comments would make it undetectable. Every other
+   * construct is code, and matching it inside prose is a false positive.
+   */
+  readonly livesInComments?: boolean;
 }
 
 const BANNED_CONSTRUCTS: readonly BannedConstructRule[] = [
@@ -145,16 +153,19 @@ const BANNED_CONSTRUCTS: readonly BannedConstructRule[] = [
   {
     construct: /@ts-ignore\b/,
     label: '@ts-ignore',
+    livesInComments: true,
     remedy: 'fix the type error',
   },
   {
     construct: /@ts-expect-error\b/,
     label: '@ts-expect-error',
+    livesInComments: true,
     remedy: 'fix the type error',
   },
   {
     construct: /@ts-nocheck\b/,
     label: '@ts-nocheck',
+    livesInComments: true,
     remedy: 'fix the file, never opt it out of the compiler',
   },
   {
@@ -170,6 +181,7 @@ const BANNED_CONSTRUCTS: readonly BannedConstructRule[] = [
   {
     construct: /eslint-disable/,
     label: 'eslint-disable',
+    livesInComments: true,
     remedy:
       'fix the violation; if the rule itself is wrong, change .eslintrc (the lint-policy SSOT) with a documented WHY',
   },
@@ -249,13 +261,43 @@ function isExempt(relPath: string, rule: BannedConstructRule): boolean {
   return false;
 }
 
+/**
+ * The line with its COMMENT text blanked, so a rule matches code and not prose.
+ *
+ * Every construct here is spelled with words that also occur in English —
+ * `as never` is the clearest: "recorded every service as never having
+ * acknowledged" is a sentence, not a cast. The `\bas` guard in that rule
+ * already excludes "w[as never]" and "h[as never]", but it cannot exclude a
+ * genuine standalone "as", so a docblock explaining a defect tripped the gate
+ * that exists to prevent the defect. That the module's own docblock and its
+ * spec are self-exempted is the same symptom: without this, a gate cannot
+ * document what it bans.
+ *
+ * Blanking rather than deleting keeps every column where it was, so a
+ * violation still points at the right place on the line.
+ *
+ * Line-scoped by construction, because staged mode sees a diff and not whole
+ * files. The three shapes that covers are the three that occur: a trailing
+ * `//`, a `/* … *\/` that opens and closes on one line, and a `*` continuation
+ * line inside a block comment — which is where multi-line prose actually
+ * lives. A generator (`*values()`) is not one: the continuation form requires
+ * whitespace or end-of-line after the star.
+ */
+export function codeOnly(text: string): string {
+  const blank = (match: string): string => ' '.repeat(match.length);
+  if (/^\s*\*(\s|$)/.test(text)) return blank(text);
+  return text
+    .replace(/\/\*[\s\S]*?\*\//g, blank)
+    .replace(/\/\/.*$/, blank);
+}
+
 export function scanAddedLines(lines: readonly AddedLine[]): Violation[] {
   const violations: Violation[] = [];
   for (const line of lines) {
     if (!CODE_FILE.test(line.path)) continue;
     for (const rule of BANNED_CONSTRUCTS) {
       if (isExempt(line.path, rule)) continue;
-      if (!rule.construct.test(line.text)) continue;
+      if (!rule.construct.test(rule.livesInComments ? line.text : codeOnly(line.text))) continue;
       violations.push({
         path: line.path,
         line: line.lineNumber,
@@ -351,7 +393,7 @@ function scanAllIgnoringExemptions(lines: readonly AddedLine[]): Violation[] {
   for (const line of lines) {
     if (!CODE_FILE.test(line.path)) continue;
     for (const rule of BANNED_CONSTRUCTS) {
-      if (!rule.construct.test(line.text)) continue;
+      if (!rule.construct.test(rule.livesInComments ? line.text : codeOnly(line.text))) continue;
       violations.push({
         path: line.path,
         line: line.lineNumber,

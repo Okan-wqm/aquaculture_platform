@@ -832,22 +832,148 @@ fails when one is converted without its entry being removed.
 
 ## ADMIN-HIGH-109 — Detective stores with no producer (C16)
 
-**State:** OPEN · **Wave:** W5
+**State:** OPEN (close ceremony pending merge) · **Wave:** W5
 
 **Fix per store:** outbox-backed projection from auth-service login/session events, or delete the
 store with its detector and dashboard. No middle state.
-**Gate:** every entity registered in `MODULE_SCHEMAS[].tables` has at least one write reference in
-its owning service.
+
+**The finding understated it in one place and overstated it in another, and both corrections are
+load-bearing.**
+
+_Understated — the transport did not exist._ The audit assumed a projection was a
+matter of writing a consumer. It was not: `apps/admin-api-service/src/main.ts`
+passes no `natsTransport` to `bootstrapService`, so Nest attaches no NATS server
+strategy and **every `@EventPattern` in admin-api binds to nothing, silently**.
+The first fix shipped a projection that never received a message, and the
+tenant-onboarding ACK ledger had been dead the same way — meaning the
+provisioning saga has been recording every service as never having acknowledged.
+Deeper still, the platform's own declarative alternative (`@SubscribeTo` +
+`EventHandlerRegistryModule`, documented as fail-closed) had **zero production
+users because it could not be imported**: it declared `@Module({})` while
+injecting `DiscoveryService`, which `EventBusModule` imports but does not
+re-export, so any service importing it failed at boot. Its only test registered
+it as a _provider_ beside a root-imported `DiscoveryModule`, proving the
+discovery logic while hiding the wiring defect.
+
+_Overstated — three of the five named stores have live producers._
+`performance_metrics` / `performance_snapshots` are written by a per-minute
+`@ScheduledJob`, and `database_metrics` by a five-minute one. What was actually
+wrong on that surface was not an absent producer but **fabricated readings**:
+`getDatabaseMetrics` hard-coded `avgQueryTime: 0` and `slowQueryCount: 0` in its
+SUCCESS path, its catch-all returned zeros plus a made-up pool size of 100, and
+`getApplicationMetrics` defaulted an empty window's Apdex to `|| 1` — a perfect
+score, above every threshold, from a table nobody was writing.
+
+**Also found, not in the audit:** `sessions.cleanup-expired`, an hourly
+`@ScheduledJob` taking an advisory lock to expire rows in a table no code has
+ever inserted into; and `reportError` carried four defects that had never fired
+because it had no callers — a non-atomic read-then-insert against a UNIQUE
+fingerprint index, an inverted alert window (`LessThan(windowStart)`), a full
+alert-rule table scan on every call, and an unmasked untruncated message written
+into a `varchar(500)` column in a table the tenant-erasure registry excludes.
+
+**Disposition per store:**
+
+| store                                      | outcome                                                                                                                                                                                                    |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `admin.login_attempts`                     | projected from `events.security.events.auth.login.*`, idempotent on the source event id, 90-day window                                                                                                     |
+| `admin.api_usage_logs`                     | projected from `events.security.events.rate_limit.exceeded`, same shape, 30-day window                                                                                                                     |
+| `admin.user_sessions`                      | **deleted** — no session-lifecycle event exists to project from, `sessionToken` is NOT NULL + UNIQUE with no wire value to fill it, and `auth.refresh_tokens` already holds every field with a real writer |
+| `admin.error_groups` / `error_occurrences` | given the fleet-wide `ServiceErrorCaptured` ingress                                                                                                                                                        |
+| `admin.performance_*` / `database_metrics` | producers were live; the _readings_ were fabricated and are now `number \| null`                                                                                                                           |
+
+**Gates:** `detective-store-has-producer.spec.ts` (a writer must be REACHED from
+a runtime entry point, which is the assertion that would have caught this — the
+writers existed and were correct, with zero callers);
+`nats-inbound-binding.spec.ts` (an `@EventPattern` in a service with no
+`natsTransport` is a build failure); `error-capture-ingress.spec.ts`;
+`performance-metrics-honesty.spec.ts`.
+
+## PLAT-CRITICAL-917 — Every `@SubscribeTo` subscriber dead-letters every message it receives
+
+- **PLAT-CRITICAL-912** — the id this finding was raised and fixed under, and the id its
+  commits' `Closes:` trailers name. The registry allocated 914 when the row was re-appended
+  onto main's chain; the mapping is recorded in
+  `docs/reviews/_registry/finding-id-aliases.yaml`.
+
+**State:** OPEN · **Wave:** W5 · **ADR:** —
+
+**Evidence:** PLAT-HIGH-902 made a delivery outcome a VALUE: `IEventHandler.handle()` returns a
+`HandlerOutcome`, and `foldHandlerOutcomes` treats a return that is not one as a contract violation
+and TERMINATES the message — dead-lettered on delivery 1, never retried
+(`platform/libs/event-bus/src/interfaces/handler-outcome.ts:131`,
+`nats-event-bus.ts:1419-1437`). Every `@SubscribeTo` method in the repository returned
+`Promise<void>`, so every method-level subscriber pushed `undefined` into that fold — including
+admin-api's `TenantOnboardingAck` / `TenantOnboardingFailed` handlers, which is the tenant
+provisioning acknowledgement path. Both registration paths converge on one registry
+(`subscribeTo` pushes into `this.handlers`, which the delivery loop reads), so nothing rescued it.
+
+It compiled because `nats.module.ts` bound the method through a bare `Function`, whose `any` return
+satisfies `IEventHandler` structurally. The class-level `@EventHandler` path never had the problem:
+a handler there implements the interface, and the compiler checks it. Typing the method-level bind
+honestly, while landing the security-signal subscribers, is what surfaced it.
+
+**Fix (Tier-1):** the constraint goes on the DECORATOR, not the registrar — `@SubscribeTo` applies
+only to a method returning `Promise<HandlerOutcome>`, so the gap is a compile error at the
+subscriber, which is the only place that can decide what its outcome is. A cast in the registrar
+would have documented the contract without enforcing it. The existing subscribers then say what
+they mean rather than defaulting: an already-projected signal acks with a reason, a login signal
+carrying no email terminates because no redelivery can add one, the error-capture sink acks its own
+failure with the reason its docblock had already argued for, and the rest ack.
+
+**Gate:** the decorator's type. No spec can regress this without the compiler refusing first.
 
 ## OBS-CRITICAL-007 — The admin observability path does not exist (C13)
 
-**State:** OPEN · **Wave:** W5
+- **OBS-CRITICAL-003** — the id this finding was raised under in the audit, and the id its
+  closing commit's `Closes:` trailer names. The registry allocated the next free OBS
+  sequence, 007; the mapping is recorded in
+  `docs/reviews/_registry/finding-id-aliases.yaml`.
 
-**Fix (ordered):** mask the message path (OBS-CRITICAL-008) → ship logs → OTLP tracing → admin-api
-SLO rules on existing RED metrics → in-app health surfaces return `{status: 'ok' | 'unavailable'}` →
-delete fabricated dashboards only after Grafana replacements exist.
-**Gate:** every scraped service scrapeable; every alert metric registered; every `runbook_url`
-resolves to `docs/runbooks/`.
+**State:** OPEN — two of four clauses remain, split into OBS-HIGH-005 and
+OBS-HIGH-006 · **Wave:** W5 (partial)
+
+**The headline was wrong.** admin-api **does** expose Prometheus `/metrics`
+(`app.module.ts` imports `ServiceMetricsModule`, whose middleware applies to
+every route), **is** scraped (`droplet/file_sd/aqua-services.json`), and **is**
+covered by the fleet-wide RED rules, which select `namespace="aquaculture"` and
+group `by (app)`. The 15 `wiki.internal` runbook URLs are in
+`prometheus/alerts/slo-alerts.yml`, a Kubernetes `PrometheusRule` CRD that no
+compose file deploys and which contains no admin-api rules at all.
+
+**Landed:** four admin-api-specific SLO rules
+(`droplet/rules/70-admin-api-slo.yml`) on series the code actually emits, plus
+their runbook — deliberately _not_ repeating the baseline, since two alerts per
+incident is how a rota learns to silence a receiver. Fabricated readings on the
+in-app surfaces are gone (see ADMIN-HIGH-109).
+
+**Also found, not in the audit:** `NotificationChannelFailing` selects
+`http_requests_total{...,status=~"5.."}`; the emitted label is `status_code`, so
+that alert had never been able to fire. `10-service-health.yml` records fixing
+the identical mistake when these rules were extracted — a one-off correction
+that came back as a class of bug, so it now has a gate:
+`alert-rules-select-real-series.spec.ts` asserts every metric a rule selects is
+emitted somewhere and every label it constrains on the shared HTTP families is
+one the metrics service declares.
+
+**Not done, and why — tracked, not deferred:**
+
+- **OBS-HIGH-005 (OTLP tracing).** `enableTelemetry: true` is inert without
+  `ENABLE_TRACING=true`, and no OTLP collector is deployed on the droplet at
+  all. Setting it would produce a silent retry loop (no `diag.setLogger` exists,
+  so export errors reach the no-op logger) plus a `process.exit(0)` SIGTERM
+  handler racing `app.enableShutdownHooks()`. The collector is the fix; the flag
+  is not.
+- **OBS-HIGH-006 (log sink, and with it the Grafana dashboard).**
+  `docker-compose.monitoring.yml` advertises a `monitoring-full` profile that
+  "adds grafana + loki + alloy" and defines none of the three. Grafana is
+  deployed by no compose file, k8s manifest or helm template. Authoring dashboard
+  JSON now would produce a file, not a panel — which is why W5 shipped the alert
+  rules, which run through the deployed Prometheus and Alertmanager, and not the
+  dashboard.
+
+**Gate:** every scraped service scrapeable; every alert metric registered; every
+`runbook_url` resolves to `docs/runbooks/`.
 
 ## OBS-CRITICAL-008 — StructuredLoggerService emits the message argument unmasked (SA-054)
 
@@ -903,14 +1029,14 @@ gate's own docblock says it means. The cycle it uncovered stays open debt, owned
 
 | wave                                      | content                                                                                                                                             | edge                                                                                                                                                                    |
 | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **W0 — make measurement trustworthy**     | INFRA-HIGH-165 (lift stale test quarantine, governed policy); OBS-CRITICAL-008; INFRA-HIGH-166; ADMIN-CRITICAL-104; SEC-HIGH-166; PLAT-CRITICAL-911 | a gate on a quarantined project never runs; tenant creation must work before anything downstream is testable; two live pre-auth paths are independent of all other work |
-| **W1 — recoverability + topology**        | INFRA-CRITICAL-164 (backups); DATA-CRITICAL-016 (retention); SEC-CRITICAL-161 (edge bundle)                                                         | nothing may drop a table while no restore path exists; AccessLog on admin-api needs working retention                                                                   |
-| **W2 — write boundary + authority**       | class DTOs (CONTRACT-CRITICAL-004 precondition) + ADMIN-HIGH-107 migrations; SEC-CRITICAL-162; DATA-CRITICAL-015; ADMIN-CRITICAL-102                | class DTOs re-arm ValidationPipe fleet-wide in one change; audit must fail closed before the destructive ledger is a control                                            |
-| **W3 — contract, authz, execution model** | CONTRACT-CRITICAL-004 artifact; SEC-CRITICAL-163; SEC-HIGH-164; SEC-HIGH-165; ADMIN-CRITICAL-103; ADMIN-HIGH-106; ADMIN-HIGH-108                    | generation precedes FE cleanup; MFA and capabilities mount on the single act-as authority                                                                               |
-| **W4 — money**                            | BILLING-CRITICAL-011 then BILLING-CRITICAL-012                                                                                                      | `CreateSubscriptionHandler` resolves `billing.plans`; receipts before catalogue migration                                                                               |
-| **W5 — detective stores + observability** | ADMIN-HIGH-109; OBS-CRITICAL-007                                                                                                                    | honest replacement before deleting the dishonest window                                                                                                                 |
-| **W6 — FE architecture**                  | ADMIN-HIGH-105                                                                                                                                      | consumes the generated contract                                                                                                                                         |
-| **W7 — kill list + docs**                 | §4; CLAUDE-LOW-017                                                                                                                                  | dead set is machine-derived after W3                                                                                                                                    |
+| **W0 — make measurement trustworthy**     | INFRA-HIGH-141 (lift stale test quarantine, governed policy); OBS-CRITICAL-004; INFRA-HIGH-142; ADMIN-CRITICAL-015; SEC-HIGH-061; PLAT-CRITICAL-902 | a gate on a quarantined project never runs; tenant creation must work before anything downstream is testable; two live pre-auth paths are independent of all other work |
+| **W1 — recoverability + topology**        | INFRA-CRITICAL-140 (backups); DATA-CRITICAL-013 (retention); SEC-CRITICAL-056 (edge bundle)                                                         | nothing may drop a table while no restore path exists; AccessLog on admin-api needs working retention                                                                   |
+| **W2 — write boundary + authority**       | class DTOs (CONTRACT-CRITICAL-003 precondition) + ADMIN-HIGH-012 migrations; SEC-CRITICAL-057; DATA-CRITICAL-012; ADMIN-CRITICAL-008                | class DTOs re-arm ValidationPipe fleet-wide in one change; audit must fail closed before the destructive ledger is a control                                            |
+| **W3 — contract, authz, execution model** | CONTRACT-CRITICAL-003 artifact; SEC-CRITICAL-058; SEC-HIGH-059; SEC-HIGH-060; ADMIN-CRITICAL-009; ADMIN-HIGH-011; ADMIN-HIGH-013                    | generation precedes FE cleanup; MFA and capabilities mount on the single act-as authority                                                                               |
+| **W4 — money**                            | BILLING-CRITICAL-002 then BILLING-CRITICAL-003                                                                                                      | `CreateSubscriptionHandler` resolves `billing.plans`; receipts before catalogue migration                                                                               |
+| **W5 — detective stores + observability** | ADMIN-HIGH-109 (landed); OBS-CRITICAL-007 (partial → OBS-HIGH-005, OBS-HIGH-006)                                                                    | honest replacement before deleting the dishonest window                                                                                                                 |
+| **W6 — FE architecture**                  | ADMIN-HIGH-010                                                                                                                                      | consumes the generated contract                                                                                                                                         |
+| **W7 — kill list + docs**                 | §4; CLAUDE-LOW-016                                                                                                                                  | dead set is machine-derived after W3                                                                                                                                    |
 | **W8 — read path**                        | materialised rollups, parallel capped health fan-out, indexes, per-request connection scope                                                         | index after the type conversions                                                                                                                                        |
 
 Critical path: `INFRA-HIGH-165 → DATA-CRITICAL-016 → SEC-CRITICAL-161 → SEC-CRITICAL-162 →
@@ -943,9 +1069,11 @@ CRUD; `loki-values.yaml`; login-success-ratio SLO rule; 15 `wiki.internal` runbo
 `plan_module_assignments.plan_id`; `shared.user_permissions` resurrection in the Baseline.
 
 **Delete with a coupled decision:** TenantConfigurationPage, ProvisioningSettingsPage,
-MessagingMonitoring / AiDashboard / AiPersonas pages (delete the route first); ErrorTrackingPage
-(delete unless a reporter is wired); `useAsyncData` (after W6); `login_attempts` / `user_sessions` /
-`api_usage_logs` + detectors (ADMIN-HIGH-109); `slow_query_logs` / `database_metrics` (with the
+MessagingMonitoring / AiDashboard / AiPersonas pages (delete the route first); ~~ErrorTrackingPage
+(delete unless a reporter is wired)~~ (W5 wired the reporter: the fleet-wide `ServiceErrorCaptured`
+ingress); `useAsyncData` (after W6); ~~`login_attempts` / `user_sessions` / `api_usage_logs` +
+detectors~~ (ADMIN-HIGH-109 — decided in W5: the first and third are projected from the security
+stream, `user_sessions` is deleted); `slow_query_logs` / `database_metrics` (with the
 `pg_stat_statements` decision); `maintenance_modes` (if maintenance moves to the gateway);
 `password-reset.controller.ts` (second un-rate-limited pre-auth ingress); `tenants.ts
 deactivate/archive` (adopt with `@Destructive` or delete both sides); 168 dead backend routes as a

@@ -986,7 +986,22 @@ describe('Frontend-Backend Contract Validation', () => {
     // this number: their rows moved to billing, but admin-api keeps every route
     // — it reads the rows read-only and forwards each write as a command, so
     // the operator surface is unchanged and only its backing store moved.
-    expect(count).toBe(462);
+    // 461: -1 for POST /security/monitoring/analyze/login. Anomaly detection
+    // ran only when a SUPER_ADMIN pressed a button; it now runs from the
+    // `events.security.events.auth.login.*` stream on every real attempt, so
+    // the route had nothing left to trigger (ADMIN-HIGH-109).
+    // 460: -1 for POST /system/errors/report, whose replacement is the
+    // `events.*.ServiceErrorCaptured` stream every service publishes: a defect
+    // reaches the store because it happened, not because something remembered
+    // to POST it. The audit wave counted -3 here, expecting to retire
+    // `admin.user_sessions`' two session routes in the same change; main had
+    // already deleted them (ADMIN-HIGH-100), so they are in the baseline and
+    // only this one moves.
+    // 459: -1 for POST /system/performance/metrics/request. `recordRequestMetric`
+    // drained an in-memory map nothing ever filled — the route had no caller and
+    // the RED data it duplicated is already in Prometheus, so it goes with the
+    // aggregation cron that read it (ADMIN-HIGH-109).
+    expect(count).toBe(459);
   });
 
   it('frontend endpoint snapshot should be up to date', () => {

@@ -125,6 +125,53 @@ export class PerformanceMetric {
   createdAt!: Date;
 }
 
+/**
+ * The measured shapes, declared ONCE.
+ *
+ * `PerformanceMonitoringService` used to re-declare all three, so the jsonb
+ * column and the API response could drift apart silently — and did: the service
+ * now models "not measured" as `null`, which a duplicated `number` here would
+ * have rejected at exactly the boundary that persists it.
+ *
+ * `null` is NOT MEASURED and it is a different fact from zero. Every one of
+ * these was a plain `number` filled with a fabricated 0 whenever the value could
+ * not be read, so an unreachable database rendered as an idle healthy one and an
+ * empty metrics window rendered as a perfect Apdex of 1.0
+ * (ADMIN-HIGH-014 / OBS-CRITICAL-003).
+ */
+export interface ApplicationMetrics {
+  avgResponseTime: number | null;
+  p95ResponseTime: number | null;
+  p99ResponseTime: number | null;
+  throughput: number | null;
+  errorRate: number | null;
+  apdexScore: number | null;
+  activeRequests: number | null;
+  totalRequests: number | null;
+}
+
+export interface DatabaseMetrics {
+  activeConnections: number | null;
+  poolSize: number | null;
+  poolUtilization: number | null;
+  avgQueryTime: number | null;
+  slowQueryCount: number | null;
+  cacheHitRatio: number | null;
+  deadlockCount: number | null;
+}
+
+export interface InfrastructureMetrics {
+  cpuUsage: number;
+  memoryUsage: number;
+  memoryTotal: number;
+  diskUsage: number;
+  diskTotal: number;
+  networkLatency: number;
+  containerCount: number;
+  healthyContainers: number;
+  podRestarts: number;
+}
+
 @Entity('performance_snapshots', { schema: 'admin' })
 @Index(['timestamp'])
 @Index(['service'])
@@ -139,40 +186,13 @@ export class PerformanceSnapshot {
   timestamp!: Date;
 
   @Column({ type: 'jsonb' })
-  applicationMetrics!: {
-    avgResponseTime: number;
-    p95ResponseTime: number;
-    p99ResponseTime: number;
-    throughput: number;
-    errorRate: number;
-    apdexScore: number;
-    activeRequests: number;
-    totalRequests: number;
-  };
+  applicationMetrics!: ApplicationMetrics;
 
   @Column({ type: 'jsonb' })
-  databaseMetrics!: {
-    activeConnections: number;
-    poolSize: number;
-    poolUtilization: number;
-    avgQueryTime: number;
-    slowQueryCount: number;
-    cacheHitRatio: number;
-    deadlockCount: number;
-  };
+  databaseMetrics!: DatabaseMetrics;
 
   @Column({ type: 'jsonb' })
-  infrastructureMetrics!: {
-    cpuUsage: number;
-    memoryUsage: number;
-    memoryTotal: number;
-    diskUsage: number;
-    diskTotal: number;
-    networkLatency: number;
-    containerCount: number;
-    healthyContainers: number;
-    podRestarts: number;
-  };
+  infrastructureMetrics!: InfrastructureMetrics;
 
   @Column({ type: 'jsonb', nullable: true })
   alerts?: Array<{

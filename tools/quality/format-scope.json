@@ -1076,7 +1076,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "d7bfe4df1838ad72c9de10e0647a1927cb2cc78e0b27f005905e33f445b11907",
+      "content_sha256": "1c9b20c48952e6979263ae49fa929fab6b9f9ba6964d50439037988b9b4dc71a",
       "hash_policy": "sha256",
       "owner": "admin-openapi-generator",
       "path": "apps/admin-api-service/openapi.json",
@@ -10947,6 +10947,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/database/migrations/1810200000000-AddSensorTemperatureEventId.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1810300000000-LinkTankOperationToHarvestRecord.ts",
       "prettier_managed": true
     },
     {
@@ -26559,6 +26565,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/process/services/__tests__/scada-package-harness.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/process/services/__tests__/scada-package-script-validation.spec.ts",
       "prettier_managed": true
     },
@@ -35528,6 +35540,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/farm-expert/2026-09-08-harvest-edit-stock-integrity.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/farm-integration/2026-07-02-farm-full-integration.md",
       "prettier_managed": true
     },
@@ -36519,6 +36537,18 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/zcode/2026-09-07-stripe-webhook-tenant-resolution.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/zcode/2026-09-08-admin-messaging-list-reads-fields-the-api-never-sends.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/zcode/2026-09-08-pr1022-orphaned-finding-ids-verified.md",
       "prettier_managed": true
     },
     {
@@ -46753,6 +46783,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/scada-package-harness-single-source.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/scada-storage-tenant-context.spec.ts",
       "prettier_managed": true
     },
@@ -51119,7 +51155,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "24b5bb95e63a25c9f214037eea90cc425541f1612523c909f43d2b5183384dc3",
+      "content_sha256": "18ce28f50d4bf6b59e1564cdaed4da7bd089c3521e4a03042735cbbe0c97e1fe",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/modules/admin-panel/src/services/generated/admin-api.ts",
@@ -59835,7 +59871,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "fe0004fdb869de6c869b56fb858bb1b876586616f4e2f0b8ea786c38de8b9d66",
+      "content_sha256": "5d1b42598af9e1ef3950571b814754cf061dc94d760450e12ce87863b7e4d3a1",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/shared-ui/src/generated/graphql-types.ts",

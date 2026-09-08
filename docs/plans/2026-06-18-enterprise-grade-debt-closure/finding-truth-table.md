@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `527849caa0217c21c622cea8c42687dfd536693acc3e3e98c804afb287ab463a`
+Registry tip: `d16db16d6988d2cf64e088a454012a1f10cf039b0589714e876eb36f8a068588`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -216,40 +216,40 @@ Allowed truth buckets:
 - `stale`
 - `new-finding-required`
 
-| Finding                | Registry state | First sprint | Owner                      | Truth bucket              |
-| ---------------------- | -------------- | ------------ | -------------------------- | ------------------------- |
-| `INFRA-CRITICAL-029`   | OPEN           | 1.1          | data-expert                | real-open                 |
-| `INFRA-CRITICAL-040`   | IN-PROGRESS    | —            | infra-expert               | blocked                   |
-| `INFRA-CRITICAL-044`   | OPEN           | —            | infra-expert               | blocked                   |
-| `FARM-CRITICAL-238`    | IN-PROGRESS    | 4.1          | data-expert                | real-open                 |
-| `INFRA-CRITICAL-077`   | IN-PROGRESS    | 1.1          | infra-expert               | real-open                 |
-| `INFRA-CRITICAL-078`   | IN-PROGRESS    | 1.1          | security-reviewer          | real-open                 |
-| `ORPHAN-CRITICAL-419`  | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
-| `ORPHAN-CRITICAL-420`  | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
-| `ORPHAN-CRITICAL-506`  | OPEN           | 2026-08-13   | aria-acceptance-gap-fixer  | real-open                 |
-| `ORPHAN-CRITICAL-513`  | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
-| `ORPHAN-CRITICAL-516`  | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
-| `ORPHAN-CRITICAL-517`  | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
-| `ARIA-CRITICAL-007`    | OPEN           | Task 10      | platform-autonomy          | real-open                 |
-| `ARIA-CRITICAL-009`    | OPEN           | Task 12      | platform-autonomy          | real-open                 |
-| `ARIA-CRITICAL-015`    | OPEN           | Task 19      | platform-autonomy          | real-open                 |
-| `SENSOR-CRITICAL-108`  | OPEN           | 2026-09-03   | zcode                      | real-open                 |
-| `INFRA-CRITICAL-080`   | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
-| `INFRA-CRITICAL-081`   | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
-| `INFRA-CRITICAL-083`   | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
-| `INFRA-CRITICAL-085`   | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
-| `INFRA-CRITICAL-090`   | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
-| `INFRA-CRITICAL-093`   | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
-| `INFRA-CRITICAL-095`   | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
-| `INFRA-CRITICAL-097`   | OPEN           | 2026-07-19   | security-reviewer          | real-open                 |
-| `INFRA-CRITICAL-098`   | OPEN           | 2026-07-19   | security-reviewer          | real-open                 |
-| `INFRA-CRITICAL-100`   | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
-| `ADMIN-CRITICAL-087`   | OPEN           | 2026-09-04   | admin-expert               | real-open                 |
-| `SENSOR-CRITICAL-111`  | OPEN           | 2026-09-05   | sensor-expert              | real-open                 |
-| `DEPLOY-CRITICAL-017`  | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
-| `BILLING-CRITICAL-011` | OPEN           | 2026-09-05   | billing-expert             | real-open                 |
-| `BILLING-CRITICAL-012` | OPEN           | 2026-09-05   | billing-expert             | real-open                 |
-| `OBS-CRITICAL-007`     | OPEN           | 2026-09-05   | observability-expert       | real-open                 |
+| Finding               | Registry state | First sprint | Owner                      | Truth bucket              |
+| --------------------- | -------------- | ------------ | -------------------------- | ------------------------- |
+| `INFRA-CRITICAL-029`  | OPEN           | 1.1          | data-expert                | real-open                 |
+| `INFRA-CRITICAL-040`  | IN-PROGRESS    | —            | infra-expert               | blocked                   |
+| `INFRA-CRITICAL-044`  | OPEN           | —            | infra-expert               | blocked                   |
+| `FARM-CRITICAL-238`   | IN-PROGRESS    | 4.1          | data-expert                | real-open                 |
+| `INFRA-CRITICAL-077`  | IN-PROGRESS    | 1.1          | infra-expert               | real-open                 |
+| `INFRA-CRITICAL-078`  | IN-PROGRESS    | 1.1          | security-reviewer          | real-open                 |
+| `ORPHAN-CRITICAL-419` | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-420` | OPEN           | —            | aria-acceptance-gap-hunter | already-fixed-needs-close |
+| `ORPHAN-CRITICAL-506` | OPEN           | 2026-08-13   | aria-acceptance-gap-fixer  | real-open                 |
+| `ORPHAN-CRITICAL-513` | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
+| `ORPHAN-CRITICAL-516` | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
+| `ORPHAN-CRITICAL-517` | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
+| `ARIA-CRITICAL-007`   | OPEN           | Task 10      | platform-autonomy          | real-open                 |
+| `ARIA-CRITICAL-009`   | OPEN           | Task 12      | platform-autonomy          | real-open                 |
+| `ARIA-CRITICAL-015`   | OPEN           | Task 19      | platform-autonomy          | real-open                 |
+| `SENSOR-CRITICAL-108` | OPEN           | 2026-09-03   | zcode                      | real-open                 |
+| `INFRA-CRITICAL-080`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-081`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-083`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-085`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-090`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-093`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-095`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-097`  | OPEN           | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-098`  | OPEN           | 2026-07-19   | security-reviewer          | real-open                 |
+| `INFRA-CRITICAL-100`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
+| `ADMIN-CRITICAL-087`  | OPEN           | 2026-09-04   | admin-expert               | real-open                 |
+| `SENSOR-CRITICAL-111` | OPEN           | 2026-09-05   | sensor-expert              | real-open                 |
+| `DEPLOY-CRITICAL-017` | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
+| `OBS-CRITICAL-007`    | OPEN           | 2026-09-05   | observability-expert       | real-open                 |
+| `FARM-CRITICAL-322`   | OPEN           | 2026-09-30   | farm-expert                | real-open                 |
+| `PLAT-CRITICAL-913`   | OPEN           | 2026-09-22   | platform-kernel-expert     | real-open                 |
 
 ## Mutation Rules
 
@@ -809,4 +809,10 @@ tests/invariants/all-services-env-aware-migrations.spec.ts --runInBand`,
   Left the active table from bucket `real-open`.
 - `INFRA-CRITICAL-170`: registry state is `RESOLVED` with closing commit
   `464ba9ad5`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `real-open`.
+- `BILLING-CRITICAL-011`: registry state is `RESOLVED` with closing commit
+  `a2e05ba2a`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `real-open`.
+- `BILLING-CRITICAL-012`: registry state is `RESOLVED` with closing commit
+  `b282980ca`, derived by `finding-registry reconcile` against `origin/main`.
   Left the active table from bucket `real-open`.

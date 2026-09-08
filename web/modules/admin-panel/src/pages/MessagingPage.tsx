@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 import {
   supportApi,
-  type MessageThread,
+  type MessageThreadSummary,
   type SupportMessage,
   type SupportMessageAttachment,
 } from '../services/adminApi';
@@ -34,13 +34,14 @@ import {
 // Types
 // ============================================================================
 
-// Adapting MessageThread to have computed properties used in UI
-interface ThreadSummary extends Omit<MessageThread, 'lastMessage' | 'lastMessageAt'> {
-  lastMessage: string;
-  lastMessageAt: string;
-  unreadCount: number;
-  isClosed: boolean;
-}
+/**
+ * The list rows as this page renders them. `unreadCount` and `isClosed` come
+ * from the response as-is — the endpoint already computes both. They used to be
+ * re-derived here from `unreadCountAdmin` and `status`, GraphQL field names
+ * this REST endpoint does not send, which overwrote the correct values with
+ * `0` and `false` (ADMIN-HIGH-110).
+ */
+type ThreadSummary = MessageThreadSummary;
 
 interface MessagingStats {
   totalThreads: number;
@@ -83,15 +84,8 @@ export const MessagingPage: React.FC = () => {
       if (showUnreadOnly) params.hasUnread = 'true';
 
       const result = await supportApi.getMessageThreads(params);
-      // Map MessageThread to ThreadSummary
-      const mappedThreads: ThreadSummary[] = result.data.map((thread: MessageThread) => ({
-        ...thread,
-        lastMessage: thread.lastMessage || '',
-        lastMessageAt: thread.lastMessageAt || '',
-        unreadCount: thread.unreadCountAdmin || 0,
-        isClosed: thread.status === 'closed',
-      }));
-      setThreads(mappedThreads);
+      // Copied because the paginated envelope hands back a readonly view.
+      setThreads([...result.data]);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
       setThreads([]);

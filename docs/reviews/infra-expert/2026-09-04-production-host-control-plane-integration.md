@@ -215,6 +215,14 @@ preserved in full at `scratchpad/r1022/branch-findings.jsonl` and are NOT writte
 under those IDs, because a `Closes:` trailer naming one of them would be ambiguous between two
 unrelated findings.
 
+> **Correction, 2026-09-08.** `scratchpad/` is not committed, so that path never existed in the
+> repository and the nine rows survived only inside the still-open branch. All nine have since been
+> recovered from `origin/fix/production-host-control-plane` and re-verified against main: eight need
+> no registry row (five were fixed by the very slice that landed, two presuppose a current-release
+> marker main does not have, one is inside `INFRA-HIGH-144`), and the ninth was re-raised with its
+> claim corrected as `SENSOR-MEDIUM-112`. Evidence per ID:
+> `docs/reviews/zcode/2026-09-08-pr1022-orphaned-finding-ids-verified.md`.
+
 | ID                  | Main's finding (kept)                                               | PR #1022's finding (needs a new ID)                                          |
 | ------------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
 | `INFRA-HIGH-084`    | CI Full skips PRs and protected-main pushes                         | current-release marker published before fallible image cleanup completes     |

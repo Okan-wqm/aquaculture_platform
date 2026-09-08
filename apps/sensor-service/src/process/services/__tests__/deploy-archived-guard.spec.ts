@@ -1,12 +1,13 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { EventEmitter2 } from '@nestjs/event-emitter';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { BadRequestException } from '@nestjs/common';
 
-import { ScadaPackage, ScadaPackageStatus } from '../../entities/scada-package.entity';
+import { ScadaPackageStatus } from '../../entities/scada-package.entity';
 import { Process, ProcessStatus } from '../../entities/process.entity';
 import { ScadaPackageService } from '../scada-package.service';
 import { ProcessService } from '../process.service';
+
+import { createScadaPackageHarness } from './scada-package-harness';
 
 /**
  * SENSOR-HIGH-043 — a soft-deleted (ARCHIVED) package/process must not deploy.
@@ -26,15 +27,7 @@ describe('deploy archived guard (SENSOR-HIGH-043)', () => {
 
     beforeEach(async () => {
       repo = { findOne: jest.fn(), save: jest.fn() };
-      const module: TestingModule = await Test.createTestingModule({
-        providers: [
-          ScadaPackageService,
-          { provide: EventEmitter2, useValue: { emit: jest.fn() } },
-          { provide: getRepositoryToken(ScadaPackage), useValue: repo },
-          { provide: getRepositoryToken(Process), useValue: { findOne: jest.fn() } },
-        ],
-      }).compile();
-      service = module.get(ScadaPackageService);
+      ({ service } = await createScadaPackageHarness({ scadaPackageRepository: repo }));
     });
 
     it('deployScadaPackageToEdge rejects an archived package', async () => {

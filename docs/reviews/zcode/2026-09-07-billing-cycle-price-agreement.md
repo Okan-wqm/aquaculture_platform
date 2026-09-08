@@ -155,3 +155,145 @@ real Stripe payments — a commercial decision with a finance owner, not a code 
 overcharged population is derivable: `billing.invoices` joined to `billing.subscriptions` on a
 non-monthly `billing_cycle`, where the ratio of `total` to the subscription's monthly `basePrice ×
 months` is exactly 1.
+
+---
+
+## 2026-09-08 — closing BILLING-HIGH-008 and BILLING-HIGH-009, and what re-reading them found
+
+Both findings above described a codebase that has since changed under them, so each was re-derived
+against today's `main` before being closed. The re-derivation found more than either had recorded.
+
+### BILLING-HIGH-009 closes, but not for the reason it was raised
+
+The 10/15/20 catalogue seed and `PricingCalculatorService` are both **gone**: ADR-0013 moved the
+plan catalogue into billing-service and deleted the calculator with it. So the two price books that
+disagreed no longer exist, and the commercial decision the finding demanded — per-plan or
+platform-wide commitment terms — is answered by the code as it now stands: **platform-wide**, because
+no per-plan commitment discount is declared anywhere in the tree.
+
+That is not the whole of it. A **new** second discount table had appeared in the meantime, in
+`apps/billing-service/src/billing/services/module-quote.ts`, and `module-pricing.service.ts:317`
+read _that_ rather than `backend-common`. Two independent declarations of the same commercial rule,
+in the same service, feeding the quote engine — the exact shape of BILLING-CRITICAL-007.
+
+They agreed on every value (0 / 0.05 / 0.10 / 0.15), so nothing was mispriced. That is the reason
+it was worth fixing rather than the reason to leave it: agreement between two copies is not a
+property anything maintains.
+
+**The gate did not see it.** `module-quote.ts` wrote its rates quoted — `quarterly: '0.05'` — and the
+pattern required an unquoted decimal. A gate that reports a single source while a full second table
+sits inside the tree it scans is worse than no gate, because it is believed. The quoted spelling is
+matched now and a case pins it.
+
+### BILLING-HIGH-008 closes, and the finding under-counted itself
+
+It recorded "nine more copies … period-date arithmetic … have never disagreed with the commercial
+terms". Re-reading each site found that the second half was false.
+
+The duplicated thing was never the table. It was the **arithmetic**: four independent
+implementations of _when does this period end_, each pairing its own months table with its own date
+maths.
+
+| Site                             | months                 | clamped |
+| -------------------------------- | ---------------------- | ------- |
+| `billing-scheduler.service.ts`   | `BILLING_CYCLE_MONTHS` | yes     |
+| `create-subscription.handler.ts` | own `switch`           | yes     |
+| `billing-admin-nats.handler.ts`  | own `switch`           | yes     |
+| `subscription-core.service.ts`   | inline `switch`        | **no**  |
+
+`SubscriptionCoreService.calculateNextPeriodEnd` used a bare `setMonth`. `setMonth(0 + 1)` on
+31 January asks JavaScript for 31 February, and JavaScript answers 3 March. billing-service's three
+copies all guard against exactly this and say so in a comment; admin-api's did not. One of four was
+wrong, and nothing could tell — there was nothing for it to be wrong against. It has **no callers
+today**, so this is a fuse that was removed, not a live defect that was fixed.
+
+`metered-billing.service.ts` is **not** a copy: its cycle switch returns an `AggregationPeriod`, a
+different concept. It is left alone, and the gate is built so it stays un-flagged.
+
+`plan-definition.service.ts` holds `DAYS_PER_CYCLE` (30/90/180/365), a **days** table used for
+proration share. That is a third quantity, deliberately approximate, and is out of this change.
+
+### BILLING-HIGH-015 — the copy that was hiding a live defect
+
+`AnalyticsService.calculateMonthlyPrice` used its months table to **divide**:
+
+```text
+case BillingCycle.ANNUAL: return basePrice / 12;
+```
+
+`billing.subscriptions.pricing.basePrice` **is** the monthly rate. `CreateSubscriptionHandler`
+publishes it as `monthlyPrice` on `SubscriptionCreated`, and `BillingSchedulerService` _multiplies_
+it by the cycle's months to price a period. So platform MRR counted an annual tenant on \$49/month as
+\$4.08 — every non-monthly subscription under-reported by exactly its cycle length. `revenueByPlan`,
+`arr` (`mrr × 12`), `arpu` and the revenue-growth comparison are all derived from that figure, so
+they carry the same error.
+
+This is the identical defect BILLING-CRITICAL-007 fixed in billing-service's
+`GetTenantBillingHandler`, which documents the reasoning at its own callsite. It survived here
+because admin-api reads the same column through its own read-only projection and carried its own
+cycle table to divide by. Registered as **BILLING-HIGH-015** and fixed in the same change; it was
+only visible once every restatement of the months table had been enumerated, which is the argument
+for the consolidation rather than a coincidence alongside it.
+
+### The fix
+
+`libs/backend-common/src/billing/billing-cycle-terms.ts` owns the terms **and the arithmetic**:
+
+- `BILLING_CYCLE_COMMITMENT_DISCOUNT` is now exact decimal **strings**, read back through
+  `commitmentDiscountRateFor(cycle): Decimal`. `ModulePricingService.quote` prices in raw `Decimal`
+  and never builds a `Money`, so a `Decimal` accessor — not `cycleAmountFor` — is what let it stop
+  restating the table. Today's four rates round-trip through a `number` intact; that is a property
+  of these values, not of the type, and it stops holding at a rate like 0.145.
+- `addBillingCycle(start, cycle)` is the one period-end implementation. Four callers now import it
+  and none writes date arithmetic, so the overflow cannot be reintroduced.
+- `BILLING_CYCLES` / `BillingCycleValue` were a **third** declaration of the cycle set, restated
+  inside the very module that exists to end restatement. Deleted; the module keys on `BillingCycle`
+  from `@platform/event-contracts`, and `billing/index.ts` deliberately does not re-export it.
+
+### The gate, and its blind spots
+
+`tests/invariants/billing-cycle-terms-single-source.spec.ts` now fails a second copy of **either**
+table, in **four** spellings: unquoted fraction, quoted fraction, integer percent, and `switch`.
+
+The switch pattern matches "a case labelled with a cycle, followed inside the same statement by that
+cycle's own month count" — one shape that covers `return 3`, `return basePrice / 3` and
+`setMonth(getMonth() + 3)` without enumerating them, because a pattern built from the three known
+spellings would have missed the fourth.
+
+Verified by negative control rather than by assertion — the pre-fix files were restored and the gate
+run against them:
+
+- pre-fix `module-quote.ts`: **6 sites** reported (3 months + 3 quoted discounts). The old gate
+  reported **0**.
+- pre-fix switches: **8 sites** across `analytics.service.ts`, `subscription-core.service.ts` and
+  `create-subscription.handler.ts`.
+
+**Two things the gate does not catch, stated rather than left to be discovered:**
+
+1. `case 'annual': end.setFullYear(end.getFullYear() + 1)` — an annual cycle written as one _year_
+   contains no `12` to match. The `subscription-core.service.ts` switch was still caught, on its
+   quarterly and semi-annual arms; a file whose only restatement was the annual-as-year form would
+   pass.
+2. Comments are blanked before matching, so a months table written in prose is not reported. That is
+   deliberate: `metered-billing.service.ts` carries "combine all 6 months in the range query"
+   directly under its `SEMI_ANNUAL` case and would otherwise be failed on the strength of a sentence.
+
+A cheap literal pre-filter (`/quarterly|annual/i`) precedes the scan. Without it the bounded
+backtracking window costs twenty seconds across ~3,800 files, in a lane named `invariants-fast`.
+
+### Verification of the 2026-09-08 change
+
+- `backend-common` 142 suites / 1561 tests green, including 19 new cases in
+  `billing-cycle-terms.spec.ts` (clamping, leap years, non-mutation, time-of-day, exact rates).
+- `billing-service` 34 suites / 745 tests green; `admin-api-service` 836 passed / 38 skipped.
+- `npm run type-check`: all 41 projects green.
+- `eslint` clean on all ten changed files. (`backend-common`'s project-wide lint is quarantined
+  under ORPHAN-HIGH-588 for 891 pre-existing problems in unrelated modules.)
+
+### What the 2026-09-08 change does not do
+
+It does not consolidate `DAYS_PER_CYCLE`, and it does not touch the invoice-reconciliation question
+the section above leaves open. It also does not correct MRR figures already written to
+`admin.analytics_snapshots`: the snapshots hold the under-counted number, and recomputing history
+means re-running the aggregation over past periods — tracked with BILLING-HIGH-015 rather than
+folded in silently.

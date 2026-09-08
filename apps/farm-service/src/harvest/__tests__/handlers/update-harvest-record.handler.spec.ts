@@ -6,8 +6,10 @@
  * createMockDataSource models: connect/startTransaction/query/commit/
  * rollback/release + a manager). This spec covers the enqueue:
  *
- *   1. Status + quantity change → `changedFields` lists both, event
- *      carries new `quantityHarvested` / `totalBiomass` / `status`.
+ *   1. Status change → `changedFields` lists it, and the event still reports
+ *      the record's `quantityHarvested` / `totalBiomass`, which an edit can no
+ *      longer move (FARM-CRITICAL-322 — they left UPDATABLE_FIELDS because this
+ *      handler writes no stock; a correction is cancel + re-create).
  *   2. Notes-only change → `changedFields=['notes']`, numeric fields
  *      unchanged.
  *   3. No fields supplied → `changedFields=[]`, event still fires
@@ -87,28 +89,25 @@ function makeCommand(data: UpdateHarvestRecordData) {
 }
 
 describe('UpdateHarvestRecordHandler — transactional outbox', () => {
-  it('status + quantity change: changedFields lists both, event reflects new values', async () => {
+  it('status change: changedFields lists it, and the harvested figures stay put', async () => {
     const { handler, enqueue, commit } = makeHarness();
 
-    await handler.execute(
-      makeCommand({
-        status: HarvestRecordStatus.COMPLETED,
-        quantityHarvested: 600,
-        totalBiomass: 1800,
-      }),
-    );
+    await handler.execute(makeCommand({ status: HarvestRecordStatus.COMPLETED }));
 
     expect(enqueue).toHaveBeenCalledTimes(1);
     const event = enqueue.mock.calls[0]![0] as Record<string, unknown>;
     expect(event['eventType']).toBe('HarvestRecordUpdated');
     expect(event['harvestRecordId']).toBe('hr-1');
     expect(event['batchId']).toBe('batch-1');
-    expect(event['changedFields']).toEqual(
-      expect.arrayContaining(['status', 'quantityHarvested', 'totalBiomass']),
-    );
-    expect(event['newQuantityHarvested']).toBe(600);
-    expect(event['newTotalBiomass']).toBe(1800);
+    expect(event['changedFields']).toEqual(['status']);
     expect(event['newStatus']).toBe(HarvestRecordStatus.COMPLETED);
+
+    // The stock-bearing figures are reported, never moved: this handler writes
+    // no batch aggregate, no tank composition and no ledger row, so an edit that
+    // could change them would diverge all three (FARM-CRITICAL-322). They are
+    // the harness record's values, untouched by the status edit.
+    expect(event['newQuantityHarvested']).toBe(500);
+    expect(event['newTotalBiomass']).toBe(1500);
 
     expect(commit).toHaveBeenCalledTimes(1);
   });

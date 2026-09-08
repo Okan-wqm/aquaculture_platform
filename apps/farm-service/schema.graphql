@@ -11414,15 +11414,6 @@ input UpdateHarvestRecordInput {
   """Update status"""
   status: HarvestRecordStatus
 
-  """Update quantity harvested"""
-  quantityHarvested: Int
-
-  """Update total biomass (kg)"""
-  totalBiomass: Float
-
-  """Update average weight (grams)"""
-  averageWeight: Float
-
   """Update Norwegian quality class (kvalitetsklasse) — the stored SSoT."""
   qualityClass: QualityClass
 

@@ -51,11 +51,15 @@ export * from './canary-tenant.registry';
 export { STRIPE_TENANT_METADATA_KEY, readStripeTenantHint } from './stripe-metadata';
 // BILLING-CRITICAL-007 cure: the commercial terms of a billing cycle, shared by
 // the service that quotes a price and the service that invoices it.
+// `BILLING_CYCLES` / `BillingCycle` are deliberately NOT re-exported here — they
+// belong to `@platform/event-contracts`, and a second import path for the same
+// symbol is how the set came to be declared twice (BILLING-HIGH-008).
 export {
-  BILLING_CYCLES,
   BILLING_CYCLE_MONTHS,
   BILLING_CYCLE_COMMITMENT_DISCOUNT,
+  addBillingCycle,
+  commitmentDiscountRateFor,
   cycleAmountFor,
-  isBillingCycleValue,
+  isBillingCycle,
 } from './billing-cycle-terms';
-export type { BillingCycleValue, CycleAmount } from './billing-cycle-terms';
+export type { CycleAmount } from './billing-cycle-terms';

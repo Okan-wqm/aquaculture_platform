@@ -184,6 +184,10 @@ export class ListTenantsHandler
       userCount: tenant.userCount,
       farmCount: resources.farmCount,
       sensorCount: resources.sensorCount,
+      // Same derivation as TenantDetailService (MT-MEDIUM-001) — the column is
+      // gone, trialEndsAt is the SSoT. The entity is already loaded here, so
+      // this adds no query.
+      isTrialActive: tenant.trialEndsAt != null && tenant.trialEndsAt > new Date(),
       createdAt: tenant.createdAt,
     };
   }

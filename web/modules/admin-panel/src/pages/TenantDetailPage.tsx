@@ -421,7 +421,17 @@ const TenantDetailPage: React.FC = () => {
               <div>
                 <label className="text-xs text-gray-500">Last Activity</label>
                 <p className="font-medium">
-                  {tenant.lastActivityAt ? formatRelativeTime(tenant.lastActivityAt) : '-'}
+                  {/*
+                    Read off the newest tenant activity, not off a
+                    `lastActivityAt` field: auth.tenants never had a column
+                    backing that name, so it was always undefined and this
+                    always rendered '-' (DB-ADMIN-HIGH-003, ADMIN-MEDIUM-111).
+                    TenantActivityService orders createdAt DESC, so [0] is the
+                    most recent.
+                  */}
+                  {tenant.recentActivities?.[0]
+                    ? formatRelativeTime(tenant.recentActivities[0].createdAt)
+                    : '-'}
                 </p>
               </div>
             </div>

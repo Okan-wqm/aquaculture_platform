@@ -42,37 +42,20 @@ export type TenantSettings = ApiSchema<'TenantSettingsDto'>;
 
 export type TenantContact = ApiSchema<'TenantContactDto'>;
 
-export interface Tenant {
-  id: string;
-  name: string;
-  slug: string;
-  description?: string;
-  domain?: string;
-  tier: TenantTier;
-  status: TenantStatus;
-  userCount: number;
-  farmCount: number;
-  sensorCount: number;
-  limits?: TenantLimits;
-  settings?: TenantSettings;
-  primaryContact?: TenantContact;
-  billingContact?: TenantContact;
-  billingEmail?: string;
-  country?: string;
-  region?: string;
-  trialEndsAt?: string;
-  suspendedAt?: string;
-  suspendedReason?: string;
-  suspendedBy?: string;
-  lastActivityAt?: string;
-  createdBy?: string;
-  maxStorage?: number;
-  isTrialActive?: boolean;
-  createdAt: string;
-  updatedAt: string;
-  version?: number;
-  availableActions?: Array<'activate' | 'suspend' | 'deactivate' | 'archive' | 'retryProvisioning'>;
-}
+/**
+ * One row of `GET /admin/tenants`, as `TenantListItemDto` describes it.
+ *
+ * Hand-declared until now, and it drifted the way ADMIN-HIGH-110 drifted: it
+ * carried `lastActivityAt`, which the backend REMOVED under DB-ADMIN-HIGH-003
+ * because no `auth.tenants` column ever backed it, so the value was always
+ * `undefined`. The tenant list and detail page both rendered it.
+ *
+ * The DTO could not be sourced from the contract before because it was declared
+ * as an `interface`, and the `@nestjs/swagger` plugin emits schemas for CLASSES
+ * ONLY — the exact root cause found in ADMIN-HIGH-110. It is a class now, so
+ * this is an alias and a backend rename is a compile error here.
+ */
+export type Tenant = ApiSchema<'TenantListItemDto'>;
 
 export type TenantStats = ApiSchema<'TenantStatsDto'>;
 
@@ -92,42 +75,14 @@ export interface TenantActivity {
 
 export type TenantNote = ApiSchema<'TenantNote'>;
 
-export interface TenantDetail extends Tenant {
-  userStats?: {
-    total: number;
-    active: number;
-    inactive: number;
-    byRole: Record<string, number>;
-    recentlyActive: number;
-    newUsersLast30Days: number;
-  };
-  resourceUsage?: {
-    storage: { usedGb: number; limitGb: number; percentage: number };
-    users: { count: number; limit: number; percentage: number };
-    farms: { count: number; limit: number; percentage: number };
-    sensors: { count: number; limit: number; percentage: number };
-    apiCalls: { last24h: number; last7d: number; limit: number };
-  };
-  modules?: Array<{
-    moduleId: string;
-    moduleCode: string;
-    moduleName: string;
-    isActive: boolean;
-    assignedAt: string;
-  }>;
-  recentActivities?: TenantActivity[];
-  notes?: TenantNote[];
-  billing?: {
-    currentPlan: string;
-    monthlyAmount: number;
-    currency: string;
-    billingCycle: string;
-    paymentStatus: string;
-    nextBillingDate: string | null;
-    lastPaymentDate: string | null;
-    lastPaymentAmount: number | null;
-  };
-}
+/**
+ * `GET /admin/tenants/:id/detail`, as `TenantDetailDto` describes it.
+ *
+ * NOT `Tenant & extras`: the detail response is a different projection, not a
+ * superset of the list row, and writing it as an extension of the list type is
+ * what let both carry `lastActivityAt` from one hand-written declaration.
+ */
+export type TenantDetail = ApiSchema<'TenantDetailDto'>;
 
 /**
  * Module quantity configuration for pricing calculation

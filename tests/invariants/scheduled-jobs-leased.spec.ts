@@ -184,13 +184,21 @@ describe('INVARIANT (ADMIN-HIGH-013): every scheduled method is leased and heart
   });
 
   it('reaches CronHeartbeatService only through the runner (direct callers are ratcheted)', () => {
+    // "Reaches" means HOLDS one — a constructor parameter typed
+    // `CronHeartbeatService`, or a call to one of its methods. Naming the class
+    // in a `providers` array is DI wiring, not a bypass: a service whose
+    // metrics module predates the shared one (auth, sensor) or that owns its
+    // own registry (observability) has to register the provider somewhere, and
+    // registering it is what makes the runner constructible in the first place.
+    // A mention-anywhere check would call that wiring an offender and push it
+    // into a waiver, which is how a ratchet stops meaning anything.
+    const REACHES_HEARTBEAT =
+      /(?::\s*CronHeartbeatService\b|\bheartbeat\.(?:track|declare|recordSkipped)\()/;
     const allowedFiles = new Set(allowlist.directHeartbeatFiles.map((e) => e.site));
     const direct = listScheduledSourceFiles()
       .filter((rel) => !HEARTBEAT_KERNEL_FILES.has(rel))
       .filter((rel) =>
-        /\bCronHeartbeatService\b/.test(
-          stripComments(readFileSync(resolve(REPO_ROOT, rel), 'utf8')),
-        ),
+        REACHES_HEARTBEAT.test(stripComments(readFileSync(resolve(REPO_ROOT, rel), 'utf8'))),
       )
       .sort();
     expect(direct.filter((rel) => !allowedFiles.has(rel))).toEqual([]);

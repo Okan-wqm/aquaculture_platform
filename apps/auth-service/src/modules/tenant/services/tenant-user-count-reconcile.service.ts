@@ -1,7 +1,12 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import { CronExpression } from '@nestjs/schedule';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import {
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
 
 /**
  * TenantUserCountReconcileService — DBR-LOW-001 cure.
@@ -57,9 +62,10 @@ export class TenantUserCountReconcileService {
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
 
-  @Cron(CronExpression.EVERY_DAY_AT_4AM)
+  @ScheduledJob({ name: 'tenant.user-count-reconcile', cron: CronExpression.EVERY_DAY_AT_4AM })
   async reconcileScheduled(): Promise<void> {
     try {
       const result = await this.reconcile();

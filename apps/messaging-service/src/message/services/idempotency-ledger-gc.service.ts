@@ -1,5 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import {
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
@@ -39,10 +43,11 @@ export class IdempotencyLedgerGcService {
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
 
   /** Daily at 03:10 — off-peak, after the partition cron's monthly slot. */
-  @Cron('10 3 * * *', { name: 'idempotency-ledger-gc' })
+  @ScheduledJob({ name: 'idempotency-ledger.gc', cron: '10 3 * * *' })
   async sweep(): Promise<void> {
     try {
       const result: unknown = await this.dataSource.query(

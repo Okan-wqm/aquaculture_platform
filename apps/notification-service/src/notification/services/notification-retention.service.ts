@@ -1,9 +1,13 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { NotificationLog, NotificationStatus } from '../entities/notification-log.entity';
+import {
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
 
 /**
  * Notification Retention Service
@@ -33,6 +37,7 @@ export class NotificationRetentionService {
     @InjectRepository(NotificationLog)
     private readonly logRepository: Repository<NotificationLog>,
     private readonly configService: ConfigService,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {
     this.retentionDays = this.configService.get<number>('NOTIFICATION_LOG_RETENTION_DAYS', 90);
     this.logger.log(`Notification log retention configured to ${this.retentionDays} days`);
@@ -42,7 +47,7 @@ export class NotificationRetentionService {
    * Nightly cleanup at 02:00 UTC.
    * Deletes terminal notification logs older than the retention window.
    */
-  @Cron('0 2 * * *', { name: 'notification-log-cleanup', timeZone: 'UTC' })
+  @ScheduledJob({ name: 'notification.log-cleanup', cron: '0 2 * * *', timeZone: 'UTC' })
   async cleanupOldLogs(): Promise<void> {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - this.retentionDays);

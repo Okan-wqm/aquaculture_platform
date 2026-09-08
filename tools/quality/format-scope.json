@@ -40967,6 +40967,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/scheduling/testing.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/security/__tests__/assert-self-scope.spec.ts",
       "prettier_managed": true
     },

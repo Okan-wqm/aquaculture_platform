@@ -19,6 +19,7 @@ import { MigrationAuditModule } from './migration-audit/migration-audit.module';
 import { GdprModule } from './gdpr/gdpr.module';
 import { RetentionBootstrapModule } from './retention/retention-bootstrap.module';
 import { InternalApiGuard } from './guards/internal-api.guard';
+import { ScheduledJobModule } from '@aquaculture/backend-common/scheduling';
 
 /**
  * PR#363 port — observability joins the fleet-wide schema authority
@@ -41,6 +42,9 @@ const ObservabilitySchemaVersionGate = createSchemaVersionGate('observability', 
       envFilePath: ['.env.local', '.env'],
     }),
     ScheduleModule.forRoot(),
+    // ADMIN-HIGH-013: every @ScheduledJob tick routes through the runner's
+    // advisory-lock lease and heartbeat.
+    ScheduledJobModule.forRoot({ serviceName: 'observability-service' }),
     // Database connection — observability-service reads aggregated metrics
     // across tenants (deliberate cross-tenant access). Uses the platform
     // TypeORM factory so pool, SSL, fail-fast, and search_path semantics

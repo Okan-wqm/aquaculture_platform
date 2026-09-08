@@ -71,6 +71,7 @@ import { SystemModule } from './modules/system-module/system-module.module';
 import { TenantModule } from './modules/tenant/tenant.module';
 import { AuthOutboxModule } from './outbox/auth-outbox.module';
 import { subgraphComplexityPlugin, subgraphFormatError } from '@aquaculture/backend-common/graphql';
+import { ScheduledJobModule } from '@aquaculture/backend-common/scheduling';
 
 /** Shared subgraph complexity ceiling (SEC-LOW-116). */
 const GRAPHQL_MAX_COMPLEXITY = 1000;
@@ -102,6 +103,10 @@ const authSchemaDdlOwnedByDbMigrate = isSchemaDdlOwnedByDbMigrate(process.env);
     // actually fire at runtime. Without ScheduleModule, every @Cron in
     // this service tree is silent dead code.
     ScheduleModule.forRoot(),
+    // ADMIN-HIGH-013: every @ScheduledJob tick routes through the runner's
+    // advisory-lock lease and heartbeat. Must sit beside ScheduleModule and
+    // the module that owns /metrics (the heartbeat's home).
+    ScheduledJobModule.forRoot({ serviceName: 'auth-service' }),
 
     // Database connection — auth-service owns the 'auth' schema. Uses the
     // platform TypeORM factory so pool size, SSL, fail-fast, env-var

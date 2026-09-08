@@ -1,5 +1,10 @@
-import { Injectable, Logger, OnModuleInit, BadRequestException } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Inject, Injectable, Logger, OnModuleInit, BadRequestException } from '@nestjs/common';
+import { CronExpression } from '@nestjs/schedule';
+import {
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { TenantPlan, resolvePlanLimits } from '@platform/event-contracts';
 import {
@@ -154,6 +159,7 @@ export class MeteredBillingService implements OnModuleInit {
   constructor(
     private readonly usageAggregator: UsageAggregatorService,
     private readonly eventEmitter: EventEmitter2,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -178,8 +184,14 @@ export class MeteredBillingService implements OnModuleInit {
    * WHAT: hourly, warn for any exchange rate older than 24h. Rates should be
    * replaced with a live feed (e.g. Open Exchange Rates) in production.
    */
-  @Cron(CronExpression.EVERY_HOUR, { name: 'metered-billing-stale-fx-warn' })
-  warnOnStaleExchangeRates(): void {
+  // `each-replica`: the rate map is per-process in-memory state, so a stale
+  // rate on replica 2 is invisible to a leader-only tick on replica 1.
+  @ScheduledJob({
+    name: 'metered-billing.stale-fx-warn',
+    cron: CronExpression.EVERY_HOUR,
+    scope: 'each-replica',
+  })
+  async warnOnStaleExchangeRates(): Promise<void> {
     const now = Date.now();
     for (const [pair, rate] of this.exchangeRates) {
       const ageHours = (now - rate.updatedAt.getTime()) / (1000 * 60 * 60);

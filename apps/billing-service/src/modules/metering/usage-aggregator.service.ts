@@ -7,8 +7,13 @@
  * OPTIMIZED: Database persistence for fault tolerance - no data loss on restart.
  */
 
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
-import { Cron, CronExpression, Interval } from '@nestjs/schedule';
+import { Inject, Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { CronExpression } from '@nestjs/schedule';
+import {
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
 import { DataSource, Repository, Between, In, MoreThanOrEqual, Not } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { MeterType, UsageMeteringService, MeterReading } from './usage-metering.service';
@@ -179,6 +184,7 @@ export class UsageAggregatorService implements OnModuleInit, OnModuleDestroy {
     private readonly dataSource: DataSource,
     private readonly usageMeteringService: UsageMeteringService,
     private readonly eventEmitter: EventEmitter2,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -226,7 +232,13 @@ export class UsageAggregatorService implements OnModuleInit, OnModuleDestroy {
    * database. `persistDirtyData` is a no-op when nothing is dirty and catches
    * its own DB errors, so this can never throw an unhandled rejection.
    */
-  @Interval('metering-aggregator-persist', 30000)
+  // `each-replica`: the dirty aggregations live in this process's memory and
+  // are lost if another replica's tick is the only one that runs.
+  @ScheduledJob({
+    name: 'metering-aggregator.persist',
+    every: 30_000,
+    scope: 'each-replica',
+  })
   async flushDirtyDataOnInterval(): Promise<void> {
     await this.persistDirtyData();
   }
@@ -255,8 +267,10 @@ export class UsageAggregatorService implements OnModuleInit, OnModuleDestroy {
    * runs converge to identical values. It is safe to run before any usage has
    * been ingested — every call simply returns `null` and no rows are written.
    */
-  @Cron(CronExpression.EVERY_HOUR, { name: 'metering-aggregator-rollup' })
-  runScheduledRollups(): void {
+  // Cluster-single: the rollup rebuilds SHARED `usage_aggregations` rows from
+  // the database, so one replica doing it is the whole job.
+  @ScheduledJob({ name: 'metering-aggregator.rollup', cron: CronExpression.EVERY_HOUR })
+  async runScheduledRollups(): Promise<void> {
     const now = new Date();
     let rollupsWritten = 0;
 

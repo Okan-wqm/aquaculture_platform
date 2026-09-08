@@ -1,5 +1,9 @@
-import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
+import { Inject, Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
+import {
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { listTenantSchemas } from '@aquaculture/backend-common/database';
 import { DataSource } from 'typeorm';
@@ -37,6 +41,7 @@ export class PartitionManagerService implements OnApplicationBootstrap {
   constructor(
     @InjectDataSource()
     private readonly dataSource: DataSource,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
 
   /** On startup, ensure current + next 2 months exist. */
@@ -46,7 +51,7 @@ export class PartitionManagerService implements OnApplicationBootstrap {
   }
 
   /** Monthly cron: 1st of every month at 00:00. Creates partitions for next 3 months. */
-  @Cron('0 0 1 * *', { name: 'partition-manager' })
+  @ScheduledJob({ name: 'partition-manager.monthly', cron: '0 0 1 * *' })
   async handleMonthlyPartitionCron(): Promise<void> {
     this.logger.log('Monthly partition creation cron triggered');
     try {

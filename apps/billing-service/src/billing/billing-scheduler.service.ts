@@ -1,5 +1,10 @@
 import { Injectable, Logger, Optional, Inject } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { CronExpression } from '@nestjs/schedule';
+import {
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, LessThanOrEqual, LessThan, In } from 'typeorm';
 import { NatsEventBus } from '@platform/event-bus';
@@ -44,6 +49,7 @@ export class BillingSchedulerService {
     // MUST mirror the immediate change-subscription-plan path at Stripe, else the
     // tenant keeps paying the old price after the downgrade lands locally.
     private readonly stripeApi: StripeApiService,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
     @Optional() @Inject('EVENT_BUS') private readonly eventBus?: NatsEventBus,
   ) {}
 
@@ -53,7 +59,7 @@ export class BillingSchedulerService {
    * Every hour, find TRIAL subscriptions whose trialEndDate has passed
    * and transition them to ACTIVE with a fresh billing period.
    */
-  @Cron(CronExpression.EVERY_HOUR)
+  @ScheduledJob({ name: 'billing.trial-expiry', cron: CronExpression.EVERY_HOUR })
   async handleTrialExpiry(): Promise<void> {
     const now = new Date();
 
@@ -125,7 +131,7 @@ export class BillingSchedulerService {
    * and transition them to EXPIRED. A 3-day grace period is applied
    * so tenants have a short window to renew before losing access.
    */
-  @Cron(CronExpression.EVERY_HOUR)
+  @ScheduledJob({ name: 'billing.subscription-expiry', cron: CronExpression.EVERY_HOUR })
   async handleSubscriptionExpiry(): Promise<void> {
     const now = new Date();
     const gracePeriodMs = 3 * 24 * 60 * 60 * 1000; // 3 days
@@ -185,7 +191,10 @@ export class BillingSchedulerService {
    * Every day at midnight, find SENT or PENDING invoices whose dueDate
    * has passed and mark them as OVERDUE.
    */
-  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
+  @ScheduledJob({
+    name: 'billing.overdue-invoices',
+    cron: CronExpression.EVERY_DAY_AT_MIDNIGHT,
+  })
   async handleOverdueInvoices(): Promise<void> {
     const now = new Date();
 
@@ -231,23 +240,23 @@ export class BillingSchedulerService {
    * for the same subscription + period. If so, we skip it to prevent duplicates
    * on re-runs or overlapping scheduler instances.
    */
-  @Cron('0 1 1 * *') // 1st of every month at 01:00
+  // 1st of every month at 01:00.
+  @ScheduledJob({ name: 'billing.generate-monthly-invoices', cron: '0 1 1 * *' })
   async generateMonthlyInvoices(): Promise<void> {
-    // Distributed lock: pg_try_advisory_lock prevents two scheduler replicas
-    // from running invoice generation concurrently. Without this, both instances
-    // read subscriptions with no existing invoice, both generate, and the
-    // per-subscription idempotency check only catches WITHIN a single run —
-    // not across concurrent runs that interleave reads and writes.
-    const INVOICE_GEN_LOCK_ID = 900001; // unique advisory lock ID
-    const lockResult = await this.dataSource.query(
-      'SELECT pg_try_advisory_lock($1) as acquired', [INVOICE_GEN_LOCK_ID],
-    );
-    if (!lockResult?.[0]?.acquired) {
-      this.logger.log('Another instance holds the invoice generation lock — skipping');
-      return;
-    }
-
-    try {
+    // The single-replica guarantee is `@ScheduledJob`'s, and it has to be:
+    // the hand-rolled lock this replaced called `pg_try_advisory_lock` through
+    // `dataSource.query`, which takes a connection from the pool and returns
+    // it. A session-scoped advisory lock belongs to the connection that took
+    // it, so the matching `pg_advisory_unlock` — issued through a second
+    // `dataSource.query`, on whatever connection the pool handed out next —
+    // returned false rather than releasing anything. `pg_advisory_unlock`
+    // reports that by RETURNING false, not by throwing, so the `.catch` that
+    // was supposed to notice never fired. The lock stayed held for the life of
+    // the first connection and no replica generated an invoice again.
+    //
+    // `ScheduledJobRunner` takes `pg_try_advisory_xact_lock` on its own query
+    // runner and releases it with the connection, so the lock cannot outlive
+    // the tick.
     const now = new Date();
     this.logger.log('Starting auto-invoice generation run...');
 
@@ -416,12 +425,6 @@ export class BillingSchedulerService {
     this.logger.log(
       `Auto-invoice generation complete: ${generated} generated, ${skipped} skipped (already invoiced)`,
     );
-    } finally {
-      // Always release advisory lock — even on error, so next cron run can acquire it.
-      await this.dataSource.query(
-        'SELECT pg_advisory_unlock($1)', [INVOICE_GEN_LOCK_ID],
-      ).catch((err: Error) => this.logger.warn(`Advisory unlock failed: ${err.message}`));
-    }
   }
 
   /**
@@ -492,7 +495,7 @@ export class BillingSchedulerService {
    *
    * Idempotent: only processes PENDING changes, marks them APPLIED on success.
    */
-  @Cron(CronExpression.EVERY_HOUR)
+  @ScheduledJob({ name: 'billing.apply-scheduled-plan-changes', cron: CronExpression.EVERY_HOUR })
   async applyScheduledPlanChanges(): Promise<void> {
     const now = new Date();
 

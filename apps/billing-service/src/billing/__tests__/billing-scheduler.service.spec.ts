@@ -18,6 +18,8 @@ import {
   createMockEventBus,
 } from '@platform/testing';
 import { StripeApiService } from '@aquaculture/backend-common/billing';
+import { ScheduledJobRunner } from '@aquaculture/backend-common/scheduling';
+import { createScheduledJobTestExecutor } from '@aquaculture/backend-common/scheduling/testing';
 import { Plan } from '../../billing/entities/plan.entity';
 import { BillingSchedulerService } from '../../billing/billing-scheduler.service';
 import {
@@ -125,6 +127,14 @@ function createMockInvoiceRepo(): jest.Mocked<Partial<Repository<Invoice>>> {
 // Tests
 // ---------------------------------------------------------------------------
 
+/**
+ * ADMIN-HIGH-013: a double fire on `generateMonthlyInvoices` or
+ * `applyScheduledPlanChanges` is a duplicate invoice and a double plan
+ * mutation, so for these two the lease is not hygiene — it is the correctness
+ * boundary. `grant(false)` is another replica holding the advisory lock.
+ */
+const leaseAudit = createScheduledJobTestExecutor();
+
 describe('BillingSchedulerService', () => {
   let service: BillingSchedulerService;
   let subRepo: ReturnType<typeof createMockSubscriptionRepo>;
@@ -141,16 +151,13 @@ describe('BillingSchedulerService', () => {
     // generateScheduledInvoices). Provide a minimal mock; tests in
     // this file don't exercise the transactional code path so a
     // bare double is enough.
-    // BillingSchedulerService.generateMonthlyInvoices uses a Postgres
-    // advisory lock (SELECT pg_try_advisory_lock(...)) to prevent
-    // concurrent cron runs from emitting duplicate invoices. The
-    // mock returns acquired=true so the test path proceeds.
-    // Without this the unit test would short-circuit at the lock
-    // gate and never reach generateInvoiceNumber.
+    // The hand-rolled `pg_try_advisory_lock` this used to mock is gone: the
+    // single-replica guarantee is `@ScheduledJob`'s, and `leaseAudit` below is
+    // what stands in for it.
     const mockDataSource = {
       transaction: jest.fn(),
       createQueryRunner: jest.fn(),
-      query: jest.fn().mockResolvedValue([{ acquired: true }]),
+      query: jest.fn(),
     };
     // ORPHAN-174: scheduler now injects StripeApiService. Build via the Nest
     // testing module + useValue (the repo's cast-free DI idiom).
@@ -161,6 +168,7 @@ describe('BillingSchedulerService', () => {
         { provide: getRepositoryToken(Subscription), useValue: subRepo },
         { provide: getRepositoryToken(Invoice), useValue: invRepo },
         { provide: StripeApiService, useValue: { updateSubscription: jest.fn() } },
+        { provide: ScheduledJobRunner, useValue: leaseAudit.executor },
         { provide: 'EVENT_BUS', useValue: mockEventBus },
       ],
     }).compile();
@@ -174,6 +182,90 @@ describe('BillingSchedulerService', () => {
   afterEach(() => {
     jest.clearAllMocks();
     jest.useRealTimers();
+    leaseAudit.reset();
+  });
+
+  // ==========================================================================
+  // ADMIN-HIGH-013: the lease, on the two jobs where a double fire costs money
+  // ==========================================================================
+
+  describe('the money jobs run under a lease', () => {
+    it('writes no invoice when the lease is held by another replica', async () => {
+      // The premise of the whole conversion: if the lock is not ours, the body
+      // does not run. Before this, `generateMonthlyInvoices` took the lock with
+      // `dataSource.query`, which returns its connection to the pool — the
+      // session-scoped lock stayed with that connection and the unlock, issued
+      // on a different one, silently returned false.
+      (subRepo.find as jest.Mock).mockResolvedValue([
+        buildSubscription({ status: SubscriptionStatus.ACTIVE, currentPeriodEnd: PAST }),
+      ]);
+      leaseAudit.grant(false);
+
+      await service.generateMonthlyInvoices();
+
+      // `cluster-single`, not `each-replica`: an invoice is shared state.
+      expect(leaseAudit.entries).toEqual([
+        { job: 'billing.generate-monthly-invoices', scope: 'cluster-single' },
+      ]);
+      expect(subRepo.find).not.toHaveBeenCalled();
+      expect(invRepo.save).not.toHaveBeenCalled();
+      expect(subRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('applies no scheduled plan change when the lease is held elsewhere', async () => {
+      leaseAudit.grant(false);
+
+      await service.applyScheduledPlanChanges();
+
+      expect(leaseAudit.entries).toEqual([
+        { job: 'billing.apply-scheduled-plan-changes', scope: 'cluster-single' },
+      ]);
+      expect(subRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('takes the lease before it reads the subscriptions it will invoice', async () => {
+      // Not just "a lease exists" — the lease has to come FIRST, or two
+      // replicas both read the un-invoiced set before either writes.
+      const order: string[] = [];
+      (subRepo.find as jest.Mock).mockImplementation(async () => {
+        order.push('read');
+        return [];
+      });
+      const original = leaseAudit.executor.run.bind(leaseAudit.executor);
+      const spy = jest
+        .spyOn(leaseAudit.executor, 'run')
+        .mockImplementation(async (job, body, scope) => {
+          order.push('lease');
+          return original(job, body, scope);
+        });
+
+      await service.generateMonthlyInvoices();
+
+      expect(order).toEqual(['lease', 'read']);
+      spy.mockRestore();
+    });
+
+    it('leases every scheduled entry point on this service', async () => {
+      // A method that keeps its schedule but loses its lease is the exact
+      // regression this wave exists to prevent, and it is invisible until two
+      // replicas run.
+      (subRepo.find as jest.Mock).mockResolvedValue([]);
+      (invRepo.find as jest.Mock).mockResolvedValue([]);
+
+      await service.handleTrialExpiry();
+      await service.handleSubscriptionExpiry();
+      await service.handleOverdueInvoices();
+      await service.generateMonthlyInvoices();
+      await service.applyScheduledPlanChanges();
+
+      expect(leaseAudit.entries.map((entry) => entry.job)).toEqual([
+        'billing.trial-expiry',
+        'billing.subscription-expiry',
+        'billing.overdue-invoices',
+        'billing.generate-monthly-invoices',
+        'billing.apply-scheduled-plan-changes',
+      ]);
+    });
   });
 
   // ==========================================================================
@@ -877,6 +969,7 @@ describe('BillingSchedulerService', () => {
           { provide: getRepositoryToken(Subscription), useValue: createMockRepository<Subscription>() },
           { provide: getRepositoryToken(Invoice), useValue: createMockRepository<Invoice>() },
           { provide: StripeApiService, useValue: stripeApi },
+          { provide: ScheduledJobRunner, useValue: leaseAudit.executor },
           { provide: 'EVENT_BUS', useValue: eventBus },
         ],
       }).compile();

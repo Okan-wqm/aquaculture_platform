@@ -348,25 +348,9 @@ export type SeedModulePricesResult = ApiSchema<'SeedModulePricesResultDto'>;
 /** The write-side multiplier block, keyed by tier. */
 export type TierMultipliers = NonNullable<SetModulePricingDto['tierMultipliers']>;
 
-export interface ModuleQuantities {
-  users?: number;
-  farms?: number;
-  ponds?: number;
-  sensors?: number;
-  devices?: number;
-  storageGb?: number;
-  apiCalls?: number;
-  alerts?: number;
-  reports?: number;
-  integrations?: number;
-}
+export type ModuleQuantities = ApiSchema<'ModuleQuantitiesDto'>;
 
-export interface ModuleSelection {
-  moduleId: string;
-  moduleCode: string;
-  moduleName?: string;
-  quantities: ModuleQuantities;
-}
+export type ModuleSelection = ApiSchema<'ModuleSelectionDto'>;
 
 /** Generated from the backend contract (CONTRACT-CRITICAL-003). */
 export type QuoteRequest = ApiSchema<'QuoteRequest'>;

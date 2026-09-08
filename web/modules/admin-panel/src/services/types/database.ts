@@ -2,36 +2,24 @@
  * Database management types
  */
 
-export interface TenantSchema {
-  tenantId: string;
-  tenantName: string;
-  schemaName: string;
-  status: 'active' | 'suspended' | 'archived' | 'migration_pending';
-  tableCount: number;
-  sizeBytes: number;
-  rowCount: number;
-  lastMigrationAt?: string;
-  currentVersion: string;
-  createdAt: string;
-}
+import type { ApiSchema } from '../contract';
 
-export interface SchemaMigration {
-  id: string;
-  version: string;
-  name: string;
-  description?: string;
-  type: 'schema' | 'data' | 'index' | 'rollback';
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'rolled_back';
-  appliedToSchemas: string[];
-  failedSchemas: string[];
-  startedAt?: string;
-  completedAt?: string;
-  error?: string;
-  sql?: string;
-  rollbackSql?: string;
-  createdBy: string;
-  createdAt: string;
-}
+export type TenantSchema = ApiSchema<'TenantSchema'>;
+
+/**
+ * One `admin.schema_migrations` row, as the `/database/migrations` endpoints
+ * return it.
+ *
+ * The hand-written copy named almost every field differently — `name`, `sql`,
+ * `rollbackSql`, `error`, `createdBy`, plus `type`, `appliedToSchemas` and
+ * `failedSchemas` that have no counterpart at all — against the row's
+ * `migrationName`, `upScript`, `downScript`, `errorMessage`, `executedBy`,
+ * `schemaName` and `affectedTables`. `DatabaseManagementPage` had already
+ * noticed and papered over it with `migration.name || migration.migrationName`
+ * and a third declaration carrying both spellings as optional
+ * (ADMIN-MEDIUM-111). Sourced from the contract, one spelling exists.
+ */
+export type SchemaMigration = ApiSchema<'SchemaMigration'>;
 
 export interface DatabaseStats {
   totalSize: string;

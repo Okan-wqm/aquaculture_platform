@@ -8,13 +8,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Button, Badge, Input, Select } from '@aquaculture/shared-ui';
 import { systemSettingsApi } from '../../services/adminApi';
-import type { BackgroundJob, JobQueue } from '../../services/adminApi';
+import type { BackgroundJob, JobQueue, JobStatus } from '../../services/adminApi';
 
 // ============================================================================
 // Types
 // ============================================================================
-
-type JobStatus = 'pending' | 'scheduled' | 'running' | 'completed' | 'failed' | 'cancelled' | 'retrying';
 
 interface JobDashboard {
   totalJobs: number;
@@ -211,6 +209,10 @@ export const JobQueuePage: React.FC = () => {
       failed: 'error',
       cancelled: 'default',
       retrying: 'warning',
+      // Held, not progressing. `warning` is this map's colour for a job that is
+      // unsettled -- running and retrying share it -- against `default` for the
+      // settled ones, queued and cancelled.
+      paused: 'warning',
     };
     return variants[status] || 'default';
   };
@@ -541,7 +543,7 @@ export const JobQueuePage: React.FC = () => {
                   <div className="text-xs text-gray-500">Pending</div>
                 </div>
                 <div>
-                  <div className="text-2xl font-bold text-yellow-600">{queue.activeCount}</div>
+                  <div className="text-2xl font-bold text-yellow-600">{queue.runningCount}</div>
                   <div className="text-xs text-gray-500">Running</div>
                 </div>
                 <div>

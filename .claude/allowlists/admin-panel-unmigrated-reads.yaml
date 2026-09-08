@@ -46,11 +46,11 @@
 # and were never exported from `hooks/index.ts`, so no page could reach them.
 # W8b migrated AuditLogPage and ActivityLogPage; W8c AuditTrailPage and
 # SecurityDashboardPage; W8d CompliancePage, which finishes the SECURITY batch
-# and is the first page to use the write primitive: 39 remain.
-# Batches: tenant 6, billing 11, system 13, messaging 9.
+# and is the first page to use the write primitive; W8e ModulesPage: 38 remain.
+# Batches: tenant 6, billing 11, system 12, messaging 9.
 # The ceiling drops with each batch and this file is deleted at 0.
 version: 1
-ceiling: 39
+ceiling: 38
 entries:
   - site: web/modules/admin-panel/src/pages/CreateTenantPage.tsx
     batch: tenant
@@ -179,12 +179,6 @@ entries:
     findingId: ADMIN-HIGH-121
     reason: system batch — reads move to useAdminQuery with an adminKeys.system key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/EmailTemplatesPage.tsx
-    batch: system
-    owner: okan
-    expiry: 2026-12-31
-    findingId: ADMIN-HIGH-121
-    reason: system batch — reads move to useAdminQuery with an adminKeys.system key, writes to useAdminMutation with invalidateKeys
-  - site: web/modules/admin-panel/src/pages/ModulesPage.tsx
     batch: system
     owner: okan
     expiry: 2026-12-31

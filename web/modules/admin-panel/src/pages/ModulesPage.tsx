@@ -3,46 +3,63 @@
  * View and manage system modules across all tenants
  */
 
-import React, { useState, useCallback } from 'react';
-import { useAsyncData } from '../hooks/useAsyncData';
+import React, { useCallback, useMemo, useState } from 'react';
+import { adminKeys, useAdminMutation, useAdminQuery } from '../hooks';
+import { QueryFailureNotice } from '../components';
 import { modulesApi } from '../services/adminApi';
 // The page-local shadows of these two shapes are gone: both were
 // byte-identical copies of the canonical declarations, which is how a copy
 // stops matching the endpoint it describes without anything saying so.
 import type { ModuleStats, PaginatedResult, SystemModule } from '../services/types';
 
+/**
+ * What a stat card shows when `/modules/stats` did not answer.
+ *
+ * These four used to fall back to a computation over `modules` — the CURRENT
+ * PAGE of results. "Total Modules" would then quietly show a page count, and
+ * "Total Assignments" the sum over one page, both looking exactly like the
+ * figures they were standing in for. A number that is wrong is worse than a
+ * number that is absent, and the failure itself is now reported by
+ * `QueryFailureNotice` rather than papered over (ADMIN-HIGH-121).
+ */
+const UNAVAILABLE = '—';
+
+/** Stable empty — `?? []` hands a new array on every render. */
+const EMPTY_MODULES: readonly SystemModule[] = [];
+
 const ModulesPage: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isActiveFilter, setIsActiveFilter] = useState<boolean | undefined>(undefined);
   const [isCoreFilter, setIsCoreFilter] = useState<boolean | undefined>(undefined);
-  const [togglingModuleId, setTogglingModuleId] = useState<string | null>(null);
-  const [toggleError, setToggleError] = useState<string | null>(null);
-
-  // Fetch modules from API
-  const {
-    data: modulesData,
-    loading,
-    error,
-    refresh,
-    canRetry,
-    retry,
-  } = useAsyncData<PaginatedResult<SystemModule>>(
-    () =>
-      modulesApi.list({
-        search: searchTerm || undefined,
-        isActive: isActiveFilter,
-        isCore: isCoreFilter,
-      }),
-    { immediate: true, cacheKey: `modules-${searchTerm}-${isActiveFilter}-${isCoreFilter}` },
+  const listFilter = useMemo(
+    () => ({
+      search: searchTerm || undefined,
+      isActive: isActiveFilter,
+      isCore: isCoreFilter,
+    }),
+    [searchTerm, isActiveFilter, isCoreFilter],
   );
 
-  // Fetch module stats
-  const { data: stats } = useAsyncData<ModuleStats>(
-    () => modulesApi.getStats(),
-    { immediate: true, cacheKey: 'module-stats' }
+  const modulesQuery = useAdminQuery<PaginatedResult<SystemModule>>(
+    adminKeys.modules.list(listFilter),
+    ({ signal }) => modulesApi.list(listFilter, signal),
+    { placeholderData: (previous) => previous, staleTime: 30_000 },
   );
 
-  const modules = modulesData?.data || [];
+  const statsQuery = useAdminQuery<ModuleStats>(
+    [...adminKeys.modules.all(), 'stats'],
+    ({ signal }) => modulesApi.getStats(signal),
+    { staleTime: 60_000 },
+  );
+
+  const modules = modulesQuery.data?.data ?? EMPTY_MODULES;
+  const stats = statsQuery.data;
+  const loading = modulesQuery.isPending;
+  const queryErrors = [modulesQuery.error, statsQuery.error];
+  const refresh = (): void => {
+    void modulesQuery.refetch();
+    void statsQuery.refetch();
+  };
 
   // Debounced search
   const handleSearchChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -56,27 +73,39 @@ const ModulesPage: React.FC = () => {
     }
   }, [refresh]);
 
-  // Toggle module active status
-  const handleToggleModule = useCallback(async (module: SystemModule) => {
-    if (togglingModuleId) return; // Prevent multiple toggles
+  /**
+   * Activate / deactivate, through the write primitive (ADMIN-HIGH-121).
+   *
+   * The old handler called `refresh()`, which re-fetched the LIST only — and
+   * the stats lived in a separate `useAsyncData` cache entry with its own TTL.
+   * So toggling a module left the "Active Modules" card showing the count from
+   * before the toggle, for up to a minute, on the same screen as the switch
+   * the operator had just flipped. `invalidateKeys` names BOTH slices, which
+   * is the whole reason a write declares what it affected.
+   */
+  const toggleModule = useAdminMutation<SystemModule, SystemModule>(
+    (module) => (module.isActive ? modulesApi.deactivate(module.id) : modulesApi.activate(module.id)),
+    { invalidateKeys: [adminKeys.modules.all()] },
+  );
 
-    setTogglingModuleId(module.id);
-    setToggleError(null);
-    try {
-      if (module.isActive) {
-        await modulesApi.deactivate(module.id);
-      } else {
-        await modulesApi.activate(module.id);
+  const togglingModuleId = toggleModule.isPending ? toggleModule.variables?.id ?? null : null;
+  const toggleError = toggleModule.error
+    ? `Failed to change module status: ${toggleModule.error.message}`
+    : null;
+
+  const handleToggleModule = useCallback(
+    async (module: SystemModule): Promise<void> => {
+      if (toggleModule.isPending) return; // one toggle at a time
+      try {
+        await toggleModule.mutateAsync(module);
+      } catch {
+        // `toggleModule.error` carries it and the banner above renders it; the
+        // `console.error` that used to sit here duplicated a message the user
+        // was already shown.
       }
-      // Refresh the list after toggle
-      refresh();
-    } catch (err) {
-      console.error('Failed to toggle module status:', err);
-      setToggleError(`Failed to change module status: ${err instanceof Error ? err.message : 'Unknown error'}`);
-    } finally {
-      setTogglingModuleId(null);
-    }
-  }, [togglingModuleId, refresh]);
+    },
+    [toggleModule],
+  );
 
   // Get category badge color based on module code
   const getCategoryColor = (code: string) => {
@@ -207,7 +236,10 @@ const ModulesPage: React.FC = () => {
             <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
           </svg>
           <p className="text-sm text-red-700 flex-1">{toggleError}</p>
-          <button onClick={() => setToggleError(null)} className="text-red-400 hover:text-red-600">
+          <button
+            onClick={() => toggleModule.reset()}
+            className="text-red-400 hover:text-red-600"
+          >
             <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
             </svg>
@@ -218,50 +250,37 @@ const ModulesPage: React.FC = () => {
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-          <div className="text-2xl font-bold text-gray-900">{stats?.totalModules ?? modules.length}</div>
+          <div className="text-2xl font-bold text-gray-900">{stats?.totalModules ?? UNAVAILABLE}</div>
           <div className="text-sm text-gray-500">Total Modules</div>
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
           <div className="text-2xl font-bold text-green-600">
-            {stats?.activeModules ?? modules.filter((m) => m.isActive).length}
+            {stats?.activeModules ?? UNAVAILABLE}
           </div>
           <div className="text-sm text-gray-500">Active Modules</div>
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
           <div className="text-2xl font-bold text-purple-600">
-            {stats?.coreModules ?? modules.filter((m) => m.isCore).length}
+            {stats?.coreModules ?? UNAVAILABLE}
           </div>
           <div className="text-sm text-gray-500">Core Modules</div>
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
           <div className="text-2xl font-bold text-blue-600">
-            {stats?.totalAssignments ?? modules.reduce((sum, m) => sum + m.tenantsCount, 0)}
+            {stats?.totalAssignments ?? UNAVAILABLE}
           </div>
           <div className="text-sm text-gray-500">Total Assignments</div>
         </div>
       </div>
 
-      {/* Error State */}
-      {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center">
-              <svg className="w-5 h-5 text-red-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <span className="text-red-700">{error}</span>
-            </div>
-            {canRetry && (
-              <button
-                onClick={retry}
-                className="px-3 py-1 text-sm bg-red-100 text-red-700 rounded hover:bg-red-200 transition-colors"
-              >
-                Retry
-              </button>
-            )}
-          </div>
-        </div>
-      )}
+      {/* One component owns banner-vs-full-page for every admin page
+          (ADMIN-HIGH-121). The stats query failing no longer silently turns
+          the four cards into page-scoped computations. */}
+      <QueryFailureNotice
+        errors={queryErrors}
+        hasContent={modules.length > 0}
+        onRetry={refresh}
+      />
 
       {/* Modules Grid */}
       {loading ? (

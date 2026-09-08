@@ -69,7 +69,11 @@ export const adminKeys = {
   // ── Modules ──
   modules: {
     all: () => [...adminKeys.all, 'modules'] as const,
-    list: () => [...adminKeys.modules.all(), 'list'] as const,
+    // Takes the filters, like every other domain's `list`. Without them a
+    // filtered module list would overwrite the unfiltered one in the same
+    // cache entry — the class of bug this factory exists to prevent.
+    list: (filters?: Record<string, unknown>) =>
+      [...adminKeys.modules.all(), 'list', filters] as const,
     detail: (id: string) =>
       [...adminKeys.modules.all(), 'detail', id] as const,
   },

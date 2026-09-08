@@ -27,10 +27,11 @@
 #
 # 44 of 44 pages at W8a: the primitives shipped in an earlier release
 # and were never exported from `hooks/index.ts`, so no page could reach them.
-# Batches: tenant 6, billing 11, security 5, system 13, messaging 9.
+# W8b migrated AuditLogPage, the first one: 43 remain.
+# Batches: tenant 6, billing 11, security 4, system 13, messaging 9.
 # The ceiling drops with each batch and this file is deleted at 0.
 version: 1
-ceiling: 44
+ceiling: 43
 entries:
   - site: web/modules/admin-panel/src/pages/CreateTenantPage.tsx
     batch: tenant
@@ -134,12 +135,6 @@ entries:
     expiry: 2026-12-31
     findingId: ADMIN-HIGH-105
     reason: billing batch — reads move to useAdminQuery with an adminKeys.billing key, writes to useAdminMutation with invalidateKeys
-  - site: web/modules/admin-panel/src/pages/AuditLogPage.tsx
-    batch: security
-    owner: okan
-    expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
-    reason: security batch — reads move to useAdminQuery with an adminKeys.security key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/security/ActivityLogPage.tsx
     batch: security
     owner: okan

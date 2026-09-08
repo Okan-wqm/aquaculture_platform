@@ -33,15 +33,19 @@ import type {
   BackendComplianceCheckResult,
   BackendComplianceReport,
   BackendDataSubjectRequest,
+  ComplianceType,
+  DataRequestStatus,
+  DataRequestType,
 } from '../../services/types/security';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-type ComplianceType = 'gdpr' | 'ccpa' | 'hipaa' | 'pci_dss' | 'iso27001' | 'sox' | 'soc2';
-type DataRequestType = 'access' | 'rectification' | 'erasure' | 'portability' | 'restriction' | 'objection';
-type DataRequestStatus = 'pending' | 'in_progress' | 'identity_verification' | 'processing' | 'completed' | 'rejected';
+// ADMIN-HIGH-115. This file used to re-declare `ComplianceType`,
+// `DataRequestType` and `DataRequestStatus`, each with members the API cannot
+// send and each missing one it can. They are imported now, from the module that
+// matches the contract.
 
 interface DataRequest {
   id: string;
@@ -135,7 +139,7 @@ async function fetchDataRequests(params: {
   if (params.limit) apiParams.limit = params.limit;
   if (params.status && params.status !== 'all') apiParams.status = params.status;
   if (params.requestType && params.requestType !== 'all') {
-    apiParams.requestType = params.requestType === 'erasure' ? 'deletion' : params.requestType;
+    apiParams.requestType = params.requestType;
   }
   if (params.searchQuery) apiParams.searchQuery = params.searchQuery;
 
@@ -174,14 +178,20 @@ async function fetchComplianceChecks(framework: string): Promise<ComplianceCheck
 }
 
 function mapDataSubjectRequest(request: BackendDataSubjectRequest): DataRequest {
-  const requestType: DataRequestType =
-    request.requestType === 'deletion' ? 'erasure' : request.requestType;
-
   return {
     id: request.id,
-    requestType,
+    // Was `request.requestType === 'deletion' ? 'erasure' : …`, renaming the
+    // API's vocabulary on the way in and back again on the way out. One
+    // vocabulary now — the API's — with GDPR's wording kept in the LABEL, which
+    // is where a presentation choice belongs (ADMIN-HIGH-115).
+    requestType: request.requestType,
     complianceFramework: request.complianceFramework ?? 'gdpr',
-    status: request.status === 'expired' ? 'rejected' : request.status,
+    // `expired` used to be relabelled `rejected` here. Those are not the same
+    // thing: expired means the statutory response window ran out — the
+    // platform's own failure — and rejected means a reasoned refusal. Showing
+    // the first as the second misstates the compliance posture on the page
+    // built to report it (ADMIN-HIGH-115).
+    status: request.status,
     tenantId: request.tenantId ?? '',
     tenantName: request.tenantName ?? request.tenantId ?? 'Unknown tenant',
     requesterId: request.requesterId ?? undefined,
@@ -302,53 +312,51 @@ const formatDateTime = (dateString: string): string => {
   });
 };
 
-const getRequestTypeIcon = (type: DataRequestType): React.ReactElement => {
-  switch (type) {
-    case 'access':
-      return <Eye className="w-4 h-4" />;
-    case 'erasure':
-      return <Trash2 className="w-4 h-4" />;
-    case 'portability':
-      return <Download className="w-4 h-4" />;
-    case 'rectification':
-      return <FileCheck className="w-4 h-4" />;
-    case 'restriction':
-      return <Lock className="w-4 h-4" />;
-    case 'objection':
-      return <XCircle className="w-4 h-4" />;
-    default:
-      return <FileText className="w-4 h-4" />;
-  }
+// Exhaustive over the union the API actually sends, so a request type added
+// server-side is a compile error here rather than a row with no icon. The old
+// switch handled `objection`, which the API has never had, and had no case for
+// `deletion`, which it always sends (ADMIN-HIGH-115).
+const REQUEST_TYPE_ICONS: Record<DataRequestType, React.ReactElement> = {
+  access: <Eye className="w-4 h-4" />,
+  deletion: <Trash2 className="w-4 h-4" />,
+  portability: <Download className="w-4 h-4" />,
+  rectification: <FileCheck className="w-4 h-4" />,
+  restriction: <Lock className="w-4 h-4" />,
 };
+const getRequestTypeIcon = (type: DataRequestType): React.ReactElement =>
+  REQUEST_TYPE_ICONS[type];
 
-const getRequestTypeLabel = (type: DataRequestType): string => {
-  const labels: Record<DataRequestType, string> = {
-    access: 'Data Access',
-    rectification: 'Rectification',
-    erasure: 'Erasure (Right to be Forgotten)',
-    portability: 'Data Portability',
-    restriction: 'Processing Restriction',
-    objection: 'Objection to Processing',
-  };
-  return labels[type];
+// GDPR's own wording lives HERE, on the label, rather than in a renamed value
+// the request had to be translated into and back out of.
+const REQUEST_TYPE_LABELS: Record<DataRequestType, string> = {
+  access: 'Data Access',
+  rectification: 'Rectification',
+  deletion: 'Erasure (Right to be Forgotten)',
+  portability: 'Data Portability',
+  restriction: 'Processing Restriction',
 };
+const getRequestTypeLabel = (type: DataRequestType): string => REQUEST_TYPE_LABELS[type];
 
-const getStatusColor = (status: DataRequestStatus): string => {
-  switch (status) {
-    case 'completed':
-      return 'bg-green-100 text-green-800';
-    case 'rejected':
-      return 'bg-red-100 text-red-800';
-    case 'pending':
-      return 'bg-gray-100 text-gray-800';
-    case 'in_progress':
-    case 'processing':
-      return 'bg-blue-100 text-blue-800';
-    case 'identity_verification':
-      return 'bg-yellow-100 text-yellow-800';
-    default:
-      return 'bg-gray-100 text-gray-800';
-  }
+// Exhaustive, and `expired` has its own colour rather than falling through a
+// default that made it look like `pending`. It is amber because a request that
+// ran out of its statutory window is the one state on this page that reports a
+// failure by the platform rather than a decision about the request
+// (ADMIN-HIGH-115).
+const STATUS_COLORS: Record<DataRequestStatus, string> = {
+  pending: 'bg-gray-100 text-gray-800',
+  in_progress: 'bg-blue-100 text-blue-800',
+  completed: 'bg-green-100 text-green-800',
+  rejected: 'bg-red-100 text-red-800',
+  expired: 'bg-amber-100 text-amber-800',
+};
+const getStatusColor = (status: DataRequestStatus): string => STATUS_COLORS[status];
+
+const STATUS_LABELS: Record<DataRequestStatus, string> = {
+  pending: 'Pending',
+  in_progress: 'In Progress',
+  completed: 'Completed',
+  rejected: 'Rejected',
+  expired: 'Expired',
 };
 
 const getComplianceStatusColor = (status: string): string => {
@@ -870,10 +878,13 @@ export const CompliancePage: React.FC = () => {
                 className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
               >
                 <option value="all">All Types</option>
-                <option value="access">Data Access</option>
-                <option value="erasure">Erasure</option>
-                <option value="portability">Portability</option>
-                <option value="rectification">Rectification</option>
+                {/* Built from the union the API sends, so an option cannot
+                    offer a value it will never match (ADMIN-HIGH-115). */}
+                {(Object.keys(REQUEST_TYPE_LABELS) as DataRequestType[]).map((t) => (
+                  <option key={t} value={t}>
+                    {REQUEST_TYPE_LABELS[t]}
+                  </option>
+                ))}
               </select>
               <select
                 value={statusFilter}
@@ -881,12 +892,14 @@ export const CompliancePage: React.FC = () => {
                 className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
               >
                 <option value="all">All Statuses</option>
-                <option value="pending">Pending</option>
-                <option value="in_progress">In Progress</option>
-                <option value="identity_verification">Identity Verification</option>
-                <option value="processing">Processing</option>
-                <option value="completed">Completed</option>
-                <option value="rejected">Rejected</option>
+                {/* Identity Verification and Processing used to be offered here
+                    and the API can return neither, so both filtered to nothing;
+                    Expired, which it can return, was absent (ADMIN-HIGH-115). */}
+                {(Object.keys(STATUS_LABELS) as DataRequestStatus[]).map((s) => (
+                  <option key={s} value={s}>
+                    {STATUS_LABELS[s]}
+                  </option>
+                ))}
               </select>
             </div>
           </div>

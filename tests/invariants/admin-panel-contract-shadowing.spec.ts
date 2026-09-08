@@ -63,13 +63,14 @@ const TRACKED_SHADOWS: Readonly<Record<string, string>> = {
 function contractSchemaNames(): Set<string> {
   const src = readFileSync(GENERATED, 'utf-8');
   const block = /schemas:\s*\{([\s\S]*?)\n {4}\};/.exec(src);
-  if (!block) {
+  const body = block?.[1];
+  if (body === undefined) {
     throw new Error(
       `Could not find the schemas block in ${relative(REPO_ROOT, GENERATED)}. ` +
         `The generator's output shape changed and this gate is reading nothing.`,
     );
   }
-  return new Set(Array.from(block[1].matchAll(/^ {8}(\w+):/gm), (m) => m[1] as string));
+  return new Set(Array.from(body.matchAll(/^ {8}(\w+):/gm), (m) => m[1] as string));
 }
 
 /** `export interface Name {` declarations in one file. */
@@ -136,9 +137,12 @@ describe('INVARIANT: the admin panel sources its types from the generated contra
     // without anyone closing it.
     for (const [key, findingId] of Object.entries(TRACKED_SHADOWS)) {
       const [file, name] = key.split(':');
-      const source = readFileSync(join(TYPES_DIR, file as string), 'utf-8');
-      const declared = declaredInterfaces(source).includes(name as string);
-      const shadows = shadowedSchema(name as string, schemas) !== null;
+      if (file === undefined || name === undefined) {
+        throw new Error(`TRACKED_SHADOWS key '${key}' is not '<file>:<Type>'`);
+      }
+      const source = readFileSync(join(TYPES_DIR, file), 'utf-8');
+      const declared = declaredInterfaces(source).includes(name);
+      const shadows = shadowedSchema(name, schemas) !== null;
       expect(`${key} (${findingId}) declared:${declared} shadows:${shadows}`).toBe(
         `${key} (${findingId}) declared:true shadows:true`,
       );

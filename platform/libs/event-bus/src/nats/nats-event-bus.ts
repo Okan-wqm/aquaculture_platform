@@ -1464,10 +1464,24 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
             return;
           }
           await this.deadLetter(subject, event, disposition, deliveryCount, maxDeliver);
-          // PLAT-HIGH-902: `term`, not `ack`. The envelope is durably stored,
-          // so redelivery must stop — but spelling that as an ack is the very
+          // PLAT-HIGH-902: `term`, not `ack`. The message has been RECORDED —
+          // `deadLetter` above ran the sink, the metric and the error line — so
+          // redelivery must stop; but spelling that as an ack is the very
           // conflation of success and failure this finding closes. `term`
           // raises the MSG_TERMINATED advisory an operator can alert on.
+          //
+          // PLAT-MEDIUM-912: "recorded" is not "durably stored", and this
+          // comment used to say the latter unconditionally. How durable it is
+          // depends on the SERVICE, not on this line: a service that binds an
+          // `IDeadLetterSink` gets a queryable row (notification-service writes
+          // a NotificationLog with status DEAD_LETTER, the row the admin panel
+          // already reads); a service that binds none gets `LoggingDeadLetterSink`
+          // — a structured `event_bus_dead_letter` line plus the Prometheus
+          // counter, which is a real record but only a log one. farm-service and
+          // alert-engine bind none today, so recovering a terminated message
+          // there means log scraping. A comment that states a guarantee the
+          // wiring does not provide is worse than no comment, because the next
+          // reader stops looking.
           msg.term(disposition.reason);
           return;
         }

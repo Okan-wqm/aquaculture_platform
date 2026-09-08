@@ -35492,6 +35492,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/farm-expert/2026-09-08-initial-stocking-single-writer.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/farm-integration/2026-07-02-farm-full-integration.md",
       "prettier_managed": true
     },

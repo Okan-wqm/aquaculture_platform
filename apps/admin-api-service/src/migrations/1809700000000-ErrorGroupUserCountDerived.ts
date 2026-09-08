@@ -28,8 +28,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  *
  * Closes: docs/reviews/admin-expert/2026-09-05-superadmin-audit.md#ADMIN-HIGH-014
  */
-export class ErrorGroupUserCountDerived1809500000000 implements MigrationInterface {
-  name = 'ErrorGroupUserCountDerived1809500000000';
+export class ErrorGroupUserCountDerived1809700000000 implements MigrationInterface {
+  name = 'ErrorGroupUserCountDerived1809700000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`SET LOCAL lock_timeout = '5s'`);

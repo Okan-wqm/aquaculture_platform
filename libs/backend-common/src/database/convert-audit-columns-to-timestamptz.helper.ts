@@ -122,6 +122,26 @@ export interface ConvertAuditColumnsOptions {
   auditColumns?: readonly string[];
 
   /**
+   * Which columns to convert.
+   *
+   * - `'audit-columns'` (default) — only the names in `auditColumns`. The
+   *   original behaviour, kept as the default so no existing caller's scope
+   *   widens underneath it.
+   * - `'every-timestamp'` — every `timestamp without time zone` column in the
+   *   schema, whatever it is called.
+   *
+   * # Why the second mode exists
+   *
+   * The name list is a list, and a list is maintained by whoever remembers it.
+   * `expiresAt`, `lastSeenAt`, `recordedAt`, `acknowledgedAt`, `terminatedAt`
+   * and thirty more carry exactly the ±1h DST drift this helper was written to
+   * remove, and were simply not on it. Discovering by TYPE rather than by NAME
+   * is what makes the conversion cover the column somebody adds next year
+   * without anyone editing this file (ADMIN-HIGH-012).
+   */
+  columnScope?: 'audit-columns' | 'every-timestamp';
+
+  /**
    * Tables to skip — typically infrastructure tables that intentionally
    * use TIMESTAMP (e.g., a partition key that needs to be partitionable
    * by RANGE on a non-tz value, though this is rare).
@@ -177,17 +197,24 @@ function assertSafeIdentifier(identifier: string, label: string): void {
 async function discoverAuditColumns(
   qr: QueryRunner,
   schema: string,
-  auditColumns: readonly string[],
+  auditColumns: readonly string[] | null,
   excludeTables: readonly string[],
 ): Promise<DiscoveredAuditColumn[]> {
   assertSafeIdentifier(schema, 'schema');
-  for (const col of auditColumns) assertSafeIdentifier(col, 'auditColumn');
+  if (auditColumns) {
+    for (const col of auditColumns) assertSafeIdentifier(col, 'auditColumn');
+  }
   for (const tbl of excludeTables) assertSafeIdentifier(tbl, 'excludeTable');
 
   // information_schema.columns surfaces both the column name and the
   // data type. We filter on `data_type = 'timestamp without time zone'`
   // (the standard SQL spelling for naked TIMESTAMP) so columns already
   // converted to `timestamp with time zone` are skipped.
+  // `auditColumns === null` is the 'every-timestamp' scope: the name predicate
+  // drops out and the type predicate alone decides, so a column nobody thought
+  // to list is converted too.
+  const nameFilter = auditColumns ? 'AND c.column_name = ANY($2::text[])' : '';
+  const params: unknown[] = auditColumns ? [schema, [...auditColumns]] : [schema];
   const rows: Array<{ table_name: string; column_name: string }> = await qr.query(
     `
       SELECT c.table_name, c.column_name
@@ -197,11 +224,11 @@ async function discoverAuditColumns(
        AND t.table_name = c.table_name
        AND t.table_type = 'BASE TABLE'
       WHERE c.table_schema = $1
-        AND c.column_name = ANY($2::text[])
+        ${nameFilter}
         AND c.data_type = 'timestamp without time zone'
       ORDER BY c.table_name, c.column_name
       `,
-    [schema, [...auditColumns]],
+    params,
   );
 
   const excludeSet = new Set(excludeTables);
@@ -240,9 +267,11 @@ export async function convertAuditColumnsToTimestamptz(
 
   const logger = options.logger ?? new Logger('convertAuditColumnsToTimestamptz');
   const auditColumns =
-    options.auditColumns && options.auditColumns.length > 0
-      ? options.auditColumns
-      : DEFAULT_AUDIT_COLUMNS;
+    options.columnScope === 'every-timestamp'
+      ? null
+      : options.auditColumns && options.auditColumns.length > 0
+        ? options.auditColumns
+        : DEFAULT_AUDIT_COLUMNS;
   const excludeTables = options.excludeTables ?? [];
 
   // Resolve target schema (mirrors apply-tenant-rls.helper pattern).
@@ -271,7 +300,7 @@ export async function convertAuditColumnsToTimestamptz(
 
   logger.log(
     `Converting audit columns to TIMESTAMPTZ in schema "${schema}" ` +
-      `(audit cols: ${auditColumns.join(',')}, ` +
+      `(scope: ${auditColumns ? auditColumns.join(',') : 'every timestamp column'}, ` +
       `exclude: ${excludeTables.join(',') || '∅'}, ` +
       `session TZ: ${sessionTz})`,
   );

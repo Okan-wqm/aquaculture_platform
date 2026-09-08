@@ -16417,20 +16417,40 @@
           "currentPlan": {
             "type": "string"
           },
-          "monthlyAmount": {
-            "type": "number"
-          },
-          "currency": {
+          "planTier": {
             "type": "string"
           },
           "billingCycle": {
             "type": "string"
           },
-          "paymentStatus": {
+          "subscriptionStatus": {
             "type": "string"
           },
           "nextBillingDate": {
             "format": "date-time",
+            "type": "string",
+            "nullable": true
+          },
+          "lastInvoiceAmount": {
+            "type": "number",
+            "nullable": true
+          },
+          "lastInvoiceIssuedAt": {
+            "format": "date-time",
+            "type": "string",
+            "nullable": true
+          },
+          "lastInvoicePeriodStart": {
+            "format": "date-time",
+            "type": "string",
+            "nullable": true
+          },
+          "lastInvoicePeriodEnd": {
+            "format": "date-time",
+            "type": "string",
+            "nullable": true
+          },
+          "currency": {
             "type": "string",
             "nullable": true
           },
@@ -16446,11 +16466,15 @@
         },
         "required": [
           "currentPlan",
-          "monthlyAmount",
-          "currency",
+          "planTier",
           "billingCycle",
-          "paymentStatus",
+          "subscriptionStatus",
           "nextBillingDate",
+          "lastInvoiceAmount",
+          "lastInvoiceIssuedAt",
+          "lastInvoicePeriodStart",
+          "lastInvoicePeriodEnd",
+          "currency",
           "lastPaymentDate",
           "lastPaymentAmount"
         ]
@@ -22944,7 +22968,8 @@
             "nullable": true
           },
           "ipAddress": {
-            "type": "string"
+            "type": "string",
+            "nullable": true
           },
           "geoLocation": {
             "type": "object",
@@ -23024,7 +23049,6 @@
           "severity",
           "action",
           "description",
-          "ipAddress",
           "success",
           "createdAt",
           "legalHold"
@@ -23040,7 +23064,8 @@
             "type": "string"
           },
           "ipAddress": {
-            "type": "string"
+            "type": "string",
+            "nullable": true
           },
           "success": {
             "type": "boolean"
@@ -23081,7 +23106,6 @@
         "required": [
           "id",
           "email",
-          "ipAddress",
           "success",
           "createdAt"
         ]
@@ -23899,7 +23923,8 @@
             "type": "string"
           },
           "ipAddress": {
-            "type": "string"
+            "type": "string",
+            "nullable": true
           },
           "geoLocation": {
             "type": "object",
@@ -24027,7 +24052,6 @@
           "status",
           "title",
           "description",
-          "ipAddress",
           "detectionSource",
           "autoMitigated",
           "createdAt",

@@ -76,10 +76,10 @@ export class TenantSchema {
   @Column({ type: 'timestamptz', nullable: true })
   lastBackupAt!: Date;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
 }
 
@@ -137,7 +137,7 @@ export class SchemaMigration {
   @Column({ type: 'timestamptz', nullable: true })
   completedAt!: Date;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 }
 
@@ -168,7 +168,7 @@ export class DatabaseMetric {
   @Column({ type: 'timestamptz' })
   recordedAt!: Date;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 }
 
@@ -214,13 +214,13 @@ export class SlowQueryLog {
   @Column({ type: 'varchar', length: 200, nullable: true })
   sourceTable!: string;
 
-  @Column({ type: 'varchar', length: 100, nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   userId!: string;
 
   @Column({ type: 'timestamptz' })
   recordedAt!: Date;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 }
 

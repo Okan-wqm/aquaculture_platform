@@ -268,7 +268,7 @@ export class AuditTrailService {
 
     // Tag filter
     if (tags && tags.length > 0) {
-      qb.andWhere('log.tags && ARRAY[:...tags]::varchar[]', { tags });
+      qb.andWhere('log.tags && ARRAY[:...tags]::text[]', { tags });
     }
 
     // Sorting and pagination
@@ -802,7 +802,12 @@ export class AuditTrailService {
     if (conditions.failureOnly && activity.success) return false;
 
     if (conditions.ipPatterns?.length) {
-      const matches = conditions.ipPatterns.some((p) => new RegExp(p).test(activity.ipAddress));
+      // An activity with no recorded address matches no address pattern. It
+      // used to match the string "unknown" against the operator's regex, which
+      // could pass by accident (`.*`, `unk`) and is meaningless when it does.
+      if (!activity.ipAddress) return false;
+      const address = activity.ipAddress;
+      const matches = conditions.ipPatterns.some((p) => new RegExp(p).test(address));
       if (!matches) return false;
     }
 

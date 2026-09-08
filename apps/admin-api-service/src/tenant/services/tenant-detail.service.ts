@@ -3,7 +3,7 @@ import * as crypto from 'crypto';
 import { getTenantSchemaName } from '@aquaculture/backend-common/database';
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, IsNull, Not, Repository } from 'typeorm';
 import {
   createStandardPaginatedResult,
   type PaginationResultV1,
@@ -17,10 +17,8 @@ import {
   ResourceUsage,
   BillingSummary,
 } from '../dto/tenant-detail.dto';
-import {
-  TenantActivity,
-  TenantBillingInfo,
-} from '../entities/tenant-activity.entity';
+import { SubscriptionReadOnly, InvoiceReadOnly } from '../../analytics/entities/external';
+import { TenantActivity } from '../entities/tenant-activity.entity';
 import { Tenant, TenantStatus } from '../entities/tenant.entity';
 
 import { AuthTenantProvisioningClientService } from './auth-tenant-provisioning-client.service';
@@ -33,8 +31,10 @@ export class TenantDetailService {
   constructor(
     @InjectRepository(Tenant)
     private readonly tenantRepository: Repository<Tenant>,
-    @InjectRepository(TenantBillingInfo)
-    private readonly billingRepository: Repository<TenantBillingInfo>,
+    @InjectRepository(SubscriptionReadOnly)
+    private readonly subscriptionRepository: Repository<SubscriptionReadOnly>,
+    @InjectRepository(InvoiceReadOnly)
+    private readonly invoiceRepository: Repository<InvoiceReadOnly>,
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly activityService: TenantActivityService,
@@ -61,7 +61,7 @@ export class TenantDetailService {
         this.getModuleUsage(tenantId),
         this.activityService.getRecentActivities(tenantId, 20),
         this.activityService.getNotes(tenantId, { limit: 10 }),
-        this.getBillingSummary(tenantId, tenant),
+        this.getBillingSummary(tenantId),
         this.getResourceUsage(tenant),
       ]);
 
@@ -366,32 +366,64 @@ export class TenantDetailService {
   }
 
   /**
-   * Get billing summary
-   * BUG-008 fix: accept the already-fetched tenant object to avoid a redundant DB round-trip
+   * Billing summary, read from billing's own tables.
+   *
+   * The former source, `admin.tenant_billing_info`, was a second billing store
+   * that nothing ever wrote (`createOrUpdateBillingInfo` had zero callers), so
+   * `findOne` always missed and this method always returned `undefined` — the
+   * panel's billing tab has said "No billing information" for every tenant
+   * since it shipped (DB-ADMIN-MEDIUM-005). Rule D14 puts subscription state in
+   * `billing.subscriptions`; what was charged and paid is in `billing.invoices`.
+   * Both are declared here as read-only mirrors, so this is a read across a
+   * schema admin may not write, which is exactly the intended relationship.
+   *
+   * `undefined` now means what it says: billing holds no subscription for this
+   * tenant.
    */
-  private async getBillingSummary(
-    tenantId: string,
-    tenant: Tenant,
-  ): Promise<BillingSummary | undefined> {
-    const billing = await this.billingRepository.findOne({
+  private async getBillingSummary(tenantId: string): Promise<BillingSummary | undefined> {
+    const subscription = await this.subscriptionRepository.findOne({
       where: { tenantId },
+      order: { createdAt: 'DESC' },
     });
 
-    if (!billing) {
+    if (!subscription) {
       return undefined;
     }
 
+    // Two different questions: what were they last billed, and what did they
+    // last actually pay. A tenant with an open invoice has the first and not
+    // the second, and conflating them is how a dashboard reports revenue that
+    // never arrived.
+    const [lastInvoice, lastPaidInvoice] = await Promise.all([
+      this.invoiceRepository.findOne({
+        where: { tenantId },
+        order: { issueDate: 'DESC' },
+      }),
+      this.invoiceRepository.findOne({
+        // `paidAt IS NOT NULL` is the payment fact itself. Selecting on
+        // `status = 'paid'` would drop a partially paid invoice that did move
+        // money, and would depend on billing's status vocabulary rather than
+        // on the timestamp billing writes when the money arrives.
+        where: { tenantId, paidAt: Not(IsNull()) },
+        order: { paidAt: 'DESC' },
+      }),
+    ]);
+
     return {
-      currentPlan: tenant.tier || 'free',
-      monthlyAmount: Number(billing.monthlyAmount),
-      currency: billing.currency,
-      billingCycle: billing.billingCycle,
-      paymentStatus: billing.paymentStatus,
-      nextBillingDate: billing.nextBillingDate || null,
-      lastPaymentDate: billing.lastPaymentDate || null,
-      lastPaymentAmount: billing.lastPaymentAmount !== null && billing.lastPaymentAmount !== undefined
-        ? Number(billing.lastPaymentAmount)
-        : null,
+      currentPlan: subscription.planName,
+      planTier: subscription.planTier,
+      billingCycle: subscription.billingCycle,
+      subscriptionStatus: subscription.status,
+      nextBillingDate: subscription.currentPeriodEnd ?? null,
+      lastInvoiceAmount: lastInvoice ? lastInvoice.total : null,
+      lastInvoiceIssuedAt: lastInvoice ? lastInvoice.issueDate : null,
+      lastInvoicePeriodStart: lastInvoice ? lastInvoice.periodStart : null,
+      lastInvoicePeriodEnd: lastInvoice ? lastInvoice.periodEnd : null,
+      // No invoice means no currency, not 'USD'. A defaulted currency beside a
+      // null amount is the fabricated reading this audit exists to remove.
+      currency: lastInvoice ? lastInvoice.currency : null,
+      lastPaymentDate: lastPaidInvoice ? lastPaidInvoice.paidAt : null,
+      lastPaymentAmount: lastPaidInvoice ? lastPaidInvoice.amountPaid : null,
     };
   }
 

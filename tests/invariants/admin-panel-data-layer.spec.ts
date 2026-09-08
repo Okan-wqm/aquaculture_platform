@@ -1,6 +1,6 @@
 /**
  * INVARIANT — the admin-panel's data layer has ONE cache authority, and every
- * cache in the web tree is cleared by logout (ADMIN-HIGH-105).
+ * cache in the web tree is cleared by logout (ADMIN-HIGH-121).
  *
  * Three failures this pins, each of which was live before W8a:
  *
@@ -98,7 +98,7 @@ function isUnmigrated(source: string): boolean {
   return IMPORTS_API_CLIENT.test(code) && !USES_DATA_LAYER.test(code);
 }
 
-describe('INVARIANT (ADMIN-HIGH-105): the admin-panel data layer', () => {
+describe('INVARIANT (ADMIN-HIGH-121): the admin-panel data layer', () => {
   // A page's own SPEC lives under `pages/__tests__/` and imports the api client
   // to mock it, so an unfiltered listing counts it as an unmigrated page. That
   // is not a harmless overcount: it inflates the ceiling, and it would let a

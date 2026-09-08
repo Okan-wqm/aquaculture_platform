@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `7bd0b728d5c69594be2fd36ee3e16d1c3f55dc7a5a976fc711df8403c8b78d43`
+Registry tip: `56ddf66677b5295e28272c5aa77d0e818c2f50102d36648d36fbf9f581bd6723`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -248,6 +248,7 @@ Allowed truth buckets:
 | `SENSOR-CRITICAL-111` | OPEN           | 2026-09-05   | sensor-expert              | real-open                 |
 | `DEPLOY-CRITICAL-017` | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
 | `OBS-CRITICAL-007`    | OPEN           | 2026-09-05   | observability-expert       | real-open                 |
+| `FARM-CRITICAL-322`   | OPEN           | 2026-09-30   | farm-expert                | real-open                 |
 
 ## Mutation Rules
 

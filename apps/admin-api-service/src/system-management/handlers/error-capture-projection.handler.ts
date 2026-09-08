@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { SubscribeTo } from '@platform/event-bus';
+import { HandlerOutcome, SubscribeTo } from '@platform/event-bus';
 import type { ServiceErrorCapturedEvent } from '@platform/event-contracts';
 
 import { ErrorSeverity } from '../entities/error-tracking.entity';
@@ -48,7 +48,7 @@ export class ErrorCaptureProjectionHandler {
     durable: true,
     startFrom: 'latest',
   })
-  async onServiceErrorCaptured(event: ServiceErrorCapturedEvent): Promise<void> {
+  async onServiceErrorCaptured(event: ServiceErrorCapturedEvent): Promise<HandlerOutcome> {
     try {
       await this.errorTracking.reportError({
         message: event.message,
@@ -76,6 +76,7 @@ export class ErrorCaptureProjectionHandler {
           correlationId: event.correlationId,
         },
       });
+      return HandlerOutcome.ack();
     } catch (error) {
       // See the class docblock: this stream is redundant by design, and a NAK
       // here would redeliver database writes into the incident that caused them.
@@ -84,6 +85,10 @@ export class ErrorCaptureProjectionHandler {
           (error as Error).message
         }`,
       );
+      // The ack carries its reason, so the disposition stays out of the
+      // "silently swallowed" class the bus can no longer express: it says the
+      // projection failed AND that redelivering it is the wrong answer.
+      return HandlerOutcome.ack(`projection failed: ${(error as Error).message}`);
     }
   }
 

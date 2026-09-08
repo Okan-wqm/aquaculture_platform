@@ -2,6 +2,8 @@
  * Support domain types (Tickets, Messaging, Announcements, Onboarding)
  */
 
+import type { ApiSchema } from '../contract';
+
 // ============================================================================
 // Ticket Types
 // ============================================================================
@@ -136,6 +138,14 @@ export interface SupportMessage {
  */
 export type Message = SupportMessage;
 
+/**
+ * The GraphQL support thread, as the messaging subgraph declares it.
+ *
+ * `status`, `unreadCountAdmin` and `unreadCountTenant` are GraphQL field names
+ * (`SupportThreadStatus`, `AdminThreads`), consumed through `useMessaging`.
+ * They are NOT what the admin-api REST endpoints return — see
+ * {@link MessageThreadSummary}.
+ */
 export interface MessageThread {
   id: string;
   tenantId: string;
@@ -153,6 +163,23 @@ export interface MessageThread {
   createdAt: string;
   updatedAt: string;
 }
+
+/**
+ * One row of `GET /support/messages/threads`, as admin-api builds it.
+ *
+ * This is a PROJECTION, not the `message_threads` row: `MessagingService.getAllThreads`
+ * flattens `unreadAdminCount` to `unreadCount`, resolves `tenantName` out of the
+ * thread's metadata, and fills `lastMessage` from a DISTINCT ON lookup of the
+ * newest message. The entity's `unreadTenantCount`, `isArchived`, `metadata`,
+ * `lastMessageId` and `messages` are not in the response at all.
+ *
+ * It was typed as {@link MessageThread} — the GraphQL shape — so the page read
+ * `unreadCountAdmin` and `status`, which this endpoint never sends, and wrote
+ * `undefined || 0` and `undefined === 'closed'` over the correct `unreadCount`
+ * and `isClosed` that were already on the payload. Every thread showed zero
+ * unread and none showed as closed (ADMIN-HIGH-110).
+ */
+export type MessageThreadSummary = ApiSchema<'ThreadSummaryDto'>;
 
 // ============================================================================
 // Announcement Types

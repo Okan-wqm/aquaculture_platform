@@ -520,14 +520,8 @@ export interface BulkMessageRequest {
   sendEmail: boolean;
 }
 
-export interface ThreadSummary {
-  id: string;
-  tenantId: string;
-  tenantName: string;
-  subject: string;
-  lastMessage: string;
-  lastMessageAt: Date;
-  unreadCount: number;
-  messageCount: number;
-  isClosed: boolean;
-}
+// The list-row projection moved to `ThreadSummaryDto` in
+// `../controllers/dto/messaging.dto.ts`. It has to be a CLASS: the
+// @nestjs/swagger plugin emits schemas for classes only, so as an interface
+// here it never reached `openapi.json` and the admin panel had nothing to
+// source it from (ADMIN-HIGH-110).

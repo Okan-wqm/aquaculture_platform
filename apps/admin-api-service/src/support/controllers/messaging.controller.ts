@@ -8,6 +8,7 @@ import {
   AddMessageDto,
   BulkMessageDto,
   CreateThreadDto,
+  ThreadSummaryDto,
 } from './dto/messaging.dto';
 import { Destructive, RequiresCapability, TenantParam, TenantIdCarrier } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
@@ -22,7 +23,8 @@ import {
   HttpCode,
   BadRequestException,
 } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
+import { ApiExtraModels, ApiTags } from '@nestjs/swagger';
+import type { PaginationResultV1 } from '@platform/pagination-contracts';
 
 import { IsString, IsOptional, IsBoolean, IsArray, IsObject } from 'class-validator';
 
@@ -35,6 +37,16 @@ import { MessagingService } from '../services/messaging.service';
 // Controller
 // ============================================================================
 
+/**
+ * `ThreadSummaryDto` is declared explicitly because the swagger plugin resolves
+ * a response type structurally and stops at the generic: it reads
+ * `PaginationResultV1<ThreadSummaryDto>` as the envelope and never registers
+ * the element, so the projection stayed out of `openapi.json` and the admin
+ * panel had nothing to source it from (ADMIN-HIGH-110). An entity returned
+ * bare — `Promise<MessageThread>` — needs no such declaration, which is why
+ * this is the only one here.
+ */
+@ApiExtraModels(ThreadSummaryDto)
 @ApiTags('Support')
 @Controller('support/messages')
 export class MessagingController {
@@ -44,13 +56,16 @@ export class MessagingController {
   // Threads
   // ============================================================================
 
+  // The explicit return type is what puts ThreadSummaryDto into openapi.json:
+  // the swagger plugin reads the declared response type, and an inferred one
+  // reaches it as `any` (ADMIN-HIGH-110).
   @Get('threads')
   async getAllThreads(
     @Query('page') page?: string,
     @Query('limit') limit?: string,
     @Query('status') status?: 'open' | 'closed' | 'all',
     @Query('hasUnread') hasUnread?: string,
-  ) {
+  ): Promise<PaginationResultV1<ThreadSummaryDto>> {
     return this.messagingService.getAllThreads({
       page: page ? parseInt(page, 10) : undefined,
       limit: limit ? parseInt(limit, 10) : undefined,

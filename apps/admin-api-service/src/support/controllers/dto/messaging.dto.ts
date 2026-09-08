@@ -66,3 +66,29 @@ export class BulkMessageDto {
   @IsBoolean()
   sendEmail?: boolean;
 }
+
+/**
+ * One row of `GET /support/messages/threads`.
+ *
+ * A response shape, not a request body, and a CLASS rather than the interface
+ * it replaced. The `@nestjs/swagger` plugin only emits schemas for classes, so
+ * as an interface this projection was invisible to `openapi.json` — the admin
+ * panel had nothing authoritative to source it from and hand-declared it
+ * against the GraphQL thread instead, reading `unreadCountAdmin` and `status`
+ * off a payload that carries `unreadCount` and `isClosed` (ADMIN-HIGH-110).
+ *
+ * `MessagingService.getAllThreads` builds this: `unreadCount` is the thread's
+ * `unreadAdminCount`, `tenantName` comes out of the thread metadata, and
+ * `lastMessage` is the newest message's first 100 characters.
+ */
+export class ThreadSummaryDto {
+  id!: string;
+  tenantId!: string;
+  tenantName!: string;
+  subject!: string;
+  lastMessage!: string;
+  lastMessageAt!: Date;
+  unreadCount!: number;
+  messageCount!: number;
+  isClosed!: boolean;
+}

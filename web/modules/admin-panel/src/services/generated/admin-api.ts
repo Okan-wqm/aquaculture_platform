@@ -7970,6 +7970,18 @@ export interface components {
             reportPeriodEnd: string;
             includedTenants?: string[];
         };
+        ThreadSummaryDto: {
+            id: string;
+            tenantId: string;
+            tenantName: string;
+            subject: string;
+            lastMessage: string;
+            /** Format: date-time */
+            lastMessageAt: string;
+            unreadCount: number;
+            messageCount: number;
+            isClosed: boolean;
+        };
         MessageThread: {
             id: string;
             tenantId: string;

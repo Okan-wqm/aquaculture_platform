@@ -21288,6 +21288,50 @@
           "reportPeriodEnd"
         ]
       },
+      "ThreadSummaryDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string"
+          },
+          "tenantName": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "lastMessage": {
+            "type": "string"
+          },
+          "lastMessageAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "unreadCount": {
+            "type": "number"
+          },
+          "messageCount": {
+            "type": "number"
+          },
+          "isClosed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "tenantId",
+          "tenantName",
+          "subject",
+          "lastMessage",
+          "lastMessageAt",
+          "unreadCount",
+          "messageCount",
+          "isClosed"
+        ]
+      },
       "MessageThread": {
         "type": "object",
         "properties": {

@@ -1076,7 +1076,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "b90ad9d031b828f35dcb619c86d7aeb8c09585c5f7d38814166d48aba1e5124f",
+      "content_sha256": "b95dd96164448156717cec2de96df2c89c51ecefd5d7a9181e4a74ef6ef4093a",
       "hash_policy": "sha256",
       "owner": "admin-openapi-generator",
       "path": "apps/admin-api-service/openapi.json",
@@ -36476,6 +36476,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/zcode/2026-09-08-admin-messaging-list-reads-fields-the-api-never-sends.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/zcode/2026-09-08-pr1022-orphaned-finding-ids-verified.md",
       "prettier_managed": true
     },
@@ -51023,7 +51029,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "d05fa50d0fd9464ed0598f780e02536c79e19ca68ab3985b06a20e9e7639b297",
+      "content_sha256": "4ff4abee13de5568445eac53710702cd6b2572fd54c1f65f517f337322124895",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/modules/admin-panel/src/services/generated/admin-api.ts",

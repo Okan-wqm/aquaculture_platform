@@ -13,7 +13,8 @@ import type {
   TicketStatus,
   TicketPriority,
   TicketCategory,
-  MessageThread,
+  MessageThreadSummary,
+  SupportThreadRecord,
   SupportMessage,
   Announcement,
   OnboardingStep,
@@ -69,12 +70,20 @@ export const supportApi = {
     apiFetch<unknown>(`/support/tickets/${ticketId}/priority`, { method: 'POST', body: JSON.stringify({ priority }) }),
 
   // Messaging - Backend: /support/messages
+  // The list returns MessagingService.getAllThreads's projection, not the
+  // thread row and not the GraphQL shape (ADMIN-HIGH-110).
   getMessageThreads: (params?: { tenantId?: string; status?: string } & PaginationParams) =>
-    apiFetch<PaginatedResult<MessageThread>>(`/support/messages/threads?${buildQueryString(params || {})}`),
-  getThread: (threadId: string) => apiFetch<MessageThread>(`/support/messages/threads/${threadId}`),
+    apiFetch<PaginatedResult<MessageThreadSummary>>(
+      `/support/messages/threads?${buildQueryString(params || {})}`,
+    ),
+  getThread: (threadId: string) =>
+    apiFetch<SupportThreadRecord>(`/support/messages/threads/${threadId}`),
   getThreadMessages: (threadId: string) => apiFetch<SupportMessage[]>(`/support/messages/threads/${threadId}/messages`),
   createThread: (data: { tenantId: string; subject: string; content: string; senderName: string }) =>
-    apiFetch<MessageThread>('/support/messages/threads', { method: 'POST', body: JSON.stringify(data) }),
+    apiFetch<SupportThreadRecord>('/support/messages/threads', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
   sendSupportMessage: (threadId: string, data: { content: string; senderName: string }) =>
     apiFetch<SupportMessage>(`/support/messages/threads/${threadId}/messages`, { method: 'POST', body: JSON.stringify(data) }),
   markAsRead: (threadId: string) =>

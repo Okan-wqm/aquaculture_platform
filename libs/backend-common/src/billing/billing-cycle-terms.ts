@@ -24,29 +24,31 @@
  * # Scope
  *
  * These are COMMERCIAL terms — what the platform charges for committing to a
- * longer cycle. `BILLING_CYCLE_MONTHS` is also the cycle's length, and several
- * date-arithmetic paths still carry their own copy of it (BILLING-HIGH-008);
- * those never disagreed with anything, so they are a separate consolidation.
- * The commitment discount exists only here, and
- * `tests/invariants/billing-cycle-terms-single-source.spec.ts` keeps it that way.
+ * longer cycle, and how long that cycle is. Both tables live here and nowhere
+ * else: `apps/billing-service/.../module-quote.ts` restated both of them, and
+ * `module-pricing.service.ts` read the restatement rather than this module, so
+ * the quote engine and the invoice scheduler were again pricing from two
+ * separate declarations of the same commercial rule (BILLING-HIGH-008 for the
+ * months, BILLING-HIGH-009 for the discount).
+ * `tests/invariants/billing-cycle-terms-single-source.spec.ts` now fails a
+ * second copy of either table.
  */
+
+import { BILLING_CYCLES, type BillingCycle } from '@platform/event-contracts';
+import Decimal from 'decimal.js';
 
 import { Money } from '../monetary';
 
 /**
- * The cycles the platform sells on, as the string values every service's local
- * `BillingCycle` enum uses (`subscription.entity.ts`,
- * `plan-definition.entity.ts`, `analytics/entities/external/subscription.entity.ts`
- * all declare the same four). Keying on the values rather than importing one
- * service's enum is what lets both services share the terms without either
- * depending on the other's entity.
+ * Months billed in one cycle.
+ *
+ * Keyed on `BillingCycle` from `@platform/event-contracts` — the platform's one
+ * declaration of which cycles exist — rather than on a local copy of the four
+ * values. A local copy is exactly what the second table in `module-quote.ts`
+ * was keyed on, and a set that can drift is how two tables come to cover
+ * different cycles without either being wrong on its own terms.
  */
-export const BILLING_CYCLES = ['monthly', 'quarterly', 'semi_annual', 'annual'] as const;
-
-export type BillingCycleValue = (typeof BILLING_CYCLES)[number];
-
-/** Months billed in one cycle. */
-export const BILLING_CYCLE_MONTHS: Readonly<Record<BillingCycleValue, number>> = {
+export const BILLING_CYCLE_MONTHS: Readonly<Record<BillingCycle, number>> = {
   monthly: 1,
   quarterly: 3,
   semi_annual: 6,
@@ -57,20 +59,43 @@ export const BILLING_CYCLE_MONTHS: Readonly<Record<BillingCycleValue, number>> =
  * The discount granted for committing to a longer cycle, as a fraction of the
  * gross cycle amount. Changing a number here changes what the platform charges,
  * so it is a commercial decision, not a refactor.
+ *
+ * Written as decimal STRINGS, and read back through `commitmentDiscountRateFor`
+ * as a `Decimal`. A rate is an exact commercial quantity; an IEEE-754 literal is
+ * only the nearest binary approximation of one, and `0.1 + 0.2 !== 0.3` is the
+ * arithmetic every other step of this module goes out of its way to avoid.
+ * Today's four rates happen to round-trip through a `number` intact, so nothing
+ * is mispriced by the old spelling — but that is a property of these particular
+ * values, not of the type, and it stops holding the day someone writes a rate
+ * like 0.145. Stating them as strings makes the exactness structural instead of
+ * incidental.
  */
-export const BILLING_CYCLE_COMMITMENT_DISCOUNT: Readonly<Record<BillingCycleValue, number>> = {
-  monthly: 0,
-  quarterly: 0.05,
-  semi_annual: 0.1,
-  annual: 0.15,
+export const BILLING_CYCLE_COMMITMENT_DISCOUNT: Readonly<Record<BillingCycle, string>> = {
+  monthly: '0',
+  quarterly: '0.05',
+  semi_annual: '0.10',
+  annual: '0.15',
 };
+
+/**
+ * The commitment discount for a cycle, as exact arithmetic.
+ *
+ * This is the accessor both pricing paths call. `cycleAmountFor` prices an
+ * invoice in `Money`; `ModulePricingService.quote` prices a module selection in
+ * raw `Decimal` and never builds a `Money`. Handing both a `Decimal` is what
+ * lets the second one consume this module instead of restating the table, which
+ * is the whole of BILLING-HIGH-009.
+ */
+export function commitmentDiscountRateFor(cycle: BillingCycle): Decimal {
+  return new Decimal(BILLING_CYCLE_COMMITMENT_DISCOUNT[cycle]);
+}
 
 /** What one cycle costs, decomposed the way an invoice presents it. */
 export interface CycleAmount {
   /** Months billed in this cycle. */
   readonly months: number;
-  /** The commitment discount rate applied, as a fraction. */
-  readonly discountRate: number;
+  /** The commitment discount rate applied, as an exact fraction. */
+  readonly discountRate: Decimal;
   /** Monthly rate × months, before the commitment discount. */
   readonly gross: Money;
   /** The commitment discount, as an amount of money. */
@@ -102,9 +127,9 @@ function roundToCurrency(amount: Money): Money {
  * Both the quote an operator approves and the invoice the scheduler issues go
  * through this function, so they cannot state different numbers.
  */
-export function cycleAmountFor(monthly: Money, cycle: BillingCycleValue): CycleAmount {
+export function cycleAmountFor(monthly: Money, cycle: BillingCycle): CycleAmount {
   const months = BILLING_CYCLE_MONTHS[cycle];
-  const discountRate = BILLING_CYCLE_COMMITMENT_DISCOUNT[cycle];
+  const discountRate = commitmentDiscountRateFor(cycle);
   const gross = monthly.multiply(months);
   const commitmentDiscount = roundToCurrency(gross.multiply(discountRate));
 
@@ -118,11 +143,45 @@ export function cycleAmountFor(monthly: Money, cycle: BillingCycleValue): CycleA
 }
 
 /**
+ * When the period that starts at `start` ends.
+ *
+ * # Why the arithmetic is here and not at the four callsites
+ *
+ * The months table was restated in four places, and every restatement came
+ * paired with its own copy of this calculation — which is the actual defect
+ * BILLING-HIGH-008 named. A constant that four services import is only half a
+ * single source: what they each do with it is the other half, and that half had
+ * drifted. `SubscriptionCoreService.calculateNextPeriodEnd` wrote the same rule
+ * with a bare `setMonth`, so a subscription starting 31 January would have
+ * rolled its period end to 3 March — `setMonth(0 + 1)` on the 31st asks for
+ * 31 February and JS answers by counting past the end of the month. The other
+ * three clamp. One of the four was wrong and nothing could tell, because there
+ * was nothing for it to be wrong against.
+ *
+ * So the terms module owns the calculation, not just the number. A caller that
+ * imports this cannot reintroduce the overflow, because it no longer writes the
+ * date arithmetic at all.
+ *
+ * The day is clamped to the last valid day of the target month: 31 January plus
+ * one month is 28 (or 29) February, not 3 March.
+ */
+export function addBillingCycle(start: Date, cycle: BillingCycle): Date {
+  const months = BILLING_CYCLE_MONTHS[cycle];
+  const targetYear = start.getFullYear();
+  const targetMonth = start.getMonth() + months;
+  const lastDayOfTargetMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
+
+  const result = new Date(start);
+  result.setFullYear(targetYear, targetMonth, Math.min(start.getDate(), lastDayOfTargetMonth));
+  return result;
+}
+
+/**
  * Narrows an untyped cycle string to a cycle the terms cover. A value that is
  * not one of them has no commercial term, and a caller that guesses would bill
  * it as monthly — so callers reaching this module from an untyped edge fail
  * closed instead.
  */
-export function isBillingCycleValue(value: string): value is BillingCycleValue {
+export function isBillingCycle(value: string): value is BillingCycle {
   return (BILLING_CYCLES as readonly string[]).includes(value);
 }

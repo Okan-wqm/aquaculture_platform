@@ -17,7 +17,6 @@
  */
 import { roundToCurrency } from '@aquaculture/backend-common/monetary';
 import type {
-  BillingCycle,
   BillingModuleQuoteBreakdown,
   BillingModuleQuoteLineItem,
   BillingModuleQuoteSelection,
@@ -31,27 +30,6 @@ import {
 import Decimal from 'decimal.js';
 
 import type { ModulePrice } from '../entities/module-price.entity';
-
-/** Months billed at once, per cycle. */
-export const BILLING_CYCLE_MONTHS: Readonly<Record<BillingCycle, number>> = {
-  monthly: 1,
-  quarterly: 3,
-  semi_annual: 6,
-  annual: 12,
-};
-
-/**
- * Discount for committing to a longer cycle, as an exact rate. These are
- * commercial terms, not a computed value, so they are stated once here rather
- * than derived — and stated as strings so the 0.15 never arrives as
- * 0.15000000000000002.
- */
-export const BILLING_CYCLE_DISCOUNT_RATE: Readonly<Record<BillingCycle, string>> = {
-  monthly: '0',
-  quarterly: '0.05',
-  semi_annual: '0.10',
-  annual: '0.15',
-};
 
 /** The multiplier in force for a tier — absent means full list price. */
 export function tierMultiplierOf(sheet: ModulePrice, tier: BillingPlanTier): Decimal {

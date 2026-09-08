@@ -2,6 +2,7 @@ import {
   Injectable,
   Logger,
 } from '@nestjs/common';
+import { addBillingCycle } from '@aquaculture/backend-common/billing';
 import { InjectDataSource } from '@nestjs/typeorm';
 import type { BillingCycle } from '@platform/event-contracts';
 import { DataSource } from 'typeorm';
@@ -191,25 +192,20 @@ export class SubscriptionCoreService {
   }
 
   /**
-   * Calculate next period end date based on billing cycle
+   * When the period that starts at `start` ends.
+   *
+   * This used to write the arithmetic itself, with a bare `setMonth`, and was
+   * the one of four copies that got it wrong: `setMonth(0 + 1)` on 31 January
+   * asks JS for 31 February, and JS answers by counting past the end of the
+   * month — so a subscription starting on the 31st would have had its period
+   * end on 3 March. billing-service's three copies all clamped; this one did
+   * not, and nothing compared them (BILLING-HIGH-008).
+   *
+   * `addBillingCycle` is now the only implementation, so the two services
+   * cannot compute different period ends for the same subscription.
    */
   calculateNextPeriodEnd(start: Date, cycle: BillingCycle): Date {
-    const end = new Date(start);
-    switch (cycle) {
-      case 'monthly':
-        end.setMonth(end.getMonth() + 1);
-        break;
-      case 'quarterly':
-        end.setMonth(end.getMonth() + 3);
-        break;
-      case 'semi_annual':
-        end.setMonth(end.getMonth() + 6);
-        break;
-      case 'annual':
-        end.setFullYear(end.getFullYear() + 1);
-        break;
-    }
-    return end;
+    return addBillingCycle(start, cycle);
   }
 
   /**

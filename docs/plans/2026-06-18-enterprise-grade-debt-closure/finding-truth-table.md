@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `f636df2c52d636a9c3662a9db9249dc26a4bbb1e3e651a9880ced0c3186a837e`
+Registry tip: `7611abbd4c1a13a2d6b15d56bd2e35fd2b7163d56da46d944a0cfbb3a9f80ce5`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -247,8 +247,6 @@ Allowed truth buckets:
 | `ADMIN-CRITICAL-087`  | OPEN           | 2026-09-04   | admin-expert               | real-open                 |
 | `SENSOR-CRITICAL-111` | OPEN           | 2026-09-05   | sensor-expert              | real-open                 |
 | `DEPLOY-CRITICAL-017` | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
-| `OBS-CRITICAL-007`    | OPEN           | 2026-09-05   | observability-expert       | real-open                 |
-| `PLAT-CRITICAL-917`   | OPEN           | 2026-09-22   | platform-kernel-expert     | real-open                 |
 
 ## Mutation Rules
 
@@ -817,4 +815,10 @@ tests/invariants/all-services-env-aware-migrations.spec.ts --runInBand`,
   Left the active table from bucket `real-open`.
 - `FARM-CRITICAL-322`: registry state is `RESOLVED` with closing commit
   `c59c04429`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `real-open`.
+- `OBS-CRITICAL-007`: registry state is `RESOLVED` with closing commit
+  `5e6a3abb4`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `real-open`.
+- `PLAT-CRITICAL-917`: registry state is `RESOLVED` with closing commit
+  `8221c245d`, derived by `finding-registry reconcile` against `origin/main`.
   Left the active table from bucket `real-open`.

@@ -10898,6 +10898,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/database/migrations/1810300000000-LinkTankOperationToHarvestRecord.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/database/migrations/manifest.ts",
       "prettier_managed": true
     },
@@ -35480,6 +35486,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/farm-expert/2026-09-08-harvest-edit-stock-integrity.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/farm-integration/2026-07-02-farm-full-integration.md",
       "prettier_managed": true
     },
@@ -59745,7 +59757,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "fe0004fdb869de6c869b56fb858bb1b876586616f4e2f0b8ea786c38de8b9d66",
+      "content_sha256": "5d1b42598af9e1ef3950571b814754cf061dc94d760450e12ce87863b7e4d3a1",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/shared-ui/src/generated/graphql-types.ts",

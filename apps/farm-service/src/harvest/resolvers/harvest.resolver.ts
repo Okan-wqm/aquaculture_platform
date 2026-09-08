@@ -389,9 +389,6 @@ export class HarvestResolver {
         input.id,
         {
           status: input.status,
-          quantityHarvested: input.quantityHarvested,
-          totalBiomass: input.totalBiomass,
-          averageWeight: input.averageWeight,
           qualityClass: input.qualityClass,
           method: input.method,
           productForm: input.productForm,

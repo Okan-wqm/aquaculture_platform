@@ -1,11 +1,8 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { EventEmitter2 } from '@nestjs/event-emitter';
-import { getRepositoryToken } from '@nestjs/typeorm';
-
 import { ScadaPackage } from '../../entities/scada-package.entity';
-import { Process } from '../../entities/process.entity';
 import { EdgeDeviceService } from '../../../edge-device/edge-device.service';
 import { ScadaPackageService } from '../scada-package.service';
+
+import { createScadaPackageHarness } from './scada-package-harness';
 
 /**
  * 6d — V2 `packageData` backfill.
@@ -93,17 +90,10 @@ describe('ScadaPackageService — 6d V2 packageData backfill', () => {
       findByIdOrFail: jest.fn().mockResolvedValue({ id: 'device-uuid-1', deviceCode: 'EDGE-AABB1122' }),
     };
 
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        ScadaPackageService,
-        { provide: EventEmitter2, useValue: { emit: jest.fn() } },
-        { provide: getRepositoryToken(ScadaPackage), useValue: repo },
-        { provide: getRepositoryToken(Process), useValue: { findOne: jest.fn() } },
-        { provide: EdgeDeviceService, useValue: edgeDeviceService },
-      ],
-    }).compile();
-
-    service = module.get(ScadaPackageService);
+    ({ service } = await createScadaPackageHarness({
+      scadaPackageRepository: repo,
+      providers: [{ provide: EdgeDeviceService, useValue: edgeDeviceService }],
+    }));
   });
 
   /** Enumeration returns id-only rows; the locked re-read returns the row. */

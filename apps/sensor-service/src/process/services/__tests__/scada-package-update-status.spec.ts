@@ -1,11 +1,8 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { EventEmitter2 } from '@nestjs/event-emitter';
-import { getRepositoryToken } from '@nestjs/typeorm';
-
 import { ScadaPackage, ScadaPackageStatus } from '../../entities/scada-package.entity';
-import { Process } from '../../entities/process.entity';
 import { ScadaPackageService } from '../scada-package.service';
 import { UpdateScadaPackageInput } from '../../dto/scada-package.dto';
+
+import { createScadaPackageHarness } from './scada-package-harness';
 
 /**
  * SENSOR-MEDIUM-017 — `updateScadaPackage` must never change a package's status.
@@ -29,16 +26,7 @@ describe('ScadaPackageService — updateScadaPackage status immutability', () =>
       save: jest.fn().mockImplementation((entity) => Promise.resolve(entity)),
     };
 
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        ScadaPackageService,
-        { provide: EventEmitter2, useValue: { emit: jest.fn() } },
-        { provide: getRepositoryToken(ScadaPackage), useValue: repo },
-        { provide: getRepositoryToken(Process), useValue: { findOne: jest.fn() } },
-      ],
-    }).compile();
-
-    service = module.get(ScadaPackageService);
+    ({ service } = await createScadaPackageHarness({ scadaPackageRepository: repo }));
   });
 
   it('ignores an injected status on the update input and preserves the stored status', async () => {

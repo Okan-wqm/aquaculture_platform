@@ -26,6 +26,7 @@ import {
   type SystemModule,
   type UpdateTenantDto,
 } from '../services/adminApi';
+import { formatBillingAmount } from '../utils/money';
 
 // ============================================================================
 // Simple Tab Component
@@ -710,9 +711,12 @@ const TenantDetailPage: React.FC = () => {
                   </Badge>
                 </div>
                 <div className="flex justify-between">
-                  <span>Monthly Fee</span>
+                  <span>Last Invoice</span>
                   <span className="font-bold">
-                    {tenant.billing.currency} {tenant.billing.monthlyAmount}
+                    {formatBillingAmount(
+                      tenant.billing.lastInvoiceAmount,
+                      tenant.billing.currency,
+                    )}
                   </span>
                 </div>
                 <div className="flex justify-between">
@@ -720,13 +724,13 @@ const TenantDetailPage: React.FC = () => {
                   <span>{tenant.billing.billingCycle}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span>Payment Status</span>
+                  <span>Subscription Status</span>
                   <Badge
                     variant={
-                      tenant.billing.paymentStatus === 'active' ? 'success' : 'warning'
+                      tenant.billing.subscriptionStatus === 'active' ? 'success' : 'warning'
                     }
                   >
-                    {tenant.billing.paymentStatus}
+                    {tenant.billing.subscriptionStatus}
                   </Badge>
                 </div>
                 <div className="flex justify-between">
@@ -753,7 +757,10 @@ const TenantDetailPage: React.FC = () => {
                 <div className="flex justify-between">
                   <span>Amount</span>
                   <span className="font-bold text-green-600">
-                    {tenant.billing.currency} {tenant.billing.lastPaymentAmount}
+                    {formatBillingAmount(
+                      tenant.billing.lastPaymentAmount,
+                      tenant.billing.currency,
+                    )}
                   </span>
                 </div>
               </div>

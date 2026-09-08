@@ -6620,12 +6620,19 @@ export interface components {
         };
         BillingSummary: {
             currentPlan: string;
-            monthlyAmount: number;
-            currency: string;
+            planTier: string;
             billingCycle: string;
-            paymentStatus: string;
+            subscriptionStatus: string;
             /** Format: date-time */
             nextBillingDate: string | null;
+            lastInvoiceAmount: number | null;
+            /** Format: date-time */
+            lastInvoiceIssuedAt: string | null;
+            /** Format: date-time */
+            lastInvoicePeriodStart: string | null;
+            /** Format: date-time */
+            lastInvoicePeriodEnd: string | null;
+            currency: string | null;
             /** Format: date-time */
             lastPaymentDate: string | null;
             lastPaymentAmount: number | null;
@@ -8414,7 +8421,7 @@ export interface components {
             entityType?: string | null;
             entityId?: string | null;
             entityName?: string | null;
-            ipAddress: string;
+            ipAddress?: string | null;
             geoLocation?: Record<string, never> | null;
             deviceInfo?: Record<string, never> | null;
             requestInfo?: Record<string, never> | null;
@@ -8442,7 +8449,7 @@ export interface components {
         LoginAttempt: {
             id: string;
             email: string;
-            ipAddress: string;
+            ipAddress?: string | null;
             success: boolean;
             failureReason?: string | null;
             geoLocation?: Record<string, never> | null;
@@ -8661,7 +8668,7 @@ export interface components {
             status: "confirmed" | "detected" | "investigating" | "mitigated" | "false_positive" | "escalated";
             title: string;
             description: string;
-            ipAddress: string;
+            ipAddress?: string | null;
             geoLocation?: Record<string, never> | null;
             deviceInfo?: Record<string, never> | null;
             tenantId?: string | null;

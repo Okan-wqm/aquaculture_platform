@@ -897,7 +897,9 @@ export const MODULE_SCHEMAS: ModuleSchema[] = [
     tables: [
       'tenant_activities',
       'tenant_notes',
-      'tenant_billing_info',
+      // tenant_billing_info retired 2026-09-07 (ADMIN-HIGH-012 / D14): it was a
+      // second per-tenant billing store with no writer; the tenant-detail
+      // billing block now reads billing.subscriptions + billing.invoices.
       // discount_redemptions retired 2026-09-05 and custom_plans 2026-09-06
       // (ADR-0013 / BILLING-CRITICAL-002): moved to billing alongside
       // billing.discount_codes and billing.plans — billing is the sole writer

@@ -5,6 +5,7 @@ import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { toEventIso, createBaseEvent, SubscriptionCreatedEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
+import { addBillingCycle } from '@aquaculture/backend-common/billing';
 import { StripeSubscriptionProvisionerService } from '../services/stripe-subscription-provisioner.service';
 import { tenantManagerRepo } from '@aquaculture/backend-common/database';
 import { RedisService } from '@aquaculture/backend-common/redis';
@@ -122,7 +123,7 @@ export class CreateSubscriptionHandler
         await subscriptionRepo.save(existingSubscription);
       }
 
-      const periodEnd = this.calculatePeriodEnd(startDate, input.billingCycle);
+      const periodEnd = addBillingCycle(startDate, input.billingCycle);
 
       // Handle trial period
       let status = SubscriptionStatus.ACTIVE;
@@ -234,33 +235,4 @@ export class CreateSubscriptionHandler
     }
   }
 
-  private calculatePeriodEnd(startDate: Date, billingCycle: BillingCycle): Date {
-    return this.addMonthsClamped(startDate, this.cycleToMonths(billingCycle));
-  }
-
-  private cycleToMonths(billingCycle: BillingCycle): number {
-    switch (billingCycle) {
-      case BillingCycle.MONTHLY:    return 1;
-      case BillingCycle.QUARTERLY:  return 3;
-      case BillingCycle.SEMI_ANNUAL: return 6;
-      case BillingCycle.ANNUAL:     return 12;
-    }
-  }
-
-  /**
-   * Add months to a date, clamping the day to the last valid day of the target month.
-   * Avoids the JS Date.setMonth() overflow bug (e.g. Jan 31 + 1 month → Mar 3).
-   */
-  private addMonthsClamped(date: Date, months: number): Date {
-    const targetYear = date.getFullYear();
-    const targetMonth = date.getMonth() + months;
-
-    // Last day of the target month
-    const lastDay = new Date(targetYear, targetMonth + 1, 0).getDate();
-    const clampedDay = Math.min(date.getDate(), lastDay);
-
-    const result = new Date(date);
-    result.setFullYear(targetYear, targetMonth, clampedDay);
-    return result;
-  }
 }

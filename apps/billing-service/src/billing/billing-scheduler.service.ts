@@ -7,10 +7,10 @@ import { toEventIso, createBaseEvent, InvoiceGeneratedEvent } from '@platform/ev
 import { Money } from '@aquaculture/backend-common/monetary';
 import {
   StripeApiService,
+  addBillingCycle,
   cycleAmountFor,
-  BILLING_CYCLE_MONTHS,
 } from '@aquaculture/backend-common/billing';
-import { Subscription, SubscriptionStatus, BillingCycle } from './entities/subscription.entity';
+import { Subscription, SubscriptionStatus } from './entities/subscription.entity';
 import { Plan } from './entities/plan.entity';
 import { ScheduledPlanChange, ScheduledChangeStatus } from './entities/scheduled-plan-change.entity';
 import { Invoice, InvoiceStatus } from './entities/invoice.entity';
@@ -100,7 +100,7 @@ export class BillingSchedulerService {
 
         sub.status = SubscriptionStatus.ACTIVE;
         sub.currentPeriodStart = now;
-        sub.currentPeriodEnd = this.calculatePeriodEnd(now, sub.billingCycle);
+        sub.currentPeriodEnd = addBillingCycle(now, sub.billingCycle);
         sub.updatedBy = 'system';
         await this.subscriptionRepo.save(sub);
         this.logger.log(
@@ -429,7 +429,7 @@ export class BillingSchedulerService {
    */
   private async advanceSubscriptionPeriod(sub: Subscription, now: Date): Promise<void> {
     sub.currentPeriodStart = sub.currentPeriodEnd;
-    sub.currentPeriodEnd = this.calculatePeriodEnd(sub.currentPeriodStart, sub.billingCycle);
+    sub.currentPeriodEnd = addBillingCycle(sub.currentPeriodStart, sub.billingCycle);
     sub.updatedBy = 'system';
     await this.subscriptionRepo.save(sub);
     this.logger.debug(
@@ -475,25 +475,6 @@ export class BillingSchedulerService {
   }
 
   // ─── Helpers ─────────────────────────────────────────────────────────
-
-  private calculatePeriodEnd(startDate: Date, billingCycle: BillingCycle): Date {
-    return this.addMonthsClamped(startDate, BILLING_CYCLE_MONTHS[billingCycle]);
-  }
-
-  /**
-   * Add months to a date, clamping the day to the last valid day of the target month.
-   * Avoids the JS Date.setMonth() overflow bug (e.g. Jan 31 + 1 month -> Mar 3).
-   */
-  private addMonthsClamped(date: Date, months: number): Date {
-    const targetYear = date.getFullYear();
-    const targetMonth = date.getMonth() + months;
-    const lastDay = new Date(targetYear, targetMonth + 1, 0).getDate();
-    const clampedDay = Math.min(date.getDate(), lastDay);
-
-    const result = new Date(date);
-    result.setFullYear(targetYear, targetMonth, clampedDay);
-    return result;
-  }
 
   // ─── IP-2: Apply Scheduled Plan Changes ─────────────────────────────
 

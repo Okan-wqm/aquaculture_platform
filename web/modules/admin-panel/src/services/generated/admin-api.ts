@@ -8133,7 +8133,7 @@ export interface components {
             /** @enum {string} */
             priority: "critical" | "high" | "low" | "medium";
             /** @enum {string} */
-            status: "closed" | "open" | "in_progress" | "resolved" | "waiting_customer";
+            status: "open" | "closed" | "in_progress" | "resolved" | "waiting_customer";
             assignedTo?: string;
             assignedToName?: string;
             tags?: string[];
@@ -8197,7 +8197,7 @@ export interface components {
             /** @enum {string} */
             priority?: "critical" | "high" | "low" | "medium";
             /** @enum {string} */
-            status?: "closed" | "open" | "in_progress" | "resolved" | "waiting_customer";
+            status?: "open" | "closed" | "in_progress" | "resolved" | "waiting_customer";
             tags?: string[];
             dueAt?: string;
         };
@@ -8207,7 +8207,7 @@ export interface components {
         };
         ChangeStatusDto: {
             /** @enum {string} */
-            status: "closed" | "open" | "in_progress" | "resolved" | "waiting_customer";
+            status: "open" | "closed" | "in_progress" | "resolved" | "waiting_customer";
         };
         ChangePriorityDto: {
             /** @enum {string} */
@@ -8597,7 +8597,7 @@ export interface components {
             /** @enum {string} */
             severity: "critical" | "high" | "low" | "medium";
             /** @enum {string} */
-            status: "closed" | "open" | "investigating" | "contained" | "eradicated" | "recovered";
+            status: "open" | "closed" | "investigating" | "contained" | "eradicated" | "recovered";
             category: string;
             attackVector?: string | null;
             affectedSystems?: string[] | null;

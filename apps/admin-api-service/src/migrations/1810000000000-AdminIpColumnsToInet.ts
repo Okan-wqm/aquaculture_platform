@@ -54,13 +54,22 @@ export class AdminIpColumnsToInet1810000000000 implements MigrationInterface {
     await queryRunner.query(`SET LOCAL lock_timeout = '10s'`);
     await queryRunner.query(`SET LOCAL statement_timeout = '600s'`);
 
-    const placeholderList = PLACEHOLDERS.map((value) => `'${value}'`).join(', ');
+    // The placeholder set reaches the UPDATE as a BIND PARAMETER, never as text
+    // spliced into a quoted string. Interpolating `'unknown', '', '-', 'n/a'`
+    // into the single-quoted literal that `format()` takes closes that literal
+    // on the first inner quote — a parse error that only a real Postgres finds.
+    // Declaring the array at statement level and passing it with USING removes
+    // the nesting, so there is no quote left to escape wrongly.
+    const placeholderArrayLiteral = `ARRAY[${PLACEHOLDERS.map(
+      (value) => `'${value.replace(/'/g, "''")}'`,
+    ).join(', ')}]::text[]`;
 
     for (const { table, column } of IP_COLUMNS) {
       await queryRunner.query(`
         DO $$
         DECLARE
           bad_rows bigint;
+          placeholders text[] := ${placeholderArrayLiteral};
         BEGIN
           IF NOT EXISTS (
             SELECT 1 FROM information_schema.columns
@@ -76,12 +85,12 @@ export class AdminIpColumnsToInet1810000000000 implements MigrationInterface {
           EXECUTE format('ALTER TABLE admin.%I ALTER COLUMN %I DROP NOT NULL', '${table}', '${column}');
 
           EXECUTE format(
-            'UPDATE admin.%I SET %I = NULL WHERE %I IN (${placeholderList})',
+            'UPDATE admin.%I SET %I = NULL WHERE %I = ANY($1)',
             '${table}', '${column}', '${column}'
-          );
+          ) USING placeholders;
 
           EXECUTE format(
-            'SELECT count(*) FROM admin.%I WHERE %I IS NOT NULL AND %I !~ ''^[0-9a-fA-F:.\\/]+$''',
+            'SELECT count(*) FROM admin.%I WHERE %I IS NOT NULL AND %I !~ ''^[0-9a-fA-F:./]+$''',
             '${table}', '${column}', '${column}'
           ) INTO bad_rows;
 

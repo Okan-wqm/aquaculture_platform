@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `527849caa0217c21c622cea8c42687dfd536693acc3e3e98c804afb287ab463a`
+Registry tip: `5e6b8992cbbfc762c2a1da1a3916578ae5cbb40829d62c98e07a0d5a18e49b41`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -247,8 +247,6 @@ Allowed truth buckets:
 | `ADMIN-CRITICAL-087`   | OPEN           | 2026-09-04   | admin-expert               | real-open                 |
 | `SENSOR-CRITICAL-111`  | OPEN           | 2026-09-05   | sensor-expert              | real-open                 |
 | `DEPLOY-CRITICAL-017`  | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
-| `BILLING-CRITICAL-011` | OPEN           | 2026-09-05   | billing-expert             | real-open                 |
-| `BILLING-CRITICAL-012` | OPEN           | 2026-09-05   | billing-expert             | real-open                 |
 | `OBS-CRITICAL-007`     | OPEN           | 2026-09-05   | observability-expert       | real-open                 |
 
 ## Mutation Rules
@@ -809,4 +807,10 @@ tests/invariants/all-services-env-aware-migrations.spec.ts --runInBand`,
   Left the active table from bucket `real-open`.
 - `INFRA-CRITICAL-170`: registry state is `RESOLVED` with closing commit
   `464ba9ad5`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `real-open`.
+- `BILLING-CRITICAL-011`: registry state is `RESOLVED` with closing commit
+  `a2e05ba2a`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `real-open`.
+- `BILLING-CRITICAL-012`: registry state is `RESOLVED` with closing commit
+  `b282980ca`, derived by `finding-registry reconcile` against `origin/main`.
   Left the active table from bucket `real-open`.

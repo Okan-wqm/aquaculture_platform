@@ -2200,12 +2200,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/admin-api-service/src/migrations/1809300000000-ProjectionSourceEventIdentity.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/admin-api-service/src/migrations/1809300000000-RetireAdminModulePricing.ts",
       "prettier_managed": true
     },
@@ -2219,6 +2213,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/migrations/1809500000000-RetireAdminCustomPlans.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1809600000000-ProjectionSourceEventIdentity.ts",
       "prettier_managed": true
     },
     {

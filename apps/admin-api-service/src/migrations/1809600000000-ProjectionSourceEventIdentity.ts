@@ -28,8 +28,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  *
  * Closes: docs/reviews/admin-expert/2026-09-05-superadmin-audit.md#ADMIN-HIGH-014
  */
-export class ProjectionSourceEventIdentity1809300000000 implements MigrationInterface {
-  name = 'ProjectionSourceEventIdentity1809300000000';
+export class ProjectionSourceEventIdentity1809600000000 implements MigrationInterface {
+  name = 'ProjectionSourceEventIdentity1809600000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`SET LOCAL lock_timeout = '5s'`);

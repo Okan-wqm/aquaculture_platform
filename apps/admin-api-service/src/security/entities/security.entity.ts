@@ -849,7 +849,7 @@ export class LoginAttempt {
    * NULL for a row written by any path other than the JetStream projection.
    * A partial unique index over the non-NULL values makes an at-least-once
    * redelivery unable to double-count a failed login into a brute-force alert
-   * (migration `1809300000000-ProjectionSourceEventIdentity`).
+   * (migration `1809600000000-ProjectionSourceEventIdentity`).
    */
   @Column({ type: 'uuid', nullable: true })
   sourceEventId?: string | null;

@@ -120,6 +120,11 @@ describe('ErrorCaptureProjectionHandler', () => {
     const { handler, errorTracking } = await build();
     errorTracking.reportError.mockRejectedValue(new Error('db down'));
 
-    await expect(handler.onServiceErrorCaptured(captured())).resolves.toBeUndefined();
+    // The ack carries the reason, so a disposition an operator has to explain
+    // is never indistinguishable from a message the handler simply swallowed.
+    await expect(handler.onServiceErrorCaptured(captured())).resolves.toEqual({
+      kind: 'ack',
+      reason: 'projection failed: db down',
+    });
   });
 });

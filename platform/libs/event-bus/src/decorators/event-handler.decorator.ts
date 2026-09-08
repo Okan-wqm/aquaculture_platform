@@ -1,5 +1,6 @@
-import type { HandlerOutcome } from '../interfaces/handler-outcome';
 import { SetMetadata } from '@nestjs/common';
+
+import type { HandlerOutcome } from '../interfaces/handler-outcome';
 
 /**
  * Metadata key for event handler registration

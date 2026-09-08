@@ -228,6 +228,7 @@ export function createFixtureBatchWriters(dataSource: DataSource): FixtureBatchW
   const outboxPublisher = new OutboxPublisher(FarmOutbox);
   const tankCapacityService = new TankCapacityService();
   const tankBatchService = new TankBatchService();
+  const farmStockProjection = new FarmStockProjectionService();
 
   const createBatch = new CreateBatchHandler(
     dataSource,
@@ -240,6 +241,12 @@ export function createFixtureBatchWriters(dataSource: DataSource): FixtureBatchW
     outboxPublisher,
     tankCapacityService,
     new FinanceSettingsService(dataSource),
+    // Initial stocking writes tank composition through the SAME single writer
+    // the allocate and transfer writers below use (FARM-HIGH-139), so the
+    // fixture's rows are shaped by production's SSoT rather than by a
+    // hand-mutation this handler no longer performs.
+    tankBatchService,
+    farmStockProjection,
   );
 
   const allocateToTank = new AllocateToTankHandler(
@@ -253,7 +260,7 @@ export function createFixtureBatchWriters(dataSource: DataSource): FixtureBatchW
     new AuditLogService(dataSource.getRepository(AuditLog)),
     new SiteAuthorizationService(),
     tankBatchService,
-    new FarmStockProjectionService(),
+    farmStockProjection,
     new MobileCommandReceiptService(),
   );
 
@@ -275,7 +282,7 @@ export function createFixtureBatchWriters(dataSource: DataSource): FixtureBatchW
     tankCapacityService,
     new SiteAuthorizationService(),
     tankBatchService,
-    new FarmStockProjectionService(),
+    farmStockProjection,
     new MobileCommandReceiptService(),
   );
 

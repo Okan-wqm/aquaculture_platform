@@ -275,3 +275,30 @@ aliases:
       Closes: trailer names it. Main's #1431/#1443 round then allocated that sequence in the domain
       to FARM-MEDIUM-318, so the row moved again to FARM-HIGH-320. The trailer cannot be rewritten (force push
       is banned), and FARM-HIGH-318 is not a live ledger id, so the closure resolves through this alias.
+
+  - alias: PLAT-CRITICAL-912
+    canonical: PLAT-CRITICAL-914
+    review_file: docs/reviews/admin-expert/2026-09-05-superadmin-audit.md
+    commits:
+      - 'f7baf3218'
+      - '8221c245d'
+    effective_date: '2026-09-08'
+    reason: >
+      Raised on the W5 branch as PLAT-CRITICAL-912 — the next free PLAT sequence when the branch
+      appended it — and named by those commits' trailers. Two later merges of main each reallocated
+      that sequence before the branch landed: main's own PLAT-MEDIUM-912 took 912, so the re-append
+      moved the row to 913, and the second merge moved it again to PLAT-CRITICAL-914. The trailers
+      cannot be rewritten (force push is banned) and PLAT-CRITICAL-912 is not a live ledger id, so
+      the closure resolves through this alias.
+
+  - alias: OBS-CRITICAL-003
+    canonical: OBS-CRITICAL-007
+    review_file: docs/reviews/admin-expert/2026-09-05-superadmin-audit.md
+    commits:
+      - 'fc8b62d66'
+    effective_date: '2026-09-08'
+    reason: >
+      Raised in the SUPER_ADMIN audit as OBS-CRITICAL-003 and named by that commit's trailer. The
+      registration allocated the next free OBS sequence, OBS-CRITICAL-007, and the audit document's
+      heading followed the ledger. The trailer cannot be rewritten (force push is banned) and
+      OBS-CRITICAL-003 is not a live ledger id, so the closure resolves through this alias.

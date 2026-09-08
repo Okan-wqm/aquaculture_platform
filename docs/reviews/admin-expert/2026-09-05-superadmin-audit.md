@@ -891,6 +891,11 @@ writers existed and were correct, with zero callers);
 
 ## PLAT-CRITICAL-914 — Every `@SubscribeTo` subscriber dead-letters every message it receives
 
+- **PLAT-CRITICAL-912** — the id this finding was raised and fixed under, and the id its
+  commits' `Closes:` trailers name. The registry allocated 914 when the row was re-appended
+  onto main's chain; the mapping is recorded in
+  `docs/reviews/_registry/finding-id-aliases.yaml`.
+
 **State:** OPEN · **Wave:** W5 · **ADR:** —
 
 **Evidence:** PLAT-HIGH-902 made a delivery outcome a VALUE: `IEventHandler.handle()` returns a
@@ -919,6 +924,11 @@ failure with the reason its docblock had already argued for, and the rest ack.
 **Gate:** the decorator's type. No spec can regress this without the compiler refusing first.
 
 ## OBS-CRITICAL-007 — The admin observability path does not exist (C13)
+
+- **OBS-CRITICAL-003** — the id this finding was raised under in the audit, and the id its
+  closing commit's `Closes:` trailer names. The registry allocated the next free OBS
+  sequence, 007; the mapping is recorded in
+  `docs/reviews/_registry/finding-id-aliases.yaml`.
 
 **State:** OPEN — two of four clauses remain, split into OBS-HIGH-005 and
 OBS-HIGH-006 · **Wave:** W5 (partial)

@@ -27,7 +27,7 @@ import {
   ChartData,
 } from '../entities/analytics-snapshot.entity';
 import { InvoiceReadOnly } from '../entities/external/invoice.entity';
-import { BillingCycle, SubscriptionReadOnly, SubscriptionStatus } from '../entities/external/subscription.entity';
+import { SubscriptionReadOnly, SubscriptionStatus } from '../entities/external/subscription.entity';
 import { TenantReadOnly } from '../entities/external/tenant.entity';
 import { UserReadOnly } from '../entities/external/user.entity';
 
@@ -560,23 +560,24 @@ export class AnalyticsService {
   }
 
   /**
-   * Calculate monthly price from subscription based on billing cycle
+   * The monthly rate a subscription contributes to MRR.
+   *
+   * `billing.subscriptions.pricing.basePrice` IS the monthly rate:
+   * `CreateSubscriptionHandler` publishes it as `monthlyPrice` on
+   * `SubscriptionCreated`, and `BillingSchedulerService` MULTIPLIES it by the
+   * cycle's months to get what a period costs. This method DIVIDED it by the
+   * same number, so platform MRR counted an annual tenant on $49/month as
+   * $4.08 — every non-monthly subscription under-reported by exactly its cycle
+   * length, and `revenueByPlan` with it.
+   *
+   * That is the identical defect BILLING-CRITICAL-007 fixed in billing-service's
+   * `GetTenantBillingHandler`, surviving here because admin-api reads the same
+   * column through its own read-only projection and had its own copy of the
+   * cycle table to divide by. There is no conversion to do: the column already
+   * holds what this returns.
    */
   private calculateMonthlyPrice(subscription: SubscriptionReadOnly): number {
-    const basePrice = subscription.pricing?.basePrice || 0;
-
-    switch (subscription.billingCycle) {
-      case BillingCycle.MONTHLY:
-        return basePrice;
-      case BillingCycle.QUARTERLY:
-        return basePrice / 3;
-      case BillingCycle.SEMI_ANNUAL:
-        return basePrice / 6;
-      case BillingCycle.ANNUAL:
-        return basePrice / 12;
-      default:
-        return basePrice;
-    }
+    return Number(subscription.pricing?.basePrice ?? 0);
   }
 
   /**

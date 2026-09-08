@@ -28,6 +28,7 @@ import {
   type BillingAdminSubscriptionCommandResult,
   type BillingAdminVoidInvoiceCommand,
 } from '@platform/event-contracts';
+import { addBillingCycle } from '@aquaculture/backend-common/billing';
 import { BypassRlsService } from '@aquaculture/backend-common/database';
 import Decimal from 'decimal.js';
 import { DataSource, EntityManager } from 'typeorm';
@@ -653,7 +654,7 @@ export class BillingAdminNatsHandler {
     const isFree = plan.tier === PlanTier.FREE;
 
     const startDate = new Date();
-    const currentPeriodEnd = this.calculatePeriodEnd(startDate, plan.billingCycle);
+    const currentPeriodEnd = addBillingCycle(startDate, plan.billingCycle);
     const trialEndDate =
       !isFree && command.trialDays && command.trialDays > 0
         ? this.addDays(startDate, command.trialDays)
@@ -784,32 +785,6 @@ export class BillingAdminNatsHandler {
       throw new BadRequestException(`Unsupported billing cycle: ${value}`);
     }
     return value as BillingCycle;
-  }
-
-  private calculatePeriodEnd(startDate: Date, billingCycle: BillingCycle): Date {
-    return this.addMonthsClamped(startDate, this.cycleToMonths(billingCycle));
-  }
-
-  private cycleToMonths(billingCycle: BillingCycle): number {
-    switch (billingCycle) {
-      case BillingCycle.MONTHLY:
-        return 1;
-      case BillingCycle.QUARTERLY:
-        return 3;
-      case BillingCycle.SEMI_ANNUAL:
-        return 6;
-      case BillingCycle.ANNUAL:
-        return 12;
-    }
-  }
-
-  private addMonthsClamped(date: Date, months: number): Date {
-    const targetYear = date.getFullYear();
-    const targetMonth = date.getMonth() + months;
-    const lastDay = new Date(targetYear, targetMonth + 1, 0).getDate();
-    const result = new Date(date);
-    result.setFullYear(targetYear, targetMonth, Math.min(date.getDate(), lastDay));
-    return result;
   }
 
   private addDays(date: Date, days: number): Date {

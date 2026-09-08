@@ -7,6 +7,10 @@
  * command. Whoever owns the prices owns the multiplication, so both live here
  * and admin asks for the quote.
  */
+import {
+  BILLING_CYCLE_MONTHS,
+  commitmentDiscountRateFor,
+} from '@aquaculture/backend-common/billing';
 import { roundToCurrency } from '@aquaculture/backend-common/monetary';
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
@@ -28,7 +32,7 @@ import {
 } from '../entities/module-price.entity';
 
 import { DEFAULT_MODULE_PRICES } from './default-module-prices';
-import { BILLING_CYCLE_DISCOUNT_RATE, BILLING_CYCLE_MONTHS, priceModule } from './module-quote';
+import { priceModule } from './module-quote';
 
 import type { DiscountCodeService } from './discount-code.service';
 
@@ -314,7 +318,7 @@ export class ModulePricingService {
       negotiatedOffSubtotal.plus(negotiatedFixed),
     );
     const monthlyTotal = subtotal.minus(negotiatedDiscountAmount);
-    const cycleRate = new Decimal(BILLING_CYCLE_DISCOUNT_RATE[command.billingCycle]);
+    const cycleRate = commitmentDiscountRateFor(command.billingCycle);
     const cycleGross = roundToCurrency(monthlyTotal.times(cycleMonths), currency);
     const cycleDiscountAmount = roundToCurrency(cycleGross.times(cycleRate), currency);
     let cycleTotal = cycleGross.minus(cycleDiscountAmount);

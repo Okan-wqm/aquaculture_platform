@@ -2,6 +2,8 @@
  * Security domain types
  */
 
+import type { ApiSchema } from '../contract';
+
 export type SecurityEventSeverity = 'low' | 'medium' | 'high' | 'critical';
 export type SecurityEventType =
   | 'failed_login'
@@ -35,7 +37,15 @@ export type ActivityLogCategory =
   | 'authentication';
 
 export type ActivityLogSeverity = 'debug' | 'info' | 'warning' | 'error' | 'critical';
-export type AuditSeverity = 'info' | 'warning' | 'critical';
+/**
+ * The severities `admin.audit_logs` can hold, derived rather than restated.
+ *
+ * This union was already RIGHT while `audit.ts` declared the same field as
+ * `low | medium | high | critical` and `AuditLogPage` imported that one
+ * (ADMIN-HIGH-112). Two hand-written declarations of one column, one correct
+ * and one not, is precisely what a contract-sourced type removes.
+ */
+export type AuditSeverity = ApiSchema<'AuditLog'>['severity'];
 export type SecurityEventStatus =
   | 'detected'
   | 'investigating'
@@ -100,24 +110,13 @@ export interface BackendActivityLog {
   timestamp?: string;
 }
 
-export interface BackendAuditLog {
-  id: string;
-  action: string;
-  entityType: string;
-  entityId?: string | null;
-  tenantId?: string | null;
-  performedBy: string;
-  performedByEmail?: string | null;
-  ipAddress?: string | null;
-  details?: Record<string, unknown> | null;
-  previousValue?: Record<string, unknown> | null;
-  newValue?: Record<string, unknown> | null;
-  severity: AuditSeverity;
-  requestId?: string | null;
-  sessionId?: string | null;
-  createdAt: string;
-  legalHold?: boolean;
-}
+/**
+ * One `admin.audit_logs` row. Identical to {@link AuditLog} in `audit.ts` —
+ * both described the same endpoint's response, which is how they came to
+ * disagree. Kept as an alias of the same contract schema so the existing
+ * imports of this name keep resolving to one shape.
+ */
+export type BackendAuditLog = ApiSchema<'AuditLog'>;
 
 export interface ActivityStatsOverview {
   totalActivities: number;

@@ -8,7 +8,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Button, Badge, Input, Select } from '@aquaculture/shared-ui';
 import { systemSettingsApi } from '../../services/adminApi';
-import type { FeatureToggle } from '../../services/adminApi';
+import type { FeatureToggle, FeatureToggleScope } from '../../services/adminApi';
 
 // ============================================================================
 // Types
@@ -18,7 +18,7 @@ interface FeatureToggleForm {
   key: string;
   name: string;
   description: string;
-  scope: 'global' | 'tenant' | 'user';
+  scope: FeatureToggleScope;
   category: string;
   rolloutPercentage: number;
   isExperimental: boolean;
@@ -140,13 +140,17 @@ export const FeatureTogglesPage: React.FC = () => {
 
     setSaving(true);
     try {
+      // ADMIN-HIGH-113: this used to send `scope` and `isExperimental` too.
+      // `UpdateFeatureToggleDto` declares neither -- a toggle's scope is fixed
+      // at creation, and the platform ValidationPipe runs
+      // `forbidNonWhitelisted: true`, so every save was rejected 400 and no
+      // edit ever landed. The call is typed from the request DTO now, so a
+      // field the endpoint will not accept cannot be sent.
       const updated = await systemSettingsApi.updateFeatureToggle(selectedToggle.id, {
         name: formData.name,
         description: formData.description,
-        scope: formData.scope,
         category: formData.category,
         rolloutPercentage: formData.rolloutPercentage,
-        isExperimental: formData.isExperimental,
       });
       setToggles(toggles.map((t) => (t.id === updated.id ? updated : t)));
       setShowEditModal(false);
@@ -204,13 +208,17 @@ export const FeatureTogglesPage: React.FC = () => {
     return variants[status] || 'default';
   };
 
-  const getScopeBadge = (scope: string) => {
-    const colors: Record<string, string> = {
+  const getScopeBadge = (scope: FeatureToggleScope): string => {
+    // Exhaustive over the real scopes. `environment` was missing, so an
+    // environment-scoped toggle fell through to the grey fallback and read as
+    // uncategorised (ADMIN-MEDIUM-111).
+    const colors: Record<FeatureToggleScope, string> = {
       global: 'bg-purple-100 text-purple-800',
       tenant: 'bg-blue-100 text-blue-800',
       user: 'bg-green-100 text-green-800',
+      environment: 'bg-amber-100 text-amber-800',
     };
-    return colors[scope] || 'bg-gray-100 text-gray-800';
+    return colors[scope];
   };
 
   const stats = {
@@ -492,11 +500,20 @@ export const FeatureTogglesPage: React.FC = () => {
                     </label>
                     <Select
                       value={formData.scope}
+                      // Fixed at creation — `UpdateFeatureToggleDto` has no
+                      // `scope`, so an editable control here would offer a
+                      // change the API discards (ADMIN-HIGH-113).
+                      disabled={showEditModal}
                       onChange={(e) => setFormData({ ...formData, scope: e.target.value as FeatureToggleForm['scope'] })}
                       options={[
                         { value: 'global', label: 'Global' },
                         { value: 'tenant', label: 'Tenant' },
                         { value: 'user', label: 'User' },
+                        // Offered because the API can return it: an
+                        // environment-scoped toggle opened here without this
+                        // option would have been saved back with a different
+                        // scope (ADMIN-MEDIUM-111).
+                        { value: 'environment', label: 'Environment' },
                       ]}
                     />
                   </div>

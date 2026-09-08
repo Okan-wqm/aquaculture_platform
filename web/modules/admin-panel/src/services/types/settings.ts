@@ -57,24 +57,19 @@ export type MaintenanceStatus = 'scheduled' | 'in_progress' | 'completed' | 'can
 export type BackgroundJob = ApiSchema<'BackgroundJob'>;
 export type JobStatus = BackgroundJob['status'];
 
-export interface FeatureToggle {
-  id: string;
-  key: string;
-  name: string;
-  description?: string;
-  status: FeatureToggleStatus;
-  scope: 'global' | 'tenant' | 'user';
-  category?: string;
-  rolloutPercentage: number;
-  enabledTenants?: string[];
-  disabledTenants?: string[];
-  conditions?: Array<{ type: string; operator: string; value: unknown }>;
-  variants?: Array<{ key: string; value: unknown; weight: number }>;
-  isExperimental: boolean;
-  deprecatedAt?: string;
-  createdAt: string;
-  updatedAt: string;
-}
+/**
+ * A feature toggle, as `GET /system/feature-toggles` returns it.
+ *
+ * `scope` is the field that mattered: the hand-written union was
+ * `global | tenant | user` while the DTO has a fourth, `environment`. An
+ * environment-scoped toggle rendered with the fallback badge, and opening it in
+ * the edit form — whose Select offers only three options — could write a
+ * different scope back on save (ADMIN-MEDIUM-111).
+ */
+export type FeatureToggle = ApiSchema<'FeatureToggle'>;
+
+/** The scopes a toggle can actually carry. */
+export type FeatureToggleScope = FeatureToggle['scope'];
 
 /**
  * A maintenance window, as `GET /system/settings/maintenance` returns it.
@@ -189,12 +184,11 @@ export type ErrorGroup = ApiSchema<'ErrorGroup'>;
 export type ErrorOccurrence = ApiSchema<'ErrorOccurrence'>;
 
 
-export interface JobQueue {
-  name: string;
-  isPaused: boolean;
-  concurrency: number;
-  pendingCount: number;
-  activeCount: number;
-  completedCount: number;
-  failedCount: number;
-}
+/**
+ * A job queue, as `GET /system/jobs/queues` returns it.
+ *
+ * The hand-written copy called the in-flight count `activeCount`; the DTO calls
+ * it `runningCount`. `JobQueuePage` renders it under a label that literally
+ * reads "Running", so every queue card showed a blank there (ADMIN-MEDIUM-111).
+ */
+export type JobQueue = ApiSchema<'JobQueue'>;

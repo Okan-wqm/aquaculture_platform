@@ -14,6 +14,7 @@
 import React, { useState, useCallback } from 'react';
 import { useAsyncData } from '../hooks';
 import { databaseApi } from '../services/api/database';
+import type { SchemaMigration } from '../services/types/database';
 
 // ============================================================================
 // Types
@@ -45,28 +46,6 @@ interface MigrationPlan {
   estimatedDuration: number;
   isDestructive: boolean;
   requiresDowntime: boolean;
-}
-
-interface MigrationHistoryItem {
-  id: string;
-  version: string;
-  name: string;
-  status: string;
-  appliedToSchemas?: string[];
-  failedSchemas?: string[];
-  startedAt?: string;
-  completedAt?: string;
-  error?: string;
-  createdBy: string;
-  createdAt: string;
-  // Fields from inline type fallback
-  tenantId?: string | null;
-  schemaName?: string;
-  migrationName?: string;
-  executionTimeMs?: number;
-  isDryRun?: boolean;
-  executedBy?: string | null;
-  errorMessage?: string | null;
 }
 
 interface DatabaseHealth {
@@ -471,7 +450,7 @@ const MigrationsTab: React.FC = () => {
     { initialData: [] },
   );
 
-  const historyState = useAsyncData<readonly MigrationHistoryItem[]>(
+  const historyState = useAsyncData<readonly SchemaMigration[]>(
     useCallback(
       () => databaseApi.getMigrationHistory({ page: 1, limit: 50 }).then((page) => page.data),
       [],
@@ -596,25 +575,26 @@ const MigrationsTab: React.FC = () => {
                   <tr key={migration.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4">
                       <div className="text-sm font-medium text-gray-900">{migration.version}</div>
-                      <div className="text-xs text-gray-500">
-                        {migration.name || migration.migrationName}
-                      </div>
+                      <div className="text-xs text-gray-500">{migration.migrationName}</div>
                     </td>
                     <td className="px-6 py-4">
                       <StatusBadge status={migration.status} />
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500">
-                      {migration.appliedToSchemas
-                        ? `${migration.appliedToSchemas.length} applied`
-                        : migration.schemaName || '-'}
-                      {migration.failedSchemas && migration.failedSchemas.length > 0 && (
-                        <span className="ml-1 text-red-500">
-                          ({migration.failedSchemas.length} failed)
+                      {/* A row IS one schema's run (ADMIN-MEDIUM-111); the
+                          `appliedToSchemas` / `failedSchemas` counts this cell
+                          used to show have no counterpart on it and always
+                          rendered '-'. The affected tables are what the row
+                          actually carries. */}
+                      {migration.schemaName}
+                      {migration.affectedTables.length > 0 && (
+                        <span className="ml-1 text-gray-400">
+                          ({migration.affectedTables.length} tables)
                         </span>
                       )}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500">
-                      {migration.createdBy || migration.executedBy || '-'}
+                      {migration.executedBy || '-'}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-500">
                       {formatDate(migration.createdAt)}

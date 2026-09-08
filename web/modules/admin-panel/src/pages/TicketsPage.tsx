@@ -232,35 +232,40 @@ export const TicketsPage: React.FC = () => {
     }
   };
 
-  const getStatusColor = (status: TicketStatus) => {
-    switch (status) {
-      case 'open': return 'bg-blue-100 text-blue-700';
-      case 'in_progress': return 'bg-purple-100 text-purple-700';
-      case 'waiting_customer': return 'bg-yellow-100 text-yellow-700';
-      case 'resolved': return 'bg-green-100 text-green-700';
-      case 'closed': return 'bg-gray-100 text-gray-600';
-    }
+  // Exhaustive maps rather than switches: the unions are contract-derived now,
+  // so a status or category added server-side is a compile error here instead
+  // of a case that falls off the end and returns undefined. `getCategoryIcon`
+  // was a switch and had drifted twice over — it handled `bug`, a member the
+  // backend does not have, while `bug_report` and `account`, which it does,
+  // rendered with no icon at all (ADMIN-MEDIUM-111).
+  const STATUS_COLORS: Record<TicketStatus, string> = {
+    open: 'bg-blue-100 text-blue-700',
+    in_progress: 'bg-purple-100 text-purple-700',
+    waiting_customer: 'bg-yellow-100 text-yellow-700',
+    resolved: 'bg-green-100 text-green-700',
+    closed: 'bg-gray-100 text-gray-600',
   };
+  const getStatusColor = (status: TicketStatus): string => STATUS_COLORS[status];
 
-  const getStatusLabel = (status: TicketStatus) => {
-    switch (status) {
-      case 'open': return 'Open';
-      case 'in_progress': return 'In Progress';
-      case 'waiting_customer': return 'Waiting';
-      case 'resolved': return 'Resolved';
-      case 'closed': return 'Closed';
-    }
+  const STATUS_LABELS: Record<TicketStatus, string> = {
+    open: 'Open',
+    in_progress: 'In Progress',
+    waiting_customer: 'Waiting',
+    resolved: 'Resolved',
+    closed: 'Closed',
   };
+  const getStatusLabel = (status: TicketStatus): string => STATUS_LABELS[status];
 
-  const getCategoryIcon = (category: TicketCategory) => {
-    switch (category) {
-      case 'technical': return <AlertCircle size={14} />;
-      case 'billing': return <Building2 size={14} />;
-      case 'feature_request': return <Star size={14} />;
-      case 'bug': return <AlertTriangle size={14} />;
-      case 'general': return <MessageSquare size={14} />;
-    }
+  const CATEGORY_ICONS: Record<TicketCategory, React.ReactElement> = {
+    technical: <AlertCircle size={14} />,
+    billing: <Building2 size={14} />,
+    feature_request: <Star size={14} />,
+    bug_report: <AlertTriangle size={14} />,
+    account: <Building2 size={14} />,
+    general: <MessageSquare size={14} />,
   };
+  const getCategoryIcon = (category: TicketCategory): React.ReactElement =>
+    CATEGORY_ICONS[category];
 
   const formatTime = (dateString: string) => {
     const date = new Date(dateString);

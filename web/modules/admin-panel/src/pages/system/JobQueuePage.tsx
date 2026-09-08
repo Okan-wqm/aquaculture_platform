@@ -543,7 +543,7 @@ export const JobQueuePage: React.FC = () => {
                   <div className="text-xs text-gray-500">Pending</div>
                 </div>
                 <div>
-                  <div className="text-2xl font-bold text-yellow-600">{queue.activeCount}</div>
+                  <div className="text-2xl font-bold text-yellow-600">{queue.runningCount}</div>
                   <div className="text-xs text-gray-500">Running</div>
                 </div>
                 <div>

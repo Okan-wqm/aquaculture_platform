@@ -10,7 +10,7 @@ import { Card, Button, Input, Select, Badge, Table } from '@aquaculture/shared-u
 import type { TableColumn } from '@aquaculture/shared-ui';
 import { useAsyncData, usePagination, useFilters } from '../hooks';
 import { auditApi, tenantsApi } from '../services/adminApi';
-import type { AuditLog, AuditLogStats, Tenant } from '../services/adminApi';
+import type { AuditLog, AuditLogStats, AuditSeverity, Tenant } from '../services/adminApi';
 import { TenantTier, TenantStatus } from '../services/adminApi';
 
 // ============================================================================
@@ -66,11 +66,18 @@ const ENTITY_TYPES = [
   { value: 'Setting', label: 'Setting' },
 ];
 
-const SEVERITY_LEVELS = [
+/**
+ * The severities `admin.audit_logs` can actually hold.
+ *
+ * This offered Low, Medium and High — three values the column has never held
+ * (ADMIN-HIGH-112). An auditor filtering for High got an empty list and read it
+ * as "no high-severity events". Built from the contract union now, so a value
+ * the API cannot return cannot be offered.
+ */
+const SEVERITY_LEVELS: Array<{ value: '' | AuditSeverity; label: string }> = [
   { value: '', label: 'All Severities' },
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' },
+  { value: 'info', label: 'Info' },
+  { value: 'warning', label: 'Warning' },
   { value: 'critical', label: 'Critical' },
 ];
 
@@ -117,14 +124,21 @@ const getActionBadgeVariant = (action: string): 'success' | 'info' | 'error' | '
   return variants[action] || 'default';
 };
 
-const getSeverityBadgeVariant = (severity: string): 'default' | 'info' | 'warning' | 'error' => {
-  const variants: Record<string, 'default' | 'info' | 'warning' | 'error'> = {
-    low: 'default',
-    medium: 'info',
-    high: 'warning',
+/**
+ * Keyed on `AuditSeverity`, not on `string`: a `Record<string, …>` accepted
+ * four keys the column never holds and silently defaulted the two it does, so
+ * a `warning` row rendered grey like a routine one. Exhaustive over the real
+ * union, adding a severity server-side is a compile error here.
+ */
+const getSeverityBadgeVariant = (
+  severity: AuditSeverity,
+): 'default' | 'info' | 'warning' | 'error' => {
+  const variants: Record<AuditSeverity, 'default' | 'info' | 'warning' | 'error'> = {
+    info: 'info',
+    warning: 'warning',
     critical: 'error',
   };
-  return variants[severity] || 'default';
+  return variants[severity];
 };
 
 /**
@@ -208,11 +222,13 @@ const LogDetailModal: React.FC<LogDetailModalProps> = ({ log, onClose }) => (
             </p>
           </div>
 
-          {log.metadata && Object.keys(log.metadata).length > 0 && (
+          {log.details && Object.keys(log.details).length > 0 && (
             <div>
-              <label className="text-xs text-gray-500">Metadata</label>
+              {/* `details` is the column (audit.entity.ts). The hand-written
+                  type called it `metadata`, so this block never rendered. */}
+              <label className="text-xs text-gray-500">Details</label>
               <pre className="text-sm bg-gray-50 p-3 rounded overflow-auto max-h-64">
-                {JSON.stringify(log.metadata, null, 2)}
+                {JSON.stringify(log.details, null, 2)}
               </pre>
             </div>
           )}

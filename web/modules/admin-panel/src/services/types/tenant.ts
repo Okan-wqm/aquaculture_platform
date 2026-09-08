@@ -59,19 +59,12 @@ export type Tenant = ApiSchema<'TenantListItemDto'>;
 
 export type TenantStats = ApiSchema<'TenantStatsDto'>;
 
-export interface TenantActivity {
-  id: string;
-  tenantId: string;
-  activityType: string;
-  title: string;
-  description?: string;
-  metadata?: Record<string, unknown>;
-  previousValue?: Record<string, unknown>;
-  newValue?: Record<string, unknown>;
-  performedBy?: string;
-  performedByEmail?: string;
-  createdAt: string;
-}
+/**
+ * One `admin.tenant_activities` row. The hand-written copy typed
+ * `activityType` as a bare `string`; the contract carries the seventeen-member
+ * enum and a `legalHold` flag the copy omitted entirely.
+ */
+export type TenantActivity = ApiSchema<'TenantActivity'>;
 
 export type TenantNote = ApiSchema<'TenantNote'>;
 

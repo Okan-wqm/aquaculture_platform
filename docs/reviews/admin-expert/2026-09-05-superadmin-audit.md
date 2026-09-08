@@ -721,15 +721,39 @@ only permitted way to render untrusted HTML; ESLint rule banning raw `srcDoc` /
 
 ## ADMIN-HIGH-105 — No shared admin-panel query/mutation primitive
 
-**State:** OPEN · **Wave:** W6
+**State:** IN-PROGRESS · **Wave:** W8
 
-**Fix:** migrate every page onto the existing `useAdminQuery` / `useAdminMutation` /
-`adminQueryKeys`; delete `useAsyncData`. One `AdminTable` contract owns server-side pagination,
-sort, search and dataset-scoped aggregates; materialised tenant-resource rollups and the missing
-indexes back it.
-**Gate:** ESLint bans `useState`+`useEffect` fetching and bare `apiFetch` under `pages/**`; AST rule
-bans aggregates computed from a fetched array; `no-console: error` re-enabled with a shrinking
-allowlist; bundlesize budget.
+**Correction (W8a).** The audit called this adoption of an existing primitive.
+It was not: `useAdminQuery` / `useAdminMutation` hard-coded `graphqlClient` as
+their transport, while 46 of 46 pages read over REST through
+`services/adminApi`. There was no primitive for them to adopt, and the three
+that existed were never exported from `hooks/index.ts`, so no page could reach
+them either. `@tanstack/react-query` was imported without being declared — a
+phantom dependency resolving only through the federation shared-scope.
+
+A second correction: this is a data-boundary finding, not only an ergonomics
+one. `useAsyncData` caches cross-tenant SUPER_ADMIN data (billing metrics, audit
+logs with their tenant list, usage rollups — 17 slices over 8 pages) in a
+module-scoped `Map` whose only clear-on-logout path was an `aquaculture:logout`
+window event that nothing in the repository dispatches.
+
+**Landed (W8a):** the primitives take a query/mutation FUNCTION and own the
+cache contract, with `useAdminGraphQLQuery` / `useAdminGraphQLMutation` as
+adapters for the three GraphQL surfaces; the barrel exports all of them; the
+dependency is declared at the federation-pinned `5.90.10`; the `useAsyncData`
+cache joins `registerLogoutCleanup`, the authority `logoutCleanup()` drains;
+three sensor-module caches with the same defect join it too.
+
+**Remaining:** all 46 pages, in five domain batches (tenant 8, billing 11,
+security 5, system 13, messaging 9), governed by
+`.claude/allowlists/admin-panel-unmigrated-reads.yaml`. The `AdminTable`
+contract for server-side pagination, sort and dataset-scoped aggregates follows
+the migration. **Gate:** `tests/invariants/admin-panel-data-layer.spec.ts` — a
+page that reaches the network without the data layer is listed with owner,
+expiry and reason under a ceiling that only decreases; every module-scoped cache
+in `web/` reaches the logout authority; `@tanstack/react-query` is declared
+wherever it is imported, at the federation-pinned version; the barrel keeps
+exporting the primitives.
 
 ## ADMIN-HIGH-106 — Retired stores left as 410/409/501 stubs; route shadowing (C4, C5)
 

@@ -195,7 +195,7 @@ a bare array and calls `.map` on the result. That reads like a guaranteed TypeEr
 `apiFetch` unwraps `envelope.data` before returning. Recorded because the shape invites the
 conclusion and the next reader should not have to re-derive it.
 
-### Verification
+### Verification of the ADMIN-MEDIUM-111 closure
 
 - `tsc -p web/modules/admin-panel` 0 errors at every step, including the alias experiment that
   produced the corrected 14/9 split.

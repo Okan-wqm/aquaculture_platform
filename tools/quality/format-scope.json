@@ -1076,7 +1076,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "561a5c7e1f46cba1988c3041a199b1e9f6f385f2924ff22ffe1b0fd4551324e4",
+      "content_sha256": "46e14fbc35dea4756dfea07ef984e1ee02a4cbeccf537f08db57b144600d23d2",
       "hash_policy": "sha256",
       "owner": "admin-openapi-generator",
       "path": "apps/admin-api-service/openapi.json",
@@ -2212,6 +2212,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1809500000000-ErrorGroupUserCountDerived.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/migrations/1809500000000-RetireAdminCustomPlans.ts",
       "prettier_managed": true
     },
@@ -2807,6 +2813,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/system-management/entities/system-version.entity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/system-management/services/__tests__/error-tracking.ingest.spec.ts",
       "prettier_managed": true
     },
     {
@@ -51041,7 +51053,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "c15bdbfabb9b67088972532cf418985cd7b6bb59702daaedc896aa389ce4cbf6",
+      "content_sha256": "07d859848cc903704f64bd00003a9ce83d2ea34b54a046efcb7346feab91d053",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/modules/admin-panel/src/services/generated/admin-api.ts",

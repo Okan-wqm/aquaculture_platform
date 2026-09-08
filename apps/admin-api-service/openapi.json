@@ -25199,9 +25199,6 @@
           "occurrenceCount": {
             "type": "number"
           },
-          "userCount": {
-            "type": "number"
-          },
           "firstSeenAt": {
             "format": "date-time",
             "type": "string"
@@ -25273,7 +25270,6 @@
           "status",
           "message",
           "occurrenceCount",
-          "userCount",
           "firstSeenAt",
           "lastSeenAt",
           "isRegression",

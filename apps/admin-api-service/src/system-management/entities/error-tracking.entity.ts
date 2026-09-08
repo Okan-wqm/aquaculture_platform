@@ -159,9 +159,6 @@ export class ErrorGroup {
   @Column({ type: 'int', default: 1 })
   occurrenceCount!: number;
 
-  @Column({ type: 'int', default: 0 })
-  userCount!: number;
-
   @Column()
   firstSeenAt!: Date;
 

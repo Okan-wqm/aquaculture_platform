@@ -281,7 +281,7 @@ run against them:
 A cheap literal pre-filter (`/quarterly|annual/i`) precedes the scan. Without it the bounded
 backtracking window costs twenty seconds across ~3,800 files, in a lane named `invariants-fast`.
 
-### Verification
+### Verification of the 2026-09-08 change
 
 - `backend-common` 142 suites / 1561 tests green, including 19 new cases in
   `billing-cycle-terms.spec.ts` (clamping, leap years, non-mutation, time-of-day, exact rates).
@@ -290,7 +290,7 @@ backtracking window costs twenty seconds across ~3,800 files, in a lane named `i
 - `eslint` clean on all ten changed files. (`backend-common`'s project-wide lint is quarantined
   under ORPHAN-HIGH-588 for 891 pre-existing problems in unrelated modules.)
 
-### What this does not do
+### What the 2026-09-08 change does not do
 
 It does not consolidate `DAYS_PER_CYCLE`, and it does not touch the invoice-reconciliation question
 the section above leaves open. It also does not correct MRR figures already written to

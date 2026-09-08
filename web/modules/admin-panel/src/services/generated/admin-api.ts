@@ -18269,7 +18269,7 @@ export interface operations {
                 isRegression?: boolean;
                 page?: number;
                 limit?: number;
-                sortBy?: "occurrenceCount" | "lastSeenAt" | "firstSeenAt" | "userCount";
+                sortBy?: "occurrenceCount" | "lastSeenAt" | "firstSeenAt";
                 sortOrder?: "ASC" | "DESC";
             };
             header?: never;

@@ -14036,8 +14036,7 @@
               "enum": [
                 "occurrenceCount",
                 "lastSeenAt",
-                "firstSeenAt",
-                "userCount"
+                "firstSeenAt"
               ]
             }
           },

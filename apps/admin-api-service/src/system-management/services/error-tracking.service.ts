@@ -426,7 +426,7 @@ export class ErrorTrackingService {
     isRegression?: boolean;
     page?: number;
     limit?: number;
-    sortBy?: 'occurrenceCount' | 'lastSeenAt' | 'firstSeenAt' | 'userCount';
+    sortBy?: ErrorGroupSortField;
     sortOrder?: 'ASC' | 'DESC';
   }): Promise<PaginationResultV1<ErrorGroup>> {
     const query = this.groupRepo.createQueryBuilder('g');
@@ -709,7 +709,7 @@ export class ErrorTrackingService {
     //
     // Derived, not stored: `error_groups."userCount"` was incremented when the
     // report's TENANT was new to the group, so it was a tenant count under a
-    // user's name (migration 1809500000000 removed it). This is the only place
+    // user's name (migration 1809700000000 removed it). This is the only place
     // the number is used, the query runs only for a rule that asks for it, and
     // it runs last — after every cheaper predicate has had its chance to
     // return false.

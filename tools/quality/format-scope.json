@@ -1076,7 +1076,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "51a1ed2c6728853a4fc5e35d44631062d32c6e258b8214e1bd13fa37b3e3785a",
+      "content_sha256": "846d6a3d88636414d900b69c2b264715b00c661d1410c700409683b1187f06d1",
       "hash_policy": "sha256",
       "owner": "admin-openapi-generator",
       "path": "apps/admin-api-service/openapi.json",
@@ -51167,7 +51167,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "0c5049a6899b70f6d50f36ec8844a039016fef0cd6261b1b501138308d7d0273",
+      "content_sha256": "67338d7c1c0b7dd30190f61859a969e98a8fe2b219c57a8db7c914f8b068e0cb",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/modules/admin-panel/src/services/generated/admin-api.ts",

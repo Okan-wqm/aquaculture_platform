@@ -19,9 +19,14 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * rule that asks for it, after the cheaper predicates have already run, and
  * only for rules that declare the threshold at all.
  *
- * The column had no reader outside that threshold: no controller, no DTO, no
- * admin-panel page. A stored number nothing maintains correctly is exactly the
- * class of defect this audit is about, so it goes rather than being carried.
+ * Two surfaces did read it, and both went with the column rather than being
+ * left pointing at nothing: `ERROR_GROUP_SORT_FIELDS` offered `userCount` as a
+ * sort key mapping to `g."userCount"` (an ORDER BY on a dropped column is a
+ * 500, allowlisted or not), and ErrorTrackingPage printed it as "N users" —
+ * a number that was really a tenant count. The page now shows
+ * `affectedTenants.length`, which is what the ingest statement actually
+ * maintains. A stored number nothing maintains correctly is exactly the class
+ * of defect this audit is about, so it goes rather than being carried.
  *
  * Blue-green: the reverse step re-adds the column with its original default, so
  * an older replica writing it finds it there.

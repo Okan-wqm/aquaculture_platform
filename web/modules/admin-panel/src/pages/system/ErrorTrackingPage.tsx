@@ -407,7 +407,9 @@ export const ErrorTrackingPage: React.FC = () => {
                   <div className="ml-6 flex-shrink-0 text-right">
                     <div className="text-2xl font-bold text-gray-900">{errorGroup.occurrenceCount.toLocaleString()}</div>
                     <div className="text-xs text-gray-500">occurrences</div>
-                    <div className="mt-2 text-sm text-gray-600">{errorGroup.userCount} users</div>
+                    <div className="mt-2 text-sm text-gray-600">
+                      {errorGroup.affectedTenants?.length ?? 0} tenants
+                    </div>
                   </div>
                 </div>
               </div>
@@ -462,8 +464,10 @@ export const ErrorTrackingPage: React.FC = () => {
                   </div>
                 </div>
                 <div className="bg-gray-50 p-4 rounded-lg">
-                  <div className="text-sm text-gray-500 mb-1">Affected Users</div>
-                  <div className="text-2xl font-bold text-gray-900">{selectedError.userCount}</div>
+                  <div className="text-sm text-gray-500 mb-1">Affected Tenants</div>
+                  <div className="text-2xl font-bold text-gray-900">
+                    {selectedError.affectedTenants?.length ?? 0}
+                  </div>
                 </div>
                 <div className="bg-gray-50 p-4 rounded-lg">
                   <div className="text-sm text-gray-500 mb-1">Service</div>

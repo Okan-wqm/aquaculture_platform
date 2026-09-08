@@ -16,4 +16,20 @@ export type ApiSchemas = components['schemas'];
 /** One schema from the generated contract, by name. */
 export type ApiSchema<Name extends keyof ApiSchemas> = ApiSchemas[Name];
 
+/**
+ * The query string one operation accepts, by operation id.
+ *
+ * A hand-built query object is a second place the parameter NAMES live, and
+ * the two drift silently because a query parameter the server does not know
+ * is not an error — it is ignored. `PerformanceDashboardPage` sent
+ * `?start=…&end=…` to an endpoint whose parameters are `startDate` and
+ * `endDate`, so its five-entry time-range selector changed the URL and
+ * nothing else: every range returned the server's default last hour
+ * (ADMIN-HIGH-123). Typing the object through here makes that a compile
+ * error.
+ */
+export type ApiQuery<Name extends keyof operations> = NonNullable<
+  operations[Name] extends { parameters: { query?: infer Q } } ? Q : never
+>;
+
 export type { components, operations, paths };

@@ -152,18 +152,84 @@ export interface PerformanceMetrics {
   timestamp: string;
 }
 
+/** One point on a trend series, as `GET /system/performance/dashboard` sends it. */
+export interface PerformanceTrendPoint {
+  timestamp: string;
+  value: number;
+}
+
+/**
+ * The application half of a snapshot.
+ *
+ * `null` is NOT MEASURED, which the backend distinguishes from zero
+ * (`ApplicationMetrics` in `performance-metric.entity.ts`) — an empty metrics
+ * window is not a perfect Apdex of 1.0.
+ */
+export interface PerformanceApplicationMetrics {
+  avgResponseTime: number | null;
+  p95ResponseTime: number | null;
+  p99ResponseTime: number | null;
+  throughput: number | null;
+  errorRate: number | null;
+  apdexScore: number | null;
+  activeRequests: number | null;
+  totalRequests: number | null;
+}
+
+/** `GET /system/performance/database`. Every field is nullable at the source. */
+export interface DatabasePerformance {
+  activeConnections: number | null;
+  poolSize: number | null;
+  poolUtilization: number | null;
+  avgQueryTime: number | null;
+  slowQueryCount: number | null;
+  cacheHitRatio: number | null;
+  deadlockCount: number | null;
+}
+
+/** `GET /system/performance/infrastructure`. */
+export interface InfrastructureMetrics {
+  cpuUsage: number;
+  memoryUsage: number;
+  memoryTotal: number;
+  diskUsage: number | null;
+  diskTotal: number | null;
+  networkLatency: number | null;
+  containerCount: number | null;
+  healthyContainers: number | null;
+  podRestarts: number | null;
+}
+
+/**
+ * `GET /system/performance/dashboard`, as the endpoint actually answers.
+ *
+ * The previous declaration described a shape the server has never sent: a flat
+ * `currentSnapshot` carrying a `healthScore`. The real response nests the
+ * measurements under `currentSnapshot.applicationMetrics` (and sends `null`
+ * for the whole snapshot when none has been taken), and carries the score at
+ * the TOP level. `PerformanceDashboardPage` bridged the gap with a pair of
+ * `as Record<string, unknown>` casts and a `?? 100` — so a platform with no
+ * snapshot at all reported perfect health (ADMIN-HIGH-123). A type that
+ * matches the endpoint needs no cast and leaves nowhere to put the 100.
+ */
 export interface PerformanceDashboard {
   currentSnapshot: {
-    healthScore: number;
-    avgResponseTime: number;
-    errorRate: number;
-    throughput: number;
-    apdexScore: number;
-  };
+    id: string;
+    service?: string;
+    timestamp: string;
+    applicationMetrics: PerformanceApplicationMetrics;
+    databaseMetrics: DatabasePerformance;
+    infrastructureMetrics: InfrastructureMetrics;
+    overallHealthScore?: number | null;
+  } | null;
+  /** Recomputed per request from the current snapshot and the live alerts. */
+  healthScore: number | null;
   trends: {
-    responseTime: Array<{ timestamp: string; value: number }>;
-    throughput: Array<{ timestamp: string; value: number }>;
-    errorRate: Array<{ timestamp: string; value: number }>;
+    responseTime: PerformanceTrendPoint[];
+    throughput: PerformanceTrendPoint[];
+    errorRate: PerformanceTrendPoint[];
+    cpuUsage: PerformanceTrendPoint[];
+    memoryUsage: PerformanceTrendPoint[];
   };
   serviceBreakdown: Array<{
     service: string;

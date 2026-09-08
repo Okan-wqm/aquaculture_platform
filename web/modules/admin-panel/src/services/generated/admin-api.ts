@@ -9075,7 +9075,7 @@ export interface components {
             databaseMetrics: Record<string, never>;
             infrastructureMetrics: Record<string, never>;
             alerts?: string[];
-            overallHealthScore?: number;
+            overallHealthScore?: number | null;
             /** Format: date-time */
             createdAt: string;
         };

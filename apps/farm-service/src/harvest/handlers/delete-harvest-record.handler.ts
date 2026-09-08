@@ -7,7 +7,7 @@
  * @module Harvest/Handlers
  */
 import { runInTenantTransaction } from '@aquaculture/backend-common/database';
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { CommandHandler, ICommandHandler } from '@platform/cqrs';
 import { toEventIso,
@@ -19,6 +19,7 @@ import { Repository, DataSource } from 'typeorm';
 
 import { Batch } from '../../batch/entities/batch.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
+import { TankOperation, OperationType } from '../../batch/entities/tank-operation.entity';
 import { TankBatchService } from '../../batch/services/tank-batch.service';
 import {
   defaultFarmStockProjectionForDirectHandlerConstruction,
@@ -31,6 +32,8 @@ import { HarvestRecord, HarvestRecordStatus } from '../entities/harvest-record.e
 @Injectable()
 @CommandHandler(DeleteHarvestRecordCommand)
 export class DeleteHarvestRecordHandler implements ICommandHandler<DeleteHarvestRecordCommand, boolean> {
+  private readonly logger = new Logger(DeleteHarvestRecordHandler.name);
+
   constructor(
     @InjectRepository(HarvestRecord)
     private readonly harvestRepository: Repository<HarvestRecord>,
@@ -142,6 +145,40 @@ export class DeleteHarvestRecordHandler implements ICommandHandler<DeleteHarvest
           tenantId,
           [harvestRecord.tankId],
         );
+      }
+
+      // Withdraw the operations-ledger row this harvest wrote (FARM-HIGH-198).
+      // The stock reversal above restores the live figures, but batch history,
+      // tank operations, the mobile stock-event summary, the daily ops counts
+      // and the FCR calculation all read tank_operations, and every one of them
+      // filters isDeleted = false — so flipping the flag withdraws the removal
+      // from all of them at once, in this same transaction.
+      const withdrawn = await queryRunner.manager.update(
+        TankOperation,
+        {
+          tenantId,
+          harvestRecordId: harvestRecord.id,
+          operationType: OperationType.HARVEST,
+          isDeleted: false,
+        },
+        { isDeleted: true },
+      );
+
+      // A harvest recorded before the link column existed may not be
+      // identifiable: the backfill claims a pair only when it is one-to-one in
+      // both directions. Withdrawing a row picked by (tank, batch, date,
+      // quantity) instead would, for two same-day harvests of equal size,
+      // withdraw the wrong one — corrupting a second harvest to tidy this one.
+      // So the reversal proceeds and says what it could not do, rather than
+      // guessing or refusing to cancel legacy harvests at all.
+      if (!withdrawn.affected) {
+        this.logger.warn({
+          message:
+            'Harvest cancelled without withdrawing its tank_operations row: no ledger row carries this harvestRecordId',
+          harvestRecordId: harvestRecord.id,
+          batchId: harvestRecord.batchId,
+          tankId: harvestRecord.tankId,
+        });
       }
 
       // Mark the harvest record as cancelled (soft delete)

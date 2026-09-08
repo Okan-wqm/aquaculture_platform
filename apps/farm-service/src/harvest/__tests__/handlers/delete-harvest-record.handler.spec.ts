@@ -18,8 +18,8 @@
  *   6. No tankId → only batch reversal, event still fires with
  *      `tankId=undefined`.
  */
-import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { createMockDataSource } from '@aquaculture/testing';
+import { BadRequestException, Logger, NotFoundException } from '@nestjs/common';
+import { createMockDataSource, collaborator, stubMember } from '@aquaculture/testing';
 import type { EntityManager, Repository } from 'typeorm';
 
 import { DeleteHarvestRecordHandler } from '../../handlers/delete-harvest-record.handler';
@@ -31,6 +31,8 @@ import {
 import { Batch } from '../../../batch/entities/batch.entity';
 import { TankBatch } from '../../../batch/entities/tank-batch.entity';
 import { Tank } from '../../../tank/entities/tank.entity';
+import { TankBatchService } from '../../../batch/services/tank-batch.service';
+import { OperationType } from '../../../batch/entities/tank-operation.entity';
 import type { OutboxPublisher } from '@platform/outbox';
 import { FarmStockProjectionService } from '../../../farm-stock/farm-stock-projection.service';
 
@@ -132,7 +134,10 @@ function makeHarness(opts: HarnessOpts = {}) {
   // The single SSoT writer for tank composition — the reversal restores
   // batchDetails[] through this, never by direct field arithmetic.
   const applyBatchDelta = jest.fn().mockResolvedValue(undefined);
-  const tankBatchService = { applyBatchDelta };
+  const tankBatchService = collaborator<TankBatchService>(
+    { applyBatchDelta: stubMember<TankBatchService['applyBatchDelta']>(applyBatchDelta) },
+    'TankBatchService',
+  );
 
   const handler = new DeleteHarvestRecordHandler(
     harvestRepository as unknown as Repository<HarvestRecord>,
@@ -141,7 +146,7 @@ function makeHarness(opts: HarnessOpts = {}) {
     tankRepository,
     mockDataSource,
     outboxPublisher,
-    tankBatchService as never,
+    tankBatchService,
     farmStockProjection,
   );
 
@@ -152,6 +157,7 @@ function makeHarness(opts: HarnessOpts = {}) {
     rollback: mockQueryRunner.rollbackTransaction as jest.Mock,
     refreshContainers,
     applyBatchDelta,
+    update: mockManager.update as jest.Mock,
   };
 }
 
@@ -238,6 +244,48 @@ describe('DeleteHarvestRecordHandler — transactional outbox', () => {
     );
     expect(enqueue).not.toHaveBeenCalled();
     expect(applyBatchDelta).not.toHaveBeenCalled();
+  });
+
+  it('withdraws the operations-ledger row this harvest wrote', async () => {
+    const { handler, update } = makeHarness();
+
+    await handler.execute(makeCommand());
+
+    // Reversing the stock is not enough: batch history, tank operations, the
+    // mobile stock-event summary, the daily ops counts and the FCR calculation
+    // all read tank_operations and all filter isDeleted = false, so a standing
+    // row keeps every one of them counting a removal that was undone
+    // (FARM-HIGH-198). The row is identified by the harvest it mirrors, never
+    // by (tank, batch, date, quantity) — that would withdraw the wrong row for
+    // two same-day harvests of equal size.
+    expect(update).toHaveBeenCalledTimes(1);
+    const [entity, criteria, patch] = update.mock.calls[0]!;
+    expect((entity as { name?: string }).name).toBe('TankOperation');
+    expect(criteria).toEqual({
+      tenantId: TENANT_ID,
+      harvestRecordId: 'hr-1',
+      operationType: OperationType.HARVEST,
+      isDeleted: false,
+    });
+    expect(patch).toEqual({ isDeleted: true });
+  });
+
+  it('still cancels, and says so, when no ledger row carries the link', async () => {
+    const { handler, update, enqueue, commit } = makeHarness();
+    // A harvest recorded before the link column existed whose backfill could
+    // not claim a one-to-one pair.
+    update.mockResolvedValueOnce({ affected: 0 });
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+
+    await handler.execute(makeCommand());
+
+    // The stock reversal and the cancellation still land — refusing would make
+    // legacy harvests permanently un-cancellable — and the gap is reported
+    // rather than papered over with a guessed row.
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(enqueue).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(expect.objectContaining({ harvestRecordId: 'hr-1' }));
+    warn.mockRestore();
   });
 
   it('outbox enqueue failure rolls back the entire cascade', async () => {

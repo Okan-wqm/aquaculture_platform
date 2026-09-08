@@ -225,6 +225,22 @@ export class TankOperation {
   // HARVEST DETAYLARI
   // -------------------------------------------------------------------------
 
+  /**
+   * The `harvest_records` row this ledger entry mirrors (FARM-HIGH-198).
+   *
+   * Set for every operation of type HARVEST. Cancelling a harvest withdraws its
+   * ledger row by this id: without it a cancel had no way to name its own row,
+   * and matching on (tenant, tank, batch, date, quantity) picks the wrong one
+   * for two same-day harvests of equal size.
+   *
+   * Nullable because harvests recorded before the link existed may not be
+   * identifiable — the backfill claims a pair only when it is one-to-one in
+   * both directions, and a cancel refuses rather than guessing at the rest.
+   */
+  @Field({ nullable: true })
+  @Column('uuid', { nullable: true })
+  harvestRecordId?: string;
+
   @Field(() => Float, { nullable: true })
   @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true, transformer: new DecimalTransformer() })
   harvestTotalWeightKg?: number;           // Hasat toplam ağırlık

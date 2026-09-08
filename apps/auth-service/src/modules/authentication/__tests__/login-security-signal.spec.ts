@@ -35,6 +35,10 @@ import { Invitation } from '../entities/invitation.entity';
 import { RefreshToken } from '../entities/refresh-token.entity';
 import { UserModuleAssignment } from '../entities/user-module-assignment.entity';
 import { User } from '../entities/user.entity';
+import { WebAuthnCredential } from '../entities/webauthn-credential.entity';
+import { OutboxPublisher } from '@platform/outbox';
+import { TimingSafeService } from '@aquaculture/backend-common/security';
+import { ActionTokenResolver } from '../services/action-token-resolver.service';
 import { AuthenticationService } from '../services/authentication.service';
 import { DurableAccessTokenInvalidationService } from '../services/durable-access-token-invalidation.service';
 import { DurableUserTokenInvalidationService } from '../services/durable-user-token-invalidation.service';
@@ -120,10 +124,24 @@ async function build(user: User | null): Promise<Harness> {
       { provide: getRepositoryToken(ActionToken), useValue: {} },
       { provide: getRepositoryToken(UserModuleAssignment), useValue: {} },
       { provide: getRepositoryToken(Tenant), useValue: tenantRepository },
+      // Main added the WebAuthn credential repository to the constructor while
+      // this wave was being landed; the login paths under test never reach it.
+      { provide: getRepositoryToken(WebAuthnCredential), useValue: {} },
       { provide: DataSource, useValue: dataSource },
       { provide: JwtService, useValue: {} },
       { provide: ConfigService, useValue: { get: jest.fn((_k: string, d?: unknown) => d) } },
       { provide: BestEffortEventPublisher, useValue: { publish: jest.fn() } },
+      // Constructor collaborators main added to AuthenticationService while this
+      // wave was being landed. None is on a login path this suite drives.
+      { provide: OutboxPublisher, useValue: { publish: jest.fn() } },
+      { provide: ActionTokenResolver, useValue: {} },
+      { provide: BypassRlsService, useValue: {} },
+      {
+        provide: TimingSafeService,
+        // The login path awaits this to flatten its timing profile; the suite
+        // asserts on the signal, so the wait is a no-op here.
+        useValue: { ensureMinDuration: jest.fn().mockResolvedValue(undefined) },
+      },
       { provide: AuditLogService, useValue: auditLog },
       {
         provide: TokenService,

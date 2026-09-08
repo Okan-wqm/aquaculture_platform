@@ -1076,7 +1076,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "4c198bf7ed32fbfcaacab075d1c6f86c89989d377d28900d58a15dd81e947d55",
+      "content_sha256": "561a5c7e1f46cba1988c3041a199b1e9f6f385f2924ff22ffe1b0fd4551324e4",
       "hash_policy": "sha256",
       "owner": "admin-openapi-generator",
       "path": "apps/admin-api-service/openapi.json",
@@ -2195,6 +2195,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/migrations/1809200000000-RetireAdminDiscountCatalogue.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1809300000000-ProjectionSourceEventIdentity.ts",
       "prettier_managed": true
     },
     {
@@ -46339,6 +46345,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/nats-inbound-binding.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/nested-steering-parity.spec.ts",
       "prettier_managed": true
     },
@@ -51029,7 +51041,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "76f9610b6307582c9beeb98c0c5d8abc3b4a1b16e5667499218793a7a901b236",
+      "content_sha256": "c15bdbfabb9b67088972532cf418985cd7b6bb59702daaedc896aa389ce4cbf6",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/modules/admin-panel/src/services/generated/admin-api.ts",

@@ -843,6 +843,17 @@ export class LoginAttempt {
   @Column({ type: 'varchar', length: 255, nullable: true })
   sessionId?: string | null;
 
+  /**
+   * The id of the security event this row was projected from (ADMIN-HIGH-014).
+   *
+   * NULL for a row written by any path other than the JetStream projection.
+   * A partial unique index over the non-NULL values makes an at-least-once
+   * redelivery unable to double-count a failed login into a brute-force alert
+   * (migration `1809300000000-ProjectionSourceEventIdentity`).
+   */
+  @Column({ type: 'uuid', nullable: true })
+  sourceEventId?: string | null;
+
   @CreateDateColumn()
   createdAt!: Date;
 }
@@ -881,7 +892,13 @@ export class ApiUsageLog {
   path!: string;
 
   @Column({ type: 'jsonb', nullable: true })
-  queryParams?: Record<string, unknown> | null;
+  /**
+   * The request's query string, as parsed. Typed to what a query string can
+   * actually hold — `Record<string, unknown>` cannot be written through
+   * TypeORM's insert builder, and an `unknown` bag invites a token or an email
+   * into a table `maskPii()` never sees.
+   */
+  queryParams?: Record<string, string | string[]> | null;
 
   @Column({ type: 'int', nullable: true })
   requestSize?: number | null;
@@ -925,6 +942,13 @@ export class ApiUsageLog {
 
   @Column({ type: 'varchar', length: 255, nullable: true })
   correlationId?: string | null;
+
+  /**
+   * The id of the security event this row was projected from (ADMIN-HIGH-014).
+   * See `LoginAttempt.sourceEventId` — same partial unique index, same reason.
+   */
+  @Column({ type: 'uuid', nullable: true })
+  sourceEventId?: string | null;
 
   @CreateDateColumn()
   createdAt!: Date;

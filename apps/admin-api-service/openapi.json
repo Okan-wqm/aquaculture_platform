@@ -22478,6 +22478,10 @@
             "type": "string",
             "nullable": true
           },
+          "sourceEventId": {
+            "type": "string",
+            "nullable": true
+          },
           "createdAt": {
             "format": "date-time",
             "type": "string"

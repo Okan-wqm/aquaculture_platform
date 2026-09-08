@@ -8306,6 +8306,7 @@ export interface components {
             tenantId?: string | null;
             userId?: string | null;
             sessionId?: string | null;
+            sourceEventId?: string | null;
             /** Format: date-time */
             createdAt: string;
         };

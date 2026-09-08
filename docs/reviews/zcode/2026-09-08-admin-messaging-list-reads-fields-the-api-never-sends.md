@@ -285,3 +285,74 @@ with **no allowlist at all**.
 
 Verified by negative control: restoring `AuditTrailPage`'s local union to
 `low | medium | high | critical` fails the new rule, naming that file.
+
+## ADMIN-MEDIUM-116 — the analytics time-series contract is invisible to codegen
+
+Surfaced while closing PR #1035, which proposed replacing OpenAPI codegen with a
+TypeScript-compiler-driven generator. That PR's stated premise —
+
+> Not OpenAPI, though the finding proposed it: admin-api bootstraps no
+> `SwaggerModule`
+
+— is false on today's `main`: `apps/admin-api-service/src/openapi/generate-openapi.ts`
+calls `SwaggerModule.createDocument`, `openapi` is an Nx target, and both
+`openapi.json` and the generated panel client are committed. The route that PR
+rejected is the one that landed. But its concrete example is worth keeping,
+because re-checking it found something real that nothing tracks.
+
+### What #1035 claimed, and what is actually true now
+
+#1035 reported `AnalyticsDashboardPage` declaring `value: number` against a
+backend `number | null`, so unmeasured buckets rendered as real zero points on
+the trend line. **That mismatch does not exist on `main`.** Both sides declare
+`value: number`:
+
+- `apps/admin-api-service/src/analytics/entities/analytics-snapshot.entity.ts:149`
+- `web/modules/admin-panel/src/pages/AnalyticsDashboardPage.tsx:98`
+
+Reporting it as a live bug would have been wrong, so it is recorded here as
+checked and refuted rather than repeated.
+
+### What IS live
+
+The two declarations agree **by coincidence, with nothing holding them there** —
+and unlike every other case in this document, the gate shipped with
+ADMIN-MEDIUM-111 and ADMIN-HIGH-115 cannot help, because there is nothing to
+derive from:
+
+```console
+$ git show origin/main:apps/admin-api-service/openapi.json | jq '.components.schemas | keys | length'
+225
+$ ... | jq '.components.schemas | has("TimeSeriesPoint"), has("TimeSeriesData"), has("TimeSeriesResponse")'
+false
+false
+false
+```
+
+`TimeSeriesPoint`, `TimeSeriesData` and `TimeSeriesResponse` are declared as
+`interface`, and the `@nestjs/swagger` plugin emits schemas for **classes only**.
+They sit on a live response path — `analytics.controller.ts:135` returns
+`toTimeSeriesResponse(...)` — so the analytics dashboard's entire time-series
+contract crosses the wire without ever appearing in `openapi.json`, and the page
+has no generated type to source. Hand-declaring it is not a mistake there; it is
+the only option the contract leaves.
+
+This is the **fifth** occurrence of the one root cause this whole document keeps
+arriving at: ADMIN-HIGH-110 (messaging unread), ADMIN-HIGH-112 (audit severity),
+ADMIN-HIGH-113 (feature-toggle DTOs), the tenant detail pair, and now analytics.
+Each time the shape was an interface, each time the plugin emitted nothing, and
+each time the frontend wrote its own copy and was free to drift.
+
+### Fix
+
+Convert the three analytics response interfaces to classes with `@ApiProperty`,
+regenerate `openapi.json` + the panel client, and point
+`AnalyticsDashboardPage` at `ApiSchema<'TimeSeriesResponse'>` — after which the
+ADMIN-HIGH-115 gate covers it automatically, because it will then be a
+contract-derived type that a page re-declares.
+
+Not done here: this is a backend contract change on a live analytics route, it
+needs its own OpenAPI artifact regeneration, and it belongs with the remaining
+ADMIN-HIGH-115 conversions rather than inside a PR-closure sweep.
+
+Owner: okan. Deadline: 2026-10-06 (tracked alongside ADMIN-HIGH-115).

@@ -769,8 +769,26 @@ to refetch — and its results land in a second cache rather than the shell's
 `QueryClient`, which is the boundary ADMIN-HIGH-105 closed for the migrated
 pages only.
 
-**Remaining:** 42 pages, in five domain batches (tenant 6, billing 11,
-security 3, system 13, messaging 9), governed by
+**Correction to C7 (W8c).** The plan's C7 credited `SecurityDashboardPage` with
+no longer zero-filling because it uses `Promise.allSettled` and surfaces a
+`failures[]` list. It collects one; the render discards it. All three
+multi-query security pages showed their partial failure only under `error &&
+<content>.length === 0`, so the case that actually happens — some queries
+succeed, one fails — showed empty sections with no indication anything failed.
+On the security dashboard that is an operator reading "no incidents" and "no
+threat indicators" off requests that never returned. Closed by the shared
+`QueryFailureNotice` component, which owns the banner-vs-full-page condition
+once for every admin page.
+
+**Landed (W8b, W8c):** 4 of 44 pages migrated — AuditLogPage, ActivityLogPage,
+AuditTrailPage, SecurityDashboardPage. admin-panel gained a
+`tsconfig.spec.json`, entering `tools/gates/type-check-spec.ts` at 0: no type
+gate had ever read a spec in this package, and the compiler's first pass found a
+pre-existing spec asserting against a `Tenant` shape with two fields the
+contract lacks and one required field missing.
+
+**Remaining:** 40 pages, in five domain batches (tenant 6, billing 11, security
+1, system 13, messaging 9), governed by
 `.claude/allowlists/admin-panel-unmigrated-reads.yaml`. The `AdminTable`
 contract for server-side pagination, sort and dataset-scoped aggregates follows
 the migration. **Gate:** `tests/invariants/admin-panel-data-layer.spec.ts` — a

@@ -50688,6 +50688,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/components/__tests__/QueryFailureNotice.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/components/admin-nav-items.tsx",
       "prettier_managed": true
     },
@@ -50719,6 +50725,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/admin-panel/src/components/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/components/QueryFailureNotice.tsx",
       "prettier_managed": true
     },
     {

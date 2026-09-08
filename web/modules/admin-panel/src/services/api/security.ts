@@ -73,19 +73,23 @@ export const securityApi = {
       search?: string;
     } & PaginationParams &
       DateRangeParams,
+    signal?: AbortSignal,
   ) =>
-    apiFetch<PaginatedResult<BackendAuditLog>>(
-      `/security/audit?${buildQueryString(params || {})}`,
-      platformScope,
-    ),
+    apiFetch<PaginatedResult<BackendAuditLog>>(`/security/audit?${buildQueryString(params || {})}`, {
+      ...platformScope,
+      signal,
+    }),
   getEntityAuditTrail: (entityType: string, entityId: string) =>
     apiFetch<BackendAuditLog[]>(`/security/audit/entity/${entityType}/${entityId}`, platformScope),
 
   // Retention Policies — read-only view of the build-time registry (ADR-0012).
   // Windows are declared in code and enforced by the platform's single
   // RetentionEnforcementService; there is no runtime editor and no "apply".
-  getRetentionPolicies: () =>
-    apiFetch<RetentionPolicy[]>('/security/audit/retention-policies', platformScope),
+  getRetentionPolicies: (signal?: AbortSignal) =>
+    apiFetch<RetentionPolicy[]>('/security/audit/retention-policies', {
+      ...platformScope,
+      signal,
+    }),
 
   // Compliance
   getComplianceReports: (
@@ -203,10 +207,11 @@ export const securityApi = {
       searchQuery?: string;
     } & PaginationParams &
       DateRangeParams,
+    signal?: AbortSignal,
   ) =>
     apiFetch<PaginatedResult<BackendSecurityEvent>>(
       `/security/monitoring/events?${buildQueryString(params || {})}`,
-      platformScope,
+      { ...platformScope, signal },
     ),
   getSecurityEvent: (id: string) =>
     apiFetch<BackendSecurityEvent>(`/security/monitoring/events/${id}`, platformScope),
@@ -218,10 +223,13 @@ export const securityApi = {
       body: JSON.stringify({ status: 'mitigated', resolvedBy, resolution: notes }),
     }),
 
-  getSecurityIncidents: (params?: { status?: string; severity?: string } & PaginationParams) =>
+  getSecurityIncidents: (
+    params?: { status?: string; severity?: string } & PaginationParams,
+    signal?: AbortSignal,
+  ) =>
     apiFetch<PaginatedResult<BackendSecurityIncident>>(
       `/security/monitoring/incidents?${buildQueryString(params || {})}`,
-      platformScope,
+      { ...platformScope, signal },
     ),
   getSecurityIncident: (id: string) =>
     apiFetch<BackendSecurityIncident>(`/security/monitoring/incidents/${id}`, platformScope),
@@ -238,10 +246,11 @@ export const securityApi = {
       threatLevel?: SecurityEventSeverity;
       isActive?: boolean;
     } & PaginationParams,
+    signal?: AbortSignal,
   ) =>
     apiFetch<PaginatedResult<BackendThreatIndicator>>(
       `/security/monitoring/threat-intelligence?${buildQueryString(params || {})}`,
-      platformScope,
+      { ...platformScope, signal },
     ),
   addThreatIndicator: (
     data: Omit<
@@ -265,16 +274,26 @@ export const securityApi = {
       topThreats: Array<{ type: string; count: number }>;
     }>('/security/monitoring/dashboard', platformScope),
   // Full monitoring dashboard data
-  getMonitoringDashboard: () =>
-    apiFetch<BackendSecurityDashboardStats>('/security/monitoring/dashboard', platformScope),
+  getMonitoringDashboard: (signal?: AbortSignal) =>
+    apiFetch<BackendSecurityDashboardStats>('/security/monitoring/dashboard', {
+      ...platformScope,
+      signal,
+    }),
   // Health score
-  getHealthScore: () =>
-    apiFetch<BackendSecurityHealthScore>('/security/monitoring/health-score', platformScope),
+  getHealthScore: (signal?: AbortSignal) =>
+    apiFetch<BackendSecurityHealthScore>('/security/monitoring/health-score', {
+      ...platformScope,
+      signal,
+    }),
 
   // Audit Summary & Alert Rules
-  getAuditSummary: () => apiFetch<AuditSummary>('/security/audit/summary', platformScope),
-  getAlertRules: () =>
-    apiFetch<BackendAuditAlertRule[]>('/security/audit/alert-rules', platformScope),
+  getAuditSummary: (signal?: AbortSignal) =>
+    apiFetch<AuditSummary>('/security/audit/summary', { ...platformScope, signal }),
+  getAlertRules: (signal?: AbortSignal) =>
+    apiFetch<BackendAuditAlertRule[]>('/security/audit/alert-rules', {
+      ...platformScope,
+      signal,
+    }),
 
   // Activity Stats
   getActivityStatsOverview: (signal?: AbortSignal) =>

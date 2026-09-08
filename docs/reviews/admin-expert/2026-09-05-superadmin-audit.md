@@ -759,8 +759,19 @@ the first two.
 
 ## ADMIN-HIGH-121 — admin-panel pages reach the network outside the data layer
 
-**State:** OPEN · **Wave:** W8b onward · **Owner:** okan
+**State:** RESOLVED (by the ratchet) · **Wave:** W8b onward · **Owner:** okan
 **Deadline:** 2026-12-31
+
+**Why RESOLVED with pages still listed.** The registry derives state from
+merged history — a merged `Closes:` trailer means closed — so a finding that
+every wave of a long migration references cannot stay open. What answers
+this finding architecturally is not "every page has moved" but the pair that
+makes moving them inevitable: the primitive exists, and every page that has not
+moved is named in
+`.claude/allowlists/admin-panel-unmigrated-reads.yaml` with an owner, an expiry
+and a ceiling that only decreases. ADMIN-HIGH-108 closed the same way while 31
+cron sites were still listed in `unleased-scheduled-jobs.yaml`. The allowlist,
+not the finding's state, is the record of what is left.
 
 A page is unmigrated when it imports an admin API client directly and names
 neither `useAdminQuery` nor `useAdminMutation`. Until it moves, a write cannot

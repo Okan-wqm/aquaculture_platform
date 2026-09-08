@@ -7,6 +7,17 @@
 # separate and much larger piece of work, so it carries its own id rather than
 # holding the primitive's finding open until every page has moved.
 #
+# ADMIN-HIGH-121 reads RESOLVED in the registry, and THIS FILE is why. The
+# registry derives state from merged history — a merged `Closes:` trailer means
+# closed — so a finding referenced by every wave of a long migration cannot
+# stay open across them. What answers the finding architecturally is not "every
+# page has moved" but the pair that makes moving them inevitable: the primitive
+# exists, and every page that has not moved is named here with an owner, an
+# expiry and a ceiling that only decreases. The same shape closed
+# ADMIN-HIGH-108 while 31 cron sites were still listed in
+# `unleased-scheduled-jobs.yaml`. The entries below, not the finding's state,
+# are the record of what is left.
+#
 # A page is UNMIGRATED when it imports an admin API client directly
 # (`services/adminApi` or `services/api/*`) and names neither `useAdminQuery`
 # nor `useAdminMutation`. That one criterion covers both shapes the pages use

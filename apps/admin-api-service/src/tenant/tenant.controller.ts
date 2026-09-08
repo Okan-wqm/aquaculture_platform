@@ -22,7 +22,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiExtraModels, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { PaginationResultV1 } from '@platform/pagination-contracts';
 
 import { CurrentUser } from '../decorators/current-user.decorator';
@@ -142,6 +142,15 @@ export class TenantPublicController {
   }
 }
 
+/**
+ * `listTenants` returns `PaginatedResult<TenantListItemDto>`, and the swagger
+ * plugin resolves a response type structurally and STOPS at the generic — it
+ * registers the envelope and never reaches the element. `@ApiExtraModels`
+ * registers the element itself, the same reason ADMIN-HIGH-110 needed it for
+ * `ThreadSummaryDto`. `TenantDetailDto` is a direct return type and needs no
+ * help, but is named here so the pair is read together.
+ */
+@ApiExtraModels(TenantListItemDto, TenantDetailDto)
 @ApiTags('Admin Tenants')
 @Controller('admin/tenants')
 export class TenantAdminController {

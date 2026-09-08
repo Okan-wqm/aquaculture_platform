@@ -6515,6 +6515,183 @@ export interface components {
             availableActions: string[];
             steps: components["schemas"]["TenantProvisioningStepDto"][];
         };
+        TenantListItemDto: {
+            id: string;
+            name: string;
+            slug: string;
+            domain?: string;
+            status: string;
+            tier: string;
+            contactEmail?: string;
+            userCount: number;
+            farmCount: number;
+            sensorCount: number;
+            activeModulesCount?: number;
+            isTrialActive: boolean;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        UserStatsByRole: {
+            total: number;
+            active: number;
+            inactive: number;
+            byRole: {
+                admin: number;
+                manager: number;
+                supervisor: number;
+                operator: number;
+                viewer: number;
+            };
+            recentlyActive: number;
+            newUsersLast30Days: number;
+        };
+        ResourceUsage: {
+            storage: {
+                usedGb: number;
+                limitGb: number;
+                percentage: number;
+            };
+            users: {
+                count: number;
+                limit: number;
+                percentage: number;
+            };
+            farms: {
+                count: number;
+                limit: number;
+                percentage: number;
+            };
+            sensors: {
+                count: number;
+                limit: number;
+                percentage: number;
+            };
+            apiCalls: {
+                last24h: number;
+                last7d: number;
+                limit: number;
+            };
+        };
+        ModuleUsageStats: {
+            moduleId: string;
+            moduleCode: string;
+            moduleName: string;
+            isActive: boolean;
+            /** Format: date-time */
+            assignedAt: string;
+            usageCount?: number;
+            /** Format: date-time */
+            lastUsedAt?: string;
+        };
+        TenantActivity: {
+            id: string;
+            tenantId: string;
+            /** @enum {string} */
+            activityType: "created" | "activated" | "suspended" | "deactivated" | "plan_changed" | "limits_updated" | "module_assigned" | "module_removed" | "user_added" | "user_removed" | "settings_updated" | "payment_received" | "payment_failed" | "trial_started" | "trial_expired" | "contact_updated" | "domain_changed";
+            title: string;
+            description?: string;
+            metadata?: {
+                [key: string]: unknown;
+            };
+            previousValue?: {
+                [key: string]: unknown;
+            };
+            newValue?: {
+                [key: string]: unknown;
+            };
+            performedBy: string;
+            performedByEmail?: string;
+            /** Format: date-time */
+            createdAt: string;
+            legalHold: boolean;
+        };
+        TenantNote: {
+            id: string;
+            tenantId: string;
+            content: string;
+            category: string;
+            isPinned: boolean;
+            createdBy: string;
+            createdByEmail?: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        BillingSummary: {
+            currentPlan: string;
+            monthlyAmount: number;
+            currency: string;
+            billingCycle: string;
+            paymentStatus: string;
+            /** Format: date-time */
+            nextBillingDate: string | null;
+            /** Format: date-time */
+            lastPaymentDate: string | null;
+            lastPaymentAmount: number | null;
+        };
+        TenantDetailDto: {
+            id: string;
+            name: string;
+            slug: string;
+            description?: string;
+            domain?: string;
+            status: string;
+            tier: string;
+            plan?: string;
+            /** Format: date-time */
+            trialEndsAt?: string;
+            /** Format: date-time */
+            suspendedAt?: string | null;
+            suspendedReason?: string | null;
+            availableActions: ("activate" | "suspend" | "deactivate" | "archive" | "retryProvisioning")[];
+            primaryContact?: {
+                name: string;
+                email: string;
+                phone?: string;
+                role: string;
+            };
+            billingContact?: {
+                name: string;
+                email: string;
+                phone?: string;
+                role: string;
+            };
+            billingEmail?: string;
+            country?: string;
+            region?: string;
+            settings?: {
+                timezone: string;
+                locale: string;
+                currency: string;
+                dateFormat: string;
+                measurementSystem: string;
+                notificationPreferences: {
+                    email?: boolean;
+                    sms?: boolean;
+                    push?: boolean;
+                    slack?: boolean;
+                };
+                features: string[];
+            };
+            limits?: components["schemas"]["TenantLimitsDto"];
+            userCount: number;
+            farmCount: number;
+            sensorCount: number;
+            maxStorage: number;
+            isTrialActive: boolean;
+            userStats?: components["schemas"]["UserStatsByRole"];
+            resourceUsage?: components["schemas"]["ResourceUsage"];
+            modules?: components["schemas"]["ModuleUsageStats"][];
+            recentActivities?: components["schemas"]["TenantActivity"][];
+            notes?: components["schemas"]["TenantNote"][];
+            billing?: components["schemas"]["BillingSummary"];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+            createdBy?: string;
+        };
         TenantStatsDto: {
             totalTenants: number;
             activeTenants: number;
@@ -6597,19 +6774,6 @@ export interface components {
             currentUserCount?: number;
             limits?: components["schemas"]["TenantLimitsDto"];
             usagePercentage?: Record<string, never>;
-        };
-        TenantNote: {
-            id: string;
-            tenantId: string;
-            content: string;
-            category: string;
-            isPinned: boolean;
-            createdBy: string;
-            createdByEmail?: string;
-            /** Format: date-time */
-            createdAt: string;
-            /** Format: date-time */
-            updatedAt: string;
         };
         CreateTenantNoteDto: {
             content: string;
@@ -9570,7 +9734,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["TenantDetailDto"];
                 };
             };
         };

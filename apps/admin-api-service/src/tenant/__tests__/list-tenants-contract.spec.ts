@@ -120,6 +120,7 @@ describe('ListTenantsHandler - DTO contract with batched resource counts', () =>
       userCount: 4,
       farmCount: 3,
       sensorCount: 7,
+      isTrialActive: false,
       createdAt: new Date('2026-01-01T00:00:00Z'),
     });
     // tier must be an OWN property (a getter would vanish on JSON.stringify).
@@ -142,6 +143,35 @@ describe('ListTenantsHandler - DTO contract with batched resource counts', () =>
     expect(countSql).toContain('UNION ALL');
     expect(countSql).toContain(`"${PROVISIONED_SCHEMA}"."farms"`);
     expect(countSql).toContain(`"${PROVISIONED_SCHEMA}"."sensors"`);
+  });
+
+  it('derives isTrialActive from trialEndsAt, the way the detail path does', async () => {
+    // ADMIN-MEDIUM-111. The list renders a Trial badge from this field. It read
+    // `isTrialActive` off a hand-written frontend type that declared it while
+    // this DTO did not, so the badge never drew. The rule is the detail path's
+    // rule (MT-MEDIUM-001): the is_trial_active column was dropped and
+    // trialEndsAt is the SSoT, so a past date is not a live trial.
+    const future = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const past = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    (mockQueryBuilder.getManyAndCount as jest.Mock).mockResolvedValue([
+      [
+        createMockTenant({ trialEndsAt: future }),
+        createMockTenant({ id: UNPROVISIONED_TENANT_ID, trialEndsAt: past }),
+      ],
+      2,
+    ]);
+    dataSourceQuery.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+
+    const result = await handler.execute(new ListTenantsQuery());
+    const [onTrial, expired] = result.items;
+    if (!onTrial || !expired) {
+      throw new Error('expected two mapped rows');
+    }
+
+    expect(onTrial.isTrialActive).toBe(true);
+    expect(expired.isTrialActive).toBe(false);
+    // No trialEndsAt at all is not a trial either.
+    expect(createMockTenant().trialEndsAt).toBeUndefined();
   });
 
   it('skips the count statement entirely when no page schema is provisioned', async () => {

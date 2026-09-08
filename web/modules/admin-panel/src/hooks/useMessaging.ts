@@ -22,7 +22,7 @@ import {
   ADMIN_ARCHIVE_THREAD,
 } from '../graphql/messaging-operations';
 import type {
-  MessageThread,
+  GraphQLSupportThread,
   SupportMessage,
   ThreadStatus,
   MessageSenderType,
@@ -205,7 +205,7 @@ export function useMessagingStats() {
  */
 export function useCreateThread() {
   const { mutate, isLoading, error, data } = useGraphQLMutation<
-    { createSupportThread: MessageThread },
+    { createSupportThread: GraphQLSupportThread },
     { input: CreateThreadInput }
   >(ADMIN_CREATE_THREAD);
 
@@ -239,7 +239,7 @@ export function useSendMessage() {
  */
 export function useCloseThread() {
   const { mutate, isLoading, error } = useGraphQLMutation<
-    { closeSupportThread: Pick<MessageThread, 'id' | 'status' | 'updatedAt'> },
+    { closeSupportThread: Pick<GraphQLSupportThread, 'id' | 'status' | 'updatedAt'> },
     { threadId: string }
   >(ADMIN_CLOSE_THREAD);
 
@@ -255,7 +255,7 @@ export function useCloseThread() {
  */
 export function useReopenThread() {
   const { mutate, isLoading, error } = useGraphQLMutation<
-    { reopenSupportThread: Pick<MessageThread, 'id' | 'status' | 'updatedAt'> },
+    { reopenSupportThread: Pick<GraphQLSupportThread, 'id' | 'status' | 'updatedAt'> },
     { threadId: string }
   >(ADMIN_REOPEN_THREAD);
 
@@ -271,7 +271,7 @@ export function useReopenThread() {
  */
 export function useArchiveThread() {
   const { mutate, isLoading, error } = useGraphQLMutation<
-    { archiveSupportThread: Pick<MessageThread, 'id' | 'status' | 'updatedAt'> },
+    { archiveSupportThread: Pick<GraphQLSupportThread, 'id' | 'status' | 'updatedAt'> },
     { threadId: string }
   >(ADMIN_ARCHIVE_THREAD);
 

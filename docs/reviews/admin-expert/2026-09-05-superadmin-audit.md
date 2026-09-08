@@ -889,7 +889,7 @@ writers existed and were correct, with zero callers);
 `natsTransport` is a build failure); `error-capture-ingress.spec.ts`;
 `performance-metrics-honesty.spec.ts`.
 
-## PLAT-CRITICAL-913 — Every `@SubscribeTo` subscriber dead-letters every message it receives
+## PLAT-CRITICAL-914 — Every `@SubscribeTo` subscriber dead-letters every message it receives
 
 **State:** OPEN · **Wave:** W5 · **ADR:** —
 

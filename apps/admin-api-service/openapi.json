@@ -490,7 +490,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/TenantDetailDto"
                 }
               }
             }
@@ -16041,6 +16041,653 @@
           "steps"
         ]
       },
+      "TenantListItemDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "domain": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "tier": {
+            "type": "string"
+          },
+          "contactEmail": {
+            "type": "string"
+          },
+          "userCount": {
+            "type": "number"
+          },
+          "farmCount": {
+            "type": "number"
+          },
+          "sensorCount": {
+            "type": "number"
+          },
+          "activeModulesCount": {
+            "type": "number"
+          },
+          "isTrialActive": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "slug",
+          "status",
+          "tier",
+          "userCount",
+          "farmCount",
+          "sensorCount",
+          "isTrialActive",
+          "createdAt"
+        ]
+      },
+      "UserStatsByRole": {
+        "type": "object",
+        "properties": {
+          "total": {
+            "type": "number"
+          },
+          "active": {
+            "type": "number"
+          },
+          "inactive": {
+            "type": "number"
+          },
+          "byRole": {
+            "type": "object",
+            "properties": {
+              "admin": {
+                "type": "number"
+              },
+              "manager": {
+                "type": "number"
+              },
+              "supervisor": {
+                "type": "number"
+              },
+              "operator": {
+                "type": "number"
+              },
+              "viewer": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "admin",
+              "manager",
+              "supervisor",
+              "operator",
+              "viewer"
+            ]
+          },
+          "recentlyActive": {
+            "type": "number"
+          },
+          "newUsersLast30Days": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "total",
+          "active",
+          "inactive",
+          "byRole",
+          "recentlyActive",
+          "newUsersLast30Days"
+        ]
+      },
+      "ResourceUsage": {
+        "type": "object",
+        "properties": {
+          "storage": {
+            "type": "object",
+            "properties": {
+              "usedGb": {
+                "type": "number"
+              },
+              "limitGb": {
+                "type": "number"
+              },
+              "percentage": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "usedGb",
+              "limitGb",
+              "percentage"
+            ]
+          },
+          "users": {
+            "type": "object",
+            "properties": {
+              "count": {
+                "type": "number"
+              },
+              "limit": {
+                "type": "number"
+              },
+              "percentage": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "count",
+              "limit",
+              "percentage"
+            ]
+          },
+          "farms": {
+            "type": "object",
+            "properties": {
+              "count": {
+                "type": "number"
+              },
+              "limit": {
+                "type": "number"
+              },
+              "percentage": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "count",
+              "limit",
+              "percentage"
+            ]
+          },
+          "sensors": {
+            "type": "object",
+            "properties": {
+              "count": {
+                "type": "number"
+              },
+              "limit": {
+                "type": "number"
+              },
+              "percentage": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "count",
+              "limit",
+              "percentage"
+            ]
+          },
+          "apiCalls": {
+            "type": "object",
+            "properties": {
+              "last24h": {
+                "type": "number"
+              },
+              "last7d": {
+                "type": "number"
+              },
+              "limit": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "last24h",
+              "last7d",
+              "limit"
+            ]
+          }
+        },
+        "required": [
+          "storage",
+          "users",
+          "farms",
+          "sensors",
+          "apiCalls"
+        ]
+      },
+      "ModuleUsageStats": {
+        "type": "object",
+        "properties": {
+          "moduleId": {
+            "type": "string"
+          },
+          "moduleCode": {
+            "type": "string"
+          },
+          "moduleName": {
+            "type": "string"
+          },
+          "isActive": {
+            "type": "boolean"
+          },
+          "assignedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "usageCount": {
+            "type": "number"
+          },
+          "lastUsedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "moduleId",
+          "moduleCode",
+          "moduleName",
+          "isActive",
+          "assignedAt"
+        ]
+      },
+      "TenantActivity": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string"
+          },
+          "activityType": {
+            "type": "string",
+            "enum": [
+              "created",
+              "activated",
+              "suspended",
+              "deactivated",
+              "plan_changed",
+              "limits_updated",
+              "module_assigned",
+              "module_removed",
+              "user_added",
+              "user_removed",
+              "settings_updated",
+              "payment_received",
+              "payment_failed",
+              "trial_started",
+              "trial_expired",
+              "contact_updated",
+              "domain_changed"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "previousValue": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "newValue": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "performedBy": {
+            "type": "string"
+          },
+          "performedByEmail": {
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "legalHold": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "tenantId",
+          "activityType",
+          "title",
+          "performedBy",
+          "createdAt",
+          "legalHold"
+        ]
+      },
+      "TenantNote": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "isPinned": {
+            "type": "boolean"
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "createdByEmail": {
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tenantId",
+          "content",
+          "category",
+          "isPinned",
+          "createdBy",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "BillingSummary": {
+        "type": "object",
+        "properties": {
+          "currentPlan": {
+            "type": "string"
+          },
+          "monthlyAmount": {
+            "type": "number"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "billingCycle": {
+            "type": "string"
+          },
+          "paymentStatus": {
+            "type": "string"
+          },
+          "nextBillingDate": {
+            "format": "date-time",
+            "type": "string",
+            "nullable": true
+          },
+          "lastPaymentDate": {
+            "format": "date-time",
+            "type": "string",
+            "nullable": true
+          },
+          "lastPaymentAmount": {
+            "type": "number",
+            "nullable": true
+          }
+        },
+        "required": [
+          "currentPlan",
+          "monthlyAmount",
+          "currency",
+          "billingCycle",
+          "paymentStatus",
+          "nextBillingDate",
+          "lastPaymentDate",
+          "lastPaymentAmount"
+        ]
+      },
+      "TenantDetailDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "domain": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "tier": {
+            "type": "string"
+          },
+          "plan": {
+            "type": "string"
+          },
+          "trialEndsAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "suspendedAt": {
+            "format": "date-time",
+            "type": "string",
+            "nullable": true
+          },
+          "suspendedReason": {
+            "type": "string",
+            "nullable": true
+          },
+          "availableActions": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "activate",
+                "suspend",
+                "deactivate",
+                "archive",
+                "retryProvisioning"
+              ]
+            }
+          },
+          "primaryContact": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "email": {
+                "type": "string"
+              },
+              "phone": {
+                "type": "string"
+              },
+              "role": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "email",
+              "role"
+            ]
+          },
+          "billingContact": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "email": {
+                "type": "string"
+              },
+              "phone": {
+                "type": "string"
+              },
+              "role": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "email",
+              "role"
+            ]
+          },
+          "billingEmail": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string"
+          },
+          "region": {
+            "type": "string"
+          },
+          "settings": {
+            "type": "object",
+            "properties": {
+              "timezone": {
+                "type": "string"
+              },
+              "locale": {
+                "type": "string"
+              },
+              "currency": {
+                "type": "string"
+              },
+              "dateFormat": {
+                "type": "string"
+              },
+              "measurementSystem": {
+                "type": "string"
+              },
+              "notificationPreferences": {
+                "type": "object",
+                "properties": {
+                  "email": {
+                    "type": "boolean"
+                  },
+                  "sms": {
+                    "type": "boolean"
+                  },
+                  "push": {
+                    "type": "boolean"
+                  },
+                  "slack": {
+                    "type": "boolean"
+                  }
+                },
+                "selfRequired": true
+              },
+              "features": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "timezone",
+              "locale",
+              "currency",
+              "dateFormat",
+              "measurementSystem",
+              "notificationPreferences",
+              "features"
+            ]
+          },
+          "limits": {
+            "$ref": "#/components/schemas/TenantLimitsDto"
+          },
+          "userCount": {
+            "type": "number"
+          },
+          "farmCount": {
+            "type": "number"
+          },
+          "sensorCount": {
+            "type": "number"
+          },
+          "maxStorage": {
+            "type": "number"
+          },
+          "isTrialActive": {
+            "type": "boolean"
+          },
+          "userStats": {
+            "$ref": "#/components/schemas/UserStatsByRole"
+          },
+          "resourceUsage": {
+            "$ref": "#/components/schemas/ResourceUsage"
+          },
+          "modules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModuleUsageStats"
+            }
+          },
+          "recentActivities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TenantActivity"
+            }
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TenantNote"
+            }
+          },
+          "billing": {
+            "$ref": "#/components/schemas/BillingSummary"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "createdBy": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "slug",
+          "status",
+          "tier",
+          "availableActions",
+          "userCount",
+          "farmCount",
+          "sensorCount",
+          "maxStorage",
+          "isTrialActive",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
       "TenantStatsDto": {
         "type": "object",
         "properties": {
@@ -16328,50 +16975,6 @@
         },
         "required": [
           "tenantId"
-        ]
-      },
-      "TenantNote": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "tenantId": {
-            "type": "string"
-          },
-          "content": {
-            "type": "string"
-          },
-          "category": {
-            "type": "string"
-          },
-          "isPinned": {
-            "type": "boolean"
-          },
-          "createdBy": {
-            "type": "string"
-          },
-          "createdByEmail": {
-            "type": "string"
-          },
-          "createdAt": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "updatedAt": {
-            "format": "date-time",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "tenantId",
-          "content",
-          "category",
-          "isPinned",
-          "createdBy",
-          "createdAt",
-          "updatedAt"
         ]
       },
       "CreateTenantNoteDto": {

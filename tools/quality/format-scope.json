@@ -1076,7 +1076,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "1c9b20c48952e6979263ae49fa929fab6b9f9ba6964d50439037988b9b4dc71a",
+      "content_sha256": "51a1ed2c6728853a4fc5e35d44631062d32c6e258b8214e1bd13fa37b3e3785a",
       "hash_policy": "sha256",
       "owner": "admin-openapi-generator",
       "path": "apps/admin-api-service/openapi.json",
@@ -36548,6 +36548,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/zcode/2026-09-08-pr-1031-1034-closure-evidence.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/zcode/2026-09-08-pr1022-orphaned-finding-ids-verified.md",
       "prettier_managed": true
     },
@@ -45373,6 +45379,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/admin-panel-contract-shadowing.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/admin-panel-paginated-consumer.spec.ts",
       "prettier_managed": true
     },
@@ -51155,7 +51167,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "18ce28f50d4bf6b59e1564cdaed4da7bd089c3521e4a03042735cbbe0c97e1fe",
+      "content_sha256": "0c5049a6899b70f6d50f36ec8844a039016fef0cd6261b1b501138308d7d0273",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/modules/admin-panel/src/services/generated/admin-api.ts",

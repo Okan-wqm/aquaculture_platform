@@ -26,12 +26,13 @@
  * `nx run admin-panel:openapi-client`.
  */
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import { allAdminRoutes } from './lib/admin-route-table';
 
+import { removeFixtureTree } from '../../tools/gates/fixture-tree';
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const ARTIFACT = 'apps/admin-api-service/openapi.json';
 const GENERATOR = 'tools/openapi/generate-admin-openapi.cjs';
@@ -67,7 +68,7 @@ function regenerate(): string {
     });
     return readFileSync(target, 'utf8');
   } finally {
-    rmSync(directory, { recursive: true, force: true });
+    removeFixtureTree(directory);
   }
 }
 
@@ -82,7 +83,7 @@ function regenerateClient(): string {
     });
     return readFileSync(target, 'utf8');
   } finally {
-    rmSync(directory, { recursive: true, force: true });
+    removeFixtureTree(directory);
   }
 }
 

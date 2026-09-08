@@ -17,6 +17,7 @@ import { join, resolve } from 'node:path';
 
 import yaml from 'js-yaml';
 
+import { removeFixtureTree } from '../../tools/gates/fixture-tree';
 const REPO_ROOT = resolve(__dirname, '..', '..');
 
 const UPSTREAM_IMAGE =
@@ -510,7 +511,7 @@ function evaluateEvidence(records: ReadonlyArray<Record<string, unknown>>): {
     );
     return { status: result.status, stdout: result.stdout, stderr: result.stderr };
   } finally {
-    rmSync(evidenceDirectory, { recursive: true, force: true });
+    removeFixtureTree(evidenceDirectory);
   }
 }
 
@@ -541,7 +542,7 @@ function runWrapperWithWalgStatus(
       },
     }).status;
   } finally {
-    rmSync(harnessDirectory, { recursive: true, force: true });
+    removeFixtureTree(harnessDirectory);
   }
 }
 
@@ -793,7 +794,7 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
       });
       expect(boundaryReady.status).toBe(0);
     } finally {
-      rmSync(scratch, { recursive: true, force: true });
+      removeFixtureTree(scratch);
     }
   });
 
@@ -1013,7 +1014,7 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
       );
       expect(result.status).toBe(0);
     } finally {
-      rmSync(scratch, { recursive: true, force: true });
+      removeFixtureTree(scratch);
     }
   });
 
@@ -1032,7 +1033,7 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
       expect(result.stderr).toContain('Docker control plane is unavailable');
       expect(result.stdout).not.toContain('container is absent');
     } finally {
-      rmSync(scratch, { recursive: true, force: true });
+      removeFixtureTree(scratch);
     }
   });
 
@@ -1143,7 +1144,7 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
         ).status,
       ).not.toBe(0);
     } finally {
-      rmSync(scratch, { recursive: true, force: true });
+      removeFixtureTree(scratch);
     }
   });
 
@@ -1165,7 +1166,7 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
       expect(rejectedLoad.status).not.toBe(0);
       expect(rejectedLoad.stderr).toContain('symlinked ancestor');
     } finally {
-      rmSync(scratch, { recursive: true, force: true });
+      removeFixtureTree(scratch);
     }
   });
 
@@ -1221,7 +1222,7 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
       expect(readFileSync(join(hostSecretDirectory, 'walg_s3_prefix'), 'utf8')).toBe(nextPrefix);
       expect(runSourceBundleValidation(hostSecretDirectory, nextEpoch, nextPrefix).status).toBe(0);
     } finally {
-      rmSync(scratch, { recursive: true, force: true });
+      removeFixtureTree(scratch);
     }
   });
 
@@ -1247,7 +1248,7 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
       );
       expect(readFileSync(join(hostSecretDirectory, 'libsodium.key'), 'utf8')).toBe(TEST_WALG_KEY);
     } finally {
-      rmSync(scratch, { recursive: true, force: true });
+      removeFixtureTree(scratch);
     }
   });
 
@@ -1278,7 +1279,7 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
       expect(traced.status).toBe(0);
       expect(traced.stderr).not.toContain(TEST_WALG_KEY);
     } finally {
-      rmSync(scratch, { recursive: true, force: true });
+      removeFixtureTree(scratch);
     }
   });
 
@@ -1506,7 +1507,7 @@ describe('WAL-G continuous archive and timestamp PITR contract', () => {
       expect(runWrapperWithWalgStatus(restoreWrapper, 74, [walName, walPath])).toBe(74);
       expect(runWrapperWithWalgStatus(restoreWrapper, 130, [walName, walPath])).toBe(130);
     } finally {
-      rmSync(scratch, { recursive: true, force: true });
+      removeFixtureTree(scratch);
     }
   });
 

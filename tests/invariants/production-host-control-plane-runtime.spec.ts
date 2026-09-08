@@ -24,6 +24,7 @@ import { dirname, join, resolve } from 'node:path';
 
 import { resolveEsbuildNodeModules } from './_constants';
 
+import { removeExistingFixtureTree, removeFixtureTree } from '../../tools/gates/fixture-tree';
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const PRODUCER = join(REPO_ROOT, 'tools/scripts/ci/prepare-production-host-runtime-bundle.sh');
 const CONTROL_PLANE = join(REPO_ROOT, 'scripts/deploy/production-host-control-plane.sh');
@@ -52,7 +53,7 @@ function removeFixtureRoot(root: string): void {
   if (writable.status !== 0) {
     throw new Error(`${writable.stdout}${writable.stderr}`);
   }
-  rmSync(root, { recursive: true, force: true });
+  removeFixtureTree(root);
 }
 
 interface RuntimeFixture {
@@ -1676,7 +1677,7 @@ describe('production host publisher and common lock runtime', () => {
       expect(writable.stderr).toContain('release root mode is neither 0700 nor exact legacy 0755');
       expect(statSync(releasesRoot).mode & 0o777).toBe(0o775);
 
-      rmSync(releasesRoot, { recursive: true });
+      removeExistingFixtureTree(releasesRoot);
       symlinkSync('/tmp', releasesRoot);
       const symlink = prepare();
       expect(symlink.status).not.toBe(0);

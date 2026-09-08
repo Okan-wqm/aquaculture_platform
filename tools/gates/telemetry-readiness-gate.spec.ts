@@ -18,11 +18,12 @@
 
 import { strict as assert } from 'node:assert';
 import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, test } from 'node:test';
 
+import { removeFixtureTree } from './fixture-tree';
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const SCRIPT = resolve(REPO_ROOT, 'tools/scripts/evaluate-telemetry-readiness.ts');
 const scratchDirectories: string[] = [];
@@ -151,7 +152,7 @@ function runGate(evidence: Record<string, unknown>): SpawnSyncReturns<string> {
 
 afterEach(() => {
   for (const directory of scratchDirectories.splice(0)) {
-    rmSync(directory, { recursive: true, force: true });
+    removeFixtureTree(directory);
   }
 });
 

@@ -38,12 +38,12 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
-  rmSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
+import { removeFixtureTree } from './fixture-tree';
 const REPO_ROOT = process.cwd();
 const MANIFEST = join(REPO_ROOT, 'tools', 'quality', 'format-scope.json');
 const GENERATOR = join(REPO_ROOT, 'tools', 'quality', 'quality.mjs');
@@ -92,7 +92,7 @@ function verifyImmutableEvidenceClassification(): void {
     }
     assert.equal(entries.get(paths[3])?.prettier_managed, true, 'live plan docs must stay managed');
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    removeFixtureTree(root);
   }
 }
 

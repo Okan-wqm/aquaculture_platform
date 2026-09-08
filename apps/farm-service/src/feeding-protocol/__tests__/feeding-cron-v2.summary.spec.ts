@@ -16,6 +16,7 @@ import { OutboxPublisher } from '@platform/outbox';
 import type { BaseEvent } from '@platform/event-contracts';
 
 import { FeedingCronV2Service } from '../services/feeding-cron-v2.service';
+import { createScheduledJobTestExecutor } from '@aquaculture/backend-common/scheduling/testing';
 import { MealPlanGeneratorService } from '../services/meal-plan-generator.service';
 import { BiomassGrowthApplierService } from '../services/biomass-growth-applier.service';
 import { ProtocolFeedForecastService } from '../services/protocol-feed-forecast.service';
@@ -75,6 +76,7 @@ function makeHarness(rows: SummaryRows) {
 
   const service = new FeedingCronV2Service(
     stub<DataSource>({}),
+    createScheduledJobTestExecutor().executor,
     stub<MealPlanGeneratorService>({}),
     growthApplier,
     stub<WaterTemperatureService>({}),

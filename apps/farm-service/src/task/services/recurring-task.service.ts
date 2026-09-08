@@ -5,12 +5,12 @@
  *
  * @module Task/Services
  */
+import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import {
-  Injectable,
-  NotFoundException,
-  Logger,
-} from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { listTenantSchemas } from '@aquaculture/backend-common/database';
@@ -40,6 +40,7 @@ export class RecurringTaskService {
     private readonly taskRepository: Repository<Task>,
     private readonly dataSource: DataSource,
     private readonly outboxPublisher: OutboxPublisher,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -156,7 +157,16 @@ export class RecurringTaskService {
    * Zamanı gelen şablonlardan görev oluşturur.
    * Iterates ALL tenant schemas to ensure no tenant is missed.
    */
-  @Cron('0 */15 * * * *')
+  /**
+   * The scheduled entry point. Separate from `generateDueTasks` because a tick
+   * returns nothing — the generated rows are a result for a caller that asked,
+   * not something a scheduler can receive.
+   */
+  @ScheduledJob({ name: 'task.generate-due', cron: '0 */15 * * * *' })
+  async generateDueTasksTick(): Promise<void> {
+    await this.generateDueTasks();
+  }
+
   async generateDueTasks(): Promise<Task[]> {
     this.logger.log('Running recurring task generation across all tenant schemas...');
     const now = new Date();

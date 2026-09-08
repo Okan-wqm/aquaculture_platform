@@ -23223,8 +23223,6 @@ export type UpdateHarvestPlanInput = {
 };
 
 export type UpdateHarvestRecordInput = {
-  /** Update average weight (grams) */
-  averageWeight?: InputMaybe<Scalars['Float']['input']>;
   /** Update buyer name */
   buyerName?: InputMaybe<Scalars['String']['input']>;
   /** Update currency */
@@ -23253,16 +23251,12 @@ export type UpdateHarvestRecordInput = {
   qualityApprovedBy?: InputMaybe<Scalars['ID']['input']>;
   /** Update Norwegian quality class (kvalitetsklasse) — the stored SSoT. */
   qualityClass?: InputMaybe<QualityClass>;
-  /** Update quantity harvested */
-  quantityHarvested?: InputMaybe<Scalars['Int']['input']>;
   /** Update rejected quantity (kg) */
   rejectedQuantity?: InputMaybe<Scalars['Float']['input']>;
   /** Update rejection reason */
   rejectionReason?: InputMaybe<Scalars['String']['input']>;
   /** Update status */
   status?: InputMaybe<HarvestRecordStatus>;
-  /** Update total biomass (kg) */
-  totalBiomass?: InputMaybe<Scalars['Float']['input']>;
   /** Update total revenue */
   totalRevenue?: InputMaybe<Scalars['Float']['input']>;
 };

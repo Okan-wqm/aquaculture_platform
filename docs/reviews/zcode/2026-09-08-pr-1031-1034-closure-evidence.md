@@ -113,6 +113,19 @@ comment, because the next reader stops looking.
 
 Owner `platform-kernel-expert`, due 2026-10-20.
 
+### Closed on the comment, not on the wiring
+
+The finding offers two resolutions and names which one is the live defect: _"Either bind a durable
+sink in both services or narrow the comment to what the wiring guarantees; the comment is the part
+that is wrong today."_ The comment is narrowed. It now says the message is RECORDED, and that how
+durable that record is depends on whether the service bound a sink — with both cases spelled out and
+farm-service and alert-engine named as the two that have not.
+
+Binding durable sinks in those two is a larger change with a design question attached (a dedicated
+`event_dlq` table per service, as PR #1031 proposed, or reuse of a row each service already
+surfaces, as notification-service does). It is not folded in here, and the comment no longer claims
+it has been.
+
 ## Verdict
 
 PR #1031 can be closed. Its content is on `main`, and where the two differ `main` is the better of

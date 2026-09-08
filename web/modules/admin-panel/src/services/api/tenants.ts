@@ -36,8 +36,12 @@ const normalizeProvisioningStatusUrl = (statusUrl: string): string => {
 };
 
 export const tenantsApi = {
-  list: (params?: { status?: string; tier?: string; search?: string; page?: number; limit?: number }) =>
-    apiFetch<PaginatedResult<Tenant>>(`/admin/tenants?${buildQueryString(params || {})}`),
+  // The trailing `AbortSignal` is the one React Query hands a migrated page's
+  // query function (ADMIN-HIGH-105); see `api/audit.ts` for why it is per-method.
+  list: (
+    params?: { status?: string; tier?: string; search?: string; page?: number; limit?: number },
+    signal?: AbortSignal,
+  ) => apiFetch<PaginatedResult<Tenant>>(`/admin/tenants?${buildQueryString(params || {})}`, { signal }),
   getById: (id: string) => apiFetch<Tenant>(`/admin/tenants/${id}`),
   getDetail: (id: string) => apiFetch<TenantDetail>(`/admin/tenants/${id}/detail`),
   getBySlug: (slug: string) => apiFetch<Tenant>(`/admin/tenants/slug/${slug}`),

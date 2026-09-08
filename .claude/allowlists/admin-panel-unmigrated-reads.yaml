@@ -1,5 +1,11 @@
 # admin-panel pages that reach the network WITHOUT the data layer
-# (ADMIN-HIGH-105).
+# (ADMIN-HIGH-121).
+#
+# Split out of ADMIN-HIGH-105 when W8a closed that finding's stated subject —
+# the missing shared primitive. The primitive now exists, fits the REST
+# transport its pages actually use, is exported, and is gated. ADOPTION is a
+# separate and much larger piece of work, so it carries its own id rather than
+# holding the primitive's finding open until every page has moved.
 #
 # A page is UNMIGRATED when it imports an admin API client directly
 # (`services/adminApi` or `services/api/*`) and names neither `useAdminQuery`
@@ -12,7 +18,7 @@
 #   * a write cannot invalidate the reads it affected, so lists go stale until
 #     something else happens to refetch (the class `useAdminMutation` exists to
 #     remove), and
-#   * the data sits in a second cache that only the ADMIN-HIGH-105 logout
+#   * the data sits in a second cache that only the ADMIN-HIGH-121 logout
 #     registration in `useAsyncData` keeps from outliving its session.
 #
 # Keyed by FILE and by IMPORT, never by line number or by call-site regex: a
@@ -27,272 +33,261 @@
 #
 # 44 of 44 pages at W8a: the primitives shipped in an earlier release
 # and were never exported from `hooks/index.ts`, so no page could reach them.
-# Batches: tenant 6, billing 11, security 5, system 13, messaging 9.
+# W8b migrated AuditLogPage and ActivityLogPage: 42 remain.
+# Batches: tenant 6, billing 11, security 3, system 13, messaging 9.
 # The ceiling drops with each batch and this file is deleted at 0.
 version: 1
-ceiling: 44
+ceiling: 42
 entries:
   - site: web/modules/admin-panel/src/pages/CreateTenantPage.tsx
     batch: tenant
     owner: okan
     expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
+    findingId: ADMIN-HIGH-121
     reason: tenant and identity batch — reads move to useAdminQuery with an adminKeys.tenants/users key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/OnboardingPage.tsx
     batch: tenant
     owner: okan
     expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
+    findingId: ADMIN-HIGH-121
     reason: tenant and identity batch — reads move to useAdminQuery with an adminKeys.tenants/users key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/RoleManagementPage.tsx
     batch: tenant
     owner: okan
     expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
+    findingId: ADMIN-HIGH-121
     reason: tenant and identity batch — reads move to useAdminQuery with an adminKeys.tenants/users key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/TenantDetailPage.tsx
     batch: tenant
     owner: okan
     expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
+    findingId: ADMIN-HIGH-121
     reason: tenant and identity batch — reads move to useAdminQuery with an adminKeys.tenants/users key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/TenantManagementPage.tsx
     batch: tenant
     owner: okan
     expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
+    findingId: ADMIN-HIGH-121
     reason: tenant and identity batch — reads move to useAdminQuery with an adminKeys.tenants/users key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/UserManagementPage.tsx
     batch: tenant
     owner: okan
     expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
+    findingId: ADMIN-HIGH-121
     reason: tenant and identity batch — reads move to useAdminQuery with an adminKeys.tenants/users key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/BillingDashboardPage.tsx
     batch: billing
     owner: okan
     expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
+    findingId: ADMIN-HIGH-121
     reason: billing batch — reads move to useAdminQuery with an adminKeys.billing key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/BillingReportsPage.tsx
     batch: billing
     owner: okan
     expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
+    findingId: ADMIN-HIGH-121
     reason: billing batch — reads move to useAdminQuery with an adminKeys.billing key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/CustomPlanBuilderPage.tsx
     batch: billing
     owner: okan
     expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
+    findingId: ADMIN-HIGH-121
     reason: billing batch — reads move to useAdminQuery with an adminKeys.billing key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/CustomPlansListPage.tsx
     batch: billing
     owner: okan
     expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
+    findingId: ADMIN-HIGH-121
     reason: billing batch — reads move to useAdminQuery with an adminKeys.billing key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/DiscountCodePage.tsx
     batch: billing
     owner: okan
     expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
+    findingId: ADMIN-HIGH-121
     reason: billing batch — reads move to useAdminQuery with an adminKeys.billing key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/InvoicesPage.tsx
     batch: billing
     owner: okan
     expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
+    findingId: ADMIN-HIGH-121
     reason: billing batch — reads move to useAdminQuery with an adminKeys.billing key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/ModulePricingPage.tsx
     batch: billing
     owner: okan
     expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
+    findingId: ADMIN-HIGH-121
     reason: billing batch — reads move to useAdminQuery with an adminKeys.billing key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/PaymentsPage.tsx
     batch: billing
     owner: okan
     expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
+    findingId: ADMIN-HIGH-121
     reason: billing batch — reads move to useAdminQuery with an adminKeys.billing key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/PlanManagementPage.tsx
     batch: billing
     owner: okan
     expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
+    findingId: ADMIN-HIGH-121
     reason: billing batch — reads move to useAdminQuery with an adminKeys.billing key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/SubscriptionManagementPage.tsx
     batch: billing
     owner: okan
     expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
+    findingId: ADMIN-HIGH-121
     reason: billing batch — reads move to useAdminQuery with an adminKeys.billing key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/UsageDashboardPage.tsx
     batch: billing
     owner: okan
     expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
+    findingId: ADMIN-HIGH-121
     reason: billing batch — reads move to useAdminQuery with an adminKeys.billing key, writes to useAdminMutation with invalidateKeys
-  - site: web/modules/admin-panel/src/pages/AuditLogPage.tsx
-    batch: security
-    owner: okan
-    expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
-    reason: security batch — reads move to useAdminQuery with an adminKeys.security key, writes to useAdminMutation with invalidateKeys
-  - site: web/modules/admin-panel/src/pages/security/ActivityLogPage.tsx
-    batch: security
-    owner: okan
-    expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
-    reason: security batch — reads move to useAdminQuery with an adminKeys.security key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/security/AuditTrailPage.tsx
     batch: security
     owner: okan
     expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
+    findingId: ADMIN-HIGH-121
     reason: security batch — reads move to useAdminQuery with an adminKeys.security key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/security/CompliancePage.tsx
     batch: security
     owner: okan
     expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
+    findingId: ADMIN-HIGH-121
     reason: security batch — reads move to useAdminQuery with an adminKeys.security key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/security/SecurityDashboardPage.tsx
     batch: security
     owner: okan
     expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
+    findingId: ADMIN-HIGH-121
     reason: security batch — reads move to useAdminQuery with an adminKeys.security key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/AdminDashboard.tsx
     batch: system
     owner: okan
     expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
+    findingId: ADMIN-HIGH-121
     reason: system batch — reads move to useAdminQuery with an adminKeys.system key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/AnalyticsDashboardPage.tsx
     batch: system
     owner: okan
     expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
+    findingId: ADMIN-HIGH-121
     reason: system batch — reads move to useAdminQuery with an adminKeys.system key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/DatabaseExplorerPage.tsx
     batch: system
     owner: okan
     expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
+    findingId: ADMIN-HIGH-121
     reason: system batch — reads move to useAdminQuery with an adminKeys.system key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/DatabaseManagementPage.tsx
     batch: system
     owner: okan
     expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
+    findingId: ADMIN-HIGH-121
     reason: system batch — reads move to useAdminQuery with an adminKeys.system key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/EmailTemplatesPage.tsx
     batch: system
     owner: okan
     expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
+    findingId: ADMIN-HIGH-121
     reason: system batch — reads move to useAdminQuery with an adminKeys.system key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/ModulesPage.tsx
     batch: system
     owner: okan
     expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
+    findingId: ADMIN-HIGH-121
     reason: system batch — reads move to useAdminQuery with an adminKeys.system key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/ReportsPage.tsx
     batch: system
     owner: okan
     expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
+    findingId: ADMIN-HIGH-121
     reason: system batch — reads move to useAdminQuery with an adminKeys.system key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/SystemSettingsPage.tsx
     batch: system
     owner: okan
     expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
+    findingId: ADMIN-HIGH-121
     reason: system batch — reads move to useAdminQuery with an adminKeys.system key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/system/ErrorTrackingPage.tsx
     batch: system
     owner: okan
     expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
+    findingId: ADMIN-HIGH-121
     reason: system batch — reads move to useAdminQuery with an adminKeys.system key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/system/FeatureTogglesPage.tsx
     batch: system
     owner: okan
     expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
+    findingId: ADMIN-HIGH-121
     reason: system batch — reads move to useAdminQuery with an adminKeys.system key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/system/JobQueuePage.tsx
     batch: system
     owner: okan
     expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
+    findingId: ADMIN-HIGH-121
     reason: system batch — reads move to useAdminQuery with an adminKeys.system key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/system/MaintenancePage.tsx
     batch: system
     owner: okan
     expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
+    findingId: ADMIN-HIGH-121
     reason: system batch — reads move to useAdminQuery with an adminKeys.system key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/system/PerformanceDashboardPage.tsx
     batch: system
     owner: okan
     expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
+    findingId: ADMIN-HIGH-121
     reason: system batch — reads move to useAdminQuery with an adminKeys.system key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/AnnouncementsPage.tsx
     batch: messaging
     owner: okan
     expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
+    findingId: ADMIN-HIGH-121
     reason: messaging batch — reads move to useAdminQuery with an adminKeys.messaging key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/MessagingPage.tsx
     batch: messaging
     owner: okan
     expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
+    findingId: ADMIN-HIGH-121
     reason: messaging batch — reads move to useAdminQuery with an adminKeys.messaging key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/TicketsPage.tsx
     batch: messaging
     owner: okan
     expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
+    findingId: ADMIN-HIGH-121
     reason: messaging batch — reads move to useAdminQuery with an adminKeys.messaging key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/messaging/MessagingAiPersonasPage.tsx
     batch: messaging
     owner: okan
     expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
+    findingId: ADMIN-HIGH-121
     reason: messaging batch — reads move to useAdminQuery with an adminKeys.messaging key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/messaging/MessagingAuditPage.tsx
     batch: messaging
     owner: okan
     expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
+    findingId: ADMIN-HIGH-121
     reason: messaging batch — reads move to useAdminQuery with an adminKeys.messaging key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/messaging/MessagingCompliancePage.tsx
     batch: messaging
     owner: okan
     expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
+    findingId: ADMIN-HIGH-121
     reason: messaging batch — reads move to useAdminQuery with an adminKeys.messaging key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/messaging/MessagingMonitoringPage.tsx
     batch: messaging
     owner: okan
     expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
+    findingId: ADMIN-HIGH-121
     reason: messaging batch — reads move to useAdminQuery with an adminKeys.messaging key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/messaging/MessagingRetentionPage.tsx
     batch: messaging
     owner: okan
     expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
+    findingId: ADMIN-HIGH-121
     reason: messaging batch — reads move to useAdminQuery with an adminKeys.messaging key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/messaging/MessagingTenantsPage.tsx
     batch: messaging
     owner: okan
     expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
+    findingId: ADMIN-HIGH-121
     reason: messaging batch — reads move to useAdminQuery with an adminKeys.messaging key, writes to useAdminMutation with invalidateKeys

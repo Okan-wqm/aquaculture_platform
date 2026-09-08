@@ -50850,6 +50850,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/__tests__/AuditLogPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/pages/__tests__/CreateTenantPage.spec.tsx",
       "prettier_managed": true
     },
@@ -51025,6 +51031,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/admin-panel/src/pages/RoleManagementPage.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/security/__tests__/ActivityLogPage.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -51396,6 +51408,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/admin-panel/tsconfig.node.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/tsconfig.spec.json",
       "prettier_managed": true
     },
     {

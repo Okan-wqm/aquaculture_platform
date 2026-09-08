@@ -1,16 +1,32 @@
 /**
  * Audit Log Page
  *
- * System audit logs with real API integration and mock fallback.
- * Uses custom hooks for data fetching, pagination, and filtering.
+ * System audit logs, read through the admin data layer (ADMIN-HIGH-105): every
+ * fetch is a `useAdminQuery` keyed from `adminKeys`, so the cache lives in the
+ * shell's `QueryClient` — cleared by `logoutCleanup()` and invalidatable by any
+ * write — instead of the module-scoped Map `useAsyncData` owns.
+ *
+ * Two defects went with the move. The logs fetcher called
+ * `pagination.setTotal(result.total)` from INSIDE the fetch, so a request that
+ * lost its race still wrote its page count into the controller; the query now
+ * returns the whole `PaginatedResult` and the total is synced from the settled
+ * data. And the fetchers ignored cancellation entirely — they now forward the
+ * `signal` React Query aborts on unmount and on every key change, so a fast
+ * operator paging through no longer has four superseded requests in flight.
  */
 
-import React, { useCallback, useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { Card, Button, Input, Select, Badge, Table } from '@aquaculture/shared-ui';
 import type { TableColumn } from '@aquaculture/shared-ui';
-import { useAsyncData, usePagination, useFilters } from '../hooks';
+import { adminKeys, useAdminQuery, usePagination, useFilters } from '../hooks';
 import { auditApi, tenantsApi } from '../services/adminApi';
-import type { AuditLog, AuditLogStats, AuditSeverity, Tenant } from '../services/adminApi';
+import type {
+  AuditLog,
+  AuditLogStats,
+  AuditSeverity,
+  PaginatedResult,
+  Tenant,
+} from '../services/adminApi';
 import { TenantTier, TenantStatus } from '../services/adminApi';
 
 // ============================================================================
@@ -30,6 +46,40 @@ interface AuditFilters extends Record<string, unknown> {
 // ============================================================================
 // Constants
 // ============================================================================
+
+/** One page of tenants is enough to populate a filter dropdown. */
+const TENANT_FILTER_LIMIT = 100;
+
+/** Export window; the list itself is paged. */
+const EXPORT_ROW_LIMIT = 10000;
+
+/**
+ * The ONE place audit query params are assembled.
+ *
+ * The list read and the CSV export used to build this shape separately, and
+ * they had already drifted: a `search` term the operator could see in the table
+ * was missing from the export until it was patched in by hand. Sharing the
+ * builder makes "the export matches what is on screen" structural rather than
+ * a thing two call sites have to agree about.
+ */
+function buildAuditQueryParams(
+  filters: AuditFilters,
+  page: number,
+  limit: number,
+): Record<string, string> {
+  const params: Record<string, string> = {
+    page: page.toString(),
+    limit: limit.toString(),
+  };
+  if (filters.action) params.action = filters.action;
+  if (filters.severity) params.severity = filters.severity;
+  if (filters.entityType) params.entityType = filters.entityType;
+  if (filters.tenantId) params.tenantId = filters.tenantId;
+  if (filters.search) params.search = filters.search;
+  if (filters.startDate) params.startDate = filters.startDate;
+  if (filters.endDate) params.endDate = filters.endDate;
+  return params;
+}
 
 const INITIAL_FILTERS: AuditFilters = {
   search: '',
@@ -291,60 +341,71 @@ const AuditLogPage: React.FC = () => {
     syncUrl: true,
   });
 
-  // Fetch tenants for filter dropdown
-  const fetchTenants = useCallback(async () => {
-    const result = await tenantsApi.list({ limit: 100 });
-    return result.data;
-  }, []);
+  // Tenants for the filter dropdown. Reference data — a long staleTime, and the
+  // key is shared with every other page that lists tenants, so they hit one
+  // cache entry instead of one request each.
+  const { data: tenants } = useAdminQuery<PaginatedResult<Tenant>>(
+    adminKeys.tenants.list({ limit: TENANT_FILTER_LIMIT }),
+    ({ signal }) => tenantsApi.list({ limit: TENANT_FILTER_LIMIT }, signal),
+    { staleTime: 300_000 },
+  );
 
-  const { data: tenants } = useAsyncData<readonly Tenant[]>(fetchTenants, {
-    cacheKey: 'audit-tenants',
-    cacheTTL: 300000, // 5 minutes
-  });
-
-  // Fetch logs
-  const fetchLogs = useCallback(async () => {
-    const params: Record<string, string> = {
-      page: pagination.page.toString(),
-      limit: pagination.limit.toString(),
-    };
-
-    if (debouncedFilters.action) params.action = debouncedFilters.action;
-    if (debouncedFilters.severity) params.severity = debouncedFilters.severity;
-    if (debouncedFilters.entityType) params.entityType = debouncedFilters.entityType;
-    if (debouncedFilters.tenantId) params.tenantId = debouncedFilters.tenantId;
-    if (debouncedFilters.search) params.search = debouncedFilters.search;
-    if (debouncedFilters.startDate) params.startDate = debouncedFilters.startDate;
-    if (debouncedFilters.endDate) params.endDate = debouncedFilters.endDate;
-
-    const result = await auditApi.query(params);
-    pagination.setTotal(result.total);
-    return result.data;
-  }, [pagination.page, pagination.limit, debouncedFilters]);
+  // Logs. The query params ARE the cache key — page, limit and every active
+  // filter — so a back-navigation to a page already fetched renders from cache
+  // and a changed filter is a different entry rather than an overwrite.
+  const logQueryParams = useMemo(
+    () => buildAuditQueryParams(debouncedFilters, pagination.page, pagination.limit),
+    [debouncedFilters, pagination.page, pagination.limit],
+  );
 
   const {
-    data: logs,
-    loading,
-    error,
-    refresh,
-  } = useAsyncData<readonly AuditLog[]>(fetchLogs, {
-    cacheKey: `audit-logs-${JSON.stringify(debouncedFilters)}-${pagination.page}`,
-    cacheTTL: 30000,
-  });
+    data: logPage,
+    isPending: loading,
+    error: logsError,
+    refetch,
+  } = useAdminQuery<PaginatedResult<AuditLog>>(
+    adminKeys.security.audit(logQueryParams),
+    ({ signal }) => auditApi.query(logQueryParams, signal),
+    { staleTime: 30_000 },
+  );
 
-  // Fetch stats
-  const fetchStats = useCallback(async () => {
-    return auditApi.getStatistics(
-      debouncedFilters.tenantId || undefined,
-      debouncedFilters.startDate || undefined,
-      debouncedFilters.endDate || undefined
-    );
-  }, [debouncedFilters.tenantId, debouncedFilters.startDate, debouncedFilters.endDate]);
+  const logs = logPage?.data;
+  const error = logsError ? logsError.message : null;
+  const refresh = (): void => {
+    void refetch();
+  };
 
-  const { data: stats } = useAsyncData<AuditLogStats>(fetchStats, {
-    cacheKey: `audit-stats-${debouncedFilters.tenantId}`,
-    cacheTTL: 60000,
-  });
+  // The server owns the row count; the controller owns the page. Syncing from
+  // SETTLED data (rather than from inside the fetcher, as this page used to)
+  // means a superseded request can no longer write its total over a newer one.
+  useEffect(() => {
+    if (logPage) pagination.setTotal(logPage.total);
+  }, [logPage?.total]);
+
+  // Statistics. The old cache key named only `tenantId`, so changing a date
+  // bound re-fetched into the SAME entry and the header cards showed the
+  // previous range's numbers until the TTL expired. All three discriminators
+  // are in the key now.
+  const statsFilter = useMemo(
+    () => ({
+      tenantId: debouncedFilters.tenantId || undefined,
+      startDate: debouncedFilters.startDate || undefined,
+      endDate: debouncedFilters.endDate || undefined,
+    }),
+    [debouncedFilters.tenantId, debouncedFilters.startDate, debouncedFilters.endDate],
+  );
+
+  const { data: stats } = useAdminQuery<AuditLogStats>(
+    [...adminKeys.security.all(), 'audit-stats', statsFilter],
+    ({ signal }) =>
+      auditApi.getStatistics(
+        statsFilter.tenantId,
+        statsFilter.startDate,
+        statsFilter.endDate,
+        signal,
+      ),
+    { staleTime: 60_000 },
+  );
 
   // Reset to page 1 when filters change
   useEffect(() => {
@@ -354,14 +415,9 @@ const AuditLogPage: React.FC = () => {
   // Export handler
   const handleExport = async () => {
     try {
-      const params: Record<string, string> = { limit: '10000' };
-      if (filters.action) params.action = filters.action;
-      if (filters.severity) params.severity = filters.severity;
-      if (filters.entityType) params.entityType = filters.entityType;
-      if (filters.tenantId) params.tenantId = filters.tenantId;
-      if (filters.search) params.search = filters.search; // Fix: H22 -- include search filter
-      if (filters.startDate) params.startDate = filters.startDate;
-      if (filters.endDate) params.endDate = filters.endDate;
+      // Same builder as the on-screen list, so the export cannot drift from it;
+      // only the page window differs.
+      const params = buildAuditQueryParams(filters, 1, EXPORT_ROW_LIMIT);
 
       const result = await auditApi.query(params);
 
@@ -454,7 +510,7 @@ const AuditLogPage: React.FC = () => {
   // Tenant options for filter
   const tenantOptions = useMemo(() => [
     { value: '', label: 'All Tenants' },
-    ...(tenants || []).map((t) => ({ value: t.id, label: t.name })),
+    ...(tenants?.data ?? []).map((t) => ({ value: t.id, label: t.name })),
   ], [tenants]);
 
   return (

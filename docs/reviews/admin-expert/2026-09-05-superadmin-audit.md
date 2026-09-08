@@ -721,7 +721,7 @@ only permitted way to render untrusted HTML; ESLint rule banning raw `srcDoc` /
 
 ## ADMIN-HIGH-105 — No shared admin-panel query/mutation primitive
 
-**State:** IN-PROGRESS · **Wave:** W8
+**State:** RESOLVED · **Wave:** W8a
 
 **Correction (W8a).** The audit called this adoption of an existing primitive.
 It was not: `useAdminQuery` / `useAdminMutation` hard-coded `graphqlClient` as
@@ -744,8 +744,33 @@ dependency is declared at the federation-pinned `5.90.10`; the `useAsyncData`
 cache joins `registerLogoutCleanup`, the authority `logoutCleanup()` drains;
 three sensor-module caches with the same defect join it too.
 
-**Remaining:** all 46 pages, in five domain batches (tenant 8, billing 11,
-security 5, system 13, messaging 9), governed by
+**Split (W8b).** This finding's subject was the missing PRIMITIVE, and W8a
+closed it: the primitive exists, fits the REST transport its pages actually
+use, is exported from `hooks/index.ts`, and is gated. Adopting it across every
+page is a separate and much larger piece of work, so it carries its own id —
+**ADMIN-HIGH-121** — rather than holding this one open for months. The
+registry required that split before it would accept W8a's merged trailer,
+which is the closure-drift gate doing exactly its job.
+
+Two corrections to the count while splitting: the ratchet had listed two
+`pages/__tests__/*.spec.tsx` files as pages (a page's spec imports the api
+client in order to mock it), so the real total is 44, not 46; and W8b migrated
+the first two.
+
+## ADMIN-HIGH-121 — admin-panel pages reach the network outside the data layer
+
+**State:** OPEN · **Wave:** W8b onward · **Owner:** okan
+**Deadline:** 2026-12-31
+
+A page is unmigrated when it imports an admin API client directly and names
+neither `useAdminQuery` nor `useAdminMutation`. Until it moves, a write cannot
+invalidate the reads it affected — lists go stale until something else happens
+to refetch — and its results land in a second cache rather than the shell's
+`QueryClient`, which is the boundary ADMIN-HIGH-105 closed for the migrated
+pages only.
+
+**Remaining:** 42 pages, in five domain batches (tenant 6, billing 11,
+security 3, system 13, messaging 9), governed by
 `.claude/allowlists/admin-panel-unmigrated-reads.yaml`. The `AdminTable`
 contract for server-side pagination, sort and dataset-scoped aggregates follows
 the migration. **Gate:** `tests/invariants/admin-panel-data-layer.spec.ts` — a

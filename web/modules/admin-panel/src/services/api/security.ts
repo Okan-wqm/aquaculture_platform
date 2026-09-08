@@ -43,10 +43,13 @@ export const securityApi = {
       searchQuery?: string;
     } & PaginationParams &
       DateRangeParams,
+    // The signal React Query hands a migrated page's query function
+    // (ADMIN-HIGH-105); see `api/audit.ts` for why it is added per method.
+    signal?: AbortSignal,
   ) =>
     apiFetch<PaginatedResult<BackendActivityLog>>(
       `/security/activities?${buildQueryString(params || {})}`,
-      platformScope,
+      { ...platformScope, signal },
     ),
   getActivityLog: (id: string) =>
     apiFetch<BackendActivityLog>(`/security/activities/${id}`, platformScope),
@@ -274,8 +277,11 @@ export const securityApi = {
     apiFetch<BackendAuditAlertRule[]>('/security/audit/alert-rules', platformScope),
 
   // Activity Stats
-  getActivityStatsOverview: () =>
-    apiFetch<ActivityStatsOverview>('/security/activities/stats/overview', platformScope),
+  getActivityStatsOverview: (signal?: AbortSignal) =>
+    apiFetch<ActivityStatsOverview>('/security/activities/stats/overview', {
+      ...platformScope,
+      signal,
+    }),
 
   // Compliance Checks
   getComplianceChecks: (framework: string) =>

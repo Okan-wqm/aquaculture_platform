@@ -780,15 +780,32 @@ threat indicators" off requests that never returned. Closed by the shared
 `QueryFailureNotice` component, which owns the banner-vs-full-page condition
 once for every admin page.
 
-**Landed (W8b, W8c):** 4 of 44 pages migrated — AuditLogPage, ActivityLogPage,
-AuditTrailPage, SecurityDashboardPage. admin-panel gained a
+## ADMIN-HIGH-122 — the compliance page displayed four fabricated zeros
+
+**State:** OPEN · **Wave:** W9 · **Owner:** okan
+**Deadline:** 2026-12-31
+
+`/security/compliance/data-requests` returns a page of rows and a total,
+nothing more, so `fetchDataRequests` built a `ComplianceStats` whose only real
+field was `totalRequests` — pending, in-progress, completed and OVERDUE were
+literal `0`. On a GDPR surface "0 overdue data-subject requests" is a regulated
+claim the endpoint gives no basis for.
+
+W8d stops the claim: the fields are `number | null` and the cards render an em
+dash. The aggregate itself is missing and needs a server-side GROUP BY plus the
+resolution-time average, which belongs to W9.
+
+**Landed (W8b, W8c, W8d):** 5 of 44 pages migrated — AuditLogPage,
+ActivityLogPage, AuditTrailPage, SecurityDashboardPage, CompliancePage — which
+finishes the SECURITY batch and is the first page to use the WRITE primitive.
+admin-panel gained a
 `tsconfig.spec.json`, entering `tools/gates/type-check-spec.ts` at 0: no type
 gate had ever read a spec in this package, and the compiler's first pass found a
 pre-existing spec asserting against a `Tenant` shape with two fields the
 contract lacks and one required field missing.
 
-**Remaining:** 40 pages, in five domain batches (tenant 6, billing 11, security
-1, system 13, messaging 9), governed by
+**Remaining:** 39 pages, in four domain batches (tenant 6, billing 11,
+system 13, messaging 9), governed by
 `.claude/allowlists/admin-panel-unmigrated-reads.yaml`. The `AdminTable`
 contract for server-side pagination, sort and dataset-scoped aggregates follows
 the migration. **Gate:** `tests/invariants/admin-panel-data-layer.spec.ts` — a

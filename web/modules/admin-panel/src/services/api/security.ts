@@ -94,10 +94,11 @@ export const securityApi = {
   // Compliance
   getComplianceReports: (
     params?: PaginationParams & { complianceType?: string; tenantId?: string },
+    signal?: AbortSignal,
   ) =>
     apiFetch<PaginatedResult<BackendComplianceReport>>(
       `/security/compliance/reports?${buildQueryString(params || {})}`,
-      platformScope,
+      { ...platformScope, signal },
     ),
   // Fix: backend POST /security/compliance/reports (not /reports/generate), body uses complianceType + reportPeriodStart/End
   generateComplianceReport: (
@@ -120,10 +121,11 @@ export const securityApi = {
   // Data Subject Requests (GDPR)
   getDataRequests: (
     params?: { status?: string; requestType?: string; searchQuery?: string } & PaginationParams,
+    signal?: AbortSignal,
   ) =>
     apiFetch<PaginatedResult<BackendDataSubjectRequest>>(
       `/security/compliance/data-requests?${buildQueryString(params || {})}`,
-      platformScope,
+      { ...platformScope, signal },
     ),
   getDataRequest: (id: string) =>
     apiFetch<BackendDataSubjectRequest>(`/security/compliance/data-requests/${id}`, platformScope),
@@ -303,6 +305,9 @@ export const securityApi = {
     }),
 
   // Compliance Checks
-  getComplianceChecks: (framework: string) =>
-    apiFetch<BackendComplianceCheckResult[]>(`/security/compliance/checks/${framework}`, platformScope),
+  getComplianceChecks: (framework: string, signal?: AbortSignal) =>
+    apiFetch<BackendComplianceCheckResult[]>(`/security/compliance/checks/${framework}`, {
+      ...platformScope,
+      signal,
+    }),
 };

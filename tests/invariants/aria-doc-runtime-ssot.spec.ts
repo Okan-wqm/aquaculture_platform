@@ -5,7 +5,6 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
-  rmSync,
   statSync,
   writeFileSync,
 } from 'node:fs';
@@ -17,6 +16,7 @@ import yaml from 'js-yaml';
 
 import { ariaAuthorityHash, checkAriaAuthorityHash } from '../../tools/gates/aria-authority-hash';
 
+import { removeFixtureTree } from '../../tools/gates/fixture-tree';
 const REPO_ROOT = (() => {
   try {
     return execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
@@ -595,7 +595,7 @@ describe('ARIA live runtime/documentation SSoT', () => {
       ]);
       expect(read(ARIA_SUITE_RUNNER)).not.toMatch(/\bgrep\b|PYTEST_STYLE_MODULES/);
     } finally {
-      rmSync(probeDir, { recursive: true, force: true });
+      removeFixtureTree(probeDir);
     }
   });
 
@@ -698,7 +698,7 @@ describe('ARIA live runtime/documentation SSoT', () => {
       expect(diffArgs).toContain('package.json');
       expect(readFileSync(bashLog, 'utf8').trim()).toBe(ARIA_SUITE_RUNNER);
     } finally {
-      rmSync(probeDir, { recursive: true, force: true });
+      removeFixtureTree(probeDir);
     }
   });
 

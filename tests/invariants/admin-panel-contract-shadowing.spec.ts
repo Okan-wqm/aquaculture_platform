@@ -35,6 +35,24 @@
  * it reads as compliance rather than being it. Eight are converted. One remains,
  * for a reason that is itself a finding, and it is allowed BY NAME so a tenth
  * still fails.
+ *
+ * # The second rule: a page may not re-declare a contract-derived type
+ *
+ * Sourcing `services/types` from the contract is only half the cure, because a
+ * page can declare its own copy and never import the shared one. That is not
+ * hypothetical — it is where two of the six defects came from:
+ * `JobQueuePage` declared a local `JobStatus` missing `paused`, and
+ * `DatabaseManagementPage` a local `MigrationHistoryItem` carrying two
+ * spellings of every field as optional. Both sat next to a `services/types`
+ * module that already owned the name.
+ *
+ * Fourteen page-local declarations still shadow a HAND-WRITTEN shared type.
+ * They are not gated here for the reason above — a fourteen-entry allowlist
+ * would be the theatre this file exists to avoid — and are tracked under
+ * ADMIN-HIGH-115. What IS gated is the subset where the shared type is
+ * CONTRACT-DERIVED: there the local copy is unambiguously wrong, because the
+ * shared one is generated from the API and the local one cannot be. That set is
+ * now EMPTY, so the rule ships with no allowlist at all.
  */
 
 import { readdirSync, readFileSync } from 'node:fs';
@@ -88,6 +106,26 @@ function shadowedSchema(name: string, schemas: Set<string>): string | null {
   if (schemas.has(name)) return name;
   if (schemas.has(`${name}Dto`)) return `${name}Dto`;
   return null;
+}
+
+/** Every panel source file except the types and generated layers. */
+function panelSourceFiles(): string[] {
+  const root = join(REPO_ROOT, PANEL);
+  const out: string[] = [];
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const child = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === 'node_modules' || entry.name === 'generated') continue;
+        if (child === TYPES_DIR) continue;
+        walk(child);
+      } else if (entry.isFile() && /\.tsx?$/.test(entry.name)) {
+        out.push(child);
+      }
+    }
+  };
+  walk(root);
+  return out;
 }
 
 describe('INVARIANT: the admin panel sources its types from the generated contract', () => {
@@ -156,6 +194,48 @@ describe('INVARIANT: the admin panel sources its types from the generated contra
       [],
     );
     expect(declaredInterfaces('export interface Tenant {\n  id: string;\n}\n')).toEqual(['Tenant']);
+  });
+
+  it('has no page-local declaration of a contract-derived type', () => {
+    // The shared type is `ApiSchema<'X'>`; a local copy of that name cannot be,
+    // so it is a second authority for a shape the contract already owns.
+    // Declarations that BUILD on the shared type — `extends Omit<ApiTicket, …>`
+    // in TicketsPage — are the intended pattern and are not reported.
+    const derived = new Set<string>();
+    for (const file of files) {
+      const source = readFileSync(join(TYPES_DIR, file), 'utf-8');
+      for (const m of source.matchAll(/^export type (\w+)[^\n]*ApiSchema</gm)) {
+        derived.add(m[1] as string);
+      }
+    }
+    expect(derived.size).toBeGreaterThan(20);
+
+    const offenders: string[] = [];
+    for (const abs of panelSourceFiles()) {
+      const rel = relative(REPO_ROOT, abs);
+      const source = readFileSync(abs, 'utf-8');
+      for (const m of source.matchAll(/^(?:export )?(?:interface|type) (\w+)([^;{]*)[;{]/gm)) {
+        const name = m[1] as string;
+        const tail = m[2] as string;
+        if (!derived.has(name)) continue;
+        if (/\bextends\b|\bOmit<|\bPick<|\bPartial<|\bApi\w+|\bShared\w+/.test(tail)) continue;
+        offenders.push(`${rel}: ${name}`);
+      }
+    }
+
+    if (offenders.length > 0) {
+      throw new Error(
+        `${offenders.length} declaration(s) outside ${PANEL}/services/types re-declare a type ` +
+          `that module sources from the contract. Import it — or, if the local shape is a ` +
+          `genuinely different thing that happens to share the name, RENAME the local one so ` +
+          `the collision stops existing (ReportsPage's report-picker card became ` +
+          `\`ReportPickerCard\` for exactly that reason). A page reading its own copy is not ` +
+          `reading the contract:\n` +
+          offenders.map((line) => `  ${line}`).join('\n'),
+      );
+    }
+
+    expect(offenders).toEqual([]);
   });
 
   it('matches a name against both spellings the panel uses', () => {

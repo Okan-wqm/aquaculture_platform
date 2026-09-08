@@ -50,7 +50,7 @@ export interface SubscribeToOptions {
 /**
  * A method `@SubscribeTo` may decorate.
  *
- * PLAT-CRITICAL-916: the decorated method IS the handler the bus folds a
+ * PLAT-CRITICAL-917: the decorated method IS the handler the bus folds a
  * delivery outcome from, so it must return one. `foldHandlerOutcomes` treats a
  * non-`HandlerOutcome` return as a contract violation and TERMINATES the
  * message — a dead-letter on the first delivery, with no retry. Every

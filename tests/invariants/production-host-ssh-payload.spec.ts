@@ -6,7 +6,6 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
-  rmSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -15,6 +14,7 @@ import { dirname, join, resolve } from 'node:path';
 
 import { resolveEsbuildNodeModules } from './_constants';
 
+import { removeFixtureTree } from '../../tools/gates/fixture-tree';
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const PRODUCER = join(REPO_ROOT, 'tools/scripts/ci/prepare-production-host-runtime-bundle.sh');
 const PAYLOAD_PRODUCER = join(REPO_ROOT, 'tools/scripts/ci/prepare-production-host-ssh-payload.sh');
@@ -215,7 +215,7 @@ describe('production host protected SSH payload', () => {
       expect(executed.stderr).not.toContain('DIRTY HELPER');
       expect(readFileSync(payload, 'utf8')).not.toContain('literal $HOME; $(false)');
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      removeFixtureTree(root);
     }
   }, 30_000);
 });

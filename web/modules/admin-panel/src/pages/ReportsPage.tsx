@@ -26,7 +26,14 @@ type ReportType =
 
 type ReportFormat = 'json' | 'csv' | 'pdf';
 
-interface ReportDefinition {
+/**
+ * A card in this page's report picker — a UI catalogue entry, not the API's
+ * `ReportDefinition` row (which carries `schedule`, `recipients`, `runCount`
+ * and no icon). The name collided with that contract schema, which is how a
+ * REST response came to be typed as the wrong shape in ADMIN-HIGH-110; renamed
+ * rather than allowlisted, so the collision stops existing (ADMIN-HIGH-115).
+ */
+interface ReportPickerCard {
   type: ReportType;
   name: string;
   description: string;
@@ -175,7 +182,7 @@ const renderReportValue = (value: unknown): string => {
 // Report Definitions
 // ============================================================================
 
-const reportDefinitions: ReportDefinition[] = [
+const reportDefinitions: ReportPickerCard[] = [
   {
     type: 'tenant_overview',
     name: 'Tenant Overview',
@@ -260,7 +267,7 @@ const reportDefinitions: ReportDefinition[] = [
 // ============================================================================
 
 interface ReportCardProps {
-  report: ReportDefinition;
+  report: ReportPickerCard;
   onGenerate: (type: ReportType) => void;
 }
 

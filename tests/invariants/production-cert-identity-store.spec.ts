@@ -11,7 +11,6 @@ import {
   readFileSync,
   readdirSync,
   renameSync,
-  rmSync,
   statSync,
   symlinkSync,
   unlinkSync,
@@ -22,6 +21,7 @@ import { join, resolve } from 'node:path';
 
 import yaml from 'js-yaml';
 
+import { removeExistingFixtureTree, removeFixtureTree } from '../../tools/gates/fixture-tree';
 jest.setTimeout(180_000);
 
 const REPO_ROOT = resolve(__dirname, '..', '..');
@@ -396,7 +396,7 @@ describe('production certificate identity store', () => {
           entry.startsWith('.postgres-alias.'),
         ),
       ).toEqual([]);
-      rmSync(serverAlias, { recursive: true });
+      removeExistingFixtureTree(serverAlias);
       const repairedAlias = generate();
       expect({ status: repairedAlias.status, stderr: repairedAlias.stderr }).toEqual({
         status: 0,
@@ -404,7 +404,7 @@ describe('production certificate identity store', () => {
       });
       expect(readlinkSync(serverAlias)).toBe('postgres-cert.pem');
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      removeFixtureTree(root);
     }
   });
 
@@ -440,7 +440,7 @@ describe('production certificate identity store', () => {
       }
       expect(readdirSync(natsDirectory).filter((name) => name.startsWith('.nats'))).toEqual([]);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      removeFixtureTree(root);
     }
   });
 
@@ -483,7 +483,7 @@ describe('production certificate identity store', () => {
       );
       expect(existsSync(override)).toBe(false);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      removeFixtureTree(root);
     }
   });
 

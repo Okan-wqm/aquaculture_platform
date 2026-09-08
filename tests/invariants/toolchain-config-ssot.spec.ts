@@ -1,10 +1,11 @@
 import { execFileSync } from 'child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'fs';
+import { mkdtempSync, readFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { resolve } from 'path';
 
 import * as YAML from 'yaml';
 
+import { removeFixtureTree } from '../../tools/gates/fixture-tree';
 const REPO_ROOT = process.cwd();
 const RUST_SETUP_ACTION = './.github/actions/setup-rust-workspace';
 const RUST_FANOUT_WORKFLOWS = [
@@ -277,7 +278,7 @@ describe('Toolchain Config SSoT', () => {
         targets: manifest.targets.join(','),
       });
     } finally {
-      rmSync(temporaryDirectory, { recursive: true, force: true });
+      removeFixtureTree(temporaryDirectory);
     }
   });
 

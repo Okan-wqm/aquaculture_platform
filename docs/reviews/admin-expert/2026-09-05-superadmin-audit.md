@@ -889,7 +889,7 @@ writers existed and were correct, with zero callers);
 `natsTransport` is a build failure); `error-capture-ingress.spec.ts`;
 `performance-metrics-honesty.spec.ts`.
 
-## PLAT-CRITICAL-916 — Every `@SubscribeTo` subscriber dead-letters every message it receives
+## PLAT-CRITICAL-917 — Every `@SubscribeTo` subscriber dead-letters every message it receives
 
 - **PLAT-CRITICAL-912** — the id this finding was raised and fixed under, and the id its
   commits' `Closes:` trailers name. The registry allocated 914 when the row was re-appended

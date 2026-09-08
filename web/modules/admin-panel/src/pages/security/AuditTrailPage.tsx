@@ -24,6 +24,7 @@ import {
 import React, { useState, useEffect, useCallback } from 'react';
 
 import { securityApi } from '../../services/adminApi';
+import type { AuditSeverity as SharedAuditSeverity } from '../../services/types/security';
 
 // ============================================================================
 // Types
@@ -31,7 +32,11 @@ import { securityApi } from '../../services/adminApi';
 
 type AuditAction = string;
 
-type AuditSeverity = 'info' | 'warning' | 'critical';
+// Imported rather than restated. The values were already right here — it was
+// `services/types/audit.ts` that carried low|medium|high|critical and drove the
+// audit-log filter that matched nothing (ADMIN-HIGH-112). Restating a union
+// that agrees today is how one that disagrees tomorrow gets written.
+type AuditSeverity = SharedAuditSeverity;
 
 interface AuditEntry {
   id: string;

@@ -39,7 +39,7 @@ import {
   type FindingSeverity,
   withRegistryFileLock,
 } from './finding-registry-store';
-
+import { removeFixtureTree } from './fixture-tree';
 const childMode = process.argv[2];
 let fixtureRoot: string;
 
@@ -83,7 +83,7 @@ if (childMode === '--worktree-allocator-child') {
 } else {
   fixtureRoot = mkdtempSync(join(tmpdir(), 'finding-registry-store-spec-'));
   void after(() => {
-    rmSync(fixtureRoot, { recursive: true, force: true });
+    removeFixtureTree(fixtureRoot);
   });
 
   void test('nextFindingId advances one domain-wide sequence across classifiers', () => {

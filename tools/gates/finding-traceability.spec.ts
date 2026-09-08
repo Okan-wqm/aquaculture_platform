@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
@@ -18,7 +18,7 @@ import {
   commitMessageClosesFindingExactly,
   findingRejectsClosure,
 } from './finding-traceability';
-
+import { removeFixtureTree } from './fixture-tree';
 const repo = mkdtempSync(join(tmpdir(), 'finding-traceability-spec-'));
 const HERMETIC_ENV: NodeJS.ProcessEnv = Object.fromEntries(
   Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')),
@@ -54,7 +54,7 @@ git(['commit', '--quiet', '--no-verify', '-m', 'Merge pull request #549 from fea
 const trailerlessCommit = git(['rev-parse', 'HEAD']);
 
 void after(() => {
-  rmSync(repo, { recursive: true, force: true });
+  removeFixtureTree(repo);
 });
 
 void test('commitMessageClosesFinding accepts anchor, bare, and backlog trailers', () => {

@@ -26,10 +26,11 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
+import { removeFixtureTree } from '../../tools/gates/fixture-tree';
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const GENERATOR = 'scripts/nats/generate-nats-conf.py';
 const NATS_CONF = 'infrastructure/docker/nats/nats.conf';
@@ -123,7 +124,7 @@ describe('INVARIANT: the NATS generated-artifact gate is read-only and detects d
         expect(runGenerator(root, ['--check']).status).toBe(0);
       }
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      removeFixtureTree(root);
     }
   });
 
@@ -137,7 +138,7 @@ describe('INVARIANT: the NATS generated-artifact gate is read-only and detects d
       expect(rejected.stderr).toContain('usage: generate-nats-conf.py [--check]');
       expect(read(root, NATS_CONF)).toBe(before);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      removeFixtureTree(root);
     }
   });
 

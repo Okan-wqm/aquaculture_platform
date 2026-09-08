@@ -5,7 +5,6 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
-  rmSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -13,6 +12,7 @@ import { join, resolve } from 'node:path';
 
 import yaml from 'js-yaml';
 
+import { removeFixtureTree } from '../../tools/gates/fixture-tree';
 const REPO_ROOT = resolve(__dirname, '..', '..');
 
 const BACKUP_WORKFLOW_PATH = join(REPO_ROOT, '.github', 'workflows', 'backup-production.yml');
@@ -579,7 +579,7 @@ describe('production backup secret contract', () => {
       expect(`${result.stdout}${result.stderr}`).not.toContain(keySentinel);
       expect(read(stdoutPath)).toContain(evidenceSentinel);
     } finally {
-      rmSync(directory, { recursive: true, force: true });
+      removeFixtureTree(directory);
     }
   });
 
@@ -649,7 +649,7 @@ describe('production backup secret contract', () => {
       expect(result.stderr).toContain('skipping an advertised host key');
       expect(read(stdoutPath)).toContain('remote-ok');
     } finally {
-      rmSync(directory, { recursive: true, force: true });
+      removeFixtureTree(directory);
     }
   });
 
@@ -707,7 +707,7 @@ describe('production backup secret contract', () => {
       expect(result.stderr).toContain('exactly one advertised ED25519 host key');
       expect(existsSync(stdoutPath)).toBe(false);
     } finally {
-      rmSync(directory, { recursive: true, force: true });
+      removeFixtureTree(directory);
     }
   });
 
@@ -757,7 +757,7 @@ describe('production backup secret contract', () => {
       expect(result.status).toBe(1);
       expect(result.stderr).toContain('protected SSH runtime cleanup failed');
     } finally {
-      rmSync(directory, { recursive: true, force: true });
+      removeFixtureTree(directory);
     }
   });
 

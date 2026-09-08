@@ -1,8 +1,9 @@
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
+import { removeFixtureTree } from '../../tools/gates/fixture-tree';
 const REPO_ROOT = resolve(__dirname, '..', '..');
 const POLICY_PATH = join(REPO_ROOT, 'scripts', 'deploy', 'lib', 'deployment-mode-policy.sh');
 
@@ -188,7 +189,7 @@ describe('development deployment mode policy', () => {
         stdout: 'epoch-from-file|file-backups|https://fra1.digitaloceanspaces.com|fra1\n',
       });
     } finally {
-      rmSync(fixture, { recursive: true, force: true });
+      removeFixtureTree(fixture);
     }
   });
 
@@ -221,7 +222,7 @@ describe('development deployment mode policy', () => {
         'inspect --format={{.State.Running}} {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} aqua-minio',
       ]);
     } finally {
-      rmSync(fixture, { recursive: true, force: true });
+      removeFixtureTree(fixture);
     }
   });
 
@@ -249,7 +250,7 @@ describe('development deployment mode policy', () => {
         'Preserved infrastructure container aqua-redis is not healthy',
       );
     } finally {
-      rmSync(fixture, { recursive: true, force: true });
+      removeFixtureTree(fixture);
     }
   });
 });

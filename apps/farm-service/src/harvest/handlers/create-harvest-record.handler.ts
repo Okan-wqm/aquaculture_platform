@@ -350,6 +350,10 @@ export class CreateHarvestRecordHandler
           tenantId,
           tankId: input.tankId,
           batchId: input.batchId,
+          // The link a cancellation withdraws this row by (FARM-HIGH-198).
+          // Written in the same transaction as the record it mirrors, so a
+          // ledger row can never exist without a way to name its harvest.
+          harvestRecordId: harvestRecord.id,
           operationType: OperationType.HARVEST,
           operationDate: harvestDate,
           quantity: input.quantityHarvested,

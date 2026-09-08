@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `ee1ed87e81d5dc8f635e15a848b9eb6946c90265fbbcde90899a49a796c69b58`
+Registry tip: `fba2d8b109b6ccb283dde11829e1367433d6d5a8787a26d932051cd89eade6f8`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -813,4 +813,7 @@ tests/invariants/all-services-env-aware-migrations.spec.ts --runInBand`,
   Left the active table from bucket `real-open`.
 - `BILLING-CRITICAL-012`: registry state is `RESOLVED` with closing commit
   `b282980ca`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `real-open`.
+- `FARM-CRITICAL-322`: registry state is `RESOLVED` with closing commit
+  `c59c04429`, derived by `finding-registry reconcile` against `origin/main`.
   Left the active table from bucket `real-open`.

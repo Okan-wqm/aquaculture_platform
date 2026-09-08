@@ -111,6 +111,7 @@ import { WidenMealWindowSweepIndex1810100000000 } from './1810100000000-WidenMea
 // migrations are append-only + ordered and this branch never merged, so no
 // deployed database ran the old number.
 import { AddSensorTemperatureEventId1810200000000 } from './1810200000000-AddSensorTemperatureEventId';
+import { LinkTankOperationToHarvestRecord1810300000000 } from './1810300000000-LinkTankOperationToHarvestRecord';
 
 /**
  * Canonical farm-service migration class list.
@@ -214,4 +215,5 @@ export const FARM_MIGRATIONS = [
   AddAssignmentManualBandPin1810000000000,
   WidenMealWindowSweepIndex1810100000000,
   AddSensorTemperatureEventId1810200000000,
+  LinkTankOperationToHarvestRecord1810300000000,
 ] as const;

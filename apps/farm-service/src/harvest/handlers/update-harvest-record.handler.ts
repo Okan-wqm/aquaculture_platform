@@ -31,11 +31,26 @@ import {
 import { UpdateHarvestRecordCommand } from '../commands/update-harvest-record.command';
 import { HarvestRecord } from '../entities/harvest-record.entity';
 
+/**
+ * The fields an edit may re-write, and by construction NOT the stock-bearing
+ * ones (FARM-CRITICAL-322).
+ *
+ * `quantityHarvested`, `totalBiomass` and `averageWeight` used to be here. They
+ * are the numbers the create path moves stock by: batch aggregates, tank
+ * composition via applyBatchDelta, tank biomass, the tank_operations ledger row
+ * and the farm-stock projection. This handler owns none of those writes, so an
+ * edit re-wrote the record and left all five at the original harvest's figures.
+ *
+ * They are not re-added with compensation here. Cancel already reverses the
+ * whole cascade and create re-applies it, both through the single writer; a
+ * third stock-write path to hold in lock-step with those two is the shape of
+ * the defect, not its cure. A quantity correction is cancel + re-create.
+ *
+ * `mortalityDuringHarvest` and `rejectedQuantity` stay: neither moves stock on
+ * the create path either — they feed a derived rate the resolver computes.
+ */
 const UPDATABLE_FIELDS = [
   'status',
-  'quantityHarvested',
-  'totalBiomass',
-  'averageWeight',
   'method',
   'productForm',
   'totalRevenue',

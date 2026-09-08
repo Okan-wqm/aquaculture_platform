@@ -1,11 +1,8 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { EventEmitter2 } from '@nestjs/event-emitter';
-import { getRepositoryToken } from '@nestjs/typeorm';
-
-import { ScadaPackage, ScadaPackageStatus } from '../../entities/scada-package.entity';
-import { Process } from '../../entities/process.entity';
+import { ScadaPackageStatus } from '../../entities/scada-package.entity';
 import { ScadaPackageService } from '../scada-package.service';
 import { hashPin, isPinHash, verifyPin } from '../pin-hash.util';
+
+import { createScadaPackageHarness } from './scada-package-harness';
 
 /**
  * SENSOR-CRITICAL-006 — server-side control-security PIN.
@@ -52,15 +49,7 @@ describe('PIN control security (SENSOR-CRITICAL-006)', () => {
       create: jest.fn().mockImplementation((e) => e),
       save: jest.fn().mockImplementation((e) => Promise.resolve(e)),
     };
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        ScadaPackageService,
-        { provide: EventEmitter2, useValue: { emit: jest.fn() } },
-        { provide: getRepositoryToken(ScadaPackage), useValue: repo },
-        { provide: getRepositoryToken(Process), useValue: { findOne: jest.fn() } },
-      ],
-    }).compile();
-    service = module.get(ScadaPackageService);
+    ({ service } = await createScadaPackageHarness({ scadaPackageRepository: repo }));
   });
 
   describe('pin-hash util', () => {

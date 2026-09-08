@@ -42,6 +42,11 @@ const EXPORTER_PROVIDED: Record<string, string> = {
   container_spec_cpu_quota: 'cAdvisor',
   container_spec_memory_limit_bytes: 'cAdvisor',
   up: 'Prometheus itself (target liveness)',
+  // node-exporter is a deployed service (docker-compose.droplet.yml) and a
+  // declared scrape job (droplet/prometheus.yml: `aqua-node-exporter:9100`),
+  // so a rule selecting its host-level series can fire; this repo just does
+  // not emit them.
+  node_cpu_seconds_total: 'node-exporter',
 };
 
 /** PromQL functions and keywords that share the identifier shape of a metric. */
@@ -155,26 +160,39 @@ function labelsFor(expr: string, family: string): string[] {
 
 function emittedSomewhere(metric: string): boolean {
   const base = metric.replace(/_(bucket|count|sum)$/, '');
-  const result = execFileSync(
-    'git',
-    [
-      '-C',
-      REPO_ROOT,
-      'grep',
-      '-l',
-      '-F',
-      '--',
-      base,
-      '--',
-      'apps',
-      'libs',
-      'platform',
-      'tools',
-      'sens-api-gateway',
-    ],
-    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
-  ).trim();
-  return result.length > 0;
+  // `git grep` exits 1 when nothing matches, and execFileSync THROWS on a
+  // non-zero exit. Without this catch the function can only return `true` or
+  // blow up: the `orphans` list below could never be populated, so the one
+  // question this gate exists to ask — does anything emit the series this rule
+  // selects? — was unanswerable. A miss is an answer, not an error.
+  try {
+    const result = execFileSync(
+      'git',
+      [
+        '-C',
+        REPO_ROOT,
+        'grep',
+        '-l',
+        '-F',
+        '--',
+        base,
+        '--',
+        'apps',
+        'libs',
+        'platform',
+        'tools',
+        'sens-api-gateway',
+      ],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
+    ).trim();
+    return result.length > 0;
+  } catch (error) {
+    // Exit 1 is "no match". Anything else (a bad pathspec, git missing) is a
+    // broken gate and must not read as a clean result.
+    const status = (error as { status?: number }).status;
+    if (status === 1) return false;
+    throw error;
+  }
 }
 
 describe('INVARIANT (OBS-CRITICAL-003): an alert rule selects a series something emits', () => {

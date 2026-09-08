@@ -20765,9 +20765,9 @@
           "category": {
             "type": "string",
             "enum": [
+              "user",
               "system",
               "tenant",
-              "user",
               "financial",
               "usage"
             ]
@@ -21290,8 +21290,8 @@
           },
           "senderType": {
             "enum": [
-              "admin",
               "system",
+              "admin",
               "tenant_admin"
             ],
             "type": "string"
@@ -21808,8 +21808,8 @@
           },
           "authorType": {
             "enum": [
-              "admin",
               "system",
+              "admin",
               "tenant_user"
             ],
             "type": "string"

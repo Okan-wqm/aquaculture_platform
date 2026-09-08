@@ -153,12 +153,13 @@ describe('INVARIANT (ADMIN-HIGH-014): a detective store has a producer that is r
     const inputs = injected.filter((entity) => !OUTPUTS.includes(entity));
     const declared = DETECTIVE_STORES.map((store) => store.entity);
 
-    expect(inputs.filter((entity) => !declared.includes(entity))).toEqual([
-      // UserSession is read by `checkSessionHijacking`, which has no caller.
-      // Its producer-or-delete decision is ADMIN-HIGH-014's remaining half and
-      // is tracked there; it is named here so the omission is deliberate.
-      'UserSession',
-    ]);
+    // Empty, and that is the decision landing rather than an omission.
+    // `UserSession` was the one entity read by a detector with no producer —
+    // `checkSessionHijacking`, itself with no caller. main resolved it the
+    // other way this list allowed: `admin.user_sessions` is dropped
+    // (1808500000000-DropDeadAdminUserSessions.ts) and its endpoints deleted
+    // (ADMIN-HIGH-100), so there is no store left to declare.
+    expect(inputs.filter((entity) => !declared.includes(entity))).toEqual([]);
   });
 
   it('has no admin service reading a detective store it does not declare', () => {

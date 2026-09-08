@@ -889,6 +889,35 @@ writers existed and were correct, with zero callers);
 `natsTransport` is a build failure); `error-capture-ingress.spec.ts`;
 `performance-metrics-honesty.spec.ts`.
 
+## PLAT-CRITICAL-912 — Every `@SubscribeTo` subscriber dead-letters every message it receives
+
+**State:** OPEN · **Wave:** W5 · **ADR:** —
+
+**Evidence:** PLAT-HIGH-902 made a delivery outcome a VALUE: `IEventHandler.handle()` returns a
+`HandlerOutcome`, and `foldHandlerOutcomes` treats a return that is not one as a contract violation
+and TERMINATES the message — dead-lettered on delivery 1, never retried
+(`platform/libs/event-bus/src/interfaces/handler-outcome.ts:131`,
+`nats-event-bus.ts:1419-1437`). Every `@SubscribeTo` method in the repository returned
+`Promise<void>`, so every method-level subscriber pushed `undefined` into that fold — including
+admin-api's `TenantOnboardingAck` / `TenantOnboardingFailed` handlers, which is the tenant
+provisioning acknowledgement path. Both registration paths converge on one registry
+(`subscribeTo` pushes into `this.handlers`, which the delivery loop reads), so nothing rescued it.
+
+It compiled because `nats.module.ts` bound the method through a bare `Function`, whose `any` return
+satisfies `IEventHandler` structurally. The class-level `@EventHandler` path never had the problem:
+a handler there implements the interface, and the compiler checks it. Typing the method-level bind
+honestly, while landing the security-signal subscribers, is what surfaced it.
+
+**Fix (Tier-1):** the constraint goes on the DECORATOR, not the registrar — `@SubscribeTo` applies
+only to a method returning `Promise<HandlerOutcome>`, so the gap is a compile error at the
+subscriber, which is the only place that can decide what its outcome is. A cast in the registrar
+would have documented the contract without enforcing it. The existing subscribers then say what
+they mean rather than defaulting: an already-projected signal acks with a reason, a login signal
+carrying no email terminates because no redelivery can add one, the error-capture sink acks its own
+failure with the reason its docblock had already argued for, and the rest ack.
+
+**Gate:** the decorator's type. No spec can regress this without the compiler refusing first.
+
 ## OBS-CRITICAL-007 — The admin observability path does not exist (C13)
 
 **State:** OPEN — two of four clauses remain, split into OBS-HIGH-005 and

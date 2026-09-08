@@ -7790,7 +7790,7 @@ export interface components {
             /** @enum {string} */
             snapshotType: "monthly" | "daily" | "weekly" | "yearly";
             /** @enum {string} */
-            category: "system" | "tenant" | "user" | "financial" | "usage";
+            category: "user" | "system" | "tenant" | "financial" | "usage";
             /** Format: date-time */
             snapshotDate: string;
             metrics: Record<string, never>;
@@ -7948,7 +7948,7 @@ export interface components {
             threadId: string;
             senderId: string;
             /** @enum {string} */
-            senderType: "admin" | "system" | "tenant_admin";
+            senderType: "system" | "admin" | "tenant_admin";
             senderName?: string;
             content: string;
             /** @enum {string} */
@@ -8104,7 +8104,7 @@ export interface components {
             ticketId: string;
             authorId: string;
             /** @enum {string} */
-            authorType: "admin" | "system" | "tenant_user";
+            authorType: "system" | "admin" | "tenant_user";
             authorName?: string;
             content: string;
             isInternal: boolean;

@@ -306,15 +306,6 @@ const TenantManagementPage: React.FC = () => {
       ),
     },
     {
-      key: 'lastActivity',
-      header: 'Last Activity',
-      render: (tenant) => (
-        <span className="text-sm text-gray-600">
-          {tenant.lastActivityAt ? formatDate(new Date(tenant.lastActivityAt), 'short') : '-'}
-        </span>
-      ),
-    },
-    {
       key: 'createdAt',
       header: 'Created',
       sortable: true,

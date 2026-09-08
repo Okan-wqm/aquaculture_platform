@@ -8,9 +8,23 @@ import type { ApiSchema } from '../contract';
 // Ticket Types
 // ============================================================================
 
-export type TicketStatus = 'open' | 'in_progress' | 'waiting_customer' | 'waiting_internal' | 'resolved' | 'closed';
-export type TicketPriority = 'low' | 'medium' | 'high' | 'critical';
-export type TicketCategory = 'technical' | 'billing' | 'feature_request' | 'bug_report' | 'bug' | 'general' | 'account';
+/**
+ * The ticket unions, DERIVED from the contract rather than restated.
+ *
+ * Both hand-written copies carried a member the backend does not have, and
+ * `TicketsPage`'s mappers are switches with no default, so each drifted in the
+ * direction that renders nothing (ADMIN-MEDIUM-111):
+ *
+ *  - `TicketStatus` added `waiting_internal`. The status dropdown offered it,
+ *    so an operator could POST a status `support.entity.ts` cannot store.
+ *  - `TicketCategory` added `bug` alongside `bug_report`, and `getCategoryIcon`
+ *    handles `bug` but NOT `bug_report` — exactly inverted. Every real
+ *    bug-report ticket rendered with no icon while the member that can never
+ *    arrive had one.
+ */
+export type TicketStatus = ApiSchema<'SupportTicket'>['status'];
+export type TicketPriority = ApiSchema<'SupportTicket'>['priority'];
+export type TicketCategory = ApiSchema<'SupportTicket'>['category'];
 
 export interface TicketAttachmentInfo {
   id: string;
@@ -21,38 +35,26 @@ export interface TicketAttachmentInfo {
   uploadedAt?: string;
 }
 
-export interface SupportTicket {
-  id: string;
-  ticketNumber: string;
-  tenantId: string;
-  tenantName?: string;
-  createdBy: string;
-  createdByName?: string;
-  createdByEmail?: string;
-  subject: string;
-  description: string;
-  category: TicketCategory;
-  priority: TicketPriority;
-  status: TicketStatus;
-  assignedTo?: string;
-  assignedToName?: string;
-  tags?: string[];
-  firstResponseAt?: string;
-  resolvedAt?: string;
-  closedAt?: string;
-  dueAt?: string;
-  slaResponseMinutes?: number;
-  slaResolutionMinutes?: number;
-  slaBreached?: boolean;
-  satisfactionRating?: number;
-  satisfactionFeedback?: string;
-  metadata?: Record<string, unknown>;
-  createdAt: string;
-  updatedAt: string;
-}
+export type SupportTicket = ApiSchema<'SupportTicket'>;
 
 export type TicketCommentAuthorType = 'admin' | 'tenant_user' | 'system';
 
+/**
+ * A ticket comment, as `GET /support/tickets/:id/comments` returns it.
+ *
+ * DELIBERATELY NOT sourced from the contract, and the reason is a defect in the
+ * OTHER direction from the rest of ADMIN-MEDIUM-111. `TicketController
+ * .getComments` declares no return type, so the swagger plugin inferred the
+ * ENTITY, and the contract's `TicketComment` therefore requires a `ticket`
+ * property carrying a whole `SupportTicket`. The service's `findAndCount` loads
+ * no relations, so that property is never in the response: the contract
+ * OVERSTATES what the endpoint sends, and aliasing to it would demand a field
+ * that does not arrive.
+ *
+ * Fixing it means giving the endpoint an explicit response DTO — a
+ * response-shape change with its own review — tracked as ADMIN-MEDIUM-114.
+ * Until then this stays hand-written, which is the honest state.
+ */
 export interface TicketComment {
   id: string;
   ticketId: string;
@@ -141,12 +143,21 @@ export type Message = SupportMessage;
 /**
  * The GraphQL support thread, as the messaging subgraph declares it.
  *
+ * NAMED for the subgraph it comes from, deliberately. It was called
+ * `MessageThread`, which is also the name of a contract schema describing a
+ * DIFFERENT thing — the admin-api `message_threads` row, aliased below as
+ * {@link SupportThreadRecord}. Two unrelated shapes under one name in one
+ * module is how a REST endpoint's response came to be typed as the GraphQL
+ * thread (ADMIN-HIGH-110), and it is what
+ * `tests/invariants/admin-panel-contract-shadowing.spec.ts` cannot tell apart
+ * from a real shadow. The collision is removed rather than allowlisted.
+ *
  * `status`, `unreadCountAdmin` and `unreadCountTenant` are GraphQL field names
  * (`SupportThreadStatus`, `AdminThreads`), consumed through `useMessaging`.
  * They are NOT what the admin-api REST endpoints return — see
  * {@link MessageThreadSummary}.
  */
-export interface MessageThread {
+export interface GraphQLSupportThread {
   id: string;
   tenantId: string;
   tenantName?: string;
@@ -173,7 +184,7 @@ export interface MessageThread {
  * newest message. The entity's `unreadTenantCount`, `isArchived`, `metadata`,
  * `lastMessageId` and `messages` are not in the response at all.
  *
- * It was typed as {@link MessageThread} — the GraphQL shape — so the page read
+ * It was typed as {@link GraphQLSupportThread} — the GraphQL shape — so the page read
  * `unreadCountAdmin` and `status`, which this endpoint never sends, and wrote
  * `undefined || 0` and `undefined === 'closed'` over the correct `unreadCount`
  * and `isClosed` that were already on the payload. Every thread showed zero
@@ -185,7 +196,7 @@ export type MessageThreadSummary = ApiSchema<'ThreadSummaryDto'>;
  * The `admin.message_threads` row, as `GET /support/messages/threads/:id` and
  * `POST /support/messages/threads` return it.
  *
- * A third shape, distinct from both {@link MessageThread} (GraphQL) and
+ * A third shape, distinct from both {@link GraphQLSupportThread} (GraphQL) and
  * {@link MessageThreadSummary} (the list projection): it carries
  * `unreadAdminCount` / `unreadTenantCount`, `isArchived` / `isClosed`,
  * `lastMessageId` and the `messages` relation. Both REST detail methods were
@@ -199,8 +210,20 @@ export type SupportThreadRecord = ApiSchema<'MessageThread'>;
 // Announcement Types
 // ============================================================================
 
-export type AnnouncementType = 'info' | 'warning' | 'critical' | 'maintenance' | 'success';
-export type AnnouncementStatus = 'draft' | 'scheduled' | 'published' | 'expired' | 'cancelled';
+/**
+ * An announcement, as `GET /support/announcements` returns it.
+ *
+ * The type and status unions are DERIVED from it rather than restated. The
+ * hand-written `AnnouncementType` carried a fifth member, `'success'`, that the
+ * backend enum has never had — and `getTypeIcon` / `getTypeColor` in
+ * `AnnouncementsPage` are four-case switches with no default, so a `success`
+ * announcement would have rendered with no icon and `className={undefined}`.
+ * The same silent shape as ADMIN-HIGH-110. Derived from the contract, a member
+ * nothing sends cannot be written here at all.
+ */
+export type Announcement = ApiSchema<'Announcement'>;
+export type AnnouncementType = Announcement['type'];
+export type AnnouncementStatus = Announcement['status'];
 
 export interface AnnouncementTarget {
   tenantIds?: string[];
@@ -210,25 +233,6 @@ export interface AnnouncementTarget {
   regions?: string[];
 }
 
-export interface Announcement {
-  id: string;
-  title: string;
-  content: string;
-  type: AnnouncementType;
-  status: AnnouncementStatus;
-  isGlobal: boolean;
-  targetCriteria?: AnnouncementTarget;
-  createdBy?: string;
-  createdByName?: string;
-  publishAt?: string;
-  expiresAt?: string;
-  requiresAcknowledgment: boolean;
-  viewCount: number;
-  acknowledgmentCount: number;
-  metadata?: Record<string, unknown>;
-  createdAt: string;
-  updatedAt?: string;
-}
 
 // ============================================================================
 // Onboarding Types

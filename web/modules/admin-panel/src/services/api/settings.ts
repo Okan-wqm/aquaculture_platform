@@ -8,6 +8,7 @@
  */
 
 import { apiFetch, buildQueryString } from '../http-client';
+import type { ApiSchema } from '../contract';
 import type {
   PaginatedResult,
   PaginationParams,
@@ -61,9 +62,14 @@ export const systemSettingsApi = {
     apiFetch<PaginatedResult<FeatureToggle>>(`/system/settings/feature-toggles?${buildQueryString(params || {})}`),
   getFeatureToggle: (id: string) => apiFetch<FeatureToggle>(`/system/settings/feature-toggles/${id}`),
   getFeatureToggleByKey: (key: string) => apiFetch<FeatureToggle>(`/system/settings/feature-toggles/key/${key}`),
-  createFeatureToggle: (data: Omit<FeatureToggle, 'id' | 'createdAt' | 'updatedAt'>) =>
+  // A create request is not the response minus its ids. `CreateFeatureToggleDto`
+  // is the shape the endpoint validates — `key` and `name` required, everything
+  // else optional with a server default — and typing the call as
+  // `Omit<FeatureToggle, …>` demanded fields the caller has no business
+  // supplying while permitting ones the DTO rejects (ADMIN-MEDIUM-111).
+  createFeatureToggle: (data: ApiSchema<'CreateFeatureToggleDto'>) =>
     apiFetch<FeatureToggle>('/system/settings/feature-toggles', { method: 'POST', body: JSON.stringify(data) }),
-  updateFeatureToggle: (id: string, data: Partial<FeatureToggle>) =>
+  updateFeatureToggle: (id: string, data: ApiSchema<'UpdateFeatureToggleDto'>) =>
     apiFetch<FeatureToggle>(`/system/settings/feature-toggles/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteFeatureToggle: (id: string) =>
     apiFetch<void>(`/system/settings/feature-toggles/${id}`, { method: 'DELETE' }),

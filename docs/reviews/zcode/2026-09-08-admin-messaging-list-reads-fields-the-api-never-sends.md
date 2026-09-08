@@ -102,3 +102,103 @@ REST DTO at all.
 **No gate ships with this.** A shadowing rule today would need a 26-entry allowlist, which would be
 longer than the enforcement it provides and would read as compliance rather than be it. The gate
 belongs with the last conversion. Tracked with owner `admin-expert` and deadline **2026-10-06**.
+
+---
+
+## 2026-09-08 (later) — closing ADMIN-MEDIUM-111, and the five defects it was hiding
+
+ADMIN-MEDIUM-111 was raised as "26 hand-declared types, 16 disagree with the contract". Working
+through them one at a time — the per-endpoint check the finding said each would need — turned up
+**five live defects**, three of them severe enough to register on their own.
+
+### The measurement was wrong, in the flattering direction
+
+The earlier pass reported 22 of 23 candidate aliases compiling cleanly. That number came from an
+experiment that inserted `import type { ApiSchema }` after the file's first newline — **inside** the
+leading docblock. TypeScript could not resolve `ApiSchema`, every alias became an error type, and
+every downstream read of those types type-checked vacuously.
+
+With the import placed correctly: **14 of 23 alias with zero errors, 9 break.** Every one of the
+nine was a real disagreement, and each needed its own decision.
+
+### ADMIN-HIGH-112 — the audit severity filter offered three values the column has never held
+
+`AuditSeverity` (`audit.entity.ts:55`) is `info | warning | critical`. The panel declared
+`low | medium | high | critical` and its dropdown offered Low, Medium, High, Critical.
+
+- Filtering by **Low, Medium or High returned nothing, always** — an auditor reads that as "no
+  high-severity events".
+- `getSeverityBadgeVariant` mapped `low/medium/high/critical`, so real `info` and `warning` rows
+  both missed the map and fell through `|| 'default'`. **A warning-severity audit entry rendered
+  identically to a routine one.** Only `critical` worked, by coincidence of appearing in both
+  vocabularies.
+- The same type declared `metadata`; the column is `details`, so the drawer's Metadata block never
+  rendered.
+
+The panel already had the RIGHT union — `security.ts` declared `AuditSeverity` correctly — and the
+audit page imported the wrong one of the two. Both now derive from the contract.
+
+### ADMIN-HIGH-113 — saving a feature-toggle edit has never worked
+
+`FeatureTogglesPage.handleUpdate` PUT a payload containing `scope` and `isExperimental`.
+`UpdateFeatureToggleDto` declares neither, and the platform `ValidationPipe` runs
+`forbidNonWhitelisted: true` (`create-service-app.ts:467`), so **every save was rejected 400.**
+
+The client could not see it because `settings.ts` typed the call as `Partial<FeatureToggle>` — the
+RESPONSE type — and typed create as `Omit<FeatureToggle, 'id' | 'createdAt' | 'updatedAt'>` while a
+real `CreateFeatureToggleDto` existed all along. A request typed from a response shape is not a
+request contract. Both calls now take their own DTO, and the Scope control is disabled when editing
+because scope is fixed at creation.
+
+The same type's `scope` union was also missing `environment`, so an environment-scoped toggle
+rendered with the grey fallback badge and its edit form offered no matching option.
+
+### The tenant pages — a Trial badge and a Last Activity that could not draw
+
+Covered in its own commit. `TenantDetailDto` and `TenantListItemDto` were `interface`s, invisible to
+the swagger plugin, which is why the panel hand-declared them at all: the same root cause as
+ADMIN-HIGH-110. Both are classes now. `lastActivityAt` had been removed backend-side under
+DB-ADMIN-HIGH-003 (no column ever backed it) and both pages still rendered it; `isTrialActive` is on
+the detail DTO and not the list one, so the list's Trial badge had never drawn.
+
+### Three more, each the same shape
+
+| Type               | Drift                                   | Effect                                                                                                                                                                                                                                   |
+| ------------------ | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `JobStatus`        | omitted `paused`                        | `JobQueuePage` declared a THIRD local copy and never imported the shared one; `getStatusBadge`'s `Record<JobStatus, …>` had no `paused` entry, so a paused job rendered as an ordinary queued one                                        |
+| `JobQueue`         | `activeCount` vs `runningCount`         | rendered under a label reading "Running" — blank on every queue card                                                                                                                                                                     |
+| `AnnouncementType` | extra `'success'`                       | `getTypeIcon` / `getTypeColor` are four-case switches with no default: a `success` announcement would render with no icon and `className={undefined}`                                                                                    |
+| `SchemaMigration`  | almost every field renamed              | the page had already papered over it with `migration.name \|\| migration.migrationName` and a THIRD declaration carrying both spellings as optional; the "applied / failed schemas" cell had no counterpart at all and always showed `-` |
+| `TicketCategory`   | extra `bug`, and `bug_report` unhandled | exactly inverted: every real bug-report ticket rendered with no icon while the member that can never arrive had one. `account` had no icon either                                                                                        |
+| `TicketStatus`     | extra `waiting_internal`                | the status dropdown offered a status `support.entity.ts` cannot store                                                                                                                                                                    |
+
+Every mapper touched is now an exhaustive `Record<Union, …>` rather than a switch or a
+`Record<string, …>`, so a member added server-side is a compile error rather than a silent default.
+
+### ADMIN-MEDIUM-114 — the one that is deliberately NOT aliased
+
+`TicketComment` is the inverse defect. `TicketController.getComments` declares no return type, so
+the plugin resolved it through the service to the ENTITY and the contract's `TicketComment` requires
+`ticket: SupportTicket`. `TicketService.getComments` calls `findAndCount` with no `relations`, so
+that property is **never in the response**: the contract OVERSTATES what the endpoint sends.
+
+Aliasing to it would demand a field that does not arrive, so `support.ts` keeps a hand-written
+`TicketComment` with the reason written at the declaration. Closing it means an explicit
+`TicketCommentDto` on the endpoint — a response-shape change with its own review. Two adjacent items
+fold in when it is done: `api/support.ts` declares a fourth inline copy of the shape, and
+`TicketsPage.fetchComments` hand-remaps it field by field with `as string` casts.
+
+### One thing checked and found NOT to be a defect
+
+`getComments` returns `PaginationResultV1<TicketComment>`, an envelope, while the client types it as
+a bare array and calls `.map` on the result. That reads like a guaranteed TypeError. It is not:
+`apiFetch` unwraps `envelope.data` before returning. Recorded because the shape invites the
+conclusion and the next reader should not have to re-derive it.
+
+### Verification of the ADMIN-MEDIUM-111 closure
+
+- `tsc -p web/modules/admin-panel` 0 errors at every step, including the alias experiment that
+  produced the corrected 14/9 split.
+- `nx test admin-api-service` 837 passed / 38 skipped; `nx test admin-panel` green;
+  `nx lint admin-panel` green; `npm run type-check` all 41 projects.
+- Both contract artifacts regenerated and committed.

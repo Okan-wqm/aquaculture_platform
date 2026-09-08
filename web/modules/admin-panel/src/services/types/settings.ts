@@ -2,6 +2,8 @@
  * Settings domain types (System Settings, Feature Toggles, Maintenance, Performance, Errors, Jobs)
  */
 
+import type { ApiSchema } from '../contract';
+
 // ============================================================================
 // System Settings Types
 // ============================================================================
@@ -18,12 +20,7 @@ export interface SystemSetting {
   updatedBy?: string;
 }
 
-export interface EmailTemplateVariable {
-  name: string;
-  description: string;
-  required: boolean;
-  defaultValue?: string;
-}
+export type EmailTemplateVariable = ApiSchema<'EmailTemplateVariableDto'>;
 
 export interface EmailTemplate {
   id: string;
@@ -49,26 +46,30 @@ export interface EmailTemplate {
 
 export type FeatureToggleStatus = 'enabled' | 'disabled' | 'percentage_rollout' | 'scheduled';
 export type MaintenanceStatus = 'scheduled' | 'in_progress' | 'completed' | 'cancelled' | 'extended';
-export type JobStatus = 'pending' | 'scheduled' | 'running' | 'completed' | 'failed' | 'cancelled' | 'retrying';
+/**
+ * A queued job, as `GET /system/jobs` returns it, with its status union DERIVED
+ * rather than restated. The hand-written union omitted `paused`, which the
+ * backend enum has: `JobQueuePage`'s `getStatusBadge` builds an exhaustive
+ * `Record<JobStatus, …>`, so a paused job fell through to the `|| 'default'`
+ * fallback and rendered as an ordinary queued one. Derived from the contract,
+ * omitting a state the API can send is a compile error in that map.
+ */
+export type BackgroundJob = ApiSchema<'BackgroundJob'>;
+export type JobStatus = BackgroundJob['status'];
 
-export interface FeatureToggle {
-  id: string;
-  key: string;
-  name: string;
-  description?: string;
-  status: FeatureToggleStatus;
-  scope: 'global' | 'tenant' | 'user';
-  category?: string;
-  rolloutPercentage: number;
-  enabledTenants?: string[];
-  disabledTenants?: string[];
-  conditions?: Array<{ type: string; operator: string; value: unknown }>;
-  variants?: Array<{ key: string; value: unknown; weight: number }>;
-  isExperimental: boolean;
-  deprecatedAt?: string;
-  createdAt: string;
-  updatedAt: string;
-}
+/**
+ * A feature toggle, as `GET /system/feature-toggles` returns it.
+ *
+ * `scope` is the field that mattered: the hand-written union was
+ * `global | tenant | user` while the DTO has a fourth, `environment`. An
+ * environment-scoped toggle rendered with the fallback badge, and opening it in
+ * the edit form — whose Select offers only three options — could write a
+ * different scope back on save (ADMIN-MEDIUM-111).
+ */
+export type FeatureToggle = ApiSchema<'FeatureToggle'>;
+
+/** The scopes a toggle can actually carry. */
+export type FeatureToggleScope = FeatureToggle['scope'];
 
 /**
  * A maintenance window, as `GET /system/settings/maintenance` returns it.
@@ -178,61 +179,16 @@ export interface PerformanceDashboard {
   }>;
 }
 
-export interface ErrorGroup {
-  id: string;
-  fingerprint: string;
-  message: string;
-  errorType?: string;
-  service?: string;
-  severity: 'debug' | 'info' | 'warning' | 'error' | 'critical' | 'fatal';
-  status: 'new' | 'acknowledged' | 'in_progress' | 'resolved' | 'ignored';
-  occurrenceCount: number;
-  userCount: number;
-  firstSeenAt: string;
-  lastSeenAt: string;
-  assignedTo?: string;
-  isRegression: boolean;
-}
+export type ErrorGroup = ApiSchema<'ErrorGroup'>;
 
-export interface ErrorOccurrence {
-  id: string;
-  groupId: string;
-  message: string;
-  stackTrace?: string;
-  context?: Record<string, unknown>;
-  tenantId?: string;
-  userId?: string;
-  timestamp: string;
-}
+export type ErrorOccurrence = ApiSchema<'ErrorOccurrence'>;
 
-export interface BackgroundJob {
-  id: string;
-  name: string;
-  queueName: string;
-  jobType: 'immediate' | 'scheduled' | 'recurring' | 'delayed';
-  status: JobStatus;
-  priority: number;
-  payload?: Record<string, unknown>;
-  result?: Record<string, unknown>;
-  errorMessage?: string;
-  progress?: { current: number; total: number; percentage: number; message?: string };
-  scheduledAt?: string;
-  startedAt?: string;
-  completedAt?: string;
-  durationMs?: number;
-  attempts: number;
-  maxAttempts: number;
-  cronExpression?: string;
-  nextRunAt?: string;
-  createdAt: string;
-}
 
-export interface JobQueue {
-  name: string;
-  isPaused: boolean;
-  concurrency: number;
-  pendingCount: number;
-  activeCount: number;
-  completedCount: number;
-  failedCount: number;
-}
+/**
+ * A job queue, as `GET /system/jobs/queues` returns it.
+ *
+ * The hand-written copy called the in-flight count `activeCount`; the DTO calls
+ * it `runningCount`. `JobQueuePage` renders it under a label that literally
+ * reads "Running", so every queue card showed a blank there (ADMIN-MEDIUM-111).
+ */
+export type JobQueue = ApiSchema<'JobQueue'>;

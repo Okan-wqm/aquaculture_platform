@@ -286,7 +286,7 @@ export class EventHandlerRegistryModule {
 
         const method: unknown = (instance as Record<string, unknown>)[methodKey];
         if (subscriptionMetadata && typeof method === 'function') {
-          // PLAT-CRITICAL-914: the bound method IS the handler the bus folds an
+          // PLAT-CRITICAL-915: the bound method IS the handler the bus folds an
           // outcome from, so it is typed as the contract — not as
           // `Promise<void>`, and not through the bare `Function` this used to
           // cast to. `foldHandlerOutcomes` treats a non-`HandlerOutcome` return

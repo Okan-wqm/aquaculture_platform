@@ -277,7 +277,7 @@ aliases:
       is banned), and FARM-HIGH-318 is not a live ledger id, so the closure resolves through this alias.
 
   - alias: PLAT-CRITICAL-912
-    canonical: PLAT-CRITICAL-914
+    canonical: PLAT-CRITICAL-915
     review_file: docs/reviews/admin-expert/2026-09-05-superadmin-audit.md
     commits:
       - 'f7baf3218'
@@ -286,8 +286,8 @@ aliases:
     reason: >
       Raised on the W5 branch as PLAT-CRITICAL-912 — the next free PLAT sequence when the branch
       appended it — and named by those commits' trailers. Two later merges of main each reallocated
-      that sequence before the branch landed: main's own PLAT-MEDIUM-912 took 912, so the re-append
-      moved the row to 913, and the second merge moved it again to PLAT-CRITICAL-914. The trailers
+      that sequence before the branch landed: main's own PLAT-MEDIUM-912 took 912, so each re-append
+      onto main's chain moved the row again — 913, then 914, and finally PLAT-CRITICAL-915. The trailers
       cannot be rewritten (force push is banned) and PLAT-CRITICAL-912 is not a live ledger id, so
       the closure resolves through this alias.
 

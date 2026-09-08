@@ -30,6 +30,7 @@ import React, { useMemo, useState } from 'react';
 
 import { securityApi } from '../../services/adminApi';
 import { adminKeys, useAdminQuery } from '../../hooks';
+import { QueryFailureNotice } from '../../components';
 
 // ============================================================================
 // Types
@@ -548,43 +549,28 @@ export const ActivityLogPage: React.FC = () => {
     );
   }
 
-  if (error && activities.length === 0) {
+  if (error !== null && activities.length === 0) {
+    // The full-page branch of the same component, so the two states cannot
+    // drift apart in wording or in what they offer.
     return (
-      <div className="flex flex-col items-center justify-center h-64">
-        <AlertTriangle className="w-12 h-12 text-red-500 mb-4" />
-        <p className="text-red-600 mb-4">{error}</p>
-        <button
-          onClick={() => loadData()}
-          className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700"
-        >
-          Retry
-        </button>
-      </div>
+      <QueryFailureNotice
+        errors={[activityQuery.error, statsQuery.error]}
+        hasContent={false}
+        onRetry={loadData}
+      />
     );
   }
 
   return (
     <div className="space-y-6">
-      {/* A PARTIAL failure — the rows loaded but the statistics did not, or the
-          reverse. The page computed this message and then rendered it only when
-          the list was ALSO empty, so the common case (stats down, rows fine)
-          showed header cards with no data and no explanation. It is a banner
-          now: the content the operator can still trust stays on screen, and the
-          part that failed says so. */}
-      {error && (
-        <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4">
-          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
-          <div className="flex-1">
-            <p className="text-sm text-amber-800">{error}</p>
-          </div>
-          <button
-            onClick={() => loadData()}
-            className="shrink-0 rounded-lg border border-amber-300 px-3 py-1 text-sm font-medium text-amber-800 hover:bg-amber-100"
-          >
-            Retry
-          </button>
-        </div>
-      )}
+      {/* One component decides banner-vs-full-page for every admin page
+          (ADMIN-HIGH-105) — the condition three pages had each written and
+          each got wrong in the same direction. */}
+      <QueryFailureNotice
+        errors={[activityQuery.error, statsQuery.error]}
+        hasContent={activities.length > 0}
+        onRetry={loadData}
+      />
 
       {/* Header */}
       <div className="flex items-center justify-between">

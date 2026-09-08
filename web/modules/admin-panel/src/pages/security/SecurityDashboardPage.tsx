@@ -4,9 +4,11 @@
  * Real-time security monitoring with threat intelligence, events, and incidents.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useMemo, useState } from 'react';
 
 import { securityApi } from '../../services/adminApi';
+import { adminKeys, useAdminQuery } from '../../hooks';
+import { QueryFailureNotice } from '../../components';
 import type {
   BackendSecurityEvent,
   BackendSecurityHealthScore,
@@ -145,10 +147,21 @@ interface DashboardData {
 // API Service - All calls via centralized securityApi (SEC-005, BUG-013)
 // ============================================================================
 
-async function fetchDashboardData(): Promise<DashboardData> {
+/** One page of security events on the dashboard. */
+const SECURITY_EVENT_PAGE_SIZE = 50;
+
+/** Auto-refresh cadence, unchanged from the interval this page used to run. */
+const SECURITY_REFRESH_MS = 30_000;
+
+// Stable empties — `?? []` would hand a new array on every render.
+const EMPTY_EVENTS: readonly SecurityEvent[] = [];
+const EMPTY_INCIDENTS: readonly SecurityIncident[] = [];
+const EMPTY_THREATS: readonly ThreatIndicator[] = [];
+
+async function fetchDashboardData(signal?: AbortSignal): Promise<DashboardData> {
   const [dashboard, health] = await Promise.all([
-    securityApi.getMonitoringDashboard(),
-    securityApi.getHealthScore(),
+    securityApi.getMonitoringDashboard(signal),
+    securityApi.getHealthScore(signal),
   ]);
 
   return mapDashboardData(dashboard, health);
@@ -160,7 +173,7 @@ async function fetchSecurityEvents(params: {
   severity?: string;
   status?: string;
   searchQuery?: string;
-}): Promise<{ data: SecurityEvent[]; total: number }> {
+}, signal?: AbortSignal): Promise<{ data: SecurityEvent[]; total: number }> {
   const apiParams: Record<string, unknown> = {};
   if (params.page) apiParams.page = params.page;
   if (params.limit) apiParams.limit = params.limit;
@@ -169,20 +182,20 @@ async function fetchSecurityEvents(params: {
   if (status) apiParams.status = status;
   if (params.searchQuery) apiParams.searchQuery = params.searchQuery;
 
-  const result = await securityApi.getSecurityEvents(apiParams);
+  const result = await securityApi.getSecurityEvents(apiParams, signal);
   return {
     data: result.data.map(mapSecurityEvent),
     total: result.total,
   };
 }
 
-async function fetchIncidents(): Promise<SecurityIncident[]> {
-  const result = await securityApi.getSecurityIncidents({});
+async function fetchIncidents(signal?: AbortSignal): Promise<SecurityIncident[]> {
+  const result = await securityApi.getSecurityIncidents({}, signal);
   return result.data.map(mapSecurityIncident);
 }
 
-async function fetchThreatIndicators(): Promise<ThreatIndicator[]> {
-  const result = await securityApi.getThreatIndicators({});
+async function fetchThreatIndicators(signal?: AbortSignal): Promise<ThreatIndicator[]> {
+  const result = await securityApi.getThreatIndicators({}, signal);
   return result.data.map(mapThreatIndicator);
 }
 
@@ -568,12 +581,6 @@ const EventDetailModal: React.FC<{
 // ============================================================================
 
 export const SecurityDashboardPage: React.FC = () => {
-  const [dashboard, setDashboard] = useState<DashboardData | null>(null);
-  const [events, setEvents] = useState<SecurityEvent[]>([]);
-  const [incidents, setIncidents] = useState<SecurityIncident[]>([]);
-  const [threatIndicators, setThreatIndicators] = useState<ThreatIndicator[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<SecurityEvent | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
 
@@ -582,90 +589,83 @@ export const SecurityDashboardPage: React.FC = () => {
   const [statusFilter, _setStatusFilter] = useState('all');
   const [searchTerm, _setSearchTerm] = useState('');
 
-  const loadData = useCallback(async () => {
-    setError(null);
-    const [dashboardResult, eventsResult, incidentsResult, threatsResult] = await Promise.allSettled([
-      fetchDashboardData(),
-      fetchSecurityEvents({
-        severity: severityFilter,
-        status: statusFilter,
-        searchQuery: searchTerm || undefined,
-        limit: 50,
-      }),
-      fetchIncidents(),
-      fetchThreatIndicators(),
-    ]);
-    const failures: string[] = [];
-    const incidentsValue = incidentsResult.status === 'fulfilled' ? incidentsResult.value : [];
-    const threatsValue = threatsResult.status === 'fulfilled' ? threatsResult.value : [];
+  // Four INDEPENDENT queries. They ran through one `Promise.allSettled` whose
+  // collected `failures[]` the render then discarded unless the dashboard
+  // itself had failed — so "events down, dashboard fine" showed an empty
+  // events table on the platform's SECURITY surface with no indication the
+  // request had failed. That is an operator reading "no events" off a request
+  // that never returned (ADMIN-HIGH-121).
+  const eventFilter = useMemo(
+    () => ({
+      severity: severityFilter,
+      status: statusFilter,
+      searchQuery: searchTerm || undefined,
+      limit: SECURITY_EVENT_PAGE_SIZE,
+    }),
+    [severityFilter, statusFilter, searchTerm],
+  );
 
-    if (dashboardResult.status === 'fulfilled') {
-      setDashboard({
-        ...dashboardResult.value,
+  // Auto-refresh is React Query's, not a hand-rolled interval: `refetchInterval`
+  // already pauses on a hidden tab, and the shell's QueryClient additionally
+  // gates refetches on backend health, so a gateway outage no longer blanks a
+  // loaded dashboard every thirty seconds.
+  const refetchInterval = autoRefresh ? SECURITY_REFRESH_MS : false;
+
+  const dashboardQuery = useAdminQuery(
+    [...adminKeys.security.all(), 'monitoring-dashboard'],
+    ({ signal }) => fetchDashboardData(signal),
+    { refetchInterval },
+  );
+
+  const eventsQuery = useAdminQuery(
+    [...adminKeys.security.all(), 'monitoring-events', eventFilter],
+    ({ signal }) => fetchSecurityEvents(eventFilter, signal),
+    { refetchInterval, placeholderData: (previous) => previous },
+  );
+
+  const incidentsQuery = useAdminQuery(
+    [...adminKeys.security.all(), 'monitoring-incidents'],
+    ({ signal }) => fetchIncidents(signal),
+    { refetchInterval },
+  );
+
+  const threatsQuery = useAdminQuery(
+    [...adminKeys.security.all(), 'threat-indicators'],
+    ({ signal }) => fetchThreatIndicators(signal),
+    { refetchInterval },
+  );
+
+  const events = eventsQuery.data?.data ?? EMPTY_EVENTS;
+  const incidents = incidentsQuery.data ?? EMPTY_INCIDENTS;
+  const threatIndicators = threatsQuery.data ?? EMPTY_THREATS;
+  const loading = dashboardQuery.isPending;
+  const queryErrors = [
+    dashboardQuery.error,
+    eventsQuery.error,
+    incidentsQuery.error,
+    threatsQuery.error,
+  ];
+
+  // The two cross-cut counts are DERIVED from the incident and threat queries
+  // rather than written into dashboard state by whichever fetch settled last —
+  // which is what made them read as zero whenever those two queries failed.
+  const dashboard: DashboardData | null = dashboardQuery.data
+    ? {
+        ...dashboardQuery.data,
         stats: {
-          ...dashboardResult.value.stats,
-          resolvedIncidents: incidentsValue.filter((incident) => incident.status === 'closed').length,
-          activeThreatIndicators: threatsValue.filter((indicator) => indicator.isActive).length,
+          ...dashboardQuery.data.stats,
+          resolvedIncidents: incidents.filter((incident) => incident.status === 'closed').length,
+          activeThreatIndicators: threatIndicators.filter((indicator) => indicator.isActive).length,
         },
-      });
-    } else {
-      failures.push(
-        dashboardResult.reason instanceof Error
-          ? dashboardResult.reason.message
-          : 'Failed to load security dashboard',
-      );
-    }
-
-    if (eventsResult.status === 'fulfilled') {
-      setEvents(eventsResult.value.data);
-    } else {
-      failures.push(
-        eventsResult.reason instanceof Error
-          ? eventsResult.reason.message
-          : 'Failed to load security events',
-      );
-    }
-
-    if (incidentsResult.status === 'fulfilled') {
-      setIncidents(incidentsValue);
-    } else {
-      failures.push(
-        incidentsResult.reason instanceof Error
-          ? incidentsResult.reason.message
-          : 'Failed to load security incidents',
-      );
-    }
-
-    if (threatsResult.status === 'fulfilled') {
-      setThreatIndicators(threatsValue);
-    } else {
-      failures.push(
-        threatsResult.reason instanceof Error
-          ? threatsResult.reason.message
-          : 'Failed to load threat indicators',
-      );
-    }
-
-    setError(failures.length > 0 ? failures.join('; ') : null);
-    setLoading(false);
-  }, [severityFilter, statusFilter, searchTerm]);
-
-  useEffect(() => {
-    void loadData();
-  }, [loadData]);
-
-  // Auto refresh every 30 seconds — pause when browser tab is hidden (PERF-005)
-  useEffect(() => {
-    if (!autoRefresh) return;
-
-    const interval = setInterval(() => {
-      if (!document.hidden) {
-        void loadData();
       }
-    }, 30000);
+    : null;
 
-    return () => clearInterval(interval);
-  }, [autoRefresh, loadData]);
+  const loadData = (): void => {
+    void dashboardQuery.refetch();
+    void eventsQuery.refetch();
+    void incidentsQuery.refetch();
+    void threatsQuery.refetch();
+  };
 
   if (loading && !dashboard) {
     return (
@@ -675,23 +675,18 @@ export const SecurityDashboardPage: React.FC = () => {
     );
   }
 
-  if (error && !dashboard) {
-    return (
-      <div className="flex flex-col items-center justify-center h-64">
-        <AlertTriangle className="w-12 h-12 text-red-500 mb-4" />
-        <p className="text-red-600 mb-4">{error}</p>
-        <button
-          onClick={() => void loadData()}
-          className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700"
-        >
-          Retry
-        </button>
-      </div>
-    );
+  if (!dashboard && queryErrors.some((queryError) => queryError)) {
+    return <QueryFailureNotice errors={queryErrors} hasContent={false} onRetry={loadData} />;
   }
 
   return (
     <div className="space-y-6">
+      {/* The partial case, which on THIS page is the dangerous one: the
+          dashboard loaded, so the operator is looking at a security screen,
+          while the events / incidents / threat-intelligence sections are empty
+          because their requests failed and nothing said so. */}
+      <QueryFailureNotice errors={queryErrors} hasContent={dashboard !== null} onRetry={loadData} />
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

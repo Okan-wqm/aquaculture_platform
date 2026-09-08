@@ -32,19 +32,23 @@
  * sayfaları; sayfa başına SABİT sayıda toplu okuma (protokoller IN, TankBatch
  * IN, sıcaklıklar toplu, fcrSource=feed yem matrisleri IN, site
  * timezone'ları) — ünite başına sorgu SIFIR.
- * Advisory-lock deseni v1 makinesiyle birebir (session-scoped kilit, edinen
- * bağlantıda tutulur/bırakılır); v1 06:00 üretimi cutover'a (Faz 6) kadar
+ * Kilit + heartbeat artık servisin kendi işi değil: her tick `@ScheduledJob`
+ * üzerinden `ScheduledJobRunner`'a girer — (servis, iş) başına
+ * transaction-scoped advisory lock ve `cron_job_*` heartbeat serisi
+ * (ADMIN-HIGH-013). v1 06:00 üretimi cutover'a (Faz 6) kadar
  * yaşamaya devam eder — v2 yalnız v2 ataması olan ünitelerde koşar, çift
  * planlama prod'da imkânsız (K-3: migrate atamalar paused).
  *
  * @module FeedingProtocol/Services
  */
-import * as crypto from 'crypto';
-
-import { Injectable, Logger } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource, EntityManager, In, QueryRunner } from 'typeorm';
+import { DataSource, EntityManager, In } from 'typeorm';
+import {
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
 import { listTenantSchemas, runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { OutboxPublisher } from '@platform/outbox';
 import {
@@ -94,7 +98,6 @@ import { DayPlanRecalcService } from './day-plan-recalc.service';
 import { MealFinalizationService } from './meal-finalization.service';
 import { round3 } from '../../common/utils/rounding.util';
 
-const ADVISORY_LOCK_NAMESPACE = 0x46454544; // 'FEED'
 const ASSIGNMENT_PAGE_SIZE = 200;
 /** K-2 kanonik cap — schema validator ile aynı sabit. */
 export const MEAL_WINDOW_MAX_ENTRIES = 500;
@@ -242,10 +245,12 @@ interface AssignmentPlanContext {
 @Injectable()
 export class FeedingCronV2Service {
   private readonly logger = new Logger(FeedingCronV2Service.name);
-  private readonly advisoryLockRunners = new Map<string, QueryRunner>();
 
   constructor(
     @InjectDataSource() private readonly dataSource: DataSource,
+    // Kilit + heartbeat TEK sahibi (ADMIN-HIGH-013): `@ScheduledJob` gövdeyi
+    // buradan geçirir; servis artık kendi advisory-lock'unu kurmaz.
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
     private readonly generator: MealPlanGeneratorService,
     private readonly growthApplier: BiomassGrowthApplierService,
     private readonly temperatureService: WaterTemperatureService,
@@ -273,27 +278,22 @@ export class FeedingCronV2Service {
 
   /**
    * Tek zamanlayıcı. Her saat başı TÜM tenant'lar için yerel saati çözer ve
-   * o saate düşen işleri claim'leyerek koşar. Tenant başına sıralı; advisory
-   * lock çok-instance'lı eşzamanlılığı, `feeding_job_runs` ise "bugün zaten
-   * koştu"yu ayrı ayrı garanti eder.
+   * o saate düşen işleri claim'leyerek koşar. Tenant başına sıralı;
+   * `@ScheduledJob` lease'i çok-instance'lı eşzamanlılığı, `feeding_job_runs`
+   * ise "bugün zaten koştu"yu ayrı ayrı garanti eder.
    */
-  @Cron('0 * * * *', { name: 'feeding-v2-hourly-tick' })
+  @ScheduledJob({ name: 'feeding-v2-hourly-tick', cron: '0 * * * *' })
   async hourlyTick(): Promise<void> {
-    await this.runExclusive('feeding-v2-hourly-tick', async () => {
-      const at = new Date();
-      const tenants = await this.feedingTenants();
-      const zones = await this.clock.tenantZones(tenants);
-      for (const tenantId of tenants) {
-        const clock = FeedingClockService.clockIn(
-          zones.get(tenantId) ?? DEFAULT_TENANT_TIMEZONE,
-          at,
-        );
-        for (const job of FEEDING_JOB_SCHEDULE) {
-          if (job.localHour !== clock.localHour) continue;
-          await this.runTenantJob(tenantId, job.name, clock);
-        }
+    const at = new Date();
+    const tenants = await this.feedingTenants();
+    const zones = await this.clock.tenantZones(tenants);
+    for (const tenantId of tenants) {
+      const clock = FeedingClockService.clockIn(zones.get(tenantId) ?? DEFAULT_TENANT_TIMEZONE, at);
+      for (const job of FEEDING_JOB_SCHEDULE) {
+        if (job.localHour !== clock.localHour) continue;
+        await this.runTenantJob(tenantId, job.name, clock);
       }
-    });
+    }
   }
 
   /** Claim → iş → settle. Hata koşuyu KAPATMAZ; bir sonraki tick yeniden dener. */
@@ -612,107 +612,105 @@ export class FeedingCronV2Service {
   // */15dk — MEAL WINDOW (K-2 TOPLU ŞEKİL)
   // ==========================================================================
 
-  @Cron('*/15 * * * *', { name: 'feeding-v2-meal-window' })
+  @ScheduledJob({ name: 'feeding-v2-meal-window', cron: '*/15 * * * *' })
   async mealWindowSweep(): Promise<void> {
-    await this.runExclusive('feeding-v2-meal-window', async () => {
-      const tenants = await this.feedingTenants();
-      const windowStart = new Date();
-      const windowEnd = new Date(windowStart.getTime() + MEAL_WINDOW_LEAD_MINUTES * 60_000);
-      for (const tenantId of tenants) {
-        try {
-          await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
-            const manager = queryRunner.manager;
-            // Partial indeks üzerinden okur (status='scheduled'); adaylar HEM
-            // hiç bildirilmemiş HEM de bu tick'ten önce bildirilmiş öğünlerdir.
-            const meals: Array<{
-              id: string;
-              unitId: string;
-              dayPlanId: string;
-              mealIndex: number;
-              scheduledAt: Date;
-              feedId: string;
-              plannedKg: string | number;
-              unitCode: string;
-              protocolId: string;
-              minDissolvedOxygen: number | null;
-              lowOxygenReduction: number | null;
-            }> = await manager.query(
-              `SELECT m.id, m."unitId", m."dayPlanId", m."mealIndex", m."scheduledAt",
-                      m."feedId", m."plannedKg", dp."unitCode", dp."protocolId",
-                      (p.settings->>'minDissolvedOxygen')::numeric AS "minDissolvedOxygen",
-                      (p.settings->'adjustments'->>'lowOxygenReduction')::numeric AS "lowOxygenReduction"
-               FROM "feeding_meals" m
-               JOIN "feeding_day_plans" dp ON dp.id = m."dayPlanId"
-               LEFT JOIN "feeding_protocols_v2" p ON p.id = dp."protocolId"
-               WHERE m."tenantId" = $1 AND m.status = 'scheduled'
-                 AND (
-                   m."windowNotifiedAt" IS NULL
-                   OR m."windowNotifiedAt" < $4::timestamptz
-                 )
-                 AND m."scheduledAt" >= $2 AND m."scheduledAt" < $3
-               ORDER BY m."scheduledAt" ASC`,
-              // $4: bu tick'ten önce bildirilmiş öğünler yeniden aday olur —
-              // pencere içinde yeniden üretim (FARM-MEDIUM-271). Damga artık
-              // "bir daha asla" değil, "son bildirim şu an".
-              [
-                tenantId,
-                windowStart,
-                windowEnd,
-                new Date(windowStart.getTime() - MEAL_WINDOW_RENOTIFY_MINUTES * 60_000),
-              ],
-            );
-            if (meals.length === 0) return;
-
-            const entries: MealWindowEntry[] = meals.map((meal) => ({
-              unitId: meal.unitId,
-              unitCode: meal.unitCode,
-              dayPlanId: meal.dayPlanId,
-              mealId: meal.id,
-              mealIndex: meal.mealIndex,
-              scheduledAt: toEventIso(meal.scheduledAt),
-              feedId: meal.feedId,
-              plannedKg: Number(meal.plannedKg),
-              protocolId: meal.protocolId,
-              minDissolvedOxygen: meal.minDissolvedOxygen ?? undefined,
-              lowOxygenReductionPercent: meal.lowOxygenReduction ?? undefined,
-            }));
-            const chunks = chunkWindowEntries(entries, MEAL_WINDOW_MAX_ENTRIES);
-            for (const [index, chunk] of chunks.entries()) {
-              const event: MealWindowUpcomingEvent = {
-                ...createBaseEvent<MealWindowUpcomingEvent>('MealWindowUpcoming', tenantId),
-                windowStart: toEventIso(windowStart),
-                windowEnd: toEventIso(windowEnd),
-                leadMinutes: MEAL_WINDOW_LEAD_MINUTES,
-                batchIndex: index,
-                batchCount: chunks.length,
-                meals: chunk,
-              };
-              await this.outboxPublisher.enqueue(event, manager);
-            }
-            // İdempotency damgası AYNI tx'te — event yazıldıysa damga da yazıldı.
-            await manager.query(
-              // tenantId predikatı ZORUNLU: id listesi tenant sorgusundan
-              // gelse de yazım yalnız search_path'e güvenemez (FARM-MEDIUM-292).
-              `UPDATE "feeding_meals" SET "windowNotifiedAt" = now()
-                WHERE "tenantId" = $1 AND id = ANY($2)`,
-              [tenantId, meals.map((meal) => meal.id)],
-            );
-          });
-        } catch (error) {
-          this.logger.error(
-            `Meal window sweep failed for tenant ${tenantId}: ${(error as Error).message}`,
+    const tenants = await this.feedingTenants();
+    const windowStart = new Date();
+    const windowEnd = new Date(windowStart.getTime() + MEAL_WINDOW_LEAD_MINUTES * 60_000);
+    for (const tenantId of tenants) {
+      try {
+        await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
+          const manager = queryRunner.manager;
+          // Partial indeks üzerinden okur (status='scheduled'); adaylar HEM
+          // hiç bildirilmemiş HEM de bu tick'ten önce bildirilmiş öğünlerdir.
+          const meals: Array<{
+            id: string;
+            unitId: string;
+            dayPlanId: string;
+            mealIndex: number;
+            scheduledAt: Date;
+            feedId: string;
+            plannedKg: string | number;
+            unitCode: string;
+            protocolId: string;
+            minDissolvedOxygen: number | null;
+            lowOxygenReduction: number | null;
+          }> = await manager.query(
+            `SELECT m.id, m."unitId", m."dayPlanId", m."mealIndex", m."scheduledAt",
+                    m."feedId", m."plannedKg", dp."unitCode", dp."protocolId",
+                    (p.settings->>'minDissolvedOxygen')::numeric AS "minDissolvedOxygen",
+                    (p.settings->'adjustments'->>'lowOxygenReduction')::numeric AS "lowOxygenReduction"
+             FROM "feeding_meals" m
+             JOIN "feeding_day_plans" dp ON dp.id = m."dayPlanId"
+             LEFT JOIN "feeding_protocols_v2" p ON p.id = dp."protocolId"
+             WHERE m."tenantId" = $1 AND m.status = 'scheduled'
+               AND (
+                 m."windowNotifiedAt" IS NULL
+                 OR m."windowNotifiedAt" < $4::timestamptz
+               )
+               AND m."scheduledAt" >= $2 AND m."scheduledAt" < $3
+             ORDER BY m."scheduledAt" ASC`,
+            // $4: bu tick'ten önce bildirilmiş öğünler yeniden aday olur —
+            // pencere içinde yeniden üretim (FARM-MEDIUM-271). Damga artık
+            // "bir daha asla" değil, "son bildirim şu an".
+            [
+              tenantId,
+              windowStart,
+              windowEnd,
+              new Date(windowStart.getTime() - MEAL_WINDOW_RENOTIFY_MINUTES * 60_000),
+            ],
           );
-        }
+          if (meals.length === 0) return;
 
-        try {
-          await this.temperatureDriftSweep(tenantId);
-        } catch (error) {
-          this.logger.error(
-            `Temperature drift sweep failed for tenant ${tenantId}: ${(error as Error).message}`,
+          const entries: MealWindowEntry[] = meals.map((meal) => ({
+            unitId: meal.unitId,
+            unitCode: meal.unitCode,
+            dayPlanId: meal.dayPlanId,
+            mealId: meal.id,
+            mealIndex: meal.mealIndex,
+            scheduledAt: toEventIso(meal.scheduledAt),
+            feedId: meal.feedId,
+            plannedKg: Number(meal.plannedKg),
+            protocolId: meal.protocolId,
+            minDissolvedOxygen: meal.minDissolvedOxygen ?? undefined,
+            lowOxygenReductionPercent: meal.lowOxygenReduction ?? undefined,
+          }));
+          const chunks = chunkWindowEntries(entries, MEAL_WINDOW_MAX_ENTRIES);
+          for (const [index, chunk] of chunks.entries()) {
+            const event: MealWindowUpcomingEvent = {
+              ...createBaseEvent<MealWindowUpcomingEvent>('MealWindowUpcoming', tenantId),
+              windowStart: toEventIso(windowStart),
+              windowEnd: toEventIso(windowEnd),
+              leadMinutes: MEAL_WINDOW_LEAD_MINUTES,
+              batchIndex: index,
+              batchCount: chunks.length,
+              meals: chunk,
+            };
+            await this.outboxPublisher.enqueue(event, manager);
+          }
+          // İdempotency damgası AYNI tx'te — event yazıldıysa damga da yazıldı.
+          await manager.query(
+            // tenantId predikatı ZORUNLU: id listesi tenant sorgusundan
+            // gelse de yazım yalnız search_path'e güvenemez (FARM-MEDIUM-292).
+            `UPDATE "feeding_meals" SET "windowNotifiedAt" = now()
+              WHERE "tenantId" = $1 AND id = ANY($2)`,
+            [tenantId, meals.map((meal) => meal.id)],
           );
-        }
+        });
+      } catch (error) {
+        this.logger.error(
+          `Meal window sweep failed for tenant ${tenantId}: ${(error as Error).message}`,
+        );
       }
-    });
+
+      try {
+        await this.temperatureDriftSweep(tenantId);
+      } catch (error) {
+        this.logger.error(
+          `Temperature drift sweep failed for tenant ${tenantId}: ${(error as Error).message}`,
+        );
+      }
+    }
   }
 
   /**
@@ -1253,24 +1251,24 @@ export class FeedingCronV2Service {
    *
    * Zon çözümü YOK: retention'ın gün semantiği yoktur (24 ay / 90 gün süreli
    * pencereler), bu yüzden saatlik tenant-yerel tick'e girmez ve UTC'de ayın
-   * 1'i 04:00'te koşar. Advisory-lock tek instance garantisi verir.
+   * 1'i 04:00'te koşar (`timeZone: 'UTC'` — çıplak `@Cron` process zone'unu
+   * kullanıyordu ve bu yorumla çelişiyordu). `@ScheduledJob` lease'i tek
+   * instance garantisi verir.
    */
-  @Cron('0 4 1 * *', { name: 'feeding-v2-retention' })
+  @ScheduledJob({ name: 'feeding-v2-retention', cron: '0 4 1 * *', timeZone: 'UTC' })
   async retentionCleanup(): Promise<void> {
-    await this.runExclusive('feeding-v2-retention', async () => {
-      const tenants = await this.tenantsForRetention();
-      for (const tenantId of tenants) {
-        try {
-          await this.purgeTenantRetention(tenantId);
-        } catch (error) {
-          this.logger.error(
-            `Retention cleanup failed for tenant ${tenantId}: ${(error as Error).message}`,
-          );
-        }
+    const tenants = await this.tenantsForRetention();
+    for (const tenantId of tenants) {
+      try {
+        await this.purgeTenantRetention(tenantId);
+      } catch (error) {
+        this.logger.error(
+          `Retention cleanup failed for tenant ${tenantId}: ${(error as Error).message}`,
+        );
       }
-      // Cross-tenant koşu kaydı (W5) — tenant döngüsünün dışında, tek seferde.
-      await this.jobRuns.purgeOlderThanRetention();
-    });
+    }
+    // Cross-tenant koşu kaydı (W5) — tenant döngüsünün dışında, tek seferde.
+    await this.jobRuns.purgeOlderThanRetention();
   }
 
   async purgeTenantRetention(tenantId: string): Promise<void> {
@@ -1427,45 +1425,5 @@ export class FeedingCronV2Service {
       }
     }
     return [...tenantIds];
-  }
-
-  private getAdvisoryLockKey(jobName: string): number {
-    const hash = crypto.createHash('sha256').update(jobName).digest();
-    return hash.readInt32LE(0);
-  }
-
-  /** v1 makinesiyle aynı disiplin: session-scoped kilit, edinen bağlantıda yaşar. */
-  private async runExclusive(jobName: string, job: () => Promise<void>): Promise<void> {
-    const lockKey = this.getAdvisoryLockKey(jobName);
-    const runner = this.dataSource.createQueryRunner();
-    await runner.connect();
-    let acquired = false;
-    try {
-      const result: Array<{ acquired: boolean }> = await runner.query(
-        `SELECT pg_try_advisory_lock($1, $2) as acquired`,
-        [ADVISORY_LOCK_NAMESPACE, lockKey],
-      );
-      acquired = result[0]?.acquired === true;
-      if (!acquired) {
-        this.logger.log(`Another instance runs ${jobName}; skipping.`);
-        return;
-      }
-      this.advisoryLockRunners.set(jobName, runner);
-      await job();
-    } finally {
-      if (acquired) {
-        this.advisoryLockRunners.delete(jobName);
-        try {
-          await runner.query(`SELECT pg_advisory_unlock($1, $2)`, [
-            ADVISORY_LOCK_NAMESPACE,
-            lockKey,
-          ]);
-        } finally {
-          await runner.release();
-        }
-      } else {
-        await runner.release();
-      }
-    }
   }
 }

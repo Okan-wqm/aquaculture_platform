@@ -77,6 +77,9 @@ import {
   expectSearchPathSet,
 } from '../../../../../../libs/backend-common/src/database/__tests__/nats-handler-test.helpers';
 import { AutoRuleTriggerService } from '../auto-rule-trigger.service';
+import { createScheduledJobTestExecutor } from '@aquaculture/backend-common/scheduling/testing';
+
+const scheduledJobs = createScheduledJobTestExecutor();
 
 // ---------------------------------------------------------------------------
 // Mock NatsEventBus (provided via @Inject('EVENT_BUS'))
@@ -110,6 +113,7 @@ function createService() {
     mockAutoRuleRepo,
     mockTaskRepo,
     mockDataSource as any,
+    scheduledJobs.executor,
     mockEventBus as any,
   );
 

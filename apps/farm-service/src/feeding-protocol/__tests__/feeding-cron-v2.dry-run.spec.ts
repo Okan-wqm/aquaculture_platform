@@ -32,6 +32,7 @@ import { FeedingClockService } from '../services/feeding-clock.service';
 import { FeedingJobRunService } from '../services/feeding-job-run.service';
 import { realFinalizationService } from './helpers/meal-finalization-double';
 import { FeedingCronV2Service } from '../services/feeding-cron-v2.service';
+import { createScheduledJobTestExecutor } from '@aquaculture/backend-common/scheduling/testing';
 import { MealPlanGeneratorService } from '../services/meal-plan-generator.service';
 import { ProtocolRateService } from '../services/protocol-rate.service';
 import { ProtocolResolutionService } from '../services/protocol-resolution.service';
@@ -155,6 +156,7 @@ function makeService(fixture: DryRunFixture): {
 
   const service = new FeedingCronV2Service(
     stub<DataSource>({}),
+    createScheduledJobTestExecutor().executor,
     generator,
     growthApplier,
     stub<WaterTemperatureService>({ getEffectiveTemperaturesForUnits }),

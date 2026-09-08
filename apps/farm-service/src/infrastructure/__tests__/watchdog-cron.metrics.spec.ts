@@ -10,11 +10,14 @@
  * that threw is reported as a distinct outcome rather than as silence.
  */
 import { WatchdogRunner } from '@aquaculture/backend-common/database';
-import { CronHeartbeatService } from '@aquaculture/backend-common/metrics';
 import { Test } from '@nestjs/testing';
 
 import { FarmDomainMetricsService } from '../../common/metrics/farm-domain-metrics.service';
 import { WatchdogCronService } from '../watchdog-cron.service';
+import { ScheduledJobRunner } from '@aquaculture/backend-common/scheduling';
+import { createScheduledJobTestExecutor } from '@aquaculture/backend-common/scheduling/testing';
+
+const scheduledJobs = createScheduledJobTestExecutor();
 
 interface ScanCall {
   outcome: 'completed' | 'failed';
@@ -35,14 +38,10 @@ describe('WatchdogCronService metrics surface', () => {
       providers: [
         WatchdogCronService,
         { provide: WatchdogRunner, useValue: { runFullScan } },
-        {
-          // Real heartbeat: `track` must pass the body through untouched, and
-          // a substitute that just calls the body would hide it if it did not.
-          provide: CronHeartbeatService,
-          useValue: new CronHeartbeatService({
-            registerContributor: (): void => undefined,
-          }),
-        },
+        // The heartbeat is the runner's now, so the double it needs is the
+        // runner's: `grant(false)` proves the scan does not run when another
+        // replica holds the lease, which a pass-through could not say.
+        { provide: ScheduledJobRunner, useValue: scheduledJobs.executor },
         {
           provide: FarmDomainMetricsService,
           useValue: {

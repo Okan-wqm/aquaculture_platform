@@ -69,6 +69,7 @@ import { ConfigurationModule } from './configuration/configuration.module';
 import { HealthModule } from './health/health.module';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
 import { subgraphComplexityPlugin, subgraphFormatError } from '@aquaculture/backend-common/graphql';
+import { ScheduledJobModule } from '@aquaculture/backend-common/scheduling';
 
 /** Shared subgraph complexity ceiling (SEC-LOW-116). */
 const GRAPHQL_MAX_COMPLEXITY = 1000;
@@ -190,6 +191,10 @@ const GRAPHQL_MAX_COMPLEXITY = 1000;
     // OBS-HIGH-001: Prometheus GET /metrics scrape endpoint + HTTP metrics
     // middleware (self-contained platform module — controller is @Public()).
     ServiceMetricsModule,
+    // ADMIN-HIGH-013: the outbox worker's relay and nightly cleanup route
+    // through the runner's heartbeat (and, for the cleanup, its lease).
+    // ScheduleModule itself arrives with OutboxModule.forFeature.
+    ScheduledJobModule.forRoot({ serviceName: 'config-service' }),
     /** SEC-M22: Audit trail infrastructure for compliance tracking. */
     AuditLogModule.forRoot(),
     /**

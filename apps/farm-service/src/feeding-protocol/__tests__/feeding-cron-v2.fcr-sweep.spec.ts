@@ -27,6 +27,7 @@ import { FeedingClockService } from '../services/feeding-clock.service';
 import { FeedingJobRunService } from '../services/feeding-job-run.service';
 import { realFinalizationService } from './helpers/meal-finalization-double';
 import { FeedingCronV2Service } from '../services/feeding-cron-v2.service';
+import { createScheduledJobTestExecutor } from '@aquaculture/backend-common/scheduling/testing';
 import { MealPlanGeneratorService } from '../services/meal-plan-generator.service';
 import { BiomassGrowthApplierService } from '../services/biomass-growth-applier.service';
 import { WaterTemperatureService } from '../../water-quality/services/water-temperature.service';
@@ -50,6 +51,7 @@ describe('FeedingCronV2Service.sweepFcrForTenant (C-1)', () => {
 
   const service = new FeedingCronV2Service(
     stub<DataSource>({}),
+    createScheduledJobTestExecutor().executor,
     stub<MealPlanGeneratorService>({}),
     growthApplier,
     stub<WaterTemperatureService>({}),

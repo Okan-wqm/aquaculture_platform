@@ -13,6 +13,9 @@ import { EnvironmentMonitoringGate } from './environment-monitoring-gate.service
 import { EnvironmentProvider } from '../entities/environment-observation.types';
 import { EnvironmentSyncLease, EnvironmentSyncStore } from './environment-sync-store.service';
 import { DEFAULT_CMEMS_CACHE_POLICY } from './cmems-provider';
+import { createScheduledJobTestExecutor } from '@aquaculture/backend-common/scheduling/testing';
+
+const scheduledJobs = createScheduledJobTestExecutor();
 
 const NOW = new Date('2026-07-31T04:00:00.000Z');
 const TENANT_A = '11111111-1111-4111-8111-aaaaaaaaaaaa';
@@ -75,7 +78,14 @@ describe('EnvironmentCronService', () => {
     );
     ingestion.processLease = jest.fn();
     const metrics = metricsHarness();
-    const service = new EnvironmentCronService(dataSource, gate, store, ingestion, metrics.service);
+    const service = new EnvironmentCronService(
+      dataSource,
+      gate,
+      store,
+      ingestion,
+      metrics.service,
+      scheduledJobs.executor,
+    );
 
     await service.syncDueProviders();
     await service.retainCanonicalObservations();
@@ -139,7 +149,14 @@ describe('EnvironmentCronService', () => {
     );
     ingestion.processLease = jest.fn();
     const metrics = metricsHarness();
-    const service = new EnvironmentCronService(dataSource, gate, store, ingestion, metrics.service);
+    const service = new EnvironmentCronService(
+      dataSource,
+      gate,
+      store,
+      ingestion,
+      metrics.service,
+      scheduledJobs.executor,
+    );
 
     await service.syncDueProviders();
     await service.syncDueProviders();
@@ -193,7 +210,14 @@ describe('EnvironmentCronService', () => {
     );
     ingestion.processLease = jest.fn();
     const metrics = metricsHarness();
-    const service = new EnvironmentCronService(dataSource, gate, store, ingestion, metrics.service);
+    const service = new EnvironmentCronService(
+      dataSource,
+      gate,
+      store,
+      ingestion,
+      metrics.service,
+      scheduledJobs.executor,
+    );
 
     await service.syncDueProviders();
 
@@ -307,7 +331,14 @@ describe('EnvironmentCronService', () => {
       return true;
     });
     const metrics = metricsHarness();
-    const service = new EnvironmentCronService(dataSource, gate, store, ingestion, metrics.service);
+    const service = new EnvironmentCronService(
+      dataSource,
+      gate,
+      store,
+      ingestion,
+      metrics.service,
+      scheduledJobs.executor,
+    );
 
     await service.syncDueProviders();
 
@@ -404,7 +435,14 @@ describe('EnvironmentCronService', () => {
       return Promise.resolve(true);
     });
     const metrics = metricsHarness();
-    const service = new EnvironmentCronService(dataSource, gate, store, ingestion, metrics.service);
+    const service = new EnvironmentCronService(
+      dataSource,
+      gate,
+      store,
+      ingestion,
+      metrics.service,
+      scheduledJobs.executor,
+    );
 
     await service.syncDueProviders();
 
@@ -442,7 +480,14 @@ describe('EnvironmentCronService', () => {
     );
     ingestion.processLease = jest.fn();
     const metrics = metricsHarness();
-    const service = new EnvironmentCronService(dataSource, gate, store, ingestion, metrics.service);
+    const service = new EnvironmentCronService(
+      dataSource,
+      gate,
+      store,
+      ingestion,
+      metrics.service,
+      scheduledJobs.executor,
+    );
 
     await expect(service.syncDueProviders()).rejects.toThrow(/mapping mismatch/u);
 
@@ -480,7 +525,14 @@ describe('EnvironmentCronService', () => {
     );
     ingestion.processLease = jest.fn();
     const metrics = metricsHarness();
-    const service = new EnvironmentCronService(dataSource, gate, store, ingestion, metrics.service);
+    const service = new EnvironmentCronService(
+      dataSource,
+      gate,
+      store,
+      ingestion,
+      metrics.service,
+      scheduledJobs.executor,
+    );
 
     await service.retainCanonicalObservations();
 
@@ -533,7 +585,14 @@ describe('EnvironmentCronService', () => {
     );
     ingestion.processLease = jest.fn();
     const metrics = metricsHarness();
-    const service = new EnvironmentCronService(dataSource, gate, store, ingestion, metrics.service);
+    const service = new EnvironmentCronService(
+      dataSource,
+      gate,
+      store,
+      ingestion,
+      metrics.service,
+      scheduledJobs.executor,
+    );
 
     await service.syncDueProviders();
 

@@ -302,7 +302,7 @@ because re-checking it found something real that nothing tracks.
 
 ### What #1035 claimed, and what is actually true now
 
-#1035 reported `AnalyticsDashboardPage` declaring `value: number` against a
+That PR reported `AnalyticsDashboardPage` declaring `value: number` against a
 backend `number | null`, so unmeasured buckets rendered as real zero points on
 the trend line. **That mismatch does not exist on `main`.** Both sides declare
 `value: number`:
@@ -343,7 +343,7 @@ ADMIN-HIGH-113 (feature-toggle DTOs), the tenant detail pair, and now analytics.
 Each time the shape was an interface, each time the plugin emitted nothing, and
 each time the frontend wrote its own copy and was free to drift.
 
-### Fix
+### Fix for the analytics contract
 
 Convert the three analytics response interfaces to classes with `@ApiProperty`,
 regenerate `openapi.json` + the panel client, and point

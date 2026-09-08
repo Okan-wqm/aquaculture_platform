@@ -181,6 +181,20 @@ export interface MessageThread {
  */
 export type MessageThreadSummary = ApiSchema<'ThreadSummaryDto'>;
 
+/**
+ * The `admin.message_threads` row, as `GET /support/messages/threads/:id` and
+ * `POST /support/messages/threads` return it.
+ *
+ * A third shape, distinct from both {@link MessageThread} (GraphQL) and
+ * {@link MessageThreadSummary} (the list projection): it carries
+ * `unreadAdminCount` / `unreadTenantCount`, `isArchived` / `isClosed`,
+ * `lastMessageId` and the `messages` relation. Both REST detail methods were
+ * typed as the GraphQL thread, the same mistake that made the list read fields
+ * the API never sends — it caused no live defect only because neither method's
+ * result is consumed today (ADMIN-HIGH-110).
+ */
+export type SupportThreadRecord = ApiSchema<'MessageThread'>;
+
 // ============================================================================
 // Announcement Types
 // ============================================================================

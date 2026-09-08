@@ -25,12 +25,12 @@
 # still be unmigrated, so a finished page cannot be left behind to hold the
 # ceiling up. `ceiling` is the maximum number of entries and only decreases.
 #
-# 46 of 46 pages at W8a: the primitives shipped in an earlier release
+# 44 of 44 pages at W8a: the primitives shipped in an earlier release
 # and were never exported from `hooks/index.ts`, so no page could reach them.
-# Batches: tenant 8, billing 11, security 5, system 13, messaging 9.
+# Batches: tenant 6, billing 11, security 5, system 13, messaging 9.
 # The ceiling drops with each batch and this file is deleted at 0.
 version: 1
-ceiling: 46
+ceiling: 44
 entries:
   - site: web/modules/admin-panel/src/pages/CreateTenantPage.tsx
     batch: tenant
@@ -63,18 +63,6 @@ entries:
     findingId: ADMIN-HIGH-105
     reason: tenant and identity batch — reads move to useAdminQuery with an adminKeys.tenants/users key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/UserManagementPage.tsx
-    batch: tenant
-    owner: okan
-    expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
-    reason: tenant and identity batch — reads move to useAdminQuery with an adminKeys.tenants/users key, writes to useAdminMutation with invalidateKeys
-  - site: web/modules/admin-panel/src/pages/__tests__/CreateTenantPage.spec.tsx
-    batch: tenant
-    owner: okan
-    expiry: 2026-12-31
-    findingId: ADMIN-HIGH-105
-    reason: tenant and identity batch — reads move to useAdminQuery with an adminKeys.tenants/users key, writes to useAdminMutation with invalidateKeys
-  - site: web/modules/admin-panel/src/pages/__tests__/TenantManagementPage.spec.tsx
     batch: tenant
     owner: okan
     expiry: 2026-12-31

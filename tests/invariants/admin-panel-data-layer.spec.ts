@@ -99,7 +99,13 @@ function isUnmigrated(source: string): boolean {
 }
 
 describe('INVARIANT (ADMIN-HIGH-105): the admin-panel data layer', () => {
-  const pageFiles = gitFiles([`${ADMIN_PANEL}/src/pages`], ['.tsx']);
+  // A page's own SPEC lives under `pages/__tests__/` and imports the api client
+  // to mock it, so an unfiltered listing counts it as an unmigrated page. That
+  // is not a harmless overcount: it inflates the ceiling, and it would let a
+  // real page hide behind the "migration" of a test file.
+  const pageFiles = gitFiles([`${ADMIN_PANEL}/src/pages`], ['.tsx']).filter(
+    (file) => !/__tests__/.test(file) && !/\.(spec|test)\.tsx$/.test(file),
+  );
   const unmigrated = new Set(pageFiles.filter((file) => isUnmigrated(read(file))));
 
   const doc = yaml.load(read(ALLOWLIST)) as {

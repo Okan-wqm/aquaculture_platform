@@ -202,3 +202,86 @@ conclusion and the next reader should not have to re-derive it.
 - `nx test admin-api-service` 837 passed / 38 skipped; `nx test admin-panel` green;
   `nx lint admin-panel` green; `npm run type-check` all 41 projects.
 - Both contract artifacts regenerated and committed.
+
+---
+
+## ADMIN-HIGH-115 — the same defect one level out: a PAGE re-declaring the type
+
+ADMIN-MEDIUM-111 sourced `services/types` from the contract. That is only half the cure. A page can
+declare its own copy and never import the shared one, and **seventeen do**.
+
+This is not hypothetical — it is where two of the six defects above came from. `JobQueuePage`
+declared a local `JobStatus` missing `paused`; `DatabaseManagementPage` declared a local
+`MigrationHistoryItem` carrying two spellings of every field as optional. Both sat next to a
+`services/types` module that already owned the name, and both were fixed by hand in the commit that
+closed ADMIN-MEDIUM-111 — with nothing to stop the next one.
+
+### Classification first, because the raw count is misleading
+
+Twenty declarations outside `services/types` share a name with something that module exports. Three
+of them **build on** the shared type — `TicketsPage`'s `interface SupportTicket extends
+Omit<ApiSupportTicket, 'tenantName' | 'tags'>` and two siblings — which is the intended pattern:
+they are chained to the contract, so the ADMIN-MEDIUM-111 conversions reach them. Seventeen are
+standalone re-declarations.
+
+Of those seventeen, thirteen differ textually from the shared type. Text is not the test: two of the
+thirteen differ only in expression (`AuditSeverity` became `ApiSchema<'AuditLog'>['severity']`, the
+same three values) and one only in member order. The ones that matter are where the **values**
+differ.
+
+### The live one, on the GDPR compliance surface
+
+`CompliancePage` declares its own `DataRequestStatus`:
+
+```text
+page:     pending | in_progress | identity_verification | processing | completed | rejected
+contract: pending | in_progress |                                      completed | rejected | expired
+```
+
+- **Identity Verification and Processing were offered in the status dropdown.** `statusFilter` is
+  sent to the API (line 613 → `apiParams.status`) _and_ applied client-side (line 715), so picking
+  either filtered to nothing through both paths. A compliance officer reads an empty list as "there
+  are no requests in that state".
+- **`expired` — which the API does send — was in neither the dropdown nor `getStatusColor`'s
+  cases**, so it could not be filtered for and rendered grey through the `default` branch,
+  indistinguishable from `pending`.
+- **And `mapDataSubjectRequest` relabelled it:** `status: request.status === 'expired' ? 'rejected'
+: request.status`. Those are not the same thing. **Expired** means the statutory response window
+  ran out — the platform's own failure. **Rejected** means a reasoned refusal. The page built to
+  report GDPR compliance was showing the first as the second.
+
+### What was checked and found NOT to be drift
+
+The same page translated `erasure` ↔ `deletion` on the way in (line 177) and back out (line 138).
+That reads like drift and is not: the UI deliberately presented GDPR's own vocabulary against an API
+that says `deletion`.
+
+It is removed anyway, for a different reason — a value renamed in and back out again is a second
+vocabulary maintained by hand, and it is what made the status drift beside it hard to see. One
+vocabulary now, the API's, with "Erasure (Right to be Forgotten)" kept where a presentation choice
+belongs: on the label. `objection`, also in the page's type union, is unreachable from the UI and
+was dead rather than wrong.
+
+### Two more, both of a contract-derived type
+
+| Site                           | What it was                                                                                                                  | Treatment                                                                                                                                                                               |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AuditTrailPage.AuditSeverity` | value-identical to the shared one                                                                                            | **imported.** Restating a union that agrees today is how one that disagrees tomorrow gets written — which is exactly how `audit.ts` and `security.ts` came to disagree (ADMIN-HIGH-112) |
+| `ReportsPage.ReportDefinition` | **not a shadow — a collision.** A UI picker card with `icon: React.ReactNode`, sharing a name with the contract's report row | **renamed `ReportPickerCard`**, the treatment `MessageThread` got: the collision stops existing rather than being allowlisted                                                           |
+
+### The gate's second rule, and why it is scoped
+
+> No declaration outside `services/types` may re-declare a type that module sources from the
+> contract.
+
+**Fourteen** page-local declarations still shadow a _hand-written_ shared type. They are not gated:
+a fourteen-entry allowlist would be the theatre `admin-panel-contract-shadowing.spec.ts` exists to
+avoid, and it is the same argument that kept the first rule from shipping until eight of nine
+conversions were done. They stay tracked here.
+
+Where the shared type is **contract-derived**, the local copy is unambiguously wrong — the shared
+one is generated from the API and the local one cannot be. That set is now empty, so the rule ships
+with **no allowlist at all**.
+
+Verified by negative control: restoring `AuditTrailPage`'s local union to
+`low | medium | high | critical` fails the new rule, naming that file.

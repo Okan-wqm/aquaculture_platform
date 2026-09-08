@@ -199,8 +199,20 @@ export type SupportThreadRecord = ApiSchema<'MessageThread'>;
 // Announcement Types
 // ============================================================================
 
-export type AnnouncementType = 'info' | 'warning' | 'critical' | 'maintenance' | 'success';
-export type AnnouncementStatus = 'draft' | 'scheduled' | 'published' | 'expired' | 'cancelled';
+/**
+ * An announcement, as `GET /support/announcements` returns it.
+ *
+ * The type and status unions are DERIVED from it rather than restated. The
+ * hand-written `AnnouncementType` carried a fifth member, `'success'`, that the
+ * backend enum has never had — and `getTypeIcon` / `getTypeColor` in
+ * `AnnouncementsPage` are four-case switches with no default, so a `success`
+ * announcement would have rendered with no icon and `className={undefined}`.
+ * The same silent shape as ADMIN-HIGH-110. Derived from the contract, a member
+ * nothing sends cannot be written here at all.
+ */
+export type Announcement = ApiSchema<'Announcement'>;
+export type AnnouncementType = Announcement['type'];
+export type AnnouncementStatus = Announcement['status'];
 
 export interface AnnouncementTarget {
   tenantIds?: string[];
@@ -210,25 +222,6 @@ export interface AnnouncementTarget {
   regions?: string[];
 }
 
-export interface Announcement {
-  id: string;
-  title: string;
-  content: string;
-  type: AnnouncementType;
-  status: AnnouncementStatus;
-  isGlobal: boolean;
-  targetCriteria?: AnnouncementTarget;
-  createdBy?: string;
-  createdByName?: string;
-  publishAt?: string;
-  expiresAt?: string;
-  requiresAcknowledgment: boolean;
-  viewCount: number;
-  acknowledgmentCount: number;
-  metadata?: Record<string, unknown>;
-  createdAt: string;
-  updatedAt?: string;
-}
 
 // ============================================================================
 // Onboarding Types

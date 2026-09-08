@@ -2,18 +2,9 @@
  * Database management types
  */
 
-export interface TenantSchema {
-  tenantId: string;
-  tenantName: string;
-  schemaName: string;
-  status: 'active' | 'suspended' | 'archived' | 'migration_pending';
-  tableCount: number;
-  sizeBytes: number;
-  rowCount: number;
-  lastMigrationAt?: string;
-  currentVersion: string;
-  createdAt: string;
-}
+import type { ApiSchema } from '../contract';
+
+export type TenantSchema = ApiSchema<'TenantSchema'>;
 
 export interface SchemaMigration {
   id: string;

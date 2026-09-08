@@ -36,38 +36,11 @@ export enum TenantTier {
 // Tenant Interfaces
 // ============================================================================
 
-export interface TenantLimits {
-  maxUsers: number;
-  maxFarms: number;
-  maxPonds: number;
-  maxSensors: number;
-  maxAlertRules: number;
-  dataRetentionDays: number;
-  apiRateLimit: number;
-  storageGb: number;
-}
+export type TenantLimits = ApiSchema<'TenantLimitsDto'>;
 
-export interface TenantSettings {
-  timezone: string;
-  locale: string;
-  currency: string;
-  dateFormat: string;
-  measurementSystem: string;
-  notificationPreferences: {
-    email: boolean;
-    sms: boolean;
-    push: boolean;
-    slack: boolean;
-  };
-  features: string[];
-}
+export type TenantSettings = ApiSchema<'TenantSettingsDto'>;
 
-export interface TenantContact {
-  name: string;
-  email: string;
-  phone?: string;
-  role: string;
-}
+export type TenantContact = ApiSchema<'TenantContactDto'>;
 
 export interface Tenant {
   id: string;
@@ -101,16 +74,7 @@ export interface Tenant {
   availableActions?: Array<'activate' | 'suspend' | 'deactivate' | 'archive' | 'retryProvisioning'>;
 }
 
-export interface TenantStats {
-  totalTenants: number;
-  activeTenants: number;
-  suspendedTenants: number;
-  pendingTenants: number;
-  byTier?: Record<TenantTier, number>;
-  byPlan?: Record<string, number>;
-  newTenantsLast30Days: number;
-  churnedTenantsLast30Days: number;
-}
+export type TenantStats = ApiSchema<'TenantStatsDto'>;
 
 export interface TenantActivity {
   id: string;
@@ -126,16 +90,7 @@ export interface TenantActivity {
   createdAt: string;
 }
 
-export interface TenantNote {
-  id: string;
-  tenantId: string;
-  content: string;
-  category: string;
-  isPinned: boolean;
-  createdBy: string;
-  createdByEmail?: string;
-  createdAt: string;
-}
+export type TenantNote = ApiSchema<'TenantNote'>;
 
 export interface TenantDetail extends Tenant {
   userStats?: {
@@ -209,14 +164,7 @@ export const TenantProvisioningState = {
   FAILED: 'FAILED',
 } as const satisfies Record<string, TenantProvisioningState>;
 
-export interface TenantProvisioningStep {
-  name: string;
-  state: TenantProvisioningState;
-  attempts: number;
-  lastError?: string;
-  startedAt?: string;
-  completedAt?: string;
-}
+export type TenantProvisioningStep = ApiSchema<'TenantProvisioningStepDto'>;
 
 /** Generated from the backend contract (CONTRACT-CRITICAL-003). */
 export type CreateTenantAcceptedResponse = ApiSchema<'CreateTenantAcceptedResponse'>;

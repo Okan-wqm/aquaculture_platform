@@ -2,6 +2,8 @@
  * Settings domain types (System Settings, Feature Toggles, Maintenance, Performance, Errors, Jobs)
  */
 
+import type { ApiSchema } from '../contract';
+
 // ============================================================================
 // System Settings Types
 // ============================================================================
@@ -18,12 +20,7 @@ export interface SystemSetting {
   updatedBy?: string;
 }
 
-export interface EmailTemplateVariable {
-  name: string;
-  description: string;
-  required: boolean;
-  defaultValue?: string;
-}
+export type EmailTemplateVariable = ApiSchema<'EmailTemplateVariableDto'>;
 
 export interface EmailTemplate {
   id: string;
@@ -49,7 +46,16 @@ export interface EmailTemplate {
 
 export type FeatureToggleStatus = 'enabled' | 'disabled' | 'percentage_rollout' | 'scheduled';
 export type MaintenanceStatus = 'scheduled' | 'in_progress' | 'completed' | 'cancelled' | 'extended';
-export type JobStatus = 'pending' | 'scheduled' | 'running' | 'completed' | 'failed' | 'cancelled' | 'retrying';
+/**
+ * A queued job, as `GET /system/jobs` returns it, with its status union DERIVED
+ * rather than restated. The hand-written union omitted `paused`, which the
+ * backend enum has: `JobQueuePage`'s `getStatusBadge` builds an exhaustive
+ * `Record<JobStatus, …>`, so a paused job fell through to the `|| 'default'`
+ * fallback and rendered as an ordinary queued one. Derived from the contract,
+ * omitting a state the API can send is a compile error in that map.
+ */
+export type BackgroundJob = ApiSchema<'BackgroundJob'>;
+export type JobStatus = BackgroundJob['status'];
 
 export interface FeatureToggle {
   id: string;
@@ -178,54 +184,10 @@ export interface PerformanceDashboard {
   }>;
 }
 
-export interface ErrorGroup {
-  id: string;
-  fingerprint: string;
-  message: string;
-  errorType?: string;
-  service?: string;
-  severity: 'debug' | 'info' | 'warning' | 'error' | 'critical' | 'fatal';
-  status: 'new' | 'acknowledged' | 'in_progress' | 'resolved' | 'ignored';
-  occurrenceCount: number;
-  userCount: number;
-  firstSeenAt: string;
-  lastSeenAt: string;
-  assignedTo?: string;
-  isRegression: boolean;
-}
+export type ErrorGroup = ApiSchema<'ErrorGroup'>;
 
-export interface ErrorOccurrence {
-  id: string;
-  groupId: string;
-  message: string;
-  stackTrace?: string;
-  context?: Record<string, unknown>;
-  tenantId?: string;
-  userId?: string;
-  timestamp: string;
-}
+export type ErrorOccurrence = ApiSchema<'ErrorOccurrence'>;
 
-export interface BackgroundJob {
-  id: string;
-  name: string;
-  queueName: string;
-  jobType: 'immediate' | 'scheduled' | 'recurring' | 'delayed';
-  status: JobStatus;
-  priority: number;
-  payload?: Record<string, unknown>;
-  result?: Record<string, unknown>;
-  errorMessage?: string;
-  progress?: { current: number; total: number; percentage: number; message?: string };
-  scheduledAt?: string;
-  startedAt?: string;
-  completedAt?: string;
-  durationMs?: number;
-  attempts: number;
-  maxAttempts: number;
-  cronExpression?: string;
-  nextRunAt?: string;
-  createdAt: string;
-}
 
 export interface JobQueue {
   name: string;

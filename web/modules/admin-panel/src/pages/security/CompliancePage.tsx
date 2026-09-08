@@ -26,9 +26,11 @@ import {
   Globe,
   FileCheck,
 } from 'lucide-react';
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useMemo, useState } from 'react';
 
 import { securityApi } from '../../services/adminApi';
+import { adminKeys, useAdminMutation, useAdminQuery } from '../../hooks';
+import { QueryFailureNotice } from '../../components';
 import type {
   BackendComplianceCheckResult,
   BackendComplianceReport,
@@ -108,11 +110,19 @@ interface ComplianceCheck {
 
 interface ComplianceStats {
   totalRequests: number;
-  pendingRequests: number;
-  inProgressRequests: number;
-  completedRequests: number;
-  overdueRequests: number;
-  averageResolutionTime: number;
+  /**
+   * The four per-status counts and the resolution average are NOT in
+   * `/security/compliance/data-requests` — it returns a page of rows and a
+   * total, nothing more. They were being displayed as literal `0`, which on
+   * this page means the platform telling an operator there are no OVERDUE
+   * GDPR data-subject requests. `null` is the honest value until the endpoint
+   * computes them (ADMIN-HIGH-122); the cards render an em dash for it.
+   */
+  pendingRequests: number | null;
+  inProgressRequests: number | null;
+  completedRequests: number | null;
+  overdueRequests: number | null;
+  averageResolutionTime: number | null;
 }
 
 const toPrimitiveString = (value: unknown, fallback: string): string => {
@@ -127,13 +137,30 @@ const toPrimitiveString = (value: unknown, fallback: string): string => {
 // API Service - Using centralized securityApi with auth headers
 // ============================================================================
 
+/** The only framework the checks endpoint is called with today. */
+const COMPLIANCE_FRAMEWORK = 'gdpr';
+
+/** One page of compliance reports. */
+const REPORT_PAGE_SIZE = 50;
+
+/** What a stat card shows when the API does not compute that aggregate. */
+const UNAVAILABLE = '—';
+
+/** The three actions an operator can take on a data-subject request. */
+type RequestAction = 'verify' | 'reject' | 'complete';
+
+// Stable empties — `?? []` would hand a new array on every render.
+const EMPTY_REQUESTS: readonly DataRequest[] = [];
+const EMPTY_REPORTS: readonly ComplianceReport[] = [];
+const EMPTY_CHECKS: readonly ComplianceCheck[] = [];
+
 async function fetchDataRequests(params: {
   page?: number;
   limit?: number;
   status?: string;
   requestType?: string;
   searchQuery?: string;
-}): Promise<{ data: DataRequest[]; total: number; stats: ComplianceStats }> {
+}, signal?: AbortSignal): Promise<{ data: DataRequest[]; total: number; stats: ComplianceStats }> {
   const apiParams: Record<string, unknown> = {};
   if (params.page) apiParams.page = params.page;
   if (params.limit) apiParams.limit = params.limit;
@@ -143,29 +170,32 @@ async function fetchDataRequests(params: {
   }
   if (params.searchQuery) apiParams.searchQuery = params.searchQuery;
 
-  const result = await securityApi.getDataRequests(apiParams);
+  const result = await securityApi.getDataRequests(apiParams, signal);
   const data = result.data.map(mapDataSubjectRequest);
   return {
     data,
     total: result.total,
     stats: {
       totalRequests: result.total,
-      pendingRequests: 0,
-      inProgressRequests: 0,
-      completedRequests: 0,
-      overdueRequests: 0,
-      averageResolutionTime: 0,
+      pendingRequests: null,
+      inProgressRequests: null,
+      completedRequests: null,
+      overdueRequests: null,
+      averageResolutionTime: null,
     },
   };
 }
 
-async function fetchComplianceReports(): Promise<ComplianceReport[]> {
-  const result = await securityApi.getComplianceReports({ limit: 50 });
+async function fetchComplianceReports(signal?: AbortSignal): Promise<ComplianceReport[]> {
+  const result = await securityApi.getComplianceReports({ limit: REPORT_PAGE_SIZE }, signal);
   return result.data.map(mapComplianceReport);
 }
 
-async function fetchComplianceChecks(framework: string): Promise<ComplianceCheck[]> {
-  const result = await securityApi.getComplianceChecks(framework);
+async function fetchComplianceChecks(
+  framework: string,
+  signal?: AbortSignal,
+): Promise<ComplianceCheck[]> {
+  const result = await securityApi.getComplianceChecks(framework, signal);
   // The `{ checks: [...] }` unwrap branch that used to sit here defended
   // against a shape the route has never returned — `runComplianceChecks`
   // returns `ComplianceCheckResult[]` untransformed. The trust-boundary
@@ -381,7 +411,10 @@ const getComplianceStatusColor = (status: string): string => {
 const DataRequestDetailModal: React.FC<{
   request: DataRequest;
   onClose: () => void;
-  onAction: (action: string) => void;
+  // Typed as the union, not `string`: the page's handler switches on it
+  // exhaustively, and a plain `string` prop forced a cast at the call site
+  // that would have swallowed a typo'd action name.
+  onAction: (action: RequestAction) => void;
   actionLoading?: boolean;
   actionError?: string | null;
 }> = ({ request, onClose, onAction, actionLoading = false, actionError = null }) => {
@@ -600,12 +633,6 @@ const DataRequestDetailModal: React.FC<{
 
 export const CompliancePage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'requests' | 'reports' | 'checks'>('requests');
-  const [dataRequests, setDataRequests] = useState<DataRequest[]>([]);
-  const [reports, setReports] = useState<ComplianceReport[]>([]);
-  const [checks, setChecks] = useState<ComplianceCheck[]>([]);
-  const [stats, setStats] = useState<ComplianceStats | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [selectedRequest, setSelectedRequest] = useState<DataRequest | null>(null);
 
   // Filters
@@ -613,104 +640,92 @@ export const CompliancePage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    const [requestsResult, reportsResult, checksResult] = await Promise.allSettled([
-      fetchDataRequests({
-        status: statusFilter,
-        requestType: typeFilter,
-        searchQuery: searchTerm || undefined,
-      }),
-      fetchComplianceReports(),
-      fetchComplianceChecks('gdpr'),
-    ]);
-    const failures: string[] = [];
+  // Three INDEPENDENT queries. As on the other security pages, the
+  // `Promise.allSettled` this replaces collected a `failures[]` the render then
+  // discarded unless the request list was ALSO empty (ADMIN-HIGH-121).
+  const requestFilter = useMemo(
+    () => ({
+      status: statusFilter,
+      requestType: typeFilter,
+      searchQuery: searchTerm || undefined,
+    }),
+    [statusFilter, typeFilter, searchTerm],
+  );
 
-    if (requestsResult.status === 'fulfilled') {
-      setDataRequests(requestsResult.value.data);
-      setStats(requestsResult.value.stats);
-    } else {
-      failures.push(
-        requestsResult.reason instanceof Error
-          ? requestsResult.reason.message
-          : 'Failed to load data subject requests',
-      );
-    }
+  const requestsQuery = useAdminQuery(
+    [...adminKeys.security.all(), 'data-requests', requestFilter],
+    ({ signal }) => fetchDataRequests(requestFilter, signal),
+    { placeholderData: (previous) => previous, staleTime: 30_000 },
+  );
 
-    if (reportsResult.status === 'fulfilled') {
-      setReports(reportsResult.value);
-    } else {
-      failures.push(
-        reportsResult.reason instanceof Error
-          ? reportsResult.reason.message
-          : 'Failed to load compliance reports',
-      );
-    }
+  const reportsQuery = useAdminQuery(
+    [...adminKeys.security.all(), 'compliance-reports'],
+    ({ signal }) => fetchComplianceReports(signal),
+    { staleTime: 60_000 },
+  );
 
-    if (checksResult.status === 'fulfilled') {
-      setChecks(checksResult.value);
-    } else {
-      failures.push(
-        checksResult.reason instanceof Error
-          ? checksResult.reason.message
-          : 'Failed to load compliance checks',
-      );
-    }
+  const checksQuery = useAdminQuery(
+    [...adminKeys.security.all(), 'compliance-checks', COMPLIANCE_FRAMEWORK],
+    ({ signal }) => fetchComplianceChecks(COMPLIANCE_FRAMEWORK, signal),
+    { staleTime: 60_000 },
+  );
 
-    setError(failures.length > 0 ? failures.join('; ') : null);
-    setLoading(false);
-  }, [statusFilter, typeFilter, searchTerm]);
+  const dataRequests = requestsQuery.data?.data ?? EMPTY_REQUESTS;
+  const stats = requestsQuery.data?.stats ?? null;
+  const reports = reportsQuery.data ?? EMPTY_REPORTS;
+  const checks = checksQuery.data ?? EMPTY_CHECKS;
+  const loading = requestsQuery.isPending;
+  const queryErrors = [requestsQuery.error, reportsQuery.error, checksQuery.error];
 
-  useEffect(() => {
-    void loadData();
-  }, [loadData]);
-
-  const [actionLoading, setActionLoading] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const loadData = (): void => {
+    void requestsQuery.refetch();
+    void reportsQuery.refetch();
+    void checksQuery.refetch();
+  };
 
   /**
-   * Handle verify/reject/complete actions on a data subject request.
-   * Calls the real backend endpoint and only closes modal on success.
+   * The three data-subject-request actions, through the write primitive
+   * (ADMIN-HIGH-121). This is the first admin page to use it, and it earns its
+   * keep here: the old handler called `loadData()` on success, re-fetching the
+   * request list AND the compliance reports AND the framework checks — two of
+   * which the action cannot have changed. `invalidateKeys` names the one slice
+   * that moved, so the reports and checks stay cached.
+   *
+   * `mutateAsync` keeps the existing contract that the modal closes only on a
+   * SUCCESSFUL backend mutation; `isPending` and `error` replace the two
+   * hand-rolled pieces of state that tracked it.
    */
-  const handleRequestAction = async (action: string): Promise<void> => {
-    if (!selectedRequest) return;
-
-    setActionLoading(true);
-    setActionError(null);
-
-    try {
+  const requestAction = useAdminMutation<void, { id: string; action: RequestAction }>(
+    async ({ id, action }) => {
       switch (action) {
         case 'verify':
-          await securityApi.verifyDataRequestIdentity(
-            selectedRequest.id,
-            'admin_manual_verification',
-          );
-          break;
+          await securityApi.verifyDataRequestIdentity(id, 'admin_manual_verification');
+          return;
         case 'reject':
-          await securityApi.rejectDataRequest(
-            selectedRequest.id,
-            'Rejected by administrator',
-          );
-          break;
+          await securityApi.rejectDataRequest(id, 'Rejected by administrator');
+          return;
         case 'complete':
-          await securityApi.completeDataRequest(
-            selectedRequest.id,
-            'Completed by administrator',
-          );
-          break;
-        default:
-          throw new Error(`Unknown action: ${action}`);
+          await securityApi.completeDataRequest(id, 'Completed by administrator');
+          return;
       }
+    },
+    { invalidateKeys: [[...adminKeys.security.all(), 'data-requests']] },
+  );
 
-      // SECURITY: Only close modal and refresh on successful backend mutation
+  const actionLoading = requestAction.isPending;
+  const actionError = requestAction.error
+    ? `Failed to complete request action: ${requestAction.error.message}`
+    : null;
+
+  const handleRequestAction = async (action: RequestAction): Promise<void> => {
+    if (!selectedRequest) return;
+    try {
+      await requestAction.mutateAsync({ id: selectedRequest.id, action });
+      // SECURITY: only close the modal once the backend mutation succeeded.
       setSelectedRequest(null);
-      await loadData();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Action failed';
-      setActionError(`Failed to ${action} request: ${message}`);
-    } finally {
-      setActionLoading(false);
+    } catch {
+      // `requestAction.error` carries it; the modal stays open so the operator
+      // sees which action failed on which request.
     }
   };
 
@@ -734,23 +749,21 @@ export const CompliancePage: React.FC = () => {
     );
   }
 
-  if (error && dataRequests.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center h-64">
-        <AlertTriangle className="w-12 h-12 text-red-500 mb-4" />
-        <p className="text-red-600 mb-4">{error}</p>
-        <button
-          onClick={() => void loadData()}
-          className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700"
-        >
-          Retry
-        </button>
-      </div>
-    );
+  if (dataRequests.length === 0 && queryErrors.some((queryError) => queryError)) {
+    return <QueryFailureNotice errors={queryErrors} hasContent={false} onRetry={loadData} />;
   }
 
   return (
     <div className="space-y-6">
+      {/* Partial failure: the requests loaded but the reports or the framework
+          checks did not, or the reverse. On a GDPR surface an empty tab with no
+          explanation reads as "nothing to report" (ADMIN-HIGH-121). */}
+      <QueryFailureNotice
+        errors={queryErrors}
+        hasContent={dataRequests.length > 0}
+        onRetry={loadData}
+      />
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -792,7 +805,7 @@ export const CompliancePage: React.FC = () => {
               </div>
               <div>
                 <p className="text-xs text-gray-500">Pending</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.pendingRequests}</p>
+                <p className="text-2xl font-bold text-gray-900">{stats.pendingRequests ?? UNAVAILABLE}</p>
               </div>
             </div>
           </div>
@@ -803,7 +816,7 @@ export const CompliancePage: React.FC = () => {
               </div>
               <div>
                 <p className="text-xs text-gray-500">In Progress</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.inProgressRequests}</p>
+                <p className="text-2xl font-bold text-gray-900">{stats.inProgressRequests ?? UNAVAILABLE}</p>
               </div>
             </div>
           </div>
@@ -814,7 +827,7 @@ export const CompliancePage: React.FC = () => {
               </div>
               <div>
                 <p className="text-xs text-gray-500">Completed</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.completedRequests}</p>
+                <p className="text-2xl font-bold text-gray-900">{stats.completedRequests ?? UNAVAILABLE}</p>
               </div>
             </div>
           </div>
@@ -825,7 +838,7 @@ export const CompliancePage: React.FC = () => {
               </div>
               <div>
                 <p className="text-xs text-gray-500">Overdue</p>
-                <p className="text-2xl font-bold text-red-600">{stats.overdueRequests}</p>
+                <p className="text-2xl font-bold text-red-600">{stats.overdueRequests ?? UNAVAILABLE}</p>
               </div>
             </div>
           </div>
@@ -1176,8 +1189,13 @@ export const CompliancePage: React.FC = () => {
       {selectedRequest && (
         <DataRequestDetailModal
           request={selectedRequest}
-          onClose={() => { setSelectedRequest(null); setActionError(null); }}
-          onAction={(action) => { void handleRequestAction(action); }}
+          onClose={() => {
+            setSelectedRequest(null);
+            requestAction.reset();
+          }}
+          onAction={(action) => {
+            void handleRequestAction(action);
+          }}
           actionLoading={actionLoading}
           actionError={actionError}
         />

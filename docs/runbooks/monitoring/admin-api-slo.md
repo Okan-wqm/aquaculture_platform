@@ -19,7 +19,9 @@ hide a slow mutation inside a fleet-wide p95.
 
 **First actions:**
 
-1. Which route? `topk(5, histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{app="admin-api-service",method=~"POST|PUT|PATCH|DELETE"}[5m])) by (le, route)))`
+1. Which route? `topk(5, histogram_quantile(0.99,
+sum(rate(http_request_duration_seconds_bucket{app="admin-api-service",method=~"POST|PUT|PATCH|DELETE"}[5m]))
+by (le, route)))`
 2. Is it a NATS round trip? admin-api delegates every tenant lifecycle mutation
    and every billing command over request/reply. Check the target service's own
    latency (auth-service, billing-service) before looking at admin-api itself.
@@ -70,7 +72,8 @@ condition **AdminApiWriteLatencyP99High** reports late.
 
 **First actions:**
 
-1. `SELECT count(*), state FROM pg_stat_activity WHERE application_name LIKE 'admin%' GROUP BY state;`
+1. `SELECT count(*), state FROM pg_stat_activity WHERE application_name LIKE 'admin%' GROUP BY
+state;`
    — if `idle in transaction` is non-trivial, a handler is holding a connection.
 2. Is a dashboard on a short refresh multiplying one operator into many requests?
    Check `sum by (route) (rate(http_requests_total{app="admin-api-service"}[1m]))`.
@@ -91,10 +94,13 @@ first anyone hears of it is a support ticket.
 **First actions:**
 
 1. Find it:
-   `SELECT id, "tenantId", status, "createdAt", "updatedAt" FROM admin.tenant_provisioning_runs WHERE status NOT IN ('COMPLETED','FAILED') ORDER BY "createdAt";`
-2. Which step? `SELECT * FROM admin.tenant_provisioning_steps WHERE "runId" = '<id>' ORDER BY "createdAt";`
+   `SELECT id, "tenantId", status, "createdAt", "updatedAt" FROM admin.tenant_provisioning_runs
+WHERE status NOT IN ('COMPLETED','FAILED') ORDER BY "createdAt";`
+2. Which step? `SELECT * FROM admin.tenant_provisioning_steps WHERE "runId" = '<id>' ORDER BY
+"createdAt";`
    and `tenant_provisioning_step_failures_total{step}` for the pattern across runs.
-3. Did a service fail to acknowledge? `SELECT * FROM admin.tenant_onboarding_acks WHERE "operationId" = '<operationId>';`
+3. Did a service fail to acknowledge? `SELECT * FROM admin.tenant_onboarding_acks WHERE
+"operationId" = '<operationId>';`
    — every participating service records an ACK or a FAILED there.
 4. Is the broker healthy? Provisioning is a NATS saga; if the bus is down the
    run cannot progress and no step fails either.

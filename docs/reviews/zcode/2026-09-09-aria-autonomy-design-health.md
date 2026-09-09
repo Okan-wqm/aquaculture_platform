@@ -124,14 +124,45 @@ a lane that is not live: _"there is no live caller to attach it to."_ That is tr
 of the **decider**. It omits that the **recorder is already running in
 production**:
 
+`oscillation_guard` ships a complete, tested **three-part contract**. Production
+wired exactly one third of it:
+
 ```text
-record_reopen()  written by : aria_kernel/memory.py:1004   ← LIVE
-                 read by    : assert_fix_dispatch_allowed  ← 0 production callsites
-                              guard_fix_dispatch           ← 0 production callsites
+record_reopen      (increment) : aria_kernel/memory.py:1004      ← LIVE
+record_resolution  (reset)     : tests only                      ← 0 production callsites
+guard_fix_dispatch (decide)    : tests only                      ← 0 production callsites
+assert_fix_dispatch_allowed    : tests only                      ← 0 production callsites
 ```
 
 `memory.py` increments the oscillation counter on every belief whose evidence
-changed, disappeared, or stopped matching its glob. Nothing ever reads it.
+changed, disappeared, or stopped matching its glob. Nothing ever reads it, and
+nothing ever resets it.
+
+**The reset matters more than the read.** `reopen_streak` is a governance
+tail-scan that stops at the first `finding_resolution_clean` for the fingerprint.
+`record_resolution` is the only function that emits that event, and no production
+code calls it — so in production the streak is **monotonic**. Wiring the decider
+on top of a counter that can only rise would convert a dormant control into a
+_permanent block_: the first belief to reopen three times would be escalated and
+refused forever, with no path back. That is strictly worse than dormancy, and it
+is why "just wire it" was the wrong instinct here.
+
+### Why the gate could not see the half that matters
+
+`control_reachability.CONTROL_VERBS` is
+`validate_ enforce_ assert_ require_ verify_ guard_ refuse_ check_`.
+
+`guard_fix_dispatch` and `assert_fix_dispatch_allowed` match, so both were
+flagged and honestly waived. **`record_resolution` does not match** — it is
+spelled as a recorder, not a checker — so the gate is structurally incapable of
+reporting the one dormant piece whose absence breaks the contract.
+
+The waiver author read what the gate reported and concluded the lane is not live.
+That is true of the deciders. It could not have surfaced that the contract itself
+is incomplete, because the missing piece is invisible to the instrument. A
+counter-based control has a completeness requirement — increment, reset and
+decide are live together or not at all — that a name-prefix reachability scan
+cannot express.
 
 The danger is not the wasted write — it is the comment sitting directly above it:
 
@@ -168,14 +199,30 @@ is correct, and wiring it is a one-line call at the real-mode entry.
 
 Only **one** is "wire it".
 
-| Action                             | Controls                                                                                                                       | Note                                                                                                                                                                           |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Delete** (duplicate entry point) | `assert_within_breaker`, `check_remaining_budget`, `require_tools_v2`, `verify_claim_disjointness`, `verify_workflow_registry` | The live answer already exists in each case; deleting removes the divergence risk                                                                                              |
-| **Wire** (one line)                | `assert_real_mode_env_safe`                                                                                                    | Genuinely unguarded live path                                                                                                                                                  |
-| **Keep dormant, fix the lie**      | `assert_fix_dispatch_allowed`, `guard_fix_dispatch`                                                                            | Lane genuinely not live; but close `ORPHAN-MEDIUM-808` so three comments stop claiming otherwise                                                                               |
-| **Reconcile the vocabulary first** | `validate_request`                                                                                                             | `ORPHAN-MEDIUM-572`: no producer mints `aria/agent-request/v1`; live dispatch mints `aria/agent-invocation-request/v1`, while its sibling `validate_response` has 11 callsites |
-| **Give it a verb or delete**       | `validate_file`                                                                                                                | Operator CLI surface with no CLI verb attached                                                                                                                                 |
+| Action                               | Controls                                                                                                                       | Note                                                                                                                                                                                                                 |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Delete** (duplicate entry point)   | `assert_within_breaker`, `check_remaining_budget`, `require_tools_v2`, `verify_claim_disjointness`, `verify_workflow_registry` | The live answer already exists in each case; deleting removes the divergence risk                                                                                                                                    |
+| **Wire** (one line)                  | `assert_real_mode_env_safe`                                                                                                    | Genuinely unguarded live path                                                                                                                                                                                        |
+| **Complete the contract, then wire** | `assert_fix_dispatch_allowed`, `guard_fix_dispatch`                                                                            | `ORPHAN-MEDIUM-808`. Wire `record_resolution` FIRST — a decider on a monotonic counter is a permanent block. Then `guard_fix_dispatch` at `promote_converged_plan_to_dispatch`, already reachable from `cli.py:4441` |
+| **Reconcile the vocabulary first**   | `validate_request`                                                                                                             | `ORPHAN-MEDIUM-572`: no producer mints `aria/agent-request/v1`; live dispatch mints `aria/agent-invocation-request/v1`, while its sibling `validate_response` has 11 callsites                                       |
+| **Give it a verb or delete**         | `validate_file`                                                                                                                | Operator CLI surface with no CLI verb attached                                                                                                                                                                       |
 
 Pushing `expires_on` forward is the one move that is not available: a waiver
 whose expiry nothing enforces is a waiver with no expiry, which is the defect the
 assertion exists to catch.
+
+## Correction to this document
+
+An earlier revision of the section above stated that `finding_resolution_clean`
+has "zero producers". That was measured by grepping the literal event name, which
+finds the constant's definition and not the function that emits it _through_ the
+constant. The producer **exists** — `record_resolution`, fully implemented and
+unit-tested. What is true, and sharper, is that **nothing in production calls
+it**.
+
+The practical consequence is unchanged (the streak is monotonic in production),
+but the defect is better stated as _a complete three-part contract of which
+production wired one third_ — and it was that reframing which surfaced the
+`CONTROL_VERBS` blind spot, since a `record_`-prefixed function is invisible to
+the gate by construction. The record is corrected here rather than by rewriting
+the registry entry, which is append-only by design.

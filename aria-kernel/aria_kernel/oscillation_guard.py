@@ -26,10 +26,25 @@ the streak. Two surfaces are kept deliberately separate:
   HUMAN_REQUIRED write, no profile gate). The belief-revalidation path in
   ``memory._apply_diff_to_existing_beliefs`` calls it as a side-effect-free
   observation when a belief is reopened because its evidence changed.
-- ``guard_fix_dispatch`` is the DECIDER: the autonomous fix dispatcher calls it
-  before acting; it escalates + raises at the threshold. Keeping escalation out
-  of the observation path means belief bookkeeping can never be blocked by a
-  frozen-profile HUMAN_REQUIRED write.
+- ``guard_fix_dispatch`` is the DECIDER, called from
+  ``promotion_controller.promote_converged_plan_to_dispatch`` — the throat where
+  a converged plan becomes a dispatch row a worker acts on. It escalates +
+  raises at the threshold. Keeping escalation out of the observation path means
+  belief bookkeeping can never be blocked by a frozen-profile HUMAN_REQUIRED
+  write.
+- ``record_resolution`` is the RESET, called from ``memory._record_belief`` when
+  a belief that was in revalidation is observed holding again.
+
+ORPHAN-MEDIUM-808 — all three were dormant but the increment until 2026-09-09,
+and the reset is why: ``reopen_streak`` stops at the first
+``finding_resolution_clean``, so with no producer for it the streak was
+monotonic across the repository's whole life. A decider on that counter is a
+PERMANENT block, not a convergence mechanism, so the reset had to land first.
+
+Two non-escalating siblings (``is_oscillating``, ``assert_fix_dispatch_allowed``)
+were deleted with that wiring rather than given a caller. They asked the same
+question as the decider without performing the refusal, and a second way to ask
+the same question is how two answers start to diverge.
 """
 from __future__ import annotations
 
@@ -136,37 +151,6 @@ def record_resolution(
     )
 
 
-def is_oscillating(
-    *,
-    fingerprint: str,
-    base_dir: Any = None,
-    threshold: int = DEFAULT_OSCILLATION_THRESHOLD,
-) -> bool:
-    """Read-only: True iff the reopen streak has reached the threshold."""
-    if threshold < 1:
-        raise GovernanceError("threshold must be >= 1")
-    return reopen_streak(fingerprint=fingerprint, base_dir=base_dir) >= threshold
-
-
-def assert_fix_dispatch_allowed(
-    *,
-    fingerprint: str,
-    base_dir: Any = None,
-    threshold: int = DEFAULT_OSCILLATION_THRESHOLD,
-) -> None:
-    """Raise if ``fingerprint`` is oscillation-blocked (read-only).
-
-    The cheap pre-dispatch guard. Does NOT escalate (no HUMAN_REQUIRED write) —
-    use ``guard_fix_dispatch`` for the escalate-and-block decision.
-    """
-    if is_oscillating(fingerprint=fingerprint, base_dir=base_dir, threshold=threshold):
-        raise GovernanceError(
-            f"oscillation_fix_dispatch_blocked: fingerprint={fingerprint!r} has "
-            f"reopened >= {threshold} times without a clean resolution; "
-            f"autonomous fix dispatch refused — operator must intervene"
-        )
-
-
 def guard_fix_dispatch(
     *,
     fingerprint: str,
@@ -231,7 +215,5 @@ __all__ = [
     "reopen_streak",
     "record_reopen",
     "record_resolution",
-    "is_oscillating",
-    "assert_fix_dispatch_allowed",
     "guard_fix_dispatch",
 ]

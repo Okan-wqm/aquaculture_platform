@@ -685,6 +685,28 @@ def _record_belief(
         prior_verified_at=(existing or {}).get("verified_at"),
     )
     append_jsonl(root / "memory" / "beliefs.jsonl", row)
+    # ORPHAN-MEDIUM-808 — the reset half of the oscillation contract.
+    #
+    # `_apply_diff_to_existing_beliefs` calls `record_reopen` when a belief's
+    # evidence stops holding, and `reopen_streak` tail-scans governance until it
+    # meets a `finding_resolution_clean` for the same fingerprint. Nothing in
+    # production emitted that event, so the streak could only ever RISE: a
+    # belief that legitimately broke and healed three times over the repo's life
+    # was indistinguishable from one ping-ponging inside a single cycle, and a
+    # decider wired on top of that counter would have refused it forever.
+    #
+    # This is that event, at the only transition that earns it: the belief was
+    # in revalidation, ARIA re-observed it, and its evidence holds again. The
+    # fingerprint is spelled exactly as the reopen side spells it — one
+    # vocabulary, or the scan silently matches nothing.
+    if int((existing or {}).get("needs_revalidation_cycles", 0)) > 0 and not needs_revalidation_cycles:
+        from .oscillation_guard import record_resolution
+
+        record_resolution(
+            fingerprint=f"belief:{belief_id}",
+            cycle_id=cycle_id,
+            base_dir=root,
+        )
     _record_learning_event(
         root,
         cycle_id=cycle_id,
@@ -999,7 +1021,10 @@ def _apply_diff_to_existing_beliefs(root: Path, cycle_id: str, diff: dict[str, A
         )
         # Plan 031 Gate B — a belief reopened because its evidence changed is a
         # reopen signal for the oscillation guard. Pure counter increment (no
-        # escalation here); the fix dispatcher's guard_fix_dispatch decides.
+        # escalation here); the decision belongs to `guard_fix_dispatch`, called
+        # from `promotion_controller.promote_converged_plan_to_dispatch` before
+        # a plan for this belief becomes a dispatch row (ORPHAN-MEDIUM-808 —
+        # until that wiring this comment named a consumer that did not exist).
         from .oscillation_guard import record_reopen
         record_reopen(
             fingerprint=f"belief:{belief.get('belief_id')}",

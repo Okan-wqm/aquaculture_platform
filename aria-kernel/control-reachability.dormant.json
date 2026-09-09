@@ -1,10 +1,4 @@
 {
-  "assert_fix_dispatch_allowed": {
-    "expires_on": "2026-09-06",
-    "finding_id": "ORPHAN-HIGH-573",
-    "owner": "okan",
-    "reason": "Oscillation guard: refuses a fix dispatch whose fingerprint keeps recurring. Written for the autonomous implementation lane, which is not yet dispatching fixes on the scheduled path, so there is no live caller to attach it to. Wire it at the mutation throat in promotion_controller when that lane goes live."
-  },
   "assert_real_mode_env_safe": {
     "expires_on": "2026-09-06",
     "finding_id": "ORPHAN-HIGH-573",
@@ -22,12 +16,6 @@
     "finding_id": "ORPHAN-HIGH-573",
     "owner": "okan",
     "reason": "Same budget surface as assert_within_budget and the same decision; listed separately so wiring one does not silently leave the other dormant."
-  },
-  "guard_fix_dispatch": {
-    "expires_on": "2026-09-06",
-    "finding_id": "ORPHAN-HIGH-573",
-    "owner": "okan",
-    "reason": "The non-raising sibling of assert_fix_dispatch_allowed; same lane, same blocker. Both are wired or neither is - shipping one alone would give the appearance of oscillation control without the refusal."
   },
   "require_capability_resolution": {
     "expires_on": "2026-09-20",

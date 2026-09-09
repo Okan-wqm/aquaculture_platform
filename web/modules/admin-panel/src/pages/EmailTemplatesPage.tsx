@@ -5,48 +5,77 @@
  * Şablonları görüntüleme, düzenleme, önizleme ve test etme.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Card, Button, Badge, Input, Modal, SandboxedHtmlPreview } from '@aquaculture/shared-ui';
+
 import { settingsApi, EmailTemplate } from '../services/adminApi';
+import { adminKeys, useAdminMutation, useAdminQuery } from '../hooks';
+import { QueryFailureNotice } from '../components';
+
+const EMPTY_TEMPLATES: EmailTemplate[] = [];
 
 // ============================================================================
 // Component
 // ============================================================================
 
 const EmailTemplatesPage: React.FC = () => {
-  const [templates, setTemplates] = useState<EmailTemplate[]>([]);
-  const [loading, setLoading] = useState(true);
   const [selectedTemplate, setSelectedTemplate] = useState<EmailTemplate | null>(null);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [previewHtml, setPreviewHtml] = useState('');
   const [activeCategory, setActiveCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const categories = ['all', 'auth', 'billing', 'notification', 'marketing', 'system'];
 
-  useEffect(() => {
-    loadTemplates();
-  }, []);
+  // ==========================================================================
+  // Read (ADMIN-HIGH-121)
+  // ==========================================================================
 
-  const loadTemplates = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const data = await settingsApi.getEmailTemplates();
-      setTemplates(data);
-    } catch (err) {
-      console.error('Failed to load templates:', err);
-      setTemplates([]);
-      setError('Failed to load email templates. Please try again.');
-    } finally {
-      setLoading(false);
-    }
+  const templatesKey = [...adminKeys.system.settings(), 'email-templates'];
+
+  const templatesQuery = useAdminQuery(templatesKey, ({ signal }) =>
+    settingsApi.getEmailTemplates(signal),
+  );
+
+  const templates: EmailTemplate[] = templatesQuery.data ?? EMPTY_TEMPLATES;
+  const loading = templatesQuery.isPending;
+
+  // ==========================================================================
+  // Writes (ADMIN-HIGH-130)
+  //
+  // `handleToggleActive` awaited the PUT, flipped `isActive` in the local
+  // array, and — on failure — logged to the console and did nothing else. So
+  // an operator who disabled a template saw the row go inactive while the
+  // server still had it enabled and still sending that mail. A write that
+  // fails silently while the screen reports success is the worst version of
+  // the stale-list class, and on this page it is a message customers keep
+  // receiving after an admin believes it was stopped.
+  // ==========================================================================
+
+  const invalidateTemplates = { invalidateKeys: [templatesKey] };
+
+  const saveTemplate = useAdminMutation<EmailTemplate, EmailTemplate>(
+    (template) =>
+      template.id
+        ? settingsApi.updateEmailTemplate(template.id, template)
+        : settingsApi.createEmailTemplate(template),
+    invalidateTemplates,
+  );
+
+  const toggleActive = useAdminMutation<EmailTemplate, EmailTemplate>(
+    (template) => settingsApi.updateEmailTemplate(template.id, { isActive: !template.isActive }),
+    invalidateTemplates,
+  );
+
+  const queryErrors = [templatesQuery.error, saveTemplate.error, toggleActive.error];
+
+  const loadTemplates = (): void => {
+    void templatesQuery.refetch();
   };
 
-  const handlePreview = async (template: EmailTemplate) => {
+  const handlePreview = (template: EmailTemplate): void => {
     setSelectedTemplate(template);
     // Replace variables with sample values
     let html = template.bodyHtml;
@@ -58,36 +87,30 @@ const EmailTemplatesPage: React.FC = () => {
     setShowPreviewModal(true);
   };
 
-  const handleEdit = (template: EmailTemplate) => {
+  const handleEdit = (template: EmailTemplate): void => {
     setSelectedTemplate(template);
     setShowEditModal(true);
   };
 
-  const handleSaveTemplate = async () => {
+  const handleSaveTemplate = async (): Promise<void> => {
     if (!selectedTemplate) return;
     try {
-      if (selectedTemplate.id) {
-        await settingsApi.updateEmailTemplate(selectedTemplate.id, selectedTemplate);
-      } else {
-        await settingsApi.createEmailTemplate(selectedTemplate);
-      }
+      await saveTemplate.mutateAsync(selectedTemplate);
       setShowEditModal(false);
-      loadTemplates();
+      // Only after the server confirmed it. The old handler announced success
+      // beside a `loadTemplates()` call it did not await.
       setSuccessMessage('Template saved successfully.');
-    } catch (err) {
-      console.error('Failed to save template:', err);
-      setError('Failed to save template. Please try again.');
+    } catch {
+      // `saveTemplate.error` carries it; the modal stays open.
     }
   };
 
-  const handleToggleActive = async (template: EmailTemplate) => {
+  const handleToggleActive = async (template: EmailTemplate): Promise<void> => {
     try {
-      await settingsApi.updateEmailTemplate(template.id, { isActive: !template.isActive });
-      setTemplates(
-        templates.map((t) => (t.id === template.id ? { ...t, isActive: !t.isActive } : t)),
-      );
-    } catch (err) {
-      console.error('Failed to toggle template status:', err);
+      await toggleActive.mutateAsync(template);
+    } catch {
+      // Reported through `toggleActive.error` — where it used to be swallowed
+      // into the console while the row already showed the new state.
     }
   };
 
@@ -171,15 +194,14 @@ const EmailTemplatesPage: React.FC = () => {
         </div>
       )}
 
-      {/* Error */}
-      {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center justify-between">
-          <span className="text-red-700">{error}</span>
-          <Button variant="secondary" size="sm" onClick={loadTemplates}>
-            Retry
-          </Button>
-        </div>
-      )}
+      {/* A failed read, or a save or activation the server refused. The
+          toggle used to fail into the console while the row showed the new
+          state (ADMIN-HIGH-130). */}
+      <QueryFailureNotice
+        errors={queryErrors}
+        hasContent={templatesQuery.data !== undefined}
+        onRetry={loadTemplates}
+      />
 
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-4">

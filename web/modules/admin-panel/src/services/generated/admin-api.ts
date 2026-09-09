@@ -9288,6 +9288,13 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        JobProgress: {
+            current: number;
+            total: number;
+            percentage: number;
+            message?: string;
+            checkpoint?: Record<string, never>;
+        };
         BackgroundJob: {
             id: string;
             name: string;
@@ -9305,7 +9312,7 @@ export interface components {
             };
             errorMessage?: string;
             stackTrace?: string;
-            progress?: Record<string, never>;
+            progress?: components["schemas"]["JobProgress"];
             tenantId?: string;
             userId?: string;
             /** Format: date-time */

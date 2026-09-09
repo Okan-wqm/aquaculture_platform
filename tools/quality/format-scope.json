@@ -1076,7 +1076,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "18b44d4b0b614088a5eb9172f8807ff2f3ed68317be5d4ffdcdb69f87132385b",
+      "content_sha256": "1f28ecc7ecb180250ab1abf130252e45de8ba63f8eb732c3ee5538e39df1a394",
       "hash_policy": "sha256",
       "owner": "admin-openapi-generator",
       "path": "apps/admin-api-service/openapi.json",
@@ -51114,6 +51114,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/system/__tests__/JobQueuePage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/pages/system/__tests__/PerformanceDashboardPage.spec.tsx",
       "prettier_managed": true
     },
@@ -51317,7 +51323,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "3a13f56145ad173b88ba2260e68a228da5ac9336fde2dcb07254fde93d476e27",
+      "content_sha256": "fe327eb7ab23bef6f7b4280a368bf05cae8998864228cd4a8b08066dc582091b",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/modules/admin-panel/src/services/generated/admin-api.ts",

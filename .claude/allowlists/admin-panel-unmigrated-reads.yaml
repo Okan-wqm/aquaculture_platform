@@ -50,7 +50,7 @@
 # Batches: tenant 6, billing 11, system 12, messaging 9.
 # The ceiling drops with each batch and this file is deleted at 0.
 version: 1
-ceiling: 35
+ceiling: 34
 entries:
   - site: web/modules/admin-panel/src/pages/CreateTenantPage.tsx
     batch: tenant
@@ -191,12 +191,6 @@ entries:
     findingId: ADMIN-HIGH-121
     reason: system batch — reads move to useAdminQuery with an adminKeys.system key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/system/FeatureTogglesPage.tsx
-    batch: system
-    owner: okan
-    expiry: 2026-12-31
-    findingId: ADMIN-HIGH-121
-    reason: system batch — reads move to useAdminQuery with an adminKeys.system key, writes to useAdminMutation with invalidateKeys
-  - site: web/modules/admin-panel/src/pages/system/JobQueuePage.tsx
     batch: system
     owner: okan
     expiry: 2026-12-31

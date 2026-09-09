@@ -20,6 +20,7 @@ import {
   MapPin,
   Clock,
   Activity,
+  Settings,
 } from 'lucide-react';
 
 import { useVfdDevice } from '../hooks/useVfdRegistration';
@@ -100,6 +101,17 @@ export const VfdDeviceDetailPage: React.FC = () => {
         <span className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-gray-100 text-gray-700">
           {device.status}
         </span>
+        {/*
+          SENSOR-HIGH-062: the VFD programming route existed but nothing in the
+          product linked to it, so the only way in was to type the URL. A drive's
+          own page is where an operator goes to program it.
+        */}
+        <Link
+          to={`/sensor/vfd-programming/${device.id}`}
+          className="inline-flex items-center gap-1.5 rounded-md border border-cyan-200 bg-cyan-50 px-3 py-1.5 text-sm font-medium text-cyan-700 hover:bg-cyan-100"
+        >
+          <Settings className="w-4 h-4" /> Parametreleri Programla
+        </Link>
       </div>
 
       {/* Identity */}

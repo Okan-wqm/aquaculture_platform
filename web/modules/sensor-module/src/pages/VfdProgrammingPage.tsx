@@ -19,6 +19,7 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import { useVfdProgrammingStore } from '../store/vfdProgrammingStore';
+import { useVfdDevices } from '../hooks/useVfdRegistration';
 import { useVfdParameterDefinitions } from '../hooks/useVfdParameterDefinitions';
 import { useVfdChangeSets } from '../hooks/useVfdChangeSets';
 import { useVfdAuditLog } from '../hooks/useVfdAuditLog';
@@ -29,16 +30,6 @@ import { VfdAutomationRuleList } from '../components/vfd/VfdAutomationRuleList';
 import { VfdAuditLogViewer } from '../components/vfd/VfdAuditLogViewer';
 import { VfdDraftBar } from '../components/vfd/VfdDraftBar';
 import { VfdCreateChangeSetDialog } from '../components/vfd/VfdCreateChangeSetDialog';
-
-// ============================================================================
-// Mock device list (will be replaced by real data from device hooks)
-// ============================================================================
-
-const MOCK_DEVICES = [
-  { id: 'vfd-1', name: 'Pump VFD #1 — Danfoss FC302' },
-  { id: 'vfd-2', name: 'Pump VFD #2 — ABB ACS580' },
-  { id: 'vfd-3', name: 'Aerator VFD — Siemens G120' },
-];
 
 // ============================================================================
 // Tab definitions
@@ -66,14 +57,24 @@ export function VfdProgrammingPage() {
     setActiveTab,
   } = useVfdProgrammingStore();
 
-  // Sync route param to store
+  // SENSOR-HIGH-062: the selector used to list three hardcoded devices and select
+  // `vfd-1` on mount. That id is not a UUID, so every tab below resolved against a
+  // device the backend has never heard of — the Parameters tab errored outright and
+  // the rest rendered empty, on a route reachable in production.
+  const { data: deviceList, isLoading: devicesLoading } = useVfdDevices();
+  const devices = useMemo(() => deviceList?.items ?? [], [deviceList]);
+
+  // Sync route param to store. A device is only auto-selected once the real list
+  // has arrived, so no id is ever set that the backend cannot resolve.
   useEffect(() => {
     if (routeDeviceId && routeDeviceId !== selectedVfdDeviceId) {
       setSelectedDevice(routeDeviceId);
-    } else if (!selectedVfdDeviceId && MOCK_DEVICES.length > 0) {
-      setSelectedDevice(MOCK_DEVICES[0].id);
+      return;
     }
-  }, [routeDeviceId, selectedVfdDeviceId, setSelectedDevice]);
+    if (!selectedVfdDeviceId && devices.length > 0) {
+      setSelectedDevice(devices[0]!.id);
+    }
+  }, [routeDeviceId, selectedVfdDeviceId, setSelectedDevice, devices]);
 
   // Hooks — parameter definitions
   const paramHook = useVfdParameterDefinitions(selectedVfdDeviceId ?? undefined);
@@ -147,13 +148,20 @@ export function VfdProgrammingPage() {
               <select
                 value={selectedVfdDeviceId ?? ''}
                 onChange={(e) => setSelectedDevice(e.target.value)}
-                className="appearance-none rounded-md border border-gray-300 bg-white py-1.5 pl-3 pr-8 text-sm font-medium text-gray-700 focus:border-indigo-500 focus:ring-indigo-500"
+                className="appearance-none rounded-md border border-gray-300 bg-white py-1.5 pl-3 pr-8 text-sm font-medium text-gray-700 focus:border-indigo-500 focus:ring-indigo-500 disabled:bg-gray-100 disabled:text-gray-500"
                 aria-label="Select VFD device"
                 data-testid="device-selector"
+                disabled={devices.length === 0}
               >
-                {MOCK_DEVICES.map((d) => (
+                {/* An empty tenant says so rather than offering nothing to pick. */}
+                {devices.length === 0 && (
+                  <option value="">
+                    {devicesLoading ? 'Loading drives…' : 'No VFD drives registered'}
+                  </option>
+                )}
+                {devices.map((d) => (
                   <option key={d.id} value={d.id}>
-                    {d.name}
+                    {[d.name, d.brand, d.model].filter(Boolean).join(' — ')}
                   </option>
                 ))}
               </select>

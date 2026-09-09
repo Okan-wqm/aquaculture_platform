@@ -28,6 +28,7 @@ import type {
   Tenant,
 } from '../services/adminApi';
 import { TenantTier, TenantStatus } from '../services/adminApi';
+import { saveBlob } from '../services/blob-client';
 
 // ============================================================================
 // Types
@@ -433,13 +434,10 @@ const AuditLogPage: React.FC = () => {
       ]);
 
       const csvContent = [headers.join(','), ...rows.map((row) => row.join(','))].join('\n');
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `audit-logs-${new Date().toISOString().split('T')[0]}.csv`;
-      link.click();
-      URL.revokeObjectURL(url); // Fix: H22 -- prevent memory leak
+      saveBlob(
+        new Blob([csvContent], { type: 'text/csv;charset=utf-8;' }),
+        `audit-logs-${new Date().toISOString().split('T')[0]}.csv`,
+      );
     } catch (err) {
       setExportError('Export failed: ' + (err as Error).message);
     }

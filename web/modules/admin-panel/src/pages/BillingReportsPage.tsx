@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 
 import { billingApi } from '../services/api/billing';
 import { SubscriptionStatus } from '../services/types/billing';
+import { saveBlob } from '../services/blob-client';
 
 interface BillingReportSummary {
   totalInvoices: number;
@@ -74,17 +75,12 @@ const BillingReportsPage: React.FC = () => {
       ['Payments with refunds', String(summary.refundedPayments)],
     ];
 
-    const blob = new Blob([rows.map((row) => row.join(',')).join('\n')], {
-      type: 'text/csv;charset=utf-8;',
-    });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `billing-report-${new Date().toISOString().slice(0, 10)}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    saveBlob(
+      new Blob([rows.map((row) => row.join(',')).join('\n')], {
+        type: 'text/csv;charset=utf-8;',
+      }),
+      `billing-report-${new Date().toISOString().slice(0, 10)}.csv`,
+    );
   };
 
   return (

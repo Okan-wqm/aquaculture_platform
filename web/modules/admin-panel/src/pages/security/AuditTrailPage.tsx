@@ -27,6 +27,7 @@ import { securityApi } from '../../services/adminApi';
 import { adminKeys, useAdminQuery } from '../../hooks';
 import { QueryFailureNotice } from '../../components';
 import type { AuditSeverity as SharedAuditSeverity } from '../../services/types/security';
+import { saveBlob } from '../../services/blob-client';
 
 // ============================================================================
 // Types
@@ -537,12 +538,10 @@ export const AuditTrailPage: React.FC = () => {
       ),
     ].join('\n');
 
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `audit-trail-${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
+    saveBlob(
+      new Blob([csvContent], { type: 'text/csv' }),
+      `audit-trail-${new Date().toISOString().split('T')[0]}.csv`,
+    );
   };
 
   if (loading && entries.length === 0) {

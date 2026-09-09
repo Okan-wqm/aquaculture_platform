@@ -115,9 +115,27 @@ export const adminKeys = {
   // ── Database ──
   database: {
     all: () => [...adminKeys.all, 'database'] as const,
+    schemas: () => [...adminKeys.database.all(), 'schemas'] as const,
     tables: (schema?: string) =>
       [...adminKeys.database.all(), 'tables', schema] as const,
-    tableData: (schema: string, table: string) =>
+    /**
+     * Prefix covering every page and sort order of ONE table — the key a row
+     * write invalidates. `tableData` extends it, so React Query's prefix
+     * matching reaches page 7 sorted descending from a delete performed on
+     * page 1.
+     */
+    table: (schema: string, table: string) =>
       [...adminKeys.database.all(), 'data', schema, table] as const,
+    /**
+     * One entry per (page, limit, sort). The params belong IN the key for the
+     * same reason they do in `modules.list`: without them page 2 overwrites
+     * page 1 in a single cache entry and the explorer shows the wrong rows
+     * under the right page number.
+     */
+    tableData: (
+      schema: string,
+      table: string,
+      params: Record<string, unknown>,
+    ) => [...adminKeys.database.table(schema, table), params] as const,
   },
 } as const;

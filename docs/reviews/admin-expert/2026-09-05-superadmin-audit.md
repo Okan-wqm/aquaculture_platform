@@ -823,8 +823,8 @@ gate had ever read a spec in this package, and the compiler's first pass found a
 pre-existing spec asserting against a `Tenant` shape with two fields the
 contract lacks and one required field missing.
 
-**Remaining:** 28 pages, in four domain batches (tenant 6, billing 11,
-system 2, messaging 9), governed by
+**Remaining:** 27 pages, in four domain batches (tenant 6, billing 11,
+system 1, messaging 9), governed by
 `.claude/allowlists/admin-panel-unmigrated-reads.yaml`. The `AdminTable`
 contract for server-side pagination, sort and dataset-scoped aggregates follows
 the migration. **Gate:** `tests/invariants/admin-panel-data-layer.spec.ts` — a
@@ -833,6 +833,45 @@ expiry and reason under a ceiling that only decreases; every module-scoped cache
 in `web/` reaches the logout authority; `@tanstack/react-query` is declared
 wherever it is imported, at the federation-pinned version; the barrel keeps
 exporting the primitives.
+
+## ADMIN-MEDIUM-131 — four CSV exports that misalign their own columns
+
+**State:** OPEN · **Wave:** unassigned · **Owner:** okan
+**Deadline:** 2026-12-31
+
+```ts
+// security/AuditTrailPage.tsx — no escaping at all
+[
+  e.id,
+  formatDate(e.createdAt),
+  e.action,
+  e.entityType,
+  e.entityId,
+  e.severity,
+  e.userName || '',
+  e.ipAddress || '',
+].join(',');
+```
+
+Six admin-panel pages build a CSV and they spell the escape rule six ways.
+`AuditLogPage`, `InvoicesPage` and `QueryEditor` each carry a correct
+`escapeCsvCell` — quote-wrap on a comma, quote or newline, doubling inner
+quotes. `MessagingAuditPage` wraps only `details`; `ActivityLogPage` wraps only
+`action`; `AuditTrailPage` and `BillingReportsPage` wrap nothing.
+
+On the audit trail the unescaped columns include `action` and `userName`, so a
+row recorded for `deleted pond, tank 4` pushes severity, user and IP one column
+to the right in the file an auditor reads — silently, in a document whose whole
+purpose is to be the record.
+
+The fix is one `toCsv(headers, rows)` beside `saveBlob` in
+`services/blob-client.ts`, adopted at all six sites with the four hand-rolled
+escapers deleted. `QueryEditor` is exempt: it is on the W10 kill list with no
+consumer but its own barrel re-export.
+
+Raised in W8p, which gave the seven blob downloads one `saveBlob` authority.
+Escaping is a different defect class from the download mechanics and needs its
+own conversion and tests, so it is registered rather than folded in.
 
 ## ADMIN-HIGH-130 — a disabled email template that was still sending
 

@@ -8,7 +8,8 @@
  *   - monitoring.controller.ts: /database/monitoring
  */
 
-import { apiFetch, buildQueryString, ADMIN_API_URL } from '../http-client';
+import { apiFetch, buildQueryString } from '../http-client';
+import { apiFetchBlob } from '../blob-client';
 import type {
   PaginatedResult,
   PaginationParams,
@@ -252,8 +253,9 @@ export const databaseApi = {
   // Explorer (SUPER_ADMIN debug tool)
   // ==========================================================================
 
-  getExplorerSchemas: () => apiFetch<string[]>('/database/explorer/schemas'),
-  getExplorerTables: (schema: string) =>
+  getExplorerSchemas: (signal?: AbortSignal) =>
+    apiFetch<string[]>('/database/explorer/schemas', { signal }),
+  getExplorerTables: (schema: string, signal?: AbortSignal) =>
     apiFetch<
       Array<{
         tableName: string;
@@ -272,11 +274,12 @@ export const databaseApi = {
           isSensitive?: boolean;
         }>;
       }>
-    >(`/database/explorer/schemas/${schema}/tables`),
+    >(`/database/explorer/schemas/${schema}/tables`, { signal }),
   getExplorerTableData: (
     schema: string,
     table: string,
     params?: { page?: number; limit?: number; orderBy?: string; orderDirection?: 'ASC' | 'DESC' },
+    signal?: AbortSignal,
   ) =>
     apiFetch<{
       tableName: string;
@@ -298,6 +301,7 @@ export const databaseApi = {
       totalPages: number;
     }>(
       `/database/explorer/schemas/${schema}/tables/${table}/data?${buildQueryString((params || {}) as Record<string, unknown>)}`,
+      { signal },
     ),
   insertExplorerRow: (schema: string, table: string, data: Record<string, unknown>) =>
     apiFetch<Record<string, unknown>>(`/database/explorer/schemas/${schema}/tables/${table}/rows`, {
@@ -313,18 +317,36 @@ export const databaseApi = {
     apiFetch<void>(`/database/explorer/schemas/${schema}/tables/${table}/rows/${id}`, {
       method: 'DELETE',
     }),
+  /**
+   * Download one table as CSV or JSON.
+   *
+   * This returned the export URL as a STRING until W8p, which is why its one
+   * caller had to hand-roll a `fetch` with a manually attached bearer token: a
+   * client method that yields a URL cannot carry the transport's guarantees, so
+   * the caller rebuilt them and got three of them wrong. That export bypassed
+   * the token-lifecycle barrier, never retried after a silent refresh, and
+   * replaced whatever the server said with the string `Failed to export data` —
+   * including the 429 this route returns after five exports in an hour, which
+   * an operator then read as a broken button.
+   *
+   * Returning the blob makes that bypass impossible for this endpoint. The
+   * server names the file in `Content-Disposition`; `apiFetchBlob` reads it, so
+   * the client no longer guesses.
+   */
   exportExplorerTable: (
     schema: string,
     table: string,
     format: 'csv' | 'json',
     orderBy?: string,
     orderDirection?: 'ASC' | 'DESC',
-  ) => {
+  ): Promise<{ blob: Blob; filename?: string; contentType: string }> => {
     const params = new URLSearchParams({ format });
     if (orderBy) {
       params.set('orderBy', orderBy);
       params.set('orderDirection', orderDirection || 'ASC');
     }
-    return `${ADMIN_API_URL}/database/explorer/schemas/${schema}/tables/${table}/export?${params}`;
+    return apiFetchBlob(
+      `/database/explorer/schemas/${schema}/tables/${table}/export?${params.toString()}`,
+    );
   },
 };

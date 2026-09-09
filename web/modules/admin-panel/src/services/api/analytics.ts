@@ -20,23 +20,38 @@ import type {
 
 export const analyticsApi = {
   // Dashboard
-  getDashboardSummary: () => apiFetch<DashboardSummary>('/analytics/dashboard'),
+  getDashboardSummary: (signal?: AbortSignal) =>
+    apiFetch<DashboardSummary>('/analytics/dashboard', { signal }),
   getKpiComparisons: (period?: string) =>
     apiFetch<KpiComparison[]>(`/analytics/kpi-comparisons${period ? `?period=${period}` : ''}`),
 
   // Tenant Metrics
   getTenantMetrics: (params?: PaginationParams & { sortBy?: string; order?: 'asc' | 'desc' }) =>
     apiFetch<PaginatedResult<TenantMetrics>>(`/analytics/tenants?${buildQueryString(params || {})}`),
-  getTenantGrowthTrend: (range: AnalyticsRange = '30d', granularity?: AnalyticsGranularity) =>
-    apiFetch<TimeSeriesResponse>(`/analytics/tenants/growth?${buildQueryString({ range, granularity })}`),
+  getTenantGrowthTrend: (
+    range: AnalyticsRange = '30d',
+    granularity?: AnalyticsGranularity,
+    signal?: AbortSignal,
+  ) =>
+    apiFetch<TimeSeriesResponse>(
+      `/analytics/tenants/growth?${buildQueryString({ range, granularity })}`,
+      { signal },
+    ),
 
   // Revenue Analytics
   getRevenueAnalytics: (params?: DateRangeParams) =>
     apiFetch<RevenueAnalytics>(`/analytics/revenue?${buildQueryString(params || {})}`),
   getRevenueByPlan: (params?: DateRangeParams) =>
     apiFetch<Array<{ plan: string; revenue: number; tenantCount: number }>>(`/analytics/revenue/by-plan?${buildQueryString(params || {})}`),
-  getRevenueTrend: (range: AnalyticsRange = '30d', granularity?: AnalyticsGranularity) =>
-    apiFetch<TimeSeriesResponse>(`/analytics/revenue/trend?${buildQueryString({ range, granularity })}`),
+  getRevenueTrend: (
+    range: AnalyticsRange = '30d',
+    granularity?: AnalyticsGranularity,
+    signal?: AbortSignal,
+  ) =>
+    apiFetch<TimeSeriesResponse>(
+      `/analytics/revenue/trend?${buildQueryString({ range, granularity })}`,
+      { signal },
+    ),
 
   // Usage Analytics
   getUsageAnalytics: (params?: DateRangeParams) =>
@@ -67,8 +82,15 @@ export const analyticsApi = {
   // User Metrics
   getUserMetrics: (params?: DateRangeParams) =>
     apiFetch<{ totalUsers: number; activeUsers: number; newUsers: number; churnedUsers: number }>(`/analytics/users?${buildQueryString(params || {})}`),
-  getUserActivity: (range: AnalyticsRange = '30d', granularity?: AnalyticsGranularity) =>
-    apiFetch<TimeSeriesResponse>(`/analytics/users/activity?${buildQueryString({ range, granularity })}`),
+  getUserActivity: (
+    range: AnalyticsRange = '30d',
+    granularity?: AnalyticsGranularity,
+    signal?: AbortSignal,
+  ) =>
+    apiFetch<TimeSeriesResponse>(
+      `/analytics/users/activity?${buildQueryString({ range, granularity })}`,
+      { signal },
+    ),
   // Fix: backend GET /analytics/users/heatmap takes no query params
   getUserHeatmap: (_params?: DateRangeParams) =>
     apiFetch<Array<{ hour: number; day: number; count: number }>>('/analytics/users/heatmap'),

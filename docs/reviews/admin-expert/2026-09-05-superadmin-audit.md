@@ -806,18 +806,18 @@ W8d stops the claim: the fields are `number | null` and the cards render an em
 dash. The aggregate itself is missing and needs a server-side GROUP BY plus the
 resolution-time average, which belongs to W9.
 
-**Landed (W8b–W8k):** 12 of 44 pages migrated — AuditLogPage, ActivityLogPage,
+**Landed (W8b–W8l):** 13 of 44 pages migrated — AuditLogPage, ActivityLogPage,
 AuditTrailPage, SecurityDashboardPage, CompliancePage (which finishes the
 SECURITY batch and is the first page to use the WRITE primitive), ModulesPage,
 PerformanceDashboardPage, AdminDashboard, AnalyticsDashboardPage, JobQueuePage,
-ErrorTrackingPage and FeatureTogglesPage. admin-panel gained a
+ErrorTrackingPage, FeatureTogglesPage and MaintenancePage. admin-panel gained a
 `tsconfig.spec.json`, entering `tools/gates/type-check-spec.ts` at 0: no type
 gate had ever read a spec in this package, and the compiler's first pass found a
 pre-existing spec asserting against a `Tenant` shape with two fields the
 contract lacks and one required field missing.
 
-**Remaining:** 32 pages, in four domain batches (tenant 6, billing 11,
-system 6, messaging 9), governed by
+**Remaining:** 31 pages, in four domain batches (tenant 6, billing 11,
+system 5, messaging 9), governed by
 `.claude/allowlists/admin-panel-unmigrated-reads.yaml`. The `AdminTable`
 contract for server-side pagination, sort and dataset-scoped aggregates follows
 the migration. **Gate:** `tests/invariants/admin-panel-data-layer.spec.ts` — a
@@ -826,6 +826,38 @@ expiry and reason under a ceiling that only decreases; every module-scoped cache
 in `web/` reaches the logout authority; `@tanstack/react-query` is declared
 wherever it is imported, at the federation-pinned version; the barrel keeps
 exporting the primitives.
+
+## ADMIN-HIGH-129 — maintenance windows recorded the operator's clock, not the platform's
+
+**State:** OPEN → closed by W8l · **Wave:** W8l · **Owner:** okan
+**Deadline:** 2026-12-31
+
+Every write on the maintenance page discarded the updated window the endpoint
+returns and wrote its own row:
+
+```ts
+await systemSettingsApi.startMaintenance(maintenance.id);
+setMaintenanceList(
+  list.map((m) =>
+    m.id === maintenance.id
+      ? { ...m, status: 'in_progress', actualStart: new Date().toISOString() }
+      : m,
+  ),
+);
+```
+
+`actualStart` and `actualEnd` are the platform's record of when it went into
+maintenance and came out. They were being filled in **from the operator's
+browser clock**, for a transition the server may have performed at a different
+moment — or, on a 200 that did not change the status, not performed at all.
+Extend was worse: it recomputed `scheduledEnd` and ADDED to
+`estimatedDurationMinutes` locally, so a window's own duration drifted upward
+with each click regardless of what the server recorded.
+
+All five writes go through `useAdminMutation` with `invalidateKeys` now, so the
+row on screen is the one the server holds. The five `console.error` calls and
+the corner toast went with them; a rejected action is reported on the page,
+where the row it concerns is.
 
 ## ADMIN-HIGH-128 — the error page reported no unresolved errors, then counted down from it
 

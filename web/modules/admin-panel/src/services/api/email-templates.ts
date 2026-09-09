@@ -9,7 +9,8 @@ import { apiFetch } from '../http-client';
 import type { EmailTemplate } from '../types';
 
 export const emailTemplatesApi = {
-  getEmailTemplates: () => apiFetch<EmailTemplate[]>('/settings/email-templates'),
+  getEmailTemplates: (signal?: AbortSignal) =>
+    apiFetch<EmailTemplate[]>('/settings/email-templates', { signal }),
   getEmailTemplate: (id: string) => apiFetch<EmailTemplate>(`/settings/email-templates/${id}`),
   getEmailTemplateByCode: (code: string) => apiFetch<EmailTemplate>(`/settings/email-templates/code/${code}`),
   createEmailTemplate: (data: Omit<EmailTemplate, 'id' | 'createdAt' | 'updatedAt'>) =>

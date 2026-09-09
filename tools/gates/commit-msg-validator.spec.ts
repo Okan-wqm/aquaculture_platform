@@ -61,6 +61,7 @@ import {
   validateCommit,
   type Commit,
 } from './commit-msg-validator';
+import type { FindingTrailerTarget } from './finding-traceability';
 import { removeFixtureTree } from './fixture-tree';
 // Plan 018 Phase 4 fixtures live under aria-findings/.test-fixtures/ +
 // aria-debts/.test-fixtures/. The kernel's _refresh_index globs
@@ -257,6 +258,17 @@ void test('extractTrailers: ignores non-Closes lines that mention findings', () 
 
 const NEVER_PRE_GATE = (_c: Commit): boolean => false;
 
+/**
+ * A registry of ids that carry no review-file binding.
+ *
+ * `validateCommit` takes trailer TARGETS now, not bare ids, because the gate
+ * binds an anchored trailer to the finding's own review file. A target without
+ * a `review_file` imposes no binding, which is exactly what these cases mean by
+ * "this id exists"; the binding itself is covered by its own cases below.
+ */
+const registry = (...ids: readonly string[]): Map<string, FindingTrailerTarget> =>
+  new Map(ids.map((id) => [id, { id }]));
+
 void test('validateCommit: feat commit without Closes fails', () => {
   const commit: Commit = {
     sha: 'abc123',
@@ -266,7 +278,7 @@ void test('validateCommit: feat commit without Closes fails', () => {
   };
   const violations = validateCommit(
     commit,
-    new Set(),
+    registry(),
     new Set(),
     NEVER_PRE_GATE,
   );
@@ -285,7 +297,7 @@ void test('validateCommit: chore commit without Closes passes', () => {
   };
   const violations = validateCommit(
     commit,
-    new Set(),
+    registry(),
     new Set(),
     NEVER_PRE_GATE,
   );
@@ -308,7 +320,7 @@ void test('validateCommit: ORPHAN-* trailer routes to orphan-IDs (passes when pr
   const orphanIds = new Set(['ORPHAN-MEDIUM-099']);
   const violations = validateCommit(
     commit,
-    new Set(),
+    registry(),
     orphanIds,
     NEVER_PRE_GATE,
   );
@@ -335,7 +347,7 @@ void test('validateCommit: ORPHAN-* trailer resolves against the REGISTRY too', 
   };
   const violations = validateCommit(
     commit,
-    new Set(['ORPHAN-CRITICAL-333']), // registryIds
+    registry('ORPHAN-CRITICAL-333'), // registryIds
     new Set(), // orphanIds — markdown knows nothing about it
     NEVER_PRE_GATE,
   );
@@ -355,7 +367,7 @@ void test('validateCommit: ORPHAN-* trailer with unknown ID fails with orphan-ro
   };
   const violations = validateCommit(
     commit,
-    new Set(),
+    registry(),
     new Set(['ORPHAN-MEDIUM-099']), // 998 is NOT in this set
     NEVER_PRE_GATE,
   );
@@ -383,7 +395,7 @@ void test('validateCommit: non-ORPHAN trailer routes to registry-IDs', () => {
   };
   const violations = validateCommit(
     commit,
-    new Set(['ULTRA-HIGH-091']),
+    registry('ULTRA-HIGH-091'),
     new Set(),
     NEVER_PRE_GATE,
   );
@@ -400,7 +412,7 @@ void test('validateCommit: non-ORPHAN trailer with unknown ID fails with registr
   };
   const violations = validateCommit(
     commit,
-    new Set(['ULTRA-HIGH-091']),
+    registry('ULTRA-HIGH-091'),
     new Set(),
     NEVER_PRE_GATE,
   );
@@ -430,7 +442,7 @@ void test('validateCommit: multi-Closes (UH valid + ORPHAN valid) both route cor
   };
   const violations = validateCommit(
     commit,
-    new Set(['ULTRA-HIGH-091']),
+    registry('ULTRA-HIGH-091'),
     new Set(['ORPHAN-MEDIUM-099']),
     NEVER_PRE_GATE,
   );
@@ -457,7 +469,7 @@ void test('validateCommit: pre-gate predicate skips validation', () => {
   };
   const violations = validateCommit(
     commit,
-    new Set(),
+    registry(),
     new Set(),
     () => true, // pre-gate true = skip
   );
@@ -517,7 +529,7 @@ void test('validateCommit: ARIA finding trailer routes to filesystem (no registr
     };
     const violations = validateCommit(
       commit,
-      new Set(), // empty registry — must not be consulted for ARIA path
+      registry(), // empty registry — must not be consulted for ARIA path
       new Set(), // empty orphan list — must not be consulted
       () => false,
     );
@@ -545,7 +557,7 @@ void test('validateCommit: ARIA path with non-ARIA ID is rejected', () => {
   const trailers = extractTrailers(commit.body);
   assert.strictEqual(trailers.length, 1);
   // Now validate — the mismatch lane fires.
-  const violations = validateCommit(commit, new Set(['UH-HIGH-001']), new Set(), () => false);
+  const violations = validateCommit(commit, registry('UH-HIGH-001'), new Set(), () => false);
   assert.ok(
     violations.some((v) => /ARIA trailer/.test(v.reason)),
     `expected ARIA trailer mismatch violation, got: ${JSON.stringify(violations)}`,
@@ -559,7 +571,7 @@ void test('validateCommit: aria-findings path with DEBT-style ID is rejected', (
     subject: 'feat(aria-kernel): wrong shape',
     body: 'Closes: aria-findings/F-001.json#DEBT-2026-05-08-001',
   };
-  const violations = validateCommit(commit, new Set(), new Set(), () => false);
+  const violations = validateCommit(commit, registry(), new Set(), () => false);
   assert.ok(
     violations.some((v) => /path\/ID mismatch/.test(v.reason)),
     `expected path/ID mismatch violation, got: ${JSON.stringify(violations)}`,
@@ -574,7 +586,7 @@ void test('validateCommit: registry trailer still routes to registry (not ARIA)'
     body: 'Closes: docs/reviews/x.md#UH-HIGH-091',
   };
   // Registry lookup MUST still gate non-ARIA paths.
-  const violations = validateCommit(commit, new Set(['UH-HIGH-091']), new Set(), () => false);
+  const violations = validateCommit(commit, registry('UH-HIGH-091'), new Set(), () => false);
   // missing review file violation is fine (test fixture); only ARIA-routed
   // violations would be wrong here.
   for (const v of violations) {
@@ -616,7 +628,7 @@ void test('validateCommit: ARIA finding trailer with matching finding_id passes 
       subject: 'feat(aria-kernel): id-match',
       body: 'body\n\nCloses: aria-findings/.test-fixtures/F-901.json#F-901',
     };
-    const violations = validateCommit(commit, new Set(), new Set(), () => false);
+    const violations = validateCommit(commit, registry(), new Set(), () => false);
     // No violations — the file exists, the path/ID kind agrees, and the
     // in-file finding_id matches the trailer ID.
     assert.strictEqual(
@@ -646,7 +658,7 @@ void test('validateCommit: ARIA finding trailer with mismatched finding_id fires
       subject: 'feat(aria-kernel): id-mismatch',
       body: 'body\n\nCloses: aria-findings/.test-fixtures/F-901.json#F-902',
     };
-    const violations = validateCommit(commit, new Set(), new Set(), () => false);
+    const violations = validateCommit(commit, registry(), new Set(), () => false);
     const idMismatch = violations.find((v) =>
       /ARIA file's finding_id \(F-901\) does not match trailer ID \(F-902\)/.test(v.reason),
     );
@@ -674,7 +686,7 @@ void test('validateCommit: ARIA debt trailer with malformed JSON fires unreadabl
       subject: 'feat(aria-kernel): malformed-json',
       body: 'body\n\nCloses: aria-debts/.test-fixtures/DEBT-2026-05-07-901.json#DEBT-2026-05-07-901',
     };
-    const violations = validateCommit(commit, new Set(), new Set(), () => false);
+    const violations = validateCommit(commit, registry(), new Set(), () => false);
     const unreadable = violations.find((v) =>
       /ARIA file unreadable \(JSON parse failed/.test(v.reason),
     );
@@ -699,4 +711,91 @@ void test('readAriaArtifactId returns finding_id for aria-findings/ path', () =>
   } finally {
     removeFixtureTree(FIXTURE_FINDINGS_DIR);
   }
+});
+
+// ---------------------------------------------------------
+// validateCommit — the review-file binding (registry lane)
+//
+// Admission used to be looser than the closure derivation: the gate asked only
+// "does this id exist?", so a commit could pass carrying a trailer that
+// `reconcile` would never honour. The case below is not hypothetical — it is
+// the trailer PR #1425 actually merged with, after a renumbering moved the
+// invitation-link finding from SEC-HIGH-056 to SEC-HIGH-158. The trailer kept
+// citing our review file with main's id, that id belonged to an unrelated
+// admin-api SQL-injection finding, and the finding the change really fixed sat
+// OPEN with no closer.
+// ---------------------------------------------------------
+
+const boundRegistry = (
+  id: string,
+  reviewFile: string,
+): Map<string, FindingTrailerTarget> => new Map([[id, { id, review_file: reviewFile }]]);
+
+void test('validateCommit: trailer citing another finding’s review file is refused', () => {
+  const commit: Commit = {
+    sha: '793dbfd3',
+    shortSha: '793dbfd3',
+    subject: 'refactor(auth-service): resolve every emailed link segment through ActionTokenResolver',
+    body:
+      'body\n\n' +
+      'Closes: docs/reviews/orchestrator/2026-09-05-production-readiness-gaps.md#SEC-HIGH-056\n',
+  };
+  const violations = validateCommit(
+    commit,
+    // SEC-HIGH-056 is a real finding — it just lives in a different review file.
+    boundRegistry('SEC-HIGH-056', 'docs/reviews/security/2026-08-23-vuln-scan-findings.md'),
+    new Set(),
+    NEVER_PRE_GATE,
+  );
+  const binding = violations.find((v) => v.reason.includes('can never close it'));
+  assert.notStrictEqual(
+    binding,
+    undefined,
+    `expected the review-file binding to refuse this trailer, got: ${JSON.stringify(violations)}`,
+  );
+  assert.match(binding?.reason ?? '', /SEC-HIGH-056/);
+  assert.match(binding?.reason ?? '', /2026-08-23-vuln-scan-findings\.md/);
+});
+
+void test('validateCommit: trailer citing the finding’s own review file passes the binding', () => {
+  const commit: Commit = {
+    sha: 'abc123',
+    shortSha: 'abc123',
+    subject: 'fix(auth-service): resolve emailed link segments',
+    body: 'body\n\nCloses: docs/reviews/security/2026-08-23-vuln-scan-findings.md#SEC-HIGH-056\n',
+  };
+  const violations = validateCommit(
+    commit,
+    boundRegistry('SEC-HIGH-056', 'docs/reviews/security/2026-08-23-vuln-scan-findings.md'),
+    new Set(),
+    NEVER_PRE_GATE,
+  );
+  assert.strictEqual(
+    violations.find((v) => v.reason.includes('can never close it')),
+    undefined,
+    `binding must accept the finding's own review file, got: ${JSON.stringify(violations)}`,
+  );
+});
+
+void test('validateCommit: a bare (un-anchored) trailer stays admissible', () => {
+  // The derivation treats an un-anchored `Closes: <ID>` as naming the finding
+  // without asserting a document, and admission must not be stricter than the
+  // rule it enforces — otherwise the gate refuses trailers `reconcile` honours.
+  const commit: Commit = {
+    sha: 'abc123',
+    shortSha: 'abc123',
+    subject: 'fix(gates): close by bare id',
+    body: 'body\n\nCloses: SEC-HIGH-056\n',
+  };
+  const violations = validateCommit(
+    commit,
+    boundRegistry('SEC-HIGH-056', 'docs/reviews/security/2026-08-23-vuln-scan-findings.md'),
+    new Set(),
+    NEVER_PRE_GATE,
+  );
+  assert.strictEqual(
+    violations.find((v) => v.reason.includes('can never close it')),
+    undefined,
+    `a bare trailer must stay admissible, got: ${JSON.stringify(violations)}`,
+  );
 });

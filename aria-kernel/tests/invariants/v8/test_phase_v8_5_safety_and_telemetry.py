@@ -43,6 +43,27 @@ class TestVerifyClaimDisjointness(unittest.TestCase):
             encoding="utf-8",
         )
 
+    @staticmethod
+    def _three_role_claims(base):
+        """The three-role dispatch set the deleted adapter used to build.
+
+        `verify_claim_disjointness` was a pure adapter over
+        `verify_principal_disjointness` and was removed with ORPHAN-HIGH-573.
+        The behaviour it covered — a claim row per role, no shared claim_id, no
+        shared agent_id — lives in the surviving function, so these tests call
+        that directly rather than losing the coverage with the wrapper.
+        """
+        return [
+            independence_check.RoundDispatch(
+                role=role, request_id=request_id, revision_id=None, agent_text=None,
+            )
+            for role, request_id in (
+                ("primary", "REQ-P"),
+                ("challenger", "REQ-C"),
+                ("cross_review", "REQ-CR"),
+            )
+        ]
+
     def test_disjoint_claim_ids_pass(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
@@ -51,11 +72,10 @@ class TestVerifyClaimDisjointness(unittest.TestCase):
                 {"request_id": "REQ-C", "claim_id": "claim-2", "agent_id": "agent-c"},
                 {"request_id": "REQ-CR", "claim_id": "claim-3", "agent_id": "agent-cr"},
             ])
-            ok, reasons = independence_check.verify_claim_disjointness(
-                primary_request_id="REQ-P",
-                challenger_request_id="REQ-C",
-                cross_review_request_id="REQ-CR",
+            ok, reasons = independence_check.verify_principal_disjointness(
+                dispatches=self._three_role_claims(base),
                 base_dir=base,
+                min_dispatched=3,
             )
             self.assertTrue(ok, f"reasons={reasons}")
 
@@ -68,11 +88,10 @@ class TestVerifyClaimDisjointness(unittest.TestCase):
                 {"request_id": "REQ-C", "claim_id": "claim-shared", "agent_id": "agent-c"},
                 {"request_id": "REQ-CR", "claim_id": "claim-3", "agent_id": "agent-cr"},
             ])
-            ok, reasons = independence_check.verify_claim_disjointness(
-                primary_request_id="REQ-P",
-                challenger_request_id="REQ-C",
-                cross_review_request_id="REQ-CR",
+            ok, reasons = independence_check.verify_principal_disjointness(
+                dispatches=self._three_role_claims(base),
                 base_dir=base,
+                min_dispatched=3,
             )
             self.assertFalse(ok)
             self.assertIn("primary_challenger_claim_id_overlap", reasons)
@@ -80,11 +99,10 @@ class TestVerifyClaimDisjointness(unittest.TestCase):
     def test_missing_claims_file_fails_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
-            ok, reasons = independence_check.verify_claim_disjointness(
-                primary_request_id="REQ-P",
-                challenger_request_id="REQ-C",
-                cross_review_request_id="REQ-CR",
+            ok, reasons = independence_check.verify_principal_disjointness(
+                dispatches=self._three_role_claims(base),
                 base_dir=base,
+                min_dispatched=3,
             )
             self.assertFalse(ok)
             self.assertIn("claims_jsonl_missing", reasons)

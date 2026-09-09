@@ -323,24 +323,116 @@ variable set, so wiring this cannot break a scheduled lane). Negative control
 run. 41 tests green across the eval modules. Waiver removed; expired waivers
 10 → 7 cumulative with the oscillation work.
 
+## 2026-09-09 — `ORPHAN-HIGH-573`, collapsing the duplicate entry points
+
+Commit: `refactor(aria): four ways to ask a question the live path already answers`
+
+Every deletion below was preceded by PROVING the live answer exists. Two of the
+five candidates did not survive that proof and were NOT deleted — which is the
+point of doing it in that order.
+
+### Deleted (proof in hand)
+
+| Control | The live answer, verified |
+| ------- | ------------------------- |
+
+Their tests were repointed at the surviving path rather than dropped:
+the breaker test now asserts on `evaluate_breaker`'s verdict directly, and the
+disjointness tests build the three dispatch rows themselves. Coverage is
+unchanged; only the second spelling is gone.
+
+### Renamed, not deleted
+
+`check_remaining_budget` → **`remaining_reservation_budget`** (`budget.py`).
+
+Reading it proved the waiver wrong: it returns `reserved - reconciled` as a
+float and refuses nothing, so it is an **accessor**, not the duplicate of
+`assert_within_budget` (which raises) that the waiver described. Its only
+consumer is `test_phase_v8_0_prerequisites`, observing reserve/reconcile
+arithmetic — real coverage that deleting would have destroyed.
+
+The defect was the NAME: `check_` is one of the eight `CONTROL_VERBS` prefixes,
+so the gate demanded a production caller for something that is not a control.
+Renaming fixes the classification at the source instead of carrying a waiver that
+says something untrue about the code.
+
+### Kept, with the reason replaced because the old one was FALSE
+
+- **`verify_workflow_registry`** — waiver claimed "the equivalent assertion runs
+  in CI as a TypeScript invariant". Checked: no spec under `tests/invariants`
+  references `WORKFLOW_CONTRACTS`, and the nearest one asserts something else
+  (that a job running kernel code provisions the kernel first). The guarantee is
+  **unduplicated**: preflight's live `verify_workflow_contract` validates ONE
+  contract and by construction only visits workflows that already have one, so an
+  ARIA workflow added with neither a contract nor an audited exclusion is
+  invisible to it. Deleting would have removed a real control on a false premise.
+
+  Wiring it into `verify_workflow_preflight` was **attempted and reverted**: that
+  preflight legitimately runs against synthetic workspaces where the workflow
+  YAMLs are absent, so the inventory verdict is invalid there for a reason that is
+  not a defect (`test_workflow_enterprise_preflight` proved it immediately). A
+  repo-wide invariant needs a caller that always sees the real repo. That entry
+  point — a CLI verb plus a CI step — is the open decision.
+
+- **`validate_file`** — waiver read as dead code ("no CLI verb attached"). It is
+  the ENGINE of the V4 narrative-shape invariant
+  (`tests/invariants/v4/test_phase_v4_b_narrative_shape.py:62,66`), which runs it
+  over every agent file. Its consumer is an invariant test, which is this
+  control's intended and sufficient consumer.
+
+- **`validate_request`** — reason re-verified and stands (`ORPHAN-MEDIUM-572`).
+  No producer mints `aria/agent-request/v1`; the live dispatch path mints
+  `aria/agent-invocation-request/v1`, while its sibling `validate_response` has 11
+  callsites. Unlike the entry points deleted above, this one has **no live sibling
+  answering its question** — it is the only validator for a contract half, so
+  deleting it is not available either. The vocabulary is reconciled first.
+
+### The classification problem, now seen three ways
+
+`CONTROL_VERBS` decides what the gate can see, and it is wrong in both
+directions:
+
+|                     |                                                                     |
+| ------------------- | ------------------------------------------------------------------- |
+| `record_resolution` | a real control the prefix list **cannot see** (`ORPHAN-MEDIUM-808`) |
+
+That rule is right for a control meant to run in production and wrong for one
+whose consumer is the invariant itself. Teaching the gate that category is open
+work; it is named here so the next reader does not rediscover it a fourth time.
+
+### Result
+
+Expired dormancy waivers **10 → 0**. `test_control_reachability` passes 8/8, and
+with it the `aria-kernel` / `unittest` check that had been red on `main` since
+2026-09-07. 126 tests green across every module touched.
+
 ## Open items a future reader should not re-derive
 
 Measured 2026-09-09; check them before acting, they may have moved.
 
-| Control                     | Disposition         | Why                                                                                                                                                                                                                            |
-| --------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `assert_within_breaker`     | **delete**          | `_cycle_preflight` already reads the breaker                                                                                                                                                                                   |
-| `check_remaining_budget`    | **delete**          | Same surface as `assert_within_budget`                                                                                                                                                                                         |
-| `require_tools_v2`          | **delete**          | Every live path resolves through `ensure_tools_dir`                                                                                                                                                                            |
-| `verify_claim_disjointness` | **delete**          | `verify_principal_disjointness` is the live independence pass, reached from `human_required_adjudication.py:364`                                                                                                               |
-| `verify_workflow_registry`  | **delete**          | The equivalent assertion runs in CI as a TypeScript invariant — pick one lane, not two                                                                                                                                         |
-| `validate_request`          | **reconcile first** | `ORPHAN-MEDIUM-572`. No producer mints `aria/agent-request/v1`; live dispatch mints `aria/agent-invocation-request/v1`. Its sibling `validate_response` has 11 callsites. Reconcile the vocabulary before anything enforces it |
-| `validate_file`             | **verb or delete**  | Operator CLI surface with no CLI verb attached                                                                                                                                                                                 |
-| `verify_branch_tip`         | keep (in date)      | `merge_pr_if_ready` does its own inline head-SHA comparison; PLAN Wave 8 collapses the two                                                                                                                                     |
+| Control             | Disposition    | Why                                                                                        |
+| ------------------- | -------------- | ------------------------------------------------------------------------------------------ |
+| `verify_branch_tip` | keep (in date) | `merge_pr_if_ready` does its own inline head-SHA comparison; PLAN Wave 8 collapses the two |
 
-The five **delete** rows are the point worth carrying forward: at this stage of
-ARIA's life the healthy move on a dormant safety control is usually _removal_,
-because the protection already exists elsewhere and the duplicate is what will
-eventually disagree with it. Deleting them **reduces** the safety surface's
-attack area on itself; it does not weaken the system, and it is not "silencing"
-the gate — the gate stays armed, with less to be wrong about.
+What 2026-09-09 actually taught, now that the deletions have been done rather
+than planned:
+
+**Five controls were nominated for deletion on the strength of their waivers.
+Three survived the proof and were deleted. Two did not** — one guarded something
+unduplicated (`verify_workflow_registry`) and one was not a control at all
+(`check_remaining_budget`). A sixth (`validate_file`) had a waiver that read as
+dead code and turned out to be an invariant's engine.
+
+So the instinct "at this stage the healthy move is usually removal" is right
+about the population and useless as a rule, because it is wrong about a third of
+the individuals. The rule that survives is the ORDER:
+
+> Prove the live answer FIRST, by reading it, and only then delete. A waiver's
+> stated reason is a lead, not evidence — three of the ones checked today were
+> materially false, and each would have removed or hidden a real control if
+> followed.
+
+Deleting a proven duplicate reduces the surface the safety system has to keep
+consistent with itself; it does not weaken the system and it is not "silencing"
+the gate — the gate stays armed, with less to be wrong about. Deleting an
+UNPROVEN one is how a repository loses a control and keeps the green check.

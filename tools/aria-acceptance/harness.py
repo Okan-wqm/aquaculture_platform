@@ -25,6 +25,7 @@ Run directly: ``python3 tools/aria-acceptance/harness.py`` (exit 0 = accept).
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -67,6 +68,22 @@ def _ref_resolvable(ref: str | None, repo_root: Path) -> tuple[bool, str]:
     return grade in _RESOLVABLE_GRADES, grade
 
 
+def _signal_refs(d: dict[str, Any]) -> list[tuple[str, str | None]]:
+    """Every evidence ref one emitted signal cites, whatever its shape.
+
+    Value-set drifts cite `ts`/`sql`; frontend-dropdown drifts cite `ui`/
+    `source`. The evidence-integrity contract ("ARIA must not cite stale or
+    fabricated evidence") is threshold- and shape-independent, so ref
+    collection must be too — scoping it to one shape is how three of the four
+    signals this repo emits went unexamined.
+    """
+    return [
+        (side, (d.get(side) or {}).get("ref"))
+        for side in ("ts", "sql", "ui", "source")
+        if isinstance(d.get(side), dict)
+    ]
+
+
 def _classify_drift(d: dict[str, Any], repo_root: Path) -> tuple[str, str]:
     """Deterministic verdict for one above-threshold drift ARIA emitted."""
     ts_ok, ts_grade = _ref_resolvable((d.get("ts") or {}).get("ref"), repo_root)
@@ -81,12 +98,30 @@ def _classify_drift(d: dict[str, Any], repo_root: Path) -> tuple[str, str]:
 
 
 def validate_drift_output(*, repo_root: Path | None = None) -> dict[str, Any]:
-    """Re-verify every above-threshold drift ARIA emitted against repo evidence.
+    """Re-verify the drifts ARIA emitted against repo evidence.
 
     A drift is a TRUE positive only when both of its cited refs resolve in the
     repo AND the two value sets genuinely differ AND no existing gate already
     guards it. Anything whose evidence does not resolve is flagged — ARIA must
     not cite stale/fabricated evidence.
+
+    Two questions live here and they are NOT the same:
+
+      1. Did ARIA cite evidence that resolves?  (integrity)
+      2. Did ARIA emit anything to check at all? (sample size)
+
+    Collapsing them into one `passed` flag is why this check reported
+    ``[PASS] checked=0 TP=0 FP=0`` — with nothing examined, ``unverifiable``
+    is trivially 0 and the truth layer of the acceptance lane announced
+    success having verified nothing. A check that examined no sample is
+    INCONCLUSIVE, never a pass: `verdict` carries the three states and
+    `passed` stays True only for a real, non-empty, clean sample.
+
+    Integrity (1) runs over EVERY emitted signal — above threshold, filtered
+    below it, and frontend-dropdown drifts alike, since a fabricated ref is a
+    fabricated ref at any Jaccard score. The TP/FP precision split (2) stays
+    scoped to the above-threshold set, because that is the only set ARIA
+    actually asserts as a finding.
     """
     repo_root = (repo_root or _REPO_ROOT).resolve()
     # poc.py makes artifact paths relative to the workspace root, so its out-dir
@@ -116,15 +151,42 @@ def validate_drift_output(*, repo_root: Path | None = None) -> dict[str, Any]:
             "verdict": verdict, "reason": reason,
         })
 
+    # Integrity sweep over every emitted signal, not just the asserted ones.
+    other_signals = [
+        (bucket, sig)
+        for bucket in ("drifts_filtered_below_threshold", "frontend_dropdown_drifts")
+        for sig in (drifts.get(bucket) or [])
+    ]
+    unresolved_refs: list[dict[str, Any]] = []
+    for bucket, sig in other_signals:
+        for side, ref in _signal_refs(sig):
+            ok, grade = _ref_resolvable(ref, repo_root)
+            if not ok:
+                unresolved_refs.append({
+                    "bucket": bucket, "concept": sig.get("concept"),
+                    "side": side, "ref": ref, "trust_grade": grade,
+                })
+
     checked = len(above)
-    fp_rate = round((fp + unverifiable) / checked, 3) if checked else 0.0
+    emitted = checked + len(other_signals)
+    fp_rate = round((fp + unverifiable) / checked, 3) if checked else None
+    # A sample of zero is not a clean bill of health — it is no measurement.
+    inconclusive = emitted == 0
+    clean = unverifiable == 0 and not unresolved_refs
+    verdict = "inconclusive" if inconclusive else ("pass" if clean else "fail")
     return {
         "check": "drift_output_validation",
-        "checked": checked, "true_positive": tp, "false_positive": fp,
-        "unverifiable": unverifiable, "fp_rate": fp_rate,
-        # Pass unless ARIA cited evidence that doesn't resolve (unverifiable),
-        # which is the one outcome that breaks the "evidence is truth" contract.
-        "passed": unverifiable == 0,
+        "checked": checked, "emitted": emitted, "true_positive": tp,
+        "false_positive": fp, "unverifiable": unverifiable, "fp_rate": fp_rate,
+        "unexamined_signals": len(other_signals),
+        "unresolved_refs": unresolved_refs,
+        "verdict": verdict,
+        # `passed` drives the exit code, so an inconclusive run must not set it:
+        # ACCEPT is an affirmative claim that ARIA's output is trustworthy, and
+        # an empty sample supports no such claim. Fail-closed, and labelled
+        # INCONC in the report so "ARIA said nothing" stays distinguishable
+        # from "ARIA said something false".
+        "passed": verdict == "pass",
         "details": details,
     }
 
@@ -134,6 +196,34 @@ _EXPECTED_PHASE_KEYS = (
     "discovery", "memory", "belief_decay", "pressure",
     "consensus_escalation", "judge_calibration", "proactive_priorities", "reflection",
 )
+
+
+def _git_init_fixture(ws: Path) -> None:
+    """Make the acceptance workspace a real git repository.
+
+    ARIA observes REPOSITORIES: phases anchor their evidence to a HEAD SHA.
+    A bare directory is therefore not a smaller version of ARIA's habitat, it
+    is a habitat ARIA has no contract to run in — `experiment_night` failed
+    with `experiment_night_head_sha_unavailable` and took the whole cycle down
+    with it, so `run_cycle_acceptance` could never observe a 'completed' cycle
+    and the harness returned REJECT unconditionally, for a reason that said
+    nothing about ARIA.
+
+    Fixing the ASSERTION (accepting a failed cycle) would have green-pinned a
+    broken oracle; fixing the phase (skip when git is absent) would weaken a
+    real contract to suit a fake workspace. The fixture was the wrong one.
+    """
+    env = {
+        **os.environ,
+        "GIT_AUTHOR_NAME": "aria-acceptance", "GIT_AUTHOR_EMAIL": "aria@acceptance.local",
+        "GIT_COMMITTER_NAME": "aria-acceptance", "GIT_COMMITTER_EMAIL": "aria@acceptance.local",
+    }
+    for argv in (
+        ["git", "init", "--quiet", "--initial-branch=main"],
+        ["git", "add", "-A"],
+        ["git", "commit", "--quiet", "-m", "acceptance fixture baseline"],
+    ):
+        subprocess.run(argv, cwd=ws, env=env, check=True, capture_output=True, timeout=60)
 
 
 def run_cycle_acceptance() -> dict[str, Any]:
@@ -156,6 +246,7 @@ def run_cycle_acceptance() -> dict[str, Any]:
         (ws / "src" / "app.ts").write_text("export const app = true;\n", encoding="utf-8")
         (ws / "package.json").write_text('{"name":"acceptance-fixture"}\n', encoding="utf-8")
         (ws / "nx.json").write_text('{"affected":{}}\n', encoding="utf-8")
+        _git_init_fixture(ws)
         tools = ensure_tools_dir(Path(td) / "aria-tools")
 
         result = run_enterprise_cycle(workspace_root=ws, cycle_id="accept-1", base_dir=tools)
@@ -201,10 +292,16 @@ def run_cycle_acceptance() -> dict[str, Any]:
             )
 
         status = result.get("status")
+        # WHICH phase broke is the whole diagnosis. Reporting only
+        # `status=failed` cost a full manual descent into the kernel to learn
+        # that one phase wanted a git SHA — an operator cannot tell an ARIA
+        # defect from a harness/environment fault without this.
+        failed_phases = list(result.get("failed_phases") or [])
 
     return {
         "check": "cycle_acceptance",
         "cycle_status": status,
+        "failed_phases": failed_phases,
         "passed": not failures,
         "failures": failures,
     }
@@ -275,17 +372,45 @@ def run_all(*, repo_root: Path | None = None, skip_poc: bool = False) -> dict[st
 def _print_report(report: dict[str, Any]) -> None:
     print("=== ARIA Acceptance Harness ===")
     for r in report["checks"]:
-        mark = "PASS" if r["passed"] else "FAIL"
+        # INCONC is its own mark: "ARIA emitted nothing to verify" and "ARIA
+        # emitted something false" are different operator situations and must
+        # never print the same word.
+        verdict = r.get("verdict") or ("pass" if r["passed"] else "fail")
+        mark = {"pass": "PASS", "fail": "FAIL", "inconclusive": "INCONC"}[verdict]
         line = f"[{mark}] {r['check']}"
         if r["check"] == "drift_output_validation":
             line += (f" — checked={r['checked']} TP={r['true_positive']} "
-                     f"FP={r['false_positive']} unverifiable={r['unverifiable']}")
+                     f"FP={r['false_positive']} unverifiable={r['unverifiable']}"
+                     f" (+{r['unexamined_signals']} sub-threshold signals swept for evidence)")
+            if verdict == "inconclusive":
+                line += " — NO SAMPLE: ARIA emitted no drift, so nothing was verified"
+            elif r["checked"] == 0:
+                # Integrity WAS measured (sub-threshold refs resolved); precision
+                # was not. Printing a bare PASS beside `checked=0 TP=0 FP=0`
+                # invites exactly the misreading this check exists to prevent.
+                line += " — evidence integrity verified; PRECISION UNMEASURED (no above-threshold drift)"
+            if r["unresolved_refs"]:
+                line += f" — {len(r['unresolved_refs'])} unresolvable ref(s) in sub-threshold signals"
         elif r["check"] == "cycle_acceptance":
             line += f" — status={r['cycle_status']}" + (f" failures={r['failures']}" if r["failures"] else "")
+            if r.get("failed_phases"):
+                line += f" failed_phases={r['failed_phases']}"
         elif r["check"] == "scenario_reactions":
             line += " — " + ", ".join(f"{c['scenario']}={'ok' if c['passed'] else 'FAIL'}" for c in r["scenarios"])
         print(line)
-    print(f"=== OVERALL: {'ACCEPT' if report['passed'] else 'REJECT'} ===")
+    if report["passed"]:
+        overall = "ACCEPT"
+    elif any(c.get("verdict") == "inconclusive" for c in report["checks"]) and not any(
+        c.get("verdict") == "fail" or (c.get("verdict") is None and not c["passed"])
+        for c in report["checks"]
+    ):
+        # Nothing failed; something could not be measured. Still not an ACCEPT
+        # — but calling it a plain REJECT would report a measurement gap as
+        # misconduct.
+        overall = "REJECT (INCONCLUSIVE — nothing failed, but a check had no sample)"
+    else:
+        overall = "REJECT"
+    print(f"=== OVERALL: {overall} ===")
 
 
 def main() -> int:

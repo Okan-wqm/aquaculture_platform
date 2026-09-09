@@ -113,7 +113,7 @@
           "name": "type-check"
         },
         {
-          "command": ["npm", "run", "aria:acceptance"],
+          "command": ["npm", "run", "test:aria-acceptance"],
           "heavy": true,
           "name": "aria-acceptance"
         },

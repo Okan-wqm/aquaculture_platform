@@ -122,6 +122,8 @@ export const adminKeys = {
     /** The revenue series. Range AND granularity belong in the key. */
     revenueTrend: (range: string, granularity: string) =>
       [...adminKeys.billing.all(), 'revenue-trend', range, granularity] as const,
+    /** The five money totals above the invoice table. */
+    invoiceStats: () => [...adminKeys.billing.all(), 'invoice-stats'] as const,
     /** The newest invoices behind the "Recent Transactions" feed. */
     recentInvoices: (limit: number) =>
       [...adminKeys.billing.all(), 'recent-invoices', limit] as const,

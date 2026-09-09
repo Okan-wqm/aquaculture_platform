@@ -834,6 +834,35 @@ in `web/` reaches the logout authority; `@tanstack/react-query` is declared
 wherever it is imported, at the federation-pinned version; the barrel keeps
 exporting the primitives.
 
+## ADMIN-HIGH-137 — "Overdue: $0", asserted before billing had answered
+
+**State:** OPEN → closed by W9b · **Wave:** W9b · **Owner:** okan
+**Deadline:** 2026-12-31
+
+- **Five money totals seeded with zeros.** They lived in
+  `useState<InvoiceStats>({totalInvoices: 0, totalAmount: 0, totalPaid: 0,
+totalPending: 0, totalOverdue: 0})`. Before billing answered — and
+  _permanently_ if `getInvoiceStats` failed, because the catch set an error
+  string and left the zeros standing — the page asserted **$0 owed, $0 overdue,
+  0 invoices**. A zero owed is a specific and reassuring claim about
+  receivables; an unanswered request is no basis for it.
+- **A page-local type shadowing the contract.** `interface InvoiceStats`
+  restated five of the contract type's eleven fields, so the page was
+  structurally blind to `byStatus`, `byCurrency`, `avgPaymentTime`,
+  `overdueRate`, `paidThisMonth` and `pendingThisMonth`, and could drift from
+  the server's shape without the compiler noticing.
+- **A filter row missing three of the eight states.** It offered `all`, `paid`,
+  `pending`, `overdue`, `void`. A `draft`, a `sent` invoice, a `partially_paid`
+  one and a `refunded` one could not be filtered for at all — those rows were
+  reachable only by scrolling an unfiltered list.
+
+W9b moves both reads to `useAdminQuery` on `adminKeys.billing.invoices(filters)`
+and `invoiceStats()` with abort signals, deletes the shadow type in favour of
+the contract's, renders an em dash wherever a total has not loaded, surfaces
+either failed read through `QueryFailureNotice`, takes the filter options from
+the server's full vocabulary, and replaces the three writes' hand-rolled
+`Promise.all([fetchInvoices(), fetchStats()])` with one reload of both queries.
+
 ## ADMIN-HIGH-136 — three untrue statements about money, on one overview
 
 **State:** OPEN → closed by W9a · **Wave:** W9a · **Owner:** okan

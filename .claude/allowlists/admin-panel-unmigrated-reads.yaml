@@ -51,7 +51,7 @@
 # batch is finished at W8q; tenant 6, billing 11 and messaging 9 remain.
 # The ceiling drops with each batch and this file is deleted at 0.
 version: 1
-ceiling: 26
+ceiling: 24
 entries:
   - site: web/modules/admin-panel/src/pages/CreateTenantPage.tsx
     batch: tenant
@@ -72,18 +72,6 @@ entries:
     findingId: ADMIN-HIGH-121
     reason: tenant and identity batch — reads move to useAdminQuery with an adminKeys.tenants/users key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/TenantDetailPage.tsx
-    batch: tenant
-    owner: okan
-    expiry: 2026-12-31
-    findingId: ADMIN-HIGH-121
-    reason: tenant and identity batch — reads move to useAdminQuery with an adminKeys.tenants/users key, writes to useAdminMutation with invalidateKeys
-  - site: web/modules/admin-panel/src/pages/TenantManagementPage.tsx
-    batch: tenant
-    owner: okan
-    expiry: 2026-12-31
-    findingId: ADMIN-HIGH-121
-    reason: tenant and identity batch — reads move to useAdminQuery with an adminKeys.tenants/users key, writes to useAdminMutation with invalidateKeys
-  - site: web/modules/admin-panel/src/pages/UserManagementPage.tsx
     batch: tenant
     owner: okan
     expiry: 2026-12-31

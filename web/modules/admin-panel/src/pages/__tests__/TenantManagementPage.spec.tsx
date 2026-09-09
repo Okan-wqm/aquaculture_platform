@@ -9,6 +9,7 @@ import React from 'react';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { BrowserRouter } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import TenantManagementPage from '../TenantManagementPage';
 import {
@@ -58,9 +59,16 @@ vi.mock('react-router-dom', async () => {
   };
 });
 
-// Helper to render component with router
+// The page reads through `useAdminQuery` (ADMIN-HIGH-121), so it needs the
+// shell's QueryClient. `retry: false` so a rejected mock surfaces on the first
+// attempt rather than after React Query's default backoff.
 const renderWithRouter = (component: React.ReactElement) => {
-  return render(<BrowserRouter>{component}</BrowserRouter>);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={client}>
+      <BrowserRouter>{component}</BrowserRouter>
+    </QueryClientProvider>,
+  );
 };
 
 // Mock tenant data
@@ -223,7 +231,10 @@ describe('TenantManagementPage', () => {
 
       // API should be called with search parameter
       await waitFor(() => {
-        expect(tenantsApi.list).toHaveBeenCalledWith(expect.objectContaining({ search: 'Ocean' }));
+        expect(tenantsApi.list).toHaveBeenCalledWith(
+          expect.objectContaining({ search: 'Ocean' }),
+          expect.any(AbortSignal),
+        );
       });
     });
 
@@ -246,6 +257,7 @@ describe('TenantManagementPage', () => {
       await waitFor(() => {
         expect(tenantsApi.list).toHaveBeenCalledWith(
           expect.objectContaining({ status: TenantStatus.ACTIVE }),
+          expect.any(AbortSignal),
         );
       });
     });
@@ -269,6 +281,7 @@ describe('TenantManagementPage', () => {
       await waitFor(() => {
         expect(tenantsApi.list).toHaveBeenCalledWith(
           expect.objectContaining({ tier: TenantTier.ENTERPRISE }),
+          expect.any(AbortSignal),
         );
       });
     });
@@ -287,6 +300,7 @@ describe('TenantManagementPage', () => {
       await waitFor(() => {
         expect(tenantsApi.list).toHaveBeenCalledWith(
           expect.objectContaining({ status: undefined }),
+          expect.any(AbortSignal),
         );
       });
     });
@@ -395,11 +409,17 @@ describe('TenantManagementPage', () => {
       // Depends on implementation
     });
 
-    it('should display an actionable error when tenant loading fails', async () => {
-      vi.mocked(tenantsApi.list).mockRejectedValueOnce(new Error('Network error'));
+    it('should name the failed read and offer a retry', async () => {
+      vi.mocked(tenantsApi.list).mockRejectedValue(new Error('Network error'));
 
       renderWithRouter(<TenantManagementPage />);
-      expect(await screen.findByText(/failed to load tenants/i)).toBeInTheDocument();
+
+      // The page used to replace every failure with the same
+      // "Failed to load tenants. Please try again." — the server's reason was
+      // logged to the console and never shown.
+      const alert = await screen.findByRole('alert');
+      expect(alert).toHaveTextContent('Network error');
+      expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
     });
   });
 
@@ -436,7 +456,10 @@ describe('TenantManagementPage', () => {
         await user.click(nextButton);
 
         await waitFor(() => {
-          expect(tenantsApi.list).toHaveBeenCalledWith(expect.objectContaining({ page: 2 }));
+          expect(tenantsApi.list).toHaveBeenCalledWith(
+            expect.objectContaining({ page: 2 }),
+            expect.any(AbortSignal),
+          );
         });
       }
     });
@@ -526,13 +549,16 @@ describe('TenantManagementPage', () => {
       });
     });
 
-    it('should handle stats API failure gracefully', async () => {
-      vi.mocked(tenantsApi.getStats).mockRejectedValueOnce(new Error('Stats failed'));
+    it('shows an em dash for a stat that did not load, never a zero', async () => {
+      vi.mocked(tenantsApi.getStats).mockRejectedValue(new Error('Stats failed'));
 
       renderWithRouter(<TenantManagementPage />);
 
       expect(await screen.findByText('Ocean Farms Ltd')).toBeInTheDocument();
-      expect(screen.queryByText('Total')).not.toBeInTheDocument();
+      const totalCard = screen.getByText('Total').parentElement;
+      expect(totalCard).not.toBeNull();
+      expect(within(totalCard as HTMLElement).getByText('—')).toBeInTheDocument();
+      expect(screen.getByRole('alert')).toHaveTextContent('Stats failed');
     });
   });
 

@@ -5453,7 +5453,13 @@
             "required": false,
             "in": "query",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "enum": [
+                "SUPER_ADMIN",
+                "TENANT_ADMIN",
+                "MODULE_MANAGER",
+                "MODULE_USER"
+              ]
             }
           },
           {
@@ -21188,7 +21194,13 @@
             "pattern": "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&])[A-Za-z\\d@$!%*?&]"
           },
           "role": {
-            "type": "string"
+            "type": "string",
+            "enum": [
+              "SUPER_ADMIN",
+              "TENANT_ADMIN",
+              "MODULE_MANAGER",
+              "MODULE_USER"
+            ]
           }
         },
         "required": [
@@ -21218,7 +21230,13 @@
             "maxLength": 100
           },
           "role": {
-            "type": "string"
+            "type": "string",
+            "enum": [
+              "SUPER_ADMIN",
+              "TENANT_ADMIN",
+              "MODULE_MANAGER",
+              "MODULE_USER"
+            ]
           },
           "isActive": {
             "type": "boolean"
@@ -21260,7 +21278,13 @@
             "maxLength": 100
           },
           "role": {
-            "type": "string"
+            "type": "string",
+            "enum": [
+              "SUPER_ADMIN",
+              "TENANT_ADMIN",
+              "MODULE_MANAGER",
+              "MODULE_USER"
+            ]
           },
           "moduleIds": {
             "type": "array",

@@ -57,11 +57,12 @@ export const usersApi = {
   getAssignableRoles: (roleCode: string) =>
     apiFetch<RoleTemplate[]>(`/users/roles/assignable/${roleCode}`),
   getPermissions: () => apiFetch<Permission[]>('/users/roles/permissions'),
-  getPermissionsByCategory: () =>
-    apiFetch<Record<string, Permission[]>>('/users/roles/permissions/grouped'),
-  getRoleHierarchy: () => apiFetch<RoleHierarchyItem[]>('/users/roles/hierarchy'),
+  getPermissionsByCategory: (signal?: AbortSignal) =>
+    apiFetch<Record<string, Permission[]>>('/users/roles/permissions/grouped', { signal }),
+  getRoleHierarchy: (signal?: AbortSignal) =>
+    apiFetch<RoleHierarchyItem[]>('/users/roles/hierarchy', { signal }),
   canAssignRole: (assignerRole: string, targetRole: string) =>
     apiFetch<{ allowed: boolean; reason?: string }>(`/users/roles/can-assign?assignerRole=${assignerRole}&targetRole=${targetRole}`),
-  getRolePermissions: (roleCode: string) =>
-    apiFetch<string[]>(`/users/roles/${roleCode}/permissions`),
+  getRolePermissions: (roleCode: string, signal?: AbortSignal) =>
+    apiFetch<string[]>(`/users/roles/${roleCode}/permissions`, { signal }),
 };

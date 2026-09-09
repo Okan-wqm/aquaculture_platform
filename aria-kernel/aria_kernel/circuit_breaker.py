@@ -682,31 +682,18 @@ def quarantine_breaker_evidence(
     }
 
 
-def assert_within_breaker(base_dir: str | Path) -> dict[str, Any]:
-    """Plan ARIA-V3 §B2 — call BEFORE entering the autonomous path.
-    Raises ``GovernanceError`` when the breaker is tripped.
-
-    The refusal message carries the verdict reason so an operator can
-    tell "3 real failures in 24h" apart from "the failure ledger lost
-    rows" without re-deriving it by hand.
-    """
-    verdict = evaluate_breaker(base_dir)
-    if verdict.state == BREAKER_STATE_TRIPPED:
-        raise GovernanceError(
-            f"circuit_breaker_tripped: reason={verdict.reason} "
-            f"sliding_count={verdict.sliding_count} "
-            f"threshold={verdict.threshold} "
-            f"window_hours={verdict.window_hours} "
-            f"evidence_dropped_rows={verdict.evidence.dropped_rows}"
-        )
-    return {
-        "status": "ok",
-        "state": verdict.state,
-        "reason": verdict.reason,
-        "sliding_count": verdict.sliding_count,
-        "threshold": verdict.threshold,
-                "window_hours": verdict.window_hours,
-    }
+# ORPHAN-HIGH-573 — `assert_within_breaker` was DELETED here on 2026-09-09.
+#
+# It wrapped `evaluate_breaker` and raised on a tripped breaker, and nothing in
+# production called it. The protection it offered is not gone: `auto_action_gate`
+# reads the breaker through `current_state` on a fail-closed path (any read
+# failure resolves to SAFETY_STATE_UNREADABLE, never to ok) and feeds it into
+# `AutoActionGate.human_ack_required`, live from `cli.py` and `skill_genesis.py`.
+#
+# So this was a SECOND way to ask a question the autonomous path already asks,
+# and the dormancy manifest names that hazard in its own words: "a second way to
+# ask the same question is how two answers start to diverge." Deleting it removes
+# the divergence, not the guard. See docs/aria/SAFETY-CONTROL-WIRING-LEDGER.md.
 
 
 __all__ = [

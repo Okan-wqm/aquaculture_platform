@@ -7,7 +7,7 @@
  * Sprint 3 Fix (Grup Q / C10-34): Mock data removed, real API integration via supportApi.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState } from 'react';
 import {
   GraduationCap,
   Play,
@@ -34,12 +34,14 @@ import {
 } from 'lucide-react';
 import { supportApi } from '../services/adminApi';
 import type { OnboardingStep as ApiOnboardingStep, TenantOnboarding } from '../services/adminApi';
+import { adminKeys, useAdminMutation, useAdminQuery } from '../hooks';
+import { QueryFailureNotice } from '../components/QueryFailureNotice';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-type OnboardingStatus = 'not_started' | 'in_progress' | 'completed' | 'stalled';
+type OnboardingStatus = TenantOnboarding['status'];
 
 interface TrainingResource {
   id: string;
@@ -47,14 +49,6 @@ interface TrainingResource {
   type: string;
   category: string;
   url: string;
-}
-
-interface OnboardingStats {
-  notStarted: number;
-  inProgress: number;
-  completed: number;
-  stalled: number;
-  avgCompletionDays: number;
 }
 
 interface Guide {
@@ -68,62 +62,124 @@ interface Guide {
 // ============================================================================
 
 export const OnboardingPage: React.FC = () => {
-  // Data state
-  const [progressList, setProgressList] = useState<readonly TenantOnboarding[]>([]);
-  const [steps, setSteps] = useState<ApiOnboardingStep[]>([]);
-  const [stats, setStats] = useState<OnboardingStats>({
-    notStarted: 0,
-    inProgress: 0,
-    completed: 0,
-    stalled: 0,
-    avgCompletionDays: 0,
-  });
-  const [resources, setResources] = useState<TrainingResource[]>([]);
-
   // UI state
-  const [selectedProgress, setSelectedProgress] = useState<TenantOnboarding | null>(null);
+  const [selectedTenantId, setSelectedTenantId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<OnboardingStatus | 'all'>('all');
   const [showNeedingAttention, setShowNeedingAttention] = useState(false);
   const [activeTab, setActiveTab] = useState<'progress' | 'resources'>('progress');
 
-  // Loading/error state
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  // ==========================================================================
+  // Reads (ADMIN-HIGH-121)
+  // ==========================================================================
+
+  const listFilters = { status: statusFilter !== 'all' ? statusFilter : undefined };
+
+  const stepsQuery = useAdminQuery<ApiOnboardingStep[]>(adminKeys.onboarding.steps(), ({ signal }) =>
+    supportApi.getOnboardingSteps(signal),
+  );
+
+  const progressQuery = useAdminQuery(adminKeys.onboarding.list(listFilters), ({ signal }) =>
+    supportApi.getTenantOnboardings(listFilters, signal),
+  );
+
+  const statsQuery = useAdminQuery(adminKeys.onboarding.stats(), ({ signal }) =>
+    supportApi.getOnboardingStats(signal),
+  );
+
+  const resourcesQuery = useAdminQuery(adminKeys.onboarding.resources(), ({ signal }) =>
+    supportApi.getTrainingResources(undefined, signal),
+  );
+
+  const steps = stepsQuery.data ?? [];
+  const progressList: readonly TenantOnboarding[] = progressQuery.data?.data ?? [];
+  const resources = (resourcesQuery.data ?? []) as TrainingResource[];
+
+  // NOT a zero-filled default. `stats` was initialised to
+  // `{notStarted: 0, inProgress: 0, completed: 0, stalled: 0, avgCompletionDays: 0}`
+  // and the catch left it there, so a failed read rendered "0 stalled" on the
+  // screen an operator checks to find the tenants that are stuck. `undefined`
+  // means not known, and the cards say so.
+  const stats = statsQuery.data;
+
+  // The detail panel reads the row out of the LIST rather than holding its own
+  // copy. Three write handlers used to patch a `selectedProgress` state
+  // alongside the list, so the panel and the row behind it could disagree.
+  const selectedProgress =
+    selectedTenantId === null
+      ? null
+      : (progressList.find((entry) => entry.tenantId === selectedTenantId) ?? null);
+
+  const reload = (): void => {
+    void stepsQuery.refetch();
+    void progressQuery.refetch();
+    void statsQuery.refetch();
+    void resourcesQuery.refetch();
+  };
+
+  // ==========================================================================
+  // Writes (ADMIN-HIGH-121)
+  // ==========================================================================
+
+  // Each of these moves a tenant between onboarding statuses, so each one
+  // invalidates the counts as well as the list. All three used to patch
+  // `progressList` in place and swallow every failure into `console.error` —
+  // no banner, no revert — so "Skip onboarding" on a refused request did
+  // nothing at all and said nothing about it.
+  const onboardingWriteKeys = [adminKeys.onboarding.all()];
+
+  const initializeOnboarding = useAdminMutation<
+    TenantOnboarding,
+    { tenantId: string; tenantName: string }
+  >(({ tenantId, tenantName }) => supportApi.initializeOnboarding(tenantId, tenantName), {
+    invalidateKeys: onboardingWriteKeys,
+  });
+
+  const assignGuide = useAdminMutation<
+    TenantOnboarding,
+    { tenantId: string; guideId: string; guideName: string }
+  >(
+    ({ tenantId, guideId, guideName }) =>
+      supportApi.assignOnboardingGuide(tenantId, guideId, guideName),
+    { invalidateKeys: onboardingWriteKeys },
+  );
+
+  const skipOnboarding = useAdminMutation<TenantOnboarding, { tenantId: string }>(
+    ({ tenantId }) => supportApi.skipOnboarding(tenantId),
+    { invalidateKeys: onboardingWriteKeys },
+  );
+
+  const actionLoading =
+    initializeOnboarding.isPending || assignGuide.isPending || skipOnboarding.isPending;
+
+  const queryErrors = [
+    stepsQuery.error,
+    progressQuery.error,
+    statsQuery.error,
+    resourcesQuery.error,
+    initializeOnboarding.error,
+    assignGuide.error,
+    skipOnboarding.error,
+  ];
+
+  const loading =
+    stepsQuery.isPending && progressQuery.isPending && statsQuery.isPending;
 
   // ============================================================================
-  // Data Loading
+  // Handlers
   // ============================================================================
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [stepsData, onboardingsData, statsData, resourcesData] = await Promise.all([
-        supportApi.getOnboardingSteps(),
-        supportApi.getTenantOnboardings({
-          status: statusFilter !== 'all' ? statusFilter : undefined,
-        }),
-        supportApi.getOnboardingStats(),
-        supportApi.getTrainingResources(),
-      ]);
+  const handleInitializeOnboarding = (tenantId: string, tenantName: string): void => {
+    initializeOnboarding.mutate({ tenantId, tenantName });
+  };
 
-      setSteps(stepsData);
-      setProgressList(onboardingsData.data);
-      setStats(statsData);
-      setResources(resourcesData);
-    } catch (err) {
-      console.error('Failed to load onboarding data:', err);
-      setError('Failed to load onboarding data. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  }, [statusFilter]);
+  const handleAssignGuide = (tenantId: string, guideId: string, guideName: string): void => {
+    assignGuide.mutate({ tenantId, guideId, guideName });
+  };
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  const handleSkipOnboarding = (tenantId: string): void => {
+    skipOnboarding.mutate({ tenantId });
+  };
 
   // ============================================================================
   // Filtered Data
@@ -151,7 +207,7 @@ export const OnboardingPage: React.FC = () => {
       case 'not_started': return 'bg-gray-100 text-gray-700';
       case 'in_progress': return 'bg-blue-100 text-blue-700';
       case 'completed': return 'bg-green-100 text-green-700';
-      case 'stalled': return 'bg-yellow-100 text-yellow-700';
+      case 'skipped': return 'bg-yellow-100 text-yellow-700';
     }
   };
 
@@ -174,61 +230,6 @@ export const OnboardingPage: React.FC = () => {
   };
 
   // ============================================================================
-  // Handlers
-  // ============================================================================
-
-  const handleInitializeOnboarding = async (tenantId: string, tenantName: string) => {
-    setActionLoading(tenantId);
-    try {
-      const updated = await supportApi.initializeOnboarding(tenantId, tenantName);
-      setProgressList(progressList.map(p =>
-        p.tenantId === tenantId ? updated : p
-      ));
-      if (selectedProgress?.tenantId === tenantId) {
-        setSelectedProgress(updated);
-      }
-    } catch (err) {
-      console.error('Failed to initialize onboarding:', err);
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  const handleAssignGuide = async (tenantId: string, guideId: string, guideName: string) => {
-    setActionLoading(tenantId);
-    try {
-      const updated = await supportApi.assignOnboardingGuide(tenantId, guideId, guideName);
-      setProgressList(progressList.map(p =>
-        p.tenantId === tenantId ? updated : p
-      ));
-      if (selectedProgress?.tenantId === tenantId) {
-        setSelectedProgress(updated);
-      }
-    } catch (err) {
-      console.error('Failed to assign guide:', err);
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  const handleSkipOnboarding = async (tenantId: string) => {
-    setActionLoading(tenantId);
-    try {
-      const updated = await supportApi.skipOnboarding(tenantId);
-      setProgressList(progressList.map(p =>
-        p.tenantId === tenantId ? updated : p
-      ));
-      if (selectedProgress?.tenantId === tenantId) {
-        setSelectedProgress(updated);
-      }
-    } catch (err) {
-      console.error('Failed to skip onboarding:', err);
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  // ============================================================================
   // Render: Loading State
   // ============================================================================
 
@@ -247,32 +248,30 @@ export const OnboardingPage: React.FC = () => {
   // Render: Error State
   // ============================================================================
 
-  if (error) {
-    return (
-      <div className="h-full flex items-center justify-center">
-        <div className="text-center">
-          <AlertTriangle size={48} className="mx-auto mb-3 text-red-400" />
-          <p className="text-red-600 mb-4">{error}</p>
-          <button
-            onClick={loadData}
-            className="flex items-center gap-2 mx-auto px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-          >
-            <RefreshCw size={16} />
-            Retry
-          </button>
-        </div>
-      </div>
-    );
+  if (progressList.length === 0 && queryErrors.some((queryError) => queryError)) {
+    return <QueryFailureNotice errors={queryErrors} hasContent={false} onRetry={reload} />;
   }
 
   // ============================================================================
   // Render: Main
   // ============================================================================
 
-  const totalTenants = stats.notStarted + stats.inProgress + stats.completed + stats.stalled;
+  // An em dash, not a sum over five zeros. These five cards are how an
+  // operator finds the tenants that are stuck; a failed read used to render
+  // "0 Stalled" and read as "nothing needs attention".
+  const count = (value: number | undefined): string =>
+    value === undefined ? '—' : value.toLocaleString();
+
+  // `stats.total`, not a sum of four fields — the server sends the total and
+  // the page was recomputing it from a subset that could not include `skipped`.
+  const totalTenants = stats?.total;
 
   return (
     <div className="h-full flex flex-col">
+      <div className="px-6 pt-4">
+        <QueryFailureNotice errors={queryErrors} hasContent onRetry={reload} />
+      </div>
+
       {/* Header */}
       <div className="bg-white border-b border-gray-200 px-6 py-4">
         <div className="flex items-center justify-between">
@@ -281,7 +280,7 @@ export const OnboardingPage: React.FC = () => {
             <p className="text-gray-500 mt-1">Manage tenant onboarding and training resources</p>
           </div>
           <button
-            onClick={loadData}
+            onClick={reload}
             className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
           >
             <RefreshCw size={14} />
@@ -293,23 +292,23 @@ export const OnboardingPage: React.FC = () => {
         <div className="grid grid-cols-5 gap-3 mt-4">
           <div className="bg-gray-50 rounded-lg p-3">
             <div className="text-sm text-gray-500">Total Tenants</div>
-            <div className="text-xl font-semibold text-gray-900">{totalTenants}</div>
+            <div className="text-xl font-semibold text-gray-900">{count(totalTenants)}</div>
           </div>
           <div className="bg-gray-50 rounded-lg p-3">
             <div className="text-sm text-gray-500">Not Started</div>
-            <div className="text-xl font-semibold text-gray-700">{stats.notStarted}</div>
+            <div className="text-xl font-semibold text-gray-700">{count(stats?.notStarted)}</div>
           </div>
           <div className="bg-blue-50 rounded-lg p-3">
             <div className="text-sm text-blue-600">In Progress</div>
-            <div className="text-xl font-semibold text-blue-700">{stats.inProgress}</div>
+            <div className="text-xl font-semibold text-blue-700">{count(stats?.inProgress)}</div>
           </div>
           <div className="bg-green-50 rounded-lg p-3">
             <div className="text-sm text-green-600">Completed</div>
-            <div className="text-xl font-semibold text-green-700">{stats.completed}</div>
+            <div className="text-xl font-semibold text-green-700">{count(stats?.completed)}</div>
           </div>
           <div className="bg-yellow-50 rounded-lg p-3">
-            <div className="text-sm text-yellow-600">Stalled</div>
-            <div className="text-xl font-semibold text-yellow-700">{stats.stalled}</div>
+            <div className="text-sm text-yellow-600">Skipped</div>
+            <div className="text-xl font-semibold text-yellow-700">{count(stats?.skipped)}</div>
           </div>
         </div>
 
@@ -364,7 +363,7 @@ export const OnboardingPage: React.FC = () => {
                   <option value="not_started">Not Started</option>
                   <option value="in_progress">In Progress</option>
                   <option value="completed">Completed</option>
-                  <option value="stalled">Stalled</option>
+                  <option value="skipped">Skipped</option>
                 </select>
                 <button
                   onClick={() => setShowNeedingAttention(!showNeedingAttention)}
@@ -391,7 +390,7 @@ export const OnboardingPage: React.FC = () => {
                 return (
                   <div
                     key={progress.tenantId}
-                    onClick={() => setSelectedProgress(progress)}
+                    onClick={() => setSelectedTenantId(progress.tenantId)}
                     className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 ${
                       selectedProgress?.tenantId === progress.tenantId ? 'bg-blue-50 border-l-4 border-l-blue-500' : ''
                     }`}
@@ -470,7 +469,7 @@ export const OnboardingPage: React.FC = () => {
                     </div>
                   </div>
                   <button
-                    onClick={() => setSelectedProgress(null)}
+                    onClick={() => setSelectedTenantId(null)}
                     className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
                   >
                     <X size={20} />
@@ -482,10 +481,10 @@ export const OnboardingPage: React.FC = () => {
                   {selectedProgress.status === 'not_started' && (
                     <button
                       onClick={() => handleInitializeOnboarding(selectedProgress.tenantId, selectedProgress.tenantName)}
-                      disabled={actionLoading === selectedProgress.tenantId}
+                      disabled={actionLoading}
                       className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50"
                     >
-                      {actionLoading === selectedProgress.tenantId ? (
+                      {actionLoading ? (
                         <Loader2 size={14} className="animate-spin" />
                       ) : (
                         <Mail size={14} />
@@ -496,7 +495,7 @@ export const OnboardingPage: React.FC = () => {
                   {selectedProgress.status !== 'completed' && (
                     <button
                       onClick={() => handleSkipOnboarding(selectedProgress.tenantId)}
-                      disabled={actionLoading === selectedProgress.tenantId}
+                      disabled={actionLoading}
                       className="flex items-center gap-2 px-3 py-1.5 text-sm border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50"
                     >
                       Skip Onboarding

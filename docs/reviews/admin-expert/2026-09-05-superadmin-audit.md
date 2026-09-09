@@ -823,7 +823,7 @@ gate had ever read a spec in this package, and the compiler's first pass found a
 pre-existing spec asserting against a `Tenant` shape with two fields the
 contract lacks and one required field missing.
 
-**Remaining:** 25 pages, in three domain batches (tenant 5, billing 11,
+**Remaining:** 24 pages, in three domain batches (tenant 4, billing 11,
 messaging 9 — the system batch is finished), governed by
 `.claude/allowlists/admin-panel-unmigrated-reads.yaml`. The `AdminTable`
 contract for server-side pagination, sort and dataset-scoped aggregates follows

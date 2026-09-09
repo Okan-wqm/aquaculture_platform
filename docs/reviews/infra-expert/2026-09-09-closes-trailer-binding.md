@@ -158,3 +158,46 @@ list is not guarded, and running the spec's own `CURRENCY_FALLBACK` pattern over
   intended, so no gate can enforce either.
 
 **SEC-LOW-168** records the one genuine test gap found while closing SEC-HIGH-159.
+
+## FARM-HIGH-151 closed by making its own ratchet a rule
+
+The finding is fixed in code — all ten handlers resolve the tenant currency
+through `FinanceSettingsService` / `PayrollCostSettingsService`. It had no closing
+commit at all: the `FARM-HIGH-151` trailers on main belong to the _regulatory_
+finding that used to hold that sequence before `a909ceae5` renumbered it, so they
+name a different finding entirely. Not sub-class A or B — a third shape, and the
+reason a verify-and-close pass has to read the trailer's subject, not just its id.
+
+Closing it on a documentation commit would have been ceremony, so the closing
+change is the one the finding's own notes asked for. Its ratchet was
+`NAMED_GUARDED_FILES`, a hardcoded array: "migrate a handler, add it to the
+guarded set". A ratchet whose coverage is a memo is not a ratchet, and the
+docblock's claim that "there is no longer a hardcoded-currency create-handler
+outside this guarded set" was simply false — running the spec's own pattern over
+every `apps/**/*.handler.ts` found **7 unguarded writers**, one of them a live
+defect (HR-HIGH-008).
+
+The guard now scans every `*.handler.ts` **and** every `*.entity.ts` under
+`apps/`, and a currency literal fails unless it is a declared exemption citing an
+open ledger finding. The list can only shrink: a declared entry whose literal is
+gone fails as stale, and an entry whose finding the ledger has RESOLVED fails as
+contradicted.
+
+Widening the scan to entities immediately paid for itself twice:
+
+- **16 entity columns** carry literal DDL defaults that disagree inside one
+  service — farm-service alone has `'TRY'`, `'NOK'` and `'USD'` on sibling
+  tables. That is the FARM-MEDIUM-145 drift one layer below where it was fixed.
+  Registered as **FARM-MEDIUM-327**; not fixed here (16 migrations across four
+  services plus a NOT NULL audit each). The precedent for the fix is in this
+  same branch: HR-HIGH-008's migration `1802200000000` _drops_ the default
+  rather than correcting it, because a column default cannot know the tenant.
+- **`work-order.entity.ts:541`** — the one a handler-only scan could never see,
+  and the only live member of the set. `work_orders.currency` is nullable with
+  no default while the derived `costSummary` jsonb requires a non-null
+  `currency`, so `updateCostSummary()` stamps `'TRY'` on every work order
+  created without one, whatever the tenant uses.
+
+Each rule was mutation-tested rather than assumed: a new literal in an
+unlisted handler fails test 2, removing a literal without removing its exemption
+fails test 3, and pointing an exemption at a RESOLVED finding fails test 4.

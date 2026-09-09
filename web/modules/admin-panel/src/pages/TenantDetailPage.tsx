@@ -3,7 +3,7 @@
  * Tenant'in tum detaylarini gosteren sayfa
  */
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Card,
@@ -27,6 +27,8 @@ import {
   type UpdateTenantDto,
 } from '../services/adminApi';
 import { formatBillingAmount } from '../utils/money';
+import { adminKeys, useAdminMutation, useAdminQuery } from '../hooks';
+import { QueryFailureNotice } from '../components/QueryFailureNotice';
 
 // ============================================================================
 // Simple Tab Component
@@ -162,10 +164,6 @@ const TenantDetailPage: React.FC = () => {
   const navigate = useNavigate();
 
   // State
-  const [tenant, setTenant] = useState<TenantDetail | null>(null);
-  const [modules, setModules] = useState<readonly SystemModule[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('overview');
 
   // Modals
@@ -177,138 +175,155 @@ const TenantDetailPage: React.FC = () => {
   const [editForm, setEditForm] = useState<UpdateTenantDto>({});
   const [newNote, setNewNote] = useState({ content: '', category: 'general' });
   const [suspendReason, setSuspendReason] = useState('');
-  const [saving, setSaving] = useState(false);
-  const detailRequestSeq = useRef(0);
 
-  // Fetch tenant detail
-  const fetchTenant = useCallback(async () => {
-    if (!tenantId) return;
+  // ==========================================================================
+  // Reads (ADMIN-HIGH-121)
+  // ==========================================================================
 
-    const requestId = detailRequestSeq.current + 1;
-    detailRequestSeq.current = requestId;
-    try {
-      setLoading(true);
-      setError(null);
-      const [detail, allModules] = await Promise.all([
-        tenantsApi.getDetail(tenantId),
-        modulesApi.list({ isActive: true, limit: 50 }),
-      ]);
-      if (detailRequestSeq.current !== requestId) return;
-      setTenant(detail);
-      setModules(allModules.data);
-      setEditForm({
-        name: detail.name,
-        description: detail.description,
-        domain: detail.domain,
-        // A tenant on a negotiated `custom` plan has no editable tier: the form
-        // leaves it unset rather than offering a value the API would reject.
-        tier: isEditableTenantTier(detail.tier) ? detail.tier : undefined,
-        primaryContact: detail.primaryContact,
-        billingContact: detail.billingContact,
-        billingEmail: detail.billingEmail,
-        country: detail.country,
-        region: detail.region,
-      });
-    } catch (err) {
-      if (detailRequestSeq.current !== requestId) return;
-      console.error('Failed to fetch tenant details:', err);
-      setTenant(null);
-      setModules([]);
-      setError('Failed to load tenant details. Please try again.');
-    } finally {
-      if (detailRequestSeq.current === requestId) {
-        setLoading(false);
-      }
-    }
-  }, [tenantId]);
+  // The page used to guard this with a `detailRequestSeq` ref compared inside
+  // every `then` and `catch` — a hand-rolled race guard for the problem the
+  // `signal` solves.
+  const detailQuery = useAdminQuery<TenantDetail>(
+    adminKeys.tenants.detail(tenantId ?? 'none'),
+    ({ signal }) => tenantsApi.getDetail(tenantId ?? '', signal),
+    { enabled: Boolean(tenantId) },
+  );
 
+  const moduleFilters = { isActive: true, limit: 50 };
+
+  const modulesQuery = useAdminQuery(adminKeys.modules.list(moduleFilters), ({ signal }) =>
+    modulesApi.list(moduleFilters, signal),
+  );
+
+  const tenant = detailQuery.data;
+  const modules: readonly SystemModule[] = modulesQuery.data?.data ?? [];
+
+  const reload = (): void => {
+    void detailQuery.refetch();
+    void modulesQuery.refetch();
+  };
+
+  // Seed the edit form from the row the server returned, once it arrives.
   useEffect(() => {
-    fetchTenant();
-  }, [fetchTenant]);
+    if (!tenant) return;
+    setEditForm({
+      name: tenant.name,
+      description: tenant.description,
+      domain: tenant.domain,
+      // A tenant on a negotiated `custom` plan has no editable tier: the form
+      // leaves it unset rather than offering a value the API would reject.
+      tier: isEditableTenantTier(tenant.tier) ? tenant.tier : undefined,
+      primaryContact: tenant.primaryContact,
+      billingContact: tenant.billingContact,
+      billingEmail: tenant.billingEmail,
+      country: tenant.country,
+      region: tenant.region,
+    });
+  }, [tenant]);
+
+  // ==========================================================================
+  // Writes (ADMIN-HIGH-121)
+  // ==========================================================================
+
+  // `tenants.all()`, not just this tenant's detail. Suspending from here used
+  // to refetch only this page, so TenantManagementPage's list and its four
+  // platform counts kept the pre-change state until something else refetched
+  // them. Invalidating the domain makes one write correct on every page that
+  // reads it.
+  const tenantWriteKeys = [adminKeys.tenants.all()];
+
+  const updateTenant = useAdminMutation<unknown, UpdateTenantDto>(
+    (input) => tenantsApi.update(tenantId ?? '', input),
+    { invalidateKeys: tenantWriteKeys },
+  );
+
+  const suspendTenant = useAdminMutation<unknown, { reason: string }>(
+    ({ reason }) => tenantsApi.suspend(tenantId ?? '', reason),
+    { invalidateKeys: tenantWriteKeys },
+  );
+
+  const activateTenant = useAdminMutation<unknown, void>(
+    () => tenantsApi.activate(tenantId ?? ''),
+    { invalidateKeys: tenantWriteKeys },
+  );
+
+  const createNote = useAdminMutation<unknown, { content: string; category: string }>(
+    (note) => tenantsApi.createNote(tenantId ?? '', note),
+    { invalidateKeys: tenantWriteKeys },
+  );
+
+  const deleteNote = useAdminMutation<unknown, { noteId: string }>(
+    ({ noteId }) => tenantsApi.deleteNote(tenantId ?? '', noteId),
+    { invalidateKeys: tenantWriteKeys },
+  );
+
+  const assignModule = useAdminMutation<unknown, { moduleId: string }>(
+    ({ moduleId }) => modulesApi.assignToTenant(tenantId ?? '', moduleId),
+    { invalidateKeys: tenantWriteKeys },
+  );
+
+  const removeModule = useAdminMutation<unknown, { moduleId: string }>(
+    ({ moduleId }) => modulesApi.removeFromTenant(tenantId ?? '', moduleId),
+    { invalidateKeys: tenantWriteKeys },
+  );
+
+  const saving = updateTenant.isPending || suspendTenant.isPending || createNote.isPending;
+
+  const queryErrors = [
+    detailQuery.error,
+    modulesQuery.error,
+    updateTenant.error,
+    suspendTenant.error,
+    activateTenant.error,
+    createNote.error,
+    deleteNote.error,
+    assignModule.error,
+    removeModule.error,
+  ];
+
+  const loading = detailQuery.isPending;
 
   // Handlers
-  const handleUpdate = async () => {
-    if (!tenantId) return;
-    setSaving(true);
-    try {
-      await tenantsApi.update(tenantId, editForm);
-      setIsEditModalOpen(false);
-      fetchTenant();
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setSaving(false);
-    }
+  const handleUpdate = (): void => {
+    updateTenant.mutate(editForm, { onSuccess: () => setIsEditModalOpen(false) });
   };
 
-  const handleSuspend = async () => {
-    if (!tenantId) return;
-    setSaving(true);
-    try {
-      await tenantsApi.suspend(tenantId, suspendReason);
-      setIsSuspendModalOpen(false);
-      setSuspendReason('');
-      fetchTenant();
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setSaving(false);
-    }
+  const handleSuspend = (): void => {
+    suspendTenant.mutate(
+      { reason: suspendReason },
+      {
+        onSuccess: () => {
+          setIsSuspendModalOpen(false);
+          setSuspendReason('');
+        },
+      },
+    );
   };
 
-  const handleActivate = async () => {
-    if (!tenantId) return;
-    try {
-      await tenantsApi.activate(tenantId);
-      fetchTenant();
-    } catch (err) {
-      setError((err as Error).message);
-    }
+  const handleActivate = (): void => {
+    activateTenant.mutate();
   };
 
-  const handleAddNote = async () => {
-    if (!tenantId || !newNote.content.trim()) return;
-    setSaving(true);
-    try {
-      await tenantsApi.createNote(tenantId, newNote);
-      setIsNoteModalOpen(false);
-      setNewNote({ content: '', category: 'general' });
-      fetchTenant();
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setSaving(false);
-    }
+  const handleAddNote = (): void => {
+    if (!newNote.content.trim()) return;
+    createNote.mutate(newNote, {
+      onSuccess: () => {
+        setIsNoteModalOpen(false);
+        setNewNote({ content: '', category: 'general' });
+      },
+    });
   };
 
-  const handleDeleteNote = async (noteId: string) => {
-    if (!tenantId) return;
-    try {
-      await tenantsApi.deleteNote(tenantId, noteId);
-      fetchTenant();
-    } catch (err) {
-      setError((err as Error).message);
-    }
+  const handleDeleteNote = (noteId: string): void => {
+    deleteNote.mutate({ noteId });
   };
 
-  const handleAssignModule = async (moduleId: string) => {
-    if (!tenantId) return;
-    try {
-      await modulesApi.assignToTenant(tenantId, moduleId);
-      fetchTenant();
-    } catch (err) {
-      setError((err as Error).message);
-    }
+  const handleAssignModule = (moduleId: string): void => {
+    assignModule.mutate({ moduleId });
   };
 
-  const handleRemoveModule = async (moduleId: string) => {
-    if (!tenantId) return;
-    try {
-      await modulesApi.removeFromTenant(tenantId, moduleId);
-      fetchTenant();
-    } catch (err) {
-      setError((err as Error).message);
-    }
+  const handleRemoveModule = (moduleId: string): void => {
+    removeModule.mutate({ moduleId });
   };
 
   if (loading) {
@@ -319,10 +334,13 @@ const TenantDetailPage: React.FC = () => {
     );
   }
 
-  if (error || !tenant) {
+  if (!tenant) {
     return (
       <Card className="p-6 text-center">
-        <p className="text-red-600">{error || 'Tenant not found'}</p>
+        <QueryFailureNotice errors={queryErrors} hasContent={false} onRetry={reload} />
+        {queryErrors.every((queryError) => !queryError) && (
+          <p className="text-red-600">Tenant not found</p>
+        )}
         <Button variant="outline" onClick={() => navigate('/admin/tenants')} className="mt-4">
           Go Back
         </Button>
@@ -332,6 +350,8 @@ const TenantDetailPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      <QueryFailureNotice errors={queryErrors} hasContent onRetry={reload} />
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-start space-x-4">
@@ -468,25 +488,39 @@ const TenantDetailPage: React.FC = () => {
 
           {/* Quick Stats */}
           <div className="space-y-4">
+            {/* `farmCount` and `sensorCount` are REQUIRED by TenantDetailDto, so
+                the `?? 0` they carried was dead defensive code the compiler
+                already ruled out. `userStats` and `modules` are OPTIONAL, so
+                theirs was the opposite problem: a field the server omitted
+                rendered as a measured zero — "0 users" for a tenant whose user
+                stats simply did not come back. */}
             <Card className="p-4">
               <h4 className="text-sm font-medium text-gray-500 mb-2">Users</h4>
-              <p className="text-3xl font-bold text-gray-900">{tenant.userStats?.total ?? 0}</p>
+              <p className="text-3xl font-bold text-gray-900">
+                {tenant.userStats ? tenant.userStats.total.toLocaleString() : '—'}
+              </p>
               <p className="text-sm text-green-600">
-                {tenant.userStats?.active ?? 0} active
+                {tenant.userStats ? `${tenant.userStats.active.toLocaleString()} active` : ' '}
               </p>
             </Card>
             <Card className="p-4">
               <h4 className="text-sm font-medium text-gray-500 mb-2">Farms</h4>
-              <p className="text-3xl font-bold text-gray-900">{tenant.farmCount ?? 0}</p>
+              <p className="text-3xl font-bold text-gray-900">
+                {tenant.farmCount.toLocaleString()}
+              </p>
             </Card>
             <Card className="p-4">
               <h4 className="text-sm font-medium text-gray-500 mb-2">Sensors</h4>
-              <p className="text-3xl font-bold text-gray-900">{tenant.sensorCount ?? 0}</p>
+              <p className="text-3xl font-bold text-gray-900">
+                {tenant.sensorCount.toLocaleString()}
+              </p>
             </Card>
             <Card className="p-4">
               <h4 className="text-sm font-medium text-gray-500 mb-2">Active Modules</h4>
               <p className="text-3xl font-bold text-gray-900">
-                {tenant.modules?.filter((m) => m.isActive).length ?? 0}
+                {tenant.modules
+                  ? tenant.modules.filter((m) => m.isActive).length.toLocaleString()
+                  : '—'}
               </p>
             </Card>
             <Card className="p-4">

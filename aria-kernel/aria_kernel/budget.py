@@ -538,12 +538,28 @@ def reconcile_envelope_cost(
     return _per_run_append(base_dir, row)
 
 
-def check_remaining_budget(
+def remaining_reservation_budget(
     *,
     reservation_token: str,
     base_dir: str | Path,
 ) -> float:
-    """Reserved - reconciled, for THIS reservation."""
+    """Reserved - reconciled, for THIS reservation.
+
+    RENAMED from ``check_remaining_budget`` on 2026-09-09 (ORPHAN-HIGH-573).
+    This is an accessor, not a safety control: it computes an amount and refuses
+    nothing. The enforcement on this surface is ``_per_run_remaining`` +
+    ``reserve_cycle_budget``, which raise, and ``cost_budget.assert_within_budget``,
+    which is live from ``tools/aria-poc/ci_executor.py``.
+
+    The old name began with ``check_``, one of the eight prefixes
+    ``control_reachability.CONTROL_VERBS`` treats as a safety control, so the
+    gate demanded a production caller for a function whose only legitimate
+    consumer is a test observing reserve/reconcile arithmetic. The waiver that
+    resulted described it as a duplicate of ``assert_within_budget``, which
+    reading the two makes plain it is not — one returns a float, the other
+    raises. Renaming fixes the classification at the source instead of carrying
+    a waiver that says something untrue about the code.
+    """
     reservation = _find_reservation(base_dir, reservation_token)
     if reservation is None:
         raise BudgetReservationMissing(

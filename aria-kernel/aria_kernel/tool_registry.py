@@ -464,9 +464,16 @@ def tools_contract_version(base_dir: str | os.PathLike[str] | None = None) -> in
     return int(identity.get("aria_tools_contract_version") or identity.get("schema_version") or 1)
 
 
-def require_tools_v2(base_dir: str | os.PathLike[str] | None = None) -> None:
-    if tools_contract_version(base_dir) < 2:
-        raise GovernanceError("tools_migration_required")
+# ORPHAN-HIGH-573 — `require_tools_v2` was DELETED here on 2026-09-09.
+#
+# It raised `tools_migration_required` when `tools_contract_version(base_dir) < 2`
+# and had no production caller. It could not have fired on a live path: every one
+# of them resolves the root through `ensure_tools_dir`, which WRITES
+# `"aria_tools_contract_version": 2` and calls `sync_tools_contract(root)` before
+# returning (536 production callsites). A check whose precondition the only route
+# to it has already established is not a guard; it is a restatement.
+#
+# See docs/aria/SAFETY-CONTROL-WIRING-LEDGER.md for the disposition rules.
 
 
 # The four surfaces every tools root has from its first cycle. They stay

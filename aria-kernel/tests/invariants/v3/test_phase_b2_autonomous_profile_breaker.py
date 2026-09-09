@@ -546,14 +546,21 @@ class PhaseB2AutonomousProfileBreaker(unittest.TestCase):
         rather than appending onto corruption. Both halves are asserted
         here so neither can regress into silence.
         """
+        # ORPHAN-HIGH-573 — this probed the read path through
+        # `assert_within_breaker`, a raising wrapper with no production caller
+        # that was deleted on 2026-09-09. `evaluate_breaker` is what it wrapped
+        # and what the live consumer (`auto_action_gate`, via `current_state`)
+        # reads, so the assertion moves down one layer to the verdict itself and
+        # keeps naming the cause. The refusal built on this verdict is covered by
+        # the sibling test below, `..._25i_unreadable_safety_signal_...`.
         from aria_kernel.circuit_breaker import (
             BREAKER_REASON_EVIDENCE_INCOMPLETE,
+            BREAKER_STATE_TRIPPED,
             _failures_path,
-            assert_within_breaker,
+            evaluate_breaker,
             record_failure,
         )
         from aria_kernel.ledger import LedgerIntegrityError
-        from aria_kernel.tool_registry import GovernanceError
 
         with tempfile.TemporaryDirectory(prefix="aria-i-v3-25h-") as tmp:
             base = Path(tmp) / "aria-tools"
@@ -563,7 +570,7 @@ class PhaseB2AutonomousProfileBreaker(unittest.TestCase):
                 materialize_event_id="evt-damage-first",
             )
             # One real failure, threshold 5 → entry is allowed.
-            self.assertEqual(assert_within_breaker(base)["state"], "ok")
+            self.assertEqual(evaluate_breaker(base).state, "ok")
             # Simulate a crash mid-append / truncated artifact restore.
             path = _failures_path(base)
             path.write_text(path.read_text(encoding="utf-8") + "{truncated\n")
@@ -573,11 +580,12 @@ class PhaseB2AutonomousProfileBreaker(unittest.TestCase):
                     base_dir=base, kind="ci_red",
                     materialize_event_id="evt-damage-second",
                 )
-            # Read path: refuses autonomous entry, naming the real cause
-            # rather than reporting one failure against a threshold of 5.
-            with self.assertRaises(GovernanceError) as ctx:
-                assert_within_breaker(base)
-            self.assertIn(BREAKER_REASON_EVIDENCE_INCOMPLETE, str(ctx.exception))
+            # Read path: trips, naming the real cause rather than reporting one
+            # failure against a threshold of 5. `auto_action_gate` turns this
+            # verdict into the refusal (and reads it fail-closed, per 25i).
+            damaged = evaluate_breaker(base)
+            self.assertEqual(damaged.state, BREAKER_STATE_TRIPPED)
+            self.assertIn(BREAKER_REASON_EVIDENCE_INCOMPLETE, str(damaged.reason))
 
     def test_i_v3_25i_unreadable_safety_signal_requires_operator_ack(self) -> None:
         """auto_action_gate must not read an exception as ``ok``."""

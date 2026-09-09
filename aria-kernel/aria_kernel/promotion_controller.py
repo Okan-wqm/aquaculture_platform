@@ -6,8 +6,9 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from .ledger import append_declared_jsonl
+from .ledger import append_declared_jsonl, read_jsonl
 from .mission import assert_wip_available, bind_mission, fold_mission
+from .oscillation_guard import guard_fix_dispatch
 from .plan_convergence import plan_status
 from .runtime_artifacts import ARTIFACT_BEARING, classify_cycle_evidence, verify_runtime_artifacts
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_binding, utc_now
@@ -70,6 +71,34 @@ def promote_converged_plan_to_dispatch(
             fold_mission(mission_id=mission_id, base_dir=root)
         except GovernanceError:
             blockers.append("unknown_mission")
+
+    # ORPHAN-MEDIUM-808 — the oscillation guard's DECIDER, at the mutation
+    # throat its own docstring names ("the autonomous fix dispatcher calls it
+    # before acting").
+    #
+    # `memory` has been incrementing the reopen counter on every belief whose
+    # evidence broke since Plan 031 Gate B, and nothing consulted it: ARIA could
+    # promote a fix for the same ping-ponging belief without limit. The counter
+    # only became safe to read once the reset half was wired — a monotonic
+    # streak would have refused the first belief to break three times over the
+    # repo's whole life, permanently.
+    #
+    # `guard_fix_dispatch` owns the threshold, the HUMAN_REQUIRED escalation and
+    # the governance event; calling it here rather than re-testing the streak
+    # keeps one decider. It raises at the threshold, which is caught and turned
+    # into a blocker so this refusal joins the others instead of pre-empting
+    # them — a promotion refused for four reasons must report four.
+    oscillation_fingerprint = _oscillation_fingerprint(paths, pressure_event_id)
+    if oscillation_fingerprint is not None:
+        try:
+            guard_fix_dispatch(
+                fingerprint=oscillation_fingerprint,
+                cycle_id=cycle_id,
+                base_dir=root,
+                context={"plan_id": plan_id, "pressure_event_id": pressure_event_id},
+            )
+        except GovernanceError:
+            blockers.append("oscillating_fingerprint")
 
     state = plan_status(plan_id=plan_id, base_dir=root)
     if state.get("state") != "CONVERGED":
@@ -184,6 +213,34 @@ def promote_converged_plan_to_dispatch(
         },
     )
     return stored
+
+
+def _oscillation_fingerprint(
+    paths: WorkspacePaths, pressure_event_id: str | None
+) -> str | None:
+    """The oscillation key for the belief this promotion is acting on, or None.
+
+    Reads the RAW pressure ledger rather than `effective_workspace_pressures`,
+    deliberately: the effective view filters by decay, and a pressure that has
+    decayed out is still the pressure this plan was written for. Asking the
+    decayed view would silently skip the guard for exactly the long-running
+    ping-pong it exists to catch.
+
+    Returns None for a promotion with no pressure (an operator promotion has no
+    reopen history to consult) and for a pressure with no `belief_id` — the
+    counter's key space holds only `belief:<id>` today, so a tool-derived
+    pressure has nothing to look up. Both are absences of a question, not
+    permission to skip an answer.
+    """
+    if not pressure_event_id:
+        return None
+    for row in read_jsonl(paths.ledgers["pressure"]):
+        row_id = str(row.get("event_id") or row.get("pressure_id") or "")
+        if row_id != pressure_event_id:
+            continue
+        belief_id = row.get("belief_id")
+        return f"belief:{belief_id}" if belief_id else None
+    return None
 
 
 def _converged_plan_hash(state: dict[str, Any]) -> str | None:

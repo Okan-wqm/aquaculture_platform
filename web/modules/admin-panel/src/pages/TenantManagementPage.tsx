@@ -3,7 +3,7 @@
  * SUPER_ADMIN icin tenant yonetimi
  */
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Card,
@@ -25,20 +25,19 @@ import {
   TenantStatus,
 } from '../services/adminApi';
 import { expectedTotalPages } from '@platform/pagination-contracts';
+import { adminKeys, useAdminMutation, useAdminQuery } from '../hooks';
+import { QueryFailureNotice } from '../components/QueryFailureNotice';
 
 // ============================================================================
 // Tenant Management Page
 // ============================================================================
 
+const PAGE_SIZE = 20;
+
 const TenantManagementPage: React.FC = () => {
   const navigate = useNavigate();
-  const [tenants, setTenants] = useState<readonly Tenant[]>([]);
-  const [stats, setStats] = useState<TenantStats | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [totalTenants, setTotalTenants] = useState(0);
+
   const [page, setPage] = useState(1);
-  const [limit] = useState(20);
 
   // Filters
   const [searchTerm, setSearchTerm] = useState('');
@@ -58,78 +57,101 @@ const TenantManagementPage: React.FC = () => {
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [selectedTenant, setSelectedTenant] = useState<Tenant | null>(null);
 
-  // Bulk operation state
-  const [saving, setSaving] = useState(false);
-  const tenantRequestSeq = useRef(0);
+  // ==========================================================================
+  // Reads (ADMIN-HIGH-121)
+  // ==========================================================================
 
-  // Fetch tenants
-  const fetchTenants = useCallback(async () => {
-    const requestId = tenantRequestSeq.current + 1;
-    tenantRequestSeq.current = requestId;
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await tenantsApi.list({
-        search: searchTerm || undefined,
-        status: statusFilter || undefined,
-        tier: tierFilter || undefined,
-        page,
-        limit,
-      });
-      if (tenantRequestSeq.current === requestId) {
-        setTenants(result.data);
-        setTotalTenants(result.total);
-      }
-    } catch (err) {
-      if (tenantRequestSeq.current !== requestId) return;
-      console.error('Failed to fetch tenants:', err);
-      setTenants([]);
-      setTotalTenants(0);
-      setError('Failed to load tenants. Please try again.');
-    } finally {
-      if (tenantRequestSeq.current === requestId) {
-        setLoading(false);
-      }
-    }
-  }, [searchTerm, statusFilter, tierFilter, page, limit]);
+  const listFilters = {
+    search: searchTerm || undefined,
+    status: statusFilter || undefined,
+    tier: tierFilter || undefined,
+    page,
+    limit: PAGE_SIZE,
+  };
 
-  // Cache stats — they're aggregate values, only fetch once per session (PERF-009)
-  const statsCacheRef = useRef<{
-    data: ReturnType<typeof tenantsApi.getStats> extends Promise<infer U> ? U : never;
-    fetchedAt: number;
-  } | null>(null);
-  const STATS_CACHE_TTL = 2 * 60 * 1000; // 2 minutes
+  // The filters are IN the key, so React Query keeps one entry per filter
+  // combination and cancels the request for a combination the operator has
+  // already moved off. The page used to do that itself with a
+  // `tenantRequestSeq` ref counter compared inside every `then`/`catch` — a
+  // hand-rolled race guard for exactly the problem the `signal` solves.
+  const tenantsQuery = useAdminQuery(adminKeys.tenants.list(listFilters), ({ signal }) =>
+    tenantsApi.list(listFilters, signal),
+  );
 
-  const fetchInitialData = useCallback(async () => {
-    try {
-      const now = Date.now();
-      if (statsCacheRef.current && now - statsCacheRef.current.fetchedAt < STATS_CACHE_TTL) {
-        setStats(statsCacheRef.current.data);
-        return;
-      }
-      const statsResult = await tenantsApi.getStats();
-      statsCacheRef.current = { data: statsResult, fetchedAt: Date.now() };
-      setStats(statsResult);
-    } catch (err) {
-      console.error('Failed to fetch stats:', err);
-      setStats(null);
-    }
-  }, []);
+  // The four cards were cached in a `useRef` under a two-minute TTL and
+  // invalidated by hand — `statsCacheRef.current = null` repeated in FIVE write
+  // handlers. A sixth write would have forgotten, and the cards would have
+  // shown the tenant estate as it was up to two minutes before the operator
+  // suspended someone. `invalidateKeys` makes the refresh part of the write.
+  const statsQuery = useAdminQuery(adminKeys.tenants.stats(), ({ signal }) =>
+    tenantsApi.getStats(signal),
+  );
 
-  useEffect(() => {
-    fetchTenants();
-  }, [fetchTenants]);
+  const tenants = tenantsQuery.data?.data ?? [];
+  const matchingTenants = tenantsQuery.data?.total ?? 0;
+  const stats = statsQuery.data;
 
-  useEffect(() => {
-    fetchInitialData();
-  }, [fetchInitialData]);
+  const reload = (): void => {
+    void tenantsQuery.refetch();
+    void statsQuery.refetch();
+  };
+
+  // ==========================================================================
+  // Writes (ADMIN-HIGH-121)
+  // ==========================================================================
+
+  // Every tenant write moves a row between statuses, so each one invalidates
+  // BOTH the list it appears in and the counts above it. That pairing lives
+  // here, once, instead of in each handler's tail.
+  const tenantWriteKeys = [adminKeys.tenants.all()];
+
+  const activateTenant = useAdminMutation<Tenant, { id: string }>(
+    ({ id }) => tenantsApi.activate(id),
+    { invalidateKeys: tenantWriteKeys },
+  );
+
+  const suspendTenant = useAdminMutation<Tenant, { id: string; reason: string }>(
+    ({ id, reason }) => tenantsApi.suspend(id, reason),
+    { invalidateKeys: tenantWriteKeys },
+  );
+
+  const bulkSuspend = useAdminMutation<
+    { success: string[]; failed: string[] },
+    { ids: string[]; reason: string }
+  >(({ ids, reason }) => tenantsApi.bulkSuspend(ids, reason), {
+    invalidateKeys: tenantWriteKeys,
+  });
+
+  const bulkActivate = useAdminMutation<{ success: string[]; failed: string[] }, { ids: string[] }>(
+    ({ ids }) => tenantsApi.bulkActivate(ids),
+    { invalidateKeys: tenantWriteKeys },
+  );
+
+  const saving = bulkSuspend.isPending || bulkActivate.isPending;
+
+  const queryErrors = [
+    tenantsQuery.error,
+    statsQuery.error,
+    activateTenant.error,
+    suspendTenant.error,
+    bulkSuspend.error,
+    bulkActivate.error,
+  ];
+
+  // A bulk endpoint answers 200 with the ids it could NOT change. Reporting
+  // only the transport failure would leave an operator believing every
+  // selected tenant was suspended when some were refused.
+  const bulkRejections = [
+    ...(bulkSuspend.data?.failed ?? []),
+    ...(bulkActivate.data?.failed ?? []),
+  ];
 
   useEffect(() => {
     setSelectedIds(new Set());
   }, [searchTerm, statusFilter, tierFilter, page]);
 
   // Handle suspend/activate
-  const handleToggleStatus = async (tenant: Tenant, action: 'suspend' | 'activate') => {
+  const handleToggleStatus = (tenant: Tenant, action: 'suspend' | 'activate'): void => {
     if (action === 'suspend') {
       // Require operator to provide a reason — open reason modal
       setTenantToSuspend(tenant);
@@ -137,29 +159,21 @@ const TenantManagementPage: React.FC = () => {
       setIsSuspendReasonModalOpen(true);
       return;
     }
-    try {
-      await tenantsApi.activate(tenant.id);
-      statsCacheRef.current = null;
-      fetchTenants();
-      fetchInitialData();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Operation failed');
-    }
+    activateTenant.mutate({ id: tenant.id });
   };
 
-  const handleConfirmSuspend = async () => {
+  const handleConfirmSuspend = (): void => {
     if (!tenantToSuspend || !suspendReason.trim()) return;
-    try {
-      await tenantsApi.suspend(tenantToSuspend.id, suspendReason.trim());
-      statsCacheRef.current = null;
-      setIsSuspendReasonModalOpen(false);
-      setTenantToSuspend(null);
-      setSuspendReason('');
-      fetchTenants();
-      fetchInitialData();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Suspend operation failed');
-    }
+    suspendTenant.mutate(
+      { id: tenantToSuspend.id, reason: suspendReason.trim() },
+      {
+        onSuccess: () => {
+          setIsSuspendReasonModalOpen(false);
+          setTenantToSuspend(null);
+          setSuspendReason('');
+        },
+      },
+    );
   };
 
   // Bulk operations
@@ -183,22 +197,18 @@ const TenantManagementPage: React.FC = () => {
     }
   };
 
-  const handleBulkSuspend = async () => {
+  const handleBulkSuspend = (): void => {
     if (selectedIds.size === 0 || !bulkSuspendReason.trim()) return;
-    setSaving(true);
-    try {
-      await tenantsApi.bulkSuspend(Array.from(selectedIds), bulkSuspendReason);
-      statsCacheRef.current = null;
-      setIsBulkSuspendModalOpen(false);
-      setBulkSuspendReason('');
-      setSelectedIds(new Set());
-      fetchTenants();
-      fetchInitialData();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Bulk suspension failed');
-    } finally {
-      setSaving(false);
-    }
+    bulkSuspend.mutate(
+      { ids: Array.from(selectedIds), reason: bulkSuspendReason },
+      {
+        onSuccess: () => {
+          setIsBulkSuspendModalOpen(false);
+          setBulkSuspendReason('');
+          setSelectedIds(new Set());
+        },
+      },
+    );
   };
 
   const handleBulkActivate = () => {
@@ -206,20 +216,16 @@ const TenantManagementPage: React.FC = () => {
     setIsBulkActivateModalOpen(true);
   };
 
-  const handleConfirmBulkActivate = async () => {
-    setSaving(true);
-    try {
-      await tenantsApi.bulkActivate(Array.from(selectedIds));
-      statsCacheRef.current = null;
-      setIsBulkActivateModalOpen(false);
-      setSelectedIds(new Set());
-      fetchTenants();
-      fetchInitialData();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Bulk activation failed');
-    } finally {
-      setSaving(false);
-    }
+  const handleConfirmBulkActivate = (): void => {
+    bulkActivate.mutate(
+      { ids: Array.from(selectedIds) },
+      {
+        onSuccess: () => {
+          setIsBulkActivateModalOpen(false);
+          setSelectedIds(new Set());
+        },
+      },
+    );
   };
 
   const getStatusVariant = (
@@ -331,7 +337,14 @@ const TenantManagementPage: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Tenant Management</h1>
-          <p className="mt-1 text-sm text-gray-500">Total {totalTenants} tenants</p>
+          {/* The FILTERED result total, so it is labelled as one. It sat here
+              as "Total N tenants" beside a "Total" card holding the platform
+              figure, and with a status filter applied the two disagreed by
+              design while both claimed to be the total. */}
+          <p className="mt-1 text-sm text-gray-500">
+            {matchingTenants.toLocaleString()} tenant
+            {matchingTenants === 1 ? '' : 's'} match
+          </p>
         </div>
         <div className="mt-4 sm:mt-0 flex flex-wrap gap-2">
           {selectedIds.size > 0 && (
@@ -352,39 +365,50 @@ const TenantManagementPage: React.FC = () => {
               )}
             </>
           )}
-          <Button variant="outline" onClick={fetchTenants} disabled={loading}>
+          <Button variant="outline" onClick={reload} disabled={tenantsQuery.isFetching}>
             Refresh
           </Button>
         </div>
       </div>
 
-      {error && (
-        <Alert type="error" dismissible onDismiss={() => setError(null)}>
-          {error}
+      <QueryFailureNotice errors={queryErrors} hasContent={tenants.length > 0} onRetry={reload} />
+
+      {bulkRejections.length > 0 && (
+        <Alert type="warning">
+          The server refused {bulkRejections.length} of the selected tenants:{' '}
+          {bulkRejections.join(', ')}
         </Alert>
       )}
 
-      {/* Stats */}
-      {stats && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <Card className="p-4">
-            <p className="text-sm text-gray-500">Total</p>
-            <p className="text-2xl font-bold text-gray-900">{stats.totalTenants}</p>
-          </Card>
-          <Card className="p-4">
-            <p className="text-sm text-gray-500">Active</p>
-            <p className="text-2xl font-bold text-green-600">{stats.activeTenants}</p>
-          </Card>
-          <Card className="p-4">
-            <p className="text-sm text-gray-500">Pending</p>
-            <p className="text-2xl font-bold text-yellow-600">{stats.pendingTenants}</p>
-          </Card>
-          <Card className="p-4">
-            <p className="text-sm text-gray-500">Suspended</p>
-            <p className="text-2xl font-bold text-red-600">{stats.suspendedTenants}</p>
-          </Card>
-        </div>
-      )}
+      {/* Platform-wide counts from the server's aggregate — an em dash when it
+          has not loaded, never a zero, and never the filtered page's own
+          arithmetic. */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <Card className="p-4">
+          <p className="text-sm text-gray-500">Total</p>
+          <p className="text-2xl font-bold text-gray-900">
+            {stats ? stats.totalTenants.toLocaleString() : '—'}
+          </p>
+        </Card>
+        <Card className="p-4">
+          <p className="text-sm text-gray-500">Active</p>
+          <p className="text-2xl font-bold text-green-600">
+            {stats ? stats.activeTenants.toLocaleString() : '—'}
+          </p>
+        </Card>
+        <Card className="p-4">
+          <p className="text-sm text-gray-500">Pending</p>
+          <p className="text-2xl font-bold text-yellow-600">
+            {stats ? stats.pendingTenants.toLocaleString() : '—'}
+          </p>
+        </Card>
+        <Card className="p-4">
+          <p className="text-sm text-gray-500">Suspended</p>
+          <p className="text-2xl font-bold text-red-600">
+            {stats ? stats.suspendedTenants.toLocaleString() : '—'}
+          </p>
+        </Card>
+      </div>
 
       {/* Filters */}
       <Card className="p-4">
@@ -449,7 +473,7 @@ const TenantManagementPage: React.FC = () => {
       </Card>
 
       {/* Table */}
-      {loading ? (
+      {tenantsQuery.isPending ? (
         <div className="text-center py-8">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto"></div>
           <p className="mt-2 text-gray-500">Loading...</p>
@@ -464,7 +488,7 @@ const TenantManagementPage: React.FC = () => {
       )}
 
       {/* Pagination */}
-      {totalTenants > limit && (
+      {matchingTenants > PAGE_SIZE && (
         <div className="flex justify-center space-x-2">
           <Button
             variant="outline"
@@ -475,12 +499,12 @@ const TenantManagementPage: React.FC = () => {
             Previous
           </Button>
           <span className="py-2 px-4 text-sm text-gray-600">
-            Page {page} / {expectedTotalPages(totalTenants, limit)}
+            Page {page} / {expectedTotalPages(matchingTenants, PAGE_SIZE)}
           </span>
           <Button
             variant="outline"
             size="sm"
-            disabled={page >= expectedTotalPages(totalTenants, limit)}
+            disabled={page >= expectedTotalPages(matchingTenants, PAGE_SIZE)}
             onClick={() => setPage(page + 1)}
           >
             Next

@@ -6,7 +6,13 @@
  * responses) or as a model (typing the DTOs), never as both, so a DTO declared
  * beside its routes costs the whole file's response schemas.
  */
-import { TenantParam, TenantIdCarrier } from '@aquaculture/backend-common/decorators';
+import {
+  INVITABLE_ROLES,
+  PLATFORM_ROLES,
+  Role,
+  TenantIdCarrier,
+  TenantParam,
+} from '@aquaculture/backend-common/decorators';
 import { Query } from '@nestjs/common';
 import { PLATFORM_CAPABILITIES, type PlatformCapability } from '@platform/event-contracts';
 import { Type } from 'class-transformer';
@@ -90,10 +96,8 @@ export class CreateUserDto {
   password!: string;
 
   @IsString()
-  @IsEnum(['SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER'], {
-    message: 'Invalid role',
-  })
-  role!: string;
+  @IsEnum(PLATFORM_ROLES, { message: 'Invalid role' })
+  role!: Role;
 }
 
 export class UpdateUserDto {
@@ -115,10 +119,8 @@ export class UpdateUserDto {
 
   @IsOptional()
   @IsString()
-  @IsEnum(['SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER'], {
-    message: 'Invalid role',
-  })
-  role?: string;
+  @IsEnum(PLATFORM_ROLES, { message: 'Invalid role' })
+  role?: Role;
 
   @IsOptional()
   @IsBoolean()
@@ -145,10 +147,8 @@ export class InviteUserRequestDto {
   lastName?: string;
 
   @IsString()
-  @IsEnum(['TENANT_ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER'], {
-    message: 'Invalid role for invitation',
-  })
-  role!: string;
+  @IsEnum(INVITABLE_ROLES, { message: 'Invalid role for invitation' })
+  role!: Role;
 
   @IsOptional()
   @IsArray()
@@ -173,8 +173,8 @@ export class ListUsersQueryDto {
 
   @IsOptional()
   @IsString()
-  @IsEnum(['SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER'])
-  role?: string;
+  @IsEnum(PLATFORM_ROLES)
+  role?: Role;
 
   @IsOptional()
   @IsEnum(['active', 'inactive', 'all'])

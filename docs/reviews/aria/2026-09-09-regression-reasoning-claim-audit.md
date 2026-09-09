@@ -38,9 +38,9 @@ the graph cannot be trusted.
 
 ### 2. "The code examines upstream foundational layers first" — DOĞRU, near-verbatim
 
-`impact_graph.py:97-105`: *"Order projects so each is examined AFTER its
+`impact_graph.py:97-105`: _"Order projects so each is examined AFTER its
 dependencies (upstream foundational layers first) … `layer` is the topological
-depth."* The order is cached by graph fingerprint (`:216`) and the ripple is
+depth."_ The order is cached by graph fingerprint (`:216`) and the ripple is
 presented in dependency order so examination walks upstream-before-downstream
 (`:259-262`, `:286`).
 
@@ -118,8 +118,8 @@ readers").
 LEDGERS, and `emit_change_outcome` **refuses** any reading whose sources are
 not in `LEDGER_EVIDENCE_SOURCES` — the surfaces that record an execution or an
 event after the fact. `proposals` is a declared ledger and is deliberately
-inadmissible, because *"a system that graded its own homework from its own
-claim would produce a ledger of confirmations and learn nothing."*
+inadmissible, because _"a system that graded its own homework from its own
+claim would produce a ledger of confirmations and learn nothing."_
 
 That is the correct principle, already enforced in code. The gap is not the
 rule; it is that the organ reports having fired zero times — the module's own

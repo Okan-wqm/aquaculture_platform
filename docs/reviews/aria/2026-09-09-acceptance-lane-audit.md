@@ -5,7 +5,7 @@
 - Trigger: adversarial re-validation of an operator claim about ARIA's maturity
 - Method: every claim executed against the repo, never read off a document
 
-`tools/aria-acceptance/harness.py` is, by its own docstring, "the *truth layer*
+`tools/aria-acceptance/harness.py` is, by its own docstring, "the _truth layer_
 of the acceptance lane — its pass/fail verdict is a deterministic assertion
 against repo evidence, never an LLM opinion." It is the only instrument that
 audits ARIA from outside ARIA.
@@ -25,10 +25,10 @@ Claims in this document were produced by execution, not by reading. Two
 hypotheses were tested and REJECTED, and are recorded so the negative results
 are not re-derived later:
 
-- *"The `agent-harness-security-adapter` has no implementation"* — false. It is
+- _"The `agent-harness-security-adapter` has no implementation"_ — false. It is
   implemented in Python at `tools/aria-poc/agent_harness_security_adapter.py`;
   the absent `.ts` sibling is a language choice, not a gap.
-- *"`aria-tools/registry.json` is missing"* — false. It is gitignored
+- _"`aria-tools/registry.json` is missing"_ — false. It is gitignored
   (`.gitignore:249`) runtime state, absent from a fresh clone by design.
 
 One prior claim by this reviewer was also withdrawn: the acceptance lane's
@@ -52,8 +52,8 @@ debt-plan contract exists to refuse, reproduced inside the instrument that
 polices it.
 
 **Why it stayed invisible.** One `passed` flag answered two different questions:
-*did ARIA cite evidence that resolves* (integrity) and *did ARIA emit anything
-to check* (sample size). Collapsed, the second question had no way to be heard.
+_did ARIA cite evidence that resolves_ (integrity) and _did ARIA emit anything
+to check_ (sample size). Collapsed, the second question had no way to be heard.
 
 Worse, the scan was narrower than the artifact. `poc.py` on this repo emits four
 signals — two in `drifts_filtered_below_threshold`, two in
@@ -135,7 +135,7 @@ precisely the test that would have caught `ARIA-HIGH-041` on the day it was
 written.
 
 The file's own docstring, in the class the misplaced `unittest.main()` hid,
-reads: *"A measurement nobody can read later is a claim, not a measurement."*
+reads: _"A measurement nobody can read later is a claim, not a measurement."_
 
 **Fix.** Assertions restored to their method, `unittest.main()` moved to the end
 of the file. Collection goes from 0 to 12 tests (9 restored, 3 added), all

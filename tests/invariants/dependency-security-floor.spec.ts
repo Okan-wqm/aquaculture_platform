@@ -255,6 +255,36 @@ function comparable(version: string): number {
 
 describe('JavaScript dependency security floor', () => {
   test.each([
+    ['multer', '2.3.0'],
+    ['hono', '4.13.5'],
+    ['nodemailer', '9.1.1'],
+    ['sharp', '0.35.4'],
+    ['svgo', '3.3.5'],
+  ])('keeps every resolved %s above its September security floor', (dependency, floor) => {
+    const versions = resolvedVersions(readJson<Lockfile>('package-lock.json'), dependency);
+    expect(versions.length).toBeGreaterThan(0);
+    for (const version of versions) {
+      expect({ dependency, version, safe: comparable(version) >= comparable(floor) }).toEqual({
+        dependency,
+        version,
+        safe: true,
+      });
+    }
+  });
+
+  test('keeps both js-yaml major lines above the merge-key CPU security fix', () => {
+    const versions = resolvedVersions(readJson<Lockfile>('package-lock.json'), 'js-yaml');
+    expect(versions.length).toBeGreaterThan(0);
+    for (const version of versions) {
+      const floor = version.startsWith('3.') ? '3.15.2' : '4.3.2';
+      expect({ version, safe: comparable(version) >= comparable(floor) }).toEqual({
+        version,
+        safe: true,
+      });
+    }
+  });
+
+  test.each([
     ['optionalDependencies', { optionalDependencies: { vitest: '^3.2.7' } }],
     ['peerDependencies', { peerDependencies: { vitest: '^3.2.7' } }],
   ] as const)('dependency discovery includes %s declarations', (_field, manifest) => {

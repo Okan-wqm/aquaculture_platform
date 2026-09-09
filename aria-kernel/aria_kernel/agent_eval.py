@@ -42,12 +42,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from .artifact_safety import assert_real_mode_env_safe
 from .ledger import append_declared_jsonl, load_declared_jsonl
 from .ledger_refs import find_row_by_source_ledger_ref
 from .runtime_profile import enforce_profile_for_write
@@ -312,6 +314,20 @@ def run_agent_eval(
         envelope = _mock_response_envelope(fixture)
         kind = "agent_eval_run_mock_only"
     else:
+        # ORPHAN-HIGH-573 — the real-mode ENVIRONMENT precondition, first,
+        # because an unsafe debugger environment must be refused before this
+        # run starts reading ledgers and binding provenance to it.
+        #
+        # `assert_real_mode_env_safe` shipped with `artifact_safety` and was
+        # never called from anywhere. Its waiver was corrected on 2026-08-06
+        # after someone re-read this file: the original claimed the mode it
+        # protects is unreachable because `run_agent_eval` defaults to
+        # `mock_mode=True`, and that is false — `eval-run --no-mock-mode`
+        # plus `--real-envelope-file` reaches here today (cli.py:1103-1106,
+        # cli.py:3719). It was an unguarded LIVE path, not a dormant future
+        # one; bounded only because the flag is operator-typed rather than
+        # scheduled.
+        assert_real_mode_env_safe(dict(os.environ))
         if real_response_envelope is None:
             raise GovernanceError(
                 "mock_mode=False requires real_response_envelope from operator-"

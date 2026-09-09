@@ -277,21 +277,66 @@ independent confirmation that `guard_fix_dispatch` is genuinely reachable now.
 
 ---
 
+## 2026-09-09 — `ORPHAN-HIGH-573`, the real-mode environment guard
+
+Commit: `fix(aria): real-mode eval ran without its own environment precondition`
+
+### Before
+
+`artifact_safety.assert_real_mode_env_safe(env)` refuses a real-mode run when any
+name in `FORBIDDEN_REAL_MODE_ENV` (today: `CODEX_OSS_DEBUG`) is set to `"1"`. It
+had **zero callers anywhere** — only its definition and its `__all__` entry.
+
+Its waiver carried a `CORRECTED 2026-08-06` note, which re-reading the CLI
+confirmed is still accurate: the _original_ waiver claimed the mode is
+unreachable because `run_agent_eval` defaults to `mock_mode=True`. False.
+`eval-run --no-mock-mode` is registered (`cli.py:1105`), needs only
+`--real-envelope-file` beside it (`cli.py:1103`), and `cli.py:3719` computes
+`mock_mode = not args.no_mock_mode`. An unguarded **live** path, not a dormant
+future one — bounded because the flag is operator-typed rather than scheduled,
+which is why it stayed MEDIUM.
+
+### Wired
+
+`agent_eval.run_agent_eval`, as the **first** statement of the `else:` (real-mode)
+branch, ahead of the provenance preconditions:
+
+```python
+assert_real_mode_env_safe(dict(os.environ))
+```
+
+Order is the substance, not the placement detail. Without it the first refusal a
+caller sees is `mock_mode=False requires real_response_envelope` — proven by the
+negative control, which produced exactly that error — meaning the run has already
+begun reading ledgers and binding an invocation under the debugger environment
+the guard exists to keep it out of.
+
+Note that `enforce_profile_for_write` and `_read_fixture` still run before the
+branch. That is correct: reading a fixture is not the hazard; _running real mode_
+is.
+
+### Verification
+
+4 tests in `tests/test_real_mode_env_guard.py`, including one pinning the
+ordering and one pinning the blast radius (mock mode completes normally with the
+variable set, so wiring this cannot break a scheduled lane). Negative control
+run. 41 tests green across the eval modules. Waiver removed; expired waivers
+10 → 7 cumulative with the oscillation work.
+
 ## Open items a future reader should not re-derive
 
 Measured 2026-09-09; check them before acting, they may have moved.
 
-| Control                     | Disposition         | Why                                                                                                                                                                                                                                  |
-| --------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `assert_real_mode_env_safe` | **wire**            | Genuinely unguarded live path. `eval-run --no-mock-mode --real-envelope-file` is reachable (`cli.py:1103-1106`, `cli.py:3719`) and the guard has zero callers. One env var (`CODEX_OSS_DEBUG=1`), operator-typed, so MEDIUM not HIGH |
-| `assert_within_breaker`     | **delete**          | `_cycle_preflight` already reads the breaker                                                                                                                                                                                         |
-| `check_remaining_budget`    | **delete**          | Same surface as `assert_within_budget`                                                                                                                                                                                               |
-| `require_tools_v2`          | **delete**          | Every live path resolves through `ensure_tools_dir`                                                                                                                                                                                  |
-| `verify_claim_disjointness` | **delete**          | `verify_principal_disjointness` is the live independence pass, reached from `human_required_adjudication.py:364`                                                                                                                     |
-| `verify_workflow_registry`  | **delete**          | The equivalent assertion runs in CI as a TypeScript invariant — pick one lane, not two                                                                                                                                               |
-| `validate_request`          | **reconcile first** | `ORPHAN-MEDIUM-572`. No producer mints `aria/agent-request/v1`; live dispatch mints `aria/agent-invocation-request/v1`. Its sibling `validate_response` has 11 callsites. Reconcile the vocabulary before anything enforces it       |
-| `validate_file`             | **verb or delete**  | Operator CLI surface with no CLI verb attached                                                                                                                                                                                       |
-| `verify_branch_tip`         | keep (in date)      | `merge_pr_if_ready` does its own inline head-SHA comparison; PLAN Wave 8 collapses the two                                                                                                                                           |
+| Control                     | Disposition         | Why                                                                                                                                                                                                                            |
+| --------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `assert_within_breaker`     | **delete**          | `_cycle_preflight` already reads the breaker                                                                                                                                                                                   |
+| `check_remaining_budget`    | **delete**          | Same surface as `assert_within_budget`                                                                                                                                                                                         |
+| `require_tools_v2`          | **delete**          | Every live path resolves through `ensure_tools_dir`                                                                                                                                                                            |
+| `verify_claim_disjointness` | **delete**          | `verify_principal_disjointness` is the live independence pass, reached from `human_required_adjudication.py:364`                                                                                                               |
+| `verify_workflow_registry`  | **delete**          | The equivalent assertion runs in CI as a TypeScript invariant — pick one lane, not two                                                                                                                                         |
+| `validate_request`          | **reconcile first** | `ORPHAN-MEDIUM-572`. No producer mints `aria/agent-request/v1`; live dispatch mints `aria/agent-invocation-request/v1`. Its sibling `validate_response` has 11 callsites. Reconcile the vocabulary before anything enforces it |
+| `validate_file`             | **verb or delete**  | Operator CLI surface with no CLI verb attached                                                                                                                                                                                 |
+| `verify_branch_tip`         | keep (in date)      | `merge_pr_if_ready` does its own inline head-SHA comparison; PLAN Wave 8 collapses the two                                                                                                                                     |
 
 The five **delete** rows are the point worth carrying forward: at this stage of
 ARIA's life the healthy move on a dormant safety control is usually _removal_,

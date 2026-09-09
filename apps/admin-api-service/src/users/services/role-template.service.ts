@@ -1,3 +1,4 @@
+import { Role } from '@aquaculture/backend-common/decorators';
 import { Injectable } from '@nestjs/common';
 
 /**
@@ -14,7 +15,16 @@ export interface Permission {
  * Role template definition
  */
 export interface RoleTemplate {
-  code: string;
+  /**
+   * The platform role this template describes.
+   *
+   * Typed `Role`, not `string`: the catalogue published a template with code
+   * `OPERATOR` — a role the platform does not define and no guard, hierarchy
+   * or DTO recognises — and the admin-panel's invite form rendered it as a
+   * choice (ADMIN-CRITICAL-133). A `string` here let that sit for as long as
+   * nobody picked it.
+   */
+  code: Role;
   name: string;
   description: string;
   level: number; // Higher = more permissions
@@ -98,10 +108,20 @@ export class RoleTemplateService {
     { code: 'api:manage', name: 'Manage API Keys', description: 'Create and manage API keys', category: 'API' },
   ];
 
-  // System role templates
+  /**
+   * The role templates the platform publishes — one per `Role`, no more.
+   *
+   * Two extra templates lived here, `SUPERVISOR` and `OPERATOR`, the only two
+   * marked `isSystem: false`. Neither names a `Role`, so no guard ranked them,
+   * no hierarchy inherited from them and every DTO rejected them — yet the
+   * admin-panel's invite form listed both as choices, because it renders
+   * whatever this catalogue returns. Picking either produced a 400 the operator
+   * had no way to predict (ADMIN-CRITICAL-133). `code: Role` now makes a
+   * template for a role the platform does not define a compile error.
+   */
   private readonly roleTemplates: RoleTemplate[] = [
     {
-      code: 'SUPER_ADMIN',
+      code: Role.SUPER_ADMIN,
       name: 'Super Admin',
       description: 'Platform-wide administrator with full system access',
       level: 100,
@@ -111,7 +131,7 @@ export class RoleTemplateService {
       icon: 'shield-check',
     },
     {
-      code: 'TENANT_ADMIN',
+      code: Role.TENANT_ADMIN,
       name: 'Tenant Admin',
       description: 'Tenant administrator with full tenant access',
       level: 90,
@@ -162,7 +182,7 @@ export class RoleTemplateService {
       icon: 'user-cog',
     },
     {
-      code: 'MODULE_MANAGER',
+      code: Role.MODULE_MANAGER,
       name: 'Module Manager',
       description: 'Manager with access to assigned modules',
       level: 70,
@@ -199,51 +219,7 @@ export class RoleTemplateService {
       icon: 'briefcase',
     },
     {
-      code: 'SUPERVISOR',
-      name: 'Supervisor',
-      description: 'Supervisor with limited management capabilities',
-      level: 50,
-      permissions: [
-        'dashboard:view',
-        'users:view',
-        'farms:view',
-        'ponds:view',
-        'ponds:edit',
-        'sensors:view',
-        'sensors:calibrate',
-        'alerts:view',
-        'alerts:acknowledge',
-        'feed:view',
-        'feed:create',
-        'feed:edit',
-        'reports:view',
-        'reports:create',
-      ],
-      isSystem: false,
-      color: '#F59E0B',
-      icon: 'clipboard-check',
-    },
-    {
-      code: 'OPERATOR',
-      name: 'Operator',
-      description: 'Field operator with basic operational access',
-      level: 30,
-      permissions: [
-        'dashboard:view',
-        'farms:view',
-        'ponds:view',
-        'sensors:view',
-        'alerts:view',
-        'alerts:acknowledge',
-        'feed:view',
-        'feed:create',
-      ],
-      isSystem: false,
-      color: '#3B82F6',
-      icon: 'wrench',
-    },
-    {
-      code: 'MODULE_USER',
+      code: Role.MODULE_USER,
       name: 'Viewer',
       description: 'Read-only access to assigned modules',
       level: 10,

@@ -3,7 +3,7 @@
  * Tum kullanicilari yonetme - SUPER_ADMIN icin
  */
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Card,
   Button,
@@ -30,21 +30,25 @@ import {
   type UserLimitCheckResult,
 } from '../services/adminApi';
 import { expectedTotalPages } from '@platform/pagination-contracts';
+import { adminKeys, useAdminMutation, useAdminQuery } from '../hooks';
+import { QueryFailureNotice } from '../components/QueryFailureNotice';
+import { isPlatformRole, type PlatformRole } from '../services/types/users';
+
+const PAGE_SIZE = 20;
+const TENANT_OPTION_LIMIT = 100;
+
+/**
+ * The role a new user or invitation starts at. Typed, so a role the server
+ * would reject cannot be the default (ADMIN-CRITICAL-133).
+ */
+const DEFAULT_ROLE: PlatformRole = 'MODULE_USER';
 
 // ============================================================================
 // User Management Page
 // ============================================================================
 
 const UserManagementPage: React.FC = () => {
-  const [users, setUsers] = useState<readonly User[]>([]);
-  const [stats, setStats] = useState<UserStats | null>(null);
-  const [tenants, setTenants] = useState<readonly Tenant[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [totalUsers, setTotalUsers] = useState(0);
   const [page, setPage] = useState(1);
-  const [limit] = useState(20);
 
   // Filters
   const [searchTerm, setSearchTerm] = useState('');
@@ -59,279 +63,300 @@ const UserManagementPage: React.FC = () => {
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
 
-  // Role templates for invitation
-  const [roleTemplates, setRoleTemplates] = useState<RoleTemplate[]>([]);
-  const [userLimitCheck, setUserLimitCheck] = useState<UserLimitCheckResult | null>(null);
-
-  // Form state
-  const [formData, setFormData] = useState({
+  // Form
+  const [formData, setFormData] = useState<{
+    email: string;
+    firstName: string;
+    lastName: string;
+    password: string;
+    role: PlatformRole;
+    tenantId: string;
+    isActive: boolean;
+  }>({
     email: '',
     firstName: '',
     lastName: '',
     password: '',
-    role: 'MODULE_USER',
+    role: DEFAULT_ROLE,
     tenantId: '',
     isActive: true,
   });
   const [formError, setFormError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
 
-  // Invite form state
-  const [inviteFormData, setInviteFormData] = useState({
+  // Invite form
+  const [inviteFormData, setInviteFormData] = useState<{
+    email: string;
+    firstName: string;
+    lastName: string;
+    role: PlatformRole;
+    tenantId: string;
+    message: string;
+  }>({
     email: '',
     firstName: '',
     lastName: '',
-    role: 'MODULE_USER',
+    role: DEFAULT_ROLE,
     tenantId: '',
     message: '',
   });
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [inviteSuccess, setInviteSuccess] = useState<string | null>(null);
-  const [inviting, setInviting] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  // Fetch users
-  const fetchUsers = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await usersApi.list({
-        search: searchTerm || undefined,
-        role: roleFilter || undefined,
-        status: statusFilter || undefined,
-        tenantId: tenantFilter || undefined,
-        page,
-        limit,
-      });
-      setUsers(result.data);
-      setTotalUsers(result.total);
-    } catch (err) {
-      console.error('Failed to load users:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load users');
-      setUsers([]);
-      setTotalUsers(0);
-    } finally {
-      setLoading(false);
-    }
-  }, [searchTerm, roleFilter, statusFilter, tenantFilter, page, limit]);
+  // ==========================================================================
+  // Reads (ADMIN-HIGH-121)
+  // ==========================================================================
 
-  // Cache tenant list in a module-scoped ref to avoid re-fetching 100 tenants on every mount (PERF-003)
-  const tenantCacheRef = useRef<{ data: readonly Tenant[]; fetchedAt: number } | null>(null);
-  const TENANT_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+  const listFilters = {
+    search: searchTerm || undefined,
+    role: roleFilter || undefined,
+    status: statusFilter || undefined,
+    tenantId: tenantFilter || undefined,
+    page,
+    limit: PAGE_SIZE,
+  };
 
-  const fetchInitialData = useCallback(async () => {
-    try {
-      const now = Date.now();
-      const statsPromise = usersApi.getStats();
-      const rolesPromise = usersApi.getRoleTemplates();
+  const usersQuery = useAdminQuery(adminKeys.users.list(listFilters), ({ signal }) =>
+    usersApi.list(listFilters, signal),
+  );
 
-      // Use cache for tenant list if still fresh
-      const tenantsPromise: Promise<{ data: readonly Tenant[] }> =
-        tenantCacheRef.current && now - tenantCacheRef.current.fetchedAt < TENANT_CACHE_TTL
-          ? Promise.resolve({ data: tenantCacheRef.current.data })
-          : tenantsApi.list({ limit: 100 }).then((result) => {
-              tenantCacheRef.current = { data: result.data, fetchedAt: Date.now() };
-              return result;
-            });
+  const statsQuery = useAdminQuery(adminKeys.users.stats(), ({ signal }) =>
+    usersApi.getStats(signal),
+  );
 
-      const [statsResult, tenantsResult, rolesResult] = await Promise.allSettled([
-        statsPromise,
-        tenantsPromise,
-        rolesPromise,
-      ]);
-      if (statsResult.status === 'fulfilled') setStats(statsResult.value);
-      else setStats(null);
-      if (tenantsResult.status === 'fulfilled') setTenants(tenantsResult.value.data);
-      else setTenants([]);
-      if (rolesResult.status === 'fulfilled') setRoleTemplates(rolesResult.value);
-      else setRoleTemplates([]);
-    } catch (err) {
-      console.error('Failed to fetch initial data:', err);
-      setStats(null);
-      setTenants([]);
-      setRoleTemplates([]);
-    }
-  }, []);
+  const rolesQuery = useAdminQuery(adminKeys.users.roleTemplates(), ({ signal }) =>
+    usersApi.getRoleTemplates(signal),
+  );
 
-  useEffect(() => {
-    fetchUsers();
-  }, [fetchUsers]);
+  // The tenant options behind the filter and both forms. This lived in a
+  // `useRef` under a five-minute TTL — a cache outside the shell's
+  // `QueryClient`, so `logoutCleanup()` could not reach it and no tenant write
+  // could invalidate it. Keyed the same way TenantManagementPage keys its list,
+  // so the two pages share one entry instead of each fetching a hundred rows.
+  const tenantOptionFilters = { limit: TENANT_OPTION_LIMIT };
 
-  useEffect(() => {
-    fetchInitialData();
-  }, [fetchInitialData]);
+  const tenantsQuery = useAdminQuery(adminKeys.tenants.list(tenantOptionFilters), ({ signal }) =>
+    tenantsApi.list(tenantOptionFilters, signal),
+  );
 
-  // Handle create/update user
-  const handleSaveUser = async () => {
-    setFormError(null);
-    setSaving(true);
+  const users = usersQuery.data?.data ?? [];
+  const matchingUsers = usersQuery.data?.total ?? 0;
+  const stats = statsQuery.data;
+  const roleTemplates = rolesQuery.data ?? [];
+  const tenants = tenantsQuery.data?.data ?? [];
 
-    try {
+  // The invite form's seat check is a READ keyed on the tenant, not a value a
+  // change handler drops into state: picking the same tenant twice no longer
+  // re-requests it, and switching away cancels the outstanding request rather
+  // than letting a late answer overwrite a newer one.
+  const limitQuery = useAdminQuery(
+    adminKeys.tenants.detail(`${inviteFormData.tenantId || 'none'}:user-limit`),
+    () => usersApi.checkTenantLimit(inviteFormData.tenantId),
+    { enabled: isInviteModalOpen && inviteFormData.tenantId !== '' },
+  );
+
+  const userLimitCheck: UserLimitCheckResult | null =
+    inviteFormData.tenantId === '' ? null : (limitQuery.data ?? null);
+
+  const reload = (): void => {
+    void usersQuery.refetch();
+    void statsQuery.refetch();
+    void rolesQuery.refetch();
+    void tenantsQuery.refetch();
+  };
+
+  // ==========================================================================
+  // Writes (ADMIN-HIGH-121)
+  // ==========================================================================
+
+  // Every user write changes both the list and the counts above it. Five
+  // handlers called `fetchUsers()` AND `fetchInitialData()`; one —
+  // `handleToggleStatus` — called only `fetchUsers()`, so activating or
+  // deactivating a user refreshed the table and left "Active Users" showing the
+  // figure from before the change. That asymmetry is why the pairing belongs to
+  // the mutation rather than to each handler's tail.
+  const userWriteKeys = [adminKeys.users.all()];
+
+  const saveUser = useAdminMutation<User, void>(
+    async () => {
       if (selectedUser) {
-        // Update
-        await usersApi.update(selectedUser.id, {
+        return usersApi.update(selectedUser.id, {
           firstName: formData.firstName,
           lastName: formData.lastName,
           role: formData.role,
           tenantId: formData.tenantId || undefined,
           isActive: formData.isActive,
         });
-      } else {
-        // Create
-        if (!formData.password) {
-          setFormError('Password is required');
-          setSaving(false);
-          return;
-        }
-        await usersApi.create({
-          email: formData.email,
-          firstName: formData.firstName,
-          lastName: formData.lastName,
-          password: formData.password,
-          role: formData.role,
-          tenantId: formData.tenantId || undefined,
-        });
       }
-      setIsModalOpen(false);
-      fetchUsers();
-      fetchInitialData();
-    } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'Operation failed');
-    } finally {
-      setSaving(false);
-    }
-  };
+      return usersApi.create({
+        email: formData.email,
+        firstName: formData.firstName,
+        lastName: formData.lastName,
+        password: formData.password,
+        role: formData.role,
+        tenantId: formData.tenantId || undefined,
+      });
+    },
+    { invalidateKeys: userWriteKeys },
+  );
 
-  // Handle delete user
-  const handleDeleteUser = async () => {
-    if (!selectedUser) return;
-    try {
-      await usersApi.delete(selectedUser.id);
-      setDeleteModalOpen(false);
-      setSelectedUser(null);
-      fetchUsers();
-      fetchInitialData();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Delete failed');
-    }
-  };
+  const deleteUser = useAdminMutation<void, { id: string }>(({ id }) => usersApi.delete(id), {
+    invalidateKeys: userWriteKeys,
+  });
 
-  // Handle activate/deactivate
-  const handleToggleStatus = async (user: User) => {
-    try {
-      if (user.isActive) {
-        await usersApi.deactivate(user.id);
-      } else {
-        await usersApi.activate(user.id);
+  const toggleUserStatus = useAdminMutation<User, { id: string; isActive: boolean }>(
+    ({ id, isActive }) => (isActive ? usersApi.deactivate(id) : usersApi.activate(id)),
+    { invalidateKeys: userWriteKeys },
+  );
+
+  // `force-logout` answers `{ success, count }`. The page announced "User has
+  // been logged out of all sessions." on any 200 and discarded both fields — so
+  // a refusal, or a user who had no sessions to end, read as a completed
+  // security action. It throws on a refusal now and says how many sessions
+  // actually ended.
+  const forceLogout = useAdminMutation<{ success: boolean; count: number }, { id: string }>(
+    async ({ id }) => {
+      const result = await usersApi.forceLogout(id);
+      if (!result.success) {
+        throw new Error('The server did not end this user\'s sessions.');
       }
-      fetchUsers();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Operation failed');
-    }
-  };
+      return result;
+    },
+    { invalidateKeys: userWriteKeys },
+  );
 
-  // Handle force logout
-  const handleForceLogout = async (user: User) => {
-    try {
-      await usersApi.forceLogout(user.id);
-      setSuccessMessage('User has been logged out of all sessions.');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Operation failed');
-    }
-  };
-
-  // Handle invite user
-  const handleInviteUser = async () => {
-    setInviteError(null);
-    setInviteSuccess(null);
-    setInviting(true);
-
-    try {
-      if (!inviteFormData.email) {
-        setInviteError('Email address is required');
-        setInviting(false);
-        return;
-      }
-
-      if (!inviteFormData.tenantId) {
-        setInviteError('Tenant selection is required');
-        setInviting(false);
-        return;
-      }
-
-      // Check user limit before inviting
-      const limitCheck = await usersApi.checkTenantLimit(inviteFormData.tenantId);
-      if (!limitCheck.canCreate) {
-        setInviteError(limitCheck.message || 'User limit reached');
-        setInviting(false);
-        return;
-      }
-
-      const result = await usersApi.invite({
+  const inviteUser = useAdminMutation<
+    { success: boolean; userId: string; invitationId: string },
+    void
+  >(
+    () =>
+      usersApi.invite({
         tenantId: inviteFormData.tenantId,
         email: inviteFormData.email,
         firstName: inviteFormData.firstName || undefined,
         lastName: inviteFormData.lastName || undefined,
         role: inviteFormData.role,
         message: inviteFormData.message || undefined,
-        invitedBy: 'system', // In real app, get from auth context
-      });
+      }),
+    { invalidateKeys: userWriteKeys },
+  );
 
-      setInviteSuccess(`Invitation sent: ${inviteFormData.email}`);
+  const saving = saveUser.isPending;
+  const inviting = inviteUser.isPending;
 
-      // Reset form
-      setInviteFormData({
-        email: '',
-        firstName: '',
-        lastName: '',
-        role: 'MODULE_USER',
-        tenantId: '',
-        message: '',
-      });
+  const queryErrors = [
+    usersQuery.error,
+    statsQuery.error,
+    rolesQuery.error,
+    tenantsQuery.error,
+    deleteUser.error,
+    toggleUserStatus.error,
+    forceLogout.error,
+  ];
 
-      fetchUsers();
-      fetchInitialData();
+  useEffect(() => {
+    setPage(1);
+  }, [searchTerm, roleFilter, statusFilter, tenantFilter]);
 
-      // Close modal after success
-      setTimeout(() => {
-        setIsInviteModalOpen(false);
-        setInviteSuccess(null);
-      }, 2000);
-    } catch (err) {
-      setInviteError(err instanceof Error ? err.message : 'Failed to send invitation');
-    } finally {
-      setInviting(false);
+  // Handle create/update user
+  const handleSaveUser = (): void => {
+    setFormError(null);
+    if (!selectedUser && !formData.password) {
+      setFormError('Password is required');
+      return;
     }
+    saveUser.mutate(undefined, {
+      onSuccess: () => setIsModalOpen(false),
+      onError: (err) => setFormError(err.message),
+    });
+  };
+
+  // Handle delete user
+  const handleDeleteUser = (): void => {
+    if (!selectedUser) return;
+    deleteUser.mutate(
+      { id: selectedUser.id },
+      {
+        onSuccess: () => {
+          setDeleteModalOpen(false);
+          setSelectedUser(null);
+        },
+      },
+    );
+  };
+
+  // Handle activate/deactivate
+  const handleToggleStatus = (user: User): void => {
+    toggleUserStatus.mutate({ id: user.id, isActive: user.isActive });
+  };
+
+  // Handle force logout
+  const handleForceLogout = (user: User): void => {
+    forceLogout.mutate(
+      { id: user.id },
+      {
+        onSuccess: (result) =>
+          setSuccessMessage(
+            `Ended ${result.count} session${result.count === 1 ? '' : 's'} for this user.`,
+          ),
+      },
+    );
+  };
+
+  // Handle invite user
+  const handleInviteUser = (): void => {
+    setInviteError(null);
+    setInviteSuccess(null);
+
+    if (!inviteFormData.email) {
+      setInviteError('Email address is required');
+      return;
+    }
+    if (!inviteFormData.tenantId) {
+      setInviteError('Tenant selection is required');
+      return;
+    }
+    // The seat check is already on screen as `userLimitCheck`; refusing from
+    // the value the operator can see beats issuing a second request whose
+    // answer they cannot.
+    if (userLimitCheck && !userLimitCheck.canCreate) {
+      setInviteError(userLimitCheck.message || 'User limit reached');
+      return;
+    }
+
+    inviteUser.mutate(undefined, {
+      onSuccess: () => {
+        setInviteSuccess(`Invitation sent: ${inviteFormData.email}`);
+        setInviteFormData({
+          email: '',
+          firstName: '',
+          lastName: '',
+          role: DEFAULT_ROLE,
+          tenantId: '',
+          message: '',
+        });
+      },
+      onError: (err) => setInviteError(err.message),
+    });
   };
 
   // Open invite modal
-  const openInviteModal = async () => {
+  const openInviteModal = (): void => {
     setInviteError(null);
     setInviteSuccess(null);
     setInviteFormData({
       email: '',
       firstName: '',
       lastName: '',
-      role: 'MODULE_USER',
+      role: DEFAULT_ROLE,
       tenantId: '',
       message: '',
     });
     setIsInviteModalOpen(true);
   };
 
-  // Check user limit when tenant changes in invite form
-  const handleInviteTenantChange = async (tenantId: string) => {
+  const handleInviteTenantChange = (tenantId: string): void => {
     setInviteFormData({ ...inviteFormData, tenantId });
-    if (tenantId) {
-      try {
-        const limitCheck = await usersApi.checkTenantLimit(tenantId);
-        setUserLimitCheck(limitCheck);
-      } catch (err) {
-        console.error('Failed to check user limit:', err);
-        setUserLimitCheck(null);
-      }
-    } else {
-      setUserLimitCheck(null);
-    }
   };
 
   // Open edit modal
@@ -447,12 +472,15 @@ const UserManagementPage: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">User Management</h1>
+          {/* The FILTERED result total, labelled as one — the "Total" card
+              below holds the platform figure, and with a filter applied the
+              two disagree by design. */}
           <p className="mt-1 text-sm text-gray-500">
-            Total {totalUsers} users
+            {matchingUsers.toLocaleString()} user{matchingUsers === 1 ? '' : 's'} match
           </p>
         </div>
         <div className="mt-4 sm:mt-0 flex space-x-2">
-          <Button variant="outline" onClick={fetchUsers} disabled={loading}>
+          <Button variant="outline" onClick={reload} disabled={usersQuery.isFetching}>
             Refresh
           </Button>
           <Button variant="outline" onClick={openInviteModal}>
@@ -470,11 +498,11 @@ const UserManagementPage: React.FC = () => {
         </div>
       </div>
 
-      {error && (
-        <Alert type="error" dismissible onDismiss={() => setError(null)}>
-          {error}
-        </Alert>
-      )}
+      <QueryFailureNotice
+        errors={queryErrors}
+        hasContent={users.length > 0}
+        onRetry={reload}
+      />
 
       {successMessage && (
         <Alert type="success" dismissible onDismiss={() => setSuccessMessage(null)}>
@@ -483,26 +511,34 @@ const UserManagementPage: React.FC = () => {
       )}
 
       {/* Stats */}
-      {stats && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <Card className="p-4">
-            <p className="text-sm text-gray-500">Total</p>
-            <p className="text-2xl font-bold text-gray-900">{stats.totalUsers}</p>
-          </Card>
-          <Card className="p-4">
-            <p className="text-sm text-gray-500">Active</p>
-            <p className="text-2xl font-bold text-green-600">{stats.activeUsers}</p>
-          </Card>
-          <Card className="p-4">
-            <p className="text-sm text-gray-500">Logins (Last 24h)</p>
-            <p className="text-2xl font-bold text-blue-600">{stats.loginsLast24Hours}</p>
-          </Card>
-          <Card className="p-4">
-            <p className="text-sm text-gray-500">New (Last 30 Days)</p>
-            <p className="text-2xl font-bold text-purple-600">{stats.newUsersLast30Days}</p>
-          </Card>
-        </div>
-      )}
+      {/* Platform-wide counts from the server's aggregate — an em dash when it
+          has not loaded, never a zero. */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <Card className="p-4">
+          <p className="text-sm text-gray-500">Total</p>
+          <p className="text-2xl font-bold text-gray-900">
+            {stats ? stats.totalUsers.toLocaleString() : '—'}
+          </p>
+        </Card>
+        <Card className="p-4">
+          <p className="text-sm text-gray-500">Active</p>
+          <p className="text-2xl font-bold text-green-600">
+            {stats ? stats.activeUsers.toLocaleString() : '—'}
+          </p>
+        </Card>
+        <Card className="p-4">
+          <p className="text-sm text-gray-500">Logins (Last 24h)</p>
+          <p className="text-2xl font-bold text-blue-600">
+            {stats ? stats.loginsLast24Hours.toLocaleString() : '—'}
+          </p>
+        </Card>
+        <Card className="p-4">
+          <p className="text-sm text-gray-500">New (Last 30 Days)</p>
+          <p className="text-2xl font-bold text-purple-600">
+            {stats ? stats.newUsersLast30Days.toLocaleString() : '—'}
+          </p>
+        </Card>
+      </div>
 
       {/* Filters */}
       <Card className="p-4">
@@ -551,7 +587,7 @@ const UserManagementPage: React.FC = () => {
       </Card>
 
       {/* Table */}
-      {loading ? (
+      {usersQuery.isPending ? (
         <div className="text-center py-8">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto"></div>
           <p className="mt-2 text-gray-500">Loading...</p>
@@ -566,7 +602,7 @@ const UserManagementPage: React.FC = () => {
       )}
 
       {/* Pagination */}
-      {totalUsers > limit && (
+      {matchingUsers > PAGE_SIZE && (
         <div className="flex justify-center space-x-2">
           <Button
             variant="outline"
@@ -577,12 +613,12 @@ const UserManagementPage: React.FC = () => {
             Previous
           </Button>
           <span className="py-2 px-4 text-sm text-gray-600">
-            Page {page} / {expectedTotalPages(totalUsers, limit)}
+            Page {page} / {expectedTotalPages(matchingUsers, PAGE_SIZE)}
           </span>
           <Button
             variant="outline"
             size="sm"
-            disabled={page >= expectedTotalPages(totalUsers, limit)}
+            disabled={page >= expectedTotalPages(matchingUsers, PAGE_SIZE)}
             onClick={() => setPage(page + 1)}
           >
             Next
@@ -637,7 +673,15 @@ const UserManagementPage: React.FC = () => {
           <Select
             label="Role"
             value={formData.role}
-            onChange={(e) => setFormData({ ...formData, role: e.target.value })}
+            onChange={(e) => {
+              // A `<select>` hands back a string. Narrowing rather than
+              // asserting means an option list that ever carries a role the
+              // server does not accept is ignored here instead of producing a
+              // 400 the operator cannot explain (ADMIN-CRITICAL-133).
+              if (isPlatformRole(e.target.value)) {
+                setFormData({ ...formData, role: e.target.value });
+              }
+            }}
             options={[
               { value: 'TENANT_ADMIN', label: 'Tenant Admin' },
               { value: 'MODULE_MANAGER', label: 'Module Manager' },
@@ -843,9 +887,11 @@ const UserManagementPage: React.FC = () => {
           <Select
             label="Role *"
             value={inviteFormData.role}
-            onChange={(e) =>
-              setInviteFormData({ ...inviteFormData, role: e.target.value })
-            }
+            onChange={(e) => {
+              if (isPlatformRole(e.target.value)) {
+                setInviteFormData({ ...inviteFormData, role: e.target.value });
+              }
+            }}
             options={
               roleTemplates.length > 0
                 ? roleTemplates
@@ -854,7 +900,12 @@ const UserManagementPage: React.FC = () => {
                       value: r.code,
                       label: `${r.name} (Level ${r.level})`,
                     }))
-                : [
+                : // Only reached when the catalogue read failed. These are the
+                  // roles an invitation may grant — every platform role except
+                  // SUPER_ADMIN — and they must stay in step with
+                  // `INVITABLE_ROLES` on the server, which is what the invite
+                  // DTO validates against.
+                  [
                     { value: 'TENANT_ADMIN', label: 'Tenant Admin' },
                     { value: 'MODULE_MANAGER', label: 'Module Manager' },
                     { value: 'MODULE_USER', label: 'User' },

@@ -1076,7 +1076,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "80d86bce9f01fcde4958239debd94f6672af734ef4b3b1a089e7a3f639ba6675",
+      "content_sha256": "43bbe6e6dd84f1de7bdcc9f1808fe9d51fd04c65931f9d869920284b7eb8bf34",
       "hash_policy": "sha256",
       "owner": "admin-openapi-generator",
       "path": "apps/admin-api-service/openapi.json",
@@ -3185,6 +3185,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/tenant/tenant.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/users/__tests__/role-vocabulary.spec.ts",
       "prettier_managed": true
     },
     {
@@ -50946,6 +50952,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/__tests__/UserManagementPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/pages/AdminDashboard.tsx",
       "prettier_managed": true
     },
@@ -51389,7 +51401,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "5539de7ed8c6688cbd7af3881b5fcb327e9d238db2a0eef6a44154a0cb4eb548",
+      "content_sha256": "18071e2ded05b23a74f3fab213b5797904e0d9d2ba689860c2d56ddab3d69a16",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/modules/admin-panel/src/services/generated/admin-api.ts",

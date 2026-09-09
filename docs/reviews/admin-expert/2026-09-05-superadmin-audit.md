@@ -823,7 +823,7 @@ gate had ever read a spec in this package, and the compiler's first pass found a
 pre-existing spec asserting against a `Tenant` shape with two fields the
 contract lacks and one required field missing.
 
-**Remaining:** 26 pages, in three domain batches (tenant 6, billing 11,
+**Remaining:** 24 pages, in three domain batches (tenant 4, billing 11,
 messaging 9 — the system batch is finished), governed by
 `.claude/allowlists/admin-panel-unmigrated-reads.yaml`. The `AdminTable`
 contract for server-side pagination, sort and dataset-scoped aggregates follows
@@ -833,6 +833,53 @@ expiry and reason under a ceiling that only decreases; every module-scoped cache
 in `web/` reaches the logout authority; `@tanstack/react-query` is declared
 wherever it is imported, at the federation-pinned version; the barrel keeps
 exporting the primitives.
+
+## ADMIN-CRITICAL-133 — the user surface rejected every role but one
+
+**State:** OPEN → closed by W8r · **Wave:** W8r · **Owner:** okan
+**Deadline:** 2026-12-31
+
+The platform defines four roles in `Role` — `SUPER_ADMIN`, `TENANT_ADMIN`,
+`MODULE_MANAGER`, `MODULE_USER` — the same four `auth-service`'s
+`assertRoleHierarchy` ranks. `apps/admin-api-service/src/users/dto/users.dto.ts`
+retyped that list four times:
+
+```ts
+@IsEnum(['SUPER_ADMIN', 'TENANT_ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER'])
+```
+
+`MANAGER` and `VIEWER` are not roles. `MODULE_MANAGER` and `MODULE_USER` are,
+and this rejected both. Every one of these returned **400**:
+
+- creating a user at the New User form's default role, `MODULE_USER`;
+- changing any user to a module role;
+- inviting anyone below `TENANT_ADMIN`;
+- **filtering the user list** by a module role.
+
+Two more copies of the same vocabulary had drifted their own way. The
+role-template catalogue published six templates, including `SUPERVISOR` and
+`OPERATOR` — the only two marked `isSystem: false`, neither a `Role`, neither
+ranked by any hierarchy — and the invite form renders whatever the catalogue
+returns, so both appeared as choices that could only fail. And the frontend's
+`InviteUserDto` declared `invitedBy` **required**, so its one caller sent
+`invitedBy: 'system'`; the server's DTO does not declare it and admin-api runs
+`ValidationPipe({ forbidNonWhitelisted: true })`, so every invitation was
+rejected before reaching a handler — while the server had been taking the
+inviter from `req.user.id` all along, which is the only value that can be
+trusted on an audited action.
+
+Fixed at the root rather than by correcting four lists. `PLATFORM_ROLES` and
+`INVITABLE_ROLES` are derived from the enum with `Object.values`, so a role
+added to `Role` is validated and invitable without anyone remembering.
+`RoleTemplate.code` is typed `Role`, which is what turned the two phantom
+templates into compile errors. The frontend derives `PlatformRole` from a
+runtime list proved equal to the generated contract in both directions by a
+type-level assertion, `isPlatformRole` narrows the two `<select>` handlers
+instead of asserting, and `invitedBy` is typed `never` so it cannot be sent.
+
+**Gate:** `apps/admin-api-service/src/users/__tests__/role-vocabulary.spec.ts`
+— every role the catalogue publishes is accepted by create, update and invite;
+every legacy code is refused; `SUPER_ADMIN` is not invitable.
 
 ## ADMIN-HIGH-132 — four platform totals computed from the first hundred rows
 

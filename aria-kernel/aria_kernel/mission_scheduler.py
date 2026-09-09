@@ -66,6 +66,13 @@ SOURCE_RANK: dict[str, int] = {
     # design — a confirmed gap or finding outranks proactive hardening, and
     # hardening outranks nothing at all (_UNRANKED_SOURCE).
     "service_hardening": 4,
+    # ARIA-DELIVERY-12 — `self_improvement` is the source_kind
+    # `open_self_improvement_missions` stamps on the missions it opens. It was
+    # absent from this table, so every self-improvement mission fell to
+    # _UNRANKED_SOURCE (90) and was outranked by literally every other source
+    # — the lane could produce work that the scheduler would never select.
+    # Ranked below service_hardening: fixing ARIA yields to fixing the product.
+    "self_improvement": 5,
 }
 _UNRANKED_SOURCE = 90
 

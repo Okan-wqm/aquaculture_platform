@@ -167,6 +167,15 @@ jobs:
         with:
           ref: main
           persist-credentials: false
+          # ARIA-DELIVERY-13 — the repo twin asks git for `history_limit: 400`
+          # commits to build its churn + co-change layers. Without this the
+          # checkout is depth 1, so `_history_layers` sees ONE commit and the
+          # published map carries churn_files=0, co_change_pairs=0,
+          # history_commits=1 while still advertising history_limit=400. Every
+          # other ARIA lane that reads history (daily-report, merge-authority,
+          # operational-proof, state-maintenance) already sets this; the cycle
+          # that actually BUILDS the map was the one lane that did not.
+          fetch-depth: 0
           # Self-hosted workspace persists between ALL jobs (CI, executor,
           # this lane). A dispatch-triggered run inherits whatever the
           # previous job left behind; the mid-run preflight's

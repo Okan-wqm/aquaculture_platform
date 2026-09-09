@@ -289,9 +289,15 @@ class ClosureIsDerived(unittest.TestCase):
         self.assertIn("SLO met: false", text)
 
     def test_I_V12_DLV_06_doctor_organ_and_cli(self) -> None:
+        # ARIA-DELIVERY-11 — an empty delivery lane FAILS the organ and names
+        # the unmet SLO gap. It used to assert ok/no_implementation_requests,
+        # which is why 30 days of zero delivery read as green: this test was
+        # pinning the false success in place.
         healthy = run_doctor(base_dir=self.tools, workspace_root=self.root)
         organ = next(c for c in healthy.checks if c.name == "delivery_closure")
-        self.assertEqual((organ.status, organ.reason), ("ok", "no_implementation_requests"))
+        self.assertEqual(organ.status, "fail")
+        self.assertTrue(organ.reason.startswith("delivery_slo_unmet:"), organ.reason)
+        self.assertIn("verified_prs", organ.reason)
         self._request("AIR-1"); self._claim("AIR-1", "c1"); self._accept("AIR-1", "c1")
         organ = next(c for c in run_doctor(base_dir=self.tools, workspace_root=self.root).checks if c.name == "delivery_closure")
         self.assertEqual(organ.status, "warn")

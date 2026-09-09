@@ -57,6 +57,22 @@ _DEFAULT_CAPS_USD: dict[str, float] = {
     "per_run": 0.50,
 }
 
+# ARIA-DELIVERY-03 — the two billing channels. The notional constant is
+# owned by `budget.py` (it stamps every cost-attribution row with it), so it
+# is imported rather than restated: one spelling, one meaning.
+from .budget import USD_BASIS_NOTIONAL_API_EQUIVALENT  # noqa: E402
+
+#: A provider redirect is in force and the call is billed to a wallet.
+USD_BASIS_INVOICED = "invoiced_api"
+
+USD_BASES: tuple[str, ...] = (USD_BASIS_NOTIONAL_API_EQUIVALENT, USD_BASIS_INVOICED)
+
+# The subscription meter's defaults mirror `token_economy`, which already
+# computes both conditions for its effort recommendations. This gate promotes
+# them from advice to enforcement: under a subscription a runaway loop costs
+# quota and wall-clock, and those are the things worth refusing over.
+DEFAULT_SUBSCRIPTION_MIN_SPAWNS = 8
+
 
 def _budget_dir(base_dir: str | Path) -> Path:
     return Path(base_dir).joinpath(*_BUDGET_DIR_RELATIVE)
@@ -126,11 +142,38 @@ def assert_within_budget(
     base_dir: str | Path,
     *,
     estimated_run_usd: float,
+    usd_basis: str = USD_BASIS_INVOICED,
 ) -> dict[str, Any]:
     """Plan ARIA-V3 §B0 — call BEFORE spawning ``claude``. Raises
     GovernanceError when any cap is exceeded; otherwise returns the
     current usage snapshot.
+
+    ARIA-DELIVERY-03 — ``usd_basis`` names the BILLING CHANNEL, because ARIA
+    has two and only one of them produces an invoice.
+
+    * ``USD_BASIS_INVOICED`` — a provider redirect is in force (the
+      operator-sanctioned z.ai/GLM failover). Real money, real caps.
+    * ``USD_BASIS_NOTIONAL_API_EQUIVALENT`` — the default managed Claude Code
+      session. ``budget.record_cost_attribution`` already stamps every row
+      with this basis and says of the figure: "It is a comparable, not an
+      invoice. ... Nothing gates on it." This gate used to contradict that
+      label and gate on it anyway. On 2026-09-04 that cost the delivery lane
+      its whole night: cap $0.50 against an estimate of $0.8416, 7 dispatches
+      attempted, 0 succeeded, `stop=budget_exhausted` — a queue stopped by an
+      invoice nobody would ever receive. `claude_runtime._assert_budget_before_spawn`
+      had already survived this exact failure ("every spawn was refused before
+      it started and the breaker tripped on configuration, not on spend") and
+      fixed it in ITS gate only; the executor's second gate kept the defect.
+
+    What binds under a subscription is quota, tokens and wall-clock, not
+    dollars — see :func:`assert_within_subscription_budget`, which the caller
+    invokes instead on the notional basis. Refusing here on a notional figure
+    is refusing on a number the ledger itself calls a comparable.
     """
+    if usd_basis not in USD_BASES:
+        raise GovernanceError(
+            f"cost_budget_unknown_usd_basis: {usd_basis!r}; vocabulary is {USD_BASES}"
+        )
     if estimated_run_usd < 0:
         raise GovernanceError(
             f"cost_budget_negative_estimate: {estimated_run_usd}"
@@ -138,6 +181,19 @@ def assert_within_budget(
     root = ensure_tools_dir(base_dir)
     caps = _load_caps(root)
     spent_daily, spent_monthly = derived_usage(root)
+    if usd_basis == USD_BASIS_NOTIONAL_API_EQUIVALENT:
+        # No invoice exists on this channel, so no USD cap may refuse work.
+        # The snapshot is still returned: the figure remains a comparable an
+        # operator or dashboard can read, which is all it ever claimed to be.
+        return {
+            "status": "ok",
+            "usd_basis": usd_basis,
+            "gated_on_usd": False,
+            "estimated_run_usd": estimated_run_usd,
+            "projected_daily_usd": spent_daily + estimated_run_usd,
+            "projected_monthly_usd": spent_monthly + estimated_run_usd,
+            "caps": caps,
+        }
 
     if estimated_run_usd > caps["per_run"]:
         _trip_breaker(root, cap_name="per_run", amount=estimated_run_usd, cap=caps["per_run"])
@@ -158,6 +214,8 @@ def assert_within_budget(
         )
     return {
         "status": "ok",
+        "usd_basis": usd_basis,
+        "gated_on_usd": True,
         "estimated_run_usd": estimated_run_usd,
         "projected_daily_usd": projected_daily,
         "projected_monthly_usd": projected_monthly,
@@ -274,8 +332,82 @@ def reset_breaker(
     return {"status": "ok"}
 
 
+def assert_within_subscription_budget(
+    base_dir: str | Path,
+    *,
+    target_agent: str,
+    role: str,
+    min_spawns: int = DEFAULT_SUBSCRIPTION_MIN_SPAWNS,
+    threshold_tokens: float | None = None,
+    window_days: int | None = None,
+) -> dict[str, Any]:
+    """ARIA-DELIVERY-03 — the gate that binds when there is no invoice.
+
+    Under a managed Claude Code session a dollar figure is a comparable, so
+    the scarce things a runaway consumes are shared quota, tokens and CI
+    minutes. `token_economy` already measures exactly the two conditions that
+    identify a runaway — a window of spawns with no accepted result, and an
+    excessive token cost per accepted result — but only ever turned them into
+    an effort DOWNGRADE RECOMMENDATION. Nothing enforced them, so the loop
+    protection the USD cap was standing in for did not exist anywhere.
+
+    Refuses on the agent+role whose dispatch is about to happen, never
+    globally: one wasteful role must not stop the lane it shares.
+
+    Fails OPEN when the ledgers are absent or unreadable. A missing usage
+    ledger is not evidence of a runaway, and this gate must not become the
+    next `cost_budget_per_run_cap_exceeded` — a configuration that refuses
+    every dispatch before it starts.
+    """
+    root = ensure_tools_dir(base_dir)
+    try:
+        from .token_economy import (
+            DEFAULT_TOKENS_PER_ACCEPTED_THRESHOLD,
+            DEFAULT_WINDOW_DAYS,
+            usage_per_accepted_result,
+        )
+
+        limit = (
+            DEFAULT_TOKENS_PER_ACCEPTED_THRESHOLD
+            if threshold_tokens is None
+            else float(threshold_tokens)
+        )
+        days = DEFAULT_WINDOW_DAYS if window_days is None else int(window_days)
+        stats = usage_per_accepted_result(base_dir=root, window_days=days)
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        return {"status": "ok", "gated": False, "reason": f"usage_unreadable:{type(exc).__name__}"}
+
+    stat = next(
+        (s for s in stats if s.target_agent == str(target_agent) and s.role == str(role)),
+        None,
+    )
+    if stat is None:
+        return {"status": "ok", "gated": False, "reason": "no_window_history"}
+
+    snapshot = {"status": "ok", "gated": True, "window_days": days, "stat": stat.to_dict()}
+    if stat.accepted == 0 and stat.spawns >= int(min_spawns):
+        _trip_breaker(root, cap_name="subscription_no_accepted", amount=float(stat.spawns), cap=float(min_spawns))
+        raise GovernanceError(
+            f"subscription_budget_no_accepted_results: {target_agent}/{role} "
+            f"{stat.spawns} spawns and 0 accepted results in {days}d "
+            f"(min_spawns={min_spawns})"
+        )
+    if stat.tokens_per_accepted is not None and stat.tokens_per_accepted > limit:
+        _trip_breaker(root, cap_name="subscription_tokens_per_accepted", amount=float(stat.tokens_per_accepted), cap=float(limit))
+        raise GovernanceError(
+            f"subscription_budget_tokens_per_accepted_exceeded: {target_agent}/{role} "
+            f"{int(stat.tokens_per_accepted)} tokens per accepted result > {int(limit)}"
+        )
+    return snapshot
+
+
 __all__ = [
+    "DEFAULT_SUBSCRIPTION_MIN_SPAWNS",
+    "USD_BASES",
+    "USD_BASIS_INVOICED",
+    "USD_BASIS_NOTIONAL_API_EQUIVALENT",
     "assert_within_budget",
+    "assert_within_subscription_budget",
     "current_state",
     "derived_usage",
     "reset_breaker",

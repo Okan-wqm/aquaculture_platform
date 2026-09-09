@@ -73,6 +73,145 @@ def _burn(base: Path, usd: float, *, cycle_id: str = "cyc-burn") -> None:
     )
 
 
+class BillingChannelMeterTests(unittest.TestCase):
+    """ARIA-DELIVERY-03 — the meter that binds follows the wallet that pays.
+
+    On 2026-09-04 the executor refused 7 of 7 dispatches with
+    `cost_budget_per_run_cap_exceeded: estimate=0.8416 cap=0.5` and stopped
+    with `budget_exhausted`. Every one of those dollars was notional: ARIA
+    runs on a managed Claude Code session, and `budget.record_cost_attribution`
+    stamps each row `usd_basis=notional_api_equivalent` while stating the
+    figure "is a comparable, not an invoice ... Nothing gates on it".
+    """
+
+    def test_notional_basis_never_refuses_on_usd(self) -> None:
+        from aria_kernel.cost_budget import (
+            USD_BASIS_NOTIONAL_API_EQUIVALENT,
+            assert_within_budget,
+            current_state,
+        )
+
+        with tempfile.TemporaryDirectory(prefix="aria-basis-notional-") as tmp:
+            base = Path(tmp) / "aria-tools"
+            _write_policy(base, {"daily": 5.0, "monthly": 100.0, "per_run": 0.5})
+            # The exact shape of the 2026-09-04 refusal.
+            snapshot = assert_within_budget(
+                base,
+                estimated_run_usd=0.8416,
+                usd_basis=USD_BASIS_NOTIONAL_API_EQUIVALENT,
+            )
+            self.assertEqual(snapshot["status"], "ok")
+            self.assertFalse(snapshot["gated_on_usd"])
+            # And it does not trip the breaker on a comparable.
+            self.assertEqual(current_state(base), "ok")
+
+    def test_invoiced_basis_still_refuses_and_is_the_default(self) -> None:
+        from aria_kernel.cost_budget import USD_BASIS_INVOICED, assert_within_budget
+        from aria_kernel.tool_registry import GovernanceError
+
+        with tempfile.TemporaryDirectory(prefix="aria-basis-invoiced-") as tmp:
+            base = Path(tmp) / "aria-tools"
+            _write_policy(base, {"daily": 5.0, "monthly": 100.0, "per_run": 0.5})
+            for kwargs in ({"usd_basis": USD_BASIS_INVOICED}, {}):
+                with self.assertRaises(GovernanceError) as ctx:
+                    assert_within_budget(base, estimated_run_usd=0.8416, **kwargs)
+                self.assertIn("per_run_cap_exceeded", str(ctx.exception))
+
+    def test_unknown_basis_fails_closed(self) -> None:
+        from aria_kernel.cost_budget import assert_within_budget
+        from aria_kernel.tool_registry import GovernanceError
+
+        with tempfile.TemporaryDirectory(prefix="aria-basis-unknown-") as tmp:
+            base = Path(tmp) / "aria-tools"
+            _write_policy(base, {"daily": 5.0, "monthly": 100.0, "per_run": 0.5})
+            with self.assertRaises(GovernanceError) as ctx:
+                assert_within_budget(base, estimated_run_usd=0.1, usd_basis="free")
+            self.assertIn("unknown_usd_basis", str(ctx.exception))
+
+
+class SubscriptionMeterTests(unittest.TestCase):
+    """ARIA-DELIVERY-03 — the loop protection the USD cap was standing in for.
+
+    `token_economy` already computed both runaway conditions and turned them
+    into an effort RECOMMENDATION that nothing enforced. Removing the USD
+    refusal without enforcing these would remove the only brake ARIA had.
+    """
+
+    @staticmethod
+    def _tools(base: Path) -> Path:
+        """A tools root `ensure_tools_dir` will accept.
+
+        A directory holding covered state without `repo_identity.json` is
+        refused as `ambiguous_tools_root` — the guard that stops a lane from
+        binding to the wrong store. Test stores owe the same stamp.
+        """
+        base.mkdir(parents=True, exist_ok=True)
+        (base / "repo_identity.json").write_text(
+            json.dumps({"aria_tools_contract_version": 2, "bound_repo_hash": None,
+                        "bound_repo_root": None, "schema_version": 2}, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+        return base
+
+    @staticmethod
+    def _usage(base: Path, *, agent: str, role: str, spawns: int, request_ids: list[str], out_tokens: int) -> None:
+        path = base / "knowledge-graph" / "context-usage.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            for i in range(spawns):
+                handle.write(json.dumps({
+                    "recorded_at": "2026-09-09T00:00:00+00:00",
+                    "target_agent": agent, "role": role,
+                    "request_id": request_ids[i] if i < len(request_ids) else f"AIR-none-{i}",
+                    "input_tokens": 0, "output_tokens": out_tokens,
+                }) + "\n")
+
+    def test_no_accepted_result_after_the_spawn_floor_refuses(self) -> None:
+        from aria_kernel.cost_budget import assert_within_subscription_budget
+        from aria_kernel.tool_registry import GovernanceError
+
+        with tempfile.TemporaryDirectory(prefix="aria-sub-noacc-") as tmp:
+            base = self._tools(Path(tmp) / "aria-tools")
+            self._usage(base, agent="aria-evidence-judge", role="evidence_judgment",
+                        spawns=9, request_ids=[], out_tokens=1000)
+            with self.assertRaises(GovernanceError) as ctx:
+                assert_within_subscription_budget(
+                    base, target_agent="aria-evidence-judge", role="evidence_judgment")
+            self.assertIn("subscription_budget_no_accepted_results", str(ctx.exception))
+
+    def test_below_the_spawn_floor_is_not_a_runaway(self) -> None:
+        from aria_kernel.cost_budget import assert_within_subscription_budget
+
+        with tempfile.TemporaryDirectory(prefix="aria-sub-under-") as tmp:
+            base = self._tools(Path(tmp) / "aria-tools")
+            self._usage(base, agent="aria-evidence-judge", role="evidence_judgment",
+                        spawns=3, request_ids=[], out_tokens=1000)
+            result = assert_within_subscription_budget(
+                base, target_agent="aria-evidence-judge", role="evidence_judgment")
+            self.assertEqual(result["status"], "ok")
+
+    def test_missing_ledgers_fail_open(self) -> None:
+        from aria_kernel.cost_budget import assert_within_subscription_budget
+
+        with tempfile.TemporaryDirectory(prefix="aria-sub-open-") as tmp:
+            base = self._tools(Path(tmp) / "aria-tools")
+            result = assert_within_subscription_budget(
+                base, target_agent="aria-implementer", role="implementation")
+            self.assertEqual(result["status"], "ok")
+            self.assertFalse(result["gated"])
+
+    def test_other_roles_are_unaffected_by_one_wasteful_role(self) -> None:
+        from aria_kernel.cost_budget import assert_within_subscription_budget
+
+        with tempfile.TemporaryDirectory(prefix="aria-sub-scope-") as tmp:
+            base = self._tools(Path(tmp) / "aria-tools")
+            self._usage(base, agent="aria-evidence-judge", role="evidence_judgment",
+                        spawns=9, request_ids=[], out_tokens=1000)
+            result = assert_within_subscription_budget(
+                base, target_agent="aria-primary-planner", role="primary_plan")
+            self.assertEqual(result["status"], "ok")
+
+
 class PhaseB0CostBudget(unittest.TestCase):
     def test_i_v3_b0a_daily_cap_exceeded_trips(self) -> None:
         from aria_kernel.cost_budget import (

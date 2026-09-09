@@ -285,6 +285,21 @@ def build_dispatch_result_summary(
     """The exact ``aria/dispatch-result/v1`` wire shape — nothing else."""
     if outcome not in DISPATCH_OUTCOMES:
         raise ValueError(f"unknown_dispatch_outcome: {outcome!r}")
+    # WHAT: reject a `failure` that is not a DispatchFailure, as ValueError.
+    # WHY: `_emit_dispatch_summary` promises that "a dispatch outcome must
+    # never fail because the telemetry channel did" and guards the emitter
+    # with `except (OSError, ValueError)`. A caller passing the wrong type
+    # produced AttributeError instead, which sailed through that guard and
+    # killed the dispatch mid-flight — taking the lease release with it.
+    # Raising ValueError puts a contract violation back inside the guard the
+    # invariant already declares, so the caller is NAMED on stderr and the
+    # dispatch still reaches its release path. The type annotation stays the
+    # first line of defence; this is the runtime one.
+    if failure is not None and not isinstance(failure, DispatchFailure):
+        raise ValueError(
+            f"dispatch_result_failure_type_invalid: expected DispatchFailure "
+            f"or None, got {type(failure).__name__}"
+        )
     rid = str(request_id)
     if not _REQUEST_ID_PATTERN.fullmatch(rid):
         raise ValueError("dispatch_result_request_id_invalid")

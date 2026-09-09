@@ -65,6 +65,7 @@ from claude_runtime import (
     is_mock_mode as _claude_is_mock_mode,
     parse_claude_jsonl,
     preflight_claude_auth,
+    provider_redirect_disclosure,
     run_claude_exec,
     run_with_model_fallback,
 )
@@ -1441,7 +1442,12 @@ def invoke_claude_cli(
                 MODEL_FAMILY_PRICING_USD_PER_MTOK,
                 MODEL_PRICING_USD_PER_MTOK,
             )
-            from aria_kernel.cost_budget import assert_within_budget
+            from aria_kernel.cost_budget import (
+                USD_BASIS_INVOICED,
+                USD_BASIS_NOTIONAL_API_EQUIVALENT,
+                assert_within_budget,
+                assert_within_subscription_budget,
+            )
             from aria_kernel.tool_registry import GovernanceError as _BudgetRefusal
 
             _normalized = (agent_profile.model or "").strip().lower()
@@ -1456,22 +1462,71 @@ def invoke_claude_cli(
                         _rates = _r
                         break
             if _rates is None and not os.environ.get("ARIA_COST_UNKNOWN_ACK", "").strip():
+                # WHAT: refuse the dispatch, then emit a TYPED failure.
+                # WHY: this arm used to hand `_emit_dispatch_summary` a bare
+                # str. `build_dispatch_result_summary` reads
+                # `failure.failure_class`, so the refusal path raised
+                # AttributeError, escaped `invoke_claude_cli` past main()'s
+                # ClaudeAuthFailure / ClaudeCliUnavailable arms, and skipped
+                # the `_release_claim` that follows a non-zero cli_exit. Run
+                # 33920896040 leaked 7 leases that way — the cost gate never
+                # refused before, so the type error had never executed.
+                sys.stderr.write(
+                    "cost_reservation_refused: model pricing unknown and "
+                    "ARIA_COST_UNKNOWN_ACK unset (unknown-cost = deny)\n"
+                )
                 _emit_dispatch_summary(
                     outcome="failed",
-                    failure="cost_reservation_refused: model pricing unknown and "
-                            "ARIA_COST_UNKNOWN_ACK unset (unknown-cost = deny)",
+                    failure=DispatchFailure(
+                        failure_class="policy_violation",
+                        retryable=False,
+                        detail_code="cost_pricing_unknown",
+                        phase="preflight",
+                        exit_code=1,
+                    ),
                     exit_code=1,
                 )
                 return 1
             # Conservative ceiling: 400k in / 64k out tokens for one call.
             _in_rate, _out_rate = _rates or (0.0, 0.0)
             _estimate = (400_000 * _in_rate + 64_000 * _out_rate) / 1_000_000
+            # ARIA-DELIVERY-03 — WHICH WALLET pays decides WHICH meter binds.
+            # An empty redirect disclosure means the default managed Claude
+            # session: `provider_redirect_disclosure` exists precisely to
+            # answer "did this night consume the subscription we paid for, or
+            # the wallet?". On the subscription the USD figure is the notional
+            # comparable `budget.record_cost_attribution` stamps and disclaims,
+            # so it must not refuse work — what binds is quota and tokens, and
+            # `assert_within_subscription_budget` enforces those. On a
+            # sanctioned redirect (z.ai/GLM, operator decision 2026-08-29) the
+            # dollars are an invoice and the caps stay authoritative.
+            _redirect = provider_redirect_disclosure(agent_profile.model)
+            _usd_basis = USD_BASIS_INVOICED if _redirect else USD_BASIS_NOTIONAL_API_EQUIVALENT
             try:
-                assert_within_budget(tools_dir, estimated_run_usd=_estimate)
+                assert_within_budget(
+                    tools_dir, estimated_run_usd=_estimate, usd_basis=_usd_basis,
+                )
+                if _usd_basis == USD_BASIS_NOTIONAL_API_EQUIVALENT:
+                    assert_within_subscription_budget(
+                        tools_dir, target_agent=subagent_type, role=role,
+                    )
             except _BudgetRefusal as _refusal:
+                # WHAT: the cap refusal keeps its human message on stderr and
+                # reports a typed failure to the summary channel.
+                # WHY: same defect as the unknown-pricing arm above — a str
+                # here crashed the emitter and leaked the lease. `retryable`
+                # is False on purpose: re-dispatching under the same cap
+                # refuses identically; the cap or the work has to change.
+                sys.stderr.write(f"cost_reservation_refused: {_refusal}\n")
                 _emit_dispatch_summary(
                     outcome="failed",
-                    failure=f"cost_reservation_refused: {_refusal}"[:200],
+                    failure=DispatchFailure(
+                        failure_class="policy_violation",
+                        retryable=False,
+                        detail_code="cost_budget_cap_exceeded",
+                        phase="preflight",
+                        exit_code=1,
+                    ),
                     exit_code=1,
                 )
                 return 1

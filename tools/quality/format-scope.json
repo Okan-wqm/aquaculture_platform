@@ -32960,6 +32960,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/plans/2026-09-09-aria-delivery-restart/PLAN.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/plans/multi-agent-architecture.md",
       "prettier_managed": true
     },
@@ -34647,6 +34653,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/aria/2026-09-09-acceptance-lane-audit.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/aria/2026-09-09-delivery-restart.md",
       "prettier_managed": true
     },
     {

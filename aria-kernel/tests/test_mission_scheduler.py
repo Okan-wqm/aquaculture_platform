@@ -251,5 +251,28 @@ class MissionSchedulerTests(unittest.TestCase):
         self.assertEqual(rows, [])
 
 
+class SourceRankCoverageTests(unittest.TestCase):
+    """ARIA-DELIVERY-12 — every source_kind a producer stamps must be ranked.
+
+    `open_self_improvement_missions` opens missions with source_kind
+    `self_improvement`. That key was missing from SOURCE_RANK, so each one
+    fell to _UNRANKED_SOURCE (90) and lost every comparison: the lane could
+    produce work the scheduler would never select. An unranked producer is a
+    silent drop, so the coupling is pinned here rather than left to review.
+    """
+
+    def test_every_producer_source_kind_is_ranked(self) -> None:
+        from aria_kernel.mission_scheduler import SOURCE_RANK, _UNRANKED_SOURCE
+        from aria_kernel.self_improvement import SELF_IMPROVEMENT_SOURCE_KIND
+
+        self.assertIn(SELF_IMPROVEMENT_SOURCE_KIND, SOURCE_RANK)
+        self.assertLess(SOURCE_RANK[SELF_IMPROVEMENT_SOURCE_KIND], _UNRANKED_SOURCE)
+
+    def test_ranks_stay_a_total_order(self) -> None:
+        from aria_kernel.mission_scheduler import SOURCE_RANK
+
+        self.assertEqual(len(set(SOURCE_RANK.values())), len(SOURCE_RANK))
+
+
 if __name__ == "__main__":
     unittest.main()

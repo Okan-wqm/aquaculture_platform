@@ -302,6 +302,28 @@ class SummaryWireShapeTests(unittest.TestCase):
                 exit_code=None,
             )
 
+    def test_untyped_failure_is_a_named_valueerror_not_an_attributeerror(self) -> None:
+        """ARIA-DELIVERY-04 — a str `failure` must not escape the emitter guard.
+
+        `_emit_dispatch_summary` wraps this builder in `except (OSError,
+        ValueError)` and promises a dispatch outcome never fails because the
+        telemetry channel did. Two cost-gate callsites passed a bare str, so
+        the builder raised AttributeError on `failure.failure_class`; it sailed
+        past that guard, escaped `invoke_claude_cli`, missed main()'s typed
+        except-arms and skipped `_release_claim`. Run 33920896040 leaked seven
+        leases that way. A contract violation belongs INSIDE the guard.
+        """
+        for bad in ("cost_reservation_refused: cap exceeded", 42, {"failure_class": "timeout"}):
+            with self.assertRaises(ValueError) as caught:
+                build_dispatch_result_summary(
+                    route=self._route(),
+                    request_id="AIR-2026-003",
+                    outcome="failed",
+                    failure=bad,
+                    exit_code=1,
+                )
+            self.assertIn("dispatch_result_failure_type_invalid", str(caught.exception))
+
 
 class RouteTests(unittest.TestCase):
     def test_default_anthropic_route_resolves_byte_identical(self) -> None:

@@ -242,8 +242,17 @@ def _check_delivery(tools_dir: Path) -> DoctorCheck:
         return DoctorCheck("delivery_closure", "fail", "duplicate_prs", summary)
     if summary["false_success"] or summary["unresolved_intents"]:
         return DoctorCheck("delivery_closure", "warn", "false_success_or_unresolved_intents", summary)
-    if not summary["implementation_requests"]:
-        return DoctorCheck("delivery_closure", "ok", "no_implementation_requests", summary)
+    # ARIA-DELIVERY-11 — an EMPTY funnel is not a healthy funnel. This arm
+    # used to return ok/no_implementation_requests, so a delivery lane that
+    # had produced 0 implementation requests, 0 PRs and 0 verified PRs over
+    # 30 days reported green while `slo.met` was False underneath it. That
+    # also broke the one consumer that matters: `self_improvement.scan_signals`
+    # turns ONLY `fail` checks into `doctor_fail` signals, so the emptiest
+    # possible delivery lane produced no signal at all. The SLO is the
+    # authority — when it is unmet the organ fails and NAMES the gaps.
+    if not summary["slo"]["met"]:
+        gaps = ",".join(str(gap) for gap in summary["slo"]["gaps"]) or "unspecified"
+        return DoctorCheck("delivery_closure", "fail", f"delivery_slo_unmet:{gaps}", summary)
     return DoctorCheck("delivery_closure", "ok", "", summary)
 
 

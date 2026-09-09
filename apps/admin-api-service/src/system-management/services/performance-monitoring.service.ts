@@ -52,7 +52,12 @@ export interface PerformanceDashboard {
     currentValue: number;
     severity: 'warning' | 'critical';
   }>;
-  healthScore: number;
+  /**
+   * `null` when no snapshot has been taken: a score of 100 assembled from no
+   * measurements is the strongest possible claim made from the weakest
+   * possible evidence (ADMIN-HIGH-123).
+   */
+  healthScore: number | null;
   serviceBreakdown: Array<{
     service: string;
     avgResponseTime: number;
@@ -473,21 +478,26 @@ export class PerformanceMonitoringService {
     const freeMem = os.freemem();
     const memoryUsage = ((totalMem - freeMem) / totalMem) * 100;
 
-    let diskUsage = 0;
-    let diskTotal = 0;
+    // `null` until `statfs` answers. A 0 here rendered on the performance
+    // dashboard as a disk with nothing on it (ADMIN-HIGH-014).
+    let diskUsage: number | null = null;
+    let diskTotal: number | null = null;
     try {
       const diskStats = fs.statfsSync('/');
       diskTotal = diskStats.bsize * diskStats.blocks;
       const diskFree = diskStats.bsize * diskStats.bavail;
       diskUsage = ((diskTotal - diskFree) / diskTotal) * 100;
     } catch (e) {
-      this.logger.warn('Failed to get disk stats');
+      this.logger.warn('Failed to get disk stats', e);
     }
 
     // Container health checks
-    let containerCount = 0;
-    let healthyContainers = 0;
-    let networkLatency = 0;
+    // The probe fan-out below either runs and counts, or throws and reports
+    // that it could not count. "0 of 0 containers healthy" and "0 ms latency"
+    // are what an operator reads as a measurement of a healthy fleet.
+    let containerCount: number | null = null;
+    let healthyContainers: number | null = null;
+    let networkLatency: number | null = null;
 
     try {
       const serviceEndpoints = [
@@ -559,38 +569,44 @@ export class PerformanceMonitoringService {
         }),
       );
 
+      // The fan-out ran, so the counts are real. `containerCount` is how many
+      // endpoints were PROBED, not how many answered: counting only the
+      // reachable ones made a fleet with nothing running report "0 of 0
+      // healthy", which reads as a complete fleet rather than an absent one.
       const latencies: number[] = [];
+      let healthy = 0;
       for (const result of healthResults) {
         if (result.status === 'fulfilled' && result.value.reachable) {
-          containerCount++;
           if (result.value.healthy) {
-            healthyContainers++;
+            healthy++;
           }
           latencies.push(result.value.latency);
         }
       }
+      containerCount = healthResults.length;
+      healthyContainers = healthy;
 
-      if (latencies.length > 0) {
-        networkLatency =
-          Math.round((latencies.reduce((sum, l) => sum + l, 0) / latencies.length) * 100) / 100;
-      }
+      // No endpoint answered, so there is no round-trip time to average.
+      networkLatency =
+        latencies.length > 0
+          ? Math.round((latencies.reduce((sum, l) => sum + l, 0) / latencies.length) * 100) / 100
+          : null;
     } catch (error) {
       this.logger.warn('Failed to check container health', error);
-      containerCount = 0;
-      healthyContainers = 0;
-      networkLatency = 0;
     }
 
     return {
       cpuUsage: Math.round(cpuUsage * 100) / 100,
       memoryUsage: Math.round(memoryUsage * 100) / 100,
       memoryTotal: totalMem,
-      diskUsage: Math.round(diskUsage * 100) / 100,
+      diskUsage: diskUsage === null ? null : Math.round(diskUsage * 100) / 100,
       diskTotal,
       networkLatency,
       containerCount,
       healthyContainers,
-      podRestarts: 0, // Requires Kubernetes API access
+      // This service has no Kubernetes API access, so the restart count is not
+      // zero — it is unknown, and the dashboard says so.
+      podRestarts: null,
     };
   }
 
@@ -805,7 +821,13 @@ export class PerformanceMonitoringService {
         this.checkThresholds(),
       ]);
 
-      const healthScore = this.calculateHealthScore(null, alerts);
+      // The metrics being persisted are what the snapshot's own score is made
+      // of; passing `null` here scored every snapshot as if nothing had been
+      // measured.
+      const healthScore = this.calculateHealthScore(
+        { applicationMetrics: appMetrics, infrastructureMetrics: infraMetrics },
+        alerts,
+      );
 
       const snapshot = this.snapshotRepo.create({
         timestamp: new Date().toISOString(),
@@ -827,10 +849,29 @@ export class PerformanceMonitoringService {
     }
   }
 
+  /**
+   * A health score, or `null` when there is nothing to score.
+   *
+   * Two defects this shape removes. It took a persisted `PerformanceSnapshot`,
+   * so `createSnapshot` — which has the freshly measured metrics in hand —
+   * could only pass `null` and stored a score that ignored its own
+   * measurements. And with no snapshot the function still returned a number:
+   * 100 minus the alert deductions, so a platform that had never taken a
+   * snapshot reported perfect health on the dashboard's headline figure
+   * (ADMIN-HIGH-123). Taking the metrics rather than the row fixes the first;
+   * returning `null` fixes the second.
+   */
   private calculateHealthScore(
-    snapshot: PerformanceSnapshot | null,
+    measured: {
+      applicationMetrics: ApplicationMetrics;
+      infrastructureMetrics: InfrastructureMetrics;
+    } | null,
     alerts: Array<{ severity: 'warning' | 'critical' }>,
-  ): number {
+  ): number | null {
+    if (measured === null) {
+      return null;
+    }
+
     let score = 100;
 
     // Deduct for alerts
@@ -847,20 +888,18 @@ export class PerformanceMonitoringService {
     // empty metrics window, which is above every threshold, so the score said
     // 100 for a service nobody was measuring. Now it arrives as null and is
     // skipped, and the caller sees which inputs were missing.
-    if (snapshot) {
-      const { apdexScore, errorRate } = snapshot.applicationMetrics;
-      if (apdexScore !== null && apdexScore < 0.85) {
-        score -= 10;
-      }
-      if (errorRate !== null && errorRate > 1) {
-        score -= 10;
-      }
-      if (snapshot.infrastructureMetrics.cpuUsage > 80) {
-        score -= 5;
-      }
-      if (snapshot.infrastructureMetrics.memoryUsage > 80) {
-        score -= 5;
-      }
+    const { apdexScore, errorRate } = measured.applicationMetrics;
+    if (apdexScore !== null && apdexScore < 0.85) {
+      score -= 10;
+    }
+    if (errorRate !== null && errorRate > 1) {
+      score -= 10;
+    }
+    if (measured.infrastructureMetrics.cpuUsage > 80) {
+      score -= 5;
+    }
+    if (measured.infrastructureMetrics.memoryUsage > 80) {
+      score -= 5;
     }
 
     return Math.max(0, Math.min(100, score));

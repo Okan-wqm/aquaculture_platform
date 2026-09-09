@@ -82,6 +82,8 @@ export const adminKeys = {
   system: {
     all: () => [...adminKeys.all, 'system'] as const,
     health: () => [...adminKeys.system.all(), 'health'] as const,
+    /** Root for the performance dashboard's three independent reads. */
+    performance: () => [...adminKeys.system.all(), 'performance'] as const,
     settings: () => [...adminKeys.system.all(), 'settings'] as const,
     analytics: () => [...adminKeys.system.all(), 'analytics'] as const,
   },

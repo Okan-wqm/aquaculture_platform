@@ -40,6 +40,8 @@ interface Harness {
   service: PerformanceMonitoringService;
   dataSource: { createQueryRunner: jest.Mock; query: jest.Mock };
   metricRepo: { createQueryBuilder: jest.Mock };
+  snapshotRepo: { findOne: jest.Mock; create: jest.Mock; save: jest.Mock };
+  circuitBreaker: { execute: jest.Mock };
   queryRunner: { connect: jest.Mock; query: jest.Mock; release: jest.Mock };
 }
 
@@ -53,7 +55,11 @@ function catalogueRows(sql: string): unknown[] {
 }
 
 async function build(
-  options: { metrics?: PerformanceMetric[]; collected?: unknown[] } = {},
+  options: {
+    metrics?: PerformanceMetric[];
+    collected?: unknown[];
+    snapshot?: PerformanceSnapshot | null;
+  } = {},
 ): Promise<Harness> {
   const queryRunner = {
     connect: jest.fn().mockResolvedValue(undefined),
@@ -65,20 +71,33 @@ async function build(
     query: jest.fn().mockResolvedValue(options.collected ?? []),
   };
   const queryBuilder = {
+    select: jest.fn().mockReturnThis(),
+    addSelect: jest.fn().mockReturnThis(),
+    setParameter: jest.fn().mockReturnThis(),
+    groupBy: jest.fn().mockReturnThis(),
+    orderBy: jest.fn().mockReturnThis(),
+    limit: jest.fn().mockReturnThis(),
     where: jest.fn().mockReturnThis(),
     andWhere: jest.fn().mockReturnThis(),
     getMany: jest.fn().mockResolvedValue(options.metrics ?? []),
+    getRawMany: jest.fn().mockResolvedValue([]),
   };
   const metricRepo = { createQueryBuilder: jest.fn().mockReturnValue(queryBuilder) };
+  const snapshotRepo = {
+    findOne: jest.fn().mockResolvedValue(options.snapshot ?? null),
+    create: jest.fn((row: unknown) => row),
+    save: jest.fn().mockResolvedValue(undefined),
+  };
+  const circuitBreaker = { execute: jest.fn() };
 
   const module: TestingModule = await Test.createTestingModule({
     providers: [
       PerformanceMonitoringService,
       { provide: ScheduledJobRunner, useValue: passThroughScheduledJobs },
       { provide: getRepositoryToken(PerformanceMetric), useValue: metricRepo },
-      { provide: getRepositoryToken(PerformanceSnapshot), useValue: {} },
+      { provide: getRepositoryToken(PerformanceSnapshot), useValue: snapshotRepo },
       { provide: getDataSourceToken(), useValue: dataSource },
-      { provide: CircuitBreakerService, useValue: { execute: jest.fn() } },
+      { provide: CircuitBreakerService, useValue: circuitBreaker },
     ],
   }).compile();
 
@@ -86,6 +105,8 @@ async function build(
     service: module.get(PerformanceMonitoringService),
     dataSource,
     metricRepo,
+    snapshotRepo,
+    circuitBreaker,
     queryRunner,
   };
 }
@@ -144,6 +165,92 @@ describe('PerformanceMonitoringService reports what it measured', () => {
     expect(metrics.errorRate).toBeNull();
     expect(metrics.throughput).toBeNull();
     expect(metrics.totalRequests).toBeNull();
+  });
+
+  /**
+   * The dashboard's headline figure (ADMIN-HIGH-123).
+   *
+   * `calculateHealthScore` returned 100 minus the alert deductions whether or
+   * not it had a snapshot to score, and the page then applied its own `?? 100`
+   * on top. So a platform that had never recorded a single measurement told its
+   * operator that system health was perfect.
+   */
+  it('has no health score when no snapshot has been taken', async () => {
+    const { service } = await build({ snapshot: null, metrics: [] });
+
+    const dashboard = await service.getPerformanceDashboard();
+
+    expect(dashboard.currentSnapshot).toBeNull();
+    expect(dashboard.healthScore).toBeNull();
+  });
+
+  it('scores the snapshot it has, deducting for what the snapshot measured', async () => {
+    const snapshotWith = (
+      applicationMetrics: { apdexScore: number; errorRate: number },
+      infrastructureMetrics: { cpuUsage: number; memoryUsage: number },
+    ): PerformanceSnapshot =>
+      ({ applicationMetrics, infrastructureMetrics }) as PerformanceSnapshot;
+
+    const healthy = await build({
+      snapshot: snapshotWith({ apdexScore: 0.99, errorRate: 0 }, { cpuUsage: 5, memoryUsage: 5 }),
+      metrics: [],
+    });
+    const degraded = await build({
+      snapshot: snapshotWith({ apdexScore: 0.5, errorRate: 4 }, { cpuUsage: 95, memoryUsage: 12 }),
+      metrics: [],
+    });
+
+    const healthyScore = (await healthy.service.getPerformanceDashboard()).healthScore;
+    const degradedScore = (await degraded.service.getPerformanceDashboard()).healthScore;
+
+    // The snapshot's own measurements move the score: -10 apdex, -10 error
+    // rate, -5 cpu. Asserted as a difference so the alert deductions the
+    // dashboard also applies (identical for both) cannot make this brittle.
+    expect(healthyScore).not.toBeNull();
+    expect((healthyScore ?? 0) - (degradedScore ?? 0)).toBe(25);
+  });
+
+  it('scores a new snapshot from the metrics being persisted, not from nothing', async () => {
+    const { service, snapshotRepo, queryRunner } = await build({ metrics: [] });
+    queryRunner.query.mockRejectedValue(new Error('connection refused'));
+
+    await service.createPerformanceSnapshot();
+
+    // `calculateHealthScore(null, alerts)` used to be called here with the
+    // measurements sitting in the same scope, so every stored snapshot carried
+    // a score computed from no measurements at all.
+    expect(snapshotRepo.save).toHaveBeenCalledTimes(1);
+    const [saved] = snapshotRepo.create.mock.calls[0] as [{ overallHealthScore: number | null }];
+    expect(saved.overallHealthScore).not.toBeNull();
+  });
+
+  it('reports unknown, not zero, for infrastructure it could not probe', async () => {
+    const { service, circuitBreaker } = await build();
+    circuitBreaker.execute.mockRejectedValue(new Error('probe unavailable'));
+
+    const metrics = await service.getInfrastructureMetrics();
+
+    // Ten endpoints were probed and none answered: "0 of 10" is the
+    // measurement. It used to be "0 of 0", which reads as a complete fleet,
+    // over a 0 ms latency nobody had timed.
+    expect(metrics.containerCount).toBe(10);
+    expect(metrics.healthyContainers).toBe(0);
+    expect(metrics.networkLatency).toBeNull();
+    // Never measured by this service at all — it has no Kubernetes API access.
+    expect(metrics.podRestarts).toBeNull();
+    // CPU and memory come from `os`, which cannot fail.
+    expect(typeof metrics.cpuUsage).toBe('number');
+  });
+
+  it('counts the endpoints that answered when the probe fan-out ran', async () => {
+    const { service, circuitBreaker } = await build();
+    circuitBreaker.execute.mockResolvedValue({ reachable: true, healthy: true, latency: 8 });
+
+    const metrics = await service.getInfrastructureMetrics();
+
+    expect(metrics.containerCount).toBe(10);
+    expect(metrics.healthyContainers).toBe(10);
+    expect(metrics.networkLatency).toBe(8);
   });
 
   it('computes real aggregates when there are samples', async () => {

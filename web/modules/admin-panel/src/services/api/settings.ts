@@ -8,13 +8,15 @@
  */
 
 import { apiFetch, buildQueryString } from '../http-client';
-import type { ApiSchema } from '../contract';
+import type { ApiQuery, ApiSchema } from '../contract';
 import type {
   PaginatedResult,
   PaginationParams,
   DateRangeParams,
+  DatabasePerformance,
   FeatureToggle,
   CreateMaintenanceWindowInput,
+  InfrastructureMetrics,
   MaintenanceWindow,
   PerformanceDashboard,
   PerformanceMetrics,
@@ -101,32 +103,35 @@ export const systemSettingsApi = {
     apiFetch<{ isInMaintenance: boolean; maintenanceInfo?: { title: string; message: string; estimatedEnd?: string } }>(`/system/settings/maintenance/check${tenantId ? `?tenantId=${tenantId}` : ''}`),
 
   // Performance Monitoring
-  getPerformanceDashboard: (service?: string, timeRange?: { start: string; end: string }) =>
-    apiFetch<PerformanceDashboard>(`/system/performance/dashboard?${buildQueryString({ service, ...timeRange })}`),
+  //
+  // The query object is typed from the generated contract (`ApiQuery`), which
+  // is how the five-entry time-range selector on `PerformanceDashboardPage`
+  // stopped being decorative: this call sent `start`/`end` to an endpoint whose
+  // parameters are `startDate`/`endDate`, so the server silently ignored both
+  // and answered for its own default last hour, every time (ADMIN-HIGH-123).
+  getPerformanceDashboard: (
+    query: ApiQuery<'PerformanceController_getPerformanceDashboard'> = {},
+    signal?: AbortSignal,
+  ) =>
+    apiFetch<PerformanceDashboard>(`/system/performance/dashboard?${buildQueryString(query)}`, {
+      signal,
+    }),
   getPerformanceMetrics: (service?: string, timeRange?: { start: string; end: string }) =>
     apiFetch<PerformanceMetrics[]>(`/system/performance/application?${buildQueryString({ service, ...timeRange })}`),
   getApdexScore: (service?: string) =>
     apiFetch<{ apdexScore: number }>(`/system/performance/application/apdex${service ? `?service=${service}` : ''}`),
-  getDatabasePerformance: (database?: string) =>
-    apiFetch<{
-      activeConnections: number;
-      poolSize: number;
-      poolUtilization: number;
-      avgQueryTime: number;
-      slowQueryCount: number;
-      cacheHitRatio: number;
-    }>(`/system/performance/database${database ? `?database=${database}` : ''}`),
+  getDatabasePerformance: (database?: string, signal?: AbortSignal) =>
+    apiFetch<DatabasePerformance>(
+      `/system/performance/database${database ? `?database=${database}` : ''}`,
+      { signal },
+    ),
   getSlowQueries: (threshold?: number, limit?: number) =>
     apiFetch<Array<{ query: string; avgTime: number; count: number; maxTime: number }>>(`/system/performance/database/slow-queries?${buildQueryString({ threshold, limit })}`),
-  getInfrastructureMetrics: (host?: string) =>
-    apiFetch<{
-      cpuUsage: number;
-      memoryUsage: number;
-      diskUsage: number;
-      networkLatency: number;
-      containerCount: number;
-      healthyContainers: number;
-    }>(`/system/performance/infrastructure${host ? `?host=${host}` : ''}`),
+  getInfrastructureMetrics: (host?: string, signal?: AbortSignal) =>
+    apiFetch<InfrastructureMetrics>(
+      `/system/performance/infrastructure${host ? `?host=${host}` : ''}`,
+      { signal },
+    ),
 
   // Error Tracking
   getErrorDashboard: () =>

@@ -160,16 +160,31 @@ export interface DatabaseMetrics {
   deadlockCount: number | null;
 }
 
+/**
+ * The infrastructure half of a snapshot.
+ *
+ * These three interfaces describe the shape stored INSIDE the `applicationMetrics`
+ * / `databaseMetrics` / `infrastructureMetrics` jsonb columns below. Widening a
+ * field here to `| null` is therefore a TypeScript change with no DDL: jsonb has
+ * no per-key column to alter, and every reader already handles the null. Say so
+ * in the PR body (`ENTITY-DIFF-OK: admin-api-service — …`) so
+ * `entity-diff-witness` does not ask for a migration that would have nothing to
+ * execute.
+ */
 export interface InfrastructureMetrics {
+  /** `os.cpus()` and `os.totalmem()` cannot fail, so these are always measured. */
   cpuUsage: number;
   memoryUsage: number;
   memoryTotal: number;
-  diskUsage: number;
-  diskTotal: number;
-  networkLatency: number;
-  containerCount: number;
-  healthyContainers: number;
-  podRestarts: number;
+  /** `statfs` can fail; a fabricated 0 here reads as an empty disk. */
+  diskUsage: number | null;
+  diskTotal: number | null;
+  /** No probe answered, so there is no latency to report — not a 0 ms one. */
+  networkLatency: number | null;
+  containerCount: number | null;
+  healthyContainers: number | null;
+  /** Requires Kubernetes API access this service does not have. */
+  podRestarts: number | null;
 }
 
 @Entity('performance_snapshots', { schema: 'admin' })
@@ -202,8 +217,9 @@ export class PerformanceSnapshot {
     severity: 'warning' | 'critical';
   }>;
 
+  /** `null` when the snapshot's inputs were not measurable — never a default 100. */
   @Column({ type: 'float', nullable: true })
-  overallHealthScore?: number;
+  overallHealthScore?: number | null;
 
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;

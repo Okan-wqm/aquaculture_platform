@@ -806,17 +806,17 @@ W8d stops the claim: the fields are `number | null` and the cards render an em
 dash. The aggregate itself is missing and needs a server-side GROUP BY plus the
 resolution-time average, which belongs to W9.
 
-**Landed (W8b, W8c, W8d):** 5 of 44 pages migrated — AuditLogPage,
-ActivityLogPage, AuditTrailPage, SecurityDashboardPage, CompliancePage — which
-finishes the SECURITY batch and is the first page to use the WRITE primitive.
-admin-panel gained a
+**Landed (W8b–W8f):** 7 of 44 pages migrated — AuditLogPage, ActivityLogPage,
+AuditTrailPage, SecurityDashboardPage, CompliancePage (which finishes the
+SECURITY batch and is the first page to use the WRITE primitive), ModulesPage
+and PerformanceDashboardPage. admin-panel gained a
 `tsconfig.spec.json`, entering `tools/gates/type-check-spec.ts` at 0: no type
 gate had ever read a spec in this package, and the compiler's first pass found a
 pre-existing spec asserting against a `Tenant` shape with two fields the
 contract lacks and one required field missing.
 
-**Remaining:** 39 pages, in four domain batches (tenant 6, billing 11,
-system 13, messaging 9), governed by
+**Remaining:** 37 pages, in four domain batches (tenant 6, billing 11,
+system 11, messaging 9), governed by
 `.claude/allowlists/admin-panel-unmigrated-reads.yaml`. The `AdminTable`
 contract for server-side pagination, sort and dataset-scoped aggregates follows
 the migration. **Gate:** `tests/invariants/admin-panel-data-layer.spec.ts` — a
@@ -825,6 +825,49 @@ expiry and reason under a ceiling that only decreases; every module-scoped cache
 in `web/` reaches the logout authority; `@tanstack/react-query` is declared
 wherever it is imported, at the federation-pinned version; the barrel keeps
 exporting the primitives.
+
+## ADMIN-HIGH-123 — perfect health from no measurements, and a dead time-range selector
+
+**State:** OPEN → closed by W8f · **Wave:** W8f · **Owner:** okan
+**Deadline:** 2026-12-31
+
+Three claims the page made without evidence, found while migrating it to the
+data layer. They are one finding because they share a cause: a default
+substituted for a measurement is indistinguishable, on screen, from the
+measurement.
+
+1. **Health of 100 from nothing.** The page read
+   `currentSnapshot.overallHealthScore ?? 100`, and `calculateHealthScore`
+   returned 100 minus the alert deductions whether or not it had a snapshot to
+   score — so a platform that had never recorded a measurement told its
+   operator that system health was perfect, in 48-point type. The function now
+   takes the metrics it scores instead of a persisted row and returns
+   `number | null`; that shape also fixes `createPerformanceSnapshot`, which
+   passed `null` while holding the freshly measured metrics and therefore
+   stored a score computed from nothing.
+
+2. **A control that changed only the label.** The page sent `?start=…&end=…`
+   to an endpoint whose parameters are `startDate` and `endDate`. An unknown
+   query parameter is not an error — it is ignored — so all five options
+   returned the server's default last hour, and the chart under "Son 24 Saat"
+   showed one. The query object is typed through `ApiQuery<>` from the
+   generated contract now, so the next rename is a compile error rather than a
+   silent no-op. The window is also computed at fetch time, so an
+   auto-refreshing "last 5 minutes" advances with the clock instead of
+   re-requesting the five minutes that were current when the option was
+   chosen.
+
+3. **Unmeasurable reported as zero.** A failed `statfs` reported an empty
+   disk, an unreachable fleet reported "0 of 0 containers healthy" over a 0 ms
+   latency nobody had timed, and `podRestarts` — which this service has no
+   Kubernetes API access to read — reported 0 restarts. All six are
+   `number | null` now, and `containerCount` counts the endpoints PROBED, so
+   an unreachable fleet reads "0 of 10".
+
+**Gate:** `performance-honest-metrics.spec.ts` (extended with the health-score
+and infrastructure cases) and the page's own spec, which pins the parameter
+names, the em dash where the score used to be 100, and a partial failure that
+no longer blanks the page.
 
 ## ADMIN-HIGH-106 — Retired stores left as 410/409/501 stubs; route shadowing (C4, C5)
 

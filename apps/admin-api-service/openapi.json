@@ -25400,7 +25400,8 @@
             }
           },
           "overallHealthScore": {
-            "type": "number"
+            "type": "number",
+            "nullable": true
           },
           "createdAt": {
             "format": "date-time",

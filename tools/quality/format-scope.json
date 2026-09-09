@@ -1076,7 +1076,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "e978f0e208cb7e9d99459261394ccc6083b01f982f130268bcf44450aa0bf039",
+      "content_sha256": "18b44d4b0b614088a5eb9172f8807ff2f3ed68317be5d4ffdcdb69f87132385b",
       "hash_policy": "sha256",
       "owner": "admin-openapi-generator",
       "path": "apps/admin-api-service/openapi.json",
@@ -51102,6 +51102,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/system/__tests__/PerformanceDashboardPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/pages/system/ErrorTrackingPage.tsx",
       "prettier_managed": true
     },
@@ -51299,7 +51305,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "225adfa96cead285690a1c674ded2792a102f29e1a729c120c5a69483a8ca443",
+      "content_sha256": "3a13f56145ad173b88ba2260e68a228da5ac9336fde2dcb07254fde93d476e27",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/modules/admin-panel/src/services/generated/admin-api.ts",

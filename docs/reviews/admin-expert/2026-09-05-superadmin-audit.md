@@ -854,10 +854,13 @@ zero; and a section named in `unavailable[]` is treated as UNKNOWN, so the
 server's own signal decides what is shown instead of annotating the zeros it
 replaced.
 
-**The server half stays open for W9.** Those five default objects also feed
-`reports.service.ts` snapshot aggregation, so widening the metric interfaces to
-`number | null` changes report averaging math — a change that belongs with the
-backend wave, not bolted onto a page migration.
+**The server half is now its own finding, ADMIN-HIGH-126**, so the debt is
+tracked by an OPEN row rather than by the notes of a resolved one. Those five
+default objects also feed `reports.service.ts` snapshot aggregation, so
+widening the metric interfaces to `number | null` carries report averaging math
+with it — a W9 change, not one to bolt onto a page migration. No operator sees
+those zeros on the analytics dashboard any more; every other consumer of
+`GET /analytics/dashboard` still does.
 
 ## ADMIN-HIGH-124 — the landing page reported an empty platform when its reads failed
 

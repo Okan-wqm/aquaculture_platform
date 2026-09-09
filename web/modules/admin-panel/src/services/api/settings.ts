@@ -45,7 +45,8 @@ export const settingsApi = {
       method: 'POST',
       body: JSON.stringify({ to }),
     }),
-  getSystemInfo: () => apiFetch<Record<string, unknown>>('/settings/system/info'),
+  getSystemInfo: (signal?: AbortSignal) =>
+    apiFetch<Record<string, unknown>>('/settings/system/info', { signal }),
 
   // Email Templates (delegated to email-templates.ts, kept here for backward compat)
   getEmailTemplates: emailTemplatesApi.getEmailTemplates,

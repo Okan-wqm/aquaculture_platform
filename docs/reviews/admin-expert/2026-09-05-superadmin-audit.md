@@ -806,7 +806,7 @@ W8d stops the claim: the fields are `number | null` and the cards render an em
 dash. The aggregate itself is missing and needs a server-side GROUP BY plus the
 resolution-time average, which belongs to W9.
 
-**Landed (W8b–W8n):** 15 of 44 pages migrated — AuditLogPage, ActivityLogPage,
+**Landed (W8b–W8o):** 16 of 44 pages migrated — AuditLogPage, ActivityLogPage,
 AuditTrailPage, SecurityDashboardPage, CompliancePage (which finishes the
 SECURITY batch and is the first page to use the WRITE primitive), ModulesPage,
 PerformanceDashboardPage, AdminDashboard, AnalyticsDashboardPage, JobQueuePage,
@@ -814,14 +814,17 @@ ErrorTrackingPage, FeatureTogglesPage, MaintenancePage, EmailTemplatesPage and
 ReportsPage — the last of which the audit's correction C8 had already
 established is backed by a real controller, so its migration is the plain
 kind: a queued execution now polls to completion instead of sitting at
-"pending" until the operator reloads. admin-panel gained a
+"pending" until the operator reloads. SystemSettingsPage follows, whose last
+two call sites — the System tab's `/settings/system/info` read and the SMTP
+test send — were all that kept the second cache alive on a page whose settings
+half already went through the primitives. admin-panel gained a
 `tsconfig.spec.json`, entering `tools/gates/type-check-spec.ts` at 0: no type
 gate had ever read a spec in this package, and the compiler's first pass found a
 pre-existing spec asserting against a `Tenant` shape with two fields the
 contract lacks and one required field missing.
 
-**Remaining:** 29 pages, in four domain batches (tenant 6, billing 11,
-system 3, messaging 9), governed by
+**Remaining:** 28 pages, in four domain batches (tenant 6, billing 11,
+system 2, messaging 9), governed by
 `.claude/allowlists/admin-panel-unmigrated-reads.yaml`. The `AdminTable`
 contract for server-side pagination, sort and dataset-scoped aggregates follows
 the migration. **Gate:** `tests/invariants/admin-panel-data-layer.spec.ts` — a

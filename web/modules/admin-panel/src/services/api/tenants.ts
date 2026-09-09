@@ -43,7 +43,8 @@ export const tenantsApi = {
     signal?: AbortSignal,
   ) => apiFetch<PaginatedResult<Tenant>>(`/admin/tenants?${buildQueryString(params || {})}`, { signal }),
   getById: (id: string) => apiFetch<Tenant>(`/admin/tenants/${id}`),
-  getDetail: (id: string) => apiFetch<TenantDetail>(`/admin/tenants/${id}/detail`),
+  getDetail: (id: string, signal?: AbortSignal) =>
+    apiFetch<TenantDetail>(`/admin/tenants/${id}/detail`, { signal }),
   getBySlug: (slug: string) => apiFetch<Tenant>(`/admin/tenants/slug/${slug}`),
   getStats: (signal?: AbortSignal) => apiFetch<TenantStats>('/admin/tenants/stats', { signal }),
   getUsage: (id: string) => apiFetch<Record<string, unknown>>(`/admin/tenants/${id}/usage`),

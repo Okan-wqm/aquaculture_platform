@@ -116,7 +116,8 @@
     "aria:compile": "PYTHONPATH=aria-kernel python3 -c \"from pathlib import Path; [compile(p.read_text(encoding='utf-8'), str(p), 'exec') for p in Path('aria-kernel').rglob('*.py') if '__pycache__' not in p.parts]\"",
     "aria:test:unit": "bash scripts/ci/aria-suite-run.sh",
     "aria:docs:ssot": "jest --config tests/invariants/jest.config.ts --selectProjects layer-3 --runTestsByPath tests/invariants/aria-doc-runtime-ssot.spec.ts",
-    "aria:acceptance": "PYTHONDONTWRITEBYTECODE=1 python3 tools/aria-acceptance/harness.py",
+    "test:aria-acceptance": "PYTHONDONTWRITEBYTECODE=1 python3 tools/aria-acceptance/harness.py",
+    "test:aria-acceptance:unit": "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover tools/aria-acceptance -p 'test_*.py'",
     "aria:burnin:observe": "PYTHONPATH=aria-kernel python3 -m aria_kernel autonomy burn-in observe",
     "aria:authority-hash": "ts-node --project tools/gates/tsconfig.json tools/gates/aria-authority-hash.ts",
     "aria:authority-hash:write": "ts-node --project tools/gates/tsconfig.json tools/gates/aria-authority-hash.ts --write",
@@ -246,13 +247,13 @@
     "helmet": "^7.2.0",
     "immer": "^11.1.4",
     "ioredis": "^5.8.2",
-    "js-yaml": "^4.3.1",
+    "js-yaml": "^4.3.2",
     "modbus-serial": "^8.0.23",
     "motion": "^12.38.0",
     "mqtt": "^5.14.1",
-    "multer": "2.2.0",
+    "multer": "2.3.0",
     "node-opcua": "^2.169.0",
-    "nodemailer": "^9.0.1",
+    "nodemailer": "^9.1.1",
     "nodes7": "^0.3.18",
     "openai": "^6.45.0",
     "passport": "^0.7.0",
@@ -268,7 +269,7 @@
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
     "sanitize-html": "^2.17.7",
-    "sharp": "^0.35.3",
+    "sharp": "^0.35.4",
     "socket.io": "^4.8.3",
     "socket.io-client": "^4.8.3",
     "stripe": "^17.7.0",
@@ -351,7 +352,7 @@
   },
   "overrides": {
     "@types/express": "4.17.25",
-    "multer": "2.2.0",
+    "multer": "2.3.0",
     "dompurify": "3.4.14",
     "diff": "8.0.3",
     "decode-uri-component": "^0.5.0",
@@ -362,10 +363,10 @@
       "diff": "4.0.4"
     },
     "express-rate-limit": "^8.5.1",
-    "browserslist": "4.28.9",
+    "browserslist": "^4.28.7",
     "fast-uri": "^3.1.6",
     "fast-xml-builder": "^1.2.0",
-    "hono": "^4.12.18",
+    "hono": "^4.13.5",
     "ip-address": "^10.4.0",
     "lodash": "4.18.1",
     "@apollo/federation-internals": {
@@ -378,7 +379,7 @@
       "@apollo/server-plugin-landing-page-graphql-playground": "$@apollo/server-plugin-landing-page-graphql-playground"
     },
     "@nestjs/swagger": {
-      "js-yaml": "^4.3.1"
+      "js-yaml": "^4.3.2"
     },
     "typeorm": {
       "glob": "^13.0.6",
@@ -396,11 +397,14 @@
     "gaxios": "^7.3.0",
     "postcss": "^8.5.23",
     "protobufjs": "^7.6.4",
-    "qs": "^6.15.4",
+    "qs": "^6.16.0",
     "ws": "^8.21.0",
     "vite": "^7.3.5",
-    "browserslist": "^4.28.7",
-    "qs": "^6.16.0"
+    "@istanbuljs/load-nyc-config": {
+      "js-yaml": "^3.15.2"
+    },
+    "svgo": "^3.3.5",
+    "js-yaml": "^4.3.2"
   },
   "optionalDependencies": {
     "@swc/core-linux-x64-gnu": "1.15.41"

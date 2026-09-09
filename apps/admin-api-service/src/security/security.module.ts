@@ -32,6 +32,7 @@ import {
 } from './entities/security.entity';
 import { ActivityLoggingService } from './services/activity-logging.service';
 import { AuditTrailService } from './services/audit-trail.service';
+import { SecuritySignalProjectionHandler } from './handlers/security-signal-projection.handler';
 import { ComplianceService } from './services/compliance.service';
 import { SecurityMonitoringService } from './services/security-monitoring.service';
 
@@ -65,6 +66,12 @@ import { SecurityMonitoringService } from './services/security-monitoring.servic
     AuditTrailService,
     ComplianceService,
     SecurityMonitoringService,
+    // The sink for `events.security.events.>`. A PROVIDER, not a controller:
+    // `EventHandlerRegistryModule` discovers @SubscribeTo over
+    // DiscoveryService.getProviders(), and a class registered under
+    // `controllers` is invisible to it — which is also why the previous
+    // @EventPattern version bound to nothing at all.
+    SecuritySignalProjectionHandler,
   ],
   exports: [
     ActivityLoggingService,

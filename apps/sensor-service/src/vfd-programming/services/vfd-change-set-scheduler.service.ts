@@ -1,5 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import {
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
@@ -39,6 +43,7 @@ export class VfdChangeSetSchedulerService {
     private readonly dataSource: DataSource,
     private readonly parameterWriterService: VfdParameterWriterService,
     private readonly eventEmitter: EventEmitter2,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
 
   /**
@@ -46,7 +51,7 @@ export class VfdChangeSetSchedulerService {
    * tenant schema. Runs every 30 seconds. Skips if a previous cycle is still
    * processing.
    */
-  @Cron('*/30 * * * * *')
+  @ScheduledJob({ name: 'vfd-change-set.apply-scheduled', cron: '*/30 * * * * *' })
   async handleScheduledChangeSets(): Promise<void> {
     if (this.isProcessing) {
       this.logger.debug('Scheduler already processing, skipping cycle');

@@ -123,6 +123,7 @@ import { EventHandlersModule } from './event-handlers/event-handlers.module';
 import { AiModule } from './ai/ai.module';
 import { MessagingNotificationModule } from './notification/notification.module';
 import { MetricsModule } from './metrics/metrics.module';
+import { ScheduledJobModule } from '@aquaculture/backend-common/scheduling';
 
 // Per-process complexity cache keyed by document hash
 const complexityCache = new Map<string, number>();
@@ -289,6 +290,9 @@ type QueryComplexityOperationContext = {
 
     // Scheduled tasks (partition manager, outbox cleanup)
     ScheduleModule.forRoot(),
+    // ADMIN-HIGH-013: every @ScheduledJob tick routes through the runner's
+    // advisory-lock lease and heartbeat.
+    ScheduledJobModule.forRoot({ serviceName: 'messaging-service' }),
 
     // NATS JetStream Event Bus — required by @platform/outbox OutboxWorkerService.
     // The worker publishes via IEventBus.publish() using subject pattern

@@ -14,10 +14,10 @@ import { SettingsModule } from '../settings/settings.module';
 import { UsersModule } from '../users/users.module';
 
 import {
-  TenantActivity,
-  TenantNote,
-  TenantBillingInfo,
-} from './entities/tenant-activity.entity';
+  SubscriptionReadOnly,
+  InvoiceReadOnly,
+} from '../analytics/entities/external';
+import { TenantActivity, TenantNote } from './entities/tenant-activity.entity';
 import { Tenant, TenantInvitation } from './entities/tenant.entity';
 import { TenantErasureOperation } from './entities/tenant-erasure-operation.entity';
 import {
@@ -83,8 +83,11 @@ const QueryHandlers = [
       TenantErasureOperation,
       TenantActivity,
       TenantNote,
-      TenantBillingInfo,
       TenantSchema,
+      // Read-only mirrors of billing's SSoT (D14): the tenant-detail billing
+      // block is derived from them since admin.tenant_billing_info retired.
+      SubscriptionReadOnly,
+      InvoiceReadOnly,
     ]),
     AuditLogModule,
     DatabaseManagementModule,
@@ -94,7 +97,7 @@ const QueryHandlers = [
     AdminOutboxModule,
     TenantErasureTargetModule.forService('admin-api-service'),
   ],
-  controllers: [TenantPublicController, TenantAdminController, TenantOnboardingAckHandler],
+  controllers: [TenantPublicController, TenantAdminController],
   providers: [
     ...CommandHandlers,
     ...QueryHandlers,
@@ -106,6 +109,9 @@ const QueryHandlers = [
     TenantDetailService,
     ModuleAssignmentService,
     TenantErasureProofHandler,
+    // A PROVIDER, not a controller: EventHandlerRegistryModule discovers
+    // @SubscribeTo over DiscoveryService.getProviders().
+    TenantOnboardingAckHandler,
   ],
   exports: [
     TenantProvisioningService,

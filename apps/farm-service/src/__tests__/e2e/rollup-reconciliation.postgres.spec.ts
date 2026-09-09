@@ -78,6 +78,7 @@ import {
   FeedingClockService,
 } from '../../feeding-protocol/services/feeding-clock.service';
 import { FeedingCronV2Service } from '../../feeding-protocol/services/feeding-cron-v2.service';
+import { createScheduledJobTestExecutor } from '@aquaculture/backend-common/scheduling/testing';
 import { FeedingJobRunService } from '../../feeding-protocol/services/feeding-job-run.service';
 import { MealPlanGeneratorService } from '../../feeding-protocol/services/meal-plan-generator.service';
 import { ProtocolFeedForecastService } from '../../feeding-protocol/services/protocol-feed-forecast.service';
@@ -214,6 +215,7 @@ describe('DAILY rollup reconciliation — real Postgres', () => {
     );
     cron = new FeedingCronV2Service(
       dataSource,
+      createScheduledJobTestExecutor().executor,
       collaborator<MealPlanGeneratorService>({}, 'MealPlanGeneratorService'),
       growthApplier,
       collaborator<WaterTemperatureService>({}, 'WaterTemperatureService'),

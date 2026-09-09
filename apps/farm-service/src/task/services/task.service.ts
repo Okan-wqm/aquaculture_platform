@@ -6,17 +6,15 @@
  *
  * @module Task/Services
  */
-import {
-  Injectable,
-  NotFoundException,
-  BadRequestException,
-  ConflictException,
-  Logger,
-} from '@nestjs/common';
+import { Inject, BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, EntityManager } from 'typeorm';
 import { listTenantSchemas } from '@aquaculture/backend-common/database';
-import { Cron } from '@nestjs/schedule';
+import {
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
 import {
   MobileCommandReceiptService,
   type MobileCommandEnvelope,
@@ -119,6 +117,7 @@ export class TaskService {
     private readonly dataSource: DataSource,
     private readonly outboxPublisher: OutboxPublisher,
     private readonly mobileCommandReceipts: MobileCommandReceiptService,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -729,7 +728,7 @@ export class TaskService {
    * Gecikmiş görevleri her 30 dakikada bir tespit eder.
    * Iterates ALL tenant schemas to ensure no tenant is missed.
    */
-  @Cron('0 */30 * * * *')
+  @ScheduledJob({ name: 'task.detect-overdue', cron: '0 */30 * * * *' })
   async detectOverdueTasks(): Promise<void> {
     this.logger.log('Running overdue task detection across all tenant schemas...');
     const now = new Date();

@@ -1151,7 +1151,14 @@
         "parameters": [],
         "responses": {
           "200": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SchemaSummaryDto"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -5446,7 +5453,13 @@
             "required": false,
             "in": "query",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "enum": [
+                "SUPER_ADMIN",
+                "TENANT_ADMIN",
+                "MODULE_MANAGER",
+                "MODULE_USER"
+              ]
             }
           },
           {
@@ -12442,30 +12455,6 @@
         ]
       }
     },
-    "/security/monitoring/analyze/login": {
-      "post": {
-        "operationId": "SecurityMonitoringController_analyzeLogin",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AnalyzeLoginDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Security"
-        ]
-      }
-    },
     "/security/monitoring/config/anomaly-detection": {
       "get": {
         "operationId": "SecurityMonitoringController_getAnomalyConfig",
@@ -13868,30 +13857,6 @@
         ]
       }
     },
-    "/system/performance/metrics/request": {
-      "post": {
-        "operationId": "PerformanceController_recordRequestMetric",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RecordRequestMetricDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "tags": [
-          "Analytics"
-        ]
-      }
-    },
     "/system/performance/metrics/flush": {
       "post": {
         "operationId": "PerformanceController_flushMetrics",
@@ -13984,37 +13949,6 @@
         "responses": {
           "200": {
             "description": ""
-          }
-        },
-        "tags": [
-          "Analytics"
-        ]
-      }
-    },
-    "/system/errors/report": {
-      "post": {
-        "operationId": "ErrorTrackingController_reportError",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ReportErrorDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorOccurrence"
-                }
-              }
-            }
           }
         },
         "tags": [
@@ -14115,8 +14049,7 @@
               "enum": [
                 "occurrenceCount",
                 "lastSeenAt",
-                "firstSeenAt",
-                "userCount"
+                "firstSeenAt"
               ]
             }
           },
@@ -16497,20 +16430,40 @@
           "currentPlan": {
             "type": "string"
           },
-          "monthlyAmount": {
-            "type": "number"
-          },
-          "currency": {
+          "planTier": {
             "type": "string"
           },
           "billingCycle": {
             "type": "string"
           },
-          "paymentStatus": {
+          "subscriptionStatus": {
             "type": "string"
           },
           "nextBillingDate": {
             "format": "date-time",
+            "type": "string",
+            "nullable": true
+          },
+          "lastInvoiceAmount": {
+            "type": "number",
+            "nullable": true
+          },
+          "lastInvoiceIssuedAt": {
+            "format": "date-time",
+            "type": "string",
+            "nullable": true
+          },
+          "lastInvoicePeriodStart": {
+            "format": "date-time",
+            "type": "string",
+            "nullable": true
+          },
+          "lastInvoicePeriodEnd": {
+            "format": "date-time",
+            "type": "string",
+            "nullable": true
+          },
+          "currency": {
             "type": "string",
             "nullable": true
           },
@@ -16526,11 +16479,15 @@
         },
         "required": [
           "currentPlan",
-          "monthlyAmount",
-          "currency",
+          "planTier",
           "billingCycle",
-          "paymentStatus",
+          "subscriptionStatus",
           "nextBillingDate",
+          "lastInvoiceAmount",
+          "lastInvoiceIssuedAt",
+          "lastInvoicePeriodStart",
+          "lastInvoicePeriodEnd",
+          "currency",
           "lastPaymentDate",
           "lastPaymentAmount"
         ]
@@ -17346,6 +17303,37 @@
           "justification",
           "relatedAuditIds",
           "correlationId"
+        ]
+      },
+      "SchemaSummaryDto": {
+        "type": "object",
+        "properties": {
+          "totalSchemas": {
+            "type": "number"
+          },
+          "activeSchemas": {
+            "type": "number"
+          },
+          "suspendedSchemas": {
+            "type": "number"
+          },
+          "totalSizeBytes": {
+            "type": "number"
+          },
+          "totalTableCount": {
+            "type": "number"
+          },
+          "avgSizeBytes": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "totalSchemas",
+          "activeSchemas",
+          "suspendedSchemas",
+          "totalSizeBytes",
+          "totalTableCount",
+          "avgSizeBytes"
         ]
       },
       "TenantSchema": {
@@ -21206,7 +21194,13 @@
             "pattern": "^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[@$!%*?&])[A-Za-z\\d@$!%*?&]"
           },
           "role": {
-            "type": "string"
+            "type": "string",
+            "enum": [
+              "SUPER_ADMIN",
+              "TENANT_ADMIN",
+              "MODULE_MANAGER",
+              "MODULE_USER"
+            ]
           }
         },
         "required": [
@@ -21236,7 +21230,13 @@
             "maxLength": 100
           },
           "role": {
-            "type": "string"
+            "type": "string",
+            "enum": [
+              "SUPER_ADMIN",
+              "TENANT_ADMIN",
+              "MODULE_MANAGER",
+              "MODULE_USER"
+            ]
           },
           "isActive": {
             "type": "boolean"
@@ -21278,7 +21278,13 @@
             "maxLength": 100
           },
           "role": {
-            "type": "string"
+            "type": "string",
+            "enum": [
+              "SUPER_ADMIN",
+              "TENANT_ADMIN",
+              "MODULE_MANAGER",
+              "MODULE_USER"
+            ]
           },
           "moduleIds": {
             "type": "array",
@@ -21447,9 +21453,9 @@
           "category": {
             "type": "string",
             "enum": [
+              "user",
               "system",
               "tenant",
-              "user",
               "financial",
               "usage"
             ]
@@ -22016,8 +22022,8 @@
           },
           "senderType": {
             "enum": [
-              "admin",
               "system",
+              "admin",
               "tenant_admin"
             ],
             "type": "string"
@@ -22162,8 +22168,8 @@
           "type": {
             "enum": [
               "info",
-              "warning",
               "critical",
+              "warning",
               "maintenance"
             ],
             "type": "string"
@@ -22297,8 +22303,8 @@
             "type": "string",
             "enum": [
               "info",
-              "warning",
               "critical",
+              "warning",
               "maintenance"
             ]
           },
@@ -22338,8 +22344,8 @@
             "type": "string",
             "enum": [
               "info",
-              "warning",
               "critical",
+              "warning",
               "maintenance"
             ]
           },
@@ -22534,8 +22540,8 @@
           },
           "authorType": {
             "enum": [
-              "admin",
               "system",
+              "admin",
               "tenant_user"
             ],
             "type": "string"
@@ -23001,8 +23007,8 @@
               "debug",
               "error",
               "info",
-              "warning",
-              "critical"
+              "critical",
+              "warning"
             ]
           },
           "action": {
@@ -23024,7 +23030,8 @@
             "nullable": true
           },
           "ipAddress": {
-            "type": "string"
+            "type": "string",
+            "nullable": true
           },
           "geoLocation": {
             "type": "object",
@@ -23104,7 +23111,6 @@
           "severity",
           "action",
           "description",
-          "ipAddress",
           "success",
           "createdAt",
           "legalHold"
@@ -23120,7 +23126,8 @@
             "type": "string"
           },
           "ipAddress": {
-            "type": "string"
+            "type": "string",
+            "nullable": true
           },
           "success": {
             "type": "boolean"
@@ -23149,6 +23156,10 @@
             "type": "string",
             "nullable": true
           },
+          "sourceEventId": {
+            "type": "string",
+            "nullable": true
+          },
           "createdAt": {
             "format": "date-time",
             "type": "string"
@@ -23157,7 +23168,6 @@
         "required": [
           "id",
           "email",
-          "ipAddress",
           "success",
           "createdAt"
         ]
@@ -23319,8 +23329,8 @@
                     "debug",
                     "error",
                     "info",
-                    "warning",
-                    "critical"
+                    "critical",
+                    "warning"
                   ]
                 }
               },
@@ -23975,7 +23985,8 @@
             "type": "string"
           },
           "ipAddress": {
-            "type": "string"
+            "type": "string",
+            "nullable": true
           },
           "geoLocation": {
             "type": "object",
@@ -24103,7 +24114,6 @@
           "status",
           "title",
           "description",
-          "ipAddress",
           "detectionSource",
           "autoMitigated",
           "createdAt",
@@ -24576,36 +24586,6 @@
           "hitCount",
           "createdAt",
           "updatedAt"
-        ]
-      },
-      "AnalyzeLoginDto": {
-        "type": "object",
-        "properties": {
-          "tenantId": {
-            "type": "string",
-            "format": "uuid",
-            "description": "Tenant id. Resolved and verified server-side before the handler runs; the value a handler uses never comes from this key."
-          },
-          "email": {
-            "type": "string"
-          },
-          "ipAddress": {
-            "type": "string"
-          },
-          "success": {
-            "type": "boolean"
-          },
-          "geoLocation": {
-            "type": "object"
-          },
-          "userId": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "email",
-          "ipAddress",
-          "success"
         ]
       },
       "CreateFeatureToggleDto": {
@@ -25467,121 +25447,13 @@
             "type": "string"
           },
           "applicationMetrics": {
-            "type": "object",
-            "properties": {
-              "avgResponseTime": {
-                "type": "number"
-              },
-              "p95ResponseTime": {
-                "type": "number"
-              },
-              "p99ResponseTime": {
-                "type": "number"
-              },
-              "throughput": {
-                "type": "number"
-              },
-              "errorRate": {
-                "type": "number"
-              },
-              "apdexScore": {
-                "type": "number"
-              },
-              "activeRequests": {
-                "type": "number"
-              },
-              "totalRequests": {
-                "type": "number"
-              }
-            },
-            "required": [
-              "avgResponseTime",
-              "p95ResponseTime",
-              "p99ResponseTime",
-              "throughput",
-              "errorRate",
-              "apdexScore",
-              "activeRequests",
-              "totalRequests"
-            ]
+            "type": "object"
           },
           "databaseMetrics": {
-            "type": "object",
-            "properties": {
-              "activeConnections": {
-                "type": "number"
-              },
-              "poolSize": {
-                "type": "number"
-              },
-              "poolUtilization": {
-                "type": "number"
-              },
-              "avgQueryTime": {
-                "type": "number"
-              },
-              "slowQueryCount": {
-                "type": "number"
-              },
-              "cacheHitRatio": {
-                "type": "number"
-              },
-              "deadlockCount": {
-                "type": "number"
-              }
-            },
-            "required": [
-              "activeConnections",
-              "poolSize",
-              "poolUtilization",
-              "avgQueryTime",
-              "slowQueryCount",
-              "cacheHitRatio",
-              "deadlockCount"
-            ]
+            "type": "object"
           },
           "infrastructureMetrics": {
-            "type": "object",
-            "properties": {
-              "cpuUsage": {
-                "type": "number"
-              },
-              "memoryUsage": {
-                "type": "number"
-              },
-              "memoryTotal": {
-                "type": "number"
-              },
-              "diskUsage": {
-                "type": "number"
-              },
-              "diskTotal": {
-                "type": "number"
-              },
-              "networkLatency": {
-                "type": "number"
-              },
-              "containerCount": {
-                "type": "number"
-              },
-              "healthyContainers": {
-                "type": "number"
-              },
-              "podRestarts": {
-                "type": "number"
-              }
-            },
-            "required": [
-              "cpuUsage",
-              "memoryUsage",
-              "memoryTotal",
-              "diskUsage",
-              "diskTotal",
-              "networkLatency",
-              "containerCount",
-              "healthyContainers",
-              "podRestarts"
-            ]
+            "type": "object"
           },
           "alerts": {
             "type": "array",
@@ -25590,7 +25462,8 @@
             }
           },
           "overallHealthScore": {
-            "type": "number"
+            "type": "number",
+            "nullable": true
           },
           "createdAt": {
             "format": "date-time",
@@ -25677,179 +25550,6 @@
           "value"
         ]
       },
-      "RecordRequestMetricDto": {
-        "type": "object",
-        "properties": {
-          "service": {
-            "type": "string",
-            "maxLength": 255
-          },
-          "endpoint": {
-            "type": "string",
-            "maxLength": 255
-          },
-          "method": {
-            "type": "string",
-            "maxLength": 10
-          },
-          "durationMs": {
-            "type": "number"
-          },
-          "isError": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "service",
-          "endpoint",
-          "method",
-          "durationMs",
-          "isError"
-        ]
-      },
-      "ReportErrorDto": {
-        "type": "object",
-        "properties": {
-          "tenantId": {
-            "type": "string",
-            "format": "uuid",
-            "description": "Tenant id. Resolved and verified server-side before the handler runs; the value a handler uses never comes from this key."
-          },
-          "message": {
-            "type": "string"
-          },
-          "errorType": {
-            "type": "string"
-          },
-          "stackTrace": {
-            "type": "string"
-          },
-          "severity": {
-            "type": "string",
-            "enum": [
-              "debug",
-              "info",
-              "warning",
-              "error",
-              "critical",
-              "fatal"
-            ]
-          },
-          "context": {
-            "type": "object"
-          },
-          "service": {
-            "type": "string"
-          },
-          "environment": {
-            "type": "string"
-          },
-          "release": {
-            "type": "string"
-          },
-          "userId": {
-            "type": "string"
-          },
-          "ipAddress": {
-            "type": "string"
-          },
-          "userAgent": {
-            "type": "string"
-          },
-          "metadata": {
-            "type": "object",
-            "additionalProperties": true
-          }
-        },
-        "required": [
-          "message"
-        ]
-      },
-      "ErrorOccurrence": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "groupId": {
-            "type": "string"
-          },
-          "fingerprint": {
-            "type": "string"
-          },
-          "severity": {
-            "enum": [
-              "debug",
-              "info",
-              "warning",
-              "error",
-              "critical",
-              "fatal"
-            ],
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "errorType": {
-            "type": "string"
-          },
-          "stackTrace": {
-            "type": "string"
-          },
-          "stackFrames": {
-            "type": "array",
-            "items": {
-              "type": "object"
-            }
-          },
-          "context": {
-            "type": "object"
-          },
-          "service": {
-            "type": "string"
-          },
-          "environment": {
-            "type": "string"
-          },
-          "release": {
-            "type": "string"
-          },
-          "tenantId": {
-            "type": "string"
-          },
-          "userId": {
-            "type": "string"
-          },
-          "ipAddress": {
-            "type": "string"
-          },
-          "userAgent": {
-            "type": "string"
-          },
-          "metadata": {
-            "type": "object",
-            "additionalProperties": true
-          },
-          "timestamp": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "createdAt": {
-            "format": "date-time",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "groupId",
-          "fingerprint",
-          "severity",
-          "message",
-          "timestamp",
-          "createdAt"
-        ]
-      },
       "ErrorGroup": {
         "type": "object",
         "properties": {
@@ -25894,9 +25594,6 @@
             "type": "string"
           },
           "occurrenceCount": {
-            "type": "number"
-          },
-          "userCount": {
             "type": "number"
           },
           "firstSeenAt": {
@@ -25970,7 +25667,6 @@
           "status",
           "message",
           "occurrenceCount",
-          "userCount",
           "firstSeenAt",
           "lastSeenAt",
           "isRegression",
@@ -26045,6 +25741,91 @@
         "required": [
           "targetId",
           "sourceIds"
+        ]
+      },
+      "ErrorOccurrence": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "groupId": {
+            "type": "string"
+          },
+          "fingerprint": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "debug",
+              "info",
+              "warning",
+              "error",
+              "critical",
+              "fatal"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "errorType": {
+            "type": "string"
+          },
+          "stackTrace": {
+            "type": "string"
+          },
+          "stackFrames": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "context": {
+            "type": "object"
+          },
+          "service": {
+            "type": "string"
+          },
+          "environment": {
+            "type": "string"
+          },
+          "release": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string"
+          },
+          "userId": {
+            "type": "string"
+          },
+          "ipAddress": {
+            "type": "string"
+          },
+          "userAgent": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "timestamp": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "groupId",
+          "fingerprint",
+          "severity",
+          "message",
+          "timestamp",
+          "createdAt"
         ]
       },
       "ErrorAlertRule": {
@@ -26426,6 +26207,31 @@
           "queueName"
         ]
       },
+      "JobProgress": {
+        "type": "object",
+        "properties": {
+          "current": {
+            "type": "number"
+          },
+          "total": {
+            "type": "number"
+          },
+          "percentage": {
+            "type": "number"
+          },
+          "message": {
+            "type": "string"
+          },
+          "checkpoint": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "current",
+          "total",
+          "percentage"
+        ]
+      },
       "BackgroundJob": {
         "type": "object",
         "properties": {
@@ -26479,7 +26285,7 @@
             "type": "string"
           },
           "progress": {
-            "type": "object"
+            "$ref": "#/components/schemas/JobProgress"
           },
           "tenantId": {
             "type": "string"

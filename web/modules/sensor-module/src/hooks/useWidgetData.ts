@@ -9,9 +9,19 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { WidgetConfig, TimeRange, SensorMetric, SENSOR_METRICS, SelectedChannel } from '../components/dashboard/types';
 import { useSensorSocket, SensorReading as SocketSensorReading } from './useSensorSocket';
 import { graphqlFetch } from '../config/api';
+import { onTenantChange, registerLogoutCleanup } from '@aquaculture/shared-ui';
 
 // PERF-011: module-scope cache shared across all useWidgetData instances
 const sharedSensorInfoCache = new Map<string, { name: string; type: string; thresholds?: Record<string, unknown> }>();
+
+// SECURITY (ADMIN-HIGH-105's gate, same class as the sensor stores below/above):
+// this cache is module-scoped, so it outlives every component that reads it and
+// would hand one tenant's sensor names, types and thresholds to the next principal on the
+// same tab. It joins the two authorities the rest of this module already uses —
+// `logoutCleanup()` drains the logout registry, and `onTenantChange` fires on a
+// tenant switch that does not log out.
+registerLogoutCleanup(() => sharedSensorInfoCache.clear());
+onTenantChange(() => sharedSensorInfoCache.clear());
 
 // ============================================================================
 // Types

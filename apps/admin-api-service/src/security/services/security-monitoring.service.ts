@@ -147,7 +147,8 @@ export class SecurityMonitoringService implements OnModuleInit {
     threatLevel: ThreatLevel;
     title: string;
     description: string;
-    ipAddress: string;
+    /** Absent when the originating signal carried no address (ADMIN-HIGH-012). */
+    ipAddress?: string;
     geoLocation?: GeoLocation;
     tenantId?: string;
     userId?: string;
@@ -309,7 +310,12 @@ export class SecurityMonitoringService implements OnModuleInit {
    */
   async analyzeLoginAttempt(params: {
     email: string;
-    ipAddress: string;
+    /**
+     * Absent when the signal carried no address. The IP-keyed detectors skip
+     * rather than querying for NULL, because "every row with no recorded
+     * address" is not a suspect set (ADMIN-HIGH-012).
+     */
+    ipAddress?: string;
     success: boolean;
     geoLocation?: GeoLocation;
     userId?: string;
@@ -318,12 +324,19 @@ export class SecurityMonitoringService implements OnModuleInit {
     // Check for brute force
     await this.checkBruteForce(params.email, params.ipAddress);
 
-    // Check for credential stuffing
-    await this.checkCredentialStuffing(params.ipAddress);
+    // Check for credential stuffing — entirely IP-keyed, so nothing to check
+    // without one.
+    if (params.ipAddress) {
+      await this.checkCredentialStuffing(params.ipAddress);
+    }
 
     // Check for geo anomaly
     if (params.geoLocation && params.userId) {
-      await this.checkGeoAnomaly(params.userId, params.geoLocation, params.ipAddress);
+      // The geo detector compares the address's location against a baseline;
+      // without an address there is nothing to compare.
+      if (params.ipAddress) {
+        await this.checkGeoAnomaly(params.userId, params.geoLocation, params.ipAddress);
+      }
     }
 
     // Check for time anomaly
@@ -333,7 +346,7 @@ export class SecurityMonitoringService implements OnModuleInit {
   /**
    * Check for brute force attack
    */
-  private async checkBruteForce(email: string, ipAddress: string): Promise<void> {
+  private async checkBruteForce(email: string, ipAddress?: string): Promise<void> {
     const since = new Date(Date.now() - this.config.failedLoginWindowMinutes * 60 * 1000);
 
     // Check by email
@@ -369,7 +382,16 @@ export class SecurityMonitoringService implements OnModuleInit {
       });
     }
 
-    // Check by IP
+    // Check by IP.
+    //
+    // Skipped without an address: `where: { ipAddress: undefined }` drops the
+    // predicate entirely in TypeORM, so this would have counted EVERY failed
+    // login in the window and raised a critical "distributed brute force" on
+    // the first signal that arrived without an IP (ADMIN-HIGH-012).
+    if (!ipAddress) {
+      return;
+    }
+
     const failedByIP = await this.loginAttemptRepository.count({
       where: {
         ipAddress,
@@ -500,11 +522,18 @@ export class SecurityMonitoringService implements OnModuleInit {
   /**
    * Check for time anomaly (off-hours activity)
    */
-  private async checkTimeAnomaly(ipAddress: string, userId?: string): Promise<void> {
+  private async checkTimeAnomaly(ipAddress: string | undefined, userId?: string): Promise<void> {
     const currentHour = new Date().getHours();
     const isOffHours = currentHour >= this.config.offHoursEnd && currentHour < this.config.offHoursStart;
 
     if (!isOffHours) return;
+
+    // No subject, no anomaly. `{ ipAddress: undefined }` is a key TypeORM
+    // DROPS, so this would have counted EVERY login in the last hour and
+    // reported it as one actor's off-hours activity (ADMIN-HIGH-012).
+    if (!userId && !ipAddress) {
+      return;
+    }
 
     const since = new Date(Date.now() - 60 * 60 * 1000); // Last hour
 
@@ -535,10 +564,19 @@ export class SecurityMonitoringService implements OnModuleInit {
   async checkApiAbuse(params: {
     tenantId?: string;
     userId?: string;
-    ipAddress: string;
+    /** Absent when the rate-limit signal carried no address (ADMIN-HIGH-012). */
+    ipAddress?: string;
     endpoint: string;
     rateLimitExceeded: boolean;
   }): Promise<void> {
+    // Without an address there is no abuser to count. `where: { ipAddress:
+    // undefined }` drops the predicate in TypeORM, which would count EVERY
+    // rate-limit rejection in the window and raise a high-severity api_abuse
+    // on the first address-less signal.
+    if (!params.ipAddress) {
+      return;
+    }
+
     if (params.rateLimitExceeded && this.config.rateLimitAbuseEnabled) {
       const since = new Date(Date.now() - this.config.apiAbuseWindowMinutes * 60 * 1000);
 

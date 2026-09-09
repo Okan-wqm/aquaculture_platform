@@ -152,6 +152,7 @@ import { AuditSubscriber } from './infrastructure/audit/audit.subscriber';
 import { LoRaDevice } from './edge-device/entities/lora-device.entity';
 import { TenantProvisioningKey } from './edge-device/entities/tenant-provisioning-key.entity';
 import { DeviceEvent } from './edge-device/entities/device-event.entity';
+import { ScheduledJobModule } from '@aquaculture/backend-common/scheduling';
 
 @Module({
   imports: [
@@ -377,6 +378,9 @@ import { DeviceEvent } from './edge-device/entities/device-event.entity';
 
     // Scheduler for @Interval/@Cron decorators (deployment timeout check, etc.)
     ScheduleModule.forRoot(),
+    // ADMIN-HIGH-013: every @ScheduledJob tick routes through the runner's
+    // advisory-lock lease and heartbeat.
+    ScheduledJobModule.forRoot({ serviceName: 'sensor-service' }),
 
     // Event Emitter — single forRoot() for the entire service
     EventEmitterModule.forRoot(),

@@ -277,3 +277,32 @@ export async function apiFetchBlob(
     };
   }
 }
+
+/**
+ * Hand a downloaded blob to the browser as a file.
+ *
+ * Seven admin-panel call sites wrote this eight-line dance independently and
+ * three of them got it wrong in a way nothing surfaces:
+ * `security/ActivityLogPage` and `security/AuditTrailPage` never called
+ * `revokeObjectURL`, so every export pinned its blob in memory for the tab's
+ * lifetime; two others never appended the anchor to the document, which
+ * Firefox requires before a synthetic click does anything.
+ *
+ * None of that is a decision a page should be making, so it stops being one.
+ * The anchor is appended, clicked, removed and the object URL revoked in every
+ * case — including when the click throws, which is why the revoke sits in a
+ * `finally`.
+ */
+export function saveBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  try {
+    link.click();
+  } finally {
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+}

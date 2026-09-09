@@ -19,6 +19,7 @@ import { DataSource } from 'typeorm';
 import { OutboxPublisher } from '@platform/outbox';
 
 import { FeedingCronV2Service } from '../services/feeding-cron-v2.service';
+import { createScheduledJobTestExecutor } from '@aquaculture/backend-common/scheduling/testing';
 import { MealPlanGeneratorService } from '../services/meal-plan-generator.service';
 import { BiomassGrowthApplierService } from '../services/biomass-growth-applier.service';
 import { ProtocolFeedForecastService } from '../services/protocol-feed-forecast.service';
@@ -48,15 +49,13 @@ function makeHarness(options: TickHarnessOptions) {
   const outboxPublisher = stub<OutboxPublisher>({ enqueue: jest.fn() });
   const recalcService = stub<DayPlanRecalcService>({});
 
+  // Kilit artık servisin değil `ScheduledJobRunner`'ın işi (ADMIN-HIGH-013):
+  // sahte yürütücü lease'i KAYDEDER ve reddedebilir, böylece "tick koştu" ile
+  // "lease alındı" iki ayrı iddia olarak doğrulanabilir.
+  const scheduledJobs = createScheduledJobTestExecutor();
   const service = new FeedingCronV2Service(
-    stub<DataSource>({
-      // runExclusive advisory-lock runner'ı.
-      createQueryRunner: jest.fn().mockReturnValue({
-        connect: jest.fn().mockResolvedValue(undefined),
-        query: jest.fn().mockResolvedValue([{ acquired: true }]),
-        release: jest.fn().mockResolvedValue(undefined),
-      }),
-    }),
+    stub<DataSource>({}),
+    scheduledJobs.executor,
     stub<MealPlanGeneratorService>({}),
     growthApplier,
     stub<WaterTemperatureService>({}),
@@ -92,7 +91,7 @@ function makeHarness(options: TickHarnessOptions) {
   service.sweepTenant = stubMember<FeedingCronV2Service['sweepTenant']>(sweepTenant);
 
   jest.useFakeTimers().setSystemTime(options.at);
-  return { service, claim, settle, generateForTenant, sweepTenant };
+  return { service, scheduledJobs, claim, settle, generateForTenant, sweepTenant };
 }
 
 afterEach(() => {
@@ -180,5 +179,22 @@ describe('FeedingCronV2Service.hourlyTick (W5)', () => {
       false,
       expect.stringContaining('page cap'),
     );
+  });
+
+  it('lease alınamazsa (başka replika kilidi tutuyor) HİÇBİR iş claim’lenmez', async () => {
+    // ADMIN-HIGH-013: tick artık kendi advisory-lock'unu kurmaz, gövdesi
+    // `ScheduledJobRunner` lease'inin ARKASINDADIR. Lease reddedildiğinde
+    // gövde hiç koşmaz — bu pin olmasaydı, kilidini kaybetmiş bir tick
+    // (her replikada çift plan üretimi) yeşil kalırdı.
+    const harness = makeHarness({ at: new Date('2026-07-20T04:00:00Z') });
+    harness.scheduledJobs.grant(false);
+
+    await harness.service.hourlyTick();
+
+    expect(harness.scheduledJobs.entries).toEqual([
+      { job: 'feeding-v2-hourly-tick', scope: 'cluster-single' },
+    ]);
+    expect(harness.claim).not.toHaveBeenCalled();
+    expect(harness.generateForTenant).not.toHaveBeenCalled();
   });
 });

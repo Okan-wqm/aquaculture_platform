@@ -3,6 +3,7 @@ import { join } from 'path';
 
 import { EdgeDeviceService } from '../edge-device.service';
 import { DeviceIoConfig, IoDataType, IoType } from '../entities/device-io-config.entity';
+import { createScheduledJobTestExecutor } from '@aquaculture/backend-common/scheduling/testing';
 
 const TENANT_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const DEVICE_ID = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
@@ -42,6 +43,7 @@ function makeService(overrides: {
     ioConfigRepository as never,
     loraDeviceRepository as never,
     {} as never,
+    scheduledJobs.executor,
     (overrides.mqttClient === undefined ? null : overrides.mqttClient) as never,
     {} as never,
     { get: jest.fn() } as never,
@@ -68,6 +70,8 @@ function cfg(overrides: Partial<DeviceIoConfig>): DeviceIoConfig {
     ...overrides,
   } as DeviceIoConfig;
 }
+
+const scheduledJobs = createScheduledJobTestExecutor();
 
 describe('AgentIoConfigV2 transform', () => {
   let service: EdgeDeviceService;
@@ -230,6 +234,7 @@ describe('pushIoConfigToDevice ack correlation (SENSOR-HIGH-064)', () => {
       ioConfigRepository as never,
       loraDeviceRepository as never,
       {} as never,
+      scheduledJobs.executor,
       mqttClient as never,
       {} as never,
       { get: jest.fn() } as never,

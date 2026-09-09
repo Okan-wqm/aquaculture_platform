@@ -7,6 +7,8 @@ import { AiPrivacyService } from '../ai-privacy.service';
 import { KnowledgeEntry } from '../../entities/knowledge-entry.entity';
 import { KnowledgeExtractionService } from '../knowledge-extraction.service';
 import { MessageEntityReference } from '../../entities/message-entity-reference.entity';
+import { ScheduledJobRunner } from '@aquaculture/backend-common/scheduling';
+import { createScheduledJobTestExecutor } from '@aquaculture/backend-common/scheduling/testing';
 
 /**
  * ORPHAN-MEDIUM-336 — the knowledge-extraction sweep must call the farm
@@ -72,6 +74,7 @@ describe('KnowledgeExtractionService — tank-registry request payload (ORPHAN-M
         { provide: DataSource, useValue: dataSource },
         { provide: 'NATS_SERVICE', useValue: { send } },
         { provide: AiPrivacyService, useValue: {} },
+        { provide: ScheduledJobRunner, useValue: createScheduledJobTestExecutor().executor },
       ],
     }).compile();
     service = moduleRef.get(KnowledgeExtractionService);

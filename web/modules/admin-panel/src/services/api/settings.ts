@@ -8,13 +8,15 @@
  */
 
 import { apiFetch, buildQueryString } from '../http-client';
-import type { ApiSchema } from '../contract';
+import type { ApiQuery, ApiSchema } from '../contract';
 import type {
   PaginatedResult,
   PaginationParams,
   DateRangeParams,
+  DatabasePerformance,
   FeatureToggle,
   CreateMaintenanceWindowInput,
+  InfrastructureMetrics,
   MaintenanceWindow,
   PerformanceDashboard,
   PerformanceMetrics,
@@ -43,7 +45,8 @@ export const settingsApi = {
       method: 'POST',
       body: JSON.stringify({ to }),
     }),
-  getSystemInfo: () => apiFetch<Record<string, unknown>>('/settings/system/info'),
+  getSystemInfo: (signal?: AbortSignal) =>
+    apiFetch<Record<string, unknown>>('/settings/system/info', { signal }),
 
   // Email Templates (delegated to email-templates.ts, kept here for backward compat)
   getEmailTemplates: emailTemplatesApi.getEmailTemplates,
@@ -58,8 +61,14 @@ export const settingsApi = {
 
 export const systemSettingsApi = {
   // Feature Toggles
-  getFeatureToggles: (params?: { scope?: string; status?: string; category?: string; search?: string } & PaginationParams) =>
-    apiFetch<PaginatedResult<FeatureToggle>>(`/system/settings/feature-toggles?${buildQueryString(params || {})}`),
+  getFeatureToggles: (
+    params?: { scope?: string; status?: string; category?: string; search?: string } & PaginationParams,
+    signal?: AbortSignal,
+  ) =>
+    apiFetch<PaginatedResult<FeatureToggle>>(
+      `/system/settings/feature-toggles?${buildQueryString(params || {})}`,
+      { signal },
+    ),
   getFeatureToggle: (id: string) => apiFetch<FeatureToggle>(`/system/settings/feature-toggles/${id}`),
   getFeatureToggleByKey: (key: string) => apiFetch<FeatureToggle>(`/system/settings/feature-toggles/key/${key}`),
   // A create request is not the response minus its ids. `CreateFeatureToggleDto`
@@ -82,8 +91,14 @@ export const systemSettingsApi = {
     }),
 
   // Maintenance Mode
-  getMaintenanceWindows: (params?: { status?: string; scope?: string } & PaginationParams) =>
-    apiFetch<PaginatedResult<MaintenanceWindow>>(`/system/settings/maintenance?${buildQueryString(params || {})}`),
+  getMaintenanceWindows: (
+    params?: { status?: string; scope?: string } & PaginationParams,
+    signal?: AbortSignal,
+  ) =>
+    apiFetch<PaginatedResult<MaintenanceWindow>>(
+      `/system/settings/maintenance?${buildQueryString(params || {})}`,
+      { signal },
+    ),
   getMaintenanceWindow: (id: string) => apiFetch<MaintenanceWindow>(`/system/settings/maintenance/${id}`),
   createMaintenanceWindow: (data: CreateMaintenanceWindowInput) =>
     apiFetch<MaintenanceWindow>('/system/settings/maintenance', { method: 'POST', body: JSON.stringify(data) }),
@@ -101,35 +116,38 @@ export const systemSettingsApi = {
     apiFetch<{ isInMaintenance: boolean; maintenanceInfo?: { title: string; message: string; estimatedEnd?: string } }>(`/system/settings/maintenance/check${tenantId ? `?tenantId=${tenantId}` : ''}`),
 
   // Performance Monitoring
-  getPerformanceDashboard: (service?: string, timeRange?: { start: string; end: string }) =>
-    apiFetch<PerformanceDashboard>(`/system/performance/dashboard?${buildQueryString({ service, ...timeRange })}`),
+  //
+  // The query object is typed from the generated contract (`ApiQuery`), which
+  // is how the five-entry time-range selector on `PerformanceDashboardPage`
+  // stopped being decorative: this call sent `start`/`end` to an endpoint whose
+  // parameters are `startDate`/`endDate`, so the server silently ignored both
+  // and answered for its own default last hour, every time (ADMIN-HIGH-123).
+  getPerformanceDashboard: (
+    query: ApiQuery<'PerformanceController_getPerformanceDashboard'> = {},
+    signal?: AbortSignal,
+  ) =>
+    apiFetch<PerformanceDashboard>(`/system/performance/dashboard?${buildQueryString(query)}`, {
+      signal,
+    }),
   getPerformanceMetrics: (service?: string, timeRange?: { start: string; end: string }) =>
     apiFetch<PerformanceMetrics[]>(`/system/performance/application?${buildQueryString({ service, ...timeRange })}`),
   getApdexScore: (service?: string) =>
     apiFetch<{ apdexScore: number }>(`/system/performance/application/apdex${service ? `?service=${service}` : ''}`),
-  getDatabasePerformance: (database?: string) =>
-    apiFetch<{
-      activeConnections: number;
-      poolSize: number;
-      poolUtilization: number;
-      avgQueryTime: number;
-      slowQueryCount: number;
-      cacheHitRatio: number;
-    }>(`/system/performance/database${database ? `?database=${database}` : ''}`),
+  getDatabasePerformance: (database?: string, signal?: AbortSignal) =>
+    apiFetch<DatabasePerformance>(
+      `/system/performance/database${database ? `?database=${database}` : ''}`,
+      { signal },
+    ),
   getSlowQueries: (threshold?: number, limit?: number) =>
     apiFetch<Array<{ query: string; avgTime: number; count: number; maxTime: number }>>(`/system/performance/database/slow-queries?${buildQueryString({ threshold, limit })}`),
-  getInfrastructureMetrics: (host?: string) =>
-    apiFetch<{
-      cpuUsage: number;
-      memoryUsage: number;
-      diskUsage: number;
-      networkLatency: number;
-      containerCount: number;
-      healthyContainers: number;
-    }>(`/system/performance/infrastructure${host ? `?host=${host}` : ''}`),
+  getInfrastructureMetrics: (host?: string, signal?: AbortSignal) =>
+    apiFetch<InfrastructureMetrics>(
+      `/system/performance/infrastructure${host ? `?host=${host}` : ''}`,
+      { signal },
+    ),
 
   // Error Tracking
-  getErrorDashboard: () =>
+  getErrorDashboard: (signal?: AbortSignal) =>
     apiFetch<{
       totalErrors: number;
       unresolvedErrors: number;
@@ -137,17 +155,22 @@ export const systemSettingsApi = {
       errorsByService: Array<{ service: string; count: number }>;
       errorTrend: Array<{ timestamp: string; count: number }>;
       topErrors: ErrorGroup[];
-    }>('/system/errors/dashboard'),
+    }>('/system/errors/dashboard', { signal }),
   getErrorGroups: (params?: {
     status?: string;
     severity?: string;
     service?: string;
     search?: string;
-  } & PaginationParams & DateRangeParams) =>
-    apiFetch<PaginatedResult<ErrorGroup>>(`/system/errors/groups?${buildQueryString(params || {})}`),
+  } & PaginationParams & DateRangeParams, signal?: AbortSignal) =>
+    apiFetch<PaginatedResult<ErrorGroup>>(`/system/errors/groups?${buildQueryString(params || {})}`, {
+      signal,
+    }),
   getErrorGroup: (id: string) => apiFetch<ErrorGroup>(`/system/errors/groups/${id}`),
-  getErrorOccurrences: (groupId: string, params?: PaginationParams) =>
-    apiFetch<PaginatedResult<ErrorOccurrence>>(`/system/errors/groups/${groupId}/occurrences?${buildQueryString(params || {})}`),
+  getErrorOccurrences: (groupId: string, params?: PaginationParams, signal?: AbortSignal) =>
+    apiFetch<PaginatedResult<ErrorOccurrence>>(
+      `/system/errors/groups/${groupId}/occurrences?${buildQueryString(params || {})}`,
+      { signal },
+    ),
   updateErrorStatus: (id: string, status: string, assignedTo?: string, notes?: string) =>
     apiFetch<ErrorGroup>(`/system/errors/groups/${id}/status`, { method: 'PUT', body: JSON.stringify({ status, assignedTo, notes }) }),
   resolveError: (id: string, resolvedBy: string, notes?: string) =>
@@ -156,7 +179,7 @@ export const systemSettingsApi = {
     apiFetch<ErrorGroup>(`/system/errors/groups/${id}/ignore`, { method: 'POST' }),
 
   // Job Queue Management
-  getJobDashboard: () =>
+  getJobDashboard: (signal?: AbortSignal) =>
     apiFetch<{
       totalJobs: number;
       pendingJobs: number;
@@ -166,7 +189,7 @@ export const systemSettingsApi = {
       avgDuration: number;
       queues: JobQueue[];
       recentJobs: BackgroundJob[];
-    }>('/system/jobs/dashboard'),
+    }>('/system/jobs/dashboard', { signal }),
   getQueues: () => apiFetch<JobQueue[]>('/system/jobs/queues'),
   getQueue: (name: string) => apiFetch<JobQueue>(`/system/jobs/queues/${name}`),
   createQueue: (data: { name: string; concurrency?: number; maxJobsPerSecond?: number }) =>
@@ -182,8 +205,10 @@ export const systemSettingsApi = {
     status?: JobStatus[];
     jobType?: string;
     search?: string;
-  } & PaginationParams) =>
-    apiFetch<PaginatedResult<BackgroundJob>>(`/system/jobs?${buildQueryString(params || {})}`),
+  } & PaginationParams, signal?: AbortSignal) =>
+    apiFetch<PaginatedResult<BackgroundJob>>(`/system/jobs?${buildQueryString(params || {})}`, {
+      signal,
+    }),
   getJob: (id: string) => apiFetch<BackgroundJob>(`/system/jobs/${id}`),
   createJob: (data: {
     name: string;

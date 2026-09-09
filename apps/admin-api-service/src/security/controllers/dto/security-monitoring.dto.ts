@@ -336,25 +336,3 @@ export class QueryThreatIntelligenceDto {
   @IsString()
   searchQuery?: string;
 }
-
-export class AnalyzeLoginDto {
-  /** ADMIN-CRITICAL-009: whitelisted carrier key; the verified id arrives through @TenantParam('body'). */
-  @TenantIdCarrier()
-  readonly tenantId?: undefined;
-
-  @IsString()
-  email!: string;
-
-  @IsString()
-  ipAddress!: string;
-
-  @IsBoolean()
-  success!: boolean;
-
-  @IsOptional()
-  geoLocation?: GeoLocation;
-
-  @IsOptional()
-  @IsString()
-  userId?: string;
-}

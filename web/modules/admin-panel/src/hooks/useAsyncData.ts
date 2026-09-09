@@ -6,6 +6,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { registerLogoutCleanup } from '@aquaculture/shared-ui';
 
 export interface AsyncState<T> {
   data: T | null;
@@ -94,10 +95,18 @@ function getCacheEntry(key: string): CacheEntry | undefined {
   return entry;
 }
 
-// Clear all cached data when the user logs out
-if (typeof window !== 'undefined') {
-  window.addEventListener('aquaculture:logout', () => cache.clear());
-}
+// The admin-panel's own cache joins the platform's SINGLE logout authority
+// (ADMIN-HIGH-105). This module-scoped Map holds cross-tenant SUPER_ADMIN data
+// — billing metrics, audit logs with their tenant list, usage rollups — and it
+// previously waited on an `aquaculture:logout` window event that NOTHING in the
+// repository dispatches, so it survived logout for its whole TTL and served the
+// previous principal's platform data to the next one on the same tab.
+// `registerLogoutCleanup` is what `logoutCleanup()` drains, and it is how
+// sensor-module's stores and the shell's QueryClient are already cleared. Pages
+// migrated to `useAdminQuery` live in that QueryClient and are covered by the
+// shell's registration; this covers the ones not migrated yet, and goes away
+// with `useAsyncData` itself.
+registerLogoutCleanup(() => clearAsyncCache());
 
 export function useAsyncData<T>(
   fetcher: () => Promise<T>,

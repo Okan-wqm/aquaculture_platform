@@ -1076,7 +1076,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "d00cda6fdfbd2ad8703657bc9f6e0bbe0ec28481def6e04fcd17894dc9c44608",
+      "content_sha256": "43bbe6e6dd84f1de7bdcc9f1808fe9d51fd04c65931f9d869920284b7eb8bf34",
       "hash_policy": "sha256",
       "owner": "admin-openapi-generator",
       "path": "apps/admin-api-service/openapi.json",
@@ -1520,6 +1520,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/database-management/__tests__/schema-summary.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/database-management/__tests__/security/explorer-security.spec.ts",
       "prettier_managed": true
     },
@@ -1575,6 +1581,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/database-management/database-management.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/database-management/dto/schema-summary.dto.ts",
       "prettier_managed": true
     },
     {
@@ -2218,6 +2230,48 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1809600000000-ProjectionSourceEventIdentity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1809700000000-ErrorGroupUserCountDerived.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1809800000000-AdminSchemaTimestamptz.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1809900000000-AdminIdentityColumnsToUuid.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1810000000000-AdminIpColumnsToInet.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1810100000000-AdminSimpleArraysToTextArray.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1810200000000-RetireAdminTenantBillingInfo.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/modules/__tests__/modules.controller.spec.ts",
       "prettier_managed": true
     },
@@ -2416,6 +2470,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/security/handlers/__tests__/security-signal-projection.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/security/handlers/security-signal-projection.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/security/index.ts",
       "prettier_managed": true
     },
@@ -2435,6 +2501,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/security/services/__tests__/audit-trail.service.sorting.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/security/services/__tests__/security-monitoring-absent-ip.spec.ts",
       "prettier_managed": true
     },
     {
@@ -2794,6 +2866,24 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/system-management/handlers/__tests__/error-capture-projection.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/system-management/handlers/error-capture-projection.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/system-management/services/__tests__/error-tracking.ingest.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/system-management/services/__tests__/error-tracking.service.sorting.spec.ts",
       "prettier_managed": true
     },
@@ -2801,6 +2891,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/system-management/services/__tests__/job-queue.claim.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/system-management/services/__tests__/performance-honest-metrics.spec.ts",
       "prettier_managed": true
     },
     {
@@ -3010,6 +3106,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/tenant/services/__tests__/tenant-billing-summary.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/tenant/services/__tests__/tenant-provisioning-metrics.service.spec.ts",
       "prettier_managed": true
     },
@@ -3083,6 +3185,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/tenant/tenant.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/users/__tests__/role-vocabulary.spec.ts",
       "prettier_managed": true
     },
     {
@@ -5147,6 +5255,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/auth-service/src/modules/authentication/__tests__/jwks.controller.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/modules/authentication/__tests__/login-security-signal.spec.ts",
       "prettier_managed": true
     },
     {
@@ -36752,6 +36866,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/runbooks/monitoring/admin-api-slo.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/runbooks/monitoring/alert-delivery.md",
       "prettier_managed": true
     },
@@ -40553,6 +40673,24 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/observability/__tests__/error-capture.interceptor.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/observability/error-capture.interceptor.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/observability/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/orchestrator-leader-election/index.ts",
       "prettier_managed": true
     },
@@ -40854,6 +40992,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/backend-common/src/scheduling/scheduled-job.registry.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/backend-common/src/scheduling/testing.ts",
       "prettier_managed": true
     },
     {
@@ -41550,6 +41694,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/event-contracts/src/enums/tenant-status.machine.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/src/error-events.ts",
       "prettier_managed": true
     },
     {
@@ -45331,7 +45481,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/admin-panel-data-layer.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/admin-panel-paginated-consumer.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/admin-physical-types.spec.ts",
       "prettier_managed": true
     },
     {
@@ -45428,6 +45590,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/agent-size-limit.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/alert-rules-select-real-series.spec.ts",
       "prettier_managed": true
     },
     {
@@ -45721,6 +45889,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/detective-store-has-producer.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/development-deploy-policy.spec.ts",
       "prettier_managed": true
     },
@@ -45776,6 +45950,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/entity-schema-declaration.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/error-capture-ingress.spec.ts",
       "prettier_managed": true
     },
     {
@@ -46393,6 +46573,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/nats-inbound-binding.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/nested-steering-parity.spec.ts",
       "prettier_managed": true
     },
@@ -46502,6 +46688,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/orphan-ledger-append-only.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/performance-metrics-honesty.spec.ts",
       "prettier_managed": true
     },
     {
@@ -50526,6 +50718,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/components/__tests__/QueryFailureNotice.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/components/admin-nav-items.tsx",
       "prettier_managed": true
     },
@@ -50562,6 +50760,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/components/QueryFailureNotice.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/components/TenantMultiSelect.tsx",
       "prettier_managed": true
     },
@@ -50581,6 +50785,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/admin-panel/src/graphql/platform-configuration-operations.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/hooks/__tests__/useAsyncData.logout.spec.ts",
       "prettier_managed": true
     },
     {
@@ -50682,13 +50892,73 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/__tests__/AdminDashboard.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/__tests__/AnalyticsDashboardPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/__tests__/AuditLogPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/pages/__tests__/CreateTenantPage.spec.tsx",
       "prettier_managed": true
     },
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/__tests__/DatabaseExplorerPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/__tests__/DatabaseManagementPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/__tests__/EmailTemplatesPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/__tests__/ModulesPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/__tests__/ReportsPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/__tests__/SystemSettingsPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/pages/__tests__/TenantManagementPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/__tests__/UserManagementPage.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -50862,6 +51132,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/security/__tests__/ActivityLogPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/security/__tests__/CompliancePage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/pages/security/ActivityLogPage.tsx",
       "prettier_managed": true
     },
@@ -50893,6 +51175,36 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/admin-panel/src/pages/SubscriptionManagementPage.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/system/__tests__/ErrorTrackingPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/system/__tests__/FeatureTogglesPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/system/__tests__/JobQueuePage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/system/__tests__/MaintenancePage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/system/__tests__/PerformanceDashboardPage.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -51095,7 +51407,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "1073162f47b6139daffc0996e4db96b1404d680db5362f8a772680db79f043ab",
+      "content_sha256": "18071e2ded05b23a74f3fab213b5797904e0d9d2ba689860c2d56ddab3d69a16",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/modules/admin-panel/src/services/generated/admin-api.ts",
@@ -51228,6 +51540,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/admin-panel/tsconfig.node.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/tsconfig.spec.json",
       "prettier_managed": true
     },
     {

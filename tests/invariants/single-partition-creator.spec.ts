@@ -47,8 +47,15 @@ describe('INVARIANT — INFRA-CRITICAL-012 partition creation SSoT', () => {
     const source = executableSource(E2E_SETUP);
 
     expect(source).toContain('PartitionManagerService');
-    expect(source).toContain(
-      'new PartitionManagerService(dataSource).onApplicationBootstrap()',
+    // The fixture must DELEGATE to the canonical service — constructed with its
+    // own dataSource and bootstrapped — rather than emit partition DDL itself.
+    // The argument list is deliberately not pinned: PartitionManagerService
+    // gained a ScheduledJobRunner parameter when its cron took a lease
+    // (ADMIN-HIGH-108), and a literal match turned that legitimate change into
+    // a failure of THIS invariant, which is about who creates partitions. The
+    // three assertions below are the teeth.
+    expect(source).toMatch(
+      /new PartitionManagerService\(\s*dataSource\b[\s\S]*?\)\s*\.onApplicationBootstrap\(\)/,
     );
     expect(source).not.toMatch(/\bPARTITION\s+OF\b/);
     expect(source).not.toMatch(/\bFOR\s+VALUES\s+FROM\b/);

@@ -72,6 +72,7 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
 import { IncidentTimelineEvent } from './database/entities/alert-incident.entity';
 import { AlertCondition } from './database/entities/alert-rule.entity';
 import { subgraphComplexityPlugin, subgraphFormatError } from '@aquaculture/backend-common/graphql';
+import { ScheduledJobModule } from '@aquaculture/backend-common/scheduling';
 
 /** Shared subgraph complexity ceiling (SEC-LOW-116). */
 const GRAPHQL_MAX_COMPLEXITY = 1000;
@@ -190,6 +191,10 @@ const GRAPHQL_MAX_COMPLEXITY = 1000;
     // OBS-HIGH-001: Prometheus GET /metrics scrape endpoint + HTTP metrics
     // middleware (self-contained platform module — controller is @Public()).
     ServiceMetricsModule,
+    // ADMIN-HIGH-013: the outbox worker's relay and nightly cleanup route
+    // through the runner's heartbeat (and, for the cleanup, its lease).
+    // ScheduleModule itself arrives with OutboxModule.forFeature.
+    ScheduledJobModule.forRoot({ serviceName: 'alert-engine' }),
     /** SEC-M22: Audit trail infrastructure for compliance tracking. */
     AuditLogModule.forRoot(),
     // AUDITTRAIL-CRITICAL-002 sweep — registers AuditedOperationInterceptor.

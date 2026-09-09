@@ -119,10 +119,10 @@ export class ErrorOccurrence {
   @Column({ type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown>;
 
-  @Column()
+  @Column({ type: 'timestamptz' })
   timestamp!: Date;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 }
 
@@ -159,13 +159,10 @@ export class ErrorGroup {
   @Column({ type: 'int', default: 1 })
   occurrenceCount!: number;
 
-  @Column({ type: 'int', default: 0 })
-  userCount!: number;
-
-  @Column()
+  @Column({ type: 'timestamptz' })
   firstSeenAt!: Date;
 
-  @Column()
+  @Column({ type: 'timestamptz' })
   lastSeenAt!: Date;
 
   @Column({ type: 'jsonb', nullable: true })
@@ -183,7 +180,7 @@ export class ErrorGroup {
   @Column({ type: 'text', nullable: true })
   notes?: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   resolvedAt?: Date;
 
   @Column({ type: 'uuid', nullable: true })
@@ -201,10 +198,10 @@ export class ErrorGroup {
   @Column({ type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown>;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
 }
 
@@ -243,7 +240,7 @@ export class ErrorAlertRule {
   @Column({ type: 'int', default: 15 })
   cooldownMinutes!: number;
 
-  @Column({ nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   lastTriggeredAt?: Date;
 
   @Column({ type: 'int', default: 0 })
@@ -252,9 +249,9 @@ export class ErrorAlertRule {
   @Column({ nullable: true })
   createdBy?: string;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
 }

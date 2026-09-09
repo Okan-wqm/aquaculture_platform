@@ -10,6 +10,7 @@ import { AuditModule } from '../../../../audit/audit.module';
 import { AuditLog } from '../../../../audit/audit-log.entity';
 import { User } from '../../../authentication/entities/user.entity';
 import { AuthUserQueryNatsHandler } from '../auth-user-query-nats.handler';
+import { ScheduledJobTestModule } from '@aquaculture/backend-common/scheduling/testing';
 
 /**
  * In production the DataSource token is registered globally by
@@ -119,6 +120,9 @@ describe('AuthUserQueryNatsHandler', () => {
         // handler↔AuditLogService wiring.
         ConfigModule.forRoot({ isGlobal: true, ignoreEnvFile: true }),
         StubDataSourceModule,
+        // ScheduledJobModule is @Global in the app; AuditLogService's nightly
+        // cleanup injects the runner, so the smoke needs the same shape.
+        ScheduledJobTestModule.forRoot(),
         AuditModule,
       ],
       controllers: [AuthUserQueryNatsHandler],

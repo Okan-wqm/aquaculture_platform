@@ -64,12 +64,20 @@ export const adminKeys = {
       [...adminKeys.users.all(), 'list', filters] as const,
     detail: (id: string) =>
       [...adminKeys.users.all(), 'detail', id] as const,
+    /** The platform-wide user counts behind the four cards. */
+    stats: () => [...adminKeys.users.all(), 'stats'] as const,
+    /** The assignable-role catalogue — a read no user write invalidates. */
+    roleTemplates: () => [...adminKeys.users.all(), 'role-templates'] as const,
   },
 
   // ── Modules ──
   modules: {
     all: () => [...adminKeys.all, 'modules'] as const,
-    list: () => [...adminKeys.modules.all(), 'list'] as const,
+    // Takes the filters, like every other domain's `list`. Without them a
+    // filtered module list would overwrite the unfiltered one in the same
+    // cache entry — the class of bug this factory exists to prevent.
+    list: (filters?: Record<string, unknown>) =>
+      [...adminKeys.modules.all(), 'list', filters] as const,
     detail: (id: string) =>
       [...adminKeys.modules.all(), 'detail', id] as const,
   },
@@ -78,6 +86,8 @@ export const adminKeys = {
   system: {
     all: () => [...adminKeys.all, 'system'] as const,
     health: () => [...adminKeys.system.all(), 'health'] as const,
+    /** Root for the performance dashboard's three independent reads. */
+    performance: () => [...adminKeys.system.all(), 'performance'] as const,
     settings: () => [...adminKeys.system.all(), 'settings'] as const,
     analytics: () => [...adminKeys.system.all(), 'analytics'] as const,
   },
@@ -109,9 +119,44 @@ export const adminKeys = {
   // ── Database ──
   database: {
     all: () => [...adminKeys.all, 'database'] as const,
+    schemas: () => [...adminKeys.database.all(), 'schemas'] as const,
     tables: (schema?: string) =>
       [...adminKeys.database.all(), 'tables', schema] as const,
-    tableData: (schema: string, table: string) =>
+    /**
+     * Prefix covering every page and sort order of ONE table — the key a row
+     * write invalidates. `tableData` extends it, so React Query's prefix
+     * matching reaches page 7 sorted descending from a delete performed on
+     * page 1.
+     */
+    table: (schema: string, table: string) =>
       [...adminKeys.database.all(), 'data', schema, table] as const,
+    /**
+     * One entry per (page, limit, sort). The params belong IN the key for the
+     * same reason they do in `modules.list`: without them page 2 overwrites
+     * page 1 in a single cache entry and the explorer shows the wrong rows
+     * under the right page number.
+     */
+    tableData: (
+      schema: string,
+      table: string,
+      params: Record<string, unknown>,
+    ) => [...adminKeys.database.table(schema, table), params] as const,
+
+    // ── Database management (schemas, migrations, monitoring) ──
+    /** The tracked tenant-schema rows, filtered/paged. */
+    tenantSchemas: (filters?: Record<string, unknown>) =>
+      [...adminKeys.database.all(), 'tenant-schemas', filters] as const,
+    /** The server's platform-wide schema totals — NOT derived from the page above. */
+    summary: () => [...adminKeys.database.all(), 'summary'] as const,
+    migrationPlans: () => [...adminKeys.database.all(), 'migration-plans'] as const,
+    migrationHistory: (filters?: Record<string, unknown>) =>
+      [...adminKeys.database.all(), 'migration-history', filters] as const,
+    health: () => [...adminKeys.database.all(), 'health'] as const,
+    connections: () => [...adminKeys.database.all(), 'connections'] as const,
+    storage: () => [...adminKeys.database.all(), 'storage'] as const,
+    slowQueries: (params?: Record<string, unknown>) =>
+      [...adminKeys.database.all(), 'slow-queries', params] as const,
+    indexRecommendations: (schemaName?: string) =>
+      [...adminKeys.database.all(), 'index-recommendations', schemaName] as const,
   },
 } as const;

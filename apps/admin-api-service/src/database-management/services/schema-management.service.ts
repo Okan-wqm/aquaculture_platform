@@ -27,9 +27,27 @@ import {
   type PaginationResultV1,
 } from '@platform/pagination-contracts';
 
+import { SchemaSummaryDto } from '../dto/schema-summary.dto';
+
 // ============================================================================
 // Interfaces
 // ============================================================================
+
+/**
+ * The five aliases `getSchemaSummary`'s aggregate selects, as the driver
+ * returns them — every one a string, `count` and `sum` included.
+ *
+ * NOT `Record<keyof SchemaSummaryDto, string>`: `avgSizeBytes` is derived in
+ * TypeScript and never selected, so that shape would promise a column the row
+ * does not carry.
+ */
+interface SchemaSummaryRow {
+  totalSchemas: string;
+  activeSchemas: string;
+  suspendedSchemas: string;
+  totalSizeBytes: string;
+  totalTableCount: string;
+}
 
 /** Context about the user performing a destructive operation, passed from the controller. */
 export interface DestructiveActionContext {
@@ -462,27 +480,41 @@ export class SchemaManagementService {
   }
 
   /**
-   * Get schema summary stats
+   * Platform-wide tenant-schema totals.
+   *
+   * One aggregate over every row, not `find()` plus four passes in Node: the
+   * counts are what a platform admin reads as the size of the estate, and
+   * materialising every schema record to add up two integers is work the
+   * database does in a single scan. `size_bytes` is a bigint, so the driver
+   * hands back a string — hence the explicit `Number` on the coalesced sums
+   * rather than trusting the row's runtime type.
    */
-  async getSchemaSummary(): Promise<{
-    totalSchemas: number;
-    activeSchemas: number;
-    suspendedSchemas: number;
-    totalSizeBytes: number;
-    avgSizeBytes: number;
-  }> {
-    const schemas = await this.schemaRepository.find();
+  async getSchemaSummary(): Promise<SchemaSummaryDto> {
+    const row = await this.schemaRepository
+      .createQueryBuilder('schema')
+      .select('COUNT(*)', 'totalSchemas')
+      .addSelect(
+        "COUNT(*) FILTER (WHERE schema.status = 'active')",
+        'activeSchemas',
+      )
+      .addSelect(
+        "COUNT(*) FILTER (WHERE schema.status = 'suspended')",
+        'suspendedSchemas',
+      )
+      .addSelect('COALESCE(SUM(schema.sizeBytes), 0)', 'totalSizeBytes')
+      .addSelect('COALESCE(SUM(schema.tableCount), 0)', 'totalTableCount')
+      .getRawOne<SchemaSummaryRow>();
 
-    const activeSchemas = schemas.filter((s) => s.status === 'active').length;
-    const suspendedSchemas = schemas.filter((s) => s.status === 'suspended').length;
-    const totalSizeBytes = schemas.reduce((sum, s) => sum + Number(s.sizeBytes), 0);
+    const totalSchemas = Number(row?.totalSchemas ?? 0);
+    const totalSizeBytes = Number(row?.totalSizeBytes ?? 0);
 
     return {
-      totalSchemas: schemas.length,
-      activeSchemas,
-      suspendedSchemas,
+      totalSchemas,
+      activeSchemas: Number(row?.activeSchemas ?? 0),
+      suspendedSchemas: Number(row?.suspendedSchemas ?? 0),
       totalSizeBytes,
-      avgSizeBytes: schemas.length > 0 ? Math.round(totalSizeBytes / schemas.length) : 0,
+      totalTableCount: Number(row?.totalTableCount ?? 0),
+      avgSizeBytes: totalSchemas > 0 ? Math.round(totalSizeBytes / totalSchemas) : 0,
     };
   }
 

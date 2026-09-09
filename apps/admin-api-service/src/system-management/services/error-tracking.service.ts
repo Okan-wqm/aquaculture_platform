@@ -8,9 +8,10 @@ import * as crypto from 'crypto';
 import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThan, In } from 'typeorm';
+import { Repository, LessThan, MoreThanOrEqual, In } from 'typeorm';
 import { safeSortField, safeSortOrder } from '@aquaculture/backend-common/pagination';
 import { safeRegex } from '@aquaculture/backend-common/security';
+import { maskPii } from '@aquaculture/backend-common/utils';
 
 import {
   ErrorOccurrence,
@@ -71,6 +72,22 @@ export interface AlertNotification {
   message: string;
 }
 
+/**
+ * Cap a masked string at the column width, marking that it was cut.
+ *
+ * `maskAndTruncatePii` is the shared helper, but it is typed for nullable input
+ * and so returns `string | null`; both call sites here hold a required string
+ * and write a NOT NULL `varchar(500)`. The marker matches the shared helper's
+ * so forensic search finds every truncated value with one pattern.
+ */
+function truncateTo(value: string, maxLen: number): string {
+  if (value.length <= maxLen) {
+    return value;
+  }
+  const marker = '…<truncated>';
+  return `${value.slice(0, maxLen - marker.length)}${marker}`;
+}
+
 // ============================================================================
 // Error Tracking Service
 // ============================================================================
@@ -79,6 +96,8 @@ export interface AlertNotification {
 export class ErrorTrackingService {
   private readonly logger = new Logger(ErrorTrackingService.name);
   private alertCooldowns: Map<string, Date> = new Map();
+  private activeRuleCache: { rules: ErrorAlertRule[]; loadedAt: number } | null = null;
+  private static readonly RULE_CACHE_TTL_MS = 30_000;
   private notificationHandlers: Map<string, (notification: AlertNotification) => Promise<void>> =
     new Map();
 
@@ -101,75 +120,45 @@ export class ErrorTrackingService {
   // Error Reporting
   // ============================================================================
 
+  /**
+   * Record one error occurrence and fold it into its group.
+   *
+   * # Why the group write is a single statement
+   *
+   * This was `findOne` -> mutate -> `save`, against a UNIQUE index on
+   * `fingerprint`. Two identical errors arriving together — which is the
+   * definition of an incident — both miss the read and both insert, and the
+   * second gets a 23505. The race had never fired only because the method had
+   * no callers at all; wiring an ingress in front of it would have converted it
+   * from theoretical to guaranteed, firing hardest during the outage the error
+   * tracker exists to record. `ON CONFLICT DO UPDATE` hands the decision to
+   * PostgreSQL, which is the only participant that can make it.
+   *
+   * `xmax = 0` distinguishes the insert from the update, so the alert rules
+   * still know whether this was a new group without a second read.
+   *
+   * # Why both messages are masked
+   *
+   * `admin.error_groups` is marked `excluded` in the tenant-erasure registry —
+   * a platform-wide reference table, deliberately not erased with a tenant. An
+   * unmasked message parks whatever a DB driver or a user-supplied string put
+   * in it there permanently. The group's message is additionally normalized:
+   * a group IS a signature, so it should read as one. And both are truncated,
+   * because the columns are `varchar(500)` and nothing was truncating — a 5xx
+   * with a long message would have failed the INSERT with a 22001.
+   */
   async reportError(report: ErrorReport): Promise<ErrorOccurrence> {
     const fingerprint = this.generateFingerprint(report);
     const stackFrames = this.parseStackTrace(report.stackTrace);
     const culprit = this.extractCulprit(stackFrames);
 
-    // Find or create error group
-    let group = await this.groupRepo.findOne({ where: { fingerprint } });
-    const isNewGroup = !group;
+    const { groupId, isNewGroup } = await this.upsertGroup(report, fingerprint, culprit);
 
-    if (group) {
-      // Update existing group
-      group.occurrenceCount++;
-      group.lastSeenAt = new Date();
-
-      // Track unique users
-      if (report.userId && !group.affectedTenants?.includes(report.tenantId || '')) {
-        group.userCount = (group.userCount || 0) + 1;
-      }
-
-      // Track affected tenants
-      if (report.tenantId) {
-        const tenants = group.affectedTenants || [];
-        if (!tenants.includes(report.tenantId)) {
-          tenants.push(report.tenantId);
-          group.affectedTenants = tenants;
-        }
-      }
-
-      // Track releases
-      if (report.release) {
-        const releases = group.affectedReleases || [];
-        if (!releases.includes(report.release)) {
-          releases.push(report.release);
-          group.affectedReleases = releases;
-        }
-      }
-
-      // Check for regression
-      if (group.status === ErrorStatus.RESOLVED) {
-        group.status = ErrorStatus.RECURRING;
-        group.isRegression = true;
-      }
-    } else {
-      // Create new group
-      group = this.groupRepo.create({
-        fingerprint,
-        severity: report.severity || ErrorSeverity.ERROR,
-        status: ErrorStatus.NEW,
-        message: report.message.substring(0, 500),
-        errorType: report.errorType,
-        service: report.service,
-        culprit,
-        occurrenceCount: 1,
-        userCount: report.userId ? 1 : 0,
-        firstSeenAt: new Date(),
-        lastSeenAt: new Date(),
-        affectedTenants: report.tenantId ? [report.tenantId] : [],
-        affectedReleases: report.release ? [report.release] : [],
-      });
-    }
-
-    await this.groupRepo.save(group);
-
-    // Create occurrence
     const occurrence = this.occurrenceRepo.create({
-      groupId: group.id,
+      groupId,
       fingerprint,
       severity: report.severity || ErrorSeverity.ERROR,
-      message: report.message,
+      message: truncateTo(maskPii(report.message), 500),
       errorType: report.errorType,
       stackTrace: report.stackTrace,
       stackFrames,
@@ -182,15 +171,90 @@ export class ErrorTrackingService {
       ipAddress: report.ipAddress,
       userAgent: report.userAgent,
       metadata: report.metadata,
-      timestamp: new Date().toISOString(),
+      timestamp: new Date(),
     });
 
     const savedOccurrence = await this.occurrenceRepo.save(occurrence);
 
-    // Check alert rules
+    const group = await this.groupRepo.findOneBy({ id: groupId });
+    if (!group) {
+      // The occurrence is stored; only the alert evaluation is lost. The group
+      // was upserted microseconds ago, so its absence means a concurrent delete
+      // or a merge — worth a line, and not worth failing a write that already
+      // landed (the caller would retry and store the occurrence twice).
+      this.logger.warn(`Error group ${groupId} vanished before alert evaluation`);
+      return savedOccurrence;
+    }
+
     await this.checkAlertRules(group, isNewGroup);
 
     return savedOccurrence;
+  }
+
+  /**
+   * Fold one report into its group in one statement, returning the group's id
+   * and whether this call created it. See `reportError` for why.
+   */
+  private async upsertGroup(
+    report: ErrorReport,
+    fingerprint: string,
+    culprit: string | undefined,
+  ): Promise<{ groupId: string; isNewGroup: boolean }> {
+    const rows = (await this.groupRepo.query(
+      `INSERT INTO "admin"."error_groups" AS g (
+         "fingerprint", "severity", "status", "message", "errorType", "service", "culprit",
+         "occurrenceCount", "firstSeenAt", "lastSeenAt",
+         "affectedTenants", "affectedReleases", "isRegression", "createdAt", "updatedAt"
+       ) VALUES (
+         $1, $2, $3, $4, $5, $6, $7,
+         1, now(), now(),
+         CASE WHEN $8::text IS NULL THEN '[]'::jsonb ELSE jsonb_build_array($8::text) END,
+         CASE WHEN $9::text IS NULL THEN '[]'::jsonb ELSE jsonb_build_array($9::text) END,
+         false, now(), now()
+       )
+       ON CONFLICT ("fingerprint") DO UPDATE SET
+         "occurrenceCount" = g."occurrenceCount" + 1,
+         "lastSeenAt" = now(),
+         "updatedAt" = now(),
+         "status" = CASE WHEN g."status" = $10 THEN $11 ELSE g."status" END,
+         "isRegression" = g."isRegression" OR g."status" = $10,
+         "affectedTenants" = CASE
+           WHEN $8::text IS NULL THEN g."affectedTenants"
+           WHEN COALESCE(g."affectedTenants", '[]'::jsonb) @> jsonb_build_array($8::text)
+             THEN g."affectedTenants"
+           ELSE COALESCE(g."affectedTenants", '[]'::jsonb) || jsonb_build_array($8::text)
+         END,
+         "affectedReleases" = CASE
+           WHEN $9::text IS NULL THEN g."affectedReleases"
+           WHEN COALESCE(g."affectedReleases", '[]'::jsonb) @> jsonb_build_array($9::text)
+             THEN g."affectedReleases"
+           ELSE COALESCE(g."affectedReleases", '[]'::jsonb) || jsonb_build_array($9::text)
+         END
+       RETURNING g."id", (xmax = 0) AS inserted`,
+      [
+        fingerprint,
+        report.severity || ErrorSeverity.ERROR,
+        ErrorStatus.NEW,
+        truncateTo(this.normalizeMessage(maskPii(report.message)), 500),
+        report.errorType ?? null,
+        report.service ?? null,
+        culprit ?? null,
+        report.tenantId ?? null,
+        report.release ?? null,
+        ErrorStatus.RESOLVED,
+        ErrorStatus.RECURRING,
+      ],
+    )) as Array<{ id: string; inserted: boolean }>;
+
+    const [row] = rows;
+    if (!row) {
+      // ON CONFLICT DO UPDATE always returns the row it touched; no rows means
+      // the statement did not run as written, which must not be swallowed into
+      // an occurrence pointing at a group that does not exist.
+      throw new Error(`error_groups upsert returned no row for fingerprint ${fingerprint}`);
+    }
+
+    return { groupId: row.id, isNewGroup: row.inserted };
   }
 
   private generateFingerprint(report: ErrorReport): string {
@@ -324,7 +388,6 @@ export class ErrorTrackingService {
     // Aggregate counts
     for (const source of sources) {
       target.occurrenceCount += source.occurrenceCount;
-      target.userCount += source.userCount;
 
       if (source.firstSeenAt < target.firstSeenAt) {
         target.firstSeenAt = source.firstSeenAt;
@@ -363,7 +426,7 @@ export class ErrorTrackingService {
     isRegression?: boolean;
     page?: number;
     limit?: number;
-    sortBy?: 'occurrenceCount' | 'lastSeenAt' | 'firstSeenAt' | 'userCount';
+    sortBy?: ErrorGroupSortField;
     sortOrder?: 'ASC' | 'DESC';
   }): Promise<PaginationResultV1<ErrorGroup>> {
     const query = this.groupRepo.createQueryBuilder('g');
@@ -513,6 +576,7 @@ export class ErrorTrackingService {
       triggerCount: 0,
     });
 
+    this.invalidateAlertRuleCache();
     return this.alertRuleRepo.save(rule);
   }
 
@@ -523,19 +587,46 @@ export class ErrorTrackingService {
     }
 
     Object.assign(rule, data);
+    this.invalidateAlertRuleCache();
     return this.alertRuleRepo.save(rule);
   }
 
   async deleteAlertRule(id: string): Promise<void> {
     await this.alertRuleRepo.delete(id);
+    this.invalidateAlertRuleCache();
   }
 
   async getAlertRules(): Promise<ErrorAlertRule[]> {
     return this.alertRuleRepo.find({ order: { name: 'ASC' } });
   }
 
-  private async checkAlertRules(group: ErrorGroup, isNew: boolean): Promise<void> {
+  /**
+   * The active rule set, cached for a short window.
+   *
+   * Every error used to load ALL active rules from the database. Error volume
+   * therefore amplified database load directly: a database-caused incident
+   * produces 5xx, which produce more reads of the same database, which is a
+   * loop that tightens exactly when it must not. A short TTL bounds the reads
+   * to O(1) per window instead of O(errors), and rule mutations invalidate it
+   * so an operator's change is visible immediately on the replica that made it
+   * and within the window everywhere else.
+   */
+  private async activeAlertRules(): Promise<ErrorAlertRule[]> {
+    const cached = this.activeRuleCache;
+    if (cached && Date.now() - cached.loadedAt < ErrorTrackingService.RULE_CACHE_TTL_MS) {
+      return cached.rules;
+    }
     const rules = await this.alertRuleRepo.find({ where: { isActive: true } });
+    this.activeRuleCache = { rules, loadedAt: Date.now() };
+    return rules;
+  }
+
+  private invalidateAlertRuleCache(): void {
+    this.activeRuleCache = null;
+  }
+
+  private async checkAlertRules(group: ErrorGroup, isNew: boolean): Promise<void> {
+    const rules = await this.activeAlertRules();
 
     for (const rule of rules) {
       if (await this.shouldTriggerAlert(rule, group, isNew)) {
@@ -595,12 +686,15 @@ export class ErrorTrackingService {
     // Check occurrence threshold
     if (conditions.occurrenceThreshold) {
       if (conditions.timeWindowMinutes) {
-        // Count occurrences in time window
+        // Occurrences INSIDE the window. This read `LessThan(windowStart)`,
+        // the exact inverse: every windowed rule counted the occurrences it
+        // was meant to ignore, so it could not fire on a live burst and fired
+        // on stale history instead.
         const windowStart = new Date(Date.now() - conditions.timeWindowMinutes * 60000);
         const count = await this.occurrenceRepo.count({
           where: {
             groupId: group.id,
-            timestamp: LessThan(windowStart),
+            timestamp: MoreThanOrEqual(windowStart),
           },
         });
         if (count < conditions.occurrenceThreshold) {
@@ -611,9 +705,25 @@ export class ErrorTrackingService {
       }
     }
 
-    // Check user count threshold
-    if (conditions.userCountThreshold && group.userCount < conditions.userCountThreshold) {
-      return false;
+    // Check user count threshold.
+    //
+    // Derived, not stored: `error_groups."userCount"` was incremented when the
+    // report's TENANT was new to the group, so it was a tenant count under a
+    // user's name (migration 1809700000000 removed it). This is the only place
+    // the number is used, the query runs only for a rule that asks for it, and
+    // it runs last — after every cheaper predicate has had its chance to
+    // return false.
+    if (conditions.userCountThreshold) {
+      const raw = await this.occurrenceRepo
+        .createQueryBuilder('o')
+        .select('COUNT(DISTINCT o."userId")', 'count')
+        .where('o."groupId" = :groupId', { groupId: group.id })
+        .andWhere('o."userId" IS NOT NULL')
+        .getRawOne<{ count: string }>();
+      const distinctUsers = raw ? Number(raw.count) : 0;
+      if (distinctUsers < conditions.userCountThreshold) {
+        return false;
+      }
     }
 
     return true;

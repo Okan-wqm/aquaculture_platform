@@ -7,6 +7,8 @@ import { VfdChangeSetSchedulerService } from '../vfd-change-set-scheduler.servic
 import { VfdChangeSet } from '../../entities/vfd-change-set.entity';
 import { VfdChangeSetStatus } from '../../../vfd/entities/vfd.enums';
 import { VfdParameterWriterService } from '../vfd-parameter-writer.service';
+import { ScheduledJobRunner } from '@aquaculture/backend-common/scheduling';
+import { createScheduledJobTestExecutor } from '@aquaculture/backend-common/scheduling/testing';
 
 const TENANT_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const TENANT_SCHEMA = 'tenant_aaaaaaaaaaaaaaaa';
@@ -101,6 +103,7 @@ async function buildService(opts: {
       { provide: getDataSourceToken(), useValue: dataSource },
       { provide: VfdParameterWriterService, useValue: parameterWriter },
       { provide: EventEmitter2, useValue: eventEmitter },
+      { provide: ScheduledJobRunner, useValue: createScheduledJobTestExecutor().executor },
     ],
   }).compile();
 

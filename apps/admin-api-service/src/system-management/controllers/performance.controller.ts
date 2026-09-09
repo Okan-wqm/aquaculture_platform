@@ -1,6 +1,5 @@
 import {
   RecordMetricDto,
-  RecordRequestMetricDto,
   UpdateThresholdsDto,
 } from './dto/performance.dto';
 import { RequiresCapability } from '@aquaculture/backend-common/decorators';
@@ -211,22 +210,6 @@ export class PerformanceController {
   @Post('metrics')
   async recordMetric(@Body() dto: RecordMetricDto) {
     await this.performanceService.recordMetric(dto);
-    return { success: true };
-  }
-
-  @AuditedOperation({ resource: 'RequestMetric', action: 'RECORD' })
-  @RequiresCapability('security-ops')
-  @Post('metrics/request')
-  async recordRequestMetric(
-    @Body() dto: RecordRequestMetricDto,
-  ) {
-    await this.performanceService.recordRequestMetric(
-      dto.service,
-      dto.endpoint,
-      dto.method,
-      dto.durationMs,
-      dto.isError,
-    );
     return { success: true };
   }
 

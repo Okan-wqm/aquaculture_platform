@@ -20,7 +20,11 @@
  * @see ADR-012 section 12.3 (Knowledge Extraction)
  */
 import { Injectable, Logger, Inject } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
+import {
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, QueryRunner } from 'typeorm';
 import { ClientProxy } from '@nestjs/microservices';
@@ -103,6 +107,7 @@ export class KnowledgeExtractionService {
     @Inject('NATS_SERVICE')
     private readonly natsClient: ClientProxy,
     private readonly privacyService: AiPrivacyService,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
 
   /**
@@ -112,7 +117,7 @@ export class KnowledgeExtractionService {
    * knowledge extraction is tenant-scoped. Never queries the template schema
    * for message data.
    */
-  @Cron('0 * * * *')
+  @ScheduledJob({ name: 'knowledge-extraction.hourly-batch', cron: '0 * * * *' })
   async processHourlyBatch(): Promise<void> {
     if (this.isProcessing) {
       this.logger.debug('Knowledge extraction already in progress, skipping');

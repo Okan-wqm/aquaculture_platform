@@ -1,5 +1,5 @@
 import { Module, Global, OnModuleInit } from '@nestjs/common';
-import { ServiceMetricsService } from '@aquaculture/backend-common/metrics';
+import { CronHeartbeatService, ServiceMetricsService } from '@aquaculture/backend-common/metrics';
 
 import { AuthDomainMetricsService } from './auth-domain-metrics.service';
 import { AuthMetricsController } from './metrics.controller';
@@ -15,8 +15,13 @@ import { AuthMetricsController } from './metrics.controller';
 @Global()
 @Module({
   controllers: [AuthMetricsController],
-  providers: [ServiceMetricsService, AuthDomainMetricsService],
-  exports: [ServiceMetricsService, AuthDomainMetricsService],
+  // CronHeartbeatService rides whichever module owns /metrics, exactly as it
+  // does in the shared ServiceMetricsModule. auth-service has a bespoke metrics
+  // module (it predates the shared one), so without this line
+  // `ScheduledJobModule` cannot resolve the heartbeat and the service does not
+  // boot — which is the intended failure, but the fix belongs here.
+  providers: [ServiceMetricsService, CronHeartbeatService, AuthDomainMetricsService],
+  exports: [ServiceMetricsService, CronHeartbeatService, AuthDomainMetricsService],
 })
 export class AuthMetricsModule implements OnModuleInit {
   constructor(

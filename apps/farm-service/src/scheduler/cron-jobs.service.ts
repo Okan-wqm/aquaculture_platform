@@ -12,9 +12,21 @@
  *
  * @module Scheduler
  */
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Optional } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+  Optional,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Cron, CronExpression, SchedulerRegistry } from '@nestjs/schedule';
+import { CronExpression, SchedulerRegistry } from '@nestjs/schedule';
+import {
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, DataSource, QueryRunner } from 'typeorm';
 import { forEachTenantSchema, listTenantSchemas } from '@aquaculture/backend-common/database';
@@ -88,6 +100,7 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
     private readonly eventEmitter: EventEmitter2,
     private readonly dataSource: DataSource,
     private readonly configService: ConfigService,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
     /**
      * `@Optional` so farm-service still boots in environments
      * that haven't wired StorageModule yet (dev harnesses, unit
@@ -234,8 +247,9 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
    * Her gün saat 06:00'da çalışır - Otomatik iş emri oluşturma
    * Iterates ALL tenant schemas with dedicated QueryRunner per tenant.
    */
-  @Cron(CronExpression.EVERY_DAY_AT_6AM, {
-    name: 'generateMaintenanceWorkOrders',
+  @ScheduledJob({
+    name: 'maintenance.generate-work-orders',
+    cron: CronExpression.EVERY_DAY_AT_6AM,
     timeZone: 'Europe/Istanbul',
   })
   async generateMaintenanceWorkOrders(): Promise<void> {
@@ -302,8 +316,9 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
    * Her gün saat 07:00'da çalışır - Gecikmiş bakım uyarıları
    * Iterates ALL tenant schemas with dedicated QueryRunner per tenant.
    */
-  @Cron(CronExpression.EVERY_DAY_AT_7AM, {
-    name: 'checkOverdueMaintenance',
+  @ScheduledJob({
+    name: 'maintenance.check-overdue',
+    cron: CronExpression.EVERY_DAY_AT_7AM,
     timeZone: 'Europe/Istanbul',
   })
   async checkOverdueMaintenance(): Promise<void> {
@@ -387,8 +402,9 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
    * Her gün saat 08:00'da çalışır - Gecikmiş iş emirleri uyarısı
    * Iterates ALL tenant schemas with dedicated QueryRunner per tenant.
    */
-  @Cron(CronExpression.EVERY_DAY_AT_8AM, {
-    name: 'checkOverdueWorkOrders',
+  @ScheduledJob({
+    name: 'work-orders.check-overdue',
+    cron: CronExpression.EVERY_DAY_AT_8AM,
     timeZone: 'Europe/Istanbul',
   })
   async checkOverdueWorkOrders(): Promise<void> {
@@ -470,8 +486,9 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
    * Her gün saat 09:00'da çalışır - Düşük stok uyarıları
    * Iterates ALL tenant schemas with dedicated QueryRunner per tenant.
    */
-  @Cron(CronExpression.EVERY_DAY_AT_9AM, {
-    name: 'checkLowStock',
+  @ScheduledJob({
+    name: 'inventory.check-low-stock',
+    cron: CronExpression.EVERY_DAY_AT_9AM,
     timeZone: 'Europe/Istanbul',
   })
   async checkLowStock(): Promise<void> {
@@ -545,8 +562,9 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
    * Her Pazartesi saat 06:00'da çalışır - Haftalık bakım özeti
    * Iterates ALL tenant schemas with dedicated QueryRunner per tenant.
    */
-  @Cron(CronExpression.EVERY_WEEK, {
-    name: 'weeklyMaintenanceSummary',
+  @ScheduledJob({
+    name: 'maintenance.weekly-summary',
+    cron: CronExpression.EVERY_WEEK,
     timeZone: 'Europe/Istanbul',
   })
   async weeklyMaintenanceSummary(): Promise<void> {
@@ -629,8 +647,9 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
    * Her ayın 1'inde saat 06:00'da çalışır - Aylık compliance raporu
    * Iterates ALL tenant schemas with dedicated QueryRunner per tenant.
    */
-  @Cron('0 6 1 * *', {
-    name: 'monthlyComplianceReport',
+  @ScheduledJob({
+    name: 'compliance.monthly-report',
+    cron: '0 6 1 * *',
     timeZone: 'Europe/Istanbul',
   })
   async monthlyComplianceReport(): Promise<void> {
@@ -706,8 +725,9 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
    * this file: each schema gets its own QueryRunner so a failure in one
    * tenant cannot block the rest.
    */
-  @Cron(CronExpression.EVERY_DAY_AT_2AM, {
-    name: 'cleanupOldData',
+  @ScheduledJob({
+    name: 'data.cleanup-old',
+    cron: CronExpression.EVERY_DAY_AT_2AM,
     timeZone: 'Europe/Istanbul',
   })
   async cleanupOldData(): Promise<void> {
@@ -833,8 +853,9 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
    * not real-time control loops. Ops can trigger a manual refresh
    * via `triggerJob('refreshAnalyticsViews')` for urgent cases.
    */
-  @Cron(CronExpression.EVERY_DAY_AT_3AM, {
-    name: 'refreshAnalyticsViews',
+  @ScheduledJob({
+    name: 'analytics.refresh-views',
+    cron: CronExpression.EVERY_DAY_AT_3AM,
     timeZone: 'Europe/Istanbul',
   })
   async refreshAnalyticsViews(): Promise<void> {
@@ -891,8 +912,9 @@ export class CronJobsService implements OnModuleInit, OnModuleDestroy {
    * deliberate: the cron must be configurable to stay
    * independent of the rest of the scheduler's hot paths.
    */
-  @Cron(CronExpression.EVERY_DAY_AT_4AM, {
-    name: 'minioOrphanCleanup',
+  @ScheduledJob({
+    name: 'minio.orphan-cleanup',
+    cron: CronExpression.EVERY_DAY_AT_4AM,
     timeZone: 'Europe/Istanbul',
   })
   async minioOrphanCleanup(): Promise<void> {

@@ -33,10 +33,23 @@ export enum JobType {
   TRIGGERED = 'triggered',
 }
 
-export interface JobProgress {
-  current: number;
-  total: number;
-  percentage: number;
+/**
+ * A job's progress, as stored in the `progress` jsonb column and served on
+ * `BackgroundJob`.
+ *
+ * A CLASS, not an interface, because the OpenAPI generator's swagger plugin
+ * visits `*.entity.ts` and can only describe classes: as an interface this
+ * came out of the contract as `progress?: Record<string, never>` — an object
+ * with no declared keys — so `JobQueuePage` read `job.progress.percentage`
+ * through a type that says the property cannot exist, and the progress bar
+ * rendered `undefined%` to anyone whose eslint config was not strict enough
+ * to catch it (ADMIN-HIGH-127). No runtime change: this is still a plain
+ * object in a jsonb column.
+ */
+export class JobProgress {
+  current!: number;
+  total!: number;
+  percentage!: number;
   message?: string;
   checkpoint?: unknown;
 }
@@ -94,13 +107,13 @@ export class BackgroundJob {
   @Column({ type: 'uuid', nullable: true })
   userId?: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   scheduledAt?: Date;
 
-  @Column({ nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   startedAt?: Date;
 
-  @Column({ nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   completedAt?: Date;
 
   @Column({ type: 'int', nullable: true })
@@ -115,16 +128,16 @@ export class BackgroundJob {
   @Column({ type: 'jsonb', nullable: true })
   retryPolicy?: JobRetryPolicy;
 
-  @Column({ nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   nextRetryAt?: Date;
 
   @Column({ type: 'text', nullable: true })
   cronExpression?: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   lastRunAt?: Date;
 
-  @Column({ nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   nextRunAt?: Date;
 
   @Column({ type: 'int', default: 3600000 })
@@ -151,10 +164,10 @@ export class BackgroundJob {
   @Column({ default: false })
   isPaused!: boolean;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
 }
 
@@ -174,10 +187,10 @@ export class JobExecutionLog {
   @Column({ type: 'varchar', length: 50 })
   status!: JobStatus;
 
-  @Column()
+  @Column({ type: 'timestamptz' })
   startedAt!: Date;
 
-  @Column({ nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   completedAt?: Date;
 
   @Column({ type: 'int', nullable: true })
@@ -209,10 +222,10 @@ export class JobExecutionLog {
   @Column({ type: 'float', nullable: true })
   memoryUsage?: number;
 
-  @Column()
+  @Column({ type: 'timestamptz' })
   timestamp!: Date;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 }
 
@@ -264,15 +277,15 @@ export class JobQueue {
   @Column({ type: 'float', nullable: true })
   avgProcessingTimeMs?: number;
 
-  @Column({ nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   lastJobAt?: Date;
 
   @Column({ type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown>;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: 'timestamptz' })
   updatedAt!: Date;
 }

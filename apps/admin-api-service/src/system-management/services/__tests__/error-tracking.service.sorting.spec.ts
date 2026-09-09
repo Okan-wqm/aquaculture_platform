@@ -59,7 +59,6 @@ describe('ErrorTrackingService sort safety', () => {
     ['occurrenceCount', 'g.occurrenceCount'],
     ['lastSeenAt', 'g.lastSeenAt'],
     ['firstSeenAt', 'g.firstSeenAt'],
-    ['userCount', 'g.userCount'],
   ] as const)('maps allowed field %s to complete identifier %s', async (sortBy, expectedColumn) => {
     await service.queryErrorGroups({ sortBy });
 

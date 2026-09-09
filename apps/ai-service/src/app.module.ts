@@ -92,6 +92,7 @@ import { TenantAgentConfig } from './tenant-config/agent-config.entity';
 import { ToolExecutionAudit } from './audit/tool-execution-audit.entity';
 import { ConversationTurn } from './cost/conversation-turn.entity';
 import { AiOutbox } from './outbox/ai-outbox.entity';
+import { ScheduledJobModule } from '@aquaculture/backend-common/scheduling';
 
 // Per-process cache for GraphQL complexity results keyed by document hash.
 // This avoids recomputing complexity for identical operations on every request.
@@ -296,6 +297,10 @@ type QueryComplexityOperationContext = {
     // OBS-HIGH-001: Prometheus GET /metrics scrape endpoint + HTTP metrics
     // middleware (self-contained platform module — controller is @Public()).
     ServiceMetricsModule,
+    // ADMIN-HIGH-013: the outbox worker's relay and nightly cleanup route
+    // through the runner's heartbeat (and, for the cleanup, its lease).
+    // ScheduleModule itself arrives with OutboxModule.forFeature.
+    ScheduledJobModule.forRoot({ serviceName: 'ai-service' }),
     ConversationModule,
     AgentConfigModule,
     AuditModule,

@@ -11,9 +11,9 @@
  * system-info panel remain on live admin-api REST endpoints.
  */
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, Button, Input, Select, Alert } from '@aquaculture/shared-ui';
-import { useAsyncData } from '../hooks';
+import { adminKeys, useAdminMutation, useAdminQuery } from '../hooks';
 import {
   usePlatformSettings,
   useSavePlatformSettings,
@@ -475,7 +475,6 @@ const SystemInfoTab: React.FC<SystemInfoTabProps> = ({ info, onRefresh }) => {
 const SystemSettingsPage: React.FC = () => {
   // Tab state
   const [activeTab, setActiveTab] = useState<TabId>('general');
-  const [testingEmail, setTestingEmail] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -509,19 +508,21 @@ const SystemSettingsPage: React.FC = () => {
     setRateLimits(settings.rateLimits);
   }, [settings]);
 
-  // Fetch system info (still a live admin-api REST endpoint)
-  const fetchSystemInfo = useCallback(async () => {
-    return settingsApi.getSystemInfo() as Promise<SystemInfo>;
-  }, []);
+  // The System tab's read, through the data layer (ADMIN-HIGH-121). It was the
+  // last `useAsyncData` call site on this page: the GraphQL settings half
+  // already goes through `usePlatformConfiguration`, so this one entry was
+  // keeping a second cache alive — the one nothing invalidates and, before
+  // W8a, nothing cleared at logout either.
+  const systemInfoQuery = useAdminQuery<SystemInfo>(
+    [...adminKeys.system.all(), 'info'],
+    ({ signal }) => settingsApi.getSystemInfo(signal) as Promise<SystemInfo>,
+    { enabled: activeTab === 'system', staleTime: 30_000 },
+  );
 
-  const {
-    data: systemInfo,
-    refresh: refreshSystemInfo,
-  } = useAsyncData<SystemInfo>(fetchSystemInfo, {
-    cacheKey: 'system-info',
-    cacheTTL: 30000,
-    immediate: activeTab === 'system',
-  });
+  const systemInfo: SystemInfo | null = systemInfoQuery.data ?? null;
+  const refreshSystemInfo = (): void => {
+    void systemInfoQuery.refetch();
+  };
 
   // Save handlers with feedback
   const saveWithFeedback = async (
@@ -552,20 +553,30 @@ const SystemSettingsPage: React.FC = () => {
       'Email settings saved',
     );
 
-  const handleTestEmail = async () => {
-    setTestingEmail(true);
+  /**
+   * The SMTP test send, through the write primitive.
+   *
+   * It reads the endpoint's own `success: false` as a failure rather than
+   * treating any 200 as a send — the response carries the SMTP result, and a
+   * refused relay answers 200 with `success: false`.
+   */
+  const testEmail = useAdminMutation<void, string>(async (to) => {
+    const result = await settingsApi.testEmailConfig(to);
+    if (result.success === false) {
+      throw new Error(typeof result.error === 'string' ? result.error : 'SMTP test failed');
+    }
+  });
+
+  const testingEmail = testEmail.isPending;
+
+  const handleTestEmail = async (): Promise<void> => {
     setError(null);
     setSuccess(null);
     try {
-      const result = await settingsApi.testEmailConfig(emailConfig.fromAddress);
-      if (result.success === false) {
-        throw new Error(typeof result.error === 'string' ? result.error : 'SMTP test failed');
-      }
+      await testEmail.mutateAsync(emailConfig.fromAddress);
       setSuccess('SMTP test email sent');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'SMTP test failed');
-    } finally {
-      setTestingEmail(false);
     }
   };
 

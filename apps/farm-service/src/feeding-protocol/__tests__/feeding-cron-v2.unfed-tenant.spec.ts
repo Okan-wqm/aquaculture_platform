@@ -49,6 +49,7 @@ import { OutboxPublisher } from '@platform/outbox';
 import type { BaseEvent, UnfedUnitDetectedEvent } from '@platform/event-contracts';
 
 import { FeedingCronV2Service } from '../services/feeding-cron-v2.service';
+import { createScheduledJobTestExecutor } from '@aquaculture/backend-common/scheduling/testing';
 import { MealPlanGeneratorService } from '../services/meal-plan-generator.service';
 import { BiomassGrowthApplierService } from '../services/biomass-growth-applier.service';
 import { ProtocolFeedForecastService } from '../services/protocol-feed-forecast.service';
@@ -110,6 +111,7 @@ function makeHarness(fixture: NewTenantFixture) {
         release: jest.fn().mockResolvedValue(undefined),
       }),
     }),
+    createScheduledJobTestExecutor().executor,
     stub<MealPlanGeneratorService>({ persistDayPlan: jest.fn() }),
     growthApplier,
     stub<WaterTemperatureService>({

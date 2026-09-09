@@ -12,11 +12,15 @@ import type {
 } from '../types';
 
 export const modulesApi = {
-  list: (params?: { isActive?: boolean; isCore?: boolean; search?: string; page?: number; limit?: number }) =>
-    apiFetch<PaginatedResult<SystemModule>>(`/modules?${buildQueryString(params || {})}`),
+  // The trailing `AbortSignal` is the one React Query hands a migrated page's
+  // query function (ADMIN-HIGH-121); see `api/audit.ts` for why per-method.
+  list: (
+    params?: { isActive?: boolean; isCore?: boolean; search?: string; page?: number; limit?: number },
+    signal?: AbortSignal,
+  ) => apiFetch<PaginatedResult<SystemModule>>(`/modules?${buildQueryString(params || {})}`, { signal }),
   getById: (id: string) => apiFetch<SystemModule>(`/modules/${id}`),
   getByCode: (code: string) => apiFetch<SystemModule>(`/modules/code/${code}`),
-  getStats: () => apiFetch<ModuleStats>('/modules/stats'),
+  getStats: (signal?: AbortSignal) => apiFetch<ModuleStats>('/modules/stats', { signal }),
   getModuleTenants: (moduleId: string, page?: number, limit?: number) =>
     apiFetch<PaginatedResult<unknown>>(`/modules/${moduleId}/tenants?page=${page || 1}&limit=${limit || 50}`),
   getAllAssignments: (params?: { tenantId?: string; moduleId?: string; page?: number; limit?: number }) =>

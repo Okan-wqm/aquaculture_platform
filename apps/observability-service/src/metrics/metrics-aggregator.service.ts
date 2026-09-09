@@ -1,5 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import { CronExpression } from '@nestjs/schedule';
+import {
+  ScheduledJob,
+  ScheduledJobRunner,
+  type ScheduledJobExecutor,
+} from '@aquaculture/backend-common/scheduling';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { PrometheusService } from '../prometheus/prometheus.service';
@@ -79,12 +84,13 @@ export class MetricsAggregatorService {
     @InjectDataSource()
     private readonly dataSource: DataSource,
     private readonly prometheusService: PrometheusService,
+    @Inject(ScheduledJobRunner) readonly scheduledJobs: ScheduledJobExecutor,
   ) {}
 
   /**
    * Aggregate metrics every minute with concurrency guard
    */
-  @Cron(CronExpression.EVERY_MINUTE)
+  @ScheduledJob({ name: 'metrics-aggregator.aggregate', cron: CronExpression.EVERY_MINUTE })
   async aggregateMetrics(): Promise<void> {
     if (this.isRunning) {
       this.logger.warn('Skipping aggregation — previous run still in progress');

@@ -16,6 +16,9 @@ import {
 } from '@aquaculture/backend-common/resilience';
 
 import {
+  type ApplicationMetrics,
+  type DatabaseMetrics,
+  type InfrastructureMetrics,
   PerformanceMetric,
   PerformanceSnapshot,
   MetricType,
@@ -23,42 +26,16 @@ import {
   MetricDimensions,
 } from '../entities/performance-metric.entity';
 
+/**
+ * The measured shapes live with the entity that persists them — one
+ * declaration for the jsonb column and the API response alike. Re-exported so
+ * existing importers of this service keep their import path.
+ */
+export type { ApplicationMetrics, DatabaseMetrics, InfrastructureMetrics };
+
 // ============================================================================
 // Interfaces
 // ============================================================================
-
-export interface ApplicationMetrics {
-  avgResponseTime: number;
-  p95ResponseTime: number;
-  p99ResponseTime: number;
-  throughput: number;
-  errorRate: number;
-  apdexScore: number;
-  activeRequests: number;
-  totalRequests: number;
-}
-
-export interface DatabaseMetrics {
-  activeConnections: number;
-  poolSize: number;
-  poolUtilization: number;
-  avgQueryTime: number;
-  slowQueryCount: number;
-  cacheHitRatio: number;
-  deadlockCount: number;
-}
-
-export interface InfrastructureMetrics {
-  cpuUsage: number;
-  memoryUsage: number;
-  memoryTotal: number;
-  diskUsage: number;
-  diskTotal: number;
-  networkLatency: number;
-  containerCount: number;
-  healthyContainers: number;
-  podRestarts: number;
-}
 
 export interface PerformanceDashboard {
   currentSnapshot: PerformanceSnapshot | null;
@@ -75,7 +52,12 @@ export interface PerformanceDashboard {
     currentValue: number;
     severity: 'warning' | 'critical';
   }>;
-  healthScore: number;
+  /**
+   * `null` when no snapshot has been taken: a score of 100 assembled from no
+   * measurements is the strongest possible claim made from the weakest
+   * possible evidence (ADMIN-HIGH-123).
+   */
+  healthScore: number | null;
   serviceBreakdown: Array<{
     service: string;
     avgResponseTime: number;
@@ -143,10 +125,15 @@ export class PerformanceMonitoringService {
   private readonly BUFFER_SIZE = 100;
   private thresholds: MetricThreshold[] = DEFAULT_THRESHOLDS;
 
-  // In-memory metrics for real-time calculations
-  private requestMetrics: Map<string, { count: number; totalTime: number; errors: number }> =
-    new Map();
-  private lastFlush: Date = new Date();
+  // ADMIN-HIGH-014: the in-memory `requestMetrics` map and its
+  // `aggregateRequestMetrics` drain are gone. `recordRequestMetric` — the only
+  // thing that ever wrote to the map — had zero callers, so a per-minute
+  // scheduled job iterated a permanently empty Map and wrote nothing, and
+  // `getApplicationMetrics` then read the RESPONSE_TIME / REQUEST_COUNT /
+  // ERROR_RATE rows it would have produced. The RED data it duplicated is
+  // already in Prometheus (`http_requests_total`,
+  // `http_request_duration_seconds`), emitted by the shared metrics middleware
+  // on every route of every service.
 
   constructor(
     @InjectRepository(PerformanceMetric)
@@ -192,23 +179,6 @@ export class PerformanceMonitoringService {
     if (this.metricsBuffer.length >= this.BUFFER_SIZE) {
       await this.flushMetrics();
     }
-  }
-
-  async recordRequestMetric(
-    service: string,
-    endpoint: string,
-    method: string,
-    durationMs: number,
-    isError: boolean,
-  ): Promise<void> {
-    const key = `${service}:${method}:${endpoint}`;
-    const current = this.requestMetrics.get(key) || { count: 0, totalTime: 0, errors: 0 };
-
-    current.count++;
-    current.totalTime += durationMs;
-    if (isError) current.errors++;
-
-    this.requestMetrics.set(key, current);
   }
 
   async flushMetrics(): Promise<void> {
@@ -263,31 +233,75 @@ export class PerformanceMonitoringService {
     const throughputMetrics = metrics.filter((m) => m.metricType === MetricType.THROUGHPUT);
     const apdexMetrics = metrics.filter((m) => m.metricType === MetricType.APDEX);
 
-    const avgResponseTime = this.calculateAverage(responseTimeMetrics.map((m) => m.value));
-    const p95ResponseTime = this.calculatePercentile(
-      responseTimeMetrics.map((m) => m.percentiles?.p95 || m.value),
-      95,
-    );
-    const p99ResponseTime = this.calculatePercentile(
-      responseTimeMetrics.map((m) => m.percentiles?.p99 || m.value),
-      99,
-    );
-    const errorRate = this.calculateAverage(errorRateMetrics.map((m) => m.value));
-    const throughput = this.calculateSum(throughputMetrics.map((m) => m.value));
-    const apdexScore = this.calculateAverage(apdexMetrics.map((m) => m.value));
+    const requestCountMetrics = metrics.filter((m) => m.metricType === MetricType.REQUEST_COUNT);
 
+    // A window with no samples is UNMEASURED, not "0 ms, 0% errors, Apdex 1.0".
+    // `calculateAverage([])` returned 0 and `apdexScore || 1` turned an empty
+    // table into a perfect score — the same shape as the security health score
+    // that returned 100 because it could not see anything.
     return {
-      avgResponseTime,
-      p95ResponseTime,
-      p99ResponseTime,
-      throughput,
-      errorRate,
-      apdexScore: apdexScore || 1,
-      activeRequests: 0, // Would come from real-time monitoring
-      totalRequests: this.calculateSum(
-        metrics.filter((m) => m.metricType === MetricType.REQUEST_COUNT).map((m) => m.value),
+      avgResponseTime: this.averageOrNull(responseTimeMetrics.map((m) => m.value)),
+      p95ResponseTime: this.percentileOrNull(
+        responseTimeMetrics.map((m) => m.percentiles?.p95 ?? m.value),
+        95,
       ),
+      p99ResponseTime: this.percentileOrNull(
+        responseTimeMetrics.map((m) => m.percentiles?.p99 ?? m.value),
+        99,
+      ),
+      throughput:
+        throughputMetrics.length > 0
+          ? this.calculateSum(throughputMetrics.map((m) => m.value))
+          : null,
+      errorRate: this.averageOrNull(errorRateMetrics.map((m) => m.value)),
+      apdexScore: this.averageOrNull(apdexMetrics.map((m) => m.value)),
+      // No producer feeds an in-flight counter; a stored 0 would be a claim.
+      activeRequests: null,
+      totalRequests:
+        requestCountMetrics.length > 0
+          ? this.calculateSum(requestCountMetrics.map((m) => m.value))
+          : null,
     };
+  }
+
+  /**
+   * The freshest query stats the database collector wrote, or nulls.
+   *
+   * `DatabaseMonitoringService.collectMetrics` runs every five minutes and is a
+   * live producer; a window of three ticks tolerates one missed run without
+   * presenting a stale number as current. Beyond it the honest answer is that
+   * nobody has measured recently.
+   */
+  private async latestCollectedQueryStats(): Promise<{
+    avgQueryTime: number | null;
+    slowQueryCount: number | null;
+  }> {
+    const rows = (await this.dataSource.query(
+      `SELECT metrics
+         FROM "admin"."database_metrics"
+        WHERE "metricType" = 'system'
+          AND "recordedAt" > now() - interval '15 minutes'
+        ORDER BY "recordedAt" DESC
+        LIMIT 1`,
+    )) as Array<{ metrics: { avgQueryTime?: number; slowQueries?: number } }>;
+
+    const [row] = rows;
+    if (!row) {
+      return { avgQueryTime: null, slowQueryCount: null };
+    }
+    return {
+      avgQueryTime: row.metrics.avgQueryTime ?? null,
+      slowQueryCount: row.metrics.slowQueries ?? null,
+    };
+  }
+
+  /** An average over no samples is not zero; it does not exist. */
+  private averageOrNull(values: number[]): number | null {
+    return values.length === 0 ? null : this.calculateAverage(values);
+  }
+
+  private percentileOrNull(values: number[], percentile: number): number | null {
+    return values.length === 0 ? null : this.calculatePercentile(values, percentile);
   }
 
   async calculateApdexScore(
@@ -374,12 +388,22 @@ export class PerformanceMonitoringService {
         );
         const totalConnections = parseInt(totalConnResult[0]?.total || '0', 10);
 
+        // `avgQueryTime` and `slowQueryCount` were hard-coded 0 in this SUCCESS
+        // path — the panel has always shown a database with no slow queries and
+        // an instant average. They are not measurable from pg_stat_activity;
+        // they come from pg_stat_statements, which
+        // `DatabaseMonitoringService.collectMetrics` already reads every five
+        // minutes into `admin.database_metrics`. Read that rather than running
+        // the same catalogue query from a second place, so the performance panel
+        // and the database panel cannot disagree.
+        const collected = await this.latestCollectedQueryStats();
+
         return {
           activeConnections,
           poolSize,
           poolUtilization: Math.round((totalConnections / poolSize) * 10000) / 100,
-          avgQueryTime: 0,
-          slowQueryCount: 0,
+          avgQueryTime: collected.avgQueryTime,
+          slowQueryCount: collected.slowQueryCount,
           cacheHitRatio: cacheHitRatio || 0,
           deadlockCount,
         };
@@ -387,15 +411,18 @@ export class PerformanceMonitoringService {
         await queryRunner.release();
       }
     } catch (error) {
+      // Every field was a fabricated zero here (and a fabricated pool size of
+      // 100), so a database this service could not reach rendered as an idle,
+      // healthy one. A reader that cannot read reports that it could not.
       this.logger.error('Failed to get database metrics', error);
       return {
-        activeConnections: 0,
-        poolSize: 100,
-        poolUtilization: 0,
-        avgQueryTime: 0,
-        slowQueryCount: 0,
-        cacheHitRatio: 0,
-        deadlockCount: 0,
+        activeConnections: null,
+        poolSize: null,
+        poolUtilization: null,
+        avgQueryTime: null,
+        slowQueryCount: null,
+        cacheHitRatio: null,
+        deadlockCount: null,
       };
     }
   }
@@ -451,21 +478,26 @@ export class PerformanceMonitoringService {
     const freeMem = os.freemem();
     const memoryUsage = ((totalMem - freeMem) / totalMem) * 100;
 
-    let diskUsage = 0;
-    let diskTotal = 0;
+    // `null` until `statfs` answers. A 0 here rendered on the performance
+    // dashboard as a disk with nothing on it (ADMIN-HIGH-014).
+    let diskUsage: number | null = null;
+    let diskTotal: number | null = null;
     try {
       const diskStats = fs.statfsSync('/');
       diskTotal = diskStats.bsize * diskStats.blocks;
       const diskFree = diskStats.bsize * diskStats.bavail;
       diskUsage = ((diskTotal - diskFree) / diskTotal) * 100;
     } catch (e) {
-      this.logger.warn('Failed to get disk stats');
+      this.logger.warn('Failed to get disk stats', e);
     }
 
     // Container health checks
-    let containerCount = 0;
-    let healthyContainers = 0;
-    let networkLatency = 0;
+    // The probe fan-out below either runs and counts, or throws and reports
+    // that it could not count. "0 of 0 containers healthy" and "0 ms latency"
+    // are what an operator reads as a measurement of a healthy fleet.
+    let containerCount: number | null = null;
+    let healthyContainers: number | null = null;
+    let networkLatency: number | null = null;
 
     try {
       const serviceEndpoints = [
@@ -537,38 +569,44 @@ export class PerformanceMonitoringService {
         }),
       );
 
+      // The fan-out ran, so the counts are real. `containerCount` is how many
+      // endpoints were PROBED, not how many answered: counting only the
+      // reachable ones made a fleet with nothing running report "0 of 0
+      // healthy", which reads as a complete fleet rather than an absent one.
       const latencies: number[] = [];
+      let healthy = 0;
       for (const result of healthResults) {
         if (result.status === 'fulfilled' && result.value.reachable) {
-          containerCount++;
           if (result.value.healthy) {
-            healthyContainers++;
+            healthy++;
           }
           latencies.push(result.value.latency);
         }
       }
+      containerCount = healthResults.length;
+      healthyContainers = healthy;
 
-      if (latencies.length > 0) {
-        networkLatency =
-          Math.round((latencies.reduce((sum, l) => sum + l, 0) / latencies.length) * 100) / 100;
-      }
+      // No endpoint answered, so there is no round-trip time to average.
+      networkLatency =
+        latencies.length > 0
+          ? Math.round((latencies.reduce((sum, l) => sum + l, 0) / latencies.length) * 100) / 100
+          : null;
     } catch (error) {
       this.logger.warn('Failed to check container health', error);
-      containerCount = 0;
-      healthyContainers = 0;
-      networkLatency = 0;
     }
 
     return {
       cpuUsage: Math.round(cpuUsage * 100) / 100,
       memoryUsage: Math.round(memoryUsage * 100) / 100,
       memoryTotal: totalMem,
-      diskUsage: Math.round(diskUsage * 100) / 100,
+      diskUsage: diskUsage === null ? null : Math.round(diskUsage * 100) / 100,
       diskTotal,
       networkLatency,
       containerCount,
       healthyContainers,
-      podRestarts: 0, // Requires Kubernetes API access
+      // This service has no Kubernetes API access, so the restart count is not
+      // zero — it is unknown, and the dashboard says so.
+      podRestarts: null,
     };
   }
 
@@ -696,7 +734,9 @@ export class PerformanceMonitoringService {
       this.getInfrastructureMetrics(),
     ]);
 
-    const metricValues: Record<string, number> = {
+    // A metric that was not measured cannot breach a threshold. It used to
+    // arrive as 0 and silently satisfy every "less than" comparison.
+    const metricValues: Record<string, number | null> = {
       [MetricType.RESPONSE_TIME]: appMetrics.avgResponseTime,
       [MetricType.ERROR_RATE]: appMetrics.errorRate,
       [MetricType.APDEX]: appMetrics.apdexScore,
@@ -710,7 +750,7 @@ export class PerformanceMonitoringService {
 
     for (const threshold of this.thresholds) {
       const value = metricValues[threshold.metric];
-      if (value === undefined) continue;
+      if (value === undefined || value === null) continue;
 
       const isCritical = this.compareValue(
         value,
@@ -781,7 +821,13 @@ export class PerformanceMonitoringService {
         this.checkThresholds(),
       ]);
 
-      const healthScore = this.calculateHealthScore(null, alerts);
+      // The metrics being persisted are what the snapshot's own score is made
+      // of; passing `null` here scored every snapshot as if nothing had been
+      // measured.
+      const healthScore = this.calculateHealthScore(
+        { applicationMetrics: appMetrics, infrastructureMetrics: infraMetrics },
+        alerts,
+      );
 
       const snapshot = this.snapshotRepo.create({
         timestamp: new Date().toISOString(),
@@ -797,65 +843,35 @@ export class PerformanceMonitoringService {
       // Flush any pending metrics
       await this.flushMetrics();
 
-      // Aggregate request metrics
-      await this.aggregateRequestMetrics();
-
       this.logger.debug('Created performance snapshot');
     } catch (error) {
       this.logger.error('Failed to create performance snapshot', error);
     }
   }
 
-  private async aggregateRequestMetrics(): Promise<void> {
-    const now = new Date();
-
-    for (const [key, data] of this.requestMetrics.entries()) {
-      const [service, method, endpoint] = key.split(':');
-
-      if (data.count > 0) {
-        await this.recordMetric({
-          metricType: MetricType.RESPONSE_TIME,
-          name: 'request_response_time',
-          value: data.totalTime / data.count,
-          unit: 'ms',
-          service,
-          dimensions: { method, endpoint },
-          sampleCount: data.count,
-          timestamp: now,
-        });
-
-        await this.recordMetric({
-          metricType: MetricType.REQUEST_COUNT,
-          name: 'request_count',
-          value: data.count,
-          aggregation: MetricAggregation.SUM,
-          service,
-          dimensions: { method, endpoint },
-          timestamp: now,
-        });
-
-        if (data.errors > 0) {
-          await this.recordMetric({
-            metricType: MetricType.ERROR_RATE,
-            name: 'error_rate',
-            value: (data.errors / data.count) * 100,
-            unit: 'percent',
-            service,
-            dimensions: { method, endpoint },
-            timestamp: now,
-          });
-        }
-      }
+  /**
+   * A health score, or `null` when there is nothing to score.
+   *
+   * Two defects this shape removes. It took a persisted `PerformanceSnapshot`,
+   * so `createSnapshot` — which has the freshly measured metrics in hand —
+   * could only pass `null` and stored a score that ignored its own
+   * measurements. And with no snapshot the function still returned a number:
+   * 100 minus the alert deductions, so a platform that had never taken a
+   * snapshot reported perfect health on the dashboard's headline figure
+   * (ADMIN-HIGH-123). Taking the metrics rather than the row fixes the first;
+   * returning `null` fixes the second.
+   */
+  private calculateHealthScore(
+    measured: {
+      applicationMetrics: ApplicationMetrics;
+      infrastructureMetrics: InfrastructureMetrics;
+    } | null,
+    alerts: Array<{ severity: 'warning' | 'critical' }>,
+  ): number | null {
+    if (measured === null) {
+      return null;
     }
 
-    this.requestMetrics.clear();
-    this.lastFlush = now;
-  }
-
-  private calculateHealthScore(
-    snapshot: PerformanceSnapshot | null,
-    alerts: Array<{ severity: 'warning' | 'critical' }>,
-  ): number {
     let score = 100;
 
     // Deduct for alerts
@@ -865,20 +881,25 @@ export class PerformanceMonitoringService {
     score -= criticalCount * 15;
     score -= warningCount * 5;
 
-    // Deduct for poor metrics if snapshot available
-    if (snapshot) {
-      if (snapshot.applicationMetrics.apdexScore < 0.85) {
-        score -= 10;
-      }
-      if (snapshot.applicationMetrics.errorRate > 1) {
-        score -= 10;
-      }
-      if (snapshot.infrastructureMetrics.cpuUsage > 80) {
-        score -= 5;
-      }
-      if (snapshot.infrastructureMetrics.memoryUsage > 80) {
-        score -= 5;
-      }
+    // Deduct for poor metrics if snapshot available.
+    //
+    // A metric that was not measured deducts nothing — but it also must not
+    // read as healthy. `apdexScore` used to arrive as a fabricated 1.0 from an
+    // empty metrics window, which is above every threshold, so the score said
+    // 100 for a service nobody was measuring. Now it arrives as null and is
+    // skipped, and the caller sees which inputs were missing.
+    const { apdexScore, errorRate } = measured.applicationMetrics;
+    if (apdexScore !== null && apdexScore < 0.85) {
+      score -= 10;
+    }
+    if (errorRate !== null && errorRate > 1) {
+      score -= 10;
+    }
+    if (measured.infrastructureMetrics.cpuUsage > 80) {
+      score -= 5;
+    }
+    if (measured.infrastructureMetrics.memoryUsage > 80) {
+      score -= 5;
     }
 
     return Math.max(0, Math.min(100, score));

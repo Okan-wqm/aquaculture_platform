@@ -13,6 +13,7 @@ import { Card, Button, Badge } from '@aquaculture/shared-ui';
 import { messagingApi, type MessagingAuditEntry } from '../../services/adminApi';
 import type { ApiError } from '../../services/http-client';
 import { expectedTotalPages } from '@platform/pagination-contracts';
+import { saveBlob } from '../../services/blob-client';
 
 // ============================================================================
 // Types
@@ -128,14 +129,10 @@ const MessagingAuditPage: React.FC = () => {
     ]);
 
     const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `messaging-audit-${new Date().toISOString().slice(0, 10)}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
+    saveBlob(
+      new Blob([csv], { type: 'text/csv;charset=utf-8;' }),
+      `messaging-audit-${new Date().toISOString().slice(0, 10)}.csv`,
+    );
   }, [entries]);
 
   const totalPages = expectedTotalPages(total, PAGE_SIZE);

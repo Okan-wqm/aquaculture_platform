@@ -1,33 +1,40 @@
 /**
- * useAdminMutation -- React Query adapter for admin-panel GraphQL mutations
+ * useAdminMutation — the admin-panel's write primitive (ADMIN-HIGH-105).
  *
- * Thin wrapper around TanStack `useMutation` that uses the shared-ui
- * `graphqlClient` as the transport layer and automatically invalidates
- * specified query keys on success.
+ * A write that does not invalidate the reads it invalidated is the stale-list
+ * bug, and it is invisible: the mutation succeeds, the toast fires, and the
+ * table still shows the old row until something else happens to refetch. This
+ * hook makes the invalidation part of performing the write — `invalidateKeys`
+ * sits next to the mutation function, so the two cannot drift apart in
+ * separate call sites.
  *
- * This solves the core problem: mutations via `useGraphQLMutation` never
- * invalidate query caches, causing stale lists everywhere. With this hook,
- * every mutation declares which cache slices it affects.
+ * Like `useAdminQuery`, it owns the CONTRACT and not a transport: it takes a
+ * mutation FUNCTION, so a REST page passes an `adminApi` call and
+ * `useAdminGraphQLMutation` adapts the three GraphQL surfaces.
  *
- * @example
+ * @example REST
  * ```ts
- * const { mutateAsync, isPending } = useAdminMutation<
- *   { createSupportThread: Thread },
- *   { input: CreateThreadInput }
- * >(
+ * const { mutateAsync, isPending } = useAdminMutation(
+ *   (input: UpdateTenantInput) => tenantsApi.update(tenantId, input),
+ *   { invalidateKeys: [adminKeys.tenants.detail(tenantId), adminKeys.tenants.list()] },
+ * );
+ * ```
+ *
+ * @example GraphQL
+ * ```ts
+ * const { mutateAsync } = useAdminGraphQLMutation<{ createSupportThread: Thread }>(
  *   ADMIN_CREATE_THREAD,
  *   { invalidateKeys: [adminKeys.messaging.threads()] },
  * );
- *
- * await mutateAsync({ input: { subject: 'Hello', initialMessage: '...' } });
- * // ^ automatically invalidates messaging.threads cache on success
  * ```
- *
- * @see web/modules/tenant-admin/src/hooks/useTenantData.ts for the reference pattern
  */
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import type { UseMutationOptions, QueryKey } from '@tanstack/react-query';
+import type {
+  QueryKey,
+  UseMutationOptions,
+  UseMutationResult,
+} from '@tanstack/react-query';
 import { graphqlClient } from '@aquaculture/shared-ui';
 
 /**
@@ -54,19 +61,15 @@ export interface AdminMutationExtras<TData, TVariables> {
 }
 
 /**
- * Execute a GraphQL mutation through TanStack React Query with automatic cache invalidation.
+ * Run any admin write through React Query, invalidating the reads it affects.
  *
- * @param mutation - GraphQL mutation operation string
+ * @param mutationFn - the writer; receives the mutation variables
  * @param extras - invalidateKeys and/or additional mutation options
- * @returns Standard React Query mutation result: { mutate, mutateAsync, isPending, isError, error, data, ... }
  */
-export function useAdminMutation<
-  TData,
-  TVariables extends Record<string, unknown> = Record<string, unknown>,
->(
-  mutation: string,
+export function useAdminMutation<TData, TVariables = void>(
+  mutationFn: (variables: TVariables) => Promise<TData>,
   extras?: AdminMutationExtras<TData, TVariables>,
-): ReturnType<typeof useMutation<TData, Error, TVariables>> {
+): UseMutationResult<TData, Error, TVariables> {
   const queryClient = useQueryClient();
   const { invalidateKeys, mutationOptions } = extras ?? {};
 
@@ -81,9 +84,7 @@ export function useAdminMutation<
 
   return useMutation<TData, Error, TVariables>({
     ...restOptions,
-    mutationFn: async (variables: TVariables): Promise<TData> => {
-      return graphqlClient.request<TData>(mutation, variables);
-    },
+    mutationFn,
     onSuccess: async (data, variables, onMutateResult, context) => {
       // ── Invalidate specified cache keys ──
       if (invalidateKeys && invalidateKeys.length > 0) {
@@ -110,4 +111,20 @@ export function useAdminMutation<
       }
     },
   });
+}
+
+/**
+ * The GraphQL flavour: same contract, `graphqlClient` as the transport.
+ */
+export function useAdminGraphQLMutation<
+  TData,
+  TVariables extends Record<string, unknown> = Record<string, unknown>,
+>(
+  mutation: string,
+  extras?: AdminMutationExtras<TData, TVariables>,
+): UseMutationResult<TData, Error, TVariables> {
+  return useAdminMutation<TData, TVariables>(
+    (variables: TVariables) => graphqlClient.request<TData>(mutation, variables),
+    extras,
+  );
 }

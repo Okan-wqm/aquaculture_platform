@@ -8,21 +8,41 @@
  * all commented API calls activated.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Card, Button, Badge, Input, Select } from '@aquaculture/shared-ui';
+
 import { systemSettingsApi } from '../../services/adminApi';
+import { adminKeys, useAdminMutation, useAdminQuery } from '../../hooks';
+import { QueryFailureNotice } from '../../components';
 import type { ErrorGroup, ErrorOccurrence } from '../../services/adminApi';
 
 // ============================================================================
 // Types
 // ============================================================================
 
+/**
+ * What the error dashboard reports, with `null` for anything it could not
+ * (ADMIN-HIGH-128).
+ *
+ * These four were seeded as zeros and RESET to zeros by the catch, so a failed
+ * `/system/errors/dashboard` displayed "0 unresolved errors" and "0 critical"
+ * on the screen an operator opens to find out whether anything is broken.
+ */
 interface ErrorStats {
-  totalErrors: number;
-  unresolvedErrors: number;
-  criticalErrors: number;
-  todayErrors: number;
+  totalErrors: number | null;
+  unresolvedErrors: number | null;
+  criticalErrors: number | null;
+  todayErrors: number | null;
 }
+
+/** What a card shows for a count the platform did not read. */
+const UNKNOWN = '\u2014';
+
+const formatCount = (value: number | null | undefined): string =>
+  value === null || value === undefined ? UNKNOWN : new Intl.NumberFormat('en-US').format(value);
+
+const EMPTY_GROUPS: readonly ErrorGroup[] = [];
+const EMPTY_OCCURRENCES: readonly ErrorOccurrence[] = [];
 
 // ============================================================================
 // No Mock Data - Using Real API Only
@@ -33,17 +53,6 @@ interface ErrorStats {
 // ============================================================================
 
 export const ErrorTrackingPage: React.FC = () => {
-  // State
-  const [errorGroups, setErrorGroups] = useState<readonly ErrorGroup[]>([]);
-  const [stats, setStats] = useState<ErrorStats>({
-    totalErrors: 0,
-    unresolvedErrors: 0,
-    criticalErrors: 0,
-    todayErrors: 0,
-  });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
   // Filters
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
@@ -55,111 +64,139 @@ export const ErrorTrackingPage: React.FC = () => {
   });
 
   // Detail Modal
-  const [selectedError, setSelectedError] = useState<ErrorGroup | null>(null);
-  const [errorOccurrences, setErrorOccurrences] = useState<readonly ErrorOccurrence[]>([]);
-  const [loadingOccurrences, setLoadingOccurrences] = useState(false);
+  const [selectedErrorId, setSelectedErrorId] = useState<string | null>(null);
 
-  // ============================================================================
-  // Data Loading
-  // ============================================================================
+  // ==========================================================================
+  // Reads (ADMIN-HIGH-121)
+  // ==========================================================================
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const groupFilter = useMemo(
+    () => ({
+      status: filterStatus !== 'all' ? filterStatus : undefined,
+      severity: filterSeverity !== 'all' ? filterSeverity : undefined,
+      service: filterService !== 'all' ? filterService : undefined,
+      search: searchTerm || undefined,
+      startDate: dateRange.start || undefined,
+      endDate: dateRange.end || undefined,
+    }),
+    [filterStatus, filterSeverity, filterService, searchTerm, dateRange],
+  );
+
+  const errorsKey = [...adminKeys.system.all(), 'errors'];
+
+  const groupsQuery = useAdminQuery(
+    [...errorsKey, 'groups', groupFilter],
+    ({ signal }) => systemSettingsApi.getErrorGroups(groupFilter, signal),
+    { placeholderData: (previous) => previous },
+  );
+
+  const dashboardQuery = useAdminQuery([...errorsKey, 'dashboard'], ({ signal }) =>
+    systemSettingsApi.getErrorDashboard(signal),
+  );
+
+  const occurrencesQuery = useAdminQuery(
+    [...errorsKey, 'occurrences', selectedErrorId],
+    ({ signal }) =>
+      systemSettingsApi.getErrorOccurrences(selectedErrorId ?? '', undefined, signal),
+    { enabled: selectedErrorId !== null },
+  );
+
+  const errorGroups: readonly ErrorGroup[] = groupsQuery.data?.data ?? EMPTY_GROUPS;
+  const errorOccurrences: readonly ErrorOccurrence[] =
+    occurrencesQuery.data?.data ?? EMPTY_OCCURRENCES;
+  const loadingOccurrences = occurrencesQuery.isFetching;
+
+  /**
+   * The four counts, or `null` for a dashboard that did not answer.
+   *
+   * `todayErrors` is the last point of the trend series: absent when the
+   * series is, rather than the 0 the old expression produced for an empty
+   * one, which said "no errors today" about a window nobody had measured.
+   */
+  const dashboardData = dashboardQuery.data ?? null;
+  const trend = dashboardData?.errorTrend ?? [];
+  const stats: ErrorStats = {
+    totalErrors: dashboardData?.totalErrors ?? null,
+    unresolvedErrors: dashboardData?.unresolvedErrors ?? null,
+    criticalErrors: dashboardData?.criticalErrors ?? null,
+    todayErrors: trend.length > 0 ? (trend[trend.length - 1]?.count ?? null) : null,
+  };
+
+  const selectedError =
+    errorGroups.find((group) => group.id === selectedErrorId) ??
+    (selectedErrorId === null ? null : (groupsQuery.data?.data ?? []).find((g) => g.id === selectedErrorId) ?? null);
+
+  // ==========================================================================
+  // Writes — both slices, because both move (ADMIN-HIGH-121)
+  //
+  // Each handler used to splice the updated group into local state AND
+  // decrement `unresolvedErrors` by one by hand. That is arithmetic on a
+  // server-computed aggregate: if the action did not change that count — an
+  // already-acknowledged group, a different definition of "unresolved" — the
+  // card drifted further from the truth with every click, and nothing on the
+  // page ever corrected it.
+  // ==========================================================================
+
+  const invalidateErrors = { invalidateKeys: [errorsKey] };
+
+  const resolveError = useAdminMutation<ErrorGroup, string>(
+    (id) => systemSettingsApi.resolveError(id, 'admin'),
+    invalidateErrors,
+  );
+
+  const ignoreError = useAdminMutation<ErrorGroup, string>(
+    (id) => systemSettingsApi.ignoreError(id),
+    invalidateErrors,
+  );
+
+  const acknowledgeError = useAdminMutation<ErrorGroup, string>(
+    (id) => systemSettingsApi.updateErrorStatus(id, 'acknowledged'),
+    invalidateErrors,
+  );
+
+  const mutations = [resolveError, ignoreError, acknowledgeError];
+  const queryErrors = [
+    groupsQuery.error,
+    dashboardQuery.error,
+    occurrencesQuery.error,
+    ...mutations.map((mutation) => mutation.error),
+  ];
+  const loading = groupsQuery.isPending;
+  const hasContent = groupsQuery.data !== undefined || dashboardQuery.data !== undefined;
+
+  const loadData = (): void => {
+    void groupsQuery.refetch();
+    void dashboardQuery.refetch();
+  };
+
+  const loadErrorDetails = (errorGroup: ErrorGroup): void => {
+    setSelectedErrorId(errorGroup.id);
+  };
+
+  const handleResolve = async (): Promise<void> => {
+    if (!selectedError) return;
     try {
-      const [groupsData, dashboardData] = await Promise.all([
-        systemSettingsApi.getErrorGroups({
-          status: filterStatus !== 'all' ? filterStatus : undefined,
-          severity: filterSeverity !== 'all' ? filterSeverity : undefined,
-          service: filterService !== 'all' ? filterService : undefined,
-          search: searchTerm || undefined,
-          startDate: dateRange.start || undefined,
-          endDate: dateRange.end || undefined,
-        }),
-        systemSettingsApi.getErrorDashboard(),
-      ]);
-
-      setErrorGroups(groupsData.data);
-      setStats({
-        totalErrors: dashboardData.totalErrors,
-        unresolvedErrors: dashboardData.unresolvedErrors,
-        criticalErrors: dashboardData.criticalErrors,
-        todayErrors: dashboardData.errorTrend?.length > 0
-          ? dashboardData.errorTrend[dashboardData.errorTrend.length - 1]?.count || 0
-          : 0,
-      });
-    } catch (err) {
-      console.error('Failed to load error tracking data:', err);
-      setError('Failed to load error tracking data. Please try again.');
-      setErrorGroups([]);
-      setStats({
-        totalErrors: 0,
-        unresolvedErrors: 0,
-        criticalErrors: 0,
-        todayErrors: 0,
-      });
-    } finally {
-      setLoading(false);
-    }
-  }, [filterStatus, filterSeverity, filterService, searchTerm, dateRange]);
-
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
-
-  // ============================================================================
-  // Handlers
-  // ============================================================================
-
-  const loadErrorDetails = async (errorGroup: ErrorGroup) => {
-    setSelectedError(errorGroup);
-    setLoadingOccurrences(true);
-    try {
-      const occurrencesData = await systemSettingsApi.getErrorOccurrences(errorGroup.id);
-      setErrorOccurrences(occurrencesData.data);
-    } catch (err) {
-      console.error('Failed to load error occurrences:', err);
-      setErrorOccurrences([]);
-    } finally {
-      setLoadingOccurrences(false);
+      await resolveError.mutateAsync(selectedError.id);
+    } catch {
+      // `resolveError.error` carries it into the page's notice.
     }
   };
 
-  const handleResolve = async () => {
+  const handleIgnore = async (): Promise<void> => {
     if (!selectedError) return;
-
     try {
-      const updated = await systemSettingsApi.resolveError(selectedError.id, 'admin');
-      setErrorGroups(errorGroups.map((e) => (e.id === selectedError.id ? updated : e)));
-      setSelectedError(updated);
-      setStats((prev) => ({ ...prev, unresolvedErrors: prev.unresolvedErrors - 1 }));
-    } catch (err) {
-      console.error('Failed to resolve error:', err);
+      await ignoreError.mutateAsync(selectedError.id);
+    } catch {
+      // Reported through `ignoreError.error`.
     }
   };
 
-  const handleIgnore = async () => {
+  const handleAcknowledge = async (): Promise<void> => {
     if (!selectedError) return;
-
     try {
-      const updated = await systemSettingsApi.ignoreError(selectedError.id);
-      setErrorGroups(errorGroups.map((e) => (e.id === selectedError.id ? updated : e)));
-      setSelectedError(updated);
-      setStats((prev) => ({ ...prev, unresolvedErrors: prev.unresolvedErrors - 1 }));
-    } catch (err) {
-      console.error('Failed to ignore error:', err);
-    }
-  };
-
-  const handleAcknowledge = async () => {
-    if (!selectedError) return;
-
-    try {
-      const updated = await systemSettingsApi.updateErrorStatus(selectedError.id, 'acknowledged');
-      setErrorGroups(errorGroups.map((e) => (e.id === selectedError.id ? updated : e)));
-      setSelectedError(updated);
-    } catch (err) {
-      console.error('Failed to acknowledge error:', err);
+      await acknowledgeError.mutateAsync(selectedError.id);
+    } catch {
+      // Reported through `acknowledgeError.error`.
     }
   };
 
@@ -217,7 +254,7 @@ export const ErrorTrackingPage: React.FC = () => {
   // Render
   // ============================================================================
 
-  if (loading) {
+  if (loading && !hasContent) {
     return (
       <div className="space-y-6 animate-pulse">
         <div className="h-8 bg-gray-200 rounded w-1/4" />
@@ -249,22 +286,27 @@ export const ErrorTrackingPage: React.FC = () => {
         </Button>
       </div>
 
+      {/* Whichever read or action failed, named. The page used to report a
+          failure in a fixed toast at the bottom-right while four zeroed cards
+          sat at the top (ADMIN-HIGH-128). */}
+      <QueryFailureNotice errors={queryErrors} hasContent={hasContent} onRetry={loadData} />
+
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card className="p-4">
-          <div className="text-2xl font-bold text-gray-900">{stats.totalErrors}</div>
+          <div className="text-2xl font-bold text-gray-900">{formatCount(stats.totalErrors)}</div>
           <div className="text-sm text-gray-500">Total Errors</div>
         </Card>
         <Card className="p-4">
-          <div className="text-2xl font-bold text-orange-600">{stats.unresolvedErrors}</div>
+          <div className="text-2xl font-bold text-orange-600">{formatCount(stats.unresolvedErrors)}</div>
           <div className="text-sm text-gray-500">Unresolved</div>
         </Card>
         <Card className="p-4">
-          <div className="text-2xl font-bold text-red-600">{stats.criticalErrors}</div>
+          <div className="text-2xl font-bold text-red-600">{formatCount(stats.criticalErrors)}</div>
           <div className="text-sm text-gray-500">Critical</div>
         </Card>
         <Card className="p-4">
-          <div className="text-2xl font-bold text-blue-600">{stats.todayErrors}</div>
+          <div className="text-2xl font-bold text-blue-600">{formatCount(stats.todayErrors)}</div>
           <div className="text-sm text-gray-500">Today's Errors</div>
         </Card>
       </div>
@@ -407,7 +449,9 @@ export const ErrorTrackingPage: React.FC = () => {
                   <div className="ml-6 flex-shrink-0 text-right">
                     <div className="text-2xl font-bold text-gray-900">{errorGroup.occurrenceCount.toLocaleString()}</div>
                     <div className="text-xs text-gray-500">occurrences</div>
-                    <div className="mt-2 text-sm text-gray-600">{errorGroup.userCount} users</div>
+                    <div className="mt-2 text-sm text-gray-600">
+                      {errorGroup.affectedTenants?.length ?? 0} tenants
+                    </div>
                   </div>
                 </div>
               </div>
@@ -442,8 +486,9 @@ export const ErrorTrackingPage: React.FC = () => {
                 </div>
                 <button
                   onClick={() => {
-                    setSelectedError(null);
-                    setErrorOccurrences([]);
+                    // Closing the modal disables the occurrences query; its
+                    // cache entry stays keyed by the group id.
+                    setSelectedErrorId(null);
                   }}
                   className="ml-4 text-gray-500 hover:text-gray-600 transition-colors"
                 >
@@ -462,8 +507,10 @@ export const ErrorTrackingPage: React.FC = () => {
                   </div>
                 </div>
                 <div className="bg-gray-50 p-4 rounded-lg">
-                  <div className="text-sm text-gray-500 mb-1">Affected Users</div>
-                  <div className="text-2xl font-bold text-gray-900">{selectedError.userCount}</div>
+                  <div className="text-sm text-gray-500 mb-1">Affected Tenants</div>
+                  <div className="text-2xl font-bold text-gray-900">
+                    {selectedError.affectedTenants?.length ?? 0}
+                  </div>
                 </div>
                 <div className="bg-gray-50 p-4 rounded-lg">
                   <div className="text-sm text-gray-500 mb-1">Service</div>
@@ -565,8 +612,9 @@ export const ErrorTrackingPage: React.FC = () => {
                 )}
                 <Button
                   onClick={() => {
-                    setSelectedError(null);
-                    setErrorOccurrences([]);
+                    // Closing the modal disables the occurrences query; its
+                    // cache entry stays keyed by the group id.
+                    setSelectedErrorId(null);
                   }}
                   variant="secondary"
                 >
@@ -578,17 +626,6 @@ export const ErrorTrackingPage: React.FC = () => {
         </div>
       )}
 
-      {/* Error Toast */}
-      {error && (
-        <div className="fixed bottom-4 right-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg shadow-lg">
-          <div className="flex items-center gap-2">
-            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-            </svg>
-            <span>{error}</span>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

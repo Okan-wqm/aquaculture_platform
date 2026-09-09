@@ -1,6 +1,6 @@
 import { IsArray, IsUUID, ArrayMaxSize, IsString, IsOptional, IsBoolean, MaxLength, IsEnum } from 'class-validator';
 
-import { TenantActivity, TenantNote, TenantBillingInfo } from '../entities/tenant-activity.entity';
+import { TenantActivity, TenantNote } from '../entities/tenant-activity.entity';
 import { Tenant } from '../entities/tenant.entity';
 
 import { TenantLimitsDto } from './tenant.dto';
@@ -69,13 +69,43 @@ export class ResourceUsage {
 }
 
 // Billing Summary
+/**
+ * What billing knows about this tenant.
+ *
+ * Every field is read from billing's own tables — `billing.subscriptions` for
+ * the subscription state (rule D14 makes it the SSoT) and `billing.invoices`
+ * for what was actually charged and paid. The former source,
+ * `admin.tenant_billing_info`, was a second billing store with no writer, so
+ * this block was blank on every tenant (DB-ADMIN-MEDIUM-005).
+ *
+ * There is deliberately no `monthlyAmount`. The only per-cycle figure billing
+ * holds outside an invoice is `subscriptions.pricing.basePrice`, a float inside
+ * a jsonb blob that also excludes the per-farm / per-sensor / per-user
+ * components — so it is neither exact nor complete, and "monthly" is wrong
+ * outright for an annual cycle. The last invoice's total is the amount this
+ * tenant was actually billed, in a `numeric` column, and it says which period
+ * it covers.
+ */
 export class BillingSummary {
+  /** `billing.subscriptions.plan_name` — the plan billing charges for. */
   currentPlan!: string;
-  monthlyAmount!: number;
-  currency!: string;
+  /** `billing.subscriptions.plan_tier`. */
+  planTier!: string;
+  /** monthly | quarterly | semi_annual | annual. */
   billingCycle!: string;
-  paymentStatus!: string;
+  /** trial | active | past_due | cancelled | suspended | expired. */
+  subscriptionStatus!: string;
+  /** End of the current period — when the next invoice is due. */
   nextBillingDate!: Date | null;
+  /** Total of the most recent invoice; null until one has been issued. */
+  lastInvoiceAmount!: number | null;
+  lastInvoiceIssuedAt!: Date | null;
+  /** Period the most recent invoice covers. Null with no invoice. */
+  lastInvoicePeriodStart!: Date | null;
+  lastInvoicePeriodEnd!: Date | null;
+  /** Currency of the most recent invoice. Null with no invoice — not 'USD'. */
+  currency!: string | null;
+  /** Most recent invoice that was actually paid. */
   lastPaymentDate!: Date | null;
   lastPaymentAmount!: number | null;
 }

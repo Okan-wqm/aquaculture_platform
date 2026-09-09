@@ -5,21 +5,21 @@
  * Displays real-time system metrics, service health, and performance trends.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Card, Button, Badge, LineChart } from '@aquaculture/shared-ui';
+
 import { systemSettingsApi } from '../../services/adminApi';
-import type { PerformanceDashboard, PerformanceMetrics } from '../../services/adminApi';
+import { adminKeys, useAdminQuery } from '../../hooks';
+import { QueryFailureNotice } from '../../components';
+import type {
+  DatabasePerformance,
+  InfrastructureMetrics,
+  PerformanceApplicationMetrics,
+} from '../../services/types';
 
 // ============================================================================
 // Types
 // ============================================================================
-
-interface TimeRange {
-  label: string;
-  value: string;
-  start: string;
-  end: string;
-}
 
 interface ServiceHealth {
   name: string;
@@ -29,49 +29,27 @@ interface ServiceHealth {
   requestCount: number;
 }
 
-// ============================================================================
-// No Mock Data - Using Real API Only
-// ============================================================================
+/**
+ * The selectable windows, as DURATIONS.
+ *
+ * They used to be `{ start, end }` pairs stamped when the option list was
+ * built, so the window an auto-refresh re-requested was the one selected
+ * minutes earlier — "Son 5 Dakika" kept reporting the same five minutes while
+ * the clock moved. The window is computed at fetch time now, from the duration.
+ */
+const TIME_RANGES = [
+  { label: 'Son 5 Dakika', value: '5m', durationMs: 5 * 60 * 1000 },
+  { label: 'Son 15 Dakika', value: '15m', durationMs: 15 * 60 * 1000 },
+  { label: 'Son 1 Saat', value: '1h', durationMs: 60 * 60 * 1000 },
+  { label: 'Son 6 Saat', value: '6h', durationMs: 6 * 60 * 60 * 1000 },
+  { label: 'Son 24 Saat', value: '24h', durationMs: 24 * 60 * 60 * 1000 },
+] as const;
 
-// ============================================================================
-// Time Range Helper
-// ============================================================================
+type TimeRangeValue = (typeof TIME_RANGES)[number]['value'];
 
-const getTimeRanges = (): TimeRange[] => {
-  const now = new Date();
-  return [
-    {
-      label: 'Son 5 Dakika',
-      value: '5m',
-      start: new Date(now.getTime() - 5 * 60 * 1000).toISOString(),
-      end: now.toISOString(),
-    },
-    {
-      label: 'Son 15 Dakika',
-      value: '15m',
-      start: new Date(now.getTime() - 15 * 60 * 1000).toISOString(),
-      end: now.toISOString(),
-    },
-    {
-      label: 'Son 1 Saat',
-      value: '1h',
-      start: new Date(now.getTime() - 60 * 60 * 1000).toISOString(),
-      end: now.toISOString(),
-    },
-    {
-      label: 'Son 6 Saat',
-      value: '6h',
-      start: new Date(now.getTime() - 6 * 60 * 60 * 1000).toISOString(),
-      end: now.toISOString(),
-    },
-    {
-      label: 'Son 24 Saat',
-      value: '24h',
-      start: new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString(),
-      end: now.toISOString(),
-    },
-  ];
-};
+const DEFAULT_RANGE: TimeRangeValue = '1h';
+
+const REFRESH_INTERVAL_MS = 30_000;
 
 // ============================================================================
 // Component
@@ -85,137 +63,136 @@ const formatTrendLabel = (timestamp: string): string => {
     : date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
 };
 
+/** What a card shows for a value the platform did not measure. */
+const UNKNOWN = '\u2014';
+
+/**
+ * Render a measurement, or an em dash when there is none.
+ *
+ * A dash reads as "we do not know". A zero reads as "we measured, and it is
+ * zero" — which is what this page said about an unreachable database, an
+ * unreadable disk and a health score assembled from no snapshot at all
+ * (ADMIN-HIGH-014, ADMIN-HIGH-123).
+ */
+function formatMetric(value: number | null | undefined, suffix = '', digits?: number): string {
+  if (value === null || value === undefined) return UNKNOWN;
+  return `${digits === undefined ? Math.round(value) : value.toFixed(digits)}${suffix}`;
+}
+
+/**
+ * Threshold colouring for a value that may not exist.
+ *
+ * An unmeasured value is neutral: it has not breached anything, and colouring
+ * it green would be the same claim the numbers themselves used to make.
+ */
+const getHealthColor = (
+  value: number | null | undefined,
+  thresholds: { warning: number; critical: number },
+  inverse = false,
+): string => {
+  if (value === null || value === undefined) return 'text-gray-400';
+  if (inverse) {
+    if (value <= thresholds.critical) return 'text-red-600';
+    if (value <= thresholds.warning) return 'text-yellow-600';
+    return 'text-green-600';
+  }
+  if (value >= thresholds.critical) return 'text-red-600';
+  if (value >= thresholds.warning) return 'text-yellow-600';
+  return 'text-green-600';
+};
+
+const getProgressColor = (
+  value: number | null | undefined,
+  thresholds: { warning: number; critical: number },
+): string => {
+  if (value === null || value === undefined) return 'bg-gray-300';
+  if (value >= thresholds.critical) return 'bg-red-500';
+  if (value >= thresholds.warning) return 'bg-yellow-500';
+  return 'bg-green-500';
+};
+
 export const PerformanceDashboardPage: React.FC = () => {
-  // State
-  const [dashboard, setDashboard] = useState<PerformanceDashboard | null>(null);
-  const [infrastructure, setInfrastructure] = useState({
-    cpuUsage: 0,
-    memoryUsage: 0,
-    diskUsage: 0,
-    networkLatency: 0,
-    containerCount: 0,
-    healthyContainers: 0,
-  });
-  const [database, setDatabase] = useState({
-    activeConnections: 0,
-    poolSize: 0,
-    poolUtilization: 0,
-    avgQueryTime: 0,
-    slowQueryCount: 0,
-    cacheHitRatio: 0,
-  });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [timeRange, setTimeRange] = useState<TimeRange>(getTimeRanges()[2]); // Default to 1h
+  const [rangeValue, setRangeValue] = useState<TimeRangeValue>(DEFAULT_RANGE);
   const [autoRefresh, setAutoRefresh] = useState(true);
-  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+
+  const range = TIME_RANGES.find((entry) => entry.value === rangeValue) ?? TIME_RANGES[2];
 
   // ============================================================================
-  // Data Loading
+  // Data Loading — three independent reads (ADMIN-HIGH-121)
+  //
+  // They used to be one `Promise.all`, so an unreachable infrastructure probe
+  // blanked the whole page including the dashboard that had answered, and a
+  // failure of any one of them reported the same single sentence. Three keyed
+  // queries fail independently, each says which one failed, and `refetchInterval`
+  // replaces a `setInterval` that ran a fetch the page could not cancel.
   // ============================================================================
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const refetchInterval = autoRefresh ? REFRESH_INTERVAL_MS : false;
 
-    try {
-      // Load all metrics in parallel
-      const [dashboardData, infraData, dbData] = await Promise.all([
-        systemSettingsApi.getPerformanceDashboard(undefined, {
-          start: timeRange.start,
-          end: timeRange.end,
-        }),
-        systemSettingsApi.getInfrastructureMetrics(),
-        systemSettingsApi.getDatabasePerformance(),
-      ]);
+  const dashboardQuery = useAdminQuery(
+    [...adminKeys.system.performance(), 'dashboard', rangeValue],
+    ({ signal }) => {
+      const end = new Date();
+      const start = new Date(end.getTime() - range.durationMs);
+      return systemSettingsApi.getPerformanceDashboard(
+        { startDate: start.toISOString(), endDate: end.toISOString() },
+        signal,
+      );
+    },
+    { refetchInterval, staleTime: 15_000 },
+  );
 
-      // Map API response to frontend format
-      // API returns: currentSnapshot.applicationMetrics.errorRate
-      // Frontend expects: currentSnapshot.errorRate
-      const apiSnapshot = dashboardData.currentSnapshot as Record<string, unknown> | undefined;
-      const appMetrics = (apiSnapshot?.applicationMetrics as Record<string, number>) ?? {};
+  const infrastructureQuery = useAdminQuery(
+    [...adminKeys.system.performance(), 'infrastructure'],
+    ({ signal }) => systemSettingsApi.getInfrastructureMetrics(undefined, signal),
+    { refetchInterval, staleTime: 15_000 },
+  );
 
-      const mappedDashboard: PerformanceDashboard = {
-        currentSnapshot: {
-          healthScore: (apiSnapshot?.overallHealthScore as number) ?? 100,
-          avgResponseTime: appMetrics.avgResponseTime ?? 0,
-          errorRate: appMetrics.errorRate ?? 0,
-          throughput: appMetrics.throughput ?? 0,
-          apdexScore: appMetrics.apdexScore ?? 1,
-        },
-        trends: dashboardData.trends ?? { responseTime: [], throughput: [], errorRate: [] },
-        serviceBreakdown: dashboardData.serviceBreakdown ?? [],
-        alerts: dashboardData.alerts ?? [],
-      };
+  const databaseQuery = useAdminQuery(
+    [...adminKeys.system.performance(), 'database'],
+    ({ signal }) => systemSettingsApi.getDatabasePerformance(undefined, signal),
+    { refetchInterval, staleTime: 15_000 },
+  );
 
-      setDashboard(mappedDashboard);
-      setInfrastructure(infraData);
-      setDatabase(dbData);
-      setLastUpdated(new Date());
-    } catch (err) {
-      console.error('Failed to load performance data:', err);
-      setError('Failed to load performance data. Please try again.');
-      setDashboard(null);
-      setInfrastructure({
-        cpuUsage: 0,
-        memoryUsage: 0,
-        diskUsage: 0,
-        networkLatency: 0,
-        containerCount: 0,
-        healthyContainers: 0,
-      });
-      setDatabase({
-        activeConnections: 0,
-        poolSize: 0,
-        poolUtilization: 0,
-        avgQueryTime: 0,
-        slowQueryCount: 0,
-        cacheHitRatio: 0,
-      });
-    } finally {
-      setLoading(false);
-    }
-  }, [timeRange]);
+  const dashboard = dashboardQuery.data ?? null;
+  const infrastructure: InfrastructureMetrics | null = infrastructureQuery.data ?? null;
+  const database: DatabasePerformance | null = databaseQuery.data ?? null;
+  const application: PerformanceApplicationMetrics | null =
+    dashboard?.currentSnapshot?.applicationMetrics ?? null;
+  const trends = dashboard?.trends ?? null;
+  const alerts = dashboard?.alerts ?? [];
+  const serviceBreakdown = dashboard?.serviceBreakdown ?? [];
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  const queryErrors = [dashboardQuery.error, infrastructureQuery.error, databaseQuery.error];
+  const hasContent = dashboard !== null || infrastructure !== null || database !== null;
+  const isLoading = dashboardQuery.isPending && infrastructureQuery.isPending;
 
-  // Auto-refresh every 30 seconds
-  useEffect(() => {
-    if (!autoRefresh) return;
+  const lastUpdated = useMemo(
+    () =>
+      Math.max(
+        dashboardQuery.dataUpdatedAt,
+        infrastructureQuery.dataUpdatedAt,
+        databaseQuery.dataUpdatedAt,
+      ),
+    [
+      dashboardQuery.dataUpdatedAt,
+      infrastructureQuery.dataUpdatedAt,
+      databaseQuery.dataUpdatedAt,
+    ],
+  );
 
-    const interval = setInterval(() => {
-      loadData();
-    }, 30000);
+  const isFetching =
+    dashboardQuery.isFetching || infrastructureQuery.isFetching || databaseQuery.isFetching;
 
-    return () => clearInterval(interval);
-  }, [autoRefresh, loadData]);
+  const loadData = (): void => {
+    void dashboardQuery.refetch();
+    void infrastructureQuery.refetch();
+    void databaseQuery.refetch();
+  };
 
   // ============================================================================
   // Helpers
   // ============================================================================
-
-  const getHealthColor = (
-    value: number,
-    thresholds: { warning: number; critical: number },
-    inverse = false
-  ) => {
-    if (inverse) {
-      if (value <= thresholds.critical) return 'text-red-600';
-      if (value <= thresholds.warning) return 'text-yellow-600';
-      return 'text-green-600';
-    }
-    if (value >= thresholds.critical) return 'text-red-600';
-    if (value >= thresholds.warning) return 'text-yellow-600';
-    return 'text-green-600';
-  };
-
-  const getProgressColor = (value: number, thresholds: { warning: number; critical: number }) => {
-    if (value >= thresholds.critical) return 'bg-red-500';
-    if (value >= thresholds.warning) return 'bg-yellow-500';
-    return 'bg-green-500';
-  };
 
   const getServiceStatus = (service: { avgResponseTime?: number; errorRate?: number }): ServiceHealth['status'] => {
     if ((service.errorRate ?? 0) > 1 || (service.avgResponseTime ?? 0) > 500) return 'critical';
@@ -232,15 +209,20 @@ export const PerformanceDashboardPage: React.FC = () => {
     return variants[status];
   };
 
-  const formatTimestamp = (date: Date) => {
-    return date.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  };
+  const formatTimestamp = (epochMs: number): string =>
+    epochMs === 0
+      ? UNKNOWN
+      : new Date(epochMs).toLocaleTimeString('tr-TR', {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+        });
 
   // ============================================================================
   // Render - Loading State
   // ============================================================================
 
-  if (loading && !dashboard) {
+  if (isLoading && !hasContent) {
     return (
       <div className="space-y-6 animate-pulse">
         <div className="h-8 bg-gray-200 rounded w-1/4" />
@@ -255,13 +237,10 @@ export const PerformanceDashboardPage: React.FC = () => {
     );
   }
 
-  if (!dashboard) {
-    return (
-      <div className="flex flex-col items-center justify-center h-64 space-y-4">
-        <div className="text-red-600 text-lg font-semibold">Failed to load performance data</div>
-        <Button onClick={loadData}>Retry</Button>
-      </div>
-    );
+  // Nothing answered: the notice names WHICH read failed, where the page used
+  // to print one sentence for all three.
+  if (!hasContent) {
+    return <QueryFailureNotice errors={queryErrors} hasContent={false} onRetry={loadData} />;
   }
 
   // ============================================================================
@@ -289,22 +268,20 @@ export const PerformanceDashboardPage: React.FC = () => {
             Auto-refresh
           </label>
           <select
-            value={timeRange.value}
-            onChange={(e) => {
-              const selected = getTimeRanges().find((tr) => tr.value === e.target.value);
-              if (selected) setTimeRange(selected);
-            }}
+            aria-label="Time range"
+            value={rangeValue}
+            onChange={(e) => setRangeValue(e.target.value as TimeRangeValue)}
             className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           >
-            {getTimeRanges().map((tr) => (
+            {TIME_RANGES.map((tr) => (
               <option key={tr.value} value={tr.value}>
                 {tr.label}
               </option>
             ))}
           </select>
-          <Button onClick={loadData} variant="secondary" disabled={loading}>
+          <Button onClick={loadData} variant="secondary" disabled={isFetching}>
             <svg
-              className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`}
+              className={`w-5 h-5 ${isFetching ? 'animate-spin' : ''}`}
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -325,8 +302,13 @@ export const PerformanceDashboardPage: React.FC = () => {
         Last updated: {formatTimestamp(lastUpdated)}
       </div>
 
+      {/* Partial failure: one read failed and the others answered. The page
+          used to discard the whole render in that case, so an unreachable
+          infrastructure probe hid a dashboard that had loaded (ADMIN-HIGH-121). */}
+      <QueryFailureNotice errors={queryErrors} hasContent={hasContent} onRetry={loadData} />
+
       {/* Alerts Banner */}
-      {dashboard.alerts && dashboard.alerts.length > 0 && (
+      {alerts.length > 0 && (
         <Card className="border-l-4 border-yellow-400 bg-yellow-50">
           <div className="p-4">
             <h3 className="font-semibold text-yellow-800 mb-2 flex items-center gap-2">
@@ -340,7 +322,7 @@ export const PerformanceDashboardPage: React.FC = () => {
               Active Performance Alerts
             </h3>
             <div className="space-y-2">
-              {dashboard.alerts.map((alert, idx) => (
+              {alerts.map((alert, idx) => (
                 <div key={idx} className="flex items-center gap-3 text-sm">
                   <span
                     className={`w-2 h-2 rounded-full ${
@@ -375,12 +357,12 @@ export const PerformanceDashboardPage: React.FC = () => {
             </svg>
           </div>
           <div
-            className={`text-3xl font-bold ${getHealthColor(
-              dashboard.currentSnapshot.avgResponseTime,
-              { warning: 300, critical: 500 }
-            )}`}
+            className={`text-3xl font-bold ${getHealthColor(application?.avgResponseTime, {
+              warning: 300,
+              critical: 500,
+            })}`}
           >
-            {Math.round(dashboard.currentSnapshot.avgResponseTime)} ms
+            {formatMetric(application?.avgResponseTime, ' ms')}
           </div>
           <div className="text-xs text-gray-500 mt-1">Ortalama yanit suresi</div>
         </Card>
@@ -398,12 +380,12 @@ export const PerformanceDashboardPage: React.FC = () => {
             </svg>
           </div>
           <div
-            className={`text-3xl font-bold ${getHealthColor(infrastructure.cpuUsage, {
+            className={`text-3xl font-bold ${getHealthColor(infrastructure?.cpuUsage, {
               warning: 70,
               critical: 90,
             })}`}
           >
-            {infrastructure.cpuUsage}%
+            {formatMetric(infrastructure?.cpuUsage, '%')}
           </div>
           <div className="text-xs text-gray-500 mt-1">CPU kullanimi</div>
         </Card>
@@ -421,12 +403,12 @@ export const PerformanceDashboardPage: React.FC = () => {
             </svg>
           </div>
           <div
-            className={`text-3xl font-bold ${getHealthColor(infrastructure.memoryUsage, {
+            className={`text-3xl font-bold ${getHealthColor(infrastructure?.memoryUsage, {
               warning: 70,
               critical: 90,
             })}`}
           >
-            {infrastructure.memoryUsage}%
+            {formatMetric(infrastructure?.memoryUsage, '%')}
           </div>
           <div className="text-xs text-gray-500 mt-1">Bellek kullanimi</div>
         </Card>
@@ -444,12 +426,12 @@ export const PerformanceDashboardPage: React.FC = () => {
             </svg>
           </div>
           <div
-            className={`text-3xl font-bold ${getHealthColor(dashboard.currentSnapshot.errorRate ?? 0, {
+            className={`text-3xl font-bold ${getHealthColor(application?.errorRate, {
               warning: 1,
               critical: 5,
             })}`}
           >
-            {(dashboard.currentSnapshot.errorRate ?? 0).toFixed(2)}%
+            {formatMetric(application?.errorRate, '%', 2)}
           </div>
           <div className="text-xs text-gray-500 mt-1">Error rate</div>
         </Card>
@@ -463,46 +445,68 @@ export const PerformanceDashboardPage: React.FC = () => {
             <p className="text-sm text-gray-500">Tum metriklere dayali genel saglik skoru</p>
           </div>
           <div className="flex items-center gap-3">
-            <div className="text-5xl font-bold text-green-600">
-              {Math.round(dashboard.currentSnapshot.healthScore)}
+            {/* The `?? 100` that used to sit here made a platform with no
+                snapshot at all report perfect health (ADMIN-HIGH-123). */}
+            <div
+              className={`text-5xl font-bold ${getHealthColor(
+                dashboard?.healthScore,
+                { warning: 85, critical: 70 },
+                true,
+              )}`}
+            >
+              {formatMetric(dashboard?.healthScore)}
             </div>
             <div className="text-gray-500">/100</div>
           </div>
         </div>
         <div className="h-4 bg-gray-200 rounded-full overflow-hidden">
           <div
-            className="h-full bg-green-500 rounded-full transition-all duration-500"
-            style={{ width: `${dashboard.currentSnapshot.healthScore}%` }}
+            className={`h-full rounded-full transition-all duration-500 ${
+              dashboard?.healthScore === null || dashboard?.healthScore === undefined
+                ? 'bg-gray-300'
+                : 'bg-green-500'
+            }`}
+            style={{ width: `${dashboard?.healthScore ?? 0}%` }}
           />
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 pt-6 border-t">
           <div>
             <div className="text-sm text-gray-500 mb-1">Throughput</div>
             <div className="text-xl font-bold text-gray-900">
-              {dashboard.currentSnapshot.throughput.toLocaleString()} req/s
+              {application?.throughput === null || application?.throughput === undefined
+                ? UNKNOWN
+                : `${application.throughput.toLocaleString()} req/s`}
             </div>
           </div>
           <div>
             <div className="text-sm text-gray-500 mb-1">Apdex Score</div>
             <div
               className={`text-xl font-bold ${getHealthColor(
-                dashboard.currentSnapshot.apdexScore ?? 0,
+                application?.apdexScore,
                 { warning: 0.85, critical: 0.7 },
-                true
+                true,
               )}`}
             >
-              {(dashboard.currentSnapshot.apdexScore ?? 0).toFixed(2)}
+              {formatMetric(application?.apdexScore, '', 2)}
             </div>
           </div>
           <div>
             <div className="text-sm text-gray-500 mb-1">DB Connections</div>
             <div className="text-xl font-bold text-gray-900">
-              {database.activeConnections}/{database.poolSize}
+              {formatMetric(database?.activeConnections)}/{formatMetric(database?.poolSize)}
             </div>
           </div>
           <div>
             <div className="text-sm text-gray-500 mb-1">Cache Hit Ratio</div>
-            <div className="text-xl font-bold text-green-600">{database.cacheHitRatio}%</div>
+            <div
+              className={`text-xl font-bold ${getHealthColor(
+                database?.cacheHitRatio,
+                { warning: 95, critical: 90 },
+                true,
+              )}`}
+            >
+              {formatMetric(database?.cacheHitRatio, '%')}
+            </div>
           </div>
         </div>
       </Card>
@@ -515,21 +519,21 @@ export const PerformanceDashboardPage: React.FC = () => {
             <div className="flex justify-between mb-2">
               <span className="text-sm font-medium text-gray-700">CPU Usage</span>
               <span
-                className={`text-sm font-bold ${getHealthColor(infrastructure.cpuUsage, {
+                className={`text-sm font-bold ${getHealthColor(infrastructure?.cpuUsage, {
                   warning: 70,
                   critical: 90,
                 })}`}
               >
-                {infrastructure.cpuUsage}%
+                {formatMetric(infrastructure?.cpuUsage, '%')}
               </span>
             </div>
             <div className="h-3 bg-gray-200 rounded-full overflow-hidden">
               <div
                 className={`h-full transition-all duration-500 ${getProgressColor(
-                  infrastructure.cpuUsage,
-                  { warning: 70, critical: 90 }
+                  infrastructure?.cpuUsage,
+                  { warning: 70, critical: 90 },
                 )}`}
-                style={{ width: `${infrastructure.cpuUsage}%` }}
+                style={{ width: `${infrastructure?.cpuUsage ?? 0}%` }}
               />
             </div>
           </div>
@@ -538,21 +542,21 @@ export const PerformanceDashboardPage: React.FC = () => {
             <div className="flex justify-between mb-2">
               <span className="text-sm font-medium text-gray-700">Memory Usage</span>
               <span
-                className={`text-sm font-bold ${getHealthColor(infrastructure.memoryUsage, {
+                className={`text-sm font-bold ${getHealthColor(infrastructure?.memoryUsage, {
                   warning: 70,
                   critical: 90,
                 })}`}
               >
-                {infrastructure.memoryUsage}%
+                {formatMetric(infrastructure?.memoryUsage, '%')}
               </span>
             </div>
             <div className="h-3 bg-gray-200 rounded-full overflow-hidden">
               <div
                 className={`h-full transition-all duration-500 ${getProgressColor(
-                  infrastructure.memoryUsage,
-                  { warning: 70, critical: 90 }
+                  infrastructure?.memoryUsage,
+                  { warning: 70, critical: 90 },
                 )}`}
-                style={{ width: `${infrastructure.memoryUsage}%` }}
+                style={{ width: `${infrastructure?.memoryUsage ?? 0}%` }}
               />
             </div>
           </div>
@@ -561,21 +565,21 @@ export const PerformanceDashboardPage: React.FC = () => {
             <div className="flex justify-between mb-2">
               <span className="text-sm font-medium text-gray-700">Disk Usage</span>
               <span
-                className={`text-sm font-bold ${getHealthColor(infrastructure.diskUsage, {
+                className={`text-sm font-bold ${getHealthColor(infrastructure?.diskUsage, {
                   warning: 70,
                   critical: 90,
                 })}`}
               >
-                {infrastructure.diskUsage}%
+                {formatMetric(infrastructure?.diskUsage, '%')}
               </span>
             </div>
             <div className="h-3 bg-gray-200 rounded-full overflow-hidden">
               <div
                 className={`h-full transition-all duration-500 ${getProgressColor(
-                  infrastructure.diskUsage,
-                  { warning: 70, critical: 90 }
+                  infrastructure?.diskUsage,
+                  { warning: 70, critical: 90 },
                 )}`}
-                style={{ width: `${infrastructure.diskUsage}%` }}
+                style={{ width: `${infrastructure?.diskUsage ?? 0}%` }}
               />
             </div>
           </div>
@@ -584,17 +588,22 @@ export const PerformanceDashboardPage: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-6 pt-6 border-t">
           <div className="flex items-center justify-between">
             <span className="text-sm text-gray-500">Network Latency</span>
-            <span className="text-lg font-bold text-gray-900">{infrastructure.networkLatency} ms</span>
+            <span className="text-lg font-bold text-gray-900">
+              {formatMetric(infrastructure?.networkLatency, ' ms')}
+            </span>
           </div>
           <div className="flex items-center justify-between">
             <span className="text-sm text-gray-500">Healthy Containers</span>
             <span className="text-lg font-bold text-green-600">
-              {infrastructure.healthyContainers}/{infrastructure.containerCount}
+              {formatMetric(infrastructure?.healthyContainers)}/
+              {formatMetric(infrastructure?.containerCount)}
             </span>
           </div>
           <div className="flex items-center justify-between">
             <span className="text-sm text-gray-500">Avg Query Time</span>
-            <span className="text-lg font-bold text-gray-900">{database.avgQueryTime} ms</span>
+            <span className="text-lg font-bold text-gray-900">
+              {formatMetric(database?.avgQueryTime, ' ms')}
+            </span>
           </div>
         </div>
       </Card>
@@ -603,9 +612,9 @@ export const PerformanceDashboardPage: React.FC = () => {
       <Card className="p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold text-gray-900">Performance Trends</h2>
-          <span className="text-sm text-gray-500">{timeRange.label}</span>
+          <span className="text-sm text-gray-500">{range.label}</span>
         </div>
-        {dashboard.trends.responseTime.length === 0 ? (
+        {!trends || trends.responseTime.length === 0 ? (
           <div className="h-48 flex items-center justify-center text-sm text-gray-500">
             No trend data for this range
           </div>
@@ -614,8 +623,8 @@ export const PerformanceDashboardPage: React.FC = () => {
             <div>
               <h3 className="text-sm font-medium text-gray-700 mb-2">Response Time (ms)</h3>
               <LineChart
-                labels={dashboard.trends.responseTime.map((point) => formatTrendLabel(point.timestamp))}
-                datasets={[{ label: 'Response time', data: dashboard.trends.responseTime.map((point) => point.value) }]}
+                labels={trends.responseTime.map((point) => formatTrendLabel(point.timestamp))}
+                datasets={[{ label: 'Response time', data: trends.responseTime.map((point) => point.value) }]}
                 height={180}
                 className="w-full"
                 showLegend={false}
@@ -624,8 +633,8 @@ export const PerformanceDashboardPage: React.FC = () => {
             <div>
               <h3 className="text-sm font-medium text-gray-700 mb-2">Throughput (req/min)</h3>
               <LineChart
-                labels={dashboard.trends.throughput.map((point) => formatTrendLabel(point.timestamp))}
-                datasets={[{ label: 'Throughput', data: dashboard.trends.throughput.map((point) => point.value) }]}
+                labels={trends.throughput.map((point) => formatTrendLabel(point.timestamp))}
+                datasets={[{ label: 'Throughput', data: trends.throughput.map((point) => point.value) }]}
                 height={180}
                 className="w-full"
                 showLegend={false}
@@ -634,8 +643,8 @@ export const PerformanceDashboardPage: React.FC = () => {
             <div>
               <h3 className="text-sm font-medium text-gray-700 mb-2">Error Rate (%)</h3>
               <LineChart
-                labels={dashboard.trends.errorRate.map((point) => formatTrendLabel(point.timestamp))}
-                datasets={[{ label: 'Error rate', data: dashboard.trends.errorRate.map((point) => point.value) }]}
+                labels={trends.errorRate.map((point) => formatTrendLabel(point.timestamp))}
+                datasets={[{ label: 'Error rate', data: trends.errorRate.map((point) => point.value) }]}
                 height={180}
                 className="w-full"
                 showLegend={false}
@@ -673,14 +682,14 @@ export const PerformanceDashboardPage: React.FC = () => {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {dashboard.serviceBreakdown.length === 0 ? (
+              {serviceBreakdown.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
                     No service data available
                   </td>
                 </tr>
               ) : (
-                dashboard.serviceBreakdown.map((service, idx) => {
+                serviceBreakdown.map((service, idx) => {
                   const status = getServiceStatus(service);
                   return (
                     <tr key={idx} className="hover:bg-gray-50 transition-colors">
@@ -735,33 +744,6 @@ export const PerformanceDashboardPage: React.FC = () => {
         </div>
       </Card>
 
-      {/* Error Display */}
-      {error && (
-        <div className="fixed bottom-4 right-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg shadow-lg max-w-md">
-          <div className="flex items-center gap-2">
-            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-              <path
-                fillRule="evenodd"
-                d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-                clipRule="evenodd"
-              />
-            </svg>
-            <span>{error}</span>
-            <button
-              onClick={() => setError(null)}
-              className="ml-auto text-red-700 hover:text-red-900"
-            >
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                <path
-                  fillRule="evenodd"
-                  d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-                  clipRule="evenodd"
-                />
-              </svg>
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

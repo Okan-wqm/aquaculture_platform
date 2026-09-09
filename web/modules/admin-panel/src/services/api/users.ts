@@ -16,10 +16,19 @@ import type {
 } from '../types';
 
 export const usersApi = {
-  list: (params?: { tenantId?: string; role?: string; status?: string; search?: string; page?: number; limit?: number }) =>
-    apiFetch<PaginatedResult<User>>(`/users?${buildQueryString(params || {})}`),
+  list: (
+    params?: {
+      tenantId?: string;
+      role?: string;
+      status?: string;
+      search?: string;
+      page?: number;
+      limit?: number;
+    },
+    signal?: AbortSignal,
+  ) => apiFetch<PaginatedResult<User>>(`/users?${buildQueryString(params || {})}`, { signal }),
   getById: (id: string) => apiFetch<User>(`/users/${id}`),
-  getStats: () => apiFetch<UserStats>('/users/stats'),
+  getStats: (signal?: AbortSignal) => apiFetch<UserStats>('/users/stats', { signal }),
   getByTenant: (tenantId: string, page?: number, limit?: number) =>
     apiFetch<PaginatedResult<User>>(`/users/by-tenant/${tenantId}?page=${page || 1}&limit=${limit || 20}`),
   getRecentActivity: (limit?: number) => apiFetch<User[]>(`/users/recent-activity?limit=${limit || 50}`),
@@ -43,7 +52,8 @@ export const usersApi = {
     }),
   checkTenantLimit: (tenantId: string) =>
     apiFetch<UserLimitCheckResult>(`/users/tenant/${tenantId}/limit`),
-  getRoleTemplates: () => apiFetch<RoleTemplate[]>('/users/roles/templates'),
+  getRoleTemplates: (signal?: AbortSignal) =>
+    apiFetch<RoleTemplate[]>('/users/roles/templates', { signal }),
   getAssignableRoles: (roleCode: string) =>
     apiFetch<RoleTemplate[]>(`/users/roles/assignable/${roleCode}`),
   getPermissions: () => apiFetch<Permission[]>('/users/roles/permissions'),

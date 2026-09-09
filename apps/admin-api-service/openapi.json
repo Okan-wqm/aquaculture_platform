@@ -1151,7 +1151,14 @@
         "parameters": [],
         "responses": {
           "200": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SchemaSummaryDto"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -17290,6 +17297,37 @@
           "justification",
           "relatedAuditIds",
           "correlationId"
+        ]
+      },
+      "SchemaSummaryDto": {
+        "type": "object",
+        "properties": {
+          "totalSchemas": {
+            "type": "number"
+          },
+          "activeSchemas": {
+            "type": "number"
+          },
+          "suspendedSchemas": {
+            "type": "number"
+          },
+          "totalSizeBytes": {
+            "type": "number"
+          },
+          "totalTableCount": {
+            "type": "number"
+          },
+          "avgSizeBytes": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "totalSchemas",
+          "activeSchemas",
+          "suspendedSchemas",
+          "totalSizeBytes",
+          "totalTableCount",
+          "avgSizeBytes"
         ]
       },
       "TenantSchema": {

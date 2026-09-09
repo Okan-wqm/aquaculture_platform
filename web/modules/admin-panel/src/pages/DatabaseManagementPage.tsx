@@ -11,9 +11,11 @@
  *   - monitoring.controller.ts: /database/monitoring
  */
 
-import React, { useState, useCallback } from 'react';
-import { useAsyncData } from '../hooks';
+import React, { useState } from 'react';
+import { adminKeys, useAdminMutation, useAdminQuery } from '../hooks';
+import { QueryFailureNotice } from '../components/QueryFailureNotice';
 import { databaseApi } from '../services/api/database';
+import type { ApiSchema } from '../services/contract';
 import type { SchemaMigration } from '../services/types/database';
 
 // ============================================================================
@@ -184,32 +186,6 @@ const LoadingSpinner: React.FC<{ message?: string }> = ({ message = 'Loading...'
   </div>
 );
 
-const ErrorState: React.FC<{ error: string; onRetry?: () => void }> = ({ error, onRetry }) => (
-  <div className="flex items-center justify-center py-12">
-    <div className="text-center">
-      <div className="text-red-500 mb-3">
-        <svg className="w-12 h-12 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"
-          />
-        </svg>
-      </div>
-      <p className="text-sm text-red-600 mb-3">{error}</p>
-      {onRetry && (
-        <button
-          onClick={onRetry}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
-        >
-          Retry
-        </button>
-      )}
-    </div>
-  </div>
-);
-
 const EmptyState: React.FC<{ message: string }> = ({ message }) => (
   <div className="flex items-center justify-center py-12">
     <p className="text-sm text-gray-500">{message}</p>
@@ -223,55 +199,98 @@ const EmptyState: React.FC<{ message: string }> = ({ message }) => (
 const SchemasTab: React.FC = () => {
   const [selectedSchema, setSelectedSchema] = useState<SchemaItem | null>(null);
 
+  // The four cards above the table are PLATFORM totals, so they come from the
+  // platform's own aggregate. They used to be `schemas.length`,
+  // `schemas.filter(active).length` and two `reduce`s over the list below —
+  // which is fetched with `limit: 100`. Past a hundred tenants every one of
+  // them was the first page's subtotal printed under the word "Total".
+  const summaryQuery = useAdminQuery<ApiSchema<'SchemaSummaryDto'>>(
+    adminKeys.database.summary(),
+    ({ signal }) => databaseApi.getSchemaSummary(signal),
+  );
+
+  const listParams = { page: 1, limit: 100 };
+
   // The endpoint returns the platform page contract, so there is one shape to
   // read. The three-way sniff that used to live here existed only because the
   // response could have been a bare array, an `items` envelope or a `data` one.
-  const schemasState = useAsyncData<readonly SchemaItem[]>(
-    useCallback(
-      () => databaseApi.getSchemas({ page: 1, limit: 100 }).then((page) => page.data),
-      [],
-    ),
-    { initialData: [] },
+  const schemasQuery = useAdminQuery<readonly SchemaItem[]>(
+    adminKeys.database.tenantSchemas(listParams),
+    ({ signal }) => databaseApi.getSchemas(listParams, signal).then((page) => page.data),
   );
 
-  const schemas = schemasState.data || [];
+  // The isolation check is evidence an operator reads, compares and quotes in
+  // an incident. It used to be handed to `alert()` — a modal that cannot be
+  // copied out of, is dismissed by the Enter key, and takes the issue list with
+  // it. It renders in the detail panel now, and a failed check reports the
+  // server's message instead of `Validation failed: …` around it.
+  const validateIsolation = useAdminMutation<
+    { valid: boolean; issues: string[] },
+    { tenantId: string }
+  >(({ tenantId }) => databaseApi.validateSchemaIsolation(tenantId));
 
-  if (schemasState.loading && schemasState.isInitialLoad) {
+  const summary = summaryQuery.data;
+  const schemas = schemasQuery.data ?? [];
+
+  const reload = (): void => {
+    void summaryQuery.refetch();
+    void schemasQuery.refetch();
+  };
+
+  const openSchema = (schema: SchemaItem): void => {
+    validateIsolation.reset();
+    setSelectedSchema(schema);
+  };
+
+  if (schemasQuery.isPending && summaryQuery.isPending) {
     return <LoadingSpinner message="Loading schemas..." />;
   }
 
-  if (schemasState.error) {
-    return <ErrorState error={schemasState.error} onRetry={schemasState.retry} />;
-  }
-
-  if (schemas.length === 0) {
-    return <EmptyState message="No tenant schemas found." />;
+  if (schemasQuery.error && schemas.length === 0) {
+    return (
+      <QueryFailureNotice
+        errors={[schemasQuery.error, summaryQuery.error]}
+        hasContent={false}
+        onRetry={reload}
+      />
+    );
   }
 
   return (
     <div className="space-y-6">
-      {/* Summary Cards */}
+      <QueryFailureNotice
+        errors={[schemasQuery.error, summaryQuery.error, validateIsolation.error]}
+        hasContent
+        onRetry={reload}
+      />
+
+      {/* Platform totals — the server's aggregate over every schema, not a
+          reduction over the hundred rows this page happens to list. An em dash
+          when the aggregate did not load, so a failed read is never read as a
+          platform with no tenants. */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-white rounded-lg shadow p-4">
           <div className="text-sm text-gray-500">Total Schemas</div>
-          <div className="text-2xl font-bold text-gray-900">{schemas.length}</div>
+          <div className="text-2xl font-bold text-gray-900">
+            {summary ? summary.totalSchemas.toLocaleString() : '—'}
+          </div>
         </div>
         <div className="bg-white rounded-lg shadow p-4">
           <div className="text-sm text-gray-500">Active</div>
           <div className="text-2xl font-bold text-green-600">
-            {schemas.filter((s) => s.status === 'active').length}
+            {summary ? summary.activeSchemas.toLocaleString() : '—'}
           </div>
         </div>
         <div className="bg-white rounded-lg shadow p-4">
           <div className="text-sm text-gray-500">Total Size</div>
           <div className="text-2xl font-bold text-blue-600">
-            {formatBytes(schemas.reduce((sum, s) => sum + (s.sizeBytes || 0), 0))}
+            {summary ? formatBytes(summary.totalSizeBytes) : '—'}
           </div>
         </div>
         <div className="bg-white rounded-lg shadow p-4">
           <div className="text-sm text-gray-500">Total Tables</div>
           <div className="text-2xl font-bold text-purple-600">
-            {schemas.reduce((sum, s) => sum + (s.tableCount || 0), 0)}
+            {summary ? summary.totalTableCount.toLocaleString() : '—'}
           </div>
         </div>
       </div>
@@ -279,16 +298,26 @@ const SchemasTab: React.FC = () => {
       {/* Schema List */}
       <div className="bg-white rounded-lg shadow overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-          <h3 className="text-lg font-medium text-gray-900">Tenant Schemas</h3>
+          <h3 className="text-lg font-medium text-gray-900">
+            Tenant Schemas
+            {summary && summary.totalSchemas > schemas.length && (
+              <span className="ml-2 text-sm font-normal text-gray-500">
+                showing {schemas.length.toLocaleString()} of {summary.totalSchemas.toLocaleString()}
+              </span>
+            )}
+          </h3>
           <div className="flex space-x-3">
+            {/* "Create Schema" sat here with no `onClick`. A tenant schema is
+                provisioned by the tenant-creation flow — admin-api exposes no
+                create-schema route at all — so the button could never have done
+                anything, and a button that does nothing on a platform-admin
+                page is worse than an absent one: the operator concludes the
+                provisioning failed silently. */}
             <button
-              onClick={() => schemasState.refresh()}
+              onClick={reload}
               className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm"
             >
               Refresh
-            </button>
-            <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm">
-              Create Schema
             </button>
           </div>
         </div>
@@ -340,7 +369,7 @@ const SchemasTab: React.FC = () => {
                   <td className="px-6 py-4">
                     <div className="flex space-x-2">
                       <button
-                        onClick={() => setSelectedSchema(schema)}
+                        onClick={() => openSchema(schema)}
                         className="text-blue-600 hover:text-blue-800 text-sm"
                       >
                         View
@@ -415,23 +444,39 @@ const SchemasTab: React.FC = () => {
               </div>
               <div className="flex space-x-3 pt-4">
                 <button
-                  onClick={() => {
-                    databaseApi
-                      .validateSchemaIsolation(selectedSchema.tenantId)
-                      .then((result) => {
-                        alert(
-                          result.valid
-                            ? 'Schema isolation is valid.'
-                            : `Issues found: ${result.issues.join(', ')}`,
-                        );
-                      })
-                      .catch((err) => alert(`Validation failed: ${err.message}`));
-                  }}
-                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm"
+                  onClick={() => validateIsolation.mutate({ tenantId: selectedSchema.tenantId })}
+                  disabled={validateIsolation.isPending}
+                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm disabled:opacity-50"
                 >
-                  Validate Isolation
+                  {validateIsolation.isPending ? 'Validating…' : 'Validate Isolation'}
                 </button>
               </div>
+              {validateIsolation.error && (
+                <div
+                  className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700"
+                  role="alert"
+                >
+                  {validateIsolation.error.message}
+                </div>
+              )}
+              {validateIsolation.data &&
+                (validateIsolation.data.valid ? (
+                  <div className="rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-700">
+                    Schema isolation is valid.
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-4 text-sm text-yellow-800">
+                    <div className="font-medium">
+                      {validateIsolation.data.issues.length} isolation issue
+                      {validateIsolation.data.issues.length === 1 ? '' : 's'}
+                    </div>
+                    <ul className="mt-2 list-inside list-disc space-y-1">
+                      {validateIsolation.data.issues.map((issue) => (
+                        <li key={issue}>{issue}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
             </div>
           </div>
         </div>
@@ -445,52 +490,60 @@ const SchemasTab: React.FC = () => {
 // ============================================================================
 
 const MigrationsTab: React.FC = () => {
-  const plansState = useAsyncData<MigrationPlan[]>(
-    useCallback(() => databaseApi.getAvailableMigrations(), []),
-    { initialData: [] },
+  const plansQuery = useAdminQuery<MigrationPlan[]>(
+    adminKeys.database.migrationPlans(),
+    ({ signal }) => databaseApi.getAvailableMigrations(signal),
   );
 
-  const historyState = useAsyncData<readonly SchemaMigration[]>(
-    useCallback(
-      () => databaseApi.getMigrationHistory({ page: 1, limit: 50 }).then((page) => page.data),
-      [],
-    ),
-    { initialData: [] },
+  const historyParams = { page: 1, limit: 50 };
+
+  const historyQuery = useAdminQuery<readonly SchemaMigration[]>(
+    adminKeys.database.migrationHistory(historyParams),
+    ({ signal }) =>
+      databaseApi.getMigrationHistory(historyParams, signal).then((page) => page.data),
   );
 
-  const plans = plansState.data || [];
-  const history = historyState.data || [];
+  const plans = plansQuery.data ?? [];
+  const history = historyQuery.data ?? [];
 
-  const isLoading =
-    (plansState.loading && plansState.isInitialLoad) ||
-    (historyState.loading && historyState.isInitialLoad);
-  const error = plansState.error || historyState.error;
+  const reload = (): void => {
+    void plansQuery.refetch();
+    void historyQuery.refetch();
+  };
 
-  if (isLoading) {
+  if (plansQuery.isPending && historyQuery.isPending) {
     return <LoadingSpinner message="Loading migrations..." />;
   }
 
-  if (error) {
+  // Either read failing used to replace the WHOLE tab with one error state, so
+  // a history read that timed out hid the available-migrations list that had
+  // loaded beside it. The notice sits above whichever half arrived.
+  const hasContent = plans.length > 0 || history.length > 0;
+
+  if (!hasContent && (plansQuery.error || historyQuery.error)) {
     return (
-      <ErrorState
-        error={error}
-        onRetry={() => {
-          plansState.retry();
-          historyState.retry();
-        }}
+      <QueryFailureNotice
+        errors={[plansQuery.error, historyQuery.error]}
+        hasContent={false}
+        onRetry={reload}
       />
     );
   }
 
   return (
     <div className="space-y-6">
+      <QueryFailureNotice
+        errors={[plansQuery.error, historyQuery.error]}
+        hasContent
+        onRetry={reload}
+      />
       {/* Available Migrations */}
       <div className="bg-white rounded-lg shadow overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
           <h3 className="text-lg font-medium text-gray-900">Available Migrations</h3>
           <div className="flex space-x-3">
             <button
-              onClick={() => plansState.refresh()}
+              onClick={() => void plansQuery.refetch()}
               className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm"
             >
               Refresh
@@ -540,7 +593,7 @@ const MigrationsTab: React.FC = () => {
         <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
           <h3 className="text-lg font-medium text-gray-900">Migration History</h3>
           <button
-            onClick={() => historyState.refresh()}
+            onClick={() => void historyQuery.refetch()}
             className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm"
           >
             Refresh
@@ -614,52 +667,70 @@ const MigrationsTab: React.FC = () => {
 // Monitoring Tab Component
 // ============================================================================
 
+const SLOW_QUERY_PARAMS = { grouped: true, limit: 20 } as const;
+
 const MonitoringTab: React.FC = () => {
-  const healthState = useAsyncData<DatabaseHealth>(
-    useCallback(() => databaseApi.getDatabaseHealth(), []),
-    { initialData: null },
+  const healthQuery = useAdminQuery<DatabaseHealth>(adminKeys.database.health(), ({ signal }) =>
+    databaseApi.getDatabaseHealth(signal),
   );
 
-  const connectionsState = useAsyncData<ConnectionStats>(
-    useCallback(() => databaseApi.getConnectionStats(), []),
-    { initialData: null },
+  const connectionsQuery = useAdminQuery<ConnectionStats>(
+    adminKeys.database.connections(),
+    ({ signal }) => databaseApi.getConnectionStats(signal),
   );
 
-  const storageState = useAsyncData<StorageInfo[]>(
-    useCallback(() => databaseApi.getStorageByTenant(), []),
-    { initialData: [] },
+  const storageQuery = useAdminQuery<StorageInfo[]>(adminKeys.database.storage(), ({ signal }) =>
+    databaseApi.getStorageByTenant(signal),
   );
 
-  const slowQueriesState = useAsyncData<SlowQueryItem[]>(
-    useCallback(() => databaseApi.getSlowQueries({ grouped: true, limit: 20 }), []),
-    { initialData: [] },
+  const slowQueriesQuery = useAdminQuery<SlowQueryItem[]>(
+    adminKeys.database.slowQueries(SLOW_QUERY_PARAMS),
+    ({ signal }) => databaseApi.getSlowQueries(SLOW_QUERY_PARAMS, signal),
   );
 
-  const indexState = useAsyncData<IndexRecommendation[]>(
-    useCallback(() => databaseApi.getIndexRecommendations(), []),
-    { initialData: [] },
+  const indexQuery = useAdminQuery<IndexRecommendation[]>(
+    adminKeys.database.indexRecommendations(),
+    ({ signal }) => databaseApi.getIndexRecommendations(undefined, signal),
   );
 
-  const isLoading =
-    (healthState.loading && healthState.isInitialLoad) ||
-    (connectionsState.loading && connectionsState.isInitialLoad);
-
-  if (isLoading) {
+  if (healthQuery.isPending && connectionsQuery.isPending) {
     return <LoadingSpinner message="Loading monitoring data..." />;
   }
 
-  const health = healthState.data;
-  const connections = connectionsState.data;
-  const storage = storageState.data || [];
-  const slowQueries = slowQueriesState.data || [];
-  const indexRecommendations = indexState.data || [];
+  const health = healthQuery.data;
+  const connections = connectionsQuery.data;
+  const storage = storageQuery.data ?? [];
+  const slowQueries = slowQueriesQuery.data ?? [];
+  const indexRecommendations = indexQuery.data ?? [];
+
+  const queryErrors = [
+    healthQuery.error,
+    connectionsQuery.error,
+    storageQuery.error,
+    slowQueriesQuery.error,
+    indexQuery.error,
+  ];
+
+  const reload = (): void => {
+    void healthQuery.refetch();
+    void connectionsQuery.refetch();
+    void storageQuery.refetch();
+    void slowQueriesQuery.refetch();
+    void indexQuery.refetch();
+  };
 
   return (
     <div className="space-y-6">
+      {/* One notice naming every read that failed. Each section used to carry
+          its own full-height ErrorState, so a page with three failures showed
+          three stacked retry panels and no indication they were related. */}
+      <QueryFailureNotice
+        errors={queryErrors}
+        hasContent={health !== undefined || connections !== undefined}
+        onRetry={reload}
+      />
       {/* Health Status */}
-      {healthState.error ? (
-        <ErrorState error={healthState.error} onRetry={healthState.retry} />
-      ) : health ? (
+      {health ? (
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-medium text-gray-900">Database Health</h3>
@@ -677,7 +748,7 @@ const MonitoringTab: React.FC = () => {
               </span>
               <StatusBadge status={health.status} />
               <button
-                onClick={() => healthState.refresh()}
+                onClick={() => void healthQuery.refetch()}
                 className="px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm"
               >
                 Refresh
@@ -710,14 +781,12 @@ const MonitoringTab: React.FC = () => {
       ) : null}
 
       {/* Connection Stats */}
-      {connectionsState.error ? (
-        <ErrorState error={connectionsState.error} onRetry={connectionsState.retry} />
-      ) : connections ? (
+      {connections ? (
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-medium text-gray-900">Connection Pool</h3>
             <button
-              onClick={() => connectionsState.refresh()}
+              onClick={() => void connectionsQuery.refetch()}
               className="px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm"
             >
               Refresh
@@ -768,14 +837,12 @@ const MonitoringTab: React.FC = () => {
       ) : null}
 
       {/* Storage by Tenant */}
-      {storageState.error ? (
-        <ErrorState error={storageState.error} onRetry={storageState.retry} />
-      ) : storage.length > 0 ? (
+      {storage.length > 0 ? (
         <div className="bg-white rounded-lg shadow overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
             <h3 className="text-lg font-medium text-gray-900">Storage by Tenant</h3>
             <button
-              onClick={() => storageState.refresh()}
+              onClick={() => void storageQuery.refetch()}
               className="px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm"
             >
               Refresh
@@ -841,7 +908,7 @@ const MonitoringTab: React.FC = () => {
             </table>
           </div>
         </div>
-      ) : !storageState.loading ? (
+      ) : !storageQuery.isPending && !storageQuery.error ? (
         <div className="bg-white rounded-lg shadow p-6">
           <h3 className="text-lg font-medium text-gray-900 mb-2">Storage by Tenant</h3>
           <EmptyState message="No storage data available." />
@@ -849,14 +916,12 @@ const MonitoringTab: React.FC = () => {
       ) : null}
 
       {/* Slow Queries */}
-      {slowQueriesState.error ? (
-        <ErrorState error={slowQueriesState.error} onRetry={slowQueriesState.retry} />
-      ) : slowQueries.length > 0 ? (
+      {slowQueries.length > 0 ? (
         <div className="bg-white rounded-lg shadow overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
             <h3 className="text-lg font-medium text-gray-900">Slow Queries (Grouped)</h3>
             <button
-              onClick={() => slowQueriesState.refresh()}
+              onClick={() => void slowQueriesQuery.refetch()}
               className="px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm"
             >
               Refresh
@@ -903,7 +968,7 @@ const MonitoringTab: React.FC = () => {
             </table>
           </div>
         </div>
-      ) : !slowQueriesState.loading ? (
+      ) : !slowQueriesQuery.isPending && !slowQueriesQuery.error ? (
         <div className="bg-white rounded-lg shadow p-6">
           <h3 className="text-lg font-medium text-gray-900 mb-2">Slow Queries</h3>
           <EmptyState message="No slow queries detected." />
@@ -911,14 +976,12 @@ const MonitoringTab: React.FC = () => {
       ) : null}
 
       {/* Index Recommendations */}
-      {indexState.error ? (
-        <ErrorState error={indexState.error} onRetry={indexState.retry} />
-      ) : indexRecommendations.length > 0 ? (
+      {indexRecommendations.length > 0 ? (
         <div className="bg-white rounded-lg shadow overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
             <h3 className="text-lg font-medium text-gray-900">Index Recommendations</h3>
             <button
-              onClick={() => indexState.refresh()}
+              onClick={() => void indexQuery.refetch()}
               className="px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm"
             >
               Refresh
@@ -953,7 +1016,7 @@ const MonitoringTab: React.FC = () => {
             ))}
           </div>
         </div>
-      ) : !indexState.loading ? (
+      ) : !indexQuery.isPending && !indexQuery.error ? (
         <div className="bg-white rounded-lg shadow p-6">
           <h3 className="text-lg font-medium text-gray-900 mb-2">Index Recommendations</h3>
           <EmptyState message="No index recommendations at this time." />

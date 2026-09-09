@@ -823,8 +823,8 @@ gate had ever read a spec in this package, and the compiler's first pass found a
 pre-existing spec asserting against a `Tenant` shape with two fields the
 contract lacks and one required field missing.
 
-**Remaining:** 27 pages, in four domain batches (tenant 6, billing 11,
-system 1, messaging 9), governed by
+**Remaining:** 26 pages, in three domain batches (tenant 6, billing 11,
+messaging 9 — the system batch is finished), governed by
 `.claude/allowlists/admin-panel-unmigrated-reads.yaml`. The `AdminTable`
 contract for server-side pagination, sort and dataset-scoped aggregates follows
 the migration. **Gate:** `tests/invariants/admin-panel-data-layer.spec.ts` — a
@@ -833,6 +833,52 @@ expiry and reason under a ceiling that only decreases; every module-scoped cache
 in `web/` reaches the logout authority; `@tanstack/react-query` is declared
 wherever it is imported, at the federation-pinned version; the barrel keeps
 exporting the primitives.
+
+## ADMIN-HIGH-132 — four platform totals computed from the first hundred rows
+
+**State:** OPEN → closed by W8q · **Wave:** W8q · **Owner:** okan
+**Deadline:** 2026-12-31
+
+```tsx
+const schemasState = useAsyncData(() => databaseApi.getSchemas({ page: 1, limit: 100 }) …);
+…
+<div>Total Schemas</div><div>{schemas.length}</div>
+<div>Active</div>      <div>{schemas.filter((s) => s.status === 'active').length}</div>
+<div>Total Size</div>  <div>{formatBytes(schemas.reduce((sum, s) => sum + s.sizeBytes, 0))}</div>
+<div>Total Tables</div><div>{schemas.reduce((sum, s) => sum + s.tableCount, 0)}</div>
+```
+
+Past a hundred tenants none of those four is a total. They are the listed
+page's subtotals, printed under the word "Total" on the screen a platform
+admin reads to know how large the estate is.
+
+The server has owned the aggregate all along — `GET /database/schemas/summary`
+— and three separate things kept it out of reach:
+
+- the admin-panel's hand-written type for it named four fields the server has
+  never returned (`{total, active, suspended, deleted}` against the actual
+  `{totalSchemas, activeSchemas, suspendedSchemas, totalSizeBytes,
+avgSizeBytes}`);
+- the route's inline return-type annotation left `"200": {}` in the OpenAPI
+  artifact, so no gate could see that drift — the swagger plugin describes
+  classes, not inline object types;
+- the summary carried no table count, so the fourth card had no server owner
+  even if the other three had been wired.
+
+All three are fixed at the root: a `SchemaSummaryDto` class with
+`@ApiOkResponse`, `totalTableCount` added, the handler rewritten as one
+`COUNT … FILTER … SUM` aggregate instead of `find()` plus four passes in Node,
+and the frontend type sourced through `ApiSchema<'SchemaSummaryDto'>` so the
+next rename is a compile error. The cards render an em dash when the aggregate
+has not loaded, and the list header says "showing N of M" so the table never
+reads as the estate.
+
+Two smaller things on the same page went with it. "Create Schema" sat in the
+header with no `onClick` — admin-api exposes no create-schema route, so it
+could never have worked, and a dead button on a provisioning screen reads as a
+silent failure. And the isolation check handed its result to `alert()`: a
+dialog that cannot be copied out of, is dismissed by the Enter key, and takes
+the issue list with it. It renders in the detail panel now.
 
 ## ADMIN-MEDIUM-131 — four CSV exports that misalign their own columns
 

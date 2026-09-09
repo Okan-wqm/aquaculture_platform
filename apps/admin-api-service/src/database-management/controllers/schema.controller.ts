@@ -22,11 +22,12 @@ import {
   ParseUUIDPipe,
 } from '@nestjs/common';
 import { Request } from 'express';
-import { ApiTags } from '@nestjs/swagger';
+import { ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import { IsString, IsOptional, IsArray } from 'class-validator';
 
 import { Roles } from '../../decorators/roles.decorator';
 import { getAuthUser } from '../../shared/authenticated-request';
+import { SchemaSummaryDto } from '../dto/schema-summary.dto';
 import { SchemaManagementService } from '../services/schema-management.service';
 
 // ============================================================================
@@ -66,7 +67,8 @@ export class SchemaController {
   }
 
   @Get('summary')
-  async getSchemaSummary() {
+  @ApiOkResponse({ type: SchemaSummaryDto })
+  async getSchemaSummary(): Promise<SchemaSummaryDto> {
     return this.schemaService.getSchemaSummary();
   }
 

@@ -6861,6 +6861,14 @@ export interface components {
             relatedAuditIds: string[] | null;
             correlationId: string | null;
         };
+        SchemaSummaryDto: {
+            totalSchemas: number;
+            activeSchemas: number;
+            suspendedSchemas: number;
+            totalSizeBytes: number;
+            totalTableCount: number;
+            avgSizeBytes: number;
+        };
         TenantSchema: {
             id: string;
             tenantId: string;
@@ -10140,7 +10148,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["SchemaSummaryDto"];
+                };
             };
         };
     };

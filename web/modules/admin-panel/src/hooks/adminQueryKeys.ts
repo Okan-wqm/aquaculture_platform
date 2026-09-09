@@ -137,5 +137,22 @@ export const adminKeys = {
       table: string,
       params: Record<string, unknown>,
     ) => [...adminKeys.database.table(schema, table), params] as const,
+
+    // ── Database management (schemas, migrations, monitoring) ──
+    /** The tracked tenant-schema rows, filtered/paged. */
+    tenantSchemas: (filters?: Record<string, unknown>) =>
+      [...adminKeys.database.all(), 'tenant-schemas', filters] as const,
+    /** The server's platform-wide schema totals — NOT derived from the page above. */
+    summary: () => [...adminKeys.database.all(), 'summary'] as const,
+    migrationPlans: () => [...adminKeys.database.all(), 'migration-plans'] as const,
+    migrationHistory: (filters?: Record<string, unknown>) =>
+      [...adminKeys.database.all(), 'migration-history', filters] as const,
+    health: () => [...adminKeys.database.all(), 'health'] as const,
+    connections: () => [...adminKeys.database.all(), 'connections'] as const,
+    storage: () => [...adminKeys.database.all(), 'storage'] as const,
+    slowQueries: (params?: Record<string, unknown>) =>
+      [...adminKeys.database.all(), 'slow-queries', params] as const,
+    indexRecommendations: (schemaName?: string) =>
+      [...adminKeys.database.all(), 'index-recommendations', schemaName] as const,
   },
 } as const;

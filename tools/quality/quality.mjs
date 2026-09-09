@@ -922,7 +922,7 @@ function buildClosureManifest() {
     step('format-check', ['npm', 'run', 'format:check']),
     step('lint-all', ['npm', 'run', 'lint:all', '--', '--max-warnings=0'], { heavy: true }),
     step('type-check', ['npm', 'run', 'type-check'], { heavy: true }),
-    step('aria-acceptance', ['npm', 'run', 'aria:acceptance'], { heavy: true }),
+    step('aria-acceptance', ['npm', 'run', 'test:aria-acceptance'], { heavy: true }),
     step('invariants-full', ['npm', 'run', 'invariants:full'], { heavy: true }),
     step('test-all', ['npm', 'run', 'test:all'], { heavy: true }),
     step('build-all', ['npm', 'run', 'build:all'], { heavy: true }),

@@ -56,6 +56,87 @@ class DriftClassifierTests(unittest.TestCase):
         self.assertIn("not resolvable", reason)
 
 
+class ZeroSampleVerdictTests(unittest.TestCase):
+    """A check that examined nothing must never report success.
+
+    Measured gap: `validate_drift_output` collapsed "ARIA cited no bad
+    evidence" and "ARIA emitted nothing" into one `passed` flag, so the truth
+    layer of the acceptance lane printed `[PASS] checked=0 TP=0 FP=0` — a
+    green produced by an empty sample. These tests pin the three states apart.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.repo = Path(self._tmp.name)
+        (self.repo / "a.ts").write_text("x\n", encoding="utf-8")
+        (self.repo / "b.sql").write_text("y\n", encoding="utf-8")
+        self._real_run_poc = harness._run_poc
+
+    def tearDown(self) -> None:
+        harness._run_poc = self._real_run_poc
+        self._tmp.cleanup()
+
+    def _with_artifact(self, artifact: dict) -> dict:
+        harness._run_poc = lambda repo_root, out_dir: artifact
+        return harness.validate_drift_output(repo_root=self.repo)
+
+    def test_empty_output_is_inconclusive_not_pass(self) -> None:
+        r = self._with_artifact({"drifts_above_threshold": []})
+        self.assertEqual(r["verdict"], "inconclusive")
+        self.assertFalse(r["passed"], "an empty sample must not set the ACCEPT flag")
+        self.assertIsNone(r["fp_rate"], "no sample means no rate, not a rate of 0.0")
+
+    def test_sub_threshold_signal_alone_is_a_sample(self) -> None:
+        # Nothing crossed the threshold, but ARIA did emit something whose
+        # evidence can be verified — that is a measurement, not a blank.
+        r = self._with_artifact({
+            "drifts_above_threshold": [],
+            "frontend_dropdown_drifts": [
+                {"concept": "x", "ui": {"ref": "a.ts:1"}, "source": {"ref": "b.sql:1"}}
+            ],
+        })
+        self.assertEqual(r["verdict"], "pass")
+        self.assertEqual(r["unexamined_signals"], 1)
+        self.assertEqual(r["unresolved_refs"], [])
+
+    def test_unresolvable_sub_threshold_ref_fails(self) -> None:
+        # A fabricated ref is a fabricated ref at any Jaccard score; scoping
+        # the integrity sweep to above-threshold drifts is what let three of
+        # four emitted signals go unexamined.
+        r = self._with_artifact({
+            "drifts_above_threshold": [],
+            "drifts_filtered_below_threshold": [
+                {"concept": "x", "ts": {"ref": "ghost.ts:1"}, "sql": {"ref": "b.sql:1"}}
+            ],
+        })
+        self.assertEqual(r["verdict"], "fail")
+        self.assertFalse(r["passed"])
+        self.assertEqual(len(r["unresolved_refs"]), 1)
+
+
+class CycleFixtureTests(unittest.TestCase):
+    """The acceptance fixture must be a git repository.
+
+    Measured gap: the fixture was a bare directory, so `experiment_night`
+    failed with `experiment_night_head_sha_unavailable`, the cycle terminated
+    'failed', and the harness returned REJECT unconditionally — for a reason
+    that said nothing about ARIA.
+    """
+
+    def test_fixture_workspace_has_a_resolvable_head_sha(self) -> None:
+        import subprocess
+
+        with tempfile.TemporaryDirectory() as td:
+            ws = Path(td) / "workspace"
+            (ws / "src").mkdir(parents=True)
+            (ws / "src" / "app.ts").write_text("export const app = true;\n", encoding="utf-8")
+            harness._git_init_fixture(ws)
+            head = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=ws, capture_output=True, text=True, check=True
+            )
+            self.assertRegex(head.stdout.strip(), r"^[0-9a-f]{40}$")
+
+
 class ScenarioReactionTests(unittest.TestCase):
     def test_aria_reacts_to_all_scenarios(self) -> None:
         result = harness.assert_reacts_to_scenarios()
@@ -65,18 +146,15 @@ class ScenarioReactionTests(unittest.TestCase):
 class CycleAcceptanceTests(unittest.TestCase):
     def test_isolated_cycle_closes_and_keeps_ledger_valid(self) -> None:
         result = harness.run_cycle_acceptance()
-        self.assertTrue(result["passed"], result["failures"])
         # ARIA-AUDIT-025: only 'completed' is a passing terminal state; the
-# oracle must not green-pin a failed cycle that behaved structurally.
-self.assertEqual(result["cycle_status"], "completed")
-self.assertTrue(
-    result["passed"],
-    "a completed cycle with intact phase keys + ledger must pass",
-)
-
-
-if __name__ == "__main__":
-    unittest.main()
+        # oracle must not green-pin a failed cycle that behaved structurally.
+        self.assertEqual(
+            result["cycle_status"], "completed", result.get("failed_phases")
+        )
+        self.assertTrue(
+            result["passed"],
+            "a completed cycle with intact phase keys + ledger must pass",
+        )
 
 
 class ScorecardPersistenceTests(unittest.TestCase):
@@ -109,3 +187,7 @@ class ScorecardPersistenceTests(unittest.TestCase):
 
         source = (Path(harness.__file__)).read_text(encoding="utf-8")
         self.assertIn("if json_out is None and not args.no_artifact:", source)
+
+
+if __name__ == "__main__":
+    unittest.main()

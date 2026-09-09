@@ -806,17 +806,17 @@ W8d stops the claim: the fields are `number | null` and the cards render an em
 dash. The aggregate itself is missing and needs a server-side GROUP BY plus the
 resolution-time average, which belongs to W9.
 
-**Landed (W8b–W8f):** 7 of 44 pages migrated — AuditLogPage, ActivityLogPage,
+**Landed (W8b–W8g):** 8 of 44 pages migrated — AuditLogPage, ActivityLogPage,
 AuditTrailPage, SecurityDashboardPage, CompliancePage (which finishes the
-SECURITY batch and is the first page to use the WRITE primitive), ModulesPage
-and PerformanceDashboardPage. admin-panel gained a
+SECURITY batch and is the first page to use the WRITE primitive), ModulesPage,
+PerformanceDashboardPage and AdminDashboard. admin-panel gained a
 `tsconfig.spec.json`, entering `tools/gates/type-check-spec.ts` at 0: no type
 gate had ever read a spec in this package, and the compiler's first pass found a
 pre-existing spec asserting against a `Tenant` shape with two fields the
 contract lacks and one required field missing.
 
-**Remaining:** 37 pages, in four domain batches (tenant 6, billing 11,
-system 11, messaging 9), governed by
+**Remaining:** 36 pages, in four domain batches (tenant 6, billing 11,
+system 10, messaging 9), governed by
 `.claude/allowlists/admin-panel-unmigrated-reads.yaml`. The `AdminTable`
 contract for server-side pagination, sort and dataset-scoped aggregates follows
 the migration. **Gate:** `tests/invariants/admin-panel-data-layer.spec.ts` — a
@@ -825,6 +825,44 @@ expiry and reason under a ceiling that only decreases; every module-scoped cache
 in `web/` reaches the logout authority; `@tanstack/react-query` is declared
 wherever it is imported, at the federation-pinned version; the barrel keeps
 exporting the primitives.
+
+## ADMIN-HIGH-124 — the landing page reported an empty platform when its reads failed
+
+**State:** OPEN → closed by W8g · **Wave:** W8g · **Owner:** okan
+**Deadline:** 2026-12-31
+
+`AdminDashboard` fetched five endpoints with `Promise.allSettled`, mapped every
+rejection to `null`, and then wrote, under a comment reading _"Calculate metrics
+with fallbacks"_:
+
+```ts
+const platformMetrics = metrics?.platform || {
+  totalTenants: 0,
+  activeTenants: 0,
+  totalUsers: 0,
+  eventsLast24h: 0,
+  apiCallsLast24h: 0,
+};
+```
+
+The page's only `setError` call sat in a `catch` that `allSettled` can never
+reach. So a rejected `/system/metrics` rendered the platform's **first screen**
+as a platform with no tenants, no users and no traffic in the last 24 hours —
+with nothing on screen to say a request had failed. The cards render an em dash
+now, and `QueryFailureNotice` names the read that failed.
+
+Two smaller defects went with it. The "Active Tenants" card already printed a
+dash, but only when `activeTenants` and `totalTenants` were BOTH zero — so a
+platform that genuinely had no tenants yet was displayed as a failure; the test
+is whether the request answered, not what it answered. And the page built an
+`AbortController` it handed to no request: `systemApi.getMetrics`,
+`getServicesHealth`, `getCircuitBreakers` and `usersApi.getStats` took no
+signal, so aborting discarded a response that had already been fetched.
+
+**Gate:** the page's own spec — the signal reaches all five reads, four cards
+say unknown when the metrics and user-statistics reads fail, a real zero still
+renders as zero, and a breaker reset invalidates the breaker slice and nothing
+else.
 
 ## ADMIN-HIGH-123 — perfect health from no measurements, and a dead time-range selector
 

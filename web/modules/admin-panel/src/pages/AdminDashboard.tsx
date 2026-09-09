@@ -4,35 +4,22 @@
  * SUPER_ADMIN paneli ana sayfası - Sistem metrikleri ve hızlı erişim.
  */
 
-import { Alert, Badge, Card, MetricCard } from '@aquaculture/shared-ui';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Badge, Card, MetricCard } from '@aquaculture/shared-ui';
+import React from 'react';
 import { Link } from 'react-router-dom';
 
 import { adminRoutes } from '../routes/adminRoutes';
+import { adminKeys, useAdminMutation, useAdminQuery } from '../hooks';
+import { QueryFailureNotice } from '../components';
 import {
   systemApi,
   usersApi,
   auditApi,
   type SystemMetrics,
   type ServiceHealth,
-  type UserStats,
   type AuditLog,
   type CircuitBreakerStatus,
 } from '../services/adminApi';
-
-// ============================================================================
-// Types
-// ============================================================================
-
-interface DashboardData {
-  metrics: SystemMetrics | null;
-  userStats: UserStats | null;
-  services: ServiceHealth[];
-  recentLogs: readonly AuditLog[];
-  circuitBreakers: CircuitBreakerStatus | null;
-  loading: boolean;
-  error: string | null;
-}
 
 // ============================================================================
 // Quick Links
@@ -46,8 +33,32 @@ const quickLinks = [
   { id: 'audit', label: 'Audit Logs', path: adminRoutes.audit, icon: '📋', description: 'System activities' },
 ];
 
-const formatMetricNumber = (value: number): string =>
-  new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 0 }).format(value);
+/** What a card shows for a figure the platform did not measure. */
+const UNKNOWN = '\u2014';
+
+/**
+ * A number, or an em dash when there is none (ADMIN-HIGH-124).
+ *
+ * Every card on this page used to substitute a literal 0 for a failed read:
+ * `metrics?.platform || { totalTenants: 0, totalUsers: 0, apiCallsLast24h: 0 }`
+ * under a comment reading "Calculate metrics with fallbacks". Since the
+ * fetch used `Promise.allSettled` and only the (unreachable) catch set an
+ * error, a rejected `/system/metrics` produced a SUPER_ADMIN landing page
+ * reporting zero tenants, zero users and zero API calls, with nothing on
+ * screen to say a request had failed.
+ */
+const formatMetricNumber = (value: number | null | undefined): string =>
+  value === null || value === undefined
+    ? UNKNOWN
+    : new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 0 }).format(value);
+
+const REFRESH_INTERVAL_MS = 30_000;
+
+/** The dashboard's "recent activity" panel shows the newest ten entries. */
+const RECENT_LOG_LIMIT = 10;
+
+const EMPTY_SERVICES: ServiceHealth[] = [];
+const EMPTY_LOGS: readonly AuditLog[] = [];
 
 // ============================================================================
 // Service Status Component
@@ -305,115 +316,84 @@ const CircuitBreakerCard: React.FC<{
 // ============================================================================
 
 const AdminDashboard: React.FC = () => {
-  const [data, setData] = useState<DashboardData>({
-    metrics: null,
-    userStats: null,
-    services: [],
-    recentLogs: [],
-    circuitBreakers: null,
-    loading: true,
-    error: null,
-  });
-  const [resettingBreaker, setResettingBreaker] = useState<string | null>(null);
+  // ==========================================================================
+  // Data — five independent reads (ADMIN-HIGH-121)
+  //
+  // They were one `Promise.allSettled` whose per-promise rejections were
+  // silently mapped to `null` and `[]`, while the only `setError` call sat in
+  // a catch that `allSettled` can never reach. So every failure on the
+  // platform's landing page was invisible. Five keyed queries fail
+  // independently and `QueryFailureNotice` reports whichever of them did.
+  //
+  // The old code also built an `AbortController` and never handed it to a
+  // single request: `systemApi.getMetrics()` and friends took no signal, so
+  // aborting only discarded a response that had already been fetched.
+  // ==========================================================================
 
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const metricsQuery = useAdminQuery(
+    [...adminKeys.system.all(), 'metrics'],
+    ({ signal }) => systemApi.getMetrics(signal),
+    { refetchInterval: REFRESH_INTERVAL_MS },
+  );
 
-  const fetchDashboardData = useCallback(async () => {
-    // Abort any in-flight request before starting a new one
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
+  const userStatsQuery = useAdminQuery(
+    [...adminKeys.users.all(), 'stats'],
+    ({ signal }) => usersApi.getStats(signal),
+    { refetchInterval: REFRESH_INTERVAL_MS },
+  );
 
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
+  const servicesQuery = useAdminQuery(
+    adminKeys.system.health(),
+    ({ signal }) => systemApi.getServicesHealth(signal),
+    { refetchInterval: REFRESH_INTERVAL_MS },
+  );
 
-    setData((prev) => ({ ...prev, loading: true, error: null }));
+  const logsQuery = useAdminQuery(
+    adminKeys.security.audit({ limit: RECENT_LOG_LIMIT }),
+    ({ signal }) => auditApi.query({ limit: RECENT_LOG_LIMIT }, signal),
+    { refetchInterval: REFRESH_INTERVAL_MS },
+  );
 
-    try {
-      const [metrics, userStats, services, logsResult, circuitBreakers] = await Promise.allSettled([
-        systemApi.getMetrics(),
-        usersApi.getStats(),
-        systemApi.getServicesHealth(),
-        auditApi.query({ limit: 10 }),
-        systemApi.getCircuitBreakers(),
-      ]);
+  const circuitBreakersQuery = useAdminQuery(
+    [...adminKeys.system.all(), 'circuit-breakers'],
+    ({ signal }) => systemApi.getCircuitBreakers(signal),
+    { refetchInterval: REFRESH_INTERVAL_MS },
+  );
 
-      // If this request was aborted while awaiting, discard results
-      if (controller.signal.aborted) return;
+  const metrics = metricsQuery.data ?? null;
+  const userStats = userStatsQuery.data ?? null;
+  const services = servicesQuery.data ?? EMPTY_SERVICES;
+  const recentLogs = logsQuery.data?.data ?? EMPTY_LOGS;
+  const circuitBreakers = circuitBreakersQuery.data ?? null;
 
-      setData({
-        metrics: metrics.status === 'fulfilled' ? metrics.value : null,
-        userStats: userStats.status === 'fulfilled' ? userStats.value : null,
-        services: services.status === 'fulfilled' ? services.value : [],
-        recentLogs: logsResult.status === 'fulfilled' ? logsResult.value.data : [],
-        circuitBreakers: circuitBreakers.status === 'fulfilled' ? circuitBreakers.value : null,
-        loading: false,
-        error: null,
-      });
-    } catch (error) {
-      if (controller.signal.aborted) return;
+  const platform: SystemMetrics['platform'] | null = metrics?.platform ?? null;
 
-      setData((prev) => ({
-        ...prev,
-        loading: false,
-        error: error instanceof Error ? error.message : 'An error occurred while loading data',
-      }));
-    }
-  }, []);
+  const queries = [metricsQuery, userStatsQuery, servicesQuery, logsQuery, circuitBreakersQuery];
+  const loading = queries.some((query) => query.isFetching);
+  const hasContent = queries.some((query) => query.data !== undefined);
 
-  const handleResetCircuitBreaker = useCallback(async (name: string) => {
-    setResettingBreaker(name);
-    try {
-      await systemApi.resetCircuitBreaker(name);
-      // Refresh circuit breaker data after reset
-      const updated = await systemApi.getCircuitBreakers();
-      setData((prev) => ({ ...prev, circuitBreakers: updated }));
-    } catch {
-      setData((prev) => ({
-        ...prev,
-        error: `Failed to reset circuit breaker '${name}'`,
-      }));
-    } finally {
-      setResettingBreaker(null);
-    }
-  }, []);
+  /**
+   * Resetting a breaker changes the breaker list and nothing else, so that is
+   * the one key it invalidates. The old handler re-fetched the list by hand
+   * and, on failure, wrote a message into the same `error` slot the page used
+   * for read failures.
+   */
+  const resetBreaker = useAdminMutation<{ success: boolean; name: string; state: string }, string>(
+    (name) => systemApi.resetCircuitBreaker(name),
+    { invalidateKeys: [[...adminKeys.system.all(), 'circuit-breakers']] },
+  );
 
-  useEffect(() => {
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
+  const resettingBreaker = resetBreaker.isPending ? resetBreaker.variables ?? null : null;
 
-    const scheduleFetch = async (): Promise<void> => {
-      await fetchDashboardData();
+  const queryErrors = [
+    ...queries.map((query) => query.error),
+    resetBreaker.error
+      ? new Error(`Failed to reset circuit breaker: ${resetBreaker.error.message}`)
+      : null,
+  ];
 
-      // Only schedule next refresh if the effect has not been cleaned up
-      if (!controller.signal.aborted) {
-        refreshTimeoutRef.current = setTimeout(() => {
-          void scheduleFetch();
-        }, 30000);
-      }
-    };
-
-    void scheduleFetch();
-
-    return () => {
-      controller.abort();
-      if (refreshTimeoutRef.current) {
-        clearTimeout(refreshTimeoutRef.current);
-        refreshTimeoutRef.current = null;
-      }
-    };
-  }, [fetchDashboardData]);
-
-  const { metrics, userStats, services, recentLogs, circuitBreakers, loading, error } = data;
-
-  // Calculate metrics with fallbacks
-  const platformMetrics = metrics?.platform || {
-    totalTenants: 0,
-    activeTenants: 0,
-    totalUsers: 0,
-    eventsLast24h: 0,
-    apiCallsLast24h: 0,
+  const refresh = (): void => {
+    for (const query of queries) void query.refetch();
   };
 
   return (
@@ -426,7 +406,7 @@ const AdminDashboard: React.FC = () => {
         </div>
         <button
           onClick={() => {
-            void fetchDashboardData();
+            refresh();
           }}
           disabled={loading}
           className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
@@ -448,18 +428,20 @@ const AdminDashboard: React.FC = () => {
         </button>
       </div>
 
-      {error && (
-        <Alert type="error" dismissible onDismiss={() => setData((prev) => ({ ...prev, error: null }))}>
-          {error}
-        </Alert>
-      )}
+      {/* Whichever reads failed, named — where a rejected `/system/metrics`
+          used to show as zeros and nothing else (ADMIN-HIGH-124). */}
+      <QueryFailureNotice errors={queryErrors} hasContent={hasContent} onRetry={refresh} />
 
       {/* Ana Metrikler */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard
           title="Total Users"
-          value={formatMetricNumber(userStats?.totalUsers || platformMetrics.totalUsers)}
-          change={userStats?.newUsersLast30Days ? ((userStats.newUsersLast30Days / (userStats.totalUsers || 1)) * 100) : 0}
+          value={formatMetricNumber(userStats?.totalUsers ?? platform?.totalUsers)}
+          change={
+            userStats?.newUsersLast30Days !== undefined && userStats.totalUsers
+              ? (userStats.newUsersLast30Days / userStats.totalUsers) * 100
+              : undefined
+          }
           icon={
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
@@ -469,9 +451,10 @@ const AdminDashboard: React.FC = () => {
         <MetricCard
           title="Active Tenants"
           value={
-            platformMetrics.activeTenants === 0 && platformMetrics.totalTenants === 0
-              ? '\u2014'
-              : `${platformMetrics.activeTenants}/${platformMetrics.totalTenants}`
+            // The previous guard printed a dash whenever BOTH counts were 0,
+            // which also hid a real, correctly-measured "no tenants yet". The
+            // question is whether the read answered, not what it answered.
+            platform === null ? UNKNOWN : `${platform.activeTenants}/${platform.totalTenants}`
           }
           icon={
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -481,7 +464,7 @@ const AdminDashboard: React.FC = () => {
         />
         <MetricCard
           title="Logins (Last 24h)"
-          value={formatMetricNumber(userStats?.loginsLast24Hours || 0)}
+          value={formatMetricNumber(userStats?.loginsLast24Hours)}
           icon={
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
@@ -490,7 +473,7 @@ const AdminDashboard: React.FC = () => {
         />
         <MetricCard
           title="API Calls (24h)"
-          value={formatMetricNumber(platformMetrics.apiCallsLast24h)}
+          value={formatMetricNumber(platform?.apiCallsLast24h)}
           icon={
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -525,7 +508,7 @@ const AdminDashboard: React.FC = () => {
           <CircuitBreakerCard
             circuitBreakers={circuitBreakers}
             onReset={(name) => {
-              void handleResetCircuitBreaker(name);
+              resetBreaker.mutate(name);
             }}
             resetting={resettingBreaker}
           />

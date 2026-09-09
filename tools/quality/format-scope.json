@@ -51132,6 +51132,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/system/__tests__/MaintenancePage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/pages/system/__tests__/PerformanceDashboardPage.spec.tsx",
       "prettier_managed": true
     },

@@ -90,8 +90,14 @@ export const systemSettingsApi = {
     }),
 
   // Maintenance Mode
-  getMaintenanceWindows: (params?: { status?: string; scope?: string } & PaginationParams) =>
-    apiFetch<PaginatedResult<MaintenanceWindow>>(`/system/settings/maintenance?${buildQueryString(params || {})}`),
+  getMaintenanceWindows: (
+    params?: { status?: string; scope?: string } & PaginationParams,
+    signal?: AbortSignal,
+  ) =>
+    apiFetch<PaginatedResult<MaintenanceWindow>>(
+      `/system/settings/maintenance?${buildQueryString(params || {})}`,
+      { signal },
+    ),
   getMaintenanceWindow: (id: string) => apiFetch<MaintenanceWindow>(`/system/settings/maintenance/${id}`),
   createMaintenanceWindow: (data: CreateMaintenanceWindowInput) =>
     apiFetch<MaintenanceWindow>('/system/settings/maintenance', { method: 'POST', body: JSON.stringify(data) }),

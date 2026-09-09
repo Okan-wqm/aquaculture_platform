@@ -5,9 +5,11 @@
  * Supports scheduled, emergency, rolling updates, and database migrations.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState } from 'react';
 import { Card, Button, Badge, Input, Select } from '@aquaculture/shared-ui';
 import { systemSettingsApi } from '../../services/adminApi';
+import { adminKeys, useAdminMutation, useAdminQuery } from '../../hooks';
+import { QueryFailureNotice } from '../../components';
 // The page-local shadow copy of this shape is gone: it disagreed with the
 // canonical type on five points, and a double type assertion at the call site
 // was the only reason that compiled.
@@ -32,6 +34,8 @@ interface MaintenanceForm {
   bypassForSuperAdmins: boolean;
 }
 
+const EMPTY_WINDOWS: readonly MaintenanceWindow[] = [];
+
 const defaultForm: MaintenanceForm = {
   title: '',
   description: '',
@@ -54,169 +58,153 @@ const defaultForm: MaintenanceForm = {
 
 export const MaintenancePage: React.FC = () => {
   // State
-  const [maintenanceList, setMaintenanceList] = useState<readonly MaintenanceWindow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'upcoming' | 'active' | 'history'>('upcoming');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [selectedMaintenance, setSelectedMaintenance] = useState<MaintenanceWindow | null>(null);
   const [formData, setFormData] = useState<MaintenanceForm>(defaultForm);
-  const [saving, setSaving] = useState(false);
 
   // ============================================================================
   // Data Loading
   // ============================================================================
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      // `getMaintenanceWindows` is declared `PaginatedResult<MaintenanceWindow>`
-      // and always was; the rows live under `.data`. Testing the ENVELOPE with
-      // `Array.isArray` sent every load down the `[]` branch, and the double
-      // type assertion below it is what let that compile.
-      const response = await systemSettingsApi.getMaintenanceWindows();
-      setMaintenanceList(response.data);
-    } catch (err) {
-      console.error('Failed to load maintenance windows:', err);
-      setError('Failed to load maintenance windows. Please try again.');
-      setMaintenanceList([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  // ==========================================================================
+  // Read (ADMIN-HIGH-121)
+  // ==========================================================================
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  const maintenanceKey = [...adminKeys.system.all(), 'maintenance'];
 
-  // ============================================================================
-  // Handlers
-  // ============================================================================
+  const windowsQuery = useAdminQuery(maintenanceKey, ({ signal }) =>
+    systemSettingsApi.getMaintenanceWindows(undefined, signal),
+  );
 
-  const handleCreate = async () => {
+  const maintenanceList: readonly MaintenanceWindow[] = windowsQuery.data?.data ?? EMPTY_WINDOWS;
+  const loading = windowsQuery.isPending;
+
+  // ==========================================================================
+  // Writes — the window comes back from the server (ADMIN-HIGH-129)
+  //
+  // Every action here discarded the updated window the endpoint returns and
+  // wrote its own: `status: 'in_progress', actualStart: new Date()` after a
+  // start, `status: 'completed', actualEnd: new Date()` after an end, and a
+  // locally recomputed `scheduledEnd` plus `estimatedDurationMinutes` after an
+  // extend. `actualStart` and `actualEnd` are the operational record of when
+  // the platform went into maintenance and came out; they were being filled in
+  // from the operator's browser clock, for a transition the server may have
+  // performed at a different moment — or, on a 200 that did not change the
+  // status, not performed at all.
+  // ==========================================================================
+
+  const invalidateWindows = { invalidateKeys: [maintenanceKey] };
+
+  const createWindow = useAdminMutation<MaintenanceWindow, CreateMaintenanceWindowInput>(
+    (input) => systemSettingsApi.createMaintenanceWindow(input),
+    invalidateWindows,
+  );
+
+  const startWindow = useAdminMutation<MaintenanceWindow, string>(
+    (id) => systemSettingsApi.startMaintenance(id),
+    invalidateWindows,
+  );
+
+  const endWindow = useAdminMutation<MaintenanceWindow, string>(
+    (id) => systemSettingsApi.endMaintenance(id),
+    invalidateWindows,
+  );
+
+  const extendWindow = useAdminMutation<MaintenanceWindow, { id: string; minutes: number }>(
+    ({ id, minutes }) => systemSettingsApi.extendMaintenance(id, minutes),
+    invalidateWindows,
+  );
+
+  const cancelWindow = useAdminMutation<MaintenanceWindow, string>(
+    (id) => systemSettingsApi.cancelMaintenance(id),
+    invalidateWindows,
+  );
+
+  const mutations = [createWindow, startWindow, endWindow, extendWindow, cancelWindow];
+  const saving = createWindow.isPending;
+  const queryErrors = [windowsQuery.error, ...mutations.map((mutation) => mutation.error)];
+
+  const loadData = (): void => {
+    void windowsQuery.refetch();
+  };
+
+  const handleCreate = async (): Promise<void> => {
     if (!formData.title || !formData.scheduledStart) return;
 
-    setSaving(true);
+    const scheduledEnd = new Date(formData.scheduledStart);
+    scheduledEnd.setMinutes(scheduledEnd.getMinutes() + formData.estimatedDurationMinutes);
+
+    // Typed by the write contract rather than cast into one. The two casts
+    // here narrowed to unions the backend does not have — `type` was cast to
+    // `'scheduled' | 'emergency' | 'rolling'` while the dropdown offers
+    // `rolling_update`, `database_migration` and `security_patch` and
+    // `CreateMaintenanceDto` validates against the five-member enum. The
+    // runtime value was right all along; the cast was the lie, and it is what
+    // let the drifted contract sit unnoticed. `createdBy` is gone with it: it
+    // is not a whitelisted body field, so the platform's
+    // `forbidNonWhitelisted` pipe rejects the request that carries it.
+    const apiData: CreateMaintenanceWindowInput = {
+      title: formData.title,
+      description: formData.description,
+      scope: formData.scope,
+      type: formData.type,
+      scheduledStart: formData.scheduledStart,
+      scheduledEnd: scheduledEnd.toISOString(),
+      estimatedDurationMinutes: formData.estimatedDurationMinutes,
+      userMessage: formData.userMessage,
+      allowReadOnlyAccess: formData.allowReadOnlyAccess,
+      bypassForSuperAdmins: formData.bypassForSuperAdmins,
+      affectedServices: [],
+    };
+
     try {
-      const scheduledEnd = new Date(formData.scheduledStart);
-      scheduledEnd.setMinutes(scheduledEnd.getMinutes() + formData.estimatedDurationMinutes);
-
-      // Typed by the write contract rather than cast into one. The two casts
-      // here narrowed to unions the backend does not have — `type` was cast to
-      // `'scheduled' | 'emergency' | 'rolling'` while the dropdown offers
-      // `rolling_update`, `database_migration` and `security_patch` and
-      // `CreateMaintenanceDto` validates against the five-member enum. The
-      // runtime value was right all along; the cast was the lie, and it is what
-      // let the drifted contract sit unnoticed. `createdBy` is gone with it: it
-      // is not a whitelisted body field, so the platform's
-      // `forbidNonWhitelisted` pipe rejects the request that carries it.
-      const apiData: CreateMaintenanceWindowInput = {
-        title: formData.title,
-        description: formData.description,
-        scope: formData.scope,
-        type: formData.type,
-        scheduledStart: formData.scheduledStart,
-        scheduledEnd: scheduledEnd.toISOString(),
-        estimatedDurationMinutes: formData.estimatedDurationMinutes,
-        userMessage: formData.userMessage,
-        allowReadOnlyAccess: formData.allowReadOnlyAccess,
-        bypassForSuperAdmins: formData.bypassForSuperAdmins,
-        affectedServices: [],
-      };
-
-      const newMaintenance = await systemSettingsApi.createMaintenanceWindow(apiData);
-
-      setMaintenanceList([newMaintenance, ...maintenanceList]);
+      await createWindow.mutateAsync(apiData);
       setShowCreateModal(false);
       setFormData(defaultForm);
-    } catch (err) {
-      console.error('Failed to schedule maintenance:', err);
-      setError(err instanceof Error ? err.message : 'Failed to schedule maintenance. Please try again.');
-    } finally {
-      setSaving(false);
+    } catch {
+      // `createWindow.error` carries it; the modal stays open.
     }
   };
 
-  const handleStartMaintenance = async (maintenance: MaintenanceWindow) => {
+  const handleStartMaintenance = async (maintenance: MaintenanceWindow): Promise<void> => {
     if (!confirm(`Start maintenance "${maintenance.title}" now?`)) return;
-
     try {
-      await systemSettingsApi.startMaintenance(maintenance.id);
-      setMaintenanceList(
-        maintenanceList.map((m) =>
-          m.id === maintenance.id
-            ? { ...m, status: 'in_progress', actualStart: new Date().toISOString() }
-            : m
-        )
-      );
-    } catch (err) {
-      console.error('Failed to start maintenance:', err);
-      setError(err instanceof Error ? err.message : 'Failed to start maintenance. Please try again.');
+      await startWindow.mutateAsync(maintenance.id);
+    } catch {
+      // Reported through `startWindow.error`.
     }
   };
 
-  const handleEndMaintenance = async (maintenance: MaintenanceWindow) => {
+  const handleEndMaintenance = async (maintenance: MaintenanceWindow): Promise<void> => {
     if (!confirm(`End maintenance "${maintenance.title}"?`)) return;
-
     try {
-      await systemSettingsApi.endMaintenance(maintenance.id);
-      setMaintenanceList(
-        maintenanceList.map((m) =>
-          m.id === maintenance.id
-            ? { ...m, status: 'completed', actualEnd: new Date().toISOString() }
-            : m
-        )
-      );
-    } catch (err) {
-      console.error('Failed to end maintenance:', err);
-      setError(err instanceof Error ? err.message : 'Failed to end maintenance. Please try again.');
+      await endWindow.mutateAsync(maintenance.id);
+    } catch {
+      // Reported through `endWindow.error`.
     }
   };
 
-  const handleExtendMaintenance = async (maintenance: MaintenanceWindow) => {
+  const handleExtendMaintenance = async (maintenance: MaintenanceWindow): Promise<void> => {
     const minutes = prompt('Extend by how many minutes?', '30');
     if (!minutes) return;
+    const additionalMinutes = Number.parseInt(minutes, 10);
+    if (!Number.isFinite(additionalMinutes) || additionalMinutes <= 0) return;
 
     try {
-      await systemSettingsApi.extendMaintenance(maintenance.id, parseInt(minutes));
-      const newEnd = maintenance.scheduledEnd
-        ? new Date(maintenance.scheduledEnd)
-        : new Date();
-      newEnd.setMinutes(newEnd.getMinutes() + parseInt(minutes));
-
-      setMaintenanceList(
-        maintenanceList.map((m) =>
-          m.id === maintenance.id
-            ? {
-                ...m,
-                status: 'extended',
-                scheduledEnd: newEnd.toISOString(),
-                estimatedDurationMinutes: m.estimatedDurationMinutes + parseInt(minutes),
-              }
-            : m
-        )
-      );
-    } catch (err) {
-      console.error('Failed to extend maintenance:', err);
-      setError(err instanceof Error ? err.message : 'Failed to extend maintenance. Please try again.');
+      await extendWindow.mutateAsync({ id: maintenance.id, minutes: additionalMinutes });
+    } catch {
+      // Reported through `extendWindow.error`.
     }
   };
 
-  const handleCancelMaintenance = async (maintenance: MaintenanceWindow) => {
+  const handleCancelMaintenance = async (maintenance: MaintenanceWindow): Promise<void> => {
     if (!confirm(`Cancel maintenance "${maintenance.title}"?`)) return;
-
     try {
-      await systemSettingsApi.cancelMaintenance(maintenance.id);
-      setMaintenanceList(
-        maintenanceList.map((m) =>
-          m.id === maintenance.id ? { ...m, status: 'cancelled' } : m
-        )
-      );
-    } catch (err) {
-      console.error('Failed to cancel maintenance:', err);
-      setError(err instanceof Error ? err.message : 'Failed to cancel maintenance. Please try again.');
+      await cancelWindow.mutateAsync(maintenance.id);
+    } catch {
+      // Reported through `cancelWindow.error`.
     }
   };
 
@@ -312,6 +300,15 @@ export const MaintenancePage: React.FC = () => {
           Schedule Maintenance
         </Button>
       </div>
+
+      {/* A failed read or a rejected maintenance action, named on the page.
+          It used to go to a fixed toast in the bottom-right corner, while the
+          row it concerned already showed the transition as done. */}
+      <QueryFailureNotice
+        errors={queryErrors}
+        hasContent={windowsQuery.data !== undefined}
+        onRetry={loadData}
+      />
 
       {/* Active Maintenance Banner */}
       {activeMaintenance.length > 0 && (
@@ -716,12 +713,6 @@ export const MaintenancePage: React.FC = () => {
         </div>
       )}
 
-      {/* Error Display */}
-      {error && (
-        <div className="fixed bottom-4 right-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg">
-          {error}
-        </div>
-      )}
     </div>
   );
 };

@@ -70,6 +70,7 @@ import {
   ValidateDiscountCodeDto,
   VoidInvoiceDto,
 } from './dto/billing.dto';
+import { PaymentStatsResponseDto } from './dto/payment-stats-response.dto';
 import {
   CustomPlanLookupDto,
   CustomPlanPageDto,
@@ -922,7 +923,7 @@ export class BillingController {
    * paginated-result contract that governs this controller's list endpoints.
    */
   @Get('payments/stats')
-  async getPaymentStats(): Promise<PaymentStats> {
+  async getPaymentStats(): Promise<PaymentStatsResponseDto> {
     return this.paymentService.getPaymentStats();
   }
 

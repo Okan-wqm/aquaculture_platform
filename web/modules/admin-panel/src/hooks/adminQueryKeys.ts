@@ -122,6 +122,11 @@ export const adminKeys = {
     /** The revenue series. Range AND granularity belong in the key. */
     revenueTrend: (range: string, granularity: string) =>
       [...adminKeys.billing.all(), 'revenue-trend', range, granularity] as const,
+    /** The payment list, per filter. */
+    payments: (filters?: Record<string, unknown>) =>
+      [...adminKeys.billing.all(), 'payments', filters] as const,
+    /** The platform-wide payment aggregate — NOT derived from the page above. */
+    paymentStats: () => [...adminKeys.billing.all(), 'payment-stats'] as const,
     /** The five money totals above the invoice table. */
     invoiceStats: () => [...adminKeys.billing.all(), 'invoice-stats'] as const,
     /** The newest invoices behind the "Recent Transactions" feed. */

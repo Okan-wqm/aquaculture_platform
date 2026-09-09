@@ -101,6 +101,8 @@ function healthyStats(overrides: { subsMrr?: number; subsArr?: number } = {}): v
     pending: 0,
     successRate: 0.8,
     totalAmount: 400,
+    succeededAmount: 320,
+    refundedAmount: 0,
     last30Days: {
       totalPayments: 5,
       succeeded: 4,
@@ -109,6 +111,8 @@ function healthyStats(overrides: { subsMrr?: number; subsArr?: number } = {}): v
       pending: 0,
       successRate: 0.8,
       totalAmount: 400,
+      succeededAmount: 320,
+      refundedAmount: 0,
     },
   });
   trend.mockResolvedValue({

@@ -834,6 +834,42 @@ in `web/` reaches the logout authority; `@tanstack/react-query` is declared
 wherever it is imported, at the federation-pinned version; the barrel keeps
 exporting the primitives.
 
+## ADMIN-HIGH-138 — "Net Revenue", computed from the 50 rows on screen
+
+**State:** OPEN → closed by W9c · **Wave:** W9c · **Owner:** okan
+**Deadline:** 2026-12-31
+
+The three money cards — **Succeeded Amount**, **Refunded**, **Net Revenue** —
+were summed _in the browser_ from `payments`: one page of at most 50 rows,
+narrowed further by whatever status filter was active. Two consequences, both
+on the platform's revenue figure:
+
+- filter the list to `failed` and **Net Revenue read $0**, because no succeeded
+  row was in the array being summed;
+- any platform with more than 50 payments saw the net of its **first page**
+  presented as its net revenue.
+
+The aggregate belongs to the server, which already ran the `GROUP BY` that
+produced the counts. `summarizePaymentStatusCounts` now also returns
+`succeededAmount` and `refundedAmount`, and both SQL windows select
+`COALESCE(SUM(p.refunded_amount), 0)`. `refundedAmount` sums `refunded_amount`
+rather than the amount of rows whose _status_ is refunded — a partially
+refunded payment captured in full and returned only part of itself, a
+distinction the client-side sum could not make.
+
+Surfacing those fields exposed a second defect. `GET /billing/payments/stats`
+was typed by an **interface**, and the `@nestjs/swagger` plugin describes
+classes only, so the generated artifact carried `"schema": {"type": "object"}`
+for an endpoint the admin-panel reads its money cards from — which is precisely
+what invited the frontend to hand-write its own `PaymentStats` beside the
+contract (CONTRACT-CRITICAL-003). A `PaymentStatsResponseDto` class now types
+the response, the artifact carries a `$ref`, and the frontend type is an
+`ApiSchema` alias.
+
+Also removed from the page: an `as unknown as string` cast inside a
+`typeof`-narrowed branch (banned, and type-checking nothing), a floating
+`fetchPayments()` in a `useEffect` and after two writes, and `data.total || 0`.
+
 ## ADMIN-HIGH-137 — "Overdue: $0", asserted before billing had answered
 
 **State:** OPEN → closed by W9b · **Wave:** W9b · **Owner:** okan

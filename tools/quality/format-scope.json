@@ -20174,6 +20174,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/hr-service/src/database/migrations/1802200000000-DropPayrollCurrencyDefault.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/hr-service/src/database/migrations/hr-owned-entities.ts",
       "prettier_managed": true
     },
@@ -20355,6 +20361,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/hr-service/src/hr/__tests__/handlers/create-employee.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/hr-service/src/hr/__tests__/handlers/create-payroll.handler.spec.ts",
       "prettier_managed": true
     },
     {
@@ -35937,6 +35949,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/infra-expert/2026-09-05-clippy-affected-merge-scope.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/infra-expert/2026-09-09-closes-trailer-binding.md",
       "prettier_managed": true
     },
     {

@@ -30,6 +30,7 @@ import {
 } from '../entities/payroll.entity';
 import { Employee, EmployeeStatus } from '../entities/employee.entity';
 import type { CreatePayrollInput } from '../dto/create-payroll.input';
+import { PayrollCostSettingsService } from '../../finance/services/payroll-cost-settings.service';
 
 // ============================================================================
 // Test Constants
@@ -227,6 +228,16 @@ describe('Payroll Management Integration Tests', () => {
           { provide: getRepositoryToken(Payroll), useValue: payrollRepository },
           { provide: getRepositoryToken(Employee), useValue: employeeRepository },
           { provide: DataSource, useValue: mockDataSource },
+          // HR-HIGH-008: the handler resolves the tenant currency through the
+          // settings SSoT instead of a 'USD' literal. These cases all supply a
+          // currency explicitly or through the employee, so the default is
+          // never reached; it is stubbed to a value no assertion expects, so a
+          // case that DID fall through would be visibly wrong rather than
+          // accidentally right.
+          {
+            provide: PayrollCostSettingsService,
+            useValue: { getDefaultCurrencyInTx: jest.fn().mockResolvedValue('XTS') },
+          },
         ],
       }).compile();
 

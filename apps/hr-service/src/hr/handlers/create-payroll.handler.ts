@@ -9,6 +9,7 @@ import { PayrollAudit, PayrollAuditAction } from '../entities/payroll-audit.enti
 import { Employee } from '../entities/employee.entity';
 import { AttendanceRecord, ApprovalStatus } from '../../attendance/entities/attendance-record.entity';
 import { formatUtcCalendarYearMonth } from '../../common/utc-calendar-date';
+import { PayrollCostSettingsService } from '../../finance/services/payroll-cost-settings.service';
 
 /**
  * HR-HIGH-005: Money-based arithmetic using the platform Money value object.
@@ -40,6 +41,7 @@ export class CreatePayrollHandler implements ICommandHandler<CreatePayrollComman
     @InjectRepository(Employee)
     private readonly employeeRepository: Repository<Employee>,
     private readonly dataSource: DataSource,
+    private readonly payrollCostSettings: PayrollCostSettingsService,
   ) {}
 
   async execute(command: CreatePayrollCommand): Promise<Payroll> {
@@ -105,7 +107,19 @@ export class CreatePayrollHandler implements ICommandHandler<CreatePayrollComman
 
       // HR-HIGH-005: All monetary calculations use Money value object (Decimal.js).
       // JavaScript float multiplication is structurally impossible through this API.
-      const currency = input.currency || employee.currency || 'USD';
+      // HR-HIGH-008 — currency SSoT. The tenant default is projected from the
+      // farm finance_settings SSoT into hr_payroll_cost_settings and read
+      // through PayrollCostSettingsService, exactly as CreateEmployeeHandler
+      // does. The literal that used to sit here was 'USD' while the platform
+      // default is NOK (HR_PLATFORM_DEFAULT_CURRENCY), so an employee row
+      // without a currency produced a USD payroll for a NOK tenant — and
+      // ApprovePayrollHandler then stamped that currency onto the
+      // PayrollProcessed event crossing into the finance ledger.
+      const defaultCurrency = await this.payrollCostSettings.getDefaultCurrencyInTx(
+        queryRunner.manager,
+        tenantId,
+      );
+      const currency = input.currency || employee.currency || defaultCurrency;
 
       // Auto-compute earnings from attendance-based hours if not explicitly provided
       let effectiveEarnings = input.earnings;
@@ -194,7 +208,7 @@ export class CreatePayrollHandler implements ICommandHandler<CreatePayrollComman
         earnings,
         deductions,
         netPay,
-        currency: input.currency || employee.currency || 'USD',
+        currency,
         status: PayrollStatus.DRAFT,
         notes: input.notes,
         createdBy: userId,

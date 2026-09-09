@@ -51120,6 +51120,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/system/__tests__/FeatureTogglesPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/pages/system/__tests__/JobQueuePage.spec.tsx",
       "prettier_managed": true
     },

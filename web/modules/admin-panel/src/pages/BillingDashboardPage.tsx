@@ -2,13 +2,18 @@
  * Billing Dashboard Page
  *
  * Overview of billing metrics, revenue analytics, and recent transactions.
- * Uses real API with mock fallback for development.
+ *
+ * Every number here is billing's answer or it is absent. There is no fallback
+ * source and no swallowed read: a failed request is named on screen, because a
+ * money surface that renders a failure as "no transactions" or as another
+ * endpoint's figure is worse than one that renders nothing.
  */
 
 import { AreaChart, MetricCard } from '@aquaculture/shared-ui';
 import React, { useCallback, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useAsyncData } from '../hooks';
+import { adminKeys, useAdminQuery } from '../hooks';
+import { QueryFailureNotice } from '../components/QueryFailureNotice';
 import { analyticsApi, billingApi } from '../services/adminApi';
 import type { AnalyticsRange, TimeSeriesResponse } from '../services/types/analytics';
 
@@ -33,18 +38,59 @@ interface BillingMetrics {
   paymentSuccessRate: number | null;
 }
 
+/**
+ * The eight states `billing.invoices.status` can hold. The feed used to collapse
+ * them into three, mapping `paid` and `pending` and calling EVERYTHING ELSE
+ * "failed" — so a sent invoice, an overdue receivable, a draft, a partial
+ * payment, a void and a refund all rendered with a red Failed badge. An overdue
+ * invoice is money still owed, not money that failed to move.
+ */
+type InvoiceStatus =
+  | 'draft'
+  | 'pending'
+  | 'sent'
+  | 'paid'
+  | 'partially_paid'
+  | 'overdue'
+  | 'void'
+  | 'refunded';
+
 interface RecentTransaction {
   id: string;
   tenant: string;
   amount: number;
-  type: 'payment' | 'refund' | 'invoice';
-  status: 'completed' | 'pending' | 'failed';
+  status: InvoiceStatus;
   date: string;
 }
+
+/** How each state reads to an operator, and the badge it earns. */
+const INVOICE_STATUS_PRESENTATION: Record<
+  InvoiceStatus,
+  { label: string; badge: string; tone: 'paid' | 'refund' | 'open' }
+> = {
+  draft: { label: 'Draft', badge: 'bg-gray-100 text-gray-700', tone: 'open' },
+  pending: { label: 'Pending', badge: 'bg-yellow-100 text-yellow-700', tone: 'open' },
+  sent: { label: 'Sent', badge: 'bg-blue-100 text-blue-700', tone: 'open' },
+  paid: { label: 'Paid', badge: 'bg-green-100 text-green-700', tone: 'paid' },
+  partially_paid: {
+    label: 'Partially paid',
+    badge: 'bg-teal-100 text-teal-700',
+    tone: 'paid',
+  },
+  overdue: { label: 'Overdue', badge: 'bg-orange-100 text-orange-700', tone: 'open' },
+  void: { label: 'Void', badge: 'bg-gray-100 text-gray-500', tone: 'open' },
+  refunded: { label: 'Refunded', badge: 'bg-red-100 text-red-700', tone: 'refund' },
+};
+
+const isInvoiceStatus = (value: string): value is InvoiceStatus =>
+  Object.prototype.hasOwnProperty.call(INVOICE_STATUS_PRESENTATION, value);
 
 // ============================================================================
 // Utilities
 // ============================================================================
+
+/** How many invoices the "Recent Transactions" feed shows. */
+const RECENT_INVOICE_LIMIT = 5;
 
 const formatCurrency = (amount: number, compact = false): string => {
   if (compact && Math.abs(amount) >= 1000000) {
@@ -91,9 +137,11 @@ interface TransactionItemProps {
 }
 
 const TransactionItem: React.FC<TransactionItemProps> = ({ transaction }) => {
+  const presentation = INVOICE_STATUS_PRESENTATION[transaction.status];
+
   const iconConfig = useMemo(() => {
-    switch (transaction.type) {
-      case 'payment':
+    switch (presentation.tone) {
+      case 'paid':
         return {
           bg: 'bg-green-100',
           icon: (
@@ -121,18 +169,9 @@ const TransactionItem: React.FC<TransactionItemProps> = ({ transaction }) => {
           ),
         };
     }
-  }, [transaction.type]);
+  }, [presentation.tone]);
 
-  const statusConfig = useMemo(() => {
-    switch (transaction.status) {
-      case 'completed':
-        return 'bg-green-100 text-green-700';
-      case 'pending':
-        return 'bg-yellow-100 text-yellow-700';
-      default:
-        return 'bg-red-100 text-red-700';
-    }
-  }, [transaction.status]);
+  const statusConfig = presentation.badge;
 
   return (
     <div className="flex items-center justify-between py-3 border-b border-gray-100 last:border-0">
@@ -146,11 +185,14 @@ const TransactionItem: React.FC<TransactionItemProps> = ({ transaction }) => {
         </div>
       </div>
       <div className="text-right flex-shrink-0 ml-4">
-        <p className={`text-sm font-semibold ${transaction.type === 'refund' ? 'text-red-600' : 'text-gray-900'}`}>
-          {transaction.type === 'refund' ? '-' : '+'}{formatCurrency(transaction.amount)}
+        <p
+          className={`text-sm font-semibold ${presentation.tone === 'refund' ? 'text-red-600' : 'text-gray-900'}`}
+        >
+          {presentation.tone === 'refund' ? '-' : '+'}
+          {formatCurrency(transaction.amount)}
         </p>
         <span className={`text-xs px-2 py-0.5 rounded-full ${statusConfig}`}>
-          {transaction.status}
+          {presentation.label}
         </span>
       </div>
     </div>
@@ -261,98 +303,87 @@ const BillingDashboardPage: React.FC = () => {
 
   // Compose the dashboard from the live stats endpoints (ADMIN-HIGH-008):
   // subscriptions/stats, invoices/stats, payments/stats, revenue + trend.
-  const fetchMetrics = useCallback(async () => {
-    const [revenue, subs, invoices, payments, trend] = await Promise.all([
-      analyticsApi.getRevenueAnalytics(),
-      billingApi.getSubscriptionStats(),
-      billingApi.getInvoiceStats(),
-      billingApi.getPaymentStats(),
-      analyticsApi.getRevenueTrend('1y', 'month'),
-    ]);
-    const metricsResult: BillingMetrics = {
-      mrr: subs.mrr || revenue.mrr,
-      arr: subs.arr || revenue.arr,
-      activeSubscriptions: (subs.byStatus['active'] ?? 0) + (subs.byStatus['trialing'] ?? 0),
-      churnRate: subs.churnRate,
-      avgRevenuePerUser: subs.averageRevenuePerUser || revenue.averageRevenuePerTenant,
-      outstandingInvoices: invoiceCount(invoices.byStatus, ['pending', 'sent', 'overdue']),
-      outstandingAmount: invoices.totalPending + invoices.totalOverdue,
-      totalRevenue: revenue.totalRevenue,
-      growth: growthFromTrend(trend),
-      paymentSuccessRate:
-        payments.last30Days.succeeded + payments.last30Days.refunded + payments.last30Days.failed > 0
-          ? payments.last30Days.successRate
-          : null,
-    };
-    return metricsResult;
-  }, []);
+  const metricsQuery = useAdminQuery<BillingMetrics>(
+    adminKeys.billing.dashboardMetrics(),
+    async ({ signal }) => {
+      const [revenue, subs, invoices, payments, trend] = await Promise.all([
+        analyticsApi.getRevenueAnalytics(signal),
+        billingApi.getSubscriptionStats(signal),
+        billingApi.getInvoiceStats(signal),
+        billingApi.getPaymentStats(signal),
+        analyticsApi.getRevenueTrend('1y', 'month', signal),
+      ]);
+      return {
+        // `??`, not `||`. A tenant base that genuinely bills zero has an MRR of
+        // 0, and `0 || revenue.mrr` silently swapped in a DIFFERENT endpoint's
+        // figure under the same heading — the reading was not merely stale, it
+        // was another question's answer. Absent falls back; zero does not.
+        mrr: subs.mrr ?? revenue.mrr,
+        arr: subs.arr ?? revenue.arr,
+        activeSubscriptions: (subs.byStatus['active'] ?? 0) + (subs.byStatus['trialing'] ?? 0),
+        churnRate: subs.churnRate,
+        avgRevenuePerUser: subs.averageRevenuePerUser ?? revenue.averageRevenuePerTenant,
+        outstandingInvoices: invoiceCount(invoices.byStatus, ['pending', 'sent', 'overdue']),
+        outstandingAmount: invoices.totalPending + invoices.totalOverdue,
+        totalRevenue: revenue.totalRevenue,
+        growth: growthFromTrend(trend),
+        paymentSuccessRate:
+          payments.last30Days.succeeded +
+            payments.last30Days.refunded +
+            payments.last30Days.failed >
+          0
+            ? payments.last30Days.successRate
+            : null,
+      };
+    },
+  );
 
-  const {
-    data: metrics,
-    loading: metricsLoading,
-    error,
-    refresh,
-  } = useAsyncData<BillingMetrics>(fetchMetrics, {
-    cacheKey: 'billing-metrics',
-    cacheTTL: 60000, // 1 minute cache
-  });
+  const metrics = metricsQuery.data;
 
   // Revenue trend for the chart — refetches when the range select changes.
-  const fetchTrend = useCallback(
-    () => analyticsApi.getRevenueTrend(trendRange, trendRange === '90d' ? 'week' : 'month'),
-    [trendRange],
+  const trendGranularity = trendRange === '90d' ? 'week' : 'month';
+  const trendQuery = useAdminQuery<TimeSeriesResponse>(
+    adminKeys.billing.revenueTrend(trendRange, trendGranularity),
+    ({ signal }) => analyticsApi.getRevenueTrend(trendRange, trendGranularity, signal),
   );
-  const { data: trendSeries, loading: trendLoading } = useAsyncData<TimeSeriesResponse>(fetchTrend, {
-    cacheKey: `billing-revenue-trend-${trendRange}`,
-    cacheTTL: 60000,
-  });
+  const trendSeries = trendQuery.data;
 
-  // Fetch recent transactions from API
-  const fetchTransactions = useCallback(async () => {
-    // Use billing API to get recent invoices as transactions
-    try {
-      const data = await billingApi.getInvoices({ limit: 5 });
-      // Transform invoices to transactions format
-      return (data.invoices || []).map((invoice: { id: string; tenantName?: string; amount: number; status: string; createdAt: string }) => ({
+  /**
+   * The newest invoices, as the "Recent Transactions" feed.
+   *
+   * This read used to sit behind a bare `catch { return [] }`, so billing being
+   * unreachable rendered as "No recent transactions" — a claim that the
+   * platform took no money, made from a request that never answered. The catch
+   * is gone; a failure is now shown as a failure.
+   */
+  const transactionsQuery = useAdminQuery<RecentTransaction[]>(
+    adminKeys.billing.recentInvoices(RECENT_INVOICE_LIMIT),
+    async ({ signal }) => {
+      const data = await billingApi.getInvoices({ limit: RECENT_INVOICE_LIMIT }, signal);
+      return (data.invoices ?? []).map((invoice) => ({
         id: invoice.id,
-        tenant: invoice.tenantName || 'Unknown',
+        tenant: invoice.tenantName ?? 'Unknown',
         amount: invoice.amount,
-        type: 'invoice' as const,
-        status: invoice.status === 'paid' ? 'completed' as const : invoice.status === 'pending' ? 'pending' as const : 'failed' as const,
-        date: new Date(invoice.createdAt).toISOString().split('T')[0],
+        status: isInvoiceStatus(invoice.status) ? invoice.status : 'draft',
+        date: new Date(invoice.createdAt).toISOString().split('T')[0] ?? invoice.createdAt,
       }));
-    } catch {
-      return [];
-    }
-  }, []);
-
-  const { data: transactions = [], loading: transactionsLoading } = useAsyncData<RecentTransaction[]>(
-    fetchTransactions,
-    { cacheKey: 'billing-transactions', cacheTTL: 60000 }
+    },
   );
+  const transactions = transactionsQuery.data;
 
-  const loading = metricsLoading;
-
-  if (loading) {
+  if (metricsQuery.isPending) {
     return <LoadingSkeleton />;
   }
 
-  if (error && !metrics) {
+  if (!metrics) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
-        <p className="text-red-600 font-medium">Failed to load billing data</p>
-        <p className="text-red-500 text-sm mt-1">{error}</p>
-        <button
-          onClick={refresh}
-          className="mt-4 px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition-colors"
-        >
-          Retry
-        </button>
-      </div>
+      <QueryFailureNotice
+        errors={[metricsQuery.error]}
+        hasContent={false}
+        onRetry={() => void metricsQuery.refetch()}
+      />
     );
   }
-
-  if (!metrics) return null;
 
   return (
     <div className="space-y-6">
@@ -432,8 +463,15 @@ const BillingDashboardPage: React.FC = () => {
               <option value="30d">Last 30 days</option>
             </select>
           </div>
-          {trendLoading || !trendSeries ? (
+          {trendQuery.isPending ? (
             <div className="h-64 bg-gray-50 rounded-lg animate-pulse" />
+          ) : !trendSeries ? (
+            /* A series that did not load is not a range with no revenue in it. */
+            <QueryFailureNotice
+              errors={[trendQuery.error]}
+              hasContent={false}
+              onRetry={() => void trendQuery.refetch()}
+            />
           ) : trendSeries.data.length === 0 ? (
             <div className="h-64 flex items-center justify-center text-sm text-gray-500">
               No revenue data for this range
@@ -457,14 +495,21 @@ const BillingDashboardPage: React.FC = () => {
             </Link>
           </div>
           <div className="space-y-1">
-            {(!transactions || transactions.length === 0) ? (
-              <div className="py-8 text-center text-gray-500">
-                No recent transactions
-              </div>
+            {transactionsQuery.isPending ? (
+              <div className="py-8 h-24 bg-gray-50 rounded-lg animate-pulse" />
+            ) : !transactions ? (
+              /* The regression this replaces: `catch { return [] }` rendered an
+                 unreachable billing service as "No recent transactions" — a
+                 claim about money, made from a request that never answered. */
+              <QueryFailureNotice
+                errors={[transactionsQuery.error]}
+                hasContent={false}
+                onRetry={() => void transactionsQuery.refetch()}
+              />
+            ) : transactions.length === 0 ? (
+              <div className="py-8 text-center text-gray-500">No recent transactions</div>
             ) : (
-              transactions.map((tx) => (
-                <TransactionItem key={tx.id} transaction={tx} />
-              ))
+              transactions.map((tx) => <TransactionItem key={tx.id} transaction={tx} />)
             )}
           </div>
         </div>

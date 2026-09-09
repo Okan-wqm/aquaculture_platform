@@ -170,7 +170,8 @@ export const billingApi = {
     limit?: number;
     offset?: number;
   }) => apiFetch<{ subscriptions: SubscriptionOverview[]; total: number }>(`/billing/subscriptions?${buildQueryString(filters || {})}`),
-  getSubscriptionStats: () => apiFetch<SubscriptionStats>('/billing/subscriptions/stats'),
+  getSubscriptionStats: (signal?: AbortSignal) =>
+    apiFetch<SubscriptionStats>('/billing/subscriptions/stats', { signal }),
   getSubscriptionReminders: () =>
     apiFetch<Array<{ tenantId: string; tenantName: string; daysUntilExpiry: number; type: 'trial' | 'subscription' }>>('/billing/subscriptions/reminders'),
   getSubscriptionByTenant: (tenantId: string) =>
@@ -195,21 +196,25 @@ export const billingApi = {
     }),
 
   // Invoices
-  getInvoices: (params?: { status?: string; search?: string; limit?: number; offset?: number }) => {
+  getInvoices: (
+    params?: { status?: string; search?: string; limit?: number; offset?: number },
+    signal?: AbortSignal,
+  ) => {
     const searchParams = new URLSearchParams();
     if (params?.status) searchParams.append('status', params.status);
     if (params?.search) searchParams.append('search', params.search);
     if (params?.limit) searchParams.append('limit', String(params.limit));
     if (params?.offset) searchParams.append('offset', String(params.offset));
     return apiFetch<{ invoices: InvoiceOverview[]; total: number }>(
-      `/billing/invoices?${searchParams.toString()}`
+      `/billing/invoices?${searchParams.toString()}`,
+      { signal },
     );
   },
-  getInvoiceStats: () =>
-    apiFetch<InvoiceStats>('/billing/invoices/stats'),
+  getInvoiceStats: (signal?: AbortSignal) =>
+    apiFetch<InvoiceStats>('/billing/invoices/stats', { signal }),
   /** Payment success/volume aggregate for the billing dashboard KPI row. */
-  getPaymentStats: () =>
-    apiFetch<PaymentStats>('/billing/payments/stats'),
+  getPaymentStats: (signal?: AbortSignal) =>
+    apiFetch<PaymentStats>('/billing/payments/stats', { signal }),
   getInvoiceById: (invoiceId: string) =>
     apiFetch<InvoiceOverview>(`/billing/invoices/${invoiceId}`),
   markInvoicePaid: (invoiceId: string, amount: number) =>

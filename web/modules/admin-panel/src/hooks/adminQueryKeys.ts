@@ -113,6 +113,18 @@ export const adminKeys = {
     plans: () => [...adminKeys.billing.all(), 'plans'] as const,
     /** The module price sheet the tenant-creation wizard prices a selection from. */
     modulePricing: () => [...adminKeys.billing.all(), 'module-pricing'] as const,
+    /**
+     * The billing overview's five composed stat reads, under one key: the page
+     * renders them as a single answer, so a partially-refreshed set would put
+     * one endpoint's number beside another's staleness under one heading.
+     */
+    dashboardMetrics: () => [...adminKeys.billing.all(), 'dashboard-metrics'] as const,
+    /** The revenue series. Range AND granularity belong in the key. */
+    revenueTrend: (range: string, granularity: string) =>
+      [...adminKeys.billing.all(), 'revenue-trend', range, granularity] as const,
+    /** The newest invoices behind the "Recent Transactions" feed. */
+    recentInvoices: (limit: number) =>
+      [...adminKeys.billing.all(), 'recent-invoices', limit] as const,
   },
 
   // ── Onboarding (support) ──

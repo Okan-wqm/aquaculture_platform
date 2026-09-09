@@ -834,6 +834,42 @@ in `web/` reaches the logout authority; `@tanstack/react-query` is declared
 wherever it is imported, at the federation-pinned version; the barrel keeps
 exporting the primitives.
 
+## ADMIN-HIGH-136 — three untrue statements about money, on one overview
+
+**State:** OPEN → closed by W9a · **Wave:** W9a · **Owner:** okan
+**Deadline:** 2026-12-31
+
+The billing overview is the page an operator reads to know what the platform
+earns and is owed. It stated three things that were not so.
+
+- **A failed read shown as an absence of money.** The "Recent Transactions"
+  feed loaded behind a bare `catch { return [] }`, so billing being unreachable
+  rendered as _"No recent transactions"_ — a claim that the platform took no
+  money, produced by a request that never answered.
+- **A real zero replaced by another question's answer.** The metrics used `||`
+  where `??` was meant: `subs.mrr || revenue.mrr`. `||` treats a genuine `0` as
+  absent, so a tenant base that really bills nothing displayed the _analytics_
+  MRR under the _subscriptions_ heading. Not a stale number — a different
+  number. Same for `arr` and `averageRevenuePerUser`.
+- **Six receivable states restated as failures.** `billing.invoices.status`
+  holds eight values (`draft`, `pending`, `sent`, `paid`, `partially_paid`,
+  `overdue`, `void`, `refunded`). The feed mapped `paid` and `pending` and
+  called **everything else "failed"**, with a red badge. An overdue invoice is
+  money still owed, not money that failed to move; a refund is money returned,
+  not a failure; a draft has not been sent to anyone.
+
+W9a moves all three reads to `useAdminQuery` on
+`adminKeys.billing.dashboardMetrics()` / `revenueTrend()` / `recentInvoices()`,
+threading an abort signal through `getRevenueAnalytics`, `getSubscriptionStats`,
+`getInvoiceStats`, `getPaymentStats` and `getInvoices`. The fallbacks become
+`??`; each failed read renders `QueryFailureNotice` naming it, distinct from a
+genuine empty result; and each of the eight invoice states gets its own label
+and badge. The trend panel likewise stops rendering a failed series as a range
+with no revenue in it.
+
+`paymentSuccessRate` was already correct — it renders an em dash when there
+have been no attempts — and is left alone.
+
 ## ADMIN-HIGH-135 — a price sheet that failed, offered anyway at a guessed price
 
 **State:** OPEN → closed by W8v · **Wave:** W8v · **Owner:** okan

@@ -806,17 +806,17 @@ W8d stops the claim: the fields are `number | null` and the cards render an em
 dash. The aggregate itself is missing and needs a server-side GROUP BY plus the
 resolution-time average, which belongs to W9.
 
-**Landed (W8b–W8g):** 8 of 44 pages migrated — AuditLogPage, ActivityLogPage,
+**Landed (W8b–W8h):** 9 of 44 pages migrated — AuditLogPage, ActivityLogPage,
 AuditTrailPage, SecurityDashboardPage, CompliancePage (which finishes the
 SECURITY batch and is the first page to use the WRITE primitive), ModulesPage,
-PerformanceDashboardPage and AdminDashboard. admin-panel gained a
+PerformanceDashboardPage, AdminDashboard and AnalyticsDashboardPage. admin-panel gained a
 `tsconfig.spec.json`, entering `tools/gates/type-check-spec.ts` at 0: no type
 gate had ever read a spec in this package, and the compiler's first pass found a
 pre-existing spec asserting against a `Tenant` shape with two fields the
 contract lacks and one required field missing.
 
-**Remaining:** 36 pages, in four domain batches (tenant 6, billing 11,
-system 10, messaging 9), governed by
+**Remaining:** 35 pages, in four domain batches (tenant 6, billing 11,
+system 9, messaging 9), governed by
 `.claude/allowlists/admin-panel-unmigrated-reads.yaml`. The `AdminTable`
 contract for server-side pagination, sort and dataset-scoped aggregates follows
 the migration. **Gate:** `tests/invariants/admin-panel-data-layer.spec.ts` — a
@@ -825,6 +825,39 @@ expiry and reason under a ceiling that only decreases; every module-scoped cache
 in `web/` reaches the logout authority; `@tanstack/react-query` is declared
 wherever it is imported, at the federation-pinned version; the barrel keeps
 exporting the primitives.
+
+## ADMIN-HIGH-125 — the analytics dashboard rendered a platform of zeros, twice over
+
+**State:** OPEN → frontend closed by W8h; server half owned by W9 · **Owner:** okan
+**Deadline:** 2026-12-31
+
+`getDefaultData()` built a complete dashboard of about forty zeros — MRR, ARR,
+LTV, churn rate, uptime among them — and the page rendered it whenever
+`/analytics/dashboard` failed. The `catch` that installed it also swallowed the
+error, so there was no banner: a platform whose billing source was unreachable
+displayed "$0 MRR", "0% churn" and "0% uptime" as facts, on the screen an
+operator uses to judge the business.
+
+The server degrades the same way one layer down. `getDashboardSummary` fetches
+five sources with `Promise.allSettled` and substitutes
+`getDefaultTenantMetrics` / `getDefaultUserMetrics` /
+`getDefaultFinancialMetrics` / `getDefaultSystemMetrics` /
+`getDefaultUsageMetrics` — all zeros — for any that throws, listing only the
+section NAME in `unavailable[]`.
+
+**W8h closes the frontend half.** `getDefaultData()` is deleted; a failed
+summary renders `QueryFailureNotice` rather than a dashboard; every formatter
+returns an em dash for an absent value; a KPI trend arrow renders only when
+there is a change behind it (the tenants card had a hardcoded `trend="up"`);
+uptime is computed from the health read that answered instead of the summary's
+zero; and a section named in `unavailable[]` is treated as UNKNOWN, so the
+server's own signal decides what is shown instead of annotating the zeros it
+replaced.
+
+**The server half stays open for W9.** Those five default objects also feed
+`reports.service.ts` snapshot aggregation, so widening the metric interfaces to
+`number | null` changes report averaging math — a change that belongs with the
+backend wave, not bolted onto a page migration.
 
 ## ADMIN-HIGH-124 — the landing page reported an empty platform when its reads failed
 

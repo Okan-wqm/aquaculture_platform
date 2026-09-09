@@ -38,6 +38,7 @@ export * from './tenant-commands';
 export * from './farm-events';
 export * from './sensor-events';
 export * from './sensor-reading-parameters';
+export * from './sensor-reading-projection';
 export * from './alert-events';
 export * from './notification-events';
 export * from './notification-commands';

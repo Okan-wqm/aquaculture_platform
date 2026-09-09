@@ -41579,6 +41579,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/event-contracts/src/__tests__/sensor-reading-projection.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/event-contracts/src/__tests__/tenant-erasure-targets.spec.ts",
       "prettier_managed": true
     },
@@ -41952,6 +41958,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/event-contracts/src/sensor-reading-parameters.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/src/sensor-reading-projection.ts",
       "prettier_managed": true
     },
     {
@@ -46994,6 +47006,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/sensor-parameter-catalog-ssot.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/sensor-reading-event-provenance.spec.ts",
       "prettier_managed": true
     },
     {

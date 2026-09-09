@@ -307,3 +307,30 @@ the twelve enumerated above — the alert-engine and farm-service handlers use b
 The allowlist only shrinks: a file that stops matching the guard pattern must be removed from
 it (staleness fails the spec), and the spec fails if this finding is RESOLVED while the list is
 non-empty.
+
+## Sensor-reading provenance cycle — deferred work (2026-09-09)
+
+### ALERT-MEDIUM-003 — an alert rule's `condition.parameter` is an unenforced free-text column
+
+Found while fixing SENSOR-CRITICAL-111, and deliberately **not** asserted to be a live break.
+`checkConditions` does a plain `readings[condition.parameter]` lookup
+(`apps/alert-engine/src/alert/services/alert-evaluation.service.ts:233`); the handler builds that
+map from `PARAMETER_BY_READING_FIELD`
+(`apps/alert-engine/src/alert/event-handlers/sensor-reading.handler.ts:25-34`), whose keys are the
+canonical camelCase parameter names, and `alert-rule.entity.ts:57` documents exactly that
+vocabulary (`temperature`, `ph`, `dissolvedOxygen`). Producer and consumer therefore agree today.
+
+The defect is that nothing **enforces** it. `parameter!: string` is a free column with no enum, no
+`IsIn` validator and no binding to `SENSOR_READING_PARAMETERS`
+(`libs/event-contracts/src/sensor-reading-parameters.ts:19`), so a rule created with the
+device-facing snake_case spelling (`dissolved_oxygen`) is accepted at the write path, renders as
+configured in the UI, and can never match a reading — a life-safety rule that exists, looks
+correct, and cannot fire.
+
+That spelling is not hypothetical: the service's own `alert-evaluation.service.spec.ts:70` fixture
+uses it, and passes only because it calls `evaluateSensorReading` directly with a self-consistent
+readings object, bypassing the handler that would have produced camelCase.
+
+**Fix direction (tier 1):** bind the column to `SENSOR_READING_PARAMETERS` at the write path so an
+unknown parameter is rejected at rule creation rather than at 3am. The same SSoT already backs the
+producers, the NATS consumer and the handler. Owner @okan-wqm, deadline 2026-11-15.

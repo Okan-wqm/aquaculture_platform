@@ -10,7 +10,13 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { createHash } from 'node:crypto';
 import { IEventBus } from '@platform/event-bus';
-import { createBaseEvent, deriveEventId, type EventId } from '@platform/event-contracts';
+import {
+  createBaseEvent,
+  deriveEventId,
+  projectPersistedReadings,
+  type EventId,
+  type PersistedReadingMetric,
+} from '@platform/event-contracts';
 import { Repository, DataSource, EntityManager } from 'typeorm';
 
 /**
@@ -513,7 +519,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       // MQTT ack gate holds PUBACK and the persistent session redelivers
       // (SENSOR-CRITICAL-086). Everything else in this handler stays
       // swallow-and-ack until the Task 1.6 disposition/DLQ contract lands.
-      await this.saveReading(sensor, data).catch((error: Error) => {
+      const persistedMetrics = await this.saveReading(sensor, data).catch((error: Error) => {
         throw new DurableWriteError(
           `Durable metric write failed for sensor ${sensor.id}: ${error.message}`,
         );
@@ -522,8 +528,11 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
       // Debounce lastSeenAt update (flushed every 30 seconds)
       this.lastSeenPending.set(sensor.id, now);
 
-      // Publish real-time event for WebSocket clients
-      await this.publishSensorReadingEvent(sensor, data, now);
+      // Publish real-time event for WebSocket clients, projected from the rows
+      // saveReading persisted (SENSOR-CRITICAL-111). `data` is passed on only
+      // as the identity input: a redelivery of the SAME wire message must keep
+      // collapsing onto one eventId.
+      await this.publishSensorReadingEvent(sensor, persistedMetrics, data, now);
     } catch (error) {
       if (error instanceof DurableWriteError) {
         // Not durable → no ack → redelivery. The ack gate in
@@ -1793,10 +1802,27 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
    */
   private async publishSensorReadingEvent(
     sensor: Sensor,
-    data: Record<string, unknown>,
+    persisted: readonly PersistedReadingMetric[],
+    identity: Record<string, unknown>,
     timestamp: Date,
   ): Promise<void> {
     if (!this.eventBus) {
+      return;
+    }
+
+    // SENSOR-CRITICAL-111: the event body comes from the rows saveReading just
+    // wrote, never from the wire payload. That is what makes the published
+    // value the CALIBRATED one and carries the farm/pond/tank the alert
+    // engine's rule query fails closed without.
+    const projection = projectPersistedReadings(persisted);
+    if (projection.mappedCount === 0) {
+      // No stored channel maps onto the flat shape (flow_rate, orp, co2 …).
+      // Publishing an empty reading is not a no-op: the alert engine reads it
+      // as "nothing is wrong" and auto-resolves open INFO/LOW incidents as
+      // "returned to normal". The metrics are persisted either way.
+      this.logger.debug(
+        `Sensor ${sensor.id}: ${persisted.length} metric(s) stored, none in the reading vocabulary — no SensorReading published`,
+      );
       return;
     }
 
@@ -1812,12 +1838,16 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
           // double-firing downstream effects. The EDGE-assigned
           // sourceEventId (Task 1.7) is the durable long-term answer; this
           // fallback binds to the payload's own ts when present.
-          eventId: this.deriveLegacyReadingEventId(sensor, data, timestamp),
+          eventId: this.deriveLegacyReadingEventId(sensor, identity, timestamp),
         }),
+        eventType: 'SensorReading' as const,
         timestamp: timestamp.toISOString(),
         sensorId: sensor.id,
-        readings: data,
-        version: 1,
+        ...projection.fields,
+        ...(projection.farmId !== undefined ? { farmId: projection.farmId } : {}),
+        ...(projection.pondId !== undefined ? { pondId: projection.pondId } : {}),
+        ...(projection.tankId !== undefined ? { tankId: projection.tankId } : {}),
+        ...(projection.parameter !== undefined ? { parameter: projection.parameter } : {}),
       });
       this.logger.debug(`Published SensorReading event for sensor ${sensor.id}`);
     } catch (error) {
@@ -2169,8 +2199,11 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
    * Save sensor reading to database using narrow table format
    * Each channel value becomes a separate row in sensor_metrics
    */
-  private async saveReading(sensor: Sensor, data: Record<string, unknown>): Promise<void> {
-    await runInTenantTransaction(
+  private async saveReading(
+    sensor: Sensor,
+    data: Record<string, unknown>,
+  ): Promise<PersistedReadingMetric[]> {
+    return runInTenantTransaction(
       this.dataSource,
       'sensor',
       sensor.tenantId,
@@ -2178,6 +2211,10 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         const now = new Date();
         const channels = await this.getChannelsCached(sensor.id, queryRunner.manager);
         const metrics: SensorMetricInput[] = [];
+        // SENSOR-CRITICAL-111: the reading event is projected from these rows,
+        // so the channel key is captured here where the channel is in scope —
+        // the metric row itself carries only the channel UUID.
+        const persisted: PersistedReadingMetric[] = [];
 
         for (const channel of channels) {
           const rawValue = channel.dataPath
@@ -2225,6 +2262,14 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
             sourceProtocol: 'mqtt',
             sourceTimestamp: now,
           });
+
+          persisted.push({
+            channelKey: channel.channelKey,
+            value: calibratedValue,
+            farmId: sensor.farmId,
+            pondId: sensor.pondId,
+            tankId: sensor.tankId,
+          });
         }
 
         if (metrics.length > 0) {
@@ -2232,6 +2277,7 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
         }
 
         this.logger.debug(`Saved ${metrics.length} metrics for sensor ${sensor.id}`);
+        return persisted;
       },
     );
   }

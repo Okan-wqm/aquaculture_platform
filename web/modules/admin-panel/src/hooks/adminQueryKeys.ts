@@ -68,6 +68,11 @@ export const adminKeys = {
     stats: () => [...adminKeys.users.all(), 'stats'] as const,
     /** The assignable-role catalogue — a read no user write invalidates. */
     roleTemplates: () => [...adminKeys.users.all(), 'role-templates'] as const,
+    /** The role hierarchy and the permission catalogue behind RoleManagementPage. */
+    roleHierarchy: () => [...adminKeys.users.all(), 'role-hierarchy'] as const,
+    permissionCatalogue: () => [...adminKeys.users.all(), 'permission-catalogue'] as const,
+    rolePermissions: (roleCode: string) =>
+      [...adminKeys.users.all(), 'role-permissions', roleCode] as const,
   },
 
   // ── Modules ──
@@ -106,6 +111,16 @@ export const adminKeys = {
     invoices: (filters?: Record<string, unknown>) =>
       [...adminKeys.billing.all(), 'invoices', filters] as const,
     plans: () => [...adminKeys.billing.all(), 'plans'] as const,
+  },
+
+  // ── Onboarding (support) ──
+  onboarding: {
+    all: () => [...adminKeys.all, 'onboarding'] as const,
+    steps: () => [...adminKeys.onboarding.all(), 'steps'] as const,
+    list: (filters?: Record<string, unknown>) =>
+      [...adminKeys.onboarding.all(), 'list', filters] as const,
+    stats: () => [...adminKeys.onboarding.all(), 'stats'] as const,
+    resources: () => [...adminKeys.onboarding.all(), 'resources'] as const,
   },
 
   // ── Reports ──

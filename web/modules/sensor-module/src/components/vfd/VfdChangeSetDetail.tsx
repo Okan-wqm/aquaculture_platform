@@ -26,7 +26,6 @@ interface VfdChangeSetDetailProps {
   onClose: () => void;
   onApprove: (id: string) => Promise<unknown>;
   onReject: (id: string, reason: string) => Promise<unknown>;
-  onApply: (id: string) => Promise<unknown>;
   onRollback: (id: string, reason: string) => Promise<unknown>;
   onCancel: (id: string) => Promise<unknown>;
   onSubmitForApproval: (id: string) => Promise<unknown>;
@@ -41,7 +40,6 @@ export function VfdChangeSetDetail({
   onClose,
   onApprove,
   onReject,
-  onApply,
   onRollback,
   onCancel,
   onSubmitForApproval,
@@ -291,17 +289,21 @@ export function VfdChangeSetDetail({
 
             {cs.status === VfdChangeSetStatus.APPROVED && (
               <>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (window.confirm('Apply this change set to the VFD device?')) {
-                      onApply(cs.id);
-                    }
-                  }}
-                  className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+                {/*
+                  There is no apply mutation: approval is the trigger, and the
+                  scheduler applies the set on the approved event with a 30s sweep
+                  behind it. This used to be an "Apply Now" button that re-sent
+                  approve and errored every time.
+                */}
+                <span
+                  data-testid="changeset-auto-apply"
+                  className="inline-flex items-center gap-1 rounded-md bg-indigo-50 px-4 py-2 text-sm font-medium text-indigo-700"
                 >
-                  <Play className="h-4 w-4" /> Apply Now
-                </button>
+                  <Play className="h-4 w-4" />
+                  {cs.scheduledAt
+                    ? `Scheduled for ${new Date(cs.scheduledAt).toLocaleString()}`
+                    : 'Applying automatically'}
+                </span>
                 <button
                   type="button"
                   onClick={() => onCancel(cs.id)}

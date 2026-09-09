@@ -223,7 +223,6 @@ export function VfdProgrammingPage() {
               onLoadMore={changeSetHook.loadMore}
               onApprove={changeSetHook.approveChangeSet}
               onReject={changeSetHook.rejectChangeSet}
-              onApply={changeSetHook.applyChangeSet}
               onRollback={changeSetHook.rollbackChangeSet}
               onCancel={changeSetHook.cancelChangeSet}
               onSubmitForApproval={changeSetHook.submitForApproval}

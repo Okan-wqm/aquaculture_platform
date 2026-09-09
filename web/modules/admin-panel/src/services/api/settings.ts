@@ -60,8 +60,14 @@ export const settingsApi = {
 
 export const systemSettingsApi = {
   // Feature Toggles
-  getFeatureToggles: (params?: { scope?: string; status?: string; category?: string; search?: string } & PaginationParams) =>
-    apiFetch<PaginatedResult<FeatureToggle>>(`/system/settings/feature-toggles?${buildQueryString(params || {})}`),
+  getFeatureToggles: (
+    params?: { scope?: string; status?: string; category?: string; search?: string } & PaginationParams,
+    signal?: AbortSignal,
+  ) =>
+    apiFetch<PaginatedResult<FeatureToggle>>(
+      `/system/settings/feature-toggles?${buildQueryString(params || {})}`,
+      { signal },
+    ),
   getFeatureToggle: (id: string) => apiFetch<FeatureToggle>(`/system/settings/feature-toggles/${id}`),
   getFeatureToggleByKey: (key: string) => apiFetch<FeatureToggle>(`/system/settings/feature-toggles/key/${key}`),
   // A create request is not the response minus its ids. `CreateFeatureToggleDto`

@@ -5,9 +5,12 @@
  * Supports global, tenant, and user scopes.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Card, Button, Badge, Input, Select } from '@aquaculture/shared-ui';
+
 import { systemSettingsApi } from '../../services/adminApi';
+import { adminKeys, useAdminMutation, useAdminQuery } from '../../hooks';
+import { QueryFailureNotice } from '../../components';
 import type { FeatureToggle, FeatureToggleScope } from '../../services/adminApi';
 
 // ============================================================================
@@ -23,6 +26,8 @@ interface FeatureToggleForm {
   rolloutPercentage: number;
   isExperimental: boolean;
 }
+
+const EMPTY_TOGGLES: readonly FeatureToggle[] = [];
 
 const defaultForm: FeatureToggleForm = {
   key: '',
@@ -40,9 +45,6 @@ const defaultForm: FeatureToggleForm = {
 
 export const FeatureTogglesPage: React.FC = () => {
   // State
-  const [toggles, setToggles] = useState<readonly FeatureToggle[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [filterScope, setFilterScope] = useState<string>('all');
@@ -53,126 +55,138 @@ export const FeatureTogglesPage: React.FC = () => {
   const [showEditModal, setShowEditModal] = useState(false);
   const [selectedToggle, setSelectedToggle] = useState<FeatureToggle | null>(null);
   const [formData, setFormData] = useState<FeatureToggleForm>(defaultForm);
-  const [saving, setSaving] = useState(false);
 
   // ============================================================================
   // Data Loading
   // ============================================================================
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  // ==========================================================================
+  // Read (ADMIN-HIGH-121)
+  // ==========================================================================
 
+  const toggleFilter = useMemo(
+    () => ({
+      scope: filterScope !== 'all' ? filterScope : undefined,
+      status: filterStatus !== 'all' ? filterStatus : undefined,
+      category: filterCategory !== 'all' ? filterCategory : undefined,
+      search: searchTerm || undefined,
+    }),
+    [filterScope, filterStatus, filterCategory, searchTerm],
+  );
+
+  const togglesKey = [...adminKeys.system.all(), 'feature-toggles'];
+
+  const togglesQuery = useAdminQuery(
+    [...togglesKey, toggleFilter],
+    ({ signal }) => systemSettingsApi.getFeatureToggles(toggleFilter, signal),
+    { placeholderData: (previous) => previous },
+  );
+
+  const safeToggles: readonly FeatureToggle[] = togglesQuery.data?.data ?? EMPTY_TOGGLES;
+  const loading = togglesQuery.isPending;
+
+  // ==========================================================================
+  // Writes — the list comes back from the server (ADMIN-HIGH-121)
+  //
+  // Every handler used to edit the local array: the flip wrote
+  // `status: newEnabled ? 'enabled' : 'disabled'` without looking at what the
+  // endpoint returned, so a flag the server had put into any other state — or
+  // had refused to change at all — still showed as flipped. Create unshifted
+  // its own optimistic row, update spliced, delete filtered. `invalidateKeys`
+  // makes the server's answer the one on screen.
+  // ==========================================================================
+
+  const invalidateToggles = { invalidateKeys: [togglesKey] };
+
+  const flipToggle = useAdminMutation<FeatureToggle, { id: string; enabled: boolean }>(
+    ({ id, enabled }) => systemSettingsApi.toggleFeature(id, enabled),
+    invalidateToggles,
+  );
+
+  const createToggle = useAdminMutation<FeatureToggle, FeatureToggleForm>(
+    (form) =>
+      systemSettingsApi.createFeatureToggle({
+        key: form.key,
+        name: form.name,
+        description: form.description,
+        scope: form.scope,
+        category: form.category,
+        rolloutPercentage: form.rolloutPercentage,
+        isExperimental: form.isExperimental,
+        status: 'disabled',
+      }),
+    invalidateToggles,
+  );
+
+  const updateToggle = useAdminMutation<FeatureToggle, { id: string; form: FeatureToggleForm }>(
+    // ADMIN-HIGH-113: this used to send `scope` and `isExperimental` too.
+    // `UpdateFeatureToggleDto` declares neither — a toggle's scope is fixed at
+    // creation, and the platform ValidationPipe runs `forbidNonWhitelisted`,
+    // so every save was rejected 400 and no edit ever landed. The call is
+    // typed from the request DTO, so a field the endpoint will not accept
+    // cannot be sent.
+    ({ id, form }) =>
+      systemSettingsApi.updateFeatureToggle(id, {
+        name: form.name,
+        description: form.description,
+        category: form.category,
+        rolloutPercentage: form.rolloutPercentage,
+      }),
+    invalidateToggles,
+  );
+
+  const deleteToggle = useAdminMutation<void, string>(
+    (id) => systemSettingsApi.deleteFeatureToggle(id),
+    invalidateToggles,
+  );
+
+  const mutations = [flipToggle, createToggle, updateToggle, deleteToggle];
+  const saving = createToggle.isPending || updateToggle.isPending;
+  const queryErrors = [togglesQuery.error, ...mutations.map((mutation) => mutation.error)];
+
+  const loadData = (): void => {
+    void togglesQuery.refetch();
+  };
+
+  const handleToggleStatus = async (toggle: FeatureToggle): Promise<void> => {
     try {
-      const response = await systemSettingsApi.getFeatureToggles({
-        scope: filterScope !== 'all' ? filterScope : undefined,
-        status: filterStatus !== 'all' ? filterStatus : undefined,
-        category: filterCategory !== 'all' ? filterCategory : undefined,
-        search: searchTerm || undefined,
-      });
-      // BUG-014 used to sniff three possible response shapes here because the
-      // endpoint really did return a different one from its neighbours. It is
-      // a `PaginatedResult` now, like every other list, so there is one shape
-      // to read and nothing to normalise.
-      setToggles(response.data);
-    } catch (err) {
-      console.error('Failed to load feature toggles:', err);
-      setError('Failed to load feature toggles');
-      setToggles([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [filterStatus, filterScope, filterCategory, searchTerm]);
-
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
-
-  // ============================================================================
-  // Handlers
-  // ============================================================================
-
-  const handleToggleStatus = async (toggle: FeatureToggle) => {
-    try {
-      const newEnabled = toggle.status !== 'enabled';
-      await systemSettingsApi.toggleFeature(toggle.id, newEnabled);
-      setToggles(
-        toggles.map((t) =>
-          t.id === toggle.id
-            ? { ...t, status: newEnabled ? 'enabled' : 'disabled' }
-            : t
-        )
-      );
-    } catch (err) {
-      console.error('Failed to toggle feature:', err);
-      setError(err instanceof Error ? err.message : 'Failed to toggle feature flag. Please try again.');
+      await flipToggle.mutateAsync({ id: toggle.id, enabled: toggle.status !== 'enabled' });
+    } catch {
+      // `flipToggle.error` carries it into the page's notice.
     }
   };
 
-  const handleCreate = async () => {
+  const handleCreate = async (): Promise<void> => {
     if (!formData.key || !formData.name) return;
-
-    setSaving(true);
     try {
-      const newToggle = await systemSettingsApi.createFeatureToggle({
-        key: formData.key,
-        name: formData.name,
-        description: formData.description,
-        scope: formData.scope,
-        category: formData.category,
-        rolloutPercentage: formData.rolloutPercentage,
-        isExperimental: formData.isExperimental,
-        status: 'disabled',
-      });
-      setToggles([newToggle, ...toggles]);
+      await createToggle.mutateAsync(formData);
+      // Only on a confirmed create: the modal used to close on the optimistic
+      // row it had just pushed into local state.
       setShowCreateModal(false);
       setFormData(defaultForm);
-    } catch (err) {
-      console.error('Failed to create toggle:', err);
-      setError(err instanceof Error ? err.message : 'Failed to create feature flag. Please try again.');
-    } finally {
-      setSaving(false);
+    } catch {
+      // Reported through `createToggle.error`; the modal stays open.
     }
   };
 
-  const handleUpdate = async () => {
+  const handleUpdate = async (): Promise<void> => {
     if (!selectedToggle) return;
-
-    setSaving(true);
     try {
-      // ADMIN-HIGH-113: this used to send `scope` and `isExperimental` too.
-      // `UpdateFeatureToggleDto` declares neither -- a toggle's scope is fixed
-      // at creation, and the platform ValidationPipe runs
-      // `forbidNonWhitelisted: true`, so every save was rejected 400 and no
-      // edit ever landed. The call is typed from the request DTO now, so a
-      // field the endpoint will not accept cannot be sent.
-      const updated = await systemSettingsApi.updateFeatureToggle(selectedToggle.id, {
-        name: formData.name,
-        description: formData.description,
-        category: formData.category,
-        rolloutPercentage: formData.rolloutPercentage,
-      });
-      setToggles(toggles.map((t) => (t.id === updated.id ? updated : t)));
+      await updateToggle.mutateAsync({ id: selectedToggle.id, form: formData });
       setShowEditModal(false);
       setSelectedToggle(null);
       setFormData(defaultForm);
-    } catch (err) {
-      console.error('Failed to update toggle:', err);
-      setError(err instanceof Error ? err.message : 'Failed to update feature flag. Please try again.');
-    } finally {
-      setSaving(false);
+    } catch {
+      // Reported through `updateToggle.error`.
     }
   };
 
-  const handleDelete = async (toggle: FeatureToggle) => {
+  const handleDelete = async (toggle: FeatureToggle): Promise<void> => {
     if (!confirm(`Are you sure you want to delete "${toggle.name}"?`)) return;
-
     try {
-      await systemSettingsApi.deleteFeatureToggle(toggle.id);
-      setToggles(toggles.filter((t) => t.id !== toggle.id));
-    } catch (err) {
-      console.error('Failed to delete toggle:', err);
-      setError(err instanceof Error ? err.message : 'Failed to delete feature flag. Please try again.');
+      await deleteToggle.mutateAsync(toggle.id);
+    } catch {
+      // Reported through `deleteToggle.error`.
     }
   };
 
@@ -194,8 +208,6 @@ export const FeatureTogglesPage: React.FC = () => {
   // Helpers
   // ============================================================================
 
-  // Ensure toggles is always an array
-  const safeToggles = Array.isArray(toggles) ? toggles : [];
   const categories = [...new Set(safeToggles.map((t) => t.category).filter(Boolean))];
 
   const getStatusBadge = (status: string) => {
@@ -264,6 +276,14 @@ export const FeatureTogglesPage: React.FC = () => {
           Create Toggle
         </Button>
       </div>
+
+      {/* A failed read or a rejected flag action, named where the operator is
+          looking rather than in a fixed toast in the corner. */}
+      <QueryFailureNotice
+        errors={queryErrors}
+        hasContent={togglesQuery.data !== undefined}
+        onRetry={loadData}
+      />
 
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
@@ -584,12 +604,6 @@ export const FeatureTogglesPage: React.FC = () => {
         </div>
       )}
 
-      {/* Error Display */}
-      {error && (
-        <div className="fixed bottom-4 right-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg">
-          {error}
-        </div>
-      )}
     </div>
   );
 };

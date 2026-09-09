@@ -115,6 +115,7 @@ EXPECTED_SPECIFIC_AUTHORITY = {
         f"{KERNEL}bridge_status_ledger.py",
         f"{KERNEL}circuit_breaker.py",
         f"{KERNEL}convergence_drainer.py",
+        f"{KERNEL}cost_budget.py",
         f"{KERNEL}evidence_validator.py",
         f"{KERNEL}plan_convergence.py",
         f"{KERNEL}state_manifest.py",
@@ -262,7 +263,11 @@ EXPECTED_CONSUMERS = {
     "executor": (
         f"{KERNEL}agent_invocations.py", f"{KERNEL}agent_eval.py",
         f"{KERNEL}bridge_status_ledger.py", f"{KERNEL}circuit_breaker.py",
-        f"{KERNEL}convergence_drainer.py", f"{KERNEL}evidence_validator.py",
+        f"{KERNEL}convergence_drainer.py",
+        # ARIA-CRITICAL-047 — the subscription meter refuses a dispatch on the
+        # strength of accepted results, so it consumes this proof surface.
+        f"{KERNEL}cost_budget.py",
+        f"{KERNEL}evidence_validator.py",
         f"{KERNEL}genesis_lifecycle.py",
         f"{KERNEL}plan_convergence.py",
     ),

@@ -98,6 +98,16 @@ An executor run that claims nothing because nothing is claimable concludes `succ
 
 **Open.**
 
+## ARIA-MEDIUM-060
+
+The runner habitat's memory budget outlived its machine. `actions-runner.limits.conf` opens with "WHY these numbers (7.8 GiB droplet …)" and caps the runner at `MemoryHigh=2300M`, `MemoryMax=3G`. The host measures **16.84 GiB** (`MemTotal: 17661208 kB`, 2026-09-09) plus 2 GiB swap on 4 vCPU. The runner therefore held 18% of the box while cycles throttled against `MemoryHigh` with roughly 12 GiB free — and the publish step alone was once caught at ~5.8 GiB resident, which a 3 GiB cap cannot hold at all.
+
+Operator decision 2026-09-09 raised it to `MemoryHigh=6G` / `MemoryMax=8G`; the byte-for-byte drift probe in `provision_runner.sh` moved with it and the host now matches the repo copy exactly. The stale 7.8 GiB figure still appears in the state-maintenance workflow header, the April perf baseline and an orphan-findings narrative.
+
+The class stays open: nothing compares a declared capacity budget against the host it is installed on, so the next resize will be just as invisible.
+
+**Open.**
+
 ## ARIA-MEDIUM-059
 
 The `repository_map` context block is rendered even when it carries a single path. Across the 807 published prompts it appears in 564; **247 (44%) carry one bullet** and 408 (72%) carry two or fewer. A representative block is a single `docs/reviews/*.md` path.

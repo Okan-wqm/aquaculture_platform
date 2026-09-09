@@ -917,6 +917,10 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
             f"{_KERNEL}bridge_status_ledger.py",
             f"{_KERNEL}circuit_breaker.py",
             f"{_KERNEL}convergence_drainer.py",
+            # ARIA-CRITICAL-047 — the subscription meter both READS accepted
+            # results and REFUSES dispatches on what it finds, so it holds
+            # authority over this capability, not merely a view of it.
+            f"{_KERNEL}cost_budget.py",
             f"{_KERNEL}evidence_validator.py",
             f"{_KERNEL}plan_convergence.py",
             f"{_KERNEL}state_manifest.py",
@@ -943,6 +947,14 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
             f"{_KERNEL}bridge_status_ledger.py",
             f"{_KERNEL}circuit_breaker.py",
             f"{_KERNEL}convergence_drainer.py",
+            # ARIA-CRITICAL-047 — the subscription meter reads accepted
+            # results to compute tokens-per-accepted and the no-accepted
+            # runaway window. It reaches the surface through
+            # `token_economy.usage_per_accepted_result`, but the dependency
+            # is real and belongs on the roster: a gate that refuses a
+            # dispatch on this ledger is a consumer of it, whatever the
+            # call chain looks like.
+            f"{_KERNEL}cost_budget.py",
             f"{_KERNEL}evidence_validator.py",
             f"{_KERNEL}genesis_lifecycle.py",
             f"{_KERNEL}plan_convergence.py",

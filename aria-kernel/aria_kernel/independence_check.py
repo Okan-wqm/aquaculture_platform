@@ -200,47 +200,19 @@ def verify_principal_disjointness(
     return (len(reasons) == 0), reasons
 
 
-def verify_claim_disjointness(
-    *,
-    primary_request_id: str,
-    challenger_request_id: str,
-    cross_review_request_id: str,
-    base_dir: str | Path,
-) -> tuple[bool, list[str]]:
-    """Source-level: distinct claims AND distinct executing principals.
-
-    ORPHAN-HIGH-421 — the docstring here always promised that "no two
-    claims overlap in time on the same agent_id", but the implementation
-    only compared ``claim_id`` sets. Every claim gets a fresh claim_id, so
-    a SINGLE agent could claim all three envelopes and pass: the identity
-    that actually matters for independence is the principal, not the
-    receipt. That is the echo chamber this module exists to detect.
-
-    Three properties are now checked:
-      1. every role has at least one claim row (no claim = no work),
-      2. no two roles share a ``claim_id``,
-      3. no two roles share an ``agent_id`` — the principal-level check.
-
-    Returns (passed, violation_reasons).
-    """
-    return verify_principal_disjointness(
-        dispatches=[
-            RoundDispatch(
-                role="primary", request_id=primary_request_id,
-                revision_id=None, agent_text=None,
-            ),
-            RoundDispatch(
-                role="challenger", request_id=challenger_request_id,
-                revision_id=None, agent_text=None,
-            ),
-            RoundDispatch(
-                role="cross_review", request_id=cross_review_request_id,
-                revision_id=None, agent_text=None,
-            ),
-        ],
-        base_dir=base_dir,
-        min_dispatched=3,
-    )
+# ORPHAN-HIGH-573 — `verify_claim_disjointness` was DELETED here on 2026-09-09.
+#
+# It was a pure ADAPTER: it built three `RoundDispatch` rows from three request
+# ids and returned `verify_principal_disjointness(...)` unchanged. Same question,
+# same answer, different argument shape — and no production caller, while
+# `verify_principal_disjointness` is live from `human_required_adjudication.py:519`
+# and from two callsites in this module.
+#
+# Its ORPHAN-HIGH-421 docstring is preserved in the surviving function, which is
+# where the three properties (a claim row per role, no shared claim_id, no shared
+# agent_id) are actually enforced. Callers that have three request ids build the
+# rows themselves; that is one line more at the callsite and one fewer way for
+# the two answers to drift apart.
 
 
 def verify_revision_id_distinctness(

@@ -29816,6 +29816,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/aria/SAFETY-CONTROL-WIRING-LEDGER.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/aria/schemas/autonomy-burn-in-report.schema.json",
       "prettier_managed": true
     },
@@ -36633,6 +36639,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/zcode/2026-09-08-pr1022-orphaned-finding-ids-verified.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/zcode/2026-09-09-aria-autonomy-design-health.md",
       "prettier_managed": true
     },
     {

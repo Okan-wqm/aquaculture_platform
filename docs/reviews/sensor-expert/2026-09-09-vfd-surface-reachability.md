@@ -134,3 +134,33 @@ Note that the UI never wrote these anyway: the panel was sending the editor's _p
 range under the operational names, so nothing reached them even before the request
 started failing outright.
 Owner @okan-wqm, deadline 2026-11-15.
+
+### SENSOR-HIGH-116 — the change-set Apply button could only ever fail
+
+Registered **after** its fix, to correct a mis-attribution rather than hide it.
+
+Commit `9e420e0d4` removed the button, but its `Closes:` trailer named
+`SENSOR-HIGH-062` — the hardcoded mock device selector, which was a different defect
+already closed by `661d2de24`. The trailer was _structurally_ valid: a real finding id
+whose `review_file` matched the path cited, so the commit-msg gate that PROC-HIGH-031
+hardened accepted it. That is the gate's known limit — it proves a trailer **can** close
+the finding it names, not that the diff is **about** that finding. Force-pushing to fix
+the message is forbidden, so the correction lives here and in this row.
+
+**The defect.** `useVfdChangeSets.applyChangeSet` was a byte-for-byte copy of
+`approveChangeSet` — same mutation, same variables, different error string — because no
+`applyVfdChangeSet` mutation exists on the schema.
+
+Approval is the trigger: `VfdChangeSetSchedulerService` applies an approved set on
+`vfd.changeset.approved`, with a 30-second sweep as the crash-durable backstop, honouring
+`scheduledAt` when one is set. So pressing Apply re-sent `approveVfdChangeSet` on a set
+that was already APPROVED, where
+`assertStatus(changeSet, VfdChangeSetStatus.PENDING_APPROVAL, 'approve')` rejects it
+outright. Every click produced an error about a change set that was in fact already on
+its way to the drive.
+
+**Fixed** by deleting the button and the hook function rather than wiring them to
+something: the work they claimed to do is already automatic, and a second trigger would
+be a second write path to industrial equipment. Both surfaces now state what will happen
+("Applying automatically", or the scheduled time). `vfd-programming-hooks.test.tsx`
+asserted the defect and was rewritten, not deleted.

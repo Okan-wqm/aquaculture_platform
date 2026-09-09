@@ -10,6 +10,7 @@
 
 import { apiFetch, buildQueryString } from '../http-client';
 import { apiFetchBlob } from '../blob-client';
+import type { ApiSchema } from '../contract';
 import type {
   PaginatedResult,
   PaginationParams,
@@ -25,13 +26,25 @@ export const databaseApi = {
   // Schema Management (schema.controller.ts)
   // ==========================================================================
 
-  getSchemas: (params?: { status?: string; search?: string } & PaginationParams) =>
-    apiFetch<PaginatedResult<TenantSchema>>(`/database/schemas?${buildQueryString(params || {})}`),
+  getSchemas: (
+    params?: { status?: string; search?: string } & PaginationParams,
+    signal?: AbortSignal,
+  ) =>
+    apiFetch<PaginatedResult<TenantSchema>>(`/database/schemas?${buildQueryString(params || {})}`, {
+      signal,
+    }),
   getSchema: (tenantId: string) => apiFetch<TenantSchema>(`/database/schemas/${tenantId}`),
-  getSchemaSummary: () =>
-    apiFetch<{ total: number; active: number; suspended: number; deleted: number }>(
-      '/database/schemas/summary',
-    ),
+  /**
+   * Platform-wide schema totals, straight off the generated contract.
+   *
+   * This was hand-declared as `{ total, active, suspended, deleted }` — four
+   * field names the server has never returned, and a `deleted` that does not
+   * exist. Nothing caught it because the method had no caller and the route's
+   * inline return type left `"200": {}` in the OpenAPI artifact. Typed through
+   * `ApiSchema` now, so the next rename is a compile error here.
+   */
+  getSchemaSummary: (signal?: AbortSignal) =>
+    apiFetch<ApiSchema<'SchemaSummaryDto'>>('/database/schemas/summary', { signal }),
   getSchemaInfo: (tenantId: string) =>
     apiFetch<{ schemaName: string; tableCount: number; sizeBytes: number; rowCount: number }>(
       `/database/schemas/${tenantId}/info`,
@@ -45,8 +58,10 @@ export const databaseApi = {
       method: 'POST',
       body: JSON.stringify(data || {}),
     }),
-  validateSchemaIsolation: (tenantId: string) =>
-    apiFetch<{ valid: boolean; issues: string[] }>(`/database/schemas/${tenantId}/validate`),
+  validateSchemaIsolation: (tenantId: string, signal?: AbortSignal) =>
+    apiFetch<{ valid: boolean; issues: string[] }>(`/database/schemas/${tenantId}/validate`, {
+      signal,
+    }),
   getConnectionPoolStatus: () =>
     apiFetch<{
       total: number;
@@ -79,7 +94,7 @@ export const databaseApi = {
   // ==========================================================================
 
   /** Backend: GET /database/migrations/available */
-  getAvailableMigrations: () =>
+  getAvailableMigrations: (signal?: AbortSignal) =>
     apiFetch<
       Array<{
         version: string;
@@ -90,7 +105,7 @@ export const databaseApi = {
         isDestructive: boolean;
         requiresDowntime: boolean;
       }>
-    >('/database/migrations/available'),
+    >('/database/migrations/available', { signal }),
   /** Backend: GET /database/migrations/summary */
   getMigrationSummary: () =>
     apiFetch<{ total: number; pending: number; completed: number; failed: number }>(
@@ -112,9 +127,13 @@ export const databaseApi = {
       status: string;
     }>(`/database/migrations/batch/${version}/status`),
   /** Backend: GET /database/migrations/history */
-  getMigrationHistory: (params?: { status?: string; version?: string } & PaginationParams) =>
+  getMigrationHistory: (
+    params?: { status?: string; version?: string } & PaginationParams,
+    signal?: AbortSignal,
+  ) =>
     apiFetch<PaginatedResult<SchemaMigration>>(
       `/database/migrations/history?${buildQueryString(params || {})}`,
+      { signal },
     ),
 
   // Legacy wrappers for older page integrations.
@@ -149,15 +168,15 @@ export const databaseApi = {
   // ==========================================================================
 
   /** Backend: GET /database/monitoring/health */
-  getDatabaseHealth: () =>
+  getDatabaseHealth: (signal?: AbortSignal) =>
     apiFetch<{
       status: string;
       score: number;
       checks: Array<{ name: string; status: string; value: string | number; message: string }>;
       recommendations: string[];
-    }>('/database/monitoring/health'),
+    }>('/database/monitoring/health', { signal }),
   /** Backend: GET /database/monitoring/connections */
-  getConnectionStats: () =>
+  getConnectionStats: (signal?: AbortSignal) =>
     apiFetch<{
       total: number;
       active: number;
@@ -165,7 +184,7 @@ export const databaseApi = {
       waiting: number;
       maxConnections: number;
       utilizationPercent: number;
-    }>('/database/monitoring/connections'),
+    }>('/database/monitoring/connections', { signal }),
   /** Backend: GET /database/monitoring/connections/by-tenant */
   getConnectionStatsByTenant: () =>
     apiFetch<Array<{ tenantId: string; schemaName: string; active: number; idle: number }>>(
@@ -179,10 +198,11 @@ export const databaseApi = {
       minTime?: number;
       grouped?: boolean;
     } & DateRangeParams,
+    signal?: AbortSignal,
   ) =>
     apiFetch<
       Array<{ query: string; count: number; avgTime: number; maxTime?: number; schema?: string }>
-    >(`/database/monitoring/slow-queries?${buildQueryString(params || {})}`),
+    >(`/database/monitoring/slow-queries?${buildQueryString(params || {})}`, { signal }),
   /** Backend: GET /database/monitoring/query-performance */
   getQueryPerformanceStats: () =>
     apiFetch<{
@@ -203,7 +223,7 @@ export const databaseApi = {
       '/database/monitoring/storage',
     ),
   /** Backend: GET /database/monitoring/storage/by-tenant */
-  getStorageByTenant: () =>
+  getStorageByTenant: (signal?: AbortSignal) =>
     apiFetch<
       Array<{
         tenantId: string;
@@ -213,9 +233,9 @@ export const databaseApi = {
         indexSizeBytes: number;
         tableCount: number;
       }>
-    >('/database/monitoring/storage/by-tenant'),
+    >('/database/monitoring/storage/by-tenant', { signal }),
   /** Backend: GET /database/monitoring/index-recommendations */
-  getIndexRecommendations: (schemaName?: string) =>
+  getIndexRecommendations: (schemaName?: string, signal?: AbortSignal) =>
     apiFetch<
       Array<{
         tableName: string;
@@ -225,7 +245,12 @@ export const databaseApi = {
         estimatedImpact: string;
         createStatement: string;
       }>
-    >(`/database/monitoring/index-recommendations${schemaName ? `?schemaName=${schemaName}` : ''}`),
+    >(
+      `/database/monitoring/index-recommendations${schemaName ? `?schemaName=${schemaName}` : ''}`,
+      {
+        signal,
+      },
+    ),
   /** Backend: GET /database/monitoring/metrics */
   getMetricsHistory: (params?: { hours?: number; tenantId?: string; metricType?: string }) =>
     apiFetch<Array<{ timestamp: string; metricType: string; value: number }>>(

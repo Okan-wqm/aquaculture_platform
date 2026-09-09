@@ -1076,7 +1076,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "1f28ecc7ecb180250ab1abf130252e45de8ba63f8eb732c3ee5538e39df1a394",
+      "content_sha256": "80d86bce9f01fcde4958239debd94f6672af734ef4b3b1a089e7a3f639ba6675",
       "hash_policy": "sha256",
       "owner": "admin-openapi-generator",
       "path": "apps/admin-api-service/openapi.json",
@@ -1520,6 +1520,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/database-management/__tests__/schema-summary.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/database-management/__tests__/security/explorer-security.spec.ts",
       "prettier_managed": true
     },
@@ -1575,6 +1581,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/database-management/database-management.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/database-management/dto/schema-summary.dto.ts",
       "prettier_managed": true
     },
     {
@@ -50892,6 +50904,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/__tests__/DatabaseManagementPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/pages/__tests__/EmailTemplatesPage.spec.tsx",
       "prettier_managed": true
     },
@@ -51365,7 +51383,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "fe327eb7ab23bef6f7b4280a368bf05cae8998864228cd4a8b08066dc582091b",
+      "content_sha256": "5539de7ed8c6688cbd7af3881b5fcb327e9d238db2a0eef6a44154a0cb4eb548",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/modules/admin-panel/src/services/generated/admin-api.ts",

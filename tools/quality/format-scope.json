@@ -54874,6 +54874,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/sensor-module/src/__tests__/channel-editor-contract.test.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/sensor-module/src/__tests__/edge-widget-support.invariant.spec.ts",
       "prettier_managed": true
     },

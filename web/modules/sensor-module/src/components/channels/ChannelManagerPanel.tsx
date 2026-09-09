@@ -45,22 +45,30 @@ function toEditorChannel(ch: SensorDataChannel): DataChannelConfig {
   };
 }
 
-/** Map ChannelEditorModal output back to API create input */
+/**
+ * Map ChannelEditorModal output back to API create input.
+ *
+ * SENSOR-HIGH-063: every key here exists on `CreateDataChannelInput`. It used to
+ * carry `unitSymbol`, `operationalMin`, `operationalMax` and a literal
+ * `discoverySource: 'manual'` — entity column names, not contract field names.
+ * GraphQL rejects an input object with an undefined field, and the literal made
+ * that rejection unconditional, so no channel could ever be created.
+ * `discoverySource` is not sent at all now (the service stamps MANUAL itself), and
+ * the editor's physical range goes as `minValue`/`maxValue`, so it finally persists.
+ */
 function toCreateInput(cfg: DataChannelConfig): CreateChannelInput {
   return {
     channelKey: cfg.channelKey,
     displayLabel: cfg.displayLabel,
     dataType: cfg.dataType,
     unit: cfg.unit,
-    unitSymbol: cfg.unit,
-    operationalMin: cfg.minValue,
-    operationalMax: cfg.maxValue,
+    minValue: cfg.minValue,
+    maxValue: cfg.maxValue,
     calibrationEnabled: cfg.calibrationEnabled,
     calibrationMultiplier: cfg.calibrationMultiplier,
     calibrationOffset: cfg.calibrationOffset,
-    alertThresholds: cfg.alertThresholds as Record<string, unknown> | undefined,
-    displaySettings: cfg.displaySettings as Record<string, unknown> | undefined,
-    discoverySource: 'manual',
+    alertThresholds: cfg.alertThresholds,
+    displaySettings: cfg.displaySettings,
     isEnabled: cfg.isEnabled,
     displayOrder: cfg.displayOrder,
   };
@@ -74,17 +82,22 @@ function toCreateInput(cfg: DataChannelConfig): CreateChannelInput {
  * aggregate (Calibration page → recordCalibration), which stamps
  * lastCalibratedAt/nextCalibrationDue; the channel editor no longer writes those
  * coefficients (its calibration tab is read-only).
+ *
+ * SENSOR-HIGH-063: `dataType` is not sent either, and for a different reason —
+ * `UpdateDataChannelInput` has no such field, so sending it (unconditionally, since
+ * DataChannelConfig.dataType is non-optional) failed every single update. The type
+ * is fixed at creation because it decides how stored readings were parsed; the
+ * editor now disables the control on an existing channel rather than accepting an
+ * edit that cannot be saved.
  */
 function toUpdateInput(cfg: DataChannelConfig): UpdateChannelInput {
   return {
     displayLabel: cfg.displayLabel,
-    dataType: cfg.dataType,
     unit: cfg.unit,
-    unitSymbol: cfg.unit,
-    operationalMin: cfg.minValue,
-    operationalMax: cfg.maxValue,
-    alertThresholds: cfg.alertThresholds as Record<string, unknown> | undefined,
-    displaySettings: cfg.displaySettings as Record<string, unknown> | undefined,
+    minValue: cfg.minValue,
+    maxValue: cfg.maxValue,
+    alertThresholds: cfg.alertThresholds,
+    displaySettings: cfg.displaySettings,
     isEnabled: cfg.isEnabled,
     displayOrder: cfg.displayOrder,
   };

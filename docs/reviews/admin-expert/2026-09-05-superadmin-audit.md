@@ -823,7 +823,7 @@ gate had ever read a spec in this package, and the compiler's first pass found a
 pre-existing spec asserting against a `Tenant` shape with two fields the
 contract lacks and one required field missing.
 
-**Remaining:** 24 pages, in three domain batches (tenant 4, billing 11,
+**Remaining:** 22 pages, in three domain batches (tenant 2, billing 11,
 messaging 9 — the system batch is finished), governed by
 `.claude/allowlists/admin-panel-unmigrated-reads.yaml`. The `AdminTable`
 contract for server-side pagination, sort and dataset-scoped aggregates follows
@@ -833,6 +833,37 @@ expiry and reason under a ceiling that only decreases; every module-scoped cache
 in `web/` reaches the logout authority; `@tanstack/react-query` is declared
 wherever it is imported, at the federation-pinned version; the barrel keeps
 exporting the primitives.
+
+## ADMIN-HIGH-134 — a card counting a field the endpoint never returns
+
+**State:** OPEN → closed by W8t · **Wave:** W8t · **Owner:** okan
+**Deadline:** 2026-12-31
+
+The server's `OnboardingStatus` is
+`'not_started' | 'in_progress' | 'completed' | 'skipped'`. The admin-panel's
+`TenantOnboarding.status` said
+`'not_started' | 'in_progress' | 'completed' | 'stalled'`. Two consequences,
+independent of each other:
+
+- `getOnboardingStats` returns `{total, notStarted, inProgress, completed,
+skipped, avgCompletionPercent, avgCompletionDays, completionByStep}`; the
+  client type declared `{notStarted, inProgress, completed, stalled,
+avgCompletionDays}`. So the **"Stalled" card read `undefined` on every load**
+  and the page's zero-filled default rendered `0` forever — on the card an
+  operator reads to find the tenants that are stuck. `totalTenants` was summed
+  from four fields while the server was already sending `total`, and that sum
+  could never include a skipped tenant.
+- The status filter offered a `stalled` option the service never sets, so
+  filtering by it always returned nothing, and every tenant whose onboarding
+  was skipped arrived carrying a status the union did not admit, with no badge
+  to render it.
+
+The spec type gate is what caught it: a fixture using the real `'skipped'`
+status would not compile against the frontend type.
+
+Both halves are aligned to the server's shapes now, the card reads "Skipped",
+`totalTenants` comes from `stats.total`, and the filter's options come from the
+corrected union.
 
 ## ADMIN-CRITICAL-133 — the user surface rejected every role but one
 

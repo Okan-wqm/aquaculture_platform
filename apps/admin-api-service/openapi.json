@@ -26145,6 +26145,31 @@
           "queueName"
         ]
       },
+      "JobProgress": {
+        "type": "object",
+        "properties": {
+          "current": {
+            "type": "number"
+          },
+          "total": {
+            "type": "number"
+          },
+          "percentage": {
+            "type": "number"
+          },
+          "message": {
+            "type": "string"
+          },
+          "checkpoint": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "current",
+          "total",
+          "percentage"
+        ]
+      },
       "BackgroundJob": {
         "type": "object",
         "properties": {
@@ -26198,7 +26223,7 @@
             "type": "string"
           },
           "progress": {
-            "type": "object"
+            "$ref": "#/components/schemas/JobProgress"
           },
           "tenantId": {
             "type": "string"

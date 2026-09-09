@@ -33,10 +33,23 @@ export enum JobType {
   TRIGGERED = 'triggered',
 }
 
-export interface JobProgress {
-  current: number;
-  total: number;
-  percentage: number;
+/**
+ * A job's progress, as stored in the `progress` jsonb column and served on
+ * `BackgroundJob`.
+ *
+ * A CLASS, not an interface, because the OpenAPI generator's swagger plugin
+ * visits `*.entity.ts` and can only describe classes: as an interface this
+ * came out of the contract as `progress?: Record<string, never>` — an object
+ * with no declared keys — so `JobQueuePage` read `job.progress.percentage`
+ * through a type that says the property cannot exist, and the progress bar
+ * rendered `undefined%` to anyone whose eslint config was not strict enough
+ * to catch it (ADMIN-HIGH-127). No runtime change: this is still a plain
+ * object in a jsonb column.
+ */
+export class JobProgress {
+  current!: number;
+  total!: number;
+  percentage!: number;
   message?: string;
   checkpoint?: unknown;
 }

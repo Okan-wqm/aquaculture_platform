@@ -5,9 +5,12 @@
  * Supports job retry, cancellation, filtering, and queue management.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Card, Button, Badge, Input, Select } from '@aquaculture/shared-ui';
+
 import { systemSettingsApi } from '../../services/adminApi';
+import { adminKeys, useAdminMutation, useAdminQuery } from '../../hooks';
+import { QueryFailureNotice } from '../../components';
 import type { BackgroundJob, JobQueue, JobStatus } from '../../services/adminApi';
 
 // ============================================================================
@@ -26,123 +29,124 @@ interface JobDashboard {
 }
 
 // ============================================================================
-// Default Empty Data
+// No default dashboard (ADMIN-HIGH-127)
 // ============================================================================
 
-const defaultDashboard: JobDashboard = {
-  totalJobs: 0,
-  pendingJobs: 0,
-  runningJobs: 0,
-  completedToday: 0,
-  failedToday: 0,
-  avgDuration: 0,
-  queues: [],
-  recentJobs: [],
-};
+/**
+ * `defaultDashboard` was six zeros, and the catch installed it whenever
+ * `/system/jobs/dashboard` failed. On a job-queue screen "0 failed today" is
+ * the single number an operator reads to decide nothing is wrong, and it was
+ * displayed for a dashboard that had not loaded — beside an error line the
+ * same handler set, which is easy to miss above four confident-looking cards.
+ *
+ * There is no default now: a failed read renders the failure.
+ */
 
-// ============================================================================
-// Component
-// ============================================================================
+const EMPTY_JOBS: readonly BackgroundJob[] = [];
+const EMPTY_QUEUES: JobQueue[] = [];
 
 export const JobQueuePage: React.FC = () => {
-  // State
-  const [dashboard, setDashboard] = useState<JobDashboard | null>(null);
-  const [jobs, setJobs] = useState<readonly BackgroundJob[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [filterQueue, setFilterQueue] = useState<string>('all');
   const [activeTab, setActiveTab] = useState<'jobs' | 'queues' | 'scheduled'>('jobs');
 
-  // ============================================================================
-  // Data Loading
-  // ============================================================================
+  // ==========================================================================
+  // Reads (ADMIN-HIGH-121)
+  // ==========================================================================
 
-  const loadDashboard = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const dashboardQuery = useAdminQuery(
+    [...adminKeys.system.all(), 'jobs', 'dashboard'],
+    ({ signal }) => systemSettingsApi.getJobDashboard(signal),
+  );
+
+  const jobFilter = useMemo(
+    () => ({
+      queueName: filterQueue !== 'all' ? filterQueue : undefined,
+      status: filterStatus !== 'all' ? [filterStatus as JobStatus] : undefined,
+      search: searchTerm || undefined,
+    }),
+    [filterQueue, filterStatus, searchTerm],
+  );
+
+  const jobsQuery = useAdminQuery(
+    [...adminKeys.system.all(), 'jobs', 'list', jobFilter],
+    ({ signal }) => systemSettingsApi.getJobs(jobFilter, signal),
+    { enabled: activeTab === 'jobs', placeholderData: (previous) => previous },
+  );
+
+  const dashboard = dashboardQuery.data ?? null;
+  // The dashboard's own `recentJobs` is what the jobs tab shows until a
+  // filtered list answers; both come from the server, neither is invented.
+  const safeJobs: readonly BackgroundJob[] =
+    jobsQuery.data?.data ?? dashboard?.recentJobs ?? EMPTY_JOBS;
+  const safeQueues: JobQueue[] = dashboard?.queues ?? EMPTY_QUEUES;
+
+  const dashboardKey = [...adminKeys.system.all(), 'jobs'];
+
+  // ==========================================================================
+  // Writes — each invalidates the slices it changed (ADMIN-HIGH-121)
+  //
+  // Every handler used to patch local state instead: `setJobs(jobs.map(...))`
+  // after a retry, `setDashboard({...queues: map(...)})` after a pause. The
+  // screen then showed a status the server had not confirmed — and the queue
+  // counters beside it stayed on their pre-action values until something else
+  // refetched.
+  // ==========================================================================
+
+  const retryJob = useAdminMutation<BackgroundJob, string>(
+    (id) => systemSettingsApi.retryJob(id),
+    { invalidateKeys: [dashboardKey] },
+  );
+
+  const cancelJob = useAdminMutation<BackgroundJob, string>(
+    (id) => systemSettingsApi.cancelJob(id),
+    { invalidateKeys: [dashboardKey] },
+  );
+
+  const pauseQueue = useAdminMutation<JobQueue, string>(
+    (name) => systemSettingsApi.pauseQueue(name),
+    { invalidateKeys: [dashboardKey] },
+  );
+
+  const resumeQueue = useAdminMutation<JobQueue, string>(
+    (name) => systemSettingsApi.resumeQueue(name),
+    { invalidateKeys: [dashboardKey] },
+  );
+
+  const mutations = [retryJob, cancelJob, pauseQueue, resumeQueue];
+  const queryErrors = [
+    dashboardQuery.error,
+    jobsQuery.error,
+    ...mutations.map((mutation) => mutation.error),
+  ];
+  const loading = dashboardQuery.isPending;
+
+  const loadDashboard = (): void => {
+    void dashboardQuery.refetch();
+    void jobsQuery.refetch();
+  };
+
+  const handleRetryJob = async (job: BackgroundJob): Promise<void> => {
     try {
-      const dashboardData = await systemSettingsApi.getJobDashboard();
-      setDashboard(dashboardData);
-      setJobs(dashboardData.recentJobs || []);
-    } catch (err) {
-      console.error('Failed to load job dashboard:', err);
-      setError('Failed to load job queue dashboard');
-      setDashboard(defaultDashboard);
-      setJobs([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  const loadJobs = useCallback(async () => {
-    try {
-      const response = await systemSettingsApi.getJobs({
-        queueName: filterQueue !== 'all' ? filterQueue : undefined,
-        status: filterStatus !== 'all' ? [filterStatus as JobStatus] : undefined,
-        search: searchTerm || undefined,
-      });
-      setJobs(response.data);
-    } catch (err) {
-      console.error('Failed to load jobs:', err);
-      setJobs([]);
-    }
-  }, [filterQueue, filterStatus, searchTerm]);
-
-  useEffect(() => {
-    loadDashboard();
-  }, [loadDashboard]);
-
-  useEffect(() => {
-    if (activeTab === 'jobs') {
-      loadJobs();
-    }
-  }, [activeTab, loadJobs]);
-
-  // ============================================================================
-  // Handlers
-  // ============================================================================
-
-  const handleRetryJob = async (job: BackgroundJob) => {
-    const currentJobs = Array.isArray(jobs) ? jobs : [];
-    try {
-      await systemSettingsApi.retryJob(job.id);
-      setJobs(
-        currentJobs.map((j) =>
-          j.id === job.id
-            ? { ...j, status: 'pending' as JobStatus, attempts: 0 }
-            : j
-        )
-      );
-    } catch (err) {
-      console.error('Failed to retry job:', err);
-      setError(err instanceof Error ? err.message : 'Failed to retry job. Please try again.');
+      await retryJob.mutateAsync(job.id);
+    } catch {
+      // `retryJob.error` carries it into the notice above the table.
     }
   };
 
-  const handleCancelJob = async (job: BackgroundJob) => {
+  const handleCancelJob = async (job: BackgroundJob): Promise<void> => {
     if (!confirm(`Are you sure you want to cancel "${job.name}"?`)) return;
-
-    const currentJobs = Array.isArray(jobs) ? jobs : [];
     try {
-      await systemSettingsApi.cancelJob(job.id);
-      setJobs(
-        currentJobs.map((j) =>
-          j.id === job.id ? { ...j, status: 'cancelled' as JobStatus } : j
-        )
-      );
-    } catch (err) {
-      console.error('Failed to cancel job:', err);
-      setError(err instanceof Error ? err.message : 'Failed to cancel job. Please try again.');
+      await cancelJob.mutateAsync(job.id);
+    } catch {
+      // Reported through `cancelJob.error`.
     }
   };
 
-  const handleRetryAllFailed = async () => {
-    const currentJobs = Array.isArray(jobs) ? jobs : [];
-    const failedJobs = currentJobs.filter((j) => j.status === 'failed');
+  const handleRetryAllFailed = async (): Promise<void> => {
+    const failedJobs = safeJobs.filter((job) => job.status === 'failed');
     if (failedJobs.length === 0) return;
-
     if (!confirm(`Retry all ${failedJobs.length} failed jobs?`)) return;
 
     for (const job of failedJobs) {
@@ -150,55 +154,25 @@ export const JobQueuePage: React.FC = () => {
     }
   };
 
-  const handlePauseQueue = async (queue: JobQueue) => {
-    const currentQueues = dashboard?.queues && Array.isArray(dashboard.queues) ? dashboard.queues : [];
+  const handlePauseQueue = async (queue: JobQueue): Promise<void> => {
     try {
-      await systemSettingsApi.pauseQueue(queue.name);
-      setDashboard(
-        dashboard
-          ? {
-              ...dashboard,
-              queues: currentQueues.map((q) =>
-                q.name === queue.name ? { ...q, isPaused: true } : q
-              ),
-            }
-          : null
-      );
-    } catch (err) {
-      console.error('Failed to pause queue:', err);
-      setError(err instanceof Error ? err.message : 'Failed to pause queue. Please try again.');
+      await pauseQueue.mutateAsync(queue.name);
+    } catch {
+      // Reported through `pauseQueue.error`.
     }
   };
 
-  const handleResumeQueue = async (queue: JobQueue) => {
-    const currentQueues = dashboard?.queues && Array.isArray(dashboard.queues) ? dashboard.queues : [];
+  const handleResumeQueue = async (queue: JobQueue): Promise<void> => {
     try {
-      await systemSettingsApi.resumeQueue(queue.name);
-      setDashboard(
-        dashboard
-          ? {
-              ...dashboard,
-              queues: currentQueues.map((q) =>
-                q.name === queue.name ? { ...q, isPaused: false } : q
-              ),
-            }
-          : null
-      );
-    } catch (err) {
-      console.error('Failed to resume queue:', err);
-      setError(err instanceof Error ? err.message : 'Failed to resume queue. Please try again.');
+      await resumeQueue.mutateAsync(queue.name);
+    } catch {
+      // Reported through `resumeQueue.error`.
     }
   };
 
   // ============================================================================
   // Helpers
   // ============================================================================
-
-  // Ensure jobs is always an array
-  const safeJobs = Array.isArray(jobs) ? jobs : [];
-
-  // Ensure dashboard.queues is always an array
-  const safeQueues = dashboard?.queues && Array.isArray(dashboard.queues) ? dashboard.queues : [];
 
   const getStatusBadge = (status: JobStatus): 'success' | 'default' | 'info' | 'warning' | 'error' => {
     const variants: Record<JobStatus, 'success' | 'default' | 'info' | 'warning' | 'error'> = {
@@ -259,17 +233,9 @@ export const JobQueuePage: React.FC = () => {
     );
   }
 
+  // A dashboard that did not load is reported, not replaced by six zeros.
   if (!dashboard) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <p className="text-gray-500">Failed to load dashboard data</p>
-          <Button onClick={loadDashboard} className="mt-4">
-            Retry
-          </Button>
-        </div>
-      </div>
-    );
+    return <QueryFailureNotice errors={queryErrors} hasContent={false} onRetry={loadDashboard} />;
   }
 
   return (
@@ -295,6 +261,11 @@ export const JobQueuePage: React.FC = () => {
           </Button>
         </div>
       </div>
+
+      {/* A failed read or a rejected action, named. The page used to put a
+          write failure in a fixed-position toast at the bottom-right corner,
+          away from the table it concerned (ADMIN-HIGH-127). */}
+      <QueryFailureNotice errors={queryErrors} hasContent onRetry={loadDashboard} />
 
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -617,7 +588,7 @@ export const JobQueuePage: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {jobs
+                {safeJobs
                   .filter((j: BackgroundJob) => j.jobType === 'scheduled' || j.jobType === 'recurring')
                   .map((job: BackgroundJob) => (
                     <tr key={job.id} className="hover:bg-gray-50">
@@ -650,12 +621,6 @@ export const JobQueuePage: React.FC = () => {
         </Card>
       )}
 
-      {/* Error Display */}
-      {error && (
-        <div className="fixed bottom-4 right-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg shadow-lg max-w-md">
-          {error}
-        </div>
-      )}
     </div>
   );
 };

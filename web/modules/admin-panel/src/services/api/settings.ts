@@ -161,7 +161,7 @@ export const systemSettingsApi = {
     apiFetch<ErrorGroup>(`/system/errors/groups/${id}/ignore`, { method: 'POST' }),
 
   // Job Queue Management
-  getJobDashboard: () =>
+  getJobDashboard: (signal?: AbortSignal) =>
     apiFetch<{
       totalJobs: number;
       pendingJobs: number;
@@ -171,7 +171,7 @@ export const systemSettingsApi = {
       avgDuration: number;
       queues: JobQueue[];
       recentJobs: BackgroundJob[];
-    }>('/system/jobs/dashboard'),
+    }>('/system/jobs/dashboard', { signal }),
   getQueues: () => apiFetch<JobQueue[]>('/system/jobs/queues'),
   getQueue: (name: string) => apiFetch<JobQueue>(`/system/jobs/queues/${name}`),
   createQueue: (data: { name: string; concurrency?: number; maxJobsPerSecond?: number }) =>
@@ -187,8 +187,10 @@ export const systemSettingsApi = {
     status?: JobStatus[];
     jobType?: string;
     search?: string;
-  } & PaginationParams) =>
-    apiFetch<PaginatedResult<BackgroundJob>>(`/system/jobs?${buildQueryString(params || {})}`),
+  } & PaginationParams, signal?: AbortSignal) =>
+    apiFetch<PaginatedResult<BackgroundJob>>(`/system/jobs?${buildQueryString(params || {})}`, {
+      signal,
+    }),
   getJob: (id: string) => apiFetch<BackgroundJob>(`/system/jobs/${id}`),
   createJob: (data: {
     name: string;

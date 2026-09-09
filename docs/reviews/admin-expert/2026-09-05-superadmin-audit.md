@@ -806,17 +806,18 @@ W8d stops the claim: the fields are `number | null` and the cards render an em
 dash. The aggregate itself is missing and needs a server-side GROUP BY plus the
 resolution-time average, which belongs to W9.
 
-**Landed (W8b–W8h):** 9 of 44 pages migrated — AuditLogPage, ActivityLogPage,
+**Landed (W8b–W8i):** 10 of 44 pages migrated — AuditLogPage, ActivityLogPage,
 AuditTrailPage, SecurityDashboardPage, CompliancePage (which finishes the
 SECURITY batch and is the first page to use the WRITE primitive), ModulesPage,
-PerformanceDashboardPage, AdminDashboard and AnalyticsDashboardPage. admin-panel gained a
+PerformanceDashboardPage, AdminDashboard, AnalyticsDashboardPage and
+JobQueuePage. admin-panel gained a
 `tsconfig.spec.json`, entering `tools/gates/type-check-spec.ts` at 0: no type
 gate had ever read a spec in this package, and the compiler's first pass found a
 pre-existing spec asserting against a `Tenant` shape with two fields the
 contract lacks and one required field missing.
 
-**Remaining:** 35 pages, in four domain batches (tenant 6, billing 11,
-system 9, messaging 9), governed by
+**Remaining:** 34 pages, in four domain batches (tenant 6, billing 11,
+system 8, messaging 9), governed by
 `.claude/allowlists/admin-panel-unmigrated-reads.yaml`. The `AdminTable`
 contract for server-side pagination, sort and dataset-scoped aggregates follows
 the migration. **Gate:** `tests/invariants/admin-panel-data-layer.spec.ts` — a
@@ -825,6 +826,36 @@ expiry and reason under a ceiling that only decreases; every module-scoped cache
 in `web/` reaches the logout authority; `@tanstack/react-query` is declared
 wherever it is imported, at the federation-pinned version; the barrel keeps
 exporting the primitives.
+
+## ADMIN-HIGH-127 — the job queue reported no failures for a dashboard it had not read
+
+**State:** OPEN → closed by W8i · **Wave:** W8i · **Owner:** okan
+**Deadline:** 2026-12-31
+
+Three defects, found while migrating the page.
+
+1. **Six zeros for a failed read.** `defaultDashboard` was installed by the
+   catch whenever `/system/jobs/dashboard` failed. "Failed Today: 0" is the one
+   number an operator reads on this screen to decide nothing is wrong, and it
+   was shown for a dashboard that had not loaded — above an error line the same
+   handler set, easy to miss beneath four confident cards. Deleted; a failed
+   read renders the failure.
+
+2. **Writes that patched the screen instead of the server.** Each handler
+   rewrote local state — `setJobs(jobs.map(...))` after a retry,
+   `setDashboard({ ...queues: map(...) })` after a pause — so a row showed a
+   status the backend had never confirmed, while the queue counters beside it
+   kept their pre-action values. All four writes go through `useAdminMutation`
+   with `invalidateKeys`, and a rejected action is reported next to the table
+   rather than in a fixed-position toast in the corner of the window.
+
+3. **A contract field with no fields.** `JobProgress` was an interface, and the
+   OpenAPI generator's swagger plugin can only describe classes, so
+   `BackgroundJob.progress` reached the frontend as `Record<string, never>` —
+   and the page read `job.progress.percentage` through a type that says the
+   property cannot exist. It is a class now; the artifact and the generated
+   client carry the four fields. No DDL: the column is jsonb and its stored
+   shape is unchanged.
 
 ## ADMIN-HIGH-125 — the analytics dashboard rendered a platform of zeros, twice over
 
@@ -854,10 +885,13 @@ zero; and a section named in `unavailable[]` is treated as UNKNOWN, so the
 server's own signal decides what is shown instead of annotating the zeros it
 replaced.
 
-**The server half stays open for W9.** Those five default objects also feed
-`reports.service.ts` snapshot aggregation, so widening the metric interfaces to
-`number | null` changes report averaging math — a change that belongs with the
-backend wave, not bolted onto a page migration.
+**The server half is now its own finding, ADMIN-HIGH-126**, so the debt is
+tracked by an OPEN row rather than by the notes of a resolved one. Those five
+default objects also feed `reports.service.ts` snapshot aggregation, so
+widening the metric interfaces to `number | null` carries report averaging math
+with it — a W9 change, not one to bolt onto a page migration. No operator sees
+those zeros on the analytics dashboard any more; every other consumer of
+`GET /analytics/dashboard` still does.
 
 ## ADMIN-HIGH-124 — the landing page reported an empty platform when its reads failed
 

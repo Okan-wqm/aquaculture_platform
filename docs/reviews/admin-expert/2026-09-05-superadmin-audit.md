@@ -826,7 +826,7 @@ in `web/` reaches the logout authority; `@tanstack/react-query` is declared
 wherever it is imported, at the federation-pinned version; the barrel keeps
 exporting the primitives.
 
-## ADMIN-HIGH-123 — the performance dashboard scored perfect health from no measurements, and its time-range selector changed nothing
+## ADMIN-HIGH-123 — perfect health from no measurements, and a dead time-range selector
 
 **State:** OPEN → closed by W8f · **Wave:** W8f · **Owner:** okan
 **Deadline:** 2026-12-31

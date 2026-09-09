@@ -70,6 +70,16 @@ jobs:
         run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.:aria-kernel python3 -m unittest discover tools/aria-poc/invariants -p '*test*.py'
       - name: Run tools/shared invariant tests (Plan ARIA-V2 §3.6)
         run: PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.:aria-kernel python3 -m unittest discover tools/shared/invariants -p '*test*.py'
+      # The acceptance lane audits ARIA from OUTSIDE the kernel, so its suite
+      # sits outside aria-kernel/ — and `unittest discover aria-kernel` in
+      # aria-suite-run.sh therefore never collected it. test_harness.py spent
+      # three days un-importable (a dedented assertion raised NameError at
+      # module scope) with nothing anywhere reporting it. These two steps are
+      # what make the lane a gate instead of a file.
+      - name: Run ARIA acceptance self-tests
+        run: npm run test:aria-acceptance:unit
+      - name: Run ARIA acceptance harness
+        run: npm run test:aria-acceptance
       # Plan ARIA-V5 §3e Phase 2 — pedagogy lint over all agents in
       # --strict mode (allowlist IGNORED). All 84 agents carry their
       # V5 §3e narrative pairings and the grandfather allowlist is

@@ -46999,6 +46999,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/sensor-graphql-fe-be-parity.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/sensor-ingestion-honest-deployment.spec.ts",
       "prettier_managed": true
     },

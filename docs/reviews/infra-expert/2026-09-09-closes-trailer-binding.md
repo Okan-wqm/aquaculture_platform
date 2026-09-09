@@ -68,3 +68,93 @@ of an anchored trailer is refused.
 
 The ARIA lane of the same validator has cross-checked path against id since Plan 018 Phase 4;
 this is that rule reaching the registry lane.
+
+## PROC-MEDIUM-032 — a fix can be merged against a finding and still be unrecordable
+
+PROC-HIGH-031 stops the next mis-bound trailer. It does not repair the ones already
+merged, and measuring those turned up a second, independent defect.
+
+Every `Closes:` trailer on `origin/main` was matched against the OPEN/IN-PROGRESS rows:
+**23 active findings are named by a merged trailer.** Three bind correctly and the ledger
+is right about them — `INFRA-HIGH-147` and `PLAT-MEDIUM-901` carry `rejected_closing_commits`
+(deliberate reopens), and `INFRA-MEDIUM-168` has an empty `review_file`. The other **20 do
+not bind**, in two distinct sub-classes.
+
+|       | path          | id                                        | example            |
+| ----- | ------------- | ----------------------------------------- | ------------------ |
+| **A** | right         | **wrong** — a ceremony renumbered the row | `SEC-HIGH-158/159` |
+| **B** | **different** | right                                     | the other 20       |
+
+Sub-class B is usually not staleness. It is two legitimate documents:
+`SENSOR-HIGH-105` was **raised** in `docs/reviews/zcode/2026-09-03-100-tenant-readiness-integration.md:52`
+and **closed** by `1f94881db` citing `docs/reviews/zcode/2026-09-04-telemetry-readiness-v4-port.md:92`.
+Both files exist and both carry a heading for the id. A finding is raised in one review cycle
+and fixed in another; the ledger's `review_file` records the raise, the trailer records the
+fix, and the exact matcher demands they be the same string.
+
+An id in this position has `finding-id-aliases.yaml`. A path has no equivalent, so `close`
+and `reconcile` refuse the real closer permanently and the finding stays OPEN forever.
+
+**Tested and disproved:** the hypothesis that an append-only chain retains the prior
+`review_file`, which would allow a mechanical repair. Each id has exactly one row. There is
+no shortcut; each of the 20 has to be verified against code.
+
+**Fix direction (tier 1, one mechanism rather than a second one):** extend the SAME sidecar
+with declared closure anchors, folded into `FindingTrailerTarget` by `withFindingAliases` and
+matched only in the anchored branch. The backward-looking derivation loads them; the
+forward-looking commit-msg gate does not, so a NEW commit must still cite the current
+`review_file` and PROC-HIGH-031 is not quietly reopened. Guarded by the mirror of the
+invariants the alias sidecar already carries: the declared path exists, carries a heading for
+that id, and at least one named merged commit really cites it.
+
+Not attempted in this branch (owner @okan-wqm, 2026-10-31). It is the blocking dependency for
+closing `SENSOR-HIGH-105`, and closing 20 ledger rows is bookkeeping — it does not outrank the
+sensor work queued behind it.
+
+## The pilot-scope four, verified against code
+
+The four in-scope findings named by a merged trailer, each read against the source rather than
+against the report that raised it.
+
+| Finding           | Code says                                                                                                                                                                | Ledger is                   | Action                                                                                                                                                                                                                                                                                               |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `FARM-HIGH-151`   | **fixed** — all ten handlers resolve currency through `FinanceSettingsService`; `finance-currency-ssot.spec.ts` green                                                    | OPEN, `closing_commits: []` | closed in this branch, with the guard turned from a named list into a rule                                                                                                                                                                                                                           |
+| `SENSOR-HIGH-097` | **fixed** — `compliance/erasure/` hooks, `MqttAuthService.invalidateEntriesForTenant`, `ErasedTenantTombstoneService`; closer `65753cb90` is on main                     | OPEN                        | **cannot close.** Its trailer cites `2026-08-24-100-tenant-readiness.md`, which has never carried a `SENSOR-HIGH-097` heading — the 2026-09-03 integration review records exactly that at `:162`. Even PROC-MEDIUM-032's mechanism would not admit it, because the declared anchor must really exist |
+| `SENSOR-HIGH-105` | **fixed** — `@dsnp/parquetjs` is a declared dependency, `ARCHIVE_CODEC_ID_V2 = 'parquet'`, the exporter writes `aqua-telemetry-archive/2`; closer `1f94881db` is on main | OPEN                        | **cannot close** — textbook sub-class B; blocked on PROC-MEDIUM-032                                                                                                                                                                                                                                  |
+| `MSG-HIGH-078`    | **not fixed**                                                                                                                                                            | OPEN                        | correct, left alone                                                                                                                                                                                                                                                                                  |
+
+`MSG-HIGH-078` deserves its measurement, because its shape changed. The finding described drift
+between a committed lock at `sanitize-html` 2.17.5 and a mutable `node_modules` at 2.17.6, and
+prescribed pinning 2.17.5 exactly. Today `package.json` asks for `^2.17.7` and the lock resolves
+2.17.7 — so the range was widened, not pinned, and the violation is now committed rather than
+drifted. The two halves have separated:
+
+- **Jest breakage: gone.** `edit-message.handler.spec.ts` (which imports `shared/sanitize`
+  unmocked) passes 7/7, and there is no `transformIgnorePatterns` escape in
+  `apps/messaging-service/jest.config.ts`. CI runs Node 22, where `require()` of the nested
+  ESM-only `htmlparser2@12` works.
+- **Node floor violation: live and now committed.** `engines.node` is `>=20.11.0` and `.nvmrc`
+  is `20.11.0`, while the installed `sanitize-html@2.17.7` declares `engines.node >=22.12.0`.
+
+`FARM-CRITICAL-238` / `FARM-HIGH-239` are IN-PROGRESS in a parallel session's area and were not
+touched. The EDGE/BILLING/LEGAL/ORPHAN/ARIA members of the 20 are outside the pilot; they are
+recorded here and not chased.
+
+## What the FARM-HIGH-151 verification found on its own
+
+`finance-currency-ssot.spec.ts` guards `FINANCE_HANDLER_ROOTS` recursively **plus a hardcoded
+`NAMED_GUARDED_FILES` list** — which is the ratchet FARM-HIGH-151's own notes describe ("migrate
+a handler, add it to the guarded set"). A handler outside those roots that nobody remembers to
+list is not guarded, and running the spec's own `CURRENCY_FALLBACK` pattern over every
+`apps/**/*.handler.ts` found **7 unguarded writers**:
+
+- `create-payroll.handler.ts:108,197` and `approve-payroll.handler.ts:72` — **HR-HIGH-008**.
+  A real defect: the same service already resolves the tenant default through
+  `PayrollCostSettingsService.getDefaultCurrencyInTx` (`create-employee.handler.ts:67`), and
+  `approve-payroll` stamps `savedPayroll.currency || 'USD'` onto the cross-service
+  `PayrollProcessed` event.
+- five billing handlers — **BILLING-MEDIUM-016**. Not asserted to be a defect: platform billing
+  in USD is a defensible policy. The defect is that nothing in the code declares which reading is
+  intended, so no gate can enforce either.
+
+**SEC-LOW-168** records the one genuine test gap found while closing SEC-HIGH-159.

@@ -45,8 +45,14 @@ export const reportsApi = {
       method: 'POST',
       body: JSON.stringify({ definitionId, format, filters }),
     }),
-  getReportExecutions: (params?: { definitionId?: string; reportId?: string; status?: ReportStatus; reportType?: ReportType } & PaginationParams) =>
-    apiFetch<PaginatedResult<ReportExecution>>(`/reports/executions?${buildQueryString(params || {})}`),
+  getReportExecutions: (
+    params?: { definitionId?: string; reportId?: string; status?: ReportStatus; reportType?: ReportType } & PaginationParams,
+    signal?: AbortSignal,
+  ) =>
+    apiFetch<PaginatedResult<ReportExecution>>(
+      `/reports/executions?${buildQueryString(params || {})}`,
+      { signal },
+    ),
   getReportExecution: (id: string) => apiFetch<ReportExecution>(`/reports/executions/${id}`),
   downloadReport: (executionId: string) =>
     apiFetchBlob(`/reports/executions/${executionId}/download`),

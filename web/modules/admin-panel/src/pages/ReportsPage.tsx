@@ -7,9 +7,11 @@
  */
 
 import { Card, Button, Badge, Modal, Input } from '@aquaculture/shared-ui';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 
 import { reportsApi, type ReportExecution as ApiReportExecution } from '../services/adminApi';
+import { adminKeys, useAdminMutation, useAdminQuery } from '../hooks';
+import { QueryFailureNotice } from '../components';
 
 // ============================================================================
 // Types
@@ -53,6 +55,9 @@ interface GeneratedReport {
   rowCount?: number;
   fileSizeBytes?: number;
 }
+
+/** How often to re-read while an execution is still running. */
+const PENDING_POLL_MS = 5_000;
 
 const mapExecutionStatus = (status: ApiReportExecution['status']): GeneratedReport['status'] => {
   if (status === 'completed') return 'ready';
@@ -353,7 +358,6 @@ const ReportHistoryItem: React.FC<ReportHistoryItemProps> = ({ report, onDownloa
 
 const ReportsPage: React.FC = () => {
   const [activeCategory, setActiveCategory] = useState<string>('all');
-  const [generatedReports, setGeneratedReports] = useState<GeneratedReport[]>([]);
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [selectedReportType, setSelectedReportType] = useState<ReportType | null>(null);
@@ -363,8 +367,6 @@ const ReportsPage: React.FC = () => {
     endDate: new Date().toISOString().split('T')[0],
   });
   const [selectedFormat, setSelectedFormat] = useState<ReportFormat>('json');
-  const [generating, setGenerating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const categories = ['all', 'Tenant', 'Financial', 'Usage', 'System'];
 
@@ -375,92 +377,118 @@ const ReportsPage: React.FC = () => {
   const handleOpenGenerateModal = (type: ReportType): void => {
     setSelectedReportType(type);
     setShowGenerateModal(true);
-    setError(null);
   };
 
-  const loadReportHistory = useCallback(async () => {
-    try {
-      const response = await reportsApi.getReportExecutions({ page: 1, limit: 20 });
-      setGeneratedReports(response.data.map(mapExecutionToReport));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load report history');
-    }
-  }, []);
+  // ==========================================================================
+  // Read (ADMIN-HIGH-121)
+  //
+  // A queued execution used to sit on screen as "pending" until the operator
+  // reloaded the page: the list was fetched once, and generating a report
+  // unshifted the POST's own response — whatever status it carried at that
+  // instant — into local state. `refetchInterval` re-reads while anything is
+  // still running, so a report that finishes says so.
+  // ==========================================================================
 
-  useEffect(() => {
-    void loadReportHistory();
-  }, [loadReportHistory]);
+  const executionsQuery = useAdminQuery(
+    adminKeys.reports.list(),
+    ({ signal }) => reportsApi.getReportExecutions({ page: 1, limit: 20 }, signal),
+    {
+      refetchInterval: (query) =>
+        (query.state.data?.data ?? []).some(
+          (execution) => mapExecutionStatus(execution.status) === 'pending',
+        )
+          ? PENDING_POLL_MS
+          : false,
+    },
+  );
 
-  const handleGenerateReport = useCallback(async () => {
+  const generatedReports: GeneratedReport[] = (executionsQuery.data?.data ?? []).map(
+    mapExecutionToReport,
+  );
+
+  // ==========================================================================
+  // Writes (ADMIN-HIGH-121)
+  // ==========================================================================
+
+  const runReport = useAdminMutation<
+    ApiReportExecution,
+    { reportType: ReportType; reportName: string; format: ReportFormat; startDate: string; endDate: string }
+  >((input) => reportsApi.executeReport(input), {
+    invalidateKeys: [adminKeys.reports.all()],
+  });
+
+  const downloadMutation = useAdminMutation<void, GeneratedReport>(async (report) => {
+    const { blob, filename } = await reportsApi.downloadReport(report.id);
+    const extension = report.format === 'pdf' ? 'pdf' : report.format === 'csv' ? 'csv' : 'json';
+    const downloadName =
+      filename || `${report.title.replace(/\s+/g, '_')}_${report.id}.${extension}`;
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = downloadName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  });
+
+  const generating = runReport.isPending;
+  const queryErrors = [executionsQuery.error, runReport.error, downloadMutation.error];
+
+  const loadReportHistory = (): void => {
+    void executionsQuery.refetch();
+  };
+
+  const handleGenerateReport = useCallback(async (): Promise<void> => {
     if (!selectedReportType) return;
 
-    setGenerating(true);
-    setError(null);
+    const reportDef = reportDefinitions.find((r) => r.type === selectedReportType);
+    if (!reportDef) return;
 
     try {
-      const reportDef = reportDefinitions.find(r => r.type === selectedReportType);
-      if (!reportDef) throw new Error('Report definition not found');
-
-      const execution = await reportsApi.executeReport({
+      await runReport.mutateAsync({
         reportType: selectedReportType,
         reportName: reportDef.name,
         format: selectedFormat,
         startDate: dateRange.startDate,
         endDate: dateRange.endDate,
       });
-
-      const newReport = mapExecutionToReport(execution);
-
-      setGeneratedReports(prev => [newReport, ...prev.filter(r => r.id !== newReport.id)]);
       setShowGenerateModal(false);
       setSelectedReportType(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to generate report');
-    } finally {
-      setGenerating(false);
+    } catch {
+      // `runReport.error` carries it; the modal stays open.
     }
-  }, [selectedReportType, selectedFormat, dateRange]);
+  }, [selectedReportType, selectedFormat, dateRange, runReport]);
 
-  const handleQuickReport = useCallback(async (type: ReportType, format: ReportFormat = 'json') => {
-    const reportDef = reportDefinitions.find(r => r.type === type);
-    if (!reportDef) return;
+  const handleQuickReport = useCallback(
+    async (type: ReportType, format: ReportFormat = 'json'): Promise<void> => {
+      const reportDef = reportDefinitions.find((r) => r.type === type);
+      if (!reportDef) return;
 
-    try {
       const endDate = new Date();
       const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
-      const execution = await reportsApi.executeReport({
-        reportType: type,
-        reportName: reportDef.name,
-        format,
-        startDate: startDate.toISOString().split('T')[0],
-        endDate: endDate.toISOString().split('T')[0],
-      });
-
-      const newReport = mapExecutionToReport(execution);
-
-      setGeneratedReports(prev => [newReport, ...prev.filter(r => r.id !== newReport.id)]);
-    } catch (err) {
-      setError(`Failed to generate report: ${err instanceof Error ? err.message : 'Unknown error'}`);
-    }
-  }, []);
+      try {
+        await runReport.mutateAsync({
+          reportType: type,
+          reportName: reportDef.name,
+          format,
+          startDate: startDate.toISOString().split('T')[0] ?? '',
+          endDate: endDate.toISOString().split('T')[0] ?? '',
+        });
+      } catch {
+        // Reported through `runReport.error`.
+      }
+    },
+    [runReport],
+  );
 
   const handleDownload = async (report: GeneratedReport): Promise<void> => {
     try {
-      const { blob, filename } = await reportsApi.downloadReport(report.id);
-      const extension = report.format === 'pdf' ? 'pdf' : report.format === 'csv' ? 'csv' : 'json';
-      const downloadName = filename || `${report.title.replace(/\s+/g, '_')}_${report.id}.${extension}`;
-
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = downloadName;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to download report');
+      await downloadMutation.mutateAsync(report);
+    } catch {
+      // Reported through `downloadMutation.error`.
     }
   };
 
@@ -479,20 +507,13 @@ const ReportsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Error message */}
-      {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-start gap-3">
-          <svg className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-          </svg>
-          <p className="text-sm text-red-700 flex-1">{error}</p>
-          <button onClick={() => setError(null)} className="text-red-400 hover:text-red-600">
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-            </svg>
-          </button>
-        </div>
-      )}
+      {/* A failed history read, a refused execution, or a download the server
+          would not produce — each named, with a retry. */}
+      <QueryFailureNotice
+        errors={queryErrors}
+        hasContent={executionsQuery.data !== undefined}
+        onRetry={loadReportHistory}
+      />
 
       {/* Category Tabs */}
       <div className="flex flex-wrap gap-2">
@@ -598,9 +619,9 @@ const ReportsPage: React.FC = () => {
           title="Generate Report"
         >
           <div className="space-y-4">
-            {error && (
+            {runReport.error && (
               <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-                {error}
+                {runReport.error.message}
               </div>
             )}
 

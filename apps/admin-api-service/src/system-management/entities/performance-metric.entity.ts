@@ -160,6 +160,17 @@ export interface DatabaseMetrics {
   deadlockCount: number | null;
 }
 
+/**
+ * The infrastructure half of a snapshot.
+ *
+ * These three interfaces describe the shape stored INSIDE the `applicationMetrics`
+ * / `databaseMetrics` / `infrastructureMetrics` jsonb columns below. Widening a
+ * field here to `| null` is therefore a TypeScript change with no DDL: jsonb has
+ * no per-key column to alter, and every reader already handles the null. Say so
+ * in the PR body (`ENTITY-DIFF-OK: admin-api-service — …`) so
+ * `entity-diff-witness` does not ask for a migration that would have nothing to
+ * execute.
+ */
 export interface InfrastructureMetrics {
   /** `os.cpus()` and `os.totalmem()` cannot fail, so these are always measured. */
   cpuUsage: number;

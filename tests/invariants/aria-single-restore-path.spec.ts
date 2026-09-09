@@ -182,6 +182,14 @@ describe('ARIA state has a single restore path (RC-6)', () => {
     }
   });
 
+  it('routes maintenance publication through the canonical state CLI', () => {
+    const body = executableYaml(
+      readFileSync(join(WORKFLOW_DIR, 'aria-state-maintenance.yml'), 'utf8'),
+    );
+    expect(body).toContain('aria_kernel state publish');
+    expect(body).not.toMatch(/git\s+(?:add|commit|push)\b/);
+  });
+
   it('has the restore expose the proof outputs both publish gates read', () => {
     // ORPHAN-CRITICAL-484 / 488. Without these the publish gate cannot tell a
     // restored tree from a bootstrap-empty one, which is the state the producer

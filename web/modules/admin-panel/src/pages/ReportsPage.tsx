@@ -12,6 +12,7 @@ import React, { useCallback, useState } from 'react';
 import { reportsApi, type ReportExecution as ApiReportExecution } from '../services/adminApi';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../hooks';
 import { QueryFailureNotice } from '../components';
+import { saveBlob } from '../services/blob-client';
 
 // ============================================================================
 // Types
@@ -423,14 +424,7 @@ const ReportsPage: React.FC = () => {
     const downloadName =
       filename || `${report.title.replace(/\s+/g, '_')}_${report.id}.${extension}`;
 
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = downloadName;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    saveBlob(blob, downloadName);
   });
 
   const generating = runReport.isPending;

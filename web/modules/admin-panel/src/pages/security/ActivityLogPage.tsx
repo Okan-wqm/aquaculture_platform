@@ -31,6 +31,7 @@ import React, { useMemo, useState } from 'react';
 import { securityApi } from '../../services/adminApi';
 import { adminKeys, useAdminQuery } from '../../hooks';
 import { QueryFailureNotice } from '../../components';
+import { saveBlob } from '../../services/blob-client';
 
 // ============================================================================
 // Types
@@ -533,12 +534,10 @@ export const ActivityLogPage: React.FC = () => {
       ),
     ].join('\n');
 
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `activity-log-${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
+    saveBlob(
+      new Blob([csvContent], { type: 'text/csv' }),
+      `activity-log-${new Date().toISOString().split('T')[0]}.csv`,
+    );
   };
 
   if (loading && activities.length === 0) {

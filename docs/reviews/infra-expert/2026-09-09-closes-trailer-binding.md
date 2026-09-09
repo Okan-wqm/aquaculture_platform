@@ -29,7 +29,7 @@ accepted completely unread.
 PR #1425's two auth commits shipped to main citing a finding that was renumbered out from under
 them by the #1420 registry ceremony:
 
-```
+```text
 793dbfd34 refactor(auth-service): resolve every emailed link segment through ActionTokenResolver
 77d164947 fix(auth-service): mint an ActionToken row for every invitation delivery
     Closes: docs/reviews/orchestrator/2026-09-05-production-readiness-gaps.md#SEC-HIGH-056

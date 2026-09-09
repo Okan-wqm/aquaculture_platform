@@ -67,7 +67,7 @@ spec covers `validateInvitation`.
 purpose)` primitive that every consumer of an emailed link segment goes
 through, so a consumer that skips the indirection cannot be written.
 
-#### Closure evidence (2026-09-09)
+#### Closure evidence — SEC-HIGH-158 (2026-09-09)
 
 The fix is on main and has been since PR #1425: `ActionTokenResolver` is the one
 primitive (`action-token-resolver.service.ts`), `validateInvitation` and
@@ -122,7 +122,7 @@ the event contract (`{kind:'tenant', tenantId} | {kind:'platform'}`), so the
 platform case must be handled at compile time; the internal-API identity gets a
 matching platform-scope audience. Adjacent: `FARM-HIGH-083` (publish side).
 
-#### Closure evidence (2026-09-09)
+#### Closure evidence — SEC-HIGH-159 (2026-09-09)
 
 The fix is on main (PR #1425) at three layers, and each layer already fails if
 reverted:

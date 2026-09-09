@@ -14,8 +14,13 @@
  * "Canlı veri", shown whenever the CLIENT was polling. The client polls every
  * three seconds regardless, so the dot was always on — while no backend job ever
  * read a drive, meaning `vfd_readings` did not change between polls. It reported
- * the browser's activity as if it were the data's. It now reports the age of the
- * reading itself, which is the number an operator actually needs before acting.
+ * the browser's activity as if it were the data's.
+ *
+ * `VfdTelemetryPollerService` now refreshes those rows on each drive's own
+ * `poll_interval_ms`, so the data really does move. This still shows the age of
+ * the READING rather than a "live" badge, because that remains the honest signal:
+ * a drive whose edge read is failing stops producing rows, and the number an
+ * operator needs before touching a motor is how old the last one is.
  */
 import React from 'react';
 import { Zap, Play, Square, AlertOctagon, RefreshCw, Loader2, AlertCircle } from 'lucide-react';

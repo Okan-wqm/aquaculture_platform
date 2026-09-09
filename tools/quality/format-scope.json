@@ -29702,6 +29702,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/aria/SAFETY-CONTROL-WIRING-LEDGER.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/aria/schemas/autonomy-burn-in-report.schema.json",
       "prettier_managed": true
     },

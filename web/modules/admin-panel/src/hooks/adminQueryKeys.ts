@@ -64,6 +64,10 @@ export const adminKeys = {
       [...adminKeys.users.all(), 'list', filters] as const,
     detail: (id: string) =>
       [...adminKeys.users.all(), 'detail', id] as const,
+    /** The platform-wide user counts behind the four cards. */
+    stats: () => [...adminKeys.users.all(), 'stats'] as const,
+    /** The assignable-role catalogue — a read no user write invalidates. */
+    roleTemplates: () => [...adminKeys.users.all(), 'role-templates'] as const,
   },
 
   // ── Modules ──

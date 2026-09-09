@@ -30,6 +30,13 @@ import {
   type UserLimitCheckResult,
 } from '../services/adminApi';
 import { expectedTotalPages } from '@platform/pagination-contracts';
+import { isPlatformRole, type PlatformRole } from '../services/types/users';
+
+/**
+ * The role a new user or invitation starts at. Typed, so a role the server
+ * would reject cannot be the default (ADMIN-CRITICAL-133).
+ */
+const DEFAULT_ROLE: PlatformRole = 'MODULE_USER';
 
 // ============================================================================
 // User Management Page
@@ -64,12 +71,20 @@ const UserManagementPage: React.FC = () => {
   const [userLimitCheck, setUserLimitCheck] = useState<UserLimitCheckResult | null>(null);
 
   // Form state
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<{
+    email: string;
+    firstName: string;
+    lastName: string;
+    password: string;
+    role: PlatformRole;
+    tenantId: string;
+    isActive: boolean;
+  }>({
     email: '',
     firstName: '',
     lastName: '',
     password: '',
-    role: 'MODULE_USER',
+    role: DEFAULT_ROLE,
     tenantId: '',
     isActive: true,
   });
@@ -77,11 +92,18 @@ const UserManagementPage: React.FC = () => {
   const [saving, setSaving] = useState(false);
 
   // Invite form state
-  const [inviteFormData, setInviteFormData] = useState({
+  const [inviteFormData, setInviteFormData] = useState<{
+    email: string;
+    firstName: string;
+    lastName: string;
+    role: PlatformRole;
+    tenantId: string;
+    message: string;
+  }>({
     email: '',
     firstName: '',
     lastName: '',
-    role: 'MODULE_USER',
+    role: DEFAULT_ROLE,
     tenantId: '',
     message: '',
   });
@@ -273,7 +295,6 @@ const UserManagementPage: React.FC = () => {
         lastName: inviteFormData.lastName || undefined,
         role: inviteFormData.role,
         message: inviteFormData.message || undefined,
-        invitedBy: 'system', // In real app, get from auth context
       });
 
       setInviteSuccess(`Invitation sent: ${inviteFormData.email}`);
@@ -637,7 +658,15 @@ const UserManagementPage: React.FC = () => {
           <Select
             label="Role"
             value={formData.role}
-            onChange={(e) => setFormData({ ...formData, role: e.target.value })}
+            onChange={(e) => {
+              // A `<select>` hands back a string. Narrowing rather than
+              // asserting means an option list that ever carries a role the
+              // server does not accept is ignored here instead of producing a
+              // 400 the operator cannot explain (ADMIN-CRITICAL-133).
+              if (isPlatformRole(e.target.value)) {
+                setFormData({ ...formData, role: e.target.value });
+              }
+            }}
             options={[
               { value: 'TENANT_ADMIN', label: 'Tenant Admin' },
               { value: 'MODULE_MANAGER', label: 'Module Manager' },
@@ -843,9 +872,11 @@ const UserManagementPage: React.FC = () => {
           <Select
             label="Role *"
             value={inviteFormData.role}
-            onChange={(e) =>
-              setInviteFormData({ ...inviteFormData, role: e.target.value })
-            }
+            onChange={(e) => {
+              if (isPlatformRole(e.target.value)) {
+                setInviteFormData({ ...inviteFormData, role: e.target.value });
+              }
+            }}
             options={
               roleTemplates.length > 0
                 ? roleTemplates
@@ -854,7 +885,12 @@ const UserManagementPage: React.FC = () => {
                       value: r.code,
                       label: `${r.name} (Level ${r.level})`,
                     }))
-                : [
+                : // Only reached when the catalogue read failed. These are the
+                  // roles an invitation may grant — every platform role except
+                  // SUPER_ADMIN — and they must stay in step with
+                  // `INVITABLE_ROLES` on the server, which is what the invite
+                  // DTO validates against.
+                  [
                     { value: 'TENANT_ADMIN', label: 'Tenant Admin' },
                     { value: 'MODULE_MANAGER', label: 'Module Manager' },
                     { value: 'MODULE_USER', label: 'User' },

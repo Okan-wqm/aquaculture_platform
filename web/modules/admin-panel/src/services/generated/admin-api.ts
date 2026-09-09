@@ -7893,7 +7893,8 @@ export interface components {
             firstName: string;
             lastName: string;
             password: string;
-            role: string;
+            /** @enum {string} */
+            role: "SUPER_ADMIN" | "TENANT_ADMIN" | "MODULE_MANAGER" | "MODULE_USER";
         };
         UpdateUserDto: {
             /**
@@ -7903,7 +7904,8 @@ export interface components {
             tenantId?: string;
             firstName?: string;
             lastName?: string;
-            role?: string;
+            /** @enum {string} */
+            role?: "SUPER_ADMIN" | "TENANT_ADMIN" | "MODULE_MANAGER" | "MODULE_USER";
             isActive?: boolean;
         };
         ResetPasswordByAdminDto: {
@@ -7919,7 +7921,8 @@ export interface components {
             email: string;
             firstName?: string;
             lastName?: string;
-            role: string;
+            /** @enum {string} */
+            role: "SUPER_ADMIN" | "TENANT_ADMIN" | "MODULE_MANAGER" | "MODULE_USER";
             moduleIds?: string[];
             /** Format: uuid */
             primaryModuleId?: string;
@@ -12968,7 +12971,7 @@ export interface operations {
         parameters: {
             query?: {
                 tenantId?: string;
-                role?: string;
+                role?: "SUPER_ADMIN" | "TENANT_ADMIN" | "MODULE_MANAGER" | "MODULE_USER";
                 status?: "all" | "inactive" | "active";
                 search?: string;
                 page?: number;

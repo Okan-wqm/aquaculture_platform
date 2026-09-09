@@ -51,6 +51,31 @@ export enum Role {
 }
 
 /**
+ * Every role the platform defines, as a value list.
+ *
+ * `Role` is the vocabulary; this is the same vocabulary in the shape a
+ * `class-validator` `@IsEnum(...)` and a UI option list can consume, so neither
+ * has to retype it. `Object.values(Role)` rather than a second literal for the
+ * reason this constant exists at all: three hand-typed copies of this list —
+ * in `users.dto.ts`, in the role-template catalogue, and in the admin-panel's
+ * invite form — had each drifted to a DIFFERENT wrong set, naming `MANAGER`,
+ * `OPERATOR` and `VIEWER`, none of which is a `Role`, while rejecting
+ * `MODULE_MANAGER` and `MODULE_USER`, which are (ADMIN-CRITICAL-133).
+ */
+export const PLATFORM_ROLES: readonly Role[] = Object.values(Role);
+
+/**
+ * The roles an invitation may grant: every platform role except the platform
+ * administrator, which is never handed out by invitation.
+ *
+ * Derived, not retyped — a role added to `Role` is invitable by default and a
+ * role removed from it disappears here, so the two cannot disagree.
+ */
+export const INVITABLE_ROLES: readonly Role[] = PLATFORM_ROLES.filter(
+  (role) => role !== Role.SUPER_ADMIN,
+);
+
+/**
  * Role hierarchy for permission inheritance
  * Higher roles inherit permissions from lower roles
  */

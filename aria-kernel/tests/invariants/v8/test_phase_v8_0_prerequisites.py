@@ -146,7 +146,7 @@ class TestBudgetReservation(unittest.TestCase):
                 max_budget_usd_per_run=5.00,
             )
             self.assertTrue(token.startswith("sha256:"))
-            remaining_after_reserve = budget.check_remaining_budget(
+            remaining_after_reserve = budget.remaining_reservation_budget(
                 reservation_token=token, base_dir=base
             )
             self.assertAlmostEqual(remaining_after_reserve, 0.50, places=4)
@@ -156,7 +156,7 @@ class TestBudgetReservation(unittest.TestCase):
                 actual_cost_usd=0.30,
                 base_dir=base,
             )
-            remaining_after_reconcile = budget.check_remaining_budget(
+            remaining_after_reconcile = budget.remaining_reservation_budget(
                 reservation_token=token, base_dir=base
             )
             self.assertAlmostEqual(remaining_after_reconcile, 0.20, places=4)

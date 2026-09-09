@@ -32,5 +32,10 @@
   },
   "nx": {
     "includedScripts": []
+  },
+  "overrides": {
+    "@istanbuljs/load-nyc-config": {
+      "js-yaml": "^3.15.2"
+    }
   }
 }

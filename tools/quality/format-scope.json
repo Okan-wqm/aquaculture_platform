@@ -36362,6 +36362,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/supply-chain-auditor/2026-09-09-npm-audit-root-advisories.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/supply-chain/2026-06-13-esbuild-high-advisory-override.md",
       "prettier_managed": true
     },
@@ -37630,7 +37636,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "2f42a0be28934a659f5a06edc9e826fb9d4f5297d6e15af491baeb8c0ed6ab23",
+      "content_sha256": "fcc93344aa742f0a4d8e4f5ac8102c77785e5e6a1a4fbb6ba488864f3056befc",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "e2e/package-lock.json",
@@ -43579,7 +43585,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "169ad3bf1d799e102a0fac93d022e7081c57f9d0fb02d83392371c868900761d",
+      "content_sha256": "75715e988ac4f0e9279ba765c2751bd51daff832fdd65e9d353f43672d821a7b",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",

@@ -253,7 +253,16 @@ export interface OnboardingStep {
 export interface TenantOnboarding {
   tenantId: string;
   tenantName: string;
-  status: 'not_started' | 'in_progress' | 'completed' | 'stalled';
+  /**
+   * The server's own union (`OnboardingStatus` in
+   * `apps/admin-api-service/src/support/entities/support.entity.ts`).
+   *
+   * This said `stalled`, which the service never sets, and omitted `skipped`,
+   * which `skipOnboarding` does set — so the status filter offered a value no
+   * row can hold and every skipped tenant arrived as a status the type did not
+   * admit (ADMIN-HIGH-134).
+   */
+  status: 'not_started' | 'in_progress' | 'completed' | 'skipped';
   completedSteps: string[];
   currentStep?: string;
   progress: number;

@@ -120,9 +120,13 @@ export const supportApi = {
     apiFetch<{ acknowledgments: Array<{ userId: string; userName: string; tenantId: string; viewedAt: string; acknowledgedAt: string | null }> }>(`/support/announcements/${id}/acknowledgments`),
 
   // Onboarding - Backend: /support/onboarding
-  getOnboardingSteps: () => apiFetch<OnboardingStep[]>('/support/onboarding/steps'),
-  getTenantOnboardings: (params?: { status?: string } & PaginationParams) =>
-    apiFetch<PaginatedResult<TenantOnboarding>>(`/support/onboarding?${buildQueryString(params || {})}`),
+  getOnboardingSteps: (signal?: AbortSignal) =>
+    apiFetch<OnboardingStep[]>('/support/onboarding/steps', { signal }),
+  getTenantOnboardings: (params?: { status?: string } & PaginationParams, signal?: AbortSignal) =>
+    apiFetch<PaginatedResult<TenantOnboarding>>(
+      `/support/onboarding?${buildQueryString(params || {})}`,
+      { signal },
+    ),
   getTenantOnboarding: (tenantId: string) => apiFetch<TenantOnboarding>(`/support/onboarding/${tenantId}`),
   initializeOnboarding: (tenantId: string, tenantName: string) =>
     apiFetch<TenantOnboarding>('/support/onboarding/initialize', {
@@ -140,9 +144,31 @@ export const supportApi = {
       method: 'POST',
       body: JSON.stringify({ guideId, guideName })
     }),
-  getOnboardingStats: () =>
-    apiFetch<{ notStarted: number; inProgress: number; completed: number; stalled: number; avgCompletionDays: number }>('/support/onboarding/stats'),
+  /**
+   * The onboarding rollup, as the service actually returns it.
+   *
+   * This declared `stalled` — a field `getOnboardingStats` has never returned —
+   * and omitted `total`, `skipped`, `avgCompletionPercent` and
+   * `completionByStep`, which it does (ADMIN-HIGH-134). So the page's "Stalled"
+   * card read `undefined` on every load and its zero-default rendered `0`
+   * forever, while the page summed four fields to get a total the server was
+   * already sending.
+   */
+  getOnboardingStats: (signal?: AbortSignal) =>
+    apiFetch<{
+      total: number;
+      notStarted: number;
+      inProgress: number;
+      completed: number;
+      skipped: number;
+      avgCompletionPercent: number;
+      avgCompletionDays: number;
+      completionByStep: Record<string, number>;
+    }>('/support/onboarding/stats', { signal }),
   getTenantsNeedingAttention: () => apiFetch<TenantOnboarding[]>('/support/onboarding/needs-attention'),
-  getTrainingResources: (category?: string) =>
-    apiFetch<Array<{ id: string; title: string; type: string; category: string; url: string }>>(`/support/onboarding/resources/all${category ? `?category=${category}` : ''}`),
+  getTrainingResources: (category?: string, signal?: AbortSignal) =>
+    apiFetch<Array<{ id: string; title: string; type: string; category: string; url: string }>>(
+      `/support/onboarding/resources/all${category ? `?category=${category}` : ''}`,
+      { signal },
+    ),
 };

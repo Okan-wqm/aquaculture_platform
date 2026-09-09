@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `a22b6b16b3b59c23635e4c52123294d74ce54b8500680e8095c3aa87816e3bd5`
+Registry tip: `bfaaf0b832e69aeb7f5b68d2cfc57af5f2e1b4fa0d66d189d16a2c6e45730d33`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -247,7 +247,6 @@ Allowed truth buckets:
 | `ADMIN-CRITICAL-087`  | OPEN           | 2026-09-04   | admin-expert               | real-open                 |
 | `SENSOR-CRITICAL-111` | OPEN           | 2026-09-05   | sensor-expert              | real-open                 |
 | `DEPLOY-CRITICAL-017` | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
-| `ARIA-CRITICAL-040`   | OPEN           | 2026-09-09   | aria-acceptance-output-validator | already-fixed-needs-close |
 
 ## Mutation Rules
 
@@ -830,3 +829,6 @@ tests/invariants/all-services-env-aware-migrations.spec.ts --runInBand`,
   audit. The acceptance harness's truth check reported PASS on a sample of zero;
   the fix lands in the same change, so the registry row closes on merge —
   bucket `already-fixed-needs-close`, owner `okan`, deadline 2026-10-15.
+- `ARIA-CRITICAL-040`: registry state is `RESOLVED` with closing commit
+  `6f7f9c535`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `already-fixed-needs-close`.

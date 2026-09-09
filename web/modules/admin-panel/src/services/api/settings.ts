@@ -134,7 +134,7 @@ export const systemSettingsApi = {
     ),
 
   // Error Tracking
-  getErrorDashboard: () =>
+  getErrorDashboard: (signal?: AbortSignal) =>
     apiFetch<{
       totalErrors: number;
       unresolvedErrors: number;
@@ -142,17 +142,22 @@ export const systemSettingsApi = {
       errorsByService: Array<{ service: string; count: number }>;
       errorTrend: Array<{ timestamp: string; count: number }>;
       topErrors: ErrorGroup[];
-    }>('/system/errors/dashboard'),
+    }>('/system/errors/dashboard', { signal }),
   getErrorGroups: (params?: {
     status?: string;
     severity?: string;
     service?: string;
     search?: string;
-  } & PaginationParams & DateRangeParams) =>
-    apiFetch<PaginatedResult<ErrorGroup>>(`/system/errors/groups?${buildQueryString(params || {})}`),
+  } & PaginationParams & DateRangeParams, signal?: AbortSignal) =>
+    apiFetch<PaginatedResult<ErrorGroup>>(`/system/errors/groups?${buildQueryString(params || {})}`, {
+      signal,
+    }),
   getErrorGroup: (id: string) => apiFetch<ErrorGroup>(`/system/errors/groups/${id}`),
-  getErrorOccurrences: (groupId: string, params?: PaginationParams) =>
-    apiFetch<PaginatedResult<ErrorOccurrence>>(`/system/errors/groups/${groupId}/occurrences?${buildQueryString(params || {})}`),
+  getErrorOccurrences: (groupId: string, params?: PaginationParams, signal?: AbortSignal) =>
+    apiFetch<PaginatedResult<ErrorOccurrence>>(
+      `/system/errors/groups/${groupId}/occurrences?${buildQueryString(params || {})}`,
+      { signal },
+    ),
   updateErrorStatus: (id: string, status: string, assignedTo?: string, notes?: string) =>
     apiFetch<ErrorGroup>(`/system/errors/groups/${id}/status`, { method: 'PUT', body: JSON.stringify({ status, assignedTo, notes }) }),
   resolveError: (id: string, resolvedBy: string, notes?: string) =>

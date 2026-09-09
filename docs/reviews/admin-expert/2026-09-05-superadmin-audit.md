@@ -806,18 +806,18 @@ W8d stops the claim: the fields are `number | null` and the cards render an em
 dash. The aggregate itself is missing and needs a server-side GROUP BY plus the
 resolution-time average, which belongs to W9.
 
-**Landed (W8b–W8i):** 10 of 44 pages migrated — AuditLogPage, ActivityLogPage,
+**Landed (W8b–W8j):** 11 of 44 pages migrated — AuditLogPage, ActivityLogPage,
 AuditTrailPage, SecurityDashboardPage, CompliancePage (which finishes the
 SECURITY batch and is the first page to use the WRITE primitive), ModulesPage,
-PerformanceDashboardPage, AdminDashboard, AnalyticsDashboardPage and
-JobQueuePage. admin-panel gained a
+PerformanceDashboardPage, AdminDashboard, AnalyticsDashboardPage, JobQueuePage
+and ErrorTrackingPage. admin-panel gained a
 `tsconfig.spec.json`, entering `tools/gates/type-check-spec.ts` at 0: no type
 gate had ever read a spec in this package, and the compiler's first pass found a
 pre-existing spec asserting against a `Tenant` shape with two fields the
 contract lacks and one required field missing.
 
-**Remaining:** 34 pages, in four domain batches (tenant 6, billing 11,
-system 8, messaging 9), governed by
+**Remaining:** 33 pages, in four domain batches (tenant 6, billing 11,
+system 7, messaging 9), governed by
 `.claude/allowlists/admin-panel-unmigrated-reads.yaml`. The `AdminTable`
 contract for server-side pagination, sort and dataset-scoped aggregates follows
 the migration. **Gate:** `tests/invariants/admin-panel-data-layer.spec.ts` — a
@@ -826,6 +826,32 @@ expiry and reason under a ceiling that only decreases; every module-scoped cache
 in `web/` reaches the logout authority; `@tanstack/react-query` is declared
 wherever it is imported, at the federation-pinned version; the barrel keeps
 exporting the primitives.
+
+## ADMIN-HIGH-128 — the error page reported no unresolved errors, then counted down from it
+
+**State:** OPEN → closed by W8j · **Wave:** W8j · **Owner:** okan
+**Deadline:** 2026-12-31
+
+Two defects, one shape.
+
+**Zeros for a read that failed.** The stats object was seeded with four zeros
+and RESET to four zeros by the catch, so a failed `/system/errors/dashboard`
+displayed "0 unresolved" and "0 critical" — on the screen an operator opens to
+find out whether anything is broken — with the failure itself in a fixed toast
+in the bottom-right corner. The counts are `number | null` now and render an em
+dash, and the failed read is named where the operator is looking.
+`todayErrors` had the same problem in a subtler form: it was the last trend
+point `|| 0`, so an empty series read as "no errors today" about a window
+nobody had measured.
+
+**Arithmetic on a server aggregate.** Resolve and ignore each spliced the
+updated group into local state and then did
+`unresolvedErrors: prev.unresolvedErrors - 1`. That count is computed by the
+server; if an action did not change it — an already-acknowledged group, a
+different definition of "unresolved" — the card drifted further from the truth
+with every click, and nothing on the page ever corrected it. All three writes
+go through `useAdminMutation` with `invalidateKeys`, so the number comes back
+from the source that owns it.
 
 ## ADMIN-HIGH-127 — the job queue reported no failures for a dashboard it had not read
 

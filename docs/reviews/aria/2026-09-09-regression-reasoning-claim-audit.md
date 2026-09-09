@@ -27,7 +27,7 @@ this document rather than simulated here.
 
 ## Claim-by-claim adjudication
 
-### 1. "`impact_graph.py` derives downstream dependents into `downstream_projects` / `validation_scope`" — DOĞRU
+### 1. "`impact_graph.py` derives downstream dependents" — DOĞRU
 
 `aria-kernel/aria_kernel/impact_graph.py:76` emits `downstream_projects`;
 `:80` computes `validation_scope` via `_validation_scope(changed, downstream,
@@ -49,7 +49,7 @@ presented in dependency order so examination walks upstream-before-downstream
 `merge_authority.py:25` imports `verify_rollback_bundle`; `:105` calls it and
 `:310` records the result in the decision row.
 
-### 4. "We cannot prove every failed validation is wired to a semantically correct automatic revert" — DOĞRU
+### 4. "No proof every failed validation is wired to a correct revert" — DOĞRU
 
 The analysis hedged here, and the hedge was accurate. No such wiring exists.
 
@@ -66,7 +66,7 @@ escalates to HUMAN_REQUIRED after five consecutive regressions for one
 So the shape the analysis asked for is partly built. Which makes the next
 finding the important one.
 
-### 6. "Failure identity matters; comparing failure COUNTS is not enough" — DOĞRU, and provable inside ARIA
+### 6. "Failure identity matters; counts are not enough" — DOĞRU, provable in ARIA
 
 This is the analysis's central engineering insight, and ARIA's own baseline
 comparator is an instance of the defect it names.
@@ -79,7 +79,7 @@ N, "missing_schema_count": M}` (`:196`). No file, no identity, no which-one.
 
 Executed against the real function:
 
-```
+```text
 identity swapped, count equal (3 -> 3) -> NO DRIFT REPORTED
 fixed 2 / broke 1        (3 -> 2) -> [('get_repository_callsite_count', 'improvement')]
 ```
@@ -112,7 +112,7 @@ detector — its `regression` verdict is CONSUMED from the existing
 `experiment_regression_detected` event ("one detector, one event, two
 readers").
 
-### 8. Operator's own principle: "ARIA's learning must come from events" — ALREADY THE RULE, and well-built
+### 8. "ARIA's learning must come from events" — ALREADY THE RULE, and well-built
 
 `change_outcome.py` states it directly: the verdict is RECOMPUTED FROM THE
 LEDGERS, and `emit_change_outcome` **refuses** any reading whose sources are
@@ -158,7 +158,7 @@ The practical lesson generalises: a recommendation derived from a description
 of a system rather than from its code will misplace the gap even when it
 correctly identifies the principle.
 
-## ARIA-HIGH-045 — the baseline comparator compares counts, so a swapped violation is invisible (OPEN)
+## ARIA-HIGH-045 — the baseline comparator compares counts, so a swap is invisible (OPEN)
 
 - Owner: `okan`
 - Deadline: 2026-11-15

@@ -43,7 +43,7 @@ registering the gaps of its own closure tasks.
 When ARIA emits no above-threshold drift, `checked` is 0, so `unverifiable` is
 trivially 0, so the check passes. The acceptance lane's own truth layer printed:
 
-```
+```text
 [PASS] drift_output_validation — checked=0 TP=0 FP=0 unverifiable=0
 ```
 
@@ -94,7 +94,7 @@ said nothing about ARIA's behaviour.
 
 **Test that proves it.** Same fixture, one variable:
 
-```
+```text
 git_repo=False -> status='failed'    failed_phases=[{"phase":"experiment_night",
                                        "error":"experiment_night_head_sha_unavailable"}]
 git_repo=True  -> status='completed' failed_phases=[]
@@ -117,7 +117,7 @@ defect from an environment fault without reading kernel source.
 
 **Problem.** `tools/aria-acceptance/test_harness.py` raised at import:
 
-```
+```text
 File "tools/aria-acceptance/test_harness.py", line 71, in <module>
     self.assertEqual(result["cycle_status"], "completed")
 NameError: name 'self' is not defined
@@ -129,8 +129,8 @@ not exist. A second defect compounded it: `if __name__ == "__main__":
 unittest.main()` sat mid-file, above `ScorecardPersistenceTests`, so that class
 would not have been collected even had the module imported.
 
-Zero of nine tests could run. The file landed in this state on 2026-09-06 (PR
-#1458) and nothing reported it for three days. `CycleAcceptanceTests` is
+Zero of nine tests could run. The file landed in this state on 2026-09-06
+(PR #1458) and nothing reported it for three days. `CycleAcceptanceTests` is
 precisely the test that would have caught `ARIA-HIGH-041` on the day it was
 written.
 
@@ -189,7 +189,7 @@ sweep.
 **Test that proves it.** The repo's own `planSweep`, run against the real
 registry at `now = +1y`, `+10y`, `+50y`:
 
-```
+```text
 now=+50y : sweep acts on 11/14 OPEN ARIA; NEVER acted on 3:
     ARIA-CRITICAL-007  CRITICAL  deadline=null
     ARIA-CRITICAL-009  CRITICAL  deadline=null
@@ -216,7 +216,7 @@ contradiction between the two stores — there is simply no deadline in either.
 
 ## What the lane reports now
 
-```
+```text
 [PASS] drift_output_validation — checked=0 TP=0 FP=0 unverifiable=0
        (+4 sub-threshold signals swept for evidence)
        — evidence integrity verified; PRECISION UNMEASURED (no above-threshold drift)

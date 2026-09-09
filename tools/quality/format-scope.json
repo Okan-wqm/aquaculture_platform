@@ -55000,6 +55000,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/sensor-module/src/__tests__/vfd-drive-operability.test.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/sensor-module/src/__tests__/vfd-programming-hooks.test.tsx",
       "prettier_managed": true
     },
@@ -57413,6 +57419,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/sensor-module/src/components/vfd/VfdChangeSetList.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/sensor-module/src/components/vfd/VfdControlPanel.tsx",
       "prettier_managed": true
     },
     {

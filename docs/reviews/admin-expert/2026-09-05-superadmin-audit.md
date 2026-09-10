@@ -823,16 +823,86 @@ gate had ever read a spec in this package, and the compiler's first pass found a
 pre-existing spec asserting against a `Tenant` shape with two fields the
 contract lacks and one required field missing.
 
-**Remaining:** 20 pages, in two domain batches (billing 11, messaging 9 — the
-system and tenant batches are finished), governed by
-`.claude/allowlists/admin-panel-unmigrated-reads.yaml`. The `AdminTable`
-contract for server-side pagination, sort and dataset-scoped aggregates follows
-the migration. **Gate:** `tests/invariants/admin-panel-data-layer.spec.ts` — a
-page that reaches the network without the data layer is listed with owner,
-expiry and reason under a ceiling that only decreases; every module-scoped cache
-in `web/` reaches the logout authority; `@tanstack/react-query` is declared
-wherever it is imported, at the federation-pinned version; the barrel keeps
-exporting the primitives.
+**Remaining: none.** All 44 pages have moved. The ratchet ran from 44 to 0
+across W8b–W9t, each departure carrying its own finding, and
+`.claude/allowlists/admin-panel-unmigrated-reads.yaml` was **deleted** with its
+last entry (`MessagingPage`, ADMIN-CRITICAL-157) rather than left at
+`ceiling: 0` — an empty allowlist is an invitation to add a row. The
+`AdminTable` contract for server-side pagination, sort and dataset-scoped
+aggregates follows the migration. **Gate:**
+`tests/invariants/admin-panel-data-layer.spec.ts` — a page that reaches the
+network outside the data layer now **fails the build**, with no exception
+mechanism; every module-scoped cache in `web/` reaches the logout authority;
+`@tanstack/react-query` is declared wherever it is imported, at the
+federation-pinned version; the barrel keeps exporting the primitives.
+
+## ADMIN-CRITICAL-157 — the internal note delivered to the customer
+
+**State:** OPEN → closed by W9t · **Wave:** W9t · **Owner:** okan
+**Deadline:** 2026-12-31
+
+`MessagingPage` is the platform's one admin↔tenant conversation surface, and it
+is the last page of ADMIN-HIGH-121's ratchet. Eight defects, seven of them
+invisible to the operator.
+
+1. **The internal-note toggle was never sent.** The composer had a working
+   Internal Note / Public Message switch, styled the draft yellow, and posted
+   `{ content, senderName }` — no `isInternal`. `AddMessageDto` accepts the
+   field and the column defaults to `false`, so **every internal note an admin
+   ever wrote _about_ a customer was delivered _into_ that customer's own
+   support thread**, visible to them.
+2. **Every broadcast answered 400.** The Bulk Message dialog previewed _"This
+   message will be sent to all active tenants"_ and sent neither `tenantIds`
+   nor `targetCriteria` — the one body `sendBulkMessage` refuses. The refusal
+   went to `console.error`, so the dialog just sat there. No broadcast this
+   platform ever attempted was delivered.
+3. **A partial broadcast read as a complete one.** The reply carries
+   `{ sent, failed }`; the client declared it `void` and the page discarded it,
+   so 3 of 400 would have closed the dialog exactly like 400 of 400.
+4. **The platform's own replies rendered as the tenant's.** Alignment, bubble
+   colour and the read receipt were keyed on `senderType === 'super_admin'`.
+   admin-api writes `'admin'`; `'super_admin'` belongs to auth-service's
+   GraphQL messaging subgraph — a **different support stack** whose union the
+   panel's hand-written type had adopted. The test was false for every message
+   ever written, and no receipt ever drew.
+5. **A failed send drew as an unread one** — `'failed'` was missing from the
+   panel's status union.
+6. **Every attachment was a nameless "NaN MB" link** — the wire sends
+   `fileName` / `fileSize`, the page read `filename` / `size`.
+7. **Every message was signed "Admin"** — a literal the page sent beside a
+   `// TODO: Use actual admin name`, and both handlers preferred
+   `dto.senderName` over the authenticated user. The same class
+   ADMIN-CRITICAL-102 fixed for ticket creation.
+8. **A thread past 50 messages showed its oldest 50, silently.** `getMessages`
+   took `page` / `limit`, defaulted the limit to 50 and returned a **bare
+   array** — the total never left the server — under a header printing the real
+   `messageCount` from another query.
+
+Also fixed: six writes and two reads were swallowed into `console.error` (send,
+close, reopen, archive, create thread, broadcast; the stats read and
+mark-as-read), and mark-as-read shared one `try` with the message read so a
+refused acknowledgement was indistinguishable from a failed load;
+`calculateAvgResponseTime` returned `Math.round(avg || 0)`, so a platform that
+had never answered a tenant reported an average response time of **0 minutes**;
+and the new-conversation dialog took the tenant as a free-text UUID, where a
+valid-but-wrong id opens a support conversation against a tenant nobody meant
+to contact (the ADMIN-HIGH-153 class).
+
+**The fixes are structural.** `senderName` is **removed** from both request
+DTOs, so the wrong attribution is unrepresentable and `forbidNonWhitelisted`
+rejects a request that tries. `targetCriteria` becomes the single **required**
+audience field, described by a `BulkMessageAudienceDto` class — the
+`AnnouncementTarget` interface it replaced generated
+`Record<string, never>`, the plugin describing classes only — and it carries
+only the clauses `getTargetTenants` actually applies, because an audience
+filter that narrows nothing is the same lie in a different place.
+`getMessages` returns `createStandardPaginatedResult`;
+`avgResponseTimeMinutes` is nullable. `SupportMessageResponseDto`,
+`SupportMessagePageDto`, `MessagingStatsResponseDto`, `BulkMessageResultDto`
+and `CreatedMessageThreadDto` are declared so the panel **aliases the
+contract** instead of hand-writing it — which is what turned defects 4, 5 and 6
+into compile errors. The page moved to `useAdminQuery` / `useAdminMutation`
+with `QueryFailureNotice` and `TenantSelect`.
 
 ## ADMIN-CRITICAL-156 — a comment thread that was always empty, and always silent
 

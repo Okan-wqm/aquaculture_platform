@@ -16,7 +16,11 @@ import type {
   TicketComment,
   MessageThreadSummary,
   SupportThreadRecord,
+  CreatedMessageThread,
   SupportMessage,
+  MessagingStats,
+  BulkMessageResult,
+  BulkMessageAudience,
   Announcement,
   AnnouncementAcknowledgmentStatus,
   AnnouncementListQuery,
@@ -94,19 +98,43 @@ export const supportApi = {
   // Messaging - Backend: /support/messages
   // The list returns MessagingService.getAllThreads's projection, not the
   // thread row and not the GraphQL shape (ADMIN-HIGH-110).
-  getMessageThreads: (params?: { tenantId?: string; status?: string } & PaginationParams) =>
+  getMessageThreads: (
+    params?: { tenantId?: string; status?: string; hasUnread?: string } & PaginationParams,
+    signal?: AbortSignal,
+  ) =>
     apiFetch<PaginatedResult<MessageThreadSummary>>(
       `/support/messages/threads?${buildQueryString(params || {})}`,
+      { signal },
     ),
   getThread: (threadId: string) =>
     apiFetch<SupportThreadRecord>(`/support/messages/threads/${threadId}`),
-  getThreadMessages: (threadId: string) => apiFetch<SupportMessage[]>(`/support/messages/threads/${threadId}/messages`),
-  createThread: (data: { tenantId: string; subject: string; content: string; senderName: string }) =>
-    apiFetch<SupportThreadRecord>('/support/messages/threads', {
+  /**
+   * One PAGE of a thread's messages (ADMIN-CRITICAL-157).
+   *
+   * The route always took `page` and `limit` and defaulted the limit to 50; it
+   * now returns the total with them, so a truncated thread is visible as one
+   * instead of looking complete.
+   */
+  getThreadMessages: (threadId: string, params?: PaginationParams, signal?: AbortSignal) =>
+    apiFetch<PaginatedResult<SupportMessage>>(
+      `/support/messages/threads/${threadId}/messages?${buildQueryString(params || {})}`,
+      { signal },
+    ),
+  /**
+   * `senderName` is NOT sent, on this call or the next (ADMIN-CRITICAL-157).
+   *
+   * Both request DTOs used to accept one and prefer it over the authenticated
+   * user, and this page sent the literal `'Admin'` — so every message the
+   * platform has ever written to a tenant is signed "Admin" rather than by the
+   * person who wrote it. The field is gone from the contract; the server signs
+   * with the verified admin's identity.
+   */
+  createThread: (data: { tenantId: string; subject: string; content: string }) =>
+    apiFetch<CreatedMessageThread>('/support/messages/threads', {
       method: 'POST',
       body: JSON.stringify(data),
     }),
-  sendSupportMessage: (threadId: string, data: { content: string; senderName: string }) =>
+  sendSupportMessage: (threadId: string, data: { content: string; isInternal: boolean }) =>
     apiFetch<SupportMessage>(`/support/messages/threads/${threadId}/messages`, { method: 'POST', body: JSON.stringify(data) }),
   markAsRead: (threadId: string) =>
     apiFetch<void>(`/support/messages/threads/${threadId}/read`, { method: 'POST' }),
@@ -116,10 +144,33 @@ export const supportApi = {
     apiFetch<void>(`/support/messages/threads/${threadId}/close`, { method: 'POST' }),
   reopenThread: (threadId: string) =>
     apiFetch<void>(`/support/messages/threads/${threadId}/reopen`, { method: 'POST' }),
-  sendBulkMessage: (data: { subject: string; content: string; tenantIds?: string[]; sendEmail: boolean }) =>
-    apiFetch<void>('/support/messages/bulk', { method: 'POST', body: JSON.stringify(data) }),
+  /**
+   * Broadcast to a NAMED audience, and report what it did (ADMIN-CRITICAL-157).
+   *
+   * This sent neither `tenantIds` nor `targetCriteria`, which is the one
+   * combination the route refuses — so every broadcast the panel attempted
+   * answered 400 under a dialog that promised "all active tenants".
+   * `targetCriteria` is now the single required audience field: `{}` is every
+   * active tenant, `{ tenantIds }` a chosen set.
+   *
+   * The reply was declared `void` and discarded. It carries `sent` and
+   * `failed`: the loop opens one thread per tenant and counts the ones that
+   * threw, so a broadcast that reached 3 of 400 closed its dialog exactly like
+   * one that reached all 400.
+   */
+  sendBulkMessage: (data: {
+    subject: string;
+    content: string;
+    targetCriteria: BulkMessageAudience;
+    sendEmail: boolean;
+  }) =>
+    apiFetch<BulkMessageResult>('/support/messages/bulk', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
   getUnreadCount: () => apiFetch<{ unreadCount: number }>('/support/messages/unread-count'),
-  getMessagingStats: () => apiFetch<Record<string, unknown>>('/support/messages/stats'),
+  getMessagingStats: (signal?: AbortSignal) =>
+    apiFetch<MessagingStats>('/support/messages/stats', { signal }),
 
   // Announcements
   //

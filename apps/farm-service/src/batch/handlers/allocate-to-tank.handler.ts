@@ -48,6 +48,7 @@ import { Batch, BatchStatus } from '../entities/batch.entity';
 import { TankAllocation } from '../entities/tank-allocation.entity';
 import { TankBatch } from '../entities/tank-batch.entity';
 import { TankBatchService } from '../services/tank-batch.service';
+import { TankStockingService } from '../services/tank-stocking.service';
 import { resolveSiteIdFromDepartment } from '../utils/tank-lookup.util';
 
 /**
@@ -100,6 +101,7 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
     // aggregates derived. Shared with transfer/mortality/cull so every stock
     // mutation updates a tank the same way (no divergent hand-written copies).
     private readonly tankBatchService: TankBatchService,
+    private readonly tankStocking: TankStockingService,
     private readonly farmStockProjection: FarmStockProjectionService = defaultFarmStockProjectionForDirectHandlerConstruction(),
     private readonly mobileCommandReceipts: MobileCommandReceiptService = defaultMobileCommandReceiptsForDirectHandlerConstruction(),
   ) {}
@@ -161,186 +163,29 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
           throw new NotFoundException(`Batch ${batchId} bulunamadı`);
         }
 
-        // Equipment compatibility row or canonical Tank row bul with pessimistic lock
-        let equipment = await queryRunner.manager.findOne(Equipment, {
-          where: { id: payload.tankId, tenantId, isActive: true, isDeleted: false },
-          lock: { mode: 'pessimistic_write' },
-        });
-        let canonicalTank: Tank | null = null;
-
-        if (!equipment) {
-          canonicalTank = await queryRunner.manager.findOne(Tank, {
-            where: { id: payload.tankId, tenantId, isActive: true },
-            lock: { mode: 'pessimistic_write' },
-          });
-          if (canonicalTank) {
-            equipment = this.tankToCapacityEquipment(canonicalTank);
-          }
-        }
-
-        if (!equipment) {
-          throw new NotFoundException(`Tank ${payload.tankId} bulunamadı`);
-        }
-
-        // SEC-HIGH-051: object-level site authorization. The tank is already
-        // loaded+locked above, so resolve its owning site from the known
-        // departmentId (one Department lookup, no redundant tank re-lookup) and
-        // assert the caller is assigned to it BEFORE any allocation write.
-        // MODULE_MANAGER+ bypasses; an unassigned/unresolved site for a MODULE_USER
-        // is DENIED. canonicalTank (legacy) carries departmentId; the adapted
-        // Equipment may not, so prefer the canonical row's departmentId.
-        const departmentId = canonicalTank?.departmentId ?? equipment.departmentId;
-        const tankSiteId = await resolveSiteIdFromDepartment(
-          queryRunner.manager,
-          departmentId,
+        // FARM-HIGH-323 / SEC-HIGH-167: the whole stocking sequence — lock the
+        // container, authorize the site, decide capacity under that lock, write the
+        // ledger row, apply the composition delta, update the container — lives in
+        // TankStockingService so create-batch's initial stocking performs the
+        // identical steps instead of a weaker copy of them.
+        const stocked = await this.tankStocking.stockTank(queryRunner.manager, {
           tenantId,
-        );
-        this.siteAuth.assertSiteAssignment({
-          caller: { sub: allocatedBy, roles: userRoles, assignedSiteIds: callerAssignedSiteIds },
-          siteId: tankSiteId,
-        });
-
-        // Existing biomass on the tank — pull the cleaner-fish component
-        // from the tank_batches row (if any) so the capacity check can
-        // account for mixed-use tanks (salmon + cleaner fish coexisting).
-        const existingTankBatch = await queryRunner.manager.findOne(TankBatch, {
-          where: { tenantId, tankId: payload.tankId },
-        });
-
-        // LIFE-SAFETY: Hard capacity enforcement with admin override.
-        // Centralised in TankCapacityService — checks status, biomass and
-        // density axes consistently across every handler that places fish
-        // into a tank (allocate, transfer, deploy-cleaner-fish). Admin
-        // users (SUPER_ADMIN / TENANT_ADMIN) may override with audit log.
-        const biomassKg = (payload.quantity * payload.avgWeightG) / 1000;
-
-        const capacity = this.tankCapacityService.enforce({
-          mode: 'admin-override',
-          equipment,
-          existing: {
-            salmonBiomassKg: Number(equipment.currentBiomass || 0),
-            cleanerBiomassKg: Number(existingTankBatch?.cleanerFishBiomassKg || 0),
-          },
-          incomingBiomassKg: biomassKg,
-          callerRoles: userRoles,
-          callerUserId: allocatedBy,
-        });
-
-        const effectiveVolume = capacity.tankVolumeM3;
-        const densityKgM3 = capacity.projectedDensityKgM3;
-
-        // Allocation kaydı oluştur
-        const allocation = queryRunner.manager.create(TankAllocation, {
-          tenantId,
-          batchId,
           tankId: payload.tankId,
-          allocationType: payload.allocationType,
-          allocationDate: payload.allocatedAt || new Date(),
+          batch: { id: batch.id, batchNumber: batch.batchNumber },
           quantity: payload.quantity,
           avgWeightG: payload.avgWeightG,
-          biomassKg,
-          densityKgM3,
-          // Denormalized fields
-          batchNumber: batch.batchNumber,
-          tankCode: equipment.code,
-          tankName: equipment.name,
-          allocatedBy,
+          allocationType: payload.allocationType,
+          allocationDate: payload.allocatedAt || new Date(),
           notes: payload.notes,
-          isDeleted: false,
+          actorUserId: allocatedBy,
+          caller: { roles: userRoles, assignedSiteIds: callerAssignedSiteIds },
+          // Admins may consciously exceed the cap; the service records the
+          // CAPACITY_BLOCKED audit row when they do.
+          capacityMode: 'admin-override',
+          auditSource: 'AllocateToTankHandler',
         });
-
-        // The TankAllocation ledger row still persists (audit/history); the handler
-        // now returns the Batch, so the saved row no longer needs to be captured.
-        await queryRunner.manager.save(allocation);
-
-        // TankBatch composition: batchDetails[] is the SSoT, aggregates derived.
-        // Routed through the shared TankBatchService so allocate, transfer,
-        // mortality and cull all mutate a tank's stock identically — and the
-        // per-batch detail is ALWAYS persisted (it was discarded for single-batch
-        // tanks, which hid the just-stocked batch from the snapshot read model).
-        const savedTankBatch = await this.tankBatchService.applyBatchDelta(
-          queryRunner.manager,
-          tenantId,
-          payload.tankId,
-          {
-            batchId,
-            batchNumber: batch.batchNumber,
-            quantityDelta: payload.quantity,
-            biomassDelta: biomassKg,
-            avgWeightG: payload.avgWeightG,
-          },
-          { code: equipment.code, name: equipment.name, volumeM3: Number(effectiveVolume) || 0 },
-        );
-
-        // Capacity flags are allocate-specific (from TankCapacityService.enforce);
-        // persist them onto the SSoT-derived row. Admin-override keeps the flag
-        // `true` for the audit trail without throwing.
-        savedTankBatch.isOverCapacity = capacity.isOverCapacity;
-        savedTankBatch.capacityUsedPercent = capacity.utilizationPercent;
-        await queryRunner.manager.save(savedTankBatch);
-        const tankBatch = savedTankBatch;
-
-        // Phase 1.1: when an admin consciously overrode the capacity gate
-        // we record a CAPACITY_BLOCKED row in farm_audit_logs. The write
-        // goes through the same transactional manager so the audit row
-        // commits or rolls back atomically with the allocation. The
-        // service.enforce() call already logged a warn-level line; this
-        // is the durable trail post-hoc analysis can query.
-        if (capacity.isOverCapacity) {
-          await this.auditLogService.logWithManager(queryRunner.manager, {
-            tenantId,
-            entityType: 'TankBatch',
-            entityId: savedTankBatch.id,
-            action: AuditAction.CAPACITY_BLOCKED,
-            userId: allocatedBy,
-            changes: {
-              after: {
-                tankId: payload.tankId,
-                batchId,
-                incomingBiomassKg: biomassKg,
-                projectedBiomassKg: capacity.projectedBiomassKg,
-                projectedDensityKgM3: capacity.projectedDensityKgM3,
-                maxBiomassKg: capacity.maxBiomassKg,
-                maxDensityKgM3: capacity.maxDensityKgM3,
-                utilizationPercent: capacity.utilizationPercent,
-                isOverBiomass: capacity.isOverBiomass,
-                isOverDensity: capacity.isOverDensity,
-                primaryBlockReason: capacity.primaryBlockReason,
-              },
-            },
-            metadata: {
-              source: 'AllocateToTankHandler',
-            },
-            summary:
-              `Admin override: allocated ${biomassKg.toFixed(2)} kg into ` +
-              `tank ${equipment.code ?? payload.tankId} despite ${capacity.primaryBlockReason} ` +
-              `cap (${capacity.utilizationPercent.toFixed(1)}% utilization)`,
-          });
-        }
-
-        // Canonical container güncelle
-        if (canonicalTank) {
-          canonicalTank.currentBiomass = tankBatch.totalBiomassKg;
-          canonicalTank.currentCount = tankBatch.totalQuantity;
-          if (
-            canonicalTank.status === TankStatus.PREPARING ||
-            canonicalTank.status === TankStatus.FALLOW
-          ) {
-            canonicalTank.status = TankStatus.ACTIVE;
-            canonicalTank.statusChangedAt = new Date();
-          }
-          await queryRunner.manager.save(canonicalTank);
-        } else {
-          equipment.currentBiomass = tankBatch.totalBiomassKg;
-          equipment.currentCount = tankBatch.totalQuantity;
-          if (
-            equipment.status === EquipmentStatus.PREPARING ||
-            equipment.status === EquipmentStatus.FALLOW
-          ) {
-            equipment.status = EquipmentStatus.ACTIVE;
-          }
-          await queryRunner.manager.save(equipment);
-        }
+        const tankBatch = stocked.tankBatch;
+        const biomassKg = stocked.allocation.biomassKg;
 
         // Batch status güncelle (ilk stoklama ise)
         if (
@@ -394,54 +239,5 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
       },
       { isolation: 'SERIALIZABLE' },
     );
-  }
-
-  private tankToCapacityEquipment(tank: Tank): Equipment {
-    const equipment = new Equipment();
-    equipment.id = tank.id;
-    equipment.tenantId = tank.tenantId;
-    equipment.name = tank.name;
-    equipment.code = tank.code;
-    equipment.status = this.mapTankStatusToEquipmentStatus(tank.status);
-    equipment.isTank = true;
-    equipment.isActive = tank.isActive;
-    equipment.isDeleted = false;
-    equipment.volume = Number(tank.volume);
-    equipment.currentBiomass = Number(tank.currentBiomass);
-    equipment.currentCount = tank.currentCount;
-    equipment.specifications = {
-      tankType: tank.tankType,
-      material: tank.material,
-      waterType: tank.waterType,
-      dimensions: {
-        diameter: tank.diameter,
-        length: tank.length,
-        width: tank.width,
-        depth: tank.depth,
-        waterDepth: tank.waterDepth,
-        freeboard: tank.freeboard,
-      },
-      volume: Number(tank.volume),
-      waterVolume: numberOrUndefined(tank.waterVolume),
-      maxBiomass: Number(tank.maxBiomass),
-      maxDensity: Number(tank.maxDensity),
-      waterFlow: tank.waterFlow,
-      aeration: tank.aeration,
-    };
-    return equipment;
-  }
-
-  private mapTankStatusToEquipmentStatus(status: TankStatus): EquipmentStatus {
-    const mapping: Record<TankStatus, EquipmentStatus> = {
-      [TankStatus.ACTIVE]: EquipmentStatus.ACTIVE,
-      [TankStatus.PREPARING]: EquipmentStatus.PREPARING,
-      [TankStatus.CLEANING]: EquipmentStatus.CLEANING,
-      [TankStatus.MAINTENANCE]: EquipmentStatus.MAINTENANCE,
-      [TankStatus.HARVESTING]: EquipmentStatus.HARVESTING,
-      [TankStatus.FALLOW]: EquipmentStatus.FALLOW,
-      [TankStatus.QUARANTINE]: EquipmentStatus.QUARANTINE,
-      [TankStatus.INACTIVE]: EquipmentStatus.OUT_OF_SERVICE,
-    };
-    return mapping[status] ?? EquipmentStatus.OPERATIONAL;
   }
 }

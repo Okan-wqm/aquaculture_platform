@@ -72,6 +72,7 @@ import { DayPlanRecalcService } from '../../../feeding-protocol/services/day-pla
 import { ProtocolRateService } from '../../../feeding-protocol/services/protocol-rate.service';
 import { ProtocolResolutionService } from '../../../feeding-protocol/services/protocol-resolution.service';
 import { TankBatchService } from '../../../batch/services/tank-batch.service';
+import { TankStockingService } from '../../../batch/services/tank-stocking.service';
 import { AuditLog } from '../../../database/entities/audit-log.entity';
 import { CodeSequence } from '../../../database/entities/code-sequence.entity';
 import { AuditLogService } from '../../../database/services/audit-log.service';
@@ -249,6 +250,16 @@ export function createFixtureBatchWriters(dataSource: DataSource): FixtureBatchW
     farmStockProjection,
   );
 
+  // FARM-HIGH-323 / SEC-HIGH-167: the one stocking sequence, constructed once and
+  // shared by both writers below — the fixture therefore exercises the same locks,
+  // site gate and capacity decision production does, rather than a second path.
+  const tankStocking = new TankStockingService(
+    tankCapacityService,
+    tankBatchService,
+    new SiteAuthorizationService(),
+    new AuditLogService(dataSource.getRepository(AuditLog)),
+  );
+
   const allocateToTank = new AllocateToTankHandler(
     dataSource.getRepository(Batch),
     dataSource.getRepository(TankAllocation),
@@ -260,6 +271,7 @@ export function createFixtureBatchWriters(dataSource: DataSource): FixtureBatchW
     new AuditLogService(dataSource.getRepository(AuditLog)),
     new SiteAuthorizationService(),
     tankBatchService,
+    tankStocking,
     farmStockProjection,
     new MobileCommandReceiptService(),
   );

@@ -9,7 +9,10 @@ import { MobileCommandReceiptService } from '@aquaculture/backend-common/mobile-
 import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
 import { FarmStockProjectionService } from '../../../farm-stock/farm-stock-projection.service';
 import { AllocateToTankHandler } from '../../handlers/allocate-to-tank.handler';
+import { AuditLogService } from '../../../database/services/audit-log.service';
+import { TankCapacityService } from '../../../tank/services/tank-capacity.service';
 import { TankBatchService } from '../../services/tank-batch.service';
+import { TankStockingService } from '../../services/tank-stocking.service';
 import { AllocateToTankCommand, AllocationType } from '../../commands/allocate-to-tank.command';
 import { Batch, BatchStatus } from '../../entities/batch.entity';
 import { EquipmentStatus } from '../../../equipment/entities/equipment.entity';
@@ -62,6 +65,15 @@ describe('AllocateToTankHandler', () => {
       ((_cls: unknown, data: { id?: string } | undefined): Promise<{ id: string }> =>
         Promise.resolve({ ...(data ?? {}), id: data?.id ?? 'saved-allocation' })) as never,
     );
+    const tankBatchServiceStub = {
+      applyBatchDelta: jest.fn().mockResolvedValue({
+        id: 'tankbatch-1',
+        totalQuantity: 10,
+        totalBiomassKg: 100,
+        batchDetails: [],
+      }),
+    } as Partial<TankBatchService> as TankBatchService;
+
     handler = new AllocateToTankHandler(
       createMockRepository() as any,
       createMockRepository() as any,
@@ -76,14 +88,17 @@ describe('AllocateToTankHandler', () => {
       new SiteAuthorizationService(),
       // SSoT tank-composition writer; returns the derived TankBatch row so the
       // canonical-container update + capacity-flag write + audit can proceed.
-      ({
-        applyBatchDelta: jest.fn().mockResolvedValue({
-          id: 'tankbatch-1',
-          totalQuantity: 10,
-          totalBiomassKg: 100,
-          batchDetails: [],
-        }),
-      }) as Partial<TankBatchService> as TankBatchService,
+      tankBatchServiceStub,
+      // FARM-HIGH-323: the REAL stocking service, wired to the same mocks. Stubbing
+      // it would delete this spec's coverage of the sequence it was written to
+      // check — the container lock, the site gate, the capacity decision, the
+      // ledger row and the container update all still run here.
+      new TankStockingService(
+        mockTankCapacityService as Partial<TankCapacityService> as TankCapacityService,
+        tankBatchServiceStub,
+        new SiteAuthorizationService(),
+        mockAuditLogService as Partial<AuditLogService> as AuditLogService,
+      ),
       // Working no-op DI deps (the throwing direct-handler defaults are
       // test-only and would abort begin()/refreshContainers() before assertions).
       ({ refreshContainers: jest.fn().mockResolvedValue(undefined) }) as Partial<FarmStockProjectionService> as FarmStockProjectionService,

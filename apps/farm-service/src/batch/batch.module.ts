@@ -64,6 +64,7 @@ import { BatchLifecyclePolicyService } from './services/batch-lifecycle-policy.s
 import { BatchService } from './services/batch.service';
 import { BiomassCalculatorService } from './services/biomass-calculator.service';
 import { StockReconstructionService } from './services/stock-reconstruction.service';
+import { TankStockingService } from './services/tank-stocking.service';
 import { TankCountReconcileService } from './services/tank-count-reconcile.service';
 import { TankBatchModule } from './tank-batch.module';
 import { MortalityCullPolicyService } from './services/mortality-cull-policy.service';
@@ -141,6 +142,11 @@ import { SGRCalculatorService } from './services/sgr-calculator.service';
     BatchLocationDataLoader,  // REQUEST-scoped: eliminates N+1 for batch.locations
     BatchFeedAssignmentDataLoader,  // REQUEST-scoped: eliminates N+1 for batch.feedAssignments
     MobileCommandReceiptService,
+    // FARM-HIGH-323 / SEC-HIGH-167: the one stocking sequence. Both handlers that
+    // put fish into a tank (allocate-to-tank, create-batch's initialLocations)
+    // inject it, so the locks, the site gate, the capacity decision, the ledger
+    // row and the container update cannot diverge between them again.
+    TankStockingService,
     // SEC-HIGH-051 / SEC-HIGH-052: object-level site authz SSoT (injected by the
     // stock handlers) + the mobile-feature guard (composed on the resolver).
     SiteAuthorizationService,

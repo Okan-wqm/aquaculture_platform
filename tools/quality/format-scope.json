@@ -28095,6 +28095,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/vfd/services/__tests__/vfd-telemetry-poller.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/vfd/services/__tests__/vfd-write-edge-only.arch.spec.ts",
       "prettier_managed": true
     },
@@ -28156,6 +28162,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/vfd/services/vfd-register-mapping.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/vfd/services/vfd-telemetry-poller.service.ts",
       "prettier_managed": true
     },
     {
@@ -36381,6 +36393,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/sensor-expert/2026-07-11-unified-scada-editor-audit.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/sensor-expert/2026-09-09-vfd-surface-reachability.md",
       "prettier_managed": true
     },
     {
@@ -46993,6 +47011,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/sensor-graphql-fe-be-parity.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/sensor-ingestion-honest-deployment.spec.ts",
       "prettier_managed": true
     },
@@ -54868,6 +54892,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/sensor-module/src/__tests__/channel-editor-contract.test.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/sensor-module/src/__tests__/edge-widget-support.invariant.spec.ts",
       "prettier_managed": true
     },
@@ -54977,6 +55007,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/sensor-module/src/__tests__/scada-transform.test.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/sensor-module/src/__tests__/vfd-drive-operability.test.tsx",
       "prettier_managed": true
     },
     {
@@ -57395,6 +57431,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/sensor-module/src/components/vfd/VfdChangeSetList.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/sensor-module/src/components/vfd/VfdControlPanel.tsx",
       "prettier_managed": true
     },
     {

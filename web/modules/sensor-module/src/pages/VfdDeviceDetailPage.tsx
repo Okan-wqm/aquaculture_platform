@@ -8,7 +8,7 @@
  * sensor and rendered "Sensör yüklenemedi".
  */
 
-import React from 'react';
+import React, { useCallback, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -20,10 +20,15 @@ import {
   MapPin,
   Clock,
   Activity,
+  Settings,
+  Power,
+  PowerOff,
+  Loader2 as Spinner,
 } from 'lucide-react';
 
-import { useVfdDevice } from '../hooks/useVfdRegistration';
-import { VFD_BRAND_NAMES, VFD_PROTOCOL_NAMES } from '../types/vfd.types';
+import { useVfdDevice, useVfdRegistration } from '../hooks/useVfdRegistration';
+import { VfdControlPanel } from '../components/vfd/VfdControlPanel';
+import { VFD_BRAND_NAMES, VFD_PROTOCOL_NAMES, VfdDeviceStatus } from '../types/vfd.types';
 
 const Field: React.FC<{ label: string; value?: React.ReactNode }> = ({ label, value }) => (
   <div>
@@ -35,6 +40,37 @@ const Field: React.FC<{ label: string; value?: React.ReactNode }> = ({ label, va
 export const VfdDeviceDetailPage: React.FC = () => {
   const { deviceId } = useParams<{ deviceId: string }>();
   const { data: device, isLoading, error, refetch } = useVfdDevice(deviceId);
+  const { activateDevice, deactivateDevice } = useVfdRegistration();
+  const [lifecycleBusy, setLifecycleBusy] = useState(false);
+  const [lifecycleError, setLifecycleError] = useState<string | null>(null);
+
+  // SENSOR-HIGH-065: `activateVfdDevice` and `deactivateVfdDevice` have existed on
+  // the schema and in useVfdRegistration all along with ZERO callers anywhere in
+  // web/. A drive registered through the wizard therefore stopped at TESTING
+  // forever, and every command requires ACTIVE — a self-served drive could be
+  // registered, connection-tested, and then never operated. This is the missing
+  // caller; the backend rules (must have passed a connection test, TENANT_ADMIN or
+  // MODULE_MANAGER) are unchanged and still authoritative.
+  const runLifecycle = useCallback(
+    async (action: 'activate' | 'deactivate'): Promise<void> => {
+      if (!deviceId) return;
+      setLifecycleBusy(true);
+      setLifecycleError(null);
+      const result =
+        action === 'activate' ? await activateDevice(deviceId) : await deactivateDevice(deviceId);
+      if (result === null) {
+        setLifecycleError(
+          action === 'activate'
+            ? 'Sürücü etkinleştirilemedi. Bağlantı testi başarılı olmalı.'
+            : 'Sürücü devre dışı bırakılamadı.',
+        );
+      } else {
+        await refetch();
+      }
+      setLifecycleBusy(false);
+    },
+    [deviceId, activateDevice, deactivateDevice, refetch],
+  );
 
   if (isLoading) {
     return (
@@ -100,7 +136,69 @@ export const VfdDeviceDetailPage: React.FC = () => {
         <span className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-gray-100 text-gray-700">
           {device.status}
         </span>
+        {/*
+          SENSOR-HIGH-062: the VFD programming route existed but nothing in the
+          product linked to it, so the only way in was to type the URL. A drive's
+          own page is where an operator goes to program it.
+        */}
+        <Link
+          to={`/sensor/vfd-programming/${device.id}`}
+          className="inline-flex items-center gap-1.5 rounded-md border border-cyan-200 bg-cyan-50 px-3 py-1.5 text-sm font-medium text-cyan-700 hover:bg-cyan-100"
+        >
+          <Settings className="w-4 h-4" /> Parametreleri Programla
+        </Link>
       </div>
+
+      {/* Lifecycle — the only place a drive can be made operable */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 space-y-3">
+        <div className="flex items-center gap-3">
+          {device.status === VfdDeviceStatus.ACTIVE ? (
+            <button
+              type="button"
+              onClick={() => void runLifecycle('deactivate')}
+              disabled={lifecycleBusy}
+              data-testid="vfd-deactivate"
+              className="inline-flex items-center gap-2 rounded-lg bg-gray-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-700 disabled:opacity-50"
+            >
+              {lifecycleBusy ? (
+                <Spinner className="w-4 h-4 animate-spin" />
+              ) : (
+                <PowerOff className="w-4 h-4" />
+              )}
+              Devre Dışı Bırak
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => void runLifecycle('activate')}
+              disabled={lifecycleBusy || !connected}
+              data-testid="vfd-activate"
+              className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
+            >
+              {lifecycleBusy ? (
+                <Spinner className="w-4 h-4 animate-spin" />
+              ) : (
+                <Power className="w-4 h-4" />
+              )}
+              Etkinleştir
+            </button>
+          )}
+          {/* The server refuses activation without a passed connection test; say so up front. */}
+          {device.status !== VfdDeviceStatus.ACTIVE && !connected && (
+            <p className="text-sm text-gray-500" data-testid="vfd-activate-blocked-reason">
+              Etkinleştirmeden önce bağlantı testi başarılı olmalı.
+            </p>
+          )}
+        </div>
+        {lifecycleError && (
+          <p className="text-sm text-red-600" data-testid="vfd-lifecycle-error">
+            {lifecycleError}
+          </p>
+        )}
+      </div>
+
+      {/* Live telemetry + drive commands (SENSOR-HIGH-066) */}
+      {deviceId && <VfdControlPanel deviceId={deviceId} deviceStatus={device.status} />}
 
       {/* Identity */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 grid grid-cols-2 md:grid-cols-3 gap-4">

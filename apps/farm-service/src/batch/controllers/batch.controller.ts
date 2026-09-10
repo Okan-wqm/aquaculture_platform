@@ -231,7 +231,11 @@ export class BatchController {
     @Req() req: TenantRequest,
     @Body() dto: CreateBatchDto,
   ) {
-    const { tenantId, actorUserId } = verifiedContext(req);
+    // SEC-HIGH-167: verifiedContext already returns roles and assignedSiteIds;
+    // they were being discarded here. The REST DTO carries no initialLocations,
+    // so this path cannot stock a tank today — threading them anyway keeps the
+    // command's identity complete if it ever can.
+    const { tenantId, actorUserId, roles, assignedSiteIds } = verifiedContext(req);
 
     const batch = await this.commandBus.execute(
       new CreateBatchCommand(
@@ -249,6 +253,8 @@ export class BatchController {
           notes: dto.notes,
         },
         actorUserId,
+        roles,
+        assignedSiteIds,
       ),
     );
 

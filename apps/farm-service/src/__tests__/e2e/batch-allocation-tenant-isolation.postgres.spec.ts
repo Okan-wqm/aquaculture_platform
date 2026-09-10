@@ -398,6 +398,8 @@ describe('Batch allocation tenant isolation on real Postgres', () => {
             currency: 'USD',
           },
           USER_ID,
+          [Role.MODULE_MANAGER],
+          [],
         ),
       ),
     );

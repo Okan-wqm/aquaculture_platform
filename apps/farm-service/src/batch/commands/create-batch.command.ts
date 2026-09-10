@@ -9,6 +9,7 @@
 import { ITenantCommand } from '@platform/cqrs';
 import { BatchInputType, ArrivalMethod } from '../entities/batch.entity';
 import { BatchDocumentType } from '../entities/batch-document.entity';
+import { Role } from '@aquaculture/backend-common/decorators';
 
 /**
  * Document data for batch creation
@@ -68,5 +69,20 @@ export class CreateBatchCommand implements ITenantCommand {
     public readonly tenantId: string,
     public readonly payload: CreateBatchPayload,
     public readonly createdBy: string,
+    /**
+     * SEC-HIGH-167: the caller's authority, needed because `initialLocations`
+     * stocks tanks and stocking a tank requires the SEC-HIGH-051 site gate.
+     * This command carried only `tenantId`, `payload` and `createdBy`, so the
+     * check could not even be written — a caller barred from a site could stock
+     * its tanks by creating a batch instead of allocating to them.
+     *
+     * Positional with an `[]` default, matching the ten other farm commands that
+     * carry caller authority (allocate-to-tank, record-mortality, record-cull,
+     * transfer-batch, create-harvest-record, the storage commands). The default
+     * is fail-closed: a construction site that forgets to thread identity denies
+     * a MODULE_USER rather than waving them through.
+     */
+    public readonly userRoles: Role[] = [],
+    public readonly callerAssignedSiteIds: string[] = [],
   ) {}
 }

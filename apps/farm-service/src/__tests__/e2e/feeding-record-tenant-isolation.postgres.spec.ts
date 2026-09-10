@@ -492,6 +492,8 @@ describe('Feeding record tenant isolation on real Postgres', () => {
             currency: 'USD',
           },
           USER_ID,
+          [Role.MODULE_MANAGER],
+          [],
         ),
       ),
     );

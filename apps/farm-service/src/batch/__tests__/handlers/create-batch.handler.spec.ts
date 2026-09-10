@@ -12,6 +12,12 @@ import { TankAllocation, AllocationType } from '../../entities/tank-allocation.e
 import { Equipment } from '../../../equipment/entities/equipment.entity';
 import { Species } from '../../../species/entities/species.entity';
 import { CodeGeneratorService } from '../../../database/services/code-generator.service';
+import { Role } from '@aquaculture/backend-common/decorators';
+import { SiteAuthorizationService } from '@aquaculture/backend-common/security';
+import { ForbiddenException } from '@nestjs/common';
+import { AuditLogService } from '../../../database/services/audit-log.service';
+import { TankCapacityService } from '../../../tank/services/tank-capacity.service';
+import { TankStockingService } from '../../services/tank-stocking.service';
 import {
   createMockDataSource,
   createMockRepository,
@@ -25,6 +31,37 @@ import type { FinanceSettingsService } from '../../../finance/services/finance-s
 
 describe('CreateBatchHandler', () => {
   let handler: CreateBatchHandler;
+
+  /**
+   * Stub the container lookup TankStockingService performs UNDER A LOCK, plus the
+   * Department row its site resolution reads.
+   *
+   * FARM-HIGH-323 replaced the handler's unlocked bulk pre-fetch with a locked
+   * `findOne` per tank, so a spec that stubs `find` no longer describes this path.
+   */
+  const stubContainerLookup = (
+    equipment: Record<string, unknown>,
+    department?: { siteId: string | null },
+  ): void => {
+    (mockManager.findOne as jest.Mock).mockImplementation((entity: unknown) => {
+      const name = typeof entity === 'function' ? entity.name : String(entity);
+      if (name === 'Equipment') return Promise.resolve(equipment);
+      if (name === 'Department') {
+        return Promise.resolve(department ? { id: 'dept-1', siteId: department.siteId } : null);
+      }
+      // No pre-existing composition on the tank.
+      return Promise.resolve(null);
+    });
+  };
+
+  /** The TankAllocation row the stocking path saved, if it got that far. */
+  const savedAllocation = (): Record<string, unknown> | undefined => {
+    for (const call of mockManager.save.mock.calls) {
+      const candidate = (call.length > 1 ? call[1] : call[0]) as Record<string, unknown> | undefined;
+      if (candidate && 'allocationType' in candidate) return candidate;
+    }
+    return undefined;
+  };
   const { mockDataSource, mockQueryRunner, mockManager } = createMockDataSource();
   const mockBatchRepository = createMockRepository<Batch>();
   const mockDocumentRepository = createMockRepository();
@@ -114,6 +151,18 @@ describe('CreateBatchHandler', () => {
       mockTankCapacityService as any,
       mockFinanceSettings,
       mockTankBatchService,
+      // SEC-HIGH-167 / FARM-HIGH-323: the REAL stocking service, wired to this
+      // spec's own mocks. Stubbing it would stub out the site gate these tests
+      // exist to prove, so the assertions below run through the production path.
+      new TankStockingService(
+        mockTankCapacityService as Partial<TankCapacityService> as TankCapacityService,
+        mockTankBatchService,
+        new SiteAuthorizationService(),
+        collaborator<AuditLogService>(
+          { logWithManager: stubMember<AuditLogService['logWithManager']>(() => Promise.resolve()) },
+          'AuditLogService',
+        ),
+      ),
       mockFarmStockProjection,
     );
   });
@@ -229,9 +278,9 @@ describe('CreateBatchHandler', () => {
       currentBiomass: 0,
       currentCount: 0,
     };
-    (mockManager.find as jest.Mock).mockImplementation((entity: unknown) =>
-      Promise.resolve(entity === Equipment ? [equipment] : []),
-    );
+    // FARM-HIGH-323: the container is now loaded with findOne UNDER A LOCK inside
+    // TankStockingService, not by an unlocked bulk find before the loop.
+    stubContainerLookup(equipment);
 
     await handler.execute(
       new CreateBatchCommand(
@@ -243,19 +292,15 @@ describe('CreateBatchHandler', () => {
           ],
         },
         createdBy,
+        [Role.MODULE_MANAGER],
+        [],
       ),
     );
 
     // The stocking must enter the allocation ledger — the ledger-reconcile
     // recomputes true counts from it, so a createBatch stocking with no
     // allocation row leaves an incomplete (unreconcilable) history.
-    const allocationSave = mockManager.save.mock.calls.find(
-      ([entity]) => entity === TankAllocation,
-    );
-    expect(allocationSave).toBeDefined();
-    const savedRows = allocationSave![1] as TankAllocation[];
-    expect(savedRows).toHaveLength(1);
-    expect(savedRows[0]).toMatchObject({
+    expect(savedAllocation()).toMatchObject({
       tenantId,
       tankId: 'tank-001',
       allocationType: AllocationType.INITIAL_STOCKING,
@@ -263,6 +308,116 @@ describe('CreateBatchHandler', () => {
       biomassKg: 50,
       allocatedBy: createdBy,
       isDeleted: false,
+    });
+  });
+
+  /**
+   * SEC-HIGH-167 — initial stocking is a site-scoped write.
+   *
+   * `initialLocations` is a required, min-1 field on the GraphQL input, so EVERY
+   * createBatch stocks at least one tank. `AllocateToTankHandler` has asserted
+   * site assignment since SEC-HIGH-051; this path asserted nothing, so a caller
+   * barred from a site could stock its tanks by creating a batch instead of
+   * allocating to one. The command carried no `userRoles`/`callerAssignedSiteIds`,
+   * so the check could not even be written.
+   *
+   * The cases mirror `record-mortality.handler.spec.ts`, the established idiom for
+   * a site-gated farm write.
+   */
+  describe('site authorization on initial stocking (SEC-HIGH-167)', () => {
+    const SITE_A = 'site-aaaa';
+    const SITE_B = 'site-bbbb';
+
+    const stockingCommand = (userRoles: Role[], callerAssignedSiteIds: string[]) =>
+      new CreateBatchCommand(
+        tenantId,
+        {
+          ...payload,
+          initialLocations: [
+            { locationType: 'tank', tankId: 'tank-001', quantity: 1000, biomass: 50 },
+          ],
+        },
+        createdBy,
+        userRoles,
+        callerAssignedSiteIds,
+      );
+
+    beforeEach(() => {
+      stubContainerLookup(
+        {
+          id: 'tank-001',
+          tenantId,
+          code: 'TNK-2024-00001',
+          name: 'Tank 1',
+          currentBiomass: 0,
+          currentCount: 0,
+          departmentId: 'dept-1',
+        },
+        { siteId: SITE_A },
+      );
+    });
+
+    it('refuses a MODULE_USER whose assigned sites do not include the tank site', async () => {
+      await expect(handler.execute(stockingCommand([Role.MODULE_USER], [SITE_B]))).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('writes nothing when the site gate refuses', async () => {
+      // The gate runs before any stocking write, so a refused command must not
+      // have left a ledger row behind.
+      await expect(
+        handler.execute(stockingCommand([Role.MODULE_USER], [SITE_B])),
+      ).rejects.toThrow(ForbiddenException);
+
+      expect(savedAllocation()).toBeUndefined();
+    });
+
+    it('allows a MODULE_USER assigned to the tank site', async () => {
+      await expect(
+        handler.execute(stockingCommand([Role.MODULE_USER], [SITE_A])),
+      ).resolves.toBeDefined();
+
+      expect(savedAllocation()).toMatchObject({ tankId: 'tank-001' });
+    });
+
+    it('allows a MODULE_MANAGER with no assigned sites (role hierarchy bypass)', async () => {
+      await expect(handler.execute(stockingCommand([Role.MODULE_MANAGER], []))).resolves.toBeDefined();
+    });
+
+    it('fail-closes for a MODULE_USER when the tank site cannot be resolved', async () => {
+      // A department with no site is never an implicit allow.
+      stubContainerLookup(
+        {
+          id: 'tank-001',
+          tenantId,
+          code: 'TNK-2024-00001',
+          name: 'Tank 1',
+          currentBiomass: 0,
+          currentCount: 0,
+          departmentId: 'dept-1',
+        },
+        { siteId: null },
+      );
+
+      await expect(handler.execute(stockingCommand([Role.MODULE_USER], [SITE_A]))).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('denies a MODULE_USER when a caller forgot to thread identity at all', async () => {
+      // The command's `[]` defaults are fail-closed by design: a construction site
+      // that omits identity must not be treated as an unrestricted caller.
+      await expect(
+        handler.execute(
+          new CreateBatchCommand(tenantId, {
+            ...payload,
+            initialLocations: [
+              { locationType: 'tank', tankId: 'tank-001', quantity: 1000, biomass: 50 },
+            ],
+          }, createdBy),
+        ),
+      ).rejects.toThrow(ForbiddenException);
     });
   });
 });

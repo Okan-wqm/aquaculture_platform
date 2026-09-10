@@ -231,6 +231,16 @@ export function createFixtureBatchWriters(dataSource: DataSource): FixtureBatchW
   const tankBatchService = new TankBatchService();
   const farmStockProjection = new FarmStockProjectionService();
 
+  // FARM-HIGH-323 / SEC-HIGH-167: the one stocking sequence, constructed once and
+  // shared by both writers below — the fixture therefore exercises the same locks,
+  // site gate and capacity decision production does, rather than a second path.
+  const tankStocking = new TankStockingService(
+    tankCapacityService,
+    tankBatchService,
+    new SiteAuthorizationService(),
+    new AuditLogService(dataSource.getRepository(AuditLog)),
+  );
+
   const createBatch = new CreateBatchHandler(
     dataSource,
     dataSource.getRepository(Batch),
@@ -247,17 +257,8 @@ export function createFixtureBatchWriters(dataSource: DataSource): FixtureBatchW
     // fixture's rows are shaped by production's SSoT rather than by a
     // hand-mutation this handler no longer performs.
     tankBatchService,
+    tankStocking,
     farmStockProjection,
-  );
-
-  // FARM-HIGH-323 / SEC-HIGH-167: the one stocking sequence, constructed once and
-  // shared by both writers below — the fixture therefore exercises the same locks,
-  // site gate and capacity decision production does, rather than a second path.
-  const tankStocking = new TankStockingService(
-    tankCapacityService,
-    tankBatchService,
-    new SiteAuthorizationService(),
-    new AuditLogService(dataSource.getRepository(AuditLog)),
   );
 
   const allocateToTank = new AllocateToTankHandler(
@@ -406,6 +407,8 @@ export async function createFarmTenantFixture(
           currency: 'USD',
         },
         userId,
+        [Role.MODULE_MANAGER],
+        [],
       ),
     ),
   );

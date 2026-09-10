@@ -35,6 +35,7 @@
  * updated by the service in the same transaction; only a real database shows
  * the two agreeing.
  */
+import { Role } from '@aquaculture/backend-common/decorators';
 import 'reflect-metadata';
 import { randomBytes } from 'crypto';
 
@@ -175,6 +176,11 @@ describe('Initial stocking composition on real Postgres (FARM-HIGH-139)', () => 
             })),
           },
           USER_ID,
+          // SEC-HIGH-167: initial stocking is site-gated now; MODULE_MANAGER
+          // bypasses by role hierarchy, which is what this suite needs — its
+          // subject is composition arithmetic, not authorization.
+          [Role.MODULE_MANAGER],
+          [],
         ),
       ),
     );

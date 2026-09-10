@@ -30,6 +30,7 @@ import { TankCapacityService } from '../../tank/services/tank-capacity.service';
 import { adaptTankToEquipment } from '../utils/tank-lookup.util';
 import { FinanceSettingsService } from '../../finance/services/finance-settings.service';
 import { TankBatchService } from '../services/tank-batch.service';
+import { TankStockingService } from '../services/tank-stocking.service';
 import { FarmStockProjectionService } from '../../farm-stock/farm-stock-projection.service';
 import { defaultFarmStockProjectionForDirectHandlerConstruction } from '../../common/services/direct-handler-dependency-defaults';
 
@@ -56,11 +57,14 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
     private readonly financeSettings: FinanceSettingsService,
     // The single writer for tank composition and for the container fish count.
     private readonly tankBatchService: TankBatchService,
+    // SEC-HIGH-167 / FARM-HIGH-323: the one stocking path, shared with
+    // allocate-to-tank. Placed before the defaulted parameter below.
+    private readonly tankStocking: TankStockingService,
     private readonly farmStockProjection: FarmStockProjectionService = defaultFarmStockProjectionForDirectHandlerConstruction(),
   ) {}
 
   async execute(command: CreateBatchCommand): Promise<Batch> {
-    const { tenantId, payload, createdBy } = command;
+    const { tenantId, payload, createdBy, userRoles, callerAssignedSiteIds } = command;
 
     if (payload.initialQuantity <= 0) {
       throw new BadRequestException('Initial quantity must be positive');
@@ -317,249 +321,53 @@ export class CreateBatchHandler implements ICommandHandler<CreateBatchCommand, B
             'All initial locations are missing tankId/pondId — no allocations processed',
           );
         } else {
-          // ── Phase 1: Bulk pre-fetch (3 queries regardless of N) ─────
-          // Equipment table first — primary source of truth per the
-          // tank-lookup utility's documented behaviour.
-          const equipments = await queryRunner.manager.find(Equipment, {
-            where: {
-              id: In(tankIds),
-              tenantId,
-              isActive: true,
-              isDeleted: false,
-            },
-            relations: ['equipmentType'],
-          });
-          const equipmentMap = new Map<string, Equipment>(equipments.map((e) => [e.id, e]));
-
-          // Tank fallback — ONLY the IDs not found in Equipment. Keeps
-          // the fallback query small and avoids returning rows that
-          // the caller would then discard. Zero-length lookup skips
-          // the query entirely.
-          const missingIds = tankIds.filter((id) => !equipmentMap.has(id));
-          const tanks: Tank[] =
-            missingIds.length > 0
-              ? await queryRunner.manager.find(Tank, {
-                  where: {
-                    id: In(missingIds),
-                    tenantId,
-                    isActive: true,
-                  },
-                })
-              : [];
-          const tankMap = new Map<string, Tank>(tanks.map((t) => [t.id, t]));
-
-          // TankBatch pre-fetch — one query for the entire batch set,
-          // regardless of how many locations turn out to already have
-          // a row (mixed-batch scenario). The map uses tankId as key
-          // since each tank can host at most one TankBatch row.
-          const existingTankBatches = await queryRunner.manager.find(TankBatch, {
-            where: {
-              tankId: In(tankIds),
-              tenantId,
-            },
-          });
-          const tankBatchMap = new Map<string, TankBatch>(
-            existingTankBatches.map((tb) => [tb.tankId, tb]),
-          );
-
-          // ── Phase 2: Iterate in memory, accumulate writes ───────────
-          // No queries in this loop — every read is a Map lookup.
-          // Collections are bulk-persisted after the loop completes.
-          const tankBatchesToSave: TankBatch[] = [];
-          const equipmentsToSave: Equipment[] = [];
-          // Legacy tank updates use an explicit queryBuilder UPDATE
-          // because the synthetic Equipment returned by
-          // `adaptTankToEquipment` cannot be saved back through
-          // `manager.save(Equipment, ...)`. Keep them serial since
-          // the legacy code path is used by a small minority of
-          // installations.
-          const legacyTankUpdates: Array<{
-            id: string;
-            biomassKg: number;
-          }> = [];
-          // Initial stocking MUST enter the tank_allocations ledger. Every other
-          // stock inflow (allocate, transfer-in) writes an allocation row; this
-          // path historically did not, so tanks stocked at batch creation had no
-          // ledger origin and the ledger-reconcile could not recompute their true
-          // count (FARM-HIGH-112).
-          const initialAllocations: TankAllocation[] = [];
-
+          // FARM-HIGH-323 / SEC-HIGH-167 / FARM-MEDIUM-325: every location goes
+          // through TankStockingService, the one stocking path, so initial
+          // stocking performs the same steps as allocate-to-tank instead of a
+          // weaker copy of them: the container is locked before it is read, the
+          // caller's site assignment is asserted before any write, the capacity
+          // decision is made under that lock, and the ledger row is written.
+          //
+          // The bulk pre-fetch that used to live here is gone with it. It read
+          // Equipment, Tank and TankBatch UNLOCKED before the loop and the
+          // capacity decision was made from that snapshot, while applyBatchDelta
+          // took its own row lock several lines later — so the value decided on
+          // was never the value written against. Three queries saved is not worth
+          // a capacity check that describes a state the write does not see.
           for (const location of payload.initialLocations) {
             const tankId = location.tankId || location.pondId;
             if (!tankId) {
-              this.logger.warn('Skipping location without tankId or pondId');
-              continue;
+              // FARM-MEDIUM-325: refuse rather than skip. A location the caller
+              // asked for that silently does not happen leaves a batch stocked
+              // into fewer tanks than requested with nothing saying which.
+              throw new BadRequestException('Each initial location must name a tankId or a pondId');
             }
 
-            const equipmentRecord = equipmentMap.get(tankId);
-            const tankRecord = tankMap.get(tankId);
-            if (!equipmentRecord && !tankRecord) {
-              this.logger.warn(`Equipment/Tank ${tankId} not found, skipping allocation`);
-              continue;
-            }
-
-            // Pick the winning shape. Equipment is always preferred;
-            // Tank is adapted to the Equipment shape so downstream
-            // code can treat the two sources uniformly. `isFromTanks`
-            // flags that writes must target the Tank table, not
-            // Equipment.
-            const isFromTanks = !equipmentRecord;
-            const equipment = equipmentRecord ?? adaptTankToEquipment(tankRecord!);
-
-            // Calculate avg weight from biomass and quantity
             const avgWeightG =
               location.quantity > 0
                 ? (location.biomass * 1000) / location.quantity
                 : payload.initialAvgWeightG;
 
-            // Check if TankBatch already exists for this equipment
-            let tankBatch = tankBatchMap.get(tankId);
-
-            // Delegate density / biomass / status calculation to the
-            // single source of truth. `soft` mode: initial stocking may
-            // intentionally place fish above the density cap — the
-            // operator will distribute them across tanks as they grow.
-            // The flag is still persisted so the UI can warn and the
-            // ops team can follow up. See phase 1.1 of the plan and
-            // TankCapacityService for the full invariant contract.
-            const existingSalmon = tankBatch ? Number(tankBatch.totalBiomassKg || 0) : 0;
-            const existingCleaner = tankBatch ? Number(tankBatch.cleanerFishBiomassKg || 0) : 0;
-            const capacity = this.tankCapacityService.enforce({
-              mode: 'soft',
-              equipment,
-              existing: {
-                salmonBiomassKg: existingSalmon,
-                cleanerBiomassKg: existingCleaner,
-              },
-              incomingBiomassKg: location.biomass,
-            });
-
-            // Route the stocking inflow through the SINGLE tank-composition
-            // writer (FARM-HIGH-139). This handler used to hand-mutate the row:
-            // it treated the aggregates as the source and batchDetails[] as a
-            // follower, which is the inversion TankBatchService exists to
-            // prevent. Four defects went with that block — a new row was born
-            // with populated totals and an EMPTY batchDetails[] (the pre-SSoT
-            // shape applyBatchDelta then has to self-heal on every later
-            // mortality/cull/transfer), percentageOfTank was derived from
-            // biomass instead of quantity and only for the pushed entry,
-            // re-stocking the same batch pushed a DUPLICATE detail rather than
-            // merging it, and the row carried a write to the retired
-            // `currentQuantity` column that PostgreSQL silently discarded.
-            // The service derives all of it from batchDetails[], the way every
-            // other stock path already does.
-            const savedTankBatch = await this.tankBatchService.applyBatchDelta(
-              queryRunner.manager,
+            await this.tankStocking.stockTank(queryRunner.manager, {
               tenantId,
               tankId,
-              {
-                batchId: savedBatch.id,
-                batchNumber: savedBatch.batchNumber,
-                quantityDelta: location.quantity,
-                biomassDelta: location.biomass,
-                avgWeightG,
-              },
-              {
-                code: equipment.code,
-                name: equipment.name,
-                // The capacity service already resolved the tank's volume;
-                // passing 0 here would silently zero densityKgM3.
-                volumeM3: Number(capacity.tankVolumeM3) || 0,
-              },
-            );
-
-            // Capacity flags are the caller's to persist — applyBatchDelta
-            // derives composition, not policy. Same split as allocate-to-tank.
-            savedTankBatch.capacityUsedPercent = capacity.utilizationPercent;
-            savedTankBatch.isOverCapacity = capacity.isOverCapacity;
-            tankBatch = savedTankBatch;
-
-            // Keep the pre-fetched map in step with what the service just
-            // wrote, so a second location on the SAME tank reads the updated
-            // biomass for its capacity check instead of the stale pre-loop row.
-            tankBatchMap.set(tankId, savedTankBatch);
-
-            tankBatchesToSave.push(tankBatch);
-
-            // Ledger row for this initial stocking (positive quantity — the
-            // stored sign convention: inflows positive, transfer-out negative).
-            initialAllocations.push(
-              queryRunner.manager.create(TankAllocation, {
-                tenantId,
-                batchId: savedBatch.id,
-                tankId,
-                allocationType: AllocationType.INITIAL_STOCKING,
-                allocationDate: payload.stockedAt || new Date(),
-                quantity: location.quantity,
-                avgWeightG,
-                biomassKg: location.biomass,
-                densityKgM3: capacity.projectedDensityKgM3,
-                batchNumber: savedBatch.batchNumber,
-                tankCode: equipment.code,
-                tankName: equipment.name,
-                allocatedBy: createdBy,
-                isDeleted: false,
-              }),
-            );
-
-            // Queue biomass/count update for the originating row.
-            // Equipment path: mutate the in-memory entity and bulk-save
-            // it with all siblings after the loop. Tank path: queue a
-            // raw UPDATE because the adapted entity cannot be saved
-            // through the Equipment metadata.
-            // Biomass only. The fish COUNT on the container is written by
-            // applyBatchDelta — it is the single writer for currentCount on
-            // both the Equipment and the legacy Tank row (the 900-vs-719
-            // web/mobile divergence, FARM-HIGH-104). Writing it here too is
-            // what made this handler a second counter; the value below is the
-            // service-derived total, never local arithmetic.
-            if (isFromTanks) {
-              legacyTankUpdates.push({
-                id: tankId,
-                biomassKg: Number(tankBatch.totalBiomassKg),
-              });
-            } else {
-              equipmentRecord!.currentBiomass = Number(tankBatch.totalBiomassKg);
-              if (!equipmentsToSave.includes(equipmentRecord!)) {
-                equipmentsToSave.push(equipmentRecord!);
-              }
-            }
-
-            this.logger.log(
-              `Allocated ${location.quantity} fish (${location.biomass} kg) to ${equipment.code}`,
-            );
+              batch: { id: savedBatch.id, batchNumber: savedBatch.batchNumber },
+              quantity: location.quantity,
+              avgWeightG,
+              allocationType: AllocationType.INITIAL_STOCKING,
+              allocationDate: location.allocationDate
+                ? new Date(location.allocationDate)
+                : payload.stockedAt,
+              actorUserId: createdBy,
+              caller: { roles: userRoles, assignedSiteIds: callerAssignedSiteIds },
+              // Initial stocking may intentionally exceed the density cap — the
+              // operator spreads the batch as it grows — so the breach is
+              // recorded on the row rather than blocking. Unchanged from before.
+              capacityMode: 'soft',
+              auditSource: 'CreateBatchHandler',
+            });
           }
 
-          // ── Phase 3: Bulk writes ────────────────────────────────────
-          if (tankBatchesToSave.length > 0) {
-            await queryRunner.manager.save(TankBatch, tankBatchesToSave);
-          }
-          if (initialAllocations.length > 0) {
-            await queryRunner.manager.save(TankAllocation, initialAllocations);
-          }
-          if (equipmentsToSave.length > 0) {
-            await queryRunner.manager.save(Equipment, equipmentsToSave);
-          }
-          // Legacy Tank path — serial UPDATEs via query builder, since
-          // the adapted Equipment cannot round-trip through save().
-          // Kept serial because the legacy code path is rare in
-          // production and batching would require a CASE WHEN UPDATE
-          // that obscures the intent for a marginal gain.
-          for (const update of legacyTankUpdates) {
-            await queryRunner.manager
-              .createQueryBuilder()
-              .update(Tank)
-              .set({
-                currentBiomass: update.biomassKg,
-              })
-              .where('id = :id', { id: update.id })
-              .execute();
-          }
-
-          // Refresh the farm-stock snapshots inside this transaction, the way
-          // every other stock path does. Initial stocking used to skip it, so
-          // a freshly stocked tank read stale until some later mutation
-          // happened to refresh it.
           await this.farmStockProjection.refreshContainers(queryRunner.manager, tenantId, tankIds);
         }
       }

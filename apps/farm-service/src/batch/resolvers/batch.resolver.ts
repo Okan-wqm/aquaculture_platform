@@ -326,7 +326,13 @@ export class BatchResolver {
       notes: input.notes,
     };
 
-    return this.commandBus.execute(new CreateBatchCommand(tenantId, payload, user.sub));
+    // SEC-HIGH-167: `initialLocations` is a required, min-1 field, so EVERY
+    // createBatch stocks at least one tank — and stocking needs the site gate.
+    // `user.roles` and `user.assignedSiteIds` were already in scope here and were
+    // simply dropped.
+    return this.commandBus.execute(
+      new CreateBatchCommand(tenantId, payload, user.sub, user.roles, user.assignedSiteIds ?? []),
+    );
   }
 
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)

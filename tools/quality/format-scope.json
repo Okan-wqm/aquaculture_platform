@@ -51228,6 +51228,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/messaging/__tests__/MessagingCompliancePage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/pages/messaging/MessagingAiPersonasPage.tsx",
       "prettier_managed": true
     },

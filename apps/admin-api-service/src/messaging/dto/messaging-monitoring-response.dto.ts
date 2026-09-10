@@ -151,3 +151,48 @@ export class TenantDataExportResultDto {
   @ApiProperty()
   exportedAt!: string;
 }
+
+/**
+ * One AI persona, as messaging-service's registry replies (ADMIN-CRITICAL-154).
+ *
+ * The controller declared `{ id: string; name; description; isActive }`. The
+ * reply sends `id: string | null` — null is the general assistant — has no
+ * `isActive` at all, and carries three fields the declaration omitted:
+ * `icon`, `color` and `capabilities`. So the artifact described a persona that
+ * does not exist, and the admin panel's own hand-written type was the more
+ * accurate of the two.
+ *
+ * What is NOT here, and cannot be: `actuationPolicy` and
+ * `autonomousSafetyLimits`. Those live in ai-service's `TenantAgentConfig`,
+ * and admin-api has no route, no NATS call and no reference to that entity —
+ * which is what makes `MessagingAiPersonasPage`'s claim to display them a
+ * life-safety defect rather than a cosmetic one. Building the read path is
+ * ADMIN-HIGH-155.
+ */
+export class AiPersonaDto {
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    description: 'Persona id in ai-service. `null` is the general AI assistant.',
+  })
+  id!: string | null;
+
+  @ApiProperty()
+  name!: string;
+
+  @ApiProperty()
+  description!: string;
+
+  @ApiProperty({ description: 'Lucide icon name, for rendering only.' })
+  icon!: string;
+
+  @ApiProperty({ description: 'Theme colour key, for rendering only.' })
+  color!: string;
+
+  @ApiProperty({
+    type: [String],
+    description:
+      'Capability labels describing what the persona can do. These are DESCRIPTIONS, not grants: what the AI may actually actuate is decided by TenantAgentConfig.actuationPolicy, which this response does not carry.',
+  })
+  capabilities!: string[];
+}

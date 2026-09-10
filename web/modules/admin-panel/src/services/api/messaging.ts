@@ -248,21 +248,16 @@ export type ExportTriggerResult = ApiSchema<'TenantDataExportResultDto'>;
 // Types -- AI Personas
 // ============================================================================
 
-/** Persona definition returned by GET /messaging/personas */
-export interface AiPersonaDefinition {
-  /** Persona ID matching ai-service persona IDs. Null = general AI assistant. */
-  id: string | null;
-  /** Human-readable display name. */
-  name: string;
-  /** Short description of what the persona specializes in. */
-  description: string;
-  /** Icon identifier for frontend rendering (Lucide icon name). */
-  icon: string;
-  /** Theme color key for UI styling. */
-  color: string;
-  /** List of capability labels describing what the persona can do. */
-  capabilities: string[];
-}
+/**
+ * One AI persona, from the contract (ADMIN-CRITICAL-154).
+ *
+ * `capabilities` are DESCRIPTIONS, not grants. What the AI may actually
+ * actuate is decided by `TenantAgentConfig.actuationPolicy` in ai-service,
+ * which this response does not carry and admin-api cannot currently read
+ * (ADMIN-HIGH-155). A page that presents a capability label as an actuation
+ * permission is stating something it has not read.
+ */
+export type AiPersonaDefinition = ApiSchema<'AiPersonaDto'>;
 
 // ============================================================================
 // API
@@ -410,8 +405,8 @@ export const messagingApi = {
    * Returns the list of available personas from the backend registry.
    * @param tenantId - UUID of the tenant
    */
-  getPersonas: (tenantId: string): Promise<AiPersonaDefinition[]> =>
-    apiFetch<AiPersonaDefinition[]>(
-      `/messaging/personas?${buildQueryString({ tenantId })}`,
-    ),
+  getPersonas: (tenantId: string, signal?: AbortSignal): Promise<AiPersonaDefinition[]> =>
+    apiFetch<AiPersonaDefinition[]>(`/messaging/personas?${buildQueryString({ tenantId })}`, {
+      signal,
+    }),
 };

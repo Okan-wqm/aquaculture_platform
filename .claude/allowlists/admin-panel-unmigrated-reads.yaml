@@ -55,11 +55,11 @@
 # MessagingAuditPage at ADMIN-CRITICAL-150 and MessagingRetentionPage at
 # ADMIN-CRITICAL-151. MessagingMonitoringPage left at ADMIN-MEDIUM-152 — the
 # one page in the batch that was already honest, and MessagingTenantsPage at
-# ADMIN-HIGH-153. Three remain: MessagingPage, TicketsPage,
-# MessagingAiPersonasPage. The ceiling drops with each batch and this file is
+# ADMIN-HIGH-153 and MessagingAiPersonasPage at ADMIN-CRITICAL-154. Two
+# remain: MessagingPage and TicketsPage. The ceiling drops with each batch and this file is
 # deleted at 0.
 version: 1
-ceiling: 3
+ceiling: 2
 entries:
   - site: web/modules/admin-panel/src/pages/MessagingPage.tsx
     batch: messaging
@@ -68,12 +68,6 @@ entries:
     findingId: ADMIN-HIGH-121
     reason: messaging batch — reads move to useAdminQuery with an adminKeys.messaging key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/TicketsPage.tsx
-    batch: messaging
-    owner: okan
-    expiry: 2026-12-31
-    findingId: ADMIN-HIGH-121
-    reason: messaging batch — reads move to useAdminQuery with an adminKeys.messaging key, writes to useAdminMutation with invalidateKeys
-  - site: web/modules/admin-panel/src/pages/messaging/MessagingAiPersonasPage.tsx
     batch: messaging
     owner: okan
     expiry: 2026-12-31

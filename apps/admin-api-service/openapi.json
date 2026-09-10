@@ -15866,7 +15866,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "type": "object"
+                    "$ref": "#/components/schemas/AiPersonaDto"
                   }
                 }
               }
@@ -27346,6 +27346,45 @@
           "data",
           "isUnderLegalHold",
           "exportedAt"
+        ]
+      },
+      "AiPersonaDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "nullable": true,
+            "description": "Persona id in ai-service. `null` is the general AI assistant."
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "icon": {
+            "type": "string",
+            "description": "Lucide icon name, for rendering only."
+          },
+          "color": {
+            "type": "string",
+            "description": "Theme colour key, for rendering only."
+          },
+          "capabilities": {
+            "description": "Capability labels describing what the persona can do. These are DESCRIPTIONS, not grants: what the AI may actually actuate is decided by TenantAgentConfig.actuationPolicy, which this response does not carry.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "icon",
+          "color",
+          "capabilities"
         ]
       },
       "ForgotPasswordDto": {

@@ -13,6 +13,9 @@
 import { DataSource, EntityManager, QueryRunner } from 'typeorm';
 import { Logger } from '@nestjs/common';
 import { getErrorMessage, getErrorStack, toError } from './errors';
+// FARM-HIGH-323: the serialization classifier lives in backend-common now, so
+// this module and runInTenantTransaction agree on what is safe to retry.
+import { isSerializationFailure } from '@aquaculture/backend-common/database';
 
 /**
  * Transaction isolation levels
@@ -200,29 +203,6 @@ export async function withReadOnlyTransaction<T>(
   } finally {
     await queryRunner.release();
   }
-}
-
-/**
- * Check if an error is a PostgreSQL serialization failure
- * These errors are safe to retry
- */
-function isSerializationFailure(error: Error): boolean {
-  const message = error.message.toLowerCase();
-  const code = (error as { code?: string }).code;
-
-  // PostgreSQL serialization failure codes
-  const serializationCodes = ['40001', '40P01'];
-
-  if (code && serializationCodes.includes(code)) {
-    return true;
-  }
-
-  // Check message for common serialization failure patterns
-  return (
-    message.includes('serialization failure') ||
-    message.includes('could not serialize access') ||
-    message.includes('deadlock detected')
-  );
 }
 
 /**

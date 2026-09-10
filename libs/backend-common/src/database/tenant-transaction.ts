@@ -282,48 +282,162 @@ export async function assertTenantTransactionContext(
 }
 
 /**
+ * Isolation levels a tenant transaction may declare.
+ *
+ * `READ UNCOMMITTED` is deliberately absent: PostgreSQL treats it as
+ * `READ COMMITTED`, so offering it would only let a caller believe they had
+ * asked for something the server never provides.
+ */
+export type TenantTransactionIsolation = 'READ COMMITTED' | 'REPEATABLE READ' | 'SERIALIZABLE';
+
+export interface TenantTransactionOptions {
+  /**
+   * Isolation for this transaction. Omitted means the server default
+   * (`READ COMMITTED`), which is what every caller got before this option
+   * existed — so omitting it is exactly the previous behaviour.
+   */
+  readonly isolation?: TenantTransactionIsolation;
+  /**
+   * How many times a serialization failure may be retried. Only consulted when
+   * `isolation` is set above READ COMMITTED (see the retry note below).
+   */
+  readonly maxRetries?: number;
+  /** Base backoff between attempts; grows linearly with the attempt number. */
+  readonly retryDelayMs?: number;
+}
+
+const DEFAULT_SERIALIZATION_RETRIES = 3;
+const DEFAULT_RETRY_DELAY_MS = 50;
+
+/**
+ * PostgreSQL serialization failures, which are safe to retry as a whole unit.
+ *
+ * `40001` is `serialization_failure`, `40P01` is `deadlock_detected`; both mean
+ * the server rolled the transaction back and re-running it may succeed. The
+ * message checks cover drivers that surface the condition without the SQLSTATE.
+ *
+ * This is the ONE classifier. `apps/sensor-service/src/common/transaction.ts`
+ * carried a private copy that nothing imported.
+ */
+export function isSerializationFailure(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+
+  const code = (error as { code?: string }).code;
+  if (code === '40001' || code === '40P01') return true;
+
+  const message = error.message.toLowerCase();
+  return (
+    message.includes('serialization failure') ||
+    message.includes('could not serialize access') ||
+    message.includes('deadlock detected')
+  );
+}
+
+const retryLogger = new Logger('TenantTransactionRetry');
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
  * Execute a TypeORM QueryRunner transaction inside a fail-closed tenant
  * context and with transaction-local search_path pinning.
+ *
+ * # Isolation
+ *
+ * Without `options.isolation` this behaves exactly as it always has: the
+ * server default, READ COMMITTED. A caller that needs a stronger guarantee
+ * declares it here rather than reaching for `dataSource.createQueryRunner()`,
+ * which is what `allocate-to-tank` used to do — and that cost it the
+ * search_path pinning and the RLS-GUC assertion every other handler gets.
+ *
+ * # Retry (FARM-HIGH-323)
+ *
+ * Raising isolation makes serialization failures a real outcome rather than a
+ * theoretical one, so a caller that opts into a stronger level also opts into a
+ * bounded retry of the WHOLE unit. This is only sound because the transaction
+ * has already been rolled back when the retry begins: every database effect of
+ * the failed attempt is gone, and `fn` re-runs against a fresh QueryRunner in a
+ * fresh transaction.
+ *
+ * That soundness is a REQUIREMENT ON `fn`, not a guarantee this function can
+ * make: `fn` may be executed more than once, so any effect it has outside the
+ * transaction it is given (an HTTP call, a queue publish that is not the
+ * transactional outbox, mutation of captured state) will happen more than once.
+ * Effects written through the passed `queryRunner` — including outbox rows —
+ * roll back with the attempt and are safe.
+ *
+ * Retries are NOT applied at READ COMMITTED: a caller who did not ask for
+ * stronger isolation did not ask for their function to run twice either.
  */
 export async function runInTenantTransaction<T>(
   dataSource: DataSource,
   sourceSchema: string,
   tenantId: string,
   fn: (queryRunner: QueryRunner) => Promise<T>,
+  options: TenantTransactionOptions = {},
 ): Promise<T> {
-  return withTenantContext(tenantId, async () => {
-    const startedAt = Date.now();
-    const queryRunner = dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
+  const { isolation } = options;
+  // Only an explicit step up from the default earns retries.
+  const retriesAllowed =
+    isolation !== undefined && isolation !== 'READ COMMITTED'
+      ? (options.maxRetries ?? DEFAULT_SERIALIZATION_RETRIES)
+      : 0;
+  const retryDelayMs = options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
 
-    try {
-      await pinTenantTransactionSearchPath(queryRunner, sourceSchema, tenantId);
-      await assertTenantTransactionContext(queryRunner, sourceSchema, tenantId);
-      const result = await fn(queryRunner);
-      await queryRunner.commitTransaction();
-      traceTenantBoundary({
-        operation: 'tenant-transaction',
-        sourceSchema,
-        tenantId,
-        resultState: 'SUCCESS',
-        startedAt,
-        result,
-      });
-      return result;
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      traceTenantBoundary({
-        operation: 'tenant-transaction',
-        sourceSchema,
-        tenantId,
-        resultState: resultStateForError(error),
-        startedAt,
-        error,
-      });
-      throw error;
-    } finally {
-      await queryRunner.release();
+  return withTenantContext(tenantId, async () => {
+    for (let attempt = 0; ; attempt += 1) {
+      const startedAt = Date.now();
+      const queryRunner = dataSource.createQueryRunner();
+      await queryRunner.connect();
+      await queryRunner.startTransaction(isolation);
+
+      try {
+        await pinTenantTransactionSearchPath(queryRunner, sourceSchema, tenantId);
+        await assertTenantTransactionContext(queryRunner, sourceSchema, tenantId);
+        const result = await fn(queryRunner);
+        await queryRunner.commitTransaction();
+        traceTenantBoundary({
+          operation: 'tenant-transaction',
+          sourceSchema,
+          tenantId,
+          resultState: 'SUCCESS',
+          startedAt,
+          result,
+        });
+        return result;
+      } catch (error) {
+        await queryRunner.rollbackTransaction();
+
+        if (attempt < retriesAllowed && isSerializationFailure(error)) {
+          // The rollback above is what makes this safe: nothing the failed
+          // attempt wrote survives into the next one.
+          retryLogger.warn({
+            message: 'Retrying tenant transaction after a serialization failure',
+            sourceSchema,
+            isolation,
+            attempt: attempt + 1,
+            maxRetries: retriesAllowed,
+          });
+          await queryRunner.release();
+          await sleep(retryDelayMs * (attempt + 1));
+          continue;
+        }
+
+        traceTenantBoundary({
+          operation: 'tenant-transaction',
+          sourceSchema,
+          tenantId,
+          resultState: resultStateForError(error),
+          startedAt,
+          error,
+        });
+        throw error;
+      } finally {
+        // A retried attempt released its runner before looping; releasing an
+        // already-released runner is a no-op in TypeORM, so this stays simple.
+        await queryRunner.release();
+      }
     }
   });
 }

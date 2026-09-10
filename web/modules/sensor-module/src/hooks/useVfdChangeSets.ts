@@ -38,7 +38,6 @@ interface UseVfdChangeSetsReturn {
   submitForApproval: (changeSetId: string) => Promise<VfdChangeSet>;
   approveChangeSet: (changeSetId: string) => Promise<VfdChangeSet>;
   rejectChangeSet: (changeSetId: string, reason: string) => Promise<VfdChangeSet>;
-  applyChangeSet: (changeSetId: string) => Promise<VfdChangeSet>;
   rollbackChangeSet: (changeSetId: string, reason: string) => Promise<VfdChangeSet>;
   cancelChangeSet: (changeSetId: string) => Promise<VfdChangeSet>;
   getPendingCount: () => number;
@@ -278,30 +277,6 @@ export function useVfdChangeSets(): UseVfdChangeSetsReturn {
     [refreshAfterMutation],
   );
 
-  const applyChangeSet = useCallback(
-    async (changeSetId: string): Promise<VfdChangeSet> => {
-      setLoading(true);
-      setError(null);
-
-      try {
-        const data = await graphqlFetch<{
-          approveVfdChangeSet: VfdChangeSet;
-        }>(APPROVE_VFD_CHANGE_SET_MUTATION, { changeSetId });
-
-        const updated = data.approveVfdChangeSet;
-        refreshAfterMutation(updated);
-        return updated;
-      } catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to apply change set';
-        setError(message);
-        throw err;
-      } finally {
-        setLoading(false);
-      }
-    },
-    [refreshAfterMutation],
-  );
-
   const rollbackChangeSet = useCallback(
     async (changeSetId: string, reason: string): Promise<VfdChangeSet> => {
       setLoading(true);
@@ -376,7 +351,6 @@ export function useVfdChangeSets(): UseVfdChangeSetsReturn {
     submitForApproval,
     approveChangeSet,
     rejectChangeSet,
-    applyChangeSet,
     rollbackChangeSet,
     cancelChangeSet,
     getPendingCount,

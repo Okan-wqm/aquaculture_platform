@@ -25,6 +25,8 @@ export const adminKeys = {
     detail: (id: string) =>
       [...adminKeys.announcements.all(), 'detail', id] as const,
     stats: () => [...adminKeys.announcements.all(), 'stats'] as const,
+    acknowledgments: (id: string) =>
+      [...adminKeys.announcements.all(), 'acknowledgments', id] as const,
   },
 
   // ── Messaging / Support Threads ──

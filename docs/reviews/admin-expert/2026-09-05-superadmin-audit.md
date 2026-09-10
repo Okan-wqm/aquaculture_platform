@@ -834,6 +834,63 @@ in `web/` reaches the logout authority; `@tanstack/react-query` is declared
 wherever it is imported, at the federation-pinned version; the barrel keeps
 exporting the primitives.
 
+## ADMIN-HIGH-145 — a broadcast to every tenant that could not say it had failed
+
+**State:** OPEN → closed by W9k · **Wave:** W9k · **Owner:** okan
+**Deadline:** 2026-12-31
+
+This page publishes messages to every tenant, and it was the quietest page in
+the panel about whether it had done so.
+
+- **Four writes failed in total silence.** Publish, cancel, delete and create
+  each caught their error, wrote `console.error` (banned), and told the
+  operator **nothing** — then refetched, so the list re-rendered with the
+  announcement exactly as it was. A refused publish of a global `critical`
+  maintenance notice was indistinguishable from a successful one: same click,
+  same repaint, no message. The operator's belief that every tenant had been
+  notified was the only thing that changed.
+- **A failed acknowledgment roster rendered as "No activity yet".** The modal
+  read `data.acknowledgments || []` behind a `console.error`, so an
+  unreachable endpoint and a genuinely unseen announcement drew the same
+  sentence — on the one screen that answers _who has read the notice we
+  required them to read_.
+- **A failed stats read removed the header strip**, unannounced, so the page
+  looked like a build without stats rather than a page with a broken read.
+- **The "Edit" pencil opened the statistics modal.** The form modal already
+  accepts an existing announcement and titles itself "Edit Announcement";
+  nothing ever passed it one, and `updateAnnouncement` — an audited route —
+  had no caller in the panel.
+- **Delete asked nothing.** One click on a trash icon destroyed a platform
+  announcement, on a route the backend marks `@Destructive()`, while the plan
+  page confirms a mere _deprecate_.
+- **"Schedule" with no date threw.** `new Date('').toISOString()` raises a
+  `RangeError`, so the submit crashed the render tree instead of refusing.
+- **One capped page, presented as the whole.** The list asks for 100 rows and
+  showed them under a header whose "Total" counts the whole table, with no
+  hint that the two numbers measure different things, and a search box that
+  filters only what loaded.
+
+Underneath all of it, **three of the page's reads carried no response schema at
+all**: `GET /support/announcements`, `/stats` and `/:id/acknowledgments` each
+returned an anonymous inline type, and the `@nestjs/swagger` plugin describes
+classes only. So the client hand-typed all three, and both hand-typed shapes
+were wrong — the create payload was derived as
+`Omit<Announcement, … 'acknowledgedCount' …>` against a key the read shape does
+not have (it is `acknowledgmentCount`), so the subtraction removed nothing
+there and the create type went on demanding `status`, `acknowledgmentCount` and
+a full `acknowledgments` roster the DTO rejects, held together by a cast in the
+page; and the list filter declared `isPublished`, a query parameter this
+controller has never accepted, while omitting `status`, the only filter the
+page sends (the ADMIN-HIGH-123 class: an unknown query key is ignored, never
+refused).
+
+W9k adds `AnnouncementPageDto` / `AnnouncementStatsResponseDto` /
+`AnnouncementAcknowledgmentStatusDto`, hides the two relation properties no
+read path loads (they were listed among the **required** fields of every
+announcement the API returns), derives the client types through `ApiSchema` and
+`ApiQuery`, and moves the page onto `useAdminQuery` / `useAdminMutation` with
+one `QueryFailureNotice` carrying every read and write error.
+
 ## ADMIN-HIGH-144 — a priced quantity a typo could zero, and a failure in the green box
 
 **State:** OPEN → closed by W9j · **Wave:** W9j · **Owner:** okan

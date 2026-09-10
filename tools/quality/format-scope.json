@@ -1076,7 +1076,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "15e9a73fbcc130e73752111bc1312279171b75cd61d60f0edbc05a865390f6cc",
+      "content_sha256": "5588e4cff4493a20444ab61c26b7cb086ddc6163c5a1ac927335557e2d67329a",
       "hash_policy": "sha256",
       "owner": "admin-openapi-generator",
       "path": "apps/admin-api-service/openapi.json",
@@ -2693,6 +2693,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/support/controllers/announcement.controller.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/support/controllers/dto/announcement-response.dto.ts",
       "prettier_managed": true
     },
     {
@@ -50988,6 +50994,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/__tests__/AnnouncementsPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/pages/__tests__/AuditLogPage.spec.tsx",
       "prettier_managed": true
     },
@@ -51569,7 +51581,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "9ebad838657dcc4e19f730819f707b1448751cbd930f1ca72d5648a339de09f7",
+      "content_sha256": "defed59ce6f31db155ca2fe32ff97d389605ce1e77910444a117a1b61e61da56",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/modules/admin-panel/src/services/generated/admin-api.ts",

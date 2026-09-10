@@ -1,20 +1,8 @@
 name: ARIA State Maintenance
 
-# =============================================================================
-# Why this exists: the aria/state branch accumulated 842MB of historical
-# data (runs, raw-findings, hot artifacts). The nightly cycle OOMs on
-# restore because cloning 842MB on a 7.8GB shared runner exceeds memory.
-# The auto-compact at cycle-end never fires because the cycle can't
-# complete — a catch-22.
-#
-# This lane breaks the loop: it runs INDEPENDENTLY of the cycle (on a
-# GitHub-hosted runner with no memory constraint), compacts the state,
-# and pushes the slim branch. The cycle then restores a small state.
-#
-# It also cleans hot artifacts — the single biggest contributor (529MB
-# from old cycles' tool_run.json files) that the JSONL-only compact
-# never touched.
-# =============================================================================
+# Compact declared ledgers through the kernel. Artifact retention remains
+# archive-first with deletion disabled; every publish verifies the same
+# immutable snapshot and artifact graph used by producer and executor lanes.
 
 on:
   schedule:
@@ -70,7 +58,7 @@ jobs:
       # be the RC-6 drift shape the restore action was extracted to end.
       - uses: ./.github/actions/restore-aria-state
 
-      - name: Compact surfaces and strip old artifacts (canonical CLI)
+      - name: Compact declared ledgers (canonical CLI)
         # ARIA-AUDIT-001: this step used to carry an INLINE copy of the
         # compactor. It silently skipped malformed lines, rewrote ledgers
         # without re-chaining the hash chain, and pushed the result green —
@@ -78,7 +66,7 @@ jobs:
         # runs the one canonical compactor (aria_kernel.state_compact via
         # the CLI), which fails on malformed rows, re-chains every rewrite,
         # archives pristine stripped rows, and records a governance event.
-        # JSONL surfaces AND the hot-artifact/FATES cleanup live there.
+        # Runtime artifacts remain recoverable under the retention policy.
         env:
           RETAIN_DAYS: ${{ github.event.inputs.retain_days || '7' }}
         run: |
@@ -111,21 +99,12 @@ jobs:
           GIT_CONFIG_VALUE_0: 'AUTHORIZATION: basic ${{ steps.push_credential.outputs.header }}'
         run: |
           set -euo pipefail
-          # The store worktree is the parent of the exported tools root.
-          cd "$(dirname "${ARIA_TOOLS_DIR}")"
-          git config user.name "aria-state-maintenance"
-          git config user.email "aria-state-maintenance@users.noreply.github.com"
-          # `git diff --quiet` ignores untracked files, and compaction's
-          # archives are new files — the old check could report "already
-          # compact" with a fresh archive sitting unstaged beside it.
-          if [ -z "$(git status --porcelain)" ]; then
-            echo "No changes — state already compact"
-            exit 0
-          fi
-          git add -A
-          git commit -m "chore(state): automated compaction — stripped old runs/findings/artifacts"
-          git push origin HEAD:aria/state
-          echo "PUSHED compacted state"
+          PYTHONPATH=aria-kernel python3 -m aria_kernel state publish \
+            --repo-root "$GITHUB_WORKSPACE" \
+            --store-dir "$(dirname "${ARIA_TOOLS_DIR}")" \
+            --snapshot-id "maintenance-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --cycle-id "maintenance-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --parent-commit "$GITHUB_SHA"
 
       - name: Report size
         if: always()

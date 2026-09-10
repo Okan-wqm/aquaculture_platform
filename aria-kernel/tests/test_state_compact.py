@@ -260,24 +260,25 @@ class StateCompactTests(unittest.TestCase):
         old_stamp = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y%m%dT%H%M%SZ")
         new_stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         for name in (f"cyc-{old_stamp}-auto", f"cyc-{new_stamp}-auto", "not-a-cycle-dir"):
-            cycle = hot / name
-            cycle.mkdir(parents=True, exist_ok=True)
-            (cycle / "tool_run.json").write_text("{}", encoding="utf-8")
+            from aria_kernel.runtime_artifacts import write_run_artifact
+            write_run_artifact(base_dir=self.tools, run_id="fixture", cycle_uid=name,
+                               tool_id="fixture", kind="tool_run", payload={}, run_status="ok")
         # The non-cycle directory has no name stamp: its mtime decides.
         stale = hot / "not-a-cycle-dir"
         old_ts = (datetime.now(timezone.utc) - timedelta(days=30)).timestamp()
         os.utime(stale, (old_ts, old_ts))
 
-    def test_hot_artifacts_older_than_retain_removed_newer_kept(self) -> None:
+    def test_compaction_preserves_all_hot_artifacts_for_retention_owner(self) -> None:
         self._seed_hot_artifacts()
         result = compact_state(base_dir=self.tools, retain_days=7)
         hot = self.tools / "run-artifacts" / "hot"
-        self.assertEqual(result["hot_artifacts_removed"], 2)
+        self.assertEqual(result["hot_artifacts_removed"], 0)
         remaining = sorted(p.name for p in hot.iterdir())
         self.assertTrue(any(n.startswith("cyc-") and n != "not-a-cycle-dir" for n in remaining))
-        self.assertNotIn("not-a-cycle-dir", remaining)
+        self.assertIn("not-a-cycle-dir", remaining)
+        self.assertEqual(len(remaining), 3)
 
-    def test_discovery_fates_older_than_thirty_days_removed(self) -> None:
+    def test_compaction_preserves_discovery_evidence_for_retention_owner(self) -> None:
         fates = self.tools / "discovery" / "cyc-x"
         fates.mkdir(parents=True, exist_ok=True)
         target = fates / "FATES.json"
@@ -290,107 +291,250 @@ class StateCompactTests(unittest.TestCase):
 
         result = compact_state(base_dir=self.tools, retain_days=7)
 
-        self.assertEqual(result["fates_removed"], 1)
-        self.assertFalse(target.exists())
+        self.assertEqual(result["fates_removed"], 0)
+        self.assertTrue(target.exists())
         self.assertTrue(fresh.exists())
 
     def test_dry_run_removes_no_hot_artifacts_or_fates(self) -> None:
         self._seed_hot_artifacts()
         result = compact_state(base_dir=self.tools, retain_days=7, dry_run=True)
-        self.assertEqual(result["hot_artifacts_removed"], 2)
+        self.assertEqual(result["hot_artifacts_removed"], 0)
         hot = self.tools / "run-artifacts" / "hot"
         self.assertEqual(len(list(hot.iterdir())), 3)
 
 
-if __name__ == "__main__":
-    unittest.main()
 
-    # ------------------------------------------------------------------
-    # ORPHAN-CRITICAL-805 — the index must follow the files it describes.
-    # ------------------------------------------------------------------
+class ArtifactIntegrityCompactionTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.tools = Path(self.temp.name) / "aria-tools"
+        ensure_tools_dir(self.tools)
 
-    def _seed_artifact_index(self) -> None:
-        """One artifact that exists on disk, one whose cycle was swept."""
-        import hashlib
+    def seed_artifact(self, number: int = 0) -> dict:
+        from aria_kernel.runtime_artifacts import write_run_artifact
+        return write_run_artifact(
+            base_dir=self.tools, run_id=f"run-{number}",
+            cycle_uid="cyc-20260810T063724Z-auto", tool_id="fixture",
+            kind="tool_run", payload={"evidence": "redacted"}, run_status="ok",
+        )["artifact_ref"]
 
-        live_uri = "run-artifacts/hot/cyc-20260904T194353Z-auto/run-live/tool_run.json"
-        live = self.tools / live_uri
-        live.parent.mkdir(parents=True, exist_ok=True)
-        body = b'{"tool_id": "event-contracts-adapter"}'
-        live.write_bytes(body)
-        rows = [
-            {
-                "schema_version": 1,
-                "artifact_id": "cyc-20260904T194353Z-auto.run-live.tool_run",
-                "cycle_uid": "cyc-20260904T194353Z-auto",
-                "current_uri": live_uri,
-                "sha256": hashlib.sha256(body).hexdigest(),
-                "storage_tier": "hot",
-                "run_status": "ok",
-            },
-            {
-                "schema_version": 1,
-                "artifact_id": "cyc-20260810T063724Z-auto.run-swept.tool_run",
-                "cycle_uid": "cyc-20260810T063724Z-auto",
-                "current_uri": "run-artifacts/hot/cyc-20260810T063724Z-auto/run-swept/tool_run.json",
-                "sha256": "0" * 64,
-                "storage_tier": "hot",
-                "run_status": "ok",
-            },
-        ]
-        self._write_ledger(self.tools / "run-artifacts" / "artifact-index.jsonl", rows)
+    def bytes_before(self) -> dict:
+        return {p.relative_to(self.tools).as_posix(): p.read_bytes()
+                for p in self.tools.rglob("*") if p.is_file()}
 
-    def test_index_rows_for_swept_artifacts_are_dropped_and_archived(self) -> None:
-        """A row whose file `_strip_hot_artifacts` removed used to survive
-        forever, and `verify_artifacts` walks the INDEX — so one swept cycle
-        made every later cycle report integrity_failed regardless of its
-        work. Measured on the production runner 2026-09-04: 158 stale rows
-        against 18 live files."""
+    def test_live_reference_survives_compaction_and_repeat(self) -> None:
+        from aria_kernel.runtime_artifacts import resolve_artifact_payload, verify_artifacts
+        ref = self.seed_artifact()
+        before = (self.tools / ref["uri"]).read_bytes()
+        for _ in range(2):
+            result = compact_state(base_dir=self.tools, retain_days=7)
+            self.assertEqual(result["artifact_index_rows_dropped"], 0)
+            self.assertEqual((self.tools / ref["uri"]).read_bytes(), before)
+            self.assertIsNotNone(resolve_artifact_payload(ref, base_dir=self.tools))
+            self.assertTrue(verify_artifacts(base_dir=self.tools)["valid"])
+
+    def test_158_missing_historical_files_remain_invalid_and_unmodified(self) -> None:
+        from aria_kernel.ledger import rewrite_declared_jsonl
         from aria_kernel.runtime_artifacts import verify_artifacts
-
-        self._seed_artifact_index()
-        self.assertFalse(verify_artifacts(base_dir=self.tools)["valid"])
-
-        result = compact_state(base_dir=self.tools, retain_days=7)
-        self.assertEqual(result["artifact_index_rows_dropped"], 1)
-
-        verdict = verify_artifacts(base_dir=self.tools)
-        self.assertTrue(verdict["valid"], msg=str(verdict.get("issues")))
-        self.assertEqual(verdict["issues"], [])
-
-        kept = load_declared_jsonl(
-            self.tools / "run-artifacts" / "artifact-index.jsonl",
-            expected_surface="runtime_artifact_index",
-        )
-        self.assertEqual([r["artifact_id"] for r in kept], ["cyc-20260904T194353Z-auto.run-live.tool_run"])
-
-        archives = sorted((self.tools / "archives").glob("artifact_index-compact-*.jsonl.gz"))
-        self.assertEqual(len(archives), 1, "compaction must not lose the rows it drops")
-        with gzip.open(archives[0], "rt", encoding="utf-8") as fh:
-            archived = [json.loads(line) for line in fh if line.strip()]
-        self.assertEqual([r["artifact_id"] for r in archived], ["cyc-20260810T063724Z-auto.run-swept.tool_run"])
-
-    def test_index_compaction_is_a_no_op_when_every_file_is_present(self) -> None:
-        from aria_kernel.runtime_artifacts import verify_artifacts
-
-        self._seed_artifact_index()
-        (self.tools / "run-artifacts" / "hot" / "cyc-20260810T063724Z-auto" / "run-swept").mkdir(parents=True)
-        # A file whose bytes do not match the recorded hash is a REAL integrity
-        # failure and must stay in the index for verify_artifacts to catch.
-        (self.tools / "run-artifacts" / "hot" / "cyc-20260810T063724Z-auto" / "run-swept" / "tool_run.json").write_bytes(b"{}")
-
-        result = compact_state(base_dir=self.tools, retain_days=7)
-        self.assertEqual(result["artifact_index_rows_dropped"], 0)
+        from aria_kernel.tool_registry import GovernanceError
+        ref = self.seed_artifact()
+        (self.tools / ref["uri"]).unlink()
+        for surface, relative in (
+            ("runtime_artifact_manifest", "run-artifacts/manifest.jsonl"),
+            ("runtime_artifact_inventory", "observability/artifact-inventory.jsonl"),
+        ):
+            template = load_declared_jsonl(self.tools / relative, expected_surface=surface)[0]
+            rows = []
+            for number in range(158):
+                row = dict(template)
+                row["artifact_id"] = f"redacted-history-{number}"
+                uri = f"run-artifacts/hot/cyc-202608{10 + number % 13:02d}T063724Z-auto/run-{number}/tool_run.json"
+                row["path" if surface == "runtime_artifact_inventory" else "current_uri"] = uri
+                rows.append(row)
+            rewrite_declared_jsonl(self.tools / relative, rows, expected_surface=surface, migration_id="fixture")
+        # Mirror the observed incident: index shrunk, historical projections
+        # retain 158 references, with no currently active run rows.
+        rewrite_declared_jsonl(self.tools / "run-artifacts/artifact-index.jsonl", [],
+                               expected_surface="runtime_artifact_index", migration_id="fixture")
+        before = self.bytes_before()
         verdict = verify_artifacts(base_dir=self.tools)
         self.assertFalse(verdict["valid"])
-        self.assertEqual([i["code"] for i in verdict["issues"]], ["run_artifact_hash_mismatch"])
+        self.assertEqual(len({issue["artifact_id"] for issue in verdict["issues"]
+                             if issue["code"] == "run_artifact_missing"}), 158)
+        with self.assertRaises(GovernanceError):
+            compact_state(base_dir=self.tools)
+        self.assertEqual(self.bytes_before(), before)
 
-    def test_dry_run_leaves_the_index_alone(self) -> None:
-        self._seed_artifact_index()
-        result = compact_state(base_dir=self.tools, retain_days=7, dry_run=True)
-        self.assertEqual(result["artifact_index_rows_dropped"], 1)
-        rows = load_declared_jsonl(
-            self.tools / "run-artifacts" / "artifact-index.jsonl",
-            expected_surface="runtime_artifact_index",
-        )
-        self.assertEqual(len(rows), 2)
+    def test_existing_hash_mismatch_cannot_be_hidden_by_compaction(self) -> None:
+        from aria_kernel.tool_registry import GovernanceError
+        ref = self.seed_artifact()
+        (self.tools / ref["uri"]).write_bytes(b"corrupt")
+        before = self.bytes_before()
+        with self.assertRaisesRegex(GovernanceError, "artifact"):
+            compact_state(base_dir=self.tools)
+        self.assertEqual(self.bytes_before(), before)
+
+    def test_dry_run_has_no_byte_changes(self) -> None:
+        self.seed_artifact()
+        before = self.bytes_before()
+        compact_state(base_dir=self.tools, dry_run=True)
+        self.assertEqual(self.bytes_before(), before)
+
+    def test_partial_projection_write_is_invalid(self) -> None:
+        from aria_kernel.ledger import rewrite_declared_jsonl
+        from aria_kernel.runtime_artifacts import verify_artifacts
+        self.seed_artifact()
+        rewrite_declared_jsonl(self.tools / "observability/artifact-inventory.jsonl", [],
+                               expected_surface="runtime_artifact_inventory", migration_id="fixture")
+        verdict = verify_artifacts(base_dir=self.tools)
+        self.assertFalse(verdict["valid"])
+        self.assertIn("artifact_projection_missing", {i["code"] for i in verdict["issues"]})
+
+    def test_archive_copy_failure_preserves_source_and_retry_succeeds(self) -> None:
+        from unittest import mock
+        from aria_kernel.runtime_artifacts import retention_apply, verify_artifacts
+        self.seed_artifact()
+        original = self.bytes_before()
+        kwargs = dict(base_dir=self.tools, acknowledge=True, retain_hot_cycles=0,
+                      reason="fixture", operator_approval_ref="gov:fixture")
+        with mock.patch("aria_kernel.runtime_artifacts._atomic_write_bytes", side_effect=OSError("disk interrupted")):
+            with self.assertRaises(OSError):
+                retention_apply(**kwargs)
+        for relative, data in original.items():
+            self.assertEqual((self.tools / relative).read_bytes(), data)
+        result = retention_apply(**kwargs)
+        self.assertEqual(result["archived_count"], 1)
+        self.assertTrue(verify_artifacts(base_dir=self.tools)["valid"])
+        archive = self.tools / result["archived"][0]["new_path"]
+        archive.write_bytes(b"corrupt")
+        self.assertFalse(verify_artifacts(base_dir=self.tools)["valid"])
+
+    def test_inventory_byte_count_drift_is_invalid(self) -> None:
+        from aria_kernel.ledger import rewrite_declared_jsonl
+        from aria_kernel.runtime_artifacts import verify_artifacts
+        self.seed_artifact()
+        path = self.tools / "observability/artifact-inventory.jsonl"
+        rows = load_declared_jsonl(path, expected_surface="runtime_artifact_inventory")
+        rows[0]["bytes"] = 0
+        rewrite_declared_jsonl(path, rows, expected_surface="runtime_artifact_inventory", migration_id="fixture")
+        verdict = verify_artifacts(base_dir=self.tools)
+        self.assertFalse(verdict["valid"])
+        self.assertIn("artifact_projection_size_mismatch", {i["code"] for i in verdict["issues"]})
+
+    def test_artifact_identity_collision_preserves_existing_evidence(self) -> None:
+        from aria_kernel.runtime_artifacts import write_run_artifact
+        from aria_kernel.tool_registry import GovernanceError
+        self.seed_artifact()
+        before = self.bytes_before()
+        with self.assertRaisesRegex(GovernanceError, "identity_collision"):
+            write_run_artifact(base_dir=self.tools, run_id="run-0",
+                               cycle_uid="cyc-20260810T063724Z-auto", tool_id="fixture",
+                               kind="tool_run", payload={"evidence": "different"}, run_status="ok")
+        self.assertEqual(self.bytes_before(), before)
+
+    def test_identical_artifact_retry_reuses_original_bytes_and_projections(self) -> None:
+        first = self.seed_artifact()
+        before = self.bytes_before()
+        second = self.seed_artifact()
+        self.assertEqual(second, first)
+        self.assertEqual(self.bytes_before(), before)
+
+    def test_read_paths_only_compaction_archives_and_rewrites_the_row(self) -> None:
+        from aria_kernel.ledger import append_declared_jsonl
+        source_paths = [f"source-{i}.ts" for i in range(30)]
+        append_declared_jsonl(self.tools / "runs.jsonl", {
+            "run_id": "read-paths-only", "recorded_at": _old_ts(), "read_paths": source_paths,
+        }, expected_surface="runs")
+        result = compact_state(base_dir=self.tools)
+        self.assertEqual(result["surfaces"]["runs"]["stripped_rows"], 1)
+        kept = load_declared_jsonl(self.tools / "runs.jsonl", expected_surface="runs")
+        self.assertEqual(kept[0]["read_paths_count"], 30)
+        self.assertEqual(len(kept[0]["read_paths"]), 5)
+        archive = next((self.tools / "archives").glob("runs-compact-*.jsonl.gz"))
+        with gzip.open(archive, "rt", encoding="utf-8") as handle:
+            rows = [json.loads(line) for line in handle]
+        self.assertEqual(rows[0]["read_paths"], source_paths)
+
+    def test_interrupted_first_projection_write_is_invalid_until_same_input_retry(self) -> None:
+        from unittest import mock
+        from aria_kernel.ledger import StateTransaction
+        from aria_kernel.runtime_artifacts import verify_artifacts
+        with mock.patch.object(StateTransaction, "append_declared_jsonl", side_effect=OSError("writer interrupted")):
+            with self.assertRaises(OSError):
+                self.seed_artifact()
+        blob = next((self.tools / "run-artifacts/hot").rglob("*.json"))
+        original = blob.read_bytes()
+        verdict = verify_artifacts(base_dir=self.tools)
+        self.assertFalse(verdict["valid"])
+        self.assertIn("artifact_unindexed", {i["code"] for i in verdict["issues"]})
+        self.seed_artifact()
+        self.assertEqual(blob.read_bytes(), original)
+        self.assertTrue(verify_artifacts(base_dir=self.tools)["valid"])
+
+    def test_concurrent_append_survives_each_compaction_surface(self) -> None:
+        import threading
+        from unittest import mock
+        from aria_kernel import state_compact
+        from aria_kernel.ledger import append_declared_jsonl
+        cases = [
+            ("runs", "runs.jsonl", "runs", [{"evidence_validation": {"evidence_envelopes": [{}]}}]),
+            ("raw_findings", "raw-findings.jsonl", "raw_findings", [{"finding": {"id": "old"}}]),
+            ("beliefs", "memory/beliefs.jsonl", "memory_beliefs", [{"belief_id": "old"}, {"belief_id": "old"}]),
+            ("learning_events", "memory/learning-events.jsonl", "memory_learning_events", [{}]),
+        ]
+        for surface, relative, expected, initial_rows in cases:
+            with self.subTest(surface=surface):
+                path = self.tools / relative
+                for row in initial_rows:
+                    append_declared_jsonl(path, {"recorded_at": _old_ts(), **row}, expected_surface=expected)
+                completed = threading.Event()
+                failures = []
+                marker = f"concurrent-{surface}"
+                def append_concurrently() -> None:
+                    try:
+                        append_declared_jsonl(path, {"marker": marker, "belief_id": marker,
+                                                    "recorded_at": _new_ts()}, expected_surface=expected)
+                    except BaseException as exc:
+                        failures.append(exc)
+                    finally:
+                        completed.set()
+                worker = threading.Thread(target=append_concurrently)
+                original = state_compact._archive_stripped
+                def interleave(root, name, rows, **kwargs):
+                    if name == surface:
+                        worker.start()
+                        # A proper transaction blocks the append until after
+                        # archive/rewrite; without it the append finishes here.
+                        completed.wait(2)
+                    return original(root, name, rows, **kwargs)
+                with mock.patch.object(state_compact, "_archive_stripped", side_effect=interleave):
+                    compact_state(base_dir=self.tools)
+                worker.join(10)
+                self.assertFalse(worker.is_alive())
+                self.assertFalse(failures, failures)
+                retained = load_declared_jsonl(path, expected_surface=expected)
+                archived = []
+                for archive in (self.tools / "archives").glob(f"{surface}-compact-*.jsonl.gz"):
+                    with gzip.open(archive, "rt", encoding="utf-8") as handle:
+                        archived.extend(json.loads(line) for line in handle)
+                self.assertIn(marker, {row.get("marker") for row in retained + archived})
+
+    def test_archive_receipt_must_name_the_bytes_of_its_artifact(self) -> None:
+        from aria_kernel.ledger import rewrite_declared_jsonl
+        from aria_kernel.runtime_artifacts import retention_apply, verify_artifacts
+        first = self.seed_artifact(1)
+        second = self.seed_artifact(2)
+        retention_apply(base_dir=self.tools, acknowledge=True, retain_hot_cycles=0,
+                        reason="fixture", operator_approval_ref="gov:fixture")
+        events_path = self.tools / "retention/events.jsonl"
+        rows = load_declared_jsonl(events_path, expected_surface="retention_events")
+        source = next(row for row in rows if row.get("artifact_id") == first["artifact_id"])
+        # Keep the archive URI/digest internally consistent but bind A's
+        # archived bytes to B's identity and original hot URI.
+        source["artifact_id"] = second["artifact_id"]
+        source["original_path"] = second["uri"]
+        rewrite_declared_jsonl(events_path, rows, expected_surface="retention_events", migration_id="fixture")
+        verdict = verify_artifacts(base_dir=self.tools)
+        self.assertFalse(verdict["valid"])
+        self.assertIn("retention_artifact_binding_mismatch", {i["code"] for i in verdict["issues"]})

@@ -122,6 +122,11 @@ export const adminKeys = {
     /** The revenue series. Range AND granularity belong in the key. */
     revenueTrend: (range: string, granularity: string) =>
       [...adminKeys.billing.all(), 'revenue-trend', range, granularity] as const,
+    /** The subscription list, per filter and page. */
+    subscriptions: (filters?: Record<string, unknown>) =>
+      [...adminKeys.billing.all(), 'subscriptions', filters] as const,
+    /** The subscription aggregate — the server's, not derived from the page. */
+    subscriptionStats: () => [...adminKeys.billing.all(), 'subscription-stats'] as const,
     /** The payment list, per filter. */
     payments: (filters?: Record<string, unknown>) =>
       [...adminKeys.billing.all(), 'payments', filters] as const,

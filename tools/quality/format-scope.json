@@ -1076,7 +1076,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "5588e4cff4493a20444ab61c26b7cb086ddc6163c5a1ac927335557e2d67329a",
+      "content_sha256": "41a19edeea4fb3e8feb413fc254067a65cad34dbbc415133b8e79fccbacf0e7e",
       "hash_policy": "sha256",
       "owner": "admin-openapi-generator",
       "path": "apps/admin-api-service/openapi.json",
@@ -40139,6 +40139,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/backend-common/src/decorators/__tests__/tenant-param-openapi.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/backend-common/src/decorators/audit-log.decorator.ts",
       "prettier_managed": true
     },
@@ -51593,7 +51599,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "defed59ce6f31db155ca2fe32ff97d389605ce1e77910444a117a1b61e61da56",
+      "content_sha256": "f906ee5b4a55daa64d5a1fce789f1de595bdccf8b866ae01a3fe55f9660917a1",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/modules/admin-panel/src/services/generated/admin-api.ts",

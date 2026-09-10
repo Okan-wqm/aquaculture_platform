@@ -10096,6 +10096,8 @@ export interface operations {
                 limit?: number;
                 sortBy?: string;
                 sortOrder?: "ASC" | "DESC";
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants. */
+                tenantId?: string;
             };
             header?: never;
             path?: never;
@@ -10166,6 +10168,8 @@ export interface operations {
         parameters: {
             query?: {
                 limit?: string;
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants. */
+                tenantId?: string;
             };
             header?: never;
             path?: never;
@@ -10188,6 +10192,8 @@ export interface operations {
             query?: {
                 startDate?: string;
                 endDate?: string;
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants. */
+                tenantId?: string;
             };
             header?: never;
             path?: never;
@@ -10582,6 +10588,8 @@ export interface operations {
                 limit?: string;
                 minTime?: string;
                 grouped?: string;
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants. */
+                tenantId?: string;
             };
             header?: never;
             path?: never;
@@ -10682,6 +10690,8 @@ export interface operations {
             query?: {
                 hours?: string;
                 metricType?: string;
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants. */
+                tenantId?: string;
             };
             header?: never;
             path?: never;
@@ -11185,7 +11195,10 @@ export interface operations {
     };
     EmailTemplateController_getAllTemplates: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants. */
+                tenantId?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -11227,7 +11240,10 @@ export interface operations {
     };
     EmailTemplateController_getTemplatesByCategory: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants. */
+                tenantId?: string;
+            };
             header?: never;
             path: {
                 category: string;
@@ -11267,7 +11283,10 @@ export interface operations {
     };
     EmailTemplateController_getTemplateByCode: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants. */
+                tenantId?: string;
+            };
             header?: never;
             path: {
                 code: string;
@@ -12422,6 +12441,8 @@ export interface operations {
                 limit?: number;
                 sortBy?: string;
                 sortOrder?: "ASC" | "DESC";
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants. */
+                tenantId?: string;
             };
             header?: never;
             path?: never;
@@ -12673,6 +12694,8 @@ export interface operations {
                 overdueOnly?: string;
                 limit?: string;
                 offset?: string;
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants. */
+                tenantId?: string;
             };
             header?: never;
             path?: never;
@@ -12870,6 +12893,8 @@ export interface operations {
                 dateTo?: string;
                 limit?: string;
                 offset?: string;
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants. */
+                tenantId?: string;
             };
             header?: never;
             path?: never;
@@ -13010,6 +13035,8 @@ export interface operations {
                 period?: string;
                 meterType?: string;
                 numPeriods?: string;
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants. */
+                tenantId?: string;
             };
             header?: never;
             path?: never;
@@ -13932,6 +13959,8 @@ export interface operations {
                 moduleId?: string;
                 page?: string;
                 limit?: string;
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants. */
+                tenantId?: string;
             };
             header?: never;
             path?: never;
@@ -15673,6 +15702,8 @@ export interface operations {
                 limit?: number;
                 sortBy?: string;
                 sortOrder?: "ASC" | "DESC";
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants. */
+                tenantId?: string;
             };
             header?: never;
             path?: never;
@@ -16669,6 +16700,8 @@ export interface operations {
             query?: {
                 startDate?: string;
                 endDate?: string;
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants. */
+                tenantId?: string;
             };
             header?: never;
             path?: never;
@@ -16884,6 +16917,8 @@ export interface operations {
             query?: {
                 startDate?: string;
                 endDate?: string;
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants. */
+                tenantId?: string;
             };
             header?: never;
             path?: never;
@@ -17686,6 +17721,8 @@ export interface operations {
                 endDate?: string;
                 page?: number;
                 limit?: number;
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants. */
+                tenantId?: string;
             };
             header?: never;
             path?: never;
@@ -17730,6 +17767,8 @@ export interface operations {
                 ipAddress?: string;
                 userId?: string;
                 isSuperAdmin?: string;
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants. */
+                tenantId?: string;
             };
             header?: never;
             path?: never;
@@ -18576,6 +18615,8 @@ export interface operations {
                 endDate?: string;
                 page?: number;
                 limit?: number;
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants. */
+                tenantId?: string;
             };
             header?: never;
             path?: never;
@@ -18900,6 +18941,8 @@ export interface operations {
                 search?: string;
                 page?: number;
                 limit?: number;
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants. */
+                tenantId?: string;
             };
             header?: never;
             path?: never;
@@ -19180,7 +19223,10 @@ export interface operations {
     };
     MessagingAdminController_getComplianceStats: {
         parameters: {
-            query?: never;
+            query: {
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; the request is refused without it. */
+                tenantId: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -19199,7 +19245,10 @@ export interface operations {
     };
     MessagingAdminController_getLegalHolds: {
         parameters: {
-            query?: never;
+            query: {
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; the request is refused without it. */
+                tenantId: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -19241,7 +19290,10 @@ export interface operations {
     };
     MessagingAdminController_releaseLegalHold: {
         parameters: {
-            query?: never;
+            query: {
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; the request is refused without it. */
+                tenantId: string;
+            };
             header?: never;
             path: {
                 id: string;
@@ -19262,7 +19314,10 @@ export interface operations {
     };
     MessagingAdminController_getRetentionPolicies: {
         parameters: {
-            query?: never;
+            query: {
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; the request is refused without it. */
+                tenantId: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -19323,7 +19378,7 @@ export interface operations {
     };
     MessagingAdminController_getAuditLog: {
         parameters: {
-            query?: {
+            query: {
                 limit?: string;
                 cursor?: string;
                 userId?: string;
@@ -19331,6 +19386,8 @@ export interface operations {
                 resourceType?: string;
                 startDate?: string;
                 endDate?: string;
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; the request is refused without it. */
+                tenantId: string;
             };
             header?: never;
             path?: never;
@@ -19392,7 +19449,10 @@ export interface operations {
     };
     MessagingAdminController_getPersonas: {
         parameters: {
-            query?: never;
+            query: {
+                /** @description Tenant id. Resolved and verified against `auth.tenants` before the handler runs; the request is refused without it. */
+                tenantId: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;

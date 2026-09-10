@@ -29,6 +29,19 @@ export const adminKeys = {
       [...adminKeys.announcements.all(), 'acknowledgments', id] as const,
   },
 
+  // ── Support tickets ──
+  tickets: {
+    all: () => [...adminKeys.all, 'tickets'] as const,
+    list: (filters?: Record<string, unknown>) =>
+      [...adminKeys.tickets.all(), 'list', filters] as const,
+    stats: () => [...adminKeys.tickets.all(), 'stats'] as const,
+    /** The assignable support team — a read no ticket write invalidates. */
+    team: () => [...adminKeys.tickets.all(), 'team'] as const,
+    /** One ticket's comment thread, keyed by ticket. */
+    comments: (ticketId: string) =>
+      [...adminKeys.tickets.all(), 'comments', ticketId] as const,
+  },
+
   // ── Messaging / Support Threads ──
   messaging: {
     all: () => [...adminKeys.all, 'messaging'] as const,

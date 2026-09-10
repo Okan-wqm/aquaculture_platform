@@ -1076,7 +1076,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "49e204df1999170f32787ef4c4acb152674d01fd662926ef60d8df6663225f98",
+      "content_sha256": "fc0fddead0fc89f59f17f89f7028d9e82ba221d186ae54b6c4db976631fef570",
       "hash_policy": "sha256",
       "owner": "admin-openapi-generator",
       "path": "apps/admin-api-service/openapi.json",
@@ -2729,6 +2729,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/support/controllers/dto/onboarding.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/support/controllers/dto/ticket-response.dto.ts",
       "prettier_managed": true
     },
     {
@@ -51156,6 +51162,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/__tests__/TicketsPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/pages/__tests__/UsageDashboardPage.spec.tsx",
       "prettier_managed": true
     },
@@ -51647,7 +51659,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "5ef73573f8e5e667712556b88d8633a98ef27a975a4266a42b4586b368d28ebe",
+      "content_sha256": "4d19b1cdb5c2657464e3827f089279ca9bfd30e82159269d7541b673d0359bd5",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/modules/admin-panel/src/services/generated/admin-api.ts",

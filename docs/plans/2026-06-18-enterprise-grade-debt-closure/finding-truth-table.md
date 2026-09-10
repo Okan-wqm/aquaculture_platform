@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `76e1fdcbe325cd1ace55b3962dac449ef955a6d51be6d14f2b15611e60a95d52`
+Registry tip: `f7e6c9b15d99e1197dae255f7f3c0e8f55e75daee0c84ca24ffdf7bd90214e0c`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -250,8 +250,14 @@ Allowed truth buckets:
 | `ADMIN-CRITICAL-150`  | OPEN           | 2026-09-10   | admin-expert               | already-fixed-needs-close |
 | `ADMIN-CRITICAL-151`  | OPEN           | 2026-09-10   | admin-expert               | already-fixed-needs-close |
 | `ADMIN-CRITICAL-154`  | OPEN           | 2026-09-10   | admin-expert               | already-fixed-needs-close |
+| `ADMIN-CRITICAL-156`  | OPEN           | 2026-09-10   | admin-expert               | already-fixed-needs-close |
 
 Updated 2026-09-10 (W9m, the SUPER_ADMIN audit's messaging batch): one active CRITICAL added.
+`ADMIN-CRITICAL-156` — every support ticket's comment thread rendered empty and silent: the client
+declared a flat array where the route returns a page, so `.map` ran on the page object and the
+TypeError went to `console.error`. The same commit closes `ADMIN-MEDIUM-114`, which had tracked
+the missing comments DTO. Same bucket, same reason.
+
 `ADMIN-CRITICAL-154` — `MessagingAiPersonasPage` told operators that a hardcoded glossary was the
 tenant's live PLC actuation policy, on the LIFE-SAFETY surface that governs autonomous control of
 physical equipment; admin-api has no route, no NATS call and no reference to `TenantAgentConfig`.

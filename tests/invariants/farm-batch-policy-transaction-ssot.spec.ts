@@ -107,6 +107,25 @@ describe('INVARIANT: farm batch lifecycle and transaction SSOT', () => {
     }
   });
 
+  it('keeps allocate-to-tank on the canonical tenant transaction at SERIALIZABLE', () => {
+    // INFRA-HIGH-174: this handler used to hand-roll `createQueryRunner()` +
+    // `startTransaction('SERIALIZABLE')` because the canonical helper could not
+    // express an isolation level. That made it the one farm write path running
+    // without the transaction-local search_path pinning and the RLS-GUC assertion.
+    // The helper takes an isolation level now, so there is no longer a reason to
+    // leave the boundary — and this keeps the migration from quietly reverting the
+    // next time someone needs stronger isolation.
+    const source = read('apps/farm-service/src/batch/handlers/allocate-to-tank.handler.ts');
+
+    expect(source).toMatch(/runInTenantTransaction\(/);
+    expect(source).toMatch(/isolation: 'SERIALIZABLE'/);
+    expect(source).not.toMatch(/this\.dataSource\.createQueryRunner\(/);
+    // The helper owns commit/rollback/release; a handler doing it again would be
+    // fighting the boundary rather than using it.
+    expect(source).not.toMatch(/queryRunner\.commitTransaction\(/);
+    expect(source).not.toMatch(/queryRunner\.rollbackTransaction\(/);
+  });
+
   it('keeps remaining raw Batch findOne calls explicitly tenant-scoped until migrated', () => {
     for (const path of rawBatchFindOneHandlers) {
       const source = read(path);

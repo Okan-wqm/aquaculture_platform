@@ -94,7 +94,34 @@ describe('AllocateToTankHandler', () => {
     );
   });
 
-  const TENANT = 'tenant-1';
+  // INFRA-HIGH-174: this handler now runs inside runInTenantTransaction, which
+  // fail-closes on a tenant id that is not a UUID v4 — the same guard every other
+  // farm handler has always had. 'tenant-1' passed only while this handler was
+  // hand-rolling its own query runner and skipping that check.
+  const TENANT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const TENANT_SCHEMA = 'tenant_aaaaaaaaaaaa4aaa';
+
+  /**
+   * Route raw `queryRunner.query` by statement.
+   *
+   * A blanket `mockResolvedValue` used to be enough, because the handler opened
+   * its own query runner and issued exactly one raw statement. Now
+   * runInTenantTransaction also reads back `current_schema()` and the RLS GUCs to
+   * prove the connection really resolved to the tenant schema — and a blanket stub
+   * answered that with the aggregate row, which has no `schema` field, so the
+   * assertion correctly concluded the connection had fallen back.
+   *
+   * Answering it properly means the assertion is genuinely EXERCISED here rather
+   * than skipped for want of a row, which is strictly more than this spec verified
+   * before.
+   */
+  const stubRawQueries = (aggregate: Record<string, unknown>): void => {
+    mockQueryRunner.query.mockImplementation((sql: string) =>
+      String(sql).includes('current_schema()')
+        ? Promise.resolve([{ schema: TENANT_SCHEMA, tenant: TENANT, bypass: 'off' }])
+        : Promise.resolve([aggregate]),
+    );
+  };
   const USER = 'user-1';
 
   it('should throw NotFoundException when batch not found', async () => {
@@ -150,7 +177,7 @@ describe('AllocateToTankHandler', () => {
       .mockResolvedValueOnce(null);
     mockManager.save.mockImplementation(((entityOrClass: any, data?: any) =>
       saveEntity(entityOrClass, data)) as never);
-    mockQueryRunner.query.mockResolvedValue([{ total_quantity: 0, total_biomass: 0 }]);
+    stubRawQueries({ total_quantity: 0, total_biomass: 0 });
 
     await handler.execute(
       new AllocateToTankCommand(
@@ -233,7 +260,7 @@ describe('AllocateToTankHandler', () => {
     mockManager.save.mockImplementation(((entityOrClass: any, data?: any) =>
       saveEntity(entityOrClass, data, 'tank-batch-1')) as never);
     mockManager.create.mockImplementation((_cls: any, data: any) => data);
-    mockQueryRunner.query.mockResolvedValue([{ total_quantity: 0, total_biomass: 0 }]);
+    stubRawQueries({ total_quantity: 0, total_biomass: 0 });
 
     // Service permitted the allocation under admin override but flagged
     // it. The handler is expected to emit a CAPACITY_BLOCKED row with

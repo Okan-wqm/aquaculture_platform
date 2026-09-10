@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `21d841eceaf6a9aa01beb9e2191b23ec65a7571346303d4e38ce0701343419f1`
+Registry tip: `6129d403d0c4a4cc021427b326889f0f5265bd277663246e4a4096fadcd45611`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -248,8 +248,13 @@ Allowed truth buckets:
 | `DEPLOY-CRITICAL-017` | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
 | `ADMIN-CRITICAL-147`  | OPEN           | 2026-09-10   | admin-expert               | already-fixed-needs-close |
 | `ADMIN-CRITICAL-150`  | OPEN           | 2026-09-10   | admin-expert               | already-fixed-needs-close |
+| `ADMIN-CRITICAL-151`  | OPEN           | 2026-09-10   | admin-expert               | already-fixed-needs-close |
 
 Updated 2026-09-10 (W9m, the SUPER_ADMIN audit's messaging batch): one active CRITICAL added.
+`ADMIN-CRITICAL-151` — `MessagingRetentionPage`'s "+ Override" discarded its arguments and closed
+the modal, reporting success for a data-deletion window it never wrote; its Edit could never save
+and its list could never load. Same bucket, same reason.
+
 `ADMIN-CRITICAL-150` — `MessagingAuditPage` could not display a correct row in any state: its
 default read 400'd for the same reason and drew "entries will appear once messaging activity
 begins"; a valid tenant crashed the page on an offset-vs-cursor response mismatch; five row fields

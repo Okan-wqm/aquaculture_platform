@@ -1076,7 +1076,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "41a19edeea4fb3e8feb413fc254067a65cad34dbbc415133b8e79fccbacf0e7e",
+      "content_sha256": "f864cff10825f0effebc27b63ecb2753f9f8ef3ad6b0f5f275f8d9605094439f",
       "hash_policy": "sha256",
       "owner": "admin-openapi-generator",
       "path": "apps/admin-api-service/openapi.json",
@@ -1719,6 +1719,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/messaging/__tests__/messaging-admin.controller.monitoring.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/messaging/__tests__/update-retention-policy.dto.spec.ts",
       "prettier_managed": true
     },
     {
@@ -51247,6 +51253,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/admin-panel/src/pages/messaging/__tests__/MessagingCompliancePage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/messaging/__tests__/MessagingRetentionPage.spec.tsx",
       "prettier_managed": true
     },
     {

@@ -62,11 +62,29 @@ interface LegalHoldResponse {
   createdAt: string;
 }
 
+/**
+ * One `messaging.retention_policies` row, as messaging-service replies
+ * (ADMIN-CRITICAL-151).
+ *
+ * `channelId === null` is the tenant's default window; a non-null one is a
+ * channel override. `retentionDays === -1` is indefinite — the nightly
+ * cleanup skips those policies.
+ *
+ * The previous declaration named four of the seven fields the reply carries,
+ * and the admin panel wrote its own nine-field row type against it — seven of
+ * those nine invented, including the two cleanup timestamps and three counts
+ * the table rendered through `.toLocaleString()`.
+ */
 interface RetentionPolicyResponse {
   id: string;
   tenantId: string;
+  /** null for the tenant-wide default; a channel id for an override. */
   channelId: string | null;
+  /** -1 means indefinite: no automatic deletion. */
   retentionDays: number;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 /**

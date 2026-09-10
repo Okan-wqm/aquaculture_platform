@@ -8,6 +8,8 @@
  * invitation the redemption would have accepted. Both now read through
  * ActionTokenResolver, so these tests assert them against the SAME fixtures.
  */
+import { createHash } from 'node:crypto';
+
 import { BypassRlsService } from '@aquaculture/backend-common/database';
 import { Role } from '@aquaculture/backend-common/decorators';
 import {
@@ -231,6 +233,30 @@ describe('invitation links resolve through ActionTokenResolver (SEC-HIGH-158)', 
         tokenHash: TOKEN_HASH,
       });
       expect(qb.setLock).not.toHaveBeenCalled();
+    });
+
+    it('never hashes the id segment — the defect shape SEC-HIGH-158 named', async () => {
+      actionTokenRepository.findOne.mockResolvedValue(actionToken());
+      invitationRepository.createQueryBuilder.mockReturnValue(invitationQueryBuilder(invitation()));
+
+      await service.validateInvitation(ACTION_TOKEN_ID);
+
+      // The regression was not "the wrong row came back" — it was that the
+      // UUID in the link was sha256'd and looked up as if it were a raw
+      // invitation token, which matches nothing, so every pre-check failed.
+      // Asserting the correct hash is used does not by itself rule that out:
+      // a resolver that queried BOTH would still satisfy it. This asserts the
+      // hash of the id is never a lookup key, so the defect cannot come back
+      // alongside a correct lookup.
+      const forbidden = createHash('sha256').update(ACTION_TOKEN_ID).digest('hex');
+      const qb = invitationRepository.createQueryBuilder.mock.results[0]?.value as ReturnType<
+        typeof invitationQueryBuilder
+      >;
+      const queriedHashes = qb.where.mock.calls.map(
+        ([, params]) => (params as { tokenHash?: string } | undefined)?.tokenHash,
+      );
+      expect(queriedHashes).not.toContain(forbidden);
+      expect(queriedHashes).toEqual([TOKEN_HASH]);
     });
 
     it('reports expired for an expired action token without reading the invitation', async () => {

@@ -321,8 +321,16 @@ export class Payroll {
     return this.netPay;
   }
 
+  /**
+   * HR-HIGH-008: no column default. The correct currency is per-tenant
+   * (projected from the farm finance_settings SSoT into
+   * hr_payroll_cost_settings), so any literal default is wrong for some
+   * tenant. CreatePayrollHandler — the only writer — resolves it through
+   * PayrollCostSettingsService before the INSERT, and the column stays
+   * NOT NULL, so a currency-less payroll cannot be written.
+   */
   @Field()
-  @Column({ default: 'USD' })
+  @Column()
   currency!: string;
 
   @Field(() => PayrollStatus)

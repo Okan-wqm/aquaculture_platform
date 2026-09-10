@@ -34,6 +34,10 @@ const buildMockPayroll = (overrides: Partial<Payroll> = {}): Payroll => {
     payrollNumber: 'PAY-2026-001',
     status: PayrollStatus.PENDING_APPROVAL,
     netPay: 5000,
+    // payrolls.currency is NOT NULL and CreatePayrollHandler resolves it from
+    // the tenant settings SSoT (HR-HIGH-008). The fixture omitted it, which no
+    // real row can, so it exercised a shape the database forbids.
+    currency: 'NOK',
     payPeriodStart: new Date('2026-03-01'),
     payPeriodEnd: new Date('2026-03-31'),
     createdBy: 'manager-user-001',
@@ -111,6 +115,46 @@ describe('ApprovePayrollHandler', () => {
 
     expect(mockQR.commitTransaction).toHaveBeenCalled();
     expect(mockOutboxPublisher.enqueue).toHaveBeenCalled();
+  });
+
+  it('refuses to publish PayrollProcessed for a payroll with no currency (HR-HIGH-008)', async () => {
+    // The handler used to read `savedPayroll.currency || 'USD'`, so a row that
+    // somehow lost its currency produced a USD-denominated event crossing into
+    // the finance ledger under a currency nobody chose. The column is NOT NULL
+    // and has no default any more, so this state is a data defect: fail the
+    // approval and leave it visible rather than mint the event.
+    const payroll = buildMockPayroll({ currency: '' });
+    const { mockQR } = buildMockQueryRunner({ findOneResult: payroll });
+    mockDataSource = { createQueryRunner: jest.fn().mockReturnValue(mockQR) };
+
+    handler = new ApprovePayrollHandler(
+      mockDataSource as DataSource,
+      mockOutboxPublisher as OutboxPublisher,
+    );
+
+    await expect(
+      handler.execute(new ApprovePayrollCommand(tenantId, 'payroll-uuid-001', approverId)),
+    ).rejects.toThrow(BadRequestException);
+    expect(mockOutboxPublisher.enqueue).not.toHaveBeenCalled();
+    expect(mockQR.rollbackTransaction).toHaveBeenCalled();
+  });
+
+  it('stamps the payroll row currency onto the event, never a literal (HR-HIGH-008)', async () => {
+    const payroll = buildMockPayroll({ status: PayrollStatus.PENDING_APPROVAL, currency: 'SEK' });
+    const { mockQR } = buildMockQueryRunner({ findOneResult: payroll });
+    mockDataSource = { createQueryRunner: jest.fn().mockReturnValue(mockQR) };
+
+    handler = new ApprovePayrollHandler(
+      mockDataSource as DataSource,
+      mockOutboxPublisher as OutboxPublisher,
+    );
+    await handler.execute(new ApprovePayrollCommand(tenantId, 'payroll-uuid-001', approverId));
+
+    const [event] = (mockOutboxPublisher.enqueue as jest.Mock).mock.calls[0] as [
+      { currency: string },
+    ];
+    expect(event.currency).toBe('SEK');
+    expect(event.currency).not.toBe('USD');
   });
 
   it('throws BadRequestException when approver is the creator (self-approval prevention)', async () => {

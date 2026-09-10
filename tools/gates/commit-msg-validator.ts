@@ -40,6 +40,10 @@ import { resolve } from 'node:path';
 
 import { loadFindingIdAliasMap } from './finding-id-aliases';
 import { ORPHAN_MD_HEADING_REGEX, readOrphanMarkdownStore } from './finding-registry-store';
+import {
+  commitMessageClosesFindingExactly,
+  type FindingTrailerTarget,
+} from './finding-traceability';
 
 // Resolve repo root via `git rev-parse --show-toplevel`
 // (Batch #349) — switched away from
@@ -347,30 +351,49 @@ function run(cmd: string): string {
  * `finding-id-aliases.spec.ts` outright. See `finding-id-aliases.ts` for why a
  * merged trailer can name an id the ledger does not carry.
  */
-function loadRegistryIds(): Set<string> {
-  const ids = loadLedgerIds();
+function loadRegistryIds(): Map<string, FindingTrailerTarget> {
+  const targets = loadLedgerTargets();
   for (const [alias, canonical] of loadFindingIdAliasMap(REPO_ROOT)) {
-    if (ids.has(canonical)) ids.add(alias);
+    const target = targets.get(canonical);
+    if (target === undefined) continue;
+    // The alias resolves to the SAME target, so a trailer naming a renumbered
+    // finding's historical id is bound to the canonical row's review file
+    // rather than escaping the binding by wearing an old name.
+    targets.set(alias, target);
   }
-  return ids;
+  return targets;
 }
 
-function loadLedgerIds(): Set<string> {
-  if (!existsSync(REGISTRY_PATH)) return new Set();
+/**
+ * Every ledger row as a trailer target: the id, the review file the trailer
+ * must cite to close it, and the aliases that name it.
+ *
+ * This used to be a bare `Set<string>` of ids, which is why the gate could only
+ * ask "does this id exist?" — see the review-file binding in `validateCommit`.
+ */
+function loadLedgerTargets(): Map<string, FindingTrailerTarget> {
+  const targets = new Map<string, FindingTrailerTarget>();
+  if (!existsSync(REGISTRY_PATH)) return targets;
   const content = readFileSync(REGISTRY_PATH, 'utf8').trim();
-  if (!content) return new Set();
-  const ids = new Set<string>();
+  if (!content) return targets;
   for (const line of content.split('\n')) {
     try {
-      const entry = JSON.parse(line) as { id?: unknown };
-      if (typeof entry.id === 'string') ids.add(entry.id);
+      const entry = JSON.parse(line) as { id?: unknown; review_file?: unknown };
+      if (typeof entry.id !== 'string') continue;
+      // A row is append-only history: the LAST line carrying an id is its
+      // current state, so a later re-registration wins here too.
+      const reviewFile =
+        typeof entry.review_file === 'string' && entry.review_file !== ''
+          ? entry.review_file
+          : undefined;
+      targets.set(entry.id, { id: entry.id, review_file: reviewFile });
     } catch {
       // Malformed lines are tolerated here — the hash-chain integrity
       // invariant in finding-registry-integrity.spec.ts is responsible
       // for flagging them; we just want best-effort ID coverage.
     }
   }
-  return ids;
+  return targets;
 }
 
 /**
@@ -482,16 +505,24 @@ function commitFromMsgFile(path: string): Commit {
 
 function validateCommit(
   commit: Commit,
-  registryIds: ReadonlySet<string>,
+  registryIds: ReadonlyMap<string, FindingTrailerTarget>,
   orphanIds: ReadonlySet<string>,
   isPreGate: (commit: Commit) => boolean,
 ): Violation[] {
-  const needsCloses = REQUIRE_CLOSES_TYPES.test(commit.subject);
-  if (!needsCloses) return [];
   if (isPreGate(commit)) return [];
 
   const trailers = extractTrailers(commit.body);
+
+  // Requiring a trailer and validating one are different questions, and
+  // conflating them left a hole: the gate used to return early for any commit
+  // type that does not REQUIRE a trailer, so a `refactor(<scope>)` or `test(…)`
+  // commit that carried one anyway had it accepted unread. PR #1425's
+  // `refactor(auth-service)` commit went in that way, citing a finding id that
+  // had been renumbered out from under it. A trailer that is present is a claim
+  // about the ledger whoever wrote it — validate every one.
+  const needsCloses = REQUIRE_CLOSES_TYPES.test(commit.subject);
   if (trailers.length === 0) {
+    if (!needsCloses) return [];
     return [
       {
         sha: commit.shortSha,
@@ -586,12 +617,38 @@ function validateCommit(
           reason: `Closes: trailer references unknown ORPHAN finding ID: ${findingId} (no matching "## ${findingId}" heading in docs/reviews/orphan-findings.md, and no such id in docs/reviews/_registry/findings.jsonl)`,
         });
       }
-    } else if (!registryIds.has(findingId)) {
-      out.push({
-        sha: commit.shortSha,
-        subject: commit.subject,
-        reason: `Closes: trailer references unknown finding ID: ${findingId} (not in docs/reviews/_registry/findings.jsonl)`,
-      });
+    } else {
+      const target = registryIds.get(findingId);
+      if (target === undefined) {
+        out.push({
+          sha: commit.shortSha,
+          subject: commit.subject,
+          reason: `Closes: trailer references unknown finding ID: ${findingId} (not in docs/reviews/_registry/findings.jsonl)`,
+        });
+      } else if (!commitMessageClosesFindingExactly(commit.body, target)) {
+        // The id exists, but this trailer could never CLOSE it: the closure
+        // derivation binds the anchored review file to the finding's own
+        // review_file, and this one cites a different document.
+        //
+        // Admission used to be looser than derivation here — the asymmetry is
+        // documented at finding-registry.ts's collectMergedClosures — so a
+        // commit could pass this gate carrying a trailer that `reconcile` would
+        // never honour. That is not hypothetical: a renumbering left PR #1425's
+        // fixes citing SEC-HIGH-056 (an unrelated, already-resolved admin-api
+        // SQL-injection finding) while the invitation-link finding it actually
+        // fixed sat OPEN with no closer. The ARIA lane above has cross-checked
+        // path against id since Plan 018 Phase 4; this is the same rule for the
+        // registry lane, asked through the derivation's own matcher so the two
+        // cannot drift apart again.
+        out.push({
+          sha: commit.shortSha,
+          subject: commit.subject,
+          reason:
+            `Closes: trailer cites ${path} for ${findingId}, but that finding's review file is ` +
+            `${target.review_file ?? '(none)'} — this trailer can never close it. ` +
+            `Cite the finding's own review file, or name the finding the change really closes.`,
+        });
+      }
     }
   }
   return out;

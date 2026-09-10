@@ -67,6 +67,35 @@ spec covers `validateInvitation`.
 purpose)` primitive that every consumer of an emailed link segment goes
 through, so a consumer that skips the indirection cannot be written.
 
+#### Closure evidence — SEC-HIGH-158 (2026-09-09)
+
+The fix is on main and has been since PR #1425: `ActionTokenResolver` is the one
+primitive (`action-token-resolver.service.ts`), `validateInvitation` and
+`acceptInvitation` share `loadInvitationForSegment`
+(`authentication.service.ts:1064-1094`), and the plaintext fallback is gone.
+
+It was never recorded, because the two commits that carry it
+(`793dbfd34`, `77d164947`) cite `SEC-HIGH-056` — a different, already-RESOLVED
+admin-api finding — which the #1420 registry ceremony renumbered this row away
+from. That admission hole is PROC-HIGH-031, fixed in this branch; an alias
+cannot repair it because `SEC-HIGH-056` is a live ledger id and the alias
+sidecar refuses to shadow one.
+
+Regression cover, verified by mutation rather than by reading:
+
+| Assertion                                                                          | Reverting to                                  | Result                                           |
+| ---------------------------------------------------------------------------------- | --------------------------------------------- | ------------------------------------------------ |
+| `invitation-links.spec.ts` "accepts the actionToken.id segment the e-mail carries" | hashing the segment (`hashRawToken(segment)`) | fails                                            |
+| `invitation-links.spec.ts` "never hashes the id segment"                           | an ADDITIVE fallback that queries both hashes | fails — and this is the only assertion that does |
+| the 6-fixture parity table (`:302-361`)                                            | either divergence                             | fails on 3 rows                                  |
+
+The second assertion is added by this commit: pinning that the correct hash is
+used does not rule out a resolver that also tries the wrong one, and "belt and
+braces" is exactly how this defect would come back.
+
+Residual, not claimed as closed: the resolution is proven at the service layer,
+not through an HTTP/GraphQL request.
+
 ### DEPLOY-HIGH-016 — auth-service is never given `FRONTEND_URL`
 
 `internal-auth.controller.ts:189` reads `FRONTEND_URL` with an inline default
@@ -92,6 +121,29 @@ reports success by anti-enumeration design; no e-mail is sent.
 the event contract (`{kind:'tenant', tenantId} | {kind:'platform'}`), so the
 platform case must be handled at compile time; the internal-API identity gets a
 matching platform-scope audience. Adjacent: `FARM-HIGH-083` (publish side).
+
+#### Closure evidence — SEC-HIGH-159 (2026-09-09)
+
+The fix is on main (PR #1425) at three layers, and each layer already fails if
+reverted:
+
+| Layer        | Assertion                                                                                                                 | Reverting to                               |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| producer     | `password-reset.spec.ts:411` — platform-scoped, `routingScope: 'system'`, durable outbox, `eventBus.publish` never called | `?? 'system'` on the best-effort publisher |
+| consumer     | `auth-event.handler.password-reset.spec.ts:119` — the super-admin reset is delivered, `sendEmail` called once             | the hand-rolled UUID guard that returned   |
+| internal API | `internal-auth.controller.spec.ts:167,196` — a NULL-tenant principal resolves only for a platform-scope call              | the tenant-filtered lookup                 |
+| contract     | `tenant-scope.spec.ts` — producer and consumer halves of the segment                                                      | any change to either                       |
+
+Like SEC-HIGH-158 the work was never recorded: the same two commits name
+`SEC-HIGH-057`.
+
+**No new assertion is added for this one.** A composed producer→consumer seam
+test was written and then discarded: the mutation that drifts the consumer off
+the shared constant is already caught by two existing assertions, so it would
+have been decoration. The gap that IS real is registered rather than papered
+over — there is no cross-service integration test carrying one super-admin reset
+from `initiatePasswordReset` through the outbox worker into `AuthEventHandler`;
+each hop is proven in isolation and the seam is held by the shared constant.
 
 ### PLAT-HIGH-902 — the notification handler acks every failure
 
@@ -255,3 +307,30 @@ the twelve enumerated above — the alert-engine and farm-service handlers use b
 The allowlist only shrinks: a file that stops matching the guard pattern must be removed from
 it (staleness fails the spec), and the spec fails if this finding is RESOLVED while the list is
 non-empty.
+
+## Sensor-reading provenance cycle — deferred work (2026-09-09)
+
+### ALERT-MEDIUM-003 — an alert rule's `condition.parameter` is an unenforced free-text column
+
+Found while fixing SENSOR-CRITICAL-111, and deliberately **not** asserted to be a live break.
+`checkConditions` does a plain `readings[condition.parameter]` lookup
+(`apps/alert-engine/src/alert/services/alert-evaluation.service.ts:233`); the handler builds that
+map from `PARAMETER_BY_READING_FIELD`
+(`apps/alert-engine/src/alert/event-handlers/sensor-reading.handler.ts:25-34`), whose keys are the
+canonical camelCase parameter names, and `alert-rule.entity.ts:57` documents exactly that
+vocabulary (`temperature`, `ph`, `dissolvedOxygen`). Producer and consumer therefore agree today.
+
+The defect is that nothing **enforces** it. `parameter!: string` is a free column with no enum, no
+`IsIn` validator and no binding to `SENSOR_READING_PARAMETERS`
+(`libs/event-contracts/src/sensor-reading-parameters.ts:19`), so a rule created with the
+device-facing snake_case spelling (`dissolved_oxygen`) is accepted at the write path, renders as
+configured in the UI, and can never match a reading — a life-safety rule that exists, looks
+correct, and cannot fire.
+
+That spelling is not hypothetical: the service's own `alert-evaluation.service.spec.ts:70` fixture
+uses it, and passes only because it calls `evaluateSensorReading` directly with a self-consistent
+readings object, bypassing the handler that would have produced camelCase.
+
+**Fix direction (tier 1):** bind the column to `SENSOR_READING_PARAMETERS` at the write path so an
+unknown parameter is rejected at rule creation rather than at 3am. The same SSoT already backs the
+producers, the NATS consumer and the handler. Owner @okan-wqm, deadline 2026-11-15.

@@ -99,6 +99,17 @@ export class AlertEvaluationService {
             this.atomicCheckCooldownAndTrigger(rule, reading, condition),
           ),
         );
+      } else if (Object.keys(reading.readings).length === 0) {
+        // SENSOR-CRITICAL-111: "no conditions matched" and "there was nothing
+        // to match against" are different facts, and only the first one means
+        // the sensor is healthy. An empty reading used to take the branch below
+        // and close live INFO/LOW incidents as "returned to normal" — an
+        // absence of data reported as good news. Producers no longer publish
+        // empty readings; this is the consumer half, so a replayed or
+        // third-party event cannot resolve an incident it says nothing about.
+        this.logger.warn(
+          `Sensor ${reading.sensorId} reading carried no parameters — not evaluating, not auto-resolving`,
+        );
       } else {
         // No conditions matched -- sensor is back in normal range.
         // Auto-resolve any active incidents for this sensor (INFO/LOW only).

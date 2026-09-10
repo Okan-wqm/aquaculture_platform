@@ -1,0 +1,43 @@
+scalar Cursor
+scalar DateTime
+scalar Long
+scalar UUID
+
+schema {
+  query: Query
+  mutation: Mutation
+}
+
+type Query {
+  ariaOverview(workspaceId: ID!, asOf: DateTime): AriaOverviewResult!
+  ariaMissions(
+    workspaceId: ID!
+    first: Int = 25
+    after: Cursor
+    filter: MissionFilter
+    asOf: DateTime
+  ): AriaMissionConnectionResult!
+  ariaMission(workspaceId: ID!, missionId: ID!, asOf: DateTime): AriaMissionResult!
+  ariaTimeline(
+    workspaceId: ID!
+    missionId: ID
+    first: Int = 50
+    after: Cursor
+    asOf: DateTime
+  ): AriaTimelineConnectionResult!
+  ariaProviderStatus(workspaceId: ID!, asOf: DateTime): AriaProviderStatusResult!
+  ariaPolicyStatus(workspaceId: ID!, asOf: DateTime): AriaPolicyStatusResult!
+  ariaProgramProgress(workspaceId: ID!, asOf: DateTime): AriaProgramProgressResult!
+}
+
+type Mutation {
+  createAriaMissionDraft(input: CreateMissionDraftInput!): AriaCommandResult!
+  postAriaConversationMessage(input: PostConversationMessageInput!): AriaCommandResult!
+  submitAriaMission(input: SubmitMissionInput!): AriaCommandResult!
+  cancelAriaMission(input: CancelMissionInput!): AriaCommandResult!
+  retryAriaMission(input: RetryMissionInput!): AriaCommandResult!
+  freezeAriaAutonomy(input: FreezeAutonomyInput!): AriaCommandResult!
+  resumeAriaAutonomy(input: ResumeAutonomyInput!): AriaCommandResult!
+  requestAriaMergeEvaluation(input: MergeEvaluationInput!): AriaCommandResult!
+  acknowledgeAriaDecision(input: AcknowledgeDecisionInput!): AriaCommandResult!
+}

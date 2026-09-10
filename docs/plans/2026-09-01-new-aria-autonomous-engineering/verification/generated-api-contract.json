@@ -1,0 +1,166 @@
+{
+  "schema_version": "1.0.0",
+  "generated": {
+    "marker": "GENERATED; DO NOT EDIT",
+    "generator": "verification/render-api-contract.mjs",
+    "generator_version": "1.0.0",
+    "inputs": [
+      {
+        "path": "authority/graphql/commands.graphql",
+        "sha256": "ded89db1e42d1311ae31413e022fb8ca66bffb422b8e4a4721e10de6ded46fdb"
+      },
+      {
+        "path": "authority/graphql/read-model.graphql",
+        "sha256": "38df153b031415c975dc0cbe0e067ab0708725c89a4285a621bc9b06fc6ed51c"
+      },
+      {
+        "path": "authority/graphql/root.graphql",
+        "sha256": "979657c611fc24c4c7f510c3871fd87e60cb49870f8e813e4b0f12e57b3a6075"
+      },
+      {
+        "path": "verification/api-policy.json",
+        "sha256": "b347e76a3f76dc6a4d8fead7007df0f05c26172e007b44982d6859734f4b5d68"
+      }
+    ]
+  },
+  "query_fields": {
+    "ariaOverview": "(asOf:DateTime,workspaceId:ID!):AriaOverviewResult!",
+    "ariaMissions": "(after:Cursor,asOf:DateTime,filter:MissionFilter,first:Int=25,workspaceId:ID!):AriaMissionConnectionResult!",
+    "ariaMission": "(asOf:DateTime,missionId:ID!,workspaceId:ID!):AriaMissionResult!",
+    "ariaTimeline": "(after:Cursor,asOf:DateTime,first:Int=50,missionId:ID,workspaceId:ID!):AriaTimelineConnectionResult!",
+    "ariaProviderStatus": "(asOf:DateTime,workspaceId:ID!):AriaProviderStatusResult!",
+    "ariaPolicyStatus": "(asOf:DateTime,workspaceId:ID!):AriaPolicyStatusResult!",
+    "ariaProgramProgress": "(asOf:DateTime,workspaceId:ID!):AriaProgramProgressResult!"
+  },
+  "mutation_fields": {
+    "createAriaMissionDraft": "(input:CreateMissionDraftInput!):AriaCommandResult!",
+    "postAriaConversationMessage": "(input:PostConversationMessageInput!):AriaCommandResult!",
+    "submitAriaMission": "(input:SubmitMissionInput!):AriaCommandResult!",
+    "cancelAriaMission": "(input:CancelMissionInput!):AriaCommandResult!",
+    "retryAriaMission": "(input:RetryMissionInput!):AriaCommandResult!",
+    "freezeAriaAutonomy": "(input:FreezeAutonomyInput!):AriaCommandResult!",
+    "resumeAriaAutonomy": "(input:ResumeAutonomyInput!):AriaCommandResult!",
+    "requestAriaMergeEvaluation": "(input:MergeEvaluationInput!):AriaCommandResult!",
+    "acknowledgeAriaDecision": "(input:AcknowledgeDecisionInput!):AriaCommandResult!"
+  },
+  "schema_closure": {
+    "algorithm": "graphql-public-closure-v1",
+    "sha256": "ba7376ce5a8b3faf2995fcadcfa8735de3359f27d083da08ded5418c0bcd1130"
+  },
+  "lifecycle_mapping": {
+    "DRAFT": "DRAFT",
+    "SUBMITTED": "SUBMITTED",
+    "PLANNED": "PLANNED",
+    "EXECUTING": "EXECUTING",
+    "VERIFYING": "VERIFYING",
+    "SUCCEEDED": "COMPLETED",
+    "FAILED": "FAILED",
+    "CANCELLED": "CANCELLED"
+  },
+  "phase_contracts": {
+    "S06": {
+      "query_root": "Query",
+      "mutation_root": null,
+      "query_count": 7,
+      "mutation_count": 0,
+      "query_source": "terminal.query_fields",
+      "mutation_fields": []
+    },
+    "S07": {
+      "query_root": "Query",
+      "mutation_root": null,
+      "query_count": 7,
+      "mutation_count": 0,
+      "query_source": "terminal.query_fields",
+      "mutation_fields": []
+    },
+    "S08": {
+      "query_root": "Query",
+      "mutation_root": null,
+      "query_count": 7,
+      "mutation_count": 0,
+      "query_source": "terminal.query_fields",
+      "mutation_fields": []
+    },
+    "S15": {
+      "query_root": "Query",
+      "mutation_root": "Mutation",
+      "query_count": 7,
+      "mutation_count": 4,
+      "query_source": "terminal.query_fields",
+      "mutation_fields": [
+        "createAriaMissionDraft",
+        "postAriaConversationMessage",
+        "submitAriaMission",
+        "acknowledgeAriaDecision"
+      ]
+    },
+    "S17": {
+      "query_root": "Query",
+      "mutation_root": "Mutation",
+      "query_count": 7,
+      "mutation_count": 6,
+      "query_source": "terminal.query_fields",
+      "mutation_fields": [
+        "createAriaMissionDraft",
+        "postAriaConversationMessage",
+        "submitAriaMission",
+        "cancelAriaMission",
+        "retryAriaMission",
+        "acknowledgeAriaDecision"
+      ]
+    },
+    "S30": {
+      "query_root": "Query",
+      "mutation_root": "Mutation",
+      "query_count": 7,
+      "mutation_count": 7,
+      "query_source": "terminal.query_fields",
+      "mutation_fields": [
+        "createAriaMissionDraft",
+        "postAriaConversationMessage",
+        "submitAriaMission",
+        "cancelAriaMission",
+        "retryAriaMission",
+        "requestAriaMergeEvaluation",
+        "acknowledgeAriaDecision"
+      ]
+    },
+    "S39": {
+      "query_root": "Query",
+      "mutation_root": "Mutation",
+      "query_count": 7,
+      "mutation_count": 9,
+      "query_source": "terminal.query_fields",
+      "mutation_fields": [
+        "createAriaMissionDraft",
+        "postAriaConversationMessage",
+        "submitAriaMission",
+        "cancelAriaMission",
+        "retryAriaMission",
+        "freezeAriaAutonomy",
+        "resumeAriaAutonomy",
+        "requestAriaMergeEvaluation",
+        "acknowledgeAriaDecision"
+      ]
+    },
+    "S46": {
+      "query_root": "Query",
+      "mutation_root": "Mutation",
+      "query_count": 7,
+      "mutation_count": 9,
+      "query_source": "terminal.query_fields",
+      "mutation_fields": [
+        "createAriaMissionDraft",
+        "postAriaConversationMessage",
+        "submitAriaMission",
+        "cancelAriaMission",
+        "retryAriaMission",
+        "freezeAriaAutonomy",
+        "resumeAriaAutonomy",
+        "requestAriaMergeEvaluation",
+        "acknowledgeAriaDecision"
+      ]
+    }
+  }
+}

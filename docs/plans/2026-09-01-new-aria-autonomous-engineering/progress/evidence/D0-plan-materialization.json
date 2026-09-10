@@ -1,0 +1,273 @@
+{
+  "schema_version": "1.0.0",
+  "program_id": "new-aria-autonomous-engineering",
+  "evidence_id": "D0-plan-materialization",
+  "sprint_id": "D0",
+  "state": "VERIFYING",
+  "claim": "D0 documentation-only architecture and 72-sprint program artifact set was materialized from the recorded baseline without modifying legacy ARIA.",
+  "proof_class": "code_proven",
+  "target": {
+    "baseline_sha": "eeb401131260fe45f3f60be55fa25d023a082d18",
+    "target_sha": "eeb401131260fe45f3f60be55fa25d023a082d18",
+    "target_binding": "pre_implementation_baseline",
+    "implementation_commit_status": "pending; a commit cannot contain its own SHA",
+    "origin_main_reachable": true,
+    "origin_main_reachability_command": "git merge-base --is-ancestor eeb401131260fe45f3f60be55fa25d023a082d18 origin/main"
+  },
+  "authority": [
+    {
+      "path": "docs/superpowers/specs/2026-09-01-new-aria-autonomous-engineering-design.md",
+      "sha256": "ab3377b7da1207fa73bd1cde002befa239decc2fcd1ef3e6bf7bda263b832559"
+    },
+    {
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/PLAN.md",
+      "sha256": "9096f645bf93d24669fc9da42cd6b023099b96e9d37094a77de87e8b321d1f4a"
+    },
+    {
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/FINDING-COVERAGE.md",
+      "sha256": "4ee24b4141157e1f3f903fe62596b81f8b962d1ce8d02f916e00aef56a0ea9ea"
+    },
+    {
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/phases/P01.md",
+      "sha256": "2e22a99d6ccbbe5bb0a77eec054a81743b7a4a6af55fd131e83329aa144a8d41"
+    },
+    {
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/phases/P02.md",
+      "sha256": "9cf017339943a079327779bbe86be0dfec8259d2481d239a7b255e86a71d65ad"
+    },
+    {
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/phases/P03.md",
+      "sha256": "6e5bcb02d22b13496e72406ce02e7c2dbfab62f00ebeddcacfb601f5ea6e8603"
+    },
+    {
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/phases/P04.md",
+      "sha256": "d1d785fdaa235435eccc95f8895a9ced59314155bea0349e9c88a437277e2706"
+    },
+    {
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/phases/P05.md",
+      "sha256": "06a40544275bf8ce059705923e238f65240a7e17769fb22fec8e4c5cd35f9b5e"
+    },
+    {
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/phases/P06.md",
+      "sha256": "471ae0379f6a2651145dc80f1a050b3910a9fd82d80b5a6ff8f4e770e12bbe4c"
+    },
+    {
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/phases/P07.md",
+      "sha256": "14afd835d7b0e381b73fc6f539330981cd84215729249171a3a1c8702718e2ae"
+    },
+    {
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/phases/P08.md",
+      "sha256": "f67e82c76e13f120a530329e99dbf7722a0958d5b7eeaf3361902f4d15760fd1"
+    },
+    {
+      "path": "docs/plans/2026-09-01-new-aria-autonomous-engineering/phases/P09.md",
+      "sha256": "6c87b9b3a698d4e32ab03042f3393b704b8db373da0475651fc3ed8ab53a4fe0"
+    }
+  ],
+  "artifact": {
+    "uri": "repo://docs/plans/2026-09-01-new-aria-autonomous-engineering",
+    "digest_algorithm": "sha256(path + NUL + sha256 + LF, design/plan/finding/phase authority order)",
+    "digest": "38ea8cd82baf3a1479d962c6a6142428c29e878f5799231325cbd11b2fbd6f08"
+  },
+  "progress_event_uri": "progress/events.jsonl",
+  "producer": {
+    "identity": "d0-implementation-agent",
+    "role": "documentation producer",
+    "independent_reviewer": false
+  },
+  "reviewer": {
+    "status": "pending",
+    "identity": null,
+    "reviewed_sha": null,
+    "verdict": null
+  },
+  "execution": {
+    "started_at_utc": "2026-09-01T17:20:10Z",
+    "ended_at_utc": "2026-09-01T17:46:24Z",
+    "validation_status": "passed_required_checks_with_environmental_diagnostics",
+    "results": [
+      {
+        "command": "node <<'NODE' (D0 001..088 exact title/gap, P0 disposition, S01..S72/card and relative-link checker recorded in implementer report)",
+        "exit": 0,
+        "verdict": "PASS findings=88 titles=exact P0=24(20/3/1) sprints=72 cards=72 links=ok"
+      },
+      {
+        "command": "node <<'NODE' (JSON/JSONL parse, event-chain recomputation and authority/bundle digest checker recorded in implementer report)",
+        "exit": 0,
+        "verdict": "PASS json/jsonl=valid events=4 authority=12 bundle=38ea8cd82baf3a1479d962c6a6142428c29e878f5799231325cbd11b2fbd6f08 linked=88"
+      },
+      {
+        "command": "npx --no-install prettier --check <design, PLAN, FINDING-COVERAGE, PROGRESS, P01-P09, D0 evidence paths>",
+        "exit": 0,
+        "verdict": "All matched files use Prettier code style"
+      },
+      {
+        "command": "npm run quality:format-scope:check",
+        "exit": 0,
+        "verdict": "tools/quality/format-scope.json: ok"
+      },
+      {
+        "command": "git diff --cached --check",
+        "exit": 0,
+        "verdict": "PASS"
+      },
+      {
+        "command": "git merge-base --is-ancestor eeb401131260fe45f3f60be55fa25d023a082d18 origin/main",
+        "exit": 0,
+        "verdict": "baseline reachable"
+      },
+      {
+        "command": "git diff --cached --name-only -- aria-kernel tools/aria-poc docs/aria '.claude/agents/aria-*' .github/workflows",
+        "exit": 0,
+        "verdict": "empty; legacy protected paths untouched"
+      },
+      {
+        "command": "NX_DAEMON=false NX_INTERACTIVE=false NX_TASKS_RUNNER_DYNAMIC_OUTPUT=false npx nx affected --target=test --base=origin/main --head=HEAD --parallel=1",
+        "exit": 0,
+        "verdict": "NX No tasks were run"
+      },
+      {
+        "command": "NX_DAEMON=false NX_INTERACTIVE=false NX_TASKS_RUNNER_DYNAMIC_OUTPUT=false npx nx affected --target=lint --base=origin/main --head=HEAD --parallel=1",
+        "exit": 0,
+        "verdict": "NX No tasks were run"
+      },
+      {
+        "command": "staged_files=$(git diff --cached --name-only | paste -sd, -); NX_DAEMON=false NX_INTERACTIVE=false npx nx show projects --affected --files=\"$staged_files\"",
+        "exit": 0,
+        "verdict": "empty; staged docs/format manifest map to no Nx projects"
+      },
+      {
+        "command": "NX_DAEMON=false NX_INTERACTIVE=false NX_TASKS_RUNNER_DYNAMIC_OUTPUT=false npm run invariants:fast -- --maxWorkers=1",
+        "exit": 1,
+        "verdict": "230 suites and 2537 tests passed; deploy-ssot timing assertion observed 8150ms > 6000ms; postgres DR mode assertion expected 0111 and received 0100"
+      },
+      {
+        "command": "NX_DAEMON=false NX_INTERACTIVE=false npx jest --config tests/invariants/jest.config.ts --selectProjects layer-1 --runTestsByPath tests/invariants/deploy-ssot-contract.spec.ts --maxWorkers=1",
+        "exit": 0,
+        "verdict": "PASS 29/29; isolated hotspot elapsed 2529ms"
+      },
+      {
+        "command": "NX_DAEMON=false NX_INTERACTIVE=false npx jest --config tests/invariants/jest.config.ts --selectProjects layer-1 --runTestsByPath tests/invariants/postgres-dr-bootstrap-control-plane.spec.ts --maxWorkers=1",
+        "exit": 1,
+        "verdict": "FAIL 1/12: worktree filesystem mode 0700 yields mode&0111=0100; origin/main records the unchanged file as Git mode 100755"
+      },
+      {
+        "command": "chmod 0755 infrastructure/scripts/provider-console-bootstrap-postgres-walg.sh; test -z \"$(git status --short -- infrastructure/scripts/provider-console-bootstrap-postgres-walg.sh)\"; test -z \"$(git diff --name-only -- infrastructure/scripts/provider-console-bootstrap-postgres-walg.sh)\"",
+        "exit": 0,
+        "verdict": "checkout metadata normalized to tracked executable semantics; file remains absent from git status/diff"
+      },
+      {
+        "command": "NX_DAEMON=false NX_INTERACTIVE=false npx jest --config tests/invariants/jest.config.ts --selectProjects layer-1 --runTestsByPath tests/invariants/postgres-dr-bootstrap-control-plane.spec.ts --maxWorkers=1",
+        "exit": 0,
+        "verdict": "PASS 12/12 after checkout metadata normalization"
+      }
+    ]
+  },
+  "freshness": {
+    "observed_at_utc": "2026-09-01T17:46:24Z",
+    "valid_until_utc": null,
+    "policy": "D0 remains VERIFYING until independent review and merge; this manifest does not authorize execution or merge."
+  },
+  "negative_controls": [
+    "Legacy ARIA protected path diff must be empty.",
+    "A missing, duplicate, out-of-order, or title-drifted ARIA-AUDIT row must fail validation.",
+    "A missing, duplicate, or out-of-order S01-S72 index/card must fail validation.",
+    "A tampered previous_hash or event_hash must fail independent chain recomputation.",
+    "D0 must not transition to DONE while independent review and merge are pending."
+  ],
+  "linked_findings": [
+    "ARIA-AUDIT-001",
+    "ARIA-AUDIT-002",
+    "ARIA-AUDIT-003",
+    "ARIA-AUDIT-004",
+    "ARIA-AUDIT-005",
+    "ARIA-AUDIT-006",
+    "ARIA-AUDIT-007",
+    "ARIA-AUDIT-008",
+    "ARIA-AUDIT-009",
+    "ARIA-AUDIT-010",
+    "ARIA-AUDIT-011",
+    "ARIA-AUDIT-012",
+    "ARIA-AUDIT-013",
+    "ARIA-AUDIT-014",
+    "ARIA-AUDIT-015",
+    "ARIA-AUDIT-016",
+    "ARIA-AUDIT-017",
+    "ARIA-AUDIT-018",
+    "ARIA-AUDIT-019",
+    "ARIA-AUDIT-020",
+    "ARIA-AUDIT-021",
+    "ARIA-AUDIT-022",
+    "ARIA-AUDIT-023",
+    "ARIA-AUDIT-024",
+    "ARIA-AUDIT-025",
+    "ARIA-AUDIT-026",
+    "ARIA-AUDIT-027",
+    "ARIA-AUDIT-028",
+    "ARIA-AUDIT-029",
+    "ARIA-AUDIT-030",
+    "ARIA-AUDIT-031",
+    "ARIA-AUDIT-032",
+    "ARIA-AUDIT-033",
+    "ARIA-AUDIT-034",
+    "ARIA-AUDIT-035",
+    "ARIA-AUDIT-036",
+    "ARIA-AUDIT-037",
+    "ARIA-AUDIT-038",
+    "ARIA-AUDIT-039",
+    "ARIA-AUDIT-040",
+    "ARIA-AUDIT-041",
+    "ARIA-AUDIT-042",
+    "ARIA-AUDIT-043",
+    "ARIA-AUDIT-044",
+    "ARIA-AUDIT-045",
+    "ARIA-AUDIT-046",
+    "ARIA-AUDIT-047",
+    "ARIA-AUDIT-048",
+    "ARIA-AUDIT-049",
+    "ARIA-AUDIT-050",
+    "ARIA-AUDIT-051",
+    "ARIA-AUDIT-052",
+    "ARIA-AUDIT-053",
+    "ARIA-AUDIT-054",
+    "ARIA-AUDIT-055",
+    "ARIA-AUDIT-056",
+    "ARIA-AUDIT-057",
+    "ARIA-AUDIT-058",
+    "ARIA-AUDIT-059",
+    "ARIA-AUDIT-060",
+    "ARIA-AUDIT-061",
+    "ARIA-AUDIT-062",
+    "ARIA-AUDIT-063",
+    "ARIA-AUDIT-064",
+    "ARIA-AUDIT-065",
+    "ARIA-AUDIT-066",
+    "ARIA-AUDIT-067",
+    "ARIA-AUDIT-068",
+    "ARIA-AUDIT-069",
+    "ARIA-AUDIT-070",
+    "ARIA-AUDIT-071",
+    "ARIA-AUDIT-072",
+    "ARIA-AUDIT-073",
+    "ARIA-AUDIT-074",
+    "ARIA-AUDIT-075",
+    "ARIA-AUDIT-076",
+    "ARIA-AUDIT-077",
+    "ARIA-AUDIT-078",
+    "ARIA-AUDIT-079",
+    "ARIA-AUDIT-080",
+    "ARIA-AUDIT-081",
+    "ARIA-AUDIT-082",
+    "ARIA-AUDIT-083",
+    "ARIA-AUDIT-084",
+    "ARIA-AUDIT-085",
+    "ARIA-AUDIT-086",
+    "ARIA-AUDIT-087",
+    "ARIA-AUDIT-088"
+  ],
+  "admission": {
+    "accepted": false,
+    "status": "pending_independent_review",
+    "reason": "The D0 PR is unmerged and no independent reviewer has bound a verdict to the implementation SHA; environmental invariant diagnostics are recorded but do not authorize acceptance."
+  }
+}

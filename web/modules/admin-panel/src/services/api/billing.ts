@@ -58,8 +58,8 @@ import type {
 
 export const billingApi = {
   // Plans
-  getPlans: (includeInactive = false) =>
-    apiFetch<PlanDefinition[]>(`/billing/plans?includeInactive=${includeInactive}`),
+  getPlans: (includeInactive = false, signal?: AbortSignal) =>
+    apiFetch<PlanDefinition[]>(`/billing/plans?includeInactive=${includeInactive}`, { signal }),
   getPublicPlans: () => apiFetch<PlanDefinition[]>('/billing/plans/public'),
   getPlanById: (id: string) => apiFetch<PlanDefinition>(`/billing/plans/${id}`),
   getPlanByCode: (code: string) => apiFetch<PlanDefinition>(`/billing/plans/code/${code}`),

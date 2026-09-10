@@ -110,7 +110,8 @@ export const adminKeys = {
     all: () => [...adminKeys.all, 'billing'] as const,
     invoices: (filters?: Record<string, unknown>) =>
       [...adminKeys.billing.all(), 'invoices', filters] as const,
-    plans: () => [...adminKeys.billing.all(), 'plans'] as const,
+    plans: (includeInactive = false) =>
+      [...adminKeys.billing.all(), 'plans', includeInactive] as const,
     /** The module price sheet the tenant-creation wizard prices a selection from. */
     modulePricing: () => [...adminKeys.billing.all(), 'module-pricing'] as const,
     /**

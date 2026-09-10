@@ -1076,7 +1076,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "a0e86a79d921db05890513f93d56f540e52f97eb8da04b2779670c7dad686034",
+      "content_sha256": "be0d303cf4d90b648e8b623d0c27fec871b805e06f94792018feb87d096e8520",
       "hash_policy": "sha256",
       "owner": "admin-openapi-generator",
       "path": "apps/admin-api-service/openapi.json",
@@ -51276,6 +51276,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/messaging/__tests__/MessagingTenantsPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/pages/messaging/MessagingAiPersonasPage.tsx",
       "prettier_managed": true
     },
@@ -51635,7 +51641,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "6b0adecb278f5ab6945772d3c941bfdfd36fe0bd33544868c28383f012b0bf16",
+      "content_sha256": "498abfa4e9c8e18e24f245803fa082dc98e19ee16351d91000756c4c4929f67c",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/modules/admin-panel/src/services/generated/admin-api.ts",

@@ -20,6 +20,7 @@ import {
 import {
   MessagingMonitoringStatsDto,
   MessagingTenantsOverviewDto,
+  TenantDataExportResultDto,
 } from './dto/messaging-monitoring-response.dto';
 import { Destructive, RequiresCapability, TenantParam } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
@@ -122,11 +123,6 @@ interface AuditLogResponse {
   hasMore: boolean;
   cursor: string | null;
   totalCount: number;
-}
-
-interface ExportResponse {
-  exportId: string;
-  status: string;
 }
 
 interface PersonaResponse {
@@ -363,14 +359,19 @@ export class MessagingAdminController {
   @Destructive()
   @RequiresCapability('support-ops')
   @Post('tenants/:id/export')
-  @HttpCode(HttpStatus.ACCEPTED)
-  @ApiOperation({ summary: 'Trigger tenant data export' })
+  // 200, not 202 (ADMIN-HIGH-153): `DataExportService.exportTenant` performs
+  // the export inside the request and replies `status: 'completed'` with the
+  // serialised payload. Answering "Accepted" for work already done is what
+  // led the admin panel to describe the job as asynchronous and to discard
+  // the file it had been handed.
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Export a tenant\'s messaging data' })
   async triggerExport(
     @TenantParam('param', { key: 'id', allow: 'any' }) tenantId: string,
     @Body() dto: TriggerExportDto,
     @CurrentUser() user: CurrentUserData,
-  ): Promise<ExportResponse> {
-    return this.sendNatsRequest<ExportResponse>(
+  ): Promise<TenantDataExportResultDto> {
+    return this.sendNatsRequest<TenantDataExportResultDto>(
       'request.messaging.admin.triggerExport',
       {
         tenantId,

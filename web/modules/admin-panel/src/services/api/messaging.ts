@@ -17,7 +17,7 @@
  */
 
 import { apiFetch, buildQueryString } from '../http-client';
-import type { PaginatedResult } from '../types';
+
 import type { MessagingMonitoringStats, MessagingTenantsOverview } from '../types/messaging';
 
 // ============================================================================
@@ -85,27 +85,100 @@ export interface RetentionPolicyUpdate {
 // Types -- Audit
 // ============================================================================
 
+/**
+ * Every action `ComplianceAction` can record, in
+ * `apps/messaging-service/src/compliance/entities/compliance-audit-log.entity.ts`
+ * (ADMIN-CRITICAL-150).
+ *
+ * Declared here rather than derived, because the enum belongs to
+ * messaging-service and reaches admin-api only as a NATS reply — nothing in
+ * admin's OpenAPI carries it, and admin-api may not import another service's
+ * source. So this list is pinned to the entity by
+ * `tests/invariants/messaging-compliance-action-parity.spec.ts` instead: the
+ * two must be equal, in both directions.
+ *
+ * The page's own hand-written vocabulary was `send`, `edit`, `delete`,
+ * `create_channel`, `join_channel`, `leave_channel`, `upload_file` — SEVEN
+ * values, not one of which the column can hold. Every action filter therefore
+ * returned nothing, permanently, and the four an auditor actually looks for
+ * (`message_export`, `data_anonymize`, `retention_set`, `legal_hold_toggle`)
+ * were not offered at all.
+ */
+export const MESSAGING_COMPLIANCE_ACTIONS = [
+  'message_send',
+  'message_edit',
+  'message_delete',
+  'channel_create',
+  'channel_archive',
+  'member_add',
+  'member_remove',
+  'message_export',
+  'data_anonymize',
+  'retention_set',
+  'legal_hold_toggle',
+] as const;
+
+export type MessagingComplianceAction = (typeof MESSAGING_COMPLIANCE_ACTIONS)[number];
+
+/**
+ * One `messaging.compliance_audit_logs` row, as the audit route returns it
+ * (ADMIN-CRITICAL-150).
+ *
+ * The previous declaration invented five fields and mistyped a sixth:
+ * `timestamp` (the column is `createdAt`, so the page rendered
+ * `Invalid Date`), `tenantName` and `userName` (absent — two blank columns),
+ * `channelId` and `messageId` (absent; the row identifies its subject with
+ * `resourceType` + `resourceId`, which the page never showed), and `details`
+ * as a `string` when it is `jsonb | null` — so the cell rendered
+ * `[object Object]` and the CSV export called `.replace` on an object and
+ * THREW. `ipAddress` and `userAgent`, the two fields that say where an action
+ * came from on a forensic surface, were missing entirely.
+ */
 export interface MessagingAuditEntry {
   id: string;
-  timestamp: string;
   tenantId: string;
-  tenantName: string;
   userId: string;
-  userName: string;
-  action: string;
-  details: string;
-  channelId?: string;
-  messageId?: string;
+  action: MessagingComplianceAction;
+  resourceType: string;
+  resourceId: string;
+  details: Record<string, unknown> | null;
+  ipAddress: string | null;
+  userAgent: string | null;
+  createdAt: string;
 }
 
+/**
+ * One page of the audit log, as the route returns it.
+ *
+ * CURSOR-paginated, and it was typed as `PaginatedResult<T>` — an offset page
+ * with a `data` array. The response has `items`, so `result.data` was
+ * `undefined` and the page crashed on the first render that got past the 400.
+ */
+export interface MessagingAuditPage {
+  items: MessagingAuditEntry[];
+  hasMore: boolean;
+  cursor: string | null;
+  totalCount: number;
+}
+
+/**
+ * What `GET /messaging/audit` accepts.
+ *
+ * `tenantId` is REQUIRED — the route declares
+ * `@TenantParam('query') tenantId: string` and refuses a request without one
+ * (ADMIN-HIGH-149 made the contract say so). `page` and `pageSize` were sent
+ * and are not parameters this route has: it takes `limit` and `cursor`, so
+ * every "page" returned the same first rows and the pager moved nothing.
+ */
 export interface MessagingAuditFilters {
-  tenantId?: string;
-  userId?: string;
-  action?: string;
-  startDate?: string;
-  endDate?: string;
-  page?: number;
-  pageSize?: number;
+  readonly tenantId: string;
+  readonly userId?: string;
+  readonly action?: MessagingComplianceAction;
+  readonly resourceType?: string;
+  readonly startDate?: string;
+  readonly endDate?: string;
+  readonly limit?: number;
+  readonly cursor?: string;
 }
 
 // ============================================================================
@@ -266,11 +339,12 @@ export const messagingApi = {
 
   /** Query messaging audit log with pagination and filters */
   getAuditLog: (
-    filters?: MessagingAuditFilters,
-  ): Promise<PaginatedResult<MessagingAuditEntry>> =>
-    apiFetch<PaginatedResult<MessagingAuditEntry>>(
-      `/messaging/audit?${buildQueryString({ ...(filters || {}) })}`,
-    ),
+    filters: MessagingAuditFilters,
+    signal?: AbortSignal,
+  ): Promise<MessagingAuditPage> =>
+    apiFetch<MessagingAuditPage>(`/messaging/audit?${buildQueryString({ ...filters })}`, {
+      signal,
+    }),
 
   // ── Data Export ──
 

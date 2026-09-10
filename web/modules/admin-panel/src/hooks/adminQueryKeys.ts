@@ -49,7 +49,11 @@ export const adminKeys = {
     legalHolds: (tenantId: string) =>
       [...adminKeys.messaging.compliance(), 'legal-holds', tenantId] as const,
     monitoring: () => [...adminKeys.messaging.all(), 'monitoring'] as const,
-    audit: () => [...adminKeys.messaging.all(), 'audit'] as const,
+    // Keyed by the request, cursor included: the audit route is
+    // cursor-paginated, so two pages of the same filters are different reads
+    // and must not share a cache entry (ADMIN-CRITICAL-150).
+    audit: (request?: Record<string, unknown>) =>
+      [...adminKeys.messaging.all(), 'audit', request] as const,
     tenants: () => [...adminKeys.messaging.all(), 'tenants'] as const,
     personas: () => [...adminKeys.messaging.all(), 'personas'] as const,
   },

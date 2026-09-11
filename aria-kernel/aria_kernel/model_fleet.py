@@ -245,20 +245,33 @@ class _NativeRuntimeAdmission:
     eligible_routes: tuple[dict[str, str], ...]
 
 
+def native_admission_budget_seconds(policy: _AdaptiveRuntimePolicy) -> float:
+    """The wall-clock bound of one native admission: one recheck per fleet member."""
+    return float(policy.recheck_timeout_seconds) * len(_FLEET)
+
+
 def _native_runtime_admission(
     *,
     repo_root: Path,
     profile: _AgentRuntimeProfile,
     policy: _AdaptiveRuntimePolicy,
     environ: dict[str, str],
-    deadline_monotonic: float,
     observe_status: _Callable[[Provider, float], _RuntimeStatusObservation],
 ) -> _NativeRuntimeAdmission:
     """Prepare native route observations; the runtime supplies its status transport.
 
     Legacy marker discovery is deliberately not a native auth prerequisite.
     Neither a status exit nor a price alone establishes control admission.
+
+    Every fleet member is offered one full `recheck_timeout_seconds` for its
+    own status observation: the budget is per probe, and the admission as a
+    whole is bounded by that budget times the fleet's size. A first probe
+    that stalls to its limit (a swapped-out CLI on a loaded host) is its own
+    `status_timeout`; the providers behind it are still asked. The fleet
+    owns this arithmetic so no caller can hand the whole fleet a single
+    probe's budget and starve the last member into `status_deadline_elapsed`.
     """
+    deadline_monotonic = _time.monotonic() + native_admission_budget_seconds(policy)
     from .budget import alias_pricing_prefix, price_tokens
     from .genesis_policy import _runtime_monetary_admission
 

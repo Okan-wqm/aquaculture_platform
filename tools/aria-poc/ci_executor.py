@@ -2834,7 +2834,6 @@ def _adaptive_pre_claim_admission(
 
     admission = _native_runtime_admission(
         repo_root=repo_root, profile=profile, policy=policy, environ=environment,
-        deadline_monotonic=time.monotonic() + policy.recheck_timeout_seconds,
         observe_status=observe_status,
     )
     if admission.eligible_routes:

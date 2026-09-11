@@ -70,3 +70,24 @@ request PENDING with no attempt burned. Affected suites (153) OK.
 Live: `claude auth status --json` on this host reports the operator's
 `max` subscription as `claude.ai` — the probe returns
 `available / subscription / managed_session_logged_in`.
+
+## Addendum — ARIA-HIGH-075: one stalled probe starved the fleet
+
+**Finding:** ARIA-HIGH-075 — closed by this branch; this section is its evidence.
+
+Trial four on Codex (`AIR-aria-challenger-planner-1809efa4dcb9`), second
+dispatch, 2026-09-11T21:24Z, host at 96 % swap: the Anthropic probe hit its
+20 s limit — `status_timeout`, honest; the same command ran in 0.35 s once
+the pages were back — and the Codex row, third in fleet order, was recorded
+`status_deadline_elapsed` with an empty status command. It was never asked.
+The executor had set the admission deadline to `now +
+recheck_timeout_seconds`: one probe's budget handed to the whole fleet.
+
+`recheck_timeout_seconds` is a per-probe budget (the loop already bounded
+each member by `min(recheck, remaining)`); the fleet now owns the
+arithmetic — `native_admission_budget_seconds(policy)` is one recheck per
+fleet member, `_native_runtime_admission` computes its own deadline from it
+and no longer takes one — so a first probe that stalls to its limit costs
+nobody behind it, and an overrun that ignores its limit costs only the
+members behind it, named as such. `tests/test_native_admission_status_budget.py`
+(4) pins both, plus the executor's absence of any deadline of its own.

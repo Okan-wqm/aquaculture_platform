@@ -5868,11 +5868,17 @@ def _main(argv: list[str] | None = None) -> int:
         # the waits it was sized for: the resumable step function never
         # blocks on challenger_timeout, so a cycle deadline no longer
         # needs to fit max_rounds × envelopes × timeout inside one run.
-        # Plan ARIA-V8 §4 Phase 8.0 (B-V2-11) — surface the per-run
-        # budget cap to the orchestrator environment so child ci_executor
-        # subprocesses read it via MAX_BUDGET_USD_PER_RUN env var.
-        os.environ["MAX_BUDGET_USD_PER_RUN"] = str(args.max_budget_usd_per_run)
-        os.environ["MAX_BUDGET_USD_PER_CYCLE"] = str(args.max_budget_usd_per_cycle)
+        # ARIA-HIGH-064 — the two budget caps used to be exported here as
+        # MAX_BUDGET_USD_PER_RUN / MAX_BUDGET_USD_PER_CYCLE "so child
+        # ci_executor subprocesses read them" (Plan ARIA-V8 §4 Phase 8.0).
+        # No child reads them any more: ORPHAN-HIGH-472 retired the dollar
+        # gate because a subscription session has no marginal per-run
+        # charge to cap. What the export still DID was leak: the kernel
+        # suite runs ~260 modules in one interpreter, and an unrestored
+        # os.environ write outlives the command that made it — the same
+        # defect class as the deadline epoch this finding closes. The caps
+        # now travel as parameters and are RECORDED on the orchestrator's
+        # started event (telemetry, not a gate), never exported.
         convergence_runner = select_convergence_runner(profile=profile)
         review_runner = select_review_runner(profile=profile)
         specialist_review_runner = select_specialist_review_runner(profile=profile)
@@ -5904,16 +5910,10 @@ def _main(argv: list[str] | None = None) -> int:
         # arasındaki minimuma çekilir. Faz içinde kesilme =
         # PhaseDeadlineExceeded = temiz mühürleme; between-iteration kontrolü
         # (cycle_deadline_exceeded) yerinde kalır, bu onun kesen eşi.
-        if getattr(args, "cycle_deadline_seconds", 0):
-            _cap = time.time() + args.cycle_deadline_seconds
-            _existing = os.environ.get("ARIA_JOB_DEADLINE_EPOCH")
-            if _existing:
-                try:
-                    _cap = min(_cap, float(_existing))
-                except ValueError:
-                    pass
-            os.environ["ARIA_JOB_DEADLINE_EPOCH"] = str(_cap)
-        
+        # ARIA-HIGH-064 — the binding moved INTO run_autonomy_orchestrator,
+        # which already receives cycle_deadline_seconds and now owns the
+        # scope. Assigning the env var here left it set for the rest of the
+        # process; the orchestrator's decorator restores it.
         result = run_autonomy_orchestrator(
             base_dir=args.tools_dir,
             auto_merge_runner=auto_merge_runner,
@@ -5957,6 +5957,7 @@ def _main(argv: list[str] | None = None) -> int:
             # profile table it was describing.
             v9_implementation_runner=select_v9_implementation_runner(profile=profile),
             max_budget_usd_per_cycle=args.max_budget_usd_per_cycle,
+            max_budget_usd_per_run=args.max_budget_usd_per_run,
         )
         if args.output == "full" and not args.artifact:
             contract = {

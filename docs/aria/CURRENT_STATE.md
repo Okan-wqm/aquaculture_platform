@@ -1,8 +1,8 @@
 # ARIA Current State
 
-Date: 2026-09-09
+Date: 2026-09-11
 Target ref: `origin/main`
-Last verified ARIA authority hash: `40c4ba054757cd25fa7a69d5426845aaa4deec266b2616d525d8569a6cabf130`
+Last verified ARIA authority hash: `83ea45be30fa977f1c3fe0bac84bbd0f36f55cd6715504365b769b32aa549473`
 Status: post-snowball mainline hardening in progress
 
 ## Authority Chain
@@ -115,3 +115,20 @@ authority, and hybrid ledger/state authority. This record is not live merge
 permission; live authority still requires the machine-readable policy files,
 schemas, executable owners, required GitHub check, CODEOWNERS ownership,
 state-manifest declarations, and invariants listed in that SSoT.
+
+## Event-schema regression progression — 2026-09-11
+
+The default architecture check records missing event-schema identities as well as counts. When both
+observations supply identities, introduced and removed sets detect a new missing schema even when
+another is restored; historical observations without paired identity metadata retain count
+comparison. This is a static filename/declaration check.
+
+`aria-kernel/aria_kernel/cycle.py::_phase_architecture_postcheck` maps a positive native regression
+count into the existing failed-phase contract. Real regression and clean-cycle fixtures exercise
+failed/completed terminals; two legacy progression controls also passed. The
+[four-file catalogue](./ARCHITECTURE.md#event-schema-identity-and-native-cycle-completion) records
+exact source hashes, read completeness, callers, state and evidence limits. Outer plan/status
+propagation, corrective recovery and the wider ARIA-HIGH-045 identity coverage remain open under
+services' next core boundary. This does not establish model execution, autonomous merge or learned
+utility. Publication validation has its own finding review and uses a clean main-based checkout;
+isolated dirty-tree results remain historical.

@@ -715,3 +715,143 @@ flowchart TD
   Evidence -->|no| Human
   Evidence -->|yes| Narrow
 ```
+
+## Event-schema identity and native cycle completion
+
+2026-09-11. This bounded change detects a newly missing event schema even when a different missing
+schema is fixed in the same observation, and carries that native regression into the existing cycle
+failure contract. The wider ARIA-HIGH-045 tenant-isolation/count-comparison finding remains OPEN.
+This disclosed engineering task is excluded from heldout learning evaluation.
+
+The existing default producer uses its TypeScript declaration regex and JSON-schema filename
+heuristic. It now also emits sorted unique `relative/path.ts::EventSymbol` missing identities. Line
+movement preserves identity; file or symbol renaming changes it. The comparator uses introduced and
+removed identities only when both observations carry identity lists, and suppresses the
+corresponding missing-schema numeric drift to avoid double counting. Observed empty lists remain
+distinct from absent or one-sided historical metadata; those historical cases keep numeric
+comparison without backfill. Other invariants retain their existing behavior. This is static naming
+analysis, not semantic TypeScript or schema-content validation.
+
+The registered postcheck wrapper still calls `take_postcheck` once with the same arguments. A
+positive native `regression_count` adds `status: fail` to a returned copy; zero returns the original
+details exactly. The existing terminal collector then names the failed architecture phase and
+appends a failed cycle terminal. Native spine event contents, threshold/reset behavior, phase
+registration, public signatures/defaults and general phase-status policies are unchanged. The
+architecture phase outcome remains `ran`: detection completed successfully. Runtime
+exception/artifact status remains a separate field.
+
+### Addressable source catalogue
+
+The main-based publication preparation uses local main `53d3e82d4b500cabc034fe5874df066f2e1af24d`.
+Its exact four-file patch is `34208be76829b45799a9a61152b099f58f0b0f6b191c35587d2bed842af2778a`;
+literal main-before, main-after and tested-isolated files are retained beside
+`source-manifest.json`. Root reconciled the exact source hashes and tested the publication tree.
+
+#### `aria-kernel/aria_kernel/architecture_spine_gate.py`
+
+Main-after and tested SHA256
+`0c64bc9511907abb4f07358d8e33214e70c2207316790d25d8cc4ceed4b5e450`;30,478 bytes/760 lines. Full
+manual reading is complete for the original owner and changed sections. Purpose: produce invariant
+observations, record a plan baseline and compare postchecks. `_check_event_contracts` feeds the
+default check table; `take_baseline` and `take_postcheck` use the existing governance writer, strict
+baseline reader and `detect_drift`. Actual callers are registered cycle wrappers and the CLI.
+Existing `governance.jsonl`, freshness/run readers and five-round HUMAN_REQUIRED threshold remain
+the state owners. No new store or scanner is added. Identity payload size scales with unique missing
+declarations under existing scan and ledger limits.
+
+#### `aria-kernel/tests/test_architecture_spine_gate.py`
+
+Main-after and tested SHA256
+`1b4e1bf420f253c9ddecb50dd4498fb996649af46a0bd723c722c19881f2f626`;27,069 bytes/587 lines. Full
+manual reading is complete. Pytest/unittest enters ordinary disposable source/schema fixtures and
+the real baseline/postcheck/governance owners. Four new methods cover the equal-count swap,
+observed-empty to one missing identity without double counting, removal-only improvement and six
+historical/mixed-version comparator cases. Original methods and the original RED body are preserved.
+Selected legacy methods cover numeric comparison and native threshold/reset. These producer fixtures
+do not execute fresh external adapters.
+
+#### `aria-kernel/aria_kernel/cycle.py`
+
+Main-after SHA256 `1a5491c47c9f2a47eba83fca4edd15bdb711b4442a7e084ce796bcfa54770efe`; tested
+isolated SHA256 `8e33ae8d1edbd34f2c915cec6874f908bcfe6323728a9d1ac6b39d1e5d1ea4b9`. These whole
+files differ because their pre-existing bases differ. The exact old wrapper matched both bases; the
+publication patch applies only its reviewed replacement, preserving main's other code. It does not
+transplant the dirty isolated whole owner.
+
+Purpose: execute registered enterprise phases and own cycle lifecycle. `run_cycle` and outer
+orchestration call this owner; `_phase_architecture_postcheck` calls native `take_postcheck`, and
+existing terminal logic consumes its phase result. State remains `cycles.jsonl`, governance and
+existing discovery/memory artifacts. Manual reading fully covers the changed wrapper,
+context/driver, phase table entries, failure collector and terminal/result projection; whole-file
+reading remains partial and is not claimed complete from AST inspection. The tested isolated owner
+has175,235 bytes/3,768 lines. Source comparison preserves every signature; the publication API
+evidence remains separate.
+
+#### `aria-kernel/tests/test_enterprise_cycle.py`
+
+Main-after and tested SHA256
+`9c7765dbda1d573aff59f426e9653b6c3090ede2d6b67a2d7314dc83b6ffb964`;57,874 bytes/1,210 lines. Full
+manual reading is complete. Two new methods run the actual cycle table/default producer/native
+ledgers with an explicit plan. The regression interposes an ordinary schema edit only after real
+`update_memory`; native equal counts and introduced/removed evidence precede the failed-terminal
+oracle. The clean case uses no substituted call and requires unchanged zero-count details and a
+completed terminal. Neither registers a live adapter. Two existing progression controls separately
+exercise an ordinary memory exception and an actual fake-tool SHADOW cycle without a plan; their
+architecture preconditions legitimately skip in the latter.
+
+### Actual evidence and publication validation
+
+| Selection                                                         | Observed result               | Exact scope                                                                                                                     |
+| ----------------------------------------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| Original equal-count producer before correction                   | 1 failed/0 subtests/2.79s     | Real default observation and native ledger reached; first count was0 instead of1.                                               |
+| Original producer plus three complementary controls               | 4 passed plus6 subtests/7.26s | Identity direction, empty versus unavailable, count deduplication and native governance.                                        |
+| Six existing comparator/threshold/cycle controls                  | 6 passed/0 subtests/17.65s    | Three comparators, two real threshold/reset cases and a pre-tool failure with substituted baseline primitive.                   |
+| Native postcheck-to-terminal regression before wrapper correction | 1 failed/0 subtests/39.29s    | All native postcheck evidence reached before actual completed-versus-failed terminal mismatch.                                  |
+| Unchanged native regression plus clean control                    | 2 passed/0 subtests/96.74s    | Actual failed and completed terminal rows; collection exactly2 in3.13s.                                                         |
+| Two existing progression controls                                 | 2 passed/0 subtests/165.85s   | Exact2 collection passed in1.51s; ordinary exception and no-plan SHADOW compatibility reached their existing native assertions. |
+
+These are separately recorded executions, not a combined suite. Producer GREEN source is
+`f341b7d62dd6060f395ebaab49e3e5712ba279b86e8b111e618e7e502f21969a`; consumer GREEN source is
+`37a863133eb8fd34aac4d44db4d28fb0773aabf5e6557a6eb7152c8b3e6beea3`. All completed receipts show
+exact selectors, source/script stability, memory admission, actual raw results and exited processes.
+Consumer2 GNU peakRSS64,756KiB/wall129.57s includes evidence capture. Raw artifacts remain under
+`gateway-transient-test-review/execution/detector-*`. Different-author final consumer/body review is
+`detector-cycle-consumer-green-legacy-independent-review.md`
+SHA679ce642ab0b470776db4f213d9dfda8c0cab75a7b72e94bd7bbf7a681a2d33d; earlier producer reviews are
+retained with its immutable two-file export. The completed isolated union is14 distinct methods
+plus6 subtests across four runs. Clean-main publication14 passed with6 subtests in138.16s; the
+same-schedule public API is unchanged. The
+[finding review](../reviews/codex/2026-09-11-event-schema-cycle-progression.md) records the actual
+publication source identity and separates its evidence from the isolated runs.
+
+### Calls and evidence flow
+
+```mermaid
+flowchart LR
+  RUN[run_cycle and registered phase driver] --> BASE[Baseline wrapper]
+  BASE --> B[take_baseline]
+  RUN --> POST[Postcheck wrapper]
+  POST --> P[take_postcheck]
+  B --> CHECK[Default static checks]
+  P --> CHECK
+  FILES[TS declarations and schema filenames] -.->|ordinary source input| CHECK
+  P --> READ[Strict native baseline reader]
+  P --> COMPARE[detect_drift]
+  COMPARE -.->|introduced / removed or historical numeric drift| P
+  B --> WRITE[Native governance writer]
+  P --> WRITE
+  P -.->|native count and drift details| POST
+  POST -.->|positive count adds status fail; zero unchanged| RUN
+  RUN --> TERMINAL[Existing failed / completed cycle writer]
+```
+
+Solid arrows are calls; labelled dashed arrows carry data. The diagram ends at the tested local
+cycle terminal. No recovery or retry is invented.
+
+Outer orchestration remains an explicit next boundary: its current normal cycle call omits
+`plan_id`, while its result classification prefers `runtime_status` over terminal `status`. The
+no-plan path skips spine phases, and a terminal architectural failure can still be classified as
+outer success when runtime status is ok. These source findings are not execution evidence for outer
+scheduling or repair. Autonomous repair/replan/resume, validated corrective attempts, merge
+enforcement, deployed services, live provider execution and production precision remain unproved by
+this slice. The ready bounded fix need not wait for that separate next boundary.

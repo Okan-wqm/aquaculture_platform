@@ -347,9 +347,10 @@ export const billingApi = {
   // page metadata. The response interceptor lifts `items` into the envelope's
   // `data` slot, and `apiFetch` decodes that into `PaginatedResult<T>`, so this
   // is the shape the browser actually holds (ADMIN-HIGH-004).
-  getCustomPlans: (filter?: CustomPlanFilter) =>
+  getCustomPlans: (filter?: CustomPlanFilter, signal?: AbortSignal) =>
     apiFetch<PaginatedResult<CustomPlan>>(
       `/billing/custom-plans?${buildQueryString((filter || {}) as Record<string, unknown>)}`,
+      { signal },
     ),
   getCustomPlan: (planId: string) =>
     apiFetch<CustomPlan>(`/billing/custom-plans/${planId}`),

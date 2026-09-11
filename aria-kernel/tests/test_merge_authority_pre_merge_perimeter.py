@@ -605,7 +605,47 @@ class NativeImplementationContextTests(unittest.TestCase):
         self.assertFalse(runner_result["dry_run"])
         self.assertEqual(adapter.merge_calls, [])
 
-        def invoke_current_runner(*, selected_root, pr_observation=pr):
+        # The final perimeter must request review of the accepted implementation,
+        # not reuse a pre-worker plan panel or a review of the base commit.
+        from aria_kernel.agent_invocations import list_agent_invocation_requests
+        expert_requests = list_agent_invocation_requests(
+            base_dir=tools, role="specialist_domain_review",
+        )
+        self.assertEqual(len(expert_requests), 2)
+        self.assertEqual({row["target_agent"] for row in expert_requests},
+            {"farm-expert", "security-reviewer"})
+        for expert_request in expert_requests:
+            self.assertEqual(expert_request["convergence_id"], plan.plan_id)
+            self.assertEqual(expert_request["plan_revision_hash"], plan.content_hash)
+            self.assertEqual(expert_request["target_sha"], head_sha)
+            self.assertNotEqual(expert_request["target_sha"], staged["base_sha"])
+            self.assertEqual(expert_request["allowed_scope"], [source_path])
+            self.assertEqual(expert_request["evidence_refs"], [source_path + ":1"])
+            self.assertEqual(expert_request["context_source_paths"], [source_path])
+            self.assertEqual(len(expert_request["must_satisfy"]), 1)
+            implementation_binding = expert_request["must_satisfy"][0]["implementation_binding"]
+            self.assertEqual(implementation_binding["change_id"], staged["change_id"])
+            self.assertEqual(implementation_binding["request_id"], request["request_id"])
+            self.assertEqual(implementation_binding["claim_id"], claim["claim_id"])
+            self.assertEqual(implementation_binding["result_row_hash"], submitted["row"]["ledger_hash"])
+            self.assertEqual(implementation_binding["committed_row_hash"], committed["ledger_hash"])
+            self.assertEqual(implementation_binding["head_sha"], head_sha)
+            self.assertEqual(implementation_binding["base_sha"], staged["base_sha"])
+            self.assertEqual(implementation_binding["diff_hash"],
+                "sha256:" + hashlib.sha256(diff_text.encode()).hexdigest())
+            sealed_expert = verify_invocation_context_binding(
+                request_id=expert_request["request_id"], context_hash=expert_request["context_hash"],
+                prompt_hash=expert_request["prompt_hash"], base_dir=tools,
+            )
+            self.assertEqual(sealed_expert["context"]["target_sha"], head_sha)
+            self.assertIn(json.dumps(implementation_binding, sort_keys=True),
+                sealed_expert["prompt"]["prompt_text"])
+            self.assertIsNone(accepted_result_for_request(
+                request_id=expert_request["request_id"], base_dir=tools,
+            ))
+        expert_request_bytes = (tools / "agent-invocations/requests.jsonl").read_bytes()
+
+        def invoke_current_runner(*, selected_root, pr_observation=pr, expected_expert=False):
             selected_adapter = SnapshotGitHubAdapter({
                 "pr": pr_observation, "github": {"pr_diff": diff_text},
             })
@@ -633,10 +673,17 @@ class NativeImplementationContextTests(unittest.TestCase):
             selected_checks = {item.name: item for item in selected_report.results}
             for name in (
                 "operator_feedback_signature",
-                "cycle_and_turn_budget_cap", "expert_consensus_evidence_verified",
+                "cycle_and_turn_budget_cap",
             ):
                 self.assertFalse(selected_checks[name].passed)
+            self.assertEqual(selected_checks["expert_consensus_evidence_verified"].passed, expected_expert)
             return selected_context, selected_checks
+
+        repeated_context, repeated_checks = invoke_current_runner(selected_root=repo)
+        self.assertEqual(repeated_context.pre_merge_evidence.result_row_hash,
+            submitted["row"]["ledger_hash"])
+        self.assertFalse(repeated_checks["expert_consensus_evidence_verified"].passed)
+        self.assertEqual((tools / "agent-invocations/requests.jsonl").read_bytes(), expert_request_bytes)
 
         with self.subTest(ordinary_case="missing_workspace_input"):
             missing_context, missing_checks = invoke_current_runner(selected_root=None)
@@ -705,6 +752,80 @@ class NativeImplementationContextTests(unittest.TestCase):
                 coverage_payload["closure_manifest_hash"])
             self.assertEqual(coverage_manifest.read_bytes(), coverage_bytes)
 
+        # Declared fixture opinions enter through real claim/submission owners.
+        # No model or operator endorsement is supplied by this fixture.
+        expert_results = []
+        for expert_request in expert_requests:
+            expert_claim = claim_request(
+                request_id=expert_request["request_id"],
+                agent_id="fixture-" + expert_request["target_agent"] + "-session",
+                lease_seconds=1800, base_dir=tools,
+            )
+            expert_response = {
+                "$schema": "aria/agent-response/v1",
+                "request_id": expert_request["request_id"],
+                "claim_id": expert_claim["claim_id"],
+                "agent_id": expert_claim["agent_id"],
+                "role": "specialist_domain_review", "status": "submitted",
+                "satisfaction_matrix": [{
+                    "id": expert_request["must_satisfy"][0]["id"],
+                    "verdict": "satisfied", "confidence": 0.9,
+                    "evidence_refs": [source_path + ":1"],
+                }],
+                "evidence_refs": [source_path + ":1"],
+            }
+            expert_output = Path(expert_request["expected_output_path"])
+            expert_output.parent.mkdir(parents=True, exist_ok=True)
+            expert_output.write_text(json.dumps(expert_response), encoding="utf-8")
+            expert_transcript = fixture / (expert_request["target_agent"] + "-declared-opinion.txt")
+            expert_transcript.write_text(
+                "Declared fixture opinion; no provider executed. Request="
+                + expert_request["request_id"] + " claim=" + expert_claim["claim_id"] + "\n",
+                encoding="utf-8",
+            )
+            with chdir(repo):
+                expert_submission = submit_claim_result(
+                    claim_id=expert_claim["claim_id"], agent_id=expert_claim["agent_id"],
+                    lease_token=expert_claim["lease_token"], output_path=expert_output,
+                    workspace_root=repo, base_dir=tools,
+                    context_hash=expert_request["context_hash"],
+                    prompt_hash=expert_request["prompt_hash"],
+                    transcript_hash="sha256:" + hashlib.sha256(expert_transcript.read_bytes()).hexdigest(),
+                    transcript_artifact_ref=str(expert_transcript),
+                )
+            self.assertEqual(expert_submission["status"], "accepted", expert_submission)
+            self.assertEqual(expert_submission["bridged"]["bridge_errors"], [])
+            accepted_expert = accepted_result_for_request(
+                request_id=expert_request["request_id"], role="specialist_domain_review", base_dir=tools,
+            )
+            self.assertEqual(accepted_expert, expert_submission["row"])
+            self.assertEqual(accepted_expert["claim_id"], expert_claim["claim_id"])
+            self.assertEqual(accepted_expert["agent_id"], expert_claim["agent_id"])
+            sealed_output = tools / accepted_expert["output_path"]
+            self.assertEqual("sha256:" + hashlib.sha256(sealed_output.read_bytes()).hexdigest(),
+                accepted_expert["output_hash"])
+            self.assertEqual(json.loads(sealed_output.read_text()), expert_response)
+            expert_results.append(accepted_expert)
+            if len(expert_results) == 1:
+                one_context, one_checks = invoke_current_runner(selected_root=repo)
+                self.assertFalse(one_checks["expert_consensus_evidence_verified"].passed)
+                self.assertEqual(one_context.pre_merge_evidence.result_row_hash,
+                    submitted["row"]["ledger_hash"])
+        self.assertEqual(len({row["claim_id"] for row in expert_results}), 2)
+        self.assertEqual(len({row["transcript_hash"] for row in expert_results}), 2)
+        self.assertEqual((tools / "agent-invocations/requests.jsonl").read_bytes()[:len(expert_request_bytes)],
+            expert_request_bytes)
+        reviewed_context, reviewed_checks = invoke_current_runner(
+            selected_root=repo, expected_expert=True,
+        )
+        self.assertEqual(reviewed_checks["expert_consensus_evidence_verified"].reason,
+            "native_final_expert_consensus_verified")
+        self.assertEqual(reviewed_context.pre_merge_evidence.expert_request_ids,
+            tuple(row["request_id"] for row in expert_requests))
+        self.assertEqual(reviewed_context.pre_merge_evidence.expert_result_hashes,
+            tuple(row["ledger_hash"] for row in expert_results))
+        self.assertEqual(reviewed_context.pre_merge_evidence.expert_target_sha, head_sha)
+
         # A later real commit moves the original implementation branch. Keep
         # that branch intact and read the previously accepted commit detached.
         (repo / source_path).write_text("export const sampleIntervalMs: number = 10000;\n", encoding="utf-8")
@@ -717,11 +838,19 @@ class NativeImplementationContextTests(unittest.TestCase):
         self.assertEqual(git("rev-parse", "refs/heads/" + staged["branch"]), later_head)
         self.assertEqual(git("rev-parse", "HEAD"), head_sha)
         with self.subTest(ordinary_case="native_branch_advanced"):
-            stale_context, stale_checks = invoke_current_runner(selected_root=repo)
+            stale_context, stale_checks = invoke_current_runner(selected_root=repo, expected_expert=True)
             self.assertEqual(stale_context.pre_merge_evidence.result_row_hash, submitted["row"]["ledger_hash"])
             self.assertEqual(stale_checks["branch_tip_lock_and_recheck"].reason, "native_branch_tip_changed")
             self.assertFalse(stale_checks["branch_tip_lock_and_recheck"].passed)
             self.assertTrue(stale_checks["content_hash_recheck"].passed)
+
+        with self.subTest(ordinary_case="live_pr_revision_moves_beyond_expert_panel"):
+            advanced_pr = dict(pr, head_sha=later_head)
+            advanced_context, advanced_checks = invoke_current_runner(
+                selected_root=repo, pr_observation=advanced_pr,
+            )
+            self.assertIsNone(advanced_context.pre_merge_evidence.result_row_hash)
+            self.assertFalse(advanced_checks["expert_consensus_evidence_verified"].passed)
 
         from aria_kernel.plan_convergence import record_implementation_rejected
         record_implementation_rejected(

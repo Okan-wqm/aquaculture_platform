@@ -498,10 +498,16 @@ def _capture_pre_merge_context(
         )
         coverage_observation: dict[str, Any] = {}
         coverage_files: dict[Path, bytes | None] = {}
+        expert_observation: dict[str, Any] = {}
+        expert_files: dict[Path, bytes | None] = {}
         if implementation.get("request_id"):
             coverage_observation, coverage_files = _capture_pre_merge_coverage(
                 tools=tools, workspace=workspace, state=state, body=body,
                 events=rows["plan_convergence_events"], base_sha=base_sha,
+            )
+            expert_observation, expert_files = _capture_pre_merge_expert_consensus(
+                tools=tools, workspace=workspace, rows=rows, implementation=implementation,
+                plan_id=plan_id, body=body, head_sha=head_sha,
             )
 
         scope_observation: dict[str, Any] = {}
@@ -514,6 +520,8 @@ def _capture_pre_merge_context(
                        for surface, path in sources.items())
                 or any(_read_pre_merge_coverage_file(path) != data
                        for path, data in coverage_files.items())
+                or any(_read_pre_merge_coverage_file(path) != data
+                       for path, data in expert_files.items())
             ):
                 raise GovernanceError(reason)
             if implementation.get("request_id"):
@@ -547,6 +555,7 @@ def _capture_pre_merge_context(
                 repo_identity=repo_identity, base_sha=base_sha, head_sha=head_sha,
                 snapshot_hash=snapshot["snapshot_hash"],
                 **implementation, **scope_observation, **coverage_observation,
+                **expert_observation,
             ),
         )
     except (OSError, ValueError, KeyError, TypeError, _LedgerIntegrityError, _StateStoreError):
@@ -679,6 +688,111 @@ def _capture_pre_merge_coverage(
         return observation, files
     except (OSError, ValueError, TypeError, KeyError, _StateStoreError):
         observation["coverage_unavailable_reason"] = reason
+        return observation, files
+
+
+def _capture_pre_merge_expert_consensus(
+    *, tools: Path, workspace: Path, rows: dict[str, list[dict[str, Any]]],
+    implementation: dict[str, Any], plan_id: str, body: dict[str, Any], head_sha: str,
+) -> tuple[dict[str, Any], dict[Path, bytes | None]]:
+    """Join the accepted specialist panel bound to THIS implementation.
+
+    The producer (expert_review_gate.mint_expert_requests) mints one
+    specialist_domain_review request per selected expert, bound to the
+    implementation's request/claim/result/commit/plan identity inside its
+    must_satisfy entry. This consumer reads those requests back by that
+    binding — not by role alone — takes each request's ACCEPTED result
+    through the same request/claim/artifact/response verification the
+    implementation join uses, and hands the panel's verdicts to the existing
+    evaluator. Anything short of a fully bound, fully verified panel is a
+    named reason; the check never passes on absence.
+    """
+    import hashlib as _hashlib
+    import json as _json
+
+    from . import agent_invocations as _invocations
+    from .agent_contract import validate_response as _validate_response
+    from .expert_review_gate import evaluate_expert_consensus
+    from .state_store import StateStoreError as _StateStoreError
+
+    observation: dict[str, Any] = {}
+    files: dict[Path, bytes | None] = {}
+    reason = "native_expert_requests_unavailable"
+    try:
+        binding_result_hash = implementation["result_row_hash"]
+        requests = []
+        for row in rows["agent_invocation_requests"]:
+            if row.get("role") != "specialist_domain_review":
+                continue
+            must = row.get("must_satisfy") or []
+            binding = (must[0].get("implementation_binding") or {}) if must and isinstance(must[0], dict) else {}
+            if (
+                row.get("convergence_id") == plan_id
+                and row.get("plan_revision_hash") == body["content_hash"]
+                and row.get("target_sha") == head_sha
+                and binding.get("result_row_hash") == binding_result_hash
+                and binding.get("request_id") == implementation["request_id"]
+                and binding.get("claim_id") == implementation["claim_id"]
+                and binding.get("head_sha") == head_sha
+                and binding.get("plan_content_hash") == body["content_hash"]
+            ):
+                requests.append(row)
+        if not requests:
+            raise GovernanceError(reason)
+        observation["expert_request_ids"] = tuple(row["request_id"] for row in requests)
+        observation["expert_target_sha"] = head_sha
+        reason = "native_expert_result_join_unavailable"
+        verdicts: list[dict[str, Any]] = []
+        result_hashes: list[str] = []
+        for request in requests:
+            _invocations._strict_request_view(request)
+            _invocations._assert_envelope_reproduces_binding(request)
+            results = [row for row in _invocations._result_rows_for(rows["agent_invocation_results"], request["request_id"])
+                       if row.get("status") == "accepted"]
+            if not results:
+                continue  # an unanswered expert is an insufficient panel, not a broken join
+            result = results[-1]
+            claims = [row for row in rows["agent_invocation_claims"]
+                      if row.get("claim_id") == result.get("claim_id") and row.get("event") == "claimed"
+                      and row.get("request_id") == request["request_id"]]
+            if (
+                len(claims) != 1 or result.get("role") != "specialist_domain_review"
+                or result.get("agent_id") != claims[0].get("agent_id")
+                or result.get("context_hash") != request["context_hash"]
+                or result.get("prompt_hash") != request["prompt_hash"]
+            ):
+                raise GovernanceError(reason)
+            path = _invocations.resolve_output_artifact_path(tools, result["output_path"])
+            path.resolve().relative_to(tools.resolve())
+            data = _invocations._read_stable_submission_artifact(path)
+            if "sha256:" + _hashlib.sha256(data).hexdigest() != result["output_hash"]:
+                raise GovernanceError(reason)
+            files[path] = data
+            response = _json.loads(data)
+            _validate_response(response, request=_invocations._strict_request_view(request),
+                               lease={"claim_id": result["claim_id"], "agent_id": result["agent_id"]})
+            matrix = response.get("satisfaction_matrix") or []
+            entry = matrix[0] if matrix and isinstance(matrix[0], dict) else {}
+            if entry.get("id") != request["must_satisfy"][0]["id"]:
+                raise GovernanceError(reason)
+            verdicts.append({
+                "expert": request["target_agent"], "verdict": entry.get("verdict"),
+                "confidence": entry.get("confidence", 1.0),
+                "evidence_refs": list(entry.get("evidence_refs") or response.get("evidence_refs") or []),
+            })
+            result_hashes.append(result["ledger_hash"])
+        observation["expert_result_hashes"] = tuple(result_hashes)
+        # Evidence is re-verified at the implementation HEAD: the producer asks
+        # each expert to judge the final source at target_sha, not the base.
+        consensus = evaluate_expert_consensus(
+            verdicts=verdicts, workspace_root=workspace, base_dir=tools, base_sha=head_sha,
+        )
+        observation["expert_consensus_approved"] = bool(consensus["approved"])
+        observation["expert_consensus_reason"] = str(consensus.get("reason") or "")
+        observation["expert_distinct_reviewers"] = tuple(consensus.get("distinct_reviewers") or ())
+        return observation, files
+    except (OSError, ValueError, KeyError, TypeError, GovernanceError, _StateStoreError):
+        observation["expert_unavailable_reason"] = reason
         return observation, files
 
 

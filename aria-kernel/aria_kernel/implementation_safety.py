@@ -1083,6 +1083,19 @@ class _PreMergeEvidence:
     coverage_computed_at_sha: str | None = None
     coverage_verdict: str | None = None
     coverage_unavailable_reason: str | None = None
+    # Fifth predicate (expert_consensus_evidence_verified): the accepted
+    # specialist_domain_review results bound to THIS implementation's exact
+    # request/result/commit/plan-revision identity, evaluated by the existing
+    # expert_review_gate.evaluate_expert_consensus at capture time. Request
+    # ids and result hashes are in ledger order; a missing panel is a
+    # named reason, never an empty pass.
+    expert_request_ids: tuple[str, ...] = ()
+    expert_result_hashes: tuple[str, ...] = ()
+    expert_target_sha: str | None = None
+    expert_distinct_reviewers: tuple[str, ...] = ()
+    expert_consensus_approved: bool | None = None
+    expert_consensus_reason: str | None = None
+    expert_unavailable_reason: str | None = None
 
     @property
     def available(self) -> bool:
@@ -1330,6 +1343,28 @@ def _check_plan_coverage_witness_verified(context: HardFailContext) -> HardFailR
     if evidence.coverage_verdict != "covered":
         return _failed(name, "native_coverage_verdict_unavailable")
     return _passed(name, "native_current_plan_coverage_manifest_verified")
+
+
+def _check_expert_consensus_evidence_verified(context: HardFailContext) -> HardFailResult:
+    name = "expert_consensus_evidence_verified"
+    evidence = context.pre_merge_evidence
+    if not _native_implementation_is_bound(context):
+        return _failed(name, "native_implementation_binding_unavailable")
+    if evidence.expert_unavailable_reason:
+        return _failed(name, evidence.expert_unavailable_reason)
+    if (
+        not evidence.expert_request_ids or not evidence.expert_target_sha
+        or evidence.expert_target_sha != evidence.head_sha
+        or evidence.expert_target_sha != evidence.implementation_head_sha
+    ):
+        return _failed(name, "native_expert_binding_unavailable")
+    if evidence.expert_consensus_approved is not True:
+        # The evaluator's own vocabulary: insufficient_reviewers,
+        # not_unanimous_satisfied, low_confidence, evidence_not_repo_verified.
+        return _failed(name, evidence.expert_consensus_reason or "native_expert_consensus_unavailable")
+    # Declared results through the real claim/submission owners are what this
+    # observes; it is not a model opinion and not an operator endorsement.
+    return _passed(name, "native_final_expert_consensus_verified")
 
 
 def _check_content_hash_recheck(context: HardFailContext) -> HardFailResult:
@@ -2070,7 +2105,7 @@ HARD_FAIL_CHECKS: tuple[HardFailCheck, ...] = (
             "repo-verified at base SHA (hallucinated approval blocks + escalates)"
         ),
         closes_findings=("aria-031e-expert-consensus",),
-        check=_not_implemented("expert_consensus_evidence_verified"),
+        check=_check_expert_consensus_evidence_verified,
         gate=GATE_PRE_MERGE,
     ),
     # Plan-coverage gate (ORPHAN-HIGH-310) — the 17th check. Enforcement

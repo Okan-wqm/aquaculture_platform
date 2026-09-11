@@ -32,6 +32,7 @@ from typing import Any, Iterable
 
 from .agent_surface import (
     DEFAULT_TARGET_AGENT_WHITELIST,
+    INVOCATION_ROLES,
     REQUEST_ROLES,
     ROLE_TARGET_PAIRING,
     allowed_targets_for_role,
@@ -162,7 +163,16 @@ def validate_request(
     if not isinstance(cycle_id, str) or not cycle_id.strip():
         raise GovernanceError("agent-request.cycle_id is required")
     role = envelope["role"]
-    if role not in REQUEST_ROLES:
+    # The vocabulary is the one the request WRITER obeys
+    # (agent_invocations.ROLES is INVOCATION_ROLES, i.e. REQUEST_ROLES plus
+    # specialist_domain_review). Validating against the narrower tuple made
+    # this contract describe a rule the writer does not follow — the same
+    # defect surface_reachability's agent_surface_request_role binding
+    # records — and, on the response side, made the one role the expert
+    # producer mints (expert_review_gate) impossible to answer: "role
+    # unknown: specialist_domain_review" at native admission after a real
+    # specialist had run (2026-09-11 memory lane, expert-consumer-first).
+    if role not in INVOCATION_ROLES:
         raise GovernanceError(f"agent-request.role unknown: {role!r}")
     target = envelope["target_agent"]
     whitelist = tuple(target_agent_whitelist)
@@ -271,7 +281,7 @@ def validate_response(
     if not isinstance(agent_id, str) or not AGENT_ID_RE.match(agent_id):
         raise GovernanceError(f"agent-response.agent_id invalid: {agent_id!r}")
     role = envelope["role"]
-    if role not in REQUEST_ROLES:
+    if role not in INVOCATION_ROLES:
         raise GovernanceError(f"agent-response.role unknown: {role!r}")
     status = envelope["status"]
     if status not in RESPONSE_STATUSES:

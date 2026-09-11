@@ -143,14 +143,33 @@ class TestV9HardFailRegistry(unittest.TestCase):
             pre_merge.passed,
             msg="pre-merge gate must not pass while its checks are unbuilt",
         )
-        # Every live implementation belongs to the pre-PR-open stage: those
-        # are the checks answerable from the action itself.
+        # Two kinds of live implementation. A pre-PR-open check answers from
+        # the action itself. A pre-merge check answers from NATIVE evidence
+        # captured against the implementation's own request/claim/result/
+        # commit binding (merge_authority._capture_pre_merge_context) — so on
+        # an empty context it fails by name, "native_implementation_binding_
+        # unavailable", never by passing and never by pretending to be unbuilt.
+        # The rewrite this test's earlier draft demanded when "phase B lands":
+        # five pre-merge predicates are now live (branch tip, per-file
+        # exclusion, content hash, plan coverage, expert consensus); the two
+        # still unbuilt say so.
         whole = _is.run_hard_fail_checks(_is.HardFailContext())
         by_name = {c.name: c for c in _is.HARD_FAIL_CHECKS}
         for result in whole.results:
-            if result.reason != "check_not_implemented":
-                with self.subTest(check=result.name):
+            if result.reason == "check_not_implemented":
+                continue
+            with self.subTest(check=result.name):
+                if by_name[result.name].gate == _is.GATE_PRE_MERGE:
+                    self.assertFalse(result.passed)
+                    self.assertEqual(result.reason, "native_implementation_binding_unavailable")
+                else:
                     self.assertEqual(by_name[result.name].gate, _is.GATE_PRE_PR_OPEN)
+        self.assertEqual(
+            {r.name for r in pre_merge.results if r.reason == "check_not_implemented"},
+            {"operator_feedback_signature", "cycle_and_turn_budget_cap"},
+            "the still-unbuilt pre-merge predicates are exactly these two; building "
+            "one means editing this set deliberately",
+        )
         # Filtering is a partition, not a sample.
         self.assertEqual(
             len(pre_merge.results)
@@ -836,18 +855,25 @@ class TestPhaseAGateExitCriterion(unittest.TestCase):
     def test_pre_merge_gate_still_cannot_pass(self):
         """Merge stays closed by construction, not by a flag.
 
-        Seven pre-merge checks are unimplemented, so the gate refuses
-        even the cleanest action. When phase B lands this test must be
-        rewritten deliberately — that is the point of asserting it.
+        The cleanest ACTION is still not a merge: five pre-merge predicates
+        answer only from native implementation evidence that a clean action
+        context does not carry, and two are unbuilt. Each failure names which
+        of those it is; a pre-merge failure for any other reason here would
+        mean a predicate started reading something it should not.
         """
         with tempfile.TemporaryDirectory() as tmp:
             report = _is.run_hard_fail_checks(
                 self._clean_context(Path(tmp)), gate=_is.GATE_PRE_MERGE
             )
             self.assertFalse(report.passed)
-            self.assertTrue(
-                all(r.reason == "check_not_implemented" for r in report.failures),
-                "a pre-merge check failed for a reason other than being unbuilt: "
+            self.assertEqual(
+                {r.name for r in report.failures}, {c.name for c in _is.HARD_FAIL_CHECKS if c.gate == _is.GATE_PRE_MERGE},
+                "every pre-merge predicate must refuse a bare action context",
+            )
+            self.assertEqual(
+                {r.reason for r in report.failures},
+                {"check_not_implemented", "native_implementation_binding_unavailable"},
+                "a pre-merge check failed for a reason other than being unbuilt or unbound: "
                 + "; ".join(f"{r.name}: {r.reason}" for r in report.failures),
             )
 

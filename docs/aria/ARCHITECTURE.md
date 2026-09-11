@@ -955,10 +955,32 @@ execution or remote merge is established.
   a bound implementation and native current-plan coverage observations; the
   original v1 plan policy remains coverage-not-required, while v2 requires a
   verified unwaived manifest. Missing coverage or revision mismatches refuse.
-  Three bindings remain unimplemented: operator feedback signature, runtime
-  budget and expert consensus. Monetary admission must consume the shared runtime
-  policy and actual attempt/authentication evidence; these four predicates
-  introduce no nominal dollar threshold.
+  Two bindings remain unimplemented: operator feedback signature and runtime
+  budget. Monetary admission must consume the shared runtime policy and actual
+  attempt/authentication evidence; none of the live predicates introduces a
+  nominal dollar threshold.
+- Fifth predicate (2026-09-11), `expert_consensus_evidence_verified`:
+  `merge_authority._capture_pre_merge_expert_consensus` reads back the
+  `specialist_domain_review` requests the existing producer
+  (`expert_review_gate` mint) bound to THIS implementation — by the
+  request/claim/result-row/commit/plan-revision identity inside their
+  `must_satisfy` binding, not by role alone — takes each request's accepted
+  result through the same request/claim/artifact/response verification the
+  implementation join uses (sealed output hash, response contract, matrix entry
+  id), and hands the panel's `{expert, verdict, confidence, evidence_refs}` to
+  the existing `evaluate_expert_consensus` with evidence re-verified at the
+  implementation HEAD. `_PreMergeEvidence` carries `expert_request_ids`,
+  `expert_result_hashes`, `expert_target_sha`, `expert_distinct_reviewers`,
+  `expert_consensus_approved/reason` and `expert_unavailable_reason`; the check
+  passes only as `native_final_expert_consensus_verified`, otherwise it names
+  the evaluator's reason (`insufficient_reviewers`, `not_unanimous_satisfied`,
+  `low_confidence`, `evidence_not_repo_verified`) or the binding gap. The
+  response contract now validates roles against `INVOCATION_ROLES` — the set
+  the request writer obeys — because the narrower `REQUEST_ROLES` rejected the
+  one role the producer mints ("agent-response.role unknown:
+  specialist_domain_review"), which is what left the memory lane's
+  expert-consumer control red before consensus. Sealed expert artifacts join
+  the capture's change-during-capture recheck like the coverage files.
 - Manual read: complete file plus changed predicates. The native controls
   include missing workspace/base observations, signed source-branch progression
   with the original commit checked out detached, and a legal plan-owner rejection.

@@ -44,7 +44,7 @@ import subprocess
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from . import command_policy as _command_policy
 from typing import Any, Callable
@@ -925,7 +925,10 @@ def _systemd_run_available() -> bool:
     return _sandbox_probe_succeeds(_systemd_run_probe_argv())
 
 
-def apply_resource_limits(argv: list[str], *, timeout_seconds: int = 120) -> list[str]:
+def apply_resource_limits(
+    argv: list[str], *, timeout_seconds: int = 120, environ: dict[str, str] | None = None,
+    control_environment: dict[str, str] | None = None,
+) -> list[str]:
     """Hard-fail check ancillary — per-command resource limits.
 
     Wraps argv in ``systemd-run --user --scope`` with cgroup limits when that
@@ -949,35 +952,74 @@ def apply_resource_limits(argv: list[str], *, timeout_seconds: int = 120) -> lis
     3. The no-limiter tail returned argv unchanged, spawning unbounded — while
        the caller's own docstring says a write-capable agent must not be
        spawned unbounded on the strength of a missing perimeter.
+
+    ``environ`` is the environment the limited command will be launched
+    with and ``control_environment`` the user-bus plumbing the limiter alone
+    may use (see :data:`LIMITER_CONTROL_ENV_NAMES`); both omitted keeps the
+    cached host selection.
     """
-    return _apply_resource_limits(argv, timeout_seconds=timeout_seconds)
+    return _apply_resource_limits(
+        argv, timeout_seconds=timeout_seconds, environ=environ, control_environment=control_environment,
+    )
+
+
+LIMITER_CONTROL_ENV_NAMES: tuple[str, ...] = ("DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR")
+"""The user-bus plumbing `systemd-run --user` needs to reach the user manager.
+
+It belongs to the limiter alone. Every lane BUILDS its spawn environment
+from an allowlist these two names are not on, so a limiter selected by a
+probe in the host's environment and then launched in the child's failed
+with "Failed to connect to bus: No medium found" — measured on the managed
+Claude route's first live attempt (2026-09-11, ARIA-HIGH-076). The plumbing
+is handed to the limiter through a leading `env NAME=VALUE` and stripped
+again by a trailing `env -u NAME` before the limited command starts, so the
+child sees exactly the environment its lane built, whichever limiter ran.
+"""
+
+
+def limiter_control_environment(environ: Mapping[str, str]) -> dict[str, str]:
+    """The bus plumbing present in ``environ``, by name — nothing else."""
+    return {name: environ[name] for name in LIMITER_CONTROL_ENV_NAMES if name in environ}
 
 
 def _apply_resource_limits(
     argv: list[str], *, timeout_seconds: int, environ: dict[str, str] | None = None,
+    control_environment: dict[str, str] | None = None,
 ) -> list[str]:
     """Select and probe the limiter in the environment that will launch it.
 
     Omitted environment preserves the public legacy cached host selection.
     Explicit environments are probed directly; host cache results cannot
-    establish capability for a different child control environment.
+    establish capability for a different child control environment. The
+    control environment reaches the limiter and is unset again for the
+    command it limits.
     """
+    plumbing = dict(control_environment or {})
     if environ is None:
         systemd_available = _systemd_run_available()
         search_path = None
     else:
-        search_path = environ.get("PATH", os.defpath)
+        launch_environ = {**environ, **plumbing}
+        search_path = launch_environ.get("PATH", os.defpath)
         systemd_available = (shutil.which("systemd-run", path=search_path) is not None
-                             and _sandbox_probe_succeeds(_systemd_run_probe_argv(), environ=environ))
+                             and _sandbox_probe_succeeds(_systemd_run_probe_argv(), environ=launch_environ))
     if systemd_available:
-        return [
+        limited = [
             "systemd-run",
             "--user", "--scope", "--quiet",
             "--property=MemoryMax=2G",
             "--property=CPUQuota=200%",
             "--property=TasksMax=50",
             f"--property=RuntimeMaxSec={timeout_seconds}",
-        ] + list(argv)
+        ]
+        if plumbing:
+            return [
+                "/usr/bin/env", *(name + "=" + value for name, value in plumbing.items()),
+                *limited,
+                "/usr/bin/env", *(flag for name in plumbing for flag in ("-u", name)),
+                *argv,
+            ]
+        return limited + list(argv)
     if (shutil.which("timeout") if environ is None else shutil.which("timeout", path=search_path)) is not None:
         # Wall clock only — no memory/CPU/task ceiling. Weaker than the cgroup
         # path and deliberately still accepted: an unbounded-runtime agent is
@@ -2169,6 +2211,8 @@ __all__ = (
     "wrap_bash_in_sandbox",
     "ResourceLimitsUnavailable",
     "apply_resource_limits",
+    "LIMITER_CONTROL_ENV_NAMES",
+    "limiter_control_environment",
     "truncate_validation_result",
     # registry
     "HardFailCheck",

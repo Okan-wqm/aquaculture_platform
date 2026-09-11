@@ -91,3 +91,43 @@ and no longer takes one — so a first probe that stalls to its limit costs
 nobody behind it, and an overrun that ignores its limit costs only the
 members behind it, named as such. `tests/test_native_admission_status_budget.py`
 (4) pins both, plus the executor's absence of any deadline of its own.
+
+## Addendum — ARIA-HIGH-076: the limiter was probed in one environment and launched in another
+
+**Finding:** ARIA-HIGH-076 — closed by this branch; this section is its evidence.
+
+Trial six, cross-review (`AIR-aria-cross-reviewer-1da71e60e0ee`, dispatch
+two, 2026-09-11T21:57Z): the managed Anthropic route was admitted natively
+for the first time — `runtime_attempt_started` with provider `anthropic`,
+runtime `claude`, auth `subscription`, model `opus` — and the spawn exited
+1 four seconds later with `claude_stderr_tail: Failed to connect to bus: No
+medium found`. `runtime_attempt_finished` recorded it as `provider_nonzero`
+with no usage: the model was never reached.
+
+`run_claude_exec` called `apply_resource_limits` with no environment, so
+the kernel's cached host probe ran `systemd-run --user … /bin/true` in the
+**executor's** environment — which, under an operator session, carries
+`DBUS_SESSION_BUS_ADDRESS` — and selected the cgroup limiter; the spawn then
+launched that limiter with the **built** agent environment (an allowlist the
+bus is not on). ORPHAN-HIGH-470's own text names the rule: a host cache
+cannot establish capability for a different child control environment. The
+Codex lane already obeyed it by hand (probe in the launch environment,
+`/usr/bin/env` prefix for the limiter, bwrap `--clearenv` for the model).
+
+The kernel helper owns both halves for every lane now:
+`LIMITER_CONTROL_ENV_NAMES` names the plumbing, `limiter_control_environment`
+reads it by name, and `apply_resource_limits(argv, environ=…,
+control_environment=…)` probes in `environ ∪ plumbing` and, when
+`systemd-run` is selected, emits `env NAME=VALUE … systemd-run … env -u
+NAME … <command>` — the limiter gets the bus, the command gets exactly the
+environment its lane built. The Codex wrapper drops its hand-rolled prefix
+and the Claude spawn passes its built environment and `os.environ` as the
+plumbing source. On a runner without a user bus the probe fails as before
+and the `timeout` limiter is selected — nothing about that path changed.
+
+Proof: `test_ci_executor_native_claude.test_the_limiter_receives_the_bus_and_the_agent_does_not`
+— a limiter that refuses without the bus, an executor environment that has
+it, an agent that records the names it sees: the probe and the run both
+carry the bus, the request is ACCEPTED, the agent saw neither name. On the
+pre-fix spawn the same test fails with the live message. The existing Codex
+plumbing test passes unchanged through the shared helper.

@@ -18,6 +18,12 @@ What this pins, one property per test:
   (`api_key_auth_not_managed`) — the binding table admits the subscription
   only — and the request stays PENDING with no attempt burned.
 * A logged-out session is `managed_session_logged_out`, PENDING, no attempt.
+* ARIA-HIGH-076 — a limiter that needs the user bus (`systemd-run --user`)
+  receives it, in the probe and in the run, while the agent it limits never
+  sees it: the spawn environment is built, and the bus is not on it. The
+  first live attempt on this route died with "Failed to connect to bus: No
+  medium found" because the limiter was selected in the executor's
+  environment and launched in the agent's.
 """
 from __future__ import annotations
 
@@ -54,7 +60,8 @@ def _fake_claude(status: dict, response: dict, diagnostic: Path) -> str:
         # Codex fixture does, rather than through a file it might not reach.
         f"response = {response!r}\n"
         "response['details']['ordinary_child_observation'] = {'prompt_head': prompt[:48], 'argv': argv,\n"
-        "    'key_names': [k for k in os.environ if k in ('ANTHROPIC_API_KEY','ARIA_ZAI_API_KEY','ARIA_ZAI_API_KEY_FILE','OPENAI_API_KEY')],\n"
+        "    'key_names': [k for k in os.environ if k in ('ANTHROPIC_API_KEY','ARIA_ZAI_API_KEY','ARIA_ZAI_API_KEY_FILE','OPENAI_API_KEY',\n"
+        "                                                   'DBUS_SESSION_BUS_ADDRESS','XDG_RUNTIME_DIR')],\n"
         "    'cwd': os.getcwd()}\n"
         "message = json.dumps(response)\n"
         "print(json.dumps({'type': 'assistant', 'message': {'role': 'assistant', 'content': [{'type': 'text', 'text': message}]}}))\n"
@@ -156,6 +163,51 @@ class NativeClaudeLane(unittest.TestCase):
         self.assertEqual(finished[0]["agent_contract"]["agent_contract_hash"], output["details"]["agent_contract_hash"])
         admissions = [row for row in governance if row["kind"] == "runtime_admission_unavailable"]
         self.assertEqual(admissions, [])
+
+    def test_the_limiter_receives_the_bus_and_the_agent_does_not(self) -> None:
+        from aria_kernel.implementation_safety import LIMITER_CONTROL_ENV_NAMES
+        from aria_kernel.ledger import load_declared_jsonl
+
+        # A limiter that behaves like `systemd-run --user` on a host with a
+        # user session bus: refuses without the plumbing, otherwise records
+        # what it saw and runs the command it was given.
+        observations = self.root / "limiter-observations.jsonl"
+        bus = {LIMITER_CONTROL_ENV_NAMES[0]: "unix:path=/ordinary-fixture-bus",
+               LIMITER_CONTROL_ENV_NAMES[1]: str(self.root / "user-runtime")}
+        limiter = self.fixture_bin / "systemd-run"
+        limiter.write_text(
+            f"#!{sys.executable}\n"
+            "import json, os, sys\n"
+            f"expected = {bus!r}\n"
+            "probe = sys.argv[-1] == '/bin/true'\n"
+            f"with open({str(observations)!r}, 'a') as stream:\n"
+            "    stream.write(json.dumps({'probe': probe, 'bus_present': [n for n in expected if os.environ.get(n) == expected[n]]}) + '\\n')\n"
+            "if any(os.environ.get(n) != v for n, v in expected.items()):\n"
+            "    print('Failed to connect to bus: No medium found', file=sys.stderr); raise SystemExit(1)\n"
+            "if probe: raise SystemExit(0)\n"
+            "index = 1\n"
+            "while sys.argv[index].startswith('--'): index += 1\n"
+            "os.execvp(sys.argv[index], sys.argv[index:])\n",
+            encoding="utf-8",
+        )
+        limiter.chmod(0o755)
+        self.environment.update(bus)
+        self._install_claude({"loggedIn": True, "authMethod": "claude.ai", "apiProvider": "firstParty",
+                              "subscriptionType": "max"})
+        completed = self._run_executor()
+        self.assertEqual(completed.returncode, 0, completed.stderr[-3000:])
+        self.assertEqual(self.ai.derive_request_state(request_id=self.request["request_id"], base_dir=self.tools), "ACCEPTED")
+        rows = [json.loads(line) for line in observations.read_text(encoding="utf-8").splitlines()]
+        self.assertTrue(rows and rows[0]["probe"], rows)
+        self.assertEqual(rows[0]["bus_present"], list(LIMITER_CONTROL_ENV_NAMES))
+        runs = [row for row in rows if not row["probe"]]
+        self.assertEqual([row["bus_present"] for row in runs], [list(LIMITER_CONTROL_ENV_NAMES)],
+                         "the selected limiter must actually launch the agent, with the bus")
+        output = json.loads(Path(self.request["expected_output_path"]).read_text(encoding="utf-8"))
+        self.assertEqual(output["details"]["ordinary_child_observation"]["key_names"], [])
+        governance = load_declared_jsonl(self.tools / "governance.jsonl", expected_surface="tools_governance")
+        finished = [row["details"] for row in governance if row["kind"] == "runtime_attempt_finished"]
+        self.assertEqual([row["exit_code"] for row in finished], [0])
 
     def test_an_api_key_login_is_refused_by_name(self) -> None:
         from aria_kernel.ledger import load_declared_jsonl

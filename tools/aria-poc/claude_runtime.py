@@ -31,7 +31,7 @@ import threading
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Callable, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 
 CLAUDE_BINARY_ENV_VAR = "CLAUDE_CLI_BINARY"
@@ -661,8 +661,20 @@ def _apply_write_containment(
         ) from exc
 
 
-def _apply_resource_limits(argv: list[str], *, timeout_seconds: int) -> list[str]:
+def _apply_resource_limits(
+    argv: list[str], *, timeout_seconds: int, environ: dict[str, str] | None = None,
+    control_source: Mapping[str, str] | None = None,
+) -> list[str]:
     """Bound the spawned agent's memory, CPU, task count and wall clock.
+
+    ``environ`` is the BUILT spawn environment the limited command launches
+    with; ``control_source`` (normally ``os.environ``) is where the user-bus
+    plumbing the limiter alone may use is read from, by name. The kernel
+    helper probes the limiter in that launch environment and unsets the
+    plumbing again before the agent starts (ARIA-HIGH-076: a limiter
+    selected in the executor's environment and launched in the agent's
+    failed with "Failed to connect to bus" on the managed Claude route's
+    first live attempt).
 
     ORPHAN-MEDIUM-459 — the kernel half of this shipped with the sandbox
     work and had no production caller; the only instruction to run it was a
@@ -698,14 +710,18 @@ def _apply_resource_limits(argv: list[str], *, timeout_seconds: int) -> list[str
         from aria_kernel.implementation_safety import (
             ResourceLimitsUnavailable,
             apply_resource_limits,
+            limiter_control_environment,
         )
     except ImportError as exc:  # pragma: no cover - kernel always importable here
         raise ClaudePolicyViolation(
             f"claude_resource_limits_unavailable: cannot import the limit "
             f"helper ({exc}); refusing to spawn an unbounded agent"
         ) from exc
+    control_environment = limiter_control_environment(control_source) if control_source is not None else None
     try:
-        return apply_resource_limits(argv, timeout_seconds=timeout_seconds)
+        return apply_resource_limits(
+            argv, timeout_seconds=timeout_seconds, environ=environ, control_environment=control_environment,
+        )
     except ResourceLimitsUnavailable as exc:
         raise ClaudePolicyViolation(
             f"claude_resource_limits_required: {exc}. Install coreutils "
@@ -1183,7 +1199,11 @@ def run_claude_exec(
     # agent run is minutes, and a 120s cap would kill every real invocation.
     # The subprocess timeout below stays 30s looser so the cgroup/`timeout`
     # limit fires first and its exit status is what the caller sees.
-    argv = _apply_resource_limits(argv, timeout_seconds=timeout_seconds)
+    # Probed in the environment the agent launches with, plus the bus
+    # plumbing only the limiter receives (it is unset again for the agent).
+    argv = _apply_resource_limits(
+        argv, timeout_seconds=timeout_seconds, environ=spawn_env, control_source=os.environ,
+    )
     # IS_SANDBOX (root bypass acknowledgement) and the vendor redirect
     # (ORPHAN-HIGH-764, scoped to THIS spawn) were folded into the built
     # environment above; nothing else from the runner's environment reaches

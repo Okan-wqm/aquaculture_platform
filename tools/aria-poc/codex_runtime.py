@@ -327,17 +327,17 @@ class _ManagedCodexContext:
             # Status and execution use the same store/mode and private paths.
             # These overrides are only used inside the read-only auth mount.
             command[1:1] = self.configuration_argv()
-        limited = _apply_resource_limits(
+        # Only the trusted limiter receives user-bus plumbing: the limiter
+        # helper hands it over and unsets it again before the namespace
+        # wrapper, which then installs the exact closed model env.
+        return _apply_resource_limits(
             _wrap_runtime_state_in_sandbox(
                 command, workspace_root=self.workspace, runtime_directory=self.runtime_directory,
                 managed_auth_directory=self.auth_directory, executable=self.executable,
                 environment=self.environment,
             ), timeout_seconds=timeout_seconds,
-            environ={**self.environment, **self.control_environment},
+            environ=self.environment, control_environment=self.control_environment,
         )
-        # Only the trusted limiter receives user-bus plumbing. The namespace
-        # wrapper clears it before installing the exact closed model env.
-        return ["/usr/bin/env", *(name + "=" + value for name, value in self.control_environment.items()), *limited]
 
     @property
     def settings_hash(self) -> str:
@@ -349,7 +349,7 @@ def _prepare_managed_codex_context(
     *, workspace: Path, runtime_directory: Path, environment: dict[str, str], profile: Any,
 ) -> _ManagedCodexContext:
     from aria_kernel.agent_env import _codex_exec_environment
-    from aria_kernel.implementation_safety import SANDBOX_HOME, SandboxUnavailable
+    from aria_kernel.implementation_safety import SANDBOX_HOME, SandboxUnavailable, limiter_control_environment
 
     if profile.write_capable or profile.external_writes or set(profile.tools) - {"Read", "Grep", "Glob"}:
         raise SandboxUnavailable("codex_native_profile_controls_unavailable")
@@ -378,8 +378,7 @@ def _prepare_managed_codex_context(
         # It grants no general shell, application connector or network tool.
         "features.shell_tool": False, "features.unified_exec": False, "features.apps": False,
     }
-    control_environment = {name: environment[name] for name in
-                           ("DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR") if name in environment}
+    control_environment = limiter_control_environment(environment)
     context = _ManagedCodexContext(workspace.resolve(), runtime, auth.resolve(), Path(binary).resolve(),
                                   env, configuration, control_environment)
     # This reaches the existing real namespace/limiter probes. A binary or

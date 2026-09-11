@@ -270,7 +270,15 @@ def _native_runtime_admission(
     eligible: list[dict[str, str]] = []
     search_path = environ.get("PATH", os.defpath)
     for provider in _FLEET:
-        model = "gpt-6-astra" if provider.key == "openai" else provider_model(provider, environ)
+        if provider.key == "openai":
+            model = "gpt-6-astra"
+        elif provider.key == "anthropic" and provider_for_model(profile.model) in (None, "anthropic"):
+            # The managed Claude route runs the agent's own declared tier
+            # (its frontmatter), exactly as the legacy spawn does; a foreign
+            # tier in the frontmatter falls back to the fleet default.
+            model = profile.model
+        else:
+            model = provider_model(provider, environ)
         effort = "ultra" if provider.key == "openai" else profile.effort
         route = {"provider": provider.key, "runtime": provider.runtime_hint,
                  "model": model, "effort": effort}

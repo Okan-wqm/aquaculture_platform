@@ -35329,6 +35329,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-09-11-aria-claude-managed-native-route.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/claude/2026-09-11-aria-expert-consensus-predicate.md",
       "prettier_managed": true
     },

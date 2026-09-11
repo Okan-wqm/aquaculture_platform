@@ -40,6 +40,7 @@ import sys
 import time
 import tempfile as _tempfile
 import uuid as _uuid
+import functools as _functools
 from contextlib import ExitStack as _ExitStack
 from dataclasses import dataclass as _dataclass, replace as _replace
 from datetime import datetime, timezone
@@ -1463,7 +1464,16 @@ def invoke_claude_cli(
         # family; a model with NO resolvable price refuses unless the
         # operator injects ARIA_COST_UNKNOWN_ACK (unknown-cost = deny,
         # never zero).
-        if tools_dir is not None and _MOCK_MODE_AT_ENTRY is False:
+        # Under the managed-subscription policy the notional price is
+        # telemetry the attempt row already carries (ORPHAN-HIGH-472: a
+        # subscription session has no marginal per-run charge to cap), and
+        # the native admission has already decided; the dollar reservation
+        # below stays the rule for the metered policy only.
+        from aria_kernel.genesis_policy import _adaptive_runtime_policy as _runtime_policy
+
+        _policy = _runtime_policy(_REPO_ROOT) if tools_dir is not None else None
+        _managed_subscription = _policy is not None and _policy.monetary_admission == "managed_subscription"
+        if tools_dir is not None and _MOCK_MODE_AT_ENTRY is False and not _managed_subscription:
             from aria_kernel.budget import (
                 MODEL_FAMILY_PRICING_USD_PER_MTOK,
                 MODEL_PRICING_USD_PER_MTOK,
@@ -1483,10 +1493,14 @@ def invoke_claude_cli(
                         _rates = _r
                         break
             if _rates is None and not os.environ.get("ARIA_COST_UNKNOWN_ACK", "").strip():
+                # A typed failure, not a string: the summary writer reads
+                # .failure_class, and a str here crashed the refusal path.
                 _emit_dispatch_summary(
                     outcome="failed",
-                    failure="cost_reservation_refused: model pricing unknown and "
-                            "ARIA_COST_UNKNOWN_ACK unset (unknown-cost = deny)",
+                    failure=DispatchFailure(
+                        failure_class="policy_violation", retryable=False,
+                        detail_code="cost_reservation_refused_pricing_unknown", phase="preflight", exit_code=1,
+                    ),
                     exit_code=1,
                 )
                 return 1
@@ -1495,10 +1509,13 @@ def invoke_claude_cli(
             _estimate = (400_000 * _in_rate + 64_000 * _out_rate) / 1_000_000
             try:
                 assert_within_budget(tools_dir, estimated_run_usd=_estimate)
-            except _BudgetRefusal as _refusal:
+            except _BudgetRefusal:
                 _emit_dispatch_summary(
                     outcome="failed",
-                    failure=f"cost_reservation_refused: {_refusal}"[:200],
+                    failure=DispatchFailure(
+                        failure_class="policy_violation", retryable=False,
+                        detail_code="cost_reservation_refused", phase="preflight", exit_code=1,
+                    ),
                     exit_code=1,
                 )
                 return 1
@@ -1659,6 +1676,11 @@ def invoke_claude_cli(
         failure=classify_dispatch_failure(result=completed, phase="runtime"),
         exit_code=completed.returncode,
     )
+    if completed.returncode != 0 and completed.stderr:
+        # The child's own last words, bounded and lease-redacted: a non-zero
+        # exit with no cause is the operator reading four ledgers to learn
+        # that the limiter could not reach a bus.
+        sys.stderr.write("claude_stderr_tail: " + _redact_lease_in_message(completed.stderr[-2000:], None) + "\n")
     return completed.returncode
 
 
@@ -2508,6 +2530,94 @@ def _invoke_native_zai(
         })
 
 
+def _invoke_native_claude(
+    *, native_runtime: _NativeRuntimePlan, repo: Path, tools_dir: Path,
+    request: dict[str, Any], request_id: str, claim_id: str, agent_id: str,
+    lease_token: str,
+    target_agent: str, session_id: str, prompt: str, output_path: Path,
+    transcript_path: Path, timeout_seconds: int, spawn_control: Any,
+    prompt_file: Path, resume: bool,
+) -> int:
+    """The managed Anthropic session on the native lane.
+
+    The spawn is the existing `invoke_claude_cli` — agent_env build, bwrap
+    containment, cancel polling, contract prefix, sealed envelope, per-call
+    usage attribution — so nothing about how a Claude agent runs changes.
+    What this adds is the native evidence the other routes carry: a reserved
+    attempt bound to the admission's settings identity, and a finished row
+    naming the session, the exit, the usage row and the contract hash.
+    """
+    from aria_kernel.budget import _reserve_native_runtime_attempt, read_cost_attribution
+    from aria_kernel.tool_registry import GovernanceError, append_tools_governance
+
+    route = native_runtime.route
+    try:
+        attempt = _reserve_native_runtime_attempt(
+            repo_root=repo, base_dir=tools_dir, request_id=request_id,
+            request_ledger_hash=request["request_ledger_hash"], claim_id=claim_id,
+            claim_ledger_hash=request["claim_ledger_hash"], session_id=session_id,
+            agent_id=agent_id, lease_token=lease_token,
+            attempt_id=str(_uuid.uuid4()), provider=route["provider"], runtime=route["runtime"],
+            model=route["model"], requested_effort=route["effort"],
+            auth_method=native_runtime.observation["auth_method"],
+            expected_policy_digest=native_runtime.policy.policy_digest,
+            settings_hash=native_runtime.context.settings_hash, pricing=native_runtime.observation["pricing"],
+        )
+    except GovernanceError as exc:
+        raise ClaudeCliUnavailable("native_runtime_reservation_unavailable:" + str(exc)) from exc
+    cli_exit: int | None = None
+    result_admission = "execution_unavailable"
+    usage_row_hash: str | None = None
+    contract_row: dict[str, Any] | None = None
+    try:
+        cli_exit = invoke_claude_cli(
+            request_id=request_id, subagent_type=target_agent, session_id=session_id, resume=resume,
+            prompt_file=prompt_file, output_path=output_path, transcript_path=transcript_path,
+            timeout_seconds=timeout_seconds, claim_id=claim_id, agent_id=agent_id,
+            role=request["role"], must_satisfy=request.get("must_satisfy") or [],
+            request_envelope=request, tools_dir=tools_dir, spawn_control=spawn_control,
+        )
+        if cli_exit != 0:
+            result_admission = "provider_nonzero"
+            return cli_exit
+        if output_path.is_file():
+            envelope = json.loads(output_path.read_text(encoding="utf-8"))
+            details = envelope.get("details") if isinstance(envelope, dict) else None
+            if isinstance(details, dict):
+                envelope.setdefault("details", {})["runtime_attempt_ledger_hash"] = attempt["ledger_hash"]
+                _write_sanitized_envelope(output_path, envelope)
+                contract_hash = details.get("agent_contract_hash")
+                contract_row = {"agent_contract_hash": contract_hash} if contract_hash else None
+                if not isinstance(details.get("claude_cli_usage"), dict):
+                    result_admission = "usage_unavailable"
+                    raise ClaudeCliUnavailable("claude_native_usage_unavailable")
+        cycle_id = request.get("cycle_id")
+        for row in reversed(read_cost_attribution(base_dir=tools_dir)):
+            if row.get("cycle_id") == cycle_id and row.get("agent_role") == request.get("role"):
+                usage_row_hash = row.get("ledger_hash")
+                break
+        result_admission = "pending_native_submit"
+        return 0
+    except Exception as exc:
+        # Classification only, by type: the ONE handler that releases the
+        # claim on an auth failure lives in the executor's main body and
+        # stays the only `except ClaudeAuthFailure` in this module.
+        result_admission = {
+            ClaudeAuthFailure: "auth_unavailable", ClaudeCreditExhausted: "quota_unavailable",
+            subprocess.TimeoutExpired: "timeout",
+        }.get(type(exc), "control_or_transport_unavailable")
+        raise
+    finally:
+        append_tools_governance(tools_dir, "runtime_attempt_finished", {
+            "schema_version": 1, "attempt_ledger_hash": attempt["ledger_hash"],
+            "request_id": request_id, "claim_id": claim_id, "session_id": session_id,
+            "provider_session_ids": [session_id], "provider_session_provenance": "claude_session_id",
+            "exit_code": cli_exit, "observed_effort": None,
+            "usage_ledger_hash": usage_row_hash, "result_admission": result_admission,
+            **({"agent_contract": contract_row} if contract_row else {}),
+        })
+
+
 def _accepted_native_runtime_result(
     *, tools_dir: Path, request_id: str, claim_id: str, agent_id: str,
     session_id: str, policy_digest: str,
@@ -2663,6 +2773,30 @@ def _adaptive_pre_claim_admission(
                     return observed
                 return _replace(observed, control_status="available", control_reason="native_readonly_runtime_prepared")
             return _probe_codex_auth_status(environ=environment, timeout_seconds=timeout_seconds)
+        if provider.runtime_hint == "claude":
+            # The managed Anthropic session: `claude auth status --json` is the
+            # non-model status the CLI itself reports (authMethod claude.ai =
+            # subscription); control is the existing bwrap containment that
+            # every Claude spawn already runs under. The spawn stays
+            # run_claude_exec; this only admits it natively and binds the
+            # attempt to the same settings identity the session fingerprint uses.
+            from aria_kernel.implementation_safety import sandbox_backend as _sandbox_backend_probe
+            from claude_runtime import ManagedClaudeContext, _probe_claude_auth_status
+
+            observed = _probe_claude_auth_status(environ=environment, timeout_seconds=timeout_seconds)
+            if observed.auth_observation != "available":
+                return observed
+            if _sandbox_backend_probe() is None:
+                return _replace(observed, control_status="unavailable", control_reason="sandbox_unavailable")
+            recording = UsageRecording(request_id=request_id, role=str(request.get("role") or ""),
+                                       target_agent=target_agent, base_dir=tools_dir)
+            contexts[provider.key] = ManagedClaudeContext(
+                auth_method=observed.auth_method, subscription_type=None,
+                config_dir=environment.get("CLAUDE_CONFIG_DIR"),
+                settings_hash=spawn_settings_hash(agent_profile=profile, usage_recording=recording,
+                                                  workspace_root=repo_root),
+            )
+            return _replace(observed, control_status="available", control_reason="native_write_containment_prepared")
         if provider.runtime_hint == "zai":
             # The kernel's own HTTP transport (operator policy 2026-09-11):
             # the credential is read from its boundary here, held in the
@@ -3116,7 +3250,10 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
         # 211); role + must_satisfy come from the request_envelope
         # we already loaded for cost-cap evaluation.
         if native_runtime is not None:
-            _invoke_native = {"codex": _invoke_native_codex, "zai": _invoke_native_zai}[native_runtime.route["runtime"]]
+            _invoke_native = {
+                "codex": _invoke_native_codex, "zai": _invoke_native_zai,
+                "claude": _functools.partial(_invoke_native_claude, prompt_file=prompt_file, resume=_resume),
+            }[native_runtime.route["runtime"]]
             cli_exit = _invoke_native(
                 native_runtime=native_runtime, repo=repo, tools_dir=tools_dir,
                 request=request_envelope, request_id=request_id, claim_id=claim_id, agent_id=agent_id,

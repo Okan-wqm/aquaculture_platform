@@ -132,6 +132,7 @@ from aria_kernel.runtime_artifacts import (
     approve_runtime_v2_promotion,
     autonomy_exit_code,
     autonomy_output_summary,
+    _fit_memory_learning_summary,
     classify_cycle_evidence,
     restore_artifact,
     retention_apply,
@@ -1562,6 +1563,7 @@ def build_parser() -> argparse.ArgumentParser:
     plan_advance.add_argument("--round-number", type=int, required=True)
     plan_advance.add_argument("--max-rounds", type=int, default=5)
     plan_advance_rounds = add_subparser(plan_sub, "advance-rounds")
+    add_workspace_args(plan_advance_rounds)
     plan_advance_rounds.add_argument("--plan-id", required=True)
     plan_advance_rounds.add_argument("--max-rounds", type=int, default=5)
     plan_promote = add_subparser(plan_sub, "promote-to-dispatch")
@@ -4830,6 +4832,7 @@ def _main(argv: list[str] | None = None) -> int:
             path = record_anti_pattern(
                 pattern,
                 workspace_root=args.workspace_root,
+                base_dir=args.tools_dir,
                 reason_class=args.reason_class,
                 operator_signature=args.operator_signature,
             )
@@ -5981,8 +5984,9 @@ def _main(argv: list[str] | None = None) -> int:
         if args.output == "full":
             summary.pop("full_result", None)
             summary["full_result_artifact"] = str(Path(args.artifact))
+        _fit_memory_learning_summary(summary)
         encoded = json.dumps(summary, indent=2, sort_keys=True)
-        if len(encoded.encode("utf-8")) > SUMMARY_STDOUT_MAX_BYTES:
+        if len(encoded.encode("utf-8")) + 1 > SUMMARY_STDOUT_MAX_BYTES:
             print(json.dumps({
                 "schema_version": 2,
                 "result_detail": "summary",

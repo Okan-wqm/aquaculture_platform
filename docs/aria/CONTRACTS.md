@@ -1452,3 +1452,465 @@ Real `v2` source-of-truth promotion remains blocked until those counters are der
 evidence and covered by tests; hard-coded zero counters are smoke evidence only.
 
 ---
+
+## 12.6 — Memory Learning Reporting Contract
+
+This implemented reporting contract is owned by `runtime_artifacts.py`, `reflection_inputs.py`,
+`reflection.py` and the final CLI envelope. `autonomy_output_summary` projects the supplied **outer**
+`per_cycle` results, where `memory_hook` and `memory_completion` are produced after the inner cycle
+summary. The same private projector feeds post-drain reflection through
+`producer_reflection_kwargs`; newly written reflection rows and daily reports carry the optional
+`memory_learning` projection (version 1). `report.emit_anchor_to_path` retains the existing report
+publisher contract. Earlier inner cycle projections are not consumers of these outer fields.
+
+- Initial observation status, completion batch status and individual observation receipts remain
+  separate. A `completed` batch can contain failed observations. `needs_signing` is an unsigned
+  initial observation, not a failed merge. Missing input and explicit no-op are distinct; unknown
+  attempts/recorded/verification facts remain null.
+- Original cycle/plan/revision/content identities and public signer provenance retain their
+  separate meanings. If the initial hook omits its plan ID, the supplied outer convergence linkage
+  can provide it. No plan is inferred from a cycle name. An overlong supplied identity is omitted
+  with `identity_omissions[field] = "display_length_exceeded"`, never shortened or replaced by
+  fallback linkage. Exception messages, private paths and arbitrary hook fields are excluded.
+- `reported_observation_counts` counts supplied receipt occurrences, not distinct hypotheses,
+  successful new appends, a global pending backlog or measured gain. Replay receipts and audit
+  failures can overlap persisted receipts. Persistence truth remains visible when an audit fails.
+  Existing top-level status/exit policy, merge truth and error/warning counters are unchanged.
+- Display limits are four cycles, eight observations total and 8 KiB of pretty-printed JSON.
+  Cycle selection favors errors/unresolved work; observation allocation and byte trimming use
+  global receipt priority with original-source-order ties. Omission counts cover all supplied
+  cycles/receipts. These are display bounds, not history-scan or latency guarantees.
+- The final CLI object, including `full_result_artifact` and the printed newline, must fit
+  32,768 UTF-8 bytes. Optional memory detail shrinks before required counts. If essential data
+  cannot fit, the CLI retains `contract_error` / exit 4. The full artifact retains the complete
+  original result; it is not included in the stdout budget.
+- Absent memory inputs leave legacy summary/reflection fields and report sections absent. Old
+  reflection rows, sealed requests and published report bodies are not rewritten. New reports
+  render a dedicated `Memory Learning` section from supplied results without scanning ledgers.
+
+Ordinary contracts are exercised by `MemoryLearningSummaryTests` in `test_runtime_artifacts.py`,
+the `test_pending_memory_reaches_*` and `test_memory_projection_survives_persisted_reflection_to_local_anchor`
+cases in `test_autonomy_orchestrator.py`, CLI artifact/ceiling cases in
+`test_cli_autonomy_subcommand.py`, and the real signature/legacy-input checks in
+`test_reflection_inputs.py`. This establishes a local producer-to-report contract; live publication,
+durable `pr_ci_scan`/promotion-summary visibility and measured learning usefulness require their
+own acceptance evidence.
+
+## 12.7 — Captured Rejected-Submission Context
+
+`agent_invocations.create_agent_invocation_request` captures related native submission history
+inside the existing `established_knowledge` envelope member. Its private reader takes one verified
+`ledger.state_transaction` snapshot of the bound tools root's invocation requests, claims and
+results. It joins a rejected result to its original `claimed` event and the canonical request
+(the existing last-matching-request semantics). Worker identity and configured target remain
+distinct. The snapshot records presence, row counts and tail hashes. Joining and rendering happen
+after lock release; a later append does not invalidate this explicitly captured earlier cutoff.
+
+Relevance uses complete original request refs and static scope prefixes before display limits,
+with directory-boundary matching. Rejection text and rejected response refs do not establish
+historical scope. A native join establishes the producer's recorded rejection and its provenance;
+it does not prove that the rejected response passed evidence/context/transcript validation.
+
+- `past_failed_attempts_state` distinguishes missing optional results, a complete search without
+  rejections or related episodes, related episodes, and unavailable reads/joins. Unknown matching
+  counts and truncation state are null. Unavailable history does not erase independently valid
+  positive context; ordinary optional knowledge read failures do not erase qualified history.
+  KG errors wrapping `OSError` are isolated at this optional boundary; other KG validation errors
+  retain their existing behavior. No validation, admission, signing or lease authority changes.
+- Five episodes are returned in reverse append order, with the complete matching count. Each has
+  at most three reasons, scopes and refs. A long reason preserves a 120-character **native prefix**
+  followed by a visible truncation marker; this is not a 120-byte or total rendered-length limit.
+  Omission metadata records original/omitted counts and shortened detail. Scalars and displayed
+  refs/scopes over 512 characters are explicitly omitted rather than silently conflated with
+  absent provenance. Identity and relevance checks operate on complete source values first.
+- These are display bounds. Full verified history reads and joins remain proportional to history
+  size; neither bounded latency nor archive-resolvable retention is established by this slice.
+  No path query starts a global history search. The reader creates no additional state surface.
+- Render version 4 introduced this history projection (new v5 requests retain it). Hypotheses, recorded legacy verified status, supported
+  beliefs, operator-adjudicated anti-patterns and rejected submission episodes retain distinct
+  labels. This projection does not revalidate merge lineage or measured gain, and rejection is
+  not a permanent prohibition or measured ineffective repair. Historical refs are provenance,
+  not newly admissible evidence for the current task.
+- The captured data is sealed at mint. Exact submission replay serves one episode, while a later
+  legitimate result can inform a new request without rewriting an earlier prompt. Absent version
+  and literal versions 2/3 keep their entire original UTF-8 rendering; no legacy expectation is
+  regenerated under version 4. Existing public exports, ledgers and fused top-level keys remain.
+
+Ordinary producer, availability, scope, replay and omission contracts are in
+`tests/test_learned_context_and_intent.py::RejectedHistoryAtMintTest` and
+`RejectedHistoryContractsTest`. Complete immutable v1-v3 bytes and versioned labels are covered
+by `tests/test_prompt_render_versioning.py` and `tests/fixtures/prompt_render_legacy/`.
+This is a local consumer contract. Measured usefulness, later outcome/retraction, retention and
+deployed operation remain separate acceptance slices.
+
+## 12.8 — Committed Source Snapshot
+
+`snapshot.build_repo_snapshot` resolves one commit before enumerating a committed Git view.
+Membership comes from that commit's tree with NUL-delimited path names; every blob read and
+`base_commit_sha` use the same captured commit even if HEAD advances during collection. Staged
+additions and deletions do not choose committed membership. The existing snapshot hash and
+repository-state ID therefore describe that selected content view, not a mixture of revisions.
+
+- A Git repository without a resolvable commit reports `committed_snapshot_base_unavailable`.
+  A failed tree enumeration reports `committed_snapshot_tree_unavailable`; it does not become a
+  successful empty snapshot. An unavailable committed blob produces an `unknown` fate with
+  `committed_blob_unavailable`, no content hash/size and no allowed-source entry. Discovery carries
+  that missing fate into an incomplete completion proof. Working bytes never replace that blob.
+- In a working view, a selected missing, non-file or unreadable input has the existing `unknown`
+  fate and `stat_or_read_failed` error, with no hash/size or allowed-source entry. Available source
+  and generated files retain their classification; size and hash describe the same read bytes.
+  An ordinary unstaged deletion therefore reaches discovery as an incomplete observation.
+- `discovery.run_discovery` propagates the captured snapshot, fates and completion metadata to its
+  return value and the existing `SNAPSHOT.json`, `FATES.json` and `COMPLETION_PROOF.json` artifacts.
+  This contract does not make their sequential publication atomic across a crash.
+- Public signatures, schema/result keys, dirty-workspace `enforce_clean` policy, working-mode
+  alias and nonignored-untracked support remain unchanged. No-Git directories retain the existing
+  filesystem observation with `base_commit_sha=None`; that is not an immutable committed proof.
+  Dirty paths and `git_tracked`/`working_tree` counts remain observed index/working diagnostics,
+  distinct from the selected committed fates and allowed paths.
+- Whole discovery is not revision-pinned: fingerprint directory/existence fields and service-map
+  project-marker reads still inspect the working filesystem. Working-mode `ls-files` path parsing
+  remains unchanged; the quoted-name correction applies to committed tree enumeration. Later
+  self-knowledge/assessment consumers must not claim these working observations as complete
+  immutable source evidence. No read-latency or full-scan cost bound is established here.
+
+Ordinary regressions in `tests/test_phase2_fates_snapshot.py::CommittedSnapshotViewTests` exercise
+staged membership, a real commit transition during scanning, and the returned/written discovery
+consumer. `CommittedSnapshotAvailabilityTests` covers missing commit/tree and ordinary committed
+blob read failures; `SnapshotViewCompatibilityTests` covers committed quoted names, working/untracked
+input, actual unstaged deletion with generated-file preservation and no-Git observations. Existing
+FATES consumers and the three ordinary discovery cases in
+`test_enterprise_cycle.py` preserve their existing behavior. This is the shared snapshot
+prerequisite; outcome assessment, retained evidence and revision-bound self-feature qualification
+retain their separate acceptance work.
+
+## 12.9 — Scoped Executed Validation Inputs
+
+`validation.run_validation_commands(..., input_scope=None)` optionally captures input provenance
+around **each actual command**. Existing change/HEAD/clean-worktree admission stays at the batch
+boundary; this metadata does not introduce per-command HEAD admission or continuous immutability.
+The descriptor names explicit files, never hashes, verdicts or claims of coverage:
+
+```json
+{"schema_version":1,"files":{"source":["feature.py"],"test":["test_feature.py"],"config":["settings.json"],"dependency":["local_helper.py"]}}
+```
+
+Roles may be omitted or empty; their absence means unknown, not a proven empty input universe.
+The snapshot owner's private explicit-path and file-reading helpers normalize the finite scope,
+read working bytes without repository enumeration, and share a 16 MiB content-read budget across
+before/after observations per command. Limits are 256 unique paths, 512 UTF-8 bytes per path and
+2 MiB per file. Opened regular-file size/type checks precede unbuffered bounded reads; unavailable,
+changed-during-read or over-budget inputs remain unknown. These limits do not bound existing Git
+metadata/clean checks, command stdout/stderr collection, complete log hashing or total latency.
+
+The optional `input_binding` uses the agreed v1 seventeen-field object: repository identity,
+working-tree mode, admitted full commit, nullable full snapshot/state IDs, sorted scope paths,
+source/test-selection/test-content/config/dependency/environment digests, scoped stability,
+capture start/completion and per-dimension availability. Full snapshot/state IDs stay null because
+a partial manifest is not the full snapshot. Identity and its diagnostic derive from one selected
+observation in the existing workspace owner; public identity recipes/signatures remain unchanged.
+Remote/root-commit identity may be available; basename fallback remains null/unknown in provenance.
+The identity owner's sequential Git subprocesses are not an atomic metadata snapshot.
+
+Canonical JSON manifests live in the existing hash-bound run log, containing before/after path,
+length/hash/availability observations, role membership and actual supported argv/selectors.
+Source, test-content, config and declared-dependency digests hash the before-observation role
+manifest (`schema_version` plus its sorted file rows). Test-selection digest hashes its versioned
+argv/selectors object. `unchanged` means all scoped file observations were available and equal;
+`changed` and `unknown` preserve command status independently. Capture completion follows file
+and identity observation. File contents and environment values are not added to these manifests.
+
+Explicit `python3 -m unittest [-v|-q|--verbose|--quiet] dotted.selector...` records the requested
+selector vector. Discovery, other command families and unsupported selector forms remain unknown.
+Even explicit selectors do not prove actual collection, custom `load_tests` behavior or coverage.
+Named config files do not establish effective configuration closure. Declared dependency-file
+hashes do not establish installed/transitive dependencies; dependency qualification remains
+unknown, and uncaptured runner environment has a null digest and unknown availability.
+
+`validation_runs_ledger.record_validation_run(..., input_binding=None)` validates and copies a
+bounded, fixed-depth v1 shape before native serialization: canonical identity/digest/path spellings,
+bounded parseable dates, required availability and available/non-null consistency. This is shape
+validation, not authentication that a direct caller executed a command. New bound rows receive an
+owner-derived `ArtifactRefV2` only for the declared `validation_run_logs` surface, with the native
+run ID and actual log hash. Omission preserves old row/log shape and external-log callers.
+`verify_validation_run` resolves an existing native `log_ref` beneath the supplied tools root,
+joining its artifact/run/producer/hash/content-type/surface through the existing owners before
+hashing the complete hot log. Absent-reference legacy rows retain their recorded `log_path`.
+It returns the unchanged native row; neither relocation nor repeated verification rewrites its
+original path or ledger bytes. The public signature and large hot-log admission are unchanged.
+The R2 local publish/teardown/receiving-bind fixture exercises this shared verifier in a fresh
+child with candidate module origins. It does not execute the whole matrix/merge gate, remove
+receiving hot logs or resolve cold validation archives. R3 retained-log/prefix closure remains
+separate. Source, consumer edges and exact evidence are in
+[catalogue-runtime-retention.md](./catalogue-runtime-retention.md#validation-run-ledger).
+
+Ordinary producer/native verifier, known-byte and digest oracles, timestamp order, fresh revision
+lineage, two-command working changes, unknown inputs, actual read bounds and schema contracts are
+in `test_validation_runs_unified_surface.py::ValidationInputBindingTests`. Existing ledger readers
+and snapshot/discovery consumers retain their contracts; `test_canonical_identity.py` covers the
+workspace owner's remote/root/basename/worktree compatibility.
+
+Tracked prerequisite **S2-E-ENV** belongs to validation, experiment and validation-run owners before
+S3 Card 4 or S2-F may claim fully current demonstration/reinstatement. Section 12.11 supplies a
+bounded partial observation; remaining producers must observe applicable dependency scope, with relevant
+ordinary behavior and change-invalidates-applicability acceptance. Otherwise those consumers must
+retain historical execution with unknown current applicability. Matching files and exit zero
+cannot clear these unknowns; no measured learning gain or whole-system operation is established.
+
+## 12.10 — Scoped Self-Feature Observations and Planner Context
+
+The existing `twin/map.json` projection carries two named pilots:
+`knowledge_graph.conventions_for_paths` and `runtime_artifacts.autonomy_output_summary`.
+`cycle._phase_twin_refresh` supplies the actual discovery return to `twin.build_twin_map` /
+`refresh_twin_map` through an optional `discovery` argument. The source reader consumes only bytes
+matching that selected working or committed view; a matching HEAD alone cannot authorize reading
+working AST bytes as committed facts. Changed or unavailable inputs remain unknown. Twin test
+associations are inferred links, not executed coverage: a changed surviving test replaces its old
+edges, and source membership changes re-resolve unchanged importing tests against the new tree.
+
+The feature projection records owning symbol/path/hash, source-inferred purpose, named static
+callers and test IDs, source/test/config/declared-dependency digests, discovery provenance and
+separate implemented/reachable/configured/demonstrated/runtime labels. Definition presence and
+optional annotation/display extraction have separate availability. Static reachability is not
+runtime execution. The bounded named scope is partial; configured, demonstrated and runtime
+status remain unknown, as do effective environment and installed/loaded dependency closure.
+Existing agent-surface, capability-gap and registry owners retain their responsibilities.
+
+At new-request mint, `agent_invocations` qualifies the captured projection against the exact supplied
+source root, selected revision, named files and scoped Git membership. Root mismatch, changed target,
+missing content or exhausted work withhold positive feature facts, with owner diagnostics retained.
+This is an exact local-root association, not a new canonical repository identity recipe. There is
+no full discovery, history refresh or test execution at mint, and no automatic inference that a
+feature is absent when coverage is unknown. Public legacy twin status remains HEAD-based and does
+not substitute for this mint qualification.
+
+- Trial qualification limits are a 2 MiB projection read, 256 content paths, 2 MiB per file,
+  16 MiB cumulative source/transport allowance, 4,096 consumed/emitted Git membership records and
+  a common two-second cooperative deadline. The implemented pilot uses a fixed named input scope
+  and observes direct imported-symbol calls, labelled `static_hops: 1`. The proposed two-hop /
+  64-additional-path expansion is a future design maximum, not an implemented traversal.
+  Whole cycle discovery/FATES selection, project scans, association
+  rebuilds and Git history maintenance are separate costs. Pipe counts do not measure how many
+  entries Git inspected internally; subprocess deadlines and scoped commands constrain that work.
+- The state-store Git transport's strict mode is private and optional. It reserves both pipes and
+  EOF headroom within the remaining allowance before reads, and closes/reaps acquired children on
+  failure. An exhausted boundary can conservatively be unknown. Default callers retain legacy
+  exact-cap behavior. Known source bytes and conservative transport reservations are distinct.
+  Cooperative checks do not make Python parsing or filesystem observation continuously atomic.
+- The drainer and round controller use `plan_convergence.plan_body_from_state` on their existing
+  fold for structured current-body text/refs/hash. Legacy latest prose remains text with no matched
+  structured-body claim; an older seed is not substituted. Independent challengers receive common
+  source context without primary proposal content. Legal cross-review/later-primary state guards,
+  existing agents, review obligations and caller-provided `allowed_scope` remain unchanged.
+- Optional `context_source_paths` flow through the existing bridge/mint owners. The shared scoped
+  literal-path normalizer bounds each path to 512 UTF-8 bytes before sorting/deduplication; at most
+  the existing 200 affected-path entries are admitted. Historical broad/long plan surfaces stay
+  valid plan data but are not expanded as retrieval hints. Partial status records supplied,
+  accepted-unique, omitted and, when present, deduplicated counts. Request validation requires
+  canonical sorted unique literals and consistent paired status. Hints do not become evidence refs
+  or write permissions. Omitted/None retains the old request identity; normalized equivalents replay;
+  different captured omission status participates in identity even when supported paths are equal.
+- The outer orchestrator forwards its actual cycle/root; the controller preserves missing cycle
+  provenance. `plan advance-rounds` uses the existing workspace argument/resolution owners. Omitted
+  root on the public controller preserves legacy optional orientation, with no qualified feature
+  claim. No signer, model, profile, merge, review or credential permission changes are implied.
+
+New prompts use render version 5. The native request captures qualification and whole feature entries
+before sealing. Selection considers at most eight candidates/four displayed entries and 1,200
+estimated tokens for the feature section, including labels/diagnostics, under the existing total
+context cap. Up to four unavailable-source diagnostics are displayed with an omission count.
+These are development-trial parameters, not optimality or useful-coverage guarantees. Evidence,
+retrieval hints, feature observations, rejected history and proposal permissions retain distinct labels.
+
+The existing context-budget owner prices the final rendered prompt once plus captured agent/bookmark
+costs. Optional feature entries shrink before sealing. An oversized mandatory baseline retains the
+existing audit-only versus explicit enforcement choice. The request, native context and persisted
+final audit share `budget_audit_hash`. The existing serialized native-write operation rechecks request
+identity before persisting an audit; ordinary same-request callers leave one winning request/context/
+prompt and final audit, without speculative trial/loser audits. This is not a multi-ledger rollback
+guarantee. Early replay returns stored bytes without requalification or another budget audit.
+
+Literal v1-v3 fixtures and genuinely issued v4 request/context/prompt artifacts are immutable inputs.
+Actual rendering/fusion of these captures performs no current map/history/learning lookup. New
+observations and refreshes preserve earlier native ledger prefixes; sealed prompts are never refreshed.
+
+Ordinary source/association/deadline/qualification/render-budget contracts are in `test_twin_map.py`,
+`test_twin_cycle_wiring.py`, `test_phase2_fates_snapshot.py` and `test_state_store.py::ScopedGitTransportTests`.
+`test_convergence_resumable_step.py::PlannerTwinContextTests` covers real native initial/adopted/revised,
+controller/CLI and legal later planner paths. The two native outer-planner cases in
+`test_autonomy_orchestrator.py` inject a cycle wrapper and synthesizer but run real discovery/twin,
+drainer and native mint; they do not execute the full enterprise-cycle/runtime pipeline.
+`test_prompt_render_versioning.py` owns complete old prompt bytes; existing contract, bridge,
+context-budget and native S2-E validation tests retain compatibility responsibility.
+
+S2 assessment and archive-resolvable retention, S2-E-ENV partial observations plus actual autonomous
+caller input binding/loaded-content evidence, and S3 Card 4 applicable behavioral demonstration remain
+open prerequisites. S4 must establish requested/propagated/observed Astra Ultra execution without
+misrepresenting the distinct-model gate; S5 must evaluate ordinary temporal tasks, negative transfer,
+teaching and total memory cost. Source/config presence, merge status and repeated feedback alone do
+not prove deployed operation, independent corroboration or measured improvement. Pressure-statistics
+root propagation and repeated-feedback confidence remain separately tracked owner/phase obligations.
+
+## 12.11 — Bounded Partial Child Environment Observation
+
+`validation.run_validation_commands` retains its signature and default/v1 execution. An explicit
+v2 `input_scope` adds exactly `execution_profile: {kind: "python_unittest_public_v1", modules: [...]}`
+to the existing files descriptor. At most eight bounded dotted module names are admitted; the
+existing command authority and explicit unittest selector recognition remain enforced. Other
+admitted command shapes execute through their original path with profile observation unknown.
+`experiment.run_experiment(..., input_scope=None)` forwards an explicit scope or selects one from
+an opted-in recipe as specified in §12.12. Recipes and experiment observations retain their
+existing schema versions and record-only comparator meaning.
+
+The private `_validation_unittest_child.py` runs the selected unittest in the observed process,
+preserving the actual unittest argument convention and checkout import root. It observes only
+modules already in `sys.modules`; it does not import declared modules to manufacture applicability.
+Interpreter implementation/version/flags are same-child observations. The closed public environment
+set is `PYTHONHASHSEED`, `PYTHONUTF8`, `PYTHONDONTWRITEBYTECODE`, `LC_ALL`, and `TZ`, with bounded
+numeric/boolean/locale/timezone forms; unsupported values are unknown without retaining their raw
+contents. Values and file facts are post-run observations, not proof of startup configuration.
+Source/cache/extension file hashes are not loaded or executed byte hashes. An ordinary test can
+change a source file while an already imported function keeps its previous behavior.
+
+One inherited pipe carries one final receipt of at most `min(4096, PIPE_BUF)` bytes. The parent
+performs a bounded nonblocking read and never waits for descendant EOF. Optional pipe setup failure
+can fall back to the original admitted command only before spawn; no execution is retried after
+spawn. Independent best-effort descriptor closes preserve the real exit/stdout/stderr/timeout even
+if optional cleanup reports an I/O error. Such error handling does not prove the OS released a
+descriptor after a failed close. Native subprocess timeout/reaping and native ledger/log ownership
+remain unchanged. No receipt sidefile, state surface, permission or credential lifecycle is added.
+
+Selected content observations share 16 MiB actual reads, at most 256 admitted content paths and
+2 MiB per file across before/observer/child/after. The child receives at most 4 MiB and sixteen
+additional content paths, reserved before execution. Missing/unusable receipts charge the full
+reservation before after-capture. Successful receipt work and original selected file facts are
+retained even when later ENV qualification is unknown. These limits exclude unittest's own I/O,
+output capture and native log hashing/persistence; reported child counters are observation work,
+not telemetry of all reads performed by the test or interpreter.
+
+One cooperative 250 ms active observation allowance covers parent observer identity/setup, child
+post-run observation/preparation, parent receipt handling, and final ENV construction/encoding/hash.
+Real test runtime and the unchanged S2 before/after capture/binding intervals are excluded. Parent
+identity expiry retains charged bytes, withholds the hash and issues no renewed child allowance.
+Missing timing receipts charge the full issued child allowance. Parent receipt and finalization
+expiry withhold new positive ENV facts and hash the resulting compact unknown object. There is
+at most one positive finalization and one unknown fallback. The child's elapsed scalar cannot
+measure its later final wire/close tail; a final cooperative encoding check does not preempt a
+blocked filesystem call. Native log serialization, append/fsync and cleanup tail costs are not
+claimed to fit a hard wall-time cap.
+
+The existing v1 `input_binding.runner_environment_digest` hashes the stable partial comparison
+object. Detailed phase/work/PID/argv diagnostics live only in the existing hash-bound input-manifest
+log. Stable identity excludes scratch paths, PIDs, timing and receipt resource handles. Original
+requested argv remains selector provenance; actual spawned argv remains the log's executed vector.
+The native row schema, original log verifier and public exports remain unchanged.
+
+`test_validation_runs_unified_surface.py::ValidationInputBindingTests` owns the real producer,
+argv control, cached source change, timeout/reaping, shared byte pressure, active deadline and
+ordinary optional I/O tests. Its private child-cleanup test is a direct unit seam with a stubbed
+unittest exit, not an additional native command proof. `test_experiment_bench.py::ExperimentBenchTests`
+owns real opt-in bench forwarding and omitted/None compatibility. Control-profile observation is
+explicitly unknown (`bounded_profile_observation_pending`); existing profile and scheduler-ceiling
+readers/writers remain the only control owners and are unchanged.
+
+This increment leaves effective configuration, installed/loaded dependency closure, actual test
+collection, applicable native state and current behavioral demonstration unknown. The normal
+recipe-to-stage/night connection is specified in §12.12. Portable restored log resolution,
+S2 corrective/outcome assessment, S3 Card 4 and matched learning utility remain separate
+obligations. A successful native run or comparison digest does not establish gain.
+
+## 12.12 — Optional Recipe Inputs Through Normal Validation Callers
+
+`experiment.register_recipe(..., input_scope=None)` accepts the existing canonical v1/v2
+descriptor through the validation owner. Omitted/None recipes keep their previous row shape.
+An opted-in recipe adds only `input_scope`, capped at 65,536 canonical JSON bytes; rejection
+occurs before append. This carrier limit does not change direct validation's descriptor limits.
+No public export, state surface, schema version, command permission or required plan field is added.
+
+`apply_engine` resolves commands, timeouts and optional inputs from the same verified recipe
+read. A recipe ID selects its latest row; a command lookup uses the exact row that supplied that
+command, even if a later registration of that ID supplies a different command. Canonical commands
+remain first, exact command strings retain their existing execution deduplication, and existing
+timeout contributions and admission remain intact.
+Contributing references are deduplicated and merged in execution-position, recipe-ID, ledger-hash
+order. Scope paths are case-sensitive sorted unions within the existing fixed roles; a path may
+retain more than one role. Different descriptor versions or profile kinds cannot be merged.
+
+The optional v1 `validation_input_selection` object contains `status`, `input_scope`,
+`recipe_sources`, `plan_content_hash` and `reason`. Source entries identify the exact recipe ID,
+ledger hash and executed command. Staging binds the current verified plan body hash, forwards the
+selected descriptor to the real baseline, and persists the selection on the existing apply action.
+The candidate uses that stored selection; it does not replace it with a later recipe registration.
+The existing two-result command helper and public stage/apply signatures remain callable unchanged.
+
+Selection retains at most eight distinct recipe rows, 256 distinct paths and eight module names.
+Source-reference recipe IDs are limited to 256 UTF-8 bytes and source commands to 4,096 UTF-8 bytes. Reference
+gathering and the complete selection each have a 65,536-byte canonical JSON cap. These bound retained
+metadata, not the existing full recipe-ledger read. An unsupported or oversized optional selection
+becomes `unknown` metadata within 1,024 canonical JSON bytes with no retained scope or source prefix; otherwise admitted
+commands still execute. Gather failures have deterministic priority: intrinsic source metadata,
+unavailable source identity, distinct-row limit, then aggregate reference bytes. Both byte failures
+report `selection_metadata_limit`; row/path/module excess reports `selection_input_limit`.
+After successful gathering, sorted descriptor merging retains its first diagnostic, including
+`selection_incompatible_scope` or `selection_input_unavailable`. The final complete-selection
+cap independently accounts for scope and source metadata together.
+
+`experiment.run_experiment` gives an explicit non-None scope precedence. Omitted/None selects
+only from an opted-in recipe and records that selection on the ordinary observation. Legacy
+recipes retain their original call/row behavior. Both default `experiment_night` problem and
+regression paths inherit this bench-owned selection without changing night runner injection.
+`selected` means descriptor selection only: canonical or other admitted commands can have partial
+file observations and unknown/unsupported environment observations. It is not dependency,
+configuration, loaded-code or test-selection closure, nor a current-demonstration verdict.
+
+`test_pr_manager_e2e.py::StagedConvergedPlanChainTests` owns actual baseline/candidate tests using
+offline Nx test/lint, TypeScript and named unittest execution, plus deterministic union/limit
+controls. `test_experiment_night.py::NightIntegrationTests` owns actual default problem/regression
+execution with native finding/change/fix lineage. `test_experiment_bench.py::ExperimentBenchTests`
+owns recipe retention, byte limits, automatic None/omitted selection and explicit precedence.
+The ordinary boundary controls cover exact 256-path/eight-module/eight-row admission and overflow,
+row-limit-over-reference-byte priority and an independently sized complete-selection overflow.
+
+Engineering evidence captures original selected native rows and command-log bytes before fixture
+cleanup, retaining native URIs/hashes and separate capture mappings. That bounded copy is not runtime
+archive resolution or portable restoration. Retention R1/R2/R3, durable assessment/reinstatement,
+applicable loaded-content/native-state evidence, S3 Card 4, runtime integration and measured learning
+utility keep their existing owners and acceptance obligations.
+
+## 12.13 — Explicit Manifest Provisioning of Optional Recipe Inputs
+
+`tools/aria-poc/seed_experiment_recipes.py` retains its closed schema-v1 manifest and adds only
+the optional recipe key `input_scope`. Its main entry preserves the existing command parser,
+cycle identity, returned declarations and stdout. Missing or JSON-null scope means no opt-in;
+the tracked default manifest remains unchanged.
+
+Direct `seed(doc, ...)` callers preflight every non-null descriptor before either native append
+loop. The private experiment-owner `_validated_recipe_input_scope` is shared with
+`register_recipe`: it delegates to the existing canonical descriptor validation and 65,536-byte
+canonical metadata limit. No second parser, public signature/export, state surface or scope
+inference is introduced. Canonicalization does not mutate the supplied manifest. The per-descriptor
+limit does not bound the loader's whole-manifest read or number of recipes. Optional-descriptor
+rejection preserves existing native history; unrelated later writer failures retain the existing
+separate-append behavior, without a general all-or-nothing transaction guarantee.
+
+An explicit manifest reaches the existing latest-recipe resolver and automatic bench selection
+from §12.12. Reseeding the same recipe ID appends a new registration; later runs resolve that
+latest row. Scoped runs record its exact row/hash in selection provenance, while null/legacy runs
+retain their original shape without that optional provenance. A subsequent null-scope registration
+turns opt-in off for later runs. Earlier
+recipe/experiment/observation/run records and logs retain their original bytes and references.
+This does not rewrite a staged action's already selected inputs.
+
+The autonomous author reuses an explicitly provisioned service recipe without extending its
+scope from another finding. When no such recipe exists, its current service/finding inputs do
+not establish test/configuration/dependency scope, so the authored recipe remains unscoped.
+Author/planner reuse is not proof of command execution or environment completeness. This slice
+does not schedule the seeder, infer descriptors, migrate legacy recipes or opt in the default
+Nx/Cargo recipes. Loaded-content applicability, portable retention and measured utility remain open.
+
+`tools/aria-poc/invariants/test_experiment_recipes_manifest.py::ExperimentRecipeManifestTests`
+owns actual alternate-manifest main/seed/bench execution, null/legacy runs, three-registration
+reseed continuity and positive canonicalization. Its separate direct-seed regression owns the
+before-all-appends invalid/oversized-descriptor proof against genuine preexisting native history.
+`aria-kernel/tests/test_x2_experiment_author.py::AuthorTests` owns unscoped author and explicit recipe reuse
+through actual finding/author/planner owners, with a separate repository-state root per fixture.

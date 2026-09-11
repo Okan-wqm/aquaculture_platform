@@ -628,7 +628,9 @@ def _bwrap_probe_argv() -> list[str]:
 _SANDBOX_PROBE_TIMEOUT_SECONDS = 15
 
 
-def _sandbox_probe_succeeds(argv: Sequence[str]) -> bool:
+def _sandbox_probe_succeeds(
+    argv: Sequence[str], *, environ: dict[str, str] | None = None,
+) -> bool:
     """True when the backend can actually build the namespaces we rely on."""
     try:
         completed = subprocess.run(
@@ -636,6 +638,7 @@ def _sandbox_probe_succeeds(argv: Sequence[str]) -> bool:
             capture_output=True,
             timeout=_SANDBOX_PROBE_TIMEOUT_SECONDS,
             check=False,
+            **({"env": environ} if environ is not None else {}),
         )
     except (OSError, subprocess.SubprocessError):
         return False
@@ -840,6 +843,49 @@ def wrap_bash_in_sandbox(
     )
 
 
+def _wrap_runtime_state_in_sandbox(
+    argv: list[str], *, workspace_root: Path, runtime_directory: Path,
+    managed_auth_directory: Path, executable: Path, environment: dict[str, str],
+) -> list[str]:
+    """Bind only the managed auth file into a writable private Codex home.
+
+    The existing sandbox still owns system, network and workspace containment.
+    A private runtime directory is mounted after its /tmp tmpfs, so output and
+    SQLite files have the same identity inside and outside the process. The
+    original auth directory's sessions, history and configuration stay hidden.
+    """
+    workspace = workspace_root.resolve(strict=True)
+    runtime = runtime_directory.resolve(strict=True)
+    auth = managed_auth_directory.resolve(strict=True)
+    binary = executable.resolve(strict=True)
+    private_home = Path(environment["CODEX_HOME"]).resolve(strict=True)
+    if (not runtime.is_dir() or not auth.is_dir() or not binary.is_file()
+            or not (auth / "auth.json").is_file() or not private_home.is_dir()
+            or not private_home.is_relative_to(runtime)
+            or runtime.is_relative_to(workspace) or workspace.is_relative_to(runtime)
+            or runtime.is_relative_to(auth) or auth.is_relative_to(runtime)):
+        raise SandboxUnavailable("native_runtime_mount_identity_invalid")
+    command = wrap_bash_in_sandbox(
+        argv, workspace_root=workspace, allow_network=True, write_scope=(),
+        # Preserve the system requirements and managed configuration. The
+        # existing wrapper conditionally binds existing paths without reading
+        # their contents; conflicting requirements remain the CLI's refusal.
+        extra_ro_binds=(binary, Path("/etc/codex")),
+    )
+    separator = command.index("--")
+    # The outer limiter needs control-plane plumbing that the model must not
+    # inherit. Clear it at the namespace boundary, then restore the complete
+    # caller-built model environment (including its synthetic HOME).
+    child_environment = ["--clearenv"]
+    for name, value in environment.items():
+        child_environment.extend(["--setenv", name, value])
+    # procfs must describe only this runtime's PID namespace. A mount
+    # namespace alone still exposes host processes and their root handles.
+    return (command[:separator] + ["--die-with-parent", "--unshare-pid", "--bind", str(runtime), str(runtime),
+                                  "--ro-bind", str(auth / "auth.json"), str(private_home / "auth.json")]
+            + child_environment + command[separator:])
+
+
 class ResourceLimitsUnavailable(RuntimeError):
     """No usable limiter, so memory/CPU/task/wall-clock caps cannot apply.
 
@@ -904,7 +950,26 @@ def apply_resource_limits(argv: list[str], *, timeout_seconds: int = 120) -> lis
        the caller's own docstring says a write-capable agent must not be
        spawned unbounded on the strength of a missing perimeter.
     """
-    if _systemd_run_available():
+    return _apply_resource_limits(argv, timeout_seconds=timeout_seconds)
+
+
+def _apply_resource_limits(
+    argv: list[str], *, timeout_seconds: int, environ: dict[str, str] | None = None,
+) -> list[str]:
+    """Select and probe the limiter in the environment that will launch it.
+
+    Omitted environment preserves the public legacy cached host selection.
+    Explicit environments are probed directly; host cache results cannot
+    establish capability for a different child control environment.
+    """
+    if environ is None:
+        systemd_available = _systemd_run_available()
+        search_path = None
+    else:
+        search_path = environ.get("PATH", os.defpath)
+        systemd_available = (shutil.which("systemd-run", path=search_path) is not None
+                             and _sandbox_probe_succeeds(_systemd_run_probe_argv(), environ=environ))
+    if systemd_available:
         return [
             "systemd-run",
             "--user", "--scope", "--quiet",
@@ -913,7 +978,7 @@ def apply_resource_limits(argv: list[str], *, timeout_seconds: int = 120) -> lis
             "--property=TasksMax=50",
             f"--property=RuntimeMaxSec={timeout_seconds}",
         ] + list(argv)
-    if shutil.which("timeout") is not None:
+    if (shutil.which("timeout") if environ is None else shutil.which("timeout", path=search_path)) is not None:
         # Wall clock only — no memory/CPU/task ceiling. Weaker than the cgroup
         # path and deliberately still accepted: an unbounded-runtime agent is
         # the failure actually observed, and refusing every container host
@@ -974,6 +1039,57 @@ HARD_FAIL_GATES: frozenset[str] = frozenset({GATE_PRE_PR_OPEN, GATE_PRE_MERGE})
 
 
 @dataclass(frozen=True)
+class _PreMergeEvidence:
+    """Immutable native identities; an incomplete join stays unavailable.
+
+    These are observations, not check verdicts. The merge owner captures
+    them from verified native prefixes and the repository snapshot.
+    """
+
+    unavailable_reasons: tuple[str, ...]
+    pr_number: int | None = None
+    change_id: str | None = None
+    pr_row_hash: str | None = None
+    planned_row_hash: str | None = None
+    committed_row_hash: str | None = None
+    plan_id: str | None = None
+    plan_revision_id: str | None = None
+    plan_content_hash: str | None = None
+    request_id: str | None = None
+    claim_id: str | None = None
+    request_row_hash: str | None = None
+    claim_row_hash: str | None = None
+    result_row_hash: str | None = None
+    implementation_event_hash: str | None = None
+    implementation_base_sha: str | None = None
+    implementation_head_sha: str | None = None
+    request_plan_hash: str | None = None
+    implementation_plan_hash: str | None = None
+    implementation_diff_hash: str | None = None
+    branch: str | None = None
+    repo_identity: str | None = None
+    base_sha: str | None = None
+    head_sha: str | None = None
+    snapshot_hash: str | None = None
+    scope_observed_at: str | None = None
+    scope_ledger_tips: tuple[str, ...] = ()
+    scope_conflicting_claim_id: str | None = None
+    scope_conflicting_claim_hash: str | None = None
+    coverage_required: bool | None = None
+    coverage_event_hash: str | None = None
+    coverage_manifest_hash: str | None = None
+    coverage_revision_id: str | None = None
+    coverage_plan_hash: str | None = None
+    coverage_computed_at_sha: str | None = None
+    coverage_verdict: str | None = None
+    coverage_unavailable_reason: str | None = None
+
+    @property
+    def available(self) -> bool:
+        return not self.unavailable_reasons
+
+
+@dataclass(frozen=True)
 class HardFailContext:
     """Everything a hard-fail check may inspect about a pending action.
 
@@ -994,6 +1110,7 @@ class HardFailContext:
     validation_commands: tuple[str, ...] = ()
     base_branch: str | None = None
     pr_body: str | None = None
+    pre_merge_evidence: _PreMergeEvidence | None = None
 
 
 @dataclass(frozen=True)
@@ -1130,6 +1247,104 @@ def _not_implemented(name: str) -> Callable[[HardFailContext], HardFailResult]:
         return _failed(name, "check_not_implemented")
 
     return _check
+
+
+def _native_implementation_is_bound(context: HardFailContext) -> bool:
+    evidence = context.pre_merge_evidence
+    return evidence is not None and all((
+        evidence.repo_identity, evidence.snapshot_hash, evidence.pr_row_hash,
+        evidence.planned_row_hash, evidence.committed_row_hash, evidence.request_id,
+        evidence.claim_id, evidence.request_row_hash, evidence.claim_row_hash,
+        evidence.result_row_hash, evidence.implementation_event_hash,
+    ))
+
+
+def _check_branch_tip_lock_and_recheck(context: HardFailContext) -> HardFailResult:
+    name = "branch_tip_lock_and_recheck"
+    evidence = context.pre_merge_evidence
+    if not _native_implementation_is_bound(context) or context.workspace_root is None:
+        return _failed(name, "native_implementation_binding_unavailable")
+    if (
+        not evidence.head_sha or not evidence.base_sha or not evidence.branch
+        or not context.base_branch
+        or evidence.implementation_head_sha != evidence.head_sha
+        or evidence.implementation_base_sha != evidence.base_sha
+    ):
+        return _failed(name, "native_implementation_commit_mismatch")
+    from .state_store import StateStoreError as _StateStoreError
+    from .state_store import _git
+
+    try:
+        for ref, expected in (("HEAD", evidence.head_sha),
+                              ("refs/heads/" + evidence.branch, evidence.head_sha),
+                              ("refs/heads/" + context.base_branch, evidence.base_sha)):
+            if _git(context.workspace_root, "rev-parse", "--verify", ref + "^{commit}").strip() != expected:
+                return _failed(name, "native_branch_tip_changed")
+    except (OSError, _StateStoreError):
+        return _failed(name, "native_branch_tip_unavailable")
+    # This local observation supplements the existing fresh PR evaluation
+    # and adapter expected_head_sha CAS; it does not replace remote CAS.
+    return _passed(name, "native_implementation_and_current_branch_tips_match")
+
+
+def _check_per_file_mutual_exclusion(context: HardFailContext) -> HardFailResult:
+    name = "per_file_mutual_exclusion"
+    evidence = context.pre_merge_evidence
+    if not _native_implementation_is_bound(context):
+        return _failed(name, "native_implementation_binding_unavailable")
+    if (
+        not evidence.scope_observed_at or len(evidence.scope_ledger_tips) != 3
+        or not all(evidence.scope_ledger_tips)
+    ):
+        return _failed(name, "implementation_scope_observation_unavailable")
+    if evidence.scope_conflicting_claim_id or evidence.scope_conflicting_claim_hash:
+        if not evidence.scope_conflicting_claim_id or not evidence.scope_conflicting_claim_hash:
+            return _failed(name, "implementation_scope_observation_unavailable")
+        return _failed(name, "implementation_scope_locked")
+    # The capture owner used the same native scope/lifecycle helper as claim
+    # admission, after rechecking the exact request/claim/result prefixes.
+    # This is a state observation, not a lock across the remote merge call.
+    return _passed(name, "native_implementation_scope_clear")
+
+
+def _check_plan_coverage_witness_verified(context: HardFailContext) -> HardFailResult:
+    name = "plan_coverage_witness_verified"
+    evidence = context.pre_merge_evidence
+    if not _native_implementation_is_bound(context):
+        return _failed(name, "native_implementation_binding_unavailable")
+    if evidence.coverage_unavailable_reason:
+        return _failed(name, evidence.coverage_unavailable_reason)
+    if evidence.coverage_required is False:
+        return _passed(name, "coverage_not_required_by_native_plan_version")
+    if evidence.coverage_required is not True or not all((
+        evidence.coverage_event_hash, evidence.coverage_manifest_hash,
+        evidence.coverage_revision_id, evidence.coverage_plan_hash,
+        evidence.coverage_computed_at_sha,
+    )):
+        return _failed(name, "native_coverage_binding_unavailable")
+    if (
+        evidence.coverage_revision_id != evidence.plan_revision_id
+        or evidence.coverage_plan_hash != evidence.plan_content_hash
+    ):
+        return _failed(name, "coverage_target_revision_mismatch")
+    if evidence.coverage_verdict != "covered":
+        return _failed(name, "native_coverage_verdict_unavailable")
+    return _passed(name, "native_current_plan_coverage_manifest_verified")
+
+
+def _check_content_hash_recheck(context: HardFailContext) -> HardFailResult:
+    name = "content_hash_recheck"
+    evidence = context.pre_merge_evidence
+    if not _native_implementation_is_bound(context):
+        return _failed(name, "native_implementation_binding_unavailable")
+    if (
+        not evidence.plan_revision_id or not evidence.plan_content_hash
+        or not evidence.implementation_diff_hash
+        or evidence.request_plan_hash != evidence.plan_content_hash
+        or evidence.implementation_plan_hash != evidence.plan_content_hash
+    ):
+        return _failed(name, "native_plan_revision_hash_mismatch")
+    return _passed(name, "native_request_implementation_and_recomputed_plan_hash_match")
 
 
 def _check_secret_scan_diff_clean(context: HardFailContext) -> HardFailResult:
@@ -1804,14 +2019,14 @@ HARD_FAIL_CHECKS: tuple[HardFailCheck, ...] = (
         name="branch_tip_lock_and_recheck",
         description="branch_tip_sha captured; auto-merge re-verifies headRefOid pre-merge",
         closes_findings=("ai-HIGH-007", "sec-HIGH-002"),
-        check=_not_implemented("branch_tip_lock_and_recheck"),
+        check=_check_branch_tip_lock_and_recheck,
         gate=GATE_PRE_MERGE,
     ),
     HardFailCheck(
         name="per_file_mutual_exclusion",
-        description="_validate_implementation_request rejects locked affected_surfaces",
+        description="native lease scope exclusion at claim admission and the captured pre-merge view",
         closes_findings=("ai-HIGH-009",),
-        check=_not_implemented("per_file_mutual_exclusion"),
+        check=_check_per_file_mutual_exclusion,
         gate=GATE_PRE_MERGE,
     ),
     HardFailCheck(
@@ -1839,7 +2054,7 @@ HARD_FAIL_CHECKS: tuple[HardFailCheck, ...] = (
         name="content_hash_recheck",
         description="implementer recomputes SHA256 of CONVERGED plan vs envelope.content_hash",
         closes_findings=("ai-MED-019",),
-        check=_not_implemented("content_hash_recheck"),
+        check=_check_content_hash_recheck,
         gate=GATE_PRE_MERGE,
     ),
     # Plan 031 Faz 031e — the autonomous fix's reviewer is ≥2 independent
@@ -1873,7 +2088,7 @@ HARD_FAIL_CHECKS: tuple[HardFailCheck, ...] = (
             "before implementation_requested"
         ),
         closes_findings=("ORPHAN-HIGH-310",),
-        check=_not_implemented("plan_coverage_witness_verified"),
+        check=_check_plan_coverage_witness_verified,
         gate=GATE_PRE_MERGE,
     ),
 )

@@ -16,6 +16,7 @@ stops attaching the sections still produces a self-consistent hash.
 """
 from __future__ import annotations
 
+import json
 import subprocess
 import unittest
 from pathlib import Path
@@ -112,6 +113,49 @@ class ConventionsForPathsTest(unittest.TestCase):
 
 
 class EstablishedKnowledgeAtMintTest(unittest.TestCase):
+    def test_explicit_tools_root_excludes_checkout_shadow_knowledge(self) -> None:
+        from aria_kernel import knowledge_graph as kg
+        from aria_kernel.tool_registry import append_tools_governance
+
+        with TemporaryDirectory() as tmp:
+            workspace = Path(tmp) / "checkout"
+            tools = ensure_tools_dir(Path(tmp) / "store/tools")
+            legacy = ensure_tools_dir(workspace / "aria-tools")
+            shadow_paths = []
+            for root, prefix, roots in (
+                (tools, "canonical", {"base_dir": tools}),
+                (legacy, "shadow", {"workspace_root": workspace}),
+            ):
+                pattern = kg.Pattern(
+                    pattern_id=f"{prefix}-convention", pattern_type="convention", confidence=0.9,
+                    evidence_refs=("apps/farm-service/src/feed.service.ts:12",),
+                    discovered_by_cycle_id="root-selection", observed_at="2026-09-10T00:00:00Z",
+                    outcome_status="verified",
+                )
+                convention_path = kg.record_convention(pattern, signer_key_fp=SIGNER, **roots)
+                append_tools_governance(root, "operator_action", {"event_id": f"{prefix}-approval", "action": "approve"})
+                anti_path = kg.record_anti_pattern(
+                    kg.Pattern(
+                        pattern_id=f"{prefix}-anti", pattern_type="anti_pattern", confidence=1.0,
+                        evidence_refs=pattern.evidence_refs, discovered_by_cycle_id="root-selection",
+                        observed_at=pattern.observed_at,
+                    ), reason_class="architecture_class", operator_signature=f"gov:{prefix}-approval", **roots,
+                )
+                if prefix == "shadow":
+                    shadow_paths = [convention_path, anti_path]
+            before = {path: path.read_bytes() for path in shadow_paths}
+            minted = _mint(tools, repo_root=workspace, evidence_refs=["apps/farm-service/src/feed.service.ts:12"])
+            knowledge = minted["established_knowledge"]
+            self.assertEqual([r["pattern_id"] for r in knowledge["conventions"]], ["canonical-convention"])
+            self.assertEqual([r["pattern_id"] for r in knowledge["anti_patterns"]], ["canonical-anti"])
+            prompt = ai.render_invocation_prompt(minted)
+            self.assertIn("canonical-convention", prompt)
+            self.assertIn("canonical-anti", prompt)
+            self.assertNotIn("shadow-convention", prompt)
+            self.assertNotIn("shadow-anti", prompt)
+            self.assertEqual({path: path.read_bytes() for path in shadow_paths}, before)
+            self.assertFalse((tools.parent / "aria-tools").exists())
+
     def test_beliefs_and_conventions_land_in_the_envelope_and_the_prompt(self) -> None:
         with TemporaryDirectory() as tmp:
             workspace = Path(tmp)
@@ -157,11 +201,17 @@ class EstablishedKnowledgeAtMintTest(unittest.TestCase):
 
             row = _mint(tools, evidence_refs=["apps/farm-service/src/feed.service.ts:30"])
 
-        self.assertNotIn("established_knowledge", row)
+        knowledge = row["established_knowledge"]
+        self.assertEqual(knowledge["beliefs"], [])
+        self.assertEqual(knowledge["conventions"], [])
+        self.assertEqual(knowledge["anti_patterns"], [])
+        self.assertEqual(knowledge["past_failed_attempts"], [])
+        self.assertEqual(knowledge["past_failed_attempts_state"]["status"], "missing")
 
     def test_an_empty_workspace_attaches_no_section(self) -> None:
-        # None, not an empty scaffold — "ARIA knows nothing here" is a claim
-        # a request must not make by default.
+        # V4 records optional history absence, not "ARIA knows nothing here".
+        # The absence of positive knowledge remains explicit. Immutable v1-v3
+        # section behavior is covered by complete captured prompt bytes.
         with TemporaryDirectory() as tmp:
             tools = Path(tmp) / "aria-tools"
             ensure_tools_dir(tools)
@@ -169,8 +219,435 @@ class EstablishedKnowledgeAtMintTest(unittest.TestCase):
             row = _mint(tools, evidence_refs=["apps/farm-service/src/feed.service.ts:30"])
             prompt = ai.render_invocation_prompt(row)
 
-        self.assertNotIn("established_knowledge", row)
-        self.assertNotIn("## Established knowledge", prompt)
+        knowledge = row["established_knowledge"]
+        self.assertEqual(knowledge["beliefs"], [])
+        self.assertEqual(knowledge["conventions"], [])
+        self.assertEqual(knowledge["anti_patterns"], [])
+        self.assertEqual(knowledge["past_failed_attempts"], [])
+        state = knowledge["past_failed_attempts_state"]
+        self.assertEqual((state["status"], state["reason"]), ("missing", "results_absent"))
+        self.assertIsNone(state["matching_count"])
+        self.assertNotIn("already verified about this area", prompt)
+
+
+class RejectedHistoryAtMintTest(unittest.TestCase):
+    def test_native_rejected_submission_reaches_later_related_minted_prompt(self) -> None:
+        from aria_kernel.ledger import load_declared_jsonl
+        from aria_kernel.tool_registry import ensure_tools_binding
+        from tests._helpers.declared_fixtures import sha256_file
+        from tests._helpers.git_fixtures import _git, make_repo_with_initial_commit
+
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            repo = make_repo_with_initial_commit(root, {"src/feed.py": "rate = 1\n"})
+            tools = ensure_tools_binding(root / "store/tools", workspace_root=repo)
+            target_sha = _git(["rev-parse", "HEAD"], cwd=repo).stdout.strip()
+
+            def mint(cycle: str) -> dict:
+                return ai.create_agent_invocation_request(
+                    target_agent="aria-evidence-judge", role="evidence_judgment",
+                    suggested_prompt="Check the feed rate using repository evidence.",
+                    must_satisfy=[{"id": "feed-evidence", "criterion": "cite the feed rate source"}],
+                    allowed_scope=["src/**"], evidence_refs=["src/feed.py:1"],
+                    convergence_id=cycle, cycle_id=cycle, target_sha=target_sha,
+                    context_repo_root=repo, base_dir=tools,
+                )
+
+            original = mint("history-first")
+            claim = ai.claim_request(
+                request_id=original["request_id"], agent_id="judge-worker-history", base_dir=tools,
+            )
+            response = {
+                "$schema": "aria/agent-response/v1", "request_id": original["request_id"],
+                "claim_id": claim["claim_id"], "agent_id": claim["agent_id"],
+                "role": "evidence_judgment", "status": "submitted",
+                "declared_route": "Inspect the feed rate source and cite its defining line.",
+                "satisfaction_matrix": [{"id": "feed-evidence", "verdict": "satisfied",
+                                         "evidence_refs": ["src/missing.py:1"]}],
+                "evidence_refs": ["src/missing.py:1"],
+                "details": {"verdict": "true_positive", "confidence": 0.8},
+            }
+            output = Path(original["expected_output_path"])
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(json.dumps(response), encoding="utf-8")
+            transcript = output.with_suffix(".transcript.txt")
+            transcript.write_text("Ordinary first attempt: cited a source file that is absent.\n", encoding="utf-8")
+            submitted = ai.submit_claim_result(
+                claim_id=claim["claim_id"], agent_id=claim["agent_id"], lease_token=claim["lease_token"],
+                output_path=output, workspace_root=repo, base_dir=tools,
+                context_hash=original["context_hash"], prompt_hash=original["prompt_hash"],
+                transcript_hash=sha256_file(transcript), transcript_artifact_ref=transcript.as_posix(),
+            )
+            self.assertEqual(submitted["status"], "rejected")
+            self.assertTrue(submitted["reasons"])
+            self.assertTrue(any("agent_evidence_path_missing" in reason for reason in submitted["reasons"]))
+            self.assertTrue(all(reason.startswith("evidence: ") and "src/missing.py" in reason
+                                and ("agent_evidence_path_missing" in reason
+                                     or "evidence_ref_not_repo_verified:src/missing.py:missing" in reason)
+                                for reason in submitted["reasons"]), submitted["reasons"])
+            results_path = tools / "agent-invocations/results.jsonl"
+            rows = load_declared_jsonl(results_path, expected_surface="agent_invocation_results")
+            self.assertEqual(len(rows), 1)
+            result = rows[0]
+            self.assertEqual(result, submitted["row"])
+            self.assertEqual(result["request_id"], original["request_id"])
+            self.assertEqual(result["claim_id"], claim["claim_id"])
+            self.assertEqual(result["agent_id"], claim["agent_id"])
+            self.assertNotEqual(result["agent_id"], original["target_agent"])
+            self.assertEqual(result["rejection_reasons"], submitted["reasons"])
+            before = results_path.read_bytes()
+
+            later = mint("history-later")
+            self.assertNotEqual(later["request_id"], original["request_id"])
+            self.assertEqual(results_path.read_bytes(), before)
+            for name in ("conventions.jsonl", "anti-patterns.jsonl"):
+                self.assertFalse((repo / "aria-tools/knowledge-graph" / name).exists())
+                self.assertFalse((tools / "knowledge-graph" / name).exists())
+            history = later.get("established_knowledge", {}).get("past_failed_attempts", [])
+            self.assertEqual(len(history), 1, "Native rejection must survive a history-only related mint")
+            self.assertEqual(history[0]["result_row_id"], result["row_id"])
+            self.assertEqual(history[0]["result_ledger_hash"], result["ledger_hash"])
+            self.assertEqual(history[0]["request_id"], original["request_id"])
+            self.assertEqual(history[0]["claim_id"], claim["claim_id"])
+            self.assertEqual(history[0]["rejection_reasons"][0], result["rejection_reasons"][0])
+            prompt = ai.render_invocation_prompt(later)
+            self.assertIn(result["row_id"], prompt)
+            self.assertIn("agent_evidence_path_missing", prompt)
+            self.assertEqual(prompt, ai.render_invocation_prompt(ai.fuse_prompt_envelope(later)))
+
+
+class _NativeHistoryFixture:
+    """Normal request/claim/submission owners; no hand-written ledger rows."""
+
+    def __init__(self, root: Path) -> None:
+        from aria_kernel.tool_registry import ensure_tools_binding
+        from tests._helpers.git_fixtures import _git, make_repo_with_initial_commit
+
+        self.repo = make_repo_with_initial_commit(root, {
+            "src/feed.py": "rate = 1\n", "src-v2/feed.py": "rate = 2\n",
+            "other/a.py": "a = 1\n", "other/b.py": "b = 1\n", "other/c.py": "c = 1\n",
+        })
+        self.tools = ensure_tools_binding(root / "store/tools", workspace_root=self.repo)
+        self.target_sha = _git(["rev-parse", "HEAD"], cwd=self.repo).stdout.strip()
+        self.submissions: dict[str, dict] = {}
+
+    def mint(self, cycle: str, *, refs: list[str] | None = None,
+             scope: list[str] | None = None, tools: Path | None = None) -> dict:
+        return ai.create_agent_invocation_request(
+            target_agent="aria-evidence-judge", role="evidence_judgment",
+            suggested_prompt="Check the feed rate using repository evidence.",
+            must_satisfy=[{"id": "feed-evidence", "criterion": "cite the feed rate source"}],
+            allowed_scope=["src/**"] if scope is None else scope,
+            evidence_refs=["src/feed.py:1"] if refs is None else refs,
+            convergence_id=cycle, cycle_id=cycle, target_sha=self.target_sha,
+            context_repo_root=self.repo, base_dir=tools or self.tools,
+        )
+
+    def reject(self, request: dict, *, tools: Path | None = None) -> tuple[dict, dict]:
+        return self._submit(request, evidence_ref="src/missing.py:1", tools=tools)
+
+    def accept(self, request: dict) -> tuple[dict, dict]:
+        return self._submit(request, evidence_ref="src/feed.py:1")
+
+    def _submit(self, request: dict, *, evidence_ref: str, tools: Path | None = None) -> tuple[dict, dict]:
+        from tests._helpers.declared_fixtures import sha256_file
+
+        root = tools or self.tools
+        claim = ai.claim_request(request_id=request["request_id"], agent_id="judge-history-worker", base_dir=root)
+        envelope = {
+            "$schema": "aria/agent-response/v1", "request_id": request["request_id"],
+            "claim_id": claim["claim_id"], "agent_id": claim["agent_id"],
+            "role": "evidence_judgment", "status": "submitted",
+            "declared_route": "Inspect the feed rate source and cite its defining line.",
+            "satisfaction_matrix": [{"id": "feed-evidence", "verdict": "satisfied",
+                                     "evidence_refs": [evidence_ref]}],
+            "evidence_refs": [evidence_ref],
+            "details": {"verdict": "true_positive", "confidence": 0.8},
+        }
+        output = Path(request["expected_output_path"])
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(envelope), encoding="utf-8")
+        transcript = output.with_suffix(".transcript.txt")
+        transcript.write_text("Ordinary first response submitted for native validation.\n", encoding="utf-8")
+        kwargs = dict(
+            claim_id=claim["claim_id"], agent_id=claim["agent_id"], lease_token=claim["lease_token"],
+            output_path=output, workspace_root=self.repo, base_dir=root,
+            context_hash=request["context_hash"], prompt_hash=request["prompt_hash"],
+            transcript_hash=sha256_file(transcript), transcript_artifact_ref=transcript.as_posix(),
+        )
+        result = ai.submit_claim_result(**kwargs)
+        if evidence_ref == "src/missing.py:1":
+            assert result["status"] == "rejected", result
+            assert result["reasons"] and all(reason.startswith("evidence: ") and "src/missing.py" in reason
+                                             for reason in result["reasons"]), result["reasons"]
+        else:
+            assert result["status"] == "accepted", result
+            assert result["reasons"] == [], result
+        self.submissions[claim["claim_id"]] = kwargs
+        return claim, result["row"]
+
+
+class RejectedHistoryContractsTest(unittest.TestCase):
+    def setUp(self) -> None:
+        scratch = TemporaryDirectory()
+        self.addCleanup(scratch.cleanup)
+        self.fixture = _NativeHistoryFixture(Path(scratch.name))
+
+    def test_accepted_native_result_reports_available_without_rejections(self) -> None:
+        f = self.fixture
+        _, accepted = f.accept(f.mint("accepted-source"))
+        knowledge = f.mint("accepted-consumer")["established_knowledge"]
+        self.assertEqual(knowledge["past_failed_attempts"], [])
+        state = knowledge["past_failed_attempts_state"]
+        self.assertEqual((state["status"], state["reason"], state["matching_count"]),
+                         ("available", "no_rejections", 0))
+        self.assertEqual(state["source_snapshot"]["agent_invocation_results"]["tail_ledger_hash"],
+                         accepted["ledger_hash"])
+
+    def test_long_canonical_request_paths_are_omitted_after_full_matching(self) -> None:
+        from tests._helpers.git_fixtures import _git
+
+        f = self.fixture
+        relative = "/".join(["long", "a" * 180, "b" * 180, "c" * 180, "feed.py"])
+        path = f.repo / relative
+        path.parent.mkdir(parents=True)
+        path.write_text("rate = 3\n", encoding="utf-8")
+        _git(["add", relative], cwd=f.repo)
+        _git(["commit", "-q", "-m", "fixture: long ordinary source path"], cwd=f.repo)
+        f.target_sha = _git(["rev-parse", "HEAD"], cwd=f.repo).stdout.strip()
+        scope = ["src/**", relative.rsplit("/", 1)[0] + "/**"]
+        request = f.mint("long-path-source", refs=[relative + ":1"], scope=scope)
+        _, result = f.reject(request)
+        later = f.mint("long-path-consumer", refs=[relative + ":1"], scope=["**"])
+        episode = later["established_knowledge"]["past_failed_attempts"][0]
+        self.assertEqual(episode["result_row_id"], result["row_id"])
+        self.assertEqual(episode["request_id"], request["request_id"])
+        self.assertEqual(episode["request_evidence_refs"], [])
+        self.assertEqual(episode["request_allowed_scope"], ["src/**"])
+        for field, length in (("request_evidence_refs", len(relative + ":1")),
+                              ("request_allowed_scope", len(scope[1]))):
+            omission = episode["display_omissions"][field]
+            self.assertEqual(omission["omitted_count"], 1)
+            self.assertEqual(omission["omitted_items"][0]["reason"], "display_length_exceeded")
+            self.assertEqual(omission["omitted_items"][0]["original_characters"], length)
+
+    def test_native_reason_prefixes_and_explicit_omissions(self) -> None:
+        f = self.fixture
+        request = f.mint("prefix-source")
+        _, result = f.reject(request)
+        native = result["rejection_reasons"]
+        before = (f.tools / "agent-invocations/results.jsonl").read_bytes()
+        later = f.mint("prefix-consumer")
+        episode = later["established_knowledge"]["past_failed_attempts"][0]
+        expected = [reason if len(reason) <= 120 else reason[:120] + "… [truncated]" for reason in native[:3]]
+        self.assertEqual(episode["rejection_reasons"], expected)
+        omissions = episode["display_omissions"]["rejection_reasons"]
+        self.assertEqual(omissions["original_count"], len(native))
+        self.assertEqual(omissions["omitted_count"], len(native) - 3)
+        self.assertEqual(omissions["truncated_items"], [
+            {"index": i, "original_characters": len(reason), "retained_characters": 120}
+            for i, reason in enumerate(native[:3]) if len(reason) > 120
+        ])
+        self.assertTrue(omissions["truncated_items"])
+        self.assertEqual((f.tools / "agent-invocations/results.jsonl").read_bytes(), before)
+        prompt = ai.render_invocation_prompt(later)
+        self.assertIn("… [truncated]", prompt)
+        self.assertIn('"omitted_count": 1', prompt)
+
+    def test_full_request_refs_match_before_display_cap_and_use_original_claim(self) -> None:
+        from aria_kernel.ledger import load_declared_jsonl
+
+        f = self.fixture
+        request = f.mint("full-refs", scope=["**"],
+                         refs=["other/a.py:1", "other/b.py:1", "other/c.py:1", "src/feed.py:1"])
+        claim, result = f.reject(request)
+        later = f.mint("full-refs-consumer")
+        knowledge = later["established_knowledge"]
+        episode = knowledge["past_failed_attempts"][0]
+        self.assertEqual(episode["request_evidence_refs"], request["evidence_refs"][:3])
+        self.assertEqual(episode["display_omissions"]["request_evidence_refs"]["omitted_count"], 1)
+        self.assertEqual(episode["result_ledger_hash"], result["ledger_hash"])
+        self.assertEqual(episode["request_ledger_hash"], request["ledger_hash"])
+        claims = load_declared_jsonl(f.tools / "agent-invocations/claims.jsonl",
+                                     expected_surface="agent_invocation_claims")
+        original = next(row for row in claims if row.get("event") == "claimed" and row["claim_id"] == claim["claim_id"])
+        self.assertEqual(episode["claim_ledger_hash"], original["ledger_hash"])
+        self.assertEqual(episode["agent_id"], claim["agent_id"])
+        self.assertEqual(episode["target_agent"], request["target_agent"])
+        self.assertNotEqual(episode["agent_id"], episode["target_agent"])
+        snapshot = knowledge["past_failed_attempts_state"]["source_snapshot"]
+        self.assertEqual(snapshot["agent_invocation_results"]["tail_ledger_hash"], result["ledger_hash"])
+        self.assertEqual(snapshot["agent_invocation_results"]["row_count"], 1)
+        self.assertEqual(snapshot["agent_invocation_requests"]["tail_ledger_hash"], request["ledger_hash"])
+        for private in ("lease_token", "lease_token_hash", "transcript_artifact_ref"):
+            self.assertNotIn(private, json.dumps(episode))
+
+    def test_unrelated_directory_is_excluded_with_complete_search_status(self) -> None:
+        f = self.fixture
+        f.reject(f.mint("related-source"))
+        later = f.mint("unrelated-consumer", refs=["src-v2/feed.py:1"], scope=["src-v2/**"])
+        knowledge = later["established_knowledge"]
+        self.assertEqual(knowledge["past_failed_attempts"], [])
+        state = knowledge["past_failed_attempts_state"]
+        self.assertEqual((state["status"], state["reason"], state["matching_count"]),
+                         ("available", "no_related_attempts", 0))
+        self.assertFalse(state["truncated"])
+
+    def test_missing_history_and_read_error_are_distinct_and_belief_survives(self) -> None:
+        from aria_kernel.ledger import StateTransaction
+
+        f = self.fixture
+        missing = f.mint("missing-history")["established_knowledge"]["past_failed_attempts_state"]
+        self.assertEqual((missing["status"], missing["reason"]), ("missing", "results_absent"))
+        self.assertIsNone(missing["matching_count"])
+        f.reject(f.mint("io-source"))
+        _record_belief(f.tools, belief_id="healthy-belief", claim="The feed rate has a source.", ref="src/feed.py:1")
+        original = StateTransaction.load_declared_jsonl
+        failed = []
+
+        def read(transaction, path, *, expected_surface, **kwargs):
+            if expected_surface == "agent_invocation_results" and not failed:
+                failed.append(path)
+                raise OSError("ordinary-history-read-sentinel")
+            return original(transaction, path, expected_surface=expected_surface, **kwargs)
+
+        with patch.object(StateTransaction, "load_declared_jsonl", read):
+            later = f.mint("io-consumer")
+        self.assertEqual(len(failed), 1)
+        knowledge = later["established_knowledge"]
+        self.assertEqual(knowledge["beliefs"][0]["belief_id"], "healthy-belief")
+        self.assertEqual(knowledge["past_failed_attempts"], [])
+        state = knowledge["past_failed_attempts_state"]
+        self.assertEqual((state["status"], state["reason"]), ("unavailable", "read_error"))
+        self.assertIsNone(state["matching_count"])
+        self.assertIsNone(state["truncated"])
+        self.assertEqual(state["source_snapshot"], {})
+        self.assertNotIn("ordinary-history-read-sentinel", ai.render_invocation_prompt(later))
+
+    def test_history_survives_independent_belief_and_kg_read_errors(self) -> None:
+        f = self.fixture
+        _, result = f.reject(f.mint("independent-source"))
+        with patch("aria_kernel.memory.latest_beliefs", side_effect=OSError("belief unavailable")), \
+             patch("aria_kernel.knowledge_graph.conventions_for_paths", side_effect=OSError("conventions unavailable")), \
+             patch("aria_kernel.knowledge_graph.anti_patterns_for_paths", side_effect=OSError("anti patterns unavailable")):
+            later = f.mint("independent-consumer")
+        knowledge = later["established_knowledge"]
+        self.assertEqual(knowledge["past_failed_attempts"][0]["result_row_id"], result["row_id"])
+        self.assertEqual(knowledge["beliefs"], [])
+        self.assertEqual(knowledge["conventions"], [])
+        self.assertEqual(knowledge["anti_patterns"], [])
+
+    def test_kg_owner_wrapped_read_error_preserves_history_without_changing_ledger(self) -> None:
+        from aria_kernel import knowledge_graph as kg, ledger
+
+        f = self.fixture
+        _, result = f.reject(f.mint("wrapped-io-source"))
+        path = kg.record_convention(kg.Pattern(
+            pattern_id="ordinary-observation", pattern_type="convention", confidence=0.5,
+            evidence_refs=("src/feed.py:1",), discovered_by_cycle_id="ordinary-fixture",
+            observed_at="2026-09-10T00:00:00Z", outcome_status="hypothesis",
+        ), base_dir=f.tools, signer_key_fp=SIGNER)
+        before = path.read_bytes()
+        original = ledger.read_jsonl
+        reads = []
+
+        def read(target, *args, **kwargs):
+            if Path(target) == path:
+                reads.append(target)
+                if len(reads) == 2:
+                    raise OSError("ordinary-post-verification-read")
+            return original(target, *args, **kwargs)
+
+        with patch.object(ledger, "read_jsonl", read):
+            later = f.mint("wrapped-io-consumer")
+        self.assertEqual(len(reads), 2)
+        self.assertEqual(later["established_knowledge"]["past_failed_attempts"][0]["result_row_id"], result["row_id"])
+        self.assertEqual(later["established_knowledge"]["conventions"], [])
+        self.assertEqual(path.read_bytes(), before)
+        self.assertEqual(list(path.parent.glob("*.quarantined.*")), [])
+
+    def test_history_lock_timeout_is_visible_at_real_mint(self) -> None:
+        f = self.fixture
+        f.reject(f.mint("timeout-source"))
+        original = ai.state_transaction
+        calls = []
+
+        def transaction(paths, **kwargs):
+            if {Path(path).name for path in paths} == {"requests.jsonl", "claims.jsonl", "results.jsonl"}:
+                calls.append(paths)
+                raise TimeoutError("ordinary-lock-timeout-sentinel")
+            return original(paths, **kwargs)
+
+        with patch.object(ai, "state_transaction", transaction):
+            later = f.mint("timeout-consumer")
+        self.assertEqual(len(calls), 1)
+        state = later["established_knowledge"]["past_failed_attempts_state"]
+        self.assertEqual((state["status"], state["reason"]), ("unavailable", "lock_timeout"))
+        self.assertIsNone(state["matching_count"])
+        self.assertNotIn("ordinary-lock-timeout-sentinel", ai.render_invocation_prompt(later))
+
+    def test_later_native_result_leaves_sealed_prompt_and_claim_bytes_unchanged(self) -> None:
+        f = self.fixture
+        f.reject(f.mint("replay-first-source"))
+        sealed = f.mint("sealed-consumer")
+        before = ai.render_invocation_prompt(sealed).encode("utf-8")
+        _, newest = f.reject(f.mint("replay-second-source"))
+        returned = f.mint("sealed-consumer")
+        self.assertEqual(returned, sealed)
+        self.assertEqual(ai.render_invocation_prompt(returned).encode("utf-8"), before)
+        claim = ai.claim_request(request_id=sealed["request_id"], agent_id="sealed-history-worker", base_dir=f.tools)
+        self.assertEqual(ai.render_invocation_prompt(claim).encode("utf-8"), before)
+        self.assertEqual(ai._sha256_text(before.decode("utf-8")), sealed["prompt_hash"])
+        fresh = f.mint("fresh-consumer")
+        self.assertEqual(fresh["established_knowledge"]["past_failed_attempts"][0]["result_row_id"], newest["row_id"])
+        self.assertNotEqual(ai.render_invocation_prompt(fresh).encode("utf-8"), before)
+
+    def test_exact_native_submission_replay_serves_one_episode(self) -> None:
+        f = self.fixture
+        claim, result = f.reject(f.mint("idempotent-source"))
+        path = f.tools / "agent-invocations/results.jsonl"
+        before = path.read_bytes()
+        replay = ai.submit_claim_result(**f.submissions[claim["claim_id"]])
+        self.assertTrue(replay["idempotent"])
+        self.assertEqual(path.read_bytes(), before)
+        knowledge = f.mint("idempotent-consumer")["established_knowledge"]
+        self.assertEqual([item["result_row_id"] for item in knowledge["past_failed_attempts"]], [result["row_id"]])
+        self.assertEqual(knowledge["past_failed_attempts_state"]["matching_count"], 1)
+
+    def test_five_episode_cap_reports_complete_count_in_append_order(self) -> None:
+        f = self.fixture
+        result_ids = []
+        for number in range(6):
+            _, result = f.reject(f.mint(f"count-source-{number}"))
+            result_ids.append(result["row_id"])
+        knowledge = f.mint("count-consumer")["established_knowledge"]
+        self.assertEqual([item["result_row_id"] for item in knowledge["past_failed_attempts"]], list(reversed(result_ids))[:5])
+        state = knowledge["past_failed_attempts_state"]
+        self.assertEqual((state["matching_count"], state["returned_count"], state["truncated"]), (6, 5, True))
+        self.assertEqual(state["source_snapshot"]["agent_invocation_results"]["row_count"], 6)
+
+    def test_no_path_query_does_not_search_global_history(self) -> None:
+        f = self.fixture
+        f.reject(f.mint("no-query-source"))
+        with patch.object(ai, "_past_failed_attempts_for_paths", wraps=ai._past_failed_attempts_for_paths) as read:
+            request = f.mint("no-query-consumer", refs=[], scope=["**"])
+        read.assert_not_called()
+        self.assertNotIn("established_knowledge", request)
+
+    def test_explicit_canonical_root_excludes_legitimate_shadow_history(self) -> None:
+        from aria_kernel.tool_registry import ensure_tools_binding
+
+        f = self.fixture
+        _, canonical = f.reject(f.mint("canonical-source"))
+        shadow = ensure_tools_binding(f.repo / "aria-tools", workspace_root=f.repo)
+        _, foreign = f.reject(f.mint("shadow-source", tools=shadow), tools=shadow)
+        shadow_path = shadow / "agent-invocations/results.jsonl"
+        before = shadow_path.read_bytes()
+        later = f.mint("canonical-consumer")
+        self.assertEqual([row["result_row_id"] for row in later["established_knowledge"]["past_failed_attempts"]],
+                         [canonical["row_id"]])
+        self.assertNotIn(foreign["row_id"], ai.render_invocation_prompt(later))
+        self.assertEqual(shadow_path.read_bytes(), before)
 
 
 class RecentIntentAtMintTest(unittest.TestCase):

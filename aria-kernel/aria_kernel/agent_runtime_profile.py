@@ -160,6 +160,7 @@ class AgentRuntimeProfile:
     external_writes: bool = False
     budget_usd_per_run: float | None = None
     max_concurrent: int | None = None
+    runtime: str = "claude"
 
     @property
     def write_capable(self) -> bool:
@@ -231,6 +232,7 @@ def _read_profile_cached(agent_name: str, repo_root_str: str | None) -> AgentRun
             external_writes=kernel.external_writes,
             budget_usd_per_run=kernel.budget_usd_per_run,
             max_concurrent=kernel.max_concurrent,
+            runtime=kernel.runtime,
         )
     model = raw_model if raw_model in VALID_MODELS else DEFAULT_MODEL
     effort = raw_effort if raw_effort in VALID_EFFORTS else DEFAULT_EFFORT

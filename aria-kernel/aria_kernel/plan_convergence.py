@@ -15,11 +15,12 @@ from typing import Any, Iterator
 
 from .agent_priors import reviewer_names
 from .implementation_rejections import VALID_IMPLEMENTATION_REJECTION_CLASSES
-from .ledger import append_declared_jsonl, load_declared_jsonl, verify_jsonl
+from .ledger import append_declared_jsonl, load_declared_jsonl, load_jsonl_verified_text, verify_jsonl
 from .tool_registry import (
     GovernanceError,
     append_tools_governance,
     ensure_tools_dir,
+    ensure_tools_dir_readonly,
     parse_utc_stamp,
     utc_now,
 )
@@ -610,6 +611,26 @@ def evaluate_plan(
         if state.get("current_round") != round_number:
             raise GovernanceError("round_number must match the current critique round")
         decision = _evaluate_cross_review_state(state, round_number, max_rounds=max_rounds) if state.get("state") == "CROSS_REVIEWED" else _evaluate_state(state, round_number)
+        from .architecture_spine_gate import _plan_comparison_obligation
+
+        spine = _plan_comparison_obligation(root, plan_id)
+        if spine is not None:
+            decision["gate_decisions"].append({"gate": "architecture_spine", **spine,
+                                                "passed": spine["status"] == "clean"})
+            if spine["status"] != "clean":
+                reason = ("architecture_spine_regression" if spine["status"] == "regression"
+                          else "architecture_spine_unavailable:" + spine["reason"])
+                # Keep stronger existing review/environment refusals. Only
+                # an otherwise eligible decision enters the native retry path.
+                if decision["terminal_state"] == "CONVERGED":
+                    decision["reason_codes"] = []
+                decision["reason_codes"].append(reason)
+                if spine["status"] == "unavailable" or round_number >= max_rounds:
+                    decision["terminal_state"] = "HUMAN_REQUIRED"
+                    if round_number >= max_rounds:
+                        decision["reason_codes"].append("max_rounds_reached")
+                elif decision["terminal_state"] != "HUMAN_REQUIRED":
+                    decision["terminal_state"] = "NEXT_ROUND_REQUIRED"
         if decision["terminal_state"] == "NEXT_ROUND_REQUIRED":
             return {
                 "schema_version": 1,
@@ -618,6 +639,7 @@ def evaluate_plan(
                 "status": "next_round_required",
                 "reason_codes": decision["reason_codes"],
                 "gate_decisions": decision["gate_decisions"],
+                **({"architecture_spine": spine} if spine is not None else {}),
             }
         payload = {
             "round_number": round_number,
@@ -1783,6 +1805,7 @@ def _apply_event(state: dict[str, Any], event: dict[str, Any]) -> None:
             "content_hash": payload["content_hash"],
             "source": "revision_recorded",
             "round": payload["round"],
+            "content": payload["content"],
         }
         # C8/E11 — per-round primary authorship for the duel ledger.
         if payload.get("revised_by_agent"):
@@ -2933,6 +2956,89 @@ def converged_plan_body(
     return plan_body_from_state(state)
 
 
+def resolve_converged_plan_observation(
+    *,
+    plan_id: str,
+    revision_id: str,
+    expected_content_hash: str,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Read an exact historical convergence from a freshly verified ledger.
+
+    The current plan may already be in implementation. Its observation must
+    still name the body and event that actually converged. Verify one full
+    snapshot, including its suffix, without the fold cache or state writes.
+    """
+    _validate_id(plan_id, "plan_id")
+    _require_non_empty(revision_id, "revision_id")
+    _require_hash(expected_content_hash, "expected_content_hash")
+    root = ensure_tools_dir_readonly(base_dir)
+    if root is None:
+        raise GovernanceError("converged_observation_requires_existing_tools_root")
+    path = root / "plans" / "events.jsonl"
+    try:
+        snapshot = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise GovernanceError("converged_observation_ledger_unavailable") from exc
+    events = load_jsonl_verified_text(
+        snapshot, source=path, expected_surface="plan_convergence_events",
+    )
+    state = _initial_state(plan_id)
+    observation: dict[str, Any] | None = None
+    for event in events:
+        if event.get("plan_id") != plan_id:
+            continue
+        _validate_event(event)
+        payload = event["payload"]
+        converged = (
+            event["event_type"] == "plan_evaluated"
+            and payload["terminal_state"] == "CONVERGED"
+        )
+        if converged:
+            # Derive a copy: the reducer retains raw request states between
+            # events, while the evaluation producer consumes a derived fold.
+            reviewed = copy.deepcopy(state)
+            _derive_state(reviewed)
+            _require_state(reviewed, {"CRITIQUED", "CROSS_REVIEWED"}, "evaluate plan")
+            round_number = payload.get("round_number")
+            if not isinstance(round_number, int) or round_number <= 0:
+                raise GovernanceError("round_number must be a positive integer")
+            if reviewed.get("current_round") != round_number:
+                raise GovernanceError("round_number must match the current critique round")
+            decision = (
+                _evaluate_cross_review_state(
+                    reviewed, round_number, max_rounds=MAX_CROSS_REVIEW_ROUNDS,
+                )
+                if reviewed["state"] == "CROSS_REVIEWED"
+                else _evaluate_state(reviewed, round_number)
+            )
+            if decision["terminal_state"] != "CONVERGED":
+                raise GovernanceError("converged_observation_evaluation_gates_failed")
+        _apply_event(state, event)
+        latest = state.get("latest_revision") or {}
+        if (
+            converged
+            and latest.get("revision_id") == revision_id
+            and latest.get("content_hash") == expected_content_hash
+        ):
+            if observation is not None:
+                raise GovernanceError("converged_observation_ambiguous")
+            body = plan_body_from_state(state)
+            _validate_plan_content(body["plan_content"])
+            observation = copy.deepcopy({
+                **body,
+                "convergence_event_id": event["event_id"],
+                "convergence_event_hash": event["ledger_hash"],
+            })
+    _derive_state(state)
+    if observation is None:
+        raise GovernanceError(
+            f"converged_observation_not_found: plan_id={plan_id!r} "
+            f"revision_id={revision_id!r} content_hash={expected_content_hash!r}"
+        )
+    return observation
+
+
 def plan_body_from_state(state: dict[str, Any]) -> dict[str, Any]:
     """``converged_plan_body`` for a fold the caller already has.
 
@@ -2974,6 +3080,25 @@ def plan_body_from_state(state: dict[str, Any]) -> dict[str, Any]:
         f"{target_hash} (revision_id={revision_id!r}); the ledger holds the "
         f"revision's identity but not a body that reproduces it"
     )
+
+
+def _planning_source_context(state: dict[str, Any], fallback_refs: list[str]) -> tuple[list[str], str | None, list[str] | None]:
+    """Common source inputs from a caller's verified current fold.
+
+    Legacy prose revisions may have no reconstructible structured body.
+    Preserve their ordinary caller refs with no matched revision claim;
+    never use a previous seed's refs and label them current. This helper
+    derives retrieval inputs only, not write scope or planner proposals.
+    """
+    try:
+        body = plan_body_from_state(state)
+    except GovernanceError:
+        return list(fallback_refs), None, None
+    refs = body["plan_content"].get("evidence_refs")
+    paths = affected_surface_paths(body["plan_content"].get("affected_surfaces", []))
+    if not isinstance(refs, list) or not refs or any(not isinstance(ref, str) or not ref.strip() for ref in refs):
+        refs = fallback_refs
+    return list(refs), body["content_hash"], paths or None
 
 
 def _coerce_plan_body(candidate: Any) -> dict[str, Any] | None:

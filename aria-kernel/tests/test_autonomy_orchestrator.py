@@ -34,6 +34,7 @@ from aria_kernel.plan_convergence import fold_plan_state
 from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import ensure_tools_dir
 from tests.test_implementation_lifecycle_continuity import (
+    drive_plan_to_converged,
     drive_plan_to_implementation_requested,
     seed_reviewer_agent,
 )
@@ -291,6 +292,853 @@ class AutonomyOrchestratorTests(unittest.TestCase):
         )
         kwargs.update(overrides)
         return run_autonomy_orchestrator(**kwargs)
+
+    def test_native_postcheck_failed_terminal_stops_outer_progression(self) -> None:
+        from unittest.mock import Mock
+        from aria_kernel.architecture_spine_gate import list_spine_events
+        from aria_kernel.cycle import run_cycle
+        from aria_kernel.memory import update_memory
+        from aria_kernel.tool_registry import ensure_tools_binding
+        from tests._helpers.git_fixtures import _git
+
+        repo = self.tmp / "source"
+        schemas = repo / "libs/event-contracts/src/schemas"
+        schemas.mkdir(parents=True)
+        contracts = schemas.parent / "ordinary-events.ts"
+        contracts.write_text(
+            "interface BaseEvent { eventId: string; }\n"
+            "export interface AlphaEvent extends BaseEvent {}\n"
+            "export interface BetaEvent extends BaseEvent {}\n"
+            "export interface GammaEvent extends BaseEvent {}\n",
+            encoding="utf-8",
+        )
+        beta_schema = schemas / "beta_event.json"
+        beta_schema.write_text('{"type":"object"}\n', encoding="utf-8")
+        (repo / "package.json").write_text('{"name":"outer-fixture"}\n', encoding="utf-8")
+        _git(["init", "-q"], cwd=repo)
+        _git(["config", "user.email", "outer-fixture@aria.test"], cwd=repo)
+        _git(["config", "user.name", "Outer Fixture"], cwd=repo)
+        _git(["add", "-A"], cwd=repo)
+        _git(["commit", "-q", "-m", "test: ordinary outer schema source"], cwd=repo)
+        ensure_tools_binding(self.base, workspace_root=repo)
+        plan_id = "ordinary-outer-schema-plan"
+        observed: dict[str, Any] = {}
+
+        def source_cycle(*, workspace_root, cycle_id, base_dir, defer_reflection=False):
+            # Existing runner seam binds the native cycle's optional plan.
+            # This proves consumption of its real result, not default outer
+            # plan selection, which remains a separate production boundary.
+            self.assertEqual(Path(workspace_root), repo)
+            self.assertEqual(Path(base_dir), self.base)
+            self.assertTrue(defer_reflection)
+            observed["result"] = run_cycle(
+                workspace_root=workspace_root, cycle_id=cycle_id, base_dir=base_dir,
+                defer_reflection=defer_reflection, plan_id=plan_id,
+                workspace_base=self.tmp / "cycle-workspaces", shadow_only=True,
+                snapshot_mode="working-tree",
+            )
+            return observed["result"]
+
+        def update_memory_then_edit(**kwargs):
+            result = update_memory(**kwargs)
+            (schemas / "alpha_event.json").write_text('{"type":"object"}\n', encoding="utf-8")
+            beta_schema.unlink()
+            return result
+
+        native_runner = Mock(side_effect=source_cycle)
+        planner = Mock(wraps=_fake_planner_drainer)
+        worker = Mock(wraps=_fake_worker_drainer)
+        synthesizer = Mock(return_value=None)
+        with patch("aria_kernel.cycle.update_memory", side_effect=update_memory_then_edit) as memory_call:
+            result = self._run(
+                workspace_root=repo, cycle_runner=native_runner,
+                planner_drainer=planner, worker_drainer=worker,
+                plan_synthesizer=synthesizer,
+            )
+
+        native_runner.assert_called_once()
+        native = observed["result"]
+        cycle_id = native["cycle_id"]
+        memory_call.assert_called_once_with(cycle_id=cycle_id, base_dir=self.base, workspace_root=repo)
+        self.assertEqual(native["status"], "failed")
+        self.assertEqual(native["runtime_status"], "ok")
+        self.assertEqual(native["phase_failures"], ["architecture_postcheck"])
+        self.assertTrue(native["artifact_integrity"]["valid"])
+        self.assertEqual(native["non_ok_tools"], [])
+        for phase in ("architecture_baseline", "memory", "architecture_postcheck"):
+            self.assertEqual(native["phases"][phase], {"outcome": "ran"})
+        spine = list_spine_events(plan_id=plan_id, base_dir=self.base)
+        self.assertEqual([row["kind"] for row in spine], [
+            "architecture_spine_baseline", "architecture_spine_regression",
+        ])
+        baseline, postcheck = [row["details"] for row in spine]
+        self.assertEqual(postcheck["cycle_id"], cycle_id)
+        self.assertEqual(baseline["cycle_id"], cycle_id)
+        self.assertEqual(postcheck["baseline_hash"], baseline["baseline_hash"])
+        self.assertEqual(postcheck["regression_count"], 1)
+        prefix = "libs/event-contracts/src/ordinary-events.ts::"
+        for measurement, names in (
+            (baseline["invariant_measurements"]["event_contracts"], ["AlphaEvent", "GammaEvent"]),
+            (postcheck["postcheck_measurements"]["event_contracts"], ["BetaEvent", "GammaEvent"]),
+        ):
+            self.assertEqual(measurement["source"], "static:_check_event_contracts")
+            self.assertEqual(measurement["measurements"], {
+                "declared_event_count": 3, "missing_schema_count": 2,
+                "missing_schema_identities": [prefix + name for name in names],
+            })
+        cycles = [row for row in load_jsonl(self.base / "cycles.jsonl") if row.get("cycle_id") == cycle_id]
+        self.assertEqual([row["event"] for row in cycles], ["started", "failed"])
+        self.assertEqual(len(result["per_cycle"]), 1)
+        self.assertEqual(result["per_cycle"][0]["cycle_id"], cycle_id)
+        self.assertEqual(result["per_cycle"][0]["cycle"]["status"], "failed")
+
+        self.assertEqual(result["cycles_completed"], 0, "A native failed terminal cannot count as outer success.")
+        self.assertEqual(result["exit_reason"], "cycle_failed")
+        self.assertFalse(result["exits_clean"])
+        planner.assert_not_called()
+        worker.assert_not_called()
+        synthesizer.assert_not_called()
+        transitions = [row for row in load_jsonl(autonomy_state_path(self.base))
+                       if row.get("cycle_id") == cycle_id and row.get("phase") == "cycle_completed"]
+        self.assertEqual(len(transitions), 1)
+        self.assertEqual(transitions[0]["status"], "failed")
+        self.assertEqual(transitions[0]["details"]["summary"]["status"], "failed")
+
+        from aria_kernel.runtime_artifacts import autonomy_output_summary
+
+        summary = autonomy_output_summary(
+            result, base_dir=self.base, workspace_root=repo,
+        )
+        self.assertEqual(summary["cycle_status_counts"], {"failed": 1})
+        self.assertEqual(summary["overall_status"], "failed")
+        self.assertEqual(summary["exit_code"], 1)
+        self.assertEqual(summary["cycles_completed"], 0)
+        self.assertEqual(summary["failed_phases"], [{"phase": "architecture_postcheck", "status": "failed"}])
+
+    def test_native_clean_postcheck_preserves_outer_progression_and_summary(self) -> None:
+        from unittest.mock import Mock
+        from aria_kernel.architecture_spine_gate import list_spine_events
+        from aria_kernel.cycle import run_cycle
+        from aria_kernel.runtime_artifacts import autonomy_output_summary
+        from aria_kernel.tool_registry import ensure_tools_binding
+        from tests._helpers.git_fixtures import _git
+
+        repo = self.tmp / "clean-source"
+        schemas = repo / "libs/event-contracts/src/schemas"
+        schemas.mkdir(parents=True)
+        (schemas.parent / "ordinary-events.ts").write_text(
+            "interface BaseEvent { eventId: string; }\n"
+            "export interface AlphaEvent extends BaseEvent {}\n", encoding="utf-8",
+        )
+        (schemas / "alpha_event.json").write_text('{"type":"object"}\n', encoding="utf-8")
+        (repo / "package.json").write_text('{"name":"outer-clean-fixture"}\n', encoding="utf-8")
+        _git(["init", "-q"], cwd=repo)
+        _git(["config", "user.email", "outer-fixture@aria.test"], cwd=repo)
+        _git(["config", "user.name", "Outer Fixture"], cwd=repo)
+        _git(["add", "-A"], cwd=repo)
+        _git(["commit", "-q", "-m", "test: ordinary clean outer source"], cwd=repo)
+        ensure_tools_binding(self.base, workspace_root=repo)
+        plan_id = "ordinary-clean-outer-plan"
+        observed: dict[str, Any] = {}
+
+        def source_cycle(*, workspace_root, cycle_id, base_dir, defer_reflection=False):
+            self.assertEqual(Path(workspace_root), repo)
+            self.assertEqual(Path(base_dir), self.base)
+            self.assertTrue(defer_reflection)
+            observed["result"] = run_cycle(
+                workspace_root=workspace_root, cycle_id=cycle_id, base_dir=base_dir,
+                defer_reflection=defer_reflection, plan_id=plan_id,
+                workspace_base=self.tmp / "cycle-workspaces", shadow_only=True,
+                snapshot_mode="working-tree",
+            )
+            return observed["result"]
+
+        runner = Mock(side_effect=source_cycle)
+        planner = Mock(wraps=_fake_planner_drainer)
+        result = self._run(
+            workspace_root=repo, cycle_runner=runner, planner_drainer=planner,
+            plan_synthesizer=lambda **kwargs: None,
+        )
+        runner.assert_called_once()
+        native = observed["result"]
+        self.assertEqual(native["status"], "completed")
+        self.assertEqual(native["runtime_status"], "ok")
+        self.assertEqual(native["phase_failures"], [])
+        self.assertTrue(native["artifact_integrity"]["valid"])
+        self.assertEqual(native["phases"]["architecture_postcheck"], {"outcome": "ran"})
+        rows = list_spine_events(plan_id=plan_id, base_dir=self.base)
+        self.assertEqual([row["kind"] for row in rows], [
+            "architecture_spine_baseline", "architecture_spine_postcheck",
+        ])
+        baseline, postcheck = [row["details"] for row in rows]
+        self.assertEqual(postcheck["cycle_id"], native["cycle_id"])
+        self.assertEqual(postcheck["baseline_hash"], baseline["baseline_hash"])
+        self.assertEqual(postcheck["regression_count"], 0)
+        self.assertEqual(postcheck["drifts"], [])
+        self.assertEqual(native["architecture_postcheck"], postcheck)
+        self.assertEqual(result["cycles_completed"], 1)
+        self.assertEqual(result["exit_reason"], "max_cycles")
+        self.assertTrue(result["exits_clean"])
+        planner.assert_called_once()
+        transitions = [row for row in load_jsonl(autonomy_state_path(self.base))
+                       if row.get("phase") == "cycle_completed"]
+        self.assertEqual(len(transitions), 1)
+        self.assertEqual(transitions[0]["status"], "ok")
+        summary = autonomy_output_summary(result, base_dir=self.base, workspace_root=repo)
+        self.assertEqual(summary["cycle_status_counts"], {"ok": 1})
+        self.assertEqual(summary["overall_status"], "ok")
+        self.assertEqual(summary["exit_code"], 0)
+
+    def test_outer_cycle_status_contract_preserves_legacy_outputs_and_unknown(self) -> None:
+        from unittest.mock import Mock
+        from aria_kernel.runtime_artifacts import autonomy_output_summary
+
+        cases = (
+            ("terminal-only", {"status": "completed"}, 1, "ok"),
+            ("runtime-only", {"runtime_status": "ok"}, 1, "ok"),
+            ("both-clean", {"status": "completed", "runtime_status": "ok"}, 1, "ok"),
+            ("unknown-terminal", {"status": "unknown", "runtime_status": "ok"}, 0, "unknown"),
+            ("aborted-terminal", {"status": "aborted"}, 0, "aborted"),
+            ("stopped-terminal", {"status": "stopped"}, 0, "stopped"),
+            ("runtime-integrity", {"status": "failed", "runtime_status": "integrity_failed"}, 0, "integrity_failed"),
+            ("non-ok-tools", {"status": "completed", "runtime_status": "ok", "non_ok_tools": [{"status": "failed"}]}, 0, "failed"),
+        )
+        for label, fields, completed, projected in cases:
+            with self.subTest(result_shape=label):
+                base = self.tmp / label
+                set_profile("standard", operator_approval_ref="ordinary-status-contract", base_dir=base)
+
+                def cycle_output(*, workspace_root, cycle_id, base_dir, defer_reflection=False):
+                    self.assertEqual(Path(base_dir), base)
+                    self.assertTrue(defer_reflection)
+                    return {"schema_version": 2, "cycle_id": cycle_id, **fields}
+
+                # These are legacy caller-result compatibility inputs, not
+                # native detection or model execution. The separate native
+                # test requires its actual producer before the failure oracle.
+                planner = Mock(wraps=_fake_planner_drainer)
+                result = self._run(
+                    base_dir=base, cycle_runner=cycle_output,
+                    planner_drainer=planner, plan_synthesizer=lambda **kwargs: None,
+                )
+                self.assertEqual(result["cycles_completed"], completed)
+                self.assertEqual(result["exit_reason"], "max_cycles" if completed else "cycle_failed")
+                self.assertEqual(result["exits_clean"], bool(completed))
+                self.assertEqual(planner.call_count, completed)
+                rows = [row for row in load_jsonl(autonomy_state_path(base))
+                        if row.get("phase") == "cycle_completed"]
+                self.assertEqual(len(rows), 1)
+                self.assertEqual(rows[0]["status"], "ok" if completed else "failed")
+                if label == "unknown-terminal":
+                    self.assertEqual(rows[0]["details"]["summary"]["status"], "unknown")
+                summary = autonomy_output_summary(result, base_dir=base)
+                self.assertEqual(summary["cycle_status_counts"], {projected: 1})
+                self.assertEqual(summary["overall_status"], "ok" if completed else "failed")
+                self.assertEqual(summary["exit_code"], 0 if completed else 1)
+
+    def test_terminal_failure_preserves_explicit_continue_policy(self) -> None:
+        from unittest.mock import Mock
+        from aria_kernel.runtime_artifacts import autonomy_output_summary
+
+        def cycle_output(*, workspace_root, cycle_id, base_dir, defer_reflection=False):
+            return {"schema_version": 2, "cycle_id": cycle_id,
+                    "status": "failed", "runtime_status": "ok"}
+
+        # Existing opt-out governs progression, while the failed result remains
+        # visible. This declared caller control is not a repair or provider run.
+        planner = Mock(wraps=_fake_planner_drainer)
+        result = self._run(
+            cycle_runner=cycle_output, fail_closed_on_cycle_failure=False,
+            planner_drainer=planner, plan_synthesizer=lambda **kwargs: None,
+        )
+        self.assertEqual(result["cycles_completed"], 0)
+        self.assertEqual(result["exit_reason"], "max_cycles")
+        self.assertTrue(result["exits_clean"])
+        planner.assert_called_once()
+        rows = [row for row in load_jsonl(autonomy_state_path(self.base))
+                if row.get("phase") == "cycle_completed"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["status"], "failed")
+        self.assertEqual(rows[0]["details"]["summary"]["status"], "failed")
+        summary = autonomy_output_summary(result, base_dir=self.base)
+        self.assertEqual(summary["cycle_status_counts"], {"failed": 1})
+        self.assertEqual(summary["overall_status"], "failed")
+        self.assertEqual(summary["exit_code"], 1)
+
+    def _run_with_native_planner_source(self, *, adopted: bool) -> None:
+        import hashlib
+        import json
+        from unittest.mock import Mock
+        from aria_kernel import agent_invocations as ai
+        from aria_kernel.cycle import _phase_discovery, _phase_twin_refresh, build_phase_context
+        from aria_kernel.convergence_drainer import run_convergence_drainer
+        from aria_kernel.ledger import load_declared_jsonl
+        from aria_kernel.plan_convergence import content_hash, start_plan, plan_body_from_state
+        from aria_kernel.tool_registry import ensure_tools_binding
+        from aria_kernel.twin import read_twin_map
+        from tests._helpers.git_fixtures import _git
+
+        repo = self.tmp / "source"
+        kernel = Path(__file__).resolve().parents[1]
+        modules = ("runtime_artifacts", "knowledge_graph", "cycle_phases/memory", "cli", "autonomy_orchestrator",
+                   "reflection_inputs", "reflection", "report", "snapshot", "discovery", "twin", "convergence_drainer",
+                   "convergent_planning_bridge", "cross_review_bridge", "plan_convergence", "runtime_profile",
+                   "agent_surface", "agent_network", "capability_gap", "state_manifest", "tool_registry", "agent_invocations")
+        tests = ("test_runtime_artifacts", "test_autonomy_orchestrator", "test_learned_context_and_intent",
+                 "test_twin_map", "test_phase2_fates_snapshot", "test_prompt_render_versioning", "test_convergence_resumable_step")
+        for relative in [f"aria_kernel/{name}.py" for name in modules] + [f"tests/{name}.py" for name in tests] + ["pyproject.toml"]:
+            destination = repo / "aria-kernel" / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes((kernel / relative).read_bytes())
+        seed_reviewer_agent(repo)
+        _git(["init", "-q"], cwd=repo)
+        _git(["config", "user.email", "outer-fixture@aria.test"], cwd=repo)
+        _git(["config", "user.name", "Outer Fixture"], cwd=repo)
+        _git(["add", "-A"], cwd=repo)
+        _git(["commit", "-q", "-m", "fixture: outer planner source inputs"], cwd=repo)
+        head = _git(["rev-parse", "HEAD"], cwd=repo).stdout.strip()
+        ensure_tools_binding(self.base, workspace_root=repo)
+        owner = "aria-kernel/aria_kernel/knowledge_graph.py"
+        body = {"schema_version": 1, "title": "Reuse the existing convention lookup",
+                "summary": "PRIMARY_PROPOSAL_ONLY: reuse the existing owner.",
+                "affected_surfaces": [owner],
+                "key_changes": [{"id": "reuse-conventions", "description": "Reuse the existing lookup", "paths": [owner]}],
+                "validation_commands": [{"cmd": "python3 -m unittest tests.test_learned_context_and_intent"}],
+                "evidence_refs": [owner + ":1"]}
+        if adopted:
+            body["affected_surfaces"] = [owner, "aria-kernel/aria_kernel/runtime_artifacts.py"]
+            start_plan(plan_id="plan-adopted", initial_revision_id="rev-existing", plan_content=body, base_dir=self.base)
+        fresh_seed = {**body, "summary": "A separate freshly synthesized proposal.",
+                      "affected_surfaces": [owner],
+                      "evidence_refs": ["aria-kernel/aria_kernel/runtime_artifacts.py:1"]} if adopted else body
+        observed = {}
+
+        def source_cycle(*, workspace_root, cycle_id, base_dir, defer_reflection=False):
+            self.assertTrue(defer_reflection)
+            self.assertEqual(Path(workspace_root), repo)
+            self.assertEqual(Path(base_dir), self.base)
+            context = build_phase_context(cycle_id=cycle_id, workspace_root=workspace_root,
+                                          base_dir=base_dir, snapshot_mode="committed")
+            context.results["discovery"] = _phase_discovery(context)
+            observed.update(cycle_id=cycle_id, discovery=context.results["discovery"], twin=_phase_twin_refresh(context))
+            return {"schema_version": 2, "cycle_id": cycle_id, "status": "completed"}
+
+        def synthesize(*, cycle_id, workspace_root, base_dir):
+            self.assertEqual(cycle_id, observed["cycle_id"])
+            self.assertEqual(Path(workspace_root), repo)
+            self.assertEqual(Path(base_dir), self.base)
+            return fresh_seed
+
+        blocked = Mock(side_effect=AssertionError("Nonconverged source inspection must not dispatch implementation/review/merge"))
+        blocked.profile = "standard"
+        result = self._run(workspace_root=repo, cycle_runner=source_cycle, plan_synthesizer=synthesize,
+                           convergence_runner=run_convergence_drainer,
+                           planner_drainer=lambda **kwargs: {"iterations": 0, "claims_dispatched": 0, "exits_clean": True, "exit_reason": "no_requests"},
+                           worker_drainer=blocked, auto_merge_runner=blocked, review_runner=blocked,
+                           specialist_review_runner=blocked)
+        blocked.assert_not_called()
+        self.assertEqual(result["cycles_completed"], 1)
+        self.assertEqual(result["exit_reason"], "max_cycles")
+        self.assertEqual(len(result["per_cycle"]), 1)
+        outer = result["per_cycle"][0]
+        cycle_id = outer["cycle_id"]
+        self.assertEqual(cycle_id, observed["cycle_id"])
+        self.assertEqual(outer["convergence"]["arbiter_verdict"], "in_progress")
+        self.assertEqual(outer["dispatch_blocked_reason"], "convergence_in_progress")
+        plan_id = "plan-adopted" if adopted else "plan-" + cycle_id
+        self.assertEqual(outer["convergence"]["plan_id"], plan_id)
+        state = fold_plan_state(plan_id=plan_id, base_dir=self.base)
+        self.assertEqual(sum(row["event_type"] == "plan_started" for row in state["events"]), 1)
+        self.assertEqual(plan_body_from_state(state)["plan_content"], body)
+        requests = load_declared_jsonl(self.base / "agent-invocations/requests.jsonl", expected_surface="agent_invocation_requests")
+        self.assertEqual(len(requests), 1)
+        request = requests[0]
+        self.assertEqual((request["role"], request["target_agent"], request["round_number"]),
+                         ("challenger_plan", "aria-challenger-planner", 1))
+        self.assertEqual(request["convergence_id"], plan_id)
+        self.assertEqual(request["cycle_id"], cycle_id)
+        self.assertEqual(request["target_sha"], head)
+        self.assertEqual(request["plan_revision_hash"], content_hash(body))
+        self.assertEqual(request["evidence_refs"], body["evidence_refs"])
+        self.assertEqual(request["allowed_scope"], fresh_seed["affected_surfaces"])
+        self.assertEqual(request["context_source_paths"], body["affected_surfaces"])
+        if adopted:
+            self.assertNotEqual(request["context_source_paths"], request["allowed_scope"])
+        native = ai.verify_invocation_context_binding(request_id=request["request_id"], context_hash=request["context_hash"],
+                                                     prompt_hash=request["prompt_hash"], base_dir=self.base)
+        self.assertEqual(native["context"]["repo_root"], str(repo.resolve()))
+        for label in ("context", "prompt"):
+            self.assertEqual(native[label]["ledger_hash"], request[label + "_ledger_hash"])
+        self.assertEqual(native["context"]["budget_audit_hash"], request["budget_audit_hash"])
+        prompt = native["prompt"]["prompt_text"]
+        self.assertEqual(request["prompt_hash"], "sha256:" + hashlib.sha256(prompt.encode("utf-8")).hexdigest())
+        self.assertEqual(prompt, ai.render_invocation_prompt(request))
+        self.assertEqual(prompt, ai.render_invocation_prompt(ai.fuse_prompt_envelope(request)))
+        self.assertNotIn("PRIMARY_PROPOSAL_ONLY", prompt)
+        view = request["repository_map"]["self_features"]
+        self.assertEqual(view["qualification"]["status"], "available")
+        self.assertEqual(view["discovery"]["cycle_id"], cycle_id)
+        feature = view["features"]["knowledge_graph.conventions_for_paths"]
+        self.assertIn("knowledge_graph.conventions_for_paths", prompt)
+        self.assertEqual(feature["demonstrated"]["status"], "unknown")
+        self.assertEqual(feature["runtime"]["status"], "unknown")
+        for filename, key in (("SNAPSHOT.json", "snapshot"), ("COMPLETION_PROOF.json", "completion_proof")):
+            stored = json.loads((self.base / "discovery" / cycle_id / filename).read_text())
+            self.assertEqual(stored, observed["discovery"][key])
+        self.assertTrue(observed["discovery"]["completion_proof"]["complete"])
+        self.assertEqual(read_twin_map(base_dir=self.base)["self_features"], observed["twin"]["self_features"])
+
+    def test_outer_cycle_reaches_real_challenger_with_discovery_context(self) -> None:
+        self._run_with_native_planner_source(adopted=False)
+
+    def test_outer_adopted_plan_uses_recorded_body_with_unchanged_caller_scope(self) -> None:
+        self._run_with_native_planner_source(adopted=True)
+
+    def _run_with_real_memory(self, *, plan_state: str = "converged") -> dict[str, Any]:
+        from aria_kernel.cycle_phases import select_memory_hook
+        from aria_kernel.plan_convergence import start_plan
+
+        seed_reviewer_agent(self.tmp)
+        plan_content = {
+            "schema_version": 1,
+            "title": "Canonical memory fixture",
+            "summary": "Read the plan whose reviewed revision is in the ledger.",
+            "affected_surfaces": ["fixture/canonical.py"],
+            "key_changes": [{"id": "memory-owner", "description": "Refactor the memory owner",
+                             "paths": ["fixture/canonical.py"]}],
+            "validation_commands": [{"cmd": "python3 -m unittest tests.test_memory"}],
+            "evidence_refs": [f"fixture/canonical.py:{line}" for line in range(1, 6)],
+        }
+
+        def converge(**kwargs: Any) -> dict[str, Any]:
+            plan_id = kwargs["plan_id"]
+            if plan_state in {"converged", "tampered"}:
+                drive_plan_to_converged(
+                    plan_id=plan_id, tools=self.base, workspace_root=self.tmp,
+                    plan_content=plan_content,
+                )
+            elif plan_state == "started":
+                start_plan(plan_id=plan_id, initial_revision_id="rev-0",
+                           plan_content=plan_content, base_dir=self.base)
+            if plan_state == "tampered":
+                ledger = self.base / "plans" / "events.jsonl"
+                ledger.write_text(
+                    ledger.read_text(encoding="utf-8").replace(
+                        "Canonical memory fixture", "Tampered memory fixture"
+                    ), encoding="utf-8",
+                )
+            # The envelope is deliberately not a second plan-body source.
+            result = _fake_convergence_runner(**kwargs)
+            result.pop("converged_plan")
+            return result
+
+        return self._run(
+            convergence_runner=converge,
+            memory_hook=select_memory_hook(profile="standard"),
+        )
+
+    def test_selected_memory_reads_canonical_plan_and_reports_missing_signer(self) -> None:
+        result = self._run_with_real_memory()
+        summary = result["per_cycle"][0]
+        self.assertIn("memory_hook", summary)
+        memory = summary["memory_hook"]
+        self.assertEqual(memory["status"], "needs_signing")
+        self.assertFalse(memory["convention_recorded"])
+        self.assertIsNone(memory["chain_verified"])
+        self.assertEqual(memory["plan_revision_id"], "rev-0")
+        self.assertTrue(memory["plan_content_hash"].startswith("sha256:"))
+        self.assertIsNotNone(memory["pattern_signature"])
+        governance = load_jsonl(self.base / "governance.jsonl")
+        self.assertFalse(any(row.get("kind") == "memory_hook_failed" for row in governance))
+        pending = [row for row in governance if row.get("kind") == "convention_record_needs_signing"]
+        self.assertEqual(len(pending), 1)
+        self.assertEqual(pending[0]["details"]["plan_content_hash"], memory["plan_content_hash"])
+        self.assertFalse((self.base / "knowledge-graph" / "conventions.jsonl").exists())
+
+    def test_pending_memory_reaches_real_operator_summary(self) -> None:
+        """The public summary must disclose the real outer memory result."""
+        import json
+        from aria_kernel.runtime_artifacts import (
+            SUMMARY_STDOUT_MAX_BYTES,
+            autonomy_output_summary,
+        )
+
+        result = self._run_with_real_memory()
+        outer = result["per_cycle"][0]
+        memory = outer["memory_hook"]
+        self.assertEqual(memory["status"], "needs_signing")
+        self.assertFalse(memory["convention_recorded"])
+        pending = [row["details"] for row in load_jsonl(self.base / "governance.jsonl")
+                   if row.get("kind") == "convention_record_needs_signing"]
+        self.assertEqual(len(pending), 1)
+        self.assertEqual(pending[0]["plan_content_hash"], memory["plan_content_hash"])
+
+        full = autonomy_output_summary(
+            result, result_detail="full", base_dir=self.base, workspace_root=self.tmp,
+        )
+        self.assertEqual(full["full_result"]["per_cycle"][0]["memory_hook"], memory)
+        summary = autonomy_output_summary(
+            result, base_dir=self.base, workspace_root=self.tmp,
+        )
+        self.assertNotIn("full_result", summary)
+        encoded = json.dumps(summary, sort_keys=True)
+        self.assertLessEqual(len(encoded.encode("utf-8")), SUMMARY_STDOUT_MAX_BYTES)
+        # Require the status value, not a governance-kind substring such as
+        # convention_record_needs_signing. The receipt must identify its source.
+        self.assertIn('"needs_signing"', encoded)
+        self.assertIn('"convention_recorded": false', encoded)
+        for value in (outer["cycle_id"], pending[0]["plan_id"], memory["plan_content_hash"]):
+            self.assertIn(value, encoded)
+
+    def test_pending_memory_reaches_persisted_reflection_and_daily_report(self) -> None:
+        """Post-drain reflection must carry the pending observation itself."""
+        import json
+
+        result = self._run_with_real_memory()
+        outer = result["per_cycle"][0]
+        memory = outer["memory_hook"]
+        self.assertEqual(memory["status"], "needs_signing")
+        self.assertFalse(memory["convention_recorded"])
+        reflection = outer["reflection"]
+        self.assertEqual(reflection["cycle_id"], outer["cycle_id"])
+        persisted = [row for row in load_jsonl(self.base / "reflections.jsonl")
+                     if row.get("cycle_id") == outer["cycle_id"]]
+        self.assertEqual(len(persisted), 1)
+        report_path = self.base / "reports/daily" / (reflection["recorded_at"][:10] + ".md")
+        report = report_path.read_text(encoding="utf-8")
+
+        with self.subTest(output="persisted_reflection"):
+            encoded = json.dumps(persisted[0], sort_keys=True)
+            self.assertIn('"needs_signing"', encoded)
+            self.assertIn('"convention_recorded": false', encoded)
+            self.assertIn(memory["plan_content_hash"], encoded)
+        with self.subTest(output="daily_report"):
+            # Gate Activity can already mention the governance event kind;
+            # it is not a cycle-bound observation receipt or completion report.
+            heading = "## Memory Learning\n"
+            self.assertIn(heading, report)
+            section = report.split(heading, 1)[1].split("\n## ", 1)[0]
+            self.assertIn("needs_signing", section)
+            self.assertIn(outer["cycle_id"], section)
+            self.assertIn(memory["plan_content_hash"], section)
+
+    def test_memory_projection_survives_persisted_reflection_to_local_anchor(self) -> None:
+        import json
+        from aria_kernel.report import emit_anchor_to_path
+        from aria_kernel.runtime_artifacts import autonomy_output_summary
+
+        result = self._run_with_real_memory()
+        outer = result["per_cycle"][0]
+        projection = autonomy_output_summary(result, base_dir=self.base, workspace_root=self.tmp)["memory_learning"]
+        initial = projection["cycles"][0]["initial"]
+        self.assertEqual(initial["status"], "needs_signing")
+        self.assertIs(initial["convention_recorded"], False)
+        self.assertIsNone(initial["chain_verified"])
+        self.assertEqual(initial["cycle_id"], outer["cycle_id"])
+        self.assertEqual(initial["plan_id"], outer["convergence"]["plan_id"])
+        self.assertEqual(initial["plan_content_hash"], outer["memory_hook"]["plan_content_hash"])
+        self.assertEqual(projection["reported_observation_counts"]["recorded_receipts"], 0)
+        self.assertEqual(outer["reflection"]["memory_learning"], projection)
+        persisted = [row for row in load_jsonl(self.base / "reflections.jsonl") if row.get("cycle_id") == outer["cycle_id"]]
+        self.assertEqual(len(persisted), 1)
+        self.assertEqual(persisted[0]["memory_learning"], projection)
+
+        day = outer["reflection"]["recorded_at"][:10]
+        report = (self.base / "reports/daily" / (day + ".md")).read_text(encoding="utf-8")
+        section = report.split("## Memory Learning\n", 1)[1].split("\n## ", 1)[0]
+        self.assertEqual(json.loads(section.split("```json\n", 1)[1].split("```", 1)[0]), projection)
+        anchor = self.tmp / "published-locally" / (day + ".md")
+        emitted = emit_anchor_to_path(date=day, workspace_root=self.tmp, tools_root=self.base, output_path=anchor)
+        self.assertEqual(emitted["report_body"], "reflection")
+        # The existing publisher normalizes only outer body whitespace.
+        published_body = anchor.read_text(encoding="utf-8").split("\n---\n\n", 1)[1]
+        self.assertEqual(published_body, report.strip() + "\n")
+        before = anchor.read_bytes()
+        replay = emit_anchor_to_path(date=day, workspace_root=self.tmp, tools_root=self.base, output_path=anchor)
+        self.assertEqual(replay["status"], "already_anchored")
+        self.assertEqual(anchor.read_bytes(), before)
+
+    def _run_with_selected_memory_signer(self, *, profile: str, cycles: int = 1) -> tuple[dict, Path, list[dict]]:
+        import os
+        import subprocess
+        from datetime import datetime, timezone
+
+        from aria_kernel import gh_token_factory, validation
+        from aria_kernel.cycle_phases import select_memory_hook, select_v9_implementation_runner
+        from aria_kernel.tools_binding import bind_tools_root
+        from tests._helpers.git_fixtures import _git, make_repo_with_initial_commit
+        from tests._helpers.production_shaped import production_converged_plan
+
+        source_path = "apps/farm-service/src/farm/services/water-quality.service.ts"
+        workspace = make_repo_with_initial_commit(
+            self.tmp, name="source",
+            files={
+                source_path: "export const interval = 60000;\n",
+                "docs/aria/SPEC.md": "one\ntwo\nthree\nfour\nfive\n",
+                ".gitignore": "/aria-debts/keys/\n/aria-tools/\n",
+            },
+        )
+        bind_tools_root(tools_dir=self.base, workspace_root=workspace, reason="signer handoff fixture")
+        set_profile(
+            profile, operator_approval_ref="test:memory-signer-owner",
+            set_by="operator", scheduler_ceiling=profile, base_dir=self.base,
+        )
+        acquired: list[dict] = []
+
+        def converge(**kwargs: Any) -> dict[str, Any]:
+            plan = production_converged_plan(
+                tools_dir=self.base, workspace_root=workspace, plan_id=kwargs["plan_id"],
+                affected_paths=[source_path],
+                evidence_refs=[f"docs/aria/SPEC.md:{line}" for line in range(1, 6)],
+            )
+            # The helper installs its reviewer. Commit that fixture source
+            # before the real runner acquires its key and validates HEAD.
+            if _git(["status", "--porcelain", "--", ".claude/agents/farm-expert.md"], cwd=workspace).stdout:
+                _git(["add", ".claude/agents/farm-expert.md"], cwd=workspace)
+                _git(["commit", "-q", "-m", "fixture: reviewed plan owner"], cwd=workspace)
+            result = _fake_convergence_runner(**kwargs)
+            result["convergence_id"] = plan.revision_id
+            result.pop("converged_plan")
+            return result
+
+        real_mint = gh_token_factory.mint_signing_key
+
+        def mint_key(*, cycle_id: str, workspace_root: Path):
+            self.assertEqual(workspace_root, workspace)
+            key = real_mint(cycle_id=cycle_id, workspace_root=workspace_root)
+            self.assertTrue(key.private_key_path.is_relative_to(workspace))
+            self.assertTrue(key.private_key_path.is_file())
+            self.assertTrue(key.public_key_path.is_file())
+            pending = [row for row in load_jsonl(self.base / "governance.jsonl")
+                       if row.get("kind") == "convention_record_needs_signing"]
+            current = [row for row in pending if row["details"]["cycle_id"] == cycle_id]
+            self.assertEqual(len(current), 1, "memory must disclose pending before key acquisition")
+            if cycles == 1:
+                self.assertEqual(len(pending), 1)
+            state = fold_plan_state(plan_id=current[0]["details"]["plan_id"], base_dir=self.base)
+            self.assertEqual(state["state"], "CONVERGED")
+            self.assertEqual(current[0]["details"]["cycle_id"], cycle_id)
+            self.assertEqual(current[0]["details"]["plan_content_hash"], state["latest_revision"]["content_hash"])
+            acquired.append({"cycle_id": cycle_id, "fingerprint": key.fingerprint})
+            return key
+
+        def mint_token(*, cycle_id: str, workspace_root: Path):
+            # This is the external delivery boundary. No ambient credentials
+            # are read; the real runner and local revocation own this lease.
+            self.assertEqual(workspace_root, workspace)
+            token_file = workspace / "aria-debts/keys" / f"{cycle_id}.token"
+            token_file.write_text("fixture-only-invalid-token", encoding="utf-8")
+            return gh_token_factory.InstallationTokenLease(
+                cycle_id=cycle_id, token_file=token_file, ttl_seconds=300,
+                gh_app_installation_id=None, fallback_active=True,
+                minted_at_utc=datetime.now(timezone.utc).isoformat(),
+            )
+
+        real_run = subprocess.run
+        validation_children = {
+            ("npx", "nx", "affected", "--target=lint"),
+            ("npx", "nx", "affected", "--target=test"),
+            ("npm", "run", "type-check"),
+        }
+
+        def child_run(argv, *args, **kwargs):
+            # Preserve real Git, ssh-keygen, validation records, staging and
+            # envelope minting. The expensive validation children are fixtures.
+            command = tuple(str(arg) for arg in argv)
+            if command in validation_children:
+                return subprocess.CompletedProcess(argv, 0, "fixture validation\n", "")
+            if command and command[0] in {"npx", "npm", "cargo", "gh"}:
+                raise AssertionError("unexpected external child in signer handoff fixture")
+            return real_run(argv, *args, **kwargs)
+
+        with (
+            patch.dict(os.environ, {"GH_TOKEN": "", "GITHUB_TOKEN": ""}),
+            patch.object(gh_token_factory, "mint_signing_key", side_effect=mint_key),
+            patch.object(gh_token_factory, "mint_installation_token", side_effect=mint_token),
+            patch.object(validation.subprocess, "run", side_effect=child_run),
+        ):
+            result = self._run(
+                workspace_root=str(workspace), profile=profile,
+                max_cycles=cycles,
+                convergence_runner=converge,
+                memory_hook=select_memory_hook(profile=profile),
+                v9_implementation_runner=select_v9_implementation_runner(profile=profile),
+            )
+        return result, workspace, acquired
+
+    def test_selected_implementation_signer_completes_pending_memory(self) -> None:
+        from aria_kernel.knowledge_graph import lookup_pattern
+
+        result, workspace, acquired = self._run_with_selected_memory_signer(profile="strict")
+        self.assertTrue(result["exits_clean"])
+        summary = result["per_cycle"][0]
+        self.assertEqual(summary["v9_implementation"]["terminal_state"], "IMPLEMENTATION_DISPATCHED")
+        self.assertIsNone(summary["v9_implementation"]["rejection_class"])
+        governance = load_jsonl(self.base / "governance.jsonl")
+        self.assertFalse(any(row.get("kind") in {"memory_hook_failed", "v9_implementation_phase_failed"}
+                             for row in governance))
+        pending = [row["details"] for row in governance
+                   if row.get("kind") == "convention_record_needs_signing"]
+        self.assertEqual(len(pending), 1)
+        self.assertEqual(len(acquired), 1)
+        origin = pending[0]
+        self.assertEqual(fold_plan_state(plan_id=origin["plan_id"], base_dir=self.base)["state"],
+                         "IMPLEMENTATION_REQUESTED")
+        self.assertEqual(origin["cycle_id"], acquired[0]["cycle_id"])
+        for suffix in ("", ".pub", ".token"):
+            self.assertFalse((workspace / "aria-debts/keys" / (origin["cycle_id"] + suffix)).exists())
+        for ledger in ("conventions.jsonl", "anti-patterns.jsonl"):
+            self.assertFalse((workspace / "aria-tools/knowledge-graph" / ledger).exists())
+
+        rows = load_jsonl(self.base / "knowledge-graph/conventions.jsonl")
+        self.assertEqual(len(rows), 1,
+                         "the real implementation signer must complete the pending memory hypothesis")
+        self.assertEqual(rows[0]["outcome_status"], "hypothesis")
+        self.assertEqual(rows[0]["confidence"], 0.5)
+        self.assertEqual(rows[0]["plan_id"], origin["plan_id"])
+        self.assertEqual(rows[0]["discovered_by_cycle_id"], origin["cycle_id"])
+        self.assertEqual(rows[0]["signer_key_fp"], acquired[0]["fingerprint"])
+        self.assertIsNone(lookup_pattern(rows[0]["pattern_id"], base_dir=self.base))
+
+    def test_selected_noop_keeps_memory_unsigned(self) -> None:
+        result, workspace, acquired = self._run_with_selected_memory_signer(profile="standard")
+        self.assertTrue(result["exits_clean"])
+        summary = result["per_cycle"][0]
+        self.assertEqual(summary["v9_implementation"]["rejection_class"], "no_op_v9_runner")
+        self.assertEqual(summary["memory_hook"]["status"], "needs_signing")
+        self.assertFalse(summary["memory_hook"]["convention_recorded"])
+        self.assertEqual(acquired, [])
+        self.assertFalse((workspace / "aria-debts/keys").exists())
+        for ledger in ("conventions.jsonl", "anti-patterns.jsonl"):
+            self.assertFalse((workspace / "aria-tools/knowledge-graph" / ledger).exists())
+        pending = [row for row in load_jsonl(self.base / "governance.jsonl")
+                   if row.get("kind") == "convention_record_needs_signing"]
+        self.assertEqual(len(pending), 1)
+        self.assertEqual(pending[0]["details"]["plan_content_hash"],
+                         summary["memory_hook"]["plan_content_hash"])
+        self.assertFalse((self.base / "knowledge-graph/conventions.jsonl").exists())
+
+    def test_signer_report_survives_callback_runner_and_scoped_audit_failure(self) -> None:
+        import json
+        from aria_kernel import apply_engine, tool_registry
+        append = tool_registry.append_tools_governance
+        sentinel = "harmless-private-diagnostic-sentinel"
+
+        def audit(base, kind, details, **kwargs):
+            if kind in {"convention_recorded", "convention_audit_failed", "v9_implementation_phase_failed"}:
+                raise OSError(sentinel)
+            return append(base, kind, details, **kwargs)
+
+        with (
+            patch.object(tool_registry, "append_tools_governance", side_effect=audit),
+            patch.object(apply_engine, "stage_converged_plan_for_pr", side_effect=RuntimeError("fixture stage failure")),
+        ):
+            result, workspace, acquired = self._run_with_selected_memory_signer(profile="strict")
+        self.assertTrue(result["exits_clean"])
+        summary = result["per_cycle"][0]
+        self.assertEqual(summary["memory_hook"]["status"], "needs_signing")
+        self.assertFalse(summary["memory_hook"]["convention_recorded"])
+        self.assertEqual(summary["v9_implementation"]["terminal_state"], "IMPLEMENTATION_REQUEST_REFUSED")
+        self.assertEqual(summary["v9_implementation"]["rejection_class"], "runner_exception:RuntimeError")
+        self.assertEqual(summary["v9_implementation"]["specialist_review_signal"], "review_converged_plan")
+        self.assertEqual(summary["v9_implementation"]["audit_error_class"], "OSError")
+        report = summary["memory_completion"]
+        self.assertTrue(report["observations"][0]["convention_recorded"])
+        self.assertEqual(report["observations"][0]["audit_error_class"], "OSError")
+        self.assertNotIn(sentinel, json.dumps(report))
+        self.assertEqual(len(load_jsonl(self.base / "knowledge-graph/conventions.jsonl")), 1)
+        self.assertEqual(len(acquired), 1)
+        for suffix in ("", ".pub", ".token"):
+            self.assertFalse((workspace / "aria-debts/keys" / (acquired[0]["cycle_id"] + suffix)).exists())
+
+    def test_signer_completion_preserves_initial_memory_output_and_stability_once(self) -> None:
+        from copy import deepcopy
+        from aria_kernel.cycle_phases.memory import MemoryHookImpl
+        initial = []
+        record = MemoryHookImpl.record
+
+        def capture(hook, **kwargs):
+            output = record(hook, **kwargs)
+            initial.append(deepcopy(output))
+            return output
+
+        with (
+            patch.object(MemoryHookImpl, "record", new=capture),
+            patch("aria_kernel.skill_genesis_drainer.check_pattern_signature_stability",
+                  return_value={"stable": True, "matching_cycles": ["prior"]}) as stability,
+        ):
+            result, _workspace, _acquired = self._run_with_selected_memory_signer(profile="strict")
+        summary = result["per_cycle"][0]
+        self.assertEqual(summary["memory_hook"], initial[0])
+        self.assertEqual(summary["memory_hook"]["status"], "needs_signing")
+        self.assertTrue(summary["memory_hook"]["skill_genesis_dispatched"])
+        self.assertEqual(stability.call_count, 1)
+        self.assertTrue(summary["memory_completion"]["observations"][0]["convention_recorded"])
+        dispatched = [row for row in load_jsonl(self.base / "governance.jsonl")
+                      if row.get("kind") == "skill_genesis_human_required_dispatched"]
+        self.assertEqual(len(dispatched), 1)
+
+    def test_later_production_signer_recovers_original_observation_after_dispatch(self) -> None:
+        from aria_kernel import knowledge_graph
+        record = knowledge_graph.record_convention
+        attempts = []
+
+        def transient(pattern, **kwargs):
+            attempts.append((pattern.discovered_by_cycle_id, kwargs["signer_key_fp"]))
+            if len(attempts) == 1:
+                raise OSError("fixture first observation unavailable")
+            return record(pattern, **kwargs)
+
+        with patch.object(knowledge_graph, "record_convention", side_effect=transient):
+            result, workspace, acquired = self._run_with_selected_memory_signer(profile="strict", cycles=2)
+        self.assertTrue(result["exits_clean"])
+        self.assertEqual(result["cycles_completed"], 2)
+        self.assertEqual(len(acquired), 2)
+        self.assertNotEqual(acquired[0]["cycle_id"], acquired[1]["cycle_id"])
+        for summary in result["per_cycle"]:
+            self.assertEqual(summary["v9_implementation"]["terminal_state"], "IMPLEMENTATION_DISPATCHED")
+            self.assertEqual(summary["memory_hook"]["status"], "needs_signing")
+        self.assertFalse(result["per_cycle"][0]["memory_completion"]["observations"][0]["convention_recorded"])
+        pending = [row["details"] for row in load_jsonl(self.base / "governance.jsonl")
+                   if row.get("kind") == "convention_record_needs_signing"]
+        self.assertEqual(len(pending), 2)
+        for origin in pending:
+            self.assertEqual(fold_plan_state(plan_id=origin["plan_id"], base_dir=self.base)["state"],
+                             "IMPLEMENTATION_REQUESTED")
+        for key in acquired:
+            for suffix in ("", ".pub", ".token"):
+                self.assertFalse((workspace / "aria-debts/keys" / (key["cycle_id"] + suffix)).exists())
+        rows = load_jsonl(self.base / "knowledge-graph/conventions.jsonl")
+        self.assertEqual(len(rows), 2, "later authorized key must recover the earlier dispatched plan's observation")
+        original = next(row for row in rows if row["discovered_by_cycle_id"] == acquired[0]["cycle_id"])
+        self.assertEqual(original["pattern_id"], f"conv_{pending[0]['cycle_id']}_{pending[0]['pattern_signature'][:16]}")
+        self.assertEqual(original["plan_id"], pending[0]["plan_id"])
+        self.assertEqual(original["signer_key_fp"], acquired[1]["fingerprint"])
+        recovered = next(row for row in result["per_cycle"][1]["memory_completion"]["observations"]
+                         if row["cycle_id"] == acquired[0]["cycle_id"])
+        self.assertEqual(recovered["plan_revision_id"], pending[0]["plan_revision_id"])
+        self.assertEqual(recovered["plan_content_hash"], pending[0]["plan_content_hash"])
+        self.assertEqual(recovered["signer_cycle_id"], acquired[1]["cycle_id"])
+        self.assertTrue(recovered["convergence_event_hash"].startswith("sha256:"))
+
+    def test_selected_memory_refuses_missing_unconverged_or_tampered_plan(self) -> None:
+        for plan_state, reason in (
+            ("missing", "memory_requires_converged_plan"),
+            ("started", "memory_requires_converged_plan"),
+            ("tampered", "ledger_hash_mismatch"),
+        ):
+            with self.subTest(plan_state=plan_state):
+                result = self._run_with_real_memory(plan_state=plan_state)
+                self.assertNotIn("memory_hook", result["per_cycle"][0])
+                failures = [row for row in load_jsonl(self.base / "governance.jsonl")
+                            if row.get("kind") == "memory_hook_failed"]
+                self.assertTrue(failures)
+                self.assertIn(reason, failures[-1]["details"]["error_message"])
+                self.assertFalse((self.base / "knowledge-graph" / "conventions.jsonl").exists())
+                # Each case owns a new store; a corrupt ledger must not leak
+                # into the next orchestrator's pre-cycle reconciliation.
+                shutil.rmtree(self.base)
+                set_profile("standard", operator_approval_ref="f1-t", base_dir=self.base)
 
     def test_full_chain_happy_path(self) -> None:
         result = self._run(max_cycles=2)

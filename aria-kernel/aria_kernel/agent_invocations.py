@@ -144,7 +144,9 @@ def build_invocation_context(
 
 
 def _repository_map_for_refs(
-    evidence_refs: list[str] | None, *, base_dir: Path
+    evidence_refs: list[str] | None, *, base_dir: Path,
+    context_repo_root: str | Path | None = None, cycle_id: str | None = None, target_sha: str | None = None,
+    context_source_paths: list[str] | None = None,
 ) -> dict[str, Any] | None:
     """The twin slice for the files an evidence ref points at, or None.
 
@@ -162,15 +164,14 @@ def _repository_map_for_refs(
         for ref in (evidence_refs or [])
         if isinstance(ref, str) and ref.split(":", 1)[0].strip()
     ]
+    paths.extend(context_source_paths or [])
     if not paths:
         return None
     try:
-        from .twin import read_twin_map, twin_context_for_files
+        from .twin import _qualified_twin_context
 
-        twin = read_twin_map(base_dir=base_dir)
-        if twin is None:
-            return None
-        return twin_context_for_files(twin, sorted(dict.fromkeys(paths)))
+        return _qualified_twin_context(base_dir=base_dir, files=sorted(dict.fromkeys(paths)),
+                                       workspace_root=context_repo_root, cycle_id=cycle_id, target_sha=target_sha)
     except (OSError, ValueError, KeyError, TypeError):
         return None
 
@@ -192,186 +193,206 @@ def _established_knowledge_for_refs(
     claim-side re-render must reproduce byte-identical text, so this must be
     envelope DATA, not claim-time recomputation.
 
-    Returns None when nothing intersects; never raises into the mint path
-    (same contract as ``_repository_map_for_refs``).
+    Returns None without a path query. Otherwise history availability is
+    captured even when no positive knowledge or related episode is present.
     """
-    paths = [
-        ref.split(":", 1)[0].strip()
-        for ref in (evidence_refs or [])
-        if isinstance(ref, str) and ref.split(":", 1)[0].strip()
-    ]
-    # A scope glob's static prefix ("apps/farm-service/**" → "apps/farm-service")
-    # is a path claim too: knowledge about the scoped area is relevant even
-    # when no evidence ref lands in it yet.
-    for scope in allowed_scope or []:
-        if not isinstance(scope, str):
-            continue
-        prefix = scope.split("*", 1)[0].strip().strip("/")
-        if prefix:
-            paths.append(prefix)
-    if not paths:
+    from .knowledge_graph import KnowledgeGraphTamper, _paths_related, anti_patterns_for_paths, conventions_for_paths
+    from .memory import latest_beliefs, load_jsonl
+    from .cycle_phases.memory import CONVENTION_HYPOTHESIS_CONFIDENCE
+    from .ledger import LedgerIntegrityError
+
+    wanted = _knowledge_paths(evidence_refs, allowed_scope)
+    if not wanted:
         return None
+    # Each optional source has its own failure boundary. An unreadable belief
+    # ledger must not erase a qualified episode, nor the reverse.
+    beliefs: list[dict[str, Any]] = []
     try:
-        from .knowledge_graph import _paths_related, conventions_for_paths
-        from .memory import latest_beliefs, load_jsonl
-
-        wanted = sorted(dict.fromkeys(paths))
-        beliefs_path = base_dir / "memory" / "beliefs.jsonl"
-        beliefs: list[dict[str, Any]] = []
-        if beliefs_path.exists():
-            for belief in latest_beliefs(load_jsonl(beliefs_path)):
-                if belief.get("status") != "supported":
-                    continue
-                ref_paths = [
-                    str(ref).split(":", 1)[0]
-                    for ref in (belief.get("evidence_refs") or [])
-                    if isinstance(ref, str)
-                ]
-                if not any(
-                    _paths_related(ref_path, want)
-                    for ref_path in ref_paths
-                    for want in wanted
-                ):
-                    continue
-                beliefs.append(
-                    {
-                        "belief_id": belief.get("belief_id"),
-                        "claim": belief.get("claim"),
-                        "confidence": belief.get("confidence"),
-                        "support_count": belief.get("support_count"),
-                        "evidence_refs": list(belief.get("evidence_refs") or [])[:3],
-                    }
-                )
-        beliefs.sort(
-            key=lambda b: (
-                int(b.get("support_count") or 0),
-                float(b.get("confidence") or 0.0),
-            ),
-            reverse=True,
-        )
+        for belief in latest_beliefs(load_jsonl(base_dir / "memory/beliefs.jsonl")):
+            if belief.get("status") != "supported":
+                continue
+            refs = _knowledge_paths(belief.get("evidence_refs"), None)
+            if any(_paths_related(ref, want) for ref in refs for want in wanted):
+                beliefs.append({
+                    "belief_id": belief.get("belief_id"), "claim": belief.get("claim"),
+                    "confidence": belief.get("confidence"), "support_count": belief.get("support_count"),
+                    "evidence_refs": list(belief.get("evidence_refs") or [])[:3],
+                })
+        beliefs.sort(key=lambda b: (int(b.get("support_count") or 0), float(b.get("confidence") or 0)),
+                     reverse=True)
         beliefs = beliefs[:5]
-        workspace_root = Path(repo_root) if repo_root else base_dir.parent
-        # M2/E12 — hypotheses are VISIBLE but LABELLED. Every convention is
-        # written at 0.5 ("hypothesis" — agreement, not outcome) and the
-        # default 0.7 floor meant NOTHING ever reached an envelope: the
-        # ledger was write-only in effect. The floor still separates the
-        # two classes — a verified convention (promoted on merge) arrives
-        # as established knowledge; a hypothesis arrives carrying its own
-        # outcome_status so a judge reads it as context, never as a rule.
-        from .cycle_phases.memory import CONVENTION_HYPOTHESIS_CONFIDENCE
+    except (OSError, ValueError, KeyError, TypeError, LedgerIntegrityError):
+        beliefs = []
+    workspace_root = Path(repo_root) if repo_root else base_dir.parent
+    try:
+        conventions = [{
+            "pattern_id": row.get("pattern_id"), "pattern_type": row.get("pattern_type"),
+            "confidence": row.get("confidence"), "outcome_status": row.get("outcome_status") or "unknown",
+            "evidence_refs": list(row.get("evidence_refs") or [])[:3],
+            "discovered_by_cycle_id": row.get("discovered_by_cycle_id"),
+        } for row in conventions_for_paths(
+            workspace_root=workspace_root, base_dir=base_dir, paths=wanted,
+            min_confidence=CONVENTION_HYPOTHESIS_CONFIDENCE,
+        )]
+    except (OSError, ValueError, KeyError, TypeError, LedgerIntegrityError):
+        conventions = []
+    except KnowledgeGraphTamper as exc:
+        # The KG owner wraps ordinary read errors in its own exception.
+        # Keep other validation failures unchanged; no unverified KG row is used.
+        if not isinstance(exc.__cause__, OSError):
+            raise
+        conventions = []
+    try:
+        anti_patterns = [{
+            "pattern_id": row.get("pattern_id"), "reason_class": row.get("reason_class"),
+            "evidence_refs": list(row.get("evidence_refs") or [])[:3], "recorded_at": row.get("recorded_at"),
+        } for row in anti_patterns_for_paths(workspace_root=workspace_root, base_dir=base_dir, paths=wanted)]
+    except (OSError, ValueError, KeyError, TypeError, LedgerIntegrityError):
+        anti_patterns = []
+    except KnowledgeGraphTamper as exc:
+        if not isinstance(exc.__cause__, OSError):
+            raise
+        anti_patterns = []
+    past_failures, history_state = _past_failed_attempts_for_paths(base_dir=base_dir, paths=wanted)
+    return {
+        "beliefs": beliefs, "conventions": conventions, "anti_patterns": anti_patterns,
+        "past_failed_attempts": past_failures, "past_failed_attempts_state": history_state,
+    }
 
-        conventions = [
-            {
-                "pattern_id": row.get("pattern_id"),
-                "pattern_type": row.get("pattern_type"),
-                "confidence": row.get("confidence"),
-                "outcome_status": row.get("outcome_status") or "unknown",
-                "evidence_refs": list(row.get("evidence_refs") or [])[:3],
-                "discovered_by_cycle_id": row.get("discovered_by_cycle_id"),
-            }
-            for row in conventions_for_paths(
-                workspace_root=workspace_root,
-                paths=wanted,
-                min_confidence=CONVENTION_HYPOTHESIS_CONFIDENCE,
-            )
-        ]
-        # M15/E12-c (ORPHAN-677) — the "avoid this" half finally reaches
-        # the judge. Operator-signed anti-patterns touching this request's
-        # paths ride the same knowledge section; they are context ("this
-        # approach was adjudicated wrong here"), never a verdict.
-        from .knowledge_graph import anti_patterns_for_paths
 
-        anti_patterns = [
-            {
-                "pattern_id": row.get("pattern_id"),
-                "reason_class": row.get("reason_class"),
-                "evidence_refs": list(row.get("evidence_refs") or [])[:3],
-                "recorded_at": row.get("recorded_at"),
-            }
-            for row in anti_patterns_for_paths(
-                workspace_root=workspace_root, paths=wanted
-            )
-        ]
-        # Past-failed-attempts section (yargıç önerisi 2026-08-30): mine the
-        # implementation rejection ledger for approaches that FAILED on these
-        # exact paths, so a new agent doesn't retry what already didn't work.
-        # This reads existing ledgers — no new surface, no second truth.
-        past_failures = _past_failed_attempts_for_paths(
-            base_dir=base_dir, paths=wanted,
-        )
-        if not beliefs and not conventions and not anti_patterns and not past_failures:
-            return None
-        return {
-            "beliefs": beliefs,
-            "conventions": conventions,
-            "anti_patterns": anti_patterns,
-            **({"past_failed_attempts": past_failures} if past_failures else {}),
-        }
-    except (OSError, ValueError, KeyError, TypeError):
-        return None
+def _knowledge_paths(evidence_refs: Any, allowed_scope: Any) -> list[str]:
+    """Use complete request refs/static scope prefixes before display caps."""
+    paths = [ref.split(":", 1)[0].strip() for ref in (evidence_refs or []) if isinstance(ref, str)]
+    for scope in allowed_scope or []:
+        if isinstance(scope, str):
+            prefix = scope
+            for wildcard in ("*", "?", "["):
+                prefix = prefix.split(wildcard, 1)[0]
+            paths.append(prefix.strip().strip("/"))
+    return sorted({path for path in paths if path})
+
+
+def _history_episode(result: dict[str, Any], claim: dict[str, Any], request: dict[str, Any]) -> dict[str, Any]:
+    """Bound display only; joins and relevance use the complete verified rows."""
+    episode = {
+        "result_row_id": result.get("row_id"), "result_ledger_hash": result.get("ledger_hash"),
+        "claim_id": claim.get("claim_id"), "claim_ledger_hash": claim.get("ledger_hash"),
+        "request_id": request.get("request_id"), "request_ledger_hash": request.get("ledger_hash"),
+        "agent_id": claim.get("agent_id"), "target_agent": request.get("target_agent"),
+        "role": request.get("role"), "status": "rejected", "submitted_at": result.get("submitted_at"),
+        "output_hash": result.get("output_hash"), "envelope_evidence_hash": result.get("envelope_evidence_hash"),
+    }
+    omissions: dict[str, Any] = {}
+    for field, value in list(episode.items()):
+        if isinstance(value, str) and len(value) > 512:
+            episode[field] = None
+            omissions[field] = {"reason": "display_length_exceeded", "original_characters": len(value)}
+    for field, values, limit, prefix in (
+        ("rejection_reasons", result["rejection_reasons"], 120, True),
+        ("request_allowed_scope", request.get("allowed_scope") or [], 512, False),
+        ("request_evidence_refs", request.get("evidence_refs") or [], 512, False),
+    ):
+        displayed = []
+        omitted = {"original_count": len(values), "omitted_count": max(0, len(values) - 3), "truncated_items": []}
+        for index, value in enumerate(values[:3]):
+            if len(value) <= limit:
+                displayed.append(value)
+            elif prefix:
+                displayed.append(value[:limit] + "… [truncated]")
+                omitted["truncated_items"].append({"index": index, "original_characters": len(value),
+                                                   "retained_characters": limit})
+            else:
+                omitted["omitted_count"] += 1
+                omitted.setdefault("omitted_items", []).append({
+                    "index": index, "reason": "display_length_exceeded", "original_characters": len(value),
+                })
+        episode[field] = displayed
+        if omitted["omitted_count"] or omitted["truncated_items"]:
+            omissions[field] = omitted
+    episode["display_omissions"] = omissions
+    return episode
 
 
 def _past_failed_attempts_for_paths(
-    *,
-    base_dir: Path,
-    paths: list[str],
-) -> list[dict[str, Any]]:
-    """Rejection-class failures whose evidence touched these paths.
+    *, base_dir: Path, paths: list[str],
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Capture a coherent native result → original claim → canonical request join.
 
-    Reads the existing results ledger (no new surface). An agent about to
-    edit file X should see "this approach on X was rejected because Y"
-    without querying a separate attempt ledger — the data is already in
-    the implementation-rejection rows, it just never reached the context.
-    Capped at 5, sorted most-recent-first.
+    Five returned episodes is a display bound, not a history-read/latency bound.
+    Complete verified ledgers are read under their existing transaction owner;
+    joins and rendering occur after release. No live lease validation or writes.
     """
-    from .implementation_rejections import VALID_IMPLEMENTATION_REJECTION_CLASSES
-
-    results_path = base_dir / "agent-invocations" / "results.jsonl"
-    if not results_path.exists():
-        return []
     from .knowledge_graph import _paths_related
-    from .memory import load_jsonl
+    from .ledger import LedgerIntegrityError
 
-    failures: list[dict[str, Any]] = []
+    state: dict[str, Any] = {
+        "schema_version": 1, "status": "unavailable", "reason": "read_error",
+        "source_snapshot": {}, "matching_count": None, "returned_count": 0, "truncated": None,
+    }
+    surfaces = {f"agent_invocation_{name}": base_dir / "agent-invocations" / f"{name}.jsonl"
+                for name in ("requests", "claims", "results")}
     try:
-        rows = list(reversed(load_jsonl(results_path)))
-        for row in rows:
-            if len(failures) >= 5:
-                break
-            if not isinstance(row, dict):
-                continue
-            reasons = row.get("reasons") or []
-            if not isinstance(reasons, list):
-                continue
-            rejection_classes = {
-                str(r).split(":")[0].strip()
-                for r in reasons
-                if isinstance(r, str) and str(r).split(":")[0].strip() in VALID_IMPLEMENTATION_REJECTION_CLASSES
-            }
-            if not rejection_classes:
-                continue
-            evidence = [
-                str(r).split(":", 1)[0]
-                for r in (row.get("evidence_refs") or reasons)
-                if isinstance(r, str) and ":" in str(r)
-            ]
-            if not any(
-                _paths_related(ref_path, want)
-                for ref_path in evidence
-                for want in paths
-            ):
-                continue
-            failures.append({
-                "rejection_classes": sorted(rejection_classes),
-                "reasons": [str(r)[:120] for r in reasons[:3]],
-                "at": row.get("at") or row.get("submitted_at") or "",
-            })
-    except (OSError, ValueError):
-        # Unreadable results ledger is an environment problem, not a
-        # silent skip: the caller sees an empty list (no past failures
-        # known) rather than a fabricated success.
-        return failures
+        with state_transaction(list(surfaces.values())) as transaction:
+            rows_by_surface = {}
+            for surface, path in surfaces.items():
+                rows = transaction.load_declared_jsonl(path, expected_surface=surface)
+                rows_by_surface[surface] = rows
+                state["source_snapshot"][surface] = {
+                    "present": path.exists(), "row_count": len(rows),
+                    "tail_ledger_hash": rows[-1].get("ledger_hash") if rows else None,
+                }
+    except TimeoutError:
+        state.update(reason="lock_timeout", source_snapshot={})
+        return [], state
+    except (OSError, ValueError, LedgerIntegrityError):
+        state["source_snapshot"] = {}
+        return [], state
+    if not state["source_snapshot"]["agent_invocation_results"]["present"]:
+        state.update(status="missing", reason="results_absent")
+        return [], state
 
+    # Match _find_request's last-matching-row semantics on this snapshot only.
+    requests = {row.get("request_id"): row for row in rows_by_surface["agent_invocation_requests"]}
+    claims: dict[str, list[dict[str, Any]]] = {}
+    for row in rows_by_surface["agent_invocation_claims"]:
+        if row.get("event") == "claimed":
+            claims.setdefault(row.get("claim_id"), []).append(row)
+    seen = set()
+    episodes = []
+    matching_count = 0
+    rejected_count = 0
+    for result in reversed(rows_by_surface["agent_invocation_results"]):
+        if result.get("status") != "rejected":
+            continue
+        rejected_count += 1
+        original_claims = claims.get(result.get("claim_id"), [])
+        request = requests.get(result.get("request_id"))
+        if (len(original_claims) != 1 or request is None
+                or not all(isinstance(result.get(k), str) and result[k] for k in ("row_id", "claim_id", "request_id", "agent_id"))):
+            state["reason"] = "join_unavailable"
+            return [], state
+        claim = original_claims[0]
+        if (claim.get("request_id") != result["request_id"] or claim.get("agent_id") != result["agent_id"]
+                or not isinstance(result.get("rejection_reasons"), list)
+                or not all(isinstance(reason, str) for reason in result["rejection_reasons"])
+                or any(not isinstance(request.get(field, []), list)
+                       or not all(isinstance(value, str) for value in request.get(field, []))
+                       for field in ("allowed_scope", "evidence_refs"))):
+            state["reason"] = "join_unavailable"
+            return [], state
+        identity = (result["row_id"], result["claim_id"])
+        if identity in seen:
+            continue
+        seen.add(identity)
+        original_paths = _knowledge_paths(request.get("evidence_refs"), request.get("allowed_scope"))
+        if any(_paths_related(ref, want) for ref in original_paths for want in paths):
+            matching_count += 1
+            if len(episodes) < 5:
+                episodes.append(_history_episode(result, claim, request))
+    state.update(status="available", reason=("related_attempts" if matching_count else
+                                           "no_related_attempts" if rejected_count else "no_rejections"),
+                 matching_count=matching_count, returned_count=len(episodes), truncated=matching_count > len(episodes))
+    return episodes, state
 
 def _recent_intent_for_refs(
     evidence_refs: list[str] | None,
@@ -407,6 +428,7 @@ def _evidence_excerpts_for_refs(
     evidence_refs: list[str] | None,
     *,
     repo_root: str | Path | None,
+    target_sha: str | None = None,
 ) -> list[dict[str, Any]] | None:
     """The cited lines themselves, quoted at mint — E17-b.
 
@@ -434,9 +456,9 @@ def _evidence_excerpts_for_refs(
     if not evidence_refs:
         return None
     try:
-        from .evidence_excerpts import excerpts_for_refs
+        from .evidence_excerpts import _excerpts_for_refs
 
-        entries = excerpts_for_refs(evidence_refs, repo_root=repo_root)
+        entries = _excerpts_for_refs(evidence_refs, repo_root=repo_root, target_sha=target_sha)
     except (OSError, ValueError, KeyError, TypeError):
         return None
     return entries or None
@@ -557,6 +579,52 @@ def _render_established_knowledge(established_knowledge: Any) -> str:
     return "\n".join(lines) + "\n\n"
 
 
+def _render_established_knowledge_v4(knowledge: Any) -> str:
+    """Captured context with separate source claims and historical episodes."""
+    if not isinstance(knowledge, dict):
+        return ""
+    if not any(knowledge.get(key) for key in (
+        "beliefs", "conventions", "anti_patterns", "past_failed_attempts", "past_failed_attempts_state",
+    )):
+        return ""
+    lines = [
+        "## Established knowledge", "",
+        "Prior context captured at mint — **not evidence**. Recheck relevant source for this task. "
+        "Recorded confidence and support counts do not establish independent corroboration or measured gain.", "",
+    ]
+    for belief in knowledge.get("beliefs") or []:
+        lines.append(f"- supported belief `{belief.get('belief_id')}`: {belief.get('claim')} "
+                     f"(recorded confidence {belief.get('confidence')}, support count {belief.get('support_count')})")
+        lines.append(f"  - source refs: {json.dumps(belief.get('evidence_refs') or [], ensure_ascii=False)}")
+    for row in knowledge.get("conventions") or []:
+        status = row.get("outcome_status") or "unknown"
+        qualification = {
+            "hypothesis": "hypothesis; an observation, not a demonstrated repair",
+            "verified": "recorded legacy verified status; merge lineage and measured gain are not revalidated here",
+        }.get(status, f"recorded outcome status {status}; qualification not established here")
+        lines.append(f"- convention `{row.get('pattern_id')}`: {qualification} "
+                     f"(recorded confidence {row.get('confidence')}, original cycle {row.get('discovered_by_cycle_id')})")
+        lines.append(f"  - source refs: {json.dumps(row.get('evidence_refs') or [], ensure_ascii=False)}")
+    for row in knowledge.get("anti_patterns") or []:
+        lines.append(f"- operator-adjudicated anti-pattern `{row.get('pattern_id')}` "
+                     f"({row.get('reason_class')}); scoped prior context, not a verdict for this task")
+        lines.append(f"  - source refs: {json.dumps(row.get('evidence_refs') or [], ensure_ascii=False)}")
+    history = knowledge.get("past_failed_attempts") or []
+    state = knowledge.get("past_failed_attempts_state")
+    if history or state:
+        lines.extend([
+            "", "### Historical submission rejections", "",
+            "These are native submission episodes, not measured repair outcomes or permanent avoid-rules. "
+            "Original request refs identify historical scope; they are not new admissible task evidence. "
+            "Displayed prefixes and omitted detail are explicitly marked. Full provenance remains in the named rows.",
+        ])
+        if state:
+            lines.append("History availability and source cutoff: " + json.dumps(state, sort_keys=True, ensure_ascii=False))
+        for episode in history:
+            lines.append("- " + json.dumps(episode, sort_keys=True, ensure_ascii=False))
+    return "\n".join(lines) + "\n\n"
+
+
 def _render_decision_memory(decision_memory: Any) -> str:
     """Plan 032 Faz 032i — prior decisions and their reasons, as DATA."""
     from .context_compiler import render_decision_memory
@@ -609,6 +677,97 @@ def _render_recent_intent(recent_intent: Any) -> str:
             if refs:
                 lines.append(f"    - refs: {', '.join(f'`{r}`' for r in refs)}")
     return "\n".join(lines) + "\n\n"
+
+
+def _render_self_features(repository_map: Any, context_source_paths_status: Any = None) -> str:
+    """Render only captured v5 observations; replay never reads current state."""
+    hint_status = ("Retrieval hint coverage: " + json.dumps(context_source_paths_status, sort_keys=True) + "\n\n"
+                   if isinstance(context_source_paths_status, dict) else "")
+    if not isinstance(repository_map, dict) or not isinstance(repository_map.get("self_features"), dict):
+        return hint_status
+    view = repository_map["self_features"]
+    if (view.get("selection") or {}).get("rendered") is False:
+        return hint_status
+    qualification = view.get("qualification") or {}
+    lines = ["## Existing ARIA capabilities", "",
+             "Partial source observations, not execution proof. Unknown coverage does not mean a feature is absent.",
+             "Check existing owners before proposing another implementation; justify reuse or extension in the plan.",
+             "Qualification: " + json.dumps(qualification, sort_keys=True), ""]
+    if "selection" in view:
+        lines.append("Selection: " + json.dumps(view["selection"], sort_keys=True))
+    details = view.get("qualification_details") or {}
+    if details:
+        shown = dict(details)
+        unavailable = shown.get("unavailable_sources")
+        if isinstance(unavailable, list):
+            shown["unavailable_sources"] = unavailable[:4]
+            shown["unavailable_sources_omitted"] = max(0, len(unavailable) - 4)
+        lines.append("Qualification details: " + json.dumps(shown, sort_keys=True))
+    for key, feature in sorted((view.get("features") or {}).items())[:4]:
+        owner = feature.get("owner") or {}
+        payload = {
+            "feature": key, "owner": owner,
+            "purpose_source_inferred": (feature.get("purpose") or {}).get("text", "")[:160],
+            "statuses": {name: feature.get(name) for name in ("implemented", "reachable", "configured", "demonstrated", "runtime")},
+            "callers": [item.get("evidence_ref") for item in feature.get("callers", [])[:2]],
+            "tests_are_not_execution": [item.get("test_id") for item in (feature.get("tests") or {}).get("refs", [])[:1]],
+        }
+        lines.append(json.dumps(payload, sort_keys=True, ensure_ascii=True, separators=(",", ":")))
+    return hint_status + "\n".join(lines) + "\n\n"
+
+
+def _pack_self_feature_context(row: dict[str, Any], captured_audit: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    """Select optional v5 facts against both feature and full-render budgets.
+
+    The estimator and role policy stay with the existing budget owner. This
+    packs at most eight candidates/four entries; the 1,200-token allowance
+    includes display scaffolding. Trials reuse captured preamble costs.
+    """
+    from .context_budget_gate import estimate_tokens, _reprice_rendered_context
+    repository_map = row.get("repository_map")
+    if not isinstance(repository_map, dict) or not isinstance(repository_map.get("self_features"), dict):
+        prompt = render_invocation_prompt(row)
+        return prompt, _reprice_rendered_context(captured_audit, prompt)
+    view = dict(repository_map["self_features"])
+    row["repository_map"] = {**repository_map, "self_features": view}
+    candidates = view.get("features") or {}
+    paths = {ref.split(":", 1)[0] for ref in row.get("evidence_refs", [])} | set(row.get("context_source_paths") or [])
+    ordered = sorted(candidates, key=lambda key: ((candidates[key].get("owner") or {}).get("path") not in paths, key))[:8]
+    selected: dict[str, Any] = {}
+    view["features"] = selected
+    reason = "selected"
+
+    def measure() -> tuple[str, dict[str, Any], bool]:
+        view["selection"] = {"candidate_count": len(candidates), "selected_count": len(selected),
+                             "omitted_count": len(candidates) - len(selected), "reason": reason,
+                             "rendered": True}
+        prompt = render_invocation_prompt(row)
+        return prompt, _reprice_rendered_context(captured_audit, prompt), estimate_tokens(
+            _render_self_features(row["repository_map"], row.get("context_source_paths_status"))) <= 1200
+
+    for key in ordered:
+        if len(selected) == 4:
+            reason = "feature_count_limit"
+            break
+        selected[key] = candidates[key]
+        _prompt, trial, section_fits = measure()
+        if not section_fits or trial["cap_breached"]:
+            selected.pop(key)
+            reason = "feature_budget" if not section_fits else "full_context_budget"
+    prompt, final, section_fits = measure()
+    # Updated omission labels count too. Preserve whole identities/entries;
+    # an oversized mandatory baseline keeps the existing enforcement choice.
+    while selected and (not section_fits or final["cap_breached"]):
+        selected.pop(next(reversed(selected)))
+        reason = "feature_budget" if not section_fits else "full_context_budget"
+        prompt, final, section_fits = measure()
+    if not section_fits or final["cap_breached"]:
+        view["selection"]["rendered"] = False
+        if final["cap_breached"]:
+            view["selection"]["reason"] = "full_context_budget"
+        prompt = render_invocation_prompt(row)
+        final = _reprice_rendered_context(captured_audit, prompt)
+    return prompt, final
 
 
 def _render_repository_map(repository_map: Any) -> str:
@@ -690,7 +849,9 @@ def _render_repository_map(repository_map: Any) -> str:
 # excerpts and must keep rendering the v2 body verbatim, because a format
 # change that does not move the version is how a replay hash silently stops
 # verifying.
-PROMPT_RENDER_VERSION = 3
+# S1 — v4 labels hypotheses/outcomes and includes captured rejected episodes.
+# The unchanged v1-v3 knowledge renderer remains the sealed replay owner.
+PROMPT_RENDER_VERSION = 5
 
 
 def _tagged(tag: str, attrs: str, block: str) -> str:
@@ -735,8 +896,12 @@ def render_invocation_prompt(request: dict[str, Any], context: dict[str, Any] | 
             return "\n".join(f"  - `{item}`" for item in items)
         return "\n".join(f"  - {key_func(item)}" for item in items)
 
+    render_version = int(request.get("prompt_render_version") or 1)
     repository_map_block = _render_repository_map(request.get("repository_map"))
-    established_knowledge_block = _render_established_knowledge(
+    if render_version >= 5:
+        repository_map_block += _render_self_features(request.get("repository_map"), request.get("context_source_paths_status"))
+    knowledge_renderer = _render_established_knowledge_v4 if render_version >= 4 else _render_established_knowledge
+    established_knowledge_block = knowledge_renderer(
         request.get("established_knowledge")
     )
     recent_intent_block = _render_recent_intent(request.get("recent_intent"))
@@ -746,7 +911,6 @@ def render_invocation_prompt(request: dict[str, Any], context: dict[str, Any] | 
     # because the prompt hash was sealed over the untagged text and replay
     # must keep verifying it. Freshly minted rows always carry the current
     # version (see create_agent_invocation_request).
-    render_version = int(request.get("prompt_render_version") or 1)
     evidence_block = _bullet_list(evidence_refs)
     excerpt_block = ""
     data_notice = ""
@@ -882,23 +1046,15 @@ def load_invocation_context(
     return None
 
 
-def verify_invocation_context_binding(
-    *,
-    request_id: str,
-    context_hash: str,
-    prompt_hash: str,
-    base_dir: str | Path | None = None,
+def _verify_invocation_context_binding_rows(
+    *, request_id: str, context_hash: str, prompt_hash: str,
+    context: dict[str, Any] | None, prompts: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    root = ensure_tools_dir(base_dir)
-    context = load_invocation_context(request_id=request_id, base_dir=root)
+    """Compare native binding rows without loading or refreshing state."""
     if context is None:
         raise GovernanceError(f"invocation_context_not_found:{request_id}")
     if context.get("context_hash") != context_hash:
         raise GovernanceError("invocation_context_hash_binding_mismatch")
-    prompts = load_declared_jsonl(
-        _prompts_ledger_path(root),
-        expected_surface="agent_invocation_prompts",
-    )
     prompt = next(
         (
             row for row in reversed(prompts)
@@ -912,6 +1068,31 @@ def verify_invocation_context_binding(
     if prompt.get("prompt_hash") != prompt_hash:
         raise GovernanceError("invocation_prompt_hash_binding_mismatch")
     return {"context": context, "prompt": prompt}
+
+
+def verify_invocation_context_binding(
+    *,
+    request_id: str,
+    context_hash: str,
+    prompt_hash: str,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    root = ensure_tools_dir(base_dir)
+    context = load_invocation_context(request_id=request_id, base_dir=root)
+    # Preserve the original early refusal before loading another ledger.
+    if context is None or context.get("context_hash") != context_hash:
+        return _verify_invocation_context_binding_rows(
+            request_id=request_id, context_hash=context_hash, prompt_hash=prompt_hash,
+            context=context, prompts=[],
+        )
+    prompts = load_declared_jsonl(
+        _prompts_ledger_path(root),
+        expected_surface="agent_invocation_prompts",
+    )
+    return _verify_invocation_context_binding_rows(
+        request_id=request_id, context_hash=context_hash, prompt_hash=prompt_hash,
+        context=context, prompts=prompts,
+    )
 
 
 def create_agent_invocation_request(
@@ -972,6 +1153,7 @@ def create_agent_invocation_request(
     # minted against without parsing a prompt. Additive + optional: every
     # other role mints with None and legacy rows read as None.
     implementation_ids: dict[str, str] | None = None,
+    context_source_paths: list[str] | None = None,
 ) -> dict[str, Any]:
     # Plan ARIA-V5 §3c v2 (B1 fix) — ``plan_revision_hash`` binds the
     # envelope to a specific plan revision so I-V5.1-03 can assert
@@ -1045,49 +1227,31 @@ def create_agent_invocation_request(
                 raise GovernanceError(
                     "create_agent_invocation_request_evidence_refs_must_be_list_of_strings"
                 )
-    # E17-b — pack the excerpts BEFORE the budget audit, not after the row is
-    # built, because quoted file bytes are the largest thing this envelope
-    # carries and a cap that cannot see them is not a cap. The audit gets the
-    # excerpts as a distinct component (evidence_excerpts_token_estimate) so
-    # the cost of this phase stays separable from the prompt's own text.
-    evidence_excerpts = _evidence_excerpts_for_refs(
-        evidence_refs, repo_root=context_repo_root
-    )
-    # Context SSoT hardening: every request gets a budget audit row. The
-    # historical cap-enforcement behaviour remains controlled by the explicit
-    # kwarg so legacy tests/calibration can still create oversized packets,
-    # but the replay record is no longer optional.
-    budget_request = {
-        "suggested_prompt": suggested_prompt,
-        "must_satisfy": list(must_satisfy or []),
-        "allowed_scope": list(allowed_scope or []),
-        "evidence_refs": list(evidence_refs or []),
-        "evidence_excerpts": evidence_excerpts or [],
-    }
-    from .context_budget_gate import (
-        audit_dispatch_context as _audit_ctx,
-        enforce_context_budget as _enforce_ctx,
-    )
-    if enforce_context_budget:
-        budget_audit = _enforce_ctx(
-            request=budget_request,
-            target_agent=target_agent,
-            role=role,
-            base_dir=base_dir,
-            repo_root=context_repo_root,
-            context_window_tokens_override=context_window_tokens_override,
-            role_cap_override=role_cap_override,
-        )
-    else:
-        budget_audit = _audit_ctx(
-            request=budget_request,
-            target_agent=target_agent,
-            role=role,
-            base_dir=base_dir,
-            repo_root=context_repo_root,
-            context_window_tokens_override=context_window_tokens_override,
-            role_cap_override=role_cap_override,
-        )
+    # Retrieval hints are distinct from evidence and authorization. Existing
+    # callers omit this field and retain their original identity recipe.
+    context_source_paths_status = None
+    if context_source_paths is not None:
+        from .plan_convergence import MAX_AFFECTED_PATHS
+        from .snapshot import _scoped_input_path
+        if not isinstance(context_source_paths, list) or len(context_source_paths) > MAX_AFFECTED_PATHS:
+            raise GovernanceError("context_source_paths_must_be_bounded_repo_paths")
+        # Historical affected surfaces can include broad expressions. They
+        # remain valid plan data, but only bounded literal paths are retrieval
+        # inputs. Bound each input before normalization, sorting or hashing.
+        supplied_count = len(context_source_paths)
+        literal_paths = [_scoped_input_path(path) for path in context_source_paths]
+        omitted_count = literal_paths.count(None)
+        accepted_paths = sorted({path for path in literal_paths if path is not None})
+        if omitted_count:
+            context_source_paths_status = {
+                "status": "partial", "reason": "unsupported_literal_hints",
+                "supplied_count": supplied_count, "accepted_count": len(accepted_paths),
+                "omitted_count": omitted_count,
+            }
+            duplicates = supplied_count - omitted_count - len(accepted_paths)
+            if duplicates:
+                context_source_paths_status["deduplicated_count"] = duplicates
+        context_source_paths = accepted_paths
     request_id = _request_id(
         target_agent,
         role,
@@ -1108,11 +1272,18 @@ def create_agent_invocation_request(
             "shadow_eval_proof": shadow_eval_proof or {},
             "tool_id": tool_id,
             "target_sha": target_sha,
+            **({"context_source_paths": context_source_paths} if context_source_paths is not None else {}),
+            **({"context_source_paths_status": context_source_paths_status} if context_source_paths_status is not None else {}),
         },
     )
     existing_request = _find_request_by_id(root, request_id)
     if existing_request is not None:
         return existing_request
+    # A sealed request owns its original context and audit. Only a new
+    # identity acquires current optional inputs or captures budget costs.
+    evidence_excerpts = _evidence_excerpts_for_refs(
+        evidence_refs, repo_root=context_repo_root, target_sha=target_sha,
+    )
     expected = expected_output_path or _default_expected_output_path(root, request_id, convergence_id, round_number, role)
     row: dict[str, Any] = {
         "$schema": "aria/agent-invocation-request/v1",
@@ -1169,7 +1340,12 @@ def create_agent_invocation_request(
     # and what tends to change with it. Absent when there is no map, so a
     # request never carries an empty projection that reads as "the map knows
     # nothing about these files".
-    repository_map = _repository_map_for_refs(evidence_refs, base_dir=root)
+    if context_source_paths is not None:
+        row["context_source_paths"] = context_source_paths
+    if context_source_paths_status is not None:
+        row["context_source_paths_status"] = context_source_paths_status
+    repository_map = _repository_map_for_refs(evidence_refs, base_dir=root, context_repo_root=context_repo_root,
+                                              cycle_id=cycle_id, target_sha=target_sha, context_source_paths=context_source_paths)
     if repository_map is not None:
         row["repository_map"] = repository_map
     # Plan "ARIA Sinir Sistemi" FAZ 4 — the learning loop's read side. Both
@@ -1189,9 +1365,9 @@ def create_agent_invocation_request(
     decision_memory = _decision_memory_for_request(row, base_dir=root)
     if decision_memory is not None:
         row["decision_memory"] = decision_memory
-    # E17-b — the quoted evidence lines, packed above so the budget audit
-    # could see them. Attached here beside the other mint-time context
-    # sections; absent when nothing was packed, so a request never carries an
+    # E17-b — attach quoted evidence beside the other captured sections.
+    # The final render audit counts their text once; absent when nothing
+    # was packed, so a request never carries an
     # empty excerpt set that reads as "these refs quote to nothing".
     if evidence_excerpts is not None:
         row["evidence_excerpts"] = evidence_excerpts
@@ -1231,49 +1407,61 @@ def create_agent_invocation_request(
         row["judgment_group_id"] = judgment_group_id
     if finding_fingerprint is not None:
         row["finding_fingerprint"] = finding_fingerprint
-    rendered_prompt = render_invocation_prompt(row)
-    context = build_invocation_context(
-        request_id=request_id,
-        target_agent=target_agent,
-        role=role,
-        suggested_prompt=suggested_prompt,
-        must_satisfy=must_satisfy,
-        allowed_scope=allowed_scope,
-        evidence_refs=evidence_refs,
-        budget_audit_hash=str(budget_audit.get("ledger_hash") or ""),
-        context_repo_root=context_repo_root,
-        context_window_tokens=int(budget_audit.get("context_window_tokens") or 0) or None,
-        target_sha=target_sha,
-        rendered_prompt=rendered_prompt,
+    from .context_budget_gate import (
+        audit_dispatch_context as _audit_ctx,
+        _persist_context_audit,
+        CONTEXT_AUDITS_FILENAME,
     )
-    prompt_row = {
-        "schema_version": 1,
-        "row_id": f"prompt:{request_id}",
-        "row_type": "prompt",
-        "recorded_at": utc_now(),
-        "request_id": request_id,
-        "context_hash": context["context_hash"],
-        "prompt_hash": _sha256_text(rendered_prompt),
-        "prompt_text": rendered_prompt,
-    }
-    row["context_hash"] = context["context_hash"]
-    row["prompt_hash"] = prompt_row["prompt_hash"]
+    captured_audit = _audit_ctx(
+        request="", target_agent=target_agent, role=role, base_dir=root,
+        repo_root=context_repo_root, context_window_tokens_override=context_window_tokens_override,
+        role_cap_override=role_cap_override, write_ledger=False,
+    )
+    rendered_prompt, prepared_audit = _pack_self_feature_context(row, captured_audit)
     requests_path = root / "agent-invocations" / "requests.jsonl"
     contexts_path = _contexts_path(root)
     prompts_path = _prompts_ledger_path(root)
-    with state_transaction([contexts_path, prompts_path, requests_path]) as txn:
+    # Include every final writer up front. The winning request is checked
+    # before audit persistence/enforcement; a competing candidate cannot
+    # replace its sealed context or reject its already authorized publication.
+    with state_transaction([contexts_path, prompts_path, requests_path,
+                            root / CONTEXT_AUDITS_FILENAME, root / "governance.jsonl"]) as txn:
         existing_locked = next(
-            (
-                item for item in reversed(txn.load_declared_jsonl(
-                    requests_path,
-                    expected_surface="agent_invocation_requests",
-                ))
-                if item.get("request_id") == request_id
-            ),
-            None,
+            (item for item in reversed(txn.load_declared_jsonl(
+                requests_path, expected_surface="agent_invocation_requests",
+            )) if item.get("request_id") == request_id), None,
         )
         if existing_locked is not None:
             return existing_locked
+        budget_audit = _persist_context_audit(
+            prepared_audit, base_dir=root, transaction=txn, enforce=enforce_context_budget,
+        )
+        context = build_invocation_context(
+            request_id=request_id,
+            target_agent=target_agent,
+            role=role,
+            suggested_prompt=suggested_prompt,
+            must_satisfy=must_satisfy,
+            allowed_scope=allowed_scope,
+            evidence_refs=evidence_refs,
+            budget_audit_hash=str(budget_audit.get("ledger_hash") or ""),
+            context_repo_root=context_repo_root,
+            context_window_tokens=int(budget_audit.get("context_window_tokens") or 0) or None,
+            target_sha=target_sha,
+            rendered_prompt=rendered_prompt,
+        )
+        prompt_row = {
+            "schema_version": 1,
+            "row_id": f"prompt:{request_id}",
+            "row_type": "prompt",
+            "recorded_at": utc_now(),
+            "request_id": request_id,
+            "context_hash": context["context_hash"],
+            "prompt_hash": _sha256_text(rendered_prompt),
+            "prompt_text": rendered_prompt,
+        }
+        row["context_hash"] = context["context_hash"]
+        row["prompt_hash"] = prompt_row["prompt_hash"]
         stored_context = txn.append_declared_jsonl(
             contexts_path,
             context,
@@ -2021,6 +2209,9 @@ def _request_event_count(rows: list[dict[str, Any]], request_id: str, kind: str)
 # source of these strings; a new harness-fault reason added there without a
 # row here fails test_every_executor_release_reason_is_classified.
 HARNESS_FAULT_RELEASE_REASONS: frozenset[str] = frozenset({
+    "native_runtime_admission_unavailable",
+    "native_runtime_execution_unavailable",
+    "native_runtime_task_binding_unavailable",
     "claude_cli_auth_failure",
     "claude_spawn_refused",
     "dispatch_budget_refused",
@@ -2893,6 +3084,8 @@ _FUSED_ENVELOPE_KEYS: tuple[str, ...] = (
     "context_hash",
     "prompt_hash",
     "repository_map",
+    "context_source_paths",
+    "context_source_paths_status",
     # FAZ 4 — mint-time learned context + intent. The renderer reads both,
     # so a claim response that dropped either would re-render different text
     # and fail the prompt-hash binding; carrying them here keeps the fused
@@ -2962,6 +3155,60 @@ def _assert_envelope_reproduces_binding(envelope: dict[str, Any]) -> None:
         )
 
 
+def _implementation_scope_conflict(
+    request: dict[str, Any], *, requests: list[dict[str, Any]],
+    claims: list[dict[str, Any]], results: list[dict[str, Any]], now: datetime,
+) -> dict[str, str] | None:
+    """Compare implementation scopes using existing native lease ownership.
+
+    Inputs are canonical rows captured by the caller. A prepared submission
+    retains ownership until its result commits; mere lease expiry cannot free
+    that pending operation. Other roles keep their existing admission rules.
+    """
+    if request.get("role") != "implementation":
+        return None
+    from .implementation_safety import implementation_allowed_scope as _allowed_scope
+
+    def paths(row: dict[str, Any]) -> list[str]:
+        declared = row.get("allowed_scope")
+        if not isinstance(declared, list) or not declared or any(
+            not isinstance(path, str) for path in declared
+        ):
+            raise GovernanceError("implementation_scope_unavailable")
+        normalized, refused = _allowed_scope(declared)
+        if refused or not normalized:
+            raise GovernanceError("implementation_scope_unavailable")
+        return normalized
+
+    wanted = paths(request)
+    for claim in claims:
+        if claim.get("event") != "claimed" or claim.get("request_id") == request.get("request_id"):
+            continue
+        owners = [row for row in requests if row.get("request_id") == claim.get("request_id")]
+        if len(owners) != 1:
+            raise GovernanceError("implementation_scope_owner_unavailable")
+        owner = owners[0]
+        if owner.get("role") != "implementation":
+            continue
+        claim_id = claim["claim_id"]
+        if _claim_has_result(results, claim_id):
+            continue
+        if not _claim_has_prepared_submission(claims, claim_id):
+            if _claim_terminal_event(claims, claim_id) is not None:
+                continue
+            if _latest_lease_expiry(claims, claim_id) < now:
+                continue
+        for held in paths(owner):
+            for proposed in wanted:
+                if held == proposed or held.startswith(proposed + "/") or proposed.startswith(held + "/"):
+                    return {
+                        "request_id": owner["request_id"], "claim_id": claim_id,
+                        "claim_row_hash": claim["ledger_hash"], "held_scope": held,
+                        "proposed_scope": proposed,
+                    }
+    return None
+
+
 def claim_request(
     *,
     request_id: str,
@@ -3016,6 +3263,25 @@ def claim_request(
         # response that cannot is one the executor is obliged to refuse, and
         # refusing after the claim exists is how the queue wedged.
         _assert_envelope_reproduces_binding(request_for_check)
+        if request_for_check.get("role") == "implementation":
+            conflict = _implementation_scope_conflict(
+                request_for_check,
+                requests=load_declared_jsonl(
+                    root / "agent-invocations" / "requests.jsonl",
+                    expected_surface="agent_invocation_requests",
+                ),
+                claims=load_declared_jsonl(claims_path, expected_surface="agent_invocation_claims"),
+                results=load_declared_jsonl(
+                    root / "agent-invocations" / "results.jsonl",
+                    expected_surface="agent_invocation_results",
+                ),
+                now=_utc_now_dt(),
+            )
+            if conflict is not None:
+                raise GovernanceError(
+                    "implementation_scope_locked: "
+                    f"request_id={conflict['request_id']} claim_id={conflict['claim_id']}"
+                )
         # Plan 024 §H-1 — defense-in-depth CAS recheck. After the lock
         # fires the state is re-derived; if it changed (e.g. another
         # worker released or stale-marked the request between our read
@@ -3319,6 +3585,31 @@ def _validate_claim_submission_authority(
             "be accepted after expiry"
         )
     return claim_event, latest_expiry
+
+
+def _validate_claim_dispatch_authority(
+    *, requests: list[dict[str, Any]], claims: list[dict[str, Any]], results: list[dict[str, Any]],
+    request_id: str, request_ledger_hash: str, claim_id: str, claim_ledger_hash: str,
+    agent_id: str, lease_token: str, now: datetime,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Bind dispatch to the original request and currently live lease owner.
+
+    Admission and attempt reservation use the same invocation authority.
+    Callers hold their existing state transaction while checking these rows.
+    """
+    matches = [row for row in requests if row.get("request_id") == request_id
+               and row.get("ledger_hash") == request_ledger_hash]
+    if len(matches) != 1:
+        raise GovernanceError("native_runtime_reservation_request_binding_unavailable")
+    claim, _expiry = _validate_claim_submission_authority(
+        claims, claim_id=claim_id, agent_id=agent_id, lease_token=lease_token, now=now,
+    )
+    _assert_lifecycle_mutation_allowed(claims=claims, results=results, claim_id=claim_id)
+    latest = _latest_claim_row(claims, request_id)
+    if (claim.get("request_id") != request_id or claim.get("ledger_hash") != claim_ledger_hash
+            or latest is None or latest.get("claim_id") != claim_id):
+        raise GovernanceError("native_runtime_reservation_claim_binding_unavailable")
+    return matches[0], claim
 
 
 def release_claim(

@@ -19,6 +19,8 @@ exactly why the merge gate ignored Lane A's rows.
 from __future__ import annotations
 
 import os
+import json as _json
+import math as _math
 import secrets
 import shlex
 import subprocess
@@ -36,6 +38,8 @@ from .validation_runs_ledger import (
     record_validation_run,
     validation_run_log_dir,
 )
+from .snapshot import _capture_scoped_files, _read_scoped_working_file, _scoped_input_path, _scoped_input_digest, _sha256 as _input_digest
+from .workspace import _canonical_identity_observation
 
 
 ALLOWED_COMMANDS = (
@@ -128,6 +132,7 @@ def run_validation_commands(
     validation_plan_id: str | None = None,
     timeout_ms: int = 120_000,
     require_clean_worktree: bool = True,
+    input_scope: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Execute allowlisted commands and record each through the ledger.
 
@@ -157,9 +162,11 @@ def run_validation_commands(
     if not root.exists() or not root.is_dir():
         raise GovernanceError(f"workspace root does not exist: {workspace_root}")
     _assert_change_id_resolves(change_id, base_dir=base_dir)
-    _assert_commit_sha_is_workspace_head(root, commit_sha)
+    admitted_commit = _assert_commit_sha_is_workspace_head(root, commit_sha)
     if require_clean_worktree and _dirty_worktree(root):
         raise GovernanceError("validation requires a clean git worktree")
+    scoped_files = _normalize_input_scope(input_scope) if input_scope is not None else None
+    execution_profile = _normalize_execution_profile(input_scope) if input_scope is not None else None
 
     runs = []
     for index, command in enumerate(commands):
@@ -176,6 +183,9 @@ def run_validation_commands(
                 change_author_identity=change_author_identity,
                 ordinal=index,
                 timeout_ms=timeout_ms,
+                scoped_files=scoped_files,
+                admitted_commit=admitted_commit,
+                execution_profile=execution_profile,
             ),
         )
     payload = {
@@ -228,7 +238,7 @@ def _rev_parse(root: Path, rev: str) -> str | None:
     return completed.stdout.strip() or None
 
 
-def _assert_commit_sha_is_workspace_head(root: Path, commit_sha: str) -> None:
+def _assert_commit_sha_is_workspace_head(root: Path, commit_sha: str) -> str:
     """Refuse a commit_sha that is not the commit the commands will run at.
 
     ORPHAN-CRITICAL-728 — the check used to stop at "does this sha resolve".
@@ -256,6 +266,7 @@ def _assert_commit_sha_is_workspace_head(root: Path, commit_sha: str) -> None:
             f"HEAD={head} but the caller named {claimed}; check the intended "
             f"commit out before recording evidence against it"
         )
+    return head
 
 
 def compare_validation_groups(
@@ -371,8 +382,38 @@ def _run_one(
     change_author_identity: str | None,
     ordinal: int,
     timeout_ms: int,
+    scoped_files: dict[str, list[str]] | None = None,
+    admitted_commit: str | None = None,
+    execution_profile: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     argv, env_updates = parse_allowed_command(command)
+    capture_started_at = utc_now()
+    paths = sorted({p for group in scoped_files.values() for p in group}) if scoped_files is not None else []
+    selected_profile = execution_profile is not None and bool(_unittest_selectors(argv))
+    reserved_bytes = 4 * 1024 * 1024 if selected_profile else 0
+    before = _capture_scoped_files(workspace_root, paths, byte_budget=16 * 1024 * 1024 - reserved_bytes) if scoped_files is not None else None
+    observer_hash = None
+    observer_bytes = 0
+    observer_paths = 0
+    child_path_limit = 0
+    spawned_argv = argv
+    receipt_read = receipt_write = None
+    receipt_limit = 0
+    receipt = None
+    observation_diagnostics: list[str] = []
+    observer_deadline = time.monotonic() + 0.250 if selected_profile else None
+    child_time_budget = 0.0
+    observed = None
+    if selected_profile:
+        if len(paths) < 256:
+            observed, _body, observer_bytes = _read_scoped_working_file(
+                Path(__file__).parent, "_validation_unittest_child.py",
+                byte_budget=16 * 1024 * 1024 - reserved_bytes - before["bytes_read"],
+                deadline_monotonic=observer_deadline,
+            )
+            observer_paths = 1
+            observer_hash = observed.get("content_hash") if observed["status"] == "available" else None
+        child_path_limit = min(16, 256 - len(paths) - observer_paths)
     started_at = utc_now()
     started = time.monotonic()
     stdout = ""
@@ -380,8 +421,32 @@ def _run_one(
     exit_code: int | None = None
     timed_out = False
     try:
+        spawn_options = {}
+        if selected_profile:
+            try:
+                receipt_read, receipt_write = os.pipe()
+                os.set_blocking(receipt_read, False)
+                os.set_blocking(receipt_write, False)
+                receipt_limit = min(4096, os.fpathconf(receipt_write, "PC_PIPE_BUF"))
+                spawned_argv = [argv[0], str(Path(__file__).with_name("_validation_unittest_child.py")),
+                                str(receipt_write), str(reserved_bytes), str(child_path_limit), str(receipt_limit),
+                                _canonical_input_json(execution_profile["modules"]), "", "--", *argv[3:]]
+                spawn_options["pass_fds"] = (receipt_write,)
+                child_time_budget = max(0.0, observer_deadline - time.monotonic())
+                if observed is not None and observed.get("reason") == "qualification_deadline":
+                    child_time_budget = 0.0
+                spawned_argv[7] = str(child_time_budget)
+            except OSError:
+                # The command has not started. Optional observation may fall
+                # back here only; never re-execute after an attempted spawn.
+                observation_diagnostics.append("receipt_setup_unavailable")
+                _close_observation_fd(receipt_write, "write", observation_diagnostics)
+                _close_observation_fd(receipt_read, "read", observation_diagnostics)
+                receipt_read = receipt_write = None
+                spawned_argv = argv
+                spawn_options = {}
         completed = subprocess.run(
-            argv,
+            spawned_argv,
             cwd=workspace_root,
             env={**os.environ, **env_updates},
             capture_output=True,
@@ -389,6 +454,7 @@ def _run_one(
             timeout=timeout_ms / 1000,
             check=False,
             shell=False,
+            **spawn_options,
         )
         stdout = completed.stdout or ""
         stderr = completed.stderr or ""
@@ -397,16 +463,47 @@ def _run_one(
         timed_out = True
         stdout = _decode_timeout_stream(exc.stdout)
         stderr = _decode_timeout_stream(exc.stderr)
+    finally:
+        receipt_started = time.monotonic()
+        _close_observation_fd(receipt_write, "write", observation_diagnostics)
+        if receipt_read is not None:
+            try:
+                receipt = _read_unittest_receipt(receipt_read, receipt_limit, reserved_bytes, child_path_limit)
+            finally:
+                _close_observation_fd(receipt_read, "read", observation_diagnostics)
+        receipt_elapsed = max(0.0, time.monotonic() - receipt_started)
     duration_ms = int(round((time.monotonic() - started) * 1000))
+    binding = None
+    manifest = None
+    if scoped_files is not None:
+        charged_child_bytes = receipt["work"]["bytes_read"] if receipt is not None else reserved_bytes
+        after = _capture_scoped_files(workspace_root, paths, byte_budget=16 * 1024 * 1024 - before["bytes_read"] - observer_bytes - charged_child_bytes)
+        binding, manifest = _executed_input_binding(
+            workspace_root=workspace_root, admitted_commit=admitted_commit,
+            roles=scoped_files, paths=paths, argv=argv, before=before, after=after,
+            capture_started_at=capture_started_at,
+        )
+        if execution_profile is not None:
+            _attach_environment_observation(
+                binding, manifest, argv=argv, spawned_argv=spawned_argv, receipt=receipt,
+                observer_hash=observer_hash, selected=selected_profile,
+                reserved_bytes=reserved_bytes, charged_bytes=charged_child_bytes,
+                observer_bytes=observer_bytes, observer_paths=observer_paths,
+                child_path_limit=child_path_limit,
+                diagnostics=observation_diagnostics, child_time_budget=child_time_budget,
+                observer_source=observed,
+                receipt_elapsed=receipt_elapsed,
+            )
     log_path = _write_run_log(
         base_dir=base_dir,
         cycle_id=cycle_id,
         validation_plan_id=validation_plan_id,
         ordinal=ordinal,
         command=command,
-        argv=argv,
+        argv=spawned_argv,
         stdout=stdout,
         stderr=stderr,
+        input_manifest=manifest,
     )
     # E21-a — ONE writer for the validation_runs surface. The argv that
     # actually executed lives in the hash-bound log rather than as a
@@ -425,6 +522,7 @@ def _run_one(
         started_at=started_at,
         completed_at=utc_now(),
         base_dir=base_dir,
+        **({"input_binding": binding} if binding is not None else {}),
     )
 
 
@@ -438,6 +536,7 @@ def _write_run_log(
     argv: list[str],
     stdout: str,
     stderr: str,
+    input_manifest: dict[str, Any] | None = None,
 ) -> Path:
     """Persist the run's output on the declared log artifact surface.
 
@@ -459,12 +558,229 @@ def _write_run_log(
                 stdout,
                 "--- stderr ---",
                 stderr,
+                *(["input_manifest: " + _canonical_input_json(input_manifest)] if input_manifest is not None else []),
                 "",
             ],
         ),
         encoding="utf-8",
     )
     return path
+
+
+def _normalize_input_scope(scope: dict[str, Any]) -> dict[str, list[str]]:
+    if not isinstance(scope, dict) or type(scope.get("schema_version")) is not int or scope["schema_version"] not in (1, 2):
+        raise GovernanceError("validation_input_scope_invalid")
+    expected = {"schema_version", "files"} if scope["schema_version"] == 1 else {"schema_version", "files", "execution_profile"}
+    if set(scope) != expected:
+        raise GovernanceError("validation_input_scope_invalid")
+    files = scope["files"]
+    if not isinstance(files, dict) or len(files) > 4 or not set(files) <= {"source", "test", "config", "dependency"}:
+        raise GovernanceError("validation_input_scope_roles_invalid")
+    result = {}
+    for role in ("source", "test", "config", "dependency"):
+        values = files.get(role, [])
+        if not isinstance(values, list) or len(values) > 256:
+            raise GovernanceError("validation_input_scope_path_limit")
+        normalized = []
+        for value in values:
+            path = _scoped_input_path(value)
+            if path is None:
+                raise GovernanceError("validation_input_scope_path_invalid")
+            normalized.append(path)
+        result[role] = sorted(set(normalized))
+    if len({p for values in result.values() for p in values}) > 256:
+        raise GovernanceError("validation_input_scope_path_limit")
+    return result
+
+
+def _normalize_execution_profile(scope: dict[str, Any]) -> dict[str, Any] | None:
+    if scope["schema_version"] == 1:
+        return None
+    profile = scope["execution_profile"]
+    if type(profile) is not dict or set(profile) != {"kind", "modules"} or profile["kind"] != "python_unittest_public_v1":
+        raise GovernanceError("validation_execution_profile_invalid")
+    modules = profile["modules"]
+    if type(modules) is not list or len(modules) > 8:
+        raise GovernanceError("validation_execution_profile_invalid")
+    for name in modules:
+        if type(name) is not str or not 0 < len(name) <= 128 or len(name.encode("utf-8", errors="replace")) > 128 or not all(part.isidentifier() for part in name.split(".")):
+            raise GovernanceError("validation_execution_profile_invalid")
+    return {"kind": profile["kind"], "modules": sorted(set(modules))}
+
+
+def _canonical_input_scope(scope: dict[str, Any]) -> dict[str, Any]:
+    """Copy a descriptor through the existing execution-input owners."""
+    files = _normalize_input_scope(scope)
+    profile = _normalize_execution_profile(scope)
+    result = {"schema_version": scope["schema_version"], "files": files}
+    if profile is not None:
+        result["execution_profile"] = profile
+    return result
+
+
+def _input_metadata_within_limit(value: dict[str, Any], *, limit: int = 65_536) -> bool:
+    """Bound an optional carrier without retaining a full encoded string.
+
+    Recipe/selection metadata uses this cap; direct validation descriptors
+    keep their existing path/module limits and do not acquire this cap.
+    """
+    remaining = limit
+    encoder = _json.JSONEncoder(sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    for chunk in encoder.iterencode(value):
+        size = len(chunk.encode("utf-8"))
+        if size > remaining:
+            return False
+        remaining -= size
+    return True
+
+
+def _unittest_selectors(argv: list[str]) -> list[str]:
+    if argv[:3] == ["python3", "-m", "unittest"] and len(argv) <= 260:
+        candidates = [part for part in argv[3:] if part not in ("-v", "-q", "--verbose", "--quiet")]
+        if candidates and len(candidates) <= 256 and all(len(part) <= 512 and all(segment.isidentifier() for segment in part.split(".")) and part != "discover" for part in candidates):
+            return candidates
+    return []
+
+
+def _close_observation_fd(fd: int | None, end: str, diagnostics: list[str]) -> None:
+    if fd is None:
+        return
+    try:
+        os.close(fd)
+    except OSError:
+        # No retry: an interrupted close may already have released the fd.
+        diagnostics.append("receipt_" + end + "_close_unavailable")
+
+
+def _read_unittest_receipt(fd: int, limit: int, byte_budget: int, path_budget: int) -> dict[str, Any] | None:
+    try:
+        raw = os.read(fd, limit)
+        value = _json.loads(raw)
+        if type(value) is not dict or value.get("schema_version") != 1 or value.get("status") not in ("available", "unknown"):
+            return None
+        work = value.get("work")
+        if type(work) is not dict or type(work.get("bytes_read")) is not int or not 0 <= work["bytes_read"] <= byte_budget or type(work.get("content_paths")) is not int or not 0 <= work["content_paths"] <= path_budget:
+            return None
+        elapsed = work.get("observation_elapsed_seconds")
+        if type(elapsed) not in (int, float) or not _math.isfinite(elapsed) or elapsed < 0:
+            return None
+        if value["status"] == "available" and (type(value.get("stable")) is not dict or type(value.get("observation")) is not dict):
+            return None
+        return value
+    except (OSError, ValueError, UnicodeError):
+        return None
+
+
+def _attach_environment_observation(
+    binding: dict[str, Any], manifest: dict[str, Any], *, argv: list[str], spawned_argv: list[str],
+    receipt: dict[str, Any] | None, observer_hash: str | None, selected: bool,
+    reserved_bytes: int, charged_bytes: int, observer_bytes: int, observer_paths: int, child_path_limit: int,
+    diagnostics: list[str], child_time_budget: float, observer_source: dict[str, Any] | None,
+    receipt_elapsed: float,
+) -> None:
+    child_elapsed = receipt["work"]["observation_elapsed_seconds"] if receipt is not None else child_time_budget
+    remaining = max(0.0, child_time_budget - child_elapsed - receipt_elapsed)
+    deadline = time.monotonic() + remaining
+    available = receipt is not None and receipt["status"] == "available" and remaining > 0
+    facts = receipt["stable"] if available else {"interpreter": None, "public_environment": {}, "modules": {}}
+    stable = {
+        "schema_version": 1, "profile_kind": "python_unittest_public_v1", "observer_source_hash": observer_hash,
+        "interpreter": facts["interpreter"], "observation_phase": "post_run",
+        "public_environment": facts["public_environment"], "modules": facts["modules"],
+        "config_digest": binding["config_digest"],
+        "control_profile": {"status": "unknown", "reason": "bounded_profile_observation_pending"},
+        "availability": {"interpreter": "observed_same_child" if available else "unknown", "effective_environment": "unknown",
+                         "installed_dependencies": "unknown", "effective_configuration": "unknown"},
+    }
+    reason = "unsupported_command_profile" if not selected else receipt.get("reason", "receipt_unavailable") if receipt is not None else "receipt_unavailable"
+    if "receipt_setup_unavailable" in diagnostics:
+        reason = "receipt_setup_unavailable"
+    elif receipt is not None and receipt["status"] == "available" and not available:
+        reason = "observation_deadline"
+    manifest["environment"] = {
+        "schema_version": 1, "requested_argv": argv, "spawned_argv": spawned_argv,
+        "unittest_argv": argv[3:] if selected else None, "stable": stable,
+        "observation": receipt["observation"] if available else {"status": "unknown", "reason": reason, "phase": "post_run"},
+        "diagnostics": diagnostics, "observer_source": observer_source,
+        "work": {"child_reserved_bytes": reserved_bytes, "child_charged_bytes": charged_bytes,
+                 "child_actual_bytes": receipt["work"]["bytes_read"] if receipt is not None else None,
+                 "child_path_limit": child_path_limit, "child_content_paths": receipt["work"]["content_paths"] if receipt is not None else None,
+                 "observer_bytes": observer_bytes, "observer_content_paths": observer_paths,
+                 "metadata_budget_ms": 250, "child_budget_ms": child_time_budget * 1000,
+                 "child_observation_elapsed_ms": child_elapsed * 1000 if receipt is not None else None,
+                 "child_charged_ms": child_elapsed * 1000,
+                 "parent_receipt_elapsed_ms": receipt_elapsed * 1000,
+                 "remaining_before_final_ms": remaining * 1000,
+                 "timing_scope": "parent_identity_setup_child_post_run_preparation_parent_receipt_environment_finalization"},
+    }
+    environment = manifest["environment"]
+    digest = _input_digest(_canonical_input_json(stable).encode())
+    # Check the bounded detailed ENV object as well as its comparison digest.
+    # Existing S2 capture/binding and later native log persistence are outside
+    # this active observation allowance; test wall time never enters it.
+    _canonical_input_json(environment)
+    if available and time.monotonic() >= deadline:
+        stable.update(interpreter=None, public_environment={}, modules={})
+        stable["availability"]["interpreter"] = "unknown"
+        environment["observation"] = {"status": "unknown", "reason": "observation_deadline", "phase": "post_run"}
+        digest = _input_digest(_canonical_input_json(stable).encode())
+    binding["runner_environment_digest"] = digest
+    binding["availability"]["runner_environment"] = {"status": "unknown", "reason": "partial_child_observation_only"}
+
+
+def _canonical_input_json(value: Any) -> str:
+    return _json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+
+
+def _executed_input_binding(
+    *, workspace_root: Path, admitted_commit: str | None,
+    roles: dict[str, list[str]], paths: list[str], argv: list[str],
+    before: dict[str, Any], after: dict[str, Any],
+    capture_started_at: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    availability = {}
+    digests = {}
+    before_by_path = {row["path"]: row for row in before["files"]}
+    for role, dimension in (("source", "source"), ("test", "test_content"), ("config", "config"), ("dependency", "dependency")):
+        rows = [before_by_path[p] for p in roles[role]]
+        complete = bool(rows) and all(row["status"] == "available" for row in rows)
+        digests[dimension + "_digest"] = _scoped_input_digest(rows)
+        availability[dimension] = {"status": "available" if complete else "unknown", "reason": "explicit_scope_only" if complete else "inputs_missing_unreadable_or_unspecified"}
+    availability["dependency"] = {"status": "unknown", "reason": "installed_dependency_closure_uncaptured"}
+    selectors = _unittest_selectors(argv)
+    selection = {"schema_version": 1, "argv": argv if selectors else None, "selectors": selectors}
+    availability["test_selection"] = {"status": "available" if selectors else "unknown", "reason": "explicit_selector_request_observed" if selectors else "dynamic_selection_uncaptured"}
+    availability["selection_closure"] = {"status": "unknown", "reason": "actual_collection_and_load_tests_uncaptured"}
+    availability["configuration_closure"] = {"status": "unknown", "reason": "effective_configuration_uncaptured"}
+    availability["runner_environment"] = {"status": "unknown", "reason": "inherited_environment_uncaptured"}
+    availability["base_commit_sha"] = {"status": "available", "reason": "workspace_head_at_batch_admission"}
+    repo_identity = None
+    try:
+        identity, identity_source = _canonical_identity_observation(workspace_root)
+        if identity_source["source"] in ("remote_url", "root_commit_sha"):
+            repo_identity = identity
+        identity_reason = "canonical_identity_source:" + identity_source["source"]
+    except OSError:
+        identity_reason = "repository_identity_unavailable"
+    availability["repo_identity"] = {"status": "available" if repo_identity is not None else "unknown", "reason": identity_reason}
+    for dimension in ("snapshot_hash", "repo_state_id"):
+        availability[dimension] = {"status": "unknown", "reason": "full_snapshot_not_observed"}
+    all_available = bool(paths) and all(row["status"] == "available" for observation in (before, after) for row in observation["files"])
+    stability = "unchanged" if before["files"] == after["files"] else "changed"
+    if not all_available:
+        stability = "unknown"
+    binding = {
+        "schema_version": 1, "repo_identity": repo_identity,
+        "snapshot_mode": "working_tree", "base_commit_sha": admitted_commit,
+        "repo_state_id": None, "snapshot_hash": None, "scope_paths": paths,
+        **digests,
+        "test_selection_digest": _input_digest(_canonical_input_json(selection).encode()) if selectors else None,
+        "runner_environment_digest": None, "source_stability": stability,
+        "capture_started_at": capture_started_at, "capture_completed_at": utc_now(),
+        "availability": availability,
+    }
+    manifest = {"schema_version": 1, "roles": roles, "before": before, "after": after, "selection": selection}
+    return binding, manifest
 
 
 def _log_slug(value: str) -> str:

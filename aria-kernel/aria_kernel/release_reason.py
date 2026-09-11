@@ -21,6 +21,8 @@ from dataclasses import dataclass
 
 # Closed vocabulary. Adding a code is a one-way door (ledger-anchored).
 RELEASE_REASON_CODES: tuple[str, ...] = (
+    "NATIVE_RUNTIME_ADMISSION_UNAVAILABLE", "NATIVE_RUNTIME_EXECUTION_UNAVAILABLE",
+    "NATIVE_RUNTIME_TASK_BINDING_UNAVAILABLE",
     "CLAUDE_CLI_AUTH_FAILURE", "CLAUDE_SPAWN_REFUSED", "CLAUDE_CLI_EXIT", "DISPATCH_BUDGET_REFUSED",
     "JUDGE_VERDICT_CONTRACT_VIOLATION", "KERNEL_PROMPT_RENDERER_UNAVAILABLE",
     "PLANNER_DISPATCH_EXECUTOR_TIMEOUT", "PLANNER_DISPATCH_EXECUTOR_EXIT_NONZERO",
@@ -33,6 +35,9 @@ RELEASE_REASON_CODES: tuple[str, ...] = (
 FAULT_DOMAINS: tuple[str, ...] = ("harness", "request", "operator", "unclassified")
 
 _LITERALS: dict[str, tuple[str, str]] = {
+    "native_runtime_admission_unavailable": ("NATIVE_RUNTIME_ADMISSION_UNAVAILABLE", "harness"),
+    "native_runtime_execution_unavailable": ("NATIVE_RUNTIME_EXECUTION_UNAVAILABLE", "harness"),
+    "native_runtime_task_binding_unavailable": ("NATIVE_RUNTIME_TASK_BINDING_UNAVAILABLE", "harness"),
     "claude_cli_auth_failure": ("CLAUDE_CLI_AUTH_FAILURE", "harness"),
     "claude_spawn_refused": ("CLAUDE_SPAWN_REFUSED", "harness"),
     "dispatch_budget_refused": ("DISPATCH_BUDGET_REFUSED", "harness"),

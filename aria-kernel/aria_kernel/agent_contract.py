@@ -60,6 +60,8 @@ REQUEST_OPTIONAL_FIELDS = (
     "converged_plan_hash",
     "impact_graph_refs",
     "repository_map",
+    "context_source_paths",
+    "context_source_paths_status",
     "separation_of_duties",
     "round_number",
     "created_at",
@@ -205,6 +207,30 @@ def validate_request(
     # without one.
     if "repository_map" in envelope and not isinstance(envelope["repository_map"], dict):
         raise GovernanceError("agent-request.repository_map must be an object")
+    if "context_source_paths" in envelope:
+        from .plan_convergence import MAX_AFFECTED_PATHS
+        from .snapshot import _scoped_input_path
+        paths = envelope["context_source_paths"]
+        if not isinstance(paths, list) or len(paths) > MAX_AFFECTED_PATHS or any(
+            _scoped_input_path(path, canonical=True) is None for path in paths
+        ):
+            raise GovernanceError("agent-request.context_source_paths must be bounded literal paths")
+        if paths != sorted(set(paths)):
+            raise GovernanceError("agent-request.context_source_paths must be sorted and unique")
+    if "context_source_paths_status" in envelope:
+        if "context_source_paths" not in envelope:
+            raise GovernanceError("agent-request.context_source_paths_status requires context_source_paths")
+        status = envelope["context_source_paths_status"]
+        fields = {"status", "reason", "supplied_count", "accepted_count", "omitted_count"}
+        if not isinstance(status, dict) or not fields <= set(status) or set(status) - fields - {"deduplicated_count"}:
+            raise GovernanceError("agent-request.context_source_paths_status has invalid shape")
+        counts = [status.get(key, 0) for key in ("supplied_count", "accepted_count", "omitted_count", "deduplicated_count")]
+        from .plan_convergence import MAX_AFFECTED_PATHS
+        if (status["status"] != "partial" or status["reason"] != "unsupported_literal_hints"
+                or any(type(count) is not int or not 0 <= count <= MAX_AFFECTED_PATHS for count in counts)
+                or counts[2] == 0 or counts[0] != sum(counts[1:])
+                or counts[1] != len(envelope.get("context_source_paths", []))):
+            raise GovernanceError("agent-request.context_source_paths_status has inconsistent counts")
     if "separation_of_duties" in envelope and not isinstance(
         envelope["separation_of_duties"], dict
     ):

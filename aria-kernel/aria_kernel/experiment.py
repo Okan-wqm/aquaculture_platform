@@ -52,7 +52,7 @@ from typing import Any
 
 from .ledger import append_declared_jsonl, load_declared_jsonl
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
-from .validation import run_validation_commands
+from .validation import _canonical_input_scope, _input_metadata_within_limit, run_validation_commands
 from .validation_runs_ledger import (
     VALIDATION_RUN_STATUSES,
     classify_validation_run_status,
@@ -92,6 +92,13 @@ def observations_path(base_dir: str | Path | None = None) -> Path:
     return ensure_tools_dir(base_dir) / EXPERIMENTS_DIRNAME / "observations.jsonl"
 
 
+def _validated_recipe_input_scope(scope: dict[str, Any]) -> dict[str, Any]:
+    descriptor = _canonical_input_scope(scope)
+    if not _input_metadata_within_limit(descriptor):
+        raise GovernanceError("experiment_recipe_input_scope_metadata_limit")
+    return descriptor
+
+
 def register_recipe(
     *,
     recipe_id: str,
@@ -101,6 +108,7 @@ def register_recipe(
     description: str | None = None,
     base_dir: str | Path | None = None,
     cycle_id: str | None = None,
+    input_scope: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Declare a recipe: a named, deterministic, executable command.
 
@@ -137,6 +145,8 @@ def register_recipe(
         "deterministic": deterministic,
         "description": description,
     }
+    if input_scope is not None:
+        row["input_scope"] = _validated_recipe_input_scope(input_scope)
     return append_declared_jsonl(
         recipes_path(base_dir), row, expected_surface="experiment_recipes",
     )
@@ -155,6 +165,82 @@ def get_recipe(
         if row.get("recipe_id") == recipe_id:
             return row
     raise GovernanceError(f"experiment_recipe_not_found: {recipe_id!r}")
+
+
+def _unknown_input_selection(reason: str, plan_content_hash: str | None) -> dict[str, Any]:
+    return {"schema_version": 1, "status": "unknown", "input_scope": None,
+            "recipe_sources": [], "plan_content_hash": plan_content_hash, "reason": reason}
+
+
+def _recipe_input_source(recipe: dict[str, Any], command: str) -> tuple[dict[str, str] | None, str | None]:
+    recipe_id, ledger_hash = recipe.get("recipe_id"), recipe.get("ledger_hash")
+    try:
+        if (not isinstance(recipe_id, str) or len(recipe_id) > 256 or len(recipe_id.encode("utf-8")) > 256
+                or len(command) > 4096 or len(command.encode("utf-8")) > 4096):
+            return None, "selection_metadata_limit"
+    except UnicodeError:
+        return None, "selection_metadata_limit"
+    if not isinstance(ledger_hash, str) or not _SHA256_PATTERN.fullmatch(ledger_hash):
+        return None, "selection_source_unavailable"
+    return {"recipe_id": recipe_id, "ledger_hash": ledger_hash, "command": command}, None
+
+
+def _add_recipe_input(
+    selection: dict[str, Any] | None, *, recipe: dict[str, Any] | None,
+    command: str, plan_content_hash: str | None = None,
+) -> dict[str, Any] | None:
+    """Accumulate optional inputs from the exact rows command resolution used.
+
+    This bounds the retained selection, not the existing recipe-ledger read.
+    Unknown drops every contributor; it never serves a selected prefix.
+    """
+    if recipe is None or recipe.get("input_scope") is None:
+        return selection
+    if selection is not None and selection["status"] == "unknown":
+        return selection
+
+    def unknown(reason: str) -> dict[str, Any]:
+        return _unknown_input_selection(reason, plan_content_hash)
+
+    source, reason = _recipe_input_source(recipe, command)
+    if reason is not None:
+        return unknown(reason)
+    sources = selection["recipe_sources"] if selection is not None else []
+    if source in sources:
+        return selection
+    row_ids = {(row["recipe_id"], row["ledger_hash"]) for row in sources}
+    if (source["recipe_id"], source["ledger_hash"]) not in row_ids and len(row_ids) >= 8:
+        return unknown("selection_input_limit")
+    try:
+        scope = _canonical_input_scope(recipe["input_scope"])
+    except GovernanceError:
+        return unknown("selection_input_unavailable")
+    old = selection["input_scope"] if selection is not None else None
+    if old is not None:
+        if (scope["schema_version"] != old["schema_version"]
+                or scope.get("execution_profile", {}).get("kind") != old.get("execution_profile", {}).get("kind")):
+            return unknown("selection_incompatible_scope")
+        paths = {path for values in old["files"].values() for path in values}
+        for role, values in scope["files"].items():
+            merged = set(old["files"][role])
+            for path in values:
+                if path not in paths and len(paths) >= 256:
+                    return unknown("selection_input_limit")
+                paths.add(path)
+                merged.add(path)
+            scope["files"][role] = sorted(merged)
+        if "execution_profile" in scope:
+            modules = set(old["execution_profile"]["modules"])
+            for module in scope["execution_profile"]["modules"]:
+                if module not in modules and len(modules) >= 8:
+                    return unknown("selection_input_limit")
+                modules.add(module)
+            scope["execution_profile"]["modules"] = sorted(modules)
+    result = {"schema_version": 1, "status": "selected", "input_scope": scope,
+              "recipe_sources": [*sources, source], "plan_content_hash": plan_content_hash, "reason": None}
+    if not _input_metadata_within_limit(result):
+        return unknown("selection_metadata_limit")
+    return result
 
 
 def register_experiment(
@@ -243,6 +329,7 @@ def run_experiment(
     base_dir: str | Path | None = None,
     cycle_id: str | None = None,
     require_clean_worktree: bool = True,
+    input_scope: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Resolve → execute through the unified path → record the observation.
 
@@ -270,6 +357,12 @@ def run_experiment(
     if not isinstance(runner_identity, str) or not runner_identity.strip():
         raise GovernanceError("experiment_runner_identity_required")
 
+    selection = None
+    selected_scope = input_scope
+    if input_scope is None:
+        selection = _add_recipe_input(None, recipe=recipe, command=str(recipe["command"]))
+        if selection is not None:
+            selected_scope = selection["input_scope"]
     plan = run_validation_commands(
         commands=[str(recipe["command"])],
         workspace_root=workspace_root,
@@ -282,6 +375,7 @@ def run_experiment(
         validation_plan_id=experiment_id,
         timeout_ms=int(recipe["timeout_ms"]),
         require_clean_worktree=require_clean_worktree,
+        **({"input_scope": selected_scope} if selected_scope is not None else {}),
     )
     validation_run_ids = list(plan.get("validation_run_ids") or [])
     if len(validation_run_ids) != 1:
@@ -316,6 +410,8 @@ def run_experiment(
         "matched": _compare(contract["comparator"], contract["expected"], run),
         "run_status": classify_validation_run_status(run),
     }
+    if selection is not None:
+        row["validation_input_selection"] = selection
     return append_declared_jsonl(
         observations_path(base_dir), row,
         expected_surface="experiment_observations",

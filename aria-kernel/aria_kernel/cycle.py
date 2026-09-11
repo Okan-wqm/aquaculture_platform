@@ -1048,12 +1048,14 @@ def _phase_twin_refresh(context: PhaseContext) -> dict[str, Any]:
 
     The refresh re-parses only what changed since ``indexed_sha`` and falls
     back to a full build when there is no prior map or its anchor commit is
-    unknown to this clone — and it SAYS WHICH in ``refresh.mode``, so "the
-    cycle did no full scan" is an observation rather than an assumption.
+    unknown to this clone. ``refresh.mode`` describes the overall strategy;
+    source membership changes can still rebuild the whole test-association
+    layer. The separate pilot projection consumes the existing discovery.
     """
     from .twin import refresh_twin_map
 
-    return refresh_twin_map(workspace_root=context.workspace_root, base_dir=context.base_dir)
+    return refresh_twin_map(workspace_root=context.workspace_root, base_dir=context.base_dir,
+                            discovery=context.result("discovery"))
 
 
 def _phase_experiment_author(context: PhaseContext) -> dict[str, Any]:
@@ -2655,9 +2657,9 @@ def _phase_tool_manifest_sync(context: PhaseContext) -> dict[str, Any]:
 
 
 def _phase_architecture_baseline(context: PhaseContext) -> dict[str, Any]:
-    from .architecture_spine_gate import take_baseline
+    from .architecture_spine_gate import _take_cycle_baseline
 
-    return take_baseline(
+    return _take_cycle_baseline(
         plan_id=_required_plan_id(context),
         cycle_id=context.cycle_id,
         workspace_root=context.workspace_root,
@@ -2668,12 +2670,18 @@ def _phase_architecture_baseline(context: PhaseContext) -> dict[str, Any]:
 def _phase_architecture_postcheck(context: PhaseContext) -> dict[str, Any]:
     from .architecture_spine_gate import take_postcheck
 
-    return take_postcheck(
+    result = take_postcheck(
         plan_id=_required_plan_id(context),
         cycle_id=context.cycle_id,
         workspace_root=context.workspace_root,
         base_dir=context.base_dir,
     )
+    # The native producer returns evidence, not a phase verdict. Project
+    # regressions into the existing cycle failure contract without changing
+    # persisted details or the status vocabulary of other phases.
+    if result["regression_count"] > 0:
+        return {**result, "status": "fail"}
+    return result
 
 
 def _required_plan_id(context: PhaseContext) -> str:

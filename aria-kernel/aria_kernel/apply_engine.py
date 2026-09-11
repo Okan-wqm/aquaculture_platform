@@ -123,6 +123,7 @@ def _record_apply_action(
     baseline_validation_ref: str | None = None,
     validation_timeout_ms: int | None = None,
     base_dir: str | Path | None = None,
+    validation_input_selection: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The ONE OPENER of the ``apply_actions`` surface.
 
@@ -169,6 +170,8 @@ def _record_apply_action(
         "baseline_validation_ref": baseline_validation_ref,
         "validation_timeout_ms": validation_timeout_ms,
     }
+    if validation_input_selection is not None:
+        row["validation_input_selection"] = validation_input_selection
     return append_declared_jsonl(
         ensure_tools_dir(base_dir) / "apply" / "actions.jsonl",
         row,
@@ -490,7 +493,17 @@ def _staged_validation_commands(
     the function the runner itself calls — before a single ledger row is
     written.
     """
-    from .experiment import list_recipes
+    commands, timeout_ms, _selection = _staged_validation_inputs(converged_plan, base_dir=base_dir)
+    return commands, timeout_ms
+
+
+def _staged_validation_inputs(
+    converged_plan: dict[str, Any], *, base_dir: str | Path | None,
+    plan_content_hash: str | None = None,
+) -> tuple[list[str], int, dict[str, Any] | None]:
+    """Resolve commands and optional observations from one verified read."""
+    from .experiment import _add_recipe_input, _recipe_input_source, _unknown_input_selection, list_recipes
+    from .validation import _input_metadata_within_limit
 
     recipes = list_recipes(base_dir=base_dir)
     by_id = {str(row.get("recipe_id")): row for row in recipes}
@@ -499,8 +512,12 @@ def _staged_validation_commands(
     commands: list[str] = list(CANONICAL_VALIDATION_COMMANDS_EXECUTABLE)
     canonical = set(commands)
     timeout_ms = CANONICAL_VALIDATION_TIMEOUT_MS
+    contributors = {}
+    contributor_ids = set()
+    gather_errors = set()
 
     for declared in converged_plan.get("validation_commands") or []:
+        recipe = None
         if isinstance(declared, dict):
             raw = declared.get("cmd")
             recipe_id = declared.get("recipe_id")
@@ -541,10 +558,46 @@ def _staged_validation_commands(
             continue
         if command not in commands:
             commands.append(command)
+        if recipe is not None and recipe.get("input_scope") is not None:
+            source, reason = _recipe_input_source(recipe, command)
+            if reason is not None:
+                gather_errors.add(reason)
+            else:
+                row_id = (source["recipe_id"], source["ledger_hash"])
+                if row_id not in contributor_ids:
+                    if len(contributor_ids) >= 8:
+                        gather_errors.add("selection_input_limit")
+                    else:
+                        contributor_ids.add(row_id)
+                key = (command, *row_id)
+                if not gather_errors and key not in contributors:
+                    sources = [item[0] for item in contributors.values()]
+                    if _input_metadata_within_limit({"recipe_sources": [*sources, source]}):
+                        contributors[key] = (source, recipe)
+                    else:
+                        gather_errors.add("aggregate_metadata_limit")
+            if gather_errors:
+                # Keep only bounded IDs/error flags for deterministic failure
+                # precedence; no selected reference/descriptor prefix survives.
+                contributors.clear()
 
     for command in commands:
         parse_allowed_command(command)
-    return commands, timeout_ms
+    selection = None
+    if gather_errors:
+        # Intrinsic source diagnostics precede row cardinality, then the
+        # aggregate byte cap. Continue counting up to eight IDs after a byte
+        # overflow so multiple breached gather limits are order independent.
+        reason = next(reason for reason in ("selection_metadata_limit", "selection_source_unavailable",
+                                            "selection_input_limit", "aggregate_metadata_limit") if reason in gather_errors)
+        selection = _unknown_input_selection("selection_metadata_limit" if reason == "aggregate_metadata_limit" else reason,
+                                             plan_content_hash)
+    else:
+        for key in sorted(contributors, key=lambda key: (commands.index(key[0]), key[1], key[2])):
+            source, recipe = contributors[key]
+            selection = _add_recipe_input(selection, recipe=recipe, command=source["command"],
+                                          plan_content_hash=plan_content_hash)
+    return commands, timeout_ms, selection
 
 
 def _intended_files_from_plan(converged_plan: dict[str, Any]) -> list[str]:
@@ -648,8 +701,8 @@ def stage_converged_plan_for_pr(
     converged_content_hash = str(body["content_hash"])
 
     root = Path(workspace_root).resolve()
-    commands, timeout_ms = _staged_validation_commands(
-        converged_plan, base_dir=base_dir,
+    commands, timeout_ms, input_selection = _staged_validation_inputs(
+        converged_plan, base_dir=base_dir, plan_content_hash=converged_content_hash,
     )
     intended_files = _intended_files_from_plan(converged_plan)
     # ORPHAN-CRITICAL-728 — no default tier. The previous body silently
@@ -705,6 +758,8 @@ def stage_converged_plan_for_pr(
         runner_identity=lane_runner_identity(fallback=f"aria-kernel:stage:{plan_id}"),
         base_dir=base_dir,
         timeout_ms=timeout_ms,
+        **({"input_scope": input_selection["input_scope"]}
+           if input_selection is not None and input_selection["status"] == "selected" else {}),
     )
 
     proposal = record_proposal(
@@ -757,6 +812,7 @@ def stage_converged_plan_for_pr(
         # compare two different experiments.
         validation_timeout_ms=timeout_ms,
         base_dir=base_dir,
+        **({"validation_input_selection": input_selection} if input_selection is not None else {}),
     )
     return {
         "proposal_id": proposal_id,
@@ -914,6 +970,7 @@ def run_apply_gate(
             f"commit it never ran. Check the branch out "
             f"(`git switch {branch}`) before running the gate"
         )
+    input_selection = action.get("validation_input_selection")
     candidate = run_validation_commands(
         commands=list(action.get("validation_commands") or []),
         workspace_root=root,
@@ -929,6 +986,8 @@ def run_apply_gate(
         timeout_ms=int(
             action.get("validation_timeout_ms") or CANONICAL_VALIDATION_TIMEOUT_MS,
         ),
+        **({"input_scope": input_selection["input_scope"]}
+           if input_selection is not None and input_selection["status"] == "selected" else {}),
     )
     comparison = compare_validation_groups(
         baseline_ref=str(baseline_ref),

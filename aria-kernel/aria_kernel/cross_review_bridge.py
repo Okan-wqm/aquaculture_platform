@@ -47,6 +47,7 @@ from .plan_convergence import (
     affected_surface_paths,
     fold_plan_state,
     plan_body_from_state,
+    _planning_source_context,
     request_implementation,
 )
 from .tool_registry import GovernanceError
@@ -134,6 +135,9 @@ def issue_cross_review_envelope(
     base_dir: str | Path | None = None,
     plan_revision_hash: str | None = None,
     target_sha: str | None = None,
+    context_repo_root: str | Path | None = None,
+    cycle_id: str | None = None,
+    context_source_paths: list[str] | None = None,
 ) -> dict[str, Any]:
     """Issue a cross_review envelope (Tier-1).
 
@@ -170,6 +174,9 @@ def issue_cross_review_envelope(
         base_dir=base_dir,
         plan_revision_hash=plan_revision_hash,
         target_sha=target_sha,
+        context_repo_root=context_repo_root,
+        cycle_id=cycle_id,
+        context_source_paths=context_source_paths,
     )
 
 
@@ -184,6 +191,9 @@ def issue_primary_envelope(
     plan_revision_hash: str | None = None,
     suggested_prompt: str = "Submit your REVISION of the primary plan addressing cross-review findings.",
     target_sha: str | None = None,
+    context_repo_root: str | Path | None = None,
+    cycle_id: str | None = None,
+    context_source_paths: list[str] | None = None,
 ) -> dict[str, Any]:
     """Tier-1 IMPOSSIBLE-to-mint round-1 primary envelope.
 
@@ -211,6 +221,14 @@ def issue_primary_envelope(
             f"round={round_number}); round-1 has no primary envelope "
             f"(cycle_runner's plan_content IS the primary draft)"
         )
+    source_refs, source_hash, source_paths = _planning_source_context(state_dict, evidence_refs)
+    # Preserve explicit caller revision contracts. Automatic current-body
+    # enrichment uses the same fold as the existing legal-state check.
+    if plan_revision_hash is None or plan_revision_hash == source_hash:
+        evidence_refs = source_refs
+        plan_revision_hash = source_hash
+        if context_source_paths is None:
+            context_source_paths = source_paths
     target_agent, role = PRIMARY_REVISION_ROLE
     return create_agent_invocation_request(
         target_agent=target_agent,
@@ -224,6 +242,9 @@ def issue_primary_envelope(
         base_dir=base_dir,
         plan_revision_hash=plan_revision_hash,
         target_sha=target_sha,
+        context_repo_root=context_repo_root,
+        cycle_id=cycle_id,
+        context_source_paths=context_source_paths,
     )
 
 

@@ -62,6 +62,46 @@ SYNTHETIC_HOME_PREFIX = "aria-agent-home-"
 CLAUDE_CONFIG_DIRNAME = ".claude"
 
 
+def _codex_status_environment(base: Mapping[str, str]) -> dict[str, str]:
+    """Build a login-status environment without provider-key passthrough.
+
+    Preserve the caller's managed-state locations; this read-only status
+    preparation creates no home and reads no configuration or credentials.
+    It does not establish the effective authentication of a later model run.
+    """
+    allowed = set(BASELINE_ENV_NAMES) | {
+        "HOME", "CODEX_HOME", "CODEX_SQLITE_HOME", "XDG_CONFIG_HOME",
+        "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME",
+    }
+    return {name: value for name, value in base.items() if name in allowed}
+
+
+def _codex_exec_environment(
+    base: Mapping[str, str], *, extra: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    """Admit Codex process plumbing and explicit noncredential caller data.
+
+    Explicit values retain precedence, but cannot add provider controls or
+    secret-shaped names. Managed-state paths remain caller-selected; this
+    name policy does not establish the authentication selected by CLI settings.
+    No home, credential or configuration is read or changed here.
+    """
+    explicit = extra or {}
+    env = _codex_status_environment({**base, **explicit})
+    provider_names = ("OPENAI", "CODEX", "ANTHROPIC", "CLAUDE", "ZAI", "ARIA_ZAI")
+    for name, value in explicit.items():
+        if name in env:
+            continue
+        normalized = name.upper()
+        if SECRET_SHAPED_ENV_NAME.search(name) or any(
+            normalized == provider or normalized.startswith(provider + "_")
+            for provider in provider_names
+        ):
+            continue
+        env[name] = value
+    return env
+
+
 @dataclass(frozen=True)
 class AgentEnvReport:
     """What the spawn environment carries — names only, never values."""

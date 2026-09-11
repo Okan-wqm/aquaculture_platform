@@ -1,0 +1,43 @@
+{
+  "schema_version": 3,
+  "tools": [
+    {
+      "allowed_read_globs": ["apps/farm-service/src/**/*.ts"],
+      "claim_types": ["schema_drift"],
+      "created_at": "2026-09-11T05:05:55+00:00",
+      "declared_scope": ["apps/farm-service/src/**/*.ts"],
+      "fixture_set": "fixtures/runtime-adapter",
+      "forbidden_read_globs": ["dist/**"],
+      "freshness_window_hours": 168,
+      "health_thresholds": {
+        "crash_rate_last_10": 0.2,
+        "critical_false_positives": 0,
+        "max_cost_units": 50,
+        "non_critical_false_positives_30d": 3,
+        "precision_min": 0.85
+      },
+      "kind": "adapter",
+      "output_schema": {
+        "required": ["observations", "findings", "read_paths", "evidence_sources"],
+        "type": "object"
+      },
+      "owner": "platform",
+      "parse_window_signature": "sha256:35997da34e195dc2facb140d31f0c0f1bd22186ec3f311d8f19ecb8d686644ba",
+      "runner": {
+        "argv": [
+          "python3",
+          "/var/aqua-saas/.worktrees/codex-aria-learning-20260910/aria-kernel/tests/_helpers/fake_tool_runner.py"
+        ],
+        "cwd": ".",
+        "stdin_json": true,
+        "timeout_ms": 1000,
+        "type": "subprocess"
+      },
+      "schema_version": 1,
+      "status": "SHADOW",
+      "tool_id": "runtime-adapter",
+      "updated_at": "2026-09-11T05:05:55+00:00",
+      "version": "1.0.0"
+    }
+  ]
+}

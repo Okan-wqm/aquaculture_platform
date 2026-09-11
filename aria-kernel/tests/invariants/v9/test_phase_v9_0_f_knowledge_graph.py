@@ -257,11 +257,14 @@ class TestV9PublicApi(unittest.TestCase):
             "KNOWLEDGE_GRAPH_SCHEMA_VERSION", "MIN_PATTERN_CONFIDENCE",
             "ANTI_PATTERN_TYPES", "GENESIS_PREV_HASH", "Pattern",
             "KnowledgeGraphTamper", "KnowledgeGraphSignatureMissing",
-            "KnowledgeGraphSchemaError",
+            "KnowledgeGraphSchemaError", "KnowledgeGraphObservationConflict",
             "verify_chain_or_quarantine", "record_convention",
             "record_anti_pattern", "lookup_pattern", "rank_pressure_sources",
         }
         self.assertEqual(set(_kg.__all__), canonical)
+        self.assertTrue(issubclass(
+            _kg.KnowledgeGraphObservationConflict, _kg.KnowledgeGraphSchemaError,
+        ))
 
 
 if __name__ == "__main__":

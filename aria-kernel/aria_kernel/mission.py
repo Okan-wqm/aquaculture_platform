@@ -493,11 +493,18 @@ def _fold(events: list[dict[str, Any]], mission_id: str) -> dict[str, Any] | Non
     return state
 
 
+def _find_mission(
+    *, mission_id: str, base_dir: str | Path | None = None
+) -> dict[str, Any] | None:
+    """Read any native mission state, including terminal; absence is distinct from unreadable history."""
+    root = ensure_tools_dir(base_dir)
+    return _fold(_load_events(root), mission_id)
+
+
 def fold_mission(
     *, mission_id: str, base_dir: str | Path | None = None
 ) -> dict[str, Any]:
-    root = ensure_tools_dir(base_dir)
-    state = _fold(_load_events(root), mission_id)
+    state = _find_mission(mission_id=mission_id, base_dir=base_dir)
     if state is None:
         raise GovernanceError(f"unknown mission: {mission_id}")
     return state

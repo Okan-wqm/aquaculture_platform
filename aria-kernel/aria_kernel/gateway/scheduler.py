@@ -11,6 +11,7 @@ from typing import Any, Callable
 
 from ..ledger import append_declared_jsonl, load_declared_jsonl
 from ..tool_registry import append_tools_governance, ensure_tools_dir, utc_now
+from ..tool_registry import parse_utc_stamp as _parse_utc_stamp
 
 SCHEDULES_SURFACE = "gateway_schedules"
 SCHEDULES_RELPATH: tuple[str, ...] = ("gateway", "schedules.jsonl")
@@ -226,7 +227,8 @@ def run_action(action: str, *, base_dir: str | Path | None, workspace_root: str 
     elif action == "inbox_drain":
         from .router import drain_inbox
 
-        routed = drain_inbox(base_dir=root, workspace_root=workspace_root)
+        routed = drain_inbox(base_dir=root, workspace_root=workspace_root,
+                             now=_parse_utc_stamp(ran_at) if ran_at else None)
         result["detail"] = {"routed": len(routed), "errors": sum(1 for r in routed if r.get("error"))}
     elif action == "self_improve":
         from ..self_improvement import open_self_improvement_missions
@@ -274,7 +276,7 @@ def tick(*, base_dir: str | Path | None, workspace_root: str | Path, now: dateti
     if drain_inbox_first:
         from .router import drain_inbox
 
-        routed = drain_inbox(base_dir=root, workspace_root=workspace_root)
+        routed = drain_inbox(base_dir=root, workspace_root=workspace_root, now=stamp)
     ran = [run_action(s.action, base_dir=root, workspace_root=workspace_root, runner=runner, schedule_name=s.name, ran_at=stamp.isoformat())
            for s in due_schedules(now=stamp, base_dir=root)]
     beat = {"schema_version": 1, "recorded_at": utc_now(), "tick_at": stamp.isoformat(), "routed": len(routed),

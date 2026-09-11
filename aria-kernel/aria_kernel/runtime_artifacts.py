@@ -4,7 +4,9 @@ import hashlib
 import json
 import os
 import shutil
+import stat as _stat
 import subprocess
+from contextlib import contextmanager as _contextmanager
 from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -13,6 +15,13 @@ from typing import Any
 
 from .artifact_safety import scrub_json
 from .ledger import LedgerIntegrityError, append_declared_jsonl, file_hash, load_declared_jsonl, load_jsonl, verify_jsonl
+from .ledger import (
+    LEDGER_ROW_MAX_BYTES as _LEDGER_ROW_MAX_BYTES,
+    LedgerReadLimitError as _LedgerReadLimitError,
+    _assert_declared_surface as _assert_archive_surface,
+    state_transaction as _archive_transaction,
+    verify_jsonl_chunks as _verify_archive_chunks,
+)
 from .tool_registry import GovernanceError, ensure_tools_binding, ensure_tools_dir, tools_dir, utc_now
 
 
@@ -289,9 +298,10 @@ def read_runs_for_cycle(
 # without a cache, every call re-reads a 7.84MB artifact file from disk,
 # re-hashes it, and re-parses the JSON — measured worst case: 1,158 rows
 # sharing one artifact = ~9.1GB of redundant I/O in a single sampler pass.
-# Keyed by (resolved path, sha256); bounded at 64 entries (the sampler
-# touches ~40 distinct runs per pass) with FIFO eviction via OrderedDict.
-_ARTIFACT_CACHE: OrderedDict[tuple[str, str], dict[str, Any] | None] = OrderedDict()
+# Keyed by resolved path, expected hash and the observed file identity. Native
+# republication replaces the file; its old ref must not reuse a cached payload.
+# Retain the existing 64-entry bound and hot-reader size compatibility.
+_ARTIFACT_CACHE: OrderedDict[tuple, dict[str, Any] | None] = OrderedDict()
 _ARTIFACT_CACHE_MAX = 64
 
 
@@ -299,7 +309,8 @@ def _cached_artifact_payload(
     path: Path,
     expected_sha256: str,
 ) -> dict[str, Any] | None:
-    cache_key = (str(path), expected_sha256)
+    before = _archive_stat_identity(path.stat())
+    cache_key = (str(path), expected_sha256, before)
     if cache_key in _ARTIFACT_CACHE:
         _ARTIFACT_CACHE.move_to_end(cache_key)
         return _ARTIFACT_CACHE[cache_key]
@@ -312,9 +323,312 @@ def _cached_artifact_payload(
             result = parsed if isinstance(parsed, dict) else None
         except (ValueError, UnicodeDecodeError):
             result = None
+    if _archive_stat_identity(path.stat()) != before:
+        return None
     _ARTIFACT_CACHE[cache_key] = result
     if len(_ARTIFACT_CACHE) > _ARTIFACT_CACHE_MAX:
         _ARTIFACT_CACHE.popitem(last=False)
+    return result
+
+
+_ARCHIVE_SOURCE_BYTES = 16 * 1024 * 1024
+_ARCHIVE_ARTIFACT_BYTES = 16 * 1024 * 1024
+_ARCHIVE_FILE_BYTES = 2 * 1024 * 1024
+_ARCHIVE_SOURCE_FILES = 32
+_ARCHIVE_ROWS = 20_000
+_ARCHIVE_CANDIDATES = 32
+
+
+class _ArchiveLimit(GovernanceError):
+    pass
+
+
+class _ArchiveUnavailable(GovernanceError):
+    pass
+
+
+@dataclass
+class _ArchiveReadBudget:
+    source_bytes: int = 0
+    artifact_bytes: int = 0
+    source_files: int = 0
+    verified_rows: int = 0
+    candidates: int = 0
+
+    def counters(self) -> dict[str, int]:
+        return {"bytes_read": self.source_bytes + self.artifact_bytes,
+                "source_bytes_read": self.source_bytes,
+                "artifact_bytes_read": self.artifact_bytes,
+                "source_files_read": self.source_files,
+                "verified_rows": self.verified_rows,
+                "candidates": self.candidates}
+
+
+def _archive_stat_identity(value: Any) -> tuple:
+    return (value.st_dev, value.st_ino, value.st_mode, value.st_size,
+            value.st_mtime_ns, value.st_ctime_ns)
+
+
+@_contextmanager
+def _archive_file_chunks(root: Path, uri: str, *, budget: _ArchiveReadBudget,
+                         source: bool, max_bytes: int):
+    """Reuse URI containment; debit requested reads before another read starts."""
+    path = _resolve_uri(root, uri)
+    if source:
+        if budget.source_files >= _ARCHIVE_SOURCE_FILES:
+            raise _ArchiveLimit("archive_source_file_limit")
+        budget.source_files += 1
+    with path.open("rb", buffering=0) as stream:
+        before = os.fstat(stream.fileno())
+        if not _stat.S_ISREG(before.st_mode):
+            raise _ArchiveUnavailable("archive_file_not_regular")
+        remaining = (_ARCHIVE_SOURCE_BYTES - budget.source_bytes if source
+                     else _ARCHIVE_ARTIFACT_BYTES - budget.artifact_bytes)
+        if before.st_size > min(max_bytes, remaining):
+            raise _ArchiveLimit("archive_byte_limit")
+
+        def chunks():
+            observed = 0
+            while observed < before.st_size:
+                remaining = (_ARCHIVE_SOURCE_BYTES - budget.source_bytes if source
+                             else _ARCHIVE_ARTIFACT_BYTES - budget.artifact_bytes)
+                allowance = min(64 * 1024, before.st_size - observed, remaining,
+                                max_bytes - observed)
+                if allowance <= 0:
+                    raise _ArchiveLimit("archive_byte_limit")
+                chunk = stream.read(allowance)
+                if source:
+                    budget.source_bytes += len(chunk)
+                else:
+                    budget.artifact_bytes += len(chunk)
+                observed += len(chunk)
+                if not chunk:
+                    raise _ArchiveUnavailable("archive_file_changed")
+                yield chunk
+            if _archive_stat_identity(os.fstat(stream.fileno())) != _archive_stat_identity(before):
+                raise _ArchiveUnavailable("archive_file_changed")
+            if _archive_stat_identity(path.stat()) != _archive_stat_identity(before):
+                raise _ArchiveUnavailable("archive_file_changed")
+
+        yield before.st_size, chunks()
+
+
+def _archive_rows(root: Path, relative: str, surface: str, *, budget: _ArchiveReadBudget,
+                  keep: Any) -> list[dict[str, Any]]:
+    path = root / relative
+    if not path.exists():
+        return []
+    _surface, bound_root = _assert_archive_surface(
+        path, expected_surface=surface, enforce_write_profile=False,
+    )
+    if bound_root.resolve() != root.resolve():
+        raise _ArchiveUnavailable("archive_history_root_mismatch")
+    selected: list[dict[str, Any]] = []
+
+    def capture(row: dict[str, Any]) -> None:
+        budget.verified_rows += 1
+        if keep(row):
+            if budget.candidates >= _ARCHIVE_CANDIDATES:
+                raise _ArchiveLimit("archive_candidate_limit")
+            budget.candidates += 1
+            selected.append(row)
+
+    with _archive_file_chunks(root, relative, budget=budget, source=True,
+                              max_bytes=_ARCHIVE_SOURCE_BYTES) as (size, chunks):
+        _verify_archive_chunks(
+            chunks, source=path, expected_size=size, max_line_bytes=_LEDGER_ROW_MAX_BYTES,
+            max_rows=max(0, _ARCHIVE_ROWS - budget.verified_rows),
+            expected_surface=surface, expected_surface_instance=relative, on_row=capture,
+        )
+    # Captured callbacks are provisional until full chain/size/file verification.
+    return selected
+
+
+def _artifact_identity(ref: dict[str, Any]) -> tuple[str, str, str, str]:
+    return (ref["source_surface"], ref["artifact_id"], ref["uri"], ref["sha256"])
+
+
+def _runtime_creation_ref(row: dict[str, Any]) -> dict[str, Any] | None:
+    """The known native runtime JSON producer, not a filename-based inference."""
+    if row.get("event") != "artifact_created":
+        return None
+    if (not isinstance(row.get("run_id"), str) or not row["run_id"]
+            or not isinstance(row.get("cycle_uid"), str) or not row["cycle_uid"]
+            or type(row.get("size_bytes")) is not int or row["size_bytes"] < 0):
+        return None
+    ref = {"schema_version": 2, "artifact_id": row.get("artifact_id"),
+           "uri": row.get("current_uri"), "sha256": row.get("sha256"),
+           "content_type": "application/json", "produced_by_workflow_run_id": row["run_id"],
+           "source_surface": "runtime_artifact"}
+    try:
+        ArtifactRefV2.from_dict(ref)
+    except GovernanceError:
+        return None
+    return ref
+
+
+def _consistent_runtime_creations(creations: list[dict[str, Any]]) -> None:
+    seen: dict[tuple, tuple] = {}
+    for row in creations:
+        ref = _runtime_creation_ref(row)
+        if ref is None:
+            raise _ArchiveUnavailable("legacy_identity_unavailable")
+        key = _artifact_identity(ref)
+        value = (ref["produced_by_workflow_run_id"], row["cycle_uid"], row["size_bytes"], row.get("kind"))
+        if key in seen and seen[key] != value:
+            raise _ArchiveUnavailable("archive_creator_conflict")
+        seen[key] = value
+
+
+def _archive_event_matches(row: dict[str, Any], ref: dict[str, Any], *,
+                           creation: dict[str, Any] | None) -> bool:
+    if (row.get("event") != "artifact_archived"
+            or row.get("artifact_id") != ref["artifact_id"]
+            or row.get("original_path") != ref["uri"]
+            or row.get("sha256") != ref["sha256"]):
+        return False
+    descriptor = row.get("source_descriptor")
+    if descriptor is not None:
+        if descriptor != {"schema_version": 1, "artifact_ref": ref}:
+            return False
+    elif creation is None or _runtime_creation_ref(creation) != ref:
+        return False
+    if creation is not None:
+        if (row.get("cycle_uid") != creation.get("cycle_uid")
+                or row.get("size") != creation.get("size_bytes")):
+            return False
+    return isinstance(row.get("new_path"), str) and bool(row["new_path"])
+
+
+def _archive_history(root: Path, query: dict[str, Any] | str, *,
+                     budget: _ArchiveReadBudget) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    def matches(row: dict[str, Any]) -> bool:
+        if isinstance(query, str):
+            return query == row.get("artifact_id") or query == row.get("current_uri") or query == row.get("original_path")
+        return (row.get("artifact_id") == query["artifact_id"]
+                and (row.get("current_uri") or row.get("original_path")) == query["uri"]
+                and row.get("sha256") == query["sha256"])
+
+    creations = _archive_rows(root, "run-artifacts/manifest.jsonl", "runtime_artifact_manifest",
+                              budget=budget, keep=lambda row: row.get("event") == "artifact_created" and matches(row))
+    events = _archive_rows(root, "retention/events.jsonl", "retention_events",
+                           budget=budget, keep=lambda row: row.get("event") == "artifact_archived" and matches(row))
+    index = _archive_rows(root, "run-artifacts/artifact-index.jsonl", "runtime_artifact_index",
+                          budget=budget, keep=matches)
+    return creations, events, index
+
+
+def _archive_ref_for_query(root: Path, query: str, *, budget: _ArchiveReadBudget) -> dict[str, Any]:
+    creations, events, index = _archive_history(root, query, budget=budget)
+    _consistent_runtime_creations(creations)
+    refs: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+    incomplete = False
+    for creation in creations:
+        ref = _runtime_creation_ref(creation)
+        if ref is None:
+            incomplete = True
+            continue
+        key = _artifact_identity(ref)
+        if key in refs and refs[key] != ref:
+            raise _ArchiveUnavailable("archive_creator_conflict")
+        refs[key] = ref
+    for row in events:
+        descriptor = row.get("source_descriptor")
+        if descriptor is not None:
+            if (not isinstance(descriptor, dict) or set(descriptor) != {"schema_version", "artifact_ref"}
+                    or descriptor.get("schema_version") != 1 or not isinstance(descriptor.get("artifact_ref"), dict)):
+                raise _ArchiveUnavailable("archive_descriptor_unavailable")
+            ref = descriptor["artifact_ref"]
+            ArtifactRefV2.from_dict(ref)
+            if not _archive_event_matches(row, ref, creation=None):
+                raise _ArchiveUnavailable("archive_descriptor_conflict")
+            key = _artifact_identity(ref)
+            if key in refs and refs[key] != ref:
+                raise _ArchiveUnavailable("archive_creator_conflict")
+            refs[key] = ref
+        elif not any(_archive_event_matches(row, ref, creation=creation)
+                     for creation in creations
+                     if (ref := _runtime_creation_ref(creation)) is not None):
+            incomplete = True
+    for row in index:
+        if not any(row.get("artifact_id") == ref["artifact_id"]
+                   and row.get("current_uri") == ref["uri"] and row.get("sha256") == ref["sha256"]
+                   and row.get("run_id") == ref["produced_by_workflow_run_id"] for ref in refs.values()):
+            incomplete = True
+    if len(refs) > 1:
+        raise GovernanceError(f"artifact_ambiguous:{query}")
+    if incomplete:
+        raise _ArchiveUnavailable("legacy_identity_unavailable")
+    if not refs:
+        raise GovernanceError(f"artifact_not_found:{query}")
+    return next(iter(refs.values()))
+
+
+def _read_ref_content(root: Path, uri: str, ref: dict[str, Any], *,
+                      budget: _ArchiveReadBudget, max_bytes: int) -> bytes:
+    with _archive_file_chunks(root, uri, budget=budget, source=False,
+                              max_bytes=min(max_bytes, _ARCHIVE_FILE_BYTES)) as (_size, chunks):
+        content = b"".join(chunks)
+    if _sha256_bytes(content) != ref["sha256"]:
+        raise _ArchiveUnavailable("archive_content_hash_mismatch")
+    return content
+
+
+def _resolve_artifact_bytes(artifact_ref: dict[str, Any], *, base_dir: str | Path | None,
+                            max_bytes: int, _budget: _ArchiveReadBudget | None = None,
+                            _archive_only: bool = False) -> dict[str, Any]:
+    ArtifactRefV2.from_dict(artifact_ref)
+    if type(max_bytes) is not int or max_bytes < 0:
+        raise ValueError("artifact_byte_limit_invalid")
+    ref = dict(artifact_ref)
+    budget = _budget if _budget is not None else _ArchiveReadBudget()
+    root = tools_dir(base_dir)
+    result = {"status": "unavailable", "content": None, "source_tier": None,
+              "resolved_uri": None, "artifact_id": ref["artifact_id"], "sha256": ref["sha256"],
+              "reason": "artifact_missing"}
+    try:
+        content = None
+        if not _archive_only:
+            try:
+                content = _read_ref_content(root, ref["uri"], ref, budget=budget, max_bytes=max_bytes)
+            except FileNotFoundError:
+                pass
+            except _ArchiveUnavailable as exc:
+                if str(exc) != "archive_content_hash_mismatch":
+                    raise
+                # A newer native version can occupy this URI. The attempted
+                # hot read remains charged; only the exact retained ref may serve.
+        if content is not None:
+            result.update(status="resolved", content=content, source_tier="hot", resolved_uri=ref["uri"], reason=None)
+        else:
+            creations, events, _index = _archive_history(root, ref, budget=budget)
+            _consistent_runtime_creations(creations)
+            matching = [creation for creation in creations if _runtime_creation_ref(creation) == ref]
+            # A conflicting creator for the same full identity is not corroboration.
+            if any(_runtime_creation_ref(creation) != ref for creation in creations):
+                raise _ArchiveUnavailable("archive_creator_conflict")
+            candidates = [row for row in events if _archive_event_matches(
+                row, ref, creation=matching[0] if matching else None,
+            )]
+            if events and not candidates:
+                raise _ArchiveUnavailable("legacy_identity_unavailable")
+            for row in sorted(candidates, key=lambda item: item["new_path"]):
+                try:
+                    content = _read_ref_content(root, row["new_path"], ref, budget=budget, max_bytes=max_bytes)
+                except FileNotFoundError:
+                    continue
+                if type(row.get("size")) is not int or row["size"] != len(content):
+                    raise _ArchiveUnavailable("archive_size_mismatch")
+                result.update(status="resolved", content=content, source_tier="archive",
+                              resolved_uri=row["new_path"], reason=None)
+                break
+    except (_ArchiveLimit, _LedgerReadLimitError):
+        result.update(status="budget_exceeded", reason="budget_exceeded")
+    except _ArchiveUnavailable as exc:
+        result["reason"] = str(exc)
+    except OSError:
+        result["reason"] = "artifact_read_unavailable"
+    result.update(budget.counters())
     return result
 
 
@@ -339,9 +653,28 @@ def resolve_artifact_payload(
     # write-init the root; resolve it the way _artifact_root already does.
     root = Path(base_dir) if base_dir is not None else ensure_tools_dir(None)
     path = _resolve_uri(root, ref.uri)
-    if not path.exists() or not path.is_file():
+    try:
+        if path.is_file():
+            payload = _cached_artifact_payload(path, ref.sha256)
+            if payload is not None:
+                return payload
+        elif path.exists():
+            return None
+    except FileNotFoundError:
+        # A normal hot removal may complete between the stat and read.
+        pass
+    try:
+        resolved = _resolve_artifact_bytes(artifact_ref, base_dir=root, max_bytes=_ARCHIVE_FILE_BYTES,
+                                           _archive_only=True)
+    except LedgerIntegrityError:
         return None
-    return _cached_artifact_payload(path, ref.sha256)
+    if resolved["status"] != "resolved":
+        return None
+    try:
+        payload = json.loads(resolved["content"])
+    except (ValueError, UnicodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
 
 
 def resolve_finding_from_artifact(
@@ -667,34 +1000,60 @@ def retention_apply(
         source = _resolve_uri(root, str(candidate["current_uri"]))
         if not source.exists():
             continue
-        archive_path = root / ".archive" / "runtime" / str(candidate["artifact_id"]) / source.name
+        budget = _ArchiveReadBudget()
+        query = {"artifact_id": candidate["artifact_id"], "uri": candidate["current_uri"],
+                 "sha256": candidate["sha256"]}
+        creations, _events, _index = _archive_history(root, query, budget=budget)
+        _consistent_runtime_creations(creations)
+        if not creations:
+            raise _ArchiveUnavailable("legacy_identity_unavailable")
+        ref = _runtime_creation_ref(creations[0])
+        assert ref is not None  # Validated by the creation owner above.
+        content = _read_ref_content(root, ref["uri"], ref, budget=budget, max_bytes=_ARCHIVE_FILE_BYTES)
+        if len(content) != creations[0]["size_bytes"]:
+            raise _ArchiveUnavailable("archive_size_mismatch")
+        archive_path = root / ".archive" / "runtime" / ref["sha256"].removeprefix("sha256:") / _safe_segment(ref["artifact_id"]) / source.name
         _assert_under_root(archive_path, root / ".archive")
-        archive_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, archive_path)
-        actual = _sha256_bytes(archive_path.read_bytes())
-        if actual != candidate.get("sha256"):
-            raise GovernanceError("archive_hash_mismatch")
+        if archive_path.exists():
+            _read_ref_content(root, _relative_uri(root, archive_path), ref,
+                              budget=budget, max_bytes=_ARCHIVE_FILE_BYTES)
+        else:
+            _atomic_write_bytes(archive_path, content)
+            _read_ref_content(root, _relative_uri(root, archive_path), ref,
+                              budget=budget, max_bytes=_ARCHIVE_FILE_BYTES)
+        actual = ref["sha256"]
+        archive_id = "retention." + hashlib.sha256(
+            json.dumps(_artifact_identity(ref), separators=(",", ":")).encode("utf-8"),
+        ).hexdigest()
         event = {
             "schema_version": 1,
             "event": "artifact_archived",
-            "manifest_id": f"retention.{candidate['artifact_id']}",
+            "manifest_id": archive_id,
             "artifact_id": candidate["artifact_id"],
             "cycle_uid": candidate.get("cycle_uid"),
             "original_path": candidate["current_uri"],
             "new_path": _relative_uri(root, archive_path),
             "sha256": actual,
-            "size": archive_path.stat().st_size,
+            "size": len(content),
+            "source_descriptor": {"schema_version": 1, "artifact_ref": ref},
             "reason": reason.strip(),
             "candidate_reason": candidate.get("reason"),
             "operator_approval_ref": operator_approval_ref.strip(),
             "reviewed": True,
             "recorded_at": utc_now(),
         }
-        append_declared_jsonl(
-            retention_events_path(root),
-            event,
-            expected_surface="retention_events",
-        )
+        events_path = root / "retention/events.jsonl"
+        # One logical archive operation even when identical retain calls overlap.
+        # R3 separately owns coordinated artifact publication and final eviction.
+        with _archive_transaction([events_path]) as transaction:
+            prior = _archive_rows(root, "retention/events.jsonl", "retention_events", budget=budget,
+                                  keep=lambda row: row.get("event") == "artifact_archived" and row.get("manifest_id") == archive_id)
+            if any(row.get("source_descriptor") != event["source_descriptor"]
+                   or row.get("new_path") != event["new_path"] or row.get("sha256") != actual for row in prior):
+                raise _ArchiveUnavailable("archive_operation_conflict")
+            if prior:
+                continue
+            transaction.append_declared_jsonl(events_path, event, expected_surface="retention_events")
         archived.append(event)
     return {
         "schema_version": 1,
@@ -720,30 +1079,27 @@ def restore_artifact(
         if workspace_root is not None
         else ensure_tools_dir(base_dir)
     )
-    rows = load_declared_jsonl(root / "run-artifacts" / "artifact-index.jsonl", expected_surface="runtime_artifact_index")
-    row = next((item for item in rows if item.get("artifact_id") == artifact_ref or item.get("current_uri") == artifact_ref), None)
-    if row is None:
-        raise GovernanceError(f"artifact_not_found:{artifact_ref}")
-    uri = str(row.get("current_uri") or "")
+    budget = _ArchiveReadBudget()
+    try:
+        ref = _archive_ref_for_query(root, artifact_ref, budget=budget)
+        resolved = _resolve_artifact_bytes(ref, base_dir=root, max_bytes=_ARCHIVE_FILE_BYTES, _budget=budget)
+    except (_ArchiveLimit, _LedgerReadLimitError) as exc:
+        raise GovernanceError(f"artifact_unavailable:{artifact_ref}:budget_exceeded") from exc
+    except _ArchiveUnavailable as exc:
+        raise GovernanceError(f"artifact_unavailable:{artifact_ref}:{exc}") from exc
+    if resolved["status"] != "resolved":
+        raise GovernanceError(f"artifact_unavailable:{artifact_ref}:{resolved['reason']}")
+    uri = ref["uri"]
     path = _resolve_uri(root, uri)
-    restored_from_archive = False
-    if not path.exists():
-        archive = _latest_archive_event(root, str(row.get("artifact_id") or ""))
-        if archive is None:
-            raise GovernanceError(f"artifact_unavailable:{artifact_ref}")
-        archived_path = _resolve_uri(root, str(archive.get("new_path")))
-        if not archived_path.exists():
-            raise GovernanceError(f"archive_restore_failed:{artifact_ref}")
-        path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(archived_path, path)
-        restored_from_archive = True
-    actual = _sha256_bytes(path.read_bytes())
-    if actual != row.get("sha256"):
-        raise GovernanceError(f"artifact_hash_mismatch:{artifact_ref}")
+    restored_from_archive = resolved["source_tier"] == "archive"
+    if restored_from_archive:
+        _atomic_write_bytes(path, resolved["content"])
+        _read_ref_content(root, uri, ref, budget=budget, max_bytes=_ARCHIVE_FILE_BYTES)
+    actual = ref["sha256"]
     event = append_declared_jsonl(retention_events_path(root), {
         "schema_version": 1,
         "event": "artifact_restored",
-        "artifact_id": row.get("artifact_id"),
+        "artifact_id": ref["artifact_id"],
         "path": uri,
         "sha256": actual,
         "restored_from_archive": restored_from_archive,
@@ -754,7 +1110,7 @@ def restore_artifact(
     return {
         "schema_version": 1,
         "status": "restored",
-        "artifact_id": row.get("artifact_id"),
+        "artifact_id": ref["artifact_id"],
         "path": uri,
         "sha256": actual,
         "retention_event_id": event.get("event_id"),
@@ -849,6 +1205,193 @@ def _marker_total(container: dict[str, Any], keys: tuple[str, ...]) -> int:
 BUDGET_PRESSURE_THRESHOLD = 0.8
 
 
+_MEMORY_DISPLAY_BYTES = 8 * 1024
+_MEMORY_DISPLAY_CYCLES = 4
+_MEMORY_DISPLAY_OBSERVATIONS = 8
+_MEMORY_STATUSES = frozenset({
+    "no_op_memory_hook", "needs_signing", "no_pattern_signature", "not_attempted",
+    "completed", "completed_with_errors", "callback_error", "audit_error",
+    "pending", "already_recorded", "memory_hook_recorded", "convention_audit_failed",
+    "convention_record_failed", "convention_chain_invalid", "attempt_audit_failed",
+    "observation_source_failed",
+})
+
+
+def _memory_receipt(value: Any, *, present: bool) -> dict[str, Any]:
+    """Project public facts only; missing data is not a negative observation."""
+    row = value if isinstance(value, dict) else {}
+    status = row.get("status")
+    receipt: dict[str, Any] = {
+        "input_status": "present" if isinstance(value, dict) else "unavailable" if present else "missing",
+        "status": status if isinstance(status, str) and status in _MEMORY_STATUSES else None,
+        "convention_recorded": row.get("convention_recorded") if type(row.get("convention_recorded")) is bool else None,
+        "chain_verified": row.get("chain_verified") if type(row.get("chain_verified")) is bool else None,
+    }
+    for key in ("cycle_id", "plan_id", "plan_revision_id", "plan_content_hash",
+                "pending_event_hash", "convergence_event_id", "convergence_event_hash",
+                "signer_cycle_id", "signer_key_fp"):
+        item = row.get(key)
+        # Never shorten an identity and present the shortened value as exact.
+        receipt[key] = item if isinstance(item, str) and len(item) <= 512 else None
+        if isinstance(item, str) and len(item) > 512:
+            receipt.setdefault("identity_omissions", {})[key] = "display_length_exceeded"
+    for key in ("error_class", "audit_error_class"):
+        item = row.get(key)
+        if isinstance(item, str) and len(item) <= 80 and item.isidentifier():
+            receipt[key] = item
+    if type(row.get("append_attempted")) is bool:
+        receipt["append_attempted"] = row["append_attempted"]
+    return receipt
+
+
+def _memory_priority(receipt: dict[str, Any]) -> int:
+    if receipt.get("error_class") or receipt.get("audit_error_class") or receipt.get("chain_verified") is False:
+        return 0
+    return 1 if receipt.get("status") in {"needs_signing", "pending"} else 2
+
+
+def _memory_omissions(projection: dict[str, Any]) -> None:
+    cycles = projection["cycles"]
+    kept = sum(len(cycle["completion"]["observations"]) for cycle in cycles)
+    projection["omitted_cycle_count"] = projection["input_cycle_count"] - len(cycles)
+    projection["omitted_observation_count"] = projection["reported_observation_counts"]["items"] - kept
+    projection["truncated"] = bool(projection["omitted_cycle_count"] or projection["omitted_observation_count"])
+
+
+def _memory_drop_detail(projection: dict[str, Any]) -> bool:
+    """Remove display detail, never counts or persistence/error facts in totals."""
+    # The byte bound must obey the same global receipt priority as selection.
+    # Deterministic ties discard the later displayed receipt first.
+    candidates = [(_memory_priority(row), cycle_index, index)
+                  for cycle_index, cycle in enumerate(projection["cycles"])
+                  for index, row in enumerate(cycle["completion"]["observations"])]
+    if candidates:
+        _, cycle_index, index = max(candidates)
+        projection["cycles"][cycle_index]["completion"]["observations"].pop(index)
+        _memory_omissions(projection)
+        return True
+    if projection["cycles"]:
+        _, index = max((min(_memory_priority(cycle["initial"]), _memory_priority(cycle["completion"])), index)
+                       for index, cycle in enumerate(projection["cycles"]))
+        projection["cycles"].pop(index)
+        _memory_omissions(projection)
+        return True
+    return False
+
+
+def _memory_learning_projection(per_cycle: list[Any]) -> dict[str, Any] | None:
+    """Pure projection of supplied outer results, not a history/backlog query.
+
+    Initial state, callback status and individual receipts are independent.
+    Counters describe reporting occurrences, not new appends or learning gain.
+    """
+    if not any(isinstance(item, dict) and ("memory_hook" in item or "memory_completion" in item)
+               for item in per_cycle):
+        return None
+    projection: dict[str, Any] = {
+        "schema_version": 1, "input_cycle_count": 0,
+        "initial_status_counts": {}, "completion_status_counts": {},
+        "reported_observation_counts": {
+            "items": 0, "recorded_receipts": 0, "already_recorded_receipts": 0,
+            "item_errors": 0, "audit_errors": 0, "unverified_recorded_receipts": 0,
+        },
+        "cycles": [], "truncated": False, "omitted_cycle_count": 0, "omitted_observation_count": 0,
+    }
+    candidates: list[tuple[int, int, dict[str, Any]]] = []
+    counts = projection["reported_observation_counts"]
+    for ordinal, outer in enumerate(per_cycle):
+        if not isinstance(outer, dict):
+            continue
+        projection["input_cycle_count"] += 1
+        initial = _memory_receipt(outer.get("memory_hook"), present="memory_hook" in outer)
+        completion = _memory_receipt(outer.get("memory_completion"), present="memory_completion" in outer)
+        # The initial hook omits plan_id; its real caller used this supplied
+        # convergence linkage. Never synthesize an ID from a cycle name.
+        convergence = outer.get("convergence")
+        convergence = convergence if isinstance(convergence, dict) else {}
+        linkage = _memory_receipt({"cycle_id": outer.get("cycle_id"), "plan_id": convergence.get("plan_id")}, present=True)
+        for key in ("cycle_id", "plan_id"):
+            if initial[key] is None and key not in initial.get("identity_omissions", {}):
+                initial[key] = linkage[key]
+                if key in linkage.get("identity_omissions", {}):
+                    initial.setdefault("identity_omissions", {})[key] = linkage["identity_omissions"][key]
+        raw_completion = outer.get("memory_completion")
+        raw_completion = raw_completion if isinstance(raw_completion, dict) else {}
+        for key in ("attempted", "already_recorded"):
+            value = raw_completion.get(key)
+            completion[key] = value if type(value) is int and value >= 0 else None
+        for name, receipt in (("initial_status_counts", initial), ("completion_status_counts", completion)):
+            status = receipt["status"] or receipt["input_status"]
+            projection[name][status] = projection[name].get(status, 0) + 1
+        observations = raw_completion.get("observations")
+        observations = observations if isinstance(observations, list) else []
+        selected: list[tuple[int, int, dict[str, Any]]] = []
+        for index, value in enumerate(observations):
+            receipt = _memory_receipt(value, present=True)
+            counts["items"] += 1
+            recorded = receipt["convention_recorded"] is True
+            counts["recorded_receipts"] += int(recorded)
+            counts["already_recorded_receipts"] += int(receipt["status"] == "already_recorded" and recorded)
+            counts["item_errors"] += int(bool(receipt.get("error_class") or receipt["chain_verified"] is False))
+            counts["audit_errors"] += int(bool(receipt.get("audit_error_class")))
+            counts["unverified_recorded_receipts"] += int(recorded and receipt["chain_verified"] is not True)
+            selected.append((_memory_priority(receipt), index, receipt))
+            selected.sort(key=lambda item: item[:2])
+            del selected[_MEMORY_DISPLAY_OBSERVATIONS:]
+        completion["observations"] = [item[2] for item in selected]
+        cycle = {"cycle_id": linkage["cycle_id"], "initial": initial, "completion": completion}
+        if "cycle_id" in linkage.get("identity_omissions", {}):
+            cycle["identity_omissions"] = {"cycle_id": linkage["identity_omissions"]["cycle_id"]}
+        priority = min([_memory_priority(initial), _memory_priority(completion), *[item[0] for item in selected]])
+        candidates.append((priority, ordinal, cycle))
+        candidates.sort(key=lambda item: item[:2])
+        del candidates[_MEMORY_DISPLAY_CYCLES:]
+    # Select cycles by priority, then retain source order for receipt ties and
+    # later byte fitting; no display ordinal may masquerade as source order.
+    projection["cycles"] = [item[2] for item in sorted(candidates, key=lambda item: item[1])]
+    # The cycle cap bounds this pool to 32 receipts. Spend the observation
+    # budget globally, so one cycle's replays cannot displace another's errors.
+    while sum(len(cycle["completion"]["observations"]) for cycle in projection["cycles"]) > _MEMORY_DISPLAY_OBSERVATIONS:
+        _memory_drop_detail(projection)
+    _memory_omissions(projection)
+    while len(json.dumps(projection, indent=2, sort_keys=True).encode("utf-8")) > _MEMORY_DISPLAY_BYTES:
+        if not _memory_drop_detail(projection):
+            break
+    return projection
+
+
+def _fit_memory_learning_summary(summary: dict[str, Any]) -> None:
+    """Fit optional receipts to the actual stdout object, including artifact URI.
+
+    The legacy full_result is an artifact payload, not stdout. If essential
+    metadata cannot fit, the CLI's existing contract-error guard remains final.
+    """
+    projection = summary.get("memory_learning")
+    if not isinstance(projection, dict):
+        return
+    stdout = {key: value for key, value in summary.items() if key != "full_result"}
+    # CLI print() emits one trailing newline in addition to the JSON bytes.
+    while len(json.dumps(stdout, indent=2, sort_keys=True).encode("utf-8")) + 1 > SUMMARY_STDOUT_MAX_BYTES:
+        if not _memory_drop_detail(projection):
+            break
+
+
+def _cycle_result_status(cycle: dict[str, Any], *, default: str = "unknown") -> str:
+    """Project existing execution and terminal facts for result consumers.
+
+    Runtime failures retain their detail. Successful execution cannot hide
+    a failed or unresolved terminal result. Older callers that omit either
+    field retain their existing fallback; the original fields are not changed.
+    """
+    runtime = str(cycle.get("runtime_status") or cycle.get("status") or default)
+    terminal = str(cycle.get("status") or runtime)
+    if runtime not in {"ok", "completed"}:
+        return runtime
+    if terminal not in {"ok", "completed"}:
+        return terminal
+    return "failed" if cycle.get("non_ok_tools") else runtime
+
+
 def autonomy_output_summary(
     result: dict[str, Any],
     *,
@@ -875,7 +1418,7 @@ def autonomy_output_summary(
         if not isinstance(item, dict):
             continue
         cycle = item.get("cycle") if isinstance(item.get("cycle"), dict) else {}
-        status = str(cycle.get("runtime_status") or cycle.get("status") or "unknown")
+        status = _cycle_result_status(cycle)
         cycle_status_counts[status] = cycle_status_counts.get(status, 0) + 1
         cycle_incomplete = int(cycle.get("incomplete_lifecycle_count") or 0)
         incomplete_lifecycle_count += cycle_incomplete
@@ -1007,6 +1550,10 @@ def autonomy_output_summary(
         "failed_phases": failed_phases,
         "incomplete_lifecycle_count": incomplete_lifecycle_count,
     }
+    memory_learning = _memory_learning_projection(per_cycle)
+    if memory_learning is not None:
+        summary["memory_learning"] = memory_learning
+        _fit_memory_learning_summary(summary)
     if result_detail == "full":
         summary["full_result"] = result
     return summary
@@ -1099,13 +1646,28 @@ def _verify_artifact_ref(ref: Any, *, root: Path, workspace_root: Path | None, s
     ):
         return {"code": "artifact_ref_self_output_uri_forbidden", "path": raw_path, "source": source}
     if not path.exists():
-        return {"code": "artifact_ref_missing", "path": raw_path, "source": source}
+        try:
+            retained = _resolve_artifact_bytes(ref, base_dir=root, max_bytes=_ARCHIVE_FILE_BYTES)
+        except (LedgerIntegrityError, GovernanceError, OSError):
+            return {"code": "artifact_ref_missing", "path": raw_path, "source": source,
+                    "reason": "archive_history_unavailable"}
+        if retained["status"] == "resolved" and retained["source_tier"] == "archive":
+            return None
+        return {"code": "artifact_ref_missing", "path": raw_path, "source": source,
+                "reason": retained["reason"]}
     if path.is_file():
         actual = file_hash(path)
         normalized = str(expected_hash)
         if normalized.startswith("sha256:"):
             normalized = normalized.split(":", 1)[1]
         if normalized != actual:
+            try:
+                retained = _resolve_artifact_bytes(ref, base_dir=root, max_bytes=_ARCHIVE_FILE_BYTES,
+                                                   _archive_only=True)
+            except (LedgerIntegrityError, GovernanceError, OSError):
+                retained = None
+            if retained is not None and retained["status"] == "resolved":
+                return None
             return {"code": "artifact_hash_mismatch", "path": raw_path, "expected": expected_hash, "actual": "sha256:" + actual, "source": source}
     return None
 
@@ -1227,11 +1789,28 @@ def _verify_cycle_files(*, root: Path, cycle_id: str | None, issues: list[dict[s
     return verified
 
 
+def _refs_requiring_hot_index(root: Path, refs: list[Any]) -> list[Any]:
+    remaining = []
+    for ref in refs:
+        try:
+            # Restoring an identical hot copy does not recreate a compacted
+            # index row. Qualify the retained source independently of hot state.
+            retained = _resolve_artifact_bytes(ref, base_dir=root, max_bytes=_ARCHIVE_FILE_BYTES,
+                                               _archive_only=True)
+        except (LedgerIntegrityError, GovernanceError, OSError, TypeError):
+            remaining.append(ref)
+            continue
+        if retained["status"] != "resolved" or retained["source_tier"] != "archive":
+            remaining.append(ref)
+    return remaining
+
+
 def _verify_artifact_indexes(*, root: Path, artifact_refs_seen: list[Any], issues: list[dict[str, Any]]) -> None:
     index_paths = [root / "run-artifacts" / "artifact-index.jsonl", root / "artifact-index.json", root / "artifact-index.jsonl", root / "artifacts" / "index.json"]
     existing = [path for path in index_paths if path.exists()]
     if artifact_refs_seen and not existing:
-        issues.append({"code": "missing_artifact_index", "artifact_ref_count": len(artifact_refs_seen)})
+        if _refs_requiring_hot_index(root, artifact_refs_seen):
+            issues.append({"code": "missing_artifact_index", "artifact_ref_count": len(artifact_refs_seen)})
         return
     for path in existing:
         if path.suffix == ".jsonl":
@@ -1246,9 +1825,11 @@ def _verify_artifact_indexes(*, root: Path, artifact_refs_seen: list[Any], issue
                 "artifact_index",
                 expected_surface=expected_surface,
             )
-            if artifact_refs_seen and not rows:
+            required_refs = (_refs_requiring_hot_index(root, artifact_refs_seen)
+                             if expected_surface == "runtime_artifact_index" else artifact_refs_seen)
+            if required_refs and not rows:
                 issues.append({"code": "artifact_index_empty_with_run_refs", "path": path.as_posix()})
-            _verify_index_rows_cover_refs(rows, artifact_refs_seen, issues=issues, path=path)
+            _verify_index_rows_cover_refs(rows, required_refs, issues=issues, path=path)
             continue
         try:
             payload = _read_json(path)
@@ -1358,8 +1939,6 @@ def _verify_global_manifest_inventory(*, root: Path, artifact_refs_seen: list[An
         issues.append({"code": "artifact_manifest_empty_with_run_refs", "path": manifest_path.as_posix()})
     if not inventory_rows:
         issues.append({"code": "artifact_inventory_empty_with_run_refs", "path": inventory_path.as_posix()})
-    manifest_by_id = {str(row.get("artifact_id") or ""): row for row in manifest_rows if isinstance(row, dict)}
-    inventory_by_id = {str(row.get("artifact_id") or ""): row for row in inventory_rows if isinstance(row, dict)}
     for ref in artifact_refs_seen:
         if not isinstance(ref, dict):
             continue
@@ -1368,16 +1947,32 @@ def _verify_global_manifest_inventory(*, root: Path, artifact_refs_seen: list[An
         expected_uri = str(ref.get("uri") or "")
         if not artifact_id:
             continue
-        manifest = manifest_by_id.get(artifact_id)
+        manifest = _native_summary_for_ref(manifest_rows, ref, uri_field="current_uri")
         if manifest is None:
             issues.append({"code": "artifact_manifest_ref_missing", "artifact_id": artifact_id, "path": manifest_path.as_posix()})
         else:
-            _verify_summary_row_against_ref(manifest, artifact_id=artifact_id, expected_hash=expected_hash, expected_uri=expected_uri, issues=issues, code_prefix="artifact_manifest", path=manifest_path)
-        inventory = inventory_by_id.get(artifact_id)
+            _verify_summary_row_against_ref(manifest, artifact_id=artifact_id, expected_hash=expected_hash, expected_uri=expected_uri, expected_producer=ref.get("produced_by_workflow_run_id"), issues=issues, code_prefix="artifact_manifest", path=manifest_path)
+        inventory = _native_summary_for_ref(inventory_rows, ref, uri_field="path")
         if inventory is None:
             issues.append({"code": "artifact_inventory_ref_missing", "artifact_id": artifact_id, "path": inventory_path.as_posix()})
         else:
-            _verify_summary_row_against_ref(inventory, artifact_id=artifact_id, expected_hash=expected_hash, expected_uri=expected_uri, issues=issues, code_prefix="artifact_inventory", path=inventory_path)
+            _verify_summary_row_against_ref(inventory, artifact_id=artifact_id, expected_hash=expected_hash, expected_uri=expected_uri, expected_producer=ref.get("produced_by_workflow_run_id"), issues=issues, code_prefix="artifact_inventory", path=inventory_path)
+
+
+def _native_summary_for_ref(
+    rows: list[dict[str, Any]], ref: dict[str, Any], *, uri_field: str,
+) -> dict[str, Any] | None:
+    """Select the native version; retain the old diagnostic row if it is absent."""
+    diagnostic = None
+    for row in rows:
+        if row.get("artifact_id") != ref.get("artifact_id"):
+            continue
+        diagnostic = row
+        if (row.get(uri_field) == ref.get("uri")
+                and row.get("sha256") == ref.get("sha256")
+                and row.get("run_id") == ref.get("produced_by_workflow_run_id")):
+            return row
+    return diagnostic
 
 
 def _verify_summary_row_against_ref(
@@ -1386,20 +1981,50 @@ def _verify_summary_row_against_ref(
     artifact_id: str,
     expected_hash: str,
     expected_uri: str,
+    expected_producer: str | None,
     issues: list[dict[str, Any]],
     code_prefix: str,
     path: Path,
 ) -> None:
     row_hash = str(row.get("sha256") or "")
-    row_uri = str(row.get("current_uri") or row.get("uri") or "")
+    row_uri = str(row.get("current_uri") or row.get("uri") or row.get("path") or "")
     if expected_hash and row_hash and row_hash != expected_hash:
         issues.append({"code": f"{code_prefix}_hash_mismatch", "artifact_id": artifact_id, "expected": expected_hash, "actual": row_hash, "path": path.as_posix()})
     if expected_uri and row_uri and row_uri != expected_uri:
         issues.append({"code": f"{code_prefix}_uri_mismatch", "artifact_id": artifact_id, "expected": expected_uri, "actual": row_uri, "path": path.as_posix()})
+    if expected_producer and row.get("run_id") != expected_producer:
+        issues.append({"code": f"{code_prefix}_producer_mismatch", "artifact_id": artifact_id, "expected": expected_producer, "actual": row.get("run_id"), "path": path.as_posix()})
+
+
+def _source_is_native_republication(
+    root: Path, event: dict[str, Any], actual_sha256: str, *, budget: _ArchiveReadBudget,
+) -> bool:
+    """Join retained A and later native B before accepting different hot bytes."""
+    if event.get("event") != "artifact_archived":
+        return False
+    creations = _archive_rows(
+        root, "run-artifacts/manifest.jsonl", "runtime_artifact_manifest", budget=budget,
+        keep=lambda row: (row.get("event") == "artifact_created"
+                          and row.get("artifact_id") == event.get("artifact_id")
+                          and row.get("current_uri") == event.get("original_path")),
+    )
+    _consistent_runtime_creations(creations)
+    for position, original in enumerate(creations):
+        original_ref = _runtime_creation_ref(original)
+        if original_ref is None or not _archive_event_matches(event, original_ref, creation=original):
+            continue
+        current_ref = {**original_ref, "sha256": actual_sha256}
+        for newer in creations[position + 1:]:
+            if (_runtime_creation_ref(newer) == current_ref
+                    and newer.get("cycle_uid") == original.get("cycle_uid")
+                    and newer.get("kind") == original.get("kind")):
+                return True
+    return False
 
 
 def _verify_retention_events(*, root: Path, issues: list[dict[str, Any]]) -> None:
     path = root / "retention" / "events.jsonl"
+    budget = _ArchiveReadBudget()
     for row in _safe_load_jsonl(path, issues, "retention_events", expected_surface="retention_events"):
         kind = str(row.get("kind") or row.get("event") or row.get("event_type") or "")
         source = row.get("source_path") or row.get("original_path")
@@ -1410,7 +2035,7 @@ def _verify_retention_events(*, root: Path, issues: list[dict[str, Any]]) -> Non
             except GovernanceError:
                 issues.append({"code": "archive_mismatch", "source_path": str(source), "archive_path": str(archive)})
                 continue
-            if source_path.exists() and archive:
+            if archive:
                 try:
                     archive_path = _resolve_artifact_path(str(archive), root=root, workspace_root=None)
                 except GovernanceError:
@@ -1421,14 +2046,32 @@ def _verify_retention_events(*, root: Path, issues: list[dict[str, Any]]) -> Non
                     continue
                 expected_source_hash = str(row.get("source_sha256") or row.get("sha256") or "")
                 expected_archive_hash = str(row.get("archive_sha256") or row.get("sha256") or "")
-                if expected_source_hash:
+                if expected_source_hash and source_path.exists():
                     normalized = expected_source_hash.split(":", 1)[1] if expected_source_hash.startswith("sha256:") else expected_source_hash
                     actual_source = file_hash(source_path)
                     if actual_source != normalized:
-                        issues.append({"code": "retention_source_hash_mismatch", "source_path": str(source), "expected": expected_source_hash, "actual": "sha256:" + actual_source})
+                        try:
+                            republished = _source_is_native_republication(
+                                root, row, "sha256:" + actual_source, budget=budget,
+                            )
+                        except (_ArchiveUnavailable, _ArchiveLimit, _LedgerReadLimitError, LedgerIntegrityError, OSError):
+                            republished = False
+                            issues.append({"code": "retention_source_provenance_unavailable", "source_path": str(source)})
+                        if not republished:
+                            issues.append({"code": "retention_source_hash_mismatch", "source_path": str(source), "expected": expected_source_hash, "actual": "sha256:" + actual_source})
                 if expected_archive_hash:
                     normalized = expected_archive_hash.split(":", 1)[1] if expected_archive_hash.startswith("sha256:") else expected_archive_hash
-                    actual_archive = file_hash(archive_path)
+                    try:
+                        with _archive_file_chunks(root, str(archive), budget=budget, source=False,
+                                                  max_bytes=_ARCHIVE_FILE_BYTES) as (_size, chunks):
+                            digest = hashlib.sha256()
+                            for chunk in chunks:
+                                digest.update(chunk)
+                        actual_archive = digest.hexdigest()
+                    except (_ArchiveLimit, _ArchiveUnavailable, OSError) as exc:
+                        issues.append({"code": "retention_archive_unavailable", "archive_path": str(archive),
+                                       "reason": "budget_exceeded" if isinstance(exc, _ArchiveLimit) else "archive_read_unavailable"})
+                        continue
                     if actual_archive != normalized:
                         issues.append({"code": "retention_archive_hash_mismatch", "archive_path": str(archive), "expected": expected_archive_hash, "actual": "sha256:" + actual_archive})
         if kind in {"retention_missing_source", "restore_failed"}:

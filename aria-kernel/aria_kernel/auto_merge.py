@@ -804,7 +804,7 @@ class GhCliGitHubAdapter:
                 "view",
                 str(number),
                 "--json",
-                "number,baseRefName,headRefName,headRefOid,files,reviews,reviewDecision",
+                "number,baseRefName,baseRefOid,headRefName,headRefOid,body,url,files,reviews,reviewDecision",
             ],
         )
         return {
@@ -814,10 +814,14 @@ class GhCliGitHubAdapter:
             "target_ref": payload.get("baseRefName"),
             "base_branch": payload.get("baseRefName"),
             "baseRefName": payload.get("baseRefName"),
+            "base_sha": payload.get("baseRefOid"),
+            "baseRefOid": payload.get("baseRefOid"),
             "head_ref": payload.get("headRefName"),
             "headRefName": payload.get("headRefName"),
             "head_sha": payload.get("headRefOid"),
             "headRefOid": payload.get("headRefOid"),
+            "body": payload.get("body"),
+            "url": payload.get("url"),
             "changed_files": payload.get("files", []),
             "reviews": payload.get("reviews", []),
             "review_decision": payload.get("reviewDecision"),

@@ -28335,6 +28335,161 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "aria-kernel/tests/fixtures/prompt_render_issued_v4/capture-manifest.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "aria-kernel/tests/fixtures/prompt_render_issued_v4/issued-v4-map-missing-history.context.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "aria-kernel/tests/fixtures/prompt_render_issued_v4/issued-v4-map-missing-history.fused.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "aria-kernel/tests/fixtures/prompt_render_issued_v4/issued-v4-map-missing-history.prompt-row.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "aria-kernel/tests/fixtures/prompt_render_issued_v4/issued-v4-map-missing-history.request.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "aria-kernel/tests/fixtures/prompt_render_issued_v4/issued-v4-map-rejected-history.context.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "aria-kernel/tests/fixtures/prompt_render_issued_v4/issued-v4-map-rejected-history.fused.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "aria-kernel/tests/fixtures/prompt_render_issued_v4/issued-v4-map-rejected-history.prompt-row.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "aria-kernel/tests/fixtures/prompt_render_issued_v4/issued-v4-map-rejected-history.request.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "aria-kernel/tests/fixtures/prompt_render_legacy/capture-manifest.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "aria-kernel/tests/fixtures/prompt_render_legacy/legacy-v1-base.input.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "aria-kernel/tests/fixtures/prompt_render_legacy/legacy-v1-enriched.input.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "aria-kernel/tests/fixtures/prompt_render_legacy/legacy-v2-base.input.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "aria-kernel/tests/fixtures/prompt_render_legacy/legacy-v2-enriched.input.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "aria-kernel/tests/fixtures/prompt_render_legacy/legacy-v3-base.input.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "aria-kernel/tests/fixtures/prompt_render_legacy/legacy-v3-enriched.input.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "aria-kernel/tests/fixtures/runtime_archive_legacy/capture-manifest.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "archive_immutable",
+      "content_sha256": "aad8856b614488dab02b7b01645da8682013858bb0ae61d6c19081c6add45a3a",
+      "hash_policy": "sha256",
+      "owner": "archive-owner",
+      "path": "aria-kernel/tests/fixtures/runtime_archive_legacy/cold-tools/.archive/runtime/cyc-20200101T000000Z-legacy.run-native-legacy-retention.tool_run/tool_run.json",
+      "prettier_managed": false,
+      "reason": "historical archive content is hash-pinned evidence",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "aria-kernel/tests/fixtures/runtime_archive_legacy/cold-tools/integrity_index.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "aria-kernel/tests/fixtures/runtime_archive_legacy/cold-tools/registry.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "aria-kernel/tests/fixtures/runtime_archive_legacy/cold-tools/repo_identity.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "aria-kernel/tests/fixtures/runtime_archive_legacy/cold-tools/runtime/v2-promotion-evidence.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "aria-kernel/tests/fixtures/runtime_archive_legacy/cold-tools/tools_contract.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "aria-kernel/tests/fixtures/runtime_archive_legacy/original-artifact.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "aria-kernel/tests/fixtures/runtime_archive_legacy/producer-input.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "aria-kernel/tests/source_marker_exception_list.json",
       "prettier_managed": true
     },
@@ -29483,6 +29638,18 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/aria/BEHAVIOUR.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/catalogue-change-outcome.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/aria/catalogue-runtime-retention.md",
       "prettier_managed": true
     },
     {

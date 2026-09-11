@@ -111,6 +111,9 @@ def production_converged_plan(
     plan_id: str = "plan-converged-fixture",
     reviewer: str = "farm-expert",
     affected_paths: list[str] | None = None,
+    evidence_refs: list[str] | None = None,
+    validation_commands: list[dict[str, Any]] | None = None,
+    with_coverage: bool = False,
 ) -> ConvergedPlan:
     """Drive ``plan_convergence`` to CONVERGED the way production does.
 
@@ -122,6 +125,11 @@ def production_converged_plan(
     convergence that the state machine never granted — which is the exact
     class of false evidence ORPHAN-CRITICAL-727's approval ref exists to make
     auditable.
+
+    ``with_coverage=True`` selects schema v2 and runs the default TypeScript/Nx
+    coverage producer before native convergence. It requires an unwaived covered
+    result and records it through the existing coverage event owner. The default
+    retains the original schema v1 fixture flow.
 
     ``reviewer`` must resolve to an agent file under
     ``<workspace_root>/.claude/agents``; the critique path resolves reviewer
@@ -167,17 +175,20 @@ def production_converged_plan(
         # outside the implementer sandbox. A fixture declaring a command the
         # production synthesizer never emits was testing a path production
         # cannot take.
-        "validation_commands": [
+        "validation_commands": [dict(command) for command in validation_commands] if validation_commands is not None else [
             {"cmd": "nx affected --target=lint", "timeout_ms": 600_000},
             {"cmd": "nx affected --target=test", "timeout_ms": 1_800_000},
         ],
-        "evidence_refs": ["docs/aria/SPEC.md"],
+        "evidence_refs": evidence_refs if evidence_refs is not None else ["docs/aria/SPEC.md"],
         # The tier claim staging refuses to invent. Tier 1 ("make it
         # impossible") is the fixture's claim about its own change; the point
         # of the field is that SOMEONE claimed it, and the change ledger
         # records who.
         "architectural_tier": 1,
     }
+    if with_coverage:
+        plan_content["schema_version"] = 2
+        plan_content["coverage"] = {"waivers": []}
     start_plan(
         plan_id=plan_id,
         initial_revision_id="rev-0",
@@ -223,6 +234,19 @@ def production_converged_plan(
         workspace_root=workspace_root,
         base_dir=tools_dir,
     )
+    if with_coverage:
+        from aria_kernel.plan_convergence import record_coverage
+        from aria_kernel.plan_coverage import compute_plan_coverage
+
+        coverage = compute_plan_coverage(
+            plan_content=plan_content, plan_id=plan_id, round_number=1,
+            target_revision_id=latest["revision_id"],
+            target_plan_content_hash=latest["content_hash"],
+            workspace_root=workspace_root, base_dir=tools_dir,
+        )
+        if coverage["verdict"] != "covered":
+            raise AssertionError(f"fixture requires actual unwaived coverage: {coverage}")
+        record_coverage(plan_id=plan_id, coverage=coverage, base_dir=tools_dir)
     evaluated = evaluate_plan(plan_id=plan_id, round_number=1, base_dir=tools_dir)
     terminal = evaluated["event"]["payload"]["terminal_state"]
     if terminal != "CONVERGED":

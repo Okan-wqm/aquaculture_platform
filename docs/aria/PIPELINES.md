@@ -25,6 +25,15 @@ Two prompt-delivery paths exist and they differ structurally:
   Agents carrying `dispatch: ad-hoc` live on this path only.
 <!-- judge-digest:end -->
 
+### Captured history at kernel mint
+
+`agent_invocations.create_agent_invocation_request` captures related rejected submission episodes
+through the existing bound request/claim/result owners before sealing context and prompt hashes.
+The kernel renderer's version 4 distinguishes episode provenance and source availability from
+positive knowledge claims. Claim-time delivery replays the captured envelope; it does not search
+current history again. Literal versions 1-3 retain their original full prompt bytes. See
+`CONTRACTS.md` §12.7 for scope matching, omission limits and the absence of measured-gain claims.
+
 ## 2. Convergent plan gate (Plan 016 / V8)
 
 Per pressure event, per round:

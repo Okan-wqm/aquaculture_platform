@@ -817,6 +817,7 @@ def run_autonomy_orchestrator(
     # which is the correct boundary for action-level gating (it
     # captures the CLI override + audit row in the same read).
     from .runtime_profile import enforce_profile_for_action
+    from .runtime_artifacts import _cycle_result_status
     from .tool_registry import (
         GovernanceError,
         append_tools_governance,
@@ -1296,8 +1297,9 @@ def run_autonomy_orchestrator(
                         defer_reflection=True,
                     )
                     cycle_summary["cycle"] = _bounded_cycle_summary(cycle_result)
-                    raw_status = str(cycle_result.get("runtime_status") or cycle_result.get("status") or "failed")
-                    cycle_status = "ok" if raw_status in {"ok", "completed"} and not cycle_result.get("non_ok_tools") else "failed"
+                    cycle_status = "ok" if _cycle_result_status(
+                        cycle_result, default="failed",
+                    ) in {"ok", "completed"} else "failed"
                 except Exception as exc:
                     # Plan 032 Faz 032e — a failed cycle is an operator event.
                     _notify_cycle_failed(root, cycle_id, exc)
@@ -1867,10 +1869,10 @@ def run_autonomy_orchestrator(
                 # memory pillar per cycle (closes V31-C2 follow-up).
                 #
                 # Placed BEFORE specialist_review_started so the V10
-                # memory contribution lands per CONVERGED cycle even
-                # when specialist_review rejects. The MemoryHook is
-                # idempotent for crash recovery — the convention row
-                # is keyed by pattern_signature.
+                # memory observation lands per CONVERGED cycle even
+                # when specialist_review rejects. Without a cycle signer,
+                # the hook discloses needs_signing once per plan revision;
+                # replay does not append another identical observation.
                 try:
                     _v31c2_memory_result = memory_hook.record(
                         cycle_id=cycle_id,
@@ -1883,7 +1885,10 @@ def run_autonomy_orchestrator(
                             ),
                         },
                         profile=str(profile_snapshot or "standard"),
-                        signer_key_fp=None,  # V31-D2 will thread the cycle key fp here
+                        # The implementation runner owns a later, short-lived
+                        # key. No authenticated cycle signer exists here;
+                        # memory records needs_signing, never a placeholder.
+                        signer_key_fp=None,
                     )
                     cycle_summary["memory_hook"] = _v31c2_memory_result
                     AutonomyStateReducer.transition(
@@ -1952,6 +1957,15 @@ def run_autonomy_orchestrator(
                         "runner_class": type(v9_implementation_runner).__name__,
                     },
                 )
+                observation_completion_report: dict[str, Any] = {"status": "not_attempted"}
+                cycle_summary["memory_completion"] = observation_completion_report
+
+                def complete_memory_observations(*, signer_cycle_id: str, signer_key_fp: str) -> dict[str, Any]:
+                    return memory_hook.complete_pending_observations(
+                        base_dir=root, signer_cycle_id=signer_cycle_id,
+                        signer_key_fp=signer_key_fp, report=observation_completion_report,
+                    )
+
                 try:
                     v9_result = v9_implementation_runner.run(
                         cycle_id=cycle_id,
@@ -1967,6 +1981,8 @@ def run_autonomy_orchestrator(
                             "request_ids": convergence_result.get("request_ids", []),
                         },
                         profile=str(profile_snapshot or "standard"),
+                        on_signer_ready=complete_memory_observations,
+                        observation_completion_report=observation_completion_report,
                     )
                     cycle_summary["v9_implementation"] = {
                         "terminal_state": v9_result.terminal_state,
@@ -1992,22 +2008,24 @@ def run_autonomy_orchestrator(
                     # surfaces via governance event for operator
                     # visibility, and the orchestrator falls back to
                     # review_converged_plan signal (the V8 default).
-                    append_tools_governance(
-                        root, "v9_implementation_phase_failed",
-                        {
-                            "cycle_id": cycle_id,
-                            "plan_id": convergence_result.get("plan_id"),
-                            "error_class": type(_v9_exc).__name__,
-                            "error_message": str(_v9_exc)[:500],
-                        },
-                        bypass_profile_gate=True,
-                    )
                     cycle_summary["v9_implementation"] = {
                         "terminal_state": "IMPLEMENTATION_REQUEST_REFUSED",
                         "pr_url": None,
                         "rejection_class": f"runner_exception:{type(_v9_exc).__name__}",
                         "specialist_review_signal": "review_converged_plan",
                     }
+                    try:
+                        append_tools_governance(
+                            root, "v9_implementation_phase_failed",
+                            {
+                                "cycle_id": cycle_id,
+                                "plan_id": convergence_result.get("plan_id"),
+                                "error_class": type(_v9_exc).__name__,
+                            },
+                            bypass_profile_gate=True,
+                        )
+                    except Exception as audit_exc:
+                        cycle_summary["v9_implementation"]["audit_error_class"] = type(audit_exc).__name__
 
                 # Plan ARIA-V6 §2c V6.1 Phase 6.1 — Gate C Lane-A
                 # specialist dispatch. Inserted between Gate A's

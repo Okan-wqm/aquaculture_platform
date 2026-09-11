@@ -22,6 +22,14 @@ import os
 import shutil
 from pathlib import Path
 from dataclasses import dataclass
+from dataclasses import asdict as _asdict
+import hashlib as _hashlib
+import json as _json
+import time as _time
+from typing import Any as _Any, Callable as _Callable
+
+from .agent_runtime_profile import AgentRuntimeProfile as _AgentRuntimeProfile
+from .genesis_policy import _AdaptiveRuntimePolicy
 
 
 @dataclass(frozen=True)
@@ -77,6 +85,7 @@ _FLEET: tuple[Provider, ...] = (
 # availability signal is the session file's existence under the EFFECTIVE
 # user's codex home; OPENAI_API_KEY remains the alternative credential.
 _CODEX_AUTH_FILE = "auth.json"
+_MODEL_PROVIDER_ALIASES: dict[str, str] = {"gpt-6-astra": "openai"}
 
 
 def _codex_session_present(env: dict[str, str]) -> bool:
@@ -85,7 +94,9 @@ def _codex_session_present(env: dict[str, str]) -> bool:
     Fail-closed: absence means the runner user has not logged in — the
     remedy is `codex login` as that user, never a silent provider claim.
     """
-    home = env.get("CODEX_HOME") or str(Path.home())
+    home = env.get("CODEX_HOME") or (
+        Path(env.get("HOME") or Path.home()) / ".codex"
+    )
     return (Path(home) / _CODEX_AUTH_FILE).is_file()
 
 
@@ -101,7 +112,7 @@ def available_providers(environ: dict[str, str] | None = None) -> list[Provider]
     env = dict(os.environ if environ is None else environ)
     # Binary probes honor the CALLER'S PATH (the passed environ when given):
     # a test isolating PATH must be able to make the runtimes invisible.
-    search_path = env.get("PATH") or os.environ.get("PATH")
+    search_path = env.get("PATH", os.environ.get("PATH"))
     out: list[Provider] = []
     for provider in _FLEET:
         if provider.runtime_hint == "codex":
@@ -152,4 +163,94 @@ def provider_for_model(model: str) -> str | None:
     for provider in _FLEET:
         if model == provider.default_model:
             return provider.key
-    return None
+    return _MODEL_PROVIDER_ALIASES.get(model)
+
+
+@dataclass(frozen=True)
+class _RuntimeStatusObservation:
+    auth_observation: str
+    quota_observation: str = "unknown"
+    reason: str = "status_unavailable"
+    command: tuple[str, ...] = ()
+    exit_code: int | None = None
+    control_status: str = "unknown"
+    control_reason: str = "native_runtime_control_binding_unavailable"
+    auth_method: str = "unknown"
+
+
+@dataclass(frozen=True)
+class _NativeRuntimeAdmission:
+    configuration_digest: str
+    candidate_observations: tuple[dict[str, _Any], ...]
+    eligible_routes: tuple[dict[str, str], ...]
+
+
+def _native_runtime_admission(
+    *,
+    repo_root: Path,
+    profile: _AgentRuntimeProfile,
+    policy: _AdaptiveRuntimePolicy,
+    environ: dict[str, str],
+    deadline_monotonic: float,
+    observe_status: _Callable[[Provider, float], _RuntimeStatusObservation],
+) -> _NativeRuntimeAdmission:
+    """Prepare native route observations; the runtime supplies its status transport.
+
+    Legacy marker discovery is deliberately not a native auth prerequisite.
+    Neither a status exit nor a price alone establishes control admission.
+    """
+    from .budget import alias_pricing_prefix, price_tokens
+    from .genesis_policy import _runtime_monetary_admission
+
+    configuration = _json.dumps(
+        {"schema_version": 1, "policy_digest": policy.policy_digest,
+         "resolved_profile": _asdict(profile)}, sort_keys=True, separators=(",", ":"),
+    )
+    observations: list[dict[str, _Any]] = []
+    eligible: list[dict[str, str]] = []
+    search_path = environ.get("PATH", os.defpath)
+    for provider in _FLEET:
+        model = "gpt-6-astra" if provider.key == "openai" else provider.default_model
+        effort = "ultra" if provider.key == "openai" else profile.effort
+        route = {"provider": provider.key, "runtime": provider.runtime_hint,
+                 "model": model, "effort": effort}
+        binary = "codex" if provider.runtime_hint == "codex" else "claude"
+        remaining = min(float(policy.recheck_timeout_seconds), deadline_monotonic - _time.monotonic())
+        if shutil.which(binary, path=search_path) is None:
+            status = _RuntimeStatusObservation("unavailable", reason="cli_unavailable")
+        elif provider.key == "zai" and not environ.get(provider.credential_env or "", "").strip():
+            status = _RuntimeStatusObservation("unavailable", reason="provider_not_configured")
+        elif remaining <= 0:
+            status = _RuntimeStatusObservation("unknown", reason="status_deadline_elapsed")
+        else:
+            status = observe_status(provider, remaining)
+        price = price_tokens(model=alias_pricing_prefix(model), input_tokens=400_000, output_tokens=64_000)
+        monetary = _runtime_monetary_admission(
+            repo_root, provider=provider.key, runtime=provider.runtime_hint,
+            auth_method=status.auth_method, expected_policy_digest=policy.policy_digest,
+        )
+        pricing = ({"status": "unavailable", "reason": "model_pricing_unknown"}
+                   if price.source == "unknown" else
+                   {"status": "available", "reason": price.source, "estimated_usd": price.usd,
+                    "basis": "published_api_notional"})
+        row = {
+            **route, "auth_observation": status.auth_observation,
+            "auth_method": status.auth_method,
+            "quota_observation": status.quota_observation, "status_reason": status.reason,
+            "status_command": list(status.command), "status_exit_code": status.exit_code,
+            "pricing": pricing,
+            "monetary_admission": monetary.mode,
+            "monetary_reason": monetary.reason,
+            "controls": {"status": status.control_status, "reason": status.control_reason},
+        }
+        observations.append(row)
+        monetary_available = (monetary.subscription_applies if monetary.mode == "managed_subscription"
+                              else price.source != "unknown")
+        if (status.auth_observation == "available" and monetary_available
+                and status.quota_observation != "unavailable"
+                and status.control_status == "available"):
+            eligible.append(route)
+    return _NativeRuntimeAdmission(
+        configuration_digest="sha256:" + _hashlib.sha256(configuration.encode()).hexdigest(),
+        candidate_observations=tuple(observations), eligible_routes=tuple(eligible),
+    )

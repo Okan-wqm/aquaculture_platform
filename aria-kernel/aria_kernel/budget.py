@@ -19,6 +19,10 @@ from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
 # mirror the public Anthropic price list at the time of writing; the row
 # keeps model + token counts so any rate revision is re-derivable.
 MODEL_PRICING_USD_PER_MTOK: dict[str, tuple[float, float]] = {
+    # Published Standard API rates, 2026-09-11:
+    # https://developers.openai.com/api/docs/models/gpt-6-astra
+    # Notional comparison only for managed subscription admission.
+    "gpt-6-astra": (10.0, 50.0),
     "claude-fable-5": (10.0, 50.0),
     "claude-mythos-5": (10.0, 50.0),
     # ORPHAN-HIGH-473 — claude-opus-5 priced at the 4.8 tier, per operator.
@@ -140,6 +144,9 @@ def price_tokens(*, model: str, input_tokens: int, output_tokens: int) -> TokenP
 
     for known, (in_rate, out_rate) in MODEL_PRICING_USD_PER_MTOK.items():
         if normalized == known or normalized.startswith(f"{known}-"):
+            if known == "gpt-6-astra" and input_tokens > 272_000:
+                # Published full-request long-context factors, not a blend.
+                in_rate, out_rate = in_rate * 2, out_rate * 1.5
             return TokenPrice(_usd(in_rate, out_rate), PRICING_SOURCE_EXACT, known)
     for family, (in_rate, out_rate) in MODEL_FAMILY_PRICING_USD_PER_MTOK.items():
         if normalized == family or normalized.startswith(f"{family}-"):
@@ -503,6 +510,67 @@ def reserve_cycle_budget(
     return str(persisted["ledger_hash"])
 
 
+def _reserve_native_runtime_attempt(
+    *, repo_root: Path, base_dir: Path, request_id: str, request_ledger_hash: str,
+    claim_id: str, claim_ledger_hash: str, session_id: str, attempt_id: str,
+    agent_id: str, lease_token: str,
+    provider: str, runtime: str, model: str, requested_effort: str,
+    auth_method: str, expected_policy_digest: str, settings_hash: str,
+    pricing: dict[str, Any],
+) -> dict[str, Any]:
+    """Bind a managed attempt before dispatch, using the shared monetary policy.
+
+    This is a native attempt reservation on the existing governance surface,
+    not a fabricated dollar debit or a successful result. Existing metered
+    cycle reservation remains separate and unchanged.
+    """
+    from . import agent_invocations as invocations
+    from .genesis_policy import _runtime_monetary_admission
+    from .ledger import state_transaction
+    from .runtime_profile import enforce_profile_for_write
+    from .tool_registry import append_tools_governance
+    from .workspace import governance_event
+
+    root = ensure_tools_dir(base_dir)
+    monetary = _runtime_monetary_admission(
+        repo_root, provider=provider, runtime=runtime, auth_method=auth_method,
+        expected_policy_digest=expected_policy_digest,
+    )
+    if not monetary.subscription_applies:
+        raise GovernanceError(monetary.reason)
+    enforce_profile_for_write("tool_governance", base_dir=root)
+    details = {
+        "schema_version": 1, "attempt_id": attempt_id,
+        "request_id": request_id, "request_ledger_hash": request_ledger_hash,
+        "claim_id": claim_id, "claim_ledger_hash": claim_ledger_hash,
+        "agent_id": agent_id,
+        "session_id": session_id, "provider": provider, "runtime": runtime,
+        "model": model, "requested_effort": requested_effort, "observed_effort": None,
+        "auth_method": auth_method, "monetary_admission": monetary.mode,
+        "policy_id": monetary.policy_id, "policy_digest": monetary.policy_digest,
+        "policy_sources": {"default_sha256": monetary.default_sha256,
+                           "override_sha256": monetary.override_sha256},
+        "settings_hash": settings_hash, "pricing": pricing,
+    }
+    event = governance_event(kind="runtime_attempt_started", details=details)
+    requests_path = root / "agent-invocations/requests.jsonl"
+    claims_path = root / "agent-invocations/claims.jsonl"
+    results_path = root / "agent-invocations/results.jsonl"
+    with state_transaction([requests_path, claims_path, results_path, root / "governance.jsonl"]) as transaction:
+        requests = transaction.load_declared_jsonl(requests_path, expected_surface="agent_invocation_requests")
+        claims = transaction.load_declared_jsonl(claims_path, expected_surface="agent_invocation_claims")
+        results = transaction.load_declared_jsonl(results_path, expected_surface="agent_invocation_results")
+        invocations._validate_claim_dispatch_authority(
+            requests=requests, claims=claims, results=results,
+            request_id=request_id, request_ledger_hash=request_ledger_hash,
+            claim_id=claim_id, claim_ledger_hash=claim_ledger_hash,
+            agent_id=agent_id, lease_token=lease_token, now=invocations._utc_now_dt(),
+        )
+        return append_tools_governance(
+            root, "runtime_attempt_started", details, transaction=transaction, prepared_event=event,
+        )
+
+
 def _find_reservation(base_dir: str | Path, reservation_token: str) -> dict[str, Any] | None:
     for row in _per_run_load(base_dir):
         if row.get("kind") == "cycle_reservation" and row.get("ledger_hash") == reservation_token:
@@ -598,6 +666,7 @@ from datetime import datetime, timezone  # safe-redundant; already imported
 # cross_review from V8; implementation from V9). Closed-set membership
 # pinned by I-V10-COST-03 invariant.
 COST_INVOCATION_ROLES: frozenset[str] = frozenset({
+    "verification",    # Canonical native verification, retained without relabeling.
     "primary_plan",
     "challenger_plan",
     "cross_review",

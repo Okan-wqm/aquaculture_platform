@@ -44,7 +44,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Callable, Literal, Protocol
 
 if TYPE_CHECKING:  # pragma: no cover
     pass
@@ -102,6 +102,19 @@ class V9ImplementationResult:
     specialist_review_signal: SpecialistReviewSignal
 
 
+def _validate_signer_ready_callback(
+    *,
+    on_signer_ready: Callable[..., dict[str, Any]] | None,
+    observation_completion_report: dict[str, Any] | None,
+) -> None:
+    if (on_signer_ready is None) != (observation_completion_report is None):
+        raise ValueError("signer callback and caller-owned completion report must be supplied together")
+    if on_signer_ready is not None and not callable(on_signer_ready):
+        raise TypeError("signer callback must be callable")
+    if observation_completion_report is not None and type(observation_completion_report) is not dict:
+        raise TypeError("completion report must be a plain dictionary")
+
+
 class V9ImplementationRunner(Protocol):
     """Plan ARIA-V3.1-0 — injection-seam contract for V9 impl phase.
 
@@ -136,6 +149,8 @@ class V9ImplementationRunner(Protocol):
         base_dir: Path,
         cross_review_summary: dict,
         profile: str,
+        on_signer_ready: Callable[..., dict[str, Any]] | None = None,
+        observation_completion_report: dict[str, Any] | None = None,
     ) -> V9ImplementationResult:
         ...
 
@@ -154,7 +169,13 @@ class NoOpV9ImplementationRunner:
         base_dir: Path,
         cross_review_summary: dict,
         profile: str,
+        on_signer_ready: Callable[..., dict[str, Any]] | None = None,
+        observation_completion_report: dict[str, Any] | None = None,
     ) -> V9ImplementationResult:
+        _validate_signer_ready_callback(
+            on_signer_ready=on_signer_ready,
+            observation_completion_report=observation_completion_report,
+        )
         return V9ImplementationResult(
             terminal_state="IMPLEMENTATION_REQUEST_REFUSED",
             pr_url=None,
@@ -215,6 +236,8 @@ class AutonomousV9ImplementationRunner:
         base_dir: Path,
         cross_review_summary: dict,
         profile: str,
+        on_signer_ready: Callable[..., dict[str, Any]] | None = None,
+        observation_completion_report: dict[str, Any] | None = None,
     ) -> V9ImplementationResult:
         # Lazy imports preserve cold-start hermetic discipline.
         from ..apply_engine import stage_converged_plan_for_pr
@@ -231,10 +254,24 @@ class AutonomousV9ImplementationRunner:
 
         signing_key = None
         installation_lease = None
+        _validate_signer_ready_callback(
+            on_signer_ready=on_signer_ready,
+            observation_completion_report=observation_completion_report,
+        )
         try:
             signing_key = mint_signing_key(
                 cycle_id=cycle_id, workspace_root=workspace_root,
             )
+            if on_signer_ready is not None:
+                try:
+                    observation_completion_report.update(on_signer_ready(
+                        signer_cycle_id=signing_key.cycle_id,
+                        signer_key_fp=signing_key.fingerprint,
+                    ))
+                except Exception as exc:
+                    observation_completion_report.update({
+                        "status": "callback_error", "error_class": type(exc).__name__,
+                    })
             installation_lease = mint_installation_token(
                 cycle_id=cycle_id, workspace_root=workspace_root,
             )

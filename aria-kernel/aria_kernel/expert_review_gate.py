@@ -33,9 +33,11 @@ autonomous-fix path.
    BLOCKS and escalates to HUMAN_REQUIRED instead of accepting the approval. A
    reviewer that dreams cannot approve a fix.
 
-The gate is the implementation behind the ``expert_consensus_evidence_verified``
-HARD_FAIL check (implementation_safety): a fix PR cannot open unless ≥2
-independent topic-experts reach an evidence-verified unanimous consensus.
+The final merge perimeter uses this module to request review of a natively
+accepted implementation. The evaluator below is also available to existing
+callers. The ``expert_consensus_evidence_verified`` registry predicate remains
+closed until accepted expert results are joined; pending requests are not
+consensus evidence.
 """
 from __future__ import annotations
 
@@ -45,6 +47,8 @@ from typing import Any
 from .evidence_trust import classify_evidence_ref
 from .feedback_store import CONSENSUS_MIN_CONFIDENCE
 from .human_required import record_human_required
+from .implementation_safety import HardFailContext as _HardFailContext
+from .implementation_safety import HardFailReport as _HardFailReport
 from .specialist_review_runner import select_specialist_agents
 from .tool_registry import (
     GovernanceError,
@@ -98,6 +102,89 @@ def select_expert_reviewers(
         if topup not in experts:
             experts.append(topup)
     return experts
+
+
+def _ensure_implementation_expert_requests(
+    context: _HardFailContext,
+    report: _HardFailReport,
+    *,
+    base_dir: str | Path | None,
+    cycle_id: str | None,
+) -> tuple[str, ...]:
+    """Request final review of the implementation admitted by native checks.
+
+    This producer runs after the registry at the real merge perimeter. Pending
+    requests are not verdicts and cannot make the existing report pass.
+    """
+    from .agent_invocations import create_agent_invocation_request
+    from .implementation_safety import _native_implementation_is_bound
+    import json
+
+    required = {
+        "branch_tip_lock_and_recheck", "content_hash_recheck",
+        "per_file_mutual_exclusion", "plan_coverage_witness_verified",
+    }
+    evidence = context.pre_merge_evidence
+    if (
+        not _native_implementation_is_bound(context)
+        or context.workspace_root is None or not context.affected_paths
+        or context.diff_text is None
+        or not evidence.change_id or not evidence.plan_id
+    ):
+        return ()
+    passed = {result.name for result in report.results if result.passed}
+    if not required.issubset(passed):
+        return ()
+
+    binding = {
+        "change_id": evidence.change_id,
+        "request_id": evidence.request_id,
+        "claim_id": evidence.claim_id,
+        "request_row_hash": evidence.request_row_hash,
+        "claim_row_hash": evidence.claim_row_hash,
+        "result_row_hash": evidence.result_row_hash,
+        "committed_row_hash": evidence.committed_row_hash,
+        "implementation_event_hash": evidence.implementation_event_hash,
+        "plan_id": evidence.plan_id,
+        "plan_revision_id": evidence.plan_revision_id,
+        "plan_content_hash": evidence.plan_content_hash,
+        "head_sha": evidence.head_sha,
+        "base_sha": evidence.base_sha,
+        "diff_hash": evidence.implementation_diff_hash,
+    }
+    paths = list(context.affected_paths)
+    request_ids = []
+    for expert in select_expert_reviewers(affected_files=paths):
+        request = create_agent_invocation_request(
+            target_agent=expert,
+            role="specialist_domain_review",
+            suggested_prompt=(
+                "Review the accepted implementation for your declared domain. "
+                "Judge the final source at target_sha and the base-to-head diff; "
+                "a pre-implementation plan review does not satisfy this request. "
+                "Return an explicit satisfaction verdict with file:line evidence.\n"
+                "Native implementation binding:\n"
+                + json.dumps(binding, sort_keys=True)
+                + "\nVerified diff (surrounding whitespace trimmed):\n"
+                + context.diff_text.strip()
+            ),
+            must_satisfy=[{
+                "id": f"implementation-expert-review-{expert}",
+                "description": "Review the bound final implementation with source evidence.",
+                "implementation_binding": binding,
+            }],
+            allowed_scope=paths,
+            evidence_refs=[path + ":1" for path in paths],
+            convergence_id=evidence.plan_id,
+            plan_revision_hash=evidence.plan_content_hash,
+            target_sha=evidence.head_sha,
+            context_repo_root=context.workspace_root,
+            context_source_paths=paths,
+            cycle_id=cycle_id,
+            base_dir=base_dir,
+        )
+        request_ids.append(request["request_id"])
+    return tuple(request_ids)
 
 
 def evaluate_expert_consensus(

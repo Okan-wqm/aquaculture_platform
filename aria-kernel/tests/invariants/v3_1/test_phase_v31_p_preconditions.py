@@ -30,12 +30,32 @@ Invariants:
 from __future__ import annotations
 
 import os
+import multiprocessing
 import re
 import tempfile
 import threading
 import time
 import unittest
 from pathlib import Path
+from contextlib import contextmanager
+from unittest import mock
+
+
+def _probe_state_transaction(path: Path, connection) -> None:
+    """Report completed acquisition attempts, never infer exclusion from sleep."""
+    from aria_kernel.ledger import state_transaction
+
+    try:
+        while connection.recv() == "probe":
+            try:
+                with state_transaction([path], timeout_seconds=0.1):
+                    pass
+            except TimeoutError:
+                connection.send("excluded")
+            else:
+                connection.send("acquired")
+    finally:
+        connection.close()
 
 
 class ReadonlyPathsExtensionTests(unittest.TestCase):
@@ -80,11 +100,103 @@ class KnowledgeGraphLockSafeAppendTests(unittest.TestCase):
 
     def test_i_v31_p_03_append_row_uses_declared_transaction_lock(self) -> None:
         """The native-chain derivation and governed append share one lock."""
-        from aria_kernel import knowledge_graph
-        import inspect
-        src = inspect.getsource(knowledge_graph._append_row)
-        self.assertIn("with state_transaction([path]) as transaction:", src)
-        self.assertIn("transaction.append_declared_jsonl(", src)
+        from aria_kernel import knowledge_graph, ledger
+        from aria_kernel.tool_registry import ensure_tools_dir
+
+        with tempfile.TemporaryDirectory(prefix="v31p3-lock-") as tmp:
+            root = ensure_tools_dir(Path(tmp) / "aria-tools")
+            path = root / "knowledge-graph" / "conventions.jsonl"
+            knowledge_graph._append_row(path, {"schema_version": 1, "pattern_id": "base"})
+            before = path.read_bytes()
+            base = ledger.read_jsonl(path)[-1]
+            ctx = multiprocessing.get_context("spawn")
+            connection, child_connection = ctx.Pipe()
+            child = ctx.Process(target=_probe_state_transaction, args=(path, child_connection))
+            real_transaction = ledger.state_transaction
+            real_reader = knowledge_graph._read_jsonl_strict
+            real_append = ledger.StateTransaction.append_declared_jsonl
+            active = []
+            read_transactions = []
+            stages = []
+
+            def probe(expected: str) -> None:
+                connection.send("probe")
+                self.assertTrue(connection.poll(10), "lock probe did not finish")
+                self.assertEqual(connection.recv(), expected)
+
+            @contextmanager
+            def observed_transaction(paths, **kwargs):
+                with real_transaction(paths, **kwargs) as transaction:
+                    if path.resolve() not in transaction.paths:
+                        yield transaction
+                        return
+                    active.append(transaction)
+                    try:
+                        yield transaction
+                        # Releasing and reacquiring between read and append is
+                        # invalid even when both individual operations lock.
+                        self.assertEqual(stages[-1], "appended")
+                    finally:
+                        active.pop()
+
+            def observed_reader(target):
+                self.assertEqual(target, path)
+                probe("excluded")
+                self.assertEqual(len(active), 1)
+                read_transactions.append(active[0])
+                stages.append("reading")
+                yield from real_reader(target)
+                probe("excluded")
+                stages.append("read")
+
+            def observed_append(transaction, target, record, **kwargs):
+                self.assertEqual(target, path)
+                self.assertEqual(stages, ["reading", "read"])
+                self.assertIs(transaction, read_transactions[0])
+                self.assertIs(transaction, active[0])
+                self.assertEqual(kwargs["expected_surface"], "kg_conventions")
+                self.assertEqual(record["prev_row_hash"], knowledge_graph._row_hash(base))
+                probe("excluded")
+                # Preserve the declared writer, including fsync and index refresh.
+                result = real_append(transaction, target, record, **kwargs)
+                self.assertNotEqual(path.read_bytes(), before)
+                probe("excluded")
+                stages.append("appended")
+                return result
+
+            try:
+                child.start()
+                child_connection.close()
+                probe("acquired")
+                with (
+                    mock.patch.object(ledger, "state_transaction", observed_transaction),
+                    mock.patch.object(knowledge_graph, "_read_jsonl_strict", observed_reader),
+                    mock.patch.object(ledger.StateTransaction, "append_declared_jsonl", observed_append),
+                ):
+                    knowledge_graph._append_row(
+                        path, {"schema_version": 1, "pattern_id": "native"},
+                    )
+                self.assertEqual(stages, ["reading", "read", "appended"])
+                probe("acquired")
+                self.assertTrue(path.read_bytes().startswith(before))
+                self.assertEqual([row["pattern_id"] for row in ledger.read_jsonl(path)], ["base", "native"])
+                self.assertEqual(knowledge_graph.verify_chain_or_quarantine(path), (True, 2))
+                self.assertTrue(ledger.verify_jsonl(path)["valid"])
+                connection.send("stop")
+                child.join(timeout=10)
+                self.assertFalse(child.is_alive())
+                self.assertEqual(child.exitcode, 0)
+            finally:
+                if child.is_alive():
+                    child.terminate()
+                    child.join(timeout=5)
+                    if child.is_alive():
+                        child.kill()
+                        child.join(timeout=5)
+                connection.close()
+                child_connection.close()
+                if child.pid is not None:
+                    child.close()
 
     def test_i_v31_p_03_concurrent_appends_preserve_chain(self) -> None:
         """Behavioral: N=5 concurrent appends produce 5 well-chained rows.
@@ -97,7 +209,9 @@ class KnowledgeGraphLockSafeAppendTests(unittest.TestCase):
         )
         from aria_kernel.tool_registry import ensure_tools_dir
         from dataclasses import asdict
-        tmp = Path(tempfile.mkdtemp(prefix="v31p3-"))
+        scratch = tempfile.TemporaryDirectory(prefix="v31p3-")
+        self.addCleanup(scratch.cleanup)
+        tmp = Path(scratch.name)
         # M11/E12-b — _append_row now writes through the declared-surface
         # system, which only rosters the canonical knowledge-graph paths
         # under an identity-bound tools root; a bare tmp file is exactly

@@ -1,0 +1,39 @@
+{
+  "allowed_scope": ["aria-kernel/**"],
+  "convergence_id": "conv-1",
+  "established_knowledge": {
+    "beliefs": [
+      {
+        "belief_id": "B-1",
+        "claim": "renderer is hash-bound",
+        "confidence": 0.9,
+        "evidence_refs": [],
+        "support_count": 3
+      }
+    ],
+    "conventions": []
+  },
+  "evidence_excerpts": [
+    {
+      "content": "from __future__ import annotations\n",
+      "content_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "end_line": 2,
+      "path": "aria-kernel/aria_kernel/agent_invocations.py",
+      "start_line": 1,
+      "truncated": false
+    }
+  ],
+  "evidence_refs": ["aria-kernel/aria_kernel/agent_invocations.py:1"],
+  "expected_output_path": "outputs/AIR-z8-test.md",
+  "must_satisfy": [
+    {
+      "description": "stay in scope",
+      "id": "MS-1"
+    }
+  ],
+  "prompt_render_version": 2,
+  "request_id": "AIR-z8-test",
+  "role": "evidence_judgment",
+  "suggested_prompt": "Judge the finding.",
+  "target_agent": "aria-evidence-judge"
+}

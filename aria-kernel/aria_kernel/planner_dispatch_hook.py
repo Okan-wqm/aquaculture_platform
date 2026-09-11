@@ -109,78 +109,16 @@ def _serialise_claim_metadata_for_env(
             f"claim_metadata_forbidden_key_in_input: {sorted(leaked)} "
             f"— lease_token MUST transit via {LEASE_TOKEN_ENV_VAR} only"
         )
-    # Plan ARIA-V10.4 Phase 3.H.5 — V8.12 follow-up that closes the
-    # actual F-017 root cause. The V8.12 fix at
-    # ``agent_invocations.claim_request:807-827`` extended the
-    # claim_request RETURN VALUE with envelope fields
-    # (suggested_prompt, convergence_id, target_agent, etc.) so
-    # ci_executor's ``_build_prompt_payload`` could render them. But
-    # the env-var SERIALISER below (this function) was never updated
-    # to PROPAGATE those fields to the ci_executor subprocess. Net
-    # effect: claim dict in this process has full envelope; serialised
-    # ARIA_CLAIM_METADATA env var previously carried only an envelope subset;
-    # ci_executor's ``request_envelope`` build (line 1542) reads None
-    # for the missing fields; the prompt file's ``## Suggested prompt``
-    # section is empty; cross_reviewer (and any role) refuses with
-    # ``evidence_underspecified``. Confirmed via V10.4 endurance cycle
-    # 1 (cyc-20260520T112130Z-auto) — requests.jsonl had full
-    # suggested_prompt (10454 chars with <untrusted_*> tags) but the
-    # prompt file delivered to the subprocess had ``## Suggested
-    # prompt\n\n\n`` (empty body).
-    #
-    # The full V8.12-extended set landed in claim_request return value
-    # (lines 807-827) is the SSoT for what ci_executor needs:
-    # expected_output_path, role, target_agent, convergence_id,
-    # suggested_prompt, must_satisfy, allowed_scope, forbidden_scope,
-    # evidence_refs, impact_graph_refs, validation_commands,
-    # plan_revision_hash. The serialiser propagates all of them so
-    # ci_executor sees the SAME envelope the kernel minted.
+    # The kernel owns the absence-preserving model-visible projection.
+    # Carry that exact sealed payload through the inherited-claim path;
+    # only operational lease and ledger anchors belong to this transport.
+    from .agent_invocations import fuse_prompt_envelope
+
     payload = {
+        **fuse_prompt_envelope(claim),
         "claim_id": claim.get("claim_id"),
         "request_id": claim.get("request_id"),
         "agent_id": agent_id,
-        "expected_output_path": claim.get("expected_output_path"),
-        "role": claim.get("role"),
-        # Plan ARIA-V10.4 Phase 3.H.5 — V8.12-extended envelope fields
-        # ci_executor's _build_prompt_payload reads at line 1641-1655.
-        # Without these, the agent prompt's "## Suggested prompt"
-        # section is empty + the <untrusted_*> tag bodies don't exist
-        # in the file the subprocess reads from stdin.
-        "target_agent": claim.get("target_agent"),
-        "convergence_id": claim.get("convergence_id"),
-        "suggested_prompt": claim.get("suggested_prompt"),
-        "must_satisfy": claim.get("must_satisfy") or [],
-        "allowed_scope": claim.get("allowed_scope") or [],
-        "forbidden_scope": claim.get("forbidden_scope") or [],
-        "evidence_refs": claim.get("evidence_refs") or [],
-        "impact_graph_refs": claim.get("impact_graph_refs") or [],
-        "validation_commands": claim.get("validation_commands") or [],
-        # Same reason as the fused claim response in agent_invocations: the
-        # prompt hash was computed over a render that INCLUDED the Twin slice,
-        # so a serialiser that drops it hands the executor a prompt it can
-        # never hash back to the recorded value. Two serialisers, one
-        # contract — they must carry the same fields.
-        "repository_map": claim.get("repository_map"),
-        # FAZ 4 + Z8 — the renderer reads all three, so a serialiser that
-        # drops any of them hands the executor a prompt it can never hash
-        # back to the recorded value (the exact defect class the
-        # repository_map comment above documents). prompt_render_version
-        # selects the tagged v2 body; dropping it re-renders every fresh
-        # row as v1 and fails the binding on the single-claim path.
-        "established_knowledge": claim.get("established_knowledge"),
-        "recent_intent": claim.get("recent_intent"),
-        # E17-b — the quoted evidence bytes. Same contract as the three
-        # sections above: the renderer reads the field, so a serialiser that
-        # drops it hands the executor a prompt whose excerpt section vanished
-        # and whose hash can never match the minted one.
-        "evidence_excerpts": claim.get("evidence_excerpts"),
-        "prompt_render_version": claim.get("prompt_render_version"),
-        "cycle_id": claim.get("cycle_id"),
-        "plan_revision_hash": claim.get("plan_revision_hash"),
-        "context_hash": claim.get("context_hash"),
-        "prompt_hash": claim.get("prompt_hash"),
-        "context_ledger_hash": claim.get("context_ledger_hash"),
-        "prompt_ledger_hash": claim.get("prompt_ledger_hash"),
         "lease_expires_at": claim.get("lease_expires_at"),
         "claim_ledger_hash": claim.get("claim_ledger_hash"),
         "request_ledger_hash": claim.get("request_ledger_hash"),
@@ -292,6 +230,36 @@ def _default_ci_executor_path(base_dir: Path) -> Path:
     return base_dir.parent / "tools" / "aria-poc" / "ci_executor.py"
 
 
+def _dispatch_task_root(root: Path, code_root: Path) -> Path:
+    """Select the host-bound task checkout without moving the code imports."""
+    from .state_store import _read_bounded_regular_file, _valid_host_identity, StateStoreError
+    from .tool_registry import GovernanceError
+    from .workspace import canonical_identity
+
+    try:
+        payload = _read_bounded_regular_file(root / "repo_identity.json")[0]
+        identity = json.loads(payload)
+    except (StateStoreError, ValueError) as exc:
+        raise GovernanceError("planner_dispatch_task_binding_unavailable") from exc
+    if not isinstance(identity, dict):
+        raise GovernanceError("planner_dispatch_task_binding_unavailable")
+    # Preserve the existing unbound legacy hook. A partially specified or
+    # malformed binding is never permission to select the engineering tree.
+    if (set(identity) == {"schema_version", "aria_tools_contract_version", "bound_repo_root",
+                          "bound_canonical_identity", "bound_repo_hash"}
+            and identity.get("schema_version") == 3 and identity.get("aria_tools_contract_version") == 3
+            and all(identity.get(key) is None for key in
+                    ("bound_repo_root", "bound_canonical_identity", "bound_repo_hash"))):
+        return code_root
+    value = identity.get("bound_repo_root")
+    if not isinstance(value, str) or not Path(value).is_absolute():
+        raise GovernanceError("planner_dispatch_task_binding_unavailable")
+    task_root = Path(value).resolve()
+    if not _valid_host_identity(root, canonical_identity(task_root), task_root, identity_payload=payload):
+        raise GovernanceError("planner_dispatch_task_binding_unavailable")
+    return task_root
+
+
 def dispatch_one_pending_planner_request(
     *,
     base_dir: str | Path,
@@ -378,7 +346,11 @@ def dispatch_one_pending_planner_request(
     # that toward governance_event_count so the daemon's structured
     # log aligns with the ledger.
     governance_count = 0
+    if ci_executor_path is None:
+        ci_executor_path = _default_ci_executor_path(root)
+    code_root = ci_executor_path.resolve().parents[2]
     try:
+        repo_root = _dispatch_task_root(root, code_root)
         claim = claim_request(
             request_id=request_id,
             agent_id=agent_id,
@@ -409,13 +381,8 @@ def dispatch_one_pending_planner_request(
     # hash anchors so the subprocess SKIPS its own ``agent claim`` step
     # (single-claim mode). Pre-§B.5 the subprocess re-claimed and the
     # defensive double-claim reject in agent_invocations was noisy.
-    if ci_executor_path is None:
-        ci_executor_path = _default_ci_executor_path(root)
-    # PYTHONPATH and cwd must name the CODE tree for the same reason the
-    # executor path does: under the durable store `root.parent` is
-    # `<repo>/.aria-state-store`, which has no `aria-kernel` package and
-    # no repository to work in. Derive both from the resolved executor.
-    repo_root = ci_executor_path.resolve().parents[2]
+    # Task state selects cwd; the package and executor remain in the
+    # engineering tree, including the kernel's shared tools dependency.
     argv: list[str] = [
         "python3",
         str(ci_executor_path),
@@ -435,7 +402,9 @@ def dispatch_one_pending_planner_request(
     metadata_env = _serialise_claim_metadata_for_env(sanitised_claim, agent_id)
     env: dict[str, str] = {
         **os.environ,
-        "PYTHONPATH": str(repo_root / "aria-kernel"),
+        "PYTHONPATH": os.pathsep.join((str(code_root), str(code_root / "aria-kernel"))),
+        "ARIA_WORKSPACE_ROOT": str(repo_root),
+        "ARIA_TOOLS_DIR": str(root),
         LEASE_TOKEN_ENV_VAR: lease_token,
         CLAIM_METADATA_ENV_VAR: metadata_env,
     }

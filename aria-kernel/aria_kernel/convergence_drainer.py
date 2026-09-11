@@ -72,6 +72,7 @@ from .plan_convergence import (
     converged_plan_body,
     force_plan_human_required,
     _plan_requires_coverage,
+    _planning_source_context,
     evaluate_plan,
     fold_plan_state,
     record_coverage,
@@ -517,10 +518,11 @@ def run_convergence_drainer(
 
     request_ids: list[str] = []
 
-    # Coverage gaps carried across cycles ride the persistence JSON —
+    # Measured obligations carried across cycles ride the persistence JSON —
     # the ONLY thing it still stores (round progress now lives in the
     # kernel state machine itself).
     coverage_carry: list[dict[str, Any]] = []
+    spine_carry: list[dict[str, Any]] = []
     resumed = False
     if persistence.exists():
         try:
@@ -529,6 +531,9 @@ def run_convergence_drainer(
                 carried = saved.get("coverage_must_satisfy")
                 if isinstance(carried, list):
                     coverage_carry = [item for item in carried if isinstance(item, dict)]
+                carried_spine = saved.get("architecture_spine_must_satisfy")
+                if isinstance(carried_spine, list):
+                    spine_carry = [item for item in carried_spine if isinstance(item, dict)]
                 resumed = True
         except (OSError, json.JSONDecodeError, ValueError):
             resumed = False
@@ -536,6 +541,7 @@ def run_convergence_drainer(
     state = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
     plan_state = state.get("state")
     current_round = int(state.get("current_round") or 1)
+    current_refs, current_revision_hash, current_context_paths = _planning_source_context(state, evidence_refs) if plan_state is not None else (list(evidence_refs), None, None)
     # Adopted plans derive their obligations from what the plan STARTED
     # with plus carried coverage gaps — not tonight's fresh synthesis,
     # which may describe a different problem entirely.
@@ -545,7 +551,7 @@ def run_convergence_drainer(
         base_ms = started_ms if isinstance(started_ms, list) else must_satisfy
     else:
         base_ms = must_satisfy
-    effective_must_satisfy: list[dict[str, Any]] = [*base_ms, *coverage_carry]
+    effective_must_satisfy: list[dict[str, Any]] = [*base_ms, *coverage_carry, *spine_carry]
 
     def _result(verdict: str, *, rounds: int, converged: dict[str, Any] | None = None,
                 unsatisfied: list[dict[str, Any]] | None = None) -> ConvergenceResult:
@@ -603,18 +609,21 @@ def run_convergence_drainer(
         """(primary_text, primary_real, challenger_revision_id,
         challenger_text, challenger_real) — from kernel state only."""
         import json as _json
+        from .plan_convergence import plan_body_from_state, _coerce_plan_body
 
         primary_text = ""
-        latest = cur.get("latest_revision") or {}
-        candidate: object = latest.get("content") if isinstance(latest, dict) else None
-        if not candidate:
-            plan_started = cur.get("plan_started") or {}
-            if isinstance(plan_started, dict):
-                candidate = plan_started.get("plan_content")
-        if isinstance(candidate, dict):
-            primary_text = _json.dumps(candidate, indent=2, sort_keys=True)
-        elif isinstance(candidate, str) and candidate.strip():
-            primary_text = candidate
+        try:
+            body = plan_body_from_state(cur)
+        except GovernanceError:
+            # The native revision owner also accepts legacy prose. Preserve
+            # that latest text without inventing a structured body or using
+            # an old seed. Structured selection belongs to the hash owner.
+            latest = cur.get("latest_revision") or {}
+            prose = latest.get("content")
+            if isinstance(prose, str) and prose.strip() and _coerce_plan_body(prose) is None:
+                primary_text = prose
+        else:
+            primary_text = _json.dumps(body["plan_content"], indent=2, sort_keys=True)
         primary_real = bool(primary_text) and primary_text.strip() not in {"", "{}", "null"}
 
         challenger = cur.get("challenger") or {}
@@ -963,6 +972,8 @@ def run_convergence_drainer(
                 initial_revision_id=f"{plan_id}-r1",
                 base_dir=base_dir,
             )
+            started_state = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
+            current_refs, current_revision_hash, current_context_paths = _planning_source_context(started_state, evidence_refs)
             request_id = _ensure_envelope(
                 _STEP_ROLE_CHALLENGER,
                 1,
@@ -970,10 +981,14 @@ def run_convergence_drainer(
                     plan_id=plan_id,
                     round_number=1,
                     must_satisfy=effective_must_satisfy,
-                    evidence_refs=evidence_refs,
+                    evidence_refs=current_refs,
+                    plan_revision_hash=current_revision_hash,
+                    context_source_paths=current_context_paths,
                     allowed_scope=allowed_scope,
                     base_dir=base_dir,
                     target_sha=target_sha,
+                    context_repo_root=workspace_root,
+                    cycle_id=cycle_id,
                 ),
             )
             _advanced("plan_started_and_challenger_minted", request_id, 1)
@@ -988,10 +1003,14 @@ def run_convergence_drainer(
                     plan_id=plan_id,
                     round_number=current_round,
                     must_satisfy=effective_must_satisfy,
-                    evidence_refs=evidence_refs,
+                    evidence_refs=current_refs,
+                    plan_revision_hash=current_revision_hash,
+                    context_source_paths=current_context_paths,
                     allowed_scope=allowed_scope,
                     base_dir=base_dir,
                     target_sha=target_sha,
+                    context_repo_root=workspace_root,
+                    cycle_id=cycle_id,
                 ),
             )
             _advanced("await_challenger", request_id, current_round)
@@ -1005,10 +1024,14 @@ def run_convergence_drainer(
                     plan_id=plan_id,
                     round_number=current_round,
                     must_satisfy=effective_must_satisfy,
-                    evidence_refs=evidence_refs,
+                    evidence_refs=current_refs,
+                    plan_revision_hash=current_revision_hash,
+                    context_source_paths=current_context_paths,
                     allowed_scope=allowed_scope,
                     base_dir=base_dir,
                     target_sha=target_sha,
+                    context_repo_root=workspace_root,
+                    cycle_id=cycle_id,
                 ),
             )
             _advanced("await_challenger_for_revision", request_id, current_round)
@@ -1036,10 +1059,14 @@ def run_convergence_drainer(
                         challenger_revision_id=challenger_rid,
                         challenger_plan_text=challenger_plan_text,
                         must_satisfy=effective_must_satisfy,
-                        evidence_refs=evidence_refs,
+                        evidence_refs=current_refs,
+                        plan_revision_hash=current_revision_hash,
+                        context_source_paths=current_context_paths,
                         allowed_scope=allowed_scope,
                         base_dir=base_dir,
                         target_sha=target_sha,
+                        context_repo_root=workspace_root,
+                        cycle_id=cycle_id,
                     ),
                 )
             except Exception as mint_exc:
@@ -1103,11 +1130,19 @@ def run_convergence_drainer(
                 }
                 for node in coverage_after.get("uncovered", [])
             ]
+            spine = eval_result.get("architecture_spine")
+            spine_carry = ([{
+                "id": "architecture_spine:" + spine["postcheck_ledger_hash"],
+                "kind": "architecture_spine_regression",
+                "description": "Resolve the native comparison obligation: " + json.dumps(spine, sort_keys=True),
+                "source": "architecture-spine-native-postcheck",
+            }] if isinstance(spine, dict) and spine.get("status") == "regression" else [])
             persistence.write_text(
                 json.dumps({
                     "plan_id": plan_id,
                     "round": current_round + 1,
                     "coverage_must_satisfy": coverage_carry,
+                    **({"architecture_spine_must_satisfy": spine_carry} if spine_carry else {}),
                 }),
                 encoding="utf-8",
             )
@@ -1119,11 +1154,15 @@ def run_convergence_drainer(
                     lambda: issue_primary_envelope(
                         plan_id=plan_id,
                         round_number=next_round,
-                        must_satisfy=[*base_ms, *coverage_carry],
-                        evidence_refs=evidence_refs,
+                        must_satisfy=[*base_ms, *coverage_carry, *spine_carry],
+                        evidence_refs=current_refs,
+                        plan_revision_hash=current_revision_hash,
+                        context_source_paths=current_context_paths,
                         allowed_scope=allowed_scope,
                         base_dir=base_dir,
                         target_sha=target_sha,
+                        context_repo_root=workspace_root,
+                        cycle_id=cycle_id,
                     ),
                 )
             except BridgeContractViolation:

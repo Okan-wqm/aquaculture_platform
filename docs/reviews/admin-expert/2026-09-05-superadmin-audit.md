@@ -834,6 +834,45 @@ in `web/` reaches the logout authority; `@tanstack/react-query` is declared
 wherever it is imported, at the federation-pinned version; the barrel keeps
 exporting the primitives.
 
+## ADMIN-HIGH-153 — the GDPR export that was fetched and thrown away
+
+**State:** OPEN → closed by W9q · **Wave:** W9q · **Owner:** okan
+**Deadline:** 2026-12-31
+
+`POST /messaging/tenants/:id/export` performs the export **inside the
+request**: `DataExportService.exportTenant` serialises the rows to JSON or CSV
+and returns them as `data`, alongside
+`{jobId, status: 'completed', format, recordCount, isUnderLegalHold,
+exportedAt}`. Nothing stores that payload server-side and there is no second
+endpoint to fetch it from, so **the response is the only copy that will ever
+exist**.
+
+admin-api declared the reply as `{ exportId: string; status: string }` —
+`exportId` is a field the reply does not have (it is `jobId`), and five were
+missing, `data` above all. The panel's hand-written type listed six of the
+seven and also omitted `data`. So the page rendered _"Export job accepted /
+Records: 12,431"_ and **threw the export away**. An operator answering an
+Art 20 portability request ran it, watched it succeed, and had no file.
+
+That is also why ADMIN-HIGH-148 found nothing to list: nothing was ever kept.
+
+Three smaller defects went with it:
+
+- **202 Accepted for work already finished**, which is why the page's own copy
+  told the operator the job "runs asynchronously". It is 200 now, and the DTO
+  and the copy both say the export happens in the request.
+- **A free-text UUID box for the tenant.** A valid-but-wrong id exports a
+  _different_ tenant's entire messaging history, on an endpoint that returns
+  the whole of it. `TenantSelect` removes the class.
+- **A second cache with no abort signal** on the overview read, with
+  hand-written response shapes (closed by ADMIN-MEDIUM-152).
+
+The page downloads the file through `saveBlob` with the right MIME type and
+extension, states the record count and the legal-hold flag the export came back
+with, and points at the compliance-log entry: the export is audited as
+`message_export` — one of the four actions `MessagingAuditPage`'s filter could
+never match before ADMIN-CRITICAL-150.
+
 ## ADMIN-MEDIUM-152 — the one page in the batch that was already honest
 
 **State:** OPEN → closed by W9p · **Wave:** W9p · **Owner:** okan

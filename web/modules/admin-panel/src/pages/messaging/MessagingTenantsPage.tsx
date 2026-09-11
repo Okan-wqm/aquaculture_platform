@@ -1,50 +1,70 @@
 /**
- * Messaging Tenants Page
+ * Messaging Tenants Page — the GDPR export that was fetched and thrown away
+ * (ADMIN-HIGH-153 / ADMIN-HIGH-121).
  *
- * Per-tenant messaging management for SUPER_ADMIN.
+ * `POST /messaging/tenants/:id/export` performs the export INSIDE the request
+ * and replies with `data`: the rows already serialised as JSON or CSV. Nothing
+ * stores it server-side and there is no second endpoint to fetch it from, so
+ * that response is the only copy that will ever exist.
  *
- * The overview table is backed by GET /messaging/tenants, which proxies the
- * messaging-service cross-tenant aggregate (message counts 24h/7d/all-time +
- * active channel counts per tenant, cached backend-side for 60 seconds).
- * The page also provides a working data-export trigger for individual tenants
- * via POST /messaging/tenants/:id/export.
+ * admin-api declared the reply as `{ exportId, status }` — a field name the
+ * reply does not use, and five fields short. The panel's own type listed six
+ * of the seven and omitted `data`. So the page rendered "Export job accepted /
+ * Records: 12,431" and **discarded the export**. An operator answering a data
+ * portability request ran it, watched it succeed, and had no file. That is why
+ * ADMIN-HIGH-148 found nothing to list: nothing was ever kept.
+ *
+ * The page now hands over the file. Three smaller things went with it:
+ *
+ *  - the route answered **202 Accepted** for work already finished, so the
+ *    page's own copy said the job "runs asynchronously" — both now say what
+ *    happens;
+ *  - the tenant was typed by hand into a free-text UUID box. A valid-but-wrong
+ *    id exports a DIFFERENT tenant's messaging data, which on this endpoint is
+ *    the whole of it. `TenantSelect` removes the class;
+ *  - the overview read sat in a second module-scoped cache with no abort
+ *    signal (ADMIN-HIGH-121), and its five response shapes were hand-written
+ *    because both aggregates were typed by controller interfaces
+ *    (ADMIN-MEDIUM-152).
+ *
+ * The export is audited as `MESSAGE_EXPORT` in the tenant's compliance log —
+ * one of the four actions `MessagingAuditPage`'s filter could never match
+ * before ADMIN-CRITICAL-150.
  *
  * @see ADMIN-HIGH-009
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState } from 'react';
 import { Card, Button, Badge } from '@aquaculture/shared-ui';
-import { useAsyncData } from '../../hooks/useAsyncData';
-import { messagingApi } from '../../services/adminApi';
-import type { ApiError } from '../../services/http-client';
+import { messagingApi } from '../../services/api/messaging';
+import type { ExportTriggerResult } from '../../services/api/messaging';
 import type {
   MessagingTenantsOverview,
   TenantMessagingOverviewRow,
 } from '../../services/types/messaging';
+import { saveBlob } from '../../services/blob-client';
+import { adminKeys, useAdminMutation, useAdminQuery } from '../../hooks';
+import { TenantSelect } from '../../components/TenantSelect';
+import { QueryFailureNotice } from '../../components/QueryFailureNotice';
 
-// ============================================================================
-// Types
-// ============================================================================
+/** messaging-service caches the aggregate for this long. */
+const AGGREGATE_CACHE_MS = 60_000;
 
-interface ExportFormState {
-  tenantId: string;
-  format: 'csv' | 'json';
-}
+type ExportFormat = 'csv' | 'json';
 
-interface ExportResult {
-  jobId: string;
-  status: string;
-  format: string;
-  recordCount: number;
-  isUnderLegalHold: boolean;
-  exportedAt: string;
-}
+/** The MIME type and extension each format is saved as. */
+const FORMAT_FILE: Record<ExportFormat, { readonly mime: string; readonly extension: string }> = {
+  json: { mime: 'application/json;charset=utf-8;', extension: 'json' },
+  csv: { mime: 'text/csv;charset=utf-8;', extension: 'csv' },
+};
 
 // ============================================================================
 // Sub-components
 // ============================================================================
 
-const OverviewTable: React.FC<{ tenants: TenantMessagingOverviewRow[] }> = ({ tenants }) => (
+const OverviewTable: React.FC<{ tenants: readonly TenantMessagingOverviewRow[] }> = ({
+  tenants,
+}) => (
   <div className="overflow-x-auto">
     <table className="min-w-full divide-y divide-gray-200">
       <thead>
@@ -94,54 +114,46 @@ const OverviewTable: React.FC<{ tenants: TenantMessagingOverviewRow[] }> = ({ te
 // ============================================================================
 
 const MessagingTenantsPage: React.FC = () => {
-  const [exportForm, setExportForm] = useState<ExportFormState>({
-    tenantId: '',
-    format: 'json',
-  });
-  const [exportLoading, setExportLoading] = useState(false);
-  const [exportResult, setExportResult] = useState<ExportResult | null>(null);
-  const [exportError, setExportError] = useState<string | null>(null);
+  const [exportTenantId, setExportTenantId] = useState<string | null>(null);
+  const [format, setFormat] = useState<ExportFormat>('json');
+  const [lastExport, setLastExport] = useState<ExportTriggerResult | null>(null);
 
-  // ── Tenant overview ──
-  const overviewQuery = useAsyncData<MessagingTenantsOverview>(
-    () => messagingApi.getTenantsOverview(),
-    { cacheKey: 'messaging-tenants-overview', cacheTTL: 15_000 },
+  const overviewQuery = useAdminQuery<MessagingTenantsOverview>(
+    adminKeys.messaging.tenants(),
+    ({ signal }) => messagingApi.getTenantsOverview(signal),
+    { staleTime: AGGREGATE_CACHE_MS },
   );
 
-  const tenants = overviewQuery.data?.tenants ?? [];
+  const tenants: readonly TenantMessagingOverviewRow[] = overviewQuery.data?.tenants ?? [];
 
-  /** SECURITY: Validate UUID format before sending to API */
-  const isValidUuid = (value: string): boolean =>
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+  /**
+   * Run the export and hand the operator the file.
+   *
+   * `saveBlob` on success is the whole point: the response carries the only
+   * copy of the export that will ever exist, and the page used to drop it.
+   */
+  const exportMutation = useAdminMutation(
+    (input: { tenantId: string; format: ExportFormat }) =>
+      messagingApi.triggerExport(input.tenantId, input.format),
+    {
+      mutationOptions: {
+        onSuccess: (result, input) => {
+          setLastExport(result);
+          const file = FORMAT_FILE[input.format];
+          saveBlob(
+            new Blob([result.data], { type: file.mime }),
+            `messaging-export-${input.tenantId}-${result.exportedAt.slice(0, 10)}.${file.extension}`,
+          );
+        },
+      },
+    },
+  );
 
-  const handleExport = useCallback(async (): Promise<void> => {
-    if (!exportForm.tenantId.trim()) {
-      setExportError('Tenant ID is required.');
-      return;
-    }
-
-    if (!isValidUuid(exportForm.tenantId.trim())) {
-      setExportError('Tenant ID must be a valid UUID.');
-      return;
-    }
-
-    setExportLoading(true);
-    setExportError(null);
-    setExportResult(null);
-
-    try {
-      const result = await messagingApi.triggerExport(
-        exportForm.tenantId.trim(),
-        exportForm.format,
-      );
-      setExportResult(result);
-    } catch (err: unknown) {
-      const apiErr = err as ApiError;
-      setExportError(apiErr.message || 'Failed to trigger export.');
-    } finally {
-      setExportLoading(false);
-    }
-  }, [exportForm]);
+  const runExport = (): void => {
+    if (exportTenantId === null) return;
+    setLastExport(null);
+    exportMutation.mutate({ tenantId: exportTenantId, format });
+  };
 
   return (
     <div className="space-y-6">
@@ -150,18 +162,24 @@ const MessagingTenantsPage: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Messaging Tenants</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Per-tenant messaging management and controls
+            Per-tenant messaging volume, and data export
           </p>
         </div>
         <Button
-          onClick={() => void overviewQuery.refresh()}
-          disabled={overviewQuery.loading}
+          onClick={() => void overviewQuery.refetch()}
+          disabled={overviewQuery.isFetching}
           variant="secondary"
           size="sm"
         >
-          {overviewQuery.loading ? 'Refreshing...' : 'Refresh'}
+          {overviewQuery.isFetching ? 'Refreshing...' : 'Refresh'}
         </Button>
       </div>
+
+      <QueryFailureNotice
+        errors={[overviewQuery.error, exportMutation.error]}
+        hasContent={tenants.length > 0}
+        onRetry={() => void overviewQuery.refetch()}
+      />
 
       {/* Tenant Overview */}
       <Card>
@@ -178,28 +196,18 @@ const MessagingTenantsPage: React.FC = () => {
             )}
           </div>
 
-          {overviewQuery.error && (
-            <div className="p-4 bg-red-50 border border-red-200 rounded-lg flex items-center justify-between gap-4">
-              <p className="text-sm text-red-700">{overviewQuery.error}</p>
-              {overviewQuery.canRetry && (
-                <Button onClick={() => void overviewQuery.retry()} variant="secondary" size="sm">
-                  Retry
-                </Button>
-              )}
-            </div>
-          )}
-
-          {!overviewQuery.error && overviewQuery.loading && tenants.length === 0 && (
+          {overviewQuery.isPending ? (
             <div className="py-10 text-center text-sm text-gray-500">
               Loading tenant messaging overview...
             </div>
-          )}
-
-          {!overviewQuery.error && !overviewQuery.loading && tenants.length === 0 && (
+          ) : overviewQuery.isError ? (
+            // The banner above carries the reason. Nothing is drawn here.
+            null
+          ) : tenants.length === 0 ? (
             <div className="py-10 text-center text-sm text-gray-500">
               No tenant messaging activity recorded yet.
             </div>
-          )}
+          ) : null}
 
           {tenants.length > 0 && <OverviewTable tenants={tenants} />}
 
@@ -215,31 +223,29 @@ const MessagingTenantsPage: React.FC = () => {
       {/* Data Export */}
       <Card>
         <div className="p-6">
-          <h3 className="text-sm font-semibold text-gray-900 mb-1">
-            Trigger Tenant Data Export
-          </h3>
+          <h3 className="text-sm font-semibold text-gray-900 mb-1">Export tenant data</h3>
           <p className="text-xs text-gray-500 mb-4">
-            Export all messaging data for a specific tenant. The export job runs
-            asynchronously and respects active legal holds.
+            Exports the tenant&apos;s messaging data and downloads it. The export runs inside this
+            request and the response is the only copy — nothing is stored server-side. Active
+            legal holds are recorded on the result; they do not stop the export.
           </p>
 
           <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-end">
-            <div className="flex-1 w-full">
-              <label htmlFor="export-tenant-id" className="block text-xs font-medium text-gray-700 mb-1">
-                Tenant ID (UUID)
+            <div className="flex-1 w-full max-w-sm">
+              <label htmlFor="export-tenant" className="block text-xs font-medium text-gray-700 mb-1">
+                Tenant
               </label>
-              <input
-                id="export-tenant-id"
-                type="text"
-                placeholder="e.g. 550e8400-e29b-41d4-a716-446655440000"
-                value={exportForm.tenantId}
-                onChange={(e) => {
-                  setExportForm((prev) => ({ ...prev, tenantId: e.target.value }));
-                  setExportError(null);
-                  setExportResult(null);
-                }}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
-              />
+              {/* A picker, not a UUID box: a valid-but-wrong id used to export
+                  a DIFFERENT tenant's entire messaging history. */}
+              <div id="export-tenant">
+                <TenantSelect
+                  value={exportTenantId}
+                  onChange={(next) => {
+                    setExportTenantId(next || null);
+                    setLastExport(null);
+                  }}
+                />
+              </div>
             </div>
             <div>
               <label htmlFor="export-format" className="block text-xs font-medium text-gray-700 mb-1">
@@ -247,13 +253,8 @@ const MessagingTenantsPage: React.FC = () => {
               </label>
               <select
                 id="export-format"
-                value={exportForm.format}
-                onChange={(e) =>
-                  setExportForm((prev) => ({
-                    ...prev,
-                    format: e.target.value as 'csv' | 'json',
-                  }))
-                }
+                value={format}
+                onChange={(e) => setFormat(e.target.value as ExportFormat)}
                 className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
               >
                 <option value="json">JSON</option>
@@ -261,58 +262,48 @@ const MessagingTenantsPage: React.FC = () => {
               </select>
             </div>
             <Button
-              onClick={() => void handleExport()}
-              disabled={exportLoading || !exportForm.tenantId.trim()}
+              onClick={runExport}
+              disabled={exportTenantId === null || exportMutation.isPending}
               variant="primary"
               size="sm"
             >
-              {exportLoading ? 'Exporting...' : 'Trigger Export'}
+              {exportMutation.isPending ? 'Exporting...' : 'Export and download'}
             </Button>
           </div>
 
-          {/* Export Error */}
-          {exportError && (
-            <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg">
-              <p className="text-sm text-red-700">{exportError}</p>
-            </div>
-          )}
-
-          {/* Export Result */}
-          {exportResult && (
+          {lastExport && (
             <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
               <p className="text-sm font-medium text-green-800 mb-2">
-                Export job accepted
+                Export complete — {lastExport.recordCount.toLocaleString()} record(s) downloaded
               </p>
               <dl className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
                 <div>
                   <dt className="text-green-600 font-medium">Job ID</dt>
-                  <dd className="text-green-800 font-mono">{exportResult.jobId}</dd>
-                </div>
-                <div>
-                  <dt className="text-green-600 font-medium">Status</dt>
-                  <dd className="text-green-800">{exportResult.status}</dd>
+                  <dd className="text-green-800 font-mono">{lastExport.jobId}</dd>
                 </div>
                 <div>
                   <dt className="text-green-600 font-medium">Format</dt>
-                  <dd className="text-green-800">{exportResult.format}</dd>
+                  <dd className="text-green-800 uppercase">{lastExport.format}</dd>
                 </div>
                 <div>
                   <dt className="text-green-600 font-medium">Records</dt>
-                  <dd className="text-green-800">{exportResult.recordCount.toLocaleString()}</dd>
+                  <dd className="text-green-800">{lastExport.recordCount.toLocaleString()}</dd>
                 </div>
                 <div>
-                  <dt className="text-green-600 font-medium">Legal Hold</dt>
-                  <dd className="text-green-800">
-                    {exportResult.isUnderLegalHold ? 'Yes' : 'No'}
-                  </dd>
+                  <dt className="text-green-600 font-medium">Under legal hold</dt>
+                  <dd className="text-green-800">{lastExport.isUnderLegalHold ? 'Yes' : 'No'}</dd>
                 </div>
                 <div>
-                  <dt className="text-green-600 font-medium">Exported At</dt>
+                  <dt className="text-green-600 font-medium">Exported at</dt>
                   <dd className="text-green-800">
-                    {new Date(exportResult.exportedAt).toLocaleString()}
+                    {new Date(lastExport.exportedAt).toLocaleString()}
                   </dd>
                 </div>
               </dl>
+              <p className="text-xs text-green-700 mt-2">
+                Recorded in this tenant&apos;s compliance audit log as{' '}
+                <span className="font-mono">message_export</span>.
+              </p>
             </div>
           )}
         </div>

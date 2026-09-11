@@ -15826,18 +15826,18 @@
           }
         },
         "responses": {
-          "202": {
+          "200": {
             "description": "",
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/TenantDataExportResultDto"
                 }
               }
             }
           }
         },
-        "summary": "Trigger tenant data export",
+        "summary": "Export a tenant's messaging data",
         "tags": [
           "Messaging Admin"
         ]
@@ -27302,6 +27302,51 @@
             ]
           }
         }
+      },
+      "TenantDataExportResultDto": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Identifies this export in the audit log."
+          },
+          "status": {
+            "type": "string",
+            "description": "Always 'completed': the export is performed synchronously, inside the request."
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "csv",
+              "json"
+            ]
+          },
+          "recordCount": {
+            "type": "number",
+            "description": "Rows in the export."
+          },
+          "data": {
+            "type": "string",
+            "description": "The export itself, serialised as JSON or CSV. This is the file — there is no second endpoint to fetch it from, and nothing stores it server-side."
+          },
+          "isUnderLegalHold": {
+            "type": "boolean",
+            "description": "Whether the tenant is under an effective legal hold. The export still runs; the flag records that the data is preserved for a matter."
+          },
+          "exportedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "jobId",
+          "status",
+          "format",
+          "recordCount",
+          "data",
+          "isUnderLegalHold",
+          "exportedAt"
+        ]
       },
       "ForgotPasswordDto": {
         "type": "object",

@@ -84,7 +84,7 @@ function main(): number {
     process.stderr.write(
       `finding-registry: refusing to auto-merge ${label} — ${merged.reason}\n` +
         'Resolve it by hand, then run ' +
-        '`ts-node --project tools/gates/tsconfig.json tools/gates/finding-registry.ts verify`.\n',
+        '`./node_modules/.bin/ts-node --project tools/gates/tsconfig.json tools/gates/finding-registry.ts verify`.\n',
     );
     writeFileSync(oursPath, conflictText(oursRaw, theirsRaw, markerSize(markerRaw), label), 'utf8');
     return 1;

@@ -158,6 +158,23 @@ describe('INVARIANT: finding registry merge driver', () => {
     );
   });
 
+  it('runs every TypeScript driver through the workspace ts-node, never a bare one', () => {
+    // ORPHAN-012's rule, and the bug the first live merge hit on 2026-09-11:
+    // a bare `ts-node` resolves to whatever global install is first on PATH,
+    // and a global ts-node dies inside a merge with MODULE_NOT_FOUND on its
+    // own `imaginaryUncacheableRequireResolveScript` probe. Every hook in
+    // .husky/ spells the workspace binary out for the same reason.
+    const offenders = Object.entries(readDriverManifest())
+      .filter(([, spec]) => spec.driver.includes('.ts'))
+      .filter(([, spec]) => !spec.driver.startsWith('./node_modules/.bin/ts-node'))
+      .map(
+        ([name, spec]) =>
+          `merge driver ${name} runs "${spec.driver}" — a TypeScript driver must start with ` +
+          './node_modules/.bin/ts-node so it cannot resolve to a global install',
+      );
+    expect(offenders).toEqual([]);
+  });
+
   describe('the append-only three-way merge', () => {
     it('merges an upstream closure rechain with a branch append', () => {
       // The 2026-09-11 shape: upstream closed a row in the middle, which
@@ -294,10 +311,9 @@ describe('INVARIANT: finding registry merge driver', () => {
       // The driver is registered with absolute paths because the merge runs
       // in this throwaway repo, not in the checkout that owns the script.
       const manifest = readDriverManifest();
-      const driverCommand = (manifest['findings-registry']?.driver ?? '').replace(
-        /tools\/gates\//g,
-        `${REPO_ROOT}/tools/gates/`,
-      );
+      const driverCommand = (manifest['findings-registry']?.driver ?? '')
+        .replace('./node_modules/', `${REPO_ROOT}/node_modules/`)
+        .replace(/tools\/gates\//g, `${REPO_ROOT}/tools/gates/`);
       git(repo, ['config', '--local', 'merge.findings-registry.driver', driverCommand]);
       writeFileSync(
         join(repo, '.gitattributes'),

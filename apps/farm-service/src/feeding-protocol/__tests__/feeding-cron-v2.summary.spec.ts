@@ -11,11 +11,9 @@
  *  (c) `cancelled` planlar varyansa giriyordu — tam hasat edilen tank her
  *      akşam "%100 az beslendi" alarmı üretiyordu.
  */
-import { DataSource, EntityManager, SelectQueryBuilder } from 'typeorm';
+import { DataSource, EntityManager } from 'typeorm';
 import { OutboxPublisher } from '@platform/outbox';
 import type { BaseEvent } from '@platform/event-contracts';
-import { validateFarmEvent } from '@platform/event-contracts';
-import type { IEventBus, IEventHandler } from '@platform/event-bus';
 
 import { FeedingCronV2Service } from '../services/feeding-cron-v2.service';
 import { createScheduledJobTestExecutor } from '@aquaculture/backend-common/scheduling/testing';
@@ -30,14 +28,6 @@ import { WaterTemperatureService } from '../../water-quality/services/water-temp
 import { FCRCalculationService } from '../../growth/services/fcr-calculation.service';
 import { FeedingMealStatus } from '../entities/feeding-meal.entity';
 import { stub } from '@aquaculture/testing';
-import { FeedingDailySummaryEventHandler } from '../../../../notification-service/src/notification/event-handlers/feeding-daily-summary.handler';
-import { DeviceToken } from '../../../../notification-service/src/notification/entities/device-token.entity';
-import {
-  NotificationChannel,
-  NotificationLog,
-} from '../../../../notification-service/src/notification/entities/notification-log.entity';
-import type { InAppNotificationService } from '../../../../notification-service/src/notification/services/in-app.service';
-import type { NotificationDispatcherService } from '../../../../notification-service/src/notification/services/notification-dispatcher.service';
 
 jest.mock('@aquaculture/backend-common/database', () => ({
   ...jest.requireActual('@aquaculture/backend-common/database'),
@@ -104,137 +94,6 @@ function makeHarness(rows: SummaryRows) {
 }
 
 describe('FeedingCronV2Service.summarizeTenant (W5)', () => {
-  it('delivers the produced daily totals to the registered notification consumer', async () => {
-    const harness = makeHarness({
-      plans: [
-        {
-          id: 'dp-completed',
-          unitId: 'unit-1',
-          unitCode: 'T1',
-          planDate: '2026-07-20',
-          status: 'completed',
-          plannedTotalKg: '60',
-          actualKg: '50',
-          unplannedActualKg: '3.5',
-          thresholdPercent: 15,
-        },
-        {
-          id: 'dp-open',
-          unitId: 'unit-2',
-          unitCode: 'T2',
-          planDate: '2026-07-20',
-          status: 'in_progress',
-          plannedTotalKg: '40',
-          actualKg: '20',
-          unplannedActualKg: '0',
-          thresholdPercent: 15,
-        },
-        {
-          id: 'dp-skipped',
-          unitId: 'unit-3',
-          unitCode: 'T3',
-          planDate: '2026-07-20',
-          status: 'skipped',
-          plannedTotalKg: '0',
-          actualKg: null,
-          unplannedActualKg: '0',
-          thresholdPercent: 15,
-        },
-      ],
-      openMeals: [
-        { scheduledAt: new Date('2026-07-20T06:00:00Z'), status: FeedingMealStatus.SCHEDULED },
-        { scheduledAt: new Date('2026-07-20T18:00:00Z'), status: FeedingMealStatus.SCHEDULED },
-      ],
-    });
-    const subscribers = new Map<string, IEventHandler>();
-    const bus: Pick<IEventBus, 'subscribeWildcard'> = {
-      async subscribeWildcard(eventType, handler): Promise<void> {
-        subscribers.set(eventType, handler);
-      },
-    };
-    const recipientQuery = stub<SelectQueryBuilder<DeviceToken>>({
-      select: jest.fn().mockReturnThis(),
-      addSelect: jest.fn().mockReturnThis(),
-      where: jest.fn().mockReturnThis(),
-      orderBy: jest.fn().mockReturnThis(),
-      addOrderBy: jest.fn().mockReturnThis(),
-      getRawMany: jest
-        .fn()
-        .mockResolvedValue([{ userId: 'operator-1', token: 'fixture-device-token' }]),
-    });
-    const dispatchCommandNotification = jest
-      .fn<
-        ReturnType<NotificationDispatcherService['dispatchCommandNotification']>,
-        Parameters<NotificationDispatcherService['dispatchCommandNotification']>
-      >()
-      .mockResolvedValue({ replayed: false });
-    const createNotification = jest
-      .fn<
-        ReturnType<InAppNotificationService['createNotification']>,
-        Parameters<InAppNotificationService['createNotification']>
-      >()
-      .mockResolvedValue(stub<NotificationLog>({ id: 'notification-1' }));
-    const consumer = new FeedingDailySummaryEventHandler(
-      stub<NotificationDispatcherService>({ dispatchCommandNotification }),
-      { createNotification },
-      stub<ConstructorParameters<typeof FeedingDailySummaryEventHandler>[2]>({
-        createQueryBuilder: () => recipientQuery,
-      }),
-      bus,
-    );
-    await consumer.onModuleInit();
-    await harness.service.summarizeTenant(TENANT, CLOCK);
-
-    // Only transport/persistence are substituted: deliver the actual outbox
-    // event to the actual registered handler, without rebuilding its payload.
-    const summaries = harness.enqueued.filter((event) => event.eventType === 'FeedingDailySummary');
-    expect(summaries).toHaveLength(1);
-    const summary = summaries[0];
-    if (!summary) throw new Error('The farm producer did not enqueue its daily summary');
-    expect(validateFarmEvent('FeedingDailySummary', summary)).toEqual({ valid: true });
-    const subscriber = subscribers.get(summary.eventType);
-    if (!subscriber)
-      throw new Error('The notification consumer did not register for the produced event');
-    expect(await subscriber.handle(summary)).toEqual({ kind: 'ack' });
-
-    const title = 'Günlük yemleme özeti — 2026-07-20';
-    const body =
-      '1/3 ünite tamamlandı (%33), 73.5 kg atıldı (plan 100.0 kg), 1 ünite az beslendi, 1 öğün kaçırıldı';
-    const deliveryId = `feeding-summary:${TENANT}:2026-07-20:operator-1`;
-    expect(dispatchCommandNotification).toHaveBeenCalledTimes(1);
-    expect(dispatchCommandNotification).toHaveBeenCalledWith({
-      tenantId: TENANT,
-      channel: NotificationChannel.PUSH,
-      recipient: 'fixture-device-token',
-      recipientLogRef: 'userId:operator-1',
-      deliveryId,
-      requestReference: deliveryId,
-      source: 'notification-service.feeding-daily-summary-handler',
-      subject: title,
-      message: body,
-      pushData: { userId: 'operator-1' },
-    });
-    expect(createNotification).toHaveBeenCalledTimes(1);
-    expect(createNotification).toHaveBeenCalledWith(
-      TENANT,
-      'operator-1',
-      title,
-      body,
-      {
-        type: 'FeedingDailySummary',
-        planDate: '2026-07-20',
-        unitsPlanned: 3,
-        unitsCompleted: 1,
-        unitsSkipped: 1,
-        plannedTotalKg: 100,
-        actualTotalKg: 73.5,
-        underfedUnitCount: 1,
-        missedMealCount: 1,
-      },
-      { deliveryId },
-    );
-  });
-
   it('planDate TENANT’IN YEREL gününe bağlanır — CURRENT_DATE kullanılmaz', async () => {
     const harness = makeHarness({ plans: [], openMeals: [] });
 

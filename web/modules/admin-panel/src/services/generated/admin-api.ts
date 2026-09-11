@@ -9524,6 +9524,50 @@ export interface components {
             channelId?: string | null;
             retentionDays: number;
         };
+        MessagingMonitoringTotalsDto: {
+            /** @description Messages of any age, across every tenant. */
+            totalMessages: number;
+            messages24h: number;
+            messages7d: number;
+            /** @description Non-archived channels across every tenant. */
+            activeChannels: number;
+            /** @description Tenants with messages or active channels. */
+            tenantCount: number;
+        };
+        TenantMessagingOverviewRowDto: {
+            /** Format: uuid */
+            tenantId: string;
+            /** @description Messages created in the last 24 hours. */
+            messageCount24h: number;
+            /** @description Messages created in the last 7 days. */
+            messageCount7d: number;
+            /** @description Messages of any age. */
+            totalMessages: number;
+            /** @description Channels that are not archived. */
+            activeChannels: number;
+        };
+        MessagingOutboxHealthDto: {
+            /** @description Events enqueued but not yet published, and not dead-lettered. */
+            pendingCount: number;
+            /** @description Dead-lettered events that exhausted their retries. These are NOT retried automatically. */
+            failedCount: number;
+            /** @description Age in seconds of the oldest pending event; null when nothing is pending. Null is not zero — a dashboard must not render it as an age. */
+            oldestPendingAgeSeconds: number | null;
+        };
+        MessagingMonitoringStatsDto: {
+            totals: components["schemas"]["MessagingMonitoringTotalsDto"];
+            /** @description Per-tenant breakdown, sorted by 24h message volume descending. */
+            perTenant: components["schemas"]["TenantMessagingOverviewRowDto"][];
+            outbox: components["schemas"]["MessagingOutboxHealthDto"];
+            /** @description When messaging-service computed the aggregate. It caches for 60 seconds, so this is the age of the numbers, not of the request. */
+            generatedAt: string;
+        };
+        MessagingTenantsOverviewDto: {
+            /** @description Per-tenant rows, sorted by 24h message volume descending. */
+            tenants: components["schemas"]["TenantMessagingOverviewRowDto"][];
+            /** @description When messaging-service computed the aggregate. */
+            generatedAt: string;
+        };
         TriggerExportDto: {
             /**
              * Format: uuid
@@ -19371,7 +19415,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["MessagingMonitoringStatsDto"];
                 };
             };
         };
@@ -19419,7 +19463,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["MessagingTenantsOverviewDto"];
                 };
             };
         };

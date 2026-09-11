@@ -17,6 +17,10 @@ import {
   TriggerExportDto,
   UpdateRetentionPolicyDto,
 } from './dto/messaging-admin.dto';
+import {
+  MessagingMonitoringStatsDto,
+  MessagingTenantsOverviewDto,
+} from './dto/messaging-monitoring-response.dto';
 import { Destructive, RequiresCapability, TenantParam } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
@@ -123,42 +127,6 @@ interface AuditLogResponse {
 interface ExportResponse {
   exportId: string;
   status: string;
-}
-
-/** Per-tenant messaging activity row (ADMIN-HIGH-009). */
-interface TenantMessagingOverviewRow {
-  tenantId: string;
-  messageCount24h: number;
-  messageCount7d: number;
-  totalMessages: number;
-  activeChannels: number;
-}
-
-/** Cross-tenant outbox health snapshot (ADMIN-HIGH-009). */
-interface MessagingOutboxHealth {
-  pendingCount: number;
-  failedCount: number;
-  oldestPendingAgeSeconds: number | null;
-}
-
-/** Platform-wide monitoring statistics returned by GET /messaging/monitoring/stats. */
-interface MonitoringStatsResponse {
-  totals: {
-    totalMessages: number;
-    messages24h: number;
-    messages7d: number;
-    activeChannels: number;
-    tenantCount: number;
-  };
-  perTenant: TenantMessagingOverviewRow[];
-  outbox: MessagingOutboxHealth;
-  generatedAt: string;
-}
-
-/** Per-tenant messaging overview returned by GET /messaging/tenants. */
-interface TenantsOverviewResponse {
-  tenants: TenantMessagingOverviewRow[];
-  generatedAt: string;
 }
 
 interface PersonaResponse {
@@ -326,8 +294,8 @@ export class MessagingAdminController {
    */
   @Get('monitoring/stats')
   @ApiOperation({ summary: 'Get messaging monitoring statistics' })
-  async getMonitoringStats(): Promise<MonitoringStatsResponse> {
-    return this.sendNatsRequest<MonitoringStatsResponse>(
+  async getMonitoringStats(): Promise<MessagingMonitoringStatsDto> {
+    return this.sendNatsRequest<MessagingMonitoringStatsDto>(
       'request.messaging.admin.getMonitoringStats',
       {},
     );
@@ -378,8 +346,8 @@ export class MessagingAdminController {
    */
   @Get('tenants')
   @ApiOperation({ summary: 'List tenants with messaging stats' })
-  async getTenants(): Promise<TenantsOverviewResponse> {
-    return this.sendNatsRequest<TenantsOverviewResponse>(
+  async getTenants(): Promise<MessagingTenantsOverviewDto> {
+    return this.sendNatsRequest<MessagingTenantsOverviewDto>(
       'request.messaging.admin.getTenantsOverview',
       {},
     );

@@ -15688,7 +15688,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/MessagingMonitoringStatsDto"
                 }
               }
             }
@@ -15799,7 +15799,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/MessagingTenantsOverviewDto"
                 }
               }
             }
@@ -27151,6 +27151,139 @@
         },
         "required": [
           "retentionDays"
+        ]
+      },
+      "MessagingMonitoringTotalsDto": {
+        "type": "object",
+        "properties": {
+          "totalMessages": {
+            "type": "number",
+            "description": "Messages of any age, across every tenant."
+          },
+          "messages24h": {
+            "type": "number"
+          },
+          "messages7d": {
+            "type": "number"
+          },
+          "activeChannels": {
+            "type": "number",
+            "description": "Non-archived channels across every tenant."
+          },
+          "tenantCount": {
+            "type": "number",
+            "description": "Tenants with messages or active channels."
+          }
+        },
+        "required": [
+          "totalMessages",
+          "messages24h",
+          "messages7d",
+          "activeChannels",
+          "tenantCount"
+        ]
+      },
+      "TenantMessagingOverviewRowDto": {
+        "type": "object",
+        "properties": {
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "messageCount24h": {
+            "type": "number",
+            "description": "Messages created in the last 24 hours."
+          },
+          "messageCount7d": {
+            "type": "number",
+            "description": "Messages created in the last 7 days."
+          },
+          "totalMessages": {
+            "type": "number",
+            "description": "Messages of any age."
+          },
+          "activeChannels": {
+            "type": "number",
+            "description": "Channels that are not archived."
+          }
+        },
+        "required": [
+          "tenantId",
+          "messageCount24h",
+          "messageCount7d",
+          "totalMessages",
+          "activeChannels"
+        ]
+      },
+      "MessagingOutboxHealthDto": {
+        "type": "object",
+        "properties": {
+          "pendingCount": {
+            "type": "number",
+            "description": "Events enqueued but not yet published, and not dead-lettered."
+          },
+          "failedCount": {
+            "type": "number",
+            "description": "Dead-lettered events that exhausted their retries. These are NOT retried automatically."
+          },
+          "oldestPendingAgeSeconds": {
+            "type": "number",
+            "nullable": true,
+            "description": "Age in seconds of the oldest pending event; null when nothing is pending. Null is not zero — a dashboard must not render it as an age."
+          }
+        },
+        "required": [
+          "pendingCount",
+          "failedCount",
+          "oldestPendingAgeSeconds"
+        ]
+      },
+      "MessagingMonitoringStatsDto": {
+        "type": "object",
+        "properties": {
+          "totals": {
+            "$ref": "#/components/schemas/MessagingMonitoringTotalsDto"
+          },
+          "perTenant": {
+            "description": "Per-tenant breakdown, sorted by 24h message volume descending.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TenantMessagingOverviewRowDto"
+            }
+          },
+          "outbox": {
+            "$ref": "#/components/schemas/MessagingOutboxHealthDto"
+          },
+          "generatedAt": {
+            "type": "string",
+            "description": "When messaging-service computed the aggregate. It caches for 60 seconds, so this is the age of the numbers, not of the request."
+          }
+        },
+        "required": [
+          "totals",
+          "perTenant",
+          "outbox",
+          "generatedAt"
+        ]
+      },
+      "MessagingTenantsOverviewDto": {
+        "type": "object",
+        "properties": {
+          "tenants": {
+            "description": "Per-tenant rows, sorted by 24h message volume descending.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TenantMessagingOverviewRowDto"
+            }
+          },
+          "generatedAt": {
+            "type": "string",
+            "description": "When messaging-service computed the aggregate."
+          }
+        },
+        "required": [
+          "tenants",
+          "generatedAt"
         ]
       },
       "TriggerExportDto": {

@@ -360,8 +360,8 @@ export const messagingApi = {
    * (24h / 7d / all-time), active channels, the per-tenant breakdown and
    * transactional-outbox health. Cached backend-side for 60 seconds.
    */
-  getMonitoringStats: (): Promise<MessagingMonitoringStats> =>
-    apiFetch<MessagingMonitoringStats>('/messaging/monitoring/stats'),
+  getMonitoringStats: (signal?: AbortSignal): Promise<MessagingMonitoringStats> =>
+    apiFetch<MessagingMonitoringStats>('/messaging/monitoring/stats', { signal }),
 
   // ── Tenant Overview ──
 
@@ -370,8 +370,8 @@ export const messagingApi = {
    * active channel counts), sorted by 24h volume descending. Cached
    * backend-side for 60 seconds.
    */
-  getTenantsOverview: (): Promise<MessagingTenantsOverview> =>
-    apiFetch<MessagingTenantsOverview>('/messaging/tenants'),
+  getTenantsOverview: (signal?: AbortSignal): Promise<MessagingTenantsOverview> =>
+    apiFetch<MessagingTenantsOverview>('/messaging/tenants', { signal }),
 
   // ── Audit ──
 

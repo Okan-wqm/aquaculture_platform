@@ -834,6 +834,88 @@ in `web/` reaches the logout authority; `@tanstack/react-query` is declared
 wherever it is imported, at the federation-pinned version; the barrel keeps
 exporting the primitives.
 
+## ADMIN-CRITICAL-154 — a glossary presented as a tenant's live PLC actuation policy
+
+**State:** OPEN → closed by W9r · **Wave:** W9r · **Owner:** okan
+**Deadline:** 2026-12-31
+
+The page's own docblock stated the rule it broke:
+
+> **LIFE-SAFETY (C9):** This page reflects autonomous PLC actuation policy. It
+> MUST show real backend state, not hardcoded defaults.
+
+and its red banner told the operator:
+
+> The actuation policy and autonomous safety limits shown below are loaded from
+> the real backend TenantAgentConfig entity. **These are not display-only
+> values** — they directly control what the AI can do to physical
+> infrastructure. Always verify actuation policies match your operational
+> requirements.
+
+**Nothing on the page was ever read from `TenantAgentConfig`.** The two
+sections headed _"(from TenantAgentConfig)"_ were a static glossary typed into
+the file: `ACTUATION_POLICY_INFO` describes what the three policy _values_
+mean, and the safety-limits table lists _field names_ with their descriptions.
+`GET /messaging/personas` returns
+`{id, name, description, icon, color, capabilities}` — no policy, no limits —
+and admin-api has **no route, no NATS call and no reference** to
+`TenantAgentConfig`, `actuationPolicy` or `autonomousSafetyLimits` anywhere in
+the service.
+
+So an operator who came here to verify that a tenant's SCADA AI cannot
+autonomously dose reagent was shown a glossary, told it was that tenant's live
+configuration, and instructed to verify against it. This is a fabricated
+**provenance** rather than a fabricated number, on the surface that governs
+autonomous control of physical equipment — which is why it outranks every other
+finding in this audit.
+
+W9r removes the claim. The banner states that the page does **not** show a
+tenant's actuation policy and that admin-api cannot read the entity; both
+reference sections are relabelled for what they are; capability labels are
+headed "descriptive, not permissions"; and a panel where an operator looks for
+the effective policy states the gap and names ADMIN-HIGH-155 — deliberately
+**empty** rather than filled with a default, because a default there reads as a
+policy.
+
+Also fixed: admin-api's `PersonaResponse` declared `id: string` where the reply
+sends `string | null`, invented an `isActive`, and omitted `icon`, `color` and
+`capabilities` (the panel's hand-written type was the more accurate of the
+two); the table declared four headers and rendered three cells, so the "Scope"
+column was empty; and the tenant was an unvalidated free-text UUID box.
+
+**Not done, and tracked:** building the read path is ADMIN-HIGH-155. It crosses
+into ai-service, which this wave has not otherwise touched, and a life-safety
+read path warrants its own review rather than being bundled into a page
+migration.
+
+## ADMIN-HIGH-155 — no platform-admin read path to a tenant's AI actuation policy
+
+**State:** OPEN · **Wave:** unscheduled · **Owner:** okan
+**Deadline:** 2026-12-31
+
+The tracked half of ADMIN-CRITICAL-154. `TenantAgentConfig` holds
+`actuationPolicy`, `autonomousSafetyLimits`, `autonomousActionsEnabled` and
+`proactiveMonitoringEnabled` — the settings that decide what a tenant's AI may
+do to physical equipment. admin-api has no path to it: ai-service exposes
+exactly one admin-reachable responder (`request.ai.isEnabled`) and admin-api
+does not call even that. A SUPER_ADMIN therefore cannot see, from the
+platform-admin boundary, whether any tenant's AI is permitted to actuate.
+
+What must be **built**:
+
+1. A read-only NATS responder in ai-service returning the **effective**
+   per-tenant agent config, resolved the way `AgentProfileService` resolves it
+   at runtime (most-restrictive-wins between the persona base policy and the
+   tenant override) — the effective policy, not the raw row, which would be a
+   third thing to misread.
+2. An admin-api route in front of it with a response DTO class, so the artifact
+   describes it and the panel derives its type.
+3. The panel's empty "Effective actuation policy for this tenant" filled from
+   it, with an em dash wherever a field is null.
+
+Until it lands the panel says so and names this finding. That is the honest
+state; it is not the finished state.
+
 ## ADMIN-HIGH-153 — the GDPR export that was fetched and thrown away
 
 **State:** OPEN → closed by W9q · **Wave:** W9q · **Owner:** okan

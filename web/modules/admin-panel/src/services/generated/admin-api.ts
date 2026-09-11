@@ -9595,6 +9595,18 @@ export interface components {
             isUnderLegalHold: boolean;
             exportedAt: string;
         };
+        AiPersonaDto: {
+            /** @description Persona id in ai-service. `null` is the general AI assistant. */
+            id: string | null;
+            name: string;
+            description: string;
+            /** @description Lucide icon name, for rendering only. */
+            icon: string;
+            /** @description Theme colour key, for rendering only. */
+            color: string;
+            /** @description Capability labels describing what the persona can do. These are DESCRIPTIONS, not grants: what the AI may actually actuate is decided by TenantAgentConfig.actuationPolicy, which this response does not carry. */
+            capabilities: string[];
+        };
         ForgotPasswordDto: {
             /** Format: email */
             email: string;
@@ -19526,7 +19538,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>[];
+                    "application/json": components["schemas"]["AiPersonaDto"][];
                 };
             };
         };

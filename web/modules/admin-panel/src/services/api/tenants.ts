@@ -80,8 +80,10 @@ export const tenantsApi = {
   deactivate: (id: string, reason: string) =>
     apiFetch<Tenant>(`/admin/tenants/${id}/deactivate`, { method: 'PATCH', body: JSON.stringify({ reason }) }),
   archive: (id: string) => apiFetch<void>(`/admin/tenants/${id}`, { method: 'DELETE' }),
-  search: (q: string, limit?: number) =>
-    apiFetch<Tenant[]>(`/admin/tenants/search?q=${encodeURIComponent(q)}&limit=${limit || 20}`),
+  search: (q: string, limit?: number, signal?: AbortSignal) =>
+    apiFetch<Tenant[]>(`/admin/tenants/search?q=${encodeURIComponent(q)}&limit=${limit || 20}`, {
+      signal,
+    }),
   getExpiringTrials: (withinDays?: number) =>
     apiFetch<Tenant[]>(`/admin/tenants/expiring-trials?withinDays=${withinDays || 7}`),
   bulkSuspend: (tenantIds: string[], reason: string) =>

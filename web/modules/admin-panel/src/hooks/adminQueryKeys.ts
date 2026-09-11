@@ -41,8 +41,13 @@ export const adminKeys = {
     stats: () => [...adminKeys.messaging.all(), 'stats'] as const,
     retention: () => [...adminKeys.messaging.all(), 'retention'] as const,
     compliance: () => [...adminKeys.messaging.all(), 'compliance'] as const,
-    complianceStats: () => [...adminKeys.messaging.compliance(), 'stats'] as const,
-    legalHolds: () => [...adminKeys.messaging.compliance(), 'legal-holds'] as const,
+    // Both are PER TENANT — the routes reject a request without a tenant id,
+    // and a key without one would serve one tenant's legal holds under
+    // another tenant's view (ADMIN-CRITICAL-147).
+    complianceStats: (tenantId: string) =>
+      [...adminKeys.messaging.compliance(), 'stats', tenantId] as const,
+    legalHolds: (tenantId: string) =>
+      [...adminKeys.messaging.compliance(), 'legal-holds', tenantId] as const,
     monitoring: () => [...adminKeys.messaging.all(), 'monitoring'] as const,
     audit: () => [...adminKeys.messaging.all(), 'audit'] as const,
     tenants: () => [...adminKeys.messaging.all(), 'tenants'] as const,

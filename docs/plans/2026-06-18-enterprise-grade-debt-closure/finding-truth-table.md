@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `c163f3d0d69937cd93a153ef62f0d58f99cb4197e8c89a18977345842718f9c0`
+Registry tip: `cf87c6ac53d973eddc8b79aa2743cfec336d04ada956893e122437bec1e22487`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -246,6 +246,50 @@ Allowed truth buckets:
 | `INFRA-CRITICAL-100`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
 | `ADMIN-CRITICAL-087`  | OPEN           | 2026-09-04   | admin-expert               | real-open                 |
 | `DEPLOY-CRITICAL-017` | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
+| `ADMIN-CRITICAL-147`  | OPEN           | 2026-09-10   | admin-expert               | already-fixed-needs-close |
+| `ADMIN-CRITICAL-150`  | OPEN           | 2026-09-10   | admin-expert               | already-fixed-needs-close |
+| `ADMIN-CRITICAL-151`  | OPEN           | 2026-09-10   | admin-expert               | already-fixed-needs-close |
+| `ADMIN-CRITICAL-154`  | OPEN           | 2026-09-10   | admin-expert               | already-fixed-needs-close |
+| `ADMIN-CRITICAL-156`  | OPEN           | 2026-09-10   | admin-expert               | already-fixed-needs-close |
+| `ADMIN-CRITICAL-157`  | OPEN           | 2026-09-10   | admin-expert               | already-fixed-needs-close |
+
+Updated 2026-09-10 (W9t, the SUPER_ADMIN audit's last unmigrated page): one active CRITICAL added.
+`ADMIN-CRITICAL-157` — `MessagingPage`'s Internal Note toggle set local state, styled the draft, and
+never put `isInternal` on the wire, so every note an admin wrote ABOUT a customer was delivered INTO
+that customer's own support thread. In the same page, the Bulk Message dialog previewed "all active
+tenants" and sent no audience at all — the one body the route refuses — so no broadcast this platform
+ever attempted was delivered, and the 400 went to `console.error`; and the page keyed alignment,
+colour and the read receipt on a `senderType` this service has never written, so its own replies drew
+as the tenant's. Same bucket, same reason: a control that reports something other than what it did.
+
+Updated 2026-09-10 (W9m, the SUPER_ADMIN audit's messaging batch): one active CRITICAL added.
+`ADMIN-CRITICAL-156` — every support ticket's comment thread rendered empty and silent: the client
+declared a flat array where the route returns a page, so `.map` ran on the page object and the
+TypeError went to `console.error`. The same commit closes `ADMIN-MEDIUM-114`, which had tracked
+the missing comments DTO. Same bucket, same reason.
+
+`ADMIN-CRITICAL-154` — `MessagingAiPersonasPage` told operators that a hardcoded glossary was the
+tenant's live PLC actuation policy, on the LIFE-SAFETY surface that governs autonomous control of
+physical equipment; admin-api has no route, no NATS call and no reference to `TenantAgentConfig`.
+The claim is removed and the gap stated on the page; BUILDING the read path is `ADMIN-HIGH-155`,
+deliberately not bundled into a page migration because it crosses into ai-service.
+
+`ADMIN-CRITICAL-151` — `MessagingRetentionPage`'s "+ Override" discarded its arguments and closed
+the modal, reporting success for a data-deletion window it never wrote; its Edit could never save
+and its list could never load. Same bucket, same reason.
+
+`ADMIN-CRITICAL-150` — `MessagingAuditPage` could not display a correct row in any state: its
+default read 400'd for the same reason and drew "entries will appear once messaging activity
+begins"; a valid tenant crashed the page on an offset-vs-cursor response mismatch; five row fields
+were invented; and none of the seven action filter values is a member of `ComplianceAction`. Same
+bucket, same reason: the branch fixes it and the close ceremony records the commit.
+
+`ADMIN-CRITICAL-147` — `MessagingCompliancePage` sent both of its reads without the tenant id the
+routes require, so every load 400'd and the page rendered a placeholder reporting **Compliance
+Score 100%**, zero messages under legal hold, and a green tick over "No legal holds", on a
+litigation-hold surface. It is `already-fixed-needs-close`: the branch fixes it at Tier 1 (the
+client methods now require a tenant id, so the call the page made cannot be written) and deletes
+the placeholder, and the post-merge close ceremony records the main-reachable commit.
 
 ## Mutation Rules
 

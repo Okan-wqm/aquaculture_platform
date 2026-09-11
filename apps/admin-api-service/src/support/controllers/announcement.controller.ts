@@ -5,6 +5,11 @@
  */
 
 import {
+  AnnouncementAcknowledgmentStatusDto,
+  AnnouncementPageDto,
+  AnnouncementStatsResponseDto,
+} from './dto/announcement-response.dto';
+import {
   AcknowledgeDto,
   CreateAnnouncementDto,
   UpdateAnnouncementDto,
@@ -53,7 +58,7 @@ export class AnnouncementController {
     @Query('limit') limit?: string,
     @Query('status') status?: AnnouncementStatus,
     @Query('type') type?: AnnouncementType,
-  ) {
+  ): Promise<AnnouncementPageDto> {
     return this.announcementService.getAllAnnouncements({
       page: page ? parseInt(page, 10) : undefined,
       limit: limit ? parseInt(limit, 10) : undefined,
@@ -63,7 +68,7 @@ export class AnnouncementController {
   }
 
   @Get('stats')
-  async getStats() {
+  async getStats(): Promise<AnnouncementStatsResponseDto> {
     return this.announcementService.getAnnouncementStats();
   }
 
@@ -172,7 +177,9 @@ export class AnnouncementController {
   // ============================================================================
 
   @Get(':id/acknowledgments')
-  async getAcknowledgmentStatus(@Param('id') id: string) {
+  async getAcknowledgmentStatus(
+    @Param('id') id: string,
+  ): Promise<AnnouncementAcknowledgmentStatusDto> {
     return this.announcementService.getAcknowledgmentStatus(id);
   }
 

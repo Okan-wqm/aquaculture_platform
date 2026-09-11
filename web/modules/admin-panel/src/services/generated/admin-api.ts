@@ -8243,25 +8243,47 @@ export interface components {
             metadata?: {
                 [key: string]: unknown;
             };
-            acknowledgments: components["schemas"]["AnnouncementAcknowledgment"][];
             /** Format: date-time */
             createdAt: string;
             /** Format: date-time */
             updatedAt: string;
         };
-        AnnouncementAcknowledgment: {
-            id: string;
-            announcementId: string;
-            tenantId: string;
-            userId: string;
-            userName?: string;
-            /** Format: date-time */
-            viewedAt?: string;
-            /** Format: date-time */
-            acknowledgedAt?: string;
-            announcement: components["schemas"]["Announcement"];
-            /** Format: date-time */
-            createdAt: string;
+        AnnouncementPageDto: {
+            items: components["schemas"]["Announcement"][];
+            total: number;
+            page: number;
+            limit: number;
+            totalPages: number;
+            hasNextPage: boolean;
+            hasPreviousPage: boolean;
+        };
+        AnnouncementStatsByTypeDto: {
+            /** @description Announcements of type `info`, in any status. */
+            info: number;
+            /** @description Announcements of type `warning`, in any status. */
+            warning: number;
+            /** @description Announcements of type `critical`, in any status. */
+            critical: number;
+            /** @description Announcements of type `maintenance`, in any status. */
+            maintenance: number;
+        };
+        AnnouncementStatsResponseDto: {
+            /** @description Every announcement row, in any status. Counted over the whole table — not over the page the list endpoint returned, which is capped. */
+            total: number;
+            /** @description Announcements currently published. */
+            published: number;
+            /** @description Announcements with a future publish time. */
+            scheduled: number;
+            /** @description Announcements never published. */
+            draft: number;
+            /** @description Announcements past their expiry. */
+            expired: number;
+            /** @description Sum of `viewCount` over every announcement. */
+            totalViews: number;
+            /** @description Sum of `acknowledgmentCount` over every announcement. */
+            totalAcknowledgments: number;
+            /** @description One count per announcement type. The four keys are always present. */
+            byType: components["schemas"]["AnnouncementStatsByTypeDto"];
         };
         CreateAnnouncementDto: {
             title: string;
@@ -8284,6 +8306,27 @@ export interface components {
             publishAt?: string;
             expiresAt?: string;
             requiresAcknowledgment?: boolean;
+        };
+        AnnouncementAcknowledgment: {
+            id: string;
+            announcementId: string;
+            tenantId: string;
+            userId: string;
+            userName?: string;
+            /** Format: date-time */
+            viewedAt?: string;
+            /** Format: date-time */
+            acknowledgedAt?: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        AnnouncementAcknowledgmentStatusDto: {
+            /** @description The announcement's own view counter. */
+            totalViews: number;
+            /** @description The announcement's own acknowledgment counter. */
+            totalAcknowledgments: number;
+            /** @description Every view or acknowledgment recorded against this announcement, newest first. An empty array means nobody has seen it — which is why a failed read must never be rendered as one. */
+            acknowledgments: components["schemas"]["AnnouncementAcknowledgment"][];
         };
         AcknowledgeDto: {
             /**
@@ -15352,7 +15395,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["AnnouncementPageDto"];
+                };
             };
         };
     };
@@ -15392,7 +15437,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["AnnouncementStatsResponseDto"];
+                };
             };
         };
     };
@@ -15558,7 +15605,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["AnnouncementAcknowledgmentStatusDto"];
+                };
             };
         };
     };

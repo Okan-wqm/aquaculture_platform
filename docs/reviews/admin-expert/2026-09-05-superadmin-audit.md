@@ -834,6 +834,58 @@ in `web/` reaches the logout authority; `@tanstack/react-query` is declared
 wherever it is imported, at the federation-pinned version; the barrel keeps
 exporting the primitives.
 
+## ADMIN-CRITICAL-151 — a deletion window the page said it had set, and had not
+
+**State:** OPEN → closed by W9o · **Wave:** W9o · **Owner:** okan
+**Deadline:** 2026-12-31
+
+This page decides how long a tenant's messages survive. All three of its paths
+were broken, and two of them silently.
+
+1. **"+ Override" was a no-op that looked like a success.** The modal
+   collected a channel id and a retention window; `handleAddOverride`
+   discarded all three of its arguments (`_tenantId`, `_channelId`,
+   `_retentionDays`), refetched the list and closed the modal. The operator
+   set a channel's deletion window and the UI behaved exactly as if it had
+   been written. Its comment said the endpoint was _"not yet available in
+   admin gateway"_ — and `UpdateRetentionPolicyDto` has taken
+   `{ channelId, retentionDays }` all along, with `channelId` documented
+   _"null means the policy applies to every channel of the tenant"_. The
+   capability existed; only the wiring did not.
+2. **"Edit" could never save.** It sent
+   `{ defaultRetention: '1y', applyToAll: true }` — neither key on the DTO,
+   under `forbidNonWhitelisted: true`, with no `retentionDays`: refused twice
+   over. It also addressed the route with the **policy** id where the path
+   parameter is the **tenant** id, so a well-formed body would still have
+   answered `Tenant <policy-uuid> not found`.
+3. **The list could never load, and would have crashed if it had.** The route
+   requires `tenantId` and the client sent none (the third instance of
+   ADMIN-HIGH-149's consequence), so the table drew _"No tenant retention
+   policies configured. Retention policies will appear once tenants enable
+   messaging."_ The row type declared nine fields, **seven invented** —
+   including `defaultRetention` as one of four labels where the wire carries a
+   number of days, and three counts rendered through `.toLocaleString()`.
+4. **"Indefinite" was offered and could not be sent.**
+   `RetentionPolicy.retentionDays` documents `-1` as indefinite and
+   `executeRetentionCleanup` skips those policies
+   (`retention-policy.service.ts:221`) — but the DTO's `@Min(1)` refused it.
+   The one window an operator picks for a legal-preservation channel was the
+   one the API rejected. Fixed **in the DTO**
+   (`@Min(-1) @NotEquals(0) @Max(3650)`), not by removing the option: the
+   state is real and the nightly job honours it. Zero stays refused — zero
+   days would ask the cleanup to delete everything the moment it runs.
+
+W9o also corrects admin-api's `RetentionPolicyResponse` (four of seven fields),
+takes a tenant through `TenantSelect`, reads through `useAdminQuery` keyed per
+tenant, writes through `useAdminMutation` invalidating that key, warns only
+when a window is actually **shortened**, validates the channel UUID at the
+field the DTO validates, and says "Not set" where no policy row exists rather
+than showing a number it did not read.
+
+**Gates:** `apps/admin-api-service/src/messaging/__tests__/update-retention-policy.dto.spec.ts`
+pins both directions of the window contract (9 tests: −1 accepted, 0 refused,
+−2 and 3651 refused, the old body shape refused), plus 11 page tests.
+
 ## ADMIN-CRITICAL-150 — a forensic trail that could not display a correct row in any state
 
 **State:** OPEN → closed by W9n · **Wave:** W9n · **Owner:** okan

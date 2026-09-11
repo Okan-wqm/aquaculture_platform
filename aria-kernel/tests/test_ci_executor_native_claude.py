@@ -170,6 +170,14 @@ class NativeClaudeLane(unittest.TestCase):
         self.assertEqual((attempts[0]["provider"], attempts[0]["runtime"], attempts[0]["auth_method"]),
                          ("anthropic", "claude", "subscription"))
         self.assertEqual(attempts[0]["model"], self.profile.model)
+        # The whole fleet decision rides the attempt row: every candidate's
+        # observation, so a preferred route that was skipped is explained
+        # even when another route ran.
+        admission = attempts[0]["admission"]
+        self.assertEqual([row["provider"] for row in admission["candidate_observations"]], ["anthropic", "zai", "openai"])
+        self.assertEqual(admission["eligible_routes"][0]["provider"], "anthropic")
+        self.assertEqual({row["provider"]: row["status_reason"] for row in admission["candidate_observations"]}["zai"],
+                         "provider_not_configured")
         self.assertEqual(output["details"]["runtime_attempt_ledger_hash"], attempt_rows[0]["ledger_hash"])
         finished = [row["details"] for row in governance if row["kind"] == "runtime_attempt_finished"
                     and row["details"].get("request_id") == self.request["request_id"]]

@@ -208,6 +208,8 @@ class NativeZaiLane(unittest.TestCase):
         self.assertEqual((attempts[0]["provider"], attempts[0]["runtime"], attempts[0]["model"]), ("zai", "zai", "glm-5.3"))
         self.assertEqual(attempts[0]["auth_method"], "subscription_api_key")
         self.assertEqual(attempts[0]["monetary_admission"], "managed_subscription")
+        self.assertEqual([row["provider"] for row in attempts[0]["admission"]["candidate_observations"]],
+                         ["anthropic", "zai", "openai"])
         finished = [row["details"] for row in governance if row["kind"] == "runtime_attempt_finished"
                     and row["details"].get("request_id") == self.request["request_id"]]
         self.assertEqual(len(finished), 1)

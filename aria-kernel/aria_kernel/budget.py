@@ -516,13 +516,20 @@ def _reserve_native_runtime_attempt(
     agent_id: str, lease_token: str,
     provider: str, runtime: str, model: str, requested_effort: str,
     auth_method: str, expected_policy_digest: str, settings_hash: str,
-    pricing: dict[str, Any],
+    pricing: dict[str, Any], admission: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Bind a managed attempt before dispatch, using the shared monetary policy.
 
     This is a native attempt reservation on the existing governance surface,
     not a fabricated dollar debit or a successful result. Existing metered
     cycle reservation remains separate and unchanged.
+
+    ``admission`` is the fleet decision this route came out of — every
+    candidate's observation and the eligible order — recorded on the row so
+    the reason a route was NOT chosen survives when another one was. Trial
+    seven (2026-09-11) ran on Codex while the preferred Anthropic route sat
+    first in fleet order, and the ledger could not say why: the
+    observations were written only when nothing was eligible.
     """
     from . import agent_invocations as invocations
     from .genesis_policy import _runtime_monetary_admission
@@ -551,6 +558,7 @@ def _reserve_native_runtime_attempt(
         "policy_sources": {"default_sha256": monetary.default_sha256,
                            "override_sha256": monetary.override_sha256},
         "settings_hash": settings_hash, "pricing": pricing,
+        **({"admission": admission} if admission is not None else {}),
     }
     event = governance_event(kind="runtime_attempt_started", details=details)
     requests_path = root / "agent-invocations/requests.jsonl"

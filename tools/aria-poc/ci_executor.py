@@ -42,7 +42,7 @@ import tempfile as _tempfile
 import uuid as _uuid
 import functools as _functools
 from contextlib import ExitStack as _ExitStack
-from dataclasses import dataclass as _dataclass, replace as _replace
+from dataclasses import asdict as _asdict, dataclass as _dataclass, replace as _replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -2333,6 +2333,10 @@ class _NativeRuntimePlan:
     route: dict[str, str]
     observation: dict[str, Any]
     context: Any
+    admission: dict[str, Any]
+    """The whole fleet decision (`_NativeRuntimeAdmission`, as a row) — every
+    candidate's observation, not only the chosen route's — recorded on the
+    attempt row so a skipped preferred provider is explained in the ledger."""
 
 
 def _invoke_native_codex(
@@ -2360,6 +2364,7 @@ def _invoke_native_codex(
             auth_method=native_runtime.observation["auth_method"],
             expected_policy_digest=native_runtime.policy.policy_digest,
             settings_hash=native_runtime.context.settings_hash, pricing=native_runtime.observation["pricing"],
+            admission=native_runtime.admission,
         )
     except GovernanceError as exc:
         raise ClaudeCliUnavailable("native_runtime_reservation_unavailable:" + str(exc)) from exc
@@ -2474,6 +2479,7 @@ def _invoke_native_zai(
             auth_method=native_runtime.observation["auth_method"],
             expected_policy_digest=native_runtime.policy.policy_digest,
             settings_hash=context.settings_hash, pricing=native_runtime.observation["pricing"],
+            admission=native_runtime.admission,
         )
     except GovernanceError as exc:
         raise ClaudeCliUnavailable("native_runtime_reservation_unavailable:" + str(exc)) from exc
@@ -2585,6 +2591,7 @@ def _invoke_native_claude(
             auth_method=native_runtime.observation["auth_method"],
             expected_policy_digest=native_runtime.policy.policy_digest,
             settings_hash=native_runtime.context.settings_hash, pricing=native_runtime.observation["pricing"],
+            admission=native_runtime.admission,
         )
     except GovernanceError as exc:
         raise ClaudeCliUnavailable("native_runtime_reservation_unavailable:" + str(exc)) from exc
@@ -2862,7 +2869,8 @@ def _adaptive_pre_claim_admission(
     if admission.eligible_routes:
         route = admission.eligible_routes[0]
         observation = next(row for row in admission.candidate_observations if row["provider"] == route["provider"])
-        return _NativeRuntimePlan(policy, request, route, observation, contexts[route["provider"]])
+        return _NativeRuntimePlan(policy, request, route, observation, contexts[route["provider"]],
+                                  _asdict(admission))
     append_tools_governance(tools_dir, "runtime_admission_unavailable", {
         "schema_version": 1, "policy_id": policy.policy_id,
         "policy_digest": policy.policy_digest,

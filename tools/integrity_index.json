@@ -1,10 +1,10 @@
 {
   "ledger_hashes": {
     "cycles": "4fe29447797d2a6570e2aac378d6477383b3e4d5eff27a1a809c7b1addf4965c",
-    "governance": "b411e3419ad911bd9ee28b51cbb4b1c790f7d031bfa85bd7f181849e01bbe390",
+    "governance": "402d6ebbb7aa7b52f2154483ba011295303c8e94e1359d6c9fa8a7f63dcbc1ba",
     "health": "7219605b8594a9d7dc85ad9384f417ae740bd660dcca5be271c1701c0c5a2bb5",
-    "runs": "8ce1a956f944629ec8e98d3996efcb0767094f340755cf6a7a0fa352952dcf11",
-    "runtime_artifact_index": "3abe1de915eaaa354ff984453b1197cb1a3ae05403a496b632cdacbe0c4dcffa",
+    "runs": "66278a2bc2402e144da6b2b16aff06bd7e4009b863a6a98a9a5964329f703a4a",
+    "runtime_artifact_index": "a06f814efc6b66ae813cada98d7717be8ba7984cc20c1a06fdedda72b1115daa",
     "runtime_artifact_inventory": "76a80654befa79e8c8089f650cfea13578ad3283c10217f93a80eb1d3055ef5e",
     "runtime_artifact_manifest": "4df46e7eb6c699ec7706a0246d5365fc6041d1f5ee678cd7656d52a5f71bd33e",
     "runtime_observability_alerts": "755d423d27e43999c0960fa381bccc9bc9f7c4c3a25ddc8f0741bbf5fcff3ab7"

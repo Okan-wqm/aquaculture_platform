@@ -35,6 +35,18 @@ from aria_kernel.ledger import load_jsonl
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from tests._helpers.declared_fixtures import sha256_file
 
+# A liveness guard for the threaded race fixtures — the bound after which a
+# peer that never resumes is declared wedged — not a performance budget for
+# a real submit. The fixtures pause one writer before it takes any lock and
+# let the other run the REAL submit_claim_result (evidence checks, ledger
+# hashing, sealing); a wedge shows as a wait that never ends, and a loaded
+# host shows as a wait of tens of seconds. The pre-push suite of 2026-09-11
+# (3137 tests, five hours, host in IO wait beside two live model runs) saw
+# the real submit exceed a 5 s bound three times, each recorded as a
+# `TimeoutError('submit did not finish')` — no deadlock, one busy host. The
+# guard is now large enough that only a wedge reaches it.
+RACE_LIVENESS_SECONDS = 120
+
 
 def _seed_repo() -> Path:
     """Create a tempdir that looks like a repo root."""
@@ -1783,7 +1795,7 @@ class SubmitResultE2ETests(unittest.TestCase):
                 in {Path(path).resolve() for path in paths}
             ):
                 submit_waiting.set()
-                if not release_finished.wait(timeout=5):
+                if not release_finished.wait(timeout=RACE_LIVENESS_SECONDS):
                     raise TimeoutError("release did not finish")
             with real_state_transaction(paths, **transaction_kwargs) as transaction:
                 yield transaction
@@ -1812,7 +1824,7 @@ class SubmitResultE2ETests(unittest.TestCase):
                 name="submit-before-release-race",
             )
             submit_thread.start()
-            self.assertTrue(submit_waiting.wait(timeout=5))
+            self.assertTrue(submit_waiting.wait(timeout=RACE_LIVENESS_SECONDS))
             release_claim(
                 claim_id=claim["claim_id"],
                 agent_id="judge-worker-001",
@@ -1821,7 +1833,7 @@ class SubmitResultE2ETests(unittest.TestCase):
                 base_dir=self.tools,
             )
             release_finished.set()
-            submit_thread.join(timeout=5)
+            submit_thread.join(timeout=RACE_LIVENESS_SECONDS)
 
         self.assertFalse(submit_thread.is_alive())
         self.assertEqual(len(submit_errors), 1, submit_errors)
@@ -1867,7 +1879,7 @@ class SubmitResultE2ETests(unittest.TestCase):
                 and record.get("event") == target_event
             ):
                 lifecycle_waiting.set()
-                if not submit_finished.wait(timeout=5):
+                if not submit_finished.wait(timeout=RACE_LIVENESS_SECONDS):
                     raise TimeoutError("submit did not finish")
             return real_append(path, record, **append_kwargs)
 
@@ -1879,7 +1891,7 @@ class SubmitResultE2ETests(unittest.TestCase):
                 and {claims_path, results_path}.issubset(resolved)
             ):
                 lifecycle_waiting.set()
-                if not submit_finished.wait(timeout=5):
+                if not submit_finished.wait(timeout=RACE_LIVENESS_SECONDS):
                     raise TimeoutError("submit did not finish")
             with real_state_transaction(paths, **transaction_kwargs) as transaction:
                 yield transaction
@@ -1929,7 +1941,7 @@ class SubmitResultE2ETests(unittest.TestCase):
                 name=f"{operation}-race",
             )
             lifecycle_thread.start()
-            self.assertTrue(lifecycle_waiting.wait(timeout=5))
+            self.assertTrue(lifecycle_waiting.wait(timeout=RACE_LIVENESS_SECONDS))
             submitted = submit_claim_result(
                 claim_id=claim["claim_id"],
                 agent_id="judge-worker-001",
@@ -1940,7 +1952,7 @@ class SubmitResultE2ETests(unittest.TestCase):
                 **kwargs,
             )
             submit_finished.set()
-            lifecycle_thread.join(timeout=5)
+            lifecycle_thread.join(timeout=RACE_LIVENESS_SECONDS)
 
         self.assertFalse(lifecycle_thread.is_alive())
         self.assertEqual(submitted["status"], "accepted")

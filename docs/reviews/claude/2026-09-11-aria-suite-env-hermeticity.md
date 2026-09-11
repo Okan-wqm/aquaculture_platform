@@ -145,3 +145,19 @@ tools and workspace trees). The owner of that boundary is `validation.py`'s
 command environment, not the test package; it is raised as its own finding,
 ARIA-MEDIUM-066, with the validation stage of the end-to-end chain as its
 deadline.
+
+## Addendum — the race fixtures' 5 s bound was a performance budget in disguise
+
+The second pre-push run of this branch (3137 tests, 17,933 s, the host in
+IO wait beside two live model runs) ended `FAILED (failures=3)`: the three
+`*_rechecks_result_after_submit_wins_lock` fixtures in
+`test_agent_submit_result_e2e`, each with `TimeoutError('submit did not
+finish')`. The fixtures pause one lifecycle writer before it takes any lock
+and let the main thread run the REAL `submit_claim_result`; the paused
+writer waited 5 s for the submit to finish. No lock was held by the paused
+thread, so nothing could deadlock — the real submit simply took longer
+than 5 s on a busy host, and the guard against a wedged peer fired as if
+it were a budget. `RACE_LIVENESS_SECONDS = 120` now names what the bound
+is for; the same class of wait in the sibling `submit-before-release`
+fixture uses it too. Not a hermeticity defect — the branch's own suite
+run measured it, so it is closed here rather than carried.

@@ -1076,7 +1076,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "fc0fddead0fc89f59f17f89f7028d9e82ba221d186ae54b6c4db976631fef570",
+      "content_sha256": "c8ac3224e769f865e4f60c981d74414122f05b56610599c219621a0158aa83af",
       "hash_policy": "sha256",
       "owner": "admin-openapi-generator",
       "path": "apps/admin-api-service/openapi.json",
@@ -2717,6 +2717,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/support/controllers/dto/announcement.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/support/controllers/dto/messaging-response.dto.ts",
       "prettier_managed": true
     },
     {
@@ -51096,6 +51102,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/__tests__/MessagingPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/pages/__tests__/ModulePricingPage.spec.tsx",
       "prettier_managed": true
     },
@@ -51659,7 +51671,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "4d19b1cdb5c2657464e3827f089279ca9bfd30e82159269d7541b673d0359bd5",
+      "content_sha256": "9d0e0a8e85d213b4a617d8bedae3d7e92507270354ce1b5268b51e9f9dea71c0",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/modules/admin-panel/src/services/generated/admin-api.ts",

@@ -93,17 +93,51 @@ export type TicketStats = ApiSchema<'TicketStatsResponseDto'>;
 // Messaging Types
 // ============================================================================
 
-export type MessageSenderType = 'super_admin' | 'tenant_admin' | 'system';
-export type MessageStatus = 'sent' | 'delivered' | 'read';
 export type ThreadStatus = 'open' | 'closed' | 'archived';
 
-export interface SupportMessageAttachment {
-  id: string;
-  filename: string;
-  url: string;
-  size: number;
-  mimeType: string;
-}
+/**
+ * One `admin.messages` row, as `/support/messages` returns it
+ * (ADMIN-CRITICAL-157).
+ *
+ * SOURCED from the contract, because the hand-written copy disagreed with the
+ * server on all three fields that decide what the operator sees, and the panel
+ * only has one messaging page — so all three defects were live at once:
+ *
+ *  - `senderType` was `'super_admin' | 'tenant_admin' | 'system'`. That is the
+ *    OTHER messaging stack's union (see {@link GraphQLSupportMessage});
+ *    admin-api writes `'admin'`. `MessagingPage`'s `senderType ===
+ *    'super_admin'` test was therefore false for every message ever written:
+ *    the platform's own replies drew left-aligned in tenant styling, and the
+ *    read receipt keyed on that same test never drew at all.
+ *  - `status` omitted `'failed'`, so a message that failed to send drew as one
+ *    that had been sent and not yet read.
+ *  - the attachment fields were `filename` and `size`; the wire carries
+ *    `fileName` and `fileSize`. Every attachment rendered as a nameless link
+ *    reading "NaN MB".
+ *
+ * Two of these were unrepresentable defects, not typos — a union member the
+ * server cannot send and a field name it does not use — which is exactly what
+ * sourcing from the contract makes a compile error.
+ */
+export type SupportMessageAttachment = ApiSchema<'MessageAttachmentResponseDto'>;
+export type SupportMessage = ApiSchema<'SupportMessageResponseDto'>;
+export type MessageSenderType = SupportMessage['senderType'];
+export type MessageStatus = SupportMessage['status'];
+
+/** One page of a thread's messages, with the total the bare array never sent. */
+export type SupportMessagePage = ApiSchema<'SupportMessagePageDto'>;
+
+/** The messaging rollup. `avgResponseTimeMinutes` is null when nothing has been answered. */
+export type MessagingStats = ApiSchema<'MessagingStatsResponseDto'>;
+
+/** What a broadcast actually did — `failed > 0` is a partial send. */
+export type BulkMessageResult = ApiSchema<'BulkMessageResultDto'>;
+
+/**
+ * Who a broadcast reaches. Required on the request, and `{}` is a MEANING —
+ * every active tenant — not an omission (ADMIN-CRITICAL-157).
+ */
+export type BulkMessageAudience = ApiSchema<'BulkMessageAudienceDto'>;
 
 /**
  * @deprecated Use {@link SupportMessageAttachment} instead.
@@ -111,25 +145,50 @@ export interface SupportMessageAttachment {
  */
 export type MessageAttachment = SupportMessageAttachment;
 
-export interface SupportMessage {
-  id: string;
-  threadId: string;
-  senderId: string;
-  senderType: MessageSenderType;
-  senderName: string;
-  content: string;
-  status: MessageStatus;
-  isInternal: boolean;
-  attachments: SupportMessageAttachment[] | null;
-  readAt: string | null;
-  createdAt: string;
-}
-
 /**
  * @deprecated Use {@link SupportMessage} instead.
  * Kept temporarily for backward compatibility with REST-based code.
  */
 export type Message = SupportMessage;
+
+/**
+ * A message from the OTHER support-messaging stack — auth-service's GraphQL
+ * subgraph, which owns its own threads and messages and is reached through
+ * `useMessaging` / `graphql/messaging-operations.ts`.
+ *
+ * NAMED for the subgraph it comes from, deliberately, for the same reason
+ * {@link GraphQLSupportThread} is: one name over two unrelated shapes is how
+ * the REST message shape came to be declared with the GraphQL stack's
+ * `senderType` union (ADMIN-CRITICAL-157). auth-service really does write
+ * `SenderType.SUPER_ADMIN`
+ * (`apps/auth-service/src/modules/messaging/services/messaging.service.ts:216`);
+ * admin-api really does write `'admin'`. Both are correct about their own
+ * table, and neither is correct about the other's.
+ */
+export type GraphQLMessageSenderType = 'super_admin' | 'tenant_admin' | 'system';
+export type GraphQLMessageStatus = 'sent' | 'delivered' | 'read';
+
+export interface GraphQLMessageAttachment {
+  id: string;
+  filename: string;
+  url: string;
+  size: number;
+  mimeType: string;
+}
+
+export interface GraphQLSupportMessage {
+  id: string;
+  threadId: string;
+  senderId: string;
+  senderType: GraphQLMessageSenderType;
+  senderName: string;
+  content: string;
+  status: GraphQLMessageStatus;
+  isInternal: boolean;
+  attachments: GraphQLMessageAttachment[] | null;
+  readAt: string | null;
+  createdAt: string;
+}
 
 /**
  * The GraphQL support thread, as the messaging subgraph declares it.
@@ -196,6 +255,17 @@ export type MessageThreadSummary = ApiSchema<'ThreadSummaryDto'>;
  * result is consumed today (ADMIN-HIGH-110).
  */
 export type SupportThreadRecord = ApiSchema<'MessageThread'>;
+
+/**
+ * The thread row `POST /support/messages/threads` replies with.
+ *
+ * Distinct from {@link SupportThreadRecord} by ONE field: `createThread` saves
+ * the row and returns it, so the `messages` relation is not loaded, while
+ * `GET /support/messages/threads/:id` does load it. Inferring both from the
+ * entity made the create reply demand a `messages` array that never arrives
+ * (ADMIN-CRITICAL-157).
+ */
+export type CreatedMessageThread = ApiSchema<'CreatedMessageThreadDto'>;
 
 // ============================================================================
 // Announcement Types

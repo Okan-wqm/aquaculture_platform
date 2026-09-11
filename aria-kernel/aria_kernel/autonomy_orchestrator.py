@@ -65,6 +65,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, NamedTuple
 
 from .autonomy_state import AutonomyStateReducer
+from .cycle import job_deadline_epoch
 from .file_lock import with_exclusive_lock
 from .next_cycle_queue import mark_consumed, read_pending
 from .reflection import run_reflection
@@ -737,6 +738,27 @@ def _calibration_reporter_and_auto_promotion(
         }
 
 
+def _bound_job_deadline(fn: Callable[..., dict[str, Any]]) -> Callable[..., dict[str, Any]]:
+    """Scope ARIA_JOB_DEADLINE_EPOCH to one orchestrator run.
+
+    ARIA-HIGH-064. The deadline is a cross-process contract (children read the
+    env var), so it has to be exported — but it belongs to the run that set it.
+    Binding it here rather than at the CLI callsite means every caller gets the
+    scoping for free, including tests and any future in-process driver, which
+    is what the CLI-side assignment could not give: it leaked the deadline into
+    the rest of the interpreter. See cycle.job_deadline_epoch for the incident.
+    """
+    import functools
+
+    @functools.wraps(fn)
+    def wrapper(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        with job_deadline_epoch(kwargs.get("cycle_deadline_seconds")):
+            return fn(*args, **kwargs)
+
+    return wrapper
+
+
+@_bound_job_deadline
 def run_autonomy_orchestrator(
     *,
     base_dir: str | Path,
@@ -780,6 +802,11 @@ def run_autonomy_orchestrator(
     # (closes C-2 SOC2 gap).
     profile: str,
     max_budget_usd_per_cycle: float = 3.00,
+    # ARIA-HIGH-064 — the per-run cap is a declared operator value that is
+    # recorded on the started event next to the per-cycle cap. It is NOT
+    # exported to the environment and nothing enforces it as dollars
+    # (ORPHAN-HIGH-472): a subscription session has no marginal charge.
+    max_budget_usd_per_run: float = 20.00,
     # Runtime v2 hardening: artifact/lifecycle failures must stop the
     # autonomy loop by default after the cycle ledger has been closed.
     fail_closed_on_cycle_failure: bool = True,
@@ -862,7 +889,6 @@ def run_autonomy_orchestrator(
         profile_gate = NoOpProfileGate()
 
     root = ensure_tools_dir(base_dir)
-    os.environ["MAX_BUDGET_USD_PER_CYCLE"] = str(max_budget_usd_per_cycle)
     daemons_dir = root / "daemons"
     daemons_dir.mkdir(parents=True, exist_ok=True)
     daemon_pid_path = daemons_dir / f"{daemon_id}.pid.lock"
@@ -980,6 +1006,7 @@ def run_autonomy_orchestrator(
                         "max_iterations_per_phase":
                             max_iterations_per_phase,
                         "max_budget_usd_per_cycle": max_budget_usd_per_cycle,
+                        "max_budget_usd_per_run": max_budget_usd_per_run,
                         "started_at": _iso_now(),
                         "profile": profile_snapshot,
                     },

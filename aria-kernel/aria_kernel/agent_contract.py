@@ -389,6 +389,40 @@ def validate_response(
                 )
 
 
+def render_response_validator_contract() -> str:
+    """The response rules `validate_response` enforces, in the validator's own words.
+
+    Delivered to every model as the tail of its agent contract
+    (`agent_contract_delivery`), so what the prose says and what the
+    validator rejects cannot drift: the first live managed-Claude cross-review
+    (2026-09-11, ARIA-HIGH-078) was refused for `satisfaction_matrix[0].note
+    required when verdict='contradicted'` after its contract had told it the
+    kernel "reads `id` + `verdict` only". Rendered from the constants and
+    the checks themselves — edit the validator and this text follows.
+    """
+    verdicts = " | ".join(SATISFACTION_VERDICTS)
+    statuses = " | ".join(RESPONSE_STATUSES)
+    reasons = " | ".join(REASON_CLASSES)
+    required = ", ".join(f"`{name}`" for name in RESPONSE_REQUIRED_FIELDS)
+    banned = ", ".join(f"\"{phrase}\"" for phrase in BANNED_PHRASES)
+    return "\n".join((
+        "## Kernel response validator (rendered from aria_kernel.agent_contract)",
+        "",
+        "These rules are enforced by code at submit; an envelope that breaks one is",
+        "rejected and the request is terminal for this round.",
+        "",
+        f"- Required top-level fields: {required}. `$schema` is `{RESPONSE_SCHEMA}`.",
+        f"- `status` ∈ {{{statuses}}}; `role` must equal the request's `role`.",
+        f"- `satisfaction_matrix[]`: exactly one entry per `must_satisfy[].id` (no extra ids, no",
+        f"  duplicates), each `{{id, verdict, note?, evidence_refs?}}` with `verdict` ∈ {{{verdicts}}}.",
+        "- `verdict` = `blocked` or `contradicted` REQUIRES a non-empty `note` (the reason, prose) AND",
+        "  a non-empty `evidence_refs` list. `evidence` is not read; put the reason in `note`.",
+        f"- Banned phrases anywhere in `note` or `rationale` reject the envelope: {banned}.",
+        f"- A refusal is a separate `{REFUSAL_SCHEMA}` envelope with `reason_class` ∈ {{{reasons}}}.",
+        "- `output_path`, when present, must equal the request's `expected_output_path`.",
+    )) + "\n"
+
+
 def enforce_separation_of_duties(
     *,
     request: dict[str, Any],

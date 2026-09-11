@@ -162,10 +162,16 @@ reject envelopes that drift):
    the both-directions fallback.
 
 3. `satisfaction_matrix[]` carries one entry per `must_satisfy[]` id
-   with canonical fields `{id, verdict, evidence_refs?, evidence?}`.
-   Use `verdict ∈ {"satisfied", "blocked", "contradicted"}`. Do not
-   emit alternate field names like `constraint_id` or `satisfied:bool`
-   — the kernel reads `id` + `verdict` only.
+   with canonical fields `{id, verdict, note?, evidence_refs?}`.
+   Use `verdict ∈ {"satisfied", "blocked", "contradicted"}`. A
+   `blocked` or `contradicted` verdict MUST carry a non-empty `note`
+   (the reason, in prose) AND a non-empty `evidence_refs[]` —
+   `agent_contract.validate_response` rejects the whole envelope
+   otherwise, and the request is terminal for the round. Do not emit
+   alternate field names like `constraint_id`, `satisfied:bool` or
+   `evidence` in place of `note` — the kernel reads `id`, `verdict`,
+   `note` and `evidence_refs`. The validator's own rendering of these
+   rules closes every delivered contract; it is authoritative.
 
 `details.usage` (Anthropic CLI usage block) is admitted as additional
 context and ignored by the kernel.

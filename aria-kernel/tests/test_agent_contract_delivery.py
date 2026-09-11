@@ -15,6 +15,12 @@ What this pins, one property per test:
 * The real `aria-challenger-planner` contract carries its canonical-envelope
   knowledge file inline — the file the first completed native planner run
   could not read.
+* ARIA-HIGH-078 — every delivered contract ends with the response validator's
+  own rules, rendered from the code that enforces them: the first live
+  managed-Claude cross-review was refused for a missing `note` on a
+  `contradicted` verdict after its prose contract had said the kernel reads
+  `id` + `verdict` only. The rendered text names what the validator checks,
+  and the validator behaves as the text says.
 """
 from __future__ import annotations
 
@@ -97,6 +103,43 @@ class Delivery(_Fixture):
         self.assertIn("agent_file_unavailable", str(caught.exception))
         with self.assertRaises(AgentContractUnavailable):
             render_agent_contract("../escape", repo_root=self.tmp)
+
+
+class TheValidatorSpeaksLast(_Fixture):
+    def test_the_delivered_contract_ends_with_the_validators_rules(self) -> None:
+        from aria_kernel.agent_contract import (
+            REASON_CLASSES,
+            RESPONSE_STATUSES,
+            SATISFACTION_VERDICTS,
+            render_response_validator_contract,
+        )
+
+        delivery = render_agent_contract("fixture-agent", repo_root=self.tmp)
+        rendered = render_response_validator_contract()
+        self.assertTrue(delivery.text.endswith(rendered), delivery.text[-400:])
+        self.assertLess(delivery.text.index("<inlined_knowledge_file>"), delivery.text.index(rendered))
+        for word in (*SATISFACTION_VERDICTS, *RESPONSE_STATUSES, *REASON_CLASSES, "`note`", "evidence_refs"):
+            self.assertIn(word, rendered, word)
+        self.assertNotIn("id` + `verdict` only", rendered)
+
+    def test_the_rendered_rule_is_the_rule_the_validator_enforces(self) -> None:
+        from aria_kernel.agent_contract import validate_response
+        from aria_kernel.tool_registry import GovernanceError
+
+        # The live envelope's shape: reason under `evidence`, no `note`.
+        envelope = {
+            "$schema": "aria/agent-response/v1", "request_id": "AIR-aria-cross-reviewer-1da71e60e0ee",
+            "claim_id": "claim_f7acce6ca4be2ad1", "agent_id": "aria-flow-cross-reviewer-claude-trial-six",
+            "role": "cross_review", "status": "submitted",
+            "satisfaction_matrix": [{"id": "flow-behavior", "verdict": "contradicted",
+                                     "evidence": "the hook discards the mutation payload",
+                                     "evidence_refs": ["web/shell/src/hooks/useNotifications.ts:142"]}],
+        }
+        with self.assertRaises(GovernanceError) as caught:
+            validate_response(envelope)
+        self.assertIn("satisfaction_matrix[0].note required when verdict='contradicted'", str(caught.exception))
+        envelope["satisfaction_matrix"][0]["note"] = "the hook discards the mutation payload"
+        validate_response(envelope)
 
 
 class TheRealPlannerContract(unittest.TestCase):

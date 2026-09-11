@@ -121,6 +121,11 @@ def render_agent_contract(
     if omitted:
         parts.extend(["", "## Cited knowledge files NOT inlined (budget or unreadable)", ""])
         parts.extend(f"- `{relative}`" for relative in omitted)
+    # The validator's own rules close the contract, rendered from the code
+    # that enforces them, so no prose above can promise what submit refuses.
+    from .agent_contract import render_response_validator_contract
+
+    parts.extend(["", render_response_validator_contract().rstrip()])
     text = "\n".join(parts).rstrip() + "\n"
     digest = "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
     return AgentContractDelivery(

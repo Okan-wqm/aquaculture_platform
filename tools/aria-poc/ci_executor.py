@@ -1980,6 +1980,29 @@ def _build_envelope_from_claude_output(
     return envelope
 
 
+def _rejected_result_recorded(submit_stdout: str) -> bool:
+    """True when the submit step's answer is a kernel-recorded REJECTED result row.
+
+    `aria_kernel agent submit-result` prints its result document on stdout and
+    exits 1 for anything but `accepted`. When that document carries a result
+    row with status `rejected`, the kernel has already appended the row: the
+    claim is terminal (`_assert_lifecycle_mutation_allowed`) and the request
+    derives REJECTED (`derive_request_state`, results dominate). Anything else
+    on a non-zero exit is a refusal before the row and leaves the claim live.
+    """
+    text = submit_stdout or ""
+    start = text.find("{")
+    if start < 0:
+        return False
+    try:
+        payload = json.loads(text[start:])
+    except ValueError:
+        return False
+    row = payload.get("row") if isinstance(payload, dict) else None
+    return (isinstance(payload, dict) and payload.get("status") == "rejected"
+            and isinstance(row, dict) and row.get("row_type") == "result" and row.get("status") == "rejected")
+
+
 def _release_claim(
     *,
     tools_dir: Path,
@@ -3612,16 +3635,23 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
             + _redact_lease_in_message(detail, lease_token)
             + "\n"
         )
-        # Release, like every other failure path in this function does. This
-        # was the one exit that did not, and a rejected result therefore held
-        # its claim forever — the request could never be retried by anyone.
-        # Runaway retries are already bounded: DEFAULT_MAX_REQUEUES caps the
-        # requeue count and the state then derives HUMAN_REQUIRED.
-        _release_claim(
-            tools_dir=tools_dir, repo=repo, claim_id=claim_id,
-            agent_id=agent_id, lease_token=lease_token,
-            reason="submit_rejected",
-        )
+        # Two different refusals arrive here. A REJECTED result row is the
+        # kernel's own terminal effect on the claim: the request derives
+        # REJECTED from it and `release_claim` refuses with `result already
+        # terminal` — measured on the first live managed-Claude cross-review
+        # (2026-09-11, ARIA-HIGH-078), where the release failed after every
+        # rejection and reported a CLAIMED leak that did not exist. A refusal
+        # BEFORE that row (lease, transport, argparse) leaves a live claim,
+        # and that one is released like every other failure path here.
+        if _rejected_result_recorded(submit_proc.stdout):
+            _stage("submit_rejected_recorded: the kernel appended the rejected result row; "
+                   "the claim is terminal and the request derives REJECTED")
+        else:
+            _release_claim(
+                tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+                agent_id=agent_id, lease_token=lease_token,
+                reason="submit_rejected",
+            )
         return 1
     if native_runtime is not None:
         from aria_kernel.tool_registry import GovernanceError, append_tools_governance

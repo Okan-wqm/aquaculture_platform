@@ -79,8 +79,8 @@ fails closed to `gaps`.
     {
       "id": "<must_satisfy.id>",
       "verdict": "satisfied | blocked | contradicted",
-      "evidence_refs": ["..."],
-      "evidence": "narrative"
+      "note": "<why — REQUIRED for blocked | contradicted>",
+      "evidence_refs": ["<REQUIRED, non-empty, for blocked | contradicted>"]
     }
   ],
   "evidence_refs": ["..."],
@@ -96,6 +96,13 @@ fails closed to `gaps`.
   "details": {}
 }
 ```
+
+`agent_contract.validate_response` is the authority on this shape: one
+entry per `must_satisfy[].id` (no extras, no duplicates); `blocked` and
+`contradicted` entries carry `note` (the reason) and a non-empty
+`evidence_refs[]`, and a banned phrase in `note` rejects the envelope. The
+validator renders these rules itself at the end of every delivered agent
+contract (`agent_contract.render_response_validator_contract`).
 
 ## Cross-review envelope shape
 

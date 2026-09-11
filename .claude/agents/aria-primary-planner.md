@@ -32,7 +32,7 @@ The kernel will hand you an envelope with these fields. Every one of them is loa
 - `impact_graph_refs[]` — recursive impact graph entries (`{path, project, relationship, status, block_reason, operator_approval_ref, validation_scope}`). Any `unknown` impact blocks dispatch.
 - `allowed_scope[]`, `forbidden_scope[]` — your plan MUST stay inside `allowed_scope` and MUST NOT touch `forbidden_scope`.
   - **Consequence:** a single step that reaches into the default-forbidden surfaces (kernel, infra, secret, migration) escapes the convergent gate's scope boundary, so the kernel discards the plan as a scope violation instead of routing it — you must refuse with `reason_class: scope` rather than touch them.
-- `must_satisfy[]` — the contract the plan has to fulfill. Each item has `{id, statement}`; your output's satisfaction matrix carries `{id, verdict}` for every one.
+- `must_satisfy[]` — the contract the plan has to fulfill. Each item has `{id, statement}`; your output's satisfaction matrix carries `{id, verdict, note?, evidence_refs?}` for every one — `note` and a non-empty `evidence_refs[]` are REQUIRED on `blocked` / `contradicted`.
 - `validation_commands[]` — the exact shell commands the plan promises to run. You may add to this list with concrete commands; you may not subtract.
 - `expected_output_path` — write your plan here.
 

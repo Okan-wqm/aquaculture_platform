@@ -68,7 +68,9 @@ class EveryFailureExitReleasesTest(unittest.TestCase):
     def test_no_early_return_abandons_a_held_claim(self) -> None:
         """Every `return 1` after the claim is taken must sit in a branch that
         releases it. This is the invariant the submit path broke."""
-        fn = _function("main")
+        # The lifecycle lives in `_main`; `main` is the exit-stack wrapper
+        # around it (the split that made native runtime contexts owned).
+        fn = _function("_main")
 
         # Statements that contain a `_release_claim(...)` call anywhere inside.
         def releases(node: ast.AST) -> bool:
@@ -92,19 +94,76 @@ class EveryFailureExitReleasesTest(unittest.TestCase):
             if body_returns_one and not releases(node):
                 offenders.append(node.lineno)
 
-        # The pre-claim guards legitimately return 1 without releasing, because
-        # no claim exists yet. Those live above the claim call, so the check is
-        # scoped to branches at or after it.
-        claim_line = min(
+        # A claim is HELD from the guard that proves the lease exists
+        # (`if not lease_token or not claim_id`) to the last release the
+        # function can perform — after that the submit has appended the
+        # result row and the claim is terminal by the kernel's own rule
+        # (`_assert_lifecycle_mutation_allowed`), so the native
+        # reconciliation exits behind it legitimately return without a
+        # release. Guards before the lease exists have nothing to hand back.
+        held_from = min(
+            node.lineno
+            for node in ast.walk(fn)
+            if isinstance(node, ast.If)
+            and "lease_token" in ast.dump(node.test)
+            and "claim_id" in ast.dump(node.test)
+        )
+        held_until = max(
             node.lineno
             for node in ast.walk(fn)
             if isinstance(node, ast.Call)
             and isinstance(node.func, ast.Name)
-            and node.func.id in {"_release_claim"}
+            and node.func.id == "_release_claim"
         )
-        late_offenders = [line for line in offenders if line > claim_line]
+        late_offenders = [line for line in offenders if held_from < line <= held_until]
 
         self.assertEqual(late_offenders, [], f"branches returning 1 without releasing: {late_offenders}")
+
+
+class ARejectedResultIsTheClaimsTerminalEffect(unittest.TestCase):
+    """ARIA-HIGH-078 — the kernel's REJECTED result row ends the claim; the
+    executor must not try to hand back what the kernel already closed.
+
+    Measured on the first live managed-Claude cross-review (2026-09-11): the
+    submit refused `satisfaction_matrix[0].note required`, the kernel appended
+    the rejected result row, and the executor's unconditional release then
+    failed with `result already terminal` while reporting a CLAIMED leak
+    that did not exist — the request derived REJECTED, as designed."""
+
+    _LIVE_REJECTION = (
+        '{\n  "reasons": ["response_schema: satisfaction_matrix[0].note required when verdict=\'contradicted\'"],\n'
+        '  "row": {"$schema": "aria/agent-claim-result/v1", "claim_id": "claim_f7acce6ca4be2ad1",\n'
+        '          "row_type": "result", "status": "rejected", "submission_effect": "result"},\n'
+        '  "status": "rejected"\n}\n'
+    )
+
+    def test_the_kernels_rejected_row_is_recognised_and_a_pre_row_refusal_is_not(self) -> None:
+        import sys
+
+        if str(EXECUTOR.parent) not in sys.path:
+            sys.path.insert(0, str(EXECUTOR.parent))
+        import ci_executor as module
+
+        self.assertTrue(module._rejected_result_recorded(self._LIVE_REJECTION))
+        self.assertTrue(module._rejected_result_recorded("::warning:: something first\n" + self._LIVE_REJECTION))
+        self.assertFalse(module._rejected_result_recorded('{"status": "rejected", "reason": "lease_token_invalid"}'))
+        self.assertFalse(module._rejected_result_recorded("usage: aria_kernel agent submit-result [-h]"))
+        self.assertFalse(module._rejected_result_recorded(""))
+
+    def test_the_release_after_a_rejected_submit_is_conditional_on_the_row(self) -> None:
+        fn = _function("_main")
+        rejected_releases = [
+            node for node in ast.walk(fn)
+            if isinstance(node, ast.If) and "_rejected_result_recorded" in ast.dump(node.test)
+        ]
+        self.assertEqual(len(rejected_releases), 1)
+        branch = rejected_releases[0]
+        self.assertFalse(any(isinstance(sub, ast.Call) and isinstance(sub.func, ast.Name)
+                             and sub.func.id == "_release_claim" for sub in ast.walk(ast.Module(body=branch.body, type_ignores=[]))),
+                         "a recorded rejection releases nothing")
+        self.assertTrue(any(isinstance(sub, ast.Call) and isinstance(sub.func, ast.Name)
+                            and sub.func.id == "_release_claim" for sub in ast.walk(ast.Module(body=branch.orelse, type_ignores=[]))),
+                        "a refusal before the row still releases")
 
 
 class ClaimResponseCarriesWhatThePromptWasHashedOverTest(unittest.TestCase):

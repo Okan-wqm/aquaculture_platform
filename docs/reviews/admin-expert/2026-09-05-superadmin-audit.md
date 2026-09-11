@@ -834,6 +834,36 @@ in `web/` reaches the logout authority; `@tanstack/react-query` is declared
 wherever it is imported, at the federation-pinned version; the barrel keeps
 exporting the primitives.
 
+## ADMIN-HIGH-144 — a priced quantity a typo could zero, and a failure in the green box
+
+**State:** OPEN → closed by W9j · **Wave:** W9j · **Owner:** okan
+**Deadline:** 2026-12-31
+
+Three defects on the page that prices a negotiated plan.
+
+- **A quantity a typo could zero.** `parseInt(e.target.value) || 0` turned any
+  unparseable entry — a stray letter in `1OO` — into `0`, silently, on a field
+  this plan's **price** is computed from. The quote came back lower and the
+  plan could be created at it. Clearing the box still means 0; a typo now
+  leaves the previous quantity alone.
+- **A failure announced as a success.** After `createCustomPlan` succeeds the
+  page auto-submits for approval, and that step sat behind a bare `catch {}`
+  which announced its failure through **`setSuccess`** — the green box — with
+  the server's reason discarded entirely. The plan really is created either
+  way, so it is a partial success; but an operator could not tell a capability
+  refusal from a validation rejection. The creation is still reported as the
+  success it is, and the submit's failure is reported as a failure carrying the
+  server's own words.
+- **The same generic load message as its sibling.** The catalogue load wrote
+  `console.error` (banned) and set _"Failed to load module pricing. Please try
+  again."_ — the same endpoint, and the same words, `ModulePricingPage` used
+  before ADMIN-HIGH-141.
+
+W9j moves the read to `useAdminQuery` on `adminKeys.billing.modulePricing()`
+with an abort signal, surfaces it through `QueryFailureNotice`, adds a
+`parseQuantity` helper for the quantity fields, and splits the partial-success
+reporting into its two true halves.
+
 ## ADMIN-HIGH-143 — a redemption cap that a typo, or a zero, silently removed
 
 **State:** OPEN → closed by W9h · **Wave:** W9h · **Owner:** okan

@@ -1152,7 +1152,7 @@ class NativeAdaptiveAdmissionTests(unittest.TestCase):
             "source=Path.cwd()/'src/model_fleet.py'\n"
             "diagnostic={'pid':os.getpid(),'cwd':str(Path.cwd()),'codex_home':os.environ.get('CODEX_HOME'),\n"
             " 'sqlite_home':str(state),'sqlite_sha256':hashlib.sha256(db.read_bytes()).hexdigest(),\n"
-            " 'argv':sys.argv[1:-1],'provider_key_names':[key for key in os.environ if key in\n"
+            " 'argv':sys.argv[1:-1],'prompt_head':sys.argv[-1][:48],'provider_key_names':[key for key in os.environ if key in\n"
             " ('OPENAI_API_KEY','CODEX_API_KEY','ANTHROPIC_API_KEY','ARIA_ZAI_API_KEY')],\n"
             " 'source_sha256':hashlib.sha256(source.read_bytes()).hexdigest()}\n"
             "response={'satisfaction_matrix':[{'id':'source-line','verdict':'satisfied',\n"
@@ -1197,6 +1197,10 @@ class NativeAdaptiveAdmissionTests(unittest.TestCase):
         self.assertEqual(diagnostic["provider_key_names"], [])
         self.assertIn('--ephemeral', diagnostic["argv"])
         self.assertIn('model_reasoning_effort="ultra"', diagnostic["argv"])
+        # ARIA-HIGH-073 — the prompt the model receives opens with its own
+        # contract; the request that follows is still the prompt_hash-bound one.
+        self.assertTrue(diagnostic["prompt_head"].startswith("# Agent contract: aria-adversarial-judge\n"), diagnostic["prompt_head"])
+        self.assertTrue(output["details"]["agent_contract_hash"].startswith("sha256:"))
         self.assertEqual(session_marker.read_bytes(), original_session_bytes)
         self.assertEqual(sorted(p.name for p in managed_home.iterdir()), ["auth.json", session_marker.name])
         self.assertEqual(policy_path.read_bytes(), policy_bytes)

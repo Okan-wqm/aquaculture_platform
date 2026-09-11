@@ -283,6 +283,9 @@ class ChatRun(_VendorCase):
         self.assertEqual(wire["json"]["model"], "glm-5.3")
         self.assertEqual([m["role"] for m in wire["json"]["messages"]], ["system", "user"])
         self.assertFalse(wire["json"]["stream"])
+        self.assertEqual(wire["json"]["max_tokens"], 64)
+        self.assertNotIn("response_format", wire["json"], "JSON mode is off by default (glm-5.3 mangles .json paths under it)")
+        self.assertNotIn("reasoning_effort", wire["json"], "no effort given, vendor default kept")
         self.assertEqual(result.returncode, 0)
         self.assertEqual(result.final_message, '{"verdict":"ok"}')
         self.assertEqual(result.usage, {"input_tokens": 20, "output_tokens": 5})
@@ -290,6 +293,41 @@ class ChatRun(_VendorCase):
         self.assertEqual(result.finish_reason, "stop")
         self.assertIsNone(result.auth_failure)
         self.assertIsNone(result.credit_exhaustion)
+
+    def test_the_route_effort_maps_onto_the_vendor_vocabulary(self) -> None:
+        for effort, expected in (("ultra", "max"), ("xhigh", "max"), ("high", "high"), ("low", "low")):
+            self.vendor.script.append((200, _ok_completion("x", usage={"prompt_tokens": 1, "completion_tokens": 1})))
+            zai_runtime.run_zai_chat(self.credential, base_url=self.vendor.base_url, model="glm-5.3",
+                                     system="s", user="u", timeout_seconds=5, reasoning_effort=effort)
+            with self.subTest(effort=effort):
+                self.assertEqual(self.vendor.received[-1]["json"]["reasoning_effort"], expected)
+
+    def test_a_length_finish_with_empty_content_is_named_not_a_mystery(self) -> None:
+        payload = _ok_completion("", usage={"prompt_tokens": 17230, "completion_tokens": 8192})
+        payload["choices"][0]["finish_reason"] = "length"
+        payload["choices"][0]["message"]["reasoning_content"] = "..." * 100
+        self.vendor.script.append((200, payload))
+        result = self.run_chat()
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.finish_reason, "length")
+        self.assertEqual(result.error_code, "output_budget_exhausted")
+        self.assertIsNone(result.auth_failure)
+        self.assertIsNone(result.credit_exhaustion)
+        self.assertEqual(result.usage, {"input_tokens": 17230, "output_tokens": 8192})
+
+    def test_json_object_mode_is_opt_in(self) -> None:
+        self.assertFalse(zai_runtime.resolve_zai_json_object({}))
+        self.assertTrue(zai_runtime.resolve_zai_json_object({zai_runtime.ZAI_JSON_OBJECT_ENV: "1"}))
+        self.vendor.script.append((200, _ok_completion("x", usage={"prompt_tokens": 1, "completion_tokens": 1})))
+        zai_runtime.run_zai_chat(self.credential, base_url=self.vendor.base_url, model="glm-5.3",
+                                 system="s", user="u", timeout_seconds=5, json_object=True)
+        self.assertEqual(self.vendor.received[-1]["json"]["response_format"], {"type": "json_object"})
+
+    def test_the_max_tokens_default_and_operator_override(self) -> None:
+        self.assertEqual(zai_runtime.resolve_zai_max_tokens({}), zai_runtime.DEFAULT_ZAI_MAX_TOKENS)
+        self.assertEqual(zai_runtime.resolve_zai_max_tokens({zai_runtime.ZAI_MAX_TOKENS_ENV: "4096"}), 4096)
+        with self.assertRaises(zai_runtime.ZaiCredentialUnavailable):
+            zai_runtime.resolve_zai_max_tokens({zai_runtime.ZAI_MAX_TOKENS_ENV: "lots"})
 
     def test_a_200_without_usage_leaves_usage_none(self) -> None:
         self.vendor.script.append((200, _ok_completion("text")))

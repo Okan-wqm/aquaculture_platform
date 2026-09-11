@@ -61,6 +61,39 @@ DEFAULT_ZAI_MODEL = _PROVIDER.default_model
 ZAI_AUTH_METHOD = "subscription_api_key"
 DEFAULT_ZAI_TIMEOUT_SECONDS = 600
 PROBE_TIMEOUT_CEILING_SECONDS = 30
+# GLM-5.3 thinks by default ("forced deep thinking", docs.z.ai migrate-to-glm-new)
+# and its reasoning draws on the same max_tokens as the answer: the first
+# live planner run spent 8,191 of 8,192 tokens reasoning and returned an
+# empty content with finish_reason=length. The documented maximum output is
+# 128K; the default here leaves room for a full plan after deep reasoning and
+# the operator can move it without a code change.
+ZAI_MAX_TOKENS_ENV = "ARIA_ZAI_MAX_TOKENS"
+DEFAULT_ZAI_MAX_TOKENS = 65_536
+# The documented JSON response format is OFF by default. Measured on
+# 2026-09-11 with glm-5.3: under response_format=json_object the model
+# rewrote every `.json` evidence path as `package.:13` / `project.:7`
+# (three attempts, prompt refs intact) and the kernel's evidence gate rightly
+# refused the submission; with the mode off the same task produced an intact
+# envelope that was ACCEPTED — the first accepted native planner result. The
+# executor extracts the envelope from text exactly as it does for the CLI
+# runtimes, so the mode buys nothing and costs the refs. ARIA_ZAI_JSON_OBJECT=1
+# turns it on for a model where the measurement comes out the other way.
+ZAI_JSON_OBJECT_ENV = "ARIA_ZAI_JSON_OBJECT"
+
+
+def resolve_zai_json_object(environ: dict[str, str] | None = None) -> bool:
+    env = dict(os.environ if environ is None else environ)
+    raw = env.get(ZAI_JSON_OBJECT_ENV, "").strip().lower()
+    if raw in ("", "0", "false", "no", "off"):
+        return False
+    if raw in ("1", "true", "yes", "on"):
+        return True
+    raise ZaiCredentialUnavailable("json_object_invalid", f"{ZAI_JSON_OBJECT_ENV}={raw!r}")
+# The vendor's reasoning_effort vocabulary; ARIA's profile efforts map onto it.
+ZAI_REASONING_EFFORTS: dict[str, str] = {
+    "low": "low", "medium": "medium", "high": "high",
+    "xhigh": "max", "max": "max", "ultra": "max",
+}
 USER_AGENT = "aria-kernel-zai-runtime/1"
 
 # Documented base URLs (docs.z.ai/devpack/tool/others, 2026-09-11). The
@@ -373,10 +406,25 @@ class ZaiRunResult:
         return 0 if self.http_status == 200 and self.final_message else 1
 
 
+def resolve_zai_max_tokens(environ: dict[str, str] | None = None) -> int:
+    env = dict(os.environ if environ is None else environ)
+    raw = env.get(ZAI_MAX_TOKENS_ENV, "").strip()
+    if raw:
+        try:
+            value = int(raw)
+        except ValueError as exc:
+            raise ZaiCredentialUnavailable("max_tokens_invalid", f"{ZAI_MAX_TOKENS_ENV}={raw!r}") from exc
+        if value <= 0:
+            raise ZaiCredentialUnavailable("max_tokens_invalid", f"{ZAI_MAX_TOKENS_ENV}={raw!r}")
+        return value
+    return DEFAULT_ZAI_MAX_TOKENS
+
+
 def run_zai_chat(
     credential: ZaiCredential, *, base_url: str, model: str, system: str, user: str,
-    timeout_seconds: float = DEFAULT_ZAI_TIMEOUT_SECONDS, max_tokens: int = 8192,
-    temperature: float = 0.0, opener: Opener | None = None,
+    timeout_seconds: float = DEFAULT_ZAI_TIMEOUT_SECONDS, max_tokens: int = DEFAULT_ZAI_MAX_TOKENS,
+    temperature: float = 0.0, reasoning_effort: str | None = None, json_object: bool = False,
+    opener: Opener | None = None,
 ) -> ZaiRunResult:
     """Send one agent prompt as a chat completion and return the classified result.
 
@@ -385,14 +433,23 @@ def run_zai_chat(
     ``aria/agent-response/v1`` JSON the executor validates. Streaming is off
     so the vendor's ``usage`` block arrives with the body — the executor
     refuses a result whose usage is unknown rather than pricing it as zero.
+    ``reasoning_effort`` is the route's effort in the vendor's vocabulary (an
+    unmapped effort is omitted, leaving the vendor default); ``json_object``
+    asks for the documented JSON response format — off by default, see
+    ZAI_JSON_OBJECT_ENV for the measurement that decided it.
     """
-    payload = {
+    payload: dict[str, Any] = {
         "model": model,
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
         "max_tokens": int(max_tokens),
         "temperature": float(temperature),
         "stream": False,
     }
+    mapped = ZAI_REASONING_EFFORTS.get(str(reasoning_effort or "").lower())
+    if mapped:
+        payload["reasoning_effort"] = mapped
+    if json_object:
+        payload["response_format"] = {"type": "json_object"}
     response = _post_chat_completion(
         credential, base_url=base_url, payload=payload,
         timeout_seconds=max(1.0, float(timeout_seconds)), opener=opener,
@@ -426,6 +483,18 @@ def run_zai_chat(
                     and usage_block["prompt_tokens"] >= 0 and usage_block["completion_tokens"] >= 0):
                 usage = {"input_tokens": usage_block["prompt_tokens"],
                          "output_tokens": usage_block["completion_tokens"]}
+    if response.status == 200 and not final_message and finish_reason == "length":
+        # The budget ran out before any answer: a named result, not a mystery
+        # "provider_nonzero". The executor raises the max_tokens or lowers the
+        # reasoning effort; it never prices an empty answer as a result.
+        error_code = code or "output_budget_exhausted"
+        message = message or "finish_reason=length with empty content; reasoning consumed max_tokens"
+        return ZaiRunResult(
+            http_status=response.status, final_message="", usage=usage, auth_failure=None,
+            credit_exhaustion=None, error_code=error_code, error_message=message,
+            response_id=response_id, model=responded_model, finish_reason=finish_reason,
+            elapsed_ms=response.elapsed_ms, raw_body=response.body,
+        )
     return ZaiRunResult(
         http_status=response.status, final_message=final_message, usage=usage,
         auth_failure=reason if auth == "unavailable" else None,
@@ -473,10 +542,12 @@ def prepare_zai_context(environment: dict[str, str], *, default_model: str = DEF
 __all__ = [
     "CHAT_COMPLETIONS_PATH", "DEFAULT_ZAI_ENDPOINT", "DEFAULT_ZAI_MODEL",
     "DEFAULT_ZAI_TIMEOUT_SECONDS", "ZAI_CREDENTIAL_ENV", "ZAI_CREDENTIAL_FILE_ENV",
-    "ZAI_ENDPOINTS", "ZAI_ENDPOINT_ENV", "ZAI_MODEL_ENV", "ZAI_PROVIDER_KEY", "ZAI_TRANSPORT",
+    "DEFAULT_ZAI_MAX_TOKENS", "ZAI_ENDPOINTS", "ZAI_ENDPOINT_ENV", "ZAI_MAX_TOKENS_ENV", "ZAI_MODEL_ENV",
+    "ZAI_PROVIDER_KEY", "ZAI_REASONING_EFFORTS", "ZAI_TRANSPORT",
     "ZAI_AUTH_METHOD", "ZaiCredential", "ZaiCredentialUnavailable", "ZaiExecutionContext",
     "ZaiHttpResponse", "ZaiRunResult", "prepare_zai_context",
     "ZaiStatusObservation", "ZaiTransportUnavailable", "probe_zai_status",
-    "read_zai_credential", "resolve_zai_endpoint", "resolve_zai_model", "run_zai_chat",
+    "ZAI_JSON_OBJECT_ENV", "read_zai_credential", "resolve_zai_endpoint", "resolve_zai_json_object",
+    "resolve_zai_max_tokens", "resolve_zai_model", "run_zai_chat",
     "zai_credential_configured", "zai_settings_hash",
 ]

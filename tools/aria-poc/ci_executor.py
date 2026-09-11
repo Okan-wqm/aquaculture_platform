@@ -1246,7 +1246,14 @@ def invoke_claude_cli(
         )
         return 0
 
-    prompt_text = prompt_file.read_text(encoding="utf-8") if prompt_file.exists() else ""
+    request_prompt_text = prompt_file.read_text(encoding="utf-8") if prompt_file.exists() else ""
+    # ARIA-HIGH-073 — the model is told to answer "per your agent contract";
+    # this route sends the rendered request on stdin and never passed
+    # `--agent`, so the contract reached the model only if it chose to Read
+    # the file. Deliver it: contract first, request second. prompt_hash keeps
+    # binding the request bytes; the contract's own hash rides the envelope.
+    agent_contract = _deliver_agent_contract(subagent_type, _REPO_ROOT)
+    prompt_text = agent_contract.text + "\n\n" + request_prompt_text
     output_path.parent.mkdir(parents=True, exist_ok=True)
     resolved_transcript_path = transcript_path or output_path.with_suffix(".transcript.jsonl")
     # ORPHAN-332 — a re-dispatched request must start from a clean slate (see
@@ -1623,6 +1630,7 @@ def invoke_claude_cli(
             must_satisfy=must_satisfy or [],
             dispatch_model=agent_profile.model,
         )
+        envelope["details"]["agent_contract_hash"] = agent_contract.contract_hash
         output_path.parent.mkdir(parents=True, exist_ok=True)
         _write_sanitized_envelope(output_path, envelope)
         resolved_transcript_path.parent.mkdir(parents=True, exist_ok=True)
@@ -2196,7 +2204,8 @@ def _run_zai_as_claude_result(
     """
     from claude_runtime import _record_usage_best_effort
     from zai_runtime import (
-        ZaiCredentialUnavailable, ZaiTransportUnavailable, prepare_zai_context, run_zai_chat,
+        ZaiCredentialUnavailable, ZaiTransportUnavailable, prepare_zai_context, resolve_zai_max_tokens,
+        run_zai_chat,
     )
 
     try:
@@ -2207,6 +2216,7 @@ def _run_zai_as_claude_result(
         completed = run_zai_chat(
             context.credential, base_url=context.base_url, model=model,
             system=_ZAI_SYSTEM_PROMPT, user=prompt_text, timeout_seconds=timeout_seconds,
+            max_tokens=resolve_zai_max_tokens(dict(os.environ)),
         )
     except ZaiTransportUnavailable as exc:
         raise ClaudeCliUnavailable(f"zai_transport_unavailable: {exc}") from exc
@@ -2244,6 +2254,20 @@ def _run_zai_as_claude_result(
     )
 
 
+def _deliver_agent_contract(target_agent: str, repo: Path) -> Any:
+    """The agent's contract, rendered for the model (ARIA-HIGH-073).
+
+    Raised, never skipped: a run without its contract is the run that returns
+    `plan` for `plan_content` and is refused after spending its tokens.
+    """
+    from aria_kernel.agent_contract_delivery import AgentContractUnavailable, render_agent_contract
+
+    try:
+        return render_agent_contract(target_agent, repo_root=repo)
+    except AgentContractUnavailable as exc:
+        raise ClaudeCliUnavailable(f"agent_contract_unavailable: {exc}") from exc
+
+
 # The Z.ai transport has no agent harness of its own: the system turn names
 # the contract the executor validates, and the kernel-rendered prompt (agent
 # body + envelope + inline evidence) is the user turn. Same prompt bytes as
@@ -2279,6 +2303,7 @@ def _invoke_native_codex(
     from codex_runtime import _run_managed_codex_exec
 
     route = native_runtime.route
+    contract = _deliver_agent_contract(target_agent, repo)
     try:
         attempt = _reserve_native_runtime_attempt(
             repo_root=repo, base_dir=tools_dir, request_id=request_id,
@@ -2297,8 +2322,11 @@ def _invoke_native_codex(
     usage_row = None
     result_admission = "execution_unavailable"
     try:
+        # `codex exec` takes one prompt: the contract precedes the request it
+        # governs. The request bytes stay bound to prompt_hash; the contract is
+        # bound to this attempt by its own hash on the finished row and envelope.
         completed = _run_managed_codex_exec(
-            native_runtime.context, prompt, model=route["model"], effort=route["effort"],
+            native_runtime.context, contract.text + "\n\n" + prompt, model=route["model"], effort=route["effort"],
             timeout_seconds=timeout_seconds, control=spawn_control,
         )
         transcript_path.parent.mkdir(parents=True, exist_ok=True)
@@ -2318,6 +2346,7 @@ def _invoke_native_codex(
             must_satisfy=request.get("must_satisfy") or [], dispatch_model=route["model"],
         )
         envelope["details"]["runtime_attempt_ledger_hash"] = attempt["ledger_hash"]
+        envelope["details"]["agent_contract_hash"] = contract.contract_hash
         output_path.parent.mkdir(parents=True, exist_ok=True)
         _write_sanitized_envelope(output_path, envelope)
         usage_events = [event["usage"] for event in completed.events
@@ -2361,6 +2390,7 @@ def _invoke_native_codex(
             "observed_effort": None,
             "usage_ledger_hash": usage_row["ledger_hash"] if usage_row is not None else None,
             "result_admission": result_admission,
+            "agent_contract": contract.as_row(),
         })
 
 
@@ -2383,10 +2413,11 @@ def _invoke_native_zai(
     """
     from aria_kernel.budget import _reserve_native_runtime_attempt, price_tokens, record_cost_attribution
     from aria_kernel.tool_registry import GovernanceError, append_tools_governance
-    from zai_runtime import ZaiTransportUnavailable, run_zai_chat
+    from zai_runtime import ZaiTransportUnavailable, resolve_zai_json_object, resolve_zai_max_tokens, run_zai_chat
 
     route = native_runtime.route
     context = native_runtime.context
+    contract = _deliver_agent_contract(target_agent, repo)
     try:
         attempt = _reserve_native_runtime_attempt(
             repo_root=repo, base_dir=tools_dir, request_id=request_id,
@@ -2410,7 +2441,9 @@ def _invoke_native_zai(
             return 1
         completed = run_zai_chat(
             context.credential, base_url=context.base_url, model=route["model"],
-            system=_ZAI_SYSTEM_PROMPT, user=prompt, timeout_seconds=timeout_seconds,
+            system=_ZAI_SYSTEM_PROMPT + "\n\n" + contract.text, user=prompt, timeout_seconds=timeout_seconds,
+            max_tokens=resolve_zai_max_tokens(dict(os.environ)), reasoning_effort=route["effort"],
+            json_object=resolve_zai_json_object(dict(os.environ)),
         )
         transcript_path.parent.mkdir(parents=True, exist_ok=True)
         transcript_path.write_text(completed.raw_body.decode("utf-8", errors="replace"), encoding="utf-8")
@@ -2421,7 +2454,8 @@ def _invoke_native_zai(
             result_admission = "quota_unavailable"
             raise ClaudeCreditExhausted("Z.ai subscription capacity unavailable")
         if completed.returncode != 0:
-            result_admission = "provider_nonzero"
+            result_admission = ("output_budget_exhausted" if completed.finish_reason == "length"
+                                else "provider_nonzero")
             return completed.returncode
         envelope = _build_envelope_from_claude_output(
             raw_stdout=completed.final_message, request_id=request_id, claim_id=claim_id,
@@ -2429,6 +2463,7 @@ def _invoke_native_zai(
             must_satisfy=request.get("must_satisfy") or [], dispatch_model=route["model"],
         )
         envelope["details"]["runtime_attempt_ledger_hash"] = attempt["ledger_hash"]
+        envelope["details"]["agent_contract_hash"] = contract.contract_hash
         output_path.parent.mkdir(parents=True, exist_ok=True)
         _write_sanitized_envelope(output_path, envelope)
         if completed.usage is None:
@@ -2469,6 +2504,7 @@ def _invoke_native_zai(
             "observed_effort": None,
             "usage_ledger_hash": usage_row["ledger_hash"] if usage_row is not None else None,
             "result_admission": result_admission,
+            "agent_contract": contract.as_row(),
         })
 
 

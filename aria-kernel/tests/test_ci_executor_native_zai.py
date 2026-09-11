@@ -186,12 +186,21 @@ class NativeZaiLane(unittest.TestCase):
         rows = self.ai.list_agent_invocation_requests(base_dir=self.tools)
         rendered = self.ai.render_invocation_prompt(self.ai.fuse_prompt_envelope(rows[0]))
         self.assertEqual(run["messages"][1]["content"], rendered)
+        # ARIA-HIGH-073 — the contract the model is told to obey travels as the
+        # system turn: the agent body (no frontmatter) with its cited knowledge
+        # files inlined, and its hash rides the sealed envelope.
+        from aria_kernel.agent_contract_delivery import render_agent_contract
+        contract = render_agent_contract("aria-evidence-judge", repo_root=self.repo)
+        self.assertIn("# Agent contract: aria-evidence-judge", run["messages"][0]["content"])
+        self.assertIn(contract.text, run["messages"][0]["content"])
+        self.assertNotIn("\nmodel: ", run["messages"][0]["content"])
         self.assertEqual("sha256:" + hashlib.sha256(rendered.encode("utf-8")).hexdigest(), self.request["prompt_hash"])
 
         # The sealed result and the evidence rows carry the Z.ai identity.
         output = json.loads(Path(self.request["expected_output_path"]).read_text(encoding="utf-8"))
         self.assertEqual(output["role"], "evidence_judgment")
         self.assertEqual(output["details"]["agent_dispatch_model"], "glm-5.3")
+        self.assertEqual(output["details"]["agent_contract_hash"], contract.contract_hash)
         self.assertEqual(output["satisfaction_matrix"][0]["verdict"], "satisfied")
         attempts = [row["details"] for row in governance if row["kind"] == "runtime_attempt_started"
                     and row["details"].get("request_id") == self.request["request_id"]]
@@ -206,6 +215,8 @@ class NativeZaiLane(unittest.TestCase):
         self.assertEqual(finished[0]["provider_session_ids"], ["chatcmpl-native-zai-fixture"])
         self.assertEqual(finished[0]["exit_code"], 200)
         self.assertEqual(finished[0]["result_admission"], "pending_native_submit")
+        self.assertEqual(finished[0]["agent_contract"]["agent_contract_hash"], contract.contract_hash)
+        self.assertEqual(finished[0]["agent_contract"]["agent_path"], ".claude/agents/aria-evidence-judge.md")
         usage = [row for row in read_cost_attribution(base_dir=self.tools) if row.get("cycle_id") == self.request["cycle_id"]]
         self.assertEqual(len(usage), 1)
         self.assertEqual((usage[0]["model"], usage[0]["input_tokens"], usage[0]["output_tokens"]), ("glm-5.3", 1200, 90))

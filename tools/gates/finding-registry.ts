@@ -61,7 +61,6 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
@@ -79,6 +78,16 @@ import {
   requiresCanonicalFindingEvidence,
 } from './finding-evidence-shape';
 import { loadCanonicalToAliases } from './finding-id-aliases';
+import {
+  canonicalJson,
+  chainTip,
+  type Finding,
+  parseRegistryJsonl,
+  rechain,
+  serializeRegistryJsonl,
+  verify,
+  ZERO_HASH,
+} from './finding-registry-chain';
 import {
   atomicWriteFileWithRegistryLease,
   atomicWriteRegistryFile,
@@ -119,7 +128,6 @@ const SCHEMA_PATH = resolve(
   'findings.jsonl.schema.json',
 );
 const ORPHAN_FINDINGS_MD_PATH = resolve(REPO_ROOT, 'docs', 'reviews', 'orphan-findings.md');
-const ZERO_HASH = '0'.repeat(64);
 const GIT_OUTPUT_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
 
 export interface RegistryPaths {
@@ -232,47 +240,10 @@ function loadStubValidator(schemaPath = SCHEMA_PATH): ValidateFunction {
  * keep these interfaces structural (no runtime validation here — the
  * integrity invariant test enforces schema conformance separately).
  */
-export interface Finding {
-  id: string;
-  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
-  state: 'OPEN' | 'IN-PROGRESS' | 'RESOLVED' | 'STALE' | 'BLOCKED';
-  title: string;
-  layer?: number;
-  evidence?: string[];
-  rule_violated?: string;
-  owner_agent: string;
-  raised_in_cycle: string;
-  review_file?: string;
-  created_at: string;
-  closed_at: string | null;
-  closing_commits: string[];
-  /** Closers an override reopen rejected; see `closureAdmissible`. */
-  rejected_closing_commits?: string[];
-  deadline: string | null;
-  owner_user: string | null;
-  override_of: string | null;
-  notes?: string;
-  prev_hash: string;
-  content_hash: string;
-  [key: string]: unknown;
-}
-
-/**
- * Key-sorted JSON without whitespace. Canonical form for hashing;
- * identical to the algorithm in tools/scripts/seed-finding-registry.mjs
- * and tests/invariants/finding-registry-integrity.spec.ts.
- */
-function canonicalJson(value: unknown): string {
-  if (value === null || typeof value !== 'object') {
-    return JSON.stringify(value);
-  }
-  if (Array.isArray(value)) {
-    return '[' + value.map(canonicalJson).join(',') + ']';
-  }
-  const obj = value as Record<string, unknown>;
-  const keys = Object.keys(obj).sort();
-  return '{' + keys.map((k) => JSON.stringify(k) + ':' + canonicalJson(obj[k])).join(',') + '}';
-}
+// The Finding shape and the hash-chain algebra live in
+// ./finding-registry-chain (one implementation, shared with the git merge
+// driver). Re-exported here so existing importers of this CLI keep working.
+export type { Finding };
 
 export interface CanonicalRegistryPrefixCheck {
   violation: string | null;
@@ -318,18 +289,9 @@ export function parseRechainStartIndex(raw: string | undefined): number | null {
   return Number.isSafeInteger(parsed) ? parsed : null;
 }
 
-function sha256hex(input: string): string {
-  return createHash('sha256').update(input, 'utf8').digest('hex');
-}
-
 function loadRegistry(registryPath = REGISTRY_PATH): Finding[] {
   if (!existsSync(registryPath)) return [];
-  const raw = readFileSync(registryPath, 'utf8').trim();
-  if (!raw) return [];
-  return raw
-    .split('\n')
-    .filter(Boolean)
-    .map((line) => JSON.parse(line) as Finding);
+  return parseRegistryJsonl(readFileSync(registryPath, 'utf8'));
 }
 
 function loadReservationLedger(reservationPath: string): FindingIdReservationLedger {
@@ -420,63 +382,7 @@ function writeRegistry(
   lease: RegistryLockLease,
   registryPath = REGISTRY_PATH,
 ): void {
-  const content = entries.map((e) => JSON.stringify(e)).join('\n') + '\n';
-  atomicWriteRegistryFile(registryPath, content, lease);
-}
-
-/**
- * Recompute prev_hash + content_hash pointers from `startIndex` to the
- * end of `entries`. Mutation in place. Used by `close` after mutating
- * a past entry; every downstream entry carries a stale prev_hash until
- * rechained here.
- */
-function rechain(entries: Finding[], startIndex: number): void {
-  let prev = startIndex === 0 ? ZERO_HASH : (entries[startIndex - 1]?.content_hash ?? ZERO_HASH);
-  for (let i = startIndex; i < entries.length; i++) {
-    const entry = entries[i];
-    if (!entry) continue;
-    entry.prev_hash = prev;
-    // content_hash = sha256(canonical JSON of entry minus content_hash)
-    const { content_hash: _, ...forHash } = entry;
-    const hash = sha256hex(canonicalJson(forHash));
-    entry.content_hash = hash;
-    prev = hash;
-  }
-}
-
-interface VerifyResult {
-  ok: boolean;
-  entries: number;
-  firstFailureIndex: number | null;
-  reason: string | null;
-}
-
-function verify(entries: readonly Finding[]): VerifyResult {
-  let prev = ZERO_HASH;
-  for (let i = 0; i < entries.length; i++) {
-    const entry = entries[i];
-    if (!entry) continue;
-    if (entry.prev_hash !== prev) {
-      return {
-        ok: false,
-        entries: entries.length,
-        firstFailureIndex: i,
-        reason: `chain break at entry ${i} (${entry.id}): prev_hash=${entry.prev_hash} expected=${prev}`,
-      };
-    }
-    const { content_hash, ...forHash } = entry;
-    const recomp = sha256hex(canonicalJson(forHash));
-    if (recomp !== content_hash) {
-      return {
-        ok: false,
-        entries: entries.length,
-        firstFailureIndex: i,
-        reason: `hash mismatch at entry ${i} (${entry.id}): recomputed=${recomp} stored=${content_hash}`,
-      };
-    }
-    prev = content_hash;
-  }
-  return { ok: true, entries: entries.length, firstFailureIndex: null, reason: null };
+  atomicWriteRegistryFile(registryPath, serializeRegistryJsonl(entries), lease);
 }
 
 function cmdVerify(): number {
@@ -487,7 +393,7 @@ function cmdVerify(): number {
     return 1;
   }
   process.stdout.write(`OK: registry chain valid (${result.entries} entries).\n\n`);
-  const tip = entries.length === 0 ? ZERO_HASH : (entries[entries.length - 1]?.content_hash ?? '');
+  const tip = chainTip(entries);
   if (tip) process.stdout.write(`Chain tip: ${tip}\n\n`);
   return 0;
 }
@@ -1020,7 +926,7 @@ function cmdClose(id: string, shortSha: string, lease: RegistryLockLease): numbe
 
   writeRegistry(entries, lease);
   console.log(`Closed: ${id} at position ${index} → state=RESOLVED, +commit ${shortSha}`);
-  const tip = entries.length === 0 ? ZERO_HASH : (entries[entries.length - 1]?.content_hash ?? '');
+  const tip = chainTip(entries);
   console.log(`Chain tip: ${tip}`);
   return 0;
 }
@@ -1215,7 +1121,7 @@ function cmdReopen(id: string, lease: RegistryLockLease, rejection?: ClosureReje
   process.stdout.write(
     `Reopened: ${id} at position ${index} → state=OPEN (close fields cleared).\n`,
   );
-  const tip = entries.length === 0 ? ZERO_HASH : (entries[entries.length - 1]?.content_hash ?? '');
+  const tip = chainTip(entries);
   process.stdout.write(`Chain tip: ${tip}\n`);
   return 0;
 }
@@ -1355,7 +1261,7 @@ function cmdSweep(args: string[], lease: RegistryLockLease): number {
   }
 
   writeRegistry(entries, lease);
-  const tip = entries.length === 0 ? ZERO_HASH : (entries[entries.length - 1]?.content_hash ?? '');
+  const tip = chainTip(entries);
   console.log('');
   console.log(`Applied ${actions.length} transitions. Chain tip: ${tip}`);
   return 0;
@@ -1641,7 +1547,7 @@ function cmdReconcile(args: string[], lease: RegistryLockLease): number {
   }
 
   writeRegistry(entries, lease);
-  const tip = entries.length === 0 ? ZERO_HASH : (entries[entries.length - 1]?.content_hash ?? '');
+  const tip = chainTip(entries);
   writeOut('');
   writeOut(`Resolved ${drift.length} findings from ${ref}. Chain tip: ${tip}`);
   return 0;

@@ -1,0 +1,13 @@
+{
+  "$comment": "SSoT for the custom git merge drivers this repository declares. Every `merge=<name>` attribute in .gitattributes must name a git built-in (text, binary, union) or a key here — enforced by tests/invariants/finding-registry-merge-driver.spec.ts. Registered into .git/config by tools/gates/install-git-merge-drivers.mjs, which the `prepare` script runs after every install.",
+  "drivers": {
+    "findings-registry": {
+      "name": "append-only hash-chained finding registry (upstream prefix + branch tail, rechained)",
+      "driver": "ts-node --project tools/gates/tsconfig.json tools/gates/finding-registry-merge-driver.ts %O %A %B %L %P"
+    },
+    "ours": {
+      "name": "keep the local side of a file whose value is derived and regenerated post-merge",
+      "driver": "true"
+    }
+  }
+}

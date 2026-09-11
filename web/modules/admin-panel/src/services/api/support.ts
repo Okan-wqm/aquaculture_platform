@@ -13,6 +13,7 @@ import type {
   TicketStatus,
   TicketPriority,
   TicketCategory,
+  TicketComment,
   MessageThreadSummary,
   SupportThreadRecord,
   SupportMessage,
@@ -35,8 +36,10 @@ export const supportApi = {
     tenantId?: string;
     assignedTo?: string;
     search?: string;
-  } & PaginationParams & DateRangeParams) =>
-    apiFetch<PaginatedResult<SupportTicket>>(`/support/tickets?${buildQueryString(params || {})}`),
+  } & PaginationParams & DateRangeParams, signal?: AbortSignal) =>
+    apiFetch<PaginatedResult<SupportTicket>>(`/support/tickets?${buildQueryString(params || {})}`, {
+      signal,
+    }),
   getTicket: (id: string) => apiFetch<SupportTicket>(`/support/tickets/${id}`),
   getTicketReplies: (ticketId: string) => apiFetch<TicketReply[]>(`/support/tickets/${ticketId}/replies`),
   createTicket: (data: { subject: string; description: string; category: TicketCategory; priority: TicketPriority; tenantId: string }) =>
@@ -51,7 +54,8 @@ export const supportApi = {
   // Fix: backend uses POST /support/tickets/:id/status with { status: 'closed' } (no /close endpoint)
   closeTicket: (id: string, _resolution?: string) =>
     apiFetch<SupportTicket>(`/support/tickets/${id}/status`, { method: 'POST', body: JSON.stringify({ status: 'closed' }) }),
-  getTicketStats: () => apiFetch<TicketStats>('/support/tickets/stats'),
+  getTicketStats: (signal?: AbortSignal) =>
+    apiFetch<TicketStats>('/support/tickets/stats', { signal }),
   getTicketStatsByCategory: () =>
     apiFetch<Array<{ category: string; count: number; avgResolutionTime: number }>>('/support/tickets/stats/by-category'),
   getTicketStatsByPriority: () =>
@@ -65,8 +69,21 @@ export const supportApi = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
-  getTicketTeam: () => apiFetch<Array<{ id: string; name: string; activeTickets: number }>>('/support/tickets/team'),
-  getTicketComments: (ticketId: string) => apiFetch<Array<{ id: string; ticketId: string; authorId: string; authorName: string; authorType: string; content: string; isInternal: boolean; attachments: unknown[]; createdAt: string }>>(`/support/tickets/${ticketId}/comments`),
+  getTicketTeam: (signal?: AbortSignal) =>
+    apiFetch<Array<{ id: string; name: string; activeTickets: number }>>(
+      '/support/tickets/team',
+      { signal },
+    ),
+  /**
+   * One page of a ticket's comments (ADMIN-CRITICAL-156).
+   *
+   * A PAGE, not an array: `TicketService.getComments` returns
+   * `createStandardPaginatedResult`, so this arrives as the decoded envelope.
+   * Declaring it an array is what made `TicketsPage` call `.map` on an object
+   * and swallow the TypeError, rendering every thread empty.
+   */
+  getTicketComments: (ticketId: string, signal?: AbortSignal) =>
+    apiFetch<PaginatedResult<TicketComment>>(`/support/tickets/${ticketId}/comments`, { signal }),
   addTicketComment: (ticketId: string, data: { content: string; isInternal?: boolean }) =>
     apiFetch<unknown>(`/support/tickets/${ticketId}/comments`, { method: 'POST', body: JSON.stringify(data) }),
   updateTicketStatus: (ticketId: string, status: string) =>

@@ -331,6 +331,17 @@ export class SupportTicket {
   @Column({ type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown>;
 
+  /**
+   * ADMIN-CRITICAL-156: hidden from the contract because no read path loads it.
+   *
+   * `getTickets` and `getTicketById` use `findAndCount` / `findOne` with no
+   * relations, so `comments` is never on the wire — yet the generated schema
+   * listed it among the REQUIRED fields of every ticket the API returns, each
+   * comment carrying a whole `SupportTicket` back. A client typed from the
+   * artifact had to fabricate the field to compile. The thread has its own
+   * endpoint: `GET /support/tickets/:id/comments`.
+   */
+  @ApiHideProperty()
   @OneToMany(() => TicketComment, comment => comment.ticket)
   comments!: TicketComment[];
 
@@ -377,6 +388,8 @@ export class TicketComment {
   @Column({ type: 'boolean', default: false })
   emailSent!: boolean;
 
+  /** ADMIN-CRITICAL-156: hidden from the contract — see `SupportTicket.comments`. */
+  @ApiHideProperty()
   @ManyToOne(() => SupportTicket, ticket => ticket.comments)
   @JoinColumn({ name: 'ticketId' })
   ticket!: SupportTicket;
@@ -501,6 +514,16 @@ export interface SLAConfig {
   resolutionMinutes: number;
 }
 
+/**
+ * The ticket aggregate. Its wire form is `TicketStatsResponseDto` in
+ * `../controllers/dto/ticket-response.dto.ts`, which the swagger plugin can
+ * describe; this interface stays as the service's own return type.
+ *
+ * The three averages are NULLABLE (ADMIN-CRITICAL-156): an average over no
+ * observations is not zero. Zero minutes reads as an instant response and a
+ * zero rating reads as universal dissatisfaction, and the admin panel rendered
+ * both for a platform that had simply not answered or been rated yet.
+ */
 export interface TicketStats {
   total: number;
   open: number;
@@ -508,10 +531,10 @@ export interface TicketStats {
   waitingCustomer: number;
   resolved: number;
   closed: number;
-  avgFirstResponseMinutes: number;
-  avgResolutionMinutes: number;
+  avgFirstResponseMinutes: number | null;
+  avgResolutionMinutes: number | null;
   slaBreachCount: number;
-  avgSatisfactionRating: number;
+  avgSatisfactionRating: number | null;
 }
 
 export interface OnboardingStep {

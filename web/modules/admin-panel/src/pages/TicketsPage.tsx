@@ -1,11 +1,45 @@
 /**
- * Tickets Page
+ * Tickets Page — a comment thread that was always empty, and an SLA card that
+ * could not be wrong (ADMIN-CRITICAL-156 / ADMIN-MEDIUM-114 / ADMIN-HIGH-121).
  *
- * Support ticket management sistemi.
- * Priority, SLA tracking, assignment, internal notes.
+ * 1. **Every ticket's comment thread rendered empty, silently.**
+ *    `GET /support/tickets/:id/comments` returns a PAGINATED result; the
+ *    client declared a flat array, so `(data || []).map(...)` called `.map` on
+ *    the page object, threw a `TypeError`, and `fetchComments`'s `catch` wrote
+ *    it to `console.error`. An admin opened a ticket, saw no messages, and
+ *    replied to a customer whose messages were right there in the database.
+ *    ADMIN-MEDIUM-114 tracked the missing DTO; this is what it cost.
+ *
+ * 2. **The stats endpoint's shape was invented.** It sends ten required
+ *    numbers; the client declared twenty, half of them optional aliases the
+ *    server has never sent — `avgResponseTime`, `avgResolutionTime`,
+ *    `satisfactionScore`, `byCategory`, `byPriority` — and marked the four
+ *    real averages optional. That is where the page's `a || b || 0` chains
+ *    came from, and where `slaBreachCount ? … : 100` came from: the type said
+ *    the truth might be missing, so the page invented **100% SLA compliance**
+ *    for when it was.
+ *
+ * 3. **Three cards measured an absence.** `getTicketStats` returned `0` when
+ *    there was nothing to average, so a platform that had answered no ticket
+ *    yet showed _"Avg Response: 0m"_ — instant — and one nobody had rated
+ *    showed a ★ 0. Those three are `null` on the wire now, and an em dash
+ *    here.
+ *
+ * 4. **Every row's message badge read 0.** `commentCount: 0, // Not provided
+ *    by API` — a count the endpoint does not return, rendered on every ticket
+ *    in the queue. The badge is gone from the list; the detail pane shows the
+ *    count it actually loaded.
+ *
+ * 5. **Four writes failed silently.** Assign, status, priority and comment
+ *    each caught into `console.error`, so a refused state transition looked
+ *    identical to an applied one — and the list refetched, showing the
+ *    unchanged ticket back.
+ *
+ * 6. **`slaComplianceRate` rendered its floating-point tail**: three breaches
+ *    over seven tickets printed `57.142857142857146%`.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Ticket,
   Search,
@@ -28,49 +62,39 @@ import {
 import {
   supportApi,
   type SupportTicket as ApiSupportTicket,
-  type TicketComment as ApiTicketComment,
-  type TicketStats as ApiTicketStats,
+  type TicketComment,
+  type TicketStats,
   type TicketPriority,
   type TicketStatus,
   type TicketCategory,
 } from '../services/adminApi';
+import { adminKeys, useAdminMutation, useAdminQuery } from '../hooks';
+import { QueryFailureNotice } from '../components/QueryFailureNotice';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-// Extend API types with UI-specific computed fields
-interface SupportTicket extends Omit<ApiSupportTicket, 'tenantName' | 'tags'> {
-  tenantName: string;
-  tags: string[];
-  // Computed/aliased fields for UI backwards compatibility
-  reportedBy?: string;
-  reportedByName?: string;
-  commentCount?: number;
-  // SLA deadline fields computed from slaResponseMinutes/slaResolutionMinutes
-  slaResponseDeadline?: string;
-  slaResolutionDeadline?: string;
-}
-
-interface TicketComment extends Omit<ApiTicketComment, 'authorType' | 'attachments' | 'authorName'> {
-  authorType: string; // Allow any string for flexibility
-  authorName: string;
-  attachments: TicketAttachment[];
-}
-
-interface TicketAttachment {
-  id: string;
-  filename: string;
-  url: string;
-  size: number;
-}
-
-interface TicketStats extends Omit<ApiTicketStats, 'avgFirstResponseMinutes' | 'avgResolutionMinutes'> {
-  // Aliased fields for UI
-  avgResponseMinutes: number;
-  avgResolutionMinutes: number;
-  slaComplianceRate: number;
-  satisfactionAvg: number;
+/**
+ * A ticket row with the two SLA deadlines the queue sorts and badges by.
+ *
+ * `commentCount` is gone: it was hardcoded to 0 with a comment admitting the
+ * API does not provide it, and rendered on every row.
+ */
+interface QueueTicket extends ApiSupportTicket {
+  /** The response deadline, derived from `createdAt + slaResponseMinutes`. */
+  readonly slaResponseDeadline?: string;
+  /**
+   * The resolution deadline.
+   *
+   * `dueAt` when the server set one — it is the server's own deadline and
+   * therefore the authority — and only derived from
+   * `createdAt + slaResolutionMinutes` when it did not. The previous order was
+   * inverted: it derived first and fell back to `dueAt`, so the same column
+   * meant two different things depending on which fields a ticket happened to
+   * carry.
+   */
+  readonly slaResolutionDeadline?: string;
 }
 
 interface SupportTeamMember {
@@ -79,19 +103,49 @@ interface SupportTeamMember {
   activeTickets: number;
 }
 
+/** How many tickets one queue request asks for. */
+const QUEUE_PAGE_SIZE = 100;
+
+/** A statistic the page has, or an em dash for one with no observations. */
+const measured = (value: number | null, suffix = ''): string =>
+  value === null ? '—' : `${value.toLocaleString()}${suffix}`;
+
+/**
+ * SLA compliance as a whole percentage, over every ticket.
+ *
+ * The server does not compute this; the page derives it from two fields it
+ * always sends. There is no `? : 100` any more — `slaBreachCount` is required,
+ * so zero breaches gives 100 by arithmetic rather than by fallback — and the
+ * result is rounded, because three breaches over seven tickets used to print
+ * `57.142857142857146%`.
+ */
+function slaCompliancePercent(stats: TicketStats): number {
+  if (stats.total === 0) return 100;
+  return Math.round((1 - stats.slaBreachCount / stats.total) * 1000) / 10;
+}
+
+/** The two SLA deadlines for one ticket, from the fields the API sends. */
+function withDeadlines(ticket: ApiSupportTicket): QueueTicket {
+  const createdAt = new Date(ticket.createdAt).getTime();
+  return {
+    ...ticket,
+    slaResponseDeadline: ticket.slaResponseMinutes
+      ? new Date(createdAt + ticket.slaResponseMinutes * 60_000).toISOString()
+      : undefined,
+    slaResolutionDeadline:
+      ticket.dueAt ??
+      (ticket.slaResolutionMinutes
+        ? new Date(createdAt + ticket.slaResolutionMinutes * 60_000).toISOString()
+        : undefined),
+  };
+}
+
 // ============================================================================
 // Component
 // ============================================================================
 
 export const TicketsPage: React.FC = () => {
-  const [tickets, setTickets] = useState<SupportTicket[]>([]);
-  const [stats, setStats] = useState<TicketStats | null>(null);
-  const [supportTeam, setSupportTeam] = useState<SupportTeamMember[]>([]);
-  const [selectedTicket, setSelectedTicket] = useState<SupportTicket | null>(null);
-  const [comments, setComments] = useState<TicketComment[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [commentsLoading, setCommentsLoading] = useState(false);
+  const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<TicketStatus | 'all'>('all');
   const [priorityFilter, setPriorityFilter] = useState<TicketPriority | 'all'>('all');
@@ -99,124 +153,94 @@ export const TicketsPage: React.FC = () => {
   const [newComment, setNewComment] = useState('');
   const [isInternalNote, setIsInternalNote] = useState(false);
 
-  // Fetch tickets from API
-  const fetchTickets = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
+  const queueFilters = useMemo(
+    () => ({
+      limit: QUEUE_PAGE_SIZE,
+      ...(statusFilter === 'all' ? {} : { status: [statusFilter] }),
+      ...(priorityFilter === 'all' ? {} : { priority: [priorityFilter] }),
+      ...(categoryFilter === 'all' ? {} : { category: [categoryFilter] }),
+    }),
+    [statusFilter, priorityFilter, categoryFilter],
+  );
 
-      const params: Record<string, unknown> = { limit: 100 };
-      if (statusFilter !== 'all') params.status = [statusFilter];
-      if (priorityFilter !== 'all') params.priority = [priorityFilter];
-      if (categoryFilter !== 'all') params.category = [categoryFilter];
+  const ticketsQuery = useAdminQuery(
+    adminKeys.tickets.list(queueFilters),
+    ({ signal }) => supportApi.getTickets(queueFilters, signal),
+  );
+  const statsQuery = useAdminQuery<TicketStats>(adminKeys.tickets.stats(), ({ signal }) =>
+    supportApi.getTicketStats(signal),
+  );
+  const teamQuery = useAdminQuery(adminKeys.tickets.team(), ({ signal }) =>
+    supportApi.getTicketTeam(signal),
+  );
+  const commentsQuery = useAdminQuery(
+    adminKeys.tickets.comments(selectedTicketId ?? ''),
+    ({ signal }) => supportApi.getTicketComments(selectedTicketId ?? '', signal),
+    { enabled: selectedTicketId !== null },
+  );
 
-      const result = await supportApi.getTickets(params);
-      // Map API response to UI type
-      const mappedTickets: SupportTicket[] = result.data.map((ticket: ApiSupportTicket) => {
-        // Compute SLA deadlines from createdAt + slaMinutes if available
-        const createdDate = new Date(ticket.createdAt);
-        const slaResponseDeadline = ticket.slaResponseMinutes
-          ? new Date(createdDate.getTime() + ticket.slaResponseMinutes * 60 * 1000).toISOString()
-          : undefined;
-        const slaResolutionDeadline = ticket.slaResolutionMinutes
-          ? new Date(createdDate.getTime() + ticket.slaResolutionMinutes * 60 * 1000).toISOString()
-          : ticket.dueAt;
-        return {
-          ...ticket,
-          tenantName: ticket.tenantName || '',
-          tags: ticket.tags || [],
-          reportedBy: ticket.createdBy,
-          reportedByName: ticket.createdByName || '',
-          commentCount: 0, // Not provided by API
-          slaResponseDeadline,
-          slaResolutionDeadline,
-        };
-      });
-      setTickets(mappedTickets);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
-      setTickets([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [statusFilter, priorityFilter, categoryFilter]);
+  const tickets: readonly QueueTicket[] = useMemo(
+    () => (ticketsQuery.data?.data ?? []).map(withDeadlines),
+    [ticketsQuery.data],
+  );
+  const stats = statsQuery.data;
+  const supportTeam: readonly SupportTeamMember[] = teamQuery.data ?? [];
+  // A PAGE, not an array. Reading `.data` off the decoded envelope is the fix
+  // for the thread that was always empty.
+  const comments: readonly TicketComment[] = commentsQuery.data?.data ?? [];
+  const selectedTicket = tickets.find((ticket) => ticket.id === selectedTicketId) ?? null;
 
-  // Fetch stats from API
-  const fetchStats = useCallback(async () => {
-    try {
-      const data = await supportApi.getTicketStats();
-      // Map API response to UI type
-      const mappedStats: TicketStats = {
-        ...data,
-        avgResponseMinutes: data.avgFirstResponseMinutes || data.avgResponseTime || 0,
-        avgResolutionMinutes: data.avgResolutionMinutes || data.avgResolutionTime || 0,
-        slaComplianceRate: data.slaBreachCount ? 100 - (data.slaBreachCount / Math.max(data.total, 1)) * 100 : 100,
-        satisfactionAvg: data.avgSatisfactionRating || data.satisfactionScore || 0,
-      };
-      setStats(mappedStats);
-    } catch (err) {
-      console.error('Failed to fetch stats:', err);
-    }
-  }, []);
+  const loading = ticketsQuery.isPending;
+  const error = ticketsQuery.error;
 
-  // Fetch support team
-  const fetchSupportTeam = useCallback(async () => {
-    try {
-      const data = await supportApi.getTicketTeam();
-      setSupportTeam(data || []);
-    } catch (err) {
-      console.error('Failed to fetch support team:', err);
-    }
-  }, []);
+  // Every write moves the queue and the aggregate, so both are invalidated.
+  const queueKeys = [adminKeys.tickets.all()];
 
-  // Fetch comments for a ticket
-  const fetchComments = useCallback(async (ticketId: string) => {
-    try {
-      setCommentsLoading(true);
-      const data = await supportApi.getTicketComments(ticketId);
-      // Map API response to UI type - handle flexible response format
-      const mappedComments: TicketComment[] = (data || []).map((comment: Record<string, unknown>) => ({
-        id: comment.id as string,
-        ticketId: comment.ticketId as string,
-        authorId: comment.authorId as string,
-        authorName: (comment.authorName as string) || '',
-        authorType: comment.authorType as string,
-        content: comment.content as string,
-        isInternal: comment.isInternal as boolean,
-        createdAt: comment.createdAt as string,
-        attachments: ((comment.attachments as Array<Record<string, unknown>>) || []).map((att) => ({
-          id: att.id as string,
-          filename: (att.fileName || att.filename) as string,
-          url: att.url as string,
-          size: (att.fileSize || att.size || 0) as number,
-        })),
-      }));
-      setComments(mappedComments);
-    } catch (err) {
-      console.error('Failed to fetch comments:', err);
-    } finally {
-      setCommentsLoading(false);
-    }
-  }, []);
+  const assignMutation = useAdminMutation(
+    (input: { ticketId: string; assigneeId: string; assigneeName: string }) =>
+      supportApi.assignTicket(input.ticketId, input.assigneeId, input.assigneeName),
+    { invalidateKeys: queueKeys },
+  );
+  const statusMutation = useAdminMutation(
+    (input: { ticketId: string; status: TicketStatus }) =>
+      supportApi.updateTicketStatus(input.ticketId, input.status),
+    { invalidateKeys: queueKeys },
+  );
+  const priorityMutation = useAdminMutation(
+    (input: { ticketId: string; priority: TicketPriority }) =>
+      supportApi.updateTicketPriority(input.ticketId, input.priority),
+    { invalidateKeys: queueKeys },
+  );
+  const commentMutation = useAdminMutation(
+    (input: { ticketId: string; content: string; isInternal: boolean }) =>
+      supportApi.addTicketComment(input.ticketId, {
+        content: input.content,
+        isInternal: input.isInternal,
+      }),
+    {
+      invalidateKeys: queueKeys,
+      mutationOptions: {
+        onSuccess: () => {
+          setNewComment('');
+          setIsInternalNote(false);
+        },
+      },
+    },
+  );
 
-  useEffect(() => {
-    fetchTickets();
-    fetchStats();
-    fetchSupportTeam();
-  }, [fetchTickets, fetchStats, fetchSupportTeam]);
-
-  useEffect(() => {
-    if (selectedTicket) {
-      fetchComments(selectedTicket.id);
-    }
-  }, [selectedTicket, fetchComments]);
+  const reload = (): void => {
+    void ticketsQuery.refetch();
+    void statsQuery.refetch();
+    void teamQuery.refetch();
+    if (selectedTicketId !== null) void commentsQuery.refetch();
+  };
 
   const filteredTickets = tickets.filter(ticket => {
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       if (!ticket.subject.toLowerCase().includes(query) &&
           !ticket.ticketNumber.toLowerCase().includes(query) &&
-          !ticket.tenantName.toLowerCase().includes(query)) {
+          !(ticket.tenantName ?? '').toLowerCase().includes(query)) {
         return false;
       }
     }
@@ -289,77 +313,33 @@ export const TicketsPage: React.FC = () => {
     return new Date(deadline) < new Date();
   };
 
-  const handleAssign = async (ticketId: string, assigneeId: string, assigneeName: string) => {
-    try {
-      const updated = await supportApi.assignTicket(ticketId, assigneeId, assigneeName);
-      fetchTickets();
-      if (selectedTicket?.id === ticketId) {
-        // Compute SLA deadlines
-        const createdDate = new Date(updated.createdAt);
-        const slaResponseDeadline = updated.slaResponseMinutes
-          ? new Date(createdDate.getTime() + updated.slaResponseMinutes * 60 * 1000).toISOString()
-          : selectedTicket.slaResponseDeadline;
-        const slaResolutionDeadline = updated.slaResolutionMinutes
-          ? new Date(createdDate.getTime() + updated.slaResolutionMinutes * 60 * 1000).toISOString()
-          : selectedTicket.slaResolutionDeadline;
-        // Map API response to UI type
-        const mappedTicket: SupportTicket = {
-          ...updated,
-          tenantName: updated.tenantName || '',
-          tags: updated.tags || [],
-          reportedBy: updated.createdBy,
-          reportedByName: updated.createdByName || '',
-          commentCount: selectedTicket.commentCount || 0,
-          slaResponseDeadline,
-          slaResolutionDeadline,
-        };
-        setSelectedTicket(mappedTicket);
-      }
-    } catch (err) {
-      console.error('Failed to assign ticket:', err);
-    }
+  /**
+   * Assign, transition, reprioritise, comment.
+   *
+   * Each of these caught its failure into `console.error` and then refetched,
+   * so a refused transition looked exactly like an applied one: same click,
+   * same repaint, the ticket unchanged. They go through `useAdminMutation`
+   * now, and every refusal is named by the notice at the top of the page.
+   */
+  const handleAssign = (ticketId: string, assigneeId: string, assigneeName: string): void => {
+    assignMutation.mutate({ ticketId, assigneeId, assigneeName });
   };
 
-  const handleStatusChange = async (ticketId: string, newStatus: TicketStatus) => {
-    try {
-      await supportApi.updateTicketStatus(ticketId, newStatus);
-      fetchTickets();
-      fetchStats();
-      if (selectedTicket?.id === ticketId) {
-        setSelectedTicket({ ...selectedTicket, status: newStatus });
-      }
-    } catch (err) {
-      console.error('Failed to update status:', err);
-    }
+  const handleStatusChange = (ticketId: string, status: TicketStatus): void => {
+    statusMutation.mutate({ ticketId, status });
   };
 
-  const handlePriorityChange = async (ticketId: string, newPriority: TicketPriority) => {
-    try {
-      await supportApi.updateTicketPriority(ticketId, newPriority);
-      fetchTickets();
-      if (selectedTicket?.id === ticketId) {
-        setSelectedTicket({ ...selectedTicket, priority: newPriority });
-      }
-    } catch (err) {
-      console.error('Failed to update priority:', err);
-    }
+  const handlePriorityChange = (ticketId: string, priority: TicketPriority): void => {
+    priorityMutation.mutate({ ticketId, priority });
   };
 
-  const handleAddComment = async () => {
-    if (!newComment.trim() || !selectedTicket) return;
-
-    try {
-      await supportApi.addTicketComment(selectedTicket.id, {
-        content: newComment,
-        isInternal: isInternalNote,
-      });
-      setNewComment('');
-      setIsInternalNote(false);
-      fetchComments(selectedTicket.id);
-      fetchTickets();
-    } catch (err) {
-      console.error('Failed to add comment:', err);
-    }
+  const handleAddComment = (): void => {
+    if (newComment.trim() === '' || selectedTicket === null) return;
+    commentMutation.mutate({
+      ticketId: selectedTicket.id,
+      content: newComment,
+      isInternal: isInternalNote,
+    });
   };
 
   return (
@@ -372,11 +352,29 @@ export const TicketsPage: React.FC = () => {
             <p className="text-gray-500 mt-1">Manage and resolve customer support requests</p>
           </div>
           <button
-            onClick={() => { fetchTickets(); fetchStats(); }}
+            onClick={reload}
             className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
           >
             <RefreshCw size={18} />
           </button>
+        </div>
+
+        {/* Every failed read and every refused write, named in one place. */}
+        <div className="mt-4">
+          <QueryFailureNotice
+            errors={[
+              ticketsQuery.error,
+              statsQuery.error,
+              teamQuery.error,
+              commentsQuery.error,
+              assignMutation.error,
+              statusMutation.error,
+              priorityMutation.error,
+              commentMutation.error,
+            ]}
+            hasContent={tickets.length > 0}
+            onRetry={reload}
+          />
         </div>
 
         {/* Stats */}
@@ -400,21 +398,23 @@ export const TicketsPage: React.FC = () => {
             </div>
             <div className="bg-indigo-50 rounded-lg p-3">
               <div className="text-sm text-indigo-600">Avg Response</div>
-              <div className="text-xl font-semibold text-indigo-700">{stats.avgResponseMinutes}m</div>
+              <div className="text-xl font-semibold text-indigo-700">{measured(stats.avgFirstResponseMinutes, 'm')}</div>
             </div>
             <div className="bg-cyan-50 rounded-lg p-3">
               <div className="text-sm text-cyan-600">Avg Resolution</div>
-              <div className="text-xl font-semibold text-cyan-700">{Math.round(stats.avgResolutionMinutes / 60)}h</div>
+              <div className="text-xl font-semibold text-cyan-700">{stats.avgResolutionMinutes === null
+                  ? '—'
+                  : `${Math.round(stats.avgResolutionMinutes / 60)}h`}</div>
             </div>
             <div className="bg-emerald-50 rounded-lg p-3">
               <div className="text-sm text-emerald-600">SLA Compliance</div>
-              <div className="text-xl font-semibold text-emerald-700">{stats.slaComplianceRate}%</div>
+              <div className="text-xl font-semibold text-emerald-700">{slaCompliancePercent(stats)}%</div>
             </div>
             <div className="bg-amber-50 rounded-lg p-3">
               <div className="text-sm text-amber-600">Satisfaction</div>
               <div className="flex items-center gap-1">
                 <Star size={16} className="text-amber-500 fill-amber-500" />
-                <span className="text-xl font-semibold text-amber-700">{stats.satisfactionAvg}</span>
+                <span className="text-xl font-semibold text-amber-700">{measured(stats.avgSatisfactionRating)}</span>
               </div>
             </div>
           </div>
@@ -483,16 +483,9 @@ export const TicketsPage: React.FC = () => {
                 <Loader2 className="animate-spin text-blue-600" size={32} />
               </div>
             ) : error ? (
-              <div className="flex flex-col items-center justify-center h-full text-red-500 p-4">
-                <AlertCircle size={32} className="mb-2" />
-                <p className="text-center">{error}</p>
-                <button
-                  onClick={fetchTickets}
-                  className="mt-2 text-sm text-blue-600 hover:text-blue-700"
-                >
-                  Retry
-                </button>
-              </div>
+              // The notice at the top of the page carries the reason. Nothing
+              // is drawn here: an empty queue asserts there are no tickets.
+              null
             ) : filteredTickets.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-gray-500 p-4">
                 <Inbox size={48} className="mb-2 text-gray-500" />
@@ -502,7 +495,7 @@ export const TicketsPage: React.FC = () => {
               filteredTickets.map((ticket) => (
                 <div
                   key={ticket.id}
-                  onClick={() => setSelectedTicket(ticket)}
+                  onClick={() => setSelectedTicketId(ticket.id)}
                   className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 ${
                     selectedTicket?.id === ticket.id ? 'bg-blue-50 border-l-4 border-l-blue-500' : ''
                   }`}
@@ -539,10 +532,11 @@ export const TicketsPage: React.FC = () => {
                             {ticket.assignedToName}
                           </span>
                         )}
-                        <span className="flex items-center gap-1">
-                          <MessageSquare size={12} />
-                          {ticket.commentCount}
-                        </span>
+                        {/* The message badge is gone: it was hardcoded to 0
+                            with a comment admitting the API does not send a
+                            comment count, so every ticket in the queue read
+                            "no messages". The detail pane shows the count it
+                            actually loaded. */}
                       </div>
                     </div>
                     <ChevronRight size={18} className="text-gray-500" />
@@ -580,11 +574,11 @@ export const TicketsPage: React.FC = () => {
                     <span>·</span>
                     <span>{selectedTicket.tenantName}</span>
                     <span>·</span>
-                    <span>by {selectedTicket.reportedByName}</span>
+                    <span>by {(selectedTicket.createdByName ?? selectedTicket.createdBy)}</span>
                   </div>
                 </div>
                 <button
-                  onClick={() => setSelectedTicket(null)}
+                  onClick={() => setSelectedTicketId(null)}
                   className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
                 >
                   <X size={20} />
@@ -595,6 +589,7 @@ export const TicketsPage: React.FC = () => {
               <div className="flex items-center gap-3 mt-4">
                 {/* Status Change */}
                 <select
+                  aria-label="Ticket status"
                   value={selectedTicket.status}
                   onChange={(e) => handleStatusChange(selectedTicket.id, e.target.value as TicketStatus)}
                   className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
@@ -608,6 +603,7 @@ export const TicketsPage: React.FC = () => {
 
                 {/* Priority Change */}
                 <select
+                  aria-label="Ticket priority"
                   value={selectedTicket.priority}
                   onChange={(e) => handlePriorityChange(selectedTicket.id, e.target.value as TicketPriority)}
                   className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
@@ -675,11 +671,27 @@ export const TicketsPage: React.FC = () => {
             </div>
 
             {/* Comments */}
+            <div className="px-4 pt-3 flex items-center gap-2 text-xs text-gray-500">
+              <MessageSquare size={12} />
+              {/* The count the page actually loaded — the list rows used to
+                  show a hardcoded 0 for this. */}
+              {commentsQuery.data === undefined
+                ? '—'
+                : `${commentsQuery.data.total.toLocaleString()} message${
+                    commentsQuery.data.total === 1 ? '' : 's'
+                  }`}
+            </div>
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
-              {commentsLoading ? (
+              {commentsQuery.isPending ? (
                 <div className="flex items-center justify-center h-full">
                   <Loader2 className="animate-spin text-blue-600" size={32} />
                 </div>
+              ) : commentsQuery.isError ? (
+                // The notice at the top carries the reason. Nothing is drawn
+                // here: "No comments yet" on a support thread is a claim, and
+                // it is the exact claim this page made on EVERY ticket while
+                // the read threw into a console.error (ADMIN-CRITICAL-156).
+                null
               ) : comments.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-gray-500">
                   <MessageSquare size={48} className="mb-2 text-gray-500" />
@@ -729,7 +741,7 @@ export const TicketsPage: React.FC = () => {
                             className="flex items-center gap-2 p-2 bg-white rounded border border-gray-200 hover:bg-gray-50 text-sm"
                           >
                             <Paperclip size={14} className="text-gray-500" />
-                            <span className="text-gray-700">{att.filename}</span>
+                            <span className="text-gray-700">{att.fileName}</span>
                           </a>
                         ))}
                       </div>
@@ -763,12 +775,16 @@ export const TicketsPage: React.FC = () => {
                     className="flex-1 px-4 py-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
                   <div className="flex flex-col gap-2">
-                    <button className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100">
-                      <Paperclip size={20} />
-                    </button>
+                    {/* The attachment button had no onClick at all: a control
+                        that did nothing, on the surface where an admin
+                        answers a customer. Removed rather than left, per
+                        ADMIN-HIGH-011 — a control whose request can never
+                        succeed is not shown. Attaching a file to a reply
+                        needs the add-comment endpoint to accept one. */}
                     <button
                       onClick={handleAddComment}
-                      disabled={!newComment.trim()}
+                      aria-label="Send reply"
+                      disabled={!newComment.trim() || commentMutation.isPending}
                       className="p-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <Send size={20} />

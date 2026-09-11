@@ -69,8 +69,34 @@ interface RetentionPolicyResponse {
   retentionDays: number;
 }
 
+/**
+ * One page of `messaging.compliance_audit_logs`, as messaging-service replies
+ * (ADMIN-CRITICAL-150).
+ *
+ * The row list under-declared the reply: it named four of the ten columns
+ * ``ComplianceAuditLog`` carries, and this interface is the only declaration
+ * of the shape anywhere on the admin side — the NATS handler's own return type
+ * is `items: unknown[]`. The admin panel wrote its own row type against the
+ * four and invented five more, and every one of the invented fields rendered
+ * `undefined` or worse.
+ */
+interface AuditLogRow {
+  id: string;
+  tenantId: string;
+  userId: string;
+  /** `ComplianceAction` in messaging-service; a closed set, carried as text. */
+  action: string;
+  resourceType: string;
+  resourceId: string;
+  /** `jsonb`, not a string: null when the action recorded no detail. */
+  details: Record<string, unknown> | null;
+  ipAddress: string | null;
+  userAgent: string | null;
+  createdAt: string;
+}
+
 interface AuditLogResponse {
-  items: Array<{ id: string; action: string; resourceType: string; createdAt: string }>;
+  items: AuditLogRow[];
   hasMore: boolean;
   cursor: string | null;
   totalCount: number;

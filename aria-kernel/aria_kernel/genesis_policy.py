@@ -291,8 +291,13 @@ def _runtime_monetary_admission(
     if expected_policy_digest is not None and expected_policy_digest != digest:
         raise GovernanceError("runtime_monetary_policy_digest_mismatch")
     mode = policy.monetary_admission if policy is not None else "metered"
+    # The managed-subscription bindings: each is (provider, runtime, auth
+    # method) exactly as the runtime's own status probe reports it. Z.ai's
+    # binding is its subscription (Coding Plan) API key on the kernel's own
+    # HTTP transport — never a CLI runtime (operator policy 2026-09-11).
     applies = mode == "managed_subscription" and (provider, runtime, auth_method) in (
         ("openai", "codex", "chatgpt"), ("anthropic", "claude", "subscription"),
+        ("zai", "zai", "subscription_api_key"),
     )
     reason = ("managed_subscription" if applies else
               "managed_auth_binding_unavailable" if mode == "managed_subscription" else "metered")

@@ -52,7 +52,25 @@ class Provider:
     """
 
     runtime_hint: str
-    """Which executor runtime serves this provider ('claude' | 'codex')."""
+    """Which executor runtime serves this provider ('claude' | 'codex' | 'zai').
+
+    'claude' and 'codex' are the vendors' managed-subscription CLIs; 'zai' is
+    the kernel's own HTTP transport (tools/aria-poc/zai_runtime.py). The
+    operator policy of 2026-09-11 admits Z.ai ONLY through that transport and
+    never as a credential handed to either CLI, so no provider may name a CLI
+    runtime together with a Z.ai credential.
+    """
+
+    credential_file_env: str | None = None
+    """The env var naming a root-only FILE that holds the credential.
+
+    The file boundary is the preferred one on a host (no value in the process
+    environment, nothing for an env dump or a child to copy); `credential_env`
+    remains for CI-secret injection. Presence of either is the cheap signal.
+    """
+
+    model_env: str | None = None
+    """An operator override of `default_model` for this provider, if any."""
 
 
 # The fleet, in preference order for mixed assignment (strongest-authoring
@@ -69,7 +87,9 @@ _FLEET: tuple[Provider, ...] = (
         key="zai",
         default_model="glm-5.3",
         credential_env="ARIA_ZAI_API_KEY",
-        runtime_hint="claude",
+        runtime_hint="zai",
+        credential_file_env="ARIA_ZAI_API_KEY_FILE",
+        model_env="ARIA_ZAI_MODEL",
     ),
     Provider(
         key="openai",
@@ -86,6 +106,32 @@ _FLEET: tuple[Provider, ...] = (
 # user's codex home; OPENAI_API_KEY remains the alternative credential.
 _CODEX_AUTH_FILE = "auth.json"
 _MODEL_PROVIDER_ALIASES: dict[str, str] = {"gpt-6-astra": "openai"}
+
+
+# The CLI a runtime hint spawns, or None for the kernel's own transport.
+_RUNTIME_BINARIES: dict[str, str | None] = {"claude": "claude", "codex": "codex", "zai": None}
+
+
+def _credential_named(provider: Provider, env: dict[str, str]) -> bool:
+    """A credential boundary is NAMED for the provider: a file path or a value.
+
+    Presence only, in either boundary; whether it works is the runtime's
+    probe. Both at once is not "more configured" — the runtime refuses that
+    as ambiguous — but it is still named, so availability says yes and the
+    probe says why not.
+    """
+    if provider.credential_file_env and env.get(provider.credential_file_env, "").strip():
+        return True
+    return bool(provider.credential_env and env.get(provider.credential_env, "").strip())
+
+
+def provider_model(provider: Provider, env: dict[str, str]) -> str:
+    """The model a provider's routes run on: the operator override, else the default."""
+    if provider.model_env:
+        override = env.get(provider.model_env, "").strip()
+        if override:
+            return override
+    return provider.default_model
 
 
 def _codex_session_present(env: dict[str, str]) -> bool:
@@ -123,6 +169,12 @@ def available_providers(environ: dict[str, str] | None = None) -> list[Provider]
             if codex_on_path and has_credential:
                 out.append(provider)
             continue
+        if provider.runtime_hint == "zai":
+            # The kernel's own transport: no binary to find. A named
+            # credential boundary is the whole cheap signal.
+            if _credential_named(provider, env):
+                out.append(provider)
+            continue
         if provider.credential_env is None:
             # Managed Claude session: the CLI binary is the availability
             # fact this module can see without side effects.
@@ -152,10 +204,16 @@ def assign_mixed_models(
     providers = available_providers(environ)
     if not providers:
         return {}
+    env = dict(os.environ if environ is None else environ)
     assignment: dict[str, str] = {}
     for index, role in enumerate(roles):
-        assignment[role] = providers[index % len(providers)].default_model
+        assignment[role] = provider_model(providers[index % len(providers)], env)
     return assignment
+
+
+def zai_provider() -> Provider:
+    """The Z.ai fleet row — the SSoT the HTTP transport binds its variable names to."""
+    return next(provider for provider in _FLEET if provider.key == "zai")
 
 
 def provider_for_model(model: str) -> str | None:
@@ -176,6 +234,8 @@ class _RuntimeStatusObservation:
     control_status: str = "unknown"
     control_reason: str = "native_runtime_control_binding_unavailable"
     auth_method: str = "unknown"
+    credential_source: str = "unknown"
+    """Which boundary supplied the credential ('managed_session', 'file', 'env'). Never a value."""
 
 
 @dataclass(frozen=True)
@@ -210,15 +270,15 @@ def _native_runtime_admission(
     eligible: list[dict[str, str]] = []
     search_path = environ.get("PATH", os.defpath)
     for provider in _FLEET:
-        model = "gpt-6-astra" if provider.key == "openai" else provider.default_model
+        model = "gpt-6-astra" if provider.key == "openai" else provider_model(provider, environ)
         effort = "ultra" if provider.key == "openai" else profile.effort
         route = {"provider": provider.key, "runtime": provider.runtime_hint,
                  "model": model, "effort": effort}
-        binary = "codex" if provider.runtime_hint == "codex" else "claude"
+        binary = _RUNTIME_BINARIES.get(provider.runtime_hint, "claude")
         remaining = min(float(policy.recheck_timeout_seconds), deadline_monotonic - _time.monotonic())
-        if shutil.which(binary, path=search_path) is None:
+        if binary is not None and shutil.which(binary, path=search_path) is None:
             status = _RuntimeStatusObservation("unavailable", reason="cli_unavailable")
-        elif provider.key == "zai" and not environ.get(provider.credential_env or "", "").strip():
+        elif provider.key == "zai" and not _credential_named(provider, environ):
             status = _RuntimeStatusObservation("unavailable", reason="provider_not_configured")
         elif remaining <= 0:
             status = _RuntimeStatusObservation("unknown", reason="status_deadline_elapsed")
@@ -236,6 +296,7 @@ def _native_runtime_admission(
         row = {
             **route, "auth_observation": status.auth_observation,
             "auth_method": status.auth_method,
+            "credential_source": status.credential_source,
             "quota_observation": status.quota_observation, "status_reason": status.reason,
             "status_command": list(status.command), "status_exit_code": status.exit_code,
             "pricing": pricing,

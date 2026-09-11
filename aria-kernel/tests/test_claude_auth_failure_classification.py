@@ -151,19 +151,27 @@ class ExecutorReleasesUnderItsOwnReasonTest(unittest.TestCase):
         ]
         self.assertEqual(len(handlers), 1, "exactly one auth-failure handler")
 
-        reasons = [
-            keyword.value.value
+        # The reason may be one constant, or a conditional choosing between
+        # constants (the native-runtime lane names its own condition); what
+        # is forbidden is any reason that is not a specific constant at all.
+        reason_expressions = [
+            keyword.value
             for node in ast.walk(handlers[0])
             if isinstance(node, ast.Call)
             and isinstance(node.func, ast.Name)
             and node.func.id == "_release_claim"
             for keyword in node.keywords
-            if keyword.arg == "reason" and isinstance(keyword.value, ast.Constant)
+            if keyword.arg == "reason"
         ]
+        self.assertEqual(len(reason_expressions), 1, "exactly one release in the handler")
+        reasons = sorted({
+            node.value for node in ast.walk(reason_expressions[0])
+            if isinstance(node, ast.Constant) and isinstance(node.value, str)
+        })
 
         # A generic reason here is what made five nights of failures look like
         # five agent crashes.
-        self.assertEqual(reasons, ["claude_cli_auth_failure"])
+        self.assertEqual(reasons, ["claude_cli_auth_failure", "native_runtime_execution_unavailable"])
 
 
 if __name__ == "__main__":

@@ -662,15 +662,23 @@ from datetime import datetime, timezone  # safe-redundant; already imported
 
 
 # Plan ARIA-V10.4 — closed enum of agent roles for cost attribution.
-# Mirrors the V8 + V9 role surface (primary plan + challenger plan +
-# cross_review from V8; implementation from V9). Closed-set membership
-# pinned by I-V10-COST-03 invariant.
+#
+# The set is DERIVED from the invocation-role SSoT (agent_surface), not
+# restated: a request the kernel can mint and an executor can run is a
+# request whose spend must be attributable. Until 2026-09-11 this was a
+# hand-copied seven-name subset, so a native run on any other real role
+# (evidence_judgment, adversarial_judgment, completeness_critique, ...)
+# completed at the vendor, then failed here with "agent_role MUST be in
+# COST_INVOCATION_ROLES" — tokens spent, result discarded, request left in
+# a state the operator had to read the governance ledger to explain. The
+# two legacy labels stay for the rows that already carry them (V8
+# judgment_bridge, V6 specialist review). Closed-set membership is still
+# pinned by I-V10-COST-03; the set is closed by construction, not by hand.
+from .agent_surface import INVOCATION_ROLES as _INVOCATION_ROLES
+
 COST_INVOCATION_ROLES: frozenset[str] = frozenset({
+    *_INVOCATION_ROLES,
     "verification",    # Canonical native verification, retained without relabeling.
-    "primary_plan",
-    "challenger_plan",
-    "cross_review",
-    "implementation",
     "judgment",        # V8 judgment_bridge role
     "specialist",      # V6 specialist review role
 })

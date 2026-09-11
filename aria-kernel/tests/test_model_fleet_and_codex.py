@@ -93,11 +93,14 @@ class Availability(unittest.TestCase):
     def test_no_credentials_means_no_providers(self) -> None:
         self.assertEqual(_probe({}), [])
 
-    def test_zai_key_activates_zai_when_claude_absent(self) -> None:
-        # Without a claude binary on PATH the managed session cannot be
-        # proven — zai's own credential is not enough (its redirect still
-        # rides the claude runtime). Fail-closed in the absent direction.
-        self.assertEqual(_probe({"ARIA_ZAI_API_KEY": "k"}), [])
+    def test_zai_credential_boundary_activates_zai_without_any_cli(self) -> None:
+        # Operator policy 2026-09-11: Z.ai is the kernel's own HTTP transport,
+        # never a credential handed to the claude binary. A NAMED boundary —
+        # the CI-injected value or the root-only key file — is the cheap
+        # availability signal; no binary on PATH is consulted for it.
+        self.assertEqual(_probe({"ARIA_ZAI_API_KEY": "k"}), ["zai"])
+        self.assertEqual(_probe({"ARIA_ZAI_API_KEY_FILE": "/run/aria/zai.key"}), ["zai"])
+        self.assertEqual(_probe({"ARIA_ZAI_API_KEY": "   "}), [])
 
     def test_codex_subscription_session_activates_openai_without_api_key(self) -> None:
         # Operator decision 2026-08-29: Codex rides a ChatGPT subscription
@@ -399,6 +402,9 @@ class CodexBridge(unittest.TestCase):
         for directory in (workspace, runtime, auth, binaries):
             directory.mkdir()
         (auth / "ordinary-sentinel.txt").write_text("public fixture state\n")
+        # The managed context binds exactly one read-only auth FILE; the
+        # fixture must supply it or the context refuses by name.
+        (auth / "auth.json").write_text('{"fixture":"public-managed-session"}\n', encoding="utf-8")
         observations = root / "limiter-observations.jsonl"
         bus_names = ("DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR")
         bus_values = {bus_names[0]: "unix:path=/ordinary-fixture-bus", bus_names[1]: str(root / "user-runtime")}
@@ -460,7 +466,12 @@ class CodexBridge(unittest.TestCase):
         self.assertNotEqual(child["pid"], os.getpid())
         self.assertEqual(child["received_names"], [])
         self.assertEqual(child["home"], implementation_safety.SANDBOX_HOME)
-        self.assertEqual(child["codex_home"], str(auth))
+        # The child gets a PRIVATE codex home under the runtime directory with
+        # the one auth file mounted read-only into it; the host auth directory
+        # is never the child's home (whole-home sharing was replaced by the
+        # single-file mount). The fixture's sentinel proves the host directory
+        # was neither entered as a home nor written.
+        self.assertEqual(child["codex_home"], str(runtime / "codex-home"))
         self.assertEqual((auth / "ordinary-sentinel.txt").read_text(), "public fixture state\n")
 
     def test_wrapped_status_distinguishes_user_bus_failure_from_provider_auth(self) -> None:
@@ -658,7 +669,7 @@ class CodexBridge(unittest.TestCase):
         self.assertEqual([(p.key, p.default_model, p.runtime_hint, p.credential_env)
                           for p in model_fleet._FLEET], [
             ("anthropic", "opus", "claude", None),
-            ("zai", "glm-5.3", "claude", "ARIA_ZAI_API_KEY"),
+            ("zai", "glm-5.3", "zai", "ARIA_ZAI_API_KEY"),
             ("openai", "gpt-5.2-codex", "codex", "OPENAI_API_KEY"),
         ])
         # Only availability is simulated; the real assignment owner still

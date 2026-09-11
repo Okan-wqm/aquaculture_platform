@@ -253,8 +253,8 @@ class GovernanceAggregateTests(unittest.TestCase):
             summaries={
                 "AIR-1": _summary(
                     request_id="AIR-1", outcome="failed",
-                    failure_class="provider_redirect_unavailable", retryable=False,
-                    detail_code="provider_redirect_token_missing",
+                    failure_class="policy_violation", retryable=False,
+                    detail_code="model_not_served_by_claude_runtime",
                 ),
             },
         )
@@ -262,13 +262,13 @@ class GovernanceAggregateTests(unittest.TestCase):
             h.run_drain()
             payload = h.payload()
             self.assertEqual(payload["schema_version"], 2)
-            self.assertEqual(payload["failure_counts"], {"provider_redirect_unavailable": 1})
+            self.assertEqual(payload["failure_counts"], {"policy_violation": 1})
             self.assertEqual(payload["stop_reason"], "queue_empty")
             self.assertEqual(payload["breaker_state"], "ok")
             self.assertEqual(len(payload["failure_details"]), 1)
             detail = payload["failure_details"][0]
             self.assertEqual(detail["request_id"], "AIR-1")
-            self.assertEqual(detail["failure_class"], "provider_redirect_unavailable")
+            self.assertEqual(detail["failure_class"], "policy_violation")
             self.assertEqual(detail["provider"], "anthropic")
             self.assertEqual(detail["model"], _IMPL_MODEL)
         finally:

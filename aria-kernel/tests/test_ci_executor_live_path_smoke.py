@@ -775,7 +775,17 @@ class NativeAdaptiveAdmissionTests(unittest.TestCase):
         self.assertEqual((candidate["model"], candidate["effort"]), ("gpt-6-astra", "ultra"))
         self.assertEqual(candidate["auth_observation"], "available")
         self.assertEqual(candidate["quota_observation"], "unknown")
-        self.assertEqual(candidate["pricing"], {"status": "unavailable", "reason": "model_pricing_unknown"})
+        # gpt-6-astra carries a published rate in budget.py since the runtime
+        # lane's export; the admission prices the notional 400k/64k probe with
+        # it. What this case pins is that the price is ADMISSION TELEMETRY:
+        # under the default metered policy the price is "available" and the
+        # route is STILL ineligible, because no native control binding was
+        # established for a bare status probe — not because of any dollar figure.
+        self.assertEqual(candidate["pricing"]["status"], "available")
+        self.assertEqual(candidate["pricing"]["basis"], "published_api_notional")
+        self.assertGreater(candidate["pricing"]["estimated_usd"], 0)
+        self.assertEqual(candidate["monetary_reason"], "metered")
+        self.assertEqual(candidate["controls"]["status"], "unknown")
         self.assertFalse((self.home / ".codex/auth.json").exists())
 
     def test_omitted_adaptive_policy_preserves_legacy_native_preflight(self) -> None:
@@ -1101,7 +1111,16 @@ class NativeAdaptiveAdmissionTests(unittest.TestCase):
         # declared substitute, and never reads real account material.
         kernel_directory = self.repo / "aria-kernel"
         kernel_directory.mkdir()
-        (kernel_directory / "aria_kernel").symlink_to(_KERNEL_DIR / "aria_kernel", target_is_directory=True)
+        # A COPY, not a symlink: the write-containment sandbox ro-binds
+        # aria-kernel/aria_kernel under the workspace, and bwrap cannot bind
+        # onto a symlink whose target lies outside the sandbox — the wrapped
+        # status child died with "Can't bind mount ... No such file or
+        # directory" and the observation read status_not_confirmed. That was
+        # the whole of the "context-specific discrepancy" the Codex runtime
+        # lane left pending; the production owners were right.
+        import shutil as _shutil
+        _shutil.copytree(_KERNEL_DIR / "aria_kernel", kernel_directory / "aria_kernel",
+                         ignore=_shutil.ignore_patterns("__pycache__"))
         (self.binary_dir / "python3").symlink_to(sys.executable)
         managed_home = self.home / ".codex"
         managed_home.mkdir()

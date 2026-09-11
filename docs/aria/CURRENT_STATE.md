@@ -2,7 +2,7 @@
 
 Date: 2026-09-11
 Target ref: `origin/main`
-Last verified ARIA authority hash: `6e5385ab2ee5949dbdd22109c493c5e3b3d6826f813b5318999346bdb6753454`
+Last verified ARIA authority hash: `1ca6e902a79d58d3f5bbdf59794333a00f693c12ad39f95c263c462b5c1b964d`
 Status: post-snowball mainline hardening in progress
 
 ## Connected execution checkpoint
@@ -72,23 +72,35 @@ documentation defect.
 The preceding mainline runtime description is an executable-history boundary, not proof that
 the candidate is deployed. The current user-required adaptive design has these distinct routes:
 
-| Provider  | Required transport/authentication                                                                                                              | Current proof boundary                                                                                                           |
-| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| OpenAI    | Actual Codex CLI with managed ChatGPT/subscription login; request Astra Ultra. No API key or direct API fallback.                              | Integrated offline profile/argv and filesystem-probe controls; effective managed authentication and native dispatch remain open. |
-| Anthropic | Actual Claude Code CLI with managed subscription login. No Console/API-key/cloud or direct API fallback.                                       | Existing executor owner; complete effective-auth/settings and alternate-entrypoint qualification remain open.                    |
-| Z.ai      | Separate API transport with its own scoped credential and explicit product/endpoint/model identity. Never redirect either managed CLI to Z.ai. | Adapter/usage/recovery implementation and live validation remain open.                                                           |
+| Provider  | Required transport/authentication                                                                                                              | Current proof boundary                                                                                                                                                                                                                                                                                                                                                                                           |
+| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| OpenAI    | Actual Codex CLI with managed ChatGPT/subscription login; request Astra Ultra. No API key or direct API fallback.                              | Integrated offline profile/argv and filesystem-probe controls; effective managed authentication and native dispatch remain open.                                                                                                                                                                                                                                                                                 |
+| Anthropic | Actual Claude Code CLI with managed subscription login. No Console/API-key/cloud or direct API fallback.                                       | Existing executor owner; complete effective-auth/settings and alternate-entrypoint qualification remain open.                                                                                                                                                                                                                                                                                                    |
+| Z.ai      | Separate API transport with its own scoped credential and explicit product/endpoint/model identity. Never redirect either managed CLI to Z.ai. | `tools/aria-poc/zai_runtime.py` (OpenAI-compatible chat completions over `urllib`) is wired into fleet availability, native admission (`observe_status` probe), native execution (`_invoke_native_zai`) and the legacy ladder (`_run_zai_as_claude_result`); proven end to end against a local stand-in vendor (`test_ci_executor_native_zai`). Live validation against api.z.ai awaits secure key provisioning. |
 
-The supervising assistant has received the user's Z.ai credential outside this repository;
-it has not been provisioned to the reviewed runtime. The existing source name is
-`ARIA_ZAI_API_KEY` in the executor environment. The current legacy helper redirects it into
-Claude-compatible environment fields, which does not satisfy the new distinct-transport
-requirement. A proposed stdin launch wrapper and final CLI child exclusions require ordinary
-verification before secure provisioning. No credential value, digest or fragment belongs in
-source, command arguments, evidence or documentation.
+The user's Z.ai credential has not been provisioned to the reviewed runtime. Its boundary is
+`ARIA_ZAI_API_KEY_FILE`: an absolute path to a regular file readable by its owner only
+(mode `0600`; any group/world bit is refused by name), holding exactly one line — or, for
+CI-secret injection only, `ARIA_ZAI_API_KEY`; both at once is refused as ambiguous
+(`zai_runtime.read_zai_credential`). The value is held in a `ZaiCredential` whose repr,
+str and equality never expose it, is used only to build one `Authorization: Bearer` header,
+and is never placed in `os.environ`, argv, a ledger row, a governance event, an exception
+message or a transcript; `agent_env.SECRET_SHAPED_ENV_NAME` drops both variable names from
+every agent child. The former `claude_runtime.provider_redirect_env` route — the `claude`
+binary with `ANTHROPIC_BASE_URL` pointed at Z.ai — is deleted, and `run_claude_exec` refuses
+a non-Anthropic model by name (`model_not_served_by_claude_runtime`). No credential value,
+digest or fragment belongs in source, command arguments, evidence or documentation.
 
-The Z.ai general API and Coding Plan endpoints are distinct. The account-plan answer and
-custom-adapter entitlement remain unresolved; no endpoint may be inferred from key shape or
-silently substituted. Published API rates do not establish subscription billing for either CLI.
+The Z.ai general API and Coding Plan endpoints are distinct and both are named in
+`zai_runtime.ZAI_ENDPOINTS` (`coding` → `/api/coding/paas/v4`, the subscription quota;
+`general` → `/api/paas/v4`, the prepaid wallet); the vendor's GLM-5.3 page states that
+Coding-Plan subscribers reach the model API only through the OpenAI-compatible protocol, so
+`coding` is the default and `ARIA_ZAI_ENDPOINT` selects otherwise (a documented name, or an
+explicit base URL recorded as `custom`). Entitlement is never inferred from key shape or
+silently substituted: `probe_zai_status` makes one `max_tokens=1` completion against the
+selected endpoint and records the HTTP status, the vendor's error code and message, and the
+(auth, quota) classification as the candidate observation the fleet admission reads. Published
+API rates do not establish subscription billing for either CLI.
 Zero actually admitted providers must preserve pending work; one uses independent reviewer
 sessions on that one model; multiple available providers should be mixed honestly. These are
 accepted implementation requirements, not completed native selection/recovery evidence.

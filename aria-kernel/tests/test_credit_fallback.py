@@ -348,7 +348,14 @@ class CreditExhaustionReleasesTheClaim(unittest.TestCase):
             body.append(line)
         arm = "\n".join(body)
         self.assertIn("_release_claim(", arm)
-        self.assertIn('reason="claude_spawn_refused"', arm)
+        # The reason names the condition. Since the native-runtime lane
+        # (Codex / Z.ai through the same claim handler) the arm chooses
+        # between two NAMED reasons rather than one: a refused spawn on the
+        # managed claude session, or a native runtime that could not execute.
+        # Either constant is specific; what the assertion forbids is a
+        # generic reason that would make a billing event read as a crash.
+        self.assertIn('"claude_spawn_refused"', arm)
+        self.assertIn('"native_runtime_execution_unavailable"', arm)
 
     def test_the_exception_is_imported_not_shadowed(self) -> None:
         """A NameError here would make the except arm unreachable at runtime

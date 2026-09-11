@@ -71,7 +71,6 @@ class ClosedVocabularyTests(unittest.TestCase):
                 "auth_failed",
                 "usage_unavailable",
                 "credit_exhausted",
-                "provider_redirect_unavailable",
                 "policy_violation",
                 "timeout",
                 "response_schema_rejected",
@@ -112,7 +111,6 @@ class ExceptionClassificationTests(unittest.TestCase):
             (claude_runtime.ClaudeAuthFailure, "auth_failed"),
             (claude_runtime.ClaudeUsageUnavailable, "usage_unavailable"),
             (claude_runtime.ClaudeCreditExhausted, "credit_exhausted"),
-            (claude_runtime.ProviderRedirectUnavailable, "provider_redirect_unavailable"),
             (claude_runtime.ClaudePolicyViolation, "policy_violation"),
         ]
         for exc_type, expected_class in cases:
@@ -313,7 +311,9 @@ class RouteTests(unittest.TestCase):
             ("anthropic", "opus", "implementation", "aria-implementer"),
         )
 
-    def test_redirected_model_resolves_the_redirect_provider(self) -> None:
+    def test_a_fleet_listed_model_resolves_its_fleet_provider(self) -> None:
+        # The provider comes from the fleet row, not from any spawn redirect:
+        # glm-5.3 is Z.ai's tier and is served by the Z.ai transport.
         request = {"target_agent": "aria-adversarial-judge", "role": "judge"}
         with patch.object(dispatch_failure, "resolve_claude_model", return_value="glm-5.3"):
             route = resolve_dispatch_route(request=request, repo_root=_REPO_ROOT)

@@ -64,7 +64,6 @@ from claude_runtime import (
     ClaudePolicyViolation,
     ClaudeRunResult,
     ClaudeUsageUnavailable,
-    ProviderRedirectUnavailable,
     UsageRecording,
     extract_final_message,
     extract_usage,
@@ -1353,6 +1352,19 @@ def invoke_claude_cli(
         # attempt closure and its governance-audit callbacks; the helper owns
         # the single-retry-bounded control flow.
         def _dispatch_attempt(model: str, effort: str) -> ClaudeRunResult:
+            # The ladder is written in tier names; the runtime that serves a
+            # tier is the fleet's decision. A Z.ai tier (its own HTTP
+            # transport since the 2026-09-11 policy) never reaches the claude
+            # binary — run_claude_exec refuses it by name if asked.
+            if _provider_for_model(model) == "zai":
+                return _run_zai_as_claude_result(
+                    prompt_text=prompt_text, model=model, timeout_seconds=timeout_seconds,
+                    usage_recording=(
+                        UsageRecording(request_id=request_id, role=role,
+                                       target_agent=subagent_type, base_dir=tools_dir)
+                        if tools_dir is not None else None
+                    ),
+                )
             return run_claude_exec(
                 prompt_text=prompt_text,
                 timeout_seconds=timeout_seconds,
@@ -1554,7 +1566,6 @@ def invoke_claude_cli(
         ClaudeUsageUnavailable,
         ClaudeAuthFailure,
         ClaudeCreditExhausted,
-        ProviderRedirectUnavailable,
         subprocess.TimeoutExpired,
     ) as exc:
         # ARIA-HIGH-002 — every terminal perimeter path writes exactly one
@@ -2164,6 +2175,88 @@ def _record_mock_mode_audit(tools_dir: Path) -> None:
     )
 
 
+def _provider_for_model(model: str | None) -> str:
+    from aria_kernel.model_fleet import provider_for_model
+
+    return provider_for_model(str(model or "")) or "anthropic"
+
+
+def _run_zai_as_claude_result(
+    *, prompt_text: str, model: str, timeout_seconds: int,
+    usage_recording: UsageRecording | None,
+) -> ClaudeRunResult:
+    """One Z.ai call, reported in the shape the shared fallback ladder reads.
+
+    The ladder (claude_runtime.run_with_model_fallback) decides on
+    ``auth_failure`` / ``credit_exhaustion`` / ``refusal`` and the executor
+    reads ``stdout`` and ``usage``; those are filled from the transport's own
+    classification. The vendor's response id stands in for a stream event
+    so the transcript keeps a session reference; the auth remedy names the
+    credential BOUNDARY, never a value.
+    """
+    from claude_runtime import _record_usage_best_effort
+    from zai_runtime import (
+        ZaiCredentialUnavailable, ZaiTransportUnavailable, prepare_zai_context, run_zai_chat,
+    )
+
+    try:
+        context = prepare_zai_context(dict(os.environ), default_model=model)
+    except ZaiCredentialUnavailable as exc:
+        raise ClaudeAuthUnavailable(f"zai_{exc.reason}: {exc}") from exc
+    try:
+        completed = run_zai_chat(
+            context.credential, base_url=context.base_url, model=model,
+            system=_ZAI_SYSTEM_PROMPT, user=prompt_text, timeout_seconds=timeout_seconds,
+        )
+    except ZaiTransportUnavailable as exc:
+        raise ClaudeCliUnavailable(f"zai_transport_unavailable: {exc}") from exc
+    auth_failure = None
+    credit_exhaustion = None
+    failure_class = None
+    if completed.auth_failure is not None:
+        auth_failure = {
+            "marker": completed.auth_failure, "matched_marker": completed.auth_failure,
+            "vendor_error_code": completed.error_code, "vendor_error_message": completed.error_message,
+            "remedy": f"re-provision the Z.ai subscription key at its boundary ({context.credential.location})",
+        }
+        failure_class = "auth_failed"
+    elif completed.credit_exhaustion is not None:
+        credit_exhaustion = {
+            "marker": completed.credit_exhaustion, "matched_marker": completed.credit_exhaustion,
+            "vendor_error_code": completed.error_code, "vendor_error_message": completed.error_message,
+        }
+        failure_class = "credit_exhausted"
+    elif completed.returncode != 0:
+        failure_class = "process_exit"
+    if usage_recording is not None and completed.usage is not None:
+        _record_usage_best_effort(recording=usage_recording, model=model, usage=completed.usage)
+    return ClaudeRunResult(
+        returncode=completed.returncode, stdout=completed.final_message,
+        stderr="" if completed.error_message is None else f"{completed.error_code}: {completed.error_message}",
+        final_message=completed.final_message, usage=completed.usage,
+        events=(({"type": "zai.response", "id": completed.response_id, "model": completed.model,
+                  "finish_reason": completed.finish_reason, "http_status": completed.http_status},)
+                if completed.response_id else ()),
+        auth_failure=auth_failure, credit_exhaustion=credit_exhaustion,
+        failure_class=failure_class, retryable=False if failure_class else None,
+        failure_detail_code=(completed.auth_failure or completed.credit_exhaustion
+                             or (None if completed.returncode == 0 else f"http_{completed.http_status}")),
+    )
+
+
+# The Z.ai transport has no agent harness of its own: the system turn names
+# the contract the executor validates, and the kernel-rendered prompt (agent
+# body + envelope + inline evidence) is the user turn. Same prompt bytes as
+# the CLI runtimes receive, so prompt_hash binds identically.
+_ZAI_SYSTEM_PROMPT = (
+    "You are an ARIA agent executed through the Z.ai transport. Follow the agent "
+    "instructions in the message exactly. Your entire reply must be the single "
+    "JSON object the instructions require (schema aria/agent-response/v1), with "
+    "no prose before or after it."
+)
+_ZAI_AUTH_METHOD = "subscription_api_key"
+
+
 @_dataclass(frozen=True)
 class _NativeRuntimePlan:
     policy: Any
@@ -2265,6 +2358,114 @@ def _invoke_native_codex(
             "request_id": request_id, "claim_id": claim_id, "session_id": session_id,
             "provider_session_ids": thread_ids, "provider_session_provenance": "cli_thread_started",
             "exit_code": completed.returncode if completed is not None else None,
+            "observed_effort": None,
+            "usage_ledger_hash": usage_row["ledger_hash"] if usage_row is not None else None,
+            "result_admission": result_admission,
+        })
+
+
+def _invoke_native_zai(
+    *, native_runtime: _NativeRuntimePlan, repo: Path, tools_dir: Path,
+    request: dict[str, Any], request_id: str, claim_id: str, agent_id: str,
+    lease_token: str,
+    target_agent: str, session_id: str, prompt: str, output_path: Path,
+    transcript_path: Path, timeout_seconds: int, spawn_control: Any,
+) -> int:
+    """The same CI claim/result lane, with the Z.ai HTTP transport as the callback.
+
+    Mirrors ``_invoke_native_codex`` row for row so the attempt, transcript,
+    envelope, usage and ``runtime_attempt_finished`` evidence read the same
+    for every provider. Differences are the transport's: there is no process
+    exit code (the HTTP status stands in), no CLI thread ids (the vendor's
+    response id stands in), and no usage-events stream (the vendor's usage
+    block is the one measurement). A completion whose usage the vendor did
+    not report is ``usage_unavailable`` — never priced as zero.
+    """
+    from aria_kernel.budget import _reserve_native_runtime_attempt, price_tokens, record_cost_attribution
+    from aria_kernel.tool_registry import GovernanceError, append_tools_governance
+    from zai_runtime import ZaiTransportUnavailable, run_zai_chat
+
+    route = native_runtime.route
+    context = native_runtime.context
+    try:
+        attempt = _reserve_native_runtime_attempt(
+            repo_root=repo, base_dir=tools_dir, request_id=request_id,
+            request_ledger_hash=request["request_ledger_hash"], claim_id=claim_id,
+            claim_ledger_hash=request["claim_ledger_hash"], session_id=session_id,
+            agent_id=agent_id, lease_token=lease_token,
+            attempt_id=str(_uuid.uuid4()), provider=route["provider"], runtime=route["runtime"],
+            model=route["model"], requested_effort=route["effort"],
+            auth_method=native_runtime.observation["auth_method"],
+            expected_policy_digest=native_runtime.policy.policy_digest,
+            settings_hash=context.settings_hash, pricing=native_runtime.observation["pricing"],
+        )
+    except GovernanceError as exc:
+        raise ClaudeCliUnavailable("native_runtime_reservation_unavailable:" + str(exc)) from exc
+    completed = None
+    usage_row = None
+    result_admission = "execution_unavailable"
+    try:
+        if spawn_control is not None and spawn_control.should_cancel():
+            result_admission = "operator_cancelled_before_call"
+            return 1
+        completed = run_zai_chat(
+            context.credential, base_url=context.base_url, model=route["model"],
+            system=_ZAI_SYSTEM_PROMPT, user=prompt, timeout_seconds=timeout_seconds,
+        )
+        transcript_path.parent.mkdir(parents=True, exist_ok=True)
+        transcript_path.write_text(completed.raw_body.decode("utf-8", errors="replace"), encoding="utf-8")
+        if completed.auth_failure is not None:
+            result_admission = "auth_unavailable"
+            raise ClaudeAuthFailure("Z.ai subscription authentication unavailable")
+        if completed.credit_exhaustion is not None:
+            result_admission = "quota_unavailable"
+            raise ClaudeCreditExhausted("Z.ai subscription capacity unavailable")
+        if completed.returncode != 0:
+            result_admission = "provider_nonzero"
+            return completed.returncode
+        envelope = _build_envelope_from_claude_output(
+            raw_stdout=completed.final_message, request_id=request_id, claim_id=claim_id,
+            agent_id=agent_id, role=request["role"], subagent_type=target_agent,
+            must_satisfy=request.get("must_satisfy") or [], dispatch_model=route["model"],
+        )
+        envelope["details"]["runtime_attempt_ledger_hash"] = attempt["ledger_hash"]
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        _write_sanitized_envelope(output_path, envelope)
+        if completed.usage is None:
+            result_admission = "usage_unavailable"
+            raise ClaudeCliUnavailable("zai_native_usage_unavailable")
+        input_tokens = completed.usage["input_tokens"]
+        output_tokens = completed.usage["output_tokens"]
+        price = price_tokens(model=route["model"], input_tokens=input_tokens, output_tokens=output_tokens)
+        if price.source == "unknown":
+            append_tools_governance(tools_dir, "runtime_usage_pricing_unavailable", {
+                "attempt_ledger_hash": attempt["ledger_hash"], "request_id": request_id,
+                "model": route["model"], "input_tokens": input_tokens, "output_tokens": output_tokens,
+            })
+        else:
+            usage_row = record_cost_attribution(
+                cycle_id=request["cycle_id"], plan_id=request["convergence_id"],
+                agent_role=request["role"], model=route["model"], input_tokens=input_tokens,
+                output_tokens=output_tokens, estimated_usd=price.usd, base_dir=tools_dir,
+            )
+        result_admission = "pending_native_submit"
+        return 0
+    except ZaiTransportUnavailable as exc:
+        result_admission = "transport_unavailable"
+        raise ClaudeCliUnavailable("zai_native_execution_unavailable:" + str(exc)) from exc
+    except (OSError, GovernanceError) as exc:
+        result_admission = "control_or_transport_unavailable"
+        # The kernel's own refusal text is a named reason, never vendor or
+        # credential material; carry it so the operator sees the cause.
+        raise ClaudeCliUnavailable(f"zai_native_execution_unavailable:{type(exc).__name__}:{exc}") from exc
+    finally:
+        append_tools_governance(tools_dir, "runtime_attempt_finished", {
+            "schema_version": 1, "attempt_ledger_hash": attempt["ledger_hash"],
+            "request_id": request_id, "claim_id": claim_id, "session_id": session_id,
+            "provider_session_ids": ([] if completed is None or completed.response_id is None
+                                     else [completed.response_id]),
+            "provider_session_provenance": "http_response_id",
+            "exit_code": completed.http_status if completed is not None else None,
             "observed_effort": None,
             "usage_ledger_hash": usage_row["ledger_hash"] if usage_row is not None else None,
             "result_admission": result_admission,
@@ -2426,6 +2627,37 @@ def _adaptive_pre_claim_admission(
                     return observed
                 return _replace(observed, control_status="available", control_reason="native_readonly_runtime_prepared")
             return _probe_codex_auth_status(environ=environment, timeout_seconds=timeout_seconds)
+        if provider.runtime_hint == "zai":
+            # The kernel's own HTTP transport (operator policy 2026-09-11):
+            # the credential is read from its boundary here, held in the
+            # context, and the status is what ONE minimal completion against
+            # the operator-selected endpoint actually returned. No CLI, no
+            # redirect, no value in any row.
+            from zai_runtime import ZaiCredentialUnavailable, ZaiTransportUnavailable, prepare_zai_context, probe_zai_status
+
+            try:
+                context = prepare_zai_context(environment, default_model=provider.default_model)
+            except ZaiCredentialUnavailable as exc:
+                return _RuntimeStatusObservation("unavailable", reason=exc.reason,
+                                                 control_status="unavailable", control_reason=str(exc),
+                                                 auth_method=_ZAI_AUTH_METHOD)
+            try:
+                observed = probe_zai_status(
+                    context.credential, endpoint=context.endpoint, base_url=context.base_url,
+                    model=context.model, timeout_seconds=timeout_seconds,
+                )
+            except ZaiTransportUnavailable as exc:
+                return _RuntimeStatusObservation("unknown", reason=str(exc), control_status="unavailable",
+                                                 control_reason="native_http_transport_unavailable",
+                                                 auth_method=_ZAI_AUTH_METHOD,
+                                                 credential_source=context.credential.source)
+            contexts[provider.key] = context
+            return _RuntimeStatusObservation(
+                observed.auth_observation, quota_observation=observed.quota_observation,
+                reason=observed.reason, command=(), exit_code=observed.http_status,
+                control_status="available", control_reason="native_http_transport_prepared",
+                auth_method=_ZAI_AUTH_METHOD, credential_source=context.credential.source,
+            )
         # The legacy version/file preflight is not supported native auth proof.
         # Its unchanged caller remains the omitted-policy path below.
         return _RuntimeStatusObservation("unknown", reason="supported_auth_status_unavailable")
@@ -2848,7 +3080,8 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
         # 211); role + must_satisfy come from the request_envelope
         # we already loaded for cost-cap evaluation.
         if native_runtime is not None:
-            cli_exit = _invoke_native_codex(
+            _invoke_native = {"codex": _invoke_native_codex, "zai": _invoke_native_zai}[native_runtime.route["runtime"]]
+            cli_exit = _invoke_native(
                 native_runtime=native_runtime, repo=repo, tools_dir=tools_dir,
                 request=request_envelope, request_id=request_id, claim_id=claim_id, agent_id=agent_id,
                 lease_token=lease_token,

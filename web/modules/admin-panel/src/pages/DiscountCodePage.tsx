@@ -4,7 +4,7 @@
  * Admin panel for managing discount codes and promotions.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Card, Button, Badge, Input } from '@aquaculture/shared-ui';
 import {
   billingApi,
@@ -15,6 +15,8 @@ import {
   DiscountDuration,
   CreateDiscountCodeDto,
 } from '../services/adminApi';
+import { adminKeys, useAdminQuery } from '../hooks';
+import { QueryFailureNotice } from '../components/QueryFailureNotice';
 
 /**
  * The form's own draft of a code. ADR-0013 split the single `discountValue`
@@ -78,10 +80,33 @@ function withValueBranch(draft: DiscountDraft, value: string): CreateDiscountCod
 // Discount Code Management Page
 // ============================================================================
 
+/**
+ * A redemption cap as the operator typed it.
+ *
+ * `parseInt(value, 10) || undefined` was a revenue leak on this field.
+ * `discount-rules.ts` enforces the cap ONLY when it is neither null nor
+ * undefined, so undefined means UNLIMITED — and `||` produced undefined from
+ * three different inputs an operator can supply:
+ *
+ *   - "abc" or any typo   → NaN  || undefined → unlimited
+ *   - ""                  → NaN  || undefined → unlimited (correct, by intent)
+ *   - "0"                 → 0    || undefined → UNLIMITED
+ *
+ * The last is the sharpest: 0 is the clearest way to say "this code may not be
+ * redeemed", and it produced a code with no cap at all. Empty still means
+ * unlimited — that is what the placeholder promises — but a number the operator
+ * actually typed is now kept, and an unparseable entry leaves the field alone
+ * rather than silently removing the limit.
+ */
+const parseRedemptionCap = (raw: string, previous: number | undefined): number | undefined => {
+  const trimmed = raw.trim();
+  if (trimmed === '') return undefined;
+  const parsed = Number.parseInt(trimmed, 10);
+  if (Number.isNaN(parsed) || parsed < 0) return previous;
+  return parsed;
+};
+
 const DiscountCodePage: React.FC = () => {
-  const [discountCodes, setDiscountCodes] = useState<readonly DiscountCode[]>([]);
-  const [stats, setStats] = useState<DiscountStats | null>(null);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Filters
@@ -93,28 +118,33 @@ const DiscountCodePage: React.FC = () => {
   const [newCode, setNewCode] = useState<DiscountDraft>(EMPTY_DRAFT);
   const [valueDraft, setValueDraft] = useState('10');
 
-  useEffect(() => {
-    loadData();
-  }, [showActive, showExpired]);
-
-  const loadData = async () => {
-    setLoading(true);
-    try {
-      const [codesResult, statsResult] = await Promise.all([
-        billingApi.getDiscountCodes({
-          isActive: showActive || undefined,
+  const codesQuery = useAdminQuery<{ data: readonly DiscountCode[] }>(
+    adminKeys.billing.discountCodes({ showActive, showExpired }),
+    ({ signal }) =>
+      billingApi.getDiscountCodes(
+        {
+          // `showActive || undefined` sent NO filter when the box was
+          // unchecked, so clearing "Active" widened the list to everything
+          // rather than narrowing it to the inactive codes the label implies.
+          isActive: showActive ? true : undefined,
           includeExpired: showExpired,
-        }),
-        billingApi.getDiscountStats(),
-      ]);
-      setDiscountCodes(codesResult.data);
-      setStats(statsResult);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  };
+        },
+        signal,
+      ),
+  );
+
+  const statsQuery = useAdminQuery<DiscountStats>(adminKeys.billing.discountStats(), ({ signal }) =>
+    billingApi.getDiscountStats(signal),
+  );
+
+  const discountCodes: readonly DiscountCode[] = codesQuery.data?.data ?? [];
+  const stats = statsQuery.data;
+  const loading = codesQuery.isPending;
+
+  const reload = useCallback((): void => {
+    void codesQuery.refetch();
+    void statsQuery.refetch();
+  }, [codesQuery, statsQuery]);
 
   const handleGenerateCode = async () => {
     try {
@@ -137,7 +167,7 @@ const DiscountCodePage: React.FC = () => {
       setShowCreateModal(false);
       setNewCode(EMPTY_DRAFT);
       setValueDraft('10');
-      loadData();
+      reload();
     } catch (err) {
       setError((err as Error).message);
     }
@@ -148,7 +178,7 @@ const DiscountCodePage: React.FC = () => {
 
     try {
       await billingApi.deactivateDiscountCode(id);
-      loadData();
+      reload();
     } catch (err) {
       setError((err as Error).message);
     }
@@ -304,6 +334,18 @@ const DiscountCodePage: React.FC = () => {
           </label>
         </div>
       </Card>
+
+      {/*
+        The two READS. The write errors below keep their own block: they were
+        already honest — `(err as Error).message`, the server's own reason —
+        and a refused create is a message about that action, not a reason to
+        take the code list away.
+      */}
+      <QueryFailureNotice
+        errors={[codesQuery.error, statsQuery.error]}
+        hasContent={discountCodes.length > 0}
+        onRetry={reload}
+      />
 
       {/* Error Message */}
       {error && (
@@ -585,11 +627,14 @@ const DiscountCodePage: React.FC = () => {
                   <Input
                     type="number"
                     min={0}
-                    value={newCode.maxRedemptions || ''}
+                    value={newCode.maxRedemptions ?? ''}
                     onChange={(e) =>
                       setNewCode({
                         ...newCode,
-                        maxRedemptions: parseInt(e.target.value, 10) || undefined,
+                        maxRedemptions: parseRedemptionCap(
+                          e.target.value,
+                          newCode.maxRedemptions,
+                        ),
                       })
                     }
                     placeholder="Leave empty for unlimited"
@@ -602,11 +647,14 @@ const DiscountCodePage: React.FC = () => {
                   <Input
                     type="number"
                     min={0}
-                    value={newCode.maxRedemptionsPerTenant || ''}
+                    value={newCode.maxRedemptionsPerTenant ?? ''}
                     onChange={(e) =>
                       setNewCode({
                         ...newCode,
-                        maxRedemptionsPerTenant: parseInt(e.target.value, 10) || undefined,
+                        maxRedemptionsPerTenant: parseRedemptionCap(
+                          e.target.value,
+                          newCode.maxRedemptionsPerTenant,
+                        ),
                       })
                     }
                     placeholder="Leave empty for unlimited"

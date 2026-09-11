@@ -93,9 +93,14 @@ export const billingApi = {
   getDiscountCodes: (
     options?: { isActive?: boolean; campaignId?: string; includeExpired?: boolean } &
       PaginationParams,
+    signal?: AbortSignal,
   ) =>
-    apiFetch<PaginatedResult<DiscountCode>>(`/billing/discounts?${buildQueryString(options || {})}`),
-  getDiscountStats: () => apiFetch<DiscountStats>('/billing/discounts/stats'),
+    apiFetch<PaginatedResult<DiscountCode>>(
+      `/billing/discounts?${buildQueryString(options || {})}`,
+      { signal },
+    ),
+  getDiscountStats: (signal?: AbortSignal) =>
+    apiFetch<DiscountStats>('/billing/discounts/stats', { signal }),
   getDiscountById: (id: string) => apiFetch<DiscountCode>(`/billing/discounts/${id}`),
   getDiscountByCode: (code: string) =>
     apiFetch<DiscountCodeLookup>(`/billing/discounts/code/${code}`),

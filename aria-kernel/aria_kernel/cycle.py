@@ -2669,12 +2669,18 @@ def _phase_architecture_baseline(context: PhaseContext) -> dict[str, Any]:
 def _phase_architecture_postcheck(context: PhaseContext) -> dict[str, Any]:
     from .architecture_spine_gate import take_postcheck
 
-    return take_postcheck(
+    result = take_postcheck(
         plan_id=_required_plan_id(context),
         cycle_id=context.cycle_id,
         workspace_root=context.workspace_root,
         base_dir=context.base_dir,
     )
+    # The native producer returns evidence, not a phase verdict. Project
+    # regressions into the existing cycle failure contract without changing
+    # persisted details or the status vocabulary of other phases.
+    if result["regression_count"] > 0:
+        return {**result, "status": "fail"}
+    return result
 
 
 def _required_plan_id(context: PhaseContext) -> str:

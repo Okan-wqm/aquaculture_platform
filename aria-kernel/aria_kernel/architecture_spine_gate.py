@@ -13,10 +13,10 @@ The four invariants snapshot per round:
    (Plan 019 Phase 5 commit `aa9dc9d2`) when available; falls back to
    a static repo-wide grep when the adapter is QUARANTINED or
    un-bound.
-2. **event_contracts** — count of `interface XEvent extends BaseEvent`
-   declarations missing JSON Schema validators (CLAUDE.md §Event
-   Contract Rules). Backed by event-contracts-adapter; static-grep
-   fallback walks libs/event-contracts/src/**/*.ts.
+2. **event_contracts** — counts and source-file/symbol identities of
+   exported event interfaces without a matching JSON Schema filename
+   (CLAUDE.md §Event Contract Rules). The default static check walks
+   libs/event-contracts/src/**/*.ts; it does not validate schema contents.
 3. **schema_entity** — count of @Entity decorators violating ADR-011
    (missing schema option, public schema, non-canonical shared schema).
    Pure static check via _TYPEORM_ENTITY_RE.
@@ -165,7 +165,7 @@ def _check_tenant_scoping(workspace_root: Path) -> InvariantMeasurement:
 
 
 def _check_event_contracts(workspace_root: Path) -> InvariantMeasurement:
-    """Count event interfaces missing JSON Schema validators."""
+    """Measure event interfaces without matching JSON Schema filenames."""
     contracts_dir = workspace_root / "libs" / "event-contracts" / "src"
     schemas_dir = contracts_dir / "schemas"
     schema_stems = (
@@ -173,6 +173,7 @@ def _check_event_contracts(workspace_root: Path) -> InvariantMeasurement:
         if schemas_dir.exists() else set()
     )
     missing = 0
+    missing_identities: set[str] = set()
     declared = 0
     if contracts_dir.exists():
         for path in contracts_dir.rglob("*.ts"):
@@ -192,12 +193,14 @@ def _check_event_contracts(workspace_root: Path) -> InvariantMeasurement:
                 )
                 if event_name.lower() not in schema_stems and snake not in schema_stems:
                     missing += 1
+                    missing_identities.add(f"{rel}::{event_name}")
     return InvariantMeasurement(
         invariant="event_contracts",
         measured_at=utc_now(),
         measurements={
             "declared_event_count": declared,
             "missing_schema_count": missing,
+            "missing_schema_identities": sorted(missing_identities),
         },
         source="static:_check_event_contracts",
     )
@@ -505,6 +508,11 @@ def detect_drift(
         unchanged   — values equal
     Non-numeric fields (e.g. pending=True stub) compare by equality only;
     pending==pending is NOT treated as drift.
+
+    Paired event-schema identity observations report removed and introduced
+    issues separately, replacing the corresponding count drift. If either
+    observation lacks identities, retain the historical count comparison;
+    absent identity evidence is not an observed empty set.
     """
     drifts: list[DriftReport] = []
     for invariant in INVARIANT_KINDS:
@@ -513,6 +521,34 @@ def detect_drift(
         b_meas = b_block.get("measurements") or {}
         p_meas = p_block.get("measurements") or {}
         all_fields = sorted(set(b_meas.keys()) | set(p_meas.keys()))
+        if invariant == "event_contracts":
+            identity_field = "missing_schema_identities"
+            b_ids = b_meas.get(identity_field)
+            p_ids = p_meas.get(identity_field)
+            paired_identities = (
+                isinstance(b_ids, list) and isinstance(p_ids, list)
+                and all(isinstance(value, str) for value in b_ids)
+                and all(isinstance(value, str) for value in p_ids)
+            )
+            # A historical missing field cannot identify an introduced or
+            # removed issue. Only paired observations replace the count.
+            all_fields = [name for name in all_fields if name != identity_field]
+            if paired_identities:
+                removed = sorted(set(b_ids) - set(p_ids))
+                introduced = sorted(set(p_ids) - set(b_ids))
+                if removed:
+                    drifts.append(DriftReport(
+                        invariant=invariant, field=identity_field,
+                        baseline_value=removed, postcheck_value=[],
+                        direction="improvement",
+                    ))
+                if introduced:
+                    drifts.append(DriftReport(
+                        invariant=invariant, field=identity_field,
+                        baseline_value=[], postcheck_value=introduced,
+                        direction="regression",
+                    ))
+                all_fields = [name for name in all_fields if name != "missing_schema_count"]
         for field_name in all_fields:
             b_val = b_meas.get(field_name)
             p_val = p_meas.get(field_name)

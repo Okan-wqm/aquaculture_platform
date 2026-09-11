@@ -250,6 +250,161 @@ class EnterpriseCycleTests(unittest.TestCase):
         self.assertEqual(cycle_rows[-1]["status"], "failed")
         self.assertEqual(verify_integrity(tools_dir=self.tools_dir)["status"], "ok")
 
+    def test_native_equal_count_postcheck_regression_fails_cycle_terminal(self):
+        from aria_kernel.architecture_spine_gate import list_spine_events
+
+        contracts = self.root / "libs/event-contracts/src/ordinary-events.ts"
+        schemas = contracts.parent / "schemas"
+        schemas.mkdir(parents=True)
+        contracts.write_text(
+            "interface BaseEvent { eventId: string; }\n"
+            "export interface AlphaEvent extends BaseEvent {}\n"
+            "export interface BetaEvent extends BaseEvent {}\n"
+            "export interface GammaEvent extends BaseEvent {}\n",
+            encoding="utf-8",
+        )
+        beta_schema = schemas / "beta_event.json"
+        beta_schema.write_text('{"type":"object"}\n', encoding="utf-8")
+        self.init_git_repo()
+        plan_id = "ordinary-cycle-schema-swap"
+        cycle_id = "cycle-native-schema-swap"
+
+        def update_memory_then_edit(**kwargs):
+            # Keep the real memory consumer and its snapshot checks. The
+            # ordinary fixture edit happens afterwards, before the registered
+            # postcheck phase; no measurement or phase verdict is supplied.
+            result = update_memory(**kwargs)
+            (schemas / "alpha_event.json").write_text(
+                '{"type":"object"}\n', encoding="utf-8",
+            )
+            beta_schema.unlink()
+            return result
+
+        with patch(
+            "aria_kernel.cycle.update_memory", side_effect=update_memory_then_edit,
+        ) as memory_call:
+            result = run_cycle(
+                workspace_root=self.root,
+                cycle_id=cycle_id,
+                base_dir=self.tools_dir,
+                workspace_base=Path(self.tmp.name) / "cycle-workspaces",
+                shadow_only=True,
+                defer_reflection=True,
+                snapshot_mode="working-tree",
+                plan_id=plan_id,
+            )
+
+        memory_call.assert_called_once_with(
+            cycle_id=cycle_id, base_dir=self.tools_dir,
+            workspace_root=self.root,
+        )
+        for phase in ("architecture_baseline", "tools", "memory", "architecture_postcheck"):
+            self.assertEqual(result["phases"][phase], {"outcome": "ran"})
+        self.assertTrue(result["artifact_integrity"]["valid"])
+        self.assertEqual(result["tool_run_summary"], [])
+
+        rows = list_spine_events(plan_id=plan_id, base_dir=self.tools_dir)
+        self.assertEqual([row["kind"] for row in rows], [
+            "architecture_spine_baseline", "architecture_spine_regression",
+        ])
+        baseline = rows[0]["details"]
+        postcheck = rows[1]["details"]
+        self.assertEqual(baseline["cycle_id"], cycle_id)
+        self.assertEqual(postcheck["cycle_id"], cycle_id)
+        self.assertEqual(postcheck["baseline_hash"], baseline["baseline_hash"])
+        self.assertEqual(postcheck["regression_count"], 1)
+        prefix = "libs/event-contracts/src/ordinary-events.ts::"
+        for observation, identities in (
+            (baseline["invariant_measurements"]["event_contracts"], ["AlphaEvent", "GammaEvent"]),
+            (postcheck["postcheck_measurements"]["event_contracts"], ["BetaEvent", "GammaEvent"]),
+        ):
+            self.assertEqual(observation["source"], "static:_check_event_contracts")
+            self.assertEqual(observation["measurements"], {
+                "declared_event_count": 3,
+                "missing_schema_count": 2,
+                "missing_schema_identities": [prefix + name for name in identities],
+            })
+        self.assertEqual(result["architecture_postcheck"]["regression_count"], 1)
+        self.assertEqual(result["architecture_postcheck"]["drifts"], postcheck["drifts"])
+        self.assertEqual([
+            name for name, outcome in result["phases"].items()
+            if name != "architecture_postcheck" and outcome.get("outcome") == "failed"
+        ], [])
+
+        self.assertEqual(
+            result["status"], "failed",
+            "The cycle must consume the native postcheck regression before sealing.",
+        )
+        self.assertIn("architecture_postcheck", result["phase_failures"])
+        self.assertEqual(result["event"]["event"], "failed")
+        self.assertEqual(result["event"]["status"], "failed")
+        cycle_rows = [
+            row for row in load_jsonl(self.tools_dir / "cycles.jsonl")
+            if row.get("cycle_id") == cycle_id
+        ]
+        self.assertEqual([row["event"] for row in cycle_rows], ["started", "failed"])
+        self.assertEqual(cycle_rows[-1]["status"], "failed")
+        self.assertEqual(cycle_rows[-1]["tool_decision_count"], 0)
+
+    def test_native_clean_postcheck_preserves_completed_cycle_terminal(self):
+        from aria_kernel.architecture_spine_gate import list_spine_events
+
+        contracts = self.root / "libs/event-contracts/src/ordinary-events.ts"
+        schemas = contracts.parent / "schemas"
+        schemas.mkdir(parents=True)
+        contracts.write_text(
+            "interface BaseEvent { eventId: string; }\n"
+            "export interface AlphaEvent extends BaseEvent {}\n",
+            encoding="utf-8",
+        )
+        (schemas / "alpha_event.json").write_text(
+            '{"type":"object"}\n', encoding="utf-8",
+        )
+        self.init_git_repo()
+        plan_id = "ordinary-cycle-schema-clean"
+        cycle_id = "cycle-native-schema-clean"
+        result = run_cycle(
+            workspace_root=self.root,
+            cycle_id=cycle_id,
+            base_dir=self.tools_dir,
+            workspace_base=Path(self.tmp.name) / "cycle-workspaces",
+            shadow_only=True,
+            defer_reflection=True,
+            snapshot_mode="working-tree",
+            plan_id=plan_id,
+        )
+
+        rows = list_spine_events(plan_id=plan_id, base_dir=self.tools_dir)
+        self.assertEqual([row["kind"] for row in rows], [
+            "architecture_spine_baseline", "architecture_spine_postcheck",
+        ])
+        baseline, postcheck = [row["details"] for row in rows]
+        self.assertEqual(postcheck["baseline_hash"], baseline["baseline_hash"])
+        self.assertEqual(postcheck["cycle_id"], cycle_id)
+        self.assertEqual(postcheck["regression_count"], 0)
+        self.assertEqual(postcheck["drifts"], [])
+        self.assertEqual(result["architecture_postcheck"], postcheck)
+        for observation in (
+            baseline["invariant_measurements"]["event_contracts"],
+            postcheck["postcheck_measurements"]["event_contracts"],
+        ):
+            self.assertEqual(observation["source"], "static:_check_event_contracts")
+            self.assertEqual(observation["measurements"], {
+                "declared_event_count": 1, "missing_schema_count": 0,
+                "missing_schema_identities": [],
+            })
+        self.assertEqual(result["phases"]["architecture_postcheck"], {"outcome": "ran"})
+        self.assertTrue(result["artifact_integrity"]["valid"])
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["phase_failures"], [])
+        self.assertEqual(result["failed_phases"], [])
+        cycle_rows = [
+            row for row in load_jsonl(self.tools_dir / "cycles.jsonl")
+            if row.get("cycle_id") == cycle_id
+        ]
+        self.assertEqual([row["event"] for row in cycle_rows], ["started", "completed"])
+        self.assertEqual(cycle_rows[-1]["status"], "completed")
+
     def test_snapshot_outside_evidence_marks_run_invalid_and_unsampleable(self):
         tool = shadow_tool()
         tool["runner"] = {

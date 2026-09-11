@@ -115,6 +115,27 @@ to catch it.
   `Ran 2 tests … OK`, and the fixed directory was never created.
 - Full-suite run and the pre-push gate: recorded in the PR.
 
+## The first full run — the detector caught the next leak
+
+The pre-push gate on this branch ran the full affected selection: **3,128
+tests, 1 failure** — every one of the original 46 gone, and the one failure
+was this branch's own `test_this_suite_never_resolves_a_workspace_under_the_
+home_tree`, green in isolation, red after 3,000 tests. Four fixtures
+(`test_migrate_tools_v3`, `test_phase1_e2e_invariants`,
+`test_phase2_fates_snapshot`, `test_phase3_discovery_mfe`) set
+`ARIA_WORKSPACE_BASE` in `setUp` and **popped** it in `tearDown` — so from the
+first of them onward the interpreter had no base at all and every later
+fixture wrote under `~/.aria`. That is the mechanism behind the 4,927
+directories, now attributed. Each of those fixtures scopes the whole
+environment to the test (`patch.dict(os.environ)` + `addCleanup`), and a
+new last-in-order module, `test_zzz_process_environment_left_clean`, asserts
+at the end of the suite that the bootstrap's state survived: workspace base
+still the suite-owned temp dir, no shared state root, tools dir still a
+fixture store, no run-scoped deadline/budget variable. It cannot name a
+culprit (unittest has no per-test hook without a custom runner) so its
+message says how to bisect. Proof: all 32 environment-mutating modules run in
+one interpreter followed by both detectors — 353 tests OK.
+
 ## Residual, tracked
 
 An in-cycle validation that runs the kernel suite still inherits the

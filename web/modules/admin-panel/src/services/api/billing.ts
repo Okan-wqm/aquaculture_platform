@@ -169,7 +169,11 @@ export const billingApi = {
     search?: string;
     limit?: number;
     offset?: number;
-  }) => apiFetch<{ subscriptions: SubscriptionOverview[]; total: number }>(`/billing/subscriptions?${buildQueryString(filters || {})}`),
+  }, signal?: AbortSignal) =>
+    apiFetch<{ subscriptions: SubscriptionOverview[]; total: number }>(
+      `/billing/subscriptions?${buildQueryString(filters || {})}`,
+      { signal },
+    ),
   getSubscriptionStats: (signal?: AbortSignal) =>
     apiFetch<SubscriptionStats>('/billing/subscriptions/stats', { signal }),
   getSubscriptionReminders: () =>
@@ -180,16 +184,16 @@ export const billingApi = {
     const { changedBy: _changedBy, ...payload } = request;
     return apiFetch<Record<string, unknown>>('/billing/subscriptions/change-plan', { method: 'POST', body: JSON.stringify(payload) });
   },
-  cancelSubscription: (tenantId: string, reason: string, _cancelledBy?: string) =>
+  cancelSubscription: (tenantId: string, reason: string) =>
     apiFetch<{ success: boolean }>(`/billing/subscriptions/tenant/${tenantId}/cancel`, {
       method: 'POST',
       body: JSON.stringify({ reason }),
     }),
-  reactivateSubscription: (tenantId: string, _reactivatedBy?: string) =>
+  reactivateSubscription: (tenantId: string) =>
     apiFetch<{ success: boolean }>(`/billing/subscriptions/tenant/${tenantId}/reactivate`, {
       method: 'POST',
     }),
-  extendTrial: (tenantId: string, additionalDays: number, _extendedBy?: string) =>
+  extendTrial: (tenantId: string, additionalDays: number) =>
     apiFetch<{ success: boolean; newTrialEnd: string }>(`/billing/subscriptions/tenant/${tenantId}/extend-trial`, {
       method: 'POST',
       body: JSON.stringify({ additionalDays }),

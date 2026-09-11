@@ -77,6 +77,7 @@ import {
   findNonCanonicalFindingEvidence,
   requiresCanonicalFindingEvidence,
 } from './finding-evidence-shape';
+import { loadCanonicalToAliases } from './finding-id-aliases';
 import {
   canonicalJson,
   chainTip,
@@ -87,7 +88,6 @@ import {
   verify,
   ZERO_HASH,
 } from './finding-registry-chain';
-import { loadCanonicalToAliases } from './finding-id-aliases';
 import {
   atomicWriteFileWithRegistryLease,
   atomicWriteRegistryFile,

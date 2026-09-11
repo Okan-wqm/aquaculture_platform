@@ -29488,6 +29488,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/aria/catalogue-codex-runtime.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/aria/CONTRACTS.md",
       "prettier_managed": true
     },
@@ -35175,6 +35181,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/codex/2026-09-03-new-aria-immutable-evidence-format-scope.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/codex/2026-09-11-codex-runtime-prerequisites.md",
       "prettier_managed": true
     },
     {

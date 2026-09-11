@@ -77,6 +77,7 @@ _FLEET: tuple[Provider, ...] = (
 # availability signal is the session file's existence under the EFFECTIVE
 # user's codex home; OPENAI_API_KEY remains the alternative credential.
 _CODEX_AUTH_FILE = "auth.json"
+_MODEL_PROVIDER_ALIASES: dict[str, str] = {"gpt-6-astra": "openai"}
 
 
 def _codex_session_present(env: dict[str, str]) -> bool:
@@ -85,7 +86,9 @@ def _codex_session_present(env: dict[str, str]) -> bool:
     Fail-closed: absence means the runner user has not logged in — the
     remedy is `codex login` as that user, never a silent provider claim.
     """
-    home = env.get("CODEX_HOME") or str(Path.home())
+    home = env.get("CODEX_HOME") or (
+        Path(env.get("HOME") or Path.home()) / ".codex"
+    )
     return (Path(home) / _CODEX_AUTH_FILE).is_file()
 
 
@@ -101,7 +104,7 @@ def available_providers(environ: dict[str, str] | None = None) -> list[Provider]
     env = dict(os.environ if environ is None else environ)
     # Binary probes honor the CALLER'S PATH (the passed environ when given):
     # a test isolating PATH must be able to make the runtimes invisible.
-    search_path = env.get("PATH") or os.environ.get("PATH")
+    search_path = env.get("PATH", os.environ.get("PATH"))
     out: list[Provider] = []
     for provider in _FLEET:
         if provider.runtime_hint == "codex":
@@ -152,4 +155,4 @@ def provider_for_model(model: str) -> str | None:
     for provider in _FLEET:
         if model == provider.default_model:
             return provider.key
-    return None
+    return _MODEL_PROVIDER_ALIASES.get(model)

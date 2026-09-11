@@ -1,8 +1,8 @@
 # ARIA Current State
 
-Date: 2026-09-09
+Date: 2026-09-11
 Target ref: `origin/main`
-Last verified ARIA authority hash: `40c4ba054757cd25fa7a69d5426845aaa4deec266b2616d525d8569a6cabf130`
+Last verified ARIA authority hash: `8f05fba81a7b660774f01d287820a4c78b01dd92904daae51140d6bc7a53696b`
 Status: post-snowball mainline hardening in progress
 
 ## Authority Chain
@@ -60,6 +60,30 @@ Legacy Codex executor language in older docs is historical or compatibility refe
 executable contract explicitly calls it. Any live doc section that treats `codex exec`,
 ChatGPT-managed Codex auth, or `codex_runtime.py` as the current ARIA runtime authority is a
 documentation defect.
+
+## Offline Codex prerequisite — 2026-09-11
+
+The optional kernel-profile runtime selector now admits the exact Codex
+`gpt-6-astra` / `ultra` pair and carries it through the profile reader. The
+standalone Codex adapter accepts an explicit reasoning-effort argument. Fleet
+file/PATH probes respect the supplied home and an explicitly empty PATH.
+Shipped profiles, default models, grants and budgets are unchanged.
+
+This is an offline prerequisite, not native Codex execution or managed-auth
+acceptance. Existing CI/worker callers still use their existing execution path;
+the standalone adapter is not connected by this change. Probe file presence does
+not prove authentication, quota or actual model availability. Eighteen ordinary
+methods with seven passing subtests passed against the clean publication branch;
+the adapter transport was simulated and no model was invoked. Current source,
+callers, data boundaries and reading limits are addressable in
+[catalogue-codex-runtime.md](./catalogue-codex-runtime.md).
+
+The accepted implementation target requires managed Codex and Claude CLI
+sessions, with a distinct Z.ai API exception. The later native policy/auth/route
+work must enforce that target across all applicable execution entries before
+activation. Legacy API-key and Claude-redirect declarations retained by this
+compatibility slice are not approval to activate those paths. Published changes
+do not provision a secret, spend a model budget or activate a service.
 
 ## State And Lifecycle
 

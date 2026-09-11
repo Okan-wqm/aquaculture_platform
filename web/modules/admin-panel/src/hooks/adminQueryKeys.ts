@@ -122,6 +122,18 @@ export const adminKeys = {
     /** The revenue series. Range AND granularity belong in the key. */
     revenueTrend: (range: string, granularity: string) =>
       [...adminKeys.billing.all(), 'revenue-trend', range, granularity] as const,
+    /**
+     * The metered-usage dashboard's four reads. Usage drives invoices, so each
+     * carries its own discriminators: a trend for one period must not overwrite
+     * another's, nor a top-tenants list for one meter another meter's.
+     */
+    usageSummary: (period: string) => [...adminKeys.billing.all(), 'usage-summary', period] as const,
+    usageTenants: (params?: Record<string, unknown>) =>
+      [...adminKeys.billing.all(), 'usage-tenants', params] as const,
+    usageTrends: (period: string, numPeriods: number) =>
+      [...adminKeys.billing.all(), 'usage-trends', period, numPeriods] as const,
+    usageTopTenants: (meterType: string, period: string) =>
+      [...adminKeys.billing.all(), 'usage-top-tenants', meterType, period] as const,
     /** The subscription list, per filter and page. */
     subscriptions: (filters?: Record<string, unknown>) =>
       [...adminKeys.billing.all(), 'subscriptions', filters] as const,

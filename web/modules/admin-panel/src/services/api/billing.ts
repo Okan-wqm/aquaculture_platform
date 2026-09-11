@@ -373,14 +373,48 @@ export const billingApi = {
     apiFetch<CustomPlan>(`/billing/custom-plans/${planId}/clone`, { method: 'POST', body: JSON.stringify({ newTenantId }) }),
 
   // Usage Metering
-  getUsageSummary: (params?: { period?: AggregationPeriod; dateFrom?: string; dateTo?: string }) =>
-    apiFetch<UsageSummaryStats>(`/billing/usage/summary?${buildQueryString(params || {})}`),
-  getAllTenantsUsage: (params?: { period?: AggregationPeriod; dateFrom?: string; dateTo?: string; limit?: number; offset?: number }) =>
-    apiFetch<{ tenants: TenantUsageOverview[]; total: number }>(`/billing/usage/tenants?${buildQueryString(params || {})}`),
+  getUsageSummary: (
+    params?: { period?: AggregationPeriod; dateFrom?: string; dateTo?: string },
+    signal?: AbortSignal,
+  ) =>
+    apiFetch<UsageSummaryStats>(`/billing/usage/summary?${buildQueryString(params || {})}`, {
+      signal,
+    }),
+  getAllTenantsUsage: (
+    params?: {
+      period?: AggregationPeriod;
+      dateFrom?: string;
+      dateTo?: string;
+      limit?: number;
+      offset?: number;
+    },
+    signal?: AbortSignal,
+  ) =>
+    apiFetch<{ tenants: TenantUsageOverview[]; total: number }>(
+      `/billing/usage/tenants?${buildQueryString(params || {})}`,
+      { signal },
+    ),
   getTenantUsageOverview: (tenantId: string, params?: { period?: AggregationPeriod; dateFrom?: string; dateTo?: string }) =>
     apiFetch<TenantUsageOverview>(`/billing/usage/tenant/${tenantId}?${buildQueryString(params || {})}`),
-  getUsageTrends: (params?: { period?: AggregationPeriod; meterType?: MeterType; tenantId?: string; numPeriods?: number }) =>
-    apiFetch<UsageTrendPoint[]>(`/billing/usage/trends?${buildQueryString(params || {})}`),
-  getTopTenantsByUsage: (meterType: MeterType, params?: { period?: AggregationPeriod; limit?: number; dateFrom?: string; dateTo?: string }) =>
-    apiFetch<TopTenantUsage[]>(`/billing/usage/top-tenants?${buildQueryString({ meterType, ...(params || {}) })}`),
+  getUsageTrends: (
+    params?: {
+      period?: AggregationPeriod;
+      meterType?: MeterType;
+      tenantId?: string;
+      numPeriods?: number;
+    },
+    signal?: AbortSignal,
+  ) =>
+    apiFetch<UsageTrendPoint[]>(`/billing/usage/trends?${buildQueryString(params || {})}`, {
+      signal,
+    }),
+  getTopTenantsByUsage: (
+    meterType: MeterType,
+    params?: { period?: AggregationPeriod; limit?: number; dateFrom?: string; dateTo?: string },
+    signal?: AbortSignal,
+  ) =>
+    apiFetch<TopTenantUsage[]>(
+      `/billing/usage/top-tenants?${buildQueryString({ meterType, ...(params || {}) })}`,
+      { signal },
+    ),
 };

@@ -834,6 +834,38 @@ in `web/` reaches the logout authority; `@tanstack/react-query` is declared
 wherever it is imported, at the federation-pinned version; the barrel keeps
 exporting the primitives.
 
+## ADMIN-HIGH-140 — "No usage data", on the surface invoices are built from
+
+**State:** OPEN → closed by W9e · **Wave:** W9e · **Owner:** okan
+**Deadline:** 2026-12-31
+
+The page ran four reads — summary, all-tenants usage, trends, top-tenants —
+and **only the summary destructured an `error`.** The other three discarded
+theirs entirely, and each rendered its failure as an empty result:
+
+| failed read | what the operator saw                        |
+| ----------- | -------------------------------------------- |
+| trends      | _"No usage data for this period"_            |
+| top-tenants | _"No tenant usage data for this meter type"_ |
+| all-tenants | _"No tenant usage data available"_           |
+
+On a metered-billing dashboard those are claims about **consumption**, and
+consumption is exactly what the invoice is computed from. An unanswered request
+is not zero usage.
+
+**Second defect, same page.** The button labelled **"Refresh Data"** called
+`refreshSummary` — it refreshed one of the four reads. An operator pressing it
+to get current numbers got one current number and three stale ones, with
+nothing on screen to tell them apart.
+
+W9e moves all four reads to `useAdminQuery` on
+`adminKeys.billing.usageSummary` / `usageTenants` / `usageTrends` /
+`usageTopTenants` — each keyed by its own discriminators, so a trend for one
+period cannot overwrite another's, nor a top-tenants list for one meter
+another meter's — threads an abort signal through all four client functions,
+surfaces every failed read through `QueryFailureNotice`, and points both
+refresh controls at all four queries.
+
 ## ADMIN-HIGH-139 — a Retry that could never leave the state it retried
 
 **State:** OPEN → closed by W9d · **Wave:** W9d · **Owner:** okan

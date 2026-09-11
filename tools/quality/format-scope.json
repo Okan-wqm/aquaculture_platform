@@ -1076,7 +1076,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "43bbe6e6dd84f1de7bdcc9f1808fe9d51fd04c65931f9d869920284b7eb8bf34",
+      "content_sha256": "15e9a73fbcc130e73752111bc1312279171b75cd61d60f0edbc05a865390f6cc",
       "hash_policy": "sha256",
       "owner": "admin-openapi-generator",
       "path": "apps/admin-api-service/openapi.json",
@@ -1347,6 +1347,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/billing/dto/module-price-response.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/billing/dto/payment-stats-response.dto.ts",
       "prettier_managed": true
     },
     {
@@ -50988,6 +50994,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/__tests__/BillingDashboardPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/pages/__tests__/CreateTenantPage.spec.tsx",
       "prettier_managed": true
     },
@@ -51012,6 +51024,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/__tests__/InvoicesPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/pages/__tests__/ModulesPage.spec.tsx",
       "prettier_managed": true
     },
@@ -51019,6 +51037,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/admin-panel/src/pages/__tests__/OnboardingPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/__tests__/PaymentsPage.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -51503,7 +51527,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "18071e2ded05b23a74f3fab213b5797904e0d9d2ba689860c2d56ddab3d69a16",
+      "content_sha256": "9ebad838657dcc4e19f730819f707b1448751cbd930f1ca72d5648a339de09f7",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/modules/admin-panel/src/services/generated/admin-api.ts",

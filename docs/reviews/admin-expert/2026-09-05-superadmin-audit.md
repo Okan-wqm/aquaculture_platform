@@ -834,6 +834,107 @@ in `web/` reaches the logout authority; `@tanstack/react-query` is declared
 wherever it is imported, at the federation-pinned version; the barrel keeps
 exporting the primitives.
 
+## ADMIN-HIGH-138 — "Net Revenue", computed from the 50 rows on screen
+
+**State:** OPEN → closed by W9c · **Wave:** W9c · **Owner:** okan
+**Deadline:** 2026-12-31
+
+The three money cards — **Succeeded Amount**, **Refunded**, **Net Revenue** —
+were summed _in the browser_ from `payments`: one page of at most 50 rows,
+narrowed further by whatever status filter was active. Two consequences, both
+on the platform's revenue figure:
+
+- filter the list to `failed` and **Net Revenue read $0**, because no succeeded
+  row was in the array being summed;
+- any platform with more than 50 payments saw the net of its **first page**
+  presented as its net revenue.
+
+The aggregate belongs to the server, which already ran the `GROUP BY` that
+produced the counts. `summarizePaymentStatusCounts` now also returns
+`succeededAmount` and `refundedAmount`, and both SQL windows select
+`COALESCE(SUM(p.refunded_amount), 0)`. `refundedAmount` sums `refunded_amount`
+rather than the amount of rows whose _status_ is refunded — a partially
+refunded payment captured in full and returned only part of itself, a
+distinction the client-side sum could not make.
+
+Surfacing those fields exposed a second defect. `GET /billing/payments/stats`
+was typed by an **interface**, and the `@nestjs/swagger` plugin describes
+classes only, so the generated artifact carried `"schema": {"type": "object"}`
+for an endpoint the admin-panel reads its money cards from — which is precisely
+what invited the frontend to hand-write its own `PaymentStats` beside the
+contract (CONTRACT-CRITICAL-003). A `PaymentStatsResponseDto` class now types
+the response, the artifact carries a `$ref`, and the frontend type is an
+`ApiSchema` alias.
+
+Also removed from the page: an `as unknown as string` cast inside a
+`typeof`-narrowed branch (banned, and type-checking nothing), a floating
+`fetchPayments()` in a `useEffect` and after two writes, and `data.total || 0`.
+
+## ADMIN-HIGH-137 — "Overdue: $0", asserted before billing had answered
+
+**State:** OPEN → closed by W9b · **Wave:** W9b · **Owner:** okan
+**Deadline:** 2026-12-31
+
+- **Five money totals seeded with zeros.** They lived in
+  `useState<InvoiceStats>({totalInvoices: 0, totalAmount: 0, totalPaid: 0,
+totalPending: 0, totalOverdue: 0})`. Before billing answered — and
+  _permanently_ if `getInvoiceStats` failed, because the catch set an error
+  string and left the zeros standing — the page asserted **$0 owed, $0 overdue,
+  0 invoices**. A zero owed is a specific and reassuring claim about
+  receivables; an unanswered request is no basis for it.
+- **A page-local type shadowing the contract.** `interface InvoiceStats`
+  restated five of the contract type's eleven fields, so the page was
+  structurally blind to `byStatus`, `byCurrency`, `avgPaymentTime`,
+  `overdueRate`, `paidThisMonth` and `pendingThisMonth`, and could drift from
+  the server's shape without the compiler noticing.
+- **A filter row missing three of the eight states.** It offered `all`, `paid`,
+  `pending`, `overdue`, `void`. A `draft`, a `sent` invoice, a `partially_paid`
+  one and a `refunded` one could not be filtered for at all — those rows were
+  reachable only by scrolling an unfiltered list.
+
+W9b moves both reads to `useAdminQuery` on `adminKeys.billing.invoices(filters)`
+and `invoiceStats()` with abort signals, deletes the shadow type in favour of
+the contract's, renders an em dash wherever a total has not loaded, surfaces
+either failed read through `QueryFailureNotice`, takes the filter options from
+the server's full vocabulary, and replaces the three writes' hand-rolled
+`Promise.all([fetchInvoices(), fetchStats()])` with one reload of both queries.
+
+## ADMIN-HIGH-136 — three untrue statements about money, on one overview
+
+**State:** OPEN → closed by W9a · **Wave:** W9a · **Owner:** okan
+**Deadline:** 2026-12-31
+
+The billing overview is the page an operator reads to know what the platform
+earns and is owed. It stated three things that were not so.
+
+- **A failed read shown as an absence of money.** The "Recent Transactions"
+  feed loaded behind a bare `catch { return [] }`, so billing being unreachable
+  rendered as _"No recent transactions"_ — a claim that the platform took no
+  money, produced by a request that never answered.
+- **A real zero replaced by another question's answer.** The metrics used `||`
+  where `??` was meant: `subs.mrr || revenue.mrr`. `||` treats a genuine `0` as
+  absent, so a tenant base that really bills nothing displayed the _analytics_
+  MRR under the _subscriptions_ heading. Not a stale number — a different
+  number. Same for `arr` and `averageRevenuePerUser`.
+- **Six receivable states restated as failures.** `billing.invoices.status`
+  holds eight values (`draft`, `pending`, `sent`, `paid`, `partially_paid`,
+  `overdue`, `void`, `refunded`). The feed mapped `paid` and `pending` and
+  called **everything else "failed"**, with a red badge. An overdue invoice is
+  money still owed, not money that failed to move; a refund is money returned,
+  not a failure; a draft has not been sent to anyone.
+
+W9a moves all three reads to `useAdminQuery` on
+`adminKeys.billing.dashboardMetrics()` / `revenueTrend()` / `recentInvoices()`,
+threading an abort signal through `getRevenueAnalytics`, `getSubscriptionStats`,
+`getInvoiceStats`, `getPaymentStats` and `getInvoices`. The fallbacks become
+`??`; each failed read renders `QueryFailureNotice` naming it, distinct from a
+genuine empty result; and each of the eight invoice states gets its own label
+and badge. The trend panel likewise stops rendering a failed series as a range
+with no revenue in it.
+
+`paymentSuccessRate` was already correct — it renders an em dash when there
+have been no attempts — and is left alone.
+
 ## ADMIN-HIGH-135 — a price sheet that failed, offered anyway at a guessed price
 
 **State:** OPEN → closed by W8v · **Wave:** W8v · **Owner:** okan

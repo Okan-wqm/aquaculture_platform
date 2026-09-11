@@ -5,7 +5,7 @@
  * Supports metric-based pricing with tier multipliers.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Card, Button, Badge, Input, Alert } from '@aquaculture/shared-ui';
 import {
   billingApi,
@@ -15,6 +15,8 @@ import {
   TierMultipliers,
   PricingMetric,
 } from '../services/adminApi';
+import { adminKeys, useAdminMutation, useAdminQuery } from '../hooks';
+import { QueryFailureNotice } from '../components/QueryFailureNotice';
 
 // ============================================================================
 // Metric Labels
@@ -114,38 +116,42 @@ interface EditablePricing {
 // ============================================================================
 
 const ModulePricingPage: React.FC = () => {
-  const [pricings, setPricings] = useState<ModulePricingWithModule[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [selectedPricing, setSelectedPricing] = useState<ModulePricingWithModule | null>(null);
   const [showDetails, setShowDetails] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [saving, setSaving] = useState(false);
 
   // Edit form state
   const [editForm, setEditForm] = useState<EditablePricing | null>(null);
 
-  useEffect(() => {
-    loadPricings();
-  }, []);
+  /**
+   * The price sheets. The failed-read path used to write `console.error` and
+   * then set the string "Failed to load module pricings. Please try again." —
+   * discarding what the server actually said, so an operator could not tell a
+   * refusal from an outage and retrying could only ever reproduce it.
+   */
+  const pricingsQuery = useAdminQuery<ModulePricingWithModule[]>(
+    adminKeys.billing.modulePricing(),
+    ({ signal }) => billingApi.getModulePricingWithModules(signal),
+  );
+  const pricings: ModulePricingWithModule[] = pricingsQuery.data ?? [];
+  const loading = pricingsQuery.isPending;
 
-  const loadPricings = async () => {
-    setLoading(true);
-    try {
-      const data = await billingApi.getModulePricingWithModules();
-      const safeData = Array.isArray(data) ? data : [];
-      setPricings(safeData);
-      setError(null);
-    } catch (err) {
-      console.error('Failed to load module pricings:', err);
-      setError('Failed to load module pricings. Please try again.');
-      setPricings([]);
-    } finally {
-      setLoading(false);
-    }
-  };
+  /**
+   * Saving a sheet. Same defect on the write side, and worse there: the server
+   * REFUSES an out-of-range multiplier with a reason (the contract takes an
+   * exact decimal string in (0, 10] — see handleTierMultiplierChange), and this
+   * page replaced that reason with "Please try again." The operator retried the
+   * same rejected value forever. The mutation surfaces the server's own message
+   * and invalidates the sheet list instead of hand-reloading it.
+   */
+  const saveMutation = useAdminMutation(
+    (input: { id: string; body: Parameters<typeof billingApi.updateModulePricing>[1] }) =>
+      billingApi.updateModulePricing(input.id, input.body),
+    { invalidateKeys: [adminKeys.billing.modulePricing()] },
+  );
+  const saving = saveMutation.isPending;
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
@@ -192,7 +198,7 @@ const ModulePricingPage: React.FC = () => {
       notes: pricing.notes || '',
     });
     setShowEdit(true);
-    setError(null);
+    saveMutation.reset();
     setSuccess(null);
   };
 
@@ -213,7 +219,13 @@ const ModulePricingPage: React.FC = () => {
   const handleMetricIncludedChange = (metricType: PricingMetricType, value: string) => {
     if (!editForm) return;
 
-    const includedQuantity = parseInt(value) || 0;
+    // Not `parseInt(value) || 0`: that turned "1OO" into 1 and "abc" into 0,
+    // silently, on a field that decides what a tenant is charged for. An
+    // unparseable entry leaves the quantity alone; the same reasoning
+    // handleTierMultiplierChange already records for the multiplier.
+    const parsed = Number.parseInt(value, 10);
+    if (value.trim() !== '' && Number.isNaN(parsed)) return;
+    const includedQuantity = value.trim() === '' ? 0 : parsed;
     const updatedMetrics = editForm.pricingMetrics.map((m) =>
       m.metricType === metricType ? { ...m, includedQuantity } : m,
     );
@@ -269,31 +281,27 @@ const ModulePricingPage: React.FC = () => {
   };
 
   // Save changes
-  const handleSave = async () => {
+  const handleSave = (): void => {
     if (!editForm) return;
+    const moduleName = editForm.moduleName;
 
-    setSaving(true);
-    setError(null);
-
-    try {
-      await billingApi.updateModulePricing(editForm.id, {
-        pricingMetrics: editForm.pricingMetrics,
-        tierMultipliers: editForm.tierMultipliers,
-        notes: editForm.notes,
-      });
-
-      setSuccess(`Pricing for ${editForm.moduleName} updated successfully!`);
-      setShowEdit(false);
-      setEditForm(null);
-
-      // Reload data
-      await loadPricings();
-    } catch (err) {
-      console.error('Failed to save pricing:', err);
-      setError('Failed to save pricing. Please try again.');
-    } finally {
-      setSaving(false);
-    }
+    saveMutation.mutate(
+      {
+        id: editForm.id,
+        body: {
+          pricingMetrics: editForm.pricingMetrics,
+          tierMultipliers: editForm.tierMultipliers,
+          notes: editForm.notes,
+        },
+      },
+      {
+        onSuccess: () => {
+          setSuccess(`Pricing for ${moduleName} updated successfully!`);
+          setShowEdit(false);
+          setEditForm(null);
+        },
+      },
+    );
   };
 
   const filteredPricings = pricings.filter(
@@ -328,7 +336,7 @@ const ModulePricingPage: React.FC = () => {
           </p>
         </div>
         <div className="mt-4 sm:mt-0 flex gap-2">
-          <Button variant="outline" onClick={loadPricings}>
+          <Button variant="outline" onClick={() => void pricingsQuery.refetch()}>
             Refresh
           </Button>
         </div>
@@ -340,11 +348,16 @@ const ModulePricingPage: React.FC = () => {
           {success}
         </Alert>
       )}
-      {error && (
-        <Alert type="error" dismissible onDismiss={() => setError(null)}>
-          {error}
-        </Alert>
-      )}
+      {/*
+        Whatever the read or the save actually said — not "Please try again".
+        The server refuses an out-of-range multiplier WITH a reason, and that
+        reason is the only thing that tells the operator what to change.
+      */}
+      <QueryFailureNotice
+        errors={[pricingsQuery.error, saveMutation.error]}
+        hasContent={pricings.length > 0}
+        onRetry={() => void pricingsQuery.refetch()}
+      />
 
       {/* Info Banner */}
       <Card className="p-4 bg-indigo-50 border-indigo-200">

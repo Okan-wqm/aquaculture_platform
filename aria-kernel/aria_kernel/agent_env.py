@@ -45,6 +45,17 @@ BASELINE_ENV_NAMES: tuple[str, ...] = (
 CLAUDE_AUTH_ENV_NAMES: tuple[str, ...] = ("CLAUDE_CONFIG_DIR", "CLAUDE_CODE_OAUTH_TOKEN")
 # The CLI's configuration namespace (non-secret members only — see the filter).
 CLAUDE_CONFIG_ENV_PREFIX = "CLAUDE_CODE_"
+# What a RUNNING Claude Code process exports to its own children — its
+# session identity, its messaging bridge, how it was started. These share the
+# configuration prefix but configure nothing: passing them would nest the
+# agent under the operator's interactive session instead of the kernel's own
+# `--session-id`. Measured on the managed route's first live dispatch from an
+# operator shell (2026-09-11): every one of them reached the executor.
+CLAUDE_INSTANCE_ENV_NAMES: tuple[str, ...] = (
+    "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_BRIDGE_SESSION_ID",
+    "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN",
+    "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_EXECPATH",
+)
 # ARIA runtime facts the spawn is allowed to know (none is a credential).
 ARIA_RUNTIME_ENV_NAMES: tuple[str, ...] = (
     "IS_SANDBOX", "ARIA_JOB_DEADLINE_EPOCH", "ARIA_CLAUDE_SANDBOX",
@@ -189,7 +200,8 @@ def build_agent_env(
             env[name] = value
             passed.append(name)
             continue
-        if name.startswith(CLAUDE_CONFIG_ENV_PREFIX) and not SECRET_SHAPED_ENV_NAME.search(name):
+        if (name.startswith(CLAUDE_CONFIG_ENV_PREFIX) and name not in CLAUDE_INSTANCE_ENV_NAMES
+                and not SECRET_SHAPED_ENV_NAME.search(name)):
             env[name] = value
             passed.append(name)
             continue
@@ -241,6 +253,7 @@ __all__ = [
     "BASELINE_ENV_NAMES",
     "CLAUDE_AUTH_ENV_NAMES",
     "CLAUDE_CONFIG_ENV_PREFIX",
+    "CLAUDE_INSTANCE_ENV_NAMES",
     "SECRET_SHAPED_ENV_NAME",
     "build_agent_env",
     "cleanup_synthetic_home",

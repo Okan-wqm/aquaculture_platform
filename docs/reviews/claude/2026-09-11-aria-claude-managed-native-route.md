@@ -131,3 +131,112 @@ it, an agent that records the names it sees: the probe and the run both
 carry the bus, the request is ACCEPTED, the agent saw neither name. On the
 pre-fix spawn the same test fails with the live message. The existing Codex
 plumbing test passes unchanged through the shared helper.
+
+## Addendum — ARIA-HIGH-077: what the attempt named was not what ran
+
+**Finding:** ARIA-HIGH-077 — closed by this branch; this section is its evidence.
+
+Trial six, cross-review, dispatch three (2026-09-11T22:22Z), with the
+limiter fixed: the spawn ran 164 s and exited 1 — `Settings file not found:
+/tmp/aria-spawn-settings/aria-settings-AIR-aria-cross-reviewer-1da71e60e0ee.json`.
+The file existed on the host (0600, written 22:22:37). Three things were
+wrong at once, all inside the write-containment sandbox the judge shape
+runs under:
+
+- **A different CLI ran.** The spawn named `claude`; the sandbox binds
+  `/usr` and not `~/.local`, so `PATH` inside it resolved
+  `/usr/local/bin/claude` — the npm install, 2.1.233 — while the executor
+  had probed `~/.local/bin/claude`, 2.1.269. The attempt row's identity
+  and the process were two installations.
+- **The spawn's own documents were hidden.** Settings and MCP config were
+  written under the host `/tmp`; the sandbox mounts a fresh tmpfs there.
+  On the CI runner `RUNNER_TEMP` moves them elsewhere, which is why this
+  never surfaced in a nightly — and why it would have, on the next host.
+- **The operator's whole login directory was bound read-only.** The CLI
+  writes its own state into its config dir; on a read-only mount it stalls.
+  Measured with the real CLI in the real sandbox, one-turn haiku run: 37 s
+  with the directory bound, 2.7 s with a private home holding only the
+  credential file.
+
+And one more, observed on the same dispatch: the operator session's own
+child exports (`CLAUDE_CODE_SESSION_ID`, `CLAUDE_CODE_CHILD_SESSION`,
+`CLAUDE_CODE_MESSAGING_SOCKET`, `CLAUDE_CODE_BRIDGE_SESSION_ID`, …) reached
+the executor and passed the `CLAUDE_CODE_` configuration-prefix filter into
+the agent — nesting it under the interactive session instead of the
+kernel's `--session-id`.
+
+**Fix.** `implementation_safety.wrap_managed_claude_in_sandbox` — the
+mirror of the Codex lane's runtime-state wrapper — binds exactly what the
+spawn depends on: the executable resolved OUTSIDE the sandbox (run by that
+absolute path), the parent directories of the documents written for this
+spawn (refused by name if they overlap the workspace), and the login
+directory's `.credentials.json` alone, into the private home's `.claude`,
+which `--setenv CLAUDE_CONFIG_DIR` makes the CLI's config dir; a login
+carried by `CLAUDE_CODE_OAUTH_TOKEN` binds nothing. `run_claude_exec`
+resolves the CLI once on the built environment's PATH
+(`_resolve_claude_executable`, symlinks followed) and runs that path in
+every shape. `agent_env.CLAUDE_INSTANCE_ENV_NAMES` names the session's
+child exports and keeps them out.
+
+**Proof.** `tests/test_managed_claude_sandbox.py` (6) pins the wrapper's
+mounts; the executor lane test now records, from inside the real sandbox,
+the executable that ran, the visibility of both documents, the config dir
+and the credential file, and the absence of the host login directory;
+`I-V12-ENV-03` follows the new contract with a fixture binary; the env
+invariants gain the session-identity exclusion. Live evidence follows in
+the next section.
+
+## Live evidence — the first managed-Claude native run, and ARIA-HIGH-078
+
+Trial six, cross-review, dispatch four (`AIR-aria-cross-reviewer-1da71e60e0ee`,
+claim `claim_f7acce6ca4be2ad1`, 2026-09-11T22:39:15Z → 22:44:03Z): with
+ARIA-HIGH-075/076/077 in place the managed Anthropic route ran end to end for
+the first time — `runtime_attempt_started` (`anthropic` / `claude` /
+`subscription`, model `opus`, effort `max`), the real CLI inside the real
+sandbox, `claude_returned_exit=0` after 334 s, the usage row ledgered
+(`usage_ledger_hash` on `runtime_attempt_finished`, `result_admission
+pending_native_submit`), `pre_submit_validation_passed`. The 23.6 KB answer
+is a grounded bidirectional review: 13 evidence references, two blocking
+risks against the seed primary ("a restatement of the task, not a plan"),
+a narrowing recommendation for the challenger's surfaces.
+
+The kernel rejected it at submit: `response_schema:
+satisfaction_matrix[0].note required when verdict='contradicted'`. The
+model had put its reason under `evidence` — exactly as anchor 3 of its own
+contract said (`{id, verdict, evidence_refs?, evidence?}` … "the kernel
+reads `id` + `verdict` only"), and as the canonical-envelope SSoT skeleton
+showed (no `note` field). The validator has required `note` +
+`evidence_refs` on `blocked`/`contradicted` all along. The contract and
+the validator disagreed, and the model obeyed the contract.
+
+Then the executor tried to release the claim (`reason=submit_rejected`),
+the kernel refused — `claim … result already terminal`, because a REJECTED
+result row IS the claim's terminal effect — and the executor printed "The
+request stays CLAIMED and no later run can pick it up", which is false:
+`derive_request_state` returns `REJECTED` from that row, and the drainer
+escalates the plan (`convergence_envelope_dead:cross_review`).
+
+**Fix (ARIA-HIGH-078).** `agent_contract.render_response_validator_contract()`
+renders the validator's rules — required fields, statuses, verdicts, the
+`note` + `evidence_refs` requirement, banned phrases, refusal classes — from
+the constants the validator itself uses, and `agent_contract_delivery`
+appends it to every delivered contract, after the inlined knowledge: the
+validator speaks last, and prose can no longer promise what submit refuses.
+The three prose sites are corrected too. `ci_executor` releases only when
+the submit refused BEFORE a result row (`_rejected_result_recorded` reads
+the kernel's own answer); a recorded rejection is logged as the terminal
+effect it is. The lifecycle-leak invariant — red on the candidate since the
+executor's `main` → `_main` split — follows `_main` and scopes its check
+to the window in which a claim is actually held.
+
+**Proof.** `test_agent_contract_delivery` (2 new): the delivered contract
+ends with the rendered rules, and the live envelope's shape is rejected by
+`validate_response` exactly as recorded while the same entry with `note`
+passes. `test_agent_claim_lifecycle_leak` (2 new): the kernel's rejected
+document is recognised, a pre-row refusal is not, and the release sits in
+the `else` of that test.
+
+**Not this finding.** The trial-six plan is now `HUMAN_REQUIRED`
+(`convergence_envelope_dead:cross_review`) by design — one rejected
+envelope ends the round. The next live cross-review runs on a fresh trial
+with the corrected contract.

@@ -886,6 +886,60 @@ def _wrap_runtime_state_in_sandbox(
             + child_environment + command[separator:])
 
 
+CLAUDE_LOGIN_CREDENTIALS_FILENAME = ".credentials.json"
+"""The one file of the managed login directory a contained Claude spawn receives."""
+
+
+def wrap_managed_claude_in_sandbox(
+    argv: list[str], *, workspace_root: Path, write_scope: Sequence[str] | None,
+    executable: Path, spawn_files: Sequence[Path], managed_login_dir: Path | None,
+) -> list[str]:
+    """Contain a Claude CLI spawn so that what the attempt names is what runs.
+
+    On top of :func:`wrap_bash_in_sandbox` (system, network, workspace,
+    READONLY_PATHS, private /tmp and home) this binds exactly three things
+    the spawn depends on and the sandbox would otherwise hide:
+
+    * ``executable`` — the CLI resolved OUTSIDE the sandbox, bound read-only
+      and run by that absolute path. Measured 2026-09-11 (ARIA-HIGH-077):
+      the managed route's first live attempt ran ``claude`` by name; the
+      installation the executor had probed lives under ``~/.local``, which
+      the sandbox does not bind, so ``PATH`` inside it resolved a different,
+      older installation under ``/usr/local``.
+    * the parent directories of ``spawn_files`` — the settings and MCP
+      documents the spawn wrote for THIS run. They lived under ``/tmp``, and
+      the sandbox mounts a fresh tmpfs there: ``Settings file not found``.
+    * ``managed_login_dir/.credentials.json`` alone, into the private home's
+      ``.claude``, which becomes the CLI's config dir. The mirror of the
+      Codex lane's single auth-file mount: the operator's sessions, history
+      and ``.claude.json`` stay hidden, and the CLI writes its own state into
+      the ephemeral home instead of stalling on a read-only login directory
+      (37 s against 2.7 s for the same one-turn run, measured the same day).
+      A login carried by ``CLAUDE_CODE_OAUTH_TOKEN`` needs no file; nothing
+      is bound then.
+    """
+    workspace = Path(workspace_root).resolve(strict=True)
+    binary = Path(executable).resolve(strict=True)
+    if not binary.is_file():
+        raise SandboxUnavailable("claude_executable_unavailable")
+    documents = tuple(dict.fromkeys(Path(path).resolve(strict=True).parent for path in spawn_files))
+    if any(directory.is_relative_to(workspace) or workspace.is_relative_to(directory) for directory in documents):
+        raise SandboxUnavailable("spawn_document_directory_overlaps_workspace")
+    command = wrap_bash_in_sandbox(
+        [str(binary), *argv[1:]], workspace_root=workspace, allow_network=True,
+        write_scope=write_scope, extra_ro_binds=(binary, *documents),
+    )
+    separator = command.index("--")
+    private_config_dir = f"{SANDBOX_HOME}/.claude"
+    mounts = ["--die-with-parent", "--setenv", "CLAUDE_CONFIG_DIR", private_config_dir]
+    if managed_login_dir is not None:
+        credentials = Path(managed_login_dir) / CLAUDE_LOGIN_CREDENTIALS_FILENAME
+        if credentials.is_file():
+            mounts.extend(["--ro-bind", str(credentials.resolve(strict=True)),
+                           f"{private_config_dir}/{CLAUDE_LOGIN_CREDENTIALS_FILENAME}"])
+    return command[:separator] + mounts + command[separator:]
+
+
 class ResourceLimitsUnavailable(RuntimeError):
     """No usable limiter, so memory/CPU/task/wall-clock caps cannot apply.
 
@@ -2211,6 +2265,8 @@ __all__ = (
     "wrap_bash_in_sandbox",
     "ResourceLimitsUnavailable",
     "apply_resource_limits",
+    "CLAUDE_LOGIN_CREDENTIALS_FILENAME",
+    "wrap_managed_claude_in_sandbox",
     "LIMITER_CONTROL_ENV_NAMES",
     "limiter_control_environment",
     "truncate_validation_result",

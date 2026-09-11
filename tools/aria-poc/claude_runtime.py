@@ -254,6 +254,22 @@ def claude_binary() -> str:
     return os.environ.get(CLAUDE_BINARY_ENV_VAR, "claude")
 
 
+def _resolve_claude_executable(environ: Mapping[str, str]) -> Path:
+    """The real file behind the CLI name, found on the SPAWN environment's PATH.
+
+    A name is resolved again by whoever executes it, and a sandbox that does
+    not bind the operator's installation resolves it to another one: the
+    managed route's first live attempt probed 2.1.269 under ``~/.local`` and
+    ran 2.1.233 under ``/usr/local`` (ARIA-HIGH-077). Symlinks are followed
+    so the attempt names the installation itself.
+    """
+    name = claude_binary()
+    found = name if os.path.isabs(name) else shutil.which(name, path=environ.get("PATH", os.defpath))
+    if found is None or not Path(found).is_file():
+        raise ClaudeCliUnavailable(f"`{name}` binary not on the spawn environment's PATH")
+    return Path(found).resolve(strict=True)
+
+
 def assert_claude_policy_environment() -> None:
     """Fail closed on billing/auth modes that bypass managed Claude Code auth."""
     allow_api_key = _parse_bool(
@@ -605,9 +621,17 @@ def _apply_write_containment(
     permission_mode: str | None,
     workspace_root: str | Path | None,
     write_scope: Sequence[str] | None = None,
-    extra_ro_binds: Sequence[str] = (),
+    executable: Path | None = None,
+    spawn_files: Sequence[Path] = (),
+    managed_login_dir: Path | None = None,
 ) -> list[str]:
     """Wrap a write-capable spawn so READONLY_PATHS are enforced by the OS.
+
+    ``executable`` is the CLI resolved outside the sandbox (run by absolute
+    path inside it), ``spawn_files`` the documents this spawn wrote for the
+    CLI, ``managed_login_dir`` the login directory whose one credential file
+    is mounted into the private home — see the kernel's
+    ``wrap_managed_claude_in_sandbox`` (ARIA-HIGH-077).
 
     Fail-closed: with no sandbox backend the spawn is REFUSED unless the
     operator has set ``ARIA_ALLOW_UNCONFINED_WRITE``. Pre-fix
@@ -630,6 +654,7 @@ def _apply_write_containment(
         from aria_kernel.implementation_safety import (
             SandboxUnavailable,
             wrap_bash_in_sandbox,
+            wrap_managed_claude_in_sandbox,
         )
     except ImportError as exc:  # pragma: no cover - kernel always importable here
         raise ClaudePolicyViolation(
@@ -637,9 +662,13 @@ def _apply_write_containment(
             f"helper ({exc}); refusing to spawn a write-capable agent unconfined"
         ) from exc
     try:
-        return wrap_bash_in_sandbox(
-            argv, workspace_root=workspace, allow_network=True,
-            write_scope=write_scope, extra_ro_binds=extra_ro_binds,
+        if executable is None:
+            return wrap_bash_in_sandbox(
+                argv, workspace_root=workspace, allow_network=True, write_scope=write_scope,
+            )
+        return wrap_managed_claude_in_sandbox(
+            argv, workspace_root=workspace, write_scope=write_scope, executable=executable,
+            spawn_files=spawn_files, managed_login_dir=managed_login_dir,
         )
     except SandboxUnavailable as exc:
         if _parse_bool(
@@ -1176,13 +1205,20 @@ def run_claude_exec(
                **(dict(extra_env) if extra_env else {})},
     )
     config_dir = env_report.claude_config_dir if env_report is not None else None
+    # The binary the attempt names is the binary that runs: resolved ONCE,
+    # here, in the built environment's PATH, and run by that absolute path
+    # inside and outside the sandbox (ARIA-HIGH-077).
+    executable = _resolve_claude_executable(spawn_env)
+    argv[0] = str(executable)
     argv = _apply_write_containment(
         argv,
         skip_permissions=skip_permissions,
         permission_mode=permission_mode,
         workspace_root=cwd,
         write_scope=write_scope,
-        extra_ro_binds=(config_dir,) if config_dir else (),
+        executable=executable,
+        spawn_files=tuple(path for path in (settings_path, mcp_config_path) if path is not None),
+        managed_login_dir=Path(config_dir) if config_dir else None,
     )
     # ORPHAN-MEDIUM-459 — resource limits, applied by the spawner for the same
     # reason containment is. `apply_resource_limits` shipped with the sandbox

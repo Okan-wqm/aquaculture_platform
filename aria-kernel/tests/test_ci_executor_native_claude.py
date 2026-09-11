@@ -44,7 +44,7 @@ for _path in (_POC_DIR, _KERNEL_DIR):
 from tests import test_ci_executor_live_path_smoke as _smoke  # noqa: E402
 
 
-def _fake_claude(status: dict, response: dict, diagnostic: Path) -> str:
+def _fake_claude(status: dict, response: dict, host_login_dir: Path) -> str:
     return (
         f"#!{sys.executable}\n"
         "import json, os, sys\n"
@@ -59,7 +59,15 @@ def _fake_claude(status: dict, response: dict, diagnostic: Path) -> str:
         # so the child's observation travels INSIDE its answer, as the native
         # Codex fixture does, rather than through a file it might not reach.
         f"response = {response!r}\n"
+        # ARIA-HIGH-077: which binary ran, whether the documents the spawn
+        # wrote are visible, and which config dir the CLI was handed.
+        "flag = lambda name: argv[argv.index(name) + 1] if name in argv else None\n"
+        "config_dir = os.environ.get('CLAUDE_CONFIG_DIR', '')\n"
         "response['details']['ordinary_child_observation'] = {'prompt_head': prompt[:48], 'argv': argv,\n"
+        "    'executable': sys.argv[0], 'settings_visible': bool(flag('--settings')) and os.path.isfile(flag('--settings')),\n"
+        "    'mcp_visible': bool(flag('--mcp-config')) and os.path.isfile(flag('--mcp-config')),\n"
+        "    'config_dir': config_dir, 'credentials_visible': os.path.isfile(os.path.join(config_dir, '.credentials.json')),\n"
+        f"    'host_login_visible': os.path.exists({str(host_login_dir)!r}),\n"
         "    'key_names': [k for k in os.environ if k in ('ANTHROPIC_API_KEY','ARIA_ZAI_API_KEY','ARIA_ZAI_API_KEY_FILE','OPENAI_API_KEY',\n"
         "                                                   'DBUS_SESSION_BUS_ADDRESS','XDG_RUNTIME_DIR')],\n"
         "    'cwd': os.getcwd()}\n"
@@ -94,7 +102,6 @@ class NativeClaudeLane(unittest.TestCase):
         config_dir = self.home / ".claude"
         config_dir.mkdir(parents=True, exist_ok=True)
         (config_dir / ".credentials.json").write_text('{"fixture":"managed-session"}\n', encoding="utf-8")
-        self.diagnostic = self.root / "claude-diagnostic.json"
         self.response = {
             "satisfaction_matrix": [{"id": "provider-source", "verdict": "satisfied",
                                      "evidence_refs": ["src/model_fleet.py:1"],
@@ -116,10 +123,11 @@ class NativeClaudeLane(unittest.TestCase):
         }
         for name in ("ARIA_ZAI_API_KEY", "ARIA_ZAI_API_KEY_FILE", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
             self.environment.pop(name, None)
+        self.host_login_dir = config_dir
 
     def _install_claude(self, status: dict) -> None:
         executable = self.fixture_bin / "claude"
-        executable.write_text(_fake_claude(status, self.response, self.diagnostic), encoding="utf-8")
+        executable.write_text(_fake_claude(status, self.response, self.host_login_dir), encoding="utf-8")
         executable.chmod(0o755)
 
     def _run_executor(self) -> subprocess.CompletedProcess[str]:
@@ -143,6 +151,16 @@ class NativeClaudeLane(unittest.TestCase):
         self.assertTrue(diagnostic["prompt_head"].startswith("# Agent contract: aria-evidence-judge\n"), diagnostic["prompt_head"])
         self.assertEqual(diagnostic["key_names"], [])
         self.assertIn("-p", diagnostic["argv"])
+        # ARIA-HIGH-077 — inside the real sandbox: the executable the executor
+        # resolved ran by absolute path, the settings and MCP documents it
+        # wrote were visible, the CLI's config dir is the private home's and
+        # holds the one credential file, and the host login dir is not there.
+        self.assertEqual(diagnostic["executable"], str((self.fixture_bin / "claude").resolve()))
+        self.assertTrue(diagnostic["settings_visible"], diagnostic)
+        self.assertTrue(diagnostic["mcp_visible"], diagnostic)
+        self.assertEqual(diagnostic["config_dir"], "/tmp/aria-agent-home/.claude")
+        self.assertTrue(diagnostic["credentials_visible"], diagnostic)
+        self.assertFalse(diagnostic["host_login_visible"], diagnostic)
         self.assertEqual(output["role"], "evidence_judgment")
         self.assertTrue(output["details"]["agent_contract_hash"].startswith("sha256:"))
         attempt_rows = [row for row in governance if row["kind"] == "runtime_attempt_started"

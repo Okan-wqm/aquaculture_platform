@@ -436,3 +436,25 @@ re-budget), not a dropped night. Owner claude; open.
 raised`, the row written to the checkout, `KnowledgeGraphTamper`
   escaping, doctor `ok` with sources=0, counters `{}`). Verified by
   `wf_00c868e8-647`; fixed and re-verified by `wf_06256544-bfc`.
+
+## ARIA-MEDIUM-102 — two candidate-only tests contradicted their contracts
+
+Both arrived with the Codex integration (`4f4918c88`) and were reported as
+pre-existing reds by four independent verifiers. (1) The memory hook's
+replay test demanded a `LedgerIntegrityError` on a torn trailing governance
+record; the ledger's contract (ORPHAN-CRITICAL-561) is that a torn tail was
+never acknowledged to any caller, is tolerated on read and healed by the
+next append — refusing would strand every pending observation behind one
+interrupted write. The test now pins that contract (the verified prefix is
+left byte-identical, the first append heals the tail, the observation is
+completed). (2) The convention-history test demanded that
+`_has_recorded_convention` refuse a row under an unknown `schema_version`,
+but `_observation_rows` verified both chains and no row schema, so a row the
+current schema cannot read could hide a conflicting observation.
+`_pattern_from_row` is now the one projection every reader uses (chain
+verification, then schema per row), shared with the promotion reader; and
+because the ledger stamps a silent row with its own format version (2), the
+conventions writer states `KNOWLEDGE_GRAPH_SCHEMA_VERSION` on every Pattern
+row before the ledger sees it — the mixed native/declared history the
+historical-defaults test exercises stays readable, an explicit unknown
+schema is refused.

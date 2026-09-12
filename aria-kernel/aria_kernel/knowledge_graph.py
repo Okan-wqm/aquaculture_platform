@@ -238,6 +238,9 @@ def _prepare_append(path: Path) -> str:
     return surface.name
 
 
+CONVENTIONS_SURFACE = "kg_conventions"
+
+
 def _append_row_locked(
     transaction: StateTransaction,
     path: Path,
@@ -245,10 +248,22 @@ def _append_row_locked(
     surface: str,
     previous: dict[str, Any] | None,
 ) -> None:
-    """Continue the native chain through the declared writer under its lock."""
+    """Continue the native chain through the declared writer under its lock.
+
+    A conventions row states its ``schema_version`` BEFORE the ledger sees
+    it: the ledger stamps a silent row with its own format version (2,
+    ``ledger.stamp_row_format``), which is not the Pattern schema (1) and
+    would make every reader refuse the row as an unknown schema. The writer
+    is the one place that can tell "a Pattern row that did not say" from "a
+    row under a schema this kernel does not know", so it says it here and
+    the readers keep refusing the latter.
+    """
+    stamped = dict(row)
+    if surface == CONVENTIONS_SURFACE:
+        stamped.setdefault("schema_version", KNOWLEDGE_GRAPH_SCHEMA_VERSION)
     transaction.append_declared_jsonl(
         path,
-        {**row, "prev_row_hash": _row_hash(previous) if previous else GENESIS_PREV_HASH},
+        {**stamped, "prev_row_hash": _row_hash(previous) if previous else GENESIS_PREV_HASH},
         expected_surface=surface,
     )
 
@@ -265,13 +280,38 @@ def _append_row(path: Path, row: dict[str, Any]) -> None:
         _append_row_locked(transaction, path, row, surface, previous)
 
 
+def _pattern_from_row(row: dict[str, Any]) -> Pattern:
+    """Project a stored observation row onto ``Pattern`` and validate it.
+
+    One projection for every reader of the observation history: a row that
+    does not satisfy the current schema (an unknown ``schema_version``, a
+    missing provenance field, a confidence out of range) is a
+    ``KnowledgeGraphSchemaError`` wherever it is read, never a row that is
+    silently skipped or matched on its surviving fields.
+    """
+    pattern_fields = {definition.name for definition in fields(Pattern)}
+    values = {key: value for key, value in row.items() if key in pattern_fields}
+    if isinstance(values.get("evidence_refs"), list):
+        values["evidence_refs"] = tuple(values["evidence_refs"])
+    try:
+        pattern = Pattern(**values)
+    except TypeError as exc:
+        raise KnowledgeGraphSchemaError(f"invalid convention Pattern: {exc}") from exc
+    _validate_pattern(pattern)
+    return pattern
+
+
 def _observation_rows(path: Path) -> list[dict[str, Any]]:
-    """Verify both chains before an observation decision, including a no-op.
+    """Verify both chains AND every row's schema before an observation decision.
 
     read_jsonl verifies transport envelopes, but plain dual-chain rows need
     explicit outer verification. Native-only history remains valid; any outer
     links present must follow the stored predecessor, including replay wrappers.
-    No quarantine/rewrite is performed by this writer.
+    Each row is then projected through :func:`_pattern_from_row`: a decision
+    about one pattern is only sound over a history whose every row the
+    current schema can read — a row under an unknown ``schema_version`` could
+    otherwise hide a conflicting observation behind fields the projection
+    happens to keep. No quarantine/rewrite is performed by this writer.
     """
     from .ledger import LedgerIntegrityError, _read_jsonl_stored, _record_hash
 
@@ -293,6 +333,8 @@ def _observation_rows(path: Path) -> list[dict[str, Any]]:
             previous_outer = row.get("ledger_hash")
     except (LedgerIntegrityError, OSError, UnicodeError) as exc:
         raise KnowledgeGraphTamper(str(exc)) from exc
+    for row in rows:
+        _pattern_from_row(row)
     return rows
 
 
@@ -780,14 +822,7 @@ def reconcile_convention_promotion(
         for parsed in rows:
             if parsed.get("plan_id") != plan_id:
                 continue
-            values = {key: value for key, value in parsed.items() if key in pattern_fields}
-            if isinstance(values.get("evidence_refs"), list):
-                values["evidence_refs"] = tuple(values["evidence_refs"])
-            try:
-                pattern = Pattern(**values)
-            except TypeError as exc:
-                raise KnowledgeGraphSchemaError(f"invalid convention Pattern: {exc}") from exc
-            _validate_pattern(pattern)
+            _pattern_from_row(parsed)
             if parsed.get("outcome_status") == "verified" and verified is None:
                 verified = parsed
             hypothesis = parsed

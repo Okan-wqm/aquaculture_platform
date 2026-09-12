@@ -582,17 +582,31 @@ class MemoryHookImplBehavioralTests(unittest.TestCase):
                                            signer_key_fp="SHA256:retry", report=retry)
         self.assertTrue(retry["observations"][0]["convention_recorded"])
 
-    def test_pending_selection_rejects_truncated_governance_snapshot(self) -> None:
-        from aria_kernel.ledger import LedgerIntegrityError
+    def test_pending_selection_survives_a_torn_governance_tail(self) -> None:
+        """ORPHAN-CRITICAL-561 — a torn trailing record is a crash artifact,
+        never a disclosure: the appender writes ``json + "\n"`` in one write,
+        so an unparseable final line without its newline was never
+        acknowledged to any caller. The verified prefix is the ledger; the
+        replay reads it, completes the observation it discloses, and the
+        first append heals the tail. Refusing here would leave every pending
+        observation stranded behind one interrupted write until an operator
+        truncated the file by hand — the earlier draft of this test pinned
+        that refusal against the ledger's own contract."""
+        from aria_kernel.ledger import load_jsonl, torn_tail_length
         hook = self._pending_observation()
         path = self.base / "governance.jsonl"
-        path.write_bytes(path.read_bytes() + b'{"partial":')
-        before = path.read_bytes()
-        with self.assertRaises(LedgerIntegrityError):
-            hook.complete_pending_observations(base_dir=self.base, signer_cycle_id="later",
-                                               signer_key_fp="SHA256:fixture", report={})
-        self.assertEqual(path.read_bytes(), before)
-        self.assertFalse((self.base / "knowledge-graph/conventions.jsonl").exists())
+        verified_prefix = path.read_bytes()
+        path.write_bytes(verified_prefix + b'{"partial":')
+        self.assertGreater(torn_tail_length(path.read_text(encoding="utf-8")), 0)
+        report = {}
+        hook.complete_pending_observations(base_dir=self.base, signer_cycle_id="later",
+                                           signer_key_fp="SHA256:fixture", report=report)
+        rows = load_jsonl(self.base / "knowledge-graph/conventions.jsonl")
+        self.assertEqual(len(rows), 1)
+        after = path.read_bytes()
+        self.assertTrue(after.startswith(verified_prefix), "the verified prefix is left byte-identical")
+        self.assertEqual(torn_tail_length(after.decode("utf-8")), 0, "the first append healed the torn tail")
+        self.assertNotIn(b'{"partial":', after)
 
     def test_success_audit_without_observation_cannot_suppress_later_retry(self) -> None:
         from aria_kernel.ledger import load_jsonl

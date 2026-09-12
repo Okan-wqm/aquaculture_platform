@@ -1705,9 +1705,24 @@ CANONICAL_VALIDATION_COMMANDS: tuple[str, ...] = (
 #
 # Derived rather than retyped so the two tuples cannot drift: the executable
 # form IS the canonical form with the runner prefix the allowlist requires.
+
+
+def executable_spelling(command: str) -> str:
+    """The spelling under which a declared command is RUN.
+
+    One rule, owned here beside the canonical tuple it derives: whitespace
+    collapsed, and the bare ``nx`` form the plan synthesizer emits given the
+    ``npx`` prefix ``parse_allowed_command`` pins argv-0 on. Staging
+    (``apply_engine``) and the plan contract (``plan_contract``) both read a
+    plan's ``validation_commands`` through this function, so the two cannot
+    disagree about whether a spelling is the canonical suite.
+    """
+    collapsed = " ".join(str(command).split())
+    return f"npx {collapsed}" if collapsed.startswith("nx ") else collapsed
+
+
 CANONICAL_VALIDATION_COMMANDS_EXECUTABLE: tuple[str, ...] = tuple(
-    f"npx {command}" if command.startswith("nx ") else command
-    for command in CANONICAL_VALIDATION_COMMANDS
+    executable_spelling(command) for command in CANONICAL_VALIDATION_COMMANDS
 )
 
 # ORPHAN-CRITICAL-728 — how long the canonical suite is allowed to take.
@@ -2376,6 +2391,7 @@ __all__ = (
     "CANONICAL_VALIDATION_COMMANDS",
     "CANONICAL_VALIDATION_COMMANDS_EXECUTABLE",
     "CANONICAL_VALIDATION_TIMEOUT_MS",
+    "executable_spelling",
     # exceptions
     "SecretLeakDetected",
     "PathEscape",

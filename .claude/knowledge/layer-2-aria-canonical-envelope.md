@@ -10,13 +10,19 @@ The kernel validators that enforce this shape:
 
 - `plan_convergence._validate_plan_content` — top-level required-fields check
 - `plan_convergence._normalize_challenger_plan` — extracts plan_content from challenger payload
-- `ci_executor._pre_submit_validate_envelope` — fail-fast operator-side gate
+- `plan_contract.plan_contract_violations` — the plan contract (`architectural_tier` +
+  admissible `validation_commands`), refused at `submit_claim_result`, at
+  `plan_convergence.submit_challenger_plan` / `record_revision`, and as the
+  `plan_contract_complete` gate row `evaluate_plan` records before CONVERGED
+- `ci_executor._pre_submit_validate_envelope` — fail-fast operator-side gate (calls the kernel's plan-contract check)
 - `ci_executor._canonicalize_plan_content` — V8.4 normalizer auto-fills missing fields from compatible sources
 
 ## Required plan_content fields
 
 The agent's response envelope carries a top-level `plan_content` object.
-The kernel requires seven fields with the rules below.
+The kernel requires seven fields with the rules below, plus the
+`architectural_tier` claim of the plan contract (next section) on every
+agent-authored body.
 
 | Field                 | Type   | Rule                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | --------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -25,13 +31,48 @@ The kernel requires seven fields with the rules below.
 | `summary`             | string | Non-empty; 2–5 sentence narrative                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `affected_surfaces`   | array  | Each entry is `{paths: [<repo-relative POSIX>...]}` — no leading `/`, no `\`, no `..`                                                                                                                                                                                                                                                                                                                                                                                     |
 | `key_changes`         | array  | Non-empty list of strings; each maps to one numbered plan step                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `validation_commands` | array  | Each entry is `{cmd: <non-empty string>, expected_exit?: int, timeout_ms?: int}`                                                                                                                                                                                                                                                                                                                                                                                          |
+| `validation_commands` | array  | Each entry is `{cmd: <non-empty string>, expected_exit?: int, timeout_ms?: int}` or `{recipe_id: <registered recipe>}`; `cmd` must name one of the admissible commands in the request's `plan_contract` block (matched after whitespace is collapsed; the bare `nx ...` form of a canonical command is read as its `npx nx ...` spelling — plan contract, below)                                                                                                          |
 | `evidence_refs`       | array  | Each entry MUST be `<repo-relative path>[:<line>]` resolvable to an existing file at the workspace SHA. To cite a finding as evidence, use the path form `aria-findings/F-NNN.json[:<line>]` — bare finding ids (`F-019`) are rejected by `evidence_validator._check_agent_ref` because they do not resolve to a file.                                                                                                                                                    |
 
 Extra plan_content keys are passed through and ignored by the kernel
 validator (operator-readable narrative survives). Recommended extras
 for forensic detail: `recursive_impact`, `architectural_approach`,
 `plan_steps_detailed`, `rollback`, `risks`.
+
+## Plan contract (`aria_kernel/plan_contract.py`)
+
+What a plan body must carry before the kernel accepts it and before it may
+CONVERGE — rendered into every planning envelope as the `plan_contract`
+block (and the `## Plan contract` prompt section) from the kernel constants
+and THIS store's recipe registry, and appended to every delivered agent
+contract by `agent_contract.render_response_validator_contract`. The rule
+here is the rule the refusal names; the first native CONVERGED plan (trial
+ten, 2026-09-12) died at staging because no contract had stated either.
+
+- `plan_content.architectural_tier` is REQUIRED and must be one of
+  `change_ledger.ARCHITECTURAL_TIERS` (1 | 2 | 3 | 4), the CLAUDE.md
+  architectural-solution hierarchy: 1 make it impossible, 2 make it
+  automatic, 3 make it detectable, 4 document it. Staging records the tier
+  as YOUR claim about the fix and refuses to author one on your behalf.
+- Every `plan_content.validation_commands[]` entry is either `{cmd}`
+  naming one of the admissible commands (matched after whitespace is
+  collapsed; the bare `nx ...` form of a canonical command is read as its
+  `npx nx ...` spelling) — the canonical executable suite
+  (`implementation_safety.CANONICAL_VALIDATION_COMMANDS_EXECUTABLE`:
+  `npx nx affected --target=test`, `npx nx affected --target=lint`,
+  `npm run type-check`) plus the recipes registered on this store
+  (`experiment.register_recipe`, listed in the envelope's
+  `plan_contract.validation_commands.recipes`) — or `{recipe_id}` naming a
+  registered recipe. Any other command is refused: the lane executes it
+  outside the implementer sandbox, so the set is operator-declared, never
+  plan-declared.
+- Refusal reasons, in the vocabulary the kernel and the executor emit:
+  `plan_architectural_tier_missing`, `plan_architectural_tier_invalid`,
+  `plan_validation_command_not_declared`, `plan_validation_recipe_unknown`.
+  A violating envelope is REJECTED at submit (released for retry) and a
+  body that reaches evaluation without the contract fails the
+  `plan_contract_complete` gate row, so the next primary revision envelope
+  carries each violation as a `plan_contract:<reason>` must_satisfy item.
 
 ### Optional `coverage` block (schema_version >= 2)
 
@@ -90,8 +131,12 @@ fails closed to `gaps`.
     "summary": "<2-5 sentences>",
     "affected_surfaces": [{ "paths": ["..."] }],
     "key_changes": ["..."],
-    "validation_commands": [{ "cmd": "...", "expected_exit": 0, "timeout_ms": 60000 }],
-    "evidence_refs": ["..."]
+    "validation_commands": [
+      { "cmd": "npx nx affected --target=test", "expected_exit": 0, "timeout_ms": 1800000 },
+      { "recipe_id": "<a recipe_id from plan_contract.validation_commands.recipes>" }
+    ],
+    "evidence_refs": ["..."],
+    "architectural_tier": 2
   },
   "details": {}
 }

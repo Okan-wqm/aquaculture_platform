@@ -1006,6 +1006,10 @@ class TestV9PublicApi(unittest.TestCase):
             # to execute. Registered here rather than relaxing the pin, per
             # the note above: an API addition is a review event.
             "CANONICAL_VALIDATION_COMMANDS_EXECUTABLE",
+            # The ONE rule that derives the executable spelling — read by
+            # staging and by the plan contract so a declared command is
+            # judged identically where the planner is told and where it runs.
+            "executable_spelling",
             # RC-2 — the observe/authorise split is public contract, because
             # the whole guarantee is that an observation is a DIFFERENT TYPE
             # from an authorisation. A caller has to be able to name the

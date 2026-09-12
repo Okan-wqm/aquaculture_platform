@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any
 
 from .implementation_safety import (
-    CANONICAL_VALIDATION_COMMANDS_EXECUTABLE,
     CANONICAL_VALIDATION_TIMEOUT_MS,
     mint_unpredictable_feature_branch_name,
 )
@@ -439,18 +438,6 @@ def lane_runner_identity(*, fallback: str) -> str:
     return f"ci-executor:gha-{run_id}" if run_id else fallback
 
 
-def _executable_spelling(command: str) -> str:
-    """The canonical suite's spelling of a declared command.
-
-    ``plan_synthesizer`` emits ``nx affected --target=test`` and
-    ``parse_allowed_command`` pins argv-0, so the same suite arrives under two
-    spellings. Normalising here is what lets a plan declare the perimeter's
-    form without that form being treated as a second, unknown command.
-    """
-    collapsed = " ".join(str(command).split())
-    return f"npx {collapsed}" if collapsed.startswith("nx ") else collapsed
-
-
 def _staged_validation_commands(
     converged_plan: dict[str, Any], *, base_dir: str | Path | None,
 ) -> tuple[list[str], int]:
@@ -502,60 +489,51 @@ def _staged_validation_inputs(
     plan_content_hash: str | None = None,
 ) -> tuple[list[str], int, dict[str, Any] | None]:
     """Resolve commands and optional observations from one verified read."""
-    from .experiment import _add_recipe_input, _recipe_input_source, _unknown_input_selection, list_recipes
+    from .experiment import _add_recipe_input, _recipe_input_source, _unknown_input_selection
+    from .plan_contract import (
+        REASON_RECIPE_UNKNOWN,
+        resolve_declared_validation_command,
+        validation_command_catalog,
+    )
     from .validation import _input_metadata_within_limit
 
-    recipes = list_recipes(base_dir=base_dir)
-    by_id = {str(row.get("recipe_id")): row for row in recipes}
-    by_command = {str(row.get("command")): row for row in recipes}
-
-    commands: list[str] = list(CANONICAL_VALIDATION_COMMANDS_EXECUTABLE)
-    canonical = set(commands)
+    # The matching rule is the plan contract's, read through the one function
+    # the planners' envelopes and the submit-time refusal are rendered from,
+    # so what staging refuses here is exactly what the planner was told.
+    catalog = validation_command_catalog(base_dir)
+    commands: list[str] = list(catalog.canonical)
     timeout_ms = CANONICAL_VALIDATION_TIMEOUT_MS
     contributors = {}
     contributor_ids = set()
     gather_errors = set()
 
     for declared in converged_plan.get("validation_commands") or []:
-        recipe = None
-        if isinstance(declared, dict):
-            raw = declared.get("cmd")
-            recipe_id = declared.get("recipe_id")
-            declared_timeout = declared.get("timeout_ms")
-        else:
-            raw, recipe_id, declared_timeout = declared, None, None
+        declared_timeout = declared.get("timeout_ms") if isinstance(declared, dict) else None
         if isinstance(declared_timeout, int) and declared_timeout > 0:
             timeout_ms = max(timeout_ms, declared_timeout)
-
-        if isinstance(recipe_id, str) and recipe_id.strip():
-            recipe = by_id.get(recipe_id.strip())
-            if recipe is None:
-                raise GovernanceError(
-                    f"stage_validation_recipe_unknown: plan declares "
-                    f"recipe_id={recipe_id!r}, which is not a registered "
-                    f"experiment recipe; register it with "
-                    f"`experiment.register_recipe` (operator-declared) before "
-                    f"a plan may have this lane execute it"
-                )
-            command = str(recipe["command"])
-            timeout_ms = max(timeout_ms, int(recipe["timeout_ms"]))
-        elif isinstance(raw, str) and raw.strip():
-            command = _executable_spelling(raw)
-            if command not in canonical:
-                recipe = by_command.get(command) or by_command.get(raw.strip())
-                if recipe is None:
-                    raise GovernanceError(
-                        f"stage_validation_command_not_declared: plan-authored "
-                        f"command {raw!r} is neither the canonical suite nor a "
-                        f"registered experiment recipe. This lane executes it "
-                        f"outside the implementer sandbox, so the command set "
-                        f"is operator-declared, not plan-declared; register it "
-                        f"with `experiment.register_recipe` and name it by "
-                        f"recipe_id"
-                    )
-                timeout_ms = max(timeout_ms, int(recipe["timeout_ms"]))
-        else:
+        command, recipe, violation = resolve_declared_validation_command(declared, catalog)
+        if violation is not None and violation.startswith(REASON_RECIPE_UNKNOWN):
+            raise GovernanceError(
+                f"stage_validation_recipe_unknown: plan declares "
+                f"recipe_id={violation.split(':', 1)[1]!r}, which is not a "
+                f"registered experiment recipe; register it with "
+                f"`experiment.register_recipe` (operator-declared) before "
+                f"a plan may have this lane execute it"
+            )
+        if violation is not None:
+            raise GovernanceError(
+                f"stage_validation_command_not_declared: plan-authored "
+                f"command {violation.split(':', 1)[1]!r} is neither the "
+                f"canonical suite nor a registered experiment recipe. This "
+                f"lane executes it outside the implementer sandbox, so the "
+                f"command set is operator-declared, not plan-declared; "
+                f"register it with `experiment.register_recipe` and name it "
+                f"by recipe_id"
+            )
+        if command is None:
             continue
+        if recipe is not None:
+            timeout_ms = max(timeout_ms, int(recipe["timeout_ms"]))
         if command not in commands:
             commands.append(command)
         if recipe is not None and recipe.get("input_scope") is not None:

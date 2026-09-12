@@ -34,9 +34,15 @@ The same seven sections the primary planner produces (Context, Recursive Impact,
 Your response is a JSON `aria/agent-response/v1` envelope with a
 top-level `plan_content` field carrying the seven canonical keys
 (`schema_version, title, summary, affected_surfaces, key_changes,
-validation_commands, evidence_refs`). Full schema, validator
-behaviour, ci_executor normalizer recovery rules, and operator-side
-examples are in the shared knowledge file:
+validation_commands, evidence_refs`) plus the plan contract: an
+`architectural_tier` claim (1 impossible / 2 automatic / 3 detectable /
+4 documented) and `validation_commands` drawn ONLY from the request's
+`plan_contract` block (the canonical suite, spelled exactly, or a
+registered `recipe_id`). A body missing the tier or naming an undeclared
+command is rejected at submit (`plan_architectural_tier_missing`,
+`plan_validation_command_not_declared`) and cannot CONVERGE. Full schema,
+validator behaviour, ci_executor normalizer recovery rules, and
+operator-side examples are in the shared knowledge file:
 
 - `@.claude/knowledge/layer-2-aria-canonical-envelope.md`
 

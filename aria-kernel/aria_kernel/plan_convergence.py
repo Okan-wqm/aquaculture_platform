@@ -192,14 +192,17 @@ def submit_challenger_plan(
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     _validate_id(plan_id, "plan_id")
+    root = ensure_tools_dir(base_dir)
     return _mutate(
         plan_id=plan_id,
         command_name="submit-challenger-plan",
         canonical_payload=challenger,
         event_type="challenger_plan_drafted",
         payload=_normalize_challenger_plan(challenger),
-        base_dir=base_dir,
-        validator=_validate_challenger_plan,
+        base_dir=root,
+        validator=lambda state, payload: _validate_submitted_plan(
+            state, payload, root, _validate_challenger_plan, payload["plan_content"],
+        ),
     )
 
 
@@ -554,15 +557,45 @@ def record_revision(
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     _validate_id(plan_id, "plan_id")
+    root = ensure_tools_dir(base_dir)
     return _mutate(
         plan_id=plan_id,
         command_name="record-revision",
         canonical_payload=revision,
         event_type="revision_recorded",
         payload=_normalize_revision(revision),
-        base_dir=base_dir,
-        validator=_validate_revision,
+        base_dir=root,
+        # A structured revision IS a plan body: it is judged as one at
+        # submission. Legacy prose stays recordable (the drainer renders it)
+        # and cannot converge, because no body reproduces its hash.
+        validator=lambda state, payload: _validate_submitted_plan(
+            state, payload, root, _validate_revision, _coerce_plan_body(payload.get("content")),
+        ),
     )
+
+
+def _validate_submitted_plan(
+    state: dict[str, Any],
+    payload: dict[str, Any],
+    root: Path,
+    state_validator: Any,
+    body: dict[str, Any] | None,
+) -> None:
+    """Submission-time judgement of an agent-authored plan body.
+
+    Runs in the command path ONLY — never in ``_validate_event``, which the
+    fold replays over recorded history — so the plan contract (the
+    ``architectural_tier`` claim and the declared validation vocabulary) binds
+    every writer that appends a challenger draft or a structured revision
+    from here on, while every historical ledger keeps folding.
+    """
+    from .plan_contract import require_plan_contract
+
+    state_validator(state, payload)
+    if body is None:
+        return
+    _validate_plan_content(body)
+    require_plan_contract(body, base_dir=root)
 
 
 def record_coverage(
@@ -631,6 +664,25 @@ def evaluate_plan(
                         decision["reason_codes"].append("max_rounds_reached")
                 elif decision["terminal_state"] != "HUMAN_REQUIRED":
                     decision["terminal_state"] = "NEXT_ROUND_REQUIRED"
+        # The plan contract, judged on the body that would converge. A plan
+        # that reached this row around the submission refusal (a seed no
+        # agent revised, a prose revision, any other writer) still cannot
+        # CONVERGE: it would die at staging, and the next round's primary
+        # envelope carries the exact reasons to fix.
+        from .plan_contract import plan_contract_gate
+
+        contract = plan_contract_gate(state, base_dir=root)
+        decision["gate_decisions"].append(contract)
+        if not contract["passed"]:
+            if decision["terminal_state"] == "CONVERGED":
+                decision["reason_codes"] = []
+            decision["reason_codes"].append("plan_contract_incomplete")
+            if round_number >= max_rounds:
+                decision["terminal_state"] = "HUMAN_REQUIRED"
+                if "max_rounds_reached" not in decision["reason_codes"]:
+                    decision["reason_codes"].append("max_rounds_reached")
+            elif decision["terminal_state"] != "HUMAN_REQUIRED":
+                decision["terminal_state"] = "NEXT_ROUND_REQUIRED"
         if decision["terminal_state"] == "NEXT_ROUND_REQUIRED":
             return {
                 "schema_version": 1,
@@ -2451,27 +2503,32 @@ def _validate_plan_content(plan: dict[str, Any]) -> None:
     # ORPHAN-CRITICAL-728 — the architectural-tier CLAIM, validated when it is
     # made. Not added to PLAN_CONTENT_REQUIRED for exactly the reason above:
     # the fold re-validates every historical plan_started payload, so a new
-    # required field would break replay of the whole recorded history.
-    # `apply_engine.stage_converged_plan_for_pr` refuses a plan that reaches
-    # IMPLEMENTATION without one — which is where the claim is needed and
-    # where its author can still be told to make it. What this check adds is
+    # required field would break replay of the whole recorded history. The
+    # claim is REQUIRED of every agent-authored body at submission
+    # (`_validate_submitted_plan`, command path only) and of the body that
+    # would converge (`evaluate_plan`'s plan_contract_complete row) — both
+    # through `plan_contract`, which also renders the rule into the
+    # planners' envelopes and contracts. What this fold-time check adds is
     # that a claim which IS made must be a tier, so the cross-reviewers are
     # reviewing a value the change ledger will accept.
-    tier = plan.get("architectural_tier")
-    if tier is not None:
-        from .change_ledger import ARCHITECTURAL_TIERS
+    from .plan_contract import architectural_tier_violation
 
-        if tier not in ARCHITECTURAL_TIERS:
-            raise GovernanceError(
-                f"architectural_tier must be one of {ARCHITECTURAL_TIERS}, "
-                f"got {tier!r}"
-            )
+    tier_violation = architectural_tier_violation(plan.get("architectural_tier"), required=False)
+    if tier_violation is not None:
+        raise GovernanceError(tier_violation)
 
 
 def _validate_validation_command(command: dict[str, Any]) -> None:
     if not isinstance(command, dict):
         raise GovernanceError("validation command must be a JSON object")
-    _require_non_empty(command.get("cmd"), "validation command cmd")
+    # Either spelling the plan contract admits: a `cmd` (canonical suite or a
+    # registered recipe's command) or a `recipe_id` naming a registered
+    # recipe. Staging resolved `{recipe_id}` entries while this validator
+    # refused them for a missing `cmd`, so the contract advertised a shape
+    # no plan could carry.
+    recipe_id = command.get("recipe_id")
+    if not (isinstance(recipe_id, str) and recipe_id.strip()):
+        _require_non_empty(command.get("cmd"), "validation command cmd")
     expected_exit = command.get("expected_exit", 0)
     timeout_ms = command.get("timeout_ms", 60_000)
     if not isinstance(expected_exit, int):

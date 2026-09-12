@@ -64,7 +64,14 @@ Your steps:
    - Which side is correct (or both wrong)
    - What evidence supports the verdict
    - Severity (material risk vs. cosmetic difference)
-3. **Identify missed risks**. Risks neither side surfaced.
+3. **Identify missed risks**. Risks neither side surfaced. The request's
+   `plan_contract` block is part of the review: a plan whose
+   `architectural_tier` claim is absent, not one of the allowed tiers, or
+   not justified by its Architectural Approach, or whose
+   `validation_commands` name a command outside the admissible set, is a
+   `blocking` risk (`risk_category: contract_break`) — the kernel refuses
+   such a body at submit and at the `plan_contract_complete` gate, so a
+   review that lets it through only delays the refusal to a dead plan.
 4. **Emit verdict**:
    - `agreed` — both plans converge on essentially the same solution
    - `material_risks_present` — one or both plans missed a critical risk

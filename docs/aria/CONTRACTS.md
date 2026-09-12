@@ -1298,6 +1298,59 @@ secret-shaped names do not reach the child; `PATH`/`HOME`/`PYTHONPATH` and a dec
 a declared value wins over an inherited one) and `test_validation_runs_unified_surface.py` owns the
 ledger column through the real spawn seam.
 
+## 12.15 — Plan Contract
+
+`aria-kernel/aria_kernel/plan_contract.py` owns what a plan body must carry before it may CONVERGE,
+and renders that rule everywhere a planner reads. The first plan the native chain ever drove to
+CONVERGED (trial ten, 2026-09-12, `flow-85199a4b5051d7b27f16`) could not be staged:
+`apply_engine.stage_converged_plan_for_pr` refused a plan-authored `npx nx run shell:test`
+(`stage_validation_command_not_declared`) and would then have refused the missing
+`architectural_tier` (`stage_requires_architectural_tier`). Neither rule was stated by any planning
+contract, and by the time it fired the plan was CONVERGED and immutable.
+
+The two rules, in the one wording the refusals use:
+
+* `plan_content.architectural_tier` is REQUIRED of every agent-authored body and must be one of
+  `change_ledger.ARCHITECTURAL_TIERS` (1 make it impossible, 2 make it automatic, 3 make it
+  detectable, 4 document it — `ARCHITECTURAL_TIER_MEANINGS`). Reasons: `plan_architectural_tier_missing`,
+  `plan_architectural_tier_invalid`.
+* Every `plan_content.validation_commands[]` entry is either `{cmd}` naming one of the admissible
+  commands — the canonical executable suite (`implementation_safety.CANONICAL_VALIDATION_COMMANDS_EXECUTABLE`:
+  `npx nx affected --target=test`, `npx nx affected --target=lint`, `npm run type-check`; matched
+  after whitespace is collapsed, the bare `nx ...` form read as its `npx nx ...` spelling under
+  `implementation_safety.executable_spelling`) or a registered recipe's command — or `{recipe_id}`
+  naming a recipe registered with
+  `experiment.register_recipe`. Reasons: `plan_validation_command_not_declared`,
+  `plan_validation_recipe_unknown`. `resolve_declared_validation_command` is the ONE matching rule;
+  staging reads it too, so what a planner was told is what staging runs.
+
+Where it is stated (rendered, never retyped): every planning envelope
+(`convergent_planning_bridge.issue_challenger_envelope`, `cross_review_bridge.issue_cross_review_envelope`,
+`cross_review_bridge.issue_primary_envelope`, `plan_round_controller`) carries a `plan_contract` block
+(`render_plan_contract(base_dir)`: the tier vocabulary with meanings, the canonical suite, THIS store's
+recipes, the refusal reasons) rendered into the sealed prompt as `## Plan contract`; every delivered agent
+contract ends with the same rules (`agent_contract.render_response_validator_contract`);
+`.claude/knowledge/layer-2-aria-canonical-envelope.md` carries the prose mirror.
+
+Where it is enforced (all through `plan_contract_violations`): `agent_invocations.submit_claim_result`
+REJECTS a `primary_plan` / `challenger_plan` envelope whose body breaks it (`plan_contract: <reason>`;
+the claim is released for a retry under the same sealed prompt — an accepted-then-unbridged envelope
+would read as dead, ARIA-HIGH-080); `tools/aria-poc/ci_executor._pre_submit_validate_envelope` releases
+with `plan_content_invalid:<reason>`; `plan_convergence.submit_challenger_plan` and
+`plan_convergence.record_revision` (structured bodies) refuse before the event is appended
+(`_validate_submitted_plan`, command path only — the fold keeps replaying every historical
+`plan_started` without a tier); `plan_convergence.evaluate_plan` records a `plan_contract_complete`
+gate row and turns an otherwise-CONVERGED decision into `NEXT_ROUND_REQUIRED` (`HUMAN_REQUIRED` at the
+round cap) so no writer reaches CONVERGED around the submission refusal — the kernel-synthesized round-1
+seed carries no tier by design (it is a pressure description, not an architectural claim), so round one
+cannot converge on it and the drainer's primary-revision envelope carries each gate reason as a
+`plan_contract:<reason>` obligation; staging keeps its own refusals as the last line.
+
+`aria-kernel/tests/test_plan_contract.py` owns the module; `tests/test_plan_convergence.py` owns the
+submission refusals, the historical fold and the gate row; `tests/test_agent_submit_result_e2e.py` owns
+the acceptance-seam rejection; `tests/test_convergence_resumable_step.py` owns the carried obligations;
+`tests/test_pr_manager_e2e.py` owns staging past both refusals.
+
 ## 13 — Phase-1 PoC (IMPLEMENTED)
 
 Before committing to months of kernel work, the operator runs this PoC to answer: **"do we actually

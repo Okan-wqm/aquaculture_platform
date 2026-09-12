@@ -207,6 +207,7 @@ Emit `aria/agent-response/v1` where:
     "branch_tip_sha": "<git rev-parse HEAD>",
     "base_branch_sha": "<git rev-parse origin/<ARIA_PR_BASE>>",
     "signer_key_fp": "SHA256:<base64>",
+    "completed_at": "<ISO-8601 UTC; optional — the kernel stamps acceptance time when omitted>",
     "validation_results": [
       {
         "command": "nx affected --target=test",

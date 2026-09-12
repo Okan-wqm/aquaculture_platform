@@ -906,6 +906,11 @@ def render_invocation_prompt(request: dict[str, Any], context: dict[str, Any] | 
     )
     recent_intent_block = _render_recent_intent(request.get("recent_intent"))
     decision_memory_block = _render_decision_memory(request.get("decision_memory"))
+    # Kernel rules, not derived data: rendered outside the DATA tags, only
+    # when the row carries the block (a historical row renders unchanged).
+    from .plan_contract import render_plan_contract_section
+
+    plan_contract_block = render_plan_contract_section(request.get("plan_contract"))
 
     # Z8 — render-version dispatch. Absent field = historical row = v1,
     # because the prompt hash was sealed over the untagged text and replay
@@ -973,6 +978,7 @@ def render_invocation_prompt(request: dict[str, Any], context: dict[str, Any] | 
         f"## Validation commands\n\n"
         f"{_bullet_list(validation_cmds, lambda c: '`' + c.get('cmd', str(c)) + '`' if isinstance(c, dict) else '`' + str(c) + '`')}\n"
         f"{must_satisfy_block}\n"
+        f"{plan_contract_block}"
         f"## Response\n\n"
         f"Write your `aria/agent-response/v1` JSON envelope per your "
         f"agent contract. The envelope MUST cite ONLY evidence_refs "
@@ -1154,6 +1160,14 @@ def create_agent_invocation_request(
     # other role mints with None and legacy rows read as None.
     implementation_ids: dict[str, str] | None = None,
     context_source_paths: list[str] | None = None,
+    # The plan contract a planning envelope carries: the architectural-tier
+    # vocabulary and this store's admissible validation commands, rendered by
+    # `plan_contract.render_plan_contract` at mint. Structured on the row AND
+    # rendered into the sealed prompt, so the rule the planner was shown is
+    # the rule the submit refusal and the CONVERGED gate enforce. Additive +
+    # optional: only plan-authoring envelopes carry it; legacy rows read as
+    # absent and render unchanged.
+    plan_contract: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     # Plan ARIA-V5 §3c v2 (B1 fix) — ``plan_revision_hash`` binds the
     # envelope to a specific plan revision so I-V5.1-03 can assert
@@ -1272,6 +1286,7 @@ def create_agent_invocation_request(
             "shadow_eval_proof": shadow_eval_proof or {},
             "tool_id": tool_id,
             "target_sha": target_sha,
+            **({"plan_contract": plan_contract} if plan_contract is not None else {}),
             **({"context_source_paths": context_source_paths} if context_source_paths is not None else {}),
             **({"context_source_paths_status": context_source_paths_status} if context_source_paths_status is not None else {}),
         },
@@ -1344,6 +1359,10 @@ def create_agent_invocation_request(
         row["context_source_paths"] = context_source_paths
     if context_source_paths_status is not None:
         row["context_source_paths_status"] = context_source_paths_status
+    if plan_contract is not None:
+        if not isinstance(plan_contract, dict) or not plan_contract:
+            raise GovernanceError("create_agent_invocation_request_plan_contract_must_be_object")
+        row["plan_contract"] = dict(plan_contract)
     repository_map = _repository_map_for_refs(evidence_refs, base_dir=root, context_repo_root=context_repo_root,
                                               cycle_id=cycle_id, target_sha=target_sha, context_source_paths=context_source_paths)
     if repository_map is not None:
@@ -3103,6 +3122,9 @@ _FUSED_ENVELOPE_KEYS: tuple[str, ...] = (
     "repository_map",
     "context_source_paths",
     "context_source_paths_status",
+    # The plan contract block is rendered into the sealed prompt, so a
+    # projection that dropped it could not reproduce the prompt hash.
+    "plan_contract",
     # FAZ 4 — mint-time learned context + intent. The renderer reads both,
     # so a claim response that dropped either would re-render different text
     # and fail the prompt-hash binding; carrying them here keeps the fused
@@ -4741,6 +4763,23 @@ def _prepare_claim_submission(
         )
     except GovernanceError as exc:
         reasons.append(f"separation_of_duties: {exc}")
+    # The plan contract, judged BEFORE acceptance for the roles that author a
+    # plan body. An accepted envelope the planner bridge then refuses is a
+    # DEAD request — the drainer reads "accepted, ledger unchanged" as
+    # envelope death (trial eight, ARIA-HIGH-080) — whereas a rejection here
+    # releases the claim for a retry whose sealed prompt carries the same
+    # contract. The body judged is the one the bridge would record.
+    from .plan_contract import PLAN_AUTHORING_ROLES, plan_contract_violations
+    from .plan_convergence_bridge import submitted_plan_content
+
+    submitted_role = strict_request.get("role") or envelope.get("role")
+    if submitted_role in PLAN_AUTHORING_ROLES:
+        reasons.extend(
+            f"plan_contract: {violation}"
+            for violation in plan_contract_violations(
+                submitted_plan_content(submitted_role, envelope), base_dir=root,
+            )
+        )
     try:
         from .implementation_safety import (
             SecretLeakDetected,

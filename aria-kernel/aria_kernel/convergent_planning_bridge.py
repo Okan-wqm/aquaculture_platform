@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from .agent_invocations import create_agent_invocation_request
+from .plan_contract import render_plan_contract
 from .plan_convergence import start_plan
 from .tool_registry import GovernanceError, ensure_tools_dir
 
@@ -105,4 +106,8 @@ def issue_challenger_envelope(
         context_repo_root=context_repo_root,
         cycle_id=cycle_id,
         context_source_paths=context_source_paths,
+        # What the challenger's plan body must carry to be accepted and to
+        # converge, rendered from this store — the rule and the refusal
+        # read the same function.
+        plan_contract=render_plan_contract(base_dir),
     )

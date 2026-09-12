@@ -323,6 +323,65 @@ def _resolve_workspace_head_sha(workspace_root: str | Path | None) -> str | None
     return sha if proc.returncode == 0 and sha else None
 
 
+def _plan_contract_gate_reasons(eval_result: dict[str, Any]) -> dict[str, list[str]]:
+    """The reasons the ``plan_contract_complete`` row recorded, grouped by
+    reason code with EVERY detail kept.
+
+    One carried obligation per reason code (so its id is unique in the next
+    round's must_satisfy), but the code's details — a plan-authored command
+    string per undeclared entry — all travel with it: trial ten's body carried
+    seven undeclared commands, and an obligation naming only the first would
+    have told the primary about one of them. The details are plan-authored
+    text and are rendered as such (see ``_plan_contract_carry``).
+    """
+    from .plan_contract import PLAN_CONTRACT_GATE
+
+    grouped: dict[str, list[str]] = {}
+    for row in eval_result.get("gate_decisions") or []:
+        if isinstance(row, dict) and row.get("gate") == PLAN_CONTRACT_GATE and not row.get("passed"):
+            for reason in row.get("reasons") or []:
+                code, _, detail = str(reason).partition(":")
+                details = grouped.setdefault(code, [])
+                if detail and detail not in details:
+                    details.append(detail)
+    return grouped
+
+
+_PLAN_CONTRACT_DETAIL_LIMIT = 120
+
+
+def _plan_contract_carry(grouped: dict[str, list[str]]) -> list[dict[str, Any]]:
+    """The obligations the next round's primary answers, one per reason code.
+
+    The detail strings are the plan's own ``validation_commands[].cmd`` text —
+    LLM-authored in round two and later — and an obligation is rendered in
+    the prompt outside the ``<untrusted_*>`` tags. They are therefore carried
+    as a JSON-encoded list (quoted, escaped, bounded per entry), never as
+    prose the renderer would print verbatim; the reason code alone is the
+    obligation's language.
+    """
+    carry = []
+    for code, details in grouped.items():
+        bounded = [detail[:_PLAN_CONTRACT_DETAIL_LIMIT] for detail in details]
+        description = (
+            f"{code} — make plan_content satisfy the Plan contract section of this "
+            "request (architectural_tier claim; validation_commands from the admissible set)"
+        )
+        if bounded:
+            # Valid JSON with the two characters that could spell a tag
+            # escaped, so a plan-authored `</untrusted_…>` can never read as
+            # one in the rendered prompt.
+            encoded = json.dumps(bounded).replace("<", "\\u003c").replace(">", "\\u003e")
+            description += "; the entries the gate refused, as data: " + encoded
+        carry.append({
+            "id": "plan_contract:" + code,
+            "kind": "plan_contract_violation",
+            "description": description,
+            "source": "plan-contract-gate",
+        })
+    return carry
+
+
 def _structured_revision_content(state: dict[str, Any]) -> dict[str, Any] | None:
     """Latest revision's content as a structured plan dict, or None.
 
@@ -1147,12 +1206,18 @@ def run_convergence_drainer(
                 "description": "Resolve the native comparison obligation: " + json.dumps(spine, sort_keys=True),
                 "source": "architecture-spine-native-postcheck",
             }] if isinstance(spine, dict) and spine.get("status") == "regression" else [])
+            # The plan-contract gate row names exactly what the body that
+            # would have converged lacks; the primary's satisfaction matrix
+            # answers each reason, and the envelope's plan_contract block
+            # says what "fixed" means.
+            contract_carry = _plan_contract_carry(_plan_contract_gate_reasons(eval_result))
             persistence.write_text(
                 json.dumps({
                     "plan_id": plan_id,
                     "round": current_round + 1,
                     "coverage_must_satisfy": coverage_carry,
                     **({"architecture_spine_must_satisfy": spine_carry} if spine_carry else {}),
+                    **({"plan_contract_must_satisfy": contract_carry} if contract_carry else {}),
                 }),
                 encoding="utf-8",
             )
@@ -1164,7 +1229,7 @@ def run_convergence_drainer(
                     lambda: issue_primary_envelope(
                         plan_id=plan_id,
                         round_number=next_round,
-                        must_satisfy=[*base_ms, *coverage_carry, *spine_carry],
+                        must_satisfy=[*base_ms, *coverage_carry, *spine_carry, *contract_carry],
                         evidence_refs=current_refs,
                         plan_revision_hash=current_revision_hash,
                         context_source_paths=current_context_paths,

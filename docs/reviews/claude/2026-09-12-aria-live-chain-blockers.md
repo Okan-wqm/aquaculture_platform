@@ -458,3 +458,73 @@ conventions writer states `KNOWLEDGE_GRAPH_SCHEMA_VERSION` on every Pattern
 row before the ledger sees it — the mixed native/declared history the
 historical-defaults test exercises stays readable, an explicit unknown
 schema is refused.
+
+## ARIA-HIGH-103 — the plan contract: what staging will demand, the planners are told and the gate enforces
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-19
+- **Proven 2026-09-12:** the first native CONVERGED plan
+  (`flow-85199a4b5051d7b27f16`) could not be staged. Running
+  `apply_engine.stage_converged_plan_for_pr` on a copy of trial ten's store
+  under the strict profile refused `stage_validation_command_not_declared`
+  (`npx nx run shell:test` — a plan-authored command the lane runs outside
+  the implementer sandbox, so the set is operator-declared) and, behind it,
+  `stage_requires_architectural_tier` (the body carried no tier). No
+  planning contract, envelope or validator stated either rule — the
+  ARIA-HIGH-078 class — and by the time staging fired the plan was CONVERGED
+  and immutable.
+- **What is now true:** `plan_contract.py` is the one owner of both rules
+  with a closed refusal vocabulary (`plan_architectural_tier_missing`,
+  `plan_architectural_tier_invalid`, `plan_validation_command_not_declared`,
+  `plan_validation_recipe_unknown`). AUTOMATIC: every planning envelope
+  (challenger, cross-review, primary revision, the native controller's mints)
+  carries a store-rendered `plan_contract` block — the tiers with their
+  CLAUDE.md meanings, the canonical executable suite, THIS store's registered
+  recipes — rendered as a `## Plan contract` section in the sealed prompt
+  (legacy rows render byte-identically); `render_response_validator_contract`
+  states the same rules; the three planner agent files, the layer-2 skeleton
+  and CONTRACTS.md §12.15 mirror them, pinned by a test that every canonical
+  spelling and reason appears in both mirrors. IMPOSSIBLE:
+  `submit_claim_result` rejects a planner envelope that breaks the contract
+  (claim released for retry, never accepted-then-dead); the executor's
+  pre-submit gate reads the same check (an unnamed store is a named error);
+  `submit_challenger_plan`/`record_revision` refuse in the command path only,
+  so historical `plan_started` folds keep replaying; `evaluate_plan` records
+  a `plan_contract_complete` gate row that turns CONVERGED into
+  NEXT_ROUND_REQUIRED, and the drainer carries every refused entry into the
+  primary revision as escaped data under one obligation per reason code
+  (trial ten's seven undeclared commands all travel; angle brackets are
+  escaped so plan-authored text can never spell a tag outside the untrusted
+  block). Staging resolves declared commands through the same resolver.
+- **Also closed on the seam:** `_validate_validation_command` now accepts
+  `{recipe_id}` (staging resolved it but no plan could carry it);
+  `record_implementation_outcome`'s `completed_at` is stamped by the bridge
+  (no contract asked the implementer for it, so every result would have
+  died); the implementation prompt and `aria-implementer.md` state the
+  recorder's `details.implementation` shape and the real content-hash
+  obligation.
+- **Not done, tracked as ARIA-HIGH-104:** five more implementer→merge
+  contract gaps the lane listed.
+- **Consequence:** round-one convergence is unreachable for a kernel-
+  synthesized seed (no tier) — every autonomous plan converges through the
+  primary's round-two revision. Registering a recipe between two mints of the
+  same round yields a new request id (the block is in the request fold).
+- **Independent verification:** `wf_6dbb11ea-0ba` replayed the REAL trial-ten
+  ledger through the new kernel: it folds (CONVERGED, round 2) and the gate
+  names the eight violations that killed staging.
+
+## ARIA-HIGH-104 — five implementer→merge seam gaps no contract states
+
+Listed by the plan-contract lane while reading the implementation envelope
+and the gates behind it: (1) `aria/agent-request/v1` lists
+`validation_commands` as REQUIRED and the prompt prints a "Validation
+commands" section, but `create_agent_invocation_request` never writes the
+field; (2) `auto_merge._HYGIENE_DIMENSIONS` demands a verified exit-0 run
+containing `format:check`, outside `CANONICAL_VALIDATION_COMMANDS` and named
+by no obligation; (3) `aria-implementer.md` reads `key_changes[].file` while
+the skeleton defines strings and the synthesizer emits `paths`; (4) the
+`Closes:` trailer it mandates does not fit a plan-originated change keyed
+`plan:<plan_id>`, and no gate checks it; (5) kernel-minted `must_satisfy`
+items carry `{id, kind, description, source}` while
+`agent_contract._ensure_must_satisfy` requires `{id, statement}`. Owner
+claude; open — the first native implementer trial reaches whichever comes
+first.

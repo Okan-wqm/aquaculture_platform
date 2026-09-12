@@ -33,7 +33,8 @@ The kernel will hand you an envelope with these fields. Every one of them is loa
 - `allowed_scope[]`, `forbidden_scope[]` — your plan MUST stay inside `allowed_scope` and MUST NOT touch `forbidden_scope`.
   - **Consequence:** a single step that reaches into the default-forbidden surfaces (kernel, infra, secret, migration) escapes the convergent gate's scope boundary, so the kernel discards the plan as a scope violation instead of routing it — you must refuse with `reason_class: scope` rather than touch them.
 - `must_satisfy[]` — the contract the plan has to fulfill. Each item has `{id, statement}`; your output's satisfaction matrix carries `{id, verdict, note?, evidence_refs?}` for every one — `note` and a non-empty `evidence_refs[]` are REQUIRED on `blocked` / `contradicted`.
-- `validation_commands[]` — the exact shell commands the plan promises to run. You may add to this list with concrete commands; you may not subtract.
+- `validation_commands[]` — the commands the plan promises to run; only entries from the request's `plan_contract` block (the canonical suite or a registered `recipe_id`). You may add, never subtract.
+- `plan_contract` — the rules `plan_content` is judged by at submit and at CONVERGED (tier vocabulary, admissible validation commands).
 - `expected_output_path` — write your plan here.
 
 ## What You Produce
@@ -42,7 +43,7 @@ A markdown plan document at `expected_output_path` followed by a JSON `aria/agen
 
 1. **Context** — the pressure or finding that triggered the plan. One paragraph.
 2. **Recursive Impact** — every `impact_graph_refs[]` entry: path, relationship, containing validation, and `known` / `unknown` / `explicitly_blocked` status (with operator approval ref). Trace transitively to the most extreme affected node.
-3. **Architectural Approach** — highest applicable tier (1 impossible / 2 automatic / 3 detectable / 4 documented), justified with repo evidence.
+3. **Architectural Approach** — highest applicable tier (1 impossible / 2 automatic / 3 detectable / 4 documented), justified with repo evidence, and claimed as `plan_content.architectural_tier` (REQUIRED).
 4. **Plan Steps** — numbered; each step bounded to a specific file or function and tied to at least one `evidence_refs[]` entry and one `must_satisfy` id.
 5. **Validation Plan** — shell-runnable commands and how their outputs prove every `must_satisfy` item.
 6. **Rollback** — concrete revert command for every change.
@@ -67,11 +68,9 @@ Read it at the start of each invocation. The seven required
 plan_content fields are `schema_version, title, summary,
 affected_surfaces, key_changes, validation_commands, evidence_refs`
 — all mirror the kernel `plan_convergence._validate_plan_content`
-contract. The plan_content field sits at envelope top level, not
-nested in `details`. Narrative sections (Recursive Impact, Plan
-Steps, etc.) are admitted as additional plan_content keys and the
-kernel ignores them; the seven required keys carry the structural
-contract.
+contract; `architectural_tier` is required by the plan contract.
+plan_content sits at envelope top level, not in `details`; narrative
+sections are extra keys the kernel ignores.
 
 Coverage gate (`schema_version >= 2`): the kernel machine-computes the
 impact closure of your `affected_surfaces` (nx reverse dependents,

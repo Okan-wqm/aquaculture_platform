@@ -217,6 +217,16 @@ class CmdCorrelationEndToEndTests(unittest.TestCase):
                     facts=["The actual command parser accepted run-many and refused the projected direct test command"],
                     scope_files=["aria-kernel/aria_kernel/validation.py", "aria-kernel/aria_kernel/validation_matrix_gate.py"],
                 )
+                # The plan contract admits a plan-declared command only when an
+                # operator registered it as a recipe: this fixture's direct Nx
+                # spelling is exactly such an operator declaration, made here
+                # before the plan converges on it.
+                from aria_kernel.experiment import register_recipe
+
+                register_recipe(
+                    recipe_id="event-contracts-upcaster-direct-test", command=command,
+                    timeout_ms=180_000, deterministic=True, base_dir=tools,
+                )
                 plan = production_converged_plan(
                     tools_dir=tools, workspace_root=root, plan_id="native-validation-command-compatibility",
                     affected_paths=["aria-kernel/aria_kernel/validation_matrix_gate.py"],

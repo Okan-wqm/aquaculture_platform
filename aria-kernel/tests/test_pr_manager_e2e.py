@@ -590,22 +590,29 @@ class StagedConvergedPlanChainTests(unittest.TestCase):
                                    deterministic=True, input_scope={"schema_version": 1, "files": files}, base_dir=self.tools)
         canonical = CANONICAL_VALIDATION_COMMANDS_EXECUTABLE[0]
         old_command = "python3 -m unittest test_existing.TestPaths.test_paths"
-        old = register("recipe-history", old_command, {"source": ["history.py"]})
-        register("recipe-history", "python3 -m unittest test_new.TestPaths.test_paths", {"source": ["new.py"]})
+        new_command = "python3 -m unittest test_new.TestPaths.test_paths"
+        register("recipe-history", old_command, {"source": ["history.py"]})
+        latest = register("recipe-history", new_command, {"source": ["new.py"]})
         alpha = register("recipe-alpha", canonical, {"source": ["src/A.py"], "test": ["src/A.py"]}, CANONICAL_VALIDATION_TIMEOUT_MS + 1)
         beta = register("recipe-beta", canonical, {"source": ["src/a.py"], "test": ["src/A.py"]})
-        body = {"validation_commands": [{"cmd": old_command}, {"recipe_id": "recipe-beta"},
-                                         {"recipe_id": "recipe-alpha"}, {"cmd": old_command}, {"cmd": canonical}]}
+        body = {"validation_commands": [{"cmd": new_command}, {"recipe_id": "recipe-beta"},
+                                         {"recipe_id": "recipe-alpha"}, {"cmd": new_command}, {"cmd": canonical}]}
         commands, timeout, selection = _staged_validation_inputs(body, base_dir=self.tools)
-        self.assertEqual(commands, [*CANONICAL_VALIDATION_COMMANDS_EXECUTABLE, old_command])
+        self.assertEqual(commands, [*CANONICAL_VALIDATION_COMMANDS_EXECUTABLE, new_command])
         self.assertEqual(timeout, CANONICAL_VALIDATION_TIMEOUT_MS + 1)
         self.assertEqual(_staged_validation_commands(body, base_dir=self.tools), (commands, timeout))
         self.assertEqual(selection["status"], "selected")
         self.assertEqual(selection["input_scope"], {"schema_version": 1, "files": {
-            "source": ["history.py", "src/A.py", "src/a.py"], "test": ["src/A.py"], "config": [], "dependency": []}})
+            "source": ["new.py", "src/A.py", "src/a.py"], "test": ["src/A.py"], "config": [], "dependency": []}})
         self.assertEqual(selection["recipe_sources"], [
             {"recipe_id": row["recipe_id"], "ledger_hash": row["ledger_hash"], "command": row["command"]}
-            for row in (alpha, beta, old)])
+            for row in (alpha, beta, latest)])
+        # ARIA-HIGH-103 — a reseeded id's superseded command is not in the
+        # admissible set the planner was shown (the catalog lists the latest
+        # row per id), so a plan that names it is refused by name: what the
+        # planner was told is what staging runs.
+        with self.assertRaisesRegex(GovernanceError, "stage_validation_command_not_declared"):
+            _staged_validation_inputs({"validation_commands": [{"cmd": old_command}]}, base_dir=self.tools)
 
     def test_scope_union_limits_drop_all_contributors(self):
         from aria_kernel.apply_engine import _staged_validation_inputs
@@ -1059,6 +1066,47 @@ class StagedConvergedPlanChainTests(unittest.TestCase):
         self.assertEqual(
             chain["planned"]["architectural_tier"],
             plan.plan_content["architectural_tier"],
+        )
+
+    def test_a_contract_complete_converged_plan_stages_past_both_refusals(self) -> None:
+        """The plan contract closes the loop trial ten died in.
+
+        A plan that CONVERGED through the real gate carrying a tier claim and
+        a validation set drawn from the contract — the canonical suite plus a
+        recipe the operator registered, declared by `recipe_id` — passes the
+        `plan_contract_complete` row, and staging runs the recipe's command
+        beside the canonical suite instead of refusing the plan.
+        """
+        from aria_kernel import validation as validation_module
+        from aria_kernel.experiment import register_recipe
+        from aria_kernel.plan_convergence import fold_plan_state
+
+        register_recipe(
+            recipe_id="kernel-unit-suite",
+            command="python3 -m unittest discover aria-kernel -p '*test*.py'",
+            timeout_ms=1_500_000, deterministic=True, base_dir=self.tools,
+        )
+        (self.repo / ".gitignore").write_text("aria-tools/*\n", encoding="utf-8")
+        plan = production_converged_plan(
+            tools_dir=self.tools, workspace_root=self.repo, plan_id="plan-contract-complete",
+            affected_paths=[FIXTURE_CHANGED_FILE],
+            validation_commands=[{"cmd": "nx affected --target=lint"}, {"recipe_id": "kernel-unit-suite"}],
+        )
+        evaluated = next(
+            row for row in reversed(fold_plan_state(plan_id=plan.plan_id, base_dir=self.tools)["events"])
+            if row["event_type"] == "plan_evaluated"
+        )
+        gate = next(item for item in evaluated["payload"]["gate_decisions"] if item["gate"] == "plan_contract_complete")
+        self.assertEqual(gate, {"gate": "plan_contract_complete", "passed": True, "reasons": []})
+        self._commit_all("fixture: contract-complete converged plan")
+        with _fake_child_process(validation_module):
+            staged = stage_converged_plan_for_pr(
+                plan_id=plan.plan_id, workspace_root=self.repo, base_dir=self.tools,
+            )
+        action = _latest_staged_action(self.tools, staged["proposal_id"])
+        self.assertEqual(
+            action["validation_commands"],
+            [*CANONICAL_VALIDATION_COMMANDS_EXECUTABLE, "python3 -m unittest discover aria-kernel -p '*test*.py'"],
         )
 
     def test_staging_refuses_a_plan_that_claims_no_tier(self) -> None:

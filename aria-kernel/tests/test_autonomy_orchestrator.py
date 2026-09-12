@@ -706,8 +706,11 @@ class AutonomyOrchestratorTests(unittest.TestCase):
             "affected_surfaces": ["fixture/canonical.py"],
             "key_changes": [{"id": "memory-owner", "description": "Refactor the memory owner",
                              "paths": ["fixture/canonical.py"]}],
-            "validation_commands": [{"cmd": "python3 -m unittest tests.test_memory"}],
+            # Driven to CONVERGED through the real gate, so the body carries
+            # what the plan contract requires of a converging body.
+            "validation_commands": [{"cmd": "nx affected --target=test"}],
             "evidence_refs": [f"fixture/canonical.py:{line}" for line in range(1, 6)],
+            "architectural_tier": 2,
         }
 
         def converge(**kwargs: Any) -> dict[str, Any]:

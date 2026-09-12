@@ -30,10 +30,14 @@ fixtures cannot see each other; a fixture that needs the redirect binds it
 itself, scoped to its own lifetime (test_experiment_night). Unbinding rather
 than refusing, because the inherited value is not always aimed at the suite:
 the restore-aria-state action exports the durable store's binding into the
-whole job, and an in-cycle self-validation that runs this suite inherits it
-through validation.py — refusing would fail every kernel self-change, and
-honouring it would write fixture findings INTO the durable store. Not
-silently: one stderr line names the value that was unbound and why.
+whole job, and an operator's shell or a git hook that runs this suite carries
+it the same way — refusing would fail every such run, and honouring it would
+write fixture findings INTO the durable store. (An in-cycle self-validation
+no longer hands it down at all: ``validation_env`` builds the child's
+environment and withholds every store binding, ARIA-MEDIUM-066; this
+unbinding is the suite's own guard for the routes that do not go through the
+validation lane.) Not silently: one stderr line names the value that was
+unbound and why.
 The workspace base is the same ORPHAN-MEDIUM-767 class one level up: with it
 unset, workspace_paths falls back to ~/.aria/workspaces/<repo-hash>, and 4,927
 such directories — every one recording a /tmp fixture as its repo_root — had

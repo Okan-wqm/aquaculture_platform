@@ -33,6 +33,7 @@ from .ledger import (
     load_declared_jsonl,
 )
 from .tool_registry import GovernanceError, ensure_tools_dir, utc_now
+from .validation_env import build_validation_env
 from .validation_runs_ledger import (
     VALIDATION_RUNS_FILENAME,
     record_validation_run,
@@ -387,6 +388,12 @@ def _run_one(
     execution_profile: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     argv, env_updates = parse_allowed_command(command)
+    # ARIA-MEDIUM-066 — the child's environment is BUILT from the runner's,
+    # never copied: the durable store's bindings, the job deadline, hook and
+    # credential names stay in this process. ``env_updates`` is what the
+    # command itself declared, placed on top. The report goes into the
+    # ledger row by name so the row says what the child saw.
+    spawn_env = build_validation_env(os.environ, declared=env_updates)
     capture_started_at = utc_now()
     paths = sorted({p for group in scoped_files.values() for p in group}) if scoped_files is not None else []
     selected_profile = execution_profile is not None and bool(_unittest_selectors(argv))
@@ -448,7 +455,7 @@ def _run_one(
         completed = subprocess.run(
             spawned_argv,
             cwd=workspace_root,
-            env={**os.environ, **env_updates},
+            env=spawn_env.env,
             capture_output=True,
             text=True,
             timeout=timeout_ms / 1000,
@@ -522,6 +529,7 @@ def _run_one(
         started_at=started_at,
         completed_at=utc_now(),
         base_dir=base_dir,
+        spawn_environment=spawn_env.report.to_ledger(),
         **({"input_binding": binding} if binding is not None else {}),
     )
 

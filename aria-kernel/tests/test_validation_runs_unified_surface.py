@@ -1219,5 +1219,113 @@ class ValidationInputBindingTests(unittest.TestCase):
         self.assertEqual(row["input_binding"]["source_stability"], "unknown")
 
 
+class SpawnEnvironmentTests(unittest.TestCase):
+    """ARIA-MEDIUM-066 — the child's environment is built at the spawn seam.
+
+    The runner job carries the durable store's bindings and its credentials;
+    the child used to inherit all of it. The probe below is the failure the
+    finding names, made executable: a fixture test that, when it can see
+    ``ARIA_TOOLS_DIR``, writes fixture state into the store.
+    """
+
+    _PROBE_NAMES = (
+        "PATH", "HOME", "PYTHONPATH", "ARIA_TOOLS_DIR", "ARIA_WORKSPACE_BASE", "ARIA_REPO_STATE_ROOT",
+        "ARIA_STATE_STORE_ROOT", "ARIA_JOB_DEADLINE_EPOCH", "GH_TOKEN", "PROBE_SECRET_TOKEN",
+        "GIT_CONFIG_VALUE_0", "GIT_DIR", "PROBE_PLAIN",
+    )
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name) / "workspace"
+        self.root.mkdir()
+        self.base = Path(self.tmp.name) / "aria-tools"
+        # What the finding's leak would land in: a store that must stay empty.
+        self.fake_store = Path(self.tmp.name) / "durable-store"
+        self.fake_store.mkdir()
+        # A module only reachable through the recipe-declared PYTHONPATH.
+        self.declared_lib = Path(self.tmp.name) / "declared-lib"
+        self.declared_lib.mkdir()
+        (self.declared_lib / "declared_helper.py").write_text("DECLARED = 'reached'\n", encoding="utf-8")
+        (self.root / "test_env_probe.py").write_text(
+            "import json, os, unittest\n"
+            "NAMES = " + repr(self._PROBE_NAMES) + "\n"
+            "class EnvProbe(unittest.TestCase):\n"
+            "    def test_probe(self):\n"
+            "        tools = os.environ.get('ARIA_TOOLS_DIR')\n"
+            "        if tools:\n"
+            "            open(os.path.join(tools, 'fixture-state-landed-here'), 'w').close()\n"
+            "        import declared_helper\n"
+            "        print('ENV_PROBE:' + json.dumps({\n"
+            "            'present': {name: name in os.environ for name in NAMES},\n"
+            "            'declared': declared_helper.DECLARED,\n"
+            "            'leaked_values': sorted(v for v in os.environ.values() if 'LEAKVALUE' in v)}))\n",
+            encoding="utf-8",
+        )
+        _git(self.root, ["init", "-q"])
+        _git(self.root, ["config", "user.email", "aria@example.invalid"])
+        _git(self.root, ["config", "user.name", "ARIA"])
+        _git(self.root, ["add", "."])
+        _git(self.root, ["commit", "-q", "-m", "env probe"])
+        self.commit_sha = _git(self.root, ["rev-parse", "HEAD"])
+        set_profile("standard", operator_approval_ref="t", base_dir=self.base)
+        self.command = f"PYTHONPATH={self.declared_lib} python3 -m unittest -v test_env_probe"
+        planned = emit_change_planned(
+            plan_id="plan-spawn-env", finding_id="F-spawn-env", intended_affected_files=["test_env_probe.py"],
+            intended_validation_refs=[self.command], architectural_tier=1, base_dir=self.base,
+        )
+        self.change_id = planned["change_id"]
+        emit_change_committed(change_id=self.change_id, commit_sha=self.commit_sha,
+                              actual_affected_files=["test_env_probe.py"], base_dir=self.base)
+
+    def test_store_bindings_and_secrets_stay_in_the_runner_and_the_row_names_the_decision(self) -> None:
+        runner_env = {
+            "ARIA_TOOLS_DIR": str(self.fake_store), "ARIA_WORKSPACE_BASE": str(self.fake_store / "workspace"),
+            "ARIA_REPO_STATE_ROOT": str(self.fake_store / "findings"), "ARIA_STATE_STORE_ROOT": str(self.fake_store),
+            "ARIA_JOB_DEADLINE_EPOCH": "4102444800",
+            "GH_TOKEN": "ghp_LEAKVALUE01", "PROBE_SECRET_TOKEN": "LEAKVALUE02",
+            "GIT_CONFIG_VALUE_0": "AUTHORIZATION: basic LEAKVALUE03", "GIT_DIR": str(self.root / ".git"),
+            "PROBE_PLAIN": "LEAKVALUE04",
+        }
+        with patch.dict(os.environ, runner_env):
+            plan = run_validation_commands(
+                commands=[self.command], workspace_root=self.root, change_id=self.change_id,
+                commit_sha=self.commit_sha, runner_identity="ci-executor:spawn-env",
+                change_author_identity="agent:spawn-env-planner", base_dir=self.base, cycle_id="cycle-spawn-env",
+            )
+        self.assertEqual(plan["status"], "ok")
+        row = list_validation_runs_for_change(self.change_id, base_dir=self.base)[-1]
+        self.assertEqual((row["exit_code"], row["timed_out"]), (0, False))
+        log = Path(row["log_path"]).read_text(encoding="utf-8")
+        probe = json.loads(next(line.removeprefix("ENV_PROBE:") for line in log.splitlines() if line.startswith("ENV_PROBE:")))
+        # The store bindings, the job deadline, the credentials and the hook's
+        # GIT_DIR never reached the child; the plumbing and the declaration did.
+        self.assertEqual(probe["present"], {
+            "PATH": True, "HOME": True, "PYTHONPATH": True,
+            "ARIA_TOOLS_DIR": False, "ARIA_WORKSPACE_BASE": False, "ARIA_REPO_STATE_ROOT": False,
+            "ARIA_STATE_STORE_ROOT": False, "ARIA_JOB_DEADLINE_EPOCH": False, "GH_TOKEN": False,
+            "PROBE_SECRET_TOKEN": False, "GIT_CONFIG_VALUE_0": False, "GIT_DIR": False, "PROBE_PLAIN": False,
+        })
+        self.assertEqual(probe["declared"], "reached")
+        self.assertEqual(probe["leaked_values"], [])
+        # The finding's failure mode: fixture state landing in the store.
+        self.assertEqual(sorted(path.name for path in self.fake_store.iterdir()), [])
+        # The row says what the child saw — names only, and it is hash-bound
+        # with the rest of the row.
+        environment = row["spawn_environment"]
+        self.assertEqual(environment["schema_version"], 1)
+        self.assertEqual(environment["declared"], ["PYTHONPATH"])
+        self.assertEqual(environment["dropped_store_bindings"],
+                         ["ARIA_REPO_STATE_ROOT", "ARIA_STATE_STORE_ROOT", "ARIA_TOOLS_DIR", "ARIA_WORKSPACE_BASE"])
+        self.assertTrue({"GH_TOKEN", "PROBE_SECRET_TOKEN"} <= set(environment["dropped_secret_shaped"]))
+        self.assertTrue({"PATH", "HOME", "PYTHONPATH"} <= set(environment["passed"]))
+        self.assertGreaterEqual(environment["dropped_count"], len(runner_env))
+        encoded = json.dumps(row)
+        self.assertNotIn("LEAKVALUE", encoded)
+        self.assertNotIn(str(self.fake_store), encoded)
+        self.assertNotIn(str(self.declared_lib), json.dumps(environment))
+        self.assertEqual(verify_validation_run(row["validation_run_id"], base_dir=self.base), row)
+
+
 if __name__ == "__main__":
     unittest.main()

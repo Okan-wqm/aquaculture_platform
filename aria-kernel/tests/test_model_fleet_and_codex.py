@@ -613,7 +613,11 @@ class CodexBridge(unittest.TestCase):
             'model_reasoning_effort="ultra"',
         ])
         self.assertEqual(argv[argv.index("--cd") + 1], str(root))
-        self.assertEqual(argv[-1], "Read the ordinary fixture.")
+        # ARIA-HIGH-084 — the prompt is the child's stdin, never an argument:
+        # a single argv element is capped at 128 KiB and a round-3 revision
+        # request with its contract exceeded it.
+        self.assertNotIn("Read the ordinary fixture.", argv)
+        self.assertEqual(kwargs["input"], "Read the ordinary fixture.")
         self.assertEqual(kwargs["cwd"], str(root))
         self.assertEqual(kwargs["timeout"], 17)
         self.assertFalse(kwargs["check"])
@@ -639,8 +643,8 @@ class CodexBridge(unittest.TestCase):
             "-c", "sandbox_workspace_write.network_access=false",
             "-c", "sandbox_read_only.network_access=false",
             "--output-last-message", output, "--cd", str(root),
-            "Read the ordinary fixture.",
         ])
+        self.assertEqual(kwargs["input"], "Read the ordinary fixture.")
         self.assertEqual(kwargs["timeout"], 17)
         self.assertEqual(kwargs["cwd"], str(root))
         self.assertEqual(result.model, "gpt-5.2-codex")
@@ -684,7 +688,6 @@ class CodexBridge(unittest.TestCase):
         from codex_runtime import build_codex_argv
 
         argv = build_codex_argv(
-            "do the thing",
             model="gpt-5.2-codex",
             sandbox="read-only",
             output_last_message=Path("/tmp/last.txt"),
@@ -694,13 +697,15 @@ class CodexBridge(unittest.TestCase):
         self.assertIn("gpt-5.2-codex", argv)
         self.assertIn("--output-last-message", argv)
         self.assertIn("--cd", argv)
-        self.assertEqual(argv[-1], "do the thing")
+        # No [PROMPT] argument: codex exec then reads its instructions from
+        # stdin, which has no MAX_ARG_STRLEN (ARIA-HIGH-084).
+        self.assertEqual(argv[-1], "/repo")
 
     def test_invalid_sandbox_refused(self) -> None:
         from codex_runtime import build_codex_argv
 
         with self.assertRaises(ValueError):
-            build_codex_argv("x", sandbox="danger-full-access")
+            build_codex_argv(sandbox="danger-full-access")
 
     def test_401_events_map_to_typed_auth_failure(self) -> None:
         from codex_runtime import classify_codex_events

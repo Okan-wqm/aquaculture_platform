@@ -1152,7 +1152,7 @@ class NativeAdaptiveAdmissionTests(unittest.TestCase):
             "source=Path.cwd()/'src/model_fleet.py'\n"
             "diagnostic={'pid':os.getpid(),'cwd':str(Path.cwd()),'codex_home':os.environ.get('CODEX_HOME'),\n"
             " 'sqlite_home':str(state),'sqlite_sha256':hashlib.sha256(db.read_bytes()).hexdigest(),\n"
-            " 'argv':sys.argv[1:-1],'prompt_head':sys.argv[-1][:48],'provider_key_names':[key for key in os.environ if key in\n"
+            " 'argv':sys.argv[1:],'prompt_head':sys.stdin.read()[:48],'provider_key_names':[key for key in os.environ if key in\n"
             " ('OPENAI_API_KEY','CODEX_API_KEY','ANTHROPIC_API_KEY','ARIA_ZAI_API_KEY')],\n"
             " 'source_sha256':hashlib.sha256(source.read_bytes()).hexdigest()}\n"
             "response={'satisfaction_matrix':[{'id':'source-line','verdict':'satisfied',\n"

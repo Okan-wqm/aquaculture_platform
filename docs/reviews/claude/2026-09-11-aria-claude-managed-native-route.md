@@ -365,3 +365,24 @@ table (old rows) and the fallback ladder. ORPHAN-HIGH-760's two-distinct-
 models anchor still holds: evidence judge opus, adversarial judge glm-5.3,
 arbiter opus. `tests/invariants/test_fable_is_selected_by_nothing.py` pins
 all three selection surfaces.
+
+## Addendum — ARIA-HIGH-084: the Codex prompt rode argv, and the round-3 revision did not fit
+
+Trial nine, round-3 primary revision (`AIR-aria-primary-planner-7c5f3102c977`,
+2026-09-12T05:18Z): admission chose Codex and the spawn died before the
+model — `codex_native_execution_unavailable:OSError`,
+`control_or_transport_unavailable`. The request prompt was 97,705 bytes
+(it carries the round's primary and challenger plans and the surfaced
+risks since ARIA-HIGH-081) and the agent contract 35,273 bytes;
+`build_codex_argv` appended their concatenation as the last argument of
+`codex exec`. Linux caps one argument at `MAX_ARG_STRLEN` = 131,072 bytes:
+`/bin/true` with a 135,000-byte argument raises `OSError [Errno 7]
+Argument list too long`, 131,000 passes. The round-2 cross-review (92 KB +
+contract) had fitted by a few kilobytes.
+
+**Fix.** `codex exec` reads its instructions from stdin when no `[PROMPT]`
+argument is given, and stdin has no size limit. `build_codex_argv` no
+longer takes a prompt; `run_codex_exec` passes `input=prompt` and the
+managed path passes `input_text=prompt` through the spawn seam it already
+used with an empty stdin. The argv contract tests read the prompt from
+the launch's `input`; the live fake `codex` reads it from stdin.

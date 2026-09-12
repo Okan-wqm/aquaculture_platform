@@ -189,7 +189,6 @@ class CodexRunResult:
 
 
 def build_codex_argv(
-    prompt: str,
     *,
     model: str = DEFAULT_CODEX_MODEL,
     sandbox: str = "read-only",
@@ -199,9 +198,15 @@ def build_codex_argv(
 ) -> list[str]:
     """The exact argv for one bounded Codex dispatch.
 
-    The prompt rides argv (codex exec's contract); JSONL events on stdout;
-    the final message additionally lands in -o so a long stream never
-    costs the answer.
+    The prompt does NOT ride argv: `codex exec` reads its instructions from
+    stdin when no [PROMPT] argument is given, and stdin has no size limit,
+    while a single argv element is capped by the kernel (MAX_ARG_STRLEN,
+    128 KiB on Linux). Trial nine's round-3 primary revision (2026-09-12,
+    ARIA-HIGH-084) carried a 97 KB request plus its 32 KB agent contract as
+    one argument and the spawn died before the model — `OSError` (argument
+    list too long), `codex_native_execution_unavailable`. JSONL events on
+    stdout; the final message additionally lands in -o so a long stream
+    never costs the answer.
     """
     if sandbox not in CODEX_SANDBOX_MODES:
         raise ValueError(f"codex_sandbox_mode_invalid: {sandbox!r}")
@@ -219,7 +224,6 @@ def build_codex_argv(
         argv += ["--output-last-message", str(output_last_message)]
     if cwd is not None:
         argv += ["--cd", str(cwd)]
-    argv.append(prompt)
     return argv
 
 
@@ -267,12 +271,12 @@ def run_codex_exec(
     with tempfile.TemporaryDirectory(prefix="aria-codex-") as tmp:
         last_message_path = Path(tmp) / "last-message.txt"
         argv = build_codex_argv(
-            prompt, model=model, sandbox=sandbox,
+            model=model, sandbox=sandbox,
             output_last_message=last_message_path, cwd=cwd, effort=effort,
         )
         run_env = _codex_exec_environment(os.environ, extra=env)
         proc = subprocess.run(
-            argv, capture_output=True, text=True,
+            argv, input=prompt, capture_output=True, text=True,
             timeout=timeout_seconds, check=False,
             env=run_env, cwd=str(cwd) if cwd else None,
         )
@@ -394,12 +398,12 @@ def _run_managed_codex_exec(
     from claude_runtime import _run_spawn
 
     output = context.runtime_directory / "last-message.txt"
-    argv = build_codex_argv(prompt, model=model, sandbox="read-only", output_last_message=output,
+    argv = build_codex_argv(model=model, sandbox="read-only", output_last_message=output,
                             cwd=context.workspace, effort=effort)
-    settings = ["--ignore-user-config", "--ephemeral", *context.configuration_argv()]
-    argv[-1:-1] = settings
+    argv += ["--ignore-user-config", "--ephemeral", *context.configuration_argv()]
+    # The prompt is the child's stdin (see build_codex_argv), never an argument.
     completed = _run_spawn(
-        context.wrap(argv, timeout_seconds), input_text="", timeout_seconds=timeout_seconds,
+        context.wrap(argv, timeout_seconds), input_text=prompt, timeout_seconds=timeout_seconds,
         cwd=str(context.workspace), env=context.environment, control=control,
     )
     events = []

@@ -377,7 +377,12 @@ function idsFromActiveRegistries(authority: FindingAllocationAuthority): string[
   const ids: string[] = [];
   for (const registryPath of authority.activeRegistryPaths()) {
     if (!existsSync(registryPath)) continue;
-    ids.push(...loadRegistry(registryPath).map((entry) => entry.id));
+    // A loop, not `push(...ids)`: spreading a registry into call arguments
+    // is bounded by the engine's argument limit, and 80 sibling worktrees ×
+    // ~2,000 findings crossed it on 2026-09-12 ("Maximum call stack size
+    // exceeded" — every mutation failed closed until three worktrees were
+    // removed). The same shape guards the two callers below.
+    for (const entry of loadRegistry(registryPath)) ids.push(entry.id);
   }
   return ids;
 }
@@ -705,9 +710,9 @@ export function claimedIdsForDomain(
   authority?: FindingAllocationAuthority,
 ): string[] {
   const claimed = entries.map((entry) => entry.id);
-  if (authority) claimed.push(...idsFromActiveRegistries(authority));
+  if (authority) for (const id of idsFromActiveRegistries(authority)) claimed.push(id);
   if (domain === 'ORPHAN') {
-    claimed.push(...orphanMarkdownReservedIds(ORPHAN_FINDINGS_MD_PATH));
+    for (const id of orphanMarkdownReservedIds(ORPHAN_FINDINGS_MD_PATH)) claimed.push(id);
   }
   return claimed;
 }
@@ -877,7 +882,7 @@ export function appendNarrativeFinding(
 
   const entries = loadRegistry(paths.registryPath);
   const structuredIds = entries.map((entry) => entry.id);
-  if (authority) structuredIds.push(...idsFromActiveRegistries(authority));
+  if (authority) for (const id of idsFromActiveRegistries(authority)) structuredIds.push(id);
   if (claimedSequences('ORPHAN', structuredIds).has(Number.parseInt(idParts[2], 10))) {
     process.stderr.write(
       `Duplicate id: ${stub.id} — sequence ${idParts[2]} is already claimed by the registry or a sibling worktree registry.\n`,

@@ -439,3 +439,48 @@ budget is spent) instead of ending the round on a race between two kernel
 phases. **Proof.** `test_drainer_stale_envelope_is_alive` — a real claim
 with a one-second lease, the request derived STALE after expiry, still
 live for the drainer; the real reaper requeues it and it stays live.
+
+## Addendum — ARIA-MEDIUM-087: the policy the kernel obeys sat inside the agent's write scope
+
+Raised by the adversarial review of tonight's commits (a parallel review
+agent, 2026-09-12): `bound_workspace_root` (ARIA-HIGH-079) routes the
+cost gate, the breaker thresholds and the anchor age to
+`<workspace>/aria-config/genesis_policy.json` — the file native admission
+had read all along — and that path was not in `READONLY_PATHS`. The
+sandbox ro-binds and the write hook denies exactly `READONLY_PATHS`; the
+implementer and worker profiles carry write scope `**`. A write-capable
+spawn could have set `monetary_admission: managed_subscription` or raised
+`circuit_breaker.failure_threshold` in its own tree and the next dispatch
+of the same store would have obeyed.
+
+**Fix.** `aria-config/` joins `READONLY_PATHS`: the sandbox mounts it
+read-only, the hook refuses writes under it, and the scope subtraction
+keeps it out of an implementation's declared surfaces. An invariant pins
+that every path `genesis_policy` loads from the workspace
+(`OVERRIDE_RELPATH`) sits under a read-only prefix. The review's other
+observation — that decision nodes moved to opus now fall back to sonnet
+on credit exhaustion through `MODEL_FALLBACK_TIER` — is an operator
+decision, put to the operator with the audits.
+
+## ARIA-MEDIUM-082 — closed: the qualification budget is policy
+
+Implemented in an isolated worktree by a parallel agent and reviewed here.
+The literal `+ 2` lived in `snapshot._ScopedSourceBudget` and three
+readers inherited it (the twin projection at refresh, the twin
+re-observation at mint, the pinned evidence-excerpt reads). It is now the
+`source_qualification.deadline_seconds` policy block (default 2.0 in
+`genesis_policy_default.json`, typed accessor
+`genesis_policy.source_qualification_policy` refusing non-numeric,
+negative and above-ceiling values, ceiling 300 s so a mint-time
+qualification stays bounded); `_ScopedSourceBudget` has no default any
+more — a caller states exactly one of `deadline_seconds` or
+`deadline_monotonic`; twin.py resolves the allowance from policy at every
+call site and discloses it as `work.qualification_deadline_seconds`. The
+fixture seam is the real operator override (`aria-config/genesis_policy.json`
+in the fixture workspace, 120 s): the three PlannerTwinContextTests
+fixtures and the twin-wiring helper assert the disclosed allowance, so
+"available" is earned under an ample budget rather than assumed from host
+speed. Pre-fix proof: the new assertions fail on the reverted kernel
+(`4 failed`, `KeyError: 'qualification_deadline_seconds'`). On the
+candidate: genesis-policy, snapshot, evidence-excerpt, twin-wiring and
+resumable-step suites, 127 OK.

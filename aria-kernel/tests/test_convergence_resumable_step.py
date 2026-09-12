@@ -122,6 +122,9 @@ class PlannerTwinContextTests(_StepCase):
         from aria_kernel.cycle import _phase_discovery, _phase_twin_refresh, build_phase_context
         from aria_kernel.tool_registry import ensure_tools_binding
         from tests._helpers.git_fixtures import _git
+        from tests._helpers.policy_fixtures import (
+            AMPLE_QUALIFICATION_DEADLINE_SECONDS, write_source_qualification_override,
+        )
         kernel = Path(__file__).resolve().parents[1]
         modules = ("runtime_artifacts", "knowledge_graph", "cycle_phases/memory", "cli", "autonomy_orchestrator",
                    "reflection_inputs", "reflection", "report", "snapshot", "discovery", "twin", "convergence_drainer",
@@ -136,6 +139,11 @@ class PlannerTwinContextTests(_StepCase):
         docs = self.root / "docs/aria/SPEC.md"
         docs.parent.mkdir(parents=True)
         docs.write_text("Ordinary planner fixture evidence.\n", encoding="utf-8")
+        # ARIA-MEDIUM-082 — the qualification below reads ~30 files through
+        # bounded Git transports; its allowance is policy, and this fixture
+        # sets an ample one so "available" is a property of the source
+        # view, not of how loaded the host is.
+        write_source_qualification_override(self.root)
         _git(["init", "-q"], cwd=self.root)
         _git(["config", "user.email", "planner-fixture@aria.test"], cwd=self.root)
         _git(["config", "user.name", "Planner Fixture"], cwd=self.root)
@@ -147,6 +155,10 @@ class PlannerTwinContextTests(_StepCase):
         context.results["discovery"] = _phase_discovery(context)
         mapped = _phase_twin_refresh(context)
         self.assertTrue(context.results["discovery"]["completion_proof"]["complete"])
+        # The projection discloses the allowance it ran under: "available"
+        # below was earned under the ample policy budget, not the 2 s default.
+        self.assertEqual(mapped["self_features"]["work"]["qualification_deadline_seconds"],
+                         AMPLE_QUALIFICATION_DEADLINE_SECONDS)
         self.assertEqual(mapped["self_features"]["features"]["knowledge_graph.conventions_for_paths"]["implemented"]["status"], "available")
         body = self.plan()
         body["summary"] = "PRIMARY_PROPOSAL_ONLY: reuse the existing convention owner."
@@ -179,7 +191,11 @@ class PlannerTwinContextTests(_StepCase):
         self.assertEqual(native["prompt"]["prompt_text"], prompt)
         self.assertEqual("sha256:" + hashlib.sha256(prompt.encode("utf-8")).hexdigest(), request["prompt_hash"])
         self.assertEqual(ai.render_invocation_prompt(ai.fuse_prompt_envelope(request)), prompt)
+        from tests._helpers.policy_fixtures import AMPLE_QUALIFICATION_DEADLINE_SECONDS
         self.assertEqual(request["repository_map"]["self_features"]["qualification"]["status"], "available")
+        # The mint-time re-observation ran under the same policy allowance.
+        self.assertEqual(request["repository_map"]["self_features"]["work"]["qualification_deadline_seconds"],
+                         AMPLE_QUALIFICATION_DEADLINE_SECONDS)
         self.assertIn(expected_feature, request["repository_map"]["self_features"]["features"])
         self.assertIn(expected_feature, prompt)
         if request["role"] == "challenger_plan":

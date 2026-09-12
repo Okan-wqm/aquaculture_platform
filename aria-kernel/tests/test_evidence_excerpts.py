@@ -488,7 +488,9 @@ class PlannerSelectedSourceTests(unittest.TestCase):
             exact = 64 + 1024 + 4 + 1 + 1024
             for allowance, expected_status, calls in ((exact, "available", 2), (exact - 1, "unknown", 1)):
                 with self.subTest(allowance=allowance):
-                    budget = source_owner._ScopedSourceBudget(byte_limit=allowance)
+                    # The byte allowance is what is under test; the deadline is
+                    # stated (ARIA-MEDIUM-082: no literal default) and ample.
+                    budget = source_owner._ScopedSourceBudget(deadline_seconds=120.0, byte_limit=allowance)
                     with patch.object(state_store, "_run_git_bytes_bounded",
                                       wraps=state_store._run_git_bytes_bounded) as transport:
                         observation, content = source_owner._read_scoped_committed_file(

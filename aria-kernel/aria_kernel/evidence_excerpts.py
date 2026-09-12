@@ -173,9 +173,16 @@ def _excerpts_for_refs(
     Snapshot owns transport/resource limits; this owner retains excerpt
     windows, presentation caps, order, hashes and structural skip entries.
     """
+    from .genesis_policy import source_qualification_policy
     from .snapshot import _ScopedSourceBudget, _read_scoped_committed_file
 
-    source_budget = _ScopedSourceBudget() if target_sha is not None else None
+    # The pinned-blob reads share the kernel's one qualification allowance
+    # (ARIA-MEDIUM-082): the deadline is policy, resolved against the same
+    # repo root the twin qualification reads, never a constructor literal.
+    source_budget = (
+        _ScopedSourceBudget(deadline_seconds=source_qualification_policy(repo_root)["deadline_seconds"])
+        if target_sha is not None else None
+    )
     if line_radius < 0:
         raise GovernanceError(f"line_radius must be >= 0, got {line_radius!r}")
     if per_ref_cap <= 0:

@@ -418,3 +418,24 @@ fixtures red on the candidate since the integration. "Unbound" is now a
 property of the binding fields (every one absent or None, no unknown
 fields), not of the schema version; any non-None binding value still has
 to validate.
+
+## Addendum — ARIA-HIGH-086: a stale envelope was buried before the reaper could requeue it
+
+Trial nine had run three full rounds on real models (challenger,
+cross-review, primary revision ×2, all accepted and folded) when the
+round-3 cross-review's spawn died before the executor started
+(ARIA-HIGH-085). The hook had already claimed the request; the lease
+expired at 07:23; the next drainer step, at 07:44, read the request as
+STALE, `_live_request_id` returned nothing, `_ensure_envelope` raised
+`_EnvelopeDead('cross_review')` and the plan was forced to
+`HUMAN_REQUIRED` (`convergence_envelope_dead`, verdict `split`). The
+reaper (`reap_stale_claims`) would have requeued the same request — a
+lease expiry is one request-fault requeue, and two are allowed — had it
+run first. The drainer decided a fate that belongs to the reaper.
+
+**Fix.** `_live_request_id` counts STALE as live: the step keeps waiting
+for the reaper's verdict (REQUEUED, or HUMAN_REQUIRED once the requeue
+budget is spent) instead of ending the round on a race between two kernel
+phases. **Proof.** `test_drainer_stale_envelope_is_alive` — a real claim
+with a one-second lease, the request derived STALE after expiry, still
+live for the drainer; the real reaper requeues it and it stays live.

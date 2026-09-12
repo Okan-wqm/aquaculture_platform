@@ -453,7 +453,17 @@ def _live_request_id(
     role: str,
     round_number: int,
 ) -> str | None:
-    """A request the executor can still deliver (pending/claimed/requeued)."""
+    """A request the executor can still deliver.
+
+    Pending, claimed, requeued — and STALE: a claim whose lease expired
+    without a result is the reaper's to requeue (or to escalate once the
+    requeue budget is spent), not the drainer's to bury. Trial nine
+    (2026-09-12, ARIA-HIGH-086): the hook claimed the round-3 cross-review
+    and its spawn died before the executor started; the lease expired; the
+    next drainer step ran before the reaper, saw STALE, raised
+    _EnvelopeDead and forced the plan to HUMAN_REQUIRED for a harness fault
+    the reaper would have requeued for free.
+    """
     from .agent_invocations import derive_request_state
 
     for row in _requests_for_step(
@@ -466,7 +476,7 @@ def _live_request_id(
             state = derive_request_state(request_id=request_id, base_dir=base_dir)
         except Exception:
             continue
-        if state in {"PENDING", "CLAIMED", "REQUEUED"}:
+        if state in {"PENDING", "CLAIMED", "REQUEUED", "STALE"}:
             return request_id
     return None
 

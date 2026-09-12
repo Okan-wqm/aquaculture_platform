@@ -28,7 +28,7 @@ import time
 import unittest
 from pathlib import Path
 
-from aria_kernel.file_lock import with_exclusive_lock
+from aria_kernel.file_lock import lock_sidecar_path, lock_sidecar_target, with_exclusive_lock
 
 
 class WithExclusiveLockTests(unittest.TestCase):
@@ -120,6 +120,41 @@ with with_exclusive_lock(Path({repr(str(target))})):
                     pass
 
             self.assertFalse(parent.exists())
+
+    def test_the_sidecar_shape_decodes_back_to_its_target(self) -> None:
+        """The side-car this module leaves on disk (POSIX keeps it after
+        release) is the exact thing a published state tree must never
+        carry; `state_tree_contract` recognises one by asking this module,
+        so the decoder must be the precise inverse of the encoder."""
+        from pathlib import PurePosixPath
+
+        for target in (
+            PurePosixPath("runs.jsonl"),
+            PurePosixPath("locks/state-groups/governance.lock"),
+            PurePosixPath("memory/beliefs.jsonl"),
+            PurePosixPath("integrity_index.json"),
+            Path("/tmp/x/ledger.jsonl"),
+        ):
+            sidecar = lock_sidecar_path(target)
+            self.assertEqual(lock_sidecar_target(sidecar), target, sidecar)
+        # A store-relative POSIX path stays pure POSIX through the decoder
+        # AND the encoder (the manifest's group-lock key is built from one);
+        # a concrete Path stays concrete, so the lock helper can open it.
+        self.assertIsInstance(
+            lock_sidecar_target(PurePosixPath("tools/runs.jsonl.lock")),
+            PurePosixPath,
+        )
+        self.assertIs(type(lock_sidecar_path(PurePosixPath("tools/runs.jsonl"))), PurePosixPath)
+        self.assertIsInstance(lock_sidecar_path(Path("/tmp/x/ledger.jsonl")), Path)
+        self.assertIsInstance(lock_sidecar_path("/tmp/x/ledger.jsonl"), Path)
+        # The side-car this module actually creates decodes the same way.
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "ledger.jsonl"
+            with with_exclusive_lock(target) as handle:
+                self.assertEqual(lock_sidecar_target(handle.path), target)
+        # Not side-cars: no target name, a different suffix, a plain name.
+        for path in (PurePosixPath(".lock"), PurePosixPath("a/b.txt"), PurePosixPath("runs.jsonl")):
+            self.assertIsNone(lock_sidecar_target(path), path)
 
 
 class ClaimRequestCasTests(unittest.TestCase):

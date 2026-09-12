@@ -14,6 +14,20 @@ What it does (per surface, all lossless via archives):
 
 Stripped data is written to archives/<surface>-compact-<timestamp>.jsonl.gz
 so nothing is lost. Ledgers are re-chained via rewrite_declared_jsonl.
+
+THE PRUNE IS ATTESTED, NOT ACKNOWLEDGED. Hot-artifact directories and
+discovery FATES are removed outright (retention, not slimming), and every
+file under them is a declared surface the published snapshot claims. The
+next publish therefore sees ``surfaces_lost`` — the continuity gate that
+exists to catch amnesia. Until this module recorded what it pruned, the
+only way past that gate was ``ARIA_STATE_BOOTSTRAP_ACK``, an operator
+acknowledgement that names a one-off fresh start and that the bootstrap
+runbook says must never live in a workflow. So the ``state_compacted``
+governance row now carries ``pruned_paths`` — the exact tools-relative
+paths and directory prefixes this run removed — and ``publish_state``
+accepts a loss iff a compaction row appended since the published tip
+names it. Policy-driven forgetting is then proven by the process that
+did it, and the ack keeps its one meaning.
 """
 from __future__ import annotations
 
@@ -28,6 +42,11 @@ from typing import Any
 
 from .ledger import load_declared_jsonl, rewrite_declared_jsonl
 from .tool_registry import append_tools_governance, ensure_tools_dir, utc_now
+
+# The governance event compaction records, and the field inside it that a
+# later publish reads as the attestation for the surfaces it prunes.
+COMPACTED_EVENT = "state_compacted"
+PRUNED_PATHS_KEY = "pruned_paths"
 
 
 def compact_state(
@@ -82,28 +101,76 @@ def compact_state(
     # retired; the cleanup moved HERE so one implementation serves both
     # the CLI and the lane (ARIA-AUDIT-001).
     now = datetime.now(timezone.utc)
-    results["hot_artifacts_removed"] = _strip_hot_artifacts(root, cutoff, dry_run)
+    pruned_hot_dirs = _strip_hot_artifacts(root, cutoff, dry_run)
+    results["hot_artifacts_removed"] = len(pruned_hot_dirs)
     # ORPHAN-CRITICAL-805 — the index has to follow the files it describes.
     # Deleting a cycle's artifacts and leaving its index rows behind makes
     # verify_artifacts report `run_artifact_missing` forever, which turns
     # every future cycle's runtime_status into integrity_failed no matter
     # how the night actually went.
     results["artifact_index_rows_dropped"] = _compact_artifact_index(root, dry_run)
-    results["fates_removed"] = _strip_discovery_fates(root, now, dry_run)
+    pruned_fates = _strip_discovery_fates(root, now, dry_run)
+    results["fates_removed"] = len(pruned_fates)
+    # Directory prefixes end with "/" so a reader can tell "everything
+    # under this cycle" from "exactly this file" without a second field.
+    results[PRUNED_PATHS_KEY] = sorted(
+        [f"{path}/" for path in pruned_hot_dirs] + list(pruned_fates)
+    )
 
     if not dry_run:
         append_tools_governance(
             root,
-            "state_compacted",
+            COMPACTED_EVENT,
             {
                 "retain_days": retain_days,
                 "surfaces": {
                     name: {"before": s["before_bytes"], "after": s["after_bytes"]}
                     for name, s in results["surfaces"].items()
                 },
+                PRUNED_PATHS_KEY: results[PRUNED_PATHS_KEY],
             },
         )
     return results
+
+
+def attested_pruned_paths(
+    root: str | Path,
+    *,
+    governance_rows_since: int,
+) -> tuple[str, ...]:
+    """Every tools-relative path or ``dir/`` prefix a compaction attested.
+
+    Read from the governance rows appended at index ``governance_rows_since``
+    and later — the published snapshot's ``row_count`` for the governance
+    ledger, i.e. exactly the rows this run added on top of the tip. Older
+    rows attest prunes the tip already reflects, so reading them would add
+    nothing; a stale tip whose claimed row_count lags (a non-kernel commit)
+    yields a superset, which only re-attests paths that are already gone.
+    """
+    path = Path(root) / "governance.jsonl"
+    if not path.exists() or governance_rows_since < 0:
+        return ()
+    rows = load_declared_jsonl(path, expected_surface="tools_governance")
+    attested: set[str] = set()
+    for row in rows[governance_rows_since:]:
+        if row.get("kind") != COMPACTED_EVENT:
+            continue
+        details = row.get("details")
+        pruned = details.get(PRUNED_PATHS_KEY) if isinstance(details, dict) else None
+        if isinstance(pruned, list):
+            attested.update(item for item in pruned if isinstance(item, str) and item)
+    return tuple(sorted(attested))
+
+
+def prune_attested(relative_path: str, attested: tuple[str, ...] | list[str]) -> bool:
+    """Whether one tools-relative surface path is covered by an attestation."""
+    for entry in attested:
+        if entry.endswith("/"):
+            if relative_path.startswith(entry):
+                return True
+        elif relative_path == entry:
+            return True
+    return False
 
 
 def _surface_path(root: Path, surface: str) -> Path:
@@ -135,17 +202,19 @@ def _cycle_timestamp(name: str) -> datetime | None:
         return None
 
 
-def _strip_hot_artifacts(root: Path, cutoff: datetime, dry_run: bool) -> int:
+def _strip_hot_artifacts(root: Path, cutoff: datetime, dry_run: bool) -> list[str]:
     """Remove hot-artifact cycle directories older than the cutoff.
 
     The single biggest state-branch contributor (old cycles'
     tool_run.json files). A name that does not carry a parseable cycle
     stamp falls back to mtime, matching the retired workflow contract.
+    Returns the tools-relative directories removed — the attestation the
+    publish gate matches lost surfaces against by prefix.
     """
     hot = root / "run-artifacts" / "hot"
     if not hot.is_dir():
-        return 0
-    removed = 0
+        return []
+    removed: list[str] = []
     for item in sorted(hot.iterdir()):
         if not item.is_dir():
             continue
@@ -158,7 +227,7 @@ def _strip_hot_artifacts(root: Path, cutoff: datetime, dry_run: bool) -> int:
         if stamp < cutoff:
             if not dry_run:
                 shutil.rmtree(item, ignore_errors=True)
-            removed += 1
+            removed.append(item.relative_to(root).as_posix())
     return removed
 
 
@@ -212,19 +281,22 @@ def _compact_artifact_index(root: Path, dry_run: bool) -> int:
     return len(dropped)
 
 
-def _strip_discovery_fates(root: Path, now: datetime, dry_run: bool) -> int:
-    """Remove discovery FATES.json files older than the fixed 30-day clock."""
+def _strip_discovery_fates(root: Path, now: datetime, dry_run: bool) -> list[str]:
+    """Remove discovery FATES.json files older than the fixed 30-day clock.
+
+    Returns the tools-relative paths removed, for the same attestation.
+    """
     cutoff = now - timedelta(days=DISCOVERY_FATES_RETAIN_DAYS)
     disc = root / "discovery"
     if not disc.is_dir():
-        return 0
-    removed = 0
+        return []
+    removed: list[str] = []
     for fates in sorted(disc.rglob("FATES.json")):
         try:
             if datetime.fromtimestamp(fates.stat().st_mtime, tz=timezone.utc) < cutoff:
                 if not dry_run:
                     fates.unlink()
-                removed += 1
+                removed.append(fates.relative_to(root).as_posix())
         except OSError:
             continue
     return removed
@@ -348,4 +420,10 @@ def _parse_ts(value: Any) -> datetime | None:
         return None
 
 
-__all__ = ("compact_state",)
+__all__ = (
+    "COMPACTED_EVENT",
+    "PRUNED_PATHS_KEY",
+    "attested_pruned_paths",
+    "compact_state",
+    "prune_attested",
+)

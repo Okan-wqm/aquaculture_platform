@@ -13,6 +13,8 @@ from fnmatch import fnmatchcase
 from pathlib import Path, PurePosixPath
 from typing import Iterable, Literal
 
+from .file_lock import lock_sidecar_path, lock_sidecar_target
+
 
 RootKind = Literal["tools", "workspace", "repo"]
 StateClass = Literal["ledger", "index", "runtime_state", "artifact", "lock"]
@@ -778,6 +780,46 @@ def surfaces_for_lock_group(lock_group: str) -> tuple[StateSurface, ...]:
     return tuple(surface for surface in STATE_SURFACES if surface.lock_group == lock_group)
 
 
+# THE GROUP-LOCK SHAPE, DECLARED ONCE. Every writer of a lock group's
+# surfaces serialises on ``<root>/locks/state-groups/<group>.lock`` — a KEY
+# the transaction hands to ``file_lock.with_exclusive_lock``, which then
+# holds ``file_lock``'s side-car of it (``<group>.lock.lock``) on disk. The
+# key's own ``.lock`` is the side-car suffix applied to the bare group name,
+# so the shape is derived from ``file_lock``'s naming rather than restated:
+# ``ledger`` (the transaction's lock order), ``state_store`` (recovery and
+# host-artifact cleanup) and ``state_tree_contract`` (what a published tree
+# may carry) all ask here, and none of them spells the path a second time.
+STATE_GROUP_LOCK_DIR = PurePosixPath("locks") / "state-groups"
+
+
+def state_group_lock_relative_path(lock_group: str) -> PurePosixPath:
+    """``locks/state-groups/<group>.lock`` — the key a group's writers lock."""
+    return lock_sidecar_path(STATE_GROUP_LOCK_DIR / lock_group)
+
+
+def state_group_lock_group(relative_path: str | PurePosixPath) -> str | None:
+    """The DECLARED lock group whose key ``relative_path`` is, or ``None``.
+
+    Exact inverse of ``state_group_lock_relative_path``: the path must sit
+    directly in the group-lock directory, decode through ``file_lock`` to a
+    bare name, that name must be a lock group some declared surface uses,
+    and re-encoding it must give the path back. The side-car ``file_lock``
+    leaves beside the key (``<group>.lock.lock``) is NOT the key — a caller
+    that meets one decodes it with ``lock_sidecar_target`` first and asks
+    here about the target.
+    """
+    candidate = PurePosixPath(relative_path)
+    target = lock_sidecar_target(candidate)
+    if target is None or target.parent != STATE_GROUP_LOCK_DIR:
+        return None
+    group = target.name
+    if not surfaces_for_lock_group(group):
+        return None
+    if state_group_lock_relative_path(group) != candidate:
+        return None
+    return group
+
+
 def _surface_resolution_order(
     surfaces: Iterable[StateSurface] | None = None,
 ) -> tuple[StateSurface, ...]:
@@ -1078,5 +1120,8 @@ __all__ = [
     "surface_for_relative_path",
     "surface_path_matches",
     "surfaces_for_lock_group",
+    "STATE_GROUP_LOCK_DIR",
+    "state_group_lock_group",
+    "state_group_lock_relative_path",
     "validate_state_surface_patterns",
 ]

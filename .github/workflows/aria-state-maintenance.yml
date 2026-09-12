@@ -14,6 +14,26 @@ name: ARIA State Maintenance
 # It also cleans hot artifacts — the single biggest contributor (529MB
 # from old cycles' tool_run.json files) that the JSONL-only compact
 # never touched.
+#
+# ONE PUBLISHER. This lane used to commit its result itself — `git add -A`,
+# `git commit`, `git push origin HEAD:aria/state` — and that second publish
+# path is what stalled the branch. A whole-tree add admits everything the
+# store's writers leave on disk: the `*.lock` side-cars `file_lock` keeps
+# by design, `repo_identity.json`, `integrity_index.json`. Tip 84032eda1
+# (2026-09-11) carried sixteen of those side-cars, and the kernel's publish
+# — which stages only the surfaces its snapshot attests and verifies the
+# committed tree against that snapshot — inherited them through the index,
+# was refused by its own verifier, and soft-reset. No kernel publish landed
+# after 2026-09-04. The same commits also shipped a STALE snapshot.json:
+# compaction rewrote the ledgers and nothing rebuilt the attestation, so
+# the full verifier refused the tip as state_snapshot_surface_mismatch.
+#
+# The lane now publishes through `aria_kernel state publish`, the verb every
+# other lane uses: a fresh snapshot.json built from the compacted tree, the
+# bounded pathspec, the inherited-entry healing (state_tree_contract) and the
+# immutable verification, then a fast-forward push of the verified commit.
+# tests/invariants/aria-single-publish-path.spec.ts pins that no lane pushes
+# aria/state any other way.
 # =============================================================================
 
 on:
@@ -25,6 +45,24 @@ on:
       retain_days:
         description: 'Days of data to retain (default 7)'
         default: '7'
+        required: false
+      state_reduction_ack:
+        # ONE-SHOT, OPERATOR-TYPED, PUBLISH-STEP ONLY. A scheduled run has no
+        # input, so the continuity gate stays fail-closed: the only losses
+        # it accepts are the ones this run's compaction attested. An
+        # operator types the acknowledgement here for exactly one run when
+        # the tip carries losses nothing attested — the 2026-09 tip's stale
+        # manifest still claimed hot artifacts an earlier sweep had removed
+        # — and the value reaches `state publish` alone, never the restore,
+        # so it cannot create the branch (docs/runbooks/aria-state-branch-bootstrap.md).
+        # The value must name THIS repository (`owner/repo`), exactly as the
+        # bootstrap ack must; the publish refuses any other string by name,
+        # and it records the acceptance — the surfaces and the ack — on the
+        # governance ledger inside the commit it accepts
+        # (state_publish_losses_accepted_by_ack), so the reduction is on the
+        # branch's own audit trail, not only in this run's log.
+        description: 'Acknowledge an unattested state reduction for THIS run only: the repository name (owner/repo); leave empty on every normal run'
+        default: ''
         required: false
 
 permissions:
@@ -92,40 +130,47 @@ jobs:
           AFTER=$(du -sb "${ARIA_TOOLS_DIR}/" | cut -f1)
           echo "compact_result: before=${BEFORE} after=${AFTER} saved=$((BEFORE - AFTER))"
 
-      # The restore's credential lived only in its own step; the push mints
-      # its own the same way (extraheader in this step's environment).
+      # The restore's credential lived only in its own step; the publish
+      # mints its own the same way (extraheader in this step's environment).
       - name: Mint the aria/state push credential
-        id: push_credential
+        id: publish_credential
         env:
-          STATE_TOKEN: ${{ github.token }}
+          PUBLISH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          HEADER="$(printf 'x-access-token:%s' "$STATE_TOKEN" | base64 -w0)"
+          HEADER="$(printf 'x-access-token:%s' "$PUBLISH_TOKEN" | base64 -w0)"
           echo "::add-mask::${HEADER}"
           echo "header=${HEADER}" >> "$GITHUB_OUTPUT"
 
-      - name: Commit and push compacted state
+      # THE KERNEL PUBLISHES, NOT THE SHELL. `state publish` opens the store
+      # the restore action checked out, binds one exact base commit, drops
+      # every inherited entry no snapshot can claim (recording each on the
+      # governance ledger), builds a fresh snapshot.json from the compacted
+      # tree, stages only the attested surfaces, verifies the committed tree
+      # against that snapshot, and fast-forward-pushes the verified commit.
+      # "Nothing to publish" is the kernel's own `no_changes` verdict (exit
+      # 0) — no porcelain check here can know what the snapshot will attest.
+      #
+      # The surfaces compaction prunes (old hot-artifact cycles, discovery
+      # FATES) are losses the continuity gate would refuse; compaction
+      # records exactly what it pruned on its `state_compacted` row and the
+      # publish accepts those losses on that attestation — `pruned_paths` on
+      # the governance row IS the audit trail. No standing bootstrap ack is
+      # exported here (the runbook forbids one in a workflow); the
+      # acknowledgement below is empty on every scheduled run and carries
+      # the operator's one-run input only on a manual dispatch.
+      - name: Publish the compacted state through the kernel
         env:
-          GIT_CONFIG_COUNT: 1
+          GIT_CONFIG_COUNT: '1'
           GIT_CONFIG_KEY_0: http.https://github.com/.extraheader
-          GIT_CONFIG_VALUE_0: 'AUTHORIZATION: basic ${{ steps.push_credential.outputs.header }}'
+          GIT_CONFIG_VALUE_0: 'AUTHORIZATION: basic ${{ steps.publish_credential.outputs.header }}'
+          ARIA_STATE_BOOTSTRAP_ACK: ${{ github.event.inputs.state_reduction_ack || '' }}
         run: |
           set -euo pipefail
-          # The store worktree is the parent of the exported tools root.
-          cd "$(dirname "${ARIA_TOOLS_DIR}")"
-          git config user.name "aria-state-maintenance"
-          git config user.email "aria-state-maintenance@users.noreply.github.com"
-          # `git diff --quiet` ignores untracked files, and compaction's
-          # archives are new files — the old check could report "already
-          # compact" with a fresh archive sitting unstaged beside it.
-          if [ -z "$(git status --porcelain)" ]; then
-            echo "No changes — state already compact"
-            exit 0
-          fi
-          git add -A
-          git commit -m "chore(state): automated compaction — stripped old runs/findings/artifacts"
-          git push origin HEAD:aria/state
-          echo "PUSHED compacted state"
+          PYTHONPATH=aria-kernel python3 -m aria_kernel state publish \
+            --repo-root . \
+            --snapshot-id "state-maintenance-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --cycle-id "state-maintenance-${GITHUB_RUN_ID}"
 
       - name: Report size
         if: always()

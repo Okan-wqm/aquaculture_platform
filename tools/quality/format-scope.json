@@ -35353,6 +35353,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-09-12-aria-live-chain-blockers.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/code-reviewer/2026-04-21-raw-sql-audit.md",
       "prettier_managed": true
     },
@@ -45907,6 +45913,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/aria-plan-doc-presence.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/aria-single-publish-path.spec.ts",
       "prettier_managed": true
     },
     {

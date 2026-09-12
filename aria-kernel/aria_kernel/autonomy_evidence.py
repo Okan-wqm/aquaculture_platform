@@ -28,6 +28,7 @@ from .state_snapshot import (
     SNAPSHOT_MAX_SURFACE_BLOB_BYTES,
 )
 from .state_manifest import normalize_surface_relative_path
+from .state_tree_contract import STATE_BOOTSTRAP_EMPTY_MARKERS
 
 
 EvidenceState = Literal[
@@ -599,11 +600,10 @@ _MAX_SNAPSHOT_SURFACE_MATCH_CANDIDATES = 100_000
 _MAX_DISTINCT_PROOF_TARGETS_PER_CAPABILITY = 128
 _MAX_DISTINCT_PROOF_TARGETS_GLOBAL = 256
 _GIT_STREAM_TIMEOUT_SECONDS = 30
-_STATE_BOOTSTRAP_EMPTY_MARKERS = frozenset({
-    "findings/.gitkeep",
-    "tools/.gitkeep",
-    "workspace/.gitkeep",
-})
+# Declared once in state_tree_contract: the publish-time healer judges a
+# parent tree by the same marker set this verifier admits, so the two can
+# never disagree about what an empty bootstrap tree may carry.
+_STATE_BOOTSTRAP_EMPTY_MARKERS = STATE_BOOTSTRAP_EMPTY_MARKERS
 
 
 def _proof_cardinality_key(

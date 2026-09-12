@@ -63,7 +63,7 @@ import time
 import uuid
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .ledger import (
@@ -79,8 +79,11 @@ from .file_lock import ExclusiveLockHandle, with_exclusive_lock
 from .state_manifest import (
     iter_surfaces,
     normalize_surface_relative_path,
+    state_group_lock_group,
+    state_group_lock_relative_path,
     surface_for_relative_path,
     surface_key_name,
+    surfaces_for_lock_group,
 )
 from .state_snapshot import (
     MAX_SNAPSHOT_JSON_BYTES,
@@ -842,20 +845,53 @@ def _publish_state_locked(
                 f"{expected!r}; refusing to overwrite state this tree does not descend from"
             )
         if continuity["status"] != "ok":
-            # Operator bootstrap acknowledgment: the operator explicitly
-            # approved a state reduction (compaction, fresh start).
-            # surfaces_lost is expected; publish proceeds and the ack
-            # is recorded in the governance audit trail.
-            import os as _os
-            _ack = _os.environ.get("ARIA_STATE_BOOTSTRAP_ACK", "").strip()
-            if _ack and continuity["status"] == "surfaces_lost":
-                # Record the ack; publish is allowed to proceed.
-                pass
-            else:
-                raise StateStoreRefusal(
-                    f"state_publish_continuity_{continuity['status']}: "
-                    f"lost_surfaces={continuity['lost_surfaces']}"
-                )
+            # A broken chain is refused whatever it lost; a loss is accepted
+            # only when someone vouched for it — the kernel's own compaction
+            # (its `state_compacted` row names every path it pruned) or the
+            # operator, whose acknowledgment must name this repository AND
+            # be recorded on the governance ledger inside this very commit
+            # by the publish preamble. The gate's rules and its names live
+            # in `state_continuity_gate`; what is not vouched for refuses.
+            from .state_continuity_gate import vouched_continuity
+
+            continuity = vouched_continuity(
+                store,
+                snapshot=snapshot,
+                published=published,
+                continuity=continuity,
+            )
+
+    # THE PARENT MUST NOT POISON THE CHILD. A tip that carries entries the
+    # tree contract can never claim (lock side-cars, host identity, anything
+    # a whole-tree `git add` once admitted) would be inherited by this commit
+    # through the index, refused by the immutable verifier after the commit,
+    # and soft-reset — every publish, forever. The bounded pathspec below
+    # cannot remove what it does not name, so the omission is staged by the
+    # publish preamble (`prepare_publishable_snapshot`), which also records
+    # the governance row naming each dropped entry BEFORE the snapshot was
+    # built. This is the pre-mutation check that the preamble ran: refusing
+    # here, by name, is what makes a publisher without the preamble fail
+    # loudly on the first tree that needs it instead of silently forever.
+    from .state_tree_contract import (
+        classify_inherited_tree,
+        unclaimable_entries_still_indexed,
+    )
+
+    inherited = classify_inherited_tree(
+        store,
+        repo_hash=repo_hash,
+        base_head=bound_base_head,
+    )
+    unhealed = unclaimable_entries_still_indexed(store, inherited.unclaimable)
+    if unhealed:
+        raise StateStoreRefusal(
+            "state_publish_inherited_unclaimed_entries_unhealed: the parent "
+            f"tree carries {len(unhealed)} entr{'y' if len(unhealed) == 1 else 'ies'} "
+            "no snapshot can claim and the index would commit them again "
+            f"({', '.join(unhealed[:8])}); publish through "
+            "prepare_publishable_snapshot, which stages their omission and "
+            "records it, before committing"
+        )
 
     # This is the last observation before the first filesystem mutation.
     # The entry check alone leaves continuity validation as a race window in
@@ -904,7 +940,13 @@ def _publish_state_locked(
     # snapshot attests — that would be the branch carrying less than its
     # own manifest claims. The danger was never `--force`; it was
     # `--force` over the whole tree.
-    staged = _staged_pathspecs(store, snapshot, published, repo_hash)
+    staged = _staged_pathspecs(
+        store,
+        snapshot,
+        published,
+        repo_hash,
+        inherited_surfaces=inherited.surfaces,
+    )
     _git(store.root, "add", "--all", "--force", "--", *staged)
 
     pre_commit_head = _read_commit_ref(store.root, "HEAD")
@@ -1040,6 +1082,8 @@ def _staged_pathspecs(
     snapshot: dict[str, Any],
     published: dict[str, Any] | None,
     repo_hash: str,
+    *,
+    inherited_surfaces: tuple[str, ...] = (),
 ) -> list[str]:
     """Store-relative paths for everything this publish may commit.
 
@@ -1047,7 +1091,8 @@ def _staged_pathspecs(
     plus one per surface the PUBLISHED snapshot attested — translated
     from root-relative (what ``build_snapshot`` records) to store-relative
     (what ``git add`` needs) through the same ``store_roots`` mapping that
-    produced them.
+    produced them — plus every declared-surface blob the PARENT TREE
+    carries (``inherited_surfaces``, already store-relative).
 
     The predecessor's paths are what let a surface that VANISHED stage as
     a deletion: ``build_snapshot`` only records files that exist, so the
@@ -1055,12 +1100,20 @@ def _staged_pathspecs(
     ledger would linger in the branch while the manifest stopped
     mentioning it — the tree and its attestation quietly disagreeing.
 
+    The parent TREE is consulted as well as the parent's manifest because
+    the two can disagree: a tip written outside the kernel carried surface
+    files its stale snapshot.json never claimed (the 2026-09 maintenance
+    commits' compaction archives and fresh hot artifacts). A file the tree
+    has, the manifest lacks and the working tree has since lost would be
+    named by nothing, linger unclaimed, and fail the immutable verifier.
+    The tree is the truth about what the predecessor carried.
+
     Deliberately NOT the subtree prefixes. ``git add --all -- tools``
     would re-admit every undeclared file under it, which is the whole
     thing this list exists to prevent.
     """
     roots = store_roots(store, repo_hash)
-    specs = {SNAPSHOT_FILENAME, GENESIS_FILENAME}
+    specs = {SNAPSHOT_FILENAME, GENESIS_FILENAME, *inherited_surfaces}
     for source in (snapshot, published or {}):
         for entry in (source.get("surfaces") or {}).values():
             root = roots.get(entry.get("root_kind"))
@@ -1647,6 +1700,144 @@ def build_publishable_snapshot(
     )
 
 
+@dataclass(frozen=True)
+class PreparedPublish:
+    """Everything ``publish_state`` needs, bound to one exact base commit."""
+
+    base_head: str
+    previous: dict[str, Any] | None
+    snapshot: dict[str, Any]
+    dropped_inherited_entries: tuple[dict[str, str], ...]
+    # The surfaces whose loss the operator's acknowledgment accepted and the
+    # preamble recorded on the governance ledger (empty on every publish
+    # that needed no acknowledgment — the scheduled lanes).
+    accepted_losses_recorded: tuple[str, ...]
+
+
+def prepare_publishable_snapshot(
+    store: StateStore,
+    *,
+    snapshot_id: str,
+    cycle_id: str,
+    lane: str,
+    repo_hash: str,
+    parent_commit: str | None = None,
+) -> PreparedPublish:
+    """The one publish preamble: bind the base, heal, record, build.
+
+    Every production publisher (``prepare_and_publish_state`` behind the
+    ``state publish`` CLI, and the contention-replay orchestrator) runs
+    this before the publish, and the order inside is the point:
+
+    1. the base is ONE exact commit, read once and handed to the publish
+       as ``expected_base_head`` so the snapshot and the commit describe
+       the same tree;
+    2. the parent's unclaimable entries are dropped from the index and the
+       governance row naming them is appended — BEFORE step 3, so the row
+       is inside the snapshot this commit attests rather than in a working
+       tree the runner discards;
+    3. the snapshot is built from the healed store;
+    4. if that snapshot loses surfaces nothing attested and the operator's
+       acknowledgment names this repository, the acceptance is recorded on
+       the governance ledger and the snapshot is REBUILT over the row —
+       the acceptance travels inside the commit whose losses it accepts.
+
+    The publish refuses, by name, a tree whose inherited unclaimable
+    entries are still indexed and an acknowledged loss no row records, so
+    skipping this preamble cannot publish an unverifiable or unrecorded
+    commit — it can only fail loudly on the first tip that needed it.
+
+    Runs under the store's lifecycle lock: steps 2 and 4 mutate the index
+    and the governance ledger, and a second lifecycle holder (a checkout,
+    a recovery, another publisher) must not interleave with them.
+    """
+    from .state_continuity_gate import record_operator_accepted_losses
+    from .state_tree_contract import drop_inherited_unclaimed_entries
+
+    with _state_store_lifecycle_lock(store.repo_root):
+        recover_pending_state_replay(store, repo_hash=repo_hash)
+        base_head = _read_commit_ref(store.root, "HEAD")
+        if base_head is None:
+            raise StateStoreRefusal(
+                "state_publish_base_head_unavailable: publish base HEAD is not "
+                "an exact commit"
+            )
+        previous = read_snapshot_at_worktree_head(store, expected_head=base_head)
+        dropped = drop_inherited_unclaimed_entries(
+            store,
+            repo_hash=repo_hash,
+            base_head=base_head,
+        )
+
+        def build() -> dict[str, Any]:
+            return build_publishable_snapshot(
+                store,
+                snapshot_id=snapshot_id,
+                cycle_id=cycle_id,
+                lane=lane,
+                repo_hash=repo_hash,
+                parent_commit=parent_commit,
+                previous=previous,
+            )
+
+        snapshot = build()
+        accepted = record_operator_accepted_losses(
+            store,
+            snapshot=snapshot,
+            previous=previous,
+        )
+        if accepted:
+            snapshot = build()
+        return PreparedPublish(
+            base_head=base_head,
+            previous=previous,
+            snapshot=snapshot,
+            dropped_inherited_entries=tuple(dropped),
+            accepted_losses_recorded=accepted,
+        )
+
+
+def prepare_and_publish_state(
+    store: StateStore,
+    *,
+    snapshot_id: str,
+    cycle_id: str,
+    lane: str,
+    repo_hash: str,
+    parent_commit: str | None = None,
+) -> dict[str, Any]:
+    """The single-attempt publish: preamble and publish under ONE lock.
+
+    What the ``state publish`` CLI runs. The preamble stages an index
+    omission and appends governance rows; the publish commits what the
+    preamble prepared against the exact base the preamble read. Holding
+    the lifecycle lock across both — as the contention-replay orchestrator
+    already does around its attempts — is what makes "another lifecycle
+    holder ran between the two" impossible rather than merely refused by
+    the base-head check afterwards. The verdict carries what the preamble
+    did, so the lane's log says what was healed and what was accepted.
+    """
+    with _state_store_lifecycle_lock(store.repo_root):
+        prepared = prepare_publishable_snapshot(
+            store,
+            snapshot_id=snapshot_id,
+            cycle_id=cycle_id,
+            lane=lane,
+            repo_hash=repo_hash,
+            parent_commit=parent_commit,
+        )
+        result = _publish_state_locked(
+            store,
+            snapshot=prepared.snapshot,
+            cycle_id=cycle_id,
+            repo_hash=repo_hash,
+            expected_base_head=prepared.base_head,
+        )
+    result["dropped_inherited_entries"] = list(prepared.dropped_inherited_entries)
+    result["accepted_losses_recorded"] = list(prepared.accepted_losses_recorded)
+    return result
+
+
 def publish_with_contention_replay(
     store: StateStore,
     *,
@@ -1705,13 +1896,11 @@ def _publish_with_contention_replay_locked(
 
     last_refusal: StateStoreRefusal | None = None
     for attempt in range(1, max_attempts + 1):
-        base_head = _read_commit_ref(store.root, "HEAD")
-        if base_head is None:
+        if _read_commit_ref(store.root, "HEAD") is None:
             raise StatePublishOutcomeUnknown(
                 "state_publish_outcome_unknown: replay base HEAD is unavailable"
             )
-        base = read_snapshot_at_worktree_head(store, expected_head=base_head)
-        snapshot = build_publishable_snapshot(
+        prepared = prepare_publishable_snapshot(
             store,
             # Distinct per attempt: two attempts are two different trees, and
             # reusing one id would make the ledger claim they were the same.
@@ -1719,8 +1908,10 @@ def _publish_with_contention_replay_locked(
             cycle_id=cycle_id,
             lane=lane,
             repo_hash=repo_hash,
-            previous=base,
         )
+        base_head = prepared.base_head
+        base = prepared.previous
+        snapshot = prepared.snapshot
         try:
             result = publish_state(
                 store,
@@ -3967,7 +4158,7 @@ def _recovery_transaction_locks(
     for surface in iter_surfaces():
         root = roots[surface.root_kind]
         group_locks.add(
-            (root / "locks" / "state-groups" / f"{surface.lock_group}.lock").resolve()
+            (root / state_group_lock_relative_path(surface.lock_group)).resolve()
         )
     for entry in local_surfaces.values():
         root = roots.get(entry.get("root_kind"))
@@ -4540,24 +4731,42 @@ def verify_state_store(store: StateStore, *, repo_hash: str) -> dict[str, Any]:
     }
 
 
-def _require_bootstrap_ack(repo_root: Path, branch: str) -> None:
+def _acknowledged_repository(repo_root: Path, *, mismatch_refusal: str) -> str | None:
+    """The operator acknowledgment, iff it names this repository.
+
+    ``None`` when the variable is unset. THE ONE CHECK for every gate the
+    acknowledgment can open — the bootstrap of a missing branch and the
+    publish of an unattested state reduction — so the two cannot drift
+    into accepting different strings. Naming the repository is what makes
+    the acknowledgement one-shot in practice: an ack left set in a
+    workflow does not travel to a fork or a renamed repo, and it cannot be
+    a bare "1" someone pasted forward without reading. A set value that
+    names something else is refused under the caller's name for it.
+    """
     ack = os.environ.get(BOOTSTRAP_ACK_ENV, "").strip()
-    identity = _repository_identity(repo_root)
     if not ack:
+        return None
+    identity = _repository_identity(repo_root)
+    if ack != identity:
+        raise StateStoreRefusal(
+            f"{mismatch_refusal}: {BOOTSTRAP_ACK_ENV}={ack!r} does not "
+            f"name this repository ({identity!r})"
+        )
+    return ack
+
+
+def _require_bootstrap_ack(repo_root: Path, branch: str) -> None:
+    ack = _acknowledged_repository(
+        repo_root,
+        mismatch_refusal="state_store_bootstrap_ack_mismatch",
+    )
+    if ack is None:
+        identity = _repository_identity(repo_root)
         raise StateStoreRefusal(
             f"state_store_bootstrap_unacknowledged: branch {branch!r} does not exist "
             f"and {BOOTSTRAP_ACK_ENV} is unset. Creating it silently is how an "
             "existing history gets replaced by an empty one (ORPHAN-CRITICAL-484); "
             f"set {BOOTSTRAP_ACK_ENV}={identity!r} to authorise a first bootstrap."
-        )
-    if ack != identity:
-        # Naming the repository is what makes the acknowledgement
-        # one-shot in practice: an ack left set in a workflow does not
-        # travel to a fork or a renamed repo, and it cannot be a bare
-        # "1" someone pasted forward without reading.
-        raise StateStoreRefusal(
-            f"state_store_bootstrap_ack_mismatch: {BOOTSTRAP_ACK_ENV}={ack!r} does not "
-            f"name this repository ({identity!r})"
         )
 
 
@@ -4794,27 +5003,25 @@ def _is_disposable_host_artifact(
             tools,
             index_payload=payload,
         ) else None
-    if not relative.startswith("tools/") or not relative.endswith(".lock"):
+    if not relative.startswith("tools/"):
         return None
-    from .state_manifest import surface_for_relative_path
-
     lock_relative = relative.removeprefix("tools/")
     if surface_for_relative_path(lock_relative) is not None:
         return None
-    target_relative = lock_relative.removesuffix(".lock")
-    target_surface = surface_for_relative_path(target_relative)
-    from .state_manifest import STATE_SURFACES
+    # The side-car shape is file_lock's and the group-lock key shape is the
+    # manifest's; both are decoded, never restated. A quiescent side-car is
+    # disposable only when its target is something this host locks: a tools
+    # surface, the tools index, or a declared group's lock key.
+    from .file_lock import lock_sidecar_path, lock_sidecar_target, with_exclusive_lock
 
-    group_prefix = "locks/state-groups/"
-    group_target = (
-        target_relative.startswith(group_prefix)
-        and target_relative.endswith(".lock")
-        and target_relative.removeprefix(group_prefix).removesuffix(".lock")
-        in {
-            surface.lock_group
-            for surface in STATE_SURFACES
-            if surface.root_kind == "tools"
-        }
+    target = lock_sidecar_target(PurePosixPath(lock_relative))
+    if target is None:
+        return None
+    target_relative = target.as_posix()
+    target_surface = surface_for_relative_path(target_relative)
+    group = state_group_lock_group(target)
+    group_target = group is not None and any(
+        surface.root_kind == "tools" for surface in surfaces_for_lock_group(group)
     )
     if (
         (target_surface is None or target_surface.root_kind != "tools")
@@ -4830,8 +5037,6 @@ def _is_disposable_host_artifact(
         or target_path.is_symlink()
     ):
         return None
-    from .file_lock import lock_sidecar_path, with_exclusive_lock
-
     if lock_sidecar_path(target_path) != lock_path:
         return None
     if relative in held_sidecars:
@@ -5207,10 +5412,7 @@ def _checkout_cleanup_transaction_locks(
         for authority_root in roots_by_kind[surface.root_kind]:
             group_locks.add(
                 (
-                    authority_root
-                    / "locks"
-                    / "state-groups"
-                    / f"{surface.lock_group}.lock"
+                    authority_root / state_group_lock_relative_path(surface.lock_group)
                 ).resolve()
             )
             if "*" in surface.path_pattern:
@@ -5630,9 +5832,12 @@ __all__ = [
     "StateStoreRefusal",
     "StatePublishContention",
     "StatePublishOutcomeUnknown",
+    "PreparedPublish",
     "build_publishable_snapshot",
     "checkout_state_store",
     "findings_root",
+    "prepare_and_publish_state",
+    "prepare_publishable_snapshot",
     "publish_state",
     "read_published_snapshot",
     "read_snapshot_at_worktree_head",

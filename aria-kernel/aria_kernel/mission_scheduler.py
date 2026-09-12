@@ -209,7 +209,10 @@ def _thompson_source_draws(root: Path, decided_at: str) -> dict[str, float]:
         from .calibrated_intelligence import deterministic_seed, thompson_rank
         from .knowledge_graph import rank_pressure_sources
 
-        rows = rank_pressure_sources(workspace_root=root.parent)
+        # `root` is the tools root; the ledger is a tools-root surface.
+        # `root.parent` only reached it on a `<workspace>/aria-tools` layout
+        # and never on the lane's `<store>/tools` (B4, 2026-09-12).
+        rows = rank_pressure_sources(base_dir=root)
         if not rows:
             return {}
         ranked = thompson_rank(

@@ -135,6 +135,136 @@ class StoreChecks(unittest.TestCase):
         )
         self.assertEqual(doctor._check_plan_ledger(self.tools).status, "ok")
 
+    def _seed_live_requests(self, tools: Path) -> None:
+        append_declared_jsonl(
+            tools / "agent-invocations" / "requests.jsonl",
+            {"request_id": "AIR-1", "role": "challenger_plan"},
+            expected_surface="agent_invocation_requests",
+        )
+
+    def _seed_minted_plan(self, tools: Path, *, cycle_id: str = "cycle-1", funnel_recorded: bool = True) -> None:
+        """The orchestrator's own evidence of a minted plan: its state row,
+        stamped FUNNEL_RECORDED_DETAIL the way the orchestrator stamps it
+        after writing the effectiveness ledger; ``funnel_recorded=False`` is
+        the shape of a row written before the ledger existed."""
+        from aria_kernel.autonomy_state import FUNNEL_RECORDED_DETAIL, PLAN_MINTED_PHASE, AutonomyStateReducer
+
+        details = {FUNNEL_RECORDED_DETAIL: True} if funnel_recorded else {"plan_id": "plan-legacy"}
+        AutonomyStateReducer.transition(tools, cycle_id=cycle_id, phase=PLAN_MINTED_PHASE, details=details)
+
+    def test_a_minted_row_from_before_the_ledger_existed_is_not_a_fault(self) -> None:
+        """The live store (origin/aria/state, 2026-08 → 09-04) holds twenty
+        cycle_runner_synthesized_plan rows written when the effectiveness
+        writer sat on the converged path, and no effectiveness ledger. Those
+        rows never claimed a ledger row; counting them would make the first
+        doctor run after deploy report data loss for a ledger that never
+        existed and open a doctor_fail mission nothing could clear. Only a
+        row that carries the orchestrator's stamp counts."""
+        self._seed_minted_plan(self.tools, cycle_id="cycle-legacy", funnel_recorded=False)
+        check = doctor._check_funnel(self.tools)
+        self.assertEqual((check.status, check.reason), ("ok", ""))
+        self.assertEqual((check.detail["sources"], check.detail["plans_minted"]), (0, 0))
+        self._seed_minted_plan(self.tools, cycle_id="cycle-new")
+        check = doctor._check_funnel(self.tools)
+        self.assertEqual((check.status, check.reason), ("fail", "funnel_ledger_missing_with_minted_plans"))
+        self.assertEqual(check.detail["plans_minted"], 1)
+
+    def test_minted_plans_without_a_funnel_ledger_is_a_named_fault(self) -> None:
+        """B4 (2026-09-12) — on the live store the orchestrator had minted a
+        plan every night, knowledge-graph/pressure-source-effectiveness.jsonl
+        did not exist, and the funnel organ reported ok with sources=0.
+        Blind. The orchestrator records every mint in that ledger BEFORE it
+        emits the PLAN_MINTED_PHASE row, so a state ledger that says "minted"
+        beside no effectiveness ledger is a fault with a name, and the first
+        recorded mint clears it."""
+        from aria_kernel.knowledge_graph import record_pressure_source_outcome
+
+        self._seed_minted_plan(self.tools)
+        check = doctor._check_funnel(self.tools)
+        self.assertEqual((check.status, check.reason), ("fail", "funnel_ledger_missing_with_minted_plans"))
+        self.assertEqual((check.detail["sources"], check.detail["plans_minted"]), (0, 1))
+        self.assertFalse(check.detail["effectiveness_ledger_present"])
+        record_pressure_source_outcome(base_dir=self.tools, source_type="finding", minted=1)
+        check = doctor._check_funnel(self.tools)
+        self.assertEqual((check.status, check.reason, check.detail["sources"]), ("ok", "", 1))
+        self.assertTrue(check.detail["effectiveness_ledger_present"])
+        self.assertEqual(
+            check.detail["counters"],
+            {"finding": {"cycles_minted": 1, "cycles_converged": 0, "cycles_merged": 0, "cycles_rejected": 0}},
+        )
+
+    def test_live_requests_alone_are_not_a_funnel_fault(self) -> None:
+        """Requests are minted by a dozen producers that run with no plan in
+        the funnel (judge fan-out, expert review, cross-review). A store that
+        holds only those has never minted a plan, so its absent effectiveness
+        ledger is bootstrap — the organ judges against the orchestrator's own
+        PLAN_MINTED_PHASE row, not against the requests ledger."""
+        self._seed_live_requests(self.tools)
+        check = doctor._check_funnel(self.tools)
+        self.assertEqual((check.status, check.reason), ("ok", ""))
+        self.assertEqual((check.detail["sources"], check.detail["plans_minted"]), (0, 0))
+
+    def test_a_store_without_minted_plans_has_no_funnel_fault(self) -> None:
+        """No plan has been minted yet: bootstrap, not a fault."""
+        check = doctor._check_funnel(self.tools)
+        self.assertEqual((check.status, check.reason), ("ok", ""))
+        self.assertEqual((check.detail["sources"], check.detail["plans_minted"]), (0, 0))
+
+    def test_blocked_only_cycles_are_counted_and_then_a_stall_not_a_fault(self) -> None:
+        """The live store's shape after the writer moved to the funnel's
+        entry: every cycle minted a plan and none converged. Each such cycle
+        leaves minted=1 and rejected=1 for its source. Below the stall
+        threshold the organ is ok with the counters in its detail; at the
+        threshold it is a WARN naming the convergence stage — the stall the
+        store exhibited and nothing could count. Never a data-loss reason."""
+        from aria_kernel.funnel_health import MIN_UPSTREAM_FOR_STALL
+        from aria_kernel.knowledge_graph import record_pressure_source_outcome
+
+        for cycle in range(MIN_UPSTREAM_FOR_STALL - 1):
+            self._seed_minted_plan(self.tools, cycle_id=f"cycle-{cycle}")
+            record_pressure_source_outcome(base_dir=self.tools, source_type="finding", minted=1)
+            record_pressure_source_outcome(base_dir=self.tools, source_type="finding", rejected=1)
+        check = doctor._check_funnel(self.tools)
+        self.assertEqual((check.status, check.reason), ("ok", ""))
+        self.assertEqual(check.detail["plans_minted"], MIN_UPSTREAM_FOR_STALL - 1)
+        self.assertEqual(check.detail["counters"]["finding"], {
+            "cycles_minted": MIN_UPSTREAM_FOR_STALL - 1, "cycles_converged": 0,
+            "cycles_merged": 0, "cycles_rejected": MIN_UPSTREAM_FOR_STALL - 1,
+        })
+        self._seed_minted_plan(self.tools, cycle_id="cycle-last")
+        record_pressure_source_outcome(base_dir=self.tools, source_type="finding", minted=1)
+        record_pressure_source_outcome(base_dir=self.tools, source_type="finding", rejected=1)
+        check = doctor._check_funnel(self.tools)
+        self.assertEqual((check.status, check.reason), ("warn", "funnel_stalled:1"))
+        self.assertEqual(
+            [(stall["stage"], stall["upstream"], stall["downstream"]) for stall in check.detail["stalls"]],
+            [("convergence", MIN_UPSTREAM_FOR_STALL, 0)],
+        )
+
+    def test_the_funnel_organ_reads_the_bound_tools_root_not_the_workspace(self) -> None:
+        """The live lane's shape: ARIA_TOOLS_DIR=<store>/tools while
+        --workspace-root is the checkout. The organ used to resolve
+        <workspace>/aria-tools/knowledge-graph/... and the state ledger it
+        is judged against lives under the tools root, so on the lane it
+        could never see either. The manifest declares the effectiveness
+        ledger a tools-root surface; the organ reads it where the store
+        keeps it."""
+        from aria_kernel.knowledge_graph import record_pressure_source_outcome
+
+        store_tools = self.root / "store" / "tools"
+        ensure_tools_dir(store_tools)
+        checkout = self.root / "checkout"
+        checkout.mkdir()
+        self._seed_minted_plan(store_tools)
+        report = run_doctor(base_dir=store_tools, workspace_root=checkout)
+        funnel = next(check for check in report.checks if check.name == "funnel")
+        self.assertEqual((funnel.status, funnel.reason), ("fail", "funnel_ledger_missing_with_minted_plans"))
+        record_pressure_source_outcome(base_dir=store_tools, source_type="finding", minted=1, converged=1)
+        self.assertFalse((checkout / "aria-tools").exists())
+        report = run_doctor(base_dir=store_tools, workspace_root=checkout)
+        funnel = next(check for check in report.checks if check.name == "funnel")
+        self.assertEqual((funnel.status, funnel.detail["sources"]), ("ok", 1))
+
     def test_a_tripped_breaker_is_a_fail(self) -> None:
         with mock.patch("aria_kernel.cost_budget.current_state", return_value="tripped"):
             check = doctor._check_breakers(self.tools)

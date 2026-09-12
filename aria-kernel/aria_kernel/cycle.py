@@ -2000,15 +2000,23 @@ def _phase_calibration_recommendation(context: PhaseContext) -> dict[str, Any]:
     # FAZ 4c — rank_pressure_sources' first caller. The effectiveness ledger
     # (converged/minted per pressure source) is exactly the context an
     # operator needs to judge a weight recommendation, and the ranking
-    # function had zero callers since V9.0-F. Advisory data: its absence or
-    # failure must not cost the recommendation.
-    try:
-        from .knowledge_graph import rank_pressure_sources
+    # function had zero callers since V9.0-F. Advisory data: a fault of the
+    # ledger must not cost the recommendation — it is disclosed as a
+    # governance row and the ranking is empty. The set is the reader's own
+    # declaration; the previous tuple caught TypeError and KeyError, which
+    # are programming errors and now raise (B1, 2026-09-12).
+    from .knowledge_graph import effectiveness_reader_faults, rank_pressure_sources
 
-        result["source_effectiveness"] = rank_pressure_sources(
-            workspace_root=context.workspace_root
+    try:
+        result["source_effectiveness"] = rank_pressure_sources(base_dir=context.base_dir)
+    except effectiveness_reader_faults() as exc:
+        append_tools_governance(
+            context.base_dir, "pressure_source_effectiveness_unreadable",
+            {"cycle_id": context.cycle_id, "reader": "calibration_recommendation",
+             "error_class": type(exc).__name__, "error_message": str(exc)[:500]},
+            # The disclosure of a refused read must not itself be refused.
+            bypass_profile_gate=True,
         )
-    except (OSError, ValueError, KeyError, TypeError):
         result["source_effectiveness"] = []
     return result
 

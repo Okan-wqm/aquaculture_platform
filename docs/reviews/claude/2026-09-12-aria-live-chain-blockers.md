@@ -386,3 +386,53 @@ re-budget), not a dropped night. Owner claude; open.
   invariants and the live-path/native-claude smoke — see the commit; on the
   pre-fix kernel 14 of the new tests fail with the stated messages. Verified
   by `wf_00c868e8-647`; fixed and re-verified by `wf_5e9b9dbd-471`.
+
+## ARIA-HIGH-100 — the memory-hook seam is pinned to its callee; the funnel can count a stall
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-19
+- **B1 (memory hook):** the external audit was right that
+  `MemoryHookImpl.record` required a kwonly `converged_plan` the orchestrator
+  never passed; `4f4918c88` removed the parameter, but nothing pinned caller
+  to callee and the call sat under `except Exception`, which turned a
+  signature-drift `TypeError` into a `memory_hook_failed` governance row.
+  Now `memory.memory_hook_runtime_faults()` is the closed set the seam
+  catches (`GovernanceError`, ledger integrity/limit errors, knowledge-graph
+  tamper/schema errors, `OSError`) and invariants I-V31-C2-07/08/09
+  AST-extract the orchestrator's `memory_hook.record(...)` and
+  `.complete_pending_observations(...)` keyword sets, assert equality with
+  the protocol's, the NoOp's and the Impl's keyword-only parameters, pin the
+  except clause to the declared set and exclude `TypeError`/`KeyError`/
+  `AttributeError` — re-adding `converged_plan` turns I-V31-C2-07 red naming
+  the drift; a `TypeError` now propagates out of `run_autonomy_orchestrator`.
+- **B4-adjacent (funnel):** the effectiveness ledger
+  (`knowledge-graph/pressure-source-effectiveness.jsonl`) never existed on
+  `aria/state` — not stripped by compaction (its git log is empty) but never
+  written: the only writer sat on the converged path after `auto_merge`, and
+  no live cycle converged; and it would have landed in
+  `<checkout>/aria-tools` (the writer resolved the workspace, the readers
+  three different paths, none the store's tools root). The writer now sits
+  at the funnel's entry (`_record_funnel_counter`: `minted` before the
+  `cycle_runner_synthesized_plan` transition, `rejected` on the two
+  non-converged exits, `converged` at the arbiter verdict, `merged` after
+  `auto_merge`) so a store that mints and converges none has a countable
+  convergence-stage stall; every reader and writer resolves the ledger
+  through the bound tools root with `base_dir` required; the doctor's
+  `funnel` organ moved to the store checks and judges an absent ledger
+  against the orchestrator's own mint rows — only rows stamped
+  `FUNNEL_RECORDED_DETAIL` (written after their effectiveness row) count, so
+  the twenty pre-ledger rows on the live store are bootstrap, not loss,
+  and the first doctor run after deploy does not open a `doctor_fail`
+  mission nothing can clear; the `pressure`/`cycle` reader guards are
+  narrowed to `effectiveness_reader_faults()` with a
+  `pressure_source_effectiveness_unreadable` disclosure.
+- **Tracked residual:** ARIA-MEDIUM-101 (`mission_scheduler._thompson_source_draws`
+  keeps the wide guard).
+- **Proof (candidate):** v3.1-C2 memory-hook invariants, doctor (incl. the
+  pre-ledger-row case), effectiveness writer/durability, change-outcome,
+  funnel self-diagnosis, learned-context, compaction, cycle-phases scaffold,
+  convention-observation, pressure and scheduler suites, and the
+  orchestrator's funnel/memory-seam subset — see the commit; on the pre-fix
+  kernel the new tests fail (`'Exception' unexpectedly found`, `TypeError not
+raised`, the row written to the checkout, `KnowledgeGraphTamper`
+  escaping, doctor `ok` with sources=0, counters `{}`). Verified by
+  `wf_00c868e8-647`; fixed and re-verified by `wf_06256544-bfc`.

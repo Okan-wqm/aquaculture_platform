@@ -200,18 +200,90 @@ def _check_habitat(workspace_root: Path) -> DoctorCheck:
     return DoctorCheck("habitat", "ok", detail=facts)
 
 
-def _check_funnel(workspace_root: Path) -> DoctorCheck:
-    from .funnel_health import detect_funnel_stalls
-    from .knowledge_graph import rank_pressure_sources
+def _requests_are_live(tools_dir: Path) -> bool:
+    """Producers have written: the store is past bootstrap, so a ledger the
+    producers feed cannot be legitimately absent."""
+    requests = tools_dir / "agent-invocations" / "requests.jsonl"
+    return requests.is_file() and requests.stat().st_size > 0
 
-    rows = rank_pressure_sources(workspace_root=workspace_root)
+
+def _plans_minted(tools_dir: Path) -> int:
+    """How many plans the orchestrator has minted, from its own state ledger.
+
+    One ``PLAN_MINTED_PHASE`` transition per minted plan. Only rows that
+    carry ``FUNNEL_RECORDED_DETAIL`` count: the orchestrator stamps it after
+    writing the effectiveness ledger and immediately before emitting the
+    row, so for those rows a count above zero with no effectiveness rows is
+    a ledger that existed and is gone, or a write that failed and was
+    disclosed as a ``pressure_source_outcome_failed`` governance row. A row
+    without the stamp predates the ledger (the live store holds twenty from
+    2026-08 → 09-04, written when the writer sat on the converged path):
+    it says a plan was minted, not that a ledger row was due. Read by the
+    path the store keeps it at, not ``autonomy_state_path`` (which binds and
+    refreshes the tools root — a write the doctor must not make)."""
+    from .autonomy_state import FUNNEL_RECORDED_DETAIL, PLAN_MINTED_PHASE
+    from .ledger import load_declared_jsonl
+
+    path = tools_dir / "autonomy_state.jsonl"
+    if not path.is_file():
+        return 0
+    rows = load_declared_jsonl(path, expected_surface="autonomy_state", verify=True)
+    return sum(
+        1 for row in rows
+        if row.get("phase") == PLAN_MINTED_PHASE
+        and (row.get("details") or {}).get(FUNNEL_RECORDED_DETAIL) is True
+    )
+
+
+def _check_funnel(tools_dir: Path) -> DoctorCheck:
+    """The funnel's counters, read where the store keeps them.
+
+    A STORE organ (B4, 2026-09-12): the effectiveness ledger is a
+    tools-root surface (``state_manifest`` kg_pressure_source_effectiveness)
+    and the state ledger it is judged against lives under the same root.
+    Reading ``<workspace>/aria-tools/...`` instead — as this organ did — is
+    right on a developer checkout and blind on the live lane, where
+    ARIA_TOOLS_DIR=<store>/tools and the workspace is the checkout: on
+    2026-09-12 the store held 807 requests, no effectiveness ledger, and
+    the organ said ok with sources=0.
+
+    The absence is judged against the orchestrator's OWN evidence of a
+    minted plan, not against the requests ledger: requests are minted by a
+    dozen producers (judge fan-out, expert review, cross-review) that run
+    with no plan in the funnel, so "requests live" does not imply "a plan
+    was minted" — a store with only those would have been a false fault.
+    A ``PLAN_MINTED_PHASE`` transition does imply it: the orchestrator
+    records the mint in the effectiveness ledger immediately before
+    emitting that transition, on every exit (invalid plan, blocked verdict,
+    converged), so the implication "plan minted => effectiveness ledger
+    exists" holds by construction, and a store of blocked-only cycles is
+    ok — or warn once the convergence stage has taken ten plans and
+    released none — with its counters in the detail, never a fault."""
+    from .funnel_health import detect_funnel_stalls
+    from .knowledge_graph import effectiveness_ledger_path, rank_pressure_sources
+
+    rows = rank_pressure_sources(base_dir=tools_dir)
+    ledger = effectiveness_ledger_path(base_dir=tools_dir)
+    plans_minted = _plans_minted(tools_dir)
+    detail: dict[str, Any] = {
+        "sources": len(rows),
+        "effectiveness_ledger_present": ledger.is_file() and ledger.stat().st_size > 0,
+        "plans_minted": plans_minted,
+        "counters": {
+            str(row.get("source_type")): {
+                field: int(row.get(field, 0) or 0)
+                for field in ("cycles_minted", "cycles_converged", "cycles_merged", "cycles_rejected")
+            }
+            for row in rows
+        },
+    }
+    if not rows and plans_minted:
+        return DoctorCheck("funnel", "fail", "funnel_ledger_missing_with_minted_plans", detail)
     stalls = detect_funnel_stalls(rows)
     if stalls:
-        return DoctorCheck(
-            "funnel", "warn", f"funnel_stalled:{len(stalls)}",
-            {"stalls": [asdict(stall) for stall in stalls]},
-        )
-    return DoctorCheck("funnel", "ok", detail={"sources": len(rows)})
+        detail["stalls"] = [asdict(stall) for stall in stalls]
+        return DoctorCheck("funnel", "warn", f"funnel_stalled:{len(stalls)}", detail)
+    return DoctorCheck("funnel", "ok", detail=detail)
 
 
 def _check_plan_ledger(tools_dir: Path) -> DoctorCheck:
@@ -219,14 +291,13 @@ def _check_plan_ledger(tools_dir: Path) -> DoctorCheck:
     ledger did not, and the drainer re-started the same plan every night.
     A write-driving ledger that vanished while its producers kept writing
     is a FAIL, not a bootstrap."""
-    requests = tools_dir / "agent-invocations" / "requests.jsonl"
     plans_dir = tools_dir / "plans"
     plan_ledgers = sorted(plans_dir.glob("*.jsonl")) if plans_dir.is_dir() else []
     detail = {
-        "requests_ledger_present": requests.is_file(),
+        "requests_ledger_present": (tools_dir / "agent-invocations" / "requests.jsonl").is_file(),
         "plan_ledgers": [path.name for path in plan_ledgers],
     }
-    if requests.is_file() and requests.stat().st_size > 0 and not plan_ledgers:
+    if _requests_are_live(tools_dir) and not plan_ledgers:
         return DoctorCheck("plan_ledger", "fail", "plan_ledger_missing_with_live_requests", detail)
     return DoctorCheck("plan_ledger", "ok", detail=detail)
 
@@ -418,7 +489,6 @@ def run_doctor(
         _guarded("sandbox_backend", _check_sandbox),
         _guarded("claude_cli", lambda: _check_claude_cli(floor=claude_version_floor)),
         _guarded("habitat", lambda: _check_habitat(workspace)),
-        _guarded("funnel", lambda: _check_funnel(workspace)),
     )
     if tools_dir is None:
         checks = (
@@ -435,6 +505,7 @@ def run_doctor(
         _guarded("breakers", lambda: _check_breakers(tools_dir)),
         _guarded("host_lease", lambda: _check_host_lease(tools_dir)),
         _guarded("plan_ledger", lambda: _check_plan_ledger(tools_dir)),
+        _guarded("funnel", lambda: _check_funnel(tools_dir)),
         _guarded("delivery_closure", lambda: _check_delivery(tools_dir)),
         _guarded("queue", lambda: _check_queue(tools_dir)),
         _guarded("control", lambda: _check_control(tools_dir)),

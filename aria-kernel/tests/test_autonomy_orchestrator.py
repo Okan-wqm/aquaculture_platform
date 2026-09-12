@@ -1140,6 +1140,246 @@ class AutonomyOrchestratorTests(unittest.TestCase):
                 shutil.rmtree(self.base)
                 set_profile("standard", operator_approval_ref="f1-t", base_dir=self.base)
 
+    def test_memory_hook_programming_error_is_not_laundered_into_governance(self) -> None:
+        """B1 (2026-09-12 audit residual) — MemoryHookImpl.record once required
+        a kwonly ``converged_plan`` the orchestrator never passed. The
+        TypeError was swallowed by ``except Exception`` into a
+        memory_hook_failed governance row night after night, so the V10
+        memory pillar was dead while the cycle summary read as healthy. A
+        signature drift is a programming error: it must raise, not be
+        recorded as a runtime fault."""
+
+        class DriftedHook:
+            def record(self, **kwargs):
+                raise TypeError("record() got an unexpected keyword argument 'converged_plan'")
+
+            def complete_pending_observations(self, **kwargs):
+                return {"status": "unreached", "observations": []}
+
+        with self.assertRaises(TypeError):
+            self._run(memory_hook=DriftedHook())
+        governance = self.base / "governance.jsonl"
+        rows = load_jsonl(governance) if governance.exists() else []
+        self.assertFalse(any(row.get("kind") == "memory_hook_failed" for row in rows),
+                         "a TypeError must not become a memory_hook_failed row")
+
+    def test_memory_hook_runtime_fault_stays_the_governance_row(self) -> None:
+        """The narrowed guard still keeps the night alive on a real runtime
+        fault: an unwritable ledger is recorded as memory_hook_failed and
+        the cycle proceeds to implementation + review + auto_merge."""
+
+        class UnwritableHook:
+            def record(self, **kwargs):
+                raise OSError(28, "No space left on device")
+
+            def complete_pending_observations(self, **kwargs):
+                return {"status": "unreached", "observations": []}
+
+        result = self._run(memory_hook=UnwritableHook())
+        self.assertTrue(result["exits_clean"])
+        self.assertEqual(result["cycles_completed"], 1)
+        self.assertNotIn("memory_hook", result["per_cycle"][0])
+        failures = [row for row in load_jsonl(self.base / "governance.jsonl")
+                    if row.get("kind") == "memory_hook_failed"]
+        self.assertEqual(len(failures), 1)
+        self.assertEqual(failures[0]["details"]["error_class"], "OSError")
+        self.assertIn("v9_implementation", result["per_cycle"][0])
+
+    def test_effectiveness_ledger_lands_in_the_bound_tools_root_not_the_checkout(self) -> None:
+        """B4 root cause (2026-09-12) — the live lane binds
+        ARIA_TOOLS_DIR=<store>/tools and passes --workspace-root=<checkout>.
+        The effectiveness writer resolved its ledger under
+        <workspace_root>/aria-tools, i.e. into the checkout that dies with
+        the runner; origin/aria/state never carried
+        knowledge-graph/pressure-source-effectiveness.jsonl in any commit.
+        The store layout used here is the lane's, not the coincidental
+        <workspace>/aria-tools one every other test relies on."""
+        store_tools = self.tmp / "store" / "tools"
+        checkout = self.tmp / "checkout"
+        checkout.mkdir()
+        set_profile("standard", operator_approval_ref="f1-t", base_dir=store_tools)
+        result = self._run(base_dir=store_tools, workspace_root=str(checkout))
+        self.assertTrue(result["exits_clean"])
+        self.assertEqual(result["cycles_completed"], 1)
+        ledger = store_tools / "knowledge-graph" / "pressure-source-effectiveness.jsonl"
+        self.assertTrue(ledger.is_file(), "the effectiveness row must land in the bound tools root")
+        self.assertFalse((checkout / "aria-tools").exists(),
+                         "nothing may bootstrap a shadow tools root inside the checkout")
+        self.assertEqual(self._funnel_counters(store_tools), {
+            "git_diff": {"cycles_minted": 1, "cycles_converged": 1, "cycles_merged": 0, "cycles_rejected": 0},
+        })
+
+    def test_a_tampered_effectiveness_ledger_does_not_cost_the_night(self) -> None:
+        """The writer's guard used to be (OSError, ValueError, KeyError,
+        TypeError): programming errors were swallowed while a tampered
+        ledger raised KnowledgeGraphTamper straight through the cycle. A
+        corrupt row is a runtime fault: the night finishes, each refused
+        fact (the mint, then the convergence) is a governance row with its
+        class and its counters, and the writer leaves the tampered bytes
+        for the reader's quarantine rather than appending behind them."""
+        ledger = self.base / "knowledge-graph" / "pressure-source-effectiveness.jsonl"
+        ledger.parent.mkdir(parents=True, exist_ok=True)
+        ledger.write_text("{not json\n", encoding="utf-8")
+        result = self._run()
+        self.assertTrue(result["exits_clean"])
+        self.assertEqual(result["cycles_completed"], 1)
+        failures = [row for row in load_jsonl(self.base / "governance.jsonl")
+                    if row.get("kind") == "pressure_source_outcome_failed"]
+        self.assertEqual(
+            [(row["details"]["error_class"], row["details"]["counters"]) for row in failures],
+            [
+                ("KnowledgeGraphTamper", {"minted": 1, "converged": 0, "merged": 0, "rejected": 0}),
+                ("KnowledgeGraphTamper", {"minted": 0, "converged": 1, "merged": 0, "rejected": 0}),
+            ],
+        )
+        self.assertEqual(ledger.read_text(encoding="utf-8"), "{not json\n")
+
+    @staticmethod
+    def _funnel_counters(tools: Path) -> dict[str, dict[str, int]]:
+        from aria_kernel.knowledge_graph import rank_pressure_sources
+
+        return {
+            str(row["source_type"]): {
+                field: int(row[field])
+                for field in ("cycles_minted", "cycles_converged", "cycles_merged", "cycles_rejected")
+            }
+            for row in rank_pressure_sources(base_dir=tools)
+        }
+
+    def _funnel_writes(self, tools: Path) -> list[dict[str, int]]:
+        """Every row the orchestrator appended, in order, as its deltas."""
+        from aria_kernel.knowledge_graph import _read_jsonl_strict, effectiveness_ledger_path
+
+        rows = list(_read_jsonl_strict(effectiveness_ledger_path(base_dir=tools)))
+        deltas: list[dict[str, int]] = []
+        previous = {"cycles_minted": 0, "cycles_converged": 0, "cycles_merged": 0, "cycles_rejected": 0}
+        for row in rows:
+            deltas.append({field: int(row[field]) - previous[field] for field in previous})
+            previous = {field: int(row[field]) for field in previous}
+        return deltas
+
+    def test_a_blocked_convergence_counts_the_minted_plan_as_rejected(self) -> None:
+        """B4 root cause (2026-09-12) — the writer sat after auto_merge, on
+        the converged path only. The live lane took the convergence_blocked
+        exit every night, so the ledger was never written, the funnel
+        detector had nothing to count for the one stall the store had, and
+        the doctor could not tell bootstrap from loss. The mint is recorded
+        at the funnel's entry and the blocked exit records the rejection:
+        the ledger exists from the first minted plan."""
+        def _split(**kwargs):
+            return {**_fake_convergence_runner(**kwargs), "arbiter_verdict": "split"}
+
+        result = self._run(convergence_runner=_split)
+        self.assertTrue(result["exits_clean"])
+        self.assertEqual(result["per_cycle"][0]["dispatch_blocked_reason"], "convergence_split")
+        self.assertEqual(self._funnel_counters(self.base), {
+            "git_diff": {"cycles_minted": 1, "cycles_converged": 0, "cycles_merged": 0, "cycles_rejected": 1},
+        })
+        self.assertEqual(self._funnel_writes(self.base), [
+            {"cycles_minted": 1, "cycles_converged": 0, "cycles_merged": 0, "cycles_rejected": 0},
+            {"cycles_minted": 0, "cycles_converged": 0, "cycles_merged": 0, "cycles_rejected": 1},
+        ])
+
+    def test_an_invalid_plan_counts_the_minted_plan_as_rejected(self) -> None:
+        """The other non-converged exit: convergence_runner refuses the plan
+        with GovernanceError. The plan was minted (the synthesizer yielded
+        it) and left the funnel without converging."""
+        from aria_kernel.tool_registry import GovernanceError
+
+        def _refuse(**kwargs):
+            raise GovernanceError("plan content missing required field(s): title")
+
+        result = self._run(convergence_runner=_refuse)
+        self.assertTrue(result["exits_clean"])
+        self.assertIn("convergence_invalid_plan", result["per_cycle"][0])
+        self.assertEqual(self._funnel_counters(self.base), {
+            "git_diff": {"cycles_minted": 1, "cycles_converged": 0, "cycles_merged": 0, "cycles_rejected": 1},
+        })
+
+    def test_a_specialist_blocked_converged_plan_still_counts_as_converged(self) -> None:
+        """Convergence is recorded at the verdict, not after auto_merge: a
+        plan that converged and was then stopped by specialist review is
+        still a converged plan that did not merge — the merge-stage stall
+        (converged in, nothing out) is only countable if this exit counts."""
+        def _remediation(**kwargs):
+            return {**_fake_specialist_review_runner(**kwargs),
+                    "consolidated_verdict": "consolidated_remediation_required"}
+
+        result = self._run(specialist_review_runner=_remediation)
+        self.assertTrue(result["exits_clean"])
+        self.assertEqual(result["per_cycle"][0]["dispatch_blocked_reason"],
+                         "specialist_consolidated_remediation_required")
+        self.assertEqual(self._funnel_counters(self.base), {
+            "git_diff": {"cycles_minted": 1, "cycles_converged": 1, "cycles_merged": 0, "cycles_rejected": 0},
+        })
+
+    def test_a_merge_counts_the_cycle_once_however_many_prs_landed(self) -> None:
+        class _TwoMerges(_FakeAutoMergeRunner):
+            def __call__(self, *, base_dir, workspace_root):
+                return {**super().__call__(base_dir=base_dir, workspace_root=workspace_root),
+                        "status": "ok", "merges_completed": 2}
+
+        result = self._run(auto_merge_runner=_TwoMerges())
+        self.assertTrue(result["exits_clean"])
+        self.assertEqual(result["per_cycle"][0]["auto_merge"]["merges_completed"], 2)
+        self.assertEqual(self._funnel_counters(self.base), {
+            "git_diff": {"cycles_minted": 1, "cycles_converged": 1, "cycles_merged": 1, "cycles_rejected": 0},
+        })
+
+    def test_the_mint_is_recorded_before_the_state_ledger_says_so(self) -> None:
+        """The doctor's funnel organ judges an absent effectiveness ledger
+        against the PLAN_MINTED_PHASE rows in autonomy_state.jsonl. That
+        implication — state says minted => effectiveness ledger has the
+        mint — holds by construction only if the ledger write precedes the
+        transition and is the single site that records a mint. Pinned on
+        the orchestrator's source order."""
+        import inspect
+        import re
+        from aria_kernel import autonomy_orchestrator as mod
+
+        src = inspect.getsource(mod.run_autonomy_orchestrator)
+        mint_sites = [m.start() for m in re.finditer(r"_record_funnel_counter\([^)]*minted=1", src)]
+        self.assertEqual(len(mint_sites), 1, "exactly one site records a mint")
+        transition = src.find("phase=PLAN_MINTED_PHASE")
+        self.assertNotEqual(transition, -1, "the transition names the shared phase constant")
+        self.assertLess(mint_sites[0], transition, "the mint row precedes the state transition")
+        self.assertEqual(src.count("phase=PLAN_MINTED_PHASE"), 1)
+
+    def test_the_doctor_reads_blocked_only_cycles_as_counted_never_as_loss(self) -> None:
+        """The live store's shape, produced by the real orchestrator: two
+        nights, both convergence-blocked. The funnel organ is ok with the
+        counters in its detail (the stall threshold is ten). Only when the
+        ledger the mints fed is gone while the state ledger still says
+        "minted" does the organ fail — that is a ledger that existed and
+        vanished, never bootstrap."""
+        from aria_kernel import doctor
+
+        def _split(**kwargs):
+            return {**_fake_convergence_runner(**kwargs), "arbiter_verdict": "split"}
+
+        result = self._run(convergence_runner=_split, max_cycles=2)
+        self.assertEqual(result["cycles_completed"], 2)
+        check = doctor._check_funnel(self.base)
+        self.assertEqual((check.status, check.reason), ("ok", ""))
+        self.assertEqual(check.detail["plans_minted"], 2)
+        self.assertEqual(check.detail["counters"], {
+            "git_diff": {"cycles_minted": 2, "cycles_converged": 0, "cycles_merged": 0, "cycles_rejected": 2},
+        })
+        (self.base / "knowledge-graph" / "pressure-source-effectiveness.jsonl").unlink()
+        check = doctor._check_funnel(self.base)
+        self.assertEqual((check.status, check.reason), ("fail", "funnel_ledger_missing_with_minted_plans"))
+        self.assertEqual((check.detail["plans_minted"], check.detail["sources"]), (2, 0))
+
+    def test_the_doctor_fails_a_converged_store_whose_ledger_is_gone(self) -> None:
+        from aria_kernel import doctor
+
+        result = self._run()
+        self.assertEqual(result["cycles_completed"], 1)
+        self.assertEqual(doctor._check_funnel(self.base).status, "ok")
+        (self.base / "knowledge-graph" / "pressure-source-effectiveness.jsonl").unlink()
+        check = doctor._check_funnel(self.base)
+        self.assertEqual((check.status, check.reason), ("fail", "funnel_ledger_missing_with_minted_plans"))
+
     def test_full_chain_happy_path(self) -> None:
         result = self._run(max_cycles=2)
         self.assertEqual(result["exit_reason"], "max_cycles")

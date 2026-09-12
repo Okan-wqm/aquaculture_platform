@@ -64,7 +64,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, NamedTuple
 
-from .autonomy_state import AutonomyStateReducer
+from .autonomy_state import FUNNEL_RECORDED_DETAIL, PLAN_MINTED_PHASE, AutonomyStateReducer
 from .cycle import job_deadline_epoch
 from .file_lock import with_exclusive_lock
 from .next_cycle_queue import mark_consumed, read_pending
@@ -702,6 +702,83 @@ def _apply_preflight_verdict(root: Path, profile: str, verdict: Any) -> None:
                 "failure_classes": list(failure_classes),
                 "reasons": list(reasons),
             },
+            bypass_profile_gate=True,
+        )
+
+
+def _record_funnel_counter(
+    root: Path,
+    *,
+    cycle_id: str,
+    cycle_summary: dict[str, Any],
+    minted: int = 0,
+    converged: int = 0,
+    merged: int = 0,
+    rejected: int = 0,
+) -> None:
+    """One funnel fact for this cycle's pressure source, in the effectiveness ledger.
+
+    WHY (B4, 2026-09-12): the ledger's only writer sat on the converged
+    path, after auto_merge. On the live lane no cycle had converged, so the
+    writer never fired, ``knowledge-graph/pressure-source-effectiveness.jsonl``
+    never existed, and the funnel detector — whose whole purpose is to name
+    a pipeline that mints plans and converges none — had nothing to count:
+    the one stall the store exhibited was structurally invisible, and a
+    doctor organ judging the ledger's absence could only guess whether it
+    was bootstrap or loss.
+
+    WHAT: each counter is recorded at the ONE point where its fact becomes
+    true, not at the exits — ``minted`` when the synthesizer yields a plan
+    (before the ``cycle_runner_synthesized_plan`` transition, so the state
+    ledger's own row implies this one), ``rejected`` on the two exits where
+    the plan does not converge (invalid plan, blocked verdict),
+    ``converged`` the moment the arbiter says so (before the memory hook,
+    so a specialist-blocked or review-blocked converged plan still counts as
+    converged and the merge-stage stall stays countable), ``merged`` after
+    auto_merge reports one. Rows are cumulative per source and the reader
+    folds latest-per-source, so several rows per cycle cost nothing.
+
+    Advisory: a fault of the store (an unbindable tools root, a corrupt or
+    tampered ledger the reader quarantines, an undeclared surface, the file
+    system) is a governance row and the night goes on; a programming error
+    raises. The set is the ledger's own declaration
+    (``effectiveness_writer_faults``), never ``Exception`` — the previous
+    tuple caught TypeError and KeyError while a tampered ledger cost the
+    night (same defect class as the memory-hook guard, B1).
+
+    Bound to ``root`` (the tools root), never to a workspace: the live lane
+    binds ARIA_TOOLS_DIR=<store>/tools and passes the checkout as workspace
+    root, so a workspace-derived path names the checkout that dies with the
+    runner. The manifest declares the ledger a tools-root surface.
+    """
+    from .knowledge_graph import effectiveness_writer_faults, record_pressure_source_outcome
+    from .tool_registry import append_tools_governance
+
+    source_type = str(cycle_summary.get("_pressure_source_type") or "git_diff")
+    try:
+        record_pressure_source_outcome(
+            base_dir=root,
+            source_type=source_type,
+            minted=minted,
+            converged=converged,
+            merged=merged,
+            rejected=rejected,
+        )
+    except effectiveness_writer_faults() as exc:
+        append_tools_governance(
+            root, "pressure_source_outcome_failed",
+            {
+                "cycle_id": cycle_id,
+                "source_type": source_type,
+                "counters": {
+                    "minted": minted, "converged": converged,
+                    "merged": merged, "rejected": rejected,
+                },
+                "error_class": type(exc).__name__,
+                "error_message": str(exc)[:500],
+            },
+            # The row that discloses a refused write must not itself be
+            # refused by the profile gate.
             bypass_profile_gate=True,
         )
 
@@ -1708,10 +1785,19 @@ def run_autonomy_orchestrator(
                     per_cycle_results.append(cycle_summary)
                     continue
                 # Plan ARIA-V7 §2i v2 — synthesizer produced real plan.
+                # The funnel's entry: the plan is minted. Recorded BEFORE
+                # the state transition below so that a
+                # cycle_runner_synthesized_plan row in autonomy_state.jsonl
+                # implies a row in the effectiveness ledger — the doctor's
+                # funnel organ judges the ledger's absence against exactly
+                # that row (B4, 2026-09-12).
+                _record_funnel_counter(
+                    root, cycle_id=cycle_id, cycle_summary=cycle_summary, minted=1,
+                )
                 AutonomyStateReducer.transition(
                     root,
                     cycle_id=cycle_id,
-                    phase="cycle_runner_synthesized_plan",
+                    phase=PLAN_MINTED_PHASE,
                     status="ok",
                     profile=profile_snapshot,
                     details={
@@ -1722,6 +1808,9 @@ def run_autonomy_orchestrator(
                         "key_changes_count": len(
                             _v7_plan_content.get("key_changes", [])
                         ),
+                        # The claim the doctor's funnel organ counts: this
+                        # row was written after its effectiveness row.
+                        FUNNEL_RECORDED_DETAIL: True,
                     },
                 )
                 cycle_summary["plan_synthesizer"] = {
@@ -1839,6 +1928,10 @@ def run_autonomy_orchestrator(
                         "error_class": type(_v7_exc).__name__,
                         "error_message": str(_v7_exc)[:1000],
                     }
+                    # The minted plan left the funnel without converging.
+                    _record_funnel_counter(
+                        root, cycle_id=cycle_id, cycle_summary=cycle_summary, rejected=1,
+                    )
                     # ORPHAN-HIGH-782 — an invalid plan must not cost the
                     # night its precision history; the cycle itself ran.
                     _calibration_reporter_and_auto_promotion(
@@ -1900,6 +1993,13 @@ def run_autonomy_orchestrator(
                                 convergence_result.get("rounds_count"),
                         },
                     )
+                    # The minted plan left the funnel without converging.
+                    # This is the exit the live lane took every night
+                    # (0 converged cycles); counting it here is what makes
+                    # the convergence-stage stall countable (B4).
+                    _record_funnel_counter(
+                        root, cycle_id=cycle_id, cycle_summary=cycle_summary, rejected=1,
+                    )
                     # ORPHAN-HIGH-782 — the calibration reporter and the V6.4
                     # auto-promote attempt run on convergence-blocked nights
                     # too. This branch used to `continue` straight to
@@ -1938,6 +2038,16 @@ def run_autonomy_orchestrator(
                     per_cycle_results.append(cycle_summary)
                     continue
 
+                # The plan converged. Recorded here, at the verdict, rather
+                # than after auto_merge: a converged plan that specialist
+                # review or Gate B later blocks is still a converged plan,
+                # and the merge-stage stall (converged in, nothing merged)
+                # is only countable if convergence is counted on every
+                # converged exit (B4, 2026-09-12).
+                _record_funnel_counter(
+                    root, cycle_id=cycle_id, cycle_summary=cycle_summary, converged=1,
+                )
+
                 # Plan ARIA-V3.1-C2 — post-CONVERGED MemoryHook wire.
                 # Fires the bounded governance read → stability check
                 # → record_convention → verify_chain_or_quarantine →
@@ -1951,6 +2061,11 @@ def run_autonomy_orchestrator(
                 # when specialist_review rejects. Without a cycle signer,
                 # the hook discloses needs_signing once per plan revision;
                 # replay does not append another identical observation.
+                #
+                # The keyword set below is pinned to every hook variant's
+                # keyword-only signature by I-V31-C2-07: a parameter added
+                # on one side only is a red test, not a swallowed TypeError.
+                from .cycle_phases.memory import memory_hook_runtime_faults
                 try:
                     _v31c2_memory_result = memory_hook.record(
                         cycle_id=cycle_id,
@@ -1984,11 +2099,16 @@ def run_autonomy_orchestrator(
                             ),
                         },
                     )
-                except Exception as _v31c2_exc:
-                    # Best-effort — V10 memory pillar failure must not
-                    # block specialist_review + worker_drainer +
-                    # auto_merge. The exception is surfaced via
-                    # governance event for operator visibility.
+                except memory_hook_runtime_faults() as _v31c2_exc:
+                    # A RUNTIME fault of the memory pillar (unwritable or
+                    # corrupt ledger, plan not CONVERGED, locked tools
+                    # root) must not block specialist_review +
+                    # worker_drainer + auto_merge; it is surfaced as a
+                    # governance row for the operator. The set is the
+                    # hook's own declaration, deliberately NOT
+                    # ``Exception``: a TypeError from a caller/callee
+                    # signature drift was laundered into this row for
+                    # weeks (B1, 2026-09-12). Programming errors raise.
                     append_tools_governance(
                         root, "memory_hook_failed",
                         {
@@ -2392,31 +2512,17 @@ def run_autonomy_orchestrator(
                     details={},
                 )
 
-                # M3/E8 — the effectiveness ledger's first writer fires
-                # here because this is the one point where all three
-                # outcome signals for the cycle's pressure source are in
-                # scope: the plan was minted (we are past the synthesizer),
-                # convergence's arbiter verdict is folded, and auto_merge
-                # just reported. Without this row the mission scheduler's
+                # M3/E8 — the funnel's last fact: auto_merge reported. A
+                # cycle counts as merged once however many PRs it landed;
+                # a converged cycle that merged nothing has nothing new to
+                # record here (its convergence is already counted at the
+                # verdict). Without this row the mission scheduler's
                 # Thompson bandit drew from the uninformative prior forever
-                # — exploration-aware scheduling was decoration. Advisory:
-                # a ledger failure must not cost the night.
-                try:
-                    from .knowledge_graph import record_pressure_source_outcome
-
-                    record_pressure_source_outcome(
-                        workspace_root=workspace_root,
-                        source_type=str(
-                            cycle_summary.get("_pressure_source_type")
-                            or "git_diff",
-                        ),
-                        minted=1,
-                        converged=1 if arbiter_verdict == "converged" else 0,
-                        merged=1 if extra_merges else 0,
-                        rejected=0 if arbiter_verdict == "converged" else 1,
+                # — exploration-aware scheduling was decoration.
+                if extra_merges:
+                    _record_funnel_counter(
+                        root, cycle_id=cycle_id, cycle_summary=cycle_summary, merged=1,
                     )
-                except (OSError, ValueError, KeyError, TypeError):
-                    pass
 
                 # Plan ARIA-V7 §3 Phase 7.6 — calibration_reporter +
                 # the V6.4 auto-promote first caller, via the extracted

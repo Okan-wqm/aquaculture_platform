@@ -155,7 +155,7 @@ def scan_signals(*, base_dir: str | Path | None, workspace_root: str | Path) -> 
         from .funnel_health import detect_funnel_stalls
         from .knowledge_graph import rank_pressure_sources
 
-        for stall in detect_funnel_stalls(rank_pressure_sources(workspace_root=workspace_root)):
+        for stall in detect_funnel_stalls(rank_pressure_sources(base_dir=root)):
             key = f"{stall.stage}:{stall.source_type}"
             signals.append(Signal("funnel_stall", key, f"Unblock funnel stage {stall.stage} for {stall.source_type}",
                                   {"upstream": stall.upstream, "downstream": stall.downstream}, 1))

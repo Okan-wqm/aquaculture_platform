@@ -171,3 +171,16 @@ are green. Closed by the same commit as ARIA-HIGH-090.
   the module-present/daemon-unwired shape), the two-in-flight tests fail with
   the guards removed. Verified by `wf_284f4dbe-940`; fixed and re-verified
   (integrate) by `wf_f4cb3a2b-f0a`.
+
+## ARIA-MEDIUM-093 — the release-reason invariant read the wrong seam
+
+`tests/test_requeue_fault_ownership.py::test_every_executor_release_reason_is_classified`
+scanned `ci_executor.py` with a text regex for any `reason="..."` literal.
+When the native fleet landed, its admission observations
+(`control_reason="native_readonly_runtime_prepared"`, `"sandbox_unavailable"`,
+`"supported_auth_status_unavailable"`, …) matched the regex, and the
+invariant has been red on the candidate ever since — four independent
+verifiers reported the identical six-entry list. The scan now walks the AST
+for `_release_claim(..., reason=...)` calls and collects the literal (or each
+branch of a conditional): twelve release reasons, all classified;
+parameterised f-string reasons stay owned by the prefix tables.

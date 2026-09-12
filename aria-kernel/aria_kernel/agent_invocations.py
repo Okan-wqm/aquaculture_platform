@@ -17,6 +17,7 @@ from .agent_surface import (
 )
 from .bridge_exceptions import BridgeContractViolation
 from .genesis_lifecycle import verify_shadow_eval_proof
+from .git_probe import refuse_shallow_checkout
 from .ledger import (
     StateTransaction,
     append_declared_jsonl,
@@ -2825,19 +2826,15 @@ def _git_ok(repo_root: Path, *args: str) -> tuple[bool, str]:
     return completed.returncode == 0, completed.stdout.strip()
 
 
-def _repo_is_shallow(repo_root: Path) -> bool:
-    """True when this checkout holds only part of the history.
-
-    ``actions/checkout`` defaults to ``fetch-depth: 1`` and neither ARIA lane
-    overrides it, so in production this is normally True.
-    """
-    ok, out = _git_ok(repo_root, "rev-parse", "--is-shallow-repository")
-    return ok and out == "true"
-
-
 def _commit_exists(repo_root: Path, sha: str) -> bool:
     ok, _ = _git_ok(repo_root, "cat-file", "-e", f"{sha}^{{commit}}")
     return ok
+
+
+# The reason the executor sees when the anchor gate refuses to judge a partial
+# clone. Named once so the refusal is grep-able end to end, beside the twin's
+# ``twin_history_unavailable_shallow`` (same probe, ``git_probe``).
+ANCHOR_HISTORY_UNAVAILABLE = "anchor_history_unavailable_shallow"
 
 
 def _anchor_refusal_reason(
@@ -2867,23 +2864,42 @@ def _anchor_refusal_reason(
     needs no anchor at all, because ``created_at`` is on every row: the
     stranded requests this finding exists to clear are caught by age whether
     or not they carry a SHA.
+
+    Raises ``GovernanceError`` naming ``ANCHOR_HISTORY_UNAVAILABLE`` when the
+    anchor is absent from a SHALLOW clone. Absence is a fact only in a whole
+    clone; in a partial one the commit may simply have been cut by the clone
+    depth, and every reason this function returns is written as a terminal
+    ANCHOR_STALE event. A guess must not become a terminal fact, so the gate
+    refuses to answer instead — before anything is recorded — and the
+    executor fails loudly by name.
     """
     anchor = str(request.get("target_sha") or "")
-    if anchor and not _commit_exists(repo_root, anchor) and not _repo_is_shallow(repo_root):
+    if anchor and not _commit_exists(repo_root, anchor):
+        # A present anchor and the request's age are facts on any clone, so
+        # the probe sits exactly where the guess would be made: an anchor
+        # this clone does not hold. Every ARIA lane checks the code
+        # repository out whole (`fetch-depth: 0`, pinned by
+        # tests/invariants/test_kernel_lanes_check_out_full_history.py), so
+        # in production the probe is a fork that never fires. Until
+        # 2026-09-12 this arm was SOFTENED by the same probe — absence on a
+        # shallow clone was read as non-evidence so the 01:00 producer's
+        # requests survived to the 02:00 consumer's depth-1 clone
+        # (ORPHAN-CRITICAL-469). Tolerating the partial clone was the wrong
+        # layer: the same clone left the twin's history layer dead. The
+        # lanes now fetch the history the kernel reads; a clone that does
+        # not hold it is refused, not judged.
+        refuse_shallow_checkout(
+            repo_root,
+            reason=ANCHOR_HISTORY_UNAVAILABLE,
+            needs=f"request {request.get('request_id')} is anchored at "
+                  f"{anchor}, which this clone does not hold, and a commit "
+                  "cut by the clone depth cannot be told from one that never "
+                  "existed; refusing the request as ANCHOR_STALE would record "
+                  "that guess as a terminal fact",
+        )
         # Force-push, rebase, or a request minted in a tree this checkout
-        # never had. Either way the plan cannot be graded against the repo.
-        #
-        # The shallow guard is not a softening, it is the difference between
-        # a fact and a guess. `actions/checkout` defaults to fetch-depth: 1
-        # and neither ARIA lane overrides it, so in production a commit from
-        # the PREVIOUS run is absent from this clone as a matter of course.
-        # Treating that absence as proof of unreachability would mark every
-        # cross-run request terminally ANCHOR_STALE — killing precisely the
-        # queue ORPHAN-CRITICAL-469 exists to carry from the 01:00 producer
-        # to the 02:00 consumer, and killing it irreversibly rather than
-        # deferring it. Absence of the object in a partial clone is absence
-        # of evidence. Age is checked below and needs no history, so a stale
-        # request is still refused on a shallow checkout.
+        # never had. The clone is whole, so absence is a fact and the plan
+        # cannot be graded against the repo.
         return "anchor_unreachable"
     created = _parse_iso(request.get("created_at"))
     if created is None:
@@ -3052,6 +3068,15 @@ def next_pending_request(
     ORPHAN-MEDIUM-492 — a candidate whose ``target_sha`` no longer describes
     the tree it would run against is refused here and marked ANCHOR_STALE,
     because selection is the last point at which the repo is still in scope.
+
+    Raises ``GovernanceError`` (``ANCHOR_HISTORY_UNAVAILABLE``) when a
+    candidate's anchor is absent from a shallow clone: the gate does not know
+    whether the commit is gone or merely cut, and it records nothing rather
+    than a guess. That candidate gets no claim event and no governance row
+    (a refusal already written for an OLDER candidate in the same poll was
+    for age or undatability, facts on any clone, and stands), so once the
+    clone is made whole (``git fetch --unshallow``) the candidate is judged
+    from a clean ledger.
     """
     root = ensure_tools_dir(base_dir)
     repo_root = _anchor_repo_root(root)

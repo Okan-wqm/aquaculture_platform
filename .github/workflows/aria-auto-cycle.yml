@@ -200,6 +200,27 @@ jobs:
         with:
           ref: main
           persist-credentials: false
+          # The kernel reads this checkout's HISTORY, not only its tree: the
+          # twin's churn and co-change layers replay `git log -n400`, the
+          # incremental refresh asks whether the prior map's anchor commit
+          # exists, the executor's anchor gate asks the same of a previous
+          # run's commit, and intent context reads per-file logs.
+          # actions/checkout defaults to depth 1, and on this persistent
+          # workspace a depth-1 fetch RE-SHALLOWS a full clone, so the run
+          # that wrote the live map (2026-09-12) counted one commit: churn
+          # and co-change never reached their recurrence thresholds and an
+          # empty history layer was published as a healthy map, while every
+          # refresh was a full rebuild (`refresh.reason=unknown_anchor`).
+          # 0 = the whole history; on an already-shallow workspace the
+          # action fetches `--unshallow`. The kernel refuses a shallow
+          # checkout by name (`twin_history_unavailable_shallow`) and
+          # aria-kernel/tests/invariants/test_kernel_lanes_check_out_full_history.py
+          # pins this flag on every lane that runs the kernel. The
+          # aria/state store is NOT this checkout: the restore action
+          # materialises it through the kernel's own fetch (no depth) into a
+          # sibling worktree, and its history length is governed by
+          # aria-state-maintenance, not by this step.
+          fetch-depth: 0
           # Self-hosted workspace persists between ALL jobs (CI, executor,
           # this lane). A dispatch-triggered run inherits whatever the
           # previous job left behind; the mid-run preflight's

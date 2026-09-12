@@ -14,7 +14,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from aria_kernel.tool_registry import GovernanceError
 from aria_kernel.twin import (
+    HISTORY_UNAVAILABLE,
+    SHALLOW_CHECKOUT_REFUSAL,
     TWIN_MAP_RELPATH,
     build_twin_map,
     read_twin_map,
@@ -236,6 +239,151 @@ class TwinMapTests(unittest.TestCase):
         first.pop("generated_at")
         second.pop("generated_at")
         self.assertEqual(first, second)
+
+
+class ShallowCheckoutTests(unittest.TestCase):
+    """A partial clone cannot say what recurred, so the twin refuses it.
+
+    The live shape (2026-09-12): the nightly lane's actions/checkout defaulted
+    to depth 1, ``git log -n400`` saw one commit, churn and co-change never
+    reached their recurrence thresholds, and the map was published as healthy
+    with an empty history layer. The refusal below is what replaces that
+    silence; the full-clone test beside it is the same repository read whole.
+    """
+
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmpdir.cleanup)
+        base = Path(self._tmpdir.name)
+        self.origin = base / "origin"
+        (self.origin / "apps" / "alpha" / "src").mkdir(parents=True)
+        _git(base, "init", "-q", self.origin.name)
+        main = self.origin / "apps" / "alpha" / "src" / "main.ts"
+        spec = self.origin / "apps" / "alpha" / "src" / "main.spec.ts"
+        # Two commits touching the SAME pair, so a whole history recurs
+        # (count 2 = both thresholds) and a one-commit history cannot.
+        main.write_text("export const main = 1;\n", encoding="utf-8")
+        spec.write_text("import { main } from './main';\nexport const spec = main;\n", encoding="utf-8")
+        _commit_all(self.origin, "first: main + spec")
+        main.write_text("export const main = 2;\n", encoding="utf-8")
+        spec.write_text("import { main } from './main';\nexport const spec = main + 1;\n", encoding="utf-8")
+        self.head = _commit_all(self.origin, "second: main + spec again")
+
+    def _clone(self, name: str, *flags: str) -> Path:
+        target = Path(self._tmpdir.name) / name
+        _git(Path(self._tmpdir.name), "clone", "-q", *flags, f"file://{self.origin}", str(target))
+        return target
+
+    def test_shallow_checkout_is_refused_by_name_and_nothing_is_written(self) -> None:
+        shallow = self._clone("shallow", "--depth", "1")
+        self.assertEqual(_git(shallow, "rev-parse", "--is-shallow-repository").strip(), "true")
+        tools = Path(self._tmpdir.name) / "shallow-tools"
+
+        with self.assertRaises(GovernanceError) as built:
+            build_twin_map(workspace_root=shallow, base_dir=tools)
+        self.assertIn(SHALLOW_CHECKOUT_REFUSAL, str(built.exception))
+        with self.assertRaises(GovernanceError) as refreshed:
+            refresh_twin_map(workspace_root=shallow, base_dir=tools)
+        self.assertIn(SHALLOW_CHECKOUT_REFUSAL, str(refreshed.exception))
+        # Refusal, not a degraded publish: no map at all is the honest state.
+        self.assertFalse((tools / TWIN_MAP_RELPATH).exists())
+
+    def test_shallow_checkout_refresh_leaves_a_prior_map_untouched(self) -> None:
+        # A map built from the whole history is valid for its indexed_sha. A
+        # later refresh from a partial clone at that SAME sha would take the
+        # noop path; it is refused at the entry instead, and the prior map
+        # keeps its history layer byte for byte.
+        full = self._clone("full")
+        tools = Path(self._tmpdir.name) / "shared-tools"
+        build_twin_map(workspace_root=full, base_dir=tools)
+        before = (tools / TWIN_MAP_RELPATH).read_bytes()
+        self.assertTrue(json.loads(before)["churn"], "fixture precondition: the full map has churn")
+
+        shallow = self._clone("shallow", "--depth", "1")
+        self.assertEqual(_git(shallow, "rev-parse", "HEAD").strip(), self.head)
+        with self.assertRaises(GovernanceError) as refused:
+            refresh_twin_map(workspace_root=shallow, base_dir=tools)
+        self.assertIn(SHALLOW_CHECKOUT_REFUSAL, str(refused.exception))
+        self.assertEqual((tools / TWIN_MAP_RELPATH).read_bytes(), before)
+
+    def test_full_clone_of_the_same_repository_yields_churn_and_co_change(self) -> None:
+        full = self._clone("full")
+        self.assertEqual(_git(full, "rev-parse", "--is-shallow-repository").strip(), "false")
+        twin = build_twin_map(workspace_root=full, base_dir=Path(self._tmpdir.name) / "full-tools")
+        self.assertEqual(twin["stats"]["history_commits"], 2)
+        self.assertEqual(twin["churn"]["apps/alpha/src/main.ts"], 2)
+        self.assertEqual(twin["churn"]["apps/alpha/src/main.spec.ts"], 2)
+        self.assertIn(["apps/alpha/src/main.spec.ts", "apps/alpha/src/main.ts", 2], twin["co_change"])
+
+
+class HistoryUnavailableTests(unittest.TestCase):
+    """A workspace whose history cannot be read is refused, not mapped.
+
+    ``_history_layers`` used to swallow a failed ``git log`` and hand back
+    ``churn={}`` / ``co_change=[]`` / ``commit_count=0``; the build then
+    published that under ``indexed_sha ''`` — a map that looked healthy and
+    described nothing, and that no consumer could tell from a repository
+    whose files genuinely never recur. A directory that is not a repository
+    is not shallow either, so the shallow probe must not catch it: it is
+    refused by its own name (``HISTORY_UNAVAILABLE``).
+    """
+
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmpdir.cleanup)
+        self.plain = Path(self._tmpdir.name) / "plain"
+        # A plausible workspace tree with no `.git` at all: the parse layers
+        # would happily map it, which is exactly what must not happen.
+        (self.plain / "apps" / "alpha" / "src").mkdir(parents=True)
+        (self.plain / "apps" / "alpha" / "project.json").write_text('{"name":"alpha"}', encoding="utf-8")
+        (self.plain / "apps" / "alpha" / "src" / "main.ts").write_text("export const main = 1;\n", encoding="utf-8")
+        self.tools = Path(self._tmpdir.name) / "plain-tools"
+
+    def _assert_refused_by_name(self, refused: GovernanceError) -> None:
+        message = str(refused)
+        self.assertTrue(message.startswith(f"{HISTORY_UNAVAILABLE}: "), message)
+        self.assertNotIn(SHALLOW_CHECKOUT_REFUSAL, message)
+        self.assertIn("git log failed", message)
+
+    def test_a_directory_that_is_not_a_repository_is_refused_and_no_map_is_written(self) -> None:
+        with self.assertRaises(GovernanceError) as built:
+            build_twin_map(workspace_root=self.plain, base_dir=self.tools)
+        self._assert_refused_by_name(built.exception)
+        with self.assertRaises(GovernanceError) as refreshed:
+            refresh_twin_map(workspace_root=self.plain, base_dir=self.tools)
+        self._assert_refused_by_name(refreshed.exception)
+        self.assertFalse((self.tools / TWIN_MAP_RELPATH).exists())
+
+    def test_an_unborn_repository_is_refused_the_same_way(self) -> None:
+        # `git init` with no commit: HEAD is unborn, `git log` fails, and the
+        # history layer has nothing to count. Not shallow, not mappable.
+        _git(self.plain.parent, "init", "-q", self.plain.name)
+        self.assertEqual(_git(self.plain, "rev-parse", "--is-shallow-repository").strip(), "false")
+        with self.assertRaises(GovernanceError) as built:
+            build_twin_map(workspace_root=self.plain, base_dir=self.tools)
+        self._assert_refused_by_name(built.exception)
+        self.assertFalse((self.tools / TWIN_MAP_RELPATH).exists())
+
+    def test_a_refused_refresh_leaves_the_prior_map_untouched(self) -> None:
+        # A valid map from a real repository, then a refresh pointed at a
+        # workspace with no history: the refusal must not degrade the prior
+        # map into the empty-layer shape it replaces.
+        repo = Path(self._tmpdir.name) / "repo"
+        (repo / "apps" / "alpha" / "src").mkdir(parents=True)
+        _git(repo.parent, "init", "-q", repo.name)
+        main = repo / "apps" / "alpha" / "src" / "main.ts"
+        main.write_text("export const main = 1;\n", encoding="utf-8")
+        _commit_all(repo, "first")
+        main.write_text("export const main = 2;\n", encoding="utf-8")
+        _commit_all(repo, "second")
+        build_twin_map(workspace_root=repo, base_dir=self.tools)
+        before = (self.tools / TWIN_MAP_RELPATH).read_bytes()
+        self.assertTrue(json.loads(before)["churn"], "fixture precondition: the real map has churn")
+
+        with self.assertRaises(GovernanceError) as refused:
+            refresh_twin_map(workspace_root=self.plain, base_dir=self.tools)
+        self._assert_refused_by_name(refused.exception)
+        self.assertEqual((self.tools / TWIN_MAP_RELPATH).read_bytes(), before)
 
 
 if __name__ == "__main__":

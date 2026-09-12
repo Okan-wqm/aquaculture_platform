@@ -148,6 +148,20 @@ jobs:
         with:
           ref: main
           persist-credentials: false
+          # The anchor gate (`agent_invocations._anchor_refusal_reason`)
+          # refuses a request whose `target_sha` this checkout does not
+          # hold, and that refusal is terminal (ANCHOR_STALE). It is only a
+          # FACT on a whole clone: on the depth-1 default the producer's
+          # commit was absent here as a matter of course, and the gate had
+          # to be softened with a shallow-clone probe to keep the queue
+          # alive. The full history makes absence evidence again, and the
+          # gate no longer judges a shallow clone at all: an anchor absent
+          # from one is refused by name (`anchor_history_unavailable_shallow`)
+          # with nothing recorded, so the executor fails loudly instead of
+          # writing a guess as ANCHOR_STALE. See aria-auto-cycle.yml for the
+          # twin layers the same depth killed.
+          # Pinned by aria-kernel/tests/invariants/test_kernel_lanes_check_out_full_history.py.
+          fetch-depth: 0
           # See the reset step above: checkout's default clean is the flag
           # that deleted node_modules before every executor dispatch.
           clean: false

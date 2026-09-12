@@ -35,6 +35,7 @@ from pathlib import Path
 from aria_kernel import register_tool, run_cycle
 from aria_kernel.ledger import append_jsonl, load_jsonl
 from aria_kernel.upcasters import upcast_cycle_rows
+from tests._helpers.production_shaped import cycle_workspace
 
 FAKE_RUNNER = Path(__file__).resolve().parent / "_helpers" / "fake_tool_runner.py"
 
@@ -96,19 +97,14 @@ class CycleLifecycleInvariantTests(unittest.TestCase):
 
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self.tmp.name) / "workspace"
-        self.root.mkdir()
-        (self.root / "src").mkdir()
-        (self.root / "src/app.ts").write_text(
-            "export const app = true;\n", encoding="utf-8",
-        )
-        (self.root / "package.json").write_text(
-            '{"name":"fixture"}\n', encoding="utf-8",
-        )
-        (self.root / "nx.json").write_text(
-            '{"affected":{}}\n', encoding="utf-8",
-        )
-        self.tools_dir = Path(self.tmp.name) / "aria-tools"
+        # The shared cycle fixture: a git repository with history, which is
+        # what a cycle runs on. A hand-rolled bare directory here was the
+        # same shape re-typed — and, once the twin refused a workspace with
+        # no history, a cycle that sealed `failed` for a reason this test
+        # is not about.
+        fixture = cycle_workspace(Path(self.tmp.name))
+        self.root = fixture.workspace_root
+        self.tools_dir = fixture.tools_dir
 
     def tearDown(self) -> None:
         self.tmp.cleanup()

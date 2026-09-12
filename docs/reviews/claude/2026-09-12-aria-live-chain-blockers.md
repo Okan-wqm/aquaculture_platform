@@ -528,3 +528,46 @@ items carry `{id, kind, description, source}` while
 `agent_contract._ensure_must_satisfy` requires `{id, statement}`. Owner
 claude; open — the first native implementer trial reaches whichever comes
 first.
+
+## ARIA-HIGH-105 — the kernel lanes check out a whole clone; a partial one is refused by name
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-19
+- **Evidence (live, B5):** `aria-auto-cycle.yml`'s single `actions/checkout`
+  omitted `fetch-depth`, so the runner fetched `--depth=1` (the job log of
+  the run that wrote the live map shows it); `twin._history_layers` runs
+  `git log -n400` against that checkout, counted one commit and published
+  `churn={}` `co_change=[]` as a healthy map; `_commit_known(prior
+indexed_sha)` was false every run, so every refresh was a full rebuild
+  (`refresh.reason=unknown_anchor`); and `agent_invocations._repo_is_shallow`
+  had softened the anchor check ("neither ARIA lane overrides it") — one
+  subsystem taught to tolerate a misconfiguration instead of the
+  misconfiguration being fixed.
+- **What is now true:** every lane that provisions the kernel declares
+  `fetch-depth: 0` (auto-cycle, executor, eval, readiness-claim,
+  capability-probe, kernel, kernel-fast; the state branch is the kernel's
+  own depth-less fetch into a sibling worktree and needed nothing), pinned by
+  `tests/invariants/test_kernel_lanes_check_out_full_history.py`, which
+  derives the governed set from every `.github/workflows/*.yml` that uses
+  `./…/setup-aria-kernel` or invokes `aria_kernel` (15 lanes; the external
+  watchdog excluded by construction) and flags 7 violations on `bd74c801c`, 0
+  now. `git_probe.is_shallow_checkout` is the one probe (only a literal
+  `true` counts); the twin refuses a shallow checkout at the entry of both
+  `build_twin_map` and `refresh_twin_map` (`twin_history_unavailable_shallow`)
+  and a failed `git log` by name (`twin_history_unavailable`) — a dead layer
+  is never publishable; the anchor gate raises
+  `anchor_history_unavailable_shallow` BEFORE any claim event or
+  `ANCHOR_STALE` row is written on a shallow clone, and on a full clone an
+  absent anchor is `anchor_unreachable` again; the softening is deleted. The
+  cycle fixtures are committed repositories through one helper.
+- **First run after merge:** the persistent self-hosted workspace fetches
+  `--unshallow` once (actions/checkout v7.0.1 does so when `.git/shallow`
+  exists and `fetch-depth` is 0); the prior map's `indexed_sha` then
+  satisfies `_commit_known`, so that run already refreshes incrementally
+  with the history recomputed whole.
+- **Proof (candidate):** anchor, twin-map, lanes-full-history, adjudication
+  sweep, cycle-status invariant, workflow contract/hygiene, readiness-claim,
+  runner-availability, v13-contracts, evidence-excerpts, enterprise-cycle and
+  twin-cycle-wiring suites — see the commit; on the pre-fix kernel the new
+  tests fail (`GovernanceError not raised`, the request returned on a
+  shallow clone, 7 lane violations). Verified by `wf_00c868e8-647`; fixed
+  and re-verified by `wf_5be8bcb2-3ca`.

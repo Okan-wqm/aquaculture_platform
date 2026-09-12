@@ -365,6 +365,29 @@ def _check_gateway_heartbeat_fresh(tools_dir: Path, *, stale_after_beats: int = 
     return DoctorCheck("gateway_heartbeat_fresh", "ok", "", detail)
 
 
+def _check_orchestrator(tools_dir: Path) -> DoctorCheck:
+    """A streak of ``cycle_failed`` exits is a FAULT, not a series of bad
+    nights. The orchestrator fails closed on a failed cycle — nothing behind
+    it (planner dispatch, the convergence drainer) runs — so a store whose
+    last runs all died that way has not planned anything, whatever the other
+    organs say. Four such runs in a row on the live store (2026-08-21 →
+    2026-09-04) read as healthy here before this organ existed."""
+    from .orchestrator_exit_history import read_orchestrator_exit_streak
+
+    streak = read_orchestrator_exit_streak(tools_dir)
+    detail = streak.to_dict()
+    if streak.all_failed:
+        return DoctorCheck(
+            "orchestrator", "fail",
+            f"orchestrator_exits_all_cycle_failed:{len(streak.exits)}", detail,
+        )
+    if streak.last_failed:
+        return DoctorCheck("orchestrator", "warn", "last_orchestrator_exit_cycle_failed", detail)
+    if len(streak.exits) < 2:
+        return DoctorCheck("orchestrator", "ok", "insufficient_history", detail)
+    return DoctorCheck("orchestrator", "ok", "", detail)
+
+
 def _check_economy(tools_dir: Path) -> DoctorCheck:
     """Plan 032 Faz 032i — a standing effort downgrade is information; no accepted
     result across a busy agent is a warning."""
@@ -419,6 +442,7 @@ def run_doctor(
         _guarded("gateway", lambda: _check_gateway(tools_dir)),
         _guarded("gateway_heartbeat_fresh", lambda: _check_gateway_heartbeat_fresh(tools_dir)),
         _guarded("economy", lambda: _check_economy(tools_dir)),
+        _guarded("orchestrator", lambda: _check_orchestrator(tools_dir)),
     )
     return DoctorReport(
         checks=(*store_checks, *host_checks),

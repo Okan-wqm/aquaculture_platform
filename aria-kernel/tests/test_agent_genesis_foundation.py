@@ -148,8 +148,15 @@ class AgentGenesisFoundationTests(unittest.TestCase):
             },
         )
         detect_capability_gaps(cycle_id="cycle-task-gap", base_dir=self.tools_dir)
-        tasks = generate_task_candidates(cycle_id="cycle-task-gap", base_dir=self.tools_dir)["tasks"]
-        self.assertTrue(any(task["source_authority"] == "capability_gap" for task in tasks))
+        payload = generate_task_candidates(cycle_id="cycle-task-gap", base_dir=self.tools_dir)
+        # A shadow-run gap carries the panel token, so it is ROUTED TO THE
+        # PANEL — disclosed outside the admission budget, never a task the
+        # mission adopter may open, never a refusal row.
+        self.assertFalse(any(task["source_authority"] == "capability_gap" for task in payload["tasks"]))
+        self.assertEqual(payload["blocked"], [])
+        [gap] = [task for task in payload["routed_to_panel"] if task["source_authority"] == "capability_gap"]
+        self.assertEqual(gap["source_id"], "shadow_run:task-gap-adapter")
+        self.assertEqual(gap["block"]["owner"], "agent_panel")
 
     def test_calibration_recommends_tool_review_from_feedback_and_metrics(self):
         register_tool(

@@ -238,6 +238,162 @@ class GatewayHeartbeatFresh(unittest.TestCase):
         self.assertIn(("doctor_fail", "gateway_heartbeat_fresh"), {(s.kind, s.key) for s in signals})
 
 
+class OrchestratorOrgan(unittest.TestCase):
+    """The doctor reads the orchestrator's exit streak (2026-09-12 finding).
+
+    The fixture replays the live store's shape in miniature — the rows below
+    are trimmed copies of `origin/aria/state` `tools/governance.jsonl` and
+    `tools/autonomy_state.jsonl` for the last three runs (2026-08-22,
+    2026-09-04 x2): every run exited ``cycle_failed``, each cycle's
+    ``cycle_completed`` row recorded a DIFFERENT cause (a failed
+    ``product_fitness`` phase; ``integrity_failed`` from 158 stranded
+    artifact-index rows; the same plus a ``budget_exceeded`` tool). Before
+    this organ the doctor read that store as healthy.
+
+    The refusal rows are written here directly, one per cycle in the v2
+    shape (owner named), to exercise the histogram reader; the adopter
+    itself now discloses a refusal once per claim, so a live v2 ledger shows
+    a standing block on the night it first appeared, not on every night.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.tools = self.root / "aria-tools"
+        ensure_tools_dir(self.tools)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _exit(self, reason: str, cycles_completed: int) -> None:
+        from aria_kernel.tool_registry import append_tools_governance
+
+        append_tools_governance(self.tools, "autonomy_orchestrator_exit", {
+            "auto_merges_completed": 0, "cycles_completed": cycles_completed,
+            "daemon_id": "autonomy", "exit_reason": reason,
+            "planner_claims_dispatched": 0, "worker_assignments_dispatched": 0,
+        })
+
+    def _refused(self, cycle_id: str, source_id: str) -> None:
+        from aria_kernel.tool_registry import append_tools_governance
+
+        append_tools_governance(self.tools, "mission_candidate_refused", {
+            "schema_version": 2, "cycle_id": cycle_id, "reason": "candidate_blocked",
+            "source": "capability_gap", "source_id": source_id,
+            "blocked_by": ["genesis_adjudication_required"], "owner": "agent_panel",
+            "operator_action": "genesis_adjudication_required: none: the genesis panel adjudicates this gap",
+            "unregistered_block_tokens": [],
+        })
+
+    def _cycle_completed(self, cycle_id: str, status: str, summary: dict) -> None:
+        from aria_kernel.autonomy_state import AutonomyStateReducer
+
+        AutonomyStateReducer.transition(
+            self.tools, cycle_id=cycle_id, phase="cycle_started", status="ok", profile="standard",
+        )
+        AutonomyStateReducer.transition(
+            self.tools, cycle_id=cycle_id, phase="cycle_completed", status=status,
+            profile="standard", details={"summary": {"schema_version": 2, "cycle_id": cycle_id, **summary}},
+        )
+
+    def _live_streak(self) -> None:
+        self._cycle_completed("cyc-20260822T153253Z-auto", "failed", {
+            "status": "failed", "runtime_status": "failed",
+            "failed_phases": [{"phase": "product_fitness", "status": "failed",
+                               "error": "raw_jsonl_declared_surface_rejected: surface='product_fitness'"}],
+            "non_ok_tools": [], "artifact_integrity": {"status": "ok", "valid": True, "issues": []},
+        })
+        self._refused("cyc-20260822T153253Z-auto", "shadow_run:doc-staleness-adapter")
+        self._exit("cycle_failed", 0)
+        self._cycle_completed("cyc-20260904T093220Z-auto", "failed", {
+            "status": "failed", "runtime_status": "integrity_failed", "failed_phases": [],
+            "non_ok_tools": [{"tool_id": "test-gap-adapter", "status": "budget_exceeded", "artifact_status": "present"}],
+            "artifact_integrity": {"status": "drift", "valid": False, "issues": [
+                {"code": "run_artifact_missing", "artifact_id": f"cyc-20260810T063724Z-auto.{n}.tool_run"}
+                for n in range(158)
+            ]},
+        })
+        self._refused("cyc-20260904T093220Z-auto", "shadow_run:doc-staleness-adapter")
+        self._refused("cyc-20260904T093220Z-auto", "shadow_run:test-gap-adapter")
+        self._exit("cycle_failed", 0)
+        self._cycle_completed("cyc-20260904T194353Z-auto", "failed", {
+            "status": "failed", "runtime_status": "integrity_failed", "failed_phases": [],
+            "non_ok_tools": [],
+            "artifact_integrity": {"status": "drift", "valid": False, "issues": [
+                {"code": "run_artifact_missing", "artifact_id": f"cyc-20260810T063724Z-auto.{n}.tool_run"}
+                for n in range(158)
+            ]},
+        })
+        self._refused("cyc-20260904T194353Z-auto", "shadow_run:doc-staleness-adapter")
+        self._exit("cycle_failed", 0)
+
+    def test_the_live_streak_is_a_fail_that_names_each_cause_and_the_refusals(self) -> None:
+        self._live_streak()
+
+        check = doctor._check_orchestrator(self.tools)
+
+        self.assertEqual((check.status, check.reason), ("fail", "orchestrator_exits_all_cycle_failed:3"))
+        self.assertEqual([e["exit_reason"] for e in check.detail["exits"]], ["cycle_failed"] * 3)
+        causes = {c["cycle_id"]: c for c in check.detail["failed_cycles"]}
+        self.assertEqual(
+            [c["cycle_id"] for c in check.detail["failed_cycles"]],
+            ["cyc-20260904T194353Z-auto", "cyc-20260904T093220Z-auto", "cyc-20260822T153253Z-auto"],
+        )
+        self.assertEqual(causes["cyc-20260822T153253Z-auto"]["failed_phases"][0]["phase"], "product_fitness")
+        self.assertEqual(causes["cyc-20260904T093220Z-auto"]["runtime_status"], "integrity_failed")
+        self.assertEqual(causes["cyc-20260904T093220Z-auto"]["artifact_integrity"], {"status": "drift", "issue_count": 158})
+        self.assertEqual(causes["cyc-20260904T093220Z-auto"]["non_ok_tools"], [{"tool_id": "test-gap-adapter", "status": "budget_exceeded"}])
+        self.assertEqual(check.detail["refusals_by_reason"], {"candidate_blocked": 4})
+        self.assertEqual(check.detail["refusals_by_owner"], {"agent_panel": 4})
+
+    def test_the_streak_reaches_the_report_and_its_exit_code(self) -> None:
+        self._live_streak()
+
+        report = run_doctor(base_dir=self.tools, workspace_root=self.root)
+
+        by_name = {check.name: check for check in report.checks}
+        self.assertEqual(by_name["orchestrator"].status, "fail")
+        self.assertEqual(report.exit_code, DOCTOR_EXIT_UNHEALTHY)
+        self.assertIn("[FAIL] orchestrator — orchestrator_exits_all_cycle_failed:3", render_doctor_text(report))
+
+    def test_one_bad_night_after_good_ones_is_a_warn(self) -> None:
+        self._exit("max_cycles", 1)
+        self._exit("max_cycles", 1)
+        self._cycle_completed("cyc-bad", "failed", {"status": "failed", "runtime_status": "failed", "failed_phases": [], "non_ok_tools": []})
+        self._exit("cycle_failed", 0)
+
+        check = doctor._check_orchestrator(self.tools)
+
+        self.assertEqual((check.status, check.reason), ("warn", "last_orchestrator_exit_cycle_failed"))
+        self.assertEqual(check.detail["failed_cycles"][0]["cycle_id"], "cyc-bad")
+
+    def test_a_single_failed_exit_is_a_warn_not_a_streak(self) -> None:
+        self._exit("cycle_failed", 0)
+
+        check = doctor._check_orchestrator(self.tools)
+
+        self.assertEqual((check.status, check.reason), ("warn", "last_orchestrator_exit_cycle_failed"))
+
+    def test_a_single_clean_exit_is_ok_with_insufficient_history(self) -> None:
+        self._exit("max_cycles", 1)
+
+        check = doctor._check_orchestrator(self.tools)
+
+        self.assertEqual((check.status, check.reason), ("ok", "insufficient_history"))
+
+    def test_clean_exits_are_ok_and_an_empty_store_is_ok(self) -> None:
+        self.assertEqual(doctor._check_orchestrator(self.tools).status, "ok")
+        self._exit("max_cycles", 1)
+        self._exit("max_cycles", 1)
+        self._exit("max_cycles", 1)
+
+        check = doctor._check_orchestrator(self.tools)
+
+        self.assertEqual((check.status, check.reason), ("ok", ""))
+        self.assertEqual(check.detail["failed_cycles"], [])
+
+
+
 class CliSurface(unittest.TestCase):
     def test_doctor_parses_with_the_tools_dir_parent(self) -> None:
         args = build_parser().parse_args(["doctor", "--json", "--tools-dir", "/tmp/x"])

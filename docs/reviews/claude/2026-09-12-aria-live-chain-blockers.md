@@ -236,3 +236,88 @@ sonnet→glm-5.3, glm-5.3→opus}` retried an exhausted opus on sonnet at
   cooldown row 900 s, the second run refuses anthropic by name without
   claiming). Verified by `wf_284f4dbe-940`; fixed and re-verified (integrate)
   by `wf_5be8bcb2-3ca`.
+
+## ARIA-HIGH-096 — mission candidate admission: no starvation, owners named, a dead orchestrator is a fault
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-19
+- **What the audit said (B3) and what the store shows:** the 71
+  `mission_candidate_refused reason=candidate_blocked` rows (2026-08-13 →
+  09-04; joined to `tasks/task-candidates.jsonl`: 43 `genesis_adjudication_required`,
+  15 `operator_feedback_required`, 13 unverifiable) did NOT kill the cycles —
+  every run went on to `mission_schedule_decided outcome=selected`. The four
+  `cycle_failed` exits (08-21, 08-22, 09-04 ×2) had their own recorded causes
+  in `autonomy_state.jsonl` (a `product_fitness` `NameError`, a declared-
+  surface rejection, `integrity_failed` from 158 `run_artifact_missing` rows
+  plus one `test-gap-adapter budget_exceeded`), all fixed on the candidate.
+  The mechanism was still wrong: `generate_task_candidates` cut the ranked
+  list to ten BEFORE the adopter saw `blocked_by`, so permanently
+  panel-blocked candidates held 5–7 of 10 slots nightly while admissible
+  findings (60) and `unknown:*` gaps (70) below the cut were never offered;
+  `_candidate_from_shadow_summary` minted the panel token as a constant with
+  no route (100 % refused, six contract-less missions nothing could heal);
+  the refusal named no owner; and the doctor had no organ for an
+  orchestrator whose last runs all died the same way.
+- **What is now true:** `task.generate_task_candidates` partitions three
+  ways — `tasks` (admissible top-N), `routed_to_panel` (every block token
+  owned by the agent panel; disclosed, never offered, so no refusal row can
+  exist for it) and `blocked` (operator-owned or unregistered tokens);
+  `mission.adopt_task_candidates` discloses a refusal once per claim
+  (`append_tools_governance_once` keyed on reason/source/source_id/blocked_by/owner);
+  payload and row carry schema v2 because their meaning changed.
+  `candidate_blocks` maps every producer token to owner + operator action
+  from a closed vocabulary, pinned by an AST invariant over the producers.
+  The shadow-summary producer is retired (`mission.RETIRED_SOURCE_KINDS`) with
+  `mission_retired_sources.supersede_retired_source_missions` closing only
+  pre-WIP, contract-less missions and declining every other shape by a total
+  verdict table (operator_held / work_in_progress / wake_pending /
+  outcome_observing / contracted), so a live branch is never abandoned.
+  `orchestrator_exit_history` joins the last N exits to their recorded
+  causes and the refusal histogram; doctor organ `orchestrator` FAILS an
+  all-`cycle_failed` window (the live store reads
+  `orchestrator_exits_all_cycle_failed:3`, naming the causes).
+- **First live cycle after this lands:** one
+  `mission_superseded_producer_retired` row closing the six shadow-summary
+  missions (closure violations 14 → 8); four v2 refusal rows for the
+  operator-owned `fitness:*` gaps the v1 cut used to drop silently, none on
+  later nights; the panel-owned `shadow_run:*` gaps routed, not refused.
+- **Not done here, tracked:** ARIA-HIGH-097 (the adjudication panels'
+  verdicts are dropped at the executor bridge, so the genesis block never
+  clears) and ARIA-HIGH-098 (one adapter timeout fails the night) — both
+  found by this lane, both their own findings.
+- **Proof (candidate):** retired-sources, exit-history, adopt-blocked-guard,
+  candidate-blocks, doctor, mission-ingest, genesis-foundation, autopr-
+  foundation, ledger-first-readers, unobserved-surface, evidence-normalization,
+  service-dimension, wip-gate and mission suites — see the commit; on the
+  pre-fix kernel the new tests fail with `7 != 8` (starvation),
+  `KeyError: 'blocked_by'` / `'owner'` and a missing organ. Verified by
+  `wf_00c868e8-647`; fixed and re-verified by `wf_81bc51a5-8a0`.
+
+## ARIA-HIGH-097 — adjudication panels answer, and nothing can read the answer
+
+Found by the B3 lane on `origin/aria/state 84032eda`: 73 human-required
+adjudications opened (52 escalations), 159 panel requests, 92 results (80
+accepted) — and 215/215 `human_required_adjudication_folded` rows are
+`still_escalated` with `insufficient_dispatched_roles:0<2`. The panels ARE
+dispatched and accepted; `_build_envelope_from_claude_output`
+(`tools/aria-poc/ci_executor.py`) passes through only `evidence_refs`,
+`details`, `notes` and `plan_content`, so the adjudicator's top-level
+`verdict`/`disposition` is dropped and `human_required_adjudication._load_opinion`
+reads `None`: 0 of 102 live envelopes carry a loadable verdict (the
+adjudicator wrote the diagnosis into its own output). Twelve more results
+were rejected because the `human-required:<id>` evidence refs the kernel
+mints fail the acceptance gate's ref check. Fix shape: an envelope contract
+for the adjudication role carried by the bridge and validated pre-submit
+like the judge verdict block, a round-trip test from agent JSON to
+`fold_adjudication`, and the Z2 ref spelling admitted. Owner claude; open.
+
+## ARIA-HIGH-098 — one adapter timeout fails the night
+
+`cycle._runtime_status` returns `integrity_failed` for any non-ok tool run
+OR an invalid artifact index; the orchestrator fails closed on it. On
+2026-09-04 09:41 `test-gap-adapter` exceeded its 180 s budget
+(`budget_exceeded`, 180 651 ms; the same tool ran in 91 s that evening) and
+the morning cycle was `cycle_failed` — planning never ran while the store's
+integrity was untouched. A tool SLA miss needs its own status the
+orchestrator does not fail closed on when the index is valid, and a first
+`budget_exceeded` should be a calibration/pressure signal (retry or
+re-budget), not a dropped night. Owner claude; open.

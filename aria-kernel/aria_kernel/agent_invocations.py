@@ -2264,10 +2264,17 @@ REQUEST_FAULT_RELEASE_REASONS: frozenset[str] = frozenset({
 #   was exhausted (operator decision 2026-09-12: never retried on a weaker
 #   tier; the request waits out the provider cooldown). A billing event says
 #   nothing about the request, so it must not walk it toward HUMAN_REQUIRED.
+# * ``executor_uncaught_exit:<how>`` — the executor's lease guard
+#   (tools/aria-poc/ci_executor_lease.py) handed the claim back because the
+#   body exited — an uncaught exception or a return with no release — with
+#   the request still CLAIMED. A crash in the wrapper says nothing about the
+#   request (seven such leaks on 2026-09-04 were one AttributeError in the
+#   spawn gate's refusal path).
 HARNESS_FAULT_RELEASE_REASON_PREFIXES: tuple[str, ...] = (
     "claude_cli_exit_",
     "submit_timeout_",
     "provider_quota_unavailable:",
+    "executor_uncaught_exit:",
 )
 # * ``plan_content_invalid:<errors>`` — the agent's envelope failed the
 #   role's content contract; retrying the same request usually repeats it.

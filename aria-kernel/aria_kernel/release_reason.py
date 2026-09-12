@@ -30,6 +30,9 @@ RELEASE_REASON_CODES: tuple[str, ...] = (
     "LEASE_EXPIRED", "REQUEST_ENVELOPE_MISSING_EXPECTED_OUTPUT_PATH", "REQUEST_ENVELOPE_MISSING_ROLE",
     "SUBMIT_REJECTED", "PLAN_CONTENT_INVALID", "AGENT_REFUSED",
     "OPERATOR_CANCELLED", "RECOVERY_UNRESOLVED_EXTERNAL_EFFECT",
+    # The executor's lease guard released a claim its body abandoned
+    # (uncaught exception / return without release); detail names the exit.
+    "EXECUTOR_UNCAUGHT_EXIT",
     "UNCLASSIFIED",
 )
 FAULT_DOMAINS: tuple[str, ...] = ("harness", "request", "operator", "unclassified")
@@ -59,6 +62,7 @@ _PREFIXES: tuple[tuple[str, str, str], ...] = (
     ("submit_timeout_", "SUBMIT_TIMEOUT", "harness"),
     # The detail is the exhausted PROVIDER (operator decision 2026-09-12).
     ("provider_quota_unavailable:", "PROVIDER_QUOTA_UNAVAILABLE", "harness"),
+    ("executor_uncaught_exit:", "EXECUTOR_UNCAUGHT_EXIT", "harness"),
     ("plan_content_invalid:", "PLAN_CONTENT_INVALID", "request"),
     ("agent_refused:", "AGENT_REFUSED", "request"),
 )

@@ -154,6 +154,38 @@ def price_tokens(*, model: str, input_tokens: int, output_tokens: int) -> TokenP
     return TokenPrice(0.0, PRICING_SOURCE_UNKNOWN, None)
 
 
+# ARIA-AUDIT-021 — the notional ceiling ONE dispatch reserves before the
+# external call: 400k input / 64k output tokens. The pair lives here, next to
+# the rates it is multiplied by, so the reservation and the ledger price the
+# same model from the same tables.
+SPAWN_RESERVATION_CEILING_TOKENS: tuple[int, int] = (400_000, 64_000)
+
+
+def price_spawn_reservation(*, model: str) -> TokenPrice:
+    """The USD ceiling the executor reserves for one dispatch on ``model``.
+
+    WHY this exists: the executor's spawn gate used to price the profile's
+    raw CLI alias (``opus``, ``fable``) against the exact-id and family
+    tables directly. Neither table is keyed by alias, so every Anthropic
+    profile resolved to "no price" and the gate's unknown-cost-is-deny rule
+    refused the dispatch — 82 requests minted on 2026-09-04, zero results,
+    no CLI ever invoked. The ledger side never had that defect because it
+    prices through ``alias_pricing_prefix``; this function makes the gate
+    take the same road, so the two cannot disagree about what an alias costs.
+
+    WHAT: alias -> family prefix (``ALIAS_PRICING_PREFIX``; an id that is
+    not an alias passes through unchanged) -> ``price_tokens`` at the
+    reservation ceiling. ``source`` is ``unknown`` only when even the family
+    is unpriced, which is the one case the gate still denies.
+    """
+    input_tokens, output_tokens = SPAWN_RESERVATION_CEILING_TOKENS
+    return price_tokens(
+        model=alias_pricing_prefix((model or "").strip().lower()),
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+    )
+
+
 def estimate_tokens_usd(*, model: str, input_tokens: int, output_tokens: int) -> float:
     """Notional USD for a token pair. Thin wrapper over :func:`price_tokens`.
 

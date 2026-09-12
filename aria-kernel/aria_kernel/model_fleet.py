@@ -340,7 +340,7 @@ def _native_runtime_admission(
       fleet order is admitted for the roles it can serve.
     """
     deadline_monotonic = _time.monotonic() + native_admission_budget_seconds(policy)
-    from .budget import alias_pricing_prefix, price_tokens
+    from .budget import price_spawn_reservation
     from .genesis_policy import _runtime_monetary_admission
 
     configuration = _json.dumps(
@@ -383,7 +383,11 @@ def _native_runtime_admission(
             status = _RuntimeStatusObservation("unknown", reason="status_deadline_elapsed")
         else:
             status = observe_status(provider, remaining)
-        price = price_tokens(model=alias_pricing_prefix(model), input_tokens=400_000, output_tokens=64_000)
+        # The reservation ceiling is budget's (SPAWN_RESERVATION_CEILING_TOKENS);
+        # this row, the executor's spawn gate and the attempt ledger price
+        # one alias through the one function, so the admission can never
+        # quote a price the gate or the ledger would not.
+        price = price_spawn_reservation(model=model)
         monetary = _runtime_monetary_admission(
             repo_root, provider=provider.key, runtime=provider.runtime_hint,
             auth_method=status.auth_method, expected_policy_digest=policy.policy_digest,

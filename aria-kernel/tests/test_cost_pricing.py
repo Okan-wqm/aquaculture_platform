@@ -15,7 +15,36 @@ from pathlib import Path
 
 from aria_kernel.budget import MODEL_PRICING_USD_PER_MTOK, estimate_tokens_usd
 
-CI_EXECUTOR = Path(__file__).resolve().parents[2] / "tools" / "aria-poc" / "ci_executor.py"
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+CI_EXECUTOR = _REPO_ROOT / "tools" / "aria-poc" / "ci_executor.py"
+MODEL_FLEET = _REPO_ROOT / "aria-kernel" / "aria_kernel" / "model_fleet.py"
+BUDGET = _REPO_ROOT / "aria-kernel" / "aria_kernel" / "budget.py"
+
+# Every name through which a module could price a reservation WITHOUT going
+# through `price_spawn_reservation`: the raw pricing functions, the alias
+# map they would need, the rate tables, and the ceiling itself.
+_PRICING_ROADS_OUTSIDE_BUDGET: tuple[str, ...] = (
+    "price_tokens", "estimate_tokens_usd", "alias_pricing_prefix",
+    "MODEL_PRICING_USD_PER_MTOK", "MODEL_FAMILY_PRICING_USD_PER_MTOK", "ALIAS_PRICING_PREFIX",
+    "SPAWN_RESERVATION_CEILING_TOKENS",
+)
+
+
+def _kernel_and_executor_modules() -> list[Path]:
+    """Every production module that could price a dispatch, budget excluded
+    (budget is where the ceiling is multiplied, by design)."""
+    kernel = sorted(p for p in (_REPO_ROOT / "aria-kernel" / "aria_kernel").rglob("*.py") if p != BUDGET)
+    executor = sorted((_REPO_ROOT / "tools" / "aria-poc").glob("*.py"))
+    return kernel + executor
+
+
+def _called_name(node: ast.Call) -> str:
+    func = node.func
+    if isinstance(func, ast.Name):
+        return func.id
+    if isinstance(func, ast.Attribute):
+        return func.attr
+    return ""
 
 
 class EstimateTokensUsdTests(unittest.TestCase):
@@ -219,6 +248,116 @@ class DynamicFamilyPricingTests(unittest.TestCase):
         ci = CI_EXECUTOR.read_text(encoding="utf-8")
         self.assertIn("price_tokens(", ci)
         self.assertIn("cost_pricing_inferred_from_family", ci)
+
+
+class SpawnReservationPricesThroughTheAliasMap(unittest.TestCase):
+    """ARIA-AUDIT-021 — the executor's pre-spawn reservation is a ledger price.
+
+    Measured on the live lanes 2026-09-04: 82 agent requests minted, 0 results,
+    no CLI invoked. The spawn gate priced the profile's raw alias (`opus`,
+    `fable`) against the exact-id and family tables itself; neither is keyed
+    by alias, so every Anthropic profile was "unknown cost", and unknown cost
+    is deny. The ledger prices the same alias through `alias_pricing_prefix`
+    and never had the defect. `price_spawn_reservation` is the one road both
+    now take.
+    """
+
+    def test_opus_reserves_at_the_claude_opus_row_not_as_unknown(self) -> None:
+        from aria_kernel.budget import (
+            MODEL_FAMILY_PRICING_USD_PER_MTOK, PRICING_SOURCE_FAMILY, SPAWN_RESERVATION_CEILING_TOKENS,
+            price_spawn_reservation,
+        )
+
+        priced = price_spawn_reservation(model="opus")
+        self.assertEqual(priced.source, PRICING_SOURCE_FAMILY)
+        self.assertEqual(priced.matched_key, "claude-opus")
+        in_rate, out_rate = MODEL_FAMILY_PRICING_USD_PER_MTOK["claude-opus"]
+        in_tokens, out_tokens = SPAWN_RESERVATION_CEILING_TOKENS
+        self.assertAlmostEqual(priced.usd, (in_tokens * in_rate + out_tokens * out_rate) / 1_000_000)
+        self.assertAlmostEqual(priced.usd, 3.6)
+
+    def test_every_dispatchable_alias_reserves_a_positive_price(self) -> None:
+        """The alias map is what makes this true for `fable`, `glm-5.3` and
+        the rest; a raw-alias lookup is what made it false on 2026-09-04."""
+        from aria_kernel.agent_runtime_profile import VALID_MODELS
+        from aria_kernel.budget import PRICING_SOURCE_UNKNOWN, price_spawn_reservation
+
+        for alias in sorted(VALID_MODELS):
+            with self.subTest(alias=alias):
+                priced = price_spawn_reservation(model=alias)
+                self.assertNotEqual(priced.source, PRICING_SOURCE_UNKNOWN)
+                self.assertGreater(priced.usd, 0.0)
+
+    def test_the_reservation_and_the_ledger_price_one_alias_identically(self) -> None:
+        from aria_kernel.budget import (
+            SPAWN_RESERVATION_CEILING_TOKENS, alias_pricing_prefix, price_spawn_reservation, price_tokens,
+        )
+
+        in_tokens, out_tokens = SPAWN_RESERVATION_CEILING_TOKENS
+        for alias in ("opus", "fable", "glm-5.3", "Opus "):
+            with self.subTest(alias=alias):
+                ledger = price_tokens(
+                    model=alias_pricing_prefix(alias.strip().lower()),
+                    input_tokens=in_tokens, output_tokens=out_tokens,
+                )
+                self.assertEqual(price_spawn_reservation(model=alias), ledger)
+
+    def test_an_unknown_model_is_still_unknown_so_the_gate_still_denies(self) -> None:
+        from aria_kernel.budget import PRICING_SOURCE_UNKNOWN, price_spawn_reservation
+
+        priced = price_spawn_reservation(model="gpt-9-nebula")
+        self.assertEqual(priced.source, PRICING_SOURCE_UNKNOWN)
+        self.assertEqual(priced.usd, 0.0)
+
+    def test_the_executor_gate_owns_no_pricing_lookup_of_its_own(self) -> None:
+        """Make it impossible: the gate's ENTIRE budget import set is the
+        reservation function and the one source constant it compares
+        against. Any other budget name in the gate — a pricing function, a
+        rate table, the ceiling constant — is a second pricing road, which
+        is the divergence this closes (asserting two table names absent
+        would let `price_tokens(alias)` back in unnoticed)."""
+        tree = ast.parse(CI_EXECUTOR.read_text(encoding="utf-8"))
+        gate = next(node for node in ast.walk(tree)
+                    if isinstance(node, ast.FunctionDef) and node.name == "invoke_claude_cli")
+        names = {node.id for node in ast.walk(gate) if isinstance(node, ast.Name)}
+        attributes = {node.attr for node in ast.walk(gate) if isinstance(node, ast.Attribute)}
+        imported = {alias.asname or alias.name for node in ast.walk(gate)
+                    if isinstance(node, ast.ImportFrom) and node.module == "aria_kernel.budget"
+                    for alias in node.names}
+        self.assertEqual(imported, {"PRICING_SOURCE_UNKNOWN", "price_spawn_reservation"})
+        for forbidden in _PRICING_ROADS_OUTSIDE_BUDGET:
+            self.assertNotIn(forbidden, names, f"the gate names {forbidden} instead of pricing through budget")
+            self.assertNotIn(forbidden, attributes, f"the gate reaches {forbidden} as an attribute")
+
+    def test_no_module_outside_budget_multiplies_the_reservation_ceiling(self) -> None:
+        """The fleet's admission row used to carry its own 400k/64k literals
+        next to `price_tokens(alias_pricing_prefix(model))` — a second copy of
+        the ceiling on the live admission path. Every kernel and executor
+        module is scanned: a pricing call whose token counts are literals is
+        a reservation priced somewhere other than budget, and naming the
+        ceiling constant outside budget is the same copy one step removed.
+        Measured usage (a name, a subscript, a call) is what the ledger
+        prices and stays allowed."""
+        offenders: list[str] = []
+        for path in _kernel_and_executor_modules():
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Name) and node.id == "SPAWN_RESERVATION_CEILING_TOKENS":
+                    offenders.append(f"{path.name}:{node.lineno} names the ceiling constant")
+                if isinstance(node, ast.Call) and _called_name(node) in ("price_tokens", "estimate_tokens_usd"):
+                    literal = [kw.arg for kw in node.keywords
+                               if kw.arg in ("input_tokens", "output_tokens") and isinstance(kw.value, ast.Constant)]
+                    if literal:
+                        offenders.append(f"{path.name}:{node.lineno} prices literal {literal}")
+        self.assertEqual(offenders, [])
+
+    def test_the_fleet_admission_row_prices_through_the_reservation_function(self) -> None:
+        tree = ast.parse(MODEL_FLEET.read_text(encoding="utf-8"))
+        admission = next(node for node in ast.walk(tree)
+                         if isinstance(node, ast.FunctionDef) and node.name == "_native_runtime_admission")
+        called = {_called_name(node) for node in ast.walk(admission) if isinstance(node, ast.Call)}
+        self.assertIn("price_spawn_reservation", called)
+        self.assertFalse(called & set(_PRICING_ROADS_OUTSIDE_BUDGET), called & set(_PRICING_ROADS_OUTSIDE_BUDGET))
 
 
 class CostWindowBoundaryTests(unittest.TestCase):

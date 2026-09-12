@@ -321,3 +321,68 @@ integrity was untouched. A tool SLA miss needs its own status the
 orchestrator does not fail closed on when the index is valid, and a first
 `budget_exceeded` should be a calibration/pressure signal (retry or
 re-budget), not a dropped night. Owner claude; open.
+
+## ARIA-HIGH-095 — the executor admission chain admits, prices, releases and fails loudly
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-19
+- **Evidence (live, B8):** the 82 requests minted on 2026-09-04 got 0
+  results — the ARIA-AUDIT-021 spawn cost-reservation gate refused every
+  dispatch before the CLI ran: neither `aria-config/genesis_policy.json` nor
+  the kernel default declared `executor.adaptive_runtime`, so
+  `_adaptive_runtime_policy()` returned None on the live lanes (the native
+  fleet never engaged) and the metered gate priced the profiles' raw aliases
+  (`opus`, `fable`) as unknown = deny and `glm-5.3` (0.8416) against the 0.5
+  `per_run` cap; each refusal then crashed in the summary writer before the
+  lease was released, leaking 7 claims (`ci-executor:gha-33920896040`); the
+  self-hosted runner has been offline since 2026-09-08 09:48Z and every
+  scheduled run has queued with 0 jobs and been cancelled by the next
+  schedule's concurrency group — green by absence.
+- **What is now true:**
+  - One pricing road: `budget.price_spawn_reservation` prices the alias
+    through the same `ALIAS_PRICING_PREFIX → price_tokens` map the ledger
+    uses; the gate and the fleet's admission row both call it and an AST pin
+    over `aria_kernel/` and `tools/aria-poc/` refuses any other multiplication
+    of the reservation ceiling; `opus` reserves at the claude-opus row, an
+    unknown model still denies by name.
+  - A lease is released on any exit: `ci_executor_lease.HeldClaim` is entered
+    on the runtime ExitStack the moment a lease exists and hands the claim
+    back on any unwind under the kernel-owned harness reason
+    `executor_uncaught_exit:<class>` (a ci-stage line names it).
+  - The operator's stated policy is declared where the kernel reads it:
+    `aria-config/genesis_policy.json` carries `executor.adaptive_runtime`
+    (`monetary_admission: managed_subscription`) and `executor.worktree_per_request: true`
+    with `max_concurrent: 1` (one-way door 16 is about concurrency, not
+    per-request worktrees): under the declared policy the native admission
+    binds `request.target_sha == checkout HEAD`, so each request is drained
+    in a worktree at its own target_sha inside the checkout
+    (`aria-worktrees/`, git-ignored; node resolution walks up to the parent's
+    `node_modules`; the nx cache lands under the worktree; leftovers pruned
+    before `add`); the child reads the operator policy from the store's bound
+    workspace root, never from the worktree's tree. An invariant fails when a
+    metered cap admits no dispatchable profile model.
+  - A task-binding refusal is a typed `_NativeAdmissionRefusal` that writes a
+    named `refused` summary; the drain counts only a `succeeded` summary as
+    drained and names silence as `child_without_summary`; every by-design
+    exit-0 terminal of `_main` names itself.
+  - Runner absence is red, not silent: `.github/actions/require-self-hosted-runner`
+    (`aria_kernel.runner_availability`, App token with `administration:read`
+    only) runs as a hosted preflight job the executor, auto-cycle,
+    daily-report and dataflow-watchdog lanes `need`; it exits by name
+    (`required_runner_offline`, `no_runner_registered`,
+    `required_labels_unmatched`, `runner_status_unreadable`) — the live probe
+    reproduces `required_runner_offline (offline=['suderra-droplet-claude'])`.
+- **Known residual (tracked as ARIA-MEDIUM-099):** a child whose CLI ran to
+  completion but whose SUBMIT then fails still carries the `succeeded`
+  summary and is counted as drained.
+- **Operator:** bring `suderra-droplet-claude` back online when the PRs land;
+  until then every scheduled self-hosted run fails RED at `runner-preflight`
+  with `required_runner_offline` — the intended signal. Confirm the ARIA
+  GitHub App holds `Administration: read-only` (an ungranted App fails the
+  preflight with `runner_status_unreadable: http_403`, never a silent pass).
+- **Proof (candidate):** pricing, spawn-budget-gate, claim-lifecycle-leak,
+  runner-availability, token-permissions, request-worktree, drain
+  breaker/mode/refusal, artifact-path, v12 queue-and-release and state-guard,
+  requeue-ownership, environment-contract, genesis-policy, workflow
+  invariants and the live-path/native-claude smoke — see the commit; on the
+  pre-fix kernel 14 of the new tests fail with the stated messages. Verified
+  by `wf_00c868e8-647`; fixed and re-verified by `wf_5e9b9dbd-471`.

@@ -25,6 +25,7 @@ import ast
 import inspect
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from aria_kernel import agent_invocations, cycle as cycle_mod
 
@@ -211,6 +212,225 @@ class ReaperRunsWithoutAHumanTest(unittest.TestCase):
         source = inspect.getsource(cycle_mod._phase_agent_claim_reap)
 
         self.assertIn("reap_stale_claims", source)
+
+
+class _Fakes:
+    """A release transport and a state reader the guard tests can script."""
+
+    def __init__(self, state: str | None, *, accept: bool = True) -> None:
+        self.state = state
+        self.accept = accept
+        self.releases: list[dict] = []
+        self.stage_lines: list[str] = []
+
+    def release(self, **kwargs) -> bool:
+        self.releases.append(kwargs)
+        return self.accept
+
+    def derive(self, request_id: str, tools_dir: Path) -> str:
+        if self.state is None:
+            raise OSError("ledger unreadable")
+        return self.state
+
+
+def _held(fakes: _Fakes):
+    import sys
+
+    if str(EXECUTOR.parent) not in sys.path:
+        sys.path.insert(0, str(EXECUTOR.parent))
+    from ci_executor_lease import HeldClaim
+
+    return HeldClaim(
+        tools_dir=Path("/tools"), repo=Path("/repo"), request_id="AIR-guard", claim_id="claim_guard",
+        agent_id="ci-executor:gha-guard", lease_token="lease-guard", release=fakes.release,
+        derive_state=fakes.derive, log=fakes.stage_lines.append,
+    )
+
+
+class TheLeaseIsHandedBackOnEveryExit(unittest.TestCase):
+    """The seven claims of 2026-09-04 (`ci-executor:gha-33920896040`) stayed
+    CLAIMED because the refusal path raised before any release site. The
+    guard is the floor beneath every site: the kernel's own derivation says
+    whether the request is still held, and if it is, the exit releases it."""
+
+    def test_an_uncaught_exception_releases_a_held_claim_naming_the_exception(self) -> None:
+        fakes = _Fakes("CLAIMED")
+        guard = _held(fakes)
+        with self.assertRaises(RuntimeError):
+            with guard:
+                raise RuntimeError("the refusal path crashed")
+        self.assertEqual([r["reason"] for r in fakes.releases], ["executor_uncaught_exit:RuntimeError"])
+        self.assertEqual(fakes.releases[0]["claim_id"], "claim_guard")
+        self.assertEqual(fakes.releases[0]["lease_token"], "lease-guard")
+        self.assertEqual(guard.outcome, "released:executor_uncaught_exit:RuntimeError")
+        # The run log shows the hand-back: the body's stack has unwound, so
+        # the guard is the only thing that can say it happened.
+        self.assertEqual(fakes.stage_lines, [
+            "held_claim_released request_id=AIR-guard claim_id=claim_guard state=CLAIMED "
+            "outcome=released:executor_uncaught_exit:RuntimeError",
+        ])
+
+    def test_a_return_that_forgot_to_release_is_released_and_named(self) -> None:
+        fakes = _Fakes("RUNNING")  # a heartbeat was seen; the lease is still live
+        guard = _held(fakes)
+        with guard:
+            pass
+        self.assertEqual([r["reason"] for r in fakes.releases], ["executor_uncaught_exit:return_without_release"])
+
+    def test_a_settled_claim_is_left_alone(self) -> None:
+        for state in ("PENDING", "REQUEUED", "ACCEPTED", "REJECTED", "HUMAN_REQUIRED", "STALE", "CANCELLED_BY_OPERATOR"):
+            with self.subTest(state=state):
+                fakes = _Fakes(state)
+                guard = _held(fakes)
+                with guard:
+                    pass
+                self.assertEqual(fakes.releases, [])
+                self.assertEqual(guard.outcome, f"settled:{state}")
+                self.assertEqual(fakes.stage_lines, [], "nothing was held; nothing to report")
+
+    def test_a_request_the_kernel_never_minted_holds_nothing(self) -> None:
+        # The mocked executor fixtures claim a request that does not exist in
+        # the ledger; the kernel's "no such request" is definitive, not
+        # unreadable, so the guard adds no release hop there.
+        fakes = _Fakes("unused")
+        fakes.derive = lambda request_id, tools_dir: None
+        guard = _held(fakes)
+        with guard:
+            pass
+        self.assertEqual(fakes.releases, [])
+        self.assertEqual(guard.outcome, "settled:no_such_request")
+
+    def test_an_unreadable_ledger_still_hands_the_lease_back(self) -> None:
+        # The kernel refuses a release with nothing to release; keeping a
+        # lease because the answer could not be read is the leak again.
+        fakes = _Fakes(None, accept=False)
+        guard = _held(fakes)
+        with self.assertRaises(ValueError):
+            with guard:
+                raise ValueError("body failed")
+        self.assertEqual(len(fakes.releases), 1)
+        self.assertEqual(guard.outcome, "release_failed:executor_uncaught_exit:ValueError")
+        self.assertEqual(fakes.stage_lines, [
+            "held_claim_released request_id=AIR-guard claim_id=claim_guard state=unreadable "
+            "outcome=release_failed:executor_uncaught_exit:ValueError",
+        ])
+
+    def test_the_reason_is_owned_by_the_kernel_as_a_harness_fault(self) -> None:
+        # A crash in the wrapper says nothing about the request: its requeue
+        # budget must not burn (the same rule as `claude_cli_exit_<n>`).
+        from aria_kernel.release_reason import RELEASE_REASON_CODES, parse_release_reason
+        from ci_executor_lease import UNCAUGHT_EXIT_RELEASE_PREFIX
+
+        reason = UNCAUGHT_EXIT_RELEASE_PREFIX + "AttributeError"
+        self.assertEqual(agent_invocations.classify_release_reason(reason), "harness")
+        parsed = parse_release_reason(reason)
+        self.assertEqual((parsed.reason_code, parsed.fault_domain, parsed.reason_detail),
+                         ("EXECUTOR_UNCAUGHT_EXIT", "harness", "AttributeError"))
+        self.assertIn("EXECUTOR_UNCAUGHT_EXIT", RELEASE_REASON_CODES)
+
+    def test_main_registers_the_guard_the_moment_the_lease_exists(self) -> None:
+        """Positional, like the sibling invariant above: the guard enters the
+        runtime stack after the lease guard and before the first release
+        site, so no statement in between can exit unguarded."""
+        fn = _function("_main")
+        held_from = min(
+            node.lineno for node in ast.walk(fn)
+            if isinstance(node, ast.If) and "lease_token" in ast.dump(node.test) and "claim_id" in ast.dump(node.test)
+        )
+        first_release = min(
+            node.lineno for node in ast.walk(fn)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+            and node.func.id == "_release_claim" and node.lineno > held_from
+        )
+        registrations = [
+            node for node in ast.walk(fn)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "enter_context" and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "_runtime_stack"
+            and any(isinstance(arg, ast.Call) and isinstance(arg.func, ast.Name) and arg.func.id == "HeldClaim"
+                    for arg in node.args)
+        ]
+        self.assertEqual(len(registrations), 1, "exactly one lease guard on the runtime stack")
+        self.assertLess(held_from, registrations[0].lineno)
+        self.assertLess(registrations[0].lineno, first_release)
+        held_claim = next(arg for arg in registrations[0].args
+                          if isinstance(arg, ast.Call) and isinstance(arg.func, ast.Name) and arg.func.id == "HeldClaim")
+        log = next(kw.value for kw in held_claim.keywords if kw.arg == "log")
+        self.assertEqual(getattr(log, "id", None), "_stage", "the guard reports through the executor's stage logger")
+
+
+class TheGuardIsProvenOnTheRealKernel(unittest.TestCase):
+    """The actual entry, a real request, a real claim through the kernel CLI,
+    the real summary writer — and the one substitute is the spawn."""
+
+    def setUp(self) -> None:
+        import sys
+
+        from tests import test_ci_executor_live_path_smoke as smoke
+
+        smoke.NativeAdaptiveAdmissionTests.setUp(self)
+        self.executor = smoke.ci_executor
+        (self.binary_dir / "python3").symlink_to(sys.executable)
+        self.runner_temp = self.root / "runner-temp"
+        self.runner_temp.mkdir()
+        # No adaptive block: the fixture workspace is the metered default the
+        # live lanes ran under until B8 declared the subscription policy.
+        # The pre-claim ENVIRONMENT gate (claude binary, sandbox, node_modules)
+        # is not what is under test; the lease lifecycle after the claim is.
+        for name, value in (("_pre_claim_environment_gate", lambda **_: None), ("_REPO_ROOT", self.repo)):
+            patcher = patch.object(self.executor, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def _run_entry(self) -> int:
+        import os
+        from contextlib import chdir
+
+        environment = {"PATH": str(self.binary_dir) + os.pathsep + os.defpath,
+                       "RUNNER_TEMP": str(self.runner_temp), "MAX_TIMEOUT_SECONDS": "60"}
+        with patch.dict(os.environ, environment), chdir(self.repo):
+            return self.executor.main([self.request["request_id"], "aria-evidence-judge"])
+
+    def _claim_rows(self) -> list[dict]:
+        from aria_kernel.ledger import load_declared_jsonl
+
+        return load_declared_jsonl(self.tools / "agent-invocations" / "claims.jsonl",
+                                   expected_surface="agent_invocation_claims")
+
+    def test_an_injected_exception_after_the_claim_leaves_a_released_row(self) -> None:
+        with patch.object(self.executor, "invoke_claude_cli", side_effect=RuntimeError("injected after the claim")):
+            with self.assertRaises(RuntimeError):
+                self._run_entry()
+        rows = self._claim_rows()
+        self.assertEqual([row["event"] for row in rows if row["event"] == "claimed"], ["claimed"])
+        released = [row for row in rows if row["event"] == "released"]
+        self.assertEqual([row["reason"] for row in released], ["executor_uncaught_exit:RuntimeError"])
+        self.assertEqual(released[0]["fault_domain"], "harness")
+        self._assert_claimable_again(rows)
+
+    def _assert_claimable_again(self, rows: list[dict]) -> None:
+        # Back on the queue (a harness release derives REQUEUED with the
+        # request-fault counter untouched), never CLAIMED, never STALE.
+        state = self.ai.derive_request_state(request_id=self.request["request_id"], base_dir=self.tools)
+        self.assertIn(state, ("PENDING", "REQUEUED"), state)
+        self.assertEqual(agent_invocations._request_fault_requeue_count(rows, self.request["request_id"]), 0,
+                         "a harness fault must not cost the request its requeue budget")
+
+    def test_the_spawn_gates_refusal_runs_the_summary_writer_and_releases(self) -> None:
+        import json
+
+        # opus reserves 3.6 against the default per_run 0.5 of this metered
+        # workspace: refused inside invoke_claude_cli, where the 2026-09-04
+        # refusal crashed before its release.
+        exit_code = self._run_entry()
+        self.assertEqual(exit_code, 1)
+        summary = json.loads((self.runner_temp / f"dispatch-result-{self.request['request_id']}.json")
+                             .read_text(encoding="utf-8"))
+        self.assertEqual((summary["outcome"], summary["failure_detail_code"]), ("failed", "cost_reservation_refused"))
+        rows = self._claim_rows()
+        released = [row for row in rows if row["event"] == "released"]
+        self.assertEqual([row["reason"] for row in released], ["claude_cli_exit_1"])
+        self._assert_claimable_again(rows)
 
 
 if __name__ == "__main__":

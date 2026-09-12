@@ -5,13 +5,14 @@ Before the fix the gate was defined and default-gated but no production path
 invoked it — the only perimeter callsites were pr_manager's GATE_PRE_PR_OPEN
 pair, so ADR-041 decision 3's "fresh pre-merge re-check" existed in prose only.
 
-Behavioral pin: a perimeter refusal stops the merge. Six GATE_PRE_MERGE
-checks consume native evidence, including unwaived plan-time coverage and
-the operator-feedback ingestion the merged plan's synthesis was bound to;
-one remains unimplemented. Waiver adjudication and current graph
-reattestation are not established by the coverage fixture, and its plan is
-started directly rather than through the pressure-source provider, so the
-operator-feedback predicate refuses it by name (no synthesis binding).
+Behavioral pin: a perimeter refusal stops the merge. All seven GATE_PRE_MERGE
+checks consume native evidence — unwaived plan-time coverage, the accepted
+expert panel, the operator-feedback ingestion the merged plan's synthesis
+was bound to, and the hook's turn-budget verdicts (cycle_and_turn_budget_cap).
+Waiver adjudication and current graph reattestation are not established by
+the coverage fixture, and its plan is started directly rather than through
+the pressure-source provider, so the operator-feedback predicate refuses it
+by name (no synthesis binding).
 The original controls preserve the structural property: perimeter blocked
 means no merge side effect, and the decision ledger records the block at
 stage pre_merge_perimeter. Native controls separately exercise real
@@ -140,8 +141,13 @@ class PreMergePerimeterTests(unittest.TestCase):
         self.assertEqual(result["stage"], "pre_merge_perimeter")
         reasons = list(result["reasons"])
         self.assertIn("pre_merge_perimeter_blocked", reasons)
+        # Every pre-merge predicate is live and answers from native evidence;
+        # a fixture with no implementation binding is refused by name by all
+        # seven, never by a placeholder.
+        perimeter_reasons = [reason for reason in reasons if reason != "pre_merge_perimeter_blocked"]
+        self.assertEqual(len(perimeter_reasons), 7, reasons)
         self.assertTrue(
-            any("check_not_implemented" in reason for reason in reasons),
+            all(reason.endswith(":native_implementation_binding_unavailable") for reason in perimeter_reasons),
             reasons,
         )
         self.assertEqual(adapter.merged, [])
@@ -310,7 +316,8 @@ class NativeImplementationContextTests(unittest.TestCase):
         from aria_kernel.cross_review_bridge import issue_implementation_envelope
         from aria_kernel.gh_token_factory import mint_signing_key
         from aria_kernel.implementation_safety import (
-            GATE_PRE_MERGE, run_hard_fail_checks, verify_commit_signature,
+            GATE_PRE_MERGE, _native_implementation_is_bound, run_hard_fail_checks,
+            verify_commit_signature,
         )
         from aria_kernel.ledger import load_declared_jsonl
         from aria_kernel.plan_convergence import plan_status
@@ -438,6 +445,31 @@ class NativeImplementationContextTests(unittest.TestCase):
         self.assertEqual(request["plan_revision_hash"], plan.content_hash)
         claim = claim_request(request_id=request["request_id"], agent_id="native-implementation-worker",
             lease_seconds=1800, base_dir=tools)
+        # cycle_and_turn_budget_cap — the implementer's spawn ran under the
+        # kernel hook with the compiled cap (claude_settings → --turn-budget);
+        # its admitted Edit/Write/Bash verdicts on hooks/decisions.jsonl are
+        # the evidence the seventh predicate reads. No job deadline is bound
+        # in this fixture's cleared environment, exactly like the executor
+        # lane, whose cycle cap is the pre-spawn dispatch gate.
+        from aria_kernel import hooks as kernel_hooks
+        from aria_kernel.turn_budget import IMPLEMENTER_TURN_BUDGET
+
+        def implementer_turn(tool_use_id: str) -> int:
+            hook_exit, _ = kernel_hooks.run_hook(
+                "pre-tool",
+                {"session_id": "sess-native-implementation", "tool_use_id": tool_use_id,
+                 "hook_event_name": "PreToolUse", "tool_name": "Bash",
+                 "tool_input": {"command": "git status --porcelain"}, "cwd": str(repo)},
+                base_dir=tools, workspace_root=repo, request_id=request["request_id"],
+                turn_budget=IMPLEMENTER_TURN_BUDGET,
+            )
+            return hook_exit
+
+        for turn in range(3):
+            self.assertEqual(implementer_turn(f"toolu_impl_{turn}"), kernel_hooks.EXIT_ALLOW)
+        hook_rows = load_declared_jsonl(tools.joinpath(*kernel_hooks.HOOK_DECISIONS_RELPATH),
+            expected_surface=kernel_hooks.HOOK_DECISIONS_SURFACE)
+        self.assertEqual([row["turn_budget"]["used_before"] for row in hook_rows], [0, 1, 2])
         signer = mint_signing_key(cycle_id="cyc-native-pre-merge", workspace_root=repo)
         git("checkout", "-q", "-b", staged["branch"])
         (repo / source_path).write_text("export const sampleIntervalMs: number = 20000;\n", encoding="utf-8")
@@ -550,7 +582,13 @@ class NativeImplementationContextTests(unittest.TestCase):
         self.assertEqual(evidence.coverage_revision_id, plan.revision_id)
         self.assertEqual(evidence.coverage_plan_hash, plan.content_hash)
         self.assertEqual(evidence.coverage_computed_at_sha, initial_sha)
-        self.assertFalse(report.passed, "this fixture has no native expert panel or runtime budget proof")
+        self.assertTrue(results["cycle_and_turn_budget_cap"].passed, results["cycle_and_turn_budget_cap"].reason)
+        self.assertEqual(results["cycle_and_turn_budget_cap"].reason, "native_cycle_and_turn_budget_respected")
+        self.assertEqual(evidence.turn_budget_cap, IMPLEMENTER_TURN_BUDGET)
+        self.assertEqual(evidence.turn_budget_used, 3)
+        self.assertIsNone(evidence.turn_budget_refusal_reason)
+        self.assertEqual(evidence.turn_budget_ledger_tip, hook_rows[-1]["ledger_hash"])
+        self.assertFalse(report.passed, "this fixture has no native expert panel or synthesis binding")
         # V9.5 check 12 — the plan was started by the fixture, not synthesized
         # through the provider, so there is no synthesis_bound row to walk
         # from; the predicate names that rather than passing on absence.
@@ -608,7 +646,9 @@ class NativeImplementationContextTests(unittest.TestCase):
         self.assertTrue(called_results["content_hash_recheck"].passed)
         self.assertTrue(called_results["per_file_mutual_exclusion"].passed)
         self.assertTrue(called_results["plan_coverage_witness_verified"].passed)
-        self.assertEqual(len(called_report.failures), 3)
+        self.assertTrue(called_results["cycle_and_turn_budget_cap"].passed)
+        self.assertEqual({item.name for item in called_report.failures},
+            {"operator_feedback_signature", "expert_consensus_evidence_verified"})
         self.assertEqual(runner_result["decisions"][0]["stage"], "pre_merge_perimeter")
         self.assertEqual(runner_result["decisions"][0]["decision"], "blocked")
         self.assertEqual(runner_result["merges_completed"], 0)
@@ -656,7 +696,8 @@ class NativeImplementationContextTests(unittest.TestCase):
             ))
         expert_request_bytes = (tools / "agent-invocations/requests.jsonl").read_bytes()
 
-        def invoke_current_runner(*, selected_root, pr_observation=pr, expected_expert=False):
+        def invoke_current_runner(*, selected_root, pr_observation=pr, expected_expert=False,
+                                  expected_budget=True):
             selected_adapter = SnapshotGitHubAdapter({
                 "pr": pr_observation, "github": {"pr_diff": diff_text},
             })
@@ -682,12 +723,17 @@ class NativeImplementationContextTests(unittest.TestCase):
             self.assertEqual(selected_result["merges_completed"], 0)
             self.assertEqual(selected_adapter.merge_calls, [])
             selected_checks = {item.name: item for item in selected_report.results}
-            for name in (
-                "operator_feedback_signature",
-                "cycle_and_turn_budget_cap",
-            ):
-                self.assertFalse(selected_checks[name].passed)
-            self.assertEqual(selected_checks["cycle_and_turn_budget_cap"].reason, "check_not_implemented")
+            # The fixture starts its plan directly, never through the
+            # pressure-source provider, so once the implementation is bound
+            # the operator-feedback predicate refuses on the missing
+            # synthesis binding; unbound, it refuses like every other one.
+            self.assertFalse(selected_checks["operator_feedback_signature"].passed)
+            self.assertEqual(selected_checks["operator_feedback_signature"].reason,
+                "operator_feedback_synthesis_binding_unavailable"
+                if _native_implementation_is_bound(selected_context)
+                else "native_implementation_binding_unavailable")
+            self.assertEqual(selected_checks["cycle_and_turn_budget_cap"].passed, expected_budget,
+                selected_checks["cycle_and_turn_budget_cap"].reason)
             self.assertEqual(selected_checks["expert_consensus_evidence_verified"].passed, expected_expert)
             return selected_context, selected_checks
 
@@ -698,9 +744,11 @@ class NativeImplementationContextTests(unittest.TestCase):
         self.assertEqual((tools / "agent-invocations/requests.jsonl").read_bytes(), expert_request_bytes)
 
         with self.subTest(ordinary_case="missing_workspace_input"):
-            missing_context, missing_checks = invoke_current_runner(selected_root=None)
+            missing_context, missing_checks = invoke_current_runner(selected_root=None, expected_budget=False)
             self.assertEqual(missing_context.pre_merge_evidence.unavailable_reasons,
                 ("workspace_root_unavailable",))
+            self.assertEqual(missing_checks["cycle_and_turn_budget_cap"].reason,
+                "native_implementation_binding_unavailable")
             self.assertFalse(missing_checks["branch_tip_lock_and_recheck"].passed)
             self.assertFalse(missing_checks["content_hash_recheck"].passed)
             self.assertFalse(missing_checks["per_file_mutual_exclusion"].passed)
@@ -708,7 +756,9 @@ class NativeImplementationContextTests(unittest.TestCase):
         with self.subTest(ordinary_case="partial_live_pr_observation"):
             partial_pr = dict(pr)
             partial_pr.pop("base_sha")
-            partial_context, partial_checks = invoke_current_runner(selected_root=repo, pr_observation=partial_pr)
+            partial_context, partial_checks = invoke_current_runner(
+                selected_root=repo, pr_observation=partial_pr, expected_budget=False,
+            )
             self.assertEqual(partial_context.pre_merge_evidence.unavailable_reasons,
                 ("pr_commit_identity_unavailable",))
             self.assertFalse(partial_checks["branch_tip_lock_and_recheck"].passed)
@@ -837,6 +887,29 @@ class NativeImplementationContextTests(unittest.TestCase):
         self.assertEqual(reviewed_context.pre_merge_evidence.expert_result_hashes,
             tuple(row["ledger_hash"] for row in expert_results))
         self.assertEqual(reviewed_context.pre_merge_evidence.expert_target_sha, head_sha)
+        # With the panel accepted, every LIVE pre-merge predicate holds on this
+        # implementation; the perimeter is closed by the one unbuilt check alone.
+        self.assertEqual({name for name, item in reviewed_checks.items() if not item.passed},
+            {"operator_feedback_signature"})
+
+        with self.subTest(ordinary_case="implementer_turn_budget_exhausted"):
+            # The same implementer keeps working: seven more admitted turns
+            # reach the cap, the eleventh is refused at the boundary, and the
+            # refusal is what the predicate now reads — the attempt exceeded
+            # its cap, so what it produced is not mergeable.
+            for turn in range(3, IMPLEMENTER_TURN_BUDGET):
+                self.assertEqual(implementer_turn(f"toolu_impl_{turn}"), kernel_hooks.EXIT_ALLOW)
+            self.assertEqual(implementer_turn("toolu_impl_refused"), kernel_hooks.EXIT_BLOCK)
+            exhausted_context, exhausted_checks = invoke_current_runner(
+                selected_root=repo, expected_expert=True, expected_budget=False,
+            )
+            self.assertEqual(exhausted_checks["cycle_and_turn_budget_cap"].reason,
+                "implementer_turn_budget_exhausted")
+            self.assertEqual(exhausted_context.pre_merge_evidence.turn_budget_used, IMPLEMENTER_TURN_BUDGET)
+            self.assertEqual(exhausted_context.pre_merge_evidence.turn_budget_refusal_reason,
+                f"implementer_turn_budget_exhausted:used={IMPLEMENTER_TURN_BUDGET}:cap={IMPLEMENTER_TURN_BUDGET}")
+            self.assertEqual(exhausted_context.pre_merge_evidence.result_row_hash, submitted["row"]["ledger_hash"])
+            self.assertTrue(exhausted_checks["expert_consensus_evidence_verified"].passed)
 
         # A later real commit moves the original implementation branch. Keep
         # that branch intact and read the previously accepted commit detached.
@@ -850,7 +923,9 @@ class NativeImplementationContextTests(unittest.TestCase):
         self.assertEqual(git("rev-parse", "refs/heads/" + staged["branch"]), later_head)
         self.assertEqual(git("rev-parse", "HEAD"), head_sha)
         with self.subTest(ordinary_case="native_branch_advanced"):
-            stale_context, stale_checks = invoke_current_runner(selected_root=repo, expected_expert=True)
+            stale_context, stale_checks = invoke_current_runner(
+                selected_root=repo, expected_expert=True, expected_budget=False,
+            )
             self.assertEqual(stale_context.pre_merge_evidence.result_row_hash, submitted["row"]["ledger_hash"])
             self.assertEqual(stale_checks["branch_tip_lock_and_recheck"].reason, "native_branch_tip_changed")
             self.assertFalse(stale_checks["branch_tip_lock_and_recheck"].passed)
@@ -859,7 +934,7 @@ class NativeImplementationContextTests(unittest.TestCase):
         with self.subTest(ordinary_case="live_pr_revision_moves_beyond_expert_panel"):
             advanced_pr = dict(pr, head_sha=later_head)
             advanced_context, advanced_checks = invoke_current_runner(
-                selected_root=repo, pr_observation=advanced_pr,
+                selected_root=repo, pr_observation=advanced_pr, expected_budget=False,
             )
             self.assertIsNone(advanced_context.pre_merge_evidence.result_row_hash)
             self.assertFalse(advanced_checks["expert_consensus_evidence_verified"].passed)
@@ -873,7 +948,7 @@ class NativeImplementationContextTests(unittest.TestCase):
         self.assertEqual(rejected_state["state"], "IMPLEMENTATION_REJECTED")
         self.assertEqual(rejected_state["implementation"]["rejection_class"], "branch_tip_drift")
         with self.subTest(ordinary_case="native_implementation_no_longer_accepted"):
-            rejected_context, rejected_checks = invoke_current_runner(selected_root=repo)
+            rejected_context, rejected_checks = invoke_current_runner(selected_root=repo, expected_budget=False)
             self.assertIsNone(rejected_context.pre_merge_evidence.result_row_hash)
             self.assertFalse(rejected_checks["branch_tip_lock_and_recheck"].passed)
             self.assertFalse(rejected_checks["content_hash_recheck"].passed)

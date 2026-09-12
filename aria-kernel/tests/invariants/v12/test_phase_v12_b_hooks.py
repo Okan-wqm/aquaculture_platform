@@ -15,6 +15,9 @@ Invariants:
   I-V12-HOOK-05  session hooks produce a handoff snapshot with the matching
                  trigger.
   I-V12-HOOK-06  the CLI `hook` verbs read stdin and print the protocol JSON.
+  (cycle_and_turn_budget_cap — the per-turn cap the PreToolUse hook admits
+  against, and the pre-merge predicate that reads its rows, are pinned in
+  tests/test_turn_budget.py.)
 
 NOT RUN at authoring time (operator instruction 2026-09-03).
 """
@@ -70,6 +73,11 @@ class SettingsCarryRulesAndHooks(unittest.TestCase):
         command = settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
         self.assertIn("-m aria_kernel hook pre-tool", command)
         self.assertIn("--request-id AIR-1", command)
+        # cycle_and_turn_budget_cap: a write-scope profile's PreToolUse hook is
+        # compiled with the kernel's turn cap; the full matrix is in
+        # tests/test_turn_budget.py.
+        self.assertIn("--turn-budget 10", command)
+        self.assertEqual(settings["_aria"]["turn_budget"], 10)
         self.assertTrue(settings_hash(settings).startswith("sha256:"))
         self.assertEqual(settings_hash(settings), settings_hash(build_settings(profile_by_id("implementer"), hook_context=ctx)))
         preview = build_settings(profile_by_id("judge_opus"), hook_context=None)

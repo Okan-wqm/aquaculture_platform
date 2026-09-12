@@ -58,12 +58,14 @@ class TestV9HardFailRegistry(unittest.TestCase):
             {r.name for r in report.results},
             {c.name for c in _is.HARD_FAIL_CHECKS},
         )
-        # Unimplemented checks FAIL, so the perimeter reports itself as not
-        # holding rather than as absent.
+        # Every pre-merge predicate answers from native evidence and an empty
+        # context binds none, so the perimeter reports itself as not holding
+        # rather than as absent — and never as a placeholder.
         self.assertFalse(report.passed)
         self.assertIn(
-            "check_not_implemented", {r.reason for r in report.failures},
+            "native_implementation_binding_unavailable", {r.reason for r in report.failures},
         )
+        self.assertNotIn("check_not_implemented", {r.reason for r in report.failures})
 
     def test_i_v9_safety_a_failing_check_blocks_the_report(self):
         """An injected failure must make the whole report block."""
@@ -141,7 +143,7 @@ class TestV9HardFailRegistry(unittest.TestCase):
         )
         self.assertFalse(
             pre_merge.passed,
-            msg="pre-merge gate must not pass while its checks are unbuilt",
+            msg="pre-merge gate must not pass on an empty context",
         )
         # Two kinds of live implementation. A pre-PR-open check answers from
         # the action itself. A pre-merge check answers from NATIVE evidence
@@ -150,15 +152,16 @@ class TestV9HardFailRegistry(unittest.TestCase):
         # an empty context it fails by name, "native_implementation_binding_
         # unavailable", never by passing and never by pretending to be unbuilt.
         # The rewrite this test's earlier draft demanded when "phase B lands":
-        # six pre-merge predicates are now live (branch tip, per-file
+        # all seven pre-merge predicates are live (branch tip, per-file
         # exclusion, content hash, plan coverage, expert consensus, operator
-        # feedback signature); the one still unbuilt says so.
+        # feedback signature, cycle and turn budget), so nothing answers
+        # "check_not_implemented" any more and merge stays closed on an
+        # empty context only because every predicate refuses by name.
         whole = _is.run_hard_fail_checks(_is.HardFailContext())
         by_name = {c.name: c for c in _is.HARD_FAIL_CHECKS}
         for result in whole.results:
-            if result.reason == "check_not_implemented":
-                continue
             with self.subTest(check=result.name):
+                self.assertNotEqual(result.reason, "check_not_implemented")
                 if by_name[result.name].gate == _is.GATE_PRE_MERGE:
                     self.assertFalse(result.passed)
                     self.assertEqual(result.reason, "native_implementation_binding_unavailable")
@@ -166,9 +169,9 @@ class TestV9HardFailRegistry(unittest.TestCase):
                     self.assertEqual(by_name[result.name].gate, _is.GATE_PRE_PR_OPEN)
         self.assertEqual(
             {r.name for r in pre_merge.results if r.reason == "check_not_implemented"},
-            {"cycle_and_turn_budget_cap"},
-            "the still-unbuilt pre-merge predicate is exactly this one; building "
-            "it means editing this set deliberately",
+            set(),
+            "no pre-merge predicate is a placeholder; a new one must land with "
+            "its native capture, never as check_not_implemented",
         )
         # Filtering is a partition, not a sample.
         self.assertEqual(
@@ -872,11 +875,11 @@ class TestPhaseAGateExitCriterion(unittest.TestCase):
     def test_pre_merge_gate_still_cannot_pass(self):
         """Merge stays closed by construction, not by a flag.
 
-        The cleanest ACTION is still not a merge: six pre-merge predicates
-        answer only from native implementation evidence that a clean action
-        context does not carry, and one is unbuilt. Each failure names which
-        of those it is; a pre-merge failure for any other reason here would
-        mean a predicate started reading something it should not.
+        The cleanest ACTION is still not a merge: all seven pre-merge
+        predicates answer only from native implementation evidence that a
+        clean action context does not carry. Each failure says so by name; a
+        pre-merge failure for any other reason here would mean a predicate
+        started reading something it should not.
         """
         with tempfile.TemporaryDirectory() as tmp:
             report = _is.run_hard_fail_checks(
@@ -889,8 +892,8 @@ class TestPhaseAGateExitCriterion(unittest.TestCase):
             )
             self.assertEqual(
                 {r.reason for r in report.failures},
-                {"check_not_implemented", "native_implementation_binding_unavailable"},
-                "a pre-merge check failed for a reason other than being unbuilt or unbound: "
+                {"native_implementation_binding_unavailable"},
+                "a pre-merge check failed for a reason other than being unbound: "
                 + "; ".join(f"{r.name}: {r.reason}" for r in report.failures),
             )
 

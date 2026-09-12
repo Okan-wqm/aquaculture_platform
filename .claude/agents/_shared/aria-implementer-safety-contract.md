@@ -134,10 +134,13 @@ accepts. The agent-emitted subset includes:
   workspace_root (after `..` normalization + symlink resolution)
 - `file_lock_conflict` — another `IMPLEMENTATION_*` plan locks one
   of this plan's `affected_surfaces[]`
-- `cycle_budget_exhausted` — per-cycle budget cap hit at next turn
-  boundary (SSoT: `budget.DEFAULT_MAX_BUDGET_USD_PER_CYCLE`)
-- `implementer_turn_budget_exhausted` — per-implementer-turn N=10
-  cap hit (Edit + Write + Bash combined)
+- `cycle_budget_exhausted` — the run's wall clock reached the job
+  deadline's close-out margin at a turn boundary (SSoT:
+  `turn_budget.job_deadline_reached`; dollars are telemetry, not admission)
+- `implementer_turn_budget_exhausted` — per-implementer-request cap of
+  `turn_budget.IMPLEMENTER_TURN_BUDGET` = 10 budgeted turns hit
+  (Edit + Write + Bash + MultiEdit + NotebookEdit combined, counted from
+  `hooks/decisions.jsonl`)
 - `content_hash_mismatch` — content_hash recheck on CONVERGED plan
   drift between envelope mint and implementation start
 - `branch_tip_drift` — pre-merge `gh pr view --json headRefOid` no

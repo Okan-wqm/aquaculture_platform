@@ -42,6 +42,12 @@ from .proactive_priority import compute_proactive_priorities
 from .runtime_profile import ACTION_PERMISSIONS, get_profile
 from .tool_registry import GovernanceError, append_tools_governance, append_tools_governance_once, ensure_tools_binding, ensure_tools_dir, list_tools, register_tool, utc_now, update_tools_index
 from .tool_runner import run_tool
+from .turn_budget import (
+    JOB_DEADLINE_CLOSE_OUT_MARGIN_SECONDS as _JOB_DEADLINE_PHASE_MARGIN_SECONDS,
+    JOB_DEADLINE_EPOCH_ENV,
+    job_deadline_reached as _deadline_inside_margin,
+    parse_deadline_epoch as _parse_deadline_epoch,
+)
 from .ledger import append_declared_jsonl
 
 
@@ -3503,16 +3509,19 @@ def _run_phase_stage(
             context.outcomes[phase.name] = {"outcome": "ran"}
 
 
-# The margin mirrors claude_runtime's close-out margin: enough for the
-# reflection/seal work that must still run after the last skipped phase.
-_JOB_DEADLINE_PHASE_MARGIN_SECONDS = 120
-
 # ARIA-HIGH-064 — the name of the cross-process deadline contract, in one place.
 # It is an ENV var rather than a parameter on purpose: the readers are in other
 # PROCESSES (tools/aria-poc/claude_runtime.py clamps a spawn against it,
-# ci_executor_drain.py stops the drain, ci_executor.py reports it, and
-# agent_env.py passes it through to an agent). A parameter cannot cross a fork.
-JOB_DEADLINE_EPOCH_ENV = "ARIA_JOB_DEADLINE_EPOCH"
+# ci_executor_drain.py stops the drain, ci_executor.py reports it, agent_env.py
+# passes it through to an agent, and the kernel hook refuses a write turn
+# against it inside the agent's sandbox). A parameter cannot cross a fork.
+#
+# The name, the parser and the "inside the close-out margin" predicate live in
+# turn_budget (cycle_and_turn_budget_cap): the between-phases skip below and
+# the hook's ``cycle_budget_exhausted`` refusal read the same margin from the
+# same function, so the two cannot disagree about when the night is over.
+# This module stays the ONLY writer (job_deadline_epoch); the names are
+# imported at the top of the module with the rest of the kernel imports.
 
 
 @contextlib.contextmanager
@@ -3557,21 +3566,6 @@ def job_deadline_epoch(seconds: float | None) -> Iterator[float | None]:
             _os.environ[JOB_DEADLINE_EPOCH_ENV] = inherited
 
 
-def _parse_deadline_epoch(raw: str | None) -> float | None:
-    """A malformed epoch is NOT a deadline — the same tolerance the readers use.
-
-    ``_remaining_wallclock_seconds`` returns inf on garbage rather than
-    crashing a cycle; the binder must agree, or a typo in the workflow would
-    become a hard failure here and an ignored value there.
-    """
-    if not raw:
-        return None
-    try:
-        return float(raw)
-    except ValueError:
-        return None
-
-
 def _job_deadline_reached() -> bool:
     """True when ARIA_JOB_DEADLINE_EPOCH says the job is out of runway.
 
@@ -3579,18 +3573,17 @@ def _job_deadline_reached() -> bool:
     autonomy workflows export the absolute deadline; local dev and tests
     have no env and never trigger. Malformed values return False here (the
     spawn clamp already refuses them loudly at the spawn boundary; the
-    phase loop must not crash a cycle over the same garbage twice).
+    phase loop must not crash a cycle over the same garbage twice). The
+    predicate itself is turn_budget.job_deadline_reached, shared with the
+    hook's turn-boundary refusal.
     """
     import os as _os
 
-    raw = _os.environ.get("ARIA_JOB_DEADLINE_EPOCH")
-    if not raw:
-        return False
-    try:
-        deadline = float(raw)
-    except ValueError:
-        return False
-    return time.time() >= deadline - _JOB_DEADLINE_PHASE_MARGIN_SECONDS
+    return _deadline_inside_margin(
+        now=time.time(),
+        deadline_epoch=_parse_deadline_epoch(_os.environ.get(JOB_DEADLINE_EPOCH_ENV)),
+        margin_seconds=_JOB_DEADLINE_PHASE_MARGIN_SECONDS,
+    )
 
 
 class PhaseDeadlineExceeded(Exception):

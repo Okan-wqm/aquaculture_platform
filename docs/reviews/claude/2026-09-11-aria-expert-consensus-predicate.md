@@ -167,3 +167,75 @@ Left as it is, on purpose: verdict rows are signed but their other readers
 §12 scopes verification to the plan synthesizer, and widening it is a
 separate decision. The last placeholder predicate is
 `cycle_and_turn_budget_cap`, which lands next.
+
+## Addendum 2026-09-12 — the seventh predicate: `cycle_and_turn_budget_cap`
+
+### ARIA-HIGH-088 — the seventh pre-merge predicate was a placeholder; nothing bounded an implementer's turns
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-19
+- **Evidence:** `aria-kernel/aria_kernel/implementation_safety.py`,
+  `hooks.py`, `claude_settings.py`, `merge_authority.py`,
+  `docs/aria/v3-v9-5-safety-contracts-policy.md` §14.
+- **What was wrong:** `HARD_FAIL_CHECKS[cycle_and_turn_budget_cap]` bound the
+  placeholder that refuses every merge by name, so no implementer request had
+  its Edit/Write/Bash turns bounded at all; §14 declared the cycle half as a
+  per-cycle USD reservation (`--max-budget-usd-per-cycle`) after
+  ORPHAN-HIGH-472 had retired the USD dispatch gate and ARIA-HIGH-074/079 had
+  made notional dollars telemetry under the managed-subscription policy.
+- **What is now true:**
+  - The cycle cap is the run-scoped job deadline. `turn_budget.py` owns
+    `JOB_DEADLINE_EPOCH_ENV`, `parse_deadline_epoch` and the close-out-margin
+    predicate `job_deadline_reached` (120 s); `cycle.py`'s between-phases skip
+    delegates to it, so the phase loop and the hook cannot disagree on the
+    margin. `cycle.job_deadline_epoch` stays the only writer.
+  - The turn cap is `IMPLEMENTER_TURN_BUDGET = 10` budgeted turns per
+    implementer request (`BUDGETED_TOOL_NAMES` = Bash, Edit, Write, MultiEdit,
+    NotebookEdit). `claude_settings.build_settings` compiles `--turn-budget 10`
+    into the PreToolUse hook command of write-scope profiles only (implementer,
+    worker); the PreToolUse matcher is derived from the same set, so the
+    consulted tools and the budgeted tools are one list.
+  - `hooks.admit_budgeted_turn` counts the request's admitted budgeted turns
+    from `hooks/decisions.jsonl`, decides, and appends the verdict inside ONE
+    `state_transaction` — two parallel tool calls serialise on the ledger
+    lock, so the eleventh admitted turn cannot exist. Refusals are
+    `cycle_budget_exhausted:…` (checked first) and
+    `implementer_turn_budget_exhausted:used=10:cap=10`, always at the
+    boundary; a policy-denied turn never counts; every budgeted verdict
+    carries a `turn_budget` observation (cap, used_before, deadline_epoch,
+    remaining_seconds, margin). `hook_decisions` is declared write-driving
+    because its loss resets the cap.
+  - `merge_authority._capture_pre_merge_context` reads
+    `hooks/decisions.jsonl` as an optional source under the final prefix
+    recheck; `_capture_pre_merge_turn_budget` reduces the request's rows via
+    the pure `turn_budget_evidence`; `_check_cycle_and_turn_budget_cap`
+    refuses an unbound implementation, absent/malformed/other-cap evidence,
+    either refusal class, or more admitted turns than the cap
+    (`implementer_turn_budget_exceeded_unrefused`), and passes as
+    `native_cycle_and_turn_budget_respected`. Dollars are not read.
+  - With ARIA-CRITICAL-007 (previous addendum) this leaves no placeholder in
+    the registry: the `_not_implemented` binder is deleted, and the v9
+    invariants pin that every pre-merge predicate answers an empty context
+    with `native_implementation_binding_unavailable` and never with
+    `check_not_implemented`. ARIA-CRITICAL-009 ("seven declared pre-merge
+    controls still resolve to placeholders") is therefore closed in code;
+    its closure mode is `task_commit_and_live`, so it stays open until a
+    native merge observes all seven.
+  - §14 of the safety-contracts policy and the implementer safety contract
+    (`.claude/agents/_shared/aria-implementer-safety-contract.md`) now state
+    the wall-clock + N=10 contract instead of `budget.DEFAULT_MAX_BUDGET_USD_PER_CYCLE`.
+- **Proof (this host, 2026-09-12):** `tests/test_turn_budget.py` (16: ten
+  admitted, the eleventh refused with exit 2; `cycle_budget_exhausted` at
+  deadline − 120 s; CLI plumbing; settings compile the cap for implementer
+  and worker only; predicate matrix), v12 hook/checkpoint/MCP invariants,
+  the v9 implementation-safety invariants after their deliberate rewrite,
+  `test_job_deadline_scope`, state-guard, roster and usage-ledger invariants,
+  `test_autonomy_evidence_status`, `test_auto_merge`, plus the operator-
+  feedback suites: 345 passed. `test_merge_authority_pre_merge_perimeter.py`
+  with both new predicates live on the same fixture: the perimeter passes
+  `cycle_and_turn_budget_cap` with three admitted turns and refuses it with
+  `implementer_turn_budget_exhausted` after the eleventh.
+- **Open for the operator:** N=10 is the contract as written and is one
+  literal (`turn_budget.IMPLEMENTER_TURN_BUDGET`); a real implementation that
+  edits, runs its tests and commits will spend Bash turns on each test run,
+  so the first native implementer trial will show whether 10 is a cap or a
+  wall. Raising it is a policy decision, not a code shape change.

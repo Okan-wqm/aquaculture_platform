@@ -2877,6 +2877,11 @@ def build_parser() -> argparse.ArgumentParser:
         hook_verb = add_subparser(hook_sub, verb)
         hook_verb.add_argument("--workspace-root", required=True)
         hook_verb.add_argument("--request-id", required=True)
+        if verb == "pre-tool":
+            # cycle_and_turn_budget_cap — compiled into the spawn settings by
+            # claude_settings.build_settings for write-scope profiles; absent
+            # for an unbudgeted spawn.
+            hook_verb.add_argument("--turn-budget", type=int, default=None)
 
     # Plan 032 Faz 032c — checkpoints, sessions, recovery, search.
     checkpoint_parser = add_subparser(sub, "checkpoint")
@@ -6158,6 +6163,7 @@ def _main(argv: list[str] | None = None) -> int:
             base_dir=args.tools_dir,
             workspace_root=args.workspace_root,
             request_id=args.request_id,
+            turn_budget=getattr(args, "turn_budget", None),
         )
         if stdout:
             print(stdout)

@@ -1218,6 +1218,18 @@ class _PreMergeEvidence:
     operator_feedback_consumed_signer_kids: tuple[str, ...] = ()
     operator_feedback_verified: bool | None = None
     operator_feedback_unavailable_reason: str | None = None
+    # Seventh predicate (cycle_and_turn_budget_cap): the hook_decisions rows
+    # bound to THIS implementation's request, reduced by
+    # turn_budget.turn_budget_evidence at capture time. ``used`` is the number
+    # of admitted Edit/Write/Bash turns, ``refusal_reason`` the first
+    # cycle_budget_exhausted / implementer_turn_budget_exhausted verdict if
+    # the hook ever had to refuse, ``ledger_tip`` the hash of the last bound
+    # row. No rows, no observation or another cap is a named reason.
+    turn_budget_cap: int | None = None
+    turn_budget_used: int | None = None
+    turn_budget_refusal_reason: str | None = None
+    turn_budget_ledger_tip: str | None = None
+    turn_budget_unavailable_reason: str | None = None
 
     @property
     def available(self) -> bool:
@@ -1338,9 +1350,10 @@ class HardFailCheck:
     perimeter read as CI success. Requiring the callable makes a
     non-executable entry unconstructable.
 
-    A check that is declared but not yet implemented binds
-    :func:`_not_implemented`, which FAILS. Unimplemented work therefore
-    shows up as a blocking check rather than as a silent gap.
+    Every registered check answers from the action or from native
+    implementation evidence; a check that cannot see what it needs FAILS by
+    name (``native_implementation_binding_unavailable``), so a gap in the
+    perimeter shows up as a blocking check rather than as a silent pass.
     """
 
     name: str
@@ -1366,22 +1379,6 @@ def _passed(name: str, reason: str = "ok") -> HardFailResult:
 
 def _failed(name: str, reason: str) -> HardFailResult:
     return HardFailResult(name=name, passed=False, reason=reason)
-
-
-def _not_implemented(name: str) -> Callable[[HardFailContext], HardFailResult]:
-    """Bind a declared-but-unbuilt check to an explicit failure.
-
-    This is deliberately not a pass-through. The check is named in the
-    policy document as part of the pre-PR-open and pre-merge perimeter, so
-    until it has an implementation the honest answer to "did the perimeter
-    hold?" is no.
-    """
-
-    def _check(context: HardFailContext) -> HardFailResult:
-        del context
-        return _failed(name, "check_not_implemented")
-
-    return _check
 
 
 def _native_implementation_is_bound(context: HardFailContext) -> bool:
@@ -1516,6 +1513,44 @@ def _check_operator_feedback_signature(context: HardFailContext) -> HardFailResu
     # rows were dropped with their governance events, and every row the
     # plan consumed still verifies under the store's key material.
     return _passed(name, "native_operator_feedback_ingestion_verified")
+
+
+def _check_cycle_and_turn_budget_cap(context: HardFailContext) -> HardFailResult:
+    """Both caps held at every turn boundary of the implementation's run.
+
+    The cycle cap is the run-scoped job deadline and the turn cap is
+    turn_budget.IMPLEMENTER_TURN_BUDGET; the hook admitted each Edit/Write/
+    Bash turn against both and recorded the verdict. Dollars are not read
+    here: under managed_subscription they are telemetry, under metered they
+    are cost_budget.assert_within_budget's own admission (ORPHAN-HIGH-472,
+    ARIA-HIGH-074/079).
+    """
+    from .turn_budget import IMPLEMENTER_TURN_BUDGET, refusal_class
+
+    name = "cycle_and_turn_budget_cap"
+    evidence = context.pre_merge_evidence
+    if not _native_implementation_is_bound(context):
+        return _failed(name, "native_implementation_binding_unavailable")
+    if evidence.turn_budget_unavailable_reason:
+        return _failed(name, evidence.turn_budget_unavailable_reason)
+    if (
+        evidence.turn_budget_cap != IMPLEMENTER_TURN_BUDGET
+        or type(evidence.turn_budget_used) is not int
+        or not evidence.turn_budget_ledger_tip
+    ):
+        return _failed(name, "native_turn_budget_binding_unavailable")
+    refusal = refusal_class(evidence.turn_budget_refusal_reason)
+    if refusal is not None:
+        # The hook's own vocabulary: cycle_budget_exhausted or
+        # implementer_turn_budget_exhausted — the attempt hit a cap and was
+        # stopped at the boundary; what it produced is not mergeable.
+        return _failed(name, refusal)
+    if evidence.turn_budget_used > evidence.turn_budget_cap:
+        # More turns admitted than the cap allows means the hook that
+        # recorded them was not enforcing; that is a perimeter failure, not
+        # a budget one.
+        return _failed(name, "implementer_turn_budget_exceeded_unrefused")
+    return _passed(name, "native_cycle_and_turn_budget_respected")
 
 
 def _check_content_hash_recheck(context: HardFailContext) -> HardFailResult:
@@ -2239,11 +2274,27 @@ HARD_FAIL_CHECKS: tuple[HardFailCheck, ...] = (
         check=_check_pr_body_templating,
         gate=GATE_PRE_PR_OPEN,
     ),
+    # Policy §14 as amended by ORPHAN-HIGH-472 and ARIA-HIGH-074/079: the
+    # per-cycle cap is WALL CLOCK (the run-scoped job deadline,
+    # cycle.job_deadline_epoch, read at the turn boundary by the hook), the
+    # per-implementer cap is N=10 Edit+Write+Bash turns
+    # (turn_budget.IMPLEMENTER_TURN_BUDGET, counted and refused inside the
+    # hook_decisions transaction), and dollars are telemetry under the
+    # managed-subscription policy — cost_budget keeps them as admission under
+    # metered. Refusals: cycle_budget_exhausted / implementer_turn_budget_
+    # exhausted, always between turns.
     HardFailCheck(
         name="cycle_and_turn_budget_cap",
-        description="per-cycle budget cap (budget.DEFAULT_MAX_BUDGET_USD_PER_CYCLE) + per-implementer-turn N=10 caps with reservation-reconcile",
+        description=(
+            "hooks.admit_budgeted_turn admits each Edit/Write/Bash turn against "
+            "the job deadline (ARIA_JOB_DEADLINE_EPOCH) and "
+            "turn_budget.IMPLEMENTER_TURN_BUDGET=10; pre-merge reads the "
+            "request's hook_decisions rows and fails on any "
+            "cycle_budget_exhausted / implementer_turn_budget_exhausted "
+            "refusal, on more admitted turns than the cap, or on absent evidence"
+        ),
         closes_findings=("ai-HIGH-013", "perf-CRIT-001"),
-        check=_not_implemented("cycle_and_turn_budget_cap"),
+        check=_check_cycle_and_turn_budget_cap,
         gate=GATE_PRE_MERGE,
     ),
     HardFailCheck(

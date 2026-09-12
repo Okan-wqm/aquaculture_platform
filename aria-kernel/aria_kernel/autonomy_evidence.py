@@ -1092,6 +1092,7 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
             f"{_KERNEL}plan_coverage.py",
             f"{_KERNEL}budget.py",
             f"{_KERNEL}cost_budget.py",
+            f"{_KERNEL}turn_budget.py",
             f"{_KERNEL}state_manifest.py",
             ".github/workflows/aria-merge-authority.yml",
         ),
@@ -1106,6 +1107,7 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
             f"{_KERNEL}plan_coverage.py",
             f"{_KERNEL}budget.py",
             f"{_KERNEL}cost_budget.py",
+            f"{_KERNEL}turn_budget.py",
             ".github/workflows/aria-merge-authority.yml",
         ),
         authorizing_consumer_paths=(

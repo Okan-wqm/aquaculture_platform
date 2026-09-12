@@ -17,7 +17,11 @@ given profile + hook context, so its hash is part of the session fingerprint
 
 Hook commands invoke the kernel CLI (``python3 -m aria_kernel hook ...``)
 with the tools dir and request id spelled out — the hook runs inside the
-agent's sandbox, where nothing but argv tells it who it is working for.
+agent's sandbox, where nothing but argv tells it who it is working for. A
+profile with a write scope also gets ``--turn-budget N`` on its PreToolUse
+command (cycle_and_turn_budget_cap, :mod:`turn_budget`): the cap is compiled
+into the settings document, so it is part of the session fingerprint and not
+something the agent's own instructions could omit.
 """
 from __future__ import annotations
 
@@ -28,14 +32,17 @@ from typing import Any, Mapping
 
 from .command_policy import claude_permission_rules
 from .runtime_profiles import RuntimeProfile, disallowed_tools_for
+from .turn_budget import BUDGETED_TOOL_NAMES, turn_budget_for
 
 SETTINGS_SCHEMA_NOTE = "aria/claude-settings/v1"
 HOOK_TIMEOUT_SECONDS = 60
 # Every hook event ARIA wires. Closed on purpose: a new event is a policy
 # change, not a config edit.
 HOOK_EVENTS: tuple[str, ...] = ("PreToolUse", "PostToolUse", "SessionStart", "SessionEnd", "PreCompact")
-_PRE_TOOL_MATCHER = "Bash|Edit|Write|MultiEdit|NotebookEdit"
-_POST_TOOL_MATCHER = "Bash|Edit|Write|MultiEdit|NotebookEdit|Read|Grep|Glob|Agent"
+# The PreToolUse matcher IS the budgeted set: a tool the budget counts is a
+# tool the hook is consulted about, and vice versa, by construction.
+_PRE_TOOL_MATCHER = "|".join(BUDGETED_TOOL_NAMES)
+_POST_TOOL_MATCHER = _PRE_TOOL_MATCHER + "|Read|Grep|Glob|Agent"
 _ENV_READ_DENIES: tuple[str, ...] = ("Read(./.env)", "Read(./.env.*)", "Read(**/.env)", "Read(**/.env.*)")
 
 
@@ -47,8 +54,14 @@ def hook_command(
     workspace_root: str | Path,
     request_id: str,
     verb: str,
+    turn_budget: int | None = None,
 ) -> str:
-    """The shell line the CLI runs for one hook event. Quoted for /bin/sh."""
+    """The shell line the CLI runs for one hook event. Quoted for /bin/sh.
+
+    ``turn_budget`` is only meaningful for ``pre-tool`` — it is the cap the
+    kernel admits each budgeted turn against; None leaves the spawn
+    unbudgeted (a read-only or Bash-only profile has no diff to bound).
+    """
     import shlex
 
     parts = [
@@ -58,6 +71,8 @@ def hook_command(
         "--workspace-root", shlex.quote(str(workspace_root)),
         "--request-id", shlex.quote(request_id),
     ]
+    if turn_budget is not None:
+        parts.extend(["--turn-budget", str(int(turn_budget))])
     return " ".join(parts)
 
 
@@ -74,11 +89,13 @@ def build_settings(
     """
     allow, deny = claude_permission_rules(external_writes=profile.external_writes)
     deny_tools = [rule for rule in disallowed_tools_for(profile)]
+    turn_budget = turn_budget_for(profile)
     settings: dict[str, Any] = {
         "_aria": {
             "schema": SETTINGS_SCHEMA_NOTE,
             "profile": profile.profile_id,
             "external_writes": profile.external_writes,
+            "turn_budget": turn_budget,
         },
         "permissions": {
             "allow": list(allow),
@@ -86,11 +103,11 @@ def build_settings(
         },
     }
     if hook_context is not None:
-        def entry(verb: str, matcher: str | None) -> dict[str, Any]:
+        def entry(verb: str, matcher: str | None, *, turn_budget: int | None = None) -> dict[str, Any]:
             row: dict[str, Any] = {
                 "hooks": [{
                     "type": "command",
-                    "command": hook_command(verb=verb, **hook_context),
+                    "command": hook_command(verb=verb, turn_budget=turn_budget, **hook_context),
                     "timeout": HOOK_TIMEOUT_SECONDS,
                 }],
             }
@@ -99,7 +116,7 @@ def build_settings(
             return row
 
         settings["hooks"] = {
-            "PreToolUse": [entry("pre-tool", _PRE_TOOL_MATCHER)],
+            "PreToolUse": [entry("pre-tool", _PRE_TOOL_MATCHER, turn_budget=turn_budget)],
             "PostToolUse": [entry("post-tool", _POST_TOOL_MATCHER)],
             "SessionStart": [entry("session", None)],
             "SessionEnd": [entry("session", None)],

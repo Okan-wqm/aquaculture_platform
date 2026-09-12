@@ -694,7 +694,20 @@ class AutonomyOrchestratorTests(unittest.TestCase):
     def test_outer_adopted_plan_uses_recorded_body_with_unchanged_caller_scope(self) -> None:
         self._run_with_native_planner_source(adopted=True)
 
-    def _run_with_real_memory(self, *, plan_state: str = "converged") -> dict[str, Any]:
+    def _run_with_real_memory(
+        self, *, plan_state: str = "converged", signer: str = "cycle",
+    ) -> dict[str, Any]:
+        """Real MemoryHookImpl under the orchestrator's `standard` profile.
+
+        ``signer="cycle"`` lets the B7 knowledge seam mint the cycle's real
+        key, so the CONVERGED plan's hypothesis is signed in this cycle.
+        ``signer="unavailable"`` makes the mint fail the way a host without
+        ssh-keygen fails: the seam records `knowledge_signer_mint_failed`
+        and the hook takes its `needs_signing` disclosure path, which is the
+        pending-observation contract the reporting tests pin.
+        """
+        from contextlib import ExitStack
+        from aria_kernel import gh_token_factory
         from aria_kernel.cycle_phases import select_memory_hook
         from aria_kernel.plan_convergence import start_plan
 
@@ -735,24 +748,109 @@ class AutonomyOrchestratorTests(unittest.TestCase):
             result.pop("converged_plan")
             return result
 
-        return self._run(
-            convergence_runner=converge,
-            memory_hook=select_memory_hook(profile="standard"),
-        )
+        with ExitStack() as stack:
+            if signer == "unavailable":
+                stack.enter_context(patch.object(
+                    gh_token_factory, "mint_signing_key",
+                    side_effect=RuntimeError("ssh-keygen not on PATH; fixture host"),
+                ))
+            return self._run(
+                convergence_runner=converge,
+                memory_hook=select_memory_hook(profile="standard"),
+            )
 
-    def test_selected_memory_reads_canonical_plan_and_reports_missing_signer(self) -> None:
+    def test_standard_profile_signs_the_converged_hypothesis_in_the_same_cycle(self) -> None:
+        """B7 — the integration proof for the live defect.
+
+        Every live run was `standard`, and `knowledge-graph/conventions.jsonl`
+        was never created because the only signer lived in the V9 runner
+        that `pr_create` selects. The real orchestrator seam, the real
+        MemoryHookImpl and a real ed25519 key: the row lands in the cycle
+        that converged, carries the cycle's fingerprint, verifies, and the
+        key is gone afterwards.
+        """
+        import json
+        from aria_kernel.knowledge_graph import verify_chain_or_quarantine
+        from aria_kernel.runtime_artifacts import autonomy_output_summary
+
         result = self._run_with_real_memory()
+        self.assertTrue(result["exits_clean"])
         summary = result["per_cycle"][0]
-        self.assertIn("memory_hook", summary)
+        memory = summary["memory_hook"]
+        # Pre-seam this read "needs_signing" on every standard cycle.
+        self.assertEqual(memory["status"], "memory_hook_recorded")
+        self.assertTrue(memory["convention_recorded"])
+        self.assertTrue(memory["chain_verified"])
+        signer = summary["knowledge_signer"]
+        self.assertEqual(signer["status"], "minted")
+        self.assertEqual(signer["signer_cycle_id"], summary["cycle_id"])
+        self.assertTrue(signer["signer_key_fp"].startswith("SHA256:"))
+        self.assertEqual(memory["signer_cycle_id"], summary["cycle_id"])
+        self.assertEqual(memory["signer_key_fp"], signer["signer_key_fp"])
+        self.assertEqual(memory["plan_revision_id"], "rev-0")
+        # The V9 runner is the NoOp under standard; that no longer decides
+        # whether the cycle may remember what it converged on.
+        self.assertEqual(summary["v9_implementation"]["rejection_class"], "no_op_v9_runner")
+        self.assertEqual(summary["memory_completion"]["status"], "completed")
+        self.assertEqual(summary["memory_completion"]["attempted"], 0)
+
+        path = self.base / "knowledge-graph" / "conventions.jsonl"
+        rows = load_jsonl(path)
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row["signer_key_fp"], signer["signer_key_fp"])
+        self.assertEqual(row["discovered_by_cycle_id"], summary["cycle_id"])
+        self.assertEqual(row["plan_id"], summary["convergence"]["plan_id"])
+        self.assertEqual(row["outcome_status"], "hypothesis")
+        self.assertEqual(row["confidence"], 0.5)
+        self.assertEqual(verify_chain_or_quarantine(path), (True, 1))
+        self.assertTrue(path.exists(), "verification must not quarantine a valid chain")
+
+        governance = load_jsonl(self.base / "governance.jsonl")
+        kinds = [r.get("kind") for r in governance]
+        self.assertNotIn("memory_hook_failed", kinds)
+        self.assertNotIn("knowledge_signer_mint_failed", kinds)
+        self.assertNotIn("convention_record_needs_signing", kinds)
+        recorded = [r["details"] for r in governance if r.get("kind") == "convention_recorded"]
+        self.assertEqual(len(recorded), 1)
+        self.assertEqual(recorded[0]["signer_key_fp"], signer["signer_key_fp"])
+        self.assertEqual(recorded[0]["signer_cycle_id"], summary["cycle_id"])
+        transitions = [r for r in load_jsonl(autonomy_state_path(self.base))
+                       if r.get("phase") == "memory_hook_recorded"]
+        self.assertEqual(transitions[-1]["details"]["knowledge_signer"], "minted")
+        self.assertEqual(transitions[-1]["details"]["signer_key_fp"], signer["signer_key_fp"])
+        # The key did not outlive the cycle.
+        for suffix in ("", ".pub", ".token"):
+            self.assertFalse((self.tmp / "aria-debts" / "keys" / (summary["cycle_id"] + suffix)).exists())
+        # And the public summary discloses the signed result, not a pending one.
+        encoded = json.dumps(autonomy_output_summary(result, base_dir=self.base, workspace_root=self.tmp), sort_keys=True)
+        self.assertIn('"memory_hook_recorded"', encoded)
+        self.assertIn(signer["signer_key_fp"], encoded)
+        self.assertNotIn("needs_signing", encoded)
+
+    def test_selected_memory_discloses_needs_signing_when_the_cycle_signer_is_unavailable(self) -> None:
+        """The disclosure path is reached only when there really is no signer."""
+        result = self._run_with_real_memory(signer="unavailable")
+        summary = result["per_cycle"][0]
+        self.assertEqual(summary["knowledge_signer"], {
+            "status": "mint_failed", "signer_cycle_id": None,
+            "signer_key_fp": None, "error_class": "RuntimeError",
+        })
         memory = summary["memory_hook"]
         self.assertEqual(memory["status"], "needs_signing")
         self.assertFalse(memory["convention_recorded"])
         self.assertIsNone(memory["chain_verified"])
+        self.assertIsNone(memory["signer_key_fp"])
         self.assertEqual(memory["plan_revision_id"], "rev-0")
         self.assertTrue(memory["plan_content_hash"].startswith("sha256:"))
         self.assertIsNotNone(memory["pattern_signature"])
+        self.assertEqual(summary["memory_completion"], {"status": "not_attempted"})
         governance = load_jsonl(self.base / "governance.jsonl")
         self.assertFalse(any(row.get("kind") == "memory_hook_failed" for row in governance))
+        failed = [row["details"] for row in governance if row.get("kind") == "knowledge_signer_mint_failed"]
+        self.assertEqual(len(failed), 1)
+        self.assertEqual(failed[0]["cycle_id"], summary["cycle_id"])
+        self.assertEqual(failed[0]["error_class"], "RuntimeError")
         pending = [row for row in governance if row.get("kind") == "convention_record_needs_signing"]
         self.assertEqual(len(pending), 1)
         self.assertEqual(pending[0]["details"]["plan_content_hash"], memory["plan_content_hash"])
@@ -766,7 +864,7 @@ class AutonomyOrchestratorTests(unittest.TestCase):
             autonomy_output_summary,
         )
 
-        result = self._run_with_real_memory()
+        result = self._run_with_real_memory(signer="unavailable")
         outer = result["per_cycle"][0]
         memory = outer["memory_hook"]
         self.assertEqual(memory["status"], "needs_signing")
@@ -797,7 +895,7 @@ class AutonomyOrchestratorTests(unittest.TestCase):
         """Post-drain reflection must carry the pending observation itself."""
         import json
 
-        result = self._run_with_real_memory()
+        result = self._run_with_real_memory(signer="unavailable")
         outer = result["per_cycle"][0]
         memory = outer["memory_hook"]
         self.assertEqual(memory["status"], "needs_signing")
@@ -830,7 +928,7 @@ class AutonomyOrchestratorTests(unittest.TestCase):
         from aria_kernel.report import emit_anchor_to_path
         from aria_kernel.runtime_artifacts import autonomy_output_summary
 
-        result = self._run_with_real_memory()
+        result = self._run_with_real_memory(signer="unavailable")
         outer = result["per_cycle"][0]
         projection = autonomy_output_summary(result, base_dir=self.base, workspace_root=self.tmp)["memory_learning"]
         initial = projection["cycles"][0]["initial"]
@@ -861,9 +959,26 @@ class AutonomyOrchestratorTests(unittest.TestCase):
         self.assertEqual(replay["status"], "already_anchored")
         self.assertEqual(anchor.read_bytes(), before)
 
-    def _run_with_selected_memory_signer(self, *, profile: str, cycles: int = 1) -> tuple[dict, Path, list[dict]]:
+    def _run_with_selected_memory_signer(
+        self, *, profile: str, cycles: int = 1, mint_failures: int = 0,
+        action_permissions: dict | None = None, acquired: list[dict] | None = None,
+    ) -> tuple[dict, Path, list[dict]]:
+        """The real orchestrator seam with the production-selected hooks.
+
+        B7 — the knowledge signer is minted by the orchestrator's own seam
+        for every profile holding `knowledge_record`, before the memory
+        hook records, so no `needs_signing` disclosure precedes the key.
+        ``mint_failures`` makes the first N mints fail the way a host
+        without ssh-keygen fails, which is how a pending disclosure is
+        produced for the replay path. ``action_permissions`` substitutes
+        the runtime table so a profile can be stripped of the cell.
+        ``acquired`` lets the caller watch the keys as they are minted
+        (cycle id + fingerprint), so a fixture can tell one cycle's signer
+        from the next while the run is still going.
+        """
         import os
         import subprocess
+        from contextlib import ExitStack
         from datetime import datetime, timezone
 
         from aria_kernel import gh_token_factory, validation
@@ -886,7 +1001,8 @@ class AutonomyOrchestratorTests(unittest.TestCase):
             profile, operator_approval_ref="test:memory-signer-owner",
             set_by="operator", scheduler_ceiling=profile, base_dir=self.base,
         )
-        acquired: list[dict] = []
+        acquired = [] if acquired is None else acquired
+        mints_remaining_to_fail = mint_failures
 
         def converge(**kwargs: Any) -> dict[str, Any]:
             plan = production_converged_plan(
@@ -907,21 +1023,26 @@ class AutonomyOrchestratorTests(unittest.TestCase):
         real_mint = gh_token_factory.mint_signing_key
 
         def mint_key(*, cycle_id: str, workspace_root: Path):
+            nonlocal mints_remaining_to_fail
             self.assertEqual(workspace_root, workspace)
+            if mints_remaining_to_fail > 0:
+                mints_remaining_to_fail -= 1
+                raise RuntimeError("ssh-keygen not on PATH; fixture host")
             key = real_mint(cycle_id=cycle_id, workspace_root=workspace_root)
             self.assertTrue(key.private_key_path.is_relative_to(workspace))
             self.assertTrue(key.private_key_path.is_file())
             self.assertTrue(key.public_key_path.is_file())
-            pending = [row for row in load_jsonl(self.base / "governance.jsonl")
-                       if row.get("kind") == "convention_record_needs_signing"]
-            current = [row for row in pending if row["details"]["cycle_id"] == cycle_id]
-            self.assertEqual(len(current), 1, "memory must disclose pending before key acquisition")
-            if cycles == 1:
-                self.assertEqual(len(pending), 1)
-            state = fold_plan_state(plan_id=current[0]["details"]["plan_id"], base_dir=self.base)
-            self.assertEqual(state["state"], "CONVERGED")
-            self.assertEqual(current[0]["details"]["cycle_id"], cycle_id)
-            self.assertEqual(current[0]["details"]["plan_content_hash"], state["latest_revision"]["content_hash"])
+            if not any(item["cycle_id"] == cycle_id for item in acquired):
+                # The cycle's FIRST mint is the seam's, BEFORE the memory
+                # hook records: this cycle has disclosed nothing yet, and
+                # its plan is CONVERGED. The V9 runner's later re-mint of
+                # the same identity carries no such claim — by then the
+                # hook may have disclosed a pending row for this cycle.
+                pending = [row for row in load_jsonl(self.base / "governance.jsonl")
+                           if row.get("kind") == "convention_record_needs_signing"]
+                self.assertEqual([row for row in pending if row["details"]["cycle_id"] == cycle_id], [])
+                state = fold_plan_state(plan_id="plan-" + cycle_id, base_dir=self.base)
+                self.assertEqual(state["state"], "CONVERGED")
             acquired.append({"cycle_id": cycle_id, "fingerprint": key.fingerprint})
             return key
 
@@ -954,12 +1075,13 @@ class AutonomyOrchestratorTests(unittest.TestCase):
                 raise AssertionError("unexpected external child in signer handoff fixture")
             return real_run(argv, *args, **kwargs)
 
-        with (
-            patch.dict(os.environ, {"GH_TOKEN": "", "GITHUB_TOKEN": ""}),
-            patch.object(gh_token_factory, "mint_signing_key", side_effect=mint_key),
-            patch.object(gh_token_factory, "mint_installation_token", side_effect=mint_token),
-            patch.object(validation.subprocess, "run", side_effect=child_run),
-        ):
+        with ExitStack() as stack:
+            stack.enter_context(patch.dict(os.environ, {"GH_TOKEN": "", "GITHUB_TOKEN": ""}))
+            stack.enter_context(patch.object(gh_token_factory, "mint_signing_key", side_effect=mint_key))
+            stack.enter_context(patch.object(gh_token_factory, "mint_installation_token", side_effect=mint_token))
+            stack.enter_context(patch.object(validation.subprocess, "run", side_effect=child_run))
+            if action_permissions is not None:
+                stack.enter_context(patch("aria_kernel.runtime_profile.ACTION_PERMISSIONS", action_permissions))
             result = self._run(
                 workspace_root=str(workspace), profile=profile,
                 max_cycles=cycles,
@@ -969,7 +1091,20 @@ class AutonomyOrchestratorTests(unittest.TestCase):
             )
         return result, workspace, acquired
 
-    def test_selected_implementation_signer_completes_pending_memory(self) -> None:
+    def _assert_keys_revoked(self, workspace: Path, cycle_ids: list[str]) -> None:
+        for cycle_id in cycle_ids:
+            for suffix in ("", ".pub", ".token"):
+                self.assertFalse((workspace / "aria-debts/keys" / (cycle_id + suffix)).exists())
+
+    def test_strict_signs_the_hypothesis_under_one_identity_shared_with_implementation(self) -> None:
+        """B7 — under `pr_create` the seam's key IS the implementation key.
+
+        `SigningKey` forbids rotating the cycle identity mid-cycle. The V9
+        runner's own mint is the factory's idempotent re-mint, so the
+        convention row and the implementation phase carry one fingerprint,
+        and the runner's `finally` revoking it leaves nothing for the seam
+        to fail on.
+        """
         from aria_kernel.knowledge_graph import lookup_pattern
 
         result, workspace, acquired = self._run_with_selected_memory_signer(profile="strict")
@@ -978,42 +1113,97 @@ class AutonomyOrchestratorTests(unittest.TestCase):
         self.assertEqual(summary["v9_implementation"]["terminal_state"], "IMPLEMENTATION_DISPATCHED")
         self.assertIsNone(summary["v9_implementation"]["rejection_class"])
         governance = load_jsonl(self.base / "governance.jsonl")
-        self.assertFalse(any(row.get("kind") in {"memory_hook_failed", "v9_implementation_phase_failed"}
-                             for row in governance))
-        pending = [row["details"] for row in governance
-                   if row.get("kind") == "convention_record_needs_signing"]
-        self.assertEqual(len(pending), 1)
-        self.assertEqual(len(acquired), 1)
-        origin = pending[0]
-        self.assertEqual(fold_plan_state(plan_id=origin["plan_id"], base_dir=self.base)["state"],
+        self.assertFalse(any(row.get("kind") in {
+            "memory_hook_failed", "v9_implementation_phase_failed",
+            "knowledge_signer_mint_failed", "convention_record_needs_signing",
+        } for row in governance))
+        # The seam minted once; the runner re-minted the same identity.
+        self.assertEqual(len(acquired), 2)
+        self.assertEqual({item["cycle_id"] for item in acquired}, {summary["cycle_id"]})
+        self.assertEqual(len({item["fingerprint"] for item in acquired}), 1)
+        fingerprint = acquired[0]["fingerprint"]
+        self.assertEqual(summary["knowledge_signer"]["signer_key_fp"], fingerprint)
+        self.assertEqual(summary["memory_hook"]["status"], "memory_hook_recorded")
+        self.assertEqual(summary["memory_hook"]["signer_key_fp"], fingerprint)
+        self.assertEqual(summary["memory_completion"]["status"], "completed")
+        self.assertEqual(summary["memory_completion"]["attempted"], 0)
+        plan_id = summary["convergence"]["plan_id"]
+        self.assertEqual(fold_plan_state(plan_id=plan_id, base_dir=self.base)["state"],
                          "IMPLEMENTATION_REQUESTED")
-        self.assertEqual(origin["cycle_id"], acquired[0]["cycle_id"])
-        for suffix in ("", ".pub", ".token"):
-            self.assertFalse((workspace / "aria-debts/keys" / (origin["cycle_id"] + suffix)).exists())
+        self._assert_keys_revoked(workspace, [summary["cycle_id"]])
         for ledger in ("conventions.jsonl", "anti-patterns.jsonl"):
             self.assertFalse((workspace / "aria-tools/knowledge-graph" / ledger).exists())
 
         rows = load_jsonl(self.base / "knowledge-graph/conventions.jsonl")
-        self.assertEqual(len(rows), 1,
-                         "the real implementation signer must complete the pending memory hypothesis")
+        self.assertEqual(len(rows), 1, "the cycle signer must record the hypothesis in its own cycle")
         self.assertEqual(rows[0]["outcome_status"], "hypothesis")
         self.assertEqual(rows[0]["confidence"], 0.5)
-        self.assertEqual(rows[0]["plan_id"], origin["plan_id"])
-        self.assertEqual(rows[0]["discovered_by_cycle_id"], origin["cycle_id"])
-        self.assertEqual(rows[0]["signer_key_fp"], acquired[0]["fingerprint"])
+        self.assertEqual(rows[0]["plan_id"], plan_id)
+        self.assertEqual(rows[0]["discovered_by_cycle_id"], summary["cycle_id"])
+        self.assertEqual(rows[0]["signer_key_fp"], fingerprint)
         self.assertIsNone(lookup_pattern(rows[0]["pattern_id"], base_dir=self.base))
 
-    def test_selected_noop_keeps_memory_unsigned(self) -> None:
+    def test_standard_signs_the_hypothesis_without_implementation_authority(self) -> None:
+        """B7 — the live defect, under the production-selected hooks.
+
+        `standard` selects the NoOp V9 runner and used to leave the memory
+        hook signer-less forever. The seam mints the key from the
+        `knowledge_record` cell, the hook signs the row, the key is revoked.
+        """
         result, workspace, acquired = self._run_with_selected_memory_signer(profile="standard")
         self.assertTrue(result["exits_clean"])
         summary = result["per_cycle"][0]
         self.assertEqual(summary["v9_implementation"]["rejection_class"], "no_op_v9_runner")
-        self.assertEqual(summary["memory_hook"]["status"], "needs_signing")
-        self.assertFalse(summary["memory_hook"]["convention_recorded"])
-        self.assertEqual(acquired, [])
-        self.assertFalse((workspace / "aria-debts/keys").exists())
+        self.assertEqual(len(acquired), 1)
+        fingerprint = acquired[0]["fingerprint"]
+        self.assertEqual(summary["knowledge_signer"]["status"], "minted")
+        self.assertEqual(summary["knowledge_signer"]["signer_key_fp"], fingerprint)
+        self.assertEqual(summary["memory_hook"]["status"], "memory_hook_recorded")
+        self.assertTrue(summary["memory_hook"]["convention_recorded"])
+        self.assertTrue(summary["memory_hook"]["chain_verified"])
+        self.assertEqual(summary["memory_hook"]["signer_key_fp"], fingerprint)
+        self._assert_keys_revoked(workspace, [summary["cycle_id"]])
         for ledger in ("conventions.jsonl", "anti-patterns.jsonl"):
             self.assertFalse((workspace / "aria-tools/knowledge-graph" / ledger).exists())
+        pending = [row for row in load_jsonl(self.base / "governance.jsonl")
+                   if row.get("kind") == "convention_record_needs_signing"]
+        self.assertEqual(pending, [])
+        rows = load_jsonl(self.base / "knowledge-graph/conventions.jsonl")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["signer_key_fp"], fingerprint)
+        self.assertEqual(rows[0]["discovered_by_cycle_id"], summary["cycle_id"])
+        self.assertEqual(rows[0]["plan_id"], summary["convergence"]["plan_id"])
+        # The key files are revoked; the row's fingerprint still resolves to
+        # the registered public key of THIS cycle, and re-derives to itself.
+        from aria_kernel.knowledge_graph import lookup_convention_signer, verify_convention_signer
+        self.assertTrue(verify_convention_signer(rows[0], base_dir=self.base))
+        self.assertEqual(lookup_convention_signer(fingerprint, base_dir=self.base)["cycle_id"], summary["cycle_id"])
+
+    def test_profile_without_knowledge_record_keeps_memory_unsigned(self) -> None:
+        """B7 — the seam follows the table, not the profile name.
+
+        Strip `standard` of `knowledge_record` in the runtime table only:
+        no key is minted, the hook discloses `needs_signing`, nothing is
+        appended, and the replay is not attempted.
+        """
+        from aria_kernel.runtime_profile import ACTION_PERMISSIONS
+        narrowed = dict(ACTION_PERMISSIONS)
+        narrowed["knowledge_record"] = frozenset({"strict", "autonomous"})
+        result, workspace, acquired = self._run_with_selected_memory_signer(
+            profile="standard", action_permissions=narrowed,
+        )
+        self.assertTrue(result["exits_clean"])
+        summary = result["per_cycle"][0]
+        self.assertEqual(acquired, [])
+        self.assertEqual(summary["knowledge_signer"], {
+            "status": "not_permitted", "signer_cycle_id": None,
+            "signer_key_fp": None, "error_class": None,
+        })
+        self.assertEqual(summary["memory_hook"]["status"], "needs_signing")
+        self.assertFalse(summary["memory_hook"]["convention_recorded"])
+        self.assertIsNone(summary["memory_hook"]["signer_key_fp"])
+        self.assertEqual(summary["memory_completion"], {"status": "not_attempted"})
+        self.assertFalse((workspace / "aria-debts/keys").exists())
         pending = [row for row in load_jsonl(self.base / "governance.jsonl")
                    if row.get("kind") == "convention_record_needs_signing"]
         self.assertEqual(len(pending), 1)
@@ -1021,14 +1211,13 @@ class AutonomyOrchestratorTests(unittest.TestCase):
                          summary["memory_hook"]["plan_content_hash"])
         self.assertFalse((self.base / "knowledge-graph/conventions.jsonl").exists())
 
-    def test_signer_report_survives_callback_runner_and_scoped_audit_failure(self) -> None:
-        import json
+    def _run_signed_memory_with_failing_audits(self, failing_kinds: set[str]) -> tuple[dict, Path, list[dict], str]:
         from aria_kernel import apply_engine, tool_registry
         append = tool_registry.append_tools_governance
         sentinel = "harmless-private-diagnostic-sentinel"
 
         def audit(base, kind, details, **kwargs):
-            if kind in {"convention_recorded", "convention_audit_failed", "v9_implementation_phase_failed"}:
+            if kind in failing_kinds:
                 raise OSError(sentinel)
             return append(base, kind, details, **kwargs)
 
@@ -1037,24 +1226,61 @@ class AutonomyOrchestratorTests(unittest.TestCase):
             patch.object(apply_engine, "stage_converged_plan_for_pr", side_effect=RuntimeError("fixture stage failure")),
         ):
             result, workspace, acquired = self._run_with_selected_memory_signer(profile="strict")
+        return result, workspace, acquired, sentinel
+
+    def test_signed_memory_survives_runner_and_scoped_audit_failure(self) -> None:
+        """The append is the truth; a failed audit of it does not unrecord it,
+        and a V9 phase failure in the same cycle leaves the signed row alone."""
+        import json
+        result, workspace, acquired, sentinel = self._run_signed_memory_with_failing_audits(
+            {"convention_recorded", "v9_implementation_phase_failed"},
+        )
         self.assertTrue(result["exits_clean"])
         summary = result["per_cycle"][0]
-        self.assertEqual(summary["memory_hook"]["status"], "needs_signing")
-        self.assertFalse(summary["memory_hook"]["convention_recorded"])
+        self.assertEqual(summary["memory_hook"]["status"], "convention_audit_failed")
+        self.assertTrue(summary["memory_hook"]["convention_recorded"])
+        self.assertTrue(summary["memory_hook"]["chain_verified"])
+        self.assertEqual(summary["memory_hook"]["signer_key_fp"], acquired[0]["fingerprint"])
+        self.assertEqual(summary["memory_completion"]["status"], "completed")
+        self.assertEqual(summary["memory_completion"]["attempted"], 0)
         self.assertEqual(summary["v9_implementation"]["terminal_state"], "IMPLEMENTATION_REQUEST_REFUSED")
         self.assertEqual(summary["v9_implementation"]["rejection_class"], "runner_exception:RuntimeError")
         self.assertEqual(summary["v9_implementation"]["specialist_review_signal"], "review_converged_plan")
         self.assertEqual(summary["v9_implementation"]["audit_error_class"], "OSError")
-        report = summary["memory_completion"]
-        self.assertTrue(report["observations"][0]["convention_recorded"])
-        self.assertEqual(report["observations"][0]["audit_error_class"], "OSError")
-        self.assertNotIn(sentinel, json.dumps(report))
+        self.assertNotIn(sentinel, json.dumps(summary))
+        audits = [row for row in load_jsonl(self.base / "governance.jsonl")
+                  if str(row.get("kind")).startswith("convention_")]
+        self.assertEqual([row["kind"] for row in audits], ["convention_audit_failed"])
+        self.assertEqual(audits[0]["details"]["signer_key_fp"], acquired[0]["fingerprint"])
         self.assertEqual(len(load_jsonl(self.base / "knowledge-graph/conventions.jsonl")), 1)
-        self.assertEqual(len(acquired), 1)
-        for suffix in ("", ".pub", ".token"):
-            self.assertFalse((workspace / "aria-debts/keys" / (acquired[0]["cycle_id"] + suffix)).exists())
+        self.assertEqual(len(acquired), 2)
+        self._assert_keys_revoked(workspace, [summary["cycle_id"]])
 
-    def test_signer_completion_preserves_initial_memory_output_and_stability_once(self) -> None:
+    def test_signed_memory_row_survives_when_both_audits_fail_and_the_hook_escapes(self) -> None:
+        """The direct hook propagates when BOTH audit writes fail (its own
+        pinned contract); the orchestrator records memory_hook_failed, the
+        appended row is still there, and the key is still revoked."""
+        import json
+        result, workspace, acquired, sentinel = self._run_signed_memory_with_failing_audits(
+            {"convention_recorded", "convention_audit_failed", "v9_implementation_phase_failed"},
+        )
+        self.assertTrue(result["exits_clean"])
+        summary = result["per_cycle"][0]
+        self.assertNotIn("memory_hook", summary)
+        self.assertEqual(summary["knowledge_signer"]["status"], "minted")
+        failed = [row["details"] for row in load_jsonl(self.base / "governance.jsonl")
+                  if row.get("kind") == "memory_hook_failed"]
+        self.assertEqual(len(failed), 1)
+        self.assertEqual(failed[0]["error_class"], "OSError")
+        self.assertNotIn(sentinel, json.dumps(summary))
+        rows = load_jsonl(self.base / "knowledge-graph/conventions.jsonl")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["signer_key_fp"], acquired[0]["fingerprint"])
+        self.assertEqual(summary["memory_completion"]["status"], "completed")
+        self.assertEqual(summary["memory_completion"]["attempted"], 0)
+        self._assert_keys_revoked(workspace, [summary["cycle_id"]])
+
+    def test_signed_memory_preserves_initial_output_and_stability_once(self) -> None:
         from copy import deepcopy
         from aria_kernel.cycle_phases.memory import MemoryHookImpl
         initial = []
@@ -1073,55 +1299,164 @@ class AutonomyOrchestratorTests(unittest.TestCase):
             result, _workspace, _acquired = self._run_with_selected_memory_signer(profile="strict")
         summary = result["per_cycle"][0]
         self.assertEqual(summary["memory_hook"], initial[0])
-        self.assertEqual(summary["memory_hook"]["status"], "needs_signing")
+        self.assertEqual(summary["memory_hook"]["status"], "memory_hook_recorded")
         self.assertTrue(summary["memory_hook"]["skill_genesis_dispatched"])
         self.assertEqual(stability.call_count, 1)
-        self.assertTrue(summary["memory_completion"]["observations"][0]["convention_recorded"])
+        self.assertEqual(summary["memory_completion"]["attempted"], 0)
         dispatched = [row for row in load_jsonl(self.base / "governance.jsonl")
                       if row.get("kind") == "skill_genesis_human_required_dispatched"]
         self.assertEqual(len(dispatched), 1)
 
+    def test_later_cycle_signer_replays_the_observation_a_signerless_cycle_disclosed(self) -> None:
+        """B7 — the replay path, now owned by the seam under `standard`.
+
+        Cycle 1 has no signer (its mint fails), so the hook discloses
+        `needs_signing` — the same row every pre-seam run left behind.
+        Cycle 2 mints its key, signs its own hypothesis, and completes the
+        earlier disclosure under that key without opening a PR lane.
+        """
+        result, workspace, acquired = self._run_with_selected_memory_signer(
+            profile="standard", cycles=2, mint_failures=1,
+        )
+        self.assertTrue(result["exits_clean"])
+        self.assertEqual(result["cycles_completed"], 2)
+        first, second = result["per_cycle"]
+        self.assertEqual(first["knowledge_signer"]["status"], "mint_failed")
+        self.assertEqual(first["memory_hook"]["status"], "needs_signing")
+        self.assertEqual(first["memory_completion"], {"status": "not_attempted"})
+        self.assertEqual(len(acquired), 1)
+        self.assertEqual(acquired[0]["cycle_id"], second["cycle_id"])
+        fingerprint = acquired[0]["fingerprint"]
+        self.assertEqual(second["knowledge_signer"]["status"], "minted")
+        self.assertEqual(second["memory_hook"]["status"], "memory_hook_recorded")
+        self.assertEqual(second["memory_hook"]["signer_key_fp"], fingerprint)
+        completion = second["memory_completion"]
+        self.assertEqual(completion["status"], "completed")
+        self.assertEqual(completion["attempted"], 1)
+        recovered = completion["observations"][0]
+        self.assertEqual(recovered["cycle_id"], first["cycle_id"])
+        self.assertEqual(recovered["signer_cycle_id"], second["cycle_id"])
+        self.assertEqual(recovered["signer_key_fp"], fingerprint)
+        self.assertTrue(recovered["convention_recorded"])
+        self.assertTrue(recovered["convergence_event_hash"].startswith("sha256:"))
+        pending = [row["details"] for row in load_jsonl(self.base / "governance.jsonl")
+                   if row.get("kind") == "convention_record_needs_signing"]
+        self.assertEqual([row["cycle_id"] for row in pending], [first["cycle_id"]])
+        self.assertEqual(recovered["plan_revision_id"], pending[0]["plan_revision_id"])
+        self.assertEqual(recovered["plan_content_hash"], pending[0]["plan_content_hash"])
+        self._assert_keys_revoked(workspace, [first["cycle_id"], second["cycle_id"]])
+        rows = load_jsonl(self.base / "knowledge-graph/conventions.jsonl")
+        self.assertEqual(len(rows), 2, "the later signer must complete the signerless cycle's observation")
+        by_cycle = {row["discovered_by_cycle_id"]: row for row in rows}
+        self.assertEqual(set(by_cycle), {first["cycle_id"], second["cycle_id"]})
+        original = by_cycle[first["cycle_id"]]
+        self.assertEqual(original["pattern_id"], f"conv_{pending[0]['cycle_id']}_{pending[0]['pattern_signature'][:16]}")
+        self.assertEqual(original["plan_id"], pending[0]["plan_id"])
+        self.assertEqual(original["signer_key_fp"], fingerprint)
+        self.assertEqual(by_cycle[second["cycle_id"]]["signer_key_fp"], fingerprint)
+
+
     def test_later_production_signer_recovers_original_observation_after_dispatch(self) -> None:
+        """A transient append failure is recovered by a LATER signer.
+
+        Cycle 1 holds a real signer and dispatches its implementation, but
+        every `record_convention` attempt under cycle 1's key fails — the
+        transient outlasts the cycle. The hook audits
+        `convention_record_failed` and discloses the observation pending
+        under `cycle_append_failed`; the same-cycle replay retries once
+        under the same key and fails too; the plan still proceeds to
+        IMPLEMENTATION_REQUESTED. Before B7's durable-retry fix that was the
+        end of the observation. Cycle 2's signer completes it under the
+        ORIGINAL cycle's identity, alongside its own hypothesis.
+        """
         from aria_kernel import knowledge_graph
         record = knowledge_graph.record_convention
-        attempts = []
+        acquired: list[dict] = []
+        attempts: list[tuple[str, str]] = []
 
         def transient(pattern, **kwargs):
             attempts.append((pattern.discovered_by_cycle_id, kwargs["signer_key_fp"]))
-            if len(attempts) == 1:
-                raise OSError("fixture first observation unavailable")
+            if kwargs["signer_key_fp"] == acquired[0]["fingerprint"]:
+                raise OSError("fixture: observation store unavailable for the whole first cycle")
             return record(pattern, **kwargs)
 
         with patch.object(knowledge_graph, "record_convention", side_effect=transient):
-            result, workspace, acquired = self._run_with_selected_memory_signer(profile="strict", cycles=2)
+            result, workspace, acquired = self._run_with_selected_memory_signer(
+                profile="strict", cycles=2, acquired=acquired,
+            )
         self.assertTrue(result["exits_clean"])
         self.assertEqual(result["cycles_completed"], 2)
-        self.assertEqual(len(acquired), 2)
-        self.assertNotEqual(acquired[0]["cycle_id"], acquired[1]["cycle_id"])
-        for summary in result["per_cycle"]:
+        first, second = result["per_cycle"]
+        # strict: the seam mints once per cycle and the runner re-mints the
+        # same identity, so two cycles show two distinct fingerprints.
+        self.assertEqual(len(acquired), 4)
+        first_fp = acquired[0]["fingerprint"]
+        second_fp = acquired[2]["fingerprint"]
+        self.assertEqual([item["cycle_id"] for item in acquired],
+                         [first["cycle_id"], first["cycle_id"], second["cycle_id"], second["cycle_id"]])
+        self.assertNotEqual(first_fp, second_fp)
+        for summary in (first, second):
             self.assertEqual(summary["v9_implementation"]["terminal_state"], "IMPLEMENTATION_DISPATCHED")
-            self.assertEqual(summary["memory_hook"]["status"], "needs_signing")
-        self.assertFalse(result["per_cycle"][0]["memory_completion"]["observations"][0]["convention_recorded"])
-        pending = [row["details"] for row in load_jsonl(self.base / "governance.jsonl")
-                   if row.get("kind") == "convention_record_needs_signing"]
-        self.assertEqual(len(pending), 2)
-        for origin in pending:
-            self.assertEqual(fold_plan_state(plan_id=origin["plan_id"], base_dir=self.base)["state"],
-                             "IMPLEMENTATION_REQUESTED")
-        for key in acquired:
-            for suffix in ("", ".pub", ".token"):
-                self.assertFalse((workspace / "aria-debts/keys" / (key["cycle_id"] + suffix)).exists())
+            self.assertEqual(summary["knowledge_signer"]["status"], "minted")
+
+        # Cycle 1: the append failed under its own signer, twice — the direct
+        # path and the same-cycle replay — and the observation is disclosed
+        # pending, not lost.
+        self.assertEqual(first["memory_hook"]["status"], "convention_record_failed")
+        self.assertFalse(first["memory_hook"]["convention_recorded"])
+        self.assertEqual(first["memory_hook"]["pending_reason"], "cycle_append_failed")
+        self.assertEqual(first["memory_hook"]["signer_key_fp"], first_fp)
+        self.assertEqual(first["memory_completion"]["status"], "completed_with_errors")
+        self.assertEqual(first["memory_completion"]["attempted"], 1)
+        retried = first["memory_completion"]["observations"][0]
+        self.assertFalse(retried["convention_recorded"])
+        self.assertEqual(retried["error_class"], "OSError")
+        self.assertEqual(retried["signer_key_fp"], first_fp)
+
+        # Cycle 2: its own hypothesis lands, and the replay recovers cycle
+        # 1's observation under cycle 2's signer.
+        self.assertEqual(second["memory_hook"]["status"], "memory_hook_recorded")
+        self.assertIsNone(second["memory_hook"]["pending_reason"])
+        self.assertEqual(second["memory_completion"]["status"], "completed")
+        self.assertEqual(second["memory_completion"]["attempted"], 1)
+        recovered = second["memory_completion"]["observations"][0]
+        self.assertTrue(recovered["convention_recorded"])
+        self.assertEqual(recovered["cycle_id"], first["cycle_id"])
+        self.assertEqual(recovered["signer_cycle_id"], second["cycle_id"])
+        self.assertEqual(recovered["signer_key_fp"], second_fp)
+        self.assertEqual(
+            [fp for _cycle, fp in attempts], [first_fp, first_fp, second_fp, second_fp],
+        )
+        self.assertEqual(
+            [cycle for cycle, _fp in attempts],
+            [first["cycle_id"], first["cycle_id"], second["cycle_id"], first["cycle_id"]],
+        )
+
+        governance = load_jsonl(self.base / "governance.jsonl")
+        pending = [row["details"] for row in governance if row.get("kind") == "convention_record_needs_signing"]
+        self.assertEqual(len(pending), 1)
+        self.assertEqual(pending[0]["cycle_id"], first["cycle_id"])
+        self.assertEqual(pending[0]["reason"], "cycle_append_failed")
+        self.assertEqual(pending[0]["error_class"], "OSError")
+        failed = [row["details"] for row in governance if row.get("kind") == "convention_record_failed"]
+        self.assertEqual([row["cycle_id"] for row in failed], [first["cycle_id"], first["cycle_id"]])
+        for summary in (first, second):
+            self.assertEqual(
+                fold_plan_state(plan_id=summary["convergence"]["plan_id"], base_dir=self.base)["state"],
+                "IMPLEMENTATION_REQUESTED",
+            )
+        self._assert_keys_revoked(workspace, [first["cycle_id"], second["cycle_id"]])
+
         rows = load_jsonl(self.base / "knowledge-graph/conventions.jsonl")
-        self.assertEqual(len(rows), 2, "later authorized key must recover the earlier dispatched plan's observation")
-        original = next(row for row in rows if row["discovered_by_cycle_id"] == acquired[0]["cycle_id"])
+        self.assertEqual(len(rows), 2, "the later signer must recover the earlier dispatched plan's observation")
+        by_cycle = {row["discovered_by_cycle_id"]: row for row in rows}
+        self.assertEqual(set(by_cycle), {first["cycle_id"], second["cycle_id"]})
+        original = by_cycle[first["cycle_id"]]
         self.assertEqual(original["pattern_id"], f"conv_{pending[0]['cycle_id']}_{pending[0]['pattern_signature'][:16]}")
         self.assertEqual(original["plan_id"], pending[0]["plan_id"])
-        self.assertEqual(original["signer_key_fp"], acquired[1]["fingerprint"])
-        recovered = next(row for row in result["per_cycle"][1]["memory_completion"]["observations"]
-                         if row["cycle_id"] == acquired[0]["cycle_id"])
+        self.assertEqual(original["signer_key_fp"], second_fp)
         self.assertEqual(recovered["plan_revision_id"], pending[0]["plan_revision_id"])
         self.assertEqual(recovered["plan_content_hash"], pending[0]["plan_content_hash"])
-        self.assertEqual(recovered["signer_cycle_id"], acquired[1]["cycle_id"])
         self.assertTrue(recovered["convergence_event_hash"].startswith("sha256:"))
 
     def test_selected_memory_refuses_missing_unconverged_or_tampered_plan(self) -> None:

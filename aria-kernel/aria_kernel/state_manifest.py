@@ -554,6 +554,16 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     # authorises an action, and it must not turn a single historical defect
     # into a write-block on spawn accounting.
     StateSurface("context_usage", "knowledge-graph/context-usage.jsonl", "ledger", "knowledge", "runtime", False, "append_fsync", False, profile_surface="observation", observe_class="observation"),
+    # B7 — the knowledge signer registry: the PUBLIC half of every
+    # per-cycle key that signed a knowledge-graph row, keyed by the
+    # fingerprint the row carries. The private key is revoked when the
+    # cycle ends and the public key file goes with it, so without this
+    # ledger a row's `signer_key_fp` named a key nobody could ever look
+    # at again. `knowledge_graph.verify_convention_signer` recomputes the
+    # fingerprint from the registered key. strict_read=True: a new ledger
+    # with no pre-envelope history has no late-joiner excuse.
+    # write_driving=False: it informs verification, it authorises nothing.
+    StateSurface("kg_signers", "knowledge-graph/signers.jsonl", "ledger", "knowledge", "runtime", True, "append_fsync", False, profile_surface="observation", observe_class="observation"),
     # ORPHAN-668 — the learning wheel's VERDICT and CALIBRATION ledgers
     # join the declared surface system. Same defect class as M11/E12-b,
     # one ring further out: operator/AI verdicts (operator-feedback),

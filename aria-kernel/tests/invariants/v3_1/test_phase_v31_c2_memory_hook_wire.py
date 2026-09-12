@@ -44,6 +44,15 @@ Invariants:
   governance row.
 * I-V31-C2-09 — memory_hook_runtime_faults() excludes programming
   errors and covers the faults the record pipeline actually raises.
+* I-B7-01 — the orchestrator hands memory_hook.record() the cycle
+  knowledge signer's fingerprint (never a literal None) and owns the
+  replay of earlier disclosures itself, before the V9 phase; the V9
+  runner is no longer asked to call back with a signer.
+* I-B7-02 — a signed record() carries public signer provenance on the
+  result and on the convention_recorded governance row.
+* I-B7-03 — a signed record() whose append fails discloses a pending
+  row under reason `cycle_append_failed`, and the replay selects that
+  reason and completes the original observation under a later signer.
 """
 from __future__ import annotations
 
@@ -76,6 +85,25 @@ def _complete_memory_concurrently(base: Path, fingerprint: str, barrier, reports
         raise
 
 
+
+def _memory_plan_content(title: str) -> dict:
+    """The shared converging body, with the evidence cardinality the memory
+    pillar demands: `compute_pattern_signature` returns None below
+    MIN_EVIDENCE_REF_CARDINALITY distinct refs and the hook then records
+    nothing (`no_pattern_signature`). A private copy of the body here
+    silently stopped converging when the plan contract (ARIA-HIGH-103)
+    started demanding the tier claim and a canonical validation command."""
+    from aria_kernel.plan_synthesizer import MIN_EVIDENCE_REF_CARDINALITY
+    from tests.test_implementation_lifecycle_continuity import converging_plan_content
+
+    return converging_plan_content(
+        title,
+        affected_surfaces=["x.py"],
+        key_changes=[{"id": "k1", "description": "d", "paths": ["x.py"]}],
+        evidence_refs=[f"x.py:{line}" for line in range(1, MIN_EVIDENCE_REF_CARDINALITY + 1)],
+    )
+
+
 class MemoryHookImplPipelineOrderTests(unittest.TestCase):
     """Plan ARIA-V3.1-C2-01 — pipeline order assertion."""
 
@@ -85,7 +113,9 @@ class MemoryHookImplPipelineOrderTests(unittest.TestCase):
         """
         from aria_kernel import governance_reader, knowledge_graph
         from aria_kernel.cycle_phases import memory
-        from tests.test_implementation_lifecycle_continuity import drive_plan_to_converged, seed_reviewer_agent
+        from tests.test_implementation_lifecycle_continuity import (
+            drive_plan_to_converged, seed_reviewer_agent,
+        )
 
         with tempfile.TemporaryDirectory(prefix="memory-order-") as directory:
             workspace = Path(directory)
@@ -93,13 +123,7 @@ class MemoryHookImplPipelineOrderTests(unittest.TestCase):
             seed_reviewer_agent(workspace)
             drive_plan_to_converged(
                 plan_id="order", tools=base, workspace_root=workspace,
-                plan_content={
-                    "schema_version": 1, "title": "Order fixture", "summary": "Observe reviewed evidence",
-                    "affected_surfaces": ["x.py"],
-                    "key_changes": [{"id": "k1", "description": "d", "paths": ["x.py"]}],
-                    "validation_commands": [{"cmd": "echo", "timeout_ms": 1000, "expected_exit": 0}],
-                    "evidence_refs": [f"x.py:{line}" for line in range(1, 6)],
-                },
+                plan_content=_memory_plan_content("Order fixture"),
             )
             path = base / "knowledge-graph/conventions.jsonl"
             order = []
@@ -312,6 +336,30 @@ class OrchestratorMemoryHookSignatureParityTests(unittest.TestCase):
             )
 
 
+class KnowledgeSignerWireTests(unittest.TestCase):
+    """I-B7-01 — the post-CONVERGED seam owns the signer and the replay."""
+
+    def test_i_b7_01_memory_hook_receives_the_cycle_signer_not_none(self) -> None:
+        from aria_kernel import autonomy_orchestrator
+        src = inspect.getsource(autonomy_orchestrator.run_autonomy_orchestrator)
+        idx_seam = src.find("with cycle_knowledge_signer(")
+        idx_memory = src.find("memory_hook.record(")
+        idx_replay = src.find("memory_hook.complete_pending_observations(")
+        idx_v9 = src.find("v9_implementation_runner.run(")
+        for name, idx in (("seam", idx_seam), ("record", idx_memory),
+                          ("replay", idx_replay), ("v9", idx_v9)):
+            self.assertGreater(idx, 0, f"orchestrator missing the {name} call site")
+        self.assertLess(idx_seam, idx_memory, "the signer must exist before the hook records")
+        self.assertLess(idx_memory, idx_replay, "replay follows the cycle's own observation")
+        self.assertLess(idx_replay, idx_v9, "replay must not depend on the implementation phase")
+        record_call = src[idx_memory:src.find(")", src.find("signer_key_fp=", idx_memory))]
+        self.assertIn("signer_key_fp=knowledge_signer.fingerprint", record_call)
+        self.assertNotIn("signer_key_fp=None", record_call)
+        # The runner-side callback was the coupling: only a profile with
+        # pr_create ever fired it. The orchestrator no longer produces it.
+        self.assertNotIn("on_signer_ready=", src)
+
+
 class MemoryHookFactoryTests(unittest.TestCase):
     """Plan ARIA-V3.1-C2-04 — select_memory_hook factory dispatch."""
 
@@ -350,13 +398,7 @@ class MemoryHookImplBehavioralTests(unittest.TestCase):
         seed_reviewer_agent(self.tmp)
         drive_plan_to_converged(
             plan_id=plan_id, tools=self.base, workspace_root=self.tmp,
-            plan_content={
-                "schema_version": 1, "title": "t", "summary": "x",
-                "affected_surfaces": ["x.py"],
-                "key_changes": [{"id": "k1", "description": "d", "paths": ["x.py"]}],
-                "validation_commands": [{"cmd": "echo", "timeout_ms": 1000, "expected_exit": 0}],
-                "evidence_refs": [f"x.py:{line}" for line in range(1, 6)],
-            },
+            plan_content=_memory_plan_content("t"),
         )
 
     def test_i_v31_c2_05_returns_canonical_dict_shape(self) -> None:
@@ -382,6 +424,8 @@ class MemoryHookImplBehavioralTests(unittest.TestCase):
         self.assertFalse(result["convention_recorded"])
         self.assertEqual(result["status"], "needs_signing")
         self.assertIsNone(result["chain_verified"])
+        self.assertIsNone(result["signer_cycle_id"])
+        self.assertIsNone(result["signer_key_fp"])
 
     def test_real_key_fingerprint_records_only_a_hypothesis(self) -> None:
         from aria_kernel.cycle_phases import MemoryHookImpl
@@ -402,6 +446,10 @@ class MemoryHookImplBehavioralTests(unittest.TestCase):
         self.assertEqual(result["status"], "memory_hook_recorded")
         self.assertTrue(result["convention_recorded"])
         self.assertTrue(result["chain_verified"])
+        # I-B7-02 — public signer provenance rides the result and the audit
+        # row, the way the replay path already reports it.
+        self.assertEqual(result["signer_cycle_id"], "cyc-fingerprint")
+        self.assertEqual(result["signer_key_fp"], key.fingerprint)
         pattern = lookup_pattern(
             f"conv_cyc-fingerprint_{result['pattern_signature'][:16]}",
             workspace_root=self.tmp, min_confidence=0.0,
@@ -411,6 +459,76 @@ class MemoryHookImplBehavioralTests(unittest.TestCase):
         self.assertEqual(pattern["plan_id"], "plan-fingerprint")
         self.assertEqual(pattern["outcome_status"], "hypothesis")
         self.assertEqual(pattern["confidence"], 0.5)
+        from aria_kernel.ledger import load_jsonl
+        recorded = [row["details"] for row in load_jsonl(self.base / "governance.jsonl")
+                    if row.get("kind") == "convention_recorded"]
+        self.assertEqual(len(recorded), 1)
+        self.assertEqual(recorded[0]["signer_cycle_id"], "cyc-fingerprint")
+        self.assertEqual(recorded[0]["signer_key_fp"], key.fingerprint)
+        self.assertEqual(recorded[0]["pattern_id"], pattern["pattern_id"])
+
+    def test_i_b7_03_signed_append_failure_is_disclosed_pending_and_replayed(self) -> None:
+        """B7 — durable retry on the direct path (verifier MUST FIX 2).
+
+        A signer is present and `record_convention` fails transiently. The
+        hook audits `convention_record_failed` AND discloses a
+        `convention_record_needs_signing` row under reason
+        `cycle_append_failed`, so the existing replay owns the retry: a later
+        signer's `complete_pending_observations` selects that reason too and
+        records the ORIGINAL observation under the original cycle's identity.
+        Before this the failure was audited and the observation was gone.
+        """
+        from aria_kernel import knowledge_graph
+        from aria_kernel.cycle_phases import MemoryHookImpl
+        from aria_kernel.ledger import load_jsonl
+
+        self._converge("plan-append-failed")
+        hook = MemoryHookImpl()
+        with patch.object(knowledge_graph, "record_convention", side_effect=OSError("fixture transient failure")):
+            result = hook.record(
+                cycle_id="cyc-first", plan_id="plan-append-failed", workspace_root=self.tmp,
+                base_dir=self.base, plan_envelope_metadata={}, profile="standard",
+                signer_key_fp="SHA256:first-fixture",
+            )
+        self.assertEqual(result["status"], "convention_record_failed")
+        self.assertFalse(result["convention_recorded"])
+        self.assertEqual(result["pending_reason"], "cycle_append_failed")
+        self.assertEqual(result["signer_key_fp"], "SHA256:first-fixture")
+        governance = load_jsonl(self.base / "governance.jsonl")
+        failed = [row["details"] for row in governance if row.get("kind") == "convention_record_failed"]
+        self.assertEqual([row["error_class"] for row in failed], ["OSError"])
+        pending = [row["details"] for row in governance if row.get("kind") == "convention_record_needs_signing"]
+        self.assertEqual(len(pending), 1)
+        self.assertEqual(pending[0]["reason"], "cycle_append_failed")
+        self.assertEqual(pending[0]["error_class"], "OSError")
+        self.assertEqual(pending[0]["cycle_id"], "cyc-first")
+        self.assertEqual(pending[0]["plan_revision_id"], result["plan_revision_id"])
+        self.assertEqual(pending[0]["plan_content_hash"], result["plan_content_hash"])
+        self.assertFalse((self.base / "knowledge-graph/conventions.jsonl").exists())
+
+        # The replay selects the new reason and completes the original
+        # observation under the later signer.
+        report: dict = {}
+        hook.complete_pending_observations(base_dir=self.base, signer_cycle_id="cyc-later",
+                                           signer_key_fp="SHA256:later-fixture", report=report)
+        self.assertEqual(report["status"], "completed")
+        self.assertEqual(report["attempted"], 1)
+        recovered = report["observations"][0]
+        self.assertTrue(recovered["convention_recorded"])
+        self.assertEqual(recovered["cycle_id"], "cyc-first")
+        self.assertEqual(recovered["signer_cycle_id"], "cyc-later")
+        rows = load_jsonl(self.base / "knowledge-graph/conventions.jsonl")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["discovered_by_cycle_id"], "cyc-first")
+        self.assertEqual(rows[0]["signer_key_fp"], "SHA256:later-fixture")
+        # A second replay is a receipt, not a second row, and the same
+        # failure disclosed again is not a second pending row.
+        again: dict = {}
+        hook.complete_pending_observations(base_dir=self.base, signer_cycle_id="cyc-later-2",
+                                           signer_key_fp="SHA256:later-2", report=again)
+        self.assertEqual(again["already_recorded"], 1)
+        self.assertEqual(again["attempted"], 0)
+        self.assertEqual(len(load_jsonl(self.base / "knowledge-graph/conventions.jsonl")), 1)
 
     def _pending_observation(self, plan_id: str = "pending", cycle_id: str = "original") -> object:
         from aria_kernel.cycle_phases import MemoryHookImpl
@@ -726,9 +844,17 @@ class MemoryHookImplBehavioralTests(unittest.TestCase):
             row for row in load_jsonl(self.base / "governance.jsonl")
             if row.get("kind", "").startswith("convention_")
         ]
-        self.assertEqual(len(audits), 1)
-        self.assertEqual(audits[0]["kind"], "convention_record_failed")
+        # A failed WRITE is a recording failure, never an audit failure —
+        # and, B7 (I-B7-03), never the end of the observation: the same
+        # hook discloses it pending under `cycle_append_failed` so the
+        # replay owns the retry. Two rows, in that order, and no third.
+        self.assertEqual([row["kind"] for row in audits],
+                         ["convention_record_failed", "convention_record_needs_signing"])
         self.assertEqual(audits[0]["details"]["error_class"], "OSError")
+        self.assertEqual(audits[0]["details"]["signer_key_fp"], key.fingerprint)
+        self.assertEqual(audits[1]["details"]["reason"], "cycle_append_failed")
+        self.assertEqual(audits[1]["details"]["error_class"], "OSError")
+        self.assertEqual(result["pending_reason"], "cycle_append_failed")
 
     def test_both_audit_write_failures_escape_after_convention_is_written(self) -> None:
         from aria_kernel.cycle_phases import MemoryHookImpl

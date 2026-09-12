@@ -424,6 +424,163 @@ def record_convention(
     return path
 
 
+# ============================================================================
+# B7 — signer registry: the public half of every key that signed a row
+# ============================================================================
+
+# OpenSSH public-key line: "<key_type> <base64 blob>[ <comment>]". Only the
+# first two fields are identity; the comment is not stored.
+_OPENSSH_PUBLIC_KEY_TYPES: frozenset[str] = frozenset({"ssh-ed25519"})
+
+
+def fingerprint_of_public_key(public_key: str) -> str:
+    """The ``SHA256:<base64>`` fingerprint of an OpenSSH public key line.
+
+    Pure Python, the same value ``ssh-keygen -lf`` prints (SHA-256 over
+    the decoded key blob, base64 without padding), so a reader with no
+    ssh-keygen on PATH can still re-derive a fingerprint from a registered
+    key. Raises ``KnowledgeGraphSchemaError`` on anything that is not an
+    ed25519 OpenSSH public key.
+    """
+    import base64
+    import binascii
+
+    if not isinstance(public_key, str):
+        raise KnowledgeGraphSchemaError("public_key must be an OpenSSH public key line")
+    parts = public_key.split()
+    if len(parts) < 2 or parts[0] not in _OPENSSH_PUBLIC_KEY_TYPES:
+        raise KnowledgeGraphSchemaError(
+            f"public_key must be one of {sorted(_OPENSSH_PUBLIC_KEY_TYPES)} followed by a key blob"
+        )
+    try:
+        blob = base64.b64decode(parts[1], validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise KnowledgeGraphSchemaError("public_key blob is not valid base64") from exc
+    if not blob:
+        raise KnowledgeGraphSchemaError("public_key blob is empty")
+    digest = base64.b64encode(hashlib.sha256(blob).digest()).decode("ascii").rstrip("=")
+    return f"SHA256:{digest}"
+
+
+def _signer_registry_path(
+    *, base_dir: str | Path | None, workspace_root: str | Path | None,
+) -> Path:
+    return _knowledge_tools_root(base_dir=base_dir, workspace_root=workspace_root) / "knowledge-graph/signers.jsonl"
+
+
+def _signer_registry_rows(path: Path) -> list[dict[str, Any]]:
+    from .ledger import load_declared_jsonl
+
+    if not path.exists():
+        return []
+    return load_declared_jsonl(path, expected_surface="kg_signers")
+
+
+def register_convention_signer(
+    *,
+    cycle_id: str,
+    signer_key_fp: str,
+    public_key: str,
+    base_dir: str | Path | None = None,
+    workspace_root: str | Path | None = None,
+) -> Path:
+    """Record the PUBLIC key behind a fingerprint before any row carries it.
+
+    ``record_convention`` stamps ``signer_key_fp`` on a row; the private
+    key is revoked when the cycle ends and its ``.pub`` file goes with it.
+    Without this registry the fingerprint named a key nobody could ever
+    look at again, and "signed by the cycle key" was a claim no later
+    reader could check. The knowledge seam registers the key at mint, so
+    a fingerprint that reaches the memory hook is one whose key is on the
+    ledger.
+
+    Tier-1 at the registry: the fingerprint MUST be the key's own —
+    ``fingerprint_of_public_key(public_key)`` — or nothing is written. The
+    same fingerprint registered twice with the same key is a no-op; with a
+    different key it is a conflict. Only the identity fields of the key
+    line are stored (type + blob), never the comment or the private half.
+    """
+    if not isinstance(cycle_id, str) or not cycle_id:
+        raise KnowledgeGraphSchemaError("cycle_id must be a non-empty string")
+    if not isinstance(signer_key_fp, str) or not signer_key_fp.startswith("SHA256:"):
+        raise KnowledgeGraphSchemaError(
+            f"signer_key_fp must be SHA256:<base64> got {signer_key_fp!r}"
+        )
+    derived = fingerprint_of_public_key(public_key)
+    if derived != signer_key_fp:
+        raise KnowledgeGraphSchemaError(
+            f"signer_key_fp {signer_key_fp!r} is not the fingerprint of the supplied public key ({derived!r})"
+        )
+    key_type, key_blob = public_key.split()[:2]
+    path = _signer_registry_path(base_dir=base_dir, workspace_root=workspace_root)
+    from .ledger import state_transaction
+
+    surface = _prepare_append(path)
+    with state_transaction([path]) as transaction:
+        for existing in _signer_registry_rows(path):
+            if existing.get("signer_key_fp") != signer_key_fp:
+                continue
+            if (existing.get("key_type"), existing.get("public_key")) != (key_type, key_blob):
+                raise KnowledgeGraphObservationConflict(
+                    f"signer registry conflict: {signer_key_fp} is already registered with a different key"
+                )
+            return path
+        transaction.append_declared_jsonl(
+            path,
+            {
+                "schema_version": KNOWLEDGE_GRAPH_SCHEMA_VERSION,
+                "cycle_id": cycle_id,
+                "signer_key_fp": signer_key_fp,
+                "key_type": key_type,
+                "public_key": key_blob,
+                "registered_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            },
+            expected_surface=surface,
+        )
+    return path
+
+
+def lookup_convention_signer(
+    signer_key_fp: str,
+    *,
+    base_dir: str | Path | None = None,
+    workspace_root: str | Path | None = None,
+) -> dict[str, Any] | None:
+    """The registered public key for a fingerprint, or None when unregistered."""
+    path = _signer_registry_path(base_dir=base_dir, workspace_root=workspace_root)
+    for row in _signer_registry_rows(path):
+        if row.get("signer_key_fp") == signer_key_fp:
+            return row
+    return None
+
+
+def verify_convention_signer(
+    row: dict[str, Any],
+    *,
+    base_dir: str | Path | None = None,
+    workspace_root: str | Path | None = None,
+) -> bool:
+    """Whether a knowledge-graph row's ``signer_key_fp`` names a real key.
+
+    True exactly when the fingerprint is registered AND re-deriving it from
+    the registered public key gives the same value — the check a later
+    reader could not make while the only copy of the key was the revoked
+    cycle's ``.pub`` file. A row with no fingerprint, an unregistered one,
+    or a registered key that does not hash to it is False.
+    """
+    signer_key_fp = row.get("signer_key_fp")
+    if not isinstance(signer_key_fp, str) or not signer_key_fp:
+        return False
+    registered = lookup_convention_signer(signer_key_fp, base_dir=base_dir, workspace_root=workspace_root)
+    if registered is None:
+        return False
+    try:
+        derived = fingerprint_of_public_key(f"{registered.get('key_type')} {registered.get('public_key')}")
+    except KnowledgeGraphSchemaError:
+        return False
+    return derived == signer_key_fp
+
+
 def _has_recorded_convention(
     pattern: Pattern, *, base_dir: str | Path | None = None,
     workspace_root: str | Path | None = None,
@@ -949,4 +1106,8 @@ __all__ = (
     "record_anti_pattern",
     "lookup_pattern",
     "rank_pressure_sources",
+    "fingerprint_of_public_key",
+    "register_convention_signer",
+    "lookup_convention_signer",
+    "verify_convention_signer",
 )

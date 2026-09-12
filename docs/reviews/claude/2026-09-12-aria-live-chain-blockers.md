@@ -571,3 +571,61 @@ indexed_sha)` was false every run, so every refresh was a full rebuild
   tests fail (`GovernanceError not raised`, the request returned on a
   shallow clone, 7 lane violations). Verified by `wf_00c868e8-647`; fixed
   and re-verified by `wf_5be8bcb2-3ca`.
+
+## ARIA-HIGH-106 — the memory pillar never had a signer in the profile it runs under
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-19
+- **Evidence (live, B7):** the live store has no
+  `knowledge-graph/conventions.jsonl`; every `memory_hook_recorded` row is
+  `status=needs_signing`. The orchestrator handed `memory_hook.record(...)`
+  a literal `signer_key_fp=None` on every profile, and the one knowledge
+  signer lived inside the V9 implementation runner, behind `pr_create` —
+  `on_signer_ready` was the only completion path and `standard` (every
+  live cycle) never reached it. Separately, the cycle key's git signing
+  config was snapshotted beside the key in the gitignored
+  `aria-debts/keys/`, which the lane's `git clean -ffdx` wipes on every
+  run: a cycle killed mid-window left `.git/config` naming a key that no
+  longer existed, with nothing left to restore from, and a plain `git
+commit` outside any mint window failed rc=128.
+- **What is now true:** `cycle_phases.knowledge_signer` mints one
+  ephemeral ed25519 identity per converged cycle for every profile
+  holding the new `knowledge_record` cell of `ACTION_PERMISSIONS`
+  (`standard`, `strict`, `autonomous`), registers the public half in
+  `knowledge-graph/signers.jsonl` (`kg_signers`,
+  `verify_convention_signer` re-derives the fingerprint after the key
+  files are gone), signs the hypothesis row in the converging cycle,
+  replays every earlier `needs_signing` disclosure (reasons
+  `cycle_signer_unavailable` / `cycle_append_failed`) under the cycle
+  signer, and revokes before the cycle proceeds; the V9 runner re-mints
+  the same identity idempotently and no longer receives a callback. The
+  memory hook's `except` stays the declared runtime-fault set (B1) and
+  the funnel's `converged` counter (B4) is recorded before the seam. The
+  mint/revoke pair is a transaction on the checkout's local signing
+  config: the snapshot lives in `.git/aria-signing-config-snapshots/`,
+  the startup prune unwinds every key-less snapshot with no age gate and
+  a later mint inherits across crashed cycles, the workspace root is
+  resolved once, and `_restore_git_commit_signing` returns a four-valued
+  decision (`SigningConfigRestore`) — `undecided` (git timeout, unreadable
+  snapshot) keeps the snapshot and the ownership marker for the next
+  prune, which is sound because `user.signingkey` is released by the
+  restore's last git call.
+- **Found during integration:** the c2 memory-hook suite (19 tests) had
+  been red on the candidate since ARIA-HIGH-103 — its private copy of
+  the plan body no longer converged through the contract — and is now on
+  the shared `converging_plan_content` fixture (with the memory pillar's
+  `MIN_EVIDENCE_REF_CARDINALITY` stated by name); the 14 other suites
+  that converge plans were run and are green.
+- **Proof (candidate):** `test_knowledge_signer` (signer lifecycle,
+  registry, revoke-before-proceed), `test_phase_v31_p_preconditions`
+  I-B7-GIT-01…11 (transaction on the operator's config, pre-clean
+  survival, inheritance across two crashes, relative/absolute root,
+  undecided restore kept and finished, marker released last —
+  I-B7-GIT-10/11 fail against both the unlink-on-False and the
+  marker-first orderings), `test_phase_v31_c2_memory_hook_wire`
+  I-B7-01…03 + I-V31-C2-07/08/09, `test_phase_v31_b3_orphan_reaper…`,
+  `test_convention_observation`, `test_implementation_lifecycle_continuity`,
+  `test_runtime_profile`, `test_ledger_roster_invariant`,
+  `test_state_store`, `test_gh_token_factory_permissions`; 12 further
+  plan-converging suites (182 tests). Verified by the B7 lane's
+  before/edges/re-verify agents; the re-verifier's pass-2 residual is the
+  `SigningConfigRestore` change.

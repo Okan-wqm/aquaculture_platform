@@ -76,7 +76,13 @@ def _reconcile_in_process(tools: Path, available: bool, barrier, results) -> Non
         raise
 
 
-def _plan_content(title: str = "E2 plan") -> dict:
+def converging_plan_content(title: str = "E2 plan", **fields: object) -> dict:
+    """The one plan body every fixture drives to CONVERGED through the real
+    gate. Shared on purpose: the plan contract (ARIA-HIGH-103) decides what
+    converges, and a private copy in another module stops converging the day
+    the contract grows without saying so. ``fields`` override single keys
+    for a fixture that needs more than convergence (the memory pillar's
+    evidence cardinality, say) without restating the contract."""
     return {
         "schema_version": 1,
         "title": title,
@@ -88,6 +94,7 @@ def _plan_content(title: str = "E2 plan") -> dict:
         "validation_commands": [{"cmd": "nx affected --target=test"}],
         "evidence_refs": ["docs/aria/SPEC.md"],
         "architectural_tier": 2,
+        **fields,
     }
 
 
@@ -117,7 +124,7 @@ def drive_plan_to_converged(
     start_plan(
         plan_id=plan_id,
         initial_revision_id="rev-0",
-        plan_content=plan_content if plan_content is not None else _plan_content(title),
+        plan_content=plan_content if plan_content is not None else converging_plan_content(title),
         base_dir=tools,
     )
     content_hash = fold_plan_state(
@@ -705,7 +712,7 @@ class OrphanReapWindowTests(unittest.TestCase):
         start_plan(
             plan_id="plan-window",
             initial_revision_id="rev-0",
-            plan_content=_plan_content("window"),
+            plan_content=converging_plan_content("window"),
             base_dir=self.tools,
         )
         with patch(
@@ -734,7 +741,7 @@ class PlanContinuityTests(unittest.TestCase):
         start_plan(
             plan_id="plan-last-night",
             initial_revision_id="rev-0",
-            plan_content=_plan_content("last night"),
+            plan_content=converging_plan_content("last night"),
             base_dir=self.tools,
         )
         self.assertEqual(

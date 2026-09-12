@@ -251,8 +251,18 @@ class MemoryHookImpl:
             * OPERATOR_FEEDBACK ∈ distinct_sources (V3.1-C-4 anchor)
 
       3. record_convention if pattern_signature and a signer are present.
-         Without the cycle signer, record a needs_signing observation
-         with the canonical plan revision and hash; no convention is written.
+         B7 — the signer is the cycle's own ephemeral key, minted by the
+         orchestrator's knowledge seam (`cycle_phases.knowledge_signer`)
+         under every profile holding `knowledge_record`, so the row lands
+         in the cycle that converged. Without a signer (profile lacks the
+         cell, or the mint failed), record a needs_signing observation
+         with the canonical plan revision and hash (reason
+         `cycle_signer_unavailable`); no convention is written. With a
+         signer whose append FAILED, record the same disclosure under
+         reason `cycle_append_failed` next to the `convention_record_failed`
+         audit row. Either way `complete_pending_observations` — which
+         replays every disclosure reason — owns the retry, in this cycle
+         and every later one that holds a signer.
 
       4. verify_chain_or_quarantine AFTER record — Tier-3 detect
          (closes V3.1-C MEDIUM-012). The V3.1-P-3 lock guarantees
@@ -269,8 +279,9 @@ class MemoryHookImpl:
     Frozen / observe profile: this hook IS NOT INVOKED by the
     orchestrator (the orchestrator's profile_announce_allowed gate
     blocks the post-CONVERGED phase under those profiles). Standard
-    / strict / autonomous run the hook; convention writing still requires
-    its signer.
+    / strict / autonomous run the hook and hold `knowledge_record`, so
+    the orchestrator hands each of them the cycle signer; convention
+    writing still requires that signer and never substitutes one.
     """
 
     def complete_pending_observations(
@@ -278,6 +289,12 @@ class MemoryHookImpl:
         report: dict[str, Any],
     ) -> dict[str, Any]:
         """Complete original observations while the caller owns its signer.
+
+        Every `convention_record_needs_signing` disclosure is a candidate,
+        whatever its `reason` (`cycle_signer_unavailable` from a signer-less
+        cycle, `cycle_append_failed` from a signed cycle whose append
+        failed): the reason is part of the claim that dedups a disclosure,
+        never a filter on what gets replayed.
 
         Scheduling is derived from verified governance append order. A durable
         attempt moves a failing item behind older waiters; a later arrival
@@ -439,28 +456,55 @@ class MemoryHookImpl:
 
         # Phase 3 — record_convention (only when pattern_signature
         # is non-empty AND signer_key_fp is the cycle's ephemeral key).
-        convention_status = "no_pattern_signature"
+        observation: dict[str, Any] = {
+            "status": "no_pattern_signature", "convention_recorded": False, "chain_verified": None,
+        }
+        # The reason a `convention_record_needs_signing` row is disclosed,
+        # or None when the hypothesis landed (or there was none). That row
+        # is the DURABLE retry source: `complete_pending_observations`
+        # replays every reason under a later signer, so an observation
+        # that could not be appended in its own cycle is never lost.
+        pending_reason: str | None = None
         if pattern_signature and signer_key_fp is None:
-            convention_status = "needs_signing"
-            append_tools_governance_once(
-                base_dir, "convention_record_needs_signing",
-                {
-                    "cycle_id": cycle_id,
-                    "plan_id": plan_id,
-                    "plan_revision_id": body["revision_id"],
-                    "plan_content_hash": body["content_hash"],
-                    "pattern_signature": pattern_signature,
-                    "reason": "cycle_signer_unavailable",
-                    "convention_recorded": False,
-                },
-                claim_keys=("plan_id", "plan_revision_id", "plan_content_hash", "reason"),
-            )
-        observation = {"status": convention_status, "convention_recorded": False, "chain_verified": None}
-        if pattern_signature and signer_key_fp is not None:
+            observation["status"] = "needs_signing"
+            pending_reason = "cycle_signer_unavailable"
+        elif pattern_signature:
+            # B7 — the direct path now has a real signer (the cycle's own
+            # key, minted by the orchestrator's knowledge seam). Carry the
+            # same public signer provenance the replay path carries, so
+            # the `convention_recorded` governance row and the cycle
+            # summary name the fingerprint that authenticates the row.
             observation = _record_convention_observation(
                 cycle_id=cycle_id, plan_id=plan_id, plan_content=plan_content,
                 pattern_signature=pattern_signature, signer_key_fp=signer_key_fp,
                 base_dir=base_dir, workspace_root=workspace_root,
+                operation_report={"signer_cycle_id": cycle_id, "signer_key_fp": signer_key_fp},
+            )
+            if not observation["convention_recorded"]:
+                # A signer was present and the append still failed
+                # (`convention_record_failed` is on the ledger with the
+                # error class). Before B7 that was the end of it: the
+                # plan moved on to IMPLEMENTATION_REQUESTED under strict /
+                # autonomous and the observation was gone for good, because
+                # only the signer-less path ever disclosed a pending row.
+                # Disclose one under its own reason so the replay owns the
+                # retry — in this cycle, under this signer, first.
+                pending_reason = "cycle_append_failed"
+        if pending_reason is not None:
+            disclosure: dict[str, Any] = {
+                "cycle_id": cycle_id,
+                "plan_id": plan_id,
+                "plan_revision_id": body["revision_id"],
+                "plan_content_hash": body["content_hash"],
+                "pattern_signature": pattern_signature,
+                "reason": pending_reason,
+                "convention_recorded": False,
+            }
+            if "error_class" in observation:
+                disclosure["error_class"] = observation["error_class"]
+            append_tools_governance_once(
+                base_dir, "convention_record_needs_signing", disclosure,
+                claim_keys=("plan_id", "plan_revision_id", "plan_content_hash", "reason"),
             )
 
         # Phase 5 — skill genesis dispatch ONLY if stability fires.
@@ -510,6 +554,14 @@ class MemoryHookImpl:
             "stability_result": stability_result,
             "convention_recorded": observation["convention_recorded"],
             "chain_verified": observation["chain_verified"],
+            # Public signer provenance (None on the needs_signing path):
+            # the fingerprint on the row, never the key.
+            "signer_cycle_id": observation.get("signer_cycle_id"),
+            "signer_key_fp": observation.get("signer_key_fp"),
+            # Why a pending disclosure was written (None when none was):
+            # the replay's claim key, so a reader of the summary can find
+            # the row the retry will consume.
+            "pending_reason": pending_reason,
             "skill_genesis_dispatched": skill_genesis_dispatched,
             "skill_genesis_request_id": skill_genesis_request_id,
             "rows_scanned": len(rows),

@@ -1992,7 +1992,9 @@ class RootsBindToTheStore(StateStoreTestCase):
         store = self._bootstrap()
         with _EnvPatch(state_store.store_environment(store, REPO_HASH)):
             keys = _keys_dir(self.repo)
-        self.assertEqual(keys, self.repo / "aria-debts" / "keys")
+        # Resolved once by the factory (B7 round 2): the same absolute path
+        # whatever spelling of the root it was handed.
+        self.assertEqual(keys, self.repo.resolve() / "aria-debts" / "keys")
         self.assertNotIn(str(store.root), str(keys))
 
 

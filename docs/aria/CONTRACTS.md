@@ -1551,6 +1551,67 @@ publisher contract. Earlier inner cycle projections are not consumers of these o
   separate. A `completed` batch can contain failed observations. `needs_signing` is an unsigned
   initial observation, not a failed merge. Missing input and explicit no-op are distinct; unknown
   attempts/recorded/verification facts remain null.
+- The signer is the cycle's own ephemeral ed25519 key, minted by the orchestrator's post-CONVERGED
+  seam (`cycle_phases.knowledge_signer`) for every profile holding the `knowledge_record` cell of
+  `runtime_profile.ACTION_PERMISSIONS` (`standard`, `strict`, `autonomous`) and revoked before the
+  cycle proceeds. The initial observation is therefore signed in the cycle that converged;
+  `needs_signing` is reached only when the profile lacks the cell or the mint failed
+  (`knowledge_signer_mint_failed` governance row, `stage` = `mint_key` or `register_public_key`).
+  A `convention_record_needs_signing` disclosure carries a `reason`: `cycle_signer_unavailable`
+  (no signer) or `cycle_append_failed` (a signer was present and the append failed;
+  `convention_record_failed` sits next to it with the error class). The seam replays every
+  disclosure reason under the cycle's own signer (`memory_completion`) — in the disclosing cycle
+  first and in every later cycle that holds a signer — so an observation that could not be
+  appended is never lost. `memory_hook.pending_reason` names the disclosure written, or is null.
+  Knowledge-write authority is independent of `pr_create`; under `pr_create` the V9 runner re-mints
+  the same identity, so one cycle carries one fingerprint. `memory_hook` and `knowledge_signer` on
+  the outer cycle summary carry public signer provenance (`signer_cycle_id`, `signer_key_fp`),
+  never the key.
+- The PUBLIC half of every knowledge signer is registered in `knowledge-graph/signers.jsonl`
+  (declared surface `kg_signers`; `knowledge_graph.register_convention_signer`) before the seam
+  hands out the fingerprint, and a fingerprint whose key could not be registered is never handed
+  out (the key is revoked on the spot). `knowledge_graph.verify_convention_signer(row)` re-derives
+  the fingerprint from the registered key (`fingerprint_of_public_key`, the value `ssh-keygen -lf`
+  prints) so a reader can check a row's `signer_key_fp` names a real key after the cycle's key
+  files are gone. The registry refuses a fingerprint that is not the supplied key's own.
+- The mint/revoke pair is a transaction on the workspace checkout's LOCAL git signing config
+  (`commit.gpgsign`, `gpg.format`, `user.signingkey`, `gpg.ssh.allowedSignersFile`): the mint
+  snapshots the operator's values to `.git/aria-signing-config-snapshots/<cycle_id>.json` (0600, the
+  directory 0700), a commit made inside the cycle is signed by the cycle key, and the revoke restores
+  the snapshot byte-for-byte when the config still names the cycle key
+  (`git_signing_config_restored`). The snapshot is checkout-resident, next to
+  `.git/aria-allowed-signers`, and NOT next to the key in the gitignored `aria-debts/keys/`: the
+  production lane (`.github/workflows/aria-auto-cycle.yml`) runs `git reset --hard && git clean
+  -ffdx -e node_modules` on the persistent self-hosted workspace at the start of every run, which
+  wipes the keys dir but never `.git/`, so a cycle killed mid-window (OOM, a cancelled run — the
+  autonomy CLI installs no SIGTERM handler) loses its key to the next run's pre-clean while its
+  config and its snapshot both survive. The orchestrator runs
+  `gh_token_factory.prune_stale_signing_keys` at startup next to the orphan-implementation reaper:
+  a crashed cycle's key files are pruned after the 24h grace window, and the snapshot of every
+  cycle whose private key file no longer exists — pruned just now, or wiped by the pre-clean — is
+  unwound at once (a snapshot without its key is an orphan by definition; no age gate), ownership-
+  checked like the revoke. A `keys_pruned` governance row names what was pruned (`pruned`), which
+  snapshots were unwound (`snapshots_unwound`) and which cycles' config was restored
+  (`git_signing_config_restored`); it is emitted when any of `pruned`, `snapshots_unwound` or
+  `errors` is non-empty. The factory resolves the workspace root once (`_resolve_workspace_root`),
+  so the key path the mint writes into `user.signingkey` and the path the revoke, the prune and the
+  inheritance check compare against are the same absolute path whatever spelling each caller
+  passed. A snapshot always records the state before ANY kernel key: a mint that finds a crashed
+  cycle's key still installed — inside the grace window, or already wiped — inherits that cycle's
+  snapshot from `.git/` (`inherited_from_cycle_id`), so the operator's config comes back from
+  whichever snapshot still owns the checkout, however many cycles crashed in a row; a crashed cycle
+  whose config a later cycle replaced fails the ownership check at prune and its snapshot is
+  discarded, never replayed. The restore answers with a decision
+  (`gh_token_factory.SigningConfigRestore`: `restored`, `foreign`, `absent`, `undecided`); a
+  snapshot is consumed only by a decision. `undecided` — the snapshot did not read, or `git config`
+  did not answer (a timeout on a loaded host, an `OSError` on `.git/`) — keeps the snapshot and the
+  ownership marker in place: the revoke reports `git_signing_config_restore=undecided` with the
+  error class, the prune lists the snapshot in `errors` as
+  `git_signing_config_restore_undecided:<ErrorClass>` and does not unlink it, and the next revoke
+  or startup prune finishes the same restore. That retry is sound because `user.signingkey` — the
+  ownership marker — is released by the restore's LAST git call, after every other key and
+  section is back: an interrupted restore always leaves the marker for the retry to recognise, and
+  re-setting a key to its snapshot value or unsetting an absent one is a no-op.
 - Original cycle/plan/revision/content identities and public signer provenance retain their
   separate meanings. If the initial hook omits its plan ID, the supplied outer convergence linkage
   can provide it. No plan is inferred from a cycle name. An overlong supplied identity is omitted

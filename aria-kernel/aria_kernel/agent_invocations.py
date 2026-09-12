@@ -2260,9 +2260,14 @@ REQUEST_FAULT_RELEASE_REASONS: frozenset[str] = frozenset({
 # * ``claude_cli_exit_<code>`` — see ``classify_release_reason``.
 # * ``submit_timeout_<n>s`` — the kernel submit CLI did not answer inside
 #   its wall clock; a slow submit says nothing about the request.
+# * ``provider_quota_unavailable:<provider>`` — the provider's credit/quota
+#   was exhausted (operator decision 2026-09-12: never retried on a weaker
+#   tier; the request waits out the provider cooldown). A billing event says
+#   nothing about the request, so it must not walk it toward HUMAN_REQUIRED.
 HARNESS_FAULT_RELEASE_REASON_PREFIXES: tuple[str, ...] = (
     "claude_cli_exit_",
     "submit_timeout_",
+    "provider_quota_unavailable:",
 )
 # * ``plan_content_invalid:<errors>`` — the agent's envelope failed the
 #   role's content contract; retrying the same request usually repeats it.

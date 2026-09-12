@@ -115,10 +115,13 @@ class ExceptionClassificationTests(unittest.TestCase):
         ]
         for exc_type, expected_class in cases:
             with self.subTest(expected_class=expected_class):
-                failure = classify_dispatch_failure(
-                    exception=exc_type("named_cause_token"),
-                    phase="preflight",
-                )
+                # ClaudeCreditExhausted carries the exhausted provider's
+                # identity (the executor keys its release on it); the other
+                # perimeter exceptions are message-only.
+                exc = (exc_type("named_cause_token", provider="anthropic", model="opus", detail={})
+                       if exc_type is claude_runtime.ClaudeCreditExhausted
+                       else exc_type("named_cause_token"))
+                failure = classify_dispatch_failure(exception=exc, phase="preflight")
                 self.assertIsNotNone(failure)
                 assert failure is not None  # for the type checker's sake
                 self.assertEqual(failure.failure_class, expected_class)

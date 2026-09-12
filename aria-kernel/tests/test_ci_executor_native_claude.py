@@ -24,6 +24,14 @@ What this pins, one property per test:
   first live attempt on this route died with "Failed to connect to bus: No
   medium found" because the limiter was selected in the executor's
   environment and launched in the agent's.
+* Operator decision 2026-09-12 — a session whose quota is exhausted (the CLI
+  answers the usage-limit notice as assistant content on exit 0) spawns
+  opus exactly ONCE (no sonnet retry), releases the claim as REQUEUED under
+  `provider_quota_unavailable:anthropic` (harness fault: the requeue budget
+  is untouched), records a `provider_quota_cooldown` row naming the provider
+  and `quota_unavailable`, and the NEXT executor run refuses anthropic by
+  name (`provider_quota_cooldown`) without spawning anything, leaving the
+  request REQUEUED for when the provider is back.
 """
 from __future__ import annotations
 
@@ -78,6 +86,29 @@ def _fake_claude(status: dict, response: dict, host_login_dir: Path) -> str:
     )
 
 
+# The production shape of a quota exhaustion (2026-07-03, measured live): the
+# CLI exits 0 and delivers its limit notice as the assistant's answer, with a
+# usage block, so an exhausted run is byte-shaped like a successful one.
+_USAGE_LIMIT_NOTICE = "You've reached your limit. Run /usage-credits to continue or switch models with /model."
+
+
+def _fake_exhausted_claude(status: dict) -> str:
+    return (
+        f"#!{sys.executable}\n"
+        "import json, sys\n"
+        "argv = sys.argv[1:]\n"
+        "if argv == ['--version']:\n"
+        "    print('2.1.268 (Claude Code)'); raise SystemExit(0)\n"
+        "if argv[:3] == ['auth', 'status', '--json']:\n"
+        f"    print(json.dumps({status!r})); raise SystemExit(0)\n"
+        "sys.stdin.read()\n"
+        f"message = {_USAGE_LIMIT_NOTICE!r}\n"
+        "print(json.dumps({'type': 'assistant', 'message': {'role': 'assistant', 'content': [{'type': 'text', 'text': message}]}}))\n"
+        "print(json.dumps({'type': 'result', 'subtype': 'success', 'is_error': False, 'result': message,\n"
+        "                  'usage': {'input_tokens': 12, 'output_tokens': 0}, 'session_id': 'fixture-session'}))\n"
+    )
+
+
 class NativeClaudeLane(unittest.TestCase):
     def setUp(self) -> None:
         _smoke.NativeAdaptiveAdmissionTests.setUp(self)
@@ -125,9 +156,11 @@ class NativeClaudeLane(unittest.TestCase):
             self.environment.pop(name, None)
         self.host_login_dir = config_dir
 
-    def _install_claude(self, status: dict) -> None:
+    def _install_claude(self, status: dict, *, exhausted: bool = False) -> None:
         executable = self.fixture_bin / "claude"
-        executable.write_text(_fake_claude(status, self.response, self.host_login_dir), encoding="utf-8")
+        script = (_fake_exhausted_claude(status) if exhausted
+                  else _fake_claude(status, self.response, self.host_login_dir))
+        executable.write_text(script, encoding="utf-8")
         executable.chmod(0o755)
 
     def _run_executor(self) -> subprocess.CompletedProcess[str]:
@@ -263,6 +296,74 @@ class NativeClaudeLane(unittest.TestCase):
         decisions = [row["details"] for row in governance if row["kind"] == "runtime_admission_unavailable"]
         anthropic = next(row for row in decisions[0]["candidate_observations"] if row["provider"] == "anthropic")
         self.assertEqual((anthropic["auth_observation"], anthropic["status_reason"]), ("unavailable", "managed_session_logged_out"))
+
+    def test_an_exhausted_session_requeues_under_a_provider_cooldown(self) -> None:
+        from aria_kernel.ledger import load_declared_jsonl
+
+        self._install_claude({"loggedIn": True, "authMethod": "claude.ai", "apiProvider": "firstParty",
+                              "subscriptionType": "max"}, exhausted=True)
+        completed = self._run_executor()
+        self.assertEqual(completed.returncode, 1, completed.stderr[-3000:])
+        self.assertIn("claude_credit_exhausted", completed.stderr)
+        request_id = self.request["request_id"]
+        self.assertEqual(self.ai.derive_request_state(request_id=request_id, base_dir=self.tools), "REQUEUED")
+        self.assertFalse(Path(self.request["expected_output_path"]).exists(),
+                         "a usage-limit notice is not an answer and must not be sealed")
+
+        # Exactly one spawn, on the agent's own tier: the usage ledger records
+        # one row per spawn with the model alias, so a sonnet retry would show
+        # up here as a second row.
+        usage = load_declared_jsonl(self.tools / "knowledge-graph/context-usage.jsonl", expected_surface="context_usage")
+        self.assertEqual([row["model"] for row in usage if row["request_id"] == request_id], [self.profile.model])
+        self.assertEqual(self.profile.model, "opus")
+
+        claims = load_declared_jsonl(self.tools / "agent-invocations/claims.jsonl",
+                                     expected_surface="agent_invocation_claims")
+        released = [row for row in claims if row.get("event") == "released"]
+        self.assertEqual([row["reason"] for row in released], ["provider_quota_unavailable:anthropic"])
+        self.assertEqual((released[0]["reason_code"], released[0]["reason_detail"], released[0]["fault_domain"]),
+                         ("PROVIDER_QUOTA_UNAVAILABLE", "anthropic", "harness"))
+        self.assertEqual([row["event"] for row in claims if row.get("event") in ("requeued", "human_required")],
+                         ["requeued"])
+        # A billing event says nothing about the request: its budget is intact.
+        self.assertEqual(self.ai._request_fault_requeue_count(claims, request_id), 0)
+
+        governance = load_declared_jsonl(self.tools / "governance.jsonl", expected_surface="tools_governance")
+        cooldowns = [row["details"] for row in governance if row["kind"] == "provider_quota_cooldown"]
+        self.assertEqual(len(cooldowns), 1)
+        self.assertEqual((cooldowns[0]["provider"], cooldowns[0]["model"], cooldowns[0]["reason"],
+                          cooldowns[0]["cooldown_seconds"], cooldowns[0]["request_id"]),
+                         ("anthropic", "opus", "quota_unavailable", 900, request_id))
+        self.assertEqual(cooldowns[0]["detection"]["matched_marker"], "usage-credits")
+        detections = [row["details"] for row in governance if row["kind"] == "model_credit_exhausted"]
+        self.assertEqual([(row["model"], row["credit_exhaustion"]["matched_marker"]) for row in detections],
+                         [("opus", "usage-credits")])
+        finished = [row["details"] for row in governance if row["kind"] == "runtime_attempt_finished"]
+        self.assertEqual([row["result_admission"] for row in finished], ["quota_unavailable"])
+        attempts_before = [row for row in governance if row["kind"] == "runtime_attempt_started"]
+        self.assertEqual(len(attempts_before), 1)
+
+        # The next drain tick: the cooled provider is refused by name before
+        # any claim or spawn, the other vendors are not configured here, and
+        # the request stays REQUEUED for when opus is back.
+        second = self._run_executor()
+        self.assertEqual(second.returncode, 0, second.stderr[-3000:])
+        self.assertEqual(self.ai.derive_request_state(request_id=request_id, base_dir=self.tools), "REQUEUED")
+        governance = load_declared_jsonl(self.tools / "governance.jsonl", expected_surface="tools_governance")
+        self.assertEqual(len([row for row in governance if row["kind"] == "runtime_attempt_started"]), 1,
+                         "no second spawn while the provider is cooled")
+        decisions = [row["details"] for row in governance if row["kind"] == "runtime_admission_unavailable"]
+        self.assertEqual(len(decisions), 1)
+        anthropic = next(row for row in decisions[0]["candidate_observations"] if row["provider"] == "anthropic")
+        self.assertEqual((anthropic["status_reason"], anthropic["quota_observation"]),
+                         ("provider_quota_cooldown", "unavailable"))
+        self.assertEqual(anthropic["quota_cooldown"]["until"], cooldowns[0]["until"])
+        self.assertEqual(anthropic["status_command"], [], "a cooled provider is not probed")
+        usage = load_declared_jsonl(self.tools / "knowledge-graph/context-usage.jsonl", expected_surface="context_usage")
+        self.assertEqual(len([row for row in usage if row["request_id"] == request_id]), 1)
+        self.assertEqual(len([row for row in load_declared_jsonl(
+            self.tools / "agent-invocations/claims.jsonl", expected_surface="agent_invocation_claims",
+        ) if row.get("event") == "claimed"]), 1, "no second claim was taken")
 
 
 if __name__ == "__main__":

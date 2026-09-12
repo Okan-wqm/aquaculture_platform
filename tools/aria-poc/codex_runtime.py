@@ -173,9 +173,9 @@ def _probe_codex_auth_status(
 class CodexRunResult:
     """The Codex sibling of claude_runtime.ClaudeRunResult.
 
-    Field names deliberately mirror the Claude result so the shared
-    fallback ladder and downstream auditors read both runtimes through one
-    vocabulary.
+    Field names deliberately mirror the Claude result so the shared auth
+    failover (``claude_runtime.run_with_model_fallback``) and downstream
+    auditors read both runtimes through one vocabulary.
     """
 
     returncode: int

@@ -26,7 +26,7 @@ from dataclasses import asdict as _asdict
 import hashlib as _hashlib
 import json as _json
 import time as _time
-from typing import Any as _Any, Callable as _Callable
+from typing import Any as _Any, Callable as _Callable, Mapping as _Mapping
 
 from .agent_runtime_profile import AgentRuntimeProfile as _AgentRuntimeProfile
 from .genesis_policy import _AdaptiveRuntimePolicy
@@ -61,6 +61,20 @@ class Provider:
     runtime together with a Z.ai credential.
     """
 
+    admits_writes: bool
+    """Whether this provider's runtime can host a WRITE-SCOPE profile.
+
+    The managed Claude CLI runs under the write-containment sandbox and can
+    edit a bound workspace; the Codex route runs `--sandbox read-only` and
+    the Z.ai transport is a single chat completion — neither can execute an
+    implementer or a worker. This row is the one place that fact lives: the
+    native admission refuses a read-only runtime for a write-capable profile
+    by name (`provider_readonly_runtime`), and the auth failover ladder in
+    claude_runtime skips such a rung for the same profile. Operator decision
+    2026-09-12: a write-scope request whose provider is exhausted waits for
+    that provider; it is never handed to a runtime that cannot write.
+    """
+
     credential_file_env: str | None = None
     """The env var naming a root-only FILE that holds the credential.
 
@@ -82,12 +96,14 @@ _FLEET: tuple[Provider, ...] = (
         default_model="opus",
         credential_env=None,
         runtime_hint="claude",
+        admits_writes=True,
     ),
     Provider(
         key="zai",
         default_model="glm-5.3",
         credential_env="ARIA_ZAI_API_KEY",
         runtime_hint="zai",
+        admits_writes=False,
         credential_file_env="ARIA_ZAI_API_KEY_FILE",
         model_env="ARIA_ZAI_MODEL",
     ),
@@ -96,6 +112,7 @@ _FLEET: tuple[Provider, ...] = (
         default_model="gpt-5.2-codex",
         credential_env="OPENAI_API_KEY",
         runtime_hint="codex",
+        admits_writes=False,
     ),
 )
 
@@ -224,6 +241,40 @@ def provider_for_model(model: str) -> str | None:
     return _MODEL_PROVIDER_ALIASES.get(model)
 
 
+# The provider whose runtime dispatches a tier the fleet does not list by
+# name (`sonnet`, `haiku`, `fable`): the managed Anthropic session. One
+# constant, read by every route resolver, so the convention cannot drift
+# between the executors and the kernel's own dispatch hooks.
+DEFAULT_DISPATCHING_PROVIDER = "anthropic"
+
+
+def dispatching_provider_for_model(model: str | None) -> str:
+    """The provider a dispatch on `model` runs through — never None.
+
+    `provider_for_model` answers "which fleet row lists this model"; this
+    answers the routing question the executors, the dispatch-failure
+    classifier and the worker dispatch hook all ask: which provider's
+    quota, credential and cooldown does a spawn on this tier live under.
+    Unlisted tiers are the managed Anthropic session's.
+    """
+    return provider_for_model(str(model or "")) or DEFAULT_DISPATCHING_PROVIDER
+
+
+def provider_admits_writes(provider_key: str) -> bool:
+    """Whether the named provider's runtime can host a write-scope profile.
+
+    Fail-closed: a provider the fleet does not list admits nothing, so a
+    typo or a future row cannot silently become a write-capable route.
+    """
+    return any(provider.key == provider_key and provider.admits_writes for provider in _FLEET)
+
+
+# The status reason a provider row carries when it is refused WITHOUT a
+# probe: the reason is a fleet/policy fact, not something the vendor said.
+READONLY_RUNTIME_STATUS_REASON = "provider_readonly_runtime"
+COOLDOWN_STATUS_REASON = "provider_quota_cooldown"
+
+
 @dataclass(frozen=True)
 class _RuntimeStatusObservation:
     auth_observation: str
@@ -257,6 +308,7 @@ def _native_runtime_admission(
     policy: _AdaptiveRuntimePolicy,
     environ: dict[str, str],
     observe_status: _Callable[[Provider, float], _RuntimeStatusObservation],
+    cooled_providers: _Mapping[str, _Mapping[str, _Any]],
 ) -> _NativeRuntimeAdmission:
     """Prepare native route observations; the runtime supplies its status transport.
 
@@ -270,6 +322,22 @@ def _native_runtime_admission(
     `status_timeout`; the providers behind it are still asked. The fleet
     owns this arithmetic so no caller can hand the whole fleet a single
     probe's budget and starve the last member into `status_deadline_elapsed`.
+
+    Two refusals are decided here WITHOUT a probe, because they are facts the
+    fleet and the ledger already hold, not questions for the vendor:
+
+    * `provider_readonly_runtime` — the profile is write-capable and this
+      provider's runtime cannot write (`Provider.admits_writes`). Probing it
+      would only ever admit a route that fails at execution.
+    * `provider_quota_cooldown` — the provider is under an active quota
+      cooldown (`cooled_providers`, keyed by provider, read by the caller
+      from `aria_kernel.provider_cooldown`, whose reader validates every
+      field indexed here). The last run on it ended in
+      credit exhaustion inside `provider_cooldown_seconds`; the status CLI
+      cannot see quota (`quota_observation` is `unknown` from
+      `claude auth status`), so the ledger is the only evidence. The row
+      says so and carries the cooldown's `until`, and the next vendor in
+      fleet order is admitted for the roles it can serve.
     """
     deadline_monotonic = _time.monotonic() + native_admission_budget_seconds(policy)
     from .budget import alias_pricing_prefix, price_tokens
@@ -297,7 +365,17 @@ def _native_runtime_admission(
                  "model": model, "effort": effort}
         binary = _RUNTIME_BINARIES.get(provider.runtime_hint, "claude")
         remaining = min(float(policy.recheck_timeout_seconds), deadline_monotonic - _time.monotonic())
-        if binary is not None and shutil.which(binary, path=search_path) is None:
+        cooldown = cooled_providers.get(provider.key)
+        if profile.write_capable and not provider.admits_writes:
+            status = _RuntimeStatusObservation(
+                "unknown", reason=READONLY_RUNTIME_STATUS_REASON,
+                control_status="unavailable", control_reason=READONLY_RUNTIME_STATUS_REASON,
+            )
+        elif cooldown is not None:
+            status = _RuntimeStatusObservation(
+                "unknown", quota_observation="unavailable", reason=COOLDOWN_STATUS_REASON,
+            )
+        elif binary is not None and shutil.which(binary, path=search_path) is None:
             status = _RuntimeStatusObservation("unavailable", reason="cli_unavailable")
         elif provider.key == "zai" and not _credential_named(provider, environ):
             status = _RuntimeStatusObservation("unavailable", reason="provider_not_configured")
@@ -325,6 +403,17 @@ def _native_runtime_admission(
             "monetary_reason": monetary.reason,
             "controls": {"status": status.control_status, "reason": status.control_reason},
         }
+        if cooldown is not None:
+            # The evidence the refusal rests on, on the row itself: when the
+            # cooldown ends and which run started it. Indexed without guards
+            # on purpose: `cooled_providers` rows come from
+            # `provider_cooldown.active_provider_cooldowns`, whose contract
+            # refuses a row missing any of these fields by name before it
+            # can reach this admission.
+            row["quota_cooldown"] = {
+                "until": cooldown["until"], "recorded_at": cooldown["recorded_at"],
+                "request_id": cooldown["request_id"], "model": cooldown["model"],
+            }
         observations.append(row)
         monetary_available = (monetary.subscription_applies if monetary.mode == "managed_subscription"
                               else price.source != "unknown")

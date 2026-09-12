@@ -184,3 +184,55 @@ verifiers reported the identical six-entry list. The scan now walks the AST
 for `_release_claim(..., reason=...)` calls and collects the literal (or each
 branch of a conditional): twelve release reasons, all classified;
 parameterised f-string reasons stay owned by the prefix tables.
+
+## ARIA-HIGH-094 — opus is a leaf; credit exhaustion cools the provider and requeues
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-19
+- **Operator decision (2026-09-12, delegated):** ARIA never downgrades a
+  decision or an implementation to sonnet. Credit exhaustion is a
+  provider-level fact: read-only roles are re-admitted on the next vendor
+  after a cooldown; write-scope roles (implementer, worker), which only the
+  managed Claude route can run, requeue under the cooldown and are retried
+  when opus is back.
+- **What was wrong:** `MODEL_FALLBACK_TIER = {fable→opus, opus→sonnet,
+sonnet→glm-5.3, glm-5.3→opus}` retried an exhausted opus on sonnet at
+  `CREDIT_FALLBACK_EFFORT` for every role — the verifier's real executor child
+  spawned `['opus', 'sonnet']` on the base; `provider_cooldown_seconds`
+  (genesis policy, 900 s) had no reader anywhere and `claude auth status`
+  reports quota as unknown, so nothing ever cooled a provider; the worker
+  lane re-claimed and re-spawned an exhausted opus every iteration with no
+  back-off.
+- **What is now true:** the ladder is data that states the decision —
+  `AUTH_FAILOVER_TIER = {opus: glm-5.3, glm-5.3: opus}`, consulted only for
+  AUTH failures, and `run_with_model_fallback` takes the profile's
+  `write_capable` fact so a rung whose provider does not admit writes
+  (`model_fleet.Provider.admits_writes`: anthropic True, zai/openai False) is
+  never taken for a writer; `MODEL_FALLBACK_TIER`, `CREDIT_FALLBACK_EFFORT`,
+  the refusal retry and the fable rung are deleted. Exhaustion raises
+  `ClaudeCreditExhausted` with provider/model/detail; `ci_executor` records
+  `provider_quota_cooldown` (new `aria_kernel/provider_cooldown.py`, the
+  first reader of `provider_cooldown_seconds`; a malformed row is refused by
+  name, never re-admits) and releases the claim REQUEUED under
+  `provider_quota_unavailable:<provider>` (a harness fault, budget intact);
+  `_native_runtime_admission` refuses a cooled provider without a probe and
+  refuses read-only runtimes for write-capable profiles
+  (`provider_readonly_runtime`). The worker lane records the same cooldown
+  under `--claim-id`, honours `active_provider_cooldowns` before claiming
+  (`provider_cooldown` status, no claim, one governance row) and the
+  scheduler backs off one poll interval. Prose follows code in the runtime
+  modules, `docs/aria/CURRENT_STATE.md` and `ARCHITECTURE.md`; the
+  maintenance-agent invariant that still expected fable for a planner is
+  opus.
+- **Consequence to know:** on the legacy (non-adaptive) lane every opus
+  exhaustion now lands as an `executor_environment_failure` breaker row
+  (threshold 3 / 96 h); the declared `executor.adaptive_runtime` policy
+  (ARIA-HIGH-095) makes the native lane the live path.
+- **Proof (candidate):** credit-fallback, runtime-contract, fable-selected-by-
+  nothing, maintenance-agent, runtime-profile, failure-classification,
+  fleet/codex, admission-budget, auth-classification, requeue-ownership,
+  glm-admission, state-guard, worker-lane/cooldown suites — see the commit;
+  `test_ci_executor_native_claude` 5 passed (the native lane end-to-end: opus
+  spawned once, REQUEUED under `provider_quota_unavailable:anthropic`,
+  cooldown row 900 s, the second run refuses anthropic by name without
+  claiming). Verified by `wf_284f4dbe-940`; fixed and re-verified (integrate)
+  by `wf_5be8bcb2-3ca`.

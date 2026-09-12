@@ -88,10 +88,14 @@ class TheFleetIsTheOneBinding(unittest.TestCase):
     def test_an_anthropic_auth_failure_still_walks_to_the_zai_rung(self) -> None:
         """ARIA-HIGH-023 survives the transport change: the cross-provider
         rung is still glm-5.3 — the executor now serves that rung through the
-        Z.ai transport instead of a redirected claude spawn."""
-        self.assertEqual(claude_runtime._cross_provider_auth_fallback("sonnet"), "glm-5.3")
-        self.assertEqual(claude_runtime._cross_provider_auth_fallback("opus"), "glm-5.3")
-        self.assertEqual(claude_runtime._cross_provider_auth_fallback("glm-5.3"), "opus")
+        Z.ai transport instead of a redirected claude spawn. For a READ-ONLY
+        role: the Z.ai transport admits no writes (operator decision
+        2026-09-12), so a write-scope profile has no rung there."""
+        self.assertEqual(claude_runtime._cross_provider_auth_fallback("opus", write_capable=False), "glm-5.3")
+        self.assertIsNone(claude_runtime._cross_provider_auth_fallback("opus", write_capable=True))
+        self.assertEqual(claude_runtime._cross_provider_auth_fallback("glm-5.3", write_capable=False), "opus")
+        # sonnet is no rung of anything any more.
+        self.assertIsNone(claude_runtime._cross_provider_auth_fallback("sonnet", write_capable=False))
 
 
 if __name__ == "__main__":

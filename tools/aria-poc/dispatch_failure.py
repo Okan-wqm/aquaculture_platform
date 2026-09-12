@@ -78,10 +78,6 @@ DISPATCH_OUTCOMES: tuple[str, ...] = ("succeeded", "failed", "refused")
 DISPATCH_RESULT_SCHEMA = "aria/dispatch-result/v1"
 DISPATCH_RESULT_SCHEMA_VERSION = 1
 
-#: The provider an UNLISTED model routes through (managed Claude session).
-#: Listed models resolve theirs from the fleet (aria_kernel.model_fleet).
-DEFAULT_PROVIDER = "anthropic"
-
 # A detail code is a slug from OUR vocabularies (exception prefixes, marker
 # names, exit codes) — never free text. Anything that fails this shape
 # (raw stderr fragments, tokens, prose) is dropped, which is what makes the
@@ -236,18 +232,19 @@ def resolve_dispatch_route(
     """The route a dispatch on ``request`` will take, resolved pre-claim.
 
     Model comes from the frontmatter SSoT (``resolve_claude_model``);
-    provider comes from the fleet SSoT (``model_fleet.provider_for_model``)
-    — an unlisted model resolves the default Anthropic route byte-for-byte,
-    because this function never touches spawn environment at all.
+    provider comes from the fleet SSoT
+    (``model_fleet.dispatching_provider_for_model`` — an unlisted model is
+    the managed Anthropic session's, stated once there), because this
+    function never touches spawn environment at all.
     """
-    from aria_kernel.model_fleet import provider_for_model
+    from aria_kernel.model_fleet import dispatching_provider_for_model
 
     target_agent = str(request.get("target_agent") or "").strip()
     if not target_agent:
         raise ValueError("dispatch_route_target_agent_missing")
     role = str(request.get("role") or "").strip()
     model = resolve_claude_model(target_agent, repo_root=repo_root)
-    provider = provider_for_model(model) or DEFAULT_PROVIDER
+    provider = dispatching_provider_for_model(model)
     return DispatchRoute(
         provider=provider, model=model, role=role, target_agent=target_agent,
     )

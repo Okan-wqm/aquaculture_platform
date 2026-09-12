@@ -58,8 +58,6 @@ from claude_runtime import (
     CLAUDE_MOCK_ENV_VAR,
     ClaudeAuthFailure,
     ClaudeCreditExhausted,
-    CREDIT_FALLBACK_EFFORT,
-    MODEL_FALLBACK_TIER,
     ClaudeAuthUnavailable,
     ClaudeCliUnavailable,
     ClaudePolicyViolation,
@@ -1028,8 +1026,8 @@ def _try_reconcile_envelope_cost(*, envelope_id: str, actual_cost_usd: float, to
 def _clear_stale_dispatch_artifacts(output_path: Path, transcript_path: Path) -> None:
     """Remove a prior attempt's output + transcript before a (re)dispatch.
 
-    ORPHAN-332 — a requeued request (poll timeout, which under the credit→opus
-    fallback happens more because opus is slower) MUST start from a clean slate.
+    ORPHAN-332 — a requeued request (poll timeout on the slower opus tier;
+    since 2026-09-12 also a provider-quota requeue) MUST start from a clean slate.
     The dispatched agent has Read tools and is told the expected output path; if
     a prior attempt's envelope is still on disk it invokes the repo's "look
     before you write / don't overwrite existing work" discipline and REFUSES to
@@ -1372,13 +1370,16 @@ def invoke_claude_cli(
         if delivery_credential is not None:
             spawn_extra_env.update(delivery_credential.env)
     try:
-        # Model dispatch with the fable→opus fallback policy (credit + refusal),
-        # applied by the claude_runtime SSoT helper. The executor supplies the
-        # attempt closure and its governance-audit callbacks; the helper owns
+        # Model dispatch through the claude_runtime SSoT helper: a credit
+        # exhaustion is terminal for the attempt (ClaudeCreditExhausted,
+        # handled by main()'s requeue arm), a refusal rides the result and is
+        # escalated below, and only an AUTH failure of a read-only role is
+        # retried — once, on the other vendor. The executor supplies the
+        # attempt closure and its governance-audit callback; the helper owns
         # the single-retry-bounded control flow.
         def _dispatch_attempt(model: str, effort: str) -> ClaudeRunResult:
-            # The ladder is written in tier names; the runtime that serves a
-            # tier is the fleet's decision. A Z.ai tier (its own HTTP
+            # The auth failover is written in tier names; the runtime that
+            # serves a tier is the fleet's decision. A Z.ai tier (its own HTTP
             # transport since the 2026-09-11 policy) never reaches the claude
             # binary — run_claude_exec refuses it by name if asked.
             if _provider_for_model(model) == "zai":
@@ -1436,41 +1437,25 @@ def invoke_claude_cli(
             except Exception:
                 pass
 
-        # ORPHAN-HIGH-478 — the audit rows named the fable->opus@xhigh hop as a
-        # literal. Once the ladder gained a second rung those strings would have
-        # written factually false entries into an append-only, hash-chained
-        # governance ledger, which is the one artifact here that cannot be
-        # corrected after the fact.
-        _credit_fallback_target = MODEL_FALLBACK_TIER.get(agent_profile.model, "(none)")
-        _refusal_fallback_target = _credit_fallback_target
-
-        def _on_credit(marker: dict[str, Any]) -> None:
-            _gov("model_credit_fallback_attempted", {
+        # Operator decision 2026-09-12 — the detection is audited where it is
+        # made; the DECISION (requeue under a provider cooldown, never a
+        # weaker tier) is main()'s and is recorded there with the claim
+        # identity. ORPHAN-HIGH-478 still applies: this row states what
+        # happened (which marker, which model) and names no hop, because
+        # there is none.
+        def _on_credit(model: str, marker: dict[str, Any]) -> None:
+            # `model` is the tier that ran out — the auth failover rung when
+            # the primary's credential was dead — never assumed to be the
+            # profile's own.
+            _gov("model_credit_exhausted", {
                 "request_id": request_id,
                 "subagent_type": subagent_type,
-                "from_model": agent_profile.model,
-                "to_model": _credit_fallback_target,
-                "to_effort": CREDIT_FALLBACK_EFFORT,
+                "model": model,
                 "credit_exhaustion": marker,
             })
             _stage(
-                f"model_credit_fallback request_id={request_id} "
-                f"marker={marker.get('matched_marker')!r} "
-                f"{agent_profile.model}->{_credit_fallback_target}@{CREDIT_FALLBACK_EFFORT}"
-            )
-
-        def _on_refusal(refusal: dict[str, Any]) -> None:
-            _gov("model_refusal_fallback_attempted", {
-                "request_id": request_id,
-                "subagent_type": subagent_type,
-                "from_model": agent_profile.model,
-                "to_model": _refusal_fallback_target,
-                "refusal": refusal,
-            })
-            _stage(
-                f"model_refusal_fallback request_id={request_id} "
-                f"category={refusal.get('category')!r} "
-                f"{agent_profile.model}->{_refusal_fallback_target}"
+                f"model_credit_exhausted request_id={request_id} "
+                f"marker={marker.get('matched_marker')!r} model={model}"
             )
 
         # ARIA-AUDIT-021: reserve BEFORE the external call. The budget
@@ -1547,8 +1532,10 @@ def invoke_claude_cli(
             run=_dispatch_attempt,
             model=agent_profile.model,
             effort=_effort,
+            # The role condition of the auth failover, from the profile SSoT:
+            # a write-scope profile is never handed to a read-only runtime.
+            write_capable=agent_profile.write_capable,
             on_credit=_on_credit,
-            on_refusal=_on_refusal,
         )
         if completed.refusal is not None:
             _unresolved_payload = {
@@ -2261,18 +2248,18 @@ def _record_mock_mode_audit(tools_dir: Path) -> None:
 
 
 def _provider_for_model(model: str | None) -> str:
-    from aria_kernel.model_fleet import provider_for_model
+    from aria_kernel.model_fleet import dispatching_provider_for_model
 
-    return provider_for_model(str(model or "")) or "anthropic"
+    return dispatching_provider_for_model(model)
 
 
 def _run_zai_as_claude_result(
     *, prompt_text: str, model: str, timeout_seconds: int,
     usage_recording: UsageRecording | None,
 ) -> ClaudeRunResult:
-    """One Z.ai call, reported in the shape the shared fallback ladder reads.
+    """One Z.ai call, reported in the shape the shared auth failover reads.
 
-    The ladder (claude_runtime.run_with_model_fallback) decides on
+    The helper (claude_runtime.run_with_model_fallback) decides on
     ``auth_failure`` / ``credit_exhaustion`` / ``refusal`` and the executor
     reads ``stdout`` and ``usage``; those are filled from the transport's own
     classification. The vendor's response id stands in for a stream event
@@ -2418,7 +2405,10 @@ def _invoke_native_codex(
             raise ClaudeAuthFailure("Codex managed authentication unavailable")
         if completed.credit_exhaustion is not None:
             result_admission = "quota_unavailable"
-            raise ClaudeCreditExhausted("Codex subscription capacity unavailable")
+            raise ClaudeCreditExhausted(
+                "Codex subscription capacity unavailable", provider=route["provider"],
+                model=route["model"], detail=dict(completed.credit_exhaustion),
+            )
         if completed.returncode != 0:
             result_admission = "provider_nonzero"
             return completed.returncode
@@ -2535,7 +2525,12 @@ def _invoke_native_zai(
             raise ClaudeAuthFailure("Z.ai subscription authentication unavailable")
         if completed.credit_exhaustion is not None:
             result_admission = "quota_unavailable"
-            raise ClaudeCreditExhausted("Z.ai subscription capacity unavailable")
+            raise ClaudeCreditExhausted(
+                "Z.ai subscription capacity unavailable", provider=route["provider"],
+                model=route["model"],
+                detail={"marker": completed.credit_exhaustion, "vendor_error_code": completed.error_code,
+                        "vendor_error_message": completed.error_message, "http_status": completed.http_status},
+            )
         if completed.returncode != 0:
             result_admission = ("output_budget_exhausted" if completed.finish_reason == "length"
                                 else "provider_nonzero")
@@ -2894,9 +2889,14 @@ def _adaptive_pre_claim_admission(
         # Its unchanged caller remains the omitted-policy path below.
         return _RuntimeStatusObservation("unknown", reason="supported_auth_status_unavailable")
 
+    from aria_kernel.provider_cooldown import active_provider_cooldowns
+
     admission = _native_runtime_admission(
         repo_root=repo_root, profile=profile, policy=policy, environ=environment,
         observe_status=observe_status,
+        # The exhausted-provider memory: a provider cooled by a previous
+        # attempt's ClaudeCreditExhausted is refused here without a probe.
+        cooled_providers=active_provider_cooldowns(tools_dir),
     )
     if admission.eligible_routes:
         route = admission.eligible_routes[0]
@@ -3376,16 +3376,38 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
             reason=("native_runtime_execution_unavailable" if native_runtime is not None else "claude_cli_auth_failure"),
         )
         return 1
-    except (ClaudeCliUnavailable, ClaudeCreditExhausted) as exc:
+    except ClaudeCreditExhausted as exc:
+        # Operator decision 2026-09-12 — a quota exhaustion is a PROVIDER
+        # fact, answered by the queue, never by a weaker tier. Three things
+        # happen here and nowhere else: (1) on the native lane the provider
+        # is cooled for `provider_cooldown_seconds` so the next admission
+        # skips it and admits the next vendor for the roles it can serve
+        # (`claude auth status` cannot see quota; the ledger row is the only
+        # evidence); (2) the claim is released under a reason that NAMES the
+        # provider, classified as a harness fault so the request's requeue
+        # budget does not burn for a billing event — the request derives
+        # REQUEUED and is retried when the provider is back; (3) nothing is
+        # submitted, because a usage-limit notice is not an answer
+        # (ORPHAN-HIGH-475). ORPHAN-HIGH-489 remains the reason this arm
+        # exists at all: a raise with no handler left the claim CLAIMED for
+        # the full lease window.
         sys.stderr.write(_redact_lease_in_message(str(exc), lease_token) + "\n")
-        # ORPHAN-HIGH-489 — ClaudeCreditExhausted belongs here too. I added that
-        # raise in ORPHAN-HIGH-475 so a quota notice could not be returned as
-        # the agent's answer, and then left it in nobody's handler: exactly the
-        # ResourceLimitsUnavailable defect one release earlier, in my own code.
-        # A quota-exhausted run would escape main() with the claim CLAIMED, so
-        # a billing event — the most likely reason to run out mid-cycle — would
-        # also block the request for the full lease window. Found by the review
-        # panel while attacking the ResourceLimitsUnavailable fix.
+        if native_runtime is not None:
+            from aria_kernel.provider_cooldown import record_provider_cooldown
+
+            record_provider_cooldown(
+                tools_dir, provider=exc.provider, model=exc.model,
+                cooldown_seconds=native_runtime.policy.provider_cooldown_seconds,
+                request_id=request_id, claim_id=claim_id, detection=exc.detail,
+            )
+        _release_claim(
+            tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+            agent_id=agent_id, lease_token=lease_token,
+            reason=f"provider_quota_unavailable:{exc.provider}",
+        )
+        return 1
+    except ClaudeCliUnavailable as exc:
+        sys.stderr.write(_redact_lease_in_message(str(exc), lease_token) + "\n")
         # ORPHAN-HIGH-470 follow-through — this arm is the landing site for
         # every refused spawn: `invoke_claude_cli` re-raises the whole
         # perimeter family (auth / CLI / policy / usage — policy now including
@@ -3397,7 +3419,8 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
         # below both release; this arm now matches them. (An earlier draft of
         # this comment claimed EVERY fail-fast branch in main() releases — a
         # reviewer flagged that as unverified, and it is narrowed here rather
-        # than left as a claim nobody checked.)
+        # than left as a claim nobody checked.) ClaudeCreditExhausted had its
+        # own arm carved out above (ORPHAN-HIGH-489 put it here first).
         _release_claim(
             tools_dir=tools_dir, repo=repo, claim_id=claim_id,
             agent_id=agent_id, lease_token=lease_token,

@@ -920,6 +920,9 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
             f"{_KERNEL}evidence_validator.py",
             f"{_KERNEL}plan_convergence.py",
             f"{_KERNEL}state_manifest.py",
+            # Native runtime attempts: the reservation that binds a managed
+            # attempt to a claim lives in budget.py (2026-09-11 integration).
+            f"{_KERNEL}budget.py",
             "tools/aria-poc/dispatch_failure.py",
             "tools/aria-poc/claude_runtime.py",
             "tools/aria-poc/ci_executor.py",
@@ -946,6 +949,13 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
             f"{_KERNEL}evidence_validator.py",
             f"{_KERNEL}genesis_lifecycle.py",
             f"{_KERNEL}plan_convergence.py",
+            # Native runtime attempts (2026-09-11 Codex integration): the
+            # attempt reservation reads results to validate the claim's
+            # dispatch authority before a managed attempt is bound, and the
+            # executor reads the accepted result to reconcile the attempt it
+            # ran — both decide, neither merely observes.
+            f"{_KERNEL}budget.py",
+            "tools/aria-poc/ci_executor.py",
         ),
         contracts=(EvidenceContract(
             surface="agent_invocation_results",

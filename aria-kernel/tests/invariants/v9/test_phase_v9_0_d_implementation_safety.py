@@ -1017,6 +1017,14 @@ class TestV9PublicApi(unittest.TestCase):
             # repository's `nx affected --target=test`.
             "classify_declared_surface", "implementation_allowed_scope",
             "CANONICAL_VALIDATION_TIMEOUT_MS",
+            # ARIA-HIGH-076 / 077 (2026-09-11) — four additions, each a review
+            # event. The limiter's bus plumbing is named and read by one owner
+            # so every lane probes its limiter in the environment that launches
+            # it; the managed Claude sandbox wrapper binds the resolved
+            # executable, the spawn's documents and one credential file into
+            # the private home (the mirror of the Codex runtime-state wrapper).
+            "LIMITER_CONTROL_ENV_NAMES", "limiter_control_environment",
+            "wrap_managed_claude_in_sandbox", "CLAUDE_LOGIN_CREDENTIALS_FILENAME",
         }
         self.assertEqual(
             set(_is.__all__), canonical,

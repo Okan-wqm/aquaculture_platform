@@ -227,6 +227,9 @@ class TestV9Immutable(unittest.TestCase):
             ".claude/agents/", "aria-kernel/aria_kernel/",
             ".github/", "infrastructure/", "docs/adr/",
             ".env", "scripts/", "CODEOWNERS",
+            # ARIA-MEDIUM-087 — the policy the kernel obeys is not the
+            # governed agent's to write.
+            "aria-config/",
         }
         actual = set(_is.READONLY_PATHS)
         missing = required - actual
@@ -234,6 +237,20 @@ class TestV9Immutable(unittest.TestCase):
             missing, set(),
             f"READONLY_PATHS missing canonical entries: {missing}",
         )
+
+    def test_i_v9_immutable_01_every_policy_the_kernel_reads_is_read_only(self):
+        """ARIA-MEDIUM-087 — every file genesis_policy loads from the
+        workspace sits under a READONLY_PATHS prefix, so a write-capable
+        spawn (scope **) can neither lift its cost caps, its breaker
+        threshold, its anchor age nor its monetary admission and have the
+        next dispatch obey."""
+        from aria_kernel import genesis_policy
+
+        for relative in (genesis_policy.OVERRIDE_RELPATH,):
+            self.assertTrue(
+                any(relative.startswith(prefix) for prefix in _is.READONLY_PATHS),
+                f"{relative} is read as policy and is not read-only for the agent",
+            )
 
 
 class TestV9BashAllowlist(unittest.TestCase):

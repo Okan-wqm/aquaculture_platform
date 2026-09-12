@@ -84,6 +84,13 @@ READONLY_PATHS: tuple[str, ...] = (
     ".git/",                    # git plumbing self-mod (refs, objects, hooks)
     "aria-debts/",              # signing keys + installation tokens
     "aria-kernel/tests/",       # broaden from invariants/ — kernel tests read-only
+    # ARIA-MEDIUM-087 — operator policy. The kernel reads
+    # <workspace>/aria-config/genesis_policy.json for admission, cost caps,
+    # breaker thresholds and anchor ages (through bound_workspace_root since
+    # ARIA-HIGH-079); a write-capable spawn with scope ** could rewrite it
+    # in its own tree and the next dispatch would obey. The trust boundary
+    # of a policy is that the agent it governs cannot author it.
+    "aria-config/",
 )
 
 # Plan ARIA-V9.0-D — ALLOWED_BASH_COMMANDS regex allowlist (NOT

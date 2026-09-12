@@ -559,8 +559,14 @@ def _canonicalize_revision_payload(
       3. response.plan_content (TOP-LEVEL — current agent contract)
       4. details.plan_content (semi-canonical)
 
-    If the agent supplies a partial wrapper (e.g. an explicit
-    ``revision_id``), the kernel-derived values fill only the gaps.
+    If the agent supplies a partial wrapper, only its ``revision_id`` label
+    is honoured. ``round`` and ``parent_revision_hash`` are kernel-state
+    FACTS the agent cannot read: trial eight's round-2 primary (2026-09-12,
+    ARIA-HIGH-080) echoed the request's ``round_number`` (2) as
+    ``details.revision.round`` while the plan's critique round was still 1,
+    the reducer refused ``revision round must match current critique round``,
+    and the drainer declared the accepted envelope dead — HUMAN_REQUIRED
+    after a 1,133 s run the kernel had already accepted.
     """
     from .plan_convergence import (
         fold_plan_state,
@@ -617,10 +623,10 @@ def _canonicalize_revision_payload(
         "revised_by_agent": supplied.get("revised_by_agent") or response.get("agent_id"),
         "revision_id": supplied.get("revision_id")
             or f"rev-{plan_id}-r{current_round or 1}-{request_id[-12:]}",
-        "round": supplied.get("round") if isinstance(supplied.get("round"), int) and supplied.get("round") > 0 else current_round,
+        "round": current_round,
         "content": content,
         "content_hash": content_hash,
-        "parent_revision_hash": supplied.get("parent_revision_hash") or parent_content_hash,
+        "parent_revision_hash": parent_content_hash,
         "addresses_review_risk_ids": (
             [str(item) for item in supplied.get("addresses_review_risk_ids", []) if isinstance(item, str) and item]
         ),

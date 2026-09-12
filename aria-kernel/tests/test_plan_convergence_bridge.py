@@ -95,6 +95,36 @@ class RecordPlanResultDispatchTests(unittest.TestCase):
         self.assertEqual(kwargs["revision"]["revision_id"], "rev-1")
         self.assertEqual(result["event_id"], "ev-pp-1")
 
+    def test_revision_round_and_parent_are_kernel_facts_not_agent_claims(self) -> None:
+        """ARIA-HIGH-080 — the round-2 primary of trial eight echoed the
+        request's round_number (2) as details.revision.round while the
+        plan's critique round was 1; the bridge passed it through, the
+        reducer refused, and an accepted 1,133 s revision was declared
+        dead. The agent cannot read plan state, so what it says about the
+        round or the parent hash is a guess; the kernel's own state is
+        the only source for both. Its revision_id label still counts."""
+        from aria_kernel.plan_convergence_bridge import _canonicalize_revision_payload
+
+        response = {
+            "request_id": "AIR-aria-primary-planner-f3c9a608e939", "agent_id": "chain-f-primary_plan-1",
+            "plan_content": {"schema_version": 2, "title": "t", "summary": "s", "affected_surfaces": [],
+                             "key_changes": ["k"], "validation_commands": [], "evidence_refs": ["a.ts:1"]},
+            "details": {"revision": {"round": 2, "parent_revision_hash": "sha256:" + "b" * 64,
+                                     "revision_id": "rev-agent-label", "prior_round_artifacts_found": False}},
+        }
+        with patch(
+            "aria_kernel.plan_convergence.fold_plan_state",
+            return_value={"state": "CROSS_REVIEWED", "current_round": 1,
+                          "latest_revision": {"revision_id": "flow-x-r1", "content_hash": "sha256:" + "a" * 64}},
+        ):
+            payload = _canonicalize_revision_payload(
+                response=response, details=response["details"], plan_id="flow-x", base_dir=None,
+            )
+        self.assertEqual(payload["round"], 1)
+        self.assertEqual(payload["parent_revision_hash"], "sha256:" + "a" * 64)
+        self.assertEqual(payload["revision_id"], "rev-agent-label")
+        self.assertEqual(payload["revised_by_agent"], "chain-f-primary_plan-1")
+
     def test_primary_plan_on_draft_raises_bridge_contract_violation(self) -> None:
         """Plan ARIA-V8 v2 §4 Phase 8.2 (B-V2-06) — DRAFT state refuses
         primary_plan dispatch via BridgeContractViolation. V8 v1's

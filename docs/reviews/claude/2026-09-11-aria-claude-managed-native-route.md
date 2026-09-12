@@ -268,3 +268,58 @@ The metered policy keeps every cap exactly as before.
 workspace reads that workspace's caps and, under `managed_subscription`,
 passes an over-cap estimate through the real spawn gate as telemetry; a
 legacy store still resolves its parent.
+
+## Addendum — ARIA-HIGH-080 / 081: the round-2 primary revision, accepted and then declared dead
+
+Trial eight ran the kernel's own convergence loop end to end on real
+models for the first time (driver: the trial tools' `run_round_chain.py`,
+one drainer step then one normal dispatch per turn): challenger accepted
+on managed Claude (fable, 829 s), cross-review accepted on Codex
+(gpt-6-astra, 333 s; `material_risks_present`), the drainer minted the
+round-2 primary revision, and the revision was accepted at the request
+layer on managed Claude (fable, 1,133 s, 2026-09-12T01:38Z). The next
+drainer step forced `HUMAN_REQUIRED` (verdict `split`, branch
+`defensive_default`, `convergence_envelope_dead:primary_plan`).
+
+Two defects, both in what the kernel does with a revision it accepted:
+
+- **ARIA-HIGH-080.** `agent_bridge_warning: revision round must match
+current critique round`. The planner had echoed the envelope's
+  `round_number` (2) as `details.revision.round`; the plan's critique
+  round was 1. `_canonicalize_revision_payload` says in its own docstring
+  that agent-supplied values must be ignored for kernel state — and then
+  honoured the supplied `round` and `parent_revision_hash`. The reducer
+  refused, the fold was skipped, and the drainer — finding no live
+  `primary_plan` envelope for the round it had minted — declared the
+  accepted one dead. `round` and `parent_revision_hash` now come from
+  `fold_plan_state` only; the agent's `revision_id` label is kept.
+- **ARIA-HIGH-081.** The revision's own note: "no round-1 primary plan,
+  challenger plan or cross-review envelope was readable". The revision
+  envelope's `suggested_prompt` was one sentence — "addressing
+  cross-review findings" — and carried none of them; the planner was
+  expected to read the store, which a tool-less route (Codex, Z.ai)
+  cannot and a sandboxed spawn with the store bound outside its workspace
+  cannot see. `issue_primary_envelope` now builds the prompt from the
+  plan state it already folds for its legal-state check: the latest
+  primary body, the challenger body and the last round's surfaced risks,
+  inside `<untrusted_*>` tags exactly as the cross-review envelope
+  carries its plans, with the instruction that the kernel owns the round.
+
+**Proof.** `test_plan_convergence_bridge` (+1): a supplied `round: 2` /
+stale parent against `current_round: 1` is recorded as round 1 with the
+kernel's parent hash. `test_primary_revision_envelope_carries_findings`
+(4): the prompt carries plans and risks in tags, names absence instead of
+inventing content, and `issue_primary_envelope` builds it by default.
+The trial-eight plan stays `HUMAN_REQUIRED` — the ledger is not rewritten;
+the next trial runs the loop on the fixed kernel.
+
+## Tracked, not closed here — ARIA-MEDIUM-082
+
+Running the convergence suites beside the pre-push run (load ≈ 5), three
+`PlannerTwinContextTests` fixtures failed on `implemented.status
+'unknown' != 'available'`; alone at load ≈ 4 the same fixture reports
+`available / selected_source_definition`. The twin's self-feature
+qualification runs under `_ScopedSourceBudget()`'s literal two-second
+deadline and answers `qualification_deadline` when it expires — honest at
+runtime, host-dependent in a fixture. Owner: the budget as a policy value
+with a fixture seam; deadline 2026-09-26.

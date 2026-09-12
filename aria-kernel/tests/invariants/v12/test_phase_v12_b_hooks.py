@@ -58,7 +58,21 @@ def _payload(tool: str, **tool_input) -> dict:
 
 class SettingsCarryRulesAndHooks(unittest.TestCase):
     def test_I_V12_HOOK_01_profiled_settings_have_rules_and_every_hook(self) -> None:
-        ctx = {"python": "python3", "kernel_root": "/w/aria-kernel", "tools_dir": "/t", "workspace_root": "/w", "request_id": "AIR-1"}
+        with tempfile.TemporaryDirectory() as tmp:
+            self._assert_profiled_settings_have_rules_and_every_hook(Path(tmp).resolve())
+
+    def _assert_profiled_settings_have_rules_and_every_hook(self, workspace: Path) -> None:
+        # The turn cap compiled into the settings is read from the policy of
+        # the workspace the spawn's store is bound to
+        # (turn_budget_policy.implementer_turn_budget_for_store), so the
+        # context names a real store under a tmp workspace of this test's
+        # own with no override — a placeholder such as "/t" would resolve
+        # to "/" and the asserted cap would depend on the host filesystem.
+        tools = ensure_tools_dir(workspace / "aria-tools")
+        ctx = {
+            "python": "python3", "kernel_root": str(workspace / "aria-kernel"), "tools_dir": str(tools),
+            "workspace_root": str(workspace), "request_id": "AIR-1",
+        }
         settings = build_settings(profile_by_id("implementer"), hook_context=ctx)
         self.assertEqual(set(settings["hooks"]), set(HOOK_EVENTS))
         self.assertIn("Bash(curl*)", settings["permissions"]["deny"])
@@ -74,10 +88,13 @@ class SettingsCarryRulesAndHooks(unittest.TestCase):
         self.assertIn("-m aria_kernel hook pre-tool", command)
         self.assertIn("--request-id AIR-1", command)
         # cycle_and_turn_budget_cap: a write-scope profile's PreToolUse hook is
-        # compiled with the kernel's turn cap; the full matrix is in
-        # tests/test_turn_budget.py.
-        self.assertIn("--turn-budget 10", command)
-        self.assertEqual(settings["_aria"]["turn_budget"], 10)
+        # compiled with the policy's turn cap for the store's bound workspace
+        # — the kernel default 60 here, since this context names a store with
+        # no override (operator decision 2026-09-12; the policy block is
+        # pinned in tests/test_turn_budget_policy.py, the full reader matrix
+        # in tests/test_turn_budget.py).
+        self.assertIn("--turn-budget 60", command)
+        self.assertEqual(settings["_aria"]["turn_budget"], 60)
         self.assertTrue(settings_hash(settings).startswith("sha256:"))
         self.assertEqual(settings_hash(settings), settings_hash(build_settings(profile_by_id("implementer"), hook_context=ctx)))
         preview = build_settings(profile_by_id("judge_opus"), hook_context=None)

@@ -23,9 +23,13 @@ unreadable policy is not permission.
 
 cycle_and_turn_budget_cap (policy §14): a budgeted spawn — one whose profile
 has a write scope, so the kernel compiled ``--turn-budget N`` into its hook
-command — has every Edit/Write/Bash turn admitted against the job deadline
-and the N=10 turn cap INSIDE the state transaction that appends its verdict,
-so the count and the row are one atomic step. The refusal owner and the
+command, N being the ``implementer_turn_budget.budgeted_turns`` of the policy
+the spawn's store is bound to (:mod:`turn_budget_policy`, kernel default 60)
+— has every Edit/Write/Bash turn admitted against the job deadline and that
+turn cap INSIDE the state transaction that appends its verdict, so the count
+and the row are one atomic step. The hook trusts argv, never a policy file:
+inside the sandbox the agent's tree is the agent's, and the number the kernel
+compiled is the only one the executor vouched for. The refusal owner and the
 evidence reader are :mod:`turn_budget`.
 """
 from __future__ import annotations
@@ -205,7 +209,7 @@ def admit_budgeted_turn(
     that records it is appended by the same transaction that counted the
     rows before it. That is what makes the cap a cap: two parallel tool
     calls serialise on the ledger lock, so the second one sees the first
-    one's row and the eleventh admitted turn cannot exist. A policy deny is
+    one's row and an admitted turn past the cap cannot exist. A policy deny is
     recorded with its observation but is never re-decided — a turn that will
     not run consumes nothing.
     """

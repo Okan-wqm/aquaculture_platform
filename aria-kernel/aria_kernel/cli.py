@@ -2865,8 +2865,11 @@ def build_parser() -> argparse.ArgumentParser:
         hook_verb.add_argument("--request-id", required=True)
         if verb == "pre-tool":
             # cycle_and_turn_budget_cap — compiled into the spawn settings by
-            # claude_settings.build_settings for write-scope profiles; absent
-            # for an unbudgeted spawn.
+            # claude_settings.build_settings for write-scope profiles from the
+            # policy of the store's bound workspace (turn_budget_policy);
+            # absent for an unbudgeted spawn. The sandboxed hook takes the
+            # cap from argv only — it never reads a policy file the agent
+            # could have edited in its own tree.
             hook_verb.add_argument("--turn-budget", type=int, default=None)
 
     # Plan 032 Faz 032c — checkpoints, sessions, recovery, search.

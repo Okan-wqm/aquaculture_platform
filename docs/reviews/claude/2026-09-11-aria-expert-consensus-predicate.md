@@ -188,30 +188,69 @@ separate decision. The last placeholder predicate is
     predicate `job_deadline_reached` (120 s); `cycle.py`'s between-phases skip
     delegates to it, so the phase loop and the hook cannot disagree on the
     margin. `cycle.job_deadline_epoch` stays the only writer.
-  - The turn cap is `IMPLEMENTER_TURN_BUDGET = 10` budgeted turns per
-    implementer request (`BUDGETED_TOOL_NAMES` = Bash, Edit, Write, MultiEdit,
-    NotebookEdit). `claude_settings.build_settings` compiles `--turn-budget 10`
-    into the PreToolUse hook command of write-scope profiles only (implementer,
-    worker); the PreToolUse matcher is derived from the same set, so the
-    consulted tools and the budgeted tools are one list.
+  - The turn cap is the policy's `implementer_turn_budget.budgeted_turns`
+    budgeted turns per implementer request (`BUDGETED_TOOL_NAMES` = Bash,
+    Edit, Write, MultiEdit, NotebookEdit) — a POLICY value owned by
+    `turn_budget_policy`, not a kernel literal: the kernel default is 60
+    (`aria_kernel/data/genesis_policy_default.json`), `<workspace>/aria-config/genesis_policy.json`
+    overrides it, and the ceiling is 2 × `plan_convergence.MAX_AFFECTED_PATHS`
+    = 400 (one Edit and one validating Bash turn per affected path of the
+    widest plan the kernel converges; past that a policy would switch the
+    cap off). `implementer_turn_budget_policy` REFUSES, with the offender and
+    the bound named, a value below 1 (a cap of zero refuses the first turn —
+    that switches implementers off, it does not budget them), a value above
+    the ceiling, a non-integer (boolean, float, string, null), a block that
+    is not an object, and a configuration key the block does not know (a
+    misspelled `budgeted_turns` would otherwise run on the default and tell
+    the operator nothing); `_`-prefixed keys are annotations (`_doc` in the
+    default, `_comment` in the template) and are not read. Every reader
+    resolves the cap for the workspace the store is bound to
+    (`implementer_turn_budget_for_store` over `tool_registry.bound_workspace_root`,
+    ARIA-HIGH-079); the store is a required argument and an explicit `None`
+    is refused rather than resolved through the cwd or `ARIA_TOOLS_DIR`.
+    `claude_settings.build_settings` compiles `--turn-budget N` from the
+    spawn's store (`hook_context["tools_dir"]`) into the PreToolUse hook
+    command of write-scope profiles only (implementer, worker), so the cap
+    is part of the session fingerprint; a spawn with no hook context
+    compiles no cap, and a write-capable one is refused upstream. The
+    PreToolUse matcher is derived from the same tool set, so the consulted
+    tools and the budgeted tools are one list. `turn_budget.IMPLEMENTER_TURN_BUDGET`
+    no longer exists.
   - `hooks.admit_budgeted_turn` counts the request's admitted budgeted turns
-    from `hooks/decisions.jsonl`, decides, and appends the verdict inside ONE
-    `state_transaction` — two parallel tool calls serialise on the ledger
-    lock, so the eleventh admitted turn cannot exist. Refusals are
+    from `hooks/decisions.jsonl`, decides against the cap the kernel
+    compiled into its argv — inside the sandbox the agent's tree is the
+    agent's, so the hook never reads a policy file — and appends the verdict
+    inside ONE `state_transaction`: two parallel tool calls serialise on the
+    ledger lock, so an admitted turn past the cap cannot exist. Refusals are
     `cycle_budget_exhausted:…` (checked first) and
-    `implementer_turn_budget_exhausted:used=10:cap=10`, always at the
-    boundary; a policy-denied turn never counts; every budgeted verdict
-    carries a `turn_budget` observation (cap, used_before, deadline_epoch,
-    remaining_seconds, margin). `hook_decisions` is declared write-driving
-    because its loss resets the cap.
+    `implementer_turn_budget_exhausted:used=N:cap=N` with N the compiled
+    cap, always at the boundary; a policy-denied turn never counts; every
+    budgeted verdict carries a `turn_budget` observation (cap, used_before,
+    deadline_epoch, remaining_seconds, margin). `hook_decisions` is declared
+    write-driving because its loss resets the cap.
   - `merge_authority._capture_pre_merge_context` reads
     `hooks/decisions.jsonl` as an optional source under the final prefix
-    recheck; `_capture_pre_merge_turn_budget` reduces the request's rows via
-    the pure `turn_budget_evidence`; `_check_cycle_and_turn_budget_cap`
-    refuses an unbound implementation, absent/malformed/other-cap evidence,
-    either refusal class, or more admitted turns than the cap
-    (`implementer_turn_budget_exceeded_unrefused`), and passes as
-    `native_cycle_and_turn_budget_respected`. Dollars are not read.
+    recheck; `_capture_pre_merge_turn_budget` resolves the same policy for
+    the store being merged (`implementer_turn_budget_for_store(tools)`) and
+    reduces the request's rows against it via the pure
+    `turn_budget_evidence(rows, request_id=…, policy_cap=…)`, which carries
+    both the recorded cap and the policy cap; `_check_cycle_and_turn_budget_cap`
+    refuses an unbound implementation, absent/malformed evidence, an invalid
+    policy (`native_turn_budget_policy_invalid`), a recorded cap other than
+    the policy's (`native_turn_budget_cap_mismatch` — a spawn compiled
+    against another workspace's policy, or a policy changed since the
+    spawn; re-checked in the predicate so a hand-assembled evidence cannot
+    pass on the recorded cap alone), either refusal class, or more admitted
+    turns than the cap (`implementer_turn_budget_exceeded_unrefused`), and
+    passes as `native_cycle_and_turn_budget_respected`. Dollars are not
+    read. `turn_budget_policy.py` joins `cost_budget.py` in the
+    `pre_merge_perimeter` capability's authority and producer paths
+    (`autonomy_evidence.CAPABILITY_SPECS`): a change to how the cap is
+    resolved changes what the perimeter admits.
+  - Historical note: bd74c801c (2026-09-12) shipped this predicate with the
+    literal `turn_budget.IMPLEMENTER_TURN_BUDGET = 10` (`--turn-budget 10`,
+    ten admitted and the eleventh refused); the operator decision below
+    replaced the literal with the policy value.
   - With ARIA-CRITICAL-007 (previous addendum) this leaves no placeholder in
     the registry: the `_not_implemented` binder is deleted, and the v9
     invariants pin that every pre-merge predicate answers an empty context
@@ -222,20 +261,65 @@ separate decision. The last placeholder predicate is
     native merge observes all seven.
   - §14 of the safety-contracts policy and the implementer safety contract
     (`.claude/agents/_shared/aria-implementer-safety-contract.md`) now state
-    the wall-clock + N=10 contract instead of `budget.DEFAULT_MAX_BUDGET_USD_PER_CYCLE`.
-- **Proof (this host, 2026-09-12):** `tests/test_turn_budget.py` (16: ten
-  admitted, the eleventh refused with exit 2; `cycle_budget_exhausted` at
-  deadline − 120 s; CLI plumbing; settings compile the cap for implementer
-  and worker only; predicate matrix), v12 hook/checkpoint/MCP invariants,
-  the v9 implementation-safety invariants after their deliberate rewrite,
-  `test_job_deadline_scope`, state-guard, roster and usage-ledger invariants,
-  `test_autonomy_evidence_status`, `test_auto_merge`, plus the operator-
-  feedback suites: 345 passed. `test_merge_authority_pre_merge_perimeter.py`
-  with both new predicates live on the same fixture: the perimeter passes
-  `cycle_and_turn_budget_cap` with three admitted turns and refuses it with
-  `implementer_turn_budget_exhausted` after the eleventh.
-- **Open for the operator:** N=10 is the contract as written and is one
-  literal (`turn_budget.IMPLEMENTER_TURN_BUDGET`); a real implementation that
-  edits, runs its tests and commits will spend Bash turns on each test run,
-  so the first native implementer trial will show whether 10 is a cap or a
-  wall. Raising it is a policy decision, not a code shape change.
+    the wall-clock + policy-cap contract (`implementer_turn_budget.budgeted_turns`,
+    kernel default 60, bounded to [1, 400], read for the store's bound
+    workspace) instead of `budget.DEFAULT_MAX_BUDGET_USD_PER_CYCLE`.
+- **Proof (this host, 2026-09-12, policy shape):** `tests/test_turn_budget_policy.py`
+  (8: the shipped block and its `POLICY_KEYS` membership; override, empty
+  block and annotation key honoured; a non-object block and an unknown key
+  refused by name; zero, negative, above-ceiling, boolean, float, string
+  and null refused with the bound named; the ceiling = 2 × `MAX_AFFECTED_PATHS`;
+  a legacy store reads its parent, a bound store reads its bound workspace
+  and not its parent; an unnamed store is refused even with `ARIA_TOOLS_DIR`
+  set — the refusal tests fail against the tolerant shape and pass against
+  this one), `tests/test_turn_budget.py` (18: sixty admitted under the
+  default, the sixty-first refused with exit 2; `cycle_budget_exhausted` at
+  deadline − 120 s; CLI plumbing; settings compile the bound workspace's
+  cap for implementer and worker only, honour an override and refuse an
+  invalid policy; evidence and predicate refuse a recorded cap other than
+  the policy's), the v12 hook invariants (the settings fixture now names a
+  real store under its own tmp workspace — `bound_workspace_root("/t")`
+  resolves to `/`, so the former placeholder made the asserted `--turn-budget 60`
+  depend on the host filesystem), `test_phase4_1_genesis_policy` and the
+  `test_autonomy_evidence_status` roster and surface-writer discovery
+  tests with `turn_budget_policy.py` in the perimeter's authority and
+  producer paths: 32 + 18 passed. `test_merge_authority_pre_merge_perimeter.py`
+  with the fixture workspace's override of 10, so the whole chain is proven
+  to read THAT workspace's policy: the perimeter passes `cycle_and_turn_budget_cap`
+  with three admitted turns and refuses it with `implementer_turn_budget_exhausted`
+  after the tenth (`evidence.turn_budget_cap == evidence.turn_budget_policy_cap == 10`).
+- **ARIA-MEDIUM-091 — operator decision (2026-09-12, taken by the supervising
+  session on the operator's delegation):** the implementer turn cap is a POLICY
+  value, not a literal, and its kernel default is 60 budgeted turns (Edit + Write + Bash
+  - MultiEdit + NotebookEdit), not 10. Reason: each Edit call is one turn and
+    each test run is one Bash turn, so a root-cause implementation of the kind
+    this repository demands spends 20–40 turns — at 10 the cap was a wall; the
+    cap exists to stop a runaway loop (perf CRIT-001 / ai HIGH-013), and the
+    run's wall clock (the job deadline) is the real budget under the
+    managed-subscription policy. Shape, the way ARIA-MEDIUM-082 made the
+    source-qualification deadline policy: `implementer_turn_budget.budgeted_turns`
+    in `genesis_policy_default.json` (60), overridable in
+    `<workspace>/aria-config/genesis_policy.json`, with `turn_budget_policy`
+    as the typed accessor that REFUSES values below 1 (a cap of zero refuses
+    the first turn — that switches implementers off, it does not budget them)
+    and above 2 × `plan_convergence.MAX_AFFECTED_PATHS` = 400 (one Edit and one
+    validating Bash turn per affected path of the widest plan the kernel
+    converges; past that a policy would switch the cap off). Every reader
+    resolves the cap for the workspace the store is bound to
+    (`implementer_turn_budget_for_store` over `bound_workspace_root`,
+    ARIA-HIGH-079): `build_settings` compiles it into `--turn-budget`, the
+    sandboxed hook admits against the compiled number only, and the pre-merge
+    capture compares the recorded cap against the policy of the store being
+    merged, so evidence recorded under any other cap is refused by name
+    (`native_turn_budget_cap_mismatch`; an invalid policy is
+    `native_turn_budget_policy_invalid`). `turn_budget.IMPLEMENTER_TURN_BUDGET`
+    no longer exists. Pinned by `tests/test_turn_budget_policy.py` (block,
+    default, override, the refused shapes — zero, negative, above the
+    ceiling, boolean, float, string, null, a block that is not an object, an
+    unknown key — bound-store resolution, and the refusal of an unnamed
+    store),
+    `tests/test_turn_budget.py` (settings compile the policy value and refuse
+    an invalid one; sixty admitted, the sixty-first refused; evidence and
+    predicate refuse a cap other than the policy's), and the pre-merge
+    perimeter fixture, whose workspace overrides the cap to 10 so the whole
+    chain is proven to read THAT workspace's policy rather than the default.

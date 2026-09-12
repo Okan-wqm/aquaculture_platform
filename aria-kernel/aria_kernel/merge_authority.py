@@ -537,7 +537,7 @@ def _capture_pre_merge_context(
                 tools=tools, state=state, rows=rows,
             )
             budget_observation = _capture_pre_merge_turn_budget(
-                rows=rows, implementation=implementation,
+                tools=tools, rows=rows, implementation=implementation,
             )
 
         scope_observation: dict[str, Any] = {}
@@ -850,21 +850,34 @@ def _capture_pre_merge_expert_consensus(
 
 
 def _capture_pre_merge_turn_budget(
-    *, rows: dict[str, list[dict[str, Any]]], implementation: dict[str, Any],
+    *, tools: Path, rows: dict[str, list[dict[str, Any]]], implementation: dict[str, Any],
 ) -> dict[str, Any]:
     """Reduce the hook verdicts bound to THIS implementation's request.
 
     The producer is the kernel hook (``hooks.admit_budgeted_turn``), invoked
-    by the CLI inside the agent's sandbox with the request id the executor
-    compiled into the spawn settings; the rows are bound to the
-    implementation by that id. The verified prefix was read under the same
-    transaction as every other source, so the final recheck covers it. The
-    reduction (``turn_budget.turn_budget_evidence``) is pure and names
-    absence and malformation; the registry still owns the verdict.
+    by the CLI inside the agent's sandbox with the request id and the cap the
+    executor compiled into the spawn settings; the rows are bound to the
+    implementation by that id. The cap they are compared against is the
+    policy of the workspace the merged store is bound to
+    (``turn_budget_policy.implementer_turn_budget_for_store`` — the same read
+    the spawn made), so evidence recorded under any other cap is refused by
+    name and a policy the store's workspace refuses is a named reason rather
+    than a capture that dies with an unrelated one. The verified prefix was
+    read under the same transaction as every other source, so the final
+    recheck covers it. The reduction (``turn_budget.turn_budget_evidence``)
+    is pure and names absence and malformation; the registry still owns the
+    verdict.
     """
     from .turn_budget import turn_budget_evidence
+    from .turn_budget_policy import implementer_turn_budget_for_store
 
-    return turn_budget_evidence(rows["hook_decisions"], request_id=implementation["request_id"])
+    try:
+        policy_cap = implementer_turn_budget_for_store(tools)
+    except GovernanceError:
+        return {"turn_budget_unavailable_reason": "native_turn_budget_policy_invalid"}
+    return turn_budget_evidence(
+        rows["hook_decisions"], request_id=implementation["request_id"], policy_cap=policy_cap,
+    )
 
 
 def _join_pre_merge_implementation(

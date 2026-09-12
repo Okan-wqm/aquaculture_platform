@@ -355,6 +355,15 @@ class NativeImplementationContextTests(unittest.TestCase):
             "eslint.config.cjs": "module.exports = [{files: ['apps/**/*.js'], rules: {'no-unused-vars': 'error'}}];\n",
             "tsconfig.json": json.dumps({"compilerOptions": {"strict": True, "types": []}, "files": [source_path]}),
             "apps/farm-service/checked.js": "export const sampleUnit = 'milliseconds';\n",
+            # cycle_and_turn_budget_cap — the implementer turn cap is the
+            # policy of the workspace the store is bound to (operator
+            # decision 2026-09-12; kernel default 60). This fixture's
+            # workspace overrides it to 10, so the exhausted case below
+            # reaches the cap in ten hook turns AND the whole chain — the cap
+            # the hook admits against, the cap the evidence is compared to —
+            # is proven to come from THIS workspace's policy, not the
+            # kernel default.
+            "aria-config/genesis_policy.json": json.dumps({"implementer_turn_budget": {"budgeted_turns": 10}}),
             source_path: "export const sampleIntervalMs: number = 60000;\n",
             check_path: (
                 "const fs = require('node:fs');\nconst vm = require('node:vm');\n"
@@ -446,13 +455,18 @@ class NativeImplementationContextTests(unittest.TestCase):
         claim = claim_request(request_id=request["request_id"], agent_id="native-implementation-worker",
             lease_seconds=1800, base_dir=tools)
         # cycle_and_turn_budget_cap — the implementer's spawn ran under the
-        # kernel hook with the compiled cap (claude_settings → --turn-budget);
+        # kernel hook with the compiled cap (claude_settings → --turn-budget,
+        # resolved from the policy of the workspace the store is bound to);
         # its admitted Edit/Write/Bash verdicts on hooks/decisions.jsonl are
         # the evidence the seventh predicate reads. No job deadline is bound
         # in this fixture's cleared environment, exactly like the executor
         # lane, whose cycle cap is the pre-spawn dispatch gate.
         from aria_kernel import hooks as kernel_hooks
-        from aria_kernel.turn_budget import IMPLEMENTER_TURN_BUDGET
+        from aria_kernel.turn_budget_policy import IMPLEMENTER_TURN_BUDGET_DEFAULTS, implementer_turn_budget_for_store
+
+        IMPLEMENTER_TURN_BUDGET = implementer_turn_budget_for_store(tools)
+        self.assertEqual(IMPLEMENTER_TURN_BUDGET, 10, "the fixture workspace's override, not the kernel default")
+        self.assertNotEqual(IMPLEMENTER_TURN_BUDGET, IMPLEMENTER_TURN_BUDGET_DEFAULTS["budgeted_turns"])
 
         def implementer_turn(tool_use_id: str) -> int:
             hook_exit, _ = kernel_hooks.run_hook(
@@ -585,6 +599,7 @@ class NativeImplementationContextTests(unittest.TestCase):
         self.assertTrue(results["cycle_and_turn_budget_cap"].passed, results["cycle_and_turn_budget_cap"].reason)
         self.assertEqual(results["cycle_and_turn_budget_cap"].reason, "native_cycle_and_turn_budget_respected")
         self.assertEqual(evidence.turn_budget_cap, IMPLEMENTER_TURN_BUDGET)
+        self.assertEqual(evidence.turn_budget_policy_cap, IMPLEMENTER_TURN_BUDGET)
         self.assertEqual(evidence.turn_budget_used, 3)
         self.assertIsNone(evidence.turn_budget_refusal_reason)
         self.assertEqual(evidence.turn_budget_ledger_tip, hook_rows[-1]["ledger_hash"])
@@ -894,9 +909,10 @@ class NativeImplementationContextTests(unittest.TestCase):
 
         with self.subTest(ordinary_case="implementer_turn_budget_exhausted"):
             # The same implementer keeps working: seven more admitted turns
-            # reach the cap, the eleventh is refused at the boundary, and the
-            # refusal is what the predicate now reads — the attempt exceeded
-            # its cap, so what it produced is not mergeable.
+            # reach this workspace's cap of 10, the eleventh is refused at
+            # the boundary, and the refusal is what the predicate now reads
+            # — the attempt exceeded its cap, so what it produced is not
+            # mergeable.
             for turn in range(3, IMPLEMENTER_TURN_BUDGET):
                 self.assertEqual(implementer_turn(f"toolu_impl_{turn}"), kernel_hooks.EXIT_ALLOW)
             self.assertEqual(implementer_turn("toolu_impl_refused"), kernel_hooks.EXIT_BLOCK)

@@ -33,6 +33,7 @@ from aria_kernel.ledger import (
 from aria_kernel.state_manifest import iter_surfaces
 from aria_kernel.state_snapshot import SnapshotError, compute_manifest_root
 from aria_kernel.state_store import (
+    STATE_BRANCH,
     BOOTSTRAP_ACK_ENV,
     StateStoreError,
     StateStoreRefusal,
@@ -1690,6 +1691,73 @@ class OpenVersusCheckout(StateStoreTestCase):
         with self.assertRaises(StateStoreError) as ctx:
             state_store.open_state_store(self.repo, store_dir=self.repo.parent / "never")
         self.assertIn("state_store_not_open", str(ctx.exception))
+
+
+class TheStoreKnowsItsOwnBranch(StateStoreTestCase):
+    """`open_state_store` reads the branch from the worktree it opens.
+
+    Every reader of "what is published" anchors on
+    `refs/remotes/<remote>/<branch>`; an assumed branch judged a store
+    checked out elsewhere against the wrong tip (trial eleven, 2026-09-12:
+    a store bootstrapped on `aria/state-trial-eleven-20260912` reported its
+    own genesis as "not at tip" and every `aria/state` surface as lost).
+    """
+
+    def _publish_on(self, branch: str, store_dir: Path, snapshot_id: str) -> None:
+        store = checkout_state_store(self.repo, branch=branch, store_dir=store_dir)
+        self._seed_surface(store, f'{{"branch": "{branch}"}}\n')
+        result = publish_state(
+            store, snapshot=self._snapshot(store, snapshot_id), cycle_id="cycle-1", repo_hash=REPO_HASH,
+        )
+        self.assertTrue(result["published"])
+
+    def test_a_store_on_another_branch_is_judged_against_its_own_tip(self) -> None:
+        # Two lineages, both published: the production branch and a trial's.
+        self._publish_on(STATE_BRANCH, self.repo.parent / "store-main", "snap-main")
+        trial_dir = self.repo.parent / "store-trial"
+        self._publish_on("aria/state-trial", trial_dir, "snap-trial")
+
+        opened = state_store.open_state_store(self.repo, store_dir=trial_dir)
+        self.assertEqual(opened.branch, "aria/state-trial")
+        published = read_published_snapshot(opened)
+        self.assertEqual(published["snapshot_id"], "snap-trial", published)
+        self.assertEqual(
+            state_store._publication_anchor(opened), "refs/remotes/origin/aria/state-trial",
+        )
+
+    def test_a_named_branch_is_checked_against_the_worktree(self) -> None:
+        trial_dir = self.repo.parent / "store-trial"
+        checkout_state_store(self.repo, branch="aria/state-trial", store_dir=trial_dir)
+        with self.assertRaises(StateStoreError) as ctx:
+            state_store.open_state_store(self.repo, branch=STATE_BRANCH, store_dir=trial_dir)
+        self.assertIn("state_store_branch_mismatch", str(ctx.exception))
+        self.assertIn("aria/state-trial", str(ctx.exception))
+        opened = state_store.open_state_store(self.repo, branch="aria/state-trial", store_dir=trial_dir)
+        self.assertEqual(opened.branch, "aria/state-trial")
+
+    def test_the_branch_is_read_from_the_lineage_root_not_from_head(self) -> None:
+        # The worktree is detached by design; the genesis record at the root
+        # commit is the identity, and it survives every publish on top.
+        store = self._bootstrap()
+        detached = subprocess.run(
+            ["git", "-C", str(store.root), "symbolic-ref", "--short", "--quiet", "HEAD"],
+            capture_output=True, text=True, check=False,
+        )
+        self.assertNotEqual(detached.returncode, 0, "the store worktree is detached by design")
+        self.assertEqual(state_store.store_lineage_branch(store.root), STATE_BRANCH)
+        self._seed_surface(store, "")
+        publish_state(store, snapshot=self._snapshot(store, "snap-1"), cycle_id="cycle-1", repo_hash=REPO_HASH)
+        self.assertEqual(state_store.open_state_store(self.repo, store_dir=store.root).branch, STATE_BRANCH)
+
+    def test_a_lineage_without_a_genesis_record_is_refused_by_name(self) -> None:
+        store = self._bootstrap()
+        # A foreign tree registered as a worktree: its root commit carries
+        # no genesis record, so nothing says which branch it continues.
+        _git(store.root, "checkout", "--detach", "main")
+        self.assertIsNone(state_store.store_lineage_branch(store.root))
+        with self.assertRaises(StateStoreError) as ctx:
+            state_store.open_state_store(self.repo, store_dir=store.root)
+        self.assertIn("state_store_branch_unresolvable", str(ctx.exception))
 
 
 class DailyAnchorPinsTheStore(StateStoreTestCase):

@@ -564,7 +564,7 @@ def _handle_state_store_command(args: argparse.Namespace) -> int:
             # from publish rather than publish's first step.
             store = checkout_state_store(
                 args.repo_root,
-                branch=args.branch,
+                branch=args.branch or STATE_BRANCH,
                 remote=args.remote,
                 store_dir=args.store_dir,
             )
@@ -586,6 +586,8 @@ def _handle_state_store_command(args: argparse.Namespace) -> int:
             }, indent=2, sort_keys=True))
             return 0
 
+        # Opening derives the branch from the store worktree; ``--branch``,
+        # when given, is checked against it.
         store = open_state_store(
             args.repo_root,
             branch=args.branch,
@@ -861,7 +863,14 @@ def build_parser() -> argparse.ArgumentParser:
         # snapshot mentions — loss that looks exactly like a clean run.
         store_parser.add_argument("--repo-hash", default=None,
                                   help="Workspace subtree key; defaults to the repo's canonical identity.")
-        store_parser.add_argument("--branch", default=STATE_BRANCH)
+        # Checkout materialises the named branch (the production one by
+        # default); publish and verify-store OPEN a store, whose branch is
+        # read from its worktree — there the flag is a check, not a claim.
+        store_parser.add_argument(
+            "--branch", default=None,
+            help=f"State branch. checkout: the branch to materialise (default {STATE_BRANCH}); "
+                 "publish/verify-store: must equal the store worktree's branch when given.",
+        )
         store_parser.add_argument("--remote", default="origin")
         store_parser.add_argument("--store-dir", default=None,
                                   help="Store worktree path; defaults to <repo-root>/.aria-state-store.")

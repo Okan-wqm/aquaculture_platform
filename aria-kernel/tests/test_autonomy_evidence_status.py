@@ -1497,6 +1497,11 @@ def alias_factory(root):
                 "registry reads governance history for inventory reporting",
             ("executor", f"{KERNEL}worker_dispatch.py", "consumer"):
                 "worker dispatch consumes requests but cannot validate results",
+            # ARIA-HIGH-092 — the self-improvement dispatcher derives a
+            # request's state to avoid re-asking a mission still in flight;
+            # it reads the verdict, it cannot render one.
+            ("executor", f"{KERNEL}mission_dispatch.py", "consumer"):
+                "mission dispatch reads request state to skip an in-flight mission; it cannot accept a result",
             ("finding_funnel", f"{KERNEL}belief_escalation.py", "consumer"):
                 "belief escalation observes feedback for a separate belief lane",
             ("finding_funnel", f"{KERNEL}calibration.py", "consumer"):

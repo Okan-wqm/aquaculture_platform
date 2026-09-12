@@ -629,3 +629,41 @@ commit` outside any mint window failed rc=128.
   plan-converging suites (182 tests). Verified by the B7 lane's
   before/edges/re-verify agents; the re-verifier's pass-2 residual is the
   `SigningConfigRestore` change.
+
+## ARIA-HIGH-107 — a store's branch was assumed, not read; a never-restored store read as a broken chain
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-19
+- **Evidence (live, trial eleven, halka 3):** the kernel's own `autonomy run`
+  against the converged trial store on a FULL checkout. Run 1 (21:23Z):
+  no state-store worktree existed, so the committed daily anchors under
+  `aria-tools/reports/daily/` became the continuity reference and the
+  fresh probe was refused as `state_continuity_chain_broken:
+expected_prev=<anchor root> got_prev=None` — a symptom, not the fact
+  (the store was never restored). Trial ten's subset workspace carried no
+  anchors, so it never saw this. Run 2 (21:49Z): a store bootstrapped with
+  `state checkout --branch aria/state-trial-eleven-20260912` was opened by
+  `resolve_continuity_reference` / `store_is_at_published_tip` through
+  `open_state_store(repo_root)` with the DEFAULT branch, so
+  `_publication_anchor` read `refs/remotes/origin/aria/state` and the
+  verdict was `state_continuity_store_not_at_tip:head=<trial genesis>
+tip=<production tip>` plus every production surface reported lost.
+- **What is now true:** `store_lineage_branch` reads the branch from the
+  `GENESIS` record at the lineage's single root commit — the worktree is
+  detached by design (two stores must collide, not chain), so HEAD cannot
+  say, and the genesis record is hash-chained under every publish since.
+  `open_state_store` derives the branch from it, checks a caller-named
+  branch against it (`state_store_branch_mismatch`) and refuses a lineage
+  without a genesis record (`state_store_branch_unresolvable`); the CLI's
+  `--branch` is the checkout target and an open-time check.
+  `assess_memory_continuity` names a fresh probe against a committed anchor
+  `state_continuity_store_not_restored:anchor=<root>` (run `state checkout`)
+  and keeps `chain_broken` for a probe that names another predecessor.
+- **Also in this commit:** the capability roster missed
+  `mission_dispatch.py` as an observational reader of
+  `agent_invocation_results`; `test_capability_specs_cover_discovered_
+surface_writers_and_consumers` had been red since ARIA-HIGH-092's commit.
+- **Proof (candidate):** `test_state_store` (TheStoreKnowsItsOwnBranch: a
+  trial lineage is judged against its own tip, a named branch is checked,
+  the branch survives a publish, a genesis-less lineage refuses),
+  `test_memory_gap` (never-restored vs forked verdicts), the state-store
+  and continuity suites (151 + 200), `test_autonomy_evidence_status` (135).

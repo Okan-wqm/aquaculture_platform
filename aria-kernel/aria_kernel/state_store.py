@@ -719,10 +719,38 @@ def _publication_anchor(store: StateStore) -> str:
     return "HEAD"
 
 
+def store_lineage_branch(root: Path) -> str | None:
+    """The branch a store's LINEAGE was created for, from its own history.
+
+    A store worktree is detached by design (see ``_checkout_state_store_locked``:
+    a shared local ref would let two stores chain instead of collide), so
+    the branch cannot be read off HEAD. It is read off the one place the
+    kernel wrote it immutably: the ``GENESIS`` record in the lineage's root
+    commit (``rev-list --max-parents=0``), hash-chained under every commit
+    since. ``None`` when the lineage has no single root carrying a genesis
+    record — a damaged or foreign tree, which the caller refuses by name.
+    """
+    roots = _run_git(root, ("rev-list", "--max-parents=0", "HEAD"))
+    if roots.returncode != 0:
+        return None
+    root_commits = [line.strip() for line in roots.stdout.splitlines() if line.strip()]
+    if len(root_commits) != 1:
+        return None
+    genesis = _run_git(root, ("show", f"{root_commits[0]}:{GENESIS_FILENAME}"))
+    if genesis.returncode != 0:
+        return None
+    try:
+        record = json.loads(genesis.stdout)
+    except ValueError:
+        return None
+    branch = record.get("branch") if isinstance(record, dict) else None
+    return branch if isinstance(branch, str) and branch else None
+
+
 def open_state_store(
     repo_root: str | Path,
     *,
-    branch: str = STATE_BRANCH,
+    branch: str | None = None,
     remote: str = "origin",
     store_dir: str | Path | None = None,
 ) -> StateStore:
@@ -735,6 +763,18 @@ def open_state_store(
     Collapsing them into one function gave a ``publish`` that could never
     publish anything a cycle had written — it re-checked-out first and
     refused on the very rows it was called to persist.
+
+    The branch is READ FROM THE STORE'S OWN LINEAGE (``store_lineage_branch``,
+    the genesis record at its root commit), not assumed: every reader of
+    "what is published" anchors on ``refs/remotes/<remote>/<branch>``
+    (``_publication_anchor``), so a store materialised for any branch other
+    than the default used to be judged against ``aria/state``'s tip — its
+    own genesis reported as "not at tip" and every production surface as
+    lost (trial eleven, 2026-09-12, a store bootstrapped on
+    ``aria/state-trial-eleven-20260912``). A caller that names a branch is
+    checked against the lineage, and a store whose lineage carries no
+    genesis record is refused by name: a tree that does not know its branch
+    cannot know what it continues.
     """
     repo_root = Path(repo_root).resolve()
     root = Path(store_dir).resolve() if store_dir else repo_root / STORE_DIRNAME
@@ -743,9 +783,20 @@ def open_state_store(
             f"state_store_not_open: {root.as_posix()} is not a checked-out store of "
             "this repository; run `state checkout` before writing state into it"
         )
+    lineage = store_lineage_branch(root)
+    if lineage is None:
+        raise StateStoreError(
+            f"state_store_branch_unresolvable: {root.as_posix()} has no single "
+            f"lineage root carrying a {GENESIS_FILENAME} record naming its branch"
+        )
+    if branch is not None and branch != lineage:
+        raise StateStoreError(
+            f"state_store_branch_mismatch: {root.as_posix()} is the lineage of "
+            f"{lineage!r}, not the requested {branch!r}"
+        )
     return StateStore(
         root=root,
-        branch=branch,
+        branch=lineage,
         repo_root=repo_root,
         remote=remote,
         bootstrapped=False,

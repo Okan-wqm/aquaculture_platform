@@ -20,6 +20,8 @@ from aria_kernel.governance_reader import (
 from aria_kernel.instinct_candidate import list_candidates
 from aria_kernel.handoff_ledger import list_handoffs
 from aria_kernel.ledger import read_jsonl_reverse_verified
+from aria_kernel.operator_feedback_ingestion import ingest_operator_feedback
+from aria_kernel.operator_feedback_signature import sign_operator_feedback_row
 from aria_kernel.plan_synthesizer import scan_operator_feedback
 from aria_kernel.planner_dispatch_hook import _release_abandoned_claim
 from aria_kernel.reflection import _phase_digest_summary
@@ -363,18 +365,24 @@ def test_operator_handoff_watchdog_and_report_consumers_see_replayed_rows(
     operator_loser = init_test_tools_root(tmp_path / "operator-loser" / "aria-tools")
     operator_path = operator_winner / "operator-feedback.jsonl"
     operator_loser_path = operator_loser / "operator-feedback.jsonl"
+    # V9.5 check 12 — the row the loser recorded was signed by the kernel
+    # under the store's key material (the winner holds it; the loser is
+    # the same lineage's contending writer). A stub signature would now be
+    # dropped at ingestion, which is the point: replay preserves bytes,
+    # and only a kernel-signed row carries operator authority.
     append_declared_fixture(
         operator_loser_path,
-        {
-            "schema_version": 1,
-            "id": "OP-replayed",
-            "status": "unaddressed",
-            "authored_at": "2026-08-22T01:00:00Z",
-            "request": "preserve replayed operator authority",
-            "priority": "high",
-            "signature": "sig-test",
-            "signature_kid": "operator-key-test",
-        },
+        sign_operator_feedback_row(
+            {
+                "schema_version": 1,
+                "id": "OP-replayed",
+                "status": "unaddressed",
+                "authored_at": "2026-08-22T01:00:00Z",
+                "request": "preserve replayed operator authority",
+                "priority": "high",
+            },
+            base_dir=operator_winner,
+        ),
         expected_surface="operator_feedback",
     )
     replay_append_only_suffixes(
@@ -539,7 +547,8 @@ def test_roi_and_executor_anchor_consumers_keep_replayed_identity(tmp_path: Path
 
 def test_declared_logical_consumers_route_through_shared_readers() -> None:
     sources = {
-        "operator feedback": inspect.getsource(scan_operator_feedback),
+        # scan_operator_feedback only orders what the ingestion owner read.
+        "operator feedback": inspect.getsource(ingest_operator_feedback),
         "handoffs": inspect.getsource(list_handoffs),
         "watchdog": inspect.getsource(load_watchdog_rows),
         "report blocked": inspect.getsource(_blocked_reasons),

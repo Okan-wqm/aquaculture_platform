@@ -352,6 +352,7 @@ def _capture_pre_merge_context(
     from . import plan_convergence as _plans
     from .implementation_safety import _PreMergeEvidence
     from .ledger import LedgerIntegrityError as _LedgerIntegrityError
+    from .ledger import _verify_jsonl_from_text
     from .ledger import load_jsonl_verified_text as _load_verified_text
     from .ledger import state_transaction as _state_transaction
     from .snapshot import build_repo_snapshot as _build_snapshot
@@ -415,6 +416,12 @@ def _capture_pre_merge_context(
             "agent_invocation_contexts": tools / "agent-invocations" / "contexts.jsonl",
             "agent_invocation_prompts": tools / "agent-invocations" / "prompts.jsonl",
             "agent_result_bridge_status": tools / "agent-invocations" / "agent-result-bridge-status.jsonl",
+            # V9.5 check 12 — the synthesizer's ingestion evidence and the
+            # feedback ledger it admitted rows from. Optional because a
+            # store that never mined operator feedback has neither file;
+            # their absence becomes a named predicate reason, not a pass.
+            "operator_feedback_ingestion": tools / "operator-feedback-ingestion.jsonl",
+            "operator_feedback": tools / "operator-feedback.jsonl",
         }
         sources.update(optional_sources)
 
@@ -441,7 +448,16 @@ def _capture_pre_merge_context(
                 expected_surface=surface,
             ) if prefixes[surface] is not None else []
             for surface, path in sources.items()
+            if surface != "operator_feedback"
         }
+        # The feedback ledger is judged row by row, like the synthesizer
+        # judged it: rows are trusted up to the first chain break, so one
+        # hand-appended line makes the consumed row unavailable to check 12
+        # instead of making the whole native context unreadable.
+        rows["operator_feedback"] = _verify_jsonl_from_text(
+            sources["operator_feedback"], prefixes["operator_feedback"].decode("utf-8"),
+            expected_surface="operator_feedback",
+        )[1] if prefixes["operator_feedback"] is not None else []
         reason = "pr_change_join_unavailable"
         observations = [row for row in rows["pr_lifecycle"] if row.get("pr_number") == number]
         change_ids = {row.get("change_id") for row in observations if row.get("change_id")}
@@ -500,6 +516,8 @@ def _capture_pre_merge_context(
         coverage_files: dict[Path, bytes | None] = {}
         expert_observation: dict[str, Any] = {}
         expert_files: dict[Path, bytes | None] = {}
+        feedback_observation: dict[str, Any] = {}
+        feedback_files: dict[Path, bytes | None] = {}
         if implementation.get("request_id"):
             coverage_observation, coverage_files = _capture_pre_merge_coverage(
                 tools=tools, workspace=workspace, state=state, body=body,
@@ -508,6 +526,9 @@ def _capture_pre_merge_context(
             expert_observation, expert_files = _capture_pre_merge_expert_consensus(
                 tools=tools, workspace=workspace, rows=rows, implementation=implementation,
                 plan_id=plan_id, body=body, head_sha=head_sha,
+            )
+            feedback_observation, feedback_files = _capture_pre_merge_operator_feedback(
+                tools=tools, state=state, rows=rows,
             )
 
         scope_observation: dict[str, Any] = {}
@@ -522,6 +543,8 @@ def _capture_pre_merge_context(
                        for path, data in coverage_files.items())
                 or any(_read_pre_merge_coverage_file(path) != data
                        for path, data in expert_files.items())
+                or any(_read_pre_merge_coverage_file(path) != data
+                       for path, data in feedback_files.items())
             ):
                 raise GovernanceError(reason)
             if implementation.get("request_id"):
@@ -555,7 +578,7 @@ def _capture_pre_merge_context(
                 repo_identity=repo_identity, base_sha=base_sha, head_sha=head_sha,
                 snapshot_hash=snapshot["snapshot_hash"],
                 **implementation, **scope_observation, **coverage_observation,
-                **expert_observation,
+                **expert_observation, **feedback_observation,
             ),
         )
     except (OSError, ValueError, KeyError, TypeError, _LedgerIntegrityError, _StateStoreError):
@@ -689,6 +712,27 @@ def _capture_pre_merge_coverage(
     except (OSError, ValueError, TypeError, KeyError, _StateStoreError):
         observation["coverage_unavailable_reason"] = reason
         return observation, files
+
+
+def _capture_pre_merge_operator_feedback(
+    *, tools: Path, state: dict[str, Any], rows: dict[str, list[dict[str, Any]]],
+) -> tuple[dict[str, Any], dict[Path, bytes | None]]:
+    """Observe the synthesizer's operator-feedback ingestion for THIS plan.
+
+    The join is by ``plan_started.content_hash``: the provider bound the
+    synthesized content to its ingestion under exactly that hash, so the
+    walk starts from a value the plan ledger already carries. The reader
+    lives with the ingestion owner (``operator_feedback_ingestion``); this
+    wrapper only hands it the verified prefixes captured above and returns
+    the key-file bytes it read so the final recheck covers them too.
+    """
+    from .operator_feedback_ingestion import observe_operator_feedback_for_plan
+
+    return observe_operator_feedback_for_plan(
+        tools=tools, plan_started=state.get("plan_started"),
+        ingestion_rows=rows["operator_feedback_ingestion"],
+        feedback_rows=rows["operator_feedback"],
+    )
 
 
 def _capture_pre_merge_expert_consensus(

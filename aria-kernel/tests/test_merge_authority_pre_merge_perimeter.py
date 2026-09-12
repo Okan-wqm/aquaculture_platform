@@ -5,10 +5,13 @@ Before the fix the gate was defined and default-gated but no production path
 invoked it — the only perimeter callsites were pr_manager's GATE_PRE_PR_OPEN
 pair, so ADR-041 decision 3's "fresh pre-merge re-check" existed in prose only.
 
-Behavioral pin: a perimeter refusal stops the merge. Four GATE_PRE_MERGE
-checks consume native evidence, including unwaived plan-time coverage; three
-remain unimplemented. Waiver adjudication and current graph reattestation are
-not established by the coverage fixture.
+Behavioral pin: a perimeter refusal stops the merge. Six GATE_PRE_MERGE
+checks consume native evidence, including unwaived plan-time coverage and
+the operator-feedback ingestion the merged plan's synthesis was bound to;
+one remains unimplemented. Waiver adjudication and current graph
+reattestation are not established by the coverage fixture, and its plan is
+started directly rather than through the pressure-source provider, so the
+operator-feedback predicate refuses it by name (no synthesis binding).
 The original controls preserve the structural property: perimeter blocked
 means no merge side effect, and the decision ledger records the block at
 stage pre_merge_perimeter. Native controls separately exercise real
@@ -548,6 +551,14 @@ class NativeImplementationContextTests(unittest.TestCase):
         self.assertEqual(evidence.coverage_plan_hash, plan.content_hash)
         self.assertEqual(evidence.coverage_computed_at_sha, initial_sha)
         self.assertFalse(report.passed, "this fixture has no native expert panel or runtime budget proof")
+        # V9.5 check 12 — the plan was started by the fixture, not synthesized
+        # through the provider, so there is no synthesis_bound row to walk
+        # from; the predicate names that rather than passing on absence.
+        self.assertFalse(results["operator_feedback_signature"].passed)
+        self.assertEqual(results["operator_feedback_signature"].reason,
+            "operator_feedback_synthesis_binding_unavailable")
+        self.assertEqual(evidence.operator_feedback_plan_started_hash, plan.content_hash)
+        self.assertFalse(evidence.operator_feedback_verified)
         self.assertEqual({str(path.relative_to(tools)): path.read_bytes()
             for path in tools.rglob("*") if path.is_file() and path.suffix in {".json", ".jsonl"}}, native_before)
 
@@ -676,6 +687,7 @@ class NativeImplementationContextTests(unittest.TestCase):
                 "cycle_and_turn_budget_cap",
             ):
                 self.assertFalse(selected_checks[name].passed)
+            self.assertEqual(selected_checks["cycle_and_turn_budget_cap"].reason, "check_not_implemented")
             self.assertEqual(selected_checks["expert_consensus_evidence_verified"].passed, expected_expert)
             return selected_context, selected_checks
 

@@ -103,3 +103,67 @@ join, the binding discipline and the refusals. They are not a model's
 opinion, not an operator endorsement, and not the two remaining predicates
 (operator feedback authority, subscription-aware cycle/turn budget), which
 still refuse by name.
+
+## Addendum 2026-09-12 — the sixth predicate: `operator_feedback_signature`
+
+Closes `docs/reviews/aria/2026-08-22-autonomy-closure-plan-audit.md#ARIA-CRITICAL-007`
+(V9.5 hard-fail check 12, ai-safety HIGH-010).
+
+What the pre-fix code did: `plan_synthesizer` admitted any
+`operator-feedback.jsonl` row whose `signature` and `signature_kid` were
+non-empty strings, so `"signature": "x"` carried the highest plan-source
+priority in the system, and the drop count rode on the first surviving
+candidate where nothing read it.
+
+What is now true:
+
+- The kernel signs every operator-feedback row it records — keyed HMAC-SHA256
+  over `aria-operator-feedback/v1\n` + the canonical row minus the chain
+  fields — under a rolling key at `aria-tools/secrets/operator-feedback-hmac.key`
+  (0600; `signer_kid` = key id). The custody is the ack ledger's, extracted
+  into `hmac_keyring.HmacKeyring` so there is one copy of the primitive;
+  `ack_ledger` delegates with its API, path and error strings unchanged.
+- One kernel write path: `operator_feedback_signature.append_signed_operator_feedback_row`.
+  `feedback_store` verdict rows, `calibration_bootstrap` corpus fixtures and
+  the new `record_operator_request` (behind `aria-kernel feedback request`,
+  the only channel that yields an admissible request row) all go through it;
+  an AST pin refuses any other kernel append to the surface.
+- `operator_feedback_ingestion.ingest_operator_feedback` verifies each
+  `unaddressed` row at the synthesizer's scan, drops an invalid one with one
+  `unsigned_operator_feedback` governance event (id / line / reason / kid,
+  never the body) and records the scan as an `ingestion` row on the new
+  strict-read, write-driving surface `operator-feedback-ingestion.jsonl`;
+  `V9PressureSourceProvider` binds the selected synthesis to that scan
+  (`synthesis_bound`, keyed by the plan_content hash `plan_started` carries).
+- `merge_authority._capture_pre_merge_context` walks
+  `plan_started.content_hash → synthesis_bound → ingestion → consumed rows`,
+  re-verifies every consumed signature against the store's key file at
+  capture time (the key file's bytes join the post-capture recheck), and
+  `_check_operator_feedback_signature` refuses on any named gap
+  (`operator_feedback_synthesis_binding_unavailable`,
+  `…_ingestion_unavailable`, `…_consumption_mismatch`,
+  `…_consumed_row_unavailable`, `…_consumed_row_unsigned:<reason>`) and
+  passes only as `native_operator_feedback_ingestion_verified`.
+- Key rotation is `aria-kernel feedback rotate-signing-key` (governance row
+  `operator_feedback_signing_key_rotated`); retired keys keep historical rows
+  verifiable until they leave the five-entry window.
+- §12 of `docs/aria/v3-v9-5-safety-contracts-policy.md` now states this
+  contract instead of "lands later in the V9 arc".
+
+Proof (this host, 2026-09-12): `tests/test_operator_feedback_signature.py`
+(9), `tests/test_operator_feedback_ingestion.py` (13), v9 pressure-source and
+implementation-safety invariants, `test_replay_logical_consumers`, the ack
+ledger A5 invariants, the manifest validators and `test_autonomy_evidence_status`:
+316 passed. `tests/test_merge_authority_pre_merge_perimeter.py`, whose
+nx-backed fixture the delegated run could not finish under IO load: 6 passed
+in 155 s, including the new assertion that the predicate refuses a fixture-
+started plan with `operator_feedback_synthesis_binding_unavailable` and that
+`operator_feedback_plan_started_hash` equals the plan's content hash. The
+pre-fix tree fails the behavioural inversions (`test_stub_signature_is_not_a_signature`:
+stub-signed row admitted, no governance event; `test_unsigned_row_dropped`).
+
+Left as it is, on purpose: verdict rows are signed but their other readers
+(`load_feedback`, judge calibration, goldset, FP suppression) do not verify —
+§12 scopes verification to the plan synthesizer, and widening it is a
+separate decision. The last placeholder predicate is
+`cycle_and_turn_budget_cap`, which lands next.

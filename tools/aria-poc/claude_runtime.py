@@ -41,7 +41,7 @@ CLAUDE_MOCK_ENV_VAR = "CLAUDE_CLI_MOCK"
 # runner, keeping ARIA's fail-safe on the most capable tier (K5 tier
 # flip, operator policy 2026-07-01). Per-agent overrides flow in via
 # build_claude_exec_argv(model=...).
-CLAUDE_DEFAULT_MODEL = "fable"
+CLAUDE_DEFAULT_MODEL = "opus"
 # The Claude Code CLI selects capability by model alias AND, since CLI 2.1.x,
 # by an explicit ``--effort`` flag (low|medium|high|xhigh|max). These are the
 # model aliases and effort levels ARIA may target; the agent-runtime-profile
@@ -1331,24 +1331,42 @@ def parse_claude_jsonl(raw: str) -> tuple[dict[str, Any], ...]:
 
 
 def extract_final_message(events: tuple[dict[str, Any], ...]) -> str:
-    """Return the agent's final text.
+    """Return the agent's final text — the whole final turn, not its last frame.
 
     Claude Code stream-json terminates with a ``{"type":"result",...}`` event
-    whose ``result`` field is the final assistant text. We prefer that; if it
-    is absent (e.g. an error-typed result) we fall back to the last
-    ``assistant`` message's concatenated text blocks.
+    whose ``result`` field is the text of the LAST assistant message. A long
+    answer is streamed as several consecutive ``assistant`` events: trial
+    nine's challenger (2026-09-12, ARIA-HIGH-083) hit the CLI's output token
+    limit; the CLI injected a synthetic user turn ("Output token limit hit.
+    Resume directly …", ``isSynthetic: true``), the model resumed mid-JSON,
+    and ``result`` carried only the resumed frame (3,795 of 42,661 chars) —
+    the executor saw a JSON tail, found no ``plan_content`` and refused a
+    complete, valid plan. The final turn is every assistant text frame after
+    the last REAL user event (a tool result); a synthetic continuation joins
+    the frames it separates. ``result`` is used when it is not a suffix of
+    that turn (an error-typed result, a shape this reader does not know) and
+    as the fallback when no frame was seen.
     """
-    final = ""
+    turn: list[str] = []
+    result_text = ""
     for event in events:
-        if event.get("type") == "result":
-            result_text = event.get("result")
-            if isinstance(result_text, str):
-                final = result_text
-        elif event.get("type") == "assistant":
+        kind = event.get("type")
+        if kind == "user":
+            if event.get("isSynthetic") is True:
+                continue
+            turn = []
+        elif kind == "assistant":
             text = _assistant_text(event.get("message"))
             if text:
-                final = text
-    return final
+                turn.append(text)
+        elif kind == "result":
+            value = event.get("result")
+            if isinstance(value, str):
+                result_text = value
+    joined = "".join(turn)
+    if joined and (not result_text or joined.endswith(result_text)):
+        return joined
+    return result_text or joined
 
 
 def _assistant_text(message: Any) -> str:

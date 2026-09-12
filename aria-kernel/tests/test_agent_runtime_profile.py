@@ -113,7 +113,7 @@ class AgentRuntimeProfileReaderTests(unittest.TestCase):
                         encoding="utf-8")
         profile = read_agent_runtime_profile("aria-frontmatter-only", repo_root=root)
         self.assertEqual((profile.model, profile.effort, profile.source),
-                         ("fable", "max", "default_invalid"))
+                         ("opus", "max", "default_invalid"))
         self.assertEqual(getattr(profile, "runtime", None), "claude")
         self.assertEqual(profile.tools, ())
         self.assertEqual(profile.write_scope, ())
@@ -148,10 +148,11 @@ class AgentRuntimeProfileReaderTests(unittest.TestCase):
         # runtime profile; the frontmatter is a mirror, not the source.
         self.assertIn(prof.source, {"frontmatter", "kernel_profile"})
 
-    def test_decider_tier_agent_reads_fable_xhigh(self) -> None:
-        # K5 tier flip — decision nodes moved opus -> fable.
+    def test_decider_tier_agent_reads_opus_max(self) -> None:
+        # K5 moved decision nodes opus -> fable; the operator moved them back
+        # to opus on 2026-09-12 (fable is selected by nothing).
         prof = read_agent_runtime_profile("aria-consensus-arbiter")
-        self.assertEqual(prof.model, "fable")
+        self.assertEqual(prof.model, "opus")
         self.assertEqual(prof.effort, "max")
 
     def test_unknown_agent_fails_safe_to_most_expensive(self) -> None:

@@ -323,3 +323,45 @@ qualification runs under `_ScopedSourceBudget()`'s literal two-second
 deadline and answers `qualification_deadline` when it expires — honest at
 runtime, host-dependent in a fixture. Owner: the budget as a policy value
 with a fixture seam; deadline 2026-09-26.
+
+## Addendum — ARIA-HIGH-083: the final message was the last frame, not the final turn
+
+Trial nine, challenger (`AIR-aria-challenger-planner-4e66e9b99256`,
+managed Claude, 1,230 s, 80,522 output tokens, 2026-09-12T02:58Z): the
+CLI returned exit 0 and the executor refused the answer at pre-submit —
+`plan_content:absent_or_not_object` — and requeued the request as a
+request fault. The transcript shows why: the answer hit the CLI's output
+token limit, the CLI injected a synthetic user turn ("Output token limit
+hit. Resume directly — no apology, no recap …", `isSynthetic: true`), the
+model resumed mid-JSON, and the `result` event carried only the resumed
+frame — 3,795 of 42,661 characters. `extract_final_message` preferred
+`result`; the envelope extractor found no object; the executor projected
+a fallback envelope (`verdict: unverified`, a 4 KB tail as evidence).
+Joined, the frames parse to a complete envelope with an eight-key
+`plan_content`.
+
+**Fix.** The final message is the final TURN: every assistant text frame
+after the last real user event (a tool result); a synthetic continuation
+joins the frames it separates; `result` wins only when it is not that
+turn's suffix (an error-typed result, a shape the reader does not know).
+Measured on the live transcript: 42,476 characters, the envelope with its
+`plan_content`.
+
+**Proof.** `test_claude_runtime_contract` (+2): frames split by a
+synthetic user event are read whole and a preceding tool turn is not; an
+error result that is not the turn's suffix still wins.
+
+## Operator decision 2026-09-12 — fable is selected by nothing
+
+"Fable'ı kullanmasın, sadece opus." Every selection moved to opus: the
+kernel profiles `planner`, `planner_orchestrator`, `arbiter`; the seven
+agent mirrors (`aria-acceptance-lead`, `aria-autonomy-planner`,
+`aria-challenger-drafter`, `aria-challenger-planner`,
+`aria-consensus-arbiter`, `aria-primary-drafter`, `aria-primary-planner`);
+`agent_runtime_profile.DEFAULT_MODEL`, `claude_runtime.CLAUDE_DEFAULT_MODEL`
+and the dispatcher's `claude_model`. The tier name stays in
+`MODEL_TIER_ORDER` (ordering for the write-protection rule), the pricing
+table (old rows) and the fallback ladder. ORPHAN-HIGH-760's two-distinct-
+models anchor still holds: evidence judge opus, adversarial judge glm-5.3,
+arbiter opus. `tests/invariants/test_fable_is_selected_by_nothing.py` pins
+all three selection surfaces.

@@ -16,9 +16,12 @@ which tier each agent runs on. Two backends consume it:
 
 This module is the only reader, so both consumers can never drift from the
 frontmatter. Fail-safe by design: an unknown agent or a missing/invalid field
-resolves to the most expensive tier (``fable`` / ``max``). A silent cost
+resolves to the strongest SELECTED tier (``opus`` / ``max``). A silent cost
 downgrade can therefore never be introduced by omission — only by an explicit,
-reviewable frontmatter edit.
+reviewable frontmatter edit. Operator decision 2026-09-12: ``fable`` stays a
+named tier (ordering, pricing, the fallback ladder) and is selected by
+nothing — no profile, no frontmatter, no default; ``tests/invariants`` pins
+it.
 """
 from __future__ import annotations
 
@@ -38,7 +41,7 @@ from pathlib import Path
 VALID_MODELS: frozenset[str] = frozenset({"opus", "sonnet", "haiku", "fable", "glm-5.3"})
 VALID_EFFORTS: frozenset[str] = frozenset({"low", "medium", "high", "xhigh", "max"})
 
-DEFAULT_MODEL: str = "fable"
+DEFAULT_MODEL: str = "opus"
 
 # E16 (ORPHAN-673) — model-tier write protection SSoT (operator rule
 # 2026-08-13): a weaker model must never delete or overwrite what a

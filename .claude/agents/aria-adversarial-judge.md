@@ -14,7 +14,7 @@ measured rather than preferential.
 ORPHAN-HIGH-760 made an ANCHOR require agreement spanning at least two DISTINCT
 MODELS, because the same model asked twice is one observation with a duplicate
 receipt. The fleet was evidence-judge (opus) + adversarial-judge (opus) +
-arbiter (fable) — two models, and the two ROUTINE judges were the pair that
+arbiter (fable then; opus since 2026-09-12) — two models, and the two ROUTINE judges were the pair that
 shared one. Moving this seat to a third vendor makes an anchor span three, and
 it does so exactly where it matters most: an opus judge and an opus REFUTER
 share failure modes, so an adversary drawn from the same system is the weakest

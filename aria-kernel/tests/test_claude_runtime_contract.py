@@ -38,11 +38,12 @@ class ClaudeRuntimeContractTests(unittest.TestCase):
             ],
         )
 
-    def test_exec_argv_defaults_to_fable(self) -> None:
-        # K5 tier flip — the fail-safe default is the most capable tier.
+    def test_exec_argv_defaults_to_opus(self) -> None:
+        # The fail-safe default is the strongest SELECTED tier — opus since
+        # the operator retired fable from selection (2026-09-12).
         argv = claude_runtime.build_claude_exec_argv()
         self.assertIn("--model", argv)
-        self.assertEqual(argv[argv.index("--model") + 1], "fable")
+        self.assertEqual(argv[argv.index("--model") + 1], "opus")
 
     def test_exec_argv_read_only_omits_skip_permissions(self) -> None:
         argv = claude_runtime.build_claude_exec_argv(model="opus", skip_permissions=False)
@@ -78,6 +79,35 @@ class ClaudeRuntimeContractTests(unittest.TestCase):
             claude_runtime.extract_usage(events),
             {"input_tokens": 10, "output_tokens": 3},
         )
+
+    def test_a_final_turn_streamed_in_frames_is_read_whole(self) -> None:
+        """ARIA-HIGH-083 — the CLI's `result` is the LAST assistant frame; a
+        long envelope that hits the output token limit is resumed after a
+        synthetic user turn. The final turn is every assistant text frame
+        after the last REAL user event, a synthetic continuation joins the
+        frames it separates, and `result` must be the turn's suffix — trial
+        nine's challenger lost 38,681 of 42,661 chars."""
+        raw = "\n".join([
+            '{"type":"assistant","message":{"content":[{"type":"text","text":"reading first"}]}}',
+            '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{}}]}}',
+            '{"type":"user","message":{"content":[{"type":"tool_result","content":"file body"}]}}',
+            '{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"…"},{"type":"text","text":"{\\"$schema\\": \\"aria/agent-response/v1\\", \\"plan_content\\": {\\"title\\": \\"t\\"}, "}]}}',
+            '{"type":"user","isSynthetic":true,"message":{"role":"user","content":[{"type":"text","text":"Output token limit hit. Resume directly."}]}}',
+            '{"type":"assistant","message":{"content":[{"type":"text","text":"\\"status\\": \\"submitted\\"}"}]}}',
+            '{"type":"result","subtype":"success","result":"\\"status\\": \\"submitted\\"}","usage":{"input_tokens":1,"output_tokens":2}}',
+        ])
+        events = claude_runtime.parse_claude_jsonl(raw)
+        final = claude_runtime.extract_final_message(events)
+        self.assertEqual(final, '{"$schema": "aria/agent-response/v1", "plan_content": {"title": "t"}, "status": "submitted"}')
+        self.assertNotIn("reading first", final)
+
+    def test_a_result_that_is_not_the_turns_suffix_wins(self) -> None:
+        raw = "\n".join([
+            '{"type":"assistant","message":{"content":[{"type":"text","text":"partial"}]}}',
+            '{"type":"result","subtype":"error_max_turns","result":"Reached max turns","usage":{}}',
+        ])
+        events = claude_runtime.parse_claude_jsonl(raw)
+        self.assertEqual(claude_runtime.extract_final_message(events), "Reached max turns")
 
     def test_assistant_fallback_when_no_result_text(self) -> None:
         raw = '{"type":"assistant","message":{"content":[{"type":"text","text":"only-assistant"}]}}'

@@ -74,6 +74,55 @@ class SpawnBudgetGateTests(unittest.TestCase):
             os.environ["ARIA_ESTIMATED_RUN_USD"] = "0.01"
             _assert_budget_before_spawn()  # no raise
 
+    def test_managed_subscription_makes_the_dollar_gate_telemetry(self) -> None:
+        """ARIA-HIGH-079 — trial eight's cross-review was refused with the
+        shipped $5 daily cap after one accepted challenger, on a workspace
+        whose policy said managed_subscription: notional dollars are
+        telemetry under that policy (ORPHAN-HIGH-472, ARIA-HIGH-074), and
+        the gate read the DEFAULT policy because it took the store's parent
+        for the workspace while the store was bound elsewhere."""
+        import json
+
+        from aria_kernel.cost_budget import assert_within_budget, _load_caps
+        from aria_kernel.tool_registry import bound_workspace_root, ensure_tools_binding
+
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp) / "workspace"
+            (workspace / "aria-config").mkdir(parents=True)
+            (workspace / "aria-config/genesis_policy.json").write_text(json.dumps({
+                "cost_caps_usd": {"daily": 5.0, "monthly": 50.0, "per_run": 4.0},
+                "executor": {"adaptive_runtime": {
+                    "schema_version": 1, "enabled": True, "policy_id": "aria/adaptive-runtime/v1",
+                    "provider_cooldown_seconds": 900, "recheck_timeout_seconds": 20,
+                    "max_attempts_per_dispatch": 2, "scarcity_judgment_mode": "independent_sessions",
+                    "monetary_admission": "managed_subscription",
+                }},
+            }) + "\n", encoding="utf-8")
+            import subprocess
+            subprocess.run(["git", "init", "-q", str(workspace)], check=True)
+            # The store lives OUTSIDE the workspace, bound to it — the
+            # trial layout, and any operator who keeps state off the tree.
+            store = ensure_tools_binding(Path(tmp) / "store" / "tools", workspace_root=workspace)
+            self.assertEqual(bound_workspace_root(store), workspace.resolve())
+            self.assertEqual(_load_caps(store)["per_run"], 4.0, "the caps come from the BOUND workspace's policy")
+            snapshot = assert_within_budget(store, estimated_run_usd=3.6)
+            self.assertEqual(snapshot["status"], "telemetry_only")
+            self.assertEqual(snapshot["monetary_admission"], "managed_subscription")
+            self.assertAlmostEqual(snapshot["projected_daily_usd"], 3.6)
+            # Way over every cap: still telemetry, never a refusal or a trip.
+            assert_within_budget(store, estimated_run_usd=3.9)
+            self.assertFalse((store / "circuit-breaker.json").exists() and "tripped" in (store / "circuit-breaker.json").read_text())
+            os.environ["ARIA_TOOLS_DIR"] = str(store)
+            os.environ["ARIA_ESTIMATED_RUN_USD"] = "3.9"
+            _assert_budget_before_spawn()  # no raise
+
+    def test_a_legacy_store_still_reads_its_parent_workspace(self) -> None:
+        from aria_kernel.tool_registry import bound_workspace_root
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = ensure_tools_dir(Path(tmp) / "aria-tools")
+            self.assertEqual(bound_workspace_root(root), Path(tmp).resolve())
+
     def test_gate_sits_on_the_spawn_path(self) -> None:
         """Deliberate-break pin: run_claude_exec must call the gate. A
         refactor that drops the call reopens F13 silently — this fails it

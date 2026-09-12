@@ -240,3 +240,31 @@ the `else` of that test.
 (`convergence_envelope_dead:cross_review`) by design — one rejected
 envelope ends the round. The next live cross-review runs on a fresh trial
 with the corrected contract.
+
+## Addendum — ARIA-HIGH-079: the dollar gate read the wrong policy and gated a subscription
+
+Trial eight, cross-review (`AIR-aria-cross-reviewer-f7ddfbedc372`,
+2026-09-12T00:46Z), after an accepted challenger on managed Claude (fable,
+829 s): admission chose the Anthropic route and the spawn was refused before
+any model — `cost_budget_daily_cap_exceeded: projected=6.227328 cap=5.0`,
+twice, `control_or_transport_unavailable`. The workspace's own
+`aria-config/genesis_policy.json` says `monetary_admission:
+managed_subscription`; the gate never read it. `cost_budget._load_caps`
+took `Path(base_dir).parent` for the workspace — the `<workspace>/aria-tools`
+layout — while this store is bound at `trial/store/tools`, so it read the
+shipped defaults. `circuit_breaker` and the agent-request anchor policy made
+the same assumption.
+
+**Fix.** `tool_registry.bound_workspace_root(base_dir)` is the one owner:
+the `bound_repo_root` a bound store records, the parent for a legacy store.
+The three policy readers go through it. And `assert_within_budget` applies
+the policy it now reads: under `managed_subscription` notional dollars are
+telemetry (ORPHAN-HIGH-472 retired them for the dispatch budget,
+ARIA-HIGH-074 for the spawn reservation) — the projection is returned as
+`status: telemetry_only`, nothing is refused, the breaker does not trip.
+The metered policy keeps every cap exactly as before.
+
+**Proof.** `test_spawn_budget_gate` (+2): a store bound outside its
+workspace reads that workspace's caps and, under `managed_subscription`,
+passes an over-cap estimate through the real spawn gate as telemetry; a
+legacy store still resolves its parent.

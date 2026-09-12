@@ -2651,8 +2651,9 @@ def _anchor_max_age_seconds(root: Path) -> int:
     this without a code change.
     """
     from .genesis_policy import load_policy
+    from .tool_registry import bound_workspace_root
 
-    raw = load_policy(Path(root).parent).get("agent_request_anchor") or {}
+    raw = load_policy(bound_workspace_root(root)).get("agent_request_anchor") or {}
     if not isinstance(raw, dict):
         return DEFAULT_ANCHOR_MAX_AGE_SECONDS
     try:

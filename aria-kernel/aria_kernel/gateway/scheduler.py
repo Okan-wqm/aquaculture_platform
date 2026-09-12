@@ -266,8 +266,15 @@ def run_action(action: str, *, base_dir: str | Path | None, workspace_root: str 
 
 
 def tick(*, base_dir: str | Path | None, workspace_root: str | Path, now: datetime | None = None, runner: Runner | None = None,
-         drain_inbox_first: bool = True) -> dict[str, Any]:
-    """One scheduler beat: route what arrived, run what is due, write the heartbeat."""
+         drain_inbox_first: bool = True, poll_interval_seconds: float | None = None) -> dict[str, Any]:
+    """One scheduler beat: route what arrived, run what is due, write the heartbeat.
+
+    `poll_interval_seconds` is the cadence the caller promises for the NEXT
+    beat; it is written into the heartbeat so a reader (the doctor's
+    `gateway_heartbeat_fresh` organ) can judge staleness in units of missed
+    beats rather than against a constant the unit file may have overridden.
+    A caller with no cadence (a one-off `schedule run`) writes none.
+    """
     from .server import HEARTBEAT_RELPATH
 
     root = ensure_tools_dir(base_dir)
@@ -279,8 +286,10 @@ def tick(*, base_dir: str | Path | None, workspace_root: str | Path, now: dateti
         routed = drain_inbox(base_dir=root, workspace_root=workspace_root, now=stamp)
     ran = [run_action(s.action, base_dir=root, workspace_root=workspace_root, runner=runner, schedule_name=s.name, ran_at=stamp.isoformat())
            for s in due_schedules(now=stamp, base_dir=root)]
-    beat = {"schema_version": 1, "recorded_at": utc_now(), "tick_at": stamp.isoformat(), "routed": len(routed),
-            "ran": [r["action"] + ":" + r["status"] for r in ran]}
+    beat: dict[str, Any] = {"schema_version": 1, "recorded_at": utc_now(), "tick_at": stamp.isoformat(), "routed": len(routed),
+                            "ran": [r["action"] + ":" + r["status"] for r in ran]}
+    if poll_interval_seconds is not None:
+        beat["poll_interval_seconds"] = float(poll_interval_seconds)
     path = root.joinpath(*HEARTBEAT_RELPATH)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".json.tmp")

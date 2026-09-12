@@ -114,3 +114,60 @@ fixtures were date-bombed (fixed 2026-09-04/08-10 cycle stamps the 7-day sweep
 removes; a hash without the `sha256:` prefix `verify_artifacts` compares). The
 guard is last, the fixtures are clock-relative and writer-shaped, and all three
 are green. Closed by the same commit as ARIA-HIGH-090.
+
+## ARIA-HIGH-092 — the self-improvement lane is connected
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-19
+- **Evidence (live, 2026-09-12):** no `gateway/schedules.jsonl` and 0
+  `gateway_schedule_changed` rows on `origin/aria/state`; `aria-gateway.service`
+  last beat 2026-09-08T09:41Z, unit disabled/inactive, no doctor organ reading
+  it; `open_self_improvement_missions` reachable only from the scheduler's
+  `self_improve` action and the operator CLI; `propose_self_change` had no
+  kernel caller — the orchestrator's mission branch forwarded a mission's
+  `next_action` as `recommended_action` prompt prose to `aria-autonomy-planner`.
+  The I-V12-SELF invariants proved the module in isolation and that the action
+  word exists in the vocabulary — the ORPHAN-694 false-close class.
+- **What is now true:**
+  - Schedules exist by construction: `gateway/default_schedules.py` holds
+    `DEFAULT_SCHEDULES` (doctor every 30 min; self_improve 05:45Z and economy
+    05:50Z before the 06:00Z daily report reads the store; deliver 06:30Z, a
+    notification) and `OPERATOR_ONLY_ACTIONS` (cycle, drain, daily_report,
+    telemetry_export, inbox_drain, experiment_night — each with the cadence
+    owner that would double-fire). `run_gateway_daemon` ensures the defaults
+    once per start under the host lease, seeding only names the ledger has never
+    seen (operator remove/pause/re-add honoured; code-vs-ledger drift reported
+    on `gateway_daemon_started.schedules_drift`, never rewritten); an invariant
+    asserts every `SCHEDULE_ACTIONS` member is in exactly one partition.
+  - A real dispatcher: `mission_dispatch.NEXT_ACTION_CONTRACTS` (builders only)
+    and `GENERIC_PROJECTION_POINTERS` (a mandatory reason, the source kind and
+    a named consumer — `plan_synthesizer.scan_github_issue_missions` for issue
+    triage) partition every `*_NEXT_ACTION` pointer; an AST invariant asserts
+    each contract pointer is compared against somewhere outside the CLI and
+    the table itself. A self_improvement mission with
+    `next_action == propose_self_change` mints `aria/self-change-request/v1`
+    (`self_change_bridge`: must_satisfy evidence_paths / problem /
+    proposed_change, kernel-scope allowed_scope); on acceptance the bridge calls
+    `propose_self_change`, which refuses at the authority boundary before any
+    write — `self_change_mission_terminal`, `_operator_held`, `_moved_on`
+    (pointer no longer propose_self_change), `self_change_adjudication_already_open`
+    — so a stale second answer cannot re-park a mission the operator moved on
+    or open a second adjudication; the drain de-duplicates per mission
+    (`in_flight_mission_request`), not per queue item; `self_improvement` joins
+    `mission_scheduler.SOURCE_RANK` below finding and above pressure.
+  - Doctor organ `gateway_heartbeat_fresh` FAILS when the heartbeat is older
+    than five beats of the cadence it declares, or absent while a schedule
+    table exists; a dead daemon is now a `doctor_fail` self-improvement signal.
+- **Operator action (parked):** `aria-gateway.service` on the runner host stays
+  disabled; nothing in this change starts it. Re-enabling is
+  `docs/runbooks/aria-gateway.md`'s procedure (refresh the unit's code root,
+  confirm the env, `systemctl enable --now`, then `aria-kernel schedule list`
+  shows four `kernel:default_schedules` rows and `aria-kernel doctor` reports
+  `gateway_heartbeat_fresh` ok). Until then `aria-kernel doctor` on the live
+  store exits 3 on that organ — the intended readout.
+- **Proof (candidate):** `test_self_change_bridge`, `test_gateway_default_schedules`,
+  `test_phase_v12_i_self_improvement`, `test_doctor`, `test_requeue_fault_ownership`,
+  `test_safety_control_reachability` and the gateway/scheduler/synthesizer
+  modules — see the commit; the daemon-wiring tests discriminate (2 failed on
+  the module-present/daemon-unwired shape), the two-in-flight tests fail with
+  the guards removed. Verified by `wf_284f4dbe-940`; fixed and re-verified
+  (integrate) by `wf_f4cb3a2b-f0a`.

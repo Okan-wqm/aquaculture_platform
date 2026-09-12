@@ -791,6 +791,7 @@ def scan_github_issue_missions(workspace_root: str | Path) -> list[dict[str, Any
     GitHub issues labelled ``aria``. Reads the mission fold only; the
     issue body never enters a candidate (the mission title is the
     gateway's 200-char, label-gated summary)."""
+    from .gateway.router import ISSUE_MISSION_SOURCE_KIND
     from .mission import list_open_missions
 
     tools_root = Path(workspace_root) / "aria-tools"
@@ -798,7 +799,11 @@ def scan_github_issue_missions(workspace_root: str | Path) -> list[dict[str, Any
         return []
     candidates: list[dict[str, Any]] = []
     for mission in list_open_missions(base_dir=tools_root):
-        if str(mission.get("source_kind") or "") != "github_issue":
+        # The gateway's constant, not a literal copy of it: this scanner is
+        # the named consumer `mission_dispatch.GENERIC_PROJECTION_POINTERS`
+        # cites for `triage_github_issue`, and a copy is how the router and
+        # its reader come to disagree about what an issue mission is called.
+        if str(mission.get("source_kind") or "") != ISSUE_MISSION_SOURCE_KIND:
             continue
         candidates.append({
             "source_type": PlanCandidateSource.GITHUB_ISSUE.value,

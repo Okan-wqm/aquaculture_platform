@@ -2221,6 +2221,10 @@ HARNESS_FAULT_RELEASE_REASONS: frozenset[str] = frozenset({
     # finding judged again usually succeeds), so the requeue must not burn
     # the request's budget the way the old submit_rejected path did.
     "judge_verdict_contract_violation",
+    # B6 — the same class for a self-change answer that lacks a contract
+    # field (self_change_bridge.validate_self_change_response): the shape says
+    # nothing about the mission, and re-asking usually succeeds.
+    "self_change_contract_violation",
     "kernel_prompt_renderer_unavailable",
     # Y1 (ORPHAN-703) — the planner dispatch hook now releases its claim on
     # every failure exit instead of abandoning it to lease expiry. A killed
@@ -3828,6 +3832,27 @@ def _invoke_bridges_for_result(
                 root,
                 "agent_bridge_warning",
                 {"claim_id": claim_id, "request_id": request_id, "kind": "plan_convergence_bridge", "error": str(exc)},
+            )
+        # B6 — the self-change bridge dispatches on the CONTRACT the request
+        # declared (self_change_bridge.is_self_change_request), not on the
+        # role: the self_improvement lane shares maintenance_utility with the
+        # queue projection. An accepted answer reaches `propose_self_change`
+        # here, so the authority boundary and the HUMAN_REQUIRED adjudication
+        # fire from the kernel on every accepted result; a refusal is a
+        # governance row plus this warning, never a silent accept.
+        try:
+            from .self_change_bridge import record_self_change_result
+
+            bridged["self_change"] = record_self_change_result(
+                request=request, response=envelope, base_dir=base_dir,
+            )
+        except GovernanceError as exc:
+            bridged["self_change"] = None
+            bridged["bridge_errors"].append(f"self_change_bridge: {exc}")
+            append_tools_governance(
+                root,
+                "agent_bridge_warning",
+                {"claim_id": claim_id, "request_id": request_id, "kind": "self_change_bridge", "error": str(exc)},
             )
     except ImportError as exc:  # pragma: no cover — judgment_bridge is in tree
         bridged["bridge_errors"].append(f"bridge_import: {exc}")

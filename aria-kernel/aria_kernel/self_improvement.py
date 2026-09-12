@@ -10,13 +10,22 @@ AUTHORITY SURFACE (policy, profiles, sandbox, hooks, env, credentials).
 Every proposal opens a HUMAN_REQUIRED adjudication — the irreducible
 class — and `apply_engine` keeps refusing `self_change` outside the
 dedicated kernel-change lane. The loop closes through people, on purpose.
+
+`propose_self_change` is the AUTHORITY BOUNDARY for the answer, judged at
+accept time against the mission as it is then: the same discriminator the
+mint uses (`is_self_change_mission`), plus the mission's state and its open
+adjudication. A second in-flight request for one mission is routine (the
+scheduler never moves a DISCOVERED mission; the queue de-duplicates per
+pending item), so the second accepted answer is refused by name
+(`SELF_CHANGE_MISSION_REFUSALS`) and the mission — including an operator's
+`next_action` — is left exactly as it was.
 """
 from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir
 
@@ -53,6 +62,20 @@ AUTHORITY_SURFACES: tuple[str, ...] = (
 )
 SELF_CHANGE_PROPOSED_EVENT = "self_change_proposed"
 SELF_CHANGE_REFUSED_EVENT = "self_change_authority_surface_refused"
+# The mission-side refusals of `propose_self_change`, one governance kind
+# with the reason in `details.reason` (a member of SELF_CHANGE_MISSION_REFUSALS):
+# the proposal is judged against the MISSION as it is at accept time, not as
+# it was when the request was minted. Two in-flight requests for one mission
+# are routine — the scheduler never moves a DISCOVERED mission, and the queue
+# de-duplicates per pending item, not per mission — so the second accepted
+# answer must be refused here, by name, and leave the mission untouched.
+SELF_CHANGE_MISSION_REFUSED_EVENT = "self_change_mission_refused"
+SELF_CHANGE_MISSION_REFUSALS: tuple[str, ...] = (
+    "self_change_mission_terminal",           # a terminal mission cannot be parked afterwards
+    "self_change_mission_operator_held",      # HUMAN_REQUIRED: the pointer is a person's sentence
+    "self_change_mission_moved_on",           # the pointer is no longer SELF_CHANGE_NEXT_ACTION
+    "self_change_adjudication_already_open",  # an open self_change_adjudication names this mission
+)
 DEFAULT_VALIDATION_COMMAND = "bash scripts/ci/aria-suite-run.sh"
 
 
@@ -63,6 +86,43 @@ class Signal:
     title: str
     evidence: dict[str, Any] = field(default_factory=dict)
     priority: int = 2
+
+
+def is_self_change_mission(mission_row: dict[str, Any]) -> bool:
+    """The discriminator both doors dispatch on: source kind AND pointer.
+
+    Both, because either alone lies: a self_improvement mission whose pointer
+    an adjudication (or the operator) replaced must not receive another
+    proposal, and a foreign mission carrying this pointer is a producer
+    defect. The mission branch reads it at the mint
+    (`mission_dispatch._self_change_contract`) and `propose_self_change`
+    reads it again at accept time, because the mission can move between the
+    two — a second in-flight request for the same mission is routine.
+    """
+    return (str(mission_row.get("source_kind") or "") == SELF_IMPROVEMENT_SOURCE_KIND
+            and str(mission_row.get("next_action") or "") == SELF_CHANGE_NEXT_ACTION)
+
+
+def open_self_change_adjudication(*, mission_id: str, base_dir: str | Path | None) -> dict[str, Any] | None:
+    """The OPEN `self_change_adjudication` that names this mission, if any."""
+    from .human_required import list_human_required
+
+    for record in list_human_required(base_dir=base_dir):
+        context = record.get("context") if isinstance(record.get("context"), dict) else {}
+        if record.get("reason") == "self_change_adjudication" and str(context.get("mission_id") or "") == mission_id:
+            return record
+    return None
+
+
+def _refuse_mission(root: Path, *, reason: str, mission_id: str, mission: dict[str, Any], detail: str) -> NoReturn:
+    """Refuse at the authority boundary: one governance row, then the error the bridge records."""
+    if reason not in SELF_CHANGE_MISSION_REFUSALS:
+        raise GovernanceError(f"self_change_mission_refusal_unknown:{reason}")
+    append_tools_governance(root, SELF_CHANGE_MISSION_REFUSED_EVENT, {
+        "mission_id": mission_id, "reason": reason, "state": mission.get("state"),
+        "next_action": mission.get("next_action"), "detail": detail,
+    })
+    raise GovernanceError(f"{reason}:{mission_id}:{detail}")
 
 
 def authority_surface_violations(paths: list[str]) -> list[str]:
@@ -150,15 +210,38 @@ def open_self_improvement_missions(*, base_dir: str | Path | None, workspace_roo
 
 def propose_self_change(*, mission_id: str, base_dir: str | Path | None, workspace_root: str | Path, evidence_paths: list[str],
                         problem: str, proposed_change: str, validation_command: str = DEFAULT_VALIDATION_COMMAND) -> dict[str, Any]:
-    """A `self_change` proposal + its HUMAN_REQUIRED adjudication. Refuses authority surfaces."""
+    """A `self_change` proposal + its HUMAN_REQUIRED adjudication.
+
+    Refuses, before any write, authority surfaces in the evidence AND every
+    mission the bridge's park would wrong (`SELF_CHANGE_MISSION_REFUSALS`).
+    """
     from .human_required import record_human_required
-    from .mission import fold_mission
+    from .mission import OPERATOR_HELD_STATES, TERMINAL_STATES, fold_mission
     from .proposal import record_proposal
 
     root = ensure_tools_dir(base_dir)
     mission = fold_mission(mission_id=mission_id, base_dir=root)
     if not mission or mission.get("source_kind") != SELF_IMPROVEMENT_SOURCE_KIND:
         raise GovernanceError(f"self_change_requires_self_improvement_mission:{mission_id}")
+    # Every mission-side refusal happens BEFORE any write, against the
+    # mission AS IT IS NOW. The bridge parks the mission in HUMAN_REQUIRED
+    # after the proposal, so each guard names a mission that park would
+    # wrong: a terminal one cannot move; an operator-held one carries a
+    # person's sentence the park would overwrite; one whose pointer moved on
+    # was already answered (or re-pointed by the operator); one with an open
+    # adjudication would get a second proposal for the same signal.
+    state = str(mission.get("state") or "")
+    if state in TERMINAL_STATES:
+        _refuse_mission(root, reason="self_change_mission_terminal", mission_id=mission_id, mission=mission, detail=state)
+    if state in OPERATOR_HELD_STATES:
+        _refuse_mission(root, reason="self_change_mission_operator_held", mission_id=mission_id, mission=mission, detail=state)
+    if not is_self_change_mission(mission):
+        _refuse_mission(root, reason="self_change_mission_moved_on", mission_id=mission_id, mission=mission,
+                        detail=repr(mission.get("next_action")))
+    standing = open_self_change_adjudication(mission_id=mission_id, base_dir=root)
+    if standing is not None:
+        _refuse_mission(root, reason="self_change_adjudication_already_open", mission_id=mission_id, mission=mission,
+                        detail=str(standing.get("request_id")))
     violations = authority_surface_violations(evidence_paths)
     if violations:
         append_tools_governance(root, SELF_CHANGE_REFUSED_EVENT, {"mission_id": mission_id, "violations": violations})
@@ -175,6 +258,7 @@ def propose_self_change(*, mission_id: str, base_dir: str | Path | None, workspa
     return {"proposal": proposal, "human_required": adjudication}
 
 
-__all__ = ["AUTHORITY_SURFACES", "DEFAULT_VALIDATION_COMMAND", "SELF_CHANGE_ALLOWED_PREFIXES", "SELF_CHANGE_NEXT_ACTION",
-           "SELF_CHANGE_PROPOSED_EVENT", "SELF_CHANGE_REFUSED_EVENT", "SELF_IMPROVEMENT_SOURCE_KIND", "SIGNAL_KINDS", "Signal",
-           "authority_surface_violations", "open_self_improvement_missions", "propose_self_change", "scan_signals"]
+__all__ = ["AUTHORITY_SURFACES", "DEFAULT_VALIDATION_COMMAND", "SELF_CHANGE_ALLOWED_PREFIXES", "SELF_CHANGE_MISSION_REFUSALS",
+           "SELF_CHANGE_MISSION_REFUSED_EVENT", "SELF_CHANGE_NEXT_ACTION", "SELF_CHANGE_PROPOSED_EVENT", "SELF_CHANGE_REFUSED_EVENT",
+           "SELF_IMPROVEMENT_SOURCE_KIND", "SIGNAL_KINDS", "Signal", "authority_surface_violations", "is_self_change_mission",
+           "open_self_change_adjudication", "open_self_improvement_missions", "propose_self_change", "scan_signals"]

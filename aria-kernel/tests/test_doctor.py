@@ -141,6 +141,103 @@ class StoreChecks(unittest.TestCase):
         self.assertEqual((check.status, check.reason), ("fail", "breaker_tripped:cost_breaker"))
 
 
+class GatewayHeartbeatFresh(unittest.TestCase):
+    """B6 — a dead gateway daemon must FAIL the doctor, not warn it.
+
+    CONFIRMED LIVE 2026-09-12: `aria-gateway.service` on the runner host
+    last beat on 2026-09-08 and is disabled/dead; the `gateway` organ read
+    the four-day-old heartbeat as `warn`, the doctor stayed `healthy`, and
+    `self_improvement.scan_signals` lifts only `fail` organs — so nothing
+    noticed. Freshness is judged in missed BEATS (the heartbeat declares its
+    own cadence), and an absent heartbeat is a fail exactly when a schedule
+    table exists to expect one.
+    """
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.tools = self.root / "aria-tools"
+        ensure_tools_dir(self.tools)
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _beat(self, *, age_seconds: float, poll_interval_seconds: float | None = None) -> None:
+        import json
+        from datetime import datetime, timedelta, timezone
+
+        from aria_kernel.gateway.server import HEARTBEAT_RELPATH
+
+        stamp = (datetime.now(timezone.utc) - timedelta(seconds=age_seconds)).isoformat()
+        beat = {"schema_version": 1, "recorded_at": stamp, "tick_at": stamp, "routed": 0, "ran": []}
+        if poll_interval_seconds is not None:
+            beat["poll_interval_seconds"] = poll_interval_seconds
+        path = self.tools.joinpath(*HEARTBEAT_RELPATH)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(beat), encoding="utf-8")
+
+    def test_the_live_shape_a_four_day_old_heartbeat_is_a_fail(self) -> None:
+        # The live beat (2026-09-08) predates the cadence field; the daemon
+        # default applies and four days is thousands of missed beats.
+        self._beat(age_seconds=4 * 24 * 3600)
+        check = doctor._check_gateway_heartbeat_fresh(self.tools)
+        self.assertEqual(check.status, "fail")
+        self.assertTrue(check.reason.startswith("gateway_heartbeat_stale:"), check.reason)
+        self.assertGreater(check.detail["missed_beats"], doctor.HEARTBEAT_STALE_AFTER_BEATS)
+
+    def test_staleness_is_measured_in_beats_of_the_declared_cadence(self) -> None:
+        from aria_kernel.gateway.daemon import DEFAULT_POLL_INTERVAL_SECONDS
+
+        # Twenty minutes is stale at the 60 s default but two beats at a
+        # declared 600 s cadence: the beat's own promise decides.
+        self._beat(age_seconds=20 * 60, poll_interval_seconds=600.0)
+        self.assertEqual(doctor._check_gateway_heartbeat_fresh(self.tools).status, "ok")
+        self._beat(age_seconds=20 * 60)
+        stale = doctor._check_gateway_heartbeat_fresh(self.tools)
+        self.assertEqual(stale.status, "fail")
+        self.assertEqual(stale.detail["poll_interval_seconds"], DEFAULT_POLL_INTERVAL_SECONDS)
+
+    def test_an_absent_heartbeat_with_a_schedule_table_is_a_fail(self) -> None:
+        from aria_kernel.gateway.scheduler import add_schedule
+
+        add_schedule(name="doctor", action="doctor", cron="*/30 * * * *", base_dir=self.tools)
+        check = doctor._check_gateway_heartbeat_fresh(self.tools)
+        self.assertEqual((check.status, check.reason), ("fail", "gateway_heartbeat_absent_with_schedules"))
+        self.assertEqual(check.detail["schedules"], ["doctor"])
+
+    def test_an_absent_heartbeat_without_schedules_is_not_deployed_here(self) -> None:
+        check = doctor._check_gateway_heartbeat_fresh(self.tools)
+        self.assertEqual((check.status, check.reason), ("ok", "gateway_not_deployed_here"))
+
+    def test_an_unreadable_heartbeat_is_a_fail_when_schedules_exist(self) -> None:
+        from aria_kernel.gateway.scheduler import add_schedule
+        from aria_kernel.gateway.server import HEARTBEAT_RELPATH
+
+        add_schedule(name="doctor", action="doctor", cron="*/30 * * * *", base_dir=self.tools)
+        path = self.tools.joinpath(*HEARTBEAT_RELPATH)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{not json", encoding="utf-8")
+        check = doctor._check_gateway_heartbeat_fresh(self.tools)
+        self.assertEqual((check.status, check.reason), ("fail", "gateway_heartbeat_unreadable"))
+
+    def test_the_organ_is_registered_and_owns_freshness(self) -> None:
+        self._beat(age_seconds=4 * 24 * 3600)
+        report = run_doctor(base_dir=self.tools, workspace_root=self.root)
+        organs = {check.name: check for check in report.checks}
+        self.assertEqual(organs["gateway_heartbeat_fresh"].status, "fail")
+        self.assertEqual(report.exit_code, DOCTOR_EXIT_UNHEALTHY)
+        # One fact, one owner: the `gateway` organ keeps inbox/backlog and no
+        # longer issues a second, weaker verdict on the same heartbeat.
+        self.assertNotEqual(organs["gateway"].reason, "gateway_heartbeat_stale")
+
+    def test_a_dead_daemon_becomes_a_self_improvement_signal(self) -> None:
+        from aria_kernel.self_improvement import scan_signals
+
+        self._beat(age_seconds=4 * 24 * 3600)
+        signals = scan_signals(base_dir=self.tools, workspace_root=self.root)
+        self.assertIn(("doctor_fail", "gateway_heartbeat_fresh"), {(s.kind, s.key) for s in signals})
+
+
 class CliSurface(unittest.TestCase):
     def test_doctor_parses_with_the_tools_dir_parent(self) -> None:
         args = build_parser().parse_args(["doctor", "--json", "--tools-dir", "/tmp/x"])

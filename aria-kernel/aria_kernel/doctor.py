@@ -288,9 +288,11 @@ def _check_notifications(tools_dir: Path) -> DoctorCheck:
     return DoctorCheck("notifications", "ok", "" if detail["configured_channels"] else "no_channel_configured", detail)
 
 
-def _check_gateway(tools_dir: Path, *, stale_after_seconds: float = 300.0) -> DoctorCheck:
-    """Plan 032 Faz 032f — the droplet daemon's heartbeat. Absent = not
-    deployed on this host (ok, informational); stale = it died quietly."""
+def _check_gateway(tools_dir: Path) -> DoctorCheck:
+    """Plan 032 Faz 032f — the droplet daemon's inbox and last beat, as
+    information. Absent = not deployed on this host. Freshness is NOT judged
+    here: `gateway_heartbeat_fresh` owns it, with a FAIL — this organ's
+    `warn` on a four-day-old beat is how the dead daemon went unnoticed."""
     import json
     from datetime import datetime, timezone
 
@@ -308,11 +310,59 @@ def _check_gateway(tools_dir: Path, *, stale_after_seconds: float = 300.0) -> Do
         return DoctorCheck("gateway", "warn", "heartbeat_unreadable", {"inbox": inbox})
     age = (datetime.now(timezone.utc) - stamp).total_seconds()
     detail = {"heartbeat_age_seconds": int(age), "inbox": inbox, "last_ran": beat.get("ran")}
-    if age > stale_after_seconds:
-        return DoctorCheck("gateway", "warn", "gateway_heartbeat_stale", detail)
     if inbox["pending"] > 50:
         return DoctorCheck("gateway", "warn", f"inbox_backlog:{inbox['pending']}", detail)
     return DoctorCheck("gateway", "ok", "", detail)
+
+
+# How many consecutive beats the daemon may miss before the doctor calls it
+# dead. Five: one beat is a loaded host, two a slow tick; five in a row at
+# the 60 s default is the same 300 s the first gateway organ warned at —
+# except this organ FAILS, because a dead daemon is not information.
+HEARTBEAT_STALE_AFTER_BEATS = 5
+
+
+def _check_gateway_heartbeat_fresh(tools_dir: Path, *, stale_after_beats: int = HEARTBEAT_STALE_AFTER_BEATS) -> DoctorCheck:
+    """B6 — the gateway daemon is alive, or the doctor is unhealthy.
+
+    CONFIRMED LIVE 2026-09-12: aria-gateway.service last beat 2026-09-08 and
+    sat disabled/dead for four days while the doctor stayed healthy (the
+    `gateway` organ warned, `healthy` counts only fails, and
+    `self_improvement.scan_signals` lifts only fails). Staleness is counted
+    in BEATS of the cadence the heartbeat itself declares
+    (`poll_interval_seconds`, written by `scheduler.tick`); a beat from
+    before that field existed is judged at the daemon default. An ABSENT
+    heartbeat fails exactly when a schedule table exists — the table is what
+    says a daemon is expected on this store; with no table this host never
+    ran one, which is a fact rather than an illness.
+    """
+    import json
+    from datetime import datetime, timezone
+
+    from .gateway.daemon import DEFAULT_POLL_INTERVAL_SECONDS
+    from .gateway.scheduler import fold_schedules
+    from .gateway.server import HEARTBEAT_RELPATH
+
+    schedules = sorted(fold_schedules(tools_dir))
+    path = tools_dir.joinpath(*HEARTBEAT_RELPATH)
+    if not path.exists():
+        if schedules:
+            return DoctorCheck("gateway_heartbeat_fresh", "fail", "gateway_heartbeat_absent_with_schedules", {"schedules": schedules})
+        return DoctorCheck("gateway_heartbeat_fresh", "ok", "gateway_not_deployed_here", {"schedules": []})
+    try:
+        beat = json.loads(path.read_text(encoding="utf-8"))
+        stamp = datetime.fromisoformat(str(beat.get("recorded_at")).replace("Z", "+00:00"))
+        interval = float(beat.get("poll_interval_seconds") or DEFAULT_POLL_INTERVAL_SECONDS)
+    except (OSError, ValueError, TypeError, AttributeError):
+        status = "fail" if schedules else "warn"
+        return DoctorCheck("gateway_heartbeat_fresh", status, "gateway_heartbeat_unreadable", {"schedules": schedules})
+    age = (datetime.now(timezone.utc) - stamp).total_seconds()
+    missed = age / interval if interval > 0 else float("inf")
+    detail = {"heartbeat_age_seconds": int(age), "poll_interval_seconds": interval, "missed_beats": round(missed, 1),
+              "stale_after_beats": stale_after_beats, "schedules": schedules}
+    if missed > stale_after_beats:
+        return DoctorCheck("gateway_heartbeat_fresh", "fail", f"gateway_heartbeat_stale:{int(age)}s>{stale_after_beats}x{interval:g}s", detail)
+    return DoctorCheck("gateway_heartbeat_fresh", "ok", "", detail)
 
 
 def _check_economy(tools_dir: Path) -> DoctorCheck:
@@ -367,6 +417,7 @@ def run_doctor(
         _guarded("control", lambda: _check_control(tools_dir)),
         _guarded("notifications", lambda: _check_notifications(tools_dir)),
         _guarded("gateway", lambda: _check_gateway(tools_dir)),
+        _guarded("gateway_heartbeat_fresh", lambda: _check_gateway_heartbeat_fresh(tools_dir)),
         _guarded("economy", lambda: _check_economy(tools_dir)),
     )
     return DoctorReport(
@@ -387,6 +438,7 @@ def render_doctor_text(report: DoctorReport) -> str:
 
 __all__ = [
     "CLAUDE_CLI_VERSION_FLOOR",
+    "HEARTBEAT_STALE_AFTER_BEATS",
     "DOCTOR_EXIT_HEALTHY",
     "DOCTOR_EXIT_UNHEALTHY",
     "DoctorCheck",

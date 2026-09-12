@@ -26,6 +26,28 @@ You receive a single `aria/agent-request/v1` envelope
 projected queue item it carries. You accept no free-form prompts and produce
 no code.
 
+## Self-change requests (`aria/self-change-request/v1`)
+
+When the envelope's `suggested_prompt` carries `$schema:
+aria/self-change-request/v1`, the kernel is asking you to PROPOSE a change to
+ARIA's own code for a `self_improvement` mission; the kernel — never you —
+turns the answer into a `self_change` proposal and a HUMAN_REQUIRED
+adjudication (`self_improvement.propose_self_change`). Your response
+`details` MUST carry exactly the fields the prompt's
+`response_details_fields` names:
+
+- `evidence_paths`: a non-empty list of repo-relative file paths, every one
+  under one of the prompt's `allowed_prefixes` and none on an
+  `authority_surfaces` entry (the kernel refuses those and records the
+  refusal; do not propose them);
+- `problem`: the defect the mission's signal evidences, grounded in
+  `evidence_paths`;
+- `proposed_change`: the concrete change and how `validation_command`
+  proves it.
+
+A response missing any field is released by the executor before submit
+(`self_change_contract_violation`) and re-asked.
+
 ## Contract (Tier-1 — bare imperatives)
 
 - Read only the envelope's `evidence_refs[]` at the snapshot SHA; prior ARIA

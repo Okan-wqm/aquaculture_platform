@@ -1267,6 +1267,37 @@ Workspace components by recoverability:
 
 ---
 
+## 12.14 — Built Validation Child Environment
+
+`aria-kernel/aria_kernel/validation_env.py` (ARIA-MEDIUM-066) owns the environment a validation
+command runs under. The runner no longer copies its own process environment into the child: the
+child's environment is BUILT from an explicit baseline (`VALIDATION_BASELINE_ENV_NAMES`: the
+agent-spawn baseline plus `HOME`/`USER`/`LOGNAME`, the `XDG_*` roots, `CI`/`FORCE_COLOR`/`NO_COLOR`
+and the hermetic git redirects `GIT_CONFIG_GLOBAL`/`GIT_CONFIG_SYSTEM`/`GIT_CONFIG_NOSYSTEM`), the
+toolchain namespaces the allowed commands read (`VALIDATION_TOOLCHAIN_ENV_PREFIXES`: `PYTHON*`,
+`NODE_*`, `NX_*`, `CARGO_*`, `RUST*`), and the variables the command itself declares. Three
+classes never reach the child unless declared: secret-shaped names (`agent_env.SECRET_SHAPED_ENV_NAME`,
+also applied inside an admitted prefix, so `NX_CLOUD_ACCESS_TOKEN` is dropped while `NX_DAEMON` is
+passed), the durable-store bindings (`ARIA_TOOLS_DIR`, `ARIA_WORKSPACE_BASE`, `ARIA_REPO_STATE_ROOT`,
+`ARIA_STATE_STORE_ROOT` — an in-cycle self-validation that runs the kernel suite otherwise writes
+fixture state into the store `restore-aria-state` bound for the job), and the `GIT_CONFIG_COUNT`
+triple / `GIT_DIR` location family (a CI publish step carries an `AUTHORIZATION` header under a
+name the secret shape cannot recognise; a git hook exports `GIT_DIR` into its children).
+
+Every `validation_runs` row the spawn seam writes carries a `spawn_environment` column
+(`ValidationEnvReport.to_ledger()`): `passed` (every name the child saw), `declared` (the subset
+the command declared and therefore overrode), `dropped_count`, `dropped_secret_shaped` and
+`dropped_store_bindings` — names only, never values. The column is optional on the surface
+(a caller recording a run executed elsewhere may not know it) and REQUIRED at the spawn seam;
+`validation_runs_ledger._validated_spawn_environment` admits only the closed shape (exactly those
+keys, sorted unique printable-ASCII names without `=`, bounded list lengths) and refuses rather
+than truncates, because a truncated "what the child saw" is a claim the merge gate would honour.
+
+`aria-kernel/tests/test_validation_env.py` owns the build rules (inherited store bindings and
+secret-shaped names do not reach the child; `PATH`/`HOME`/`PYTHONPATH` and a declared variable do;
+a declared value wins over an inherited one) and `test_validation_runs_unified_surface.py` owns the
+ledger column through the real spawn seam.
+
 ## 13 — Phase-1 PoC (IMPLEMENTED)
 
 Before committing to months of kernel work, the operator runs this PoC to answer: **"do we actually

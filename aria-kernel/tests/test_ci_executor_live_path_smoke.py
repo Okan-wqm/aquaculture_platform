@@ -604,11 +604,15 @@ class NativeAdaptiveAdmissionTests(unittest.TestCase):
         self.assertEqual(binding["prompt"]["ledger_hash"], request["prompt_ledger_hash"])
         self.assertEqual(request["context_source_paths"], ["src/model_fleet.py"])
         captured = []
+        captured_metadata = []
 
         def receive_dispatch(argv, **kwargs):
             # Only the final executor transport is a declared observation
             # seam. Native request selection, claim and projection stay real.
             captured.append((argv, kwargs))
+            metadata_path = Path(kwargs["env"][hook.CLAIM_METADATA_FILE_ENV_VAR])
+            self.assertEqual(metadata_path.stat().st_mode & 0o777, 0o600)
+            captured_metadata.append(metadata_path.read_text(encoding="utf-8"))
             return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
 
         with patch.object(hook, "subprocess", SimpleNamespace(
@@ -631,7 +635,12 @@ class NativeAdaptiveAdmissionTests(unittest.TestCase):
         self.assertEqual(options["env"]["ARIA_TOOLS_DIR"], str(self.tools))
         self.assertEqual(options["env"]["ARIA_WORKSPACE_ROOT"], str(self.repo))
         self.assertEqual(options["env"]["PYTHONPATH"].split(os.pathsep), [str(_REPO_ROOT), str(_KERNEL_DIR)])
-        metadata = json.loads(options["env"][hook.CLAIM_METADATA_ENV_VAR])
+        # ARIA-HIGH-085 — the metadata is a 0600 file the environment names,
+        # never the environment's value; the hook removes it once the child
+        # has exited, so the fake transport reads it while the child "runs".
+        metadata = json.loads(captured_metadata[0])
+        self.assertFalse(Path(options["env"][hook.CLAIM_METADATA_FILE_ENV_VAR]).exists(),
+                         "the metadata file lives exactly as long as the child")
         self.assertEqual(metadata["claim_ledger_hash"], claims[0]["ledger_hash"])
         self.assertEqual(metadata["request_ledger_hash"], request["ledger_hash"])
         self.assertEqual(self.ai.fuse_prompt_envelope(metadata), self.ai.fuse_prompt_envelope(request))
@@ -663,11 +672,14 @@ class NativeAdaptiveAdmissionTests(unittest.TestCase):
             claim["agent_id"],
         )
         self.assertEqual(json.loads(metadata)["request_ledger_hash"], self.request["ledger_hash"])
+        metadata_file = self.root / "claim-metadata.json"
+        metadata_file.write_text(metadata, encoding="utf-8")
+        metadata_file.chmod(0o600)
         (self.binary_dir / "python3").symlink_to(sys.executable)
         environment = {**os.environ, "PATH": str(self.binary_dir),
                        "PYTHONPATH": os.pathsep.join((str(_REPO_ROOT), str(_KERNEL_DIR))),
                        "ARIA_WORKSPACE_ROOT": str(self.repo), "ARIA_TOOLS_DIR": str(self.tools),
-                       ci_executor.CLAIM_METADATA_ENV_VAR: metadata,
+                       ci_executor.CLAIM_METADATA_FILE_ENV_VAR: str(metadata_file),
                        ci_executor.LEASE_TOKEN_ENV_VAR: claim["lease_token"]}
         completed = subprocess.run(
             [sys.executable, "-B", str(_POC_DIR / "ci_executor.py"), self.request["request_id"], "aria-evidence-judge"],

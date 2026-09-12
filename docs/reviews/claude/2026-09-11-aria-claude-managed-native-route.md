@@ -386,3 +386,35 @@ longer takes a prompt; `run_codex_exec` passes `input=prompt` and the
 managed path passes `input_text=prompt` through the spawn seam it already
 used with an empty stdin. The argv contract tests read the prompt from
 the launch's `input`; the live fake `codex` reads it from stdin.
+
+## Addendum — ARIA-HIGH-085: the claim metadata rode an environment string
+
+Trial nine, round-3 cross-review (`AIR-aria-cross-reviewer-d56ccafa2f21`):
+the planner dispatch hook could not even start the executor —
+`subprocess.run` raised `OSError: [Errno 7] Argument list too long:
+'python3'`. The hook exported the fused claim envelope (plans, risks,
+must-satisfy, evidence references) as the VALUE of `ARIA_CLAIM_METADATA`;
+an environment string is bounded like an argument (`MAX_ARG_STRLEN`), and
+a round-3 cross-review's envelope carries both plans. The same class as
+ARIA-HIGH-084, one hop earlier.
+
+**Fix.** The metadata crosses as a file: the hook writes it 0600 under
+`<tools>/runtime/claim-metadata/<claim_id>.json`, names it in
+`ARIA_CLAIM_METADATA_FILE`, and removes it once the child has exited
+(`subprocess.run` returns only then, so nothing can race a read); the
+executor reads the file the variable names and refuses by name when it
+cannot. The payload schema, the forbidden-key checks at both boundaries
+and the ledger-hash integrity verification are unchanged; the lease token
+still transits only via `ARIA_LEASE_TOKEN`. The hook's live-path test
+reads the file through the transport seam and asserts its mode and its
+removal; the single-claim executor tests reproduce the file.
+
+Found next to it: the hook's task-binding gate admitted an UNBOUND store
+only in the schema-3 spelling (`bound_canonical_identity` present and
+None); a fresh `ensure_tools_dir` store is schema 2 with
+`bound_repo_root`/`bound_repo_hash` None and no canonical-identity field,
+and was refused as `planner_dispatch_task_binding_unavailable` — five hook
+fixtures red on the candidate since the integration. "Unbound" is now a
+property of the binding fields (every one absent or None, no unknown
+fields), not of the schema version; any non-None binding value still has
+to validate.

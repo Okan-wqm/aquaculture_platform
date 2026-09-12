@@ -596,15 +596,18 @@ def _pre_submit_validate_envelope(
 
 MOCK_MODE_ENV_VAR = CLAUDE_MOCK_ENV_VAR
 
-# Plan 026R §B.5 — single-claim env-var contract (mirror of
-# planner_dispatch_hook.CLAIM_METADATA_ENV_VAR). When set by the
-# planner, ci_executor SKIPS its own ``agent claim`` step and uses
-# the fused envelope + ledger-hash anchors from this var. The raw
-# lease_token continues to transit ONLY via ARIA_LEASE_TOKEN — the
-# metadata payload schema rejects it on both serialise + deserialise.
-CLAIM_METADATA_ENV_VAR = "ARIA_CLAIM_METADATA"
+# Plan 026R §B.5 — single-claim contract (mirror of
+# planner_dispatch_hook.CLAIM_METADATA_FILE_ENV_VAR). When the planner sets
+# it, ci_executor SKIPS its own ``agent claim`` step and uses the fused
+# envelope + ledger-hash anchors from the FILE this variable names. A file,
+# not the value: an environment string is bounded like an argument
+# (MAX_ARG_STRLEN), and a round-3 cross-review envelope carrying both plans
+# was refused by execve before the executor started (ARIA-HIGH-085). The raw
+# lease_token continues to transit ONLY via ARIA_LEASE_TOKEN — the metadata
+# payload schema rejects it on both serialise + deserialise.
+CLAIM_METADATA_FILE_ENV_VAR = "ARIA_CLAIM_METADATA_FILE"
 
-# Forbidden keys in ARIA_CLAIM_METADATA — mirrors
+# Forbidden keys in the claim metadata — mirrors
 # planner_dispatch_hook.CLAIM_METADATA_FORBIDDEN_KEYS. Source of truth
 # for "what MUST NOT be serialised into the metadata env-var" lives at
 # both boundaries so a tamper at one boundary is caught at the other.
@@ -2072,6 +2075,21 @@ def _release_claim(
     return released.returncode == 0
 
 
+def _read_claim_metadata_file(path: str | None) -> str | None:
+    """The serialised claim metadata the planner hook wrote for this child.
+
+    None when no file is named (the executor then claims for itself). A
+    named file that cannot be read is a refusal, not a silent fall-through
+    to a second claim: the planner already holds the lease.
+    """
+    if not path:
+        return None
+    try:
+        return Path(path).read_text(encoding="utf-8")
+    except OSError as exc:
+        raise SystemExit(f"single_claim_mode_metadata_unreadable: {type(exc).__name__}") from exc
+
+
 def _deserialise_inherited_claim_metadata(
     raw_payload: str,
     *,
@@ -2079,7 +2097,7 @@ def _deserialise_inherited_claim_metadata(
     request_id: str,
     tools_dir: Path,
 ) -> tuple[dict[str, Any], str | None]:
-    """Plan 026R §B.5 — deserialise ARIA_CLAIM_METADATA + verify integrity.
+    """Plan 026R §B.5 — deserialise the claim metadata + verify integrity.
 
     Returns ``(claim_dict, error_message)`` where ``error_message`` is
     None on success. The error_message is printed verbatim by main() so
@@ -3009,13 +3027,13 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
     agent_id = f"ci-executor:gha-{os.environ.get('GITHUB_RUN_ID', 'local')}"
 
     # Plan 026R §B.5 — single-claim mode. When the planner has already
-    # claimed the request and exported ARIA_CLAIM_METADATA + ARIA_LEASE_
+    # claimed the request and exported ARIA_CLAIM_METADATA_FILE + ARIA_LEASE_
     # TOKEN, this executor SKIPS its own ``agent claim`` step and uses
     # the inherited envelope + ledger-hash anchors directly. Pre-§B.5
     # the subprocess re-claimed (double-claim) and the defensive reject
     # was noisy + tagged every planner-driven cycle as a failure.
     native_runtime = None
-    metadata_env = os.environ.get(CLAIM_METADATA_ENV_VAR)
+    metadata_env = _read_claim_metadata_file(os.environ.get(CLAIM_METADATA_FILE_ENV_VAR))
     if metadata_env:
         claim, single_claim_error = _deserialise_inherited_claim_metadata(
             metadata_env,

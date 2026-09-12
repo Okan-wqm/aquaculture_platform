@@ -52,16 +52,27 @@ DEFAULT_LEASE_SECONDS: int = 1800
 LEASE_TOKEN_ENV_VAR: str = "ARIA_LEASE_TOKEN"
 # Plan 026R §B.5 — single-claim env separation. ARIA_LEASE_TOKEN carries
 # the raw token (sensitive, NEVER in metadata / argv / logs).
-# ARIA_CLAIM_METADATA carries the fused claim envelope (claim_id,
+# The claim-metadata file carries the fused claim envelope (claim_id,
 # request_id, agent_id, envelope fields, lease_expires_at, ledger-hash
 # anchors). The two-env-var split makes "metadata leaks the secret" a
 # structurally-impossible bug — the serialiser rejects any
 # ``lease_token`` / ``lease_token_hash`` key on output; the executor
 # deserialiser rejects them on input.
-CLAIM_METADATA_ENV_VAR: str = "ARIA_CLAIM_METADATA"
+CLAIM_METADATA_FILE_ENV_VAR: str = "ARIA_CLAIM_METADATA_FILE"
+"""The claim metadata crosses to the executor as a FILE, named by this variable.
+
+It used to be the value of ``ARIA_CLAIM_METADATA`` itself. An environment
+string is bounded like an argument (``MAX_ARG_STRLEN``, 128 KiB on Linux):
+trial nine's round-3 cross-review (2026-09-12, ARIA-HIGH-085) carried both
+plans inside its fused envelope and ``execve`` refused the executor with
+``OSError: [Errno 7] Argument list too long`` before it started. The file
+is written 0600 under the tools store's runtime directory for exactly the
+child's lifetime; the lease token still transits only via
+``ARIA_LEASE_TOKEN`` and is never part of the payload.
+"""
 
 
-# Plan 026R §B.5 — fields prohibited from ARIA_CLAIM_METADATA. Any
+# Plan 026R §B.5 — fields prohibited from the claim metadata. Any
 # attempt to write or read either key in metadata raises
 # ``GovernanceError``. The single source of truth — both serialiser
 # (sender) and deserialiser (executor) read from this constant.
@@ -75,7 +86,7 @@ def _serialise_claim_metadata_for_env(
     claim: dict[str, Any], agent_id: str,
 ) -> str:
     """Plan 026R §B.5 — serialise a claim response into the
-    ARIA_CLAIM_METADATA env-var payload.
+    claim-metadata payload (written to the file ARIA_CLAIM_METADATA_FILE names).
 
     Schema:
     * claim_id, request_id, agent_id (control-plane identifiers)
@@ -130,6 +141,25 @@ def _serialise_claim_metadata_for_env(
             f"claim_metadata_forbidden_key_in_payload: {sorted(payload_leaked)}"
         )
     return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+
+def _write_claim_metadata_file(root: Path, claim_id: str, payload: str) -> Path:
+    """Write the serialised claim metadata where only this process can read it.
+
+    0600, created exclusively (an existing file for the same claim is a
+    stale leftover of a killed dispatch and is replaced), under the tools
+    store's own runtime directory so it rides the store's permissions.
+    """
+    directory = root / "runtime" / "claim-metadata"
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{claim_id}.json"
+    path.unlink(missing_ok=True)
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        os.write(descriptor, payload.encode("utf-8"))
+    finally:
+        os.close(descriptor)
+    return path
 
 
 def _redact_lease_in_message(message: str, lease_token: str | None) -> str:
@@ -243,13 +273,18 @@ def _dispatch_task_root(root: Path, code_root: Path) -> Path:
         raise GovernanceError("planner_dispatch_task_binding_unavailable") from exc
     if not isinstance(identity, dict):
         raise GovernanceError("planner_dispatch_task_binding_unavailable")
-    # Preserve the existing unbound legacy hook. A partially specified or
-    # malformed binding is never permission to select the engineering tree.
-    if (set(identity) == {"schema_version", "aria_tools_contract_version", "bound_repo_root",
-                          "bound_canonical_identity", "bound_repo_hash"}
-            and identity.get("schema_version") == 3 and identity.get("aria_tools_contract_version") == 3
-            and all(identity.get(key) is None for key in
-                    ("bound_repo_root", "bound_canonical_identity", "bound_repo_hash"))):
+    # Preserve the existing unbound legacy hook. "Unbound" is a property of
+    # the binding fields — every one absent or None — not of the schema
+    # version: a fresh ensure_tools_dir store is schema 2 with
+    # bound_repo_root/bound_repo_hash None and no canonical identity, and
+    # the exact-shape test that admitted only the schema-3 spelling refused
+    # every such store as `planner_dispatch_task_binding_unavailable` (five
+    # hook fixtures red on the candidate). A partially specified or
+    # malformed binding is still never permission to select the engineering
+    # tree: any non-None binding value must validate below.
+    binding_fields = ("bound_repo_root", "bound_canonical_identity", "bound_repo_hash")
+    unknown_fields = set(identity) - {"schema_version", "aria_tools_contract_version", *binding_fields}
+    if not unknown_fields and all(identity.get(key) is None for key in binding_fields):
         return code_root
     value = identity.get("bound_repo_root")
     if not isinstance(value, str) or not Path(value).is_absolute():
@@ -377,7 +412,7 @@ def dispatch_one_pending_planner_request(
 
     # Step 3 — invoke ci_executor.py as a subprocess. Lease token via
     # env var; argv carries only public identifiers. Plan 026R §B.5 —
-    # ARIA_CLAIM_METADATA env var carries the fused envelope + ledger-
+    # the claim-metadata FILE carries the fused envelope + ledger-
     # hash anchors so the subprocess SKIPS its own ``agent claim`` step
     # (single-claim mode). Pre-§B.5 the subprocess re-claimed and the
     # defensive double-claim reject in agent_invocations was noisy.
@@ -399,25 +434,32 @@ def dispatch_one_pending_planner_request(
         k: v for k, v in claim.items()
         if k not in CLAIM_METADATA_FORBIDDEN_KEYS
     }
-    metadata_env = _serialise_claim_metadata_for_env(sanitised_claim, agent_id)
+    metadata_payload = _serialise_claim_metadata_for_env(sanitised_claim, agent_id)
+    metadata_path = _write_claim_metadata_file(root, claim_id, metadata_payload)
     env: dict[str, str] = {
         **os.environ,
         "PYTHONPATH": os.pathsep.join((str(code_root), str(code_root / "aria-kernel"))),
         "ARIA_WORKSPACE_ROOT": str(repo_root),
         "ARIA_TOOLS_DIR": str(root),
         LEASE_TOKEN_ENV_VAR: lease_token,
-        CLAIM_METADATA_ENV_VAR: metadata_env,
+        CLAIM_METADATA_FILE_ENV_VAR: str(metadata_path),
     }
     timeout_seconds = _executor_timeout_seconds(lease_seconds)
     try:
-        proc = subprocess.run(
-            argv,
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
-            env=env,
-            cwd=str(repo_root),
-        )
+        # The file lives exactly as long as the child: subprocess.run returns
+        # (or raises) only once the executor has exited, so removing it here
+        # can never race a read.
+        try:
+            proc = subprocess.run(
+                argv,
+                capture_output=True,
+                text=True,
+                timeout=timeout_seconds,
+                env=env,
+                cwd=str(repo_root),
+            )
+        finally:
+            metadata_path.unlink(missing_ok=True)
         exit_code = proc.returncode
         stderr_text = proc.stderr or ""
     except subprocess.TimeoutExpired:

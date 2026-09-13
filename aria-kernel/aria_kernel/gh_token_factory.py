@@ -48,6 +48,124 @@ from typing import Any
 
 
 @dataclass(frozen=True)
+class GitSigningWiring:
+    """ARIA-HIGH-114 — the mint's receipt for the checkout's signing config.
+
+    ``configured`` is True only when every one of ``_SIGNING_CONFIG_KEYS``
+    was written to ``scope`` (``--local`` on a main checkout, ``--worktree``
+    on a linked worktree). Otherwise ``reason`` names why not, in the
+    closed vocabulary ``not_a_checkout`` (the workspace root is not inside
+    a git checkout), ``git_unavailable`` (git did not answer), and
+    ``worktree_scope_unavailable:<why>`` (a linked worktree whose
+    repository cannot carry per-worktree config). The receipt is the
+    difference between "silently unsigned" and "refused by name".
+    """
+
+    configured: bool
+    scope: str | None
+    reason: str | None
+
+
+@dataclass(frozen=True)
+class SigningCheckout:
+    """ARIA-HIGH-114 — where one workspace's signing transaction lives.
+
+    ``git_dir`` is the checkout's PRIVATE git directory as git itself
+    reports it (``rev-parse --absolute-git-dir``): ``<ws>/.git`` for a
+    main checkout, ``<common>/worktrees/<name>`` for a linked worktree.
+    The allowed-signers file and the config snapshots live there — a
+    directory the lane's pre-clean never wipes in either shape, and one
+    that exists for the per-request worktrees the executor drain adds,
+    where ``<ws>/.git`` is a FILE and the old ``is_dir()`` test skipped
+    the whole wiring without a word.
+
+    ``config_scope`` is the ``git config`` scope the transaction writes
+    to. On a main checkout that is ``--local``. On a linked worktree
+    ``--local`` is the config every worktree of the repository shares —
+    the operator's own checkout and every other lane's tree — and a
+    per-cycle signing key installed there signs everybody's commits and
+    is restored by whichever cycle revokes first; so a linked worktree
+    writes ``--worktree`` (``config.worktree`` inside ``git_dir``), which
+    git honours once ``extensions.worktreeConfig`` is on.
+    """
+
+    workspace_root: Path
+    git_dir: Path
+    config_scope: str
+
+    @property
+    def linked(self) -> bool:
+        return self.config_scope == _CONFIG_SCOPE_WORKTREE
+
+
+_CONFIG_SCOPE_LOCAL: str = "--local"
+_CONFIG_SCOPE_WORKTREE: str = "--worktree"
+_WORKTREE_CONFIG_EXTENSION: str = "extensions.worktreeConfig"
+
+
+def _git_rev_parse(workspace_root: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", "-C", str(workspace_root), "rev-parse", *args],
+        capture_output=True, text=True, timeout=10, check=False,
+    )
+
+
+def _resolve_signing_checkout(workspace_root: Path) -> SigningCheckout | None:
+    """The checkout ``workspace_root`` is inside, or ``None`` when it is
+    not one (an archive checkout, a bare fixture directory). Git that does
+    not answer raises ``subprocess.TimeoutExpired``: the caller decides
+    whether that is best-effort (the mint) or UNDECIDED (the restore) —
+    it is never "not a checkout"."""
+    probe = _git_rev_parse(workspace_root, "--absolute-git-dir", "--git-common-dir")
+    if probe.returncode != 0:
+        return None
+    lines = probe.stdout.splitlines()
+    if len(lines) != 2:
+        return None
+    git_dir = Path(lines[0])
+    common_dir = Path(lines[1])
+    if not common_dir.is_absolute():
+        common_dir = workspace_root / common_dir
+    linked = git_dir.resolve() != common_dir.resolve()
+    return SigningCheckout(
+        workspace_root=workspace_root,
+        git_dir=git_dir,
+        config_scope=_CONFIG_SCOPE_WORKTREE if linked else _CONFIG_SCOPE_LOCAL,
+    )
+
+
+def _worktree_config_scope_available(checkout: SigningCheckout) -> str | None:
+    """Make ``--worktree`` mean what the transaction needs it to mean.
+
+    Without ``extensions.worktreeConfig`` git treats ``--worktree`` as
+    ``--local`` — the shared config, silently. The extension is a
+    repository-format declaration ("worktrees carry their own config"),
+    written once to the common config and left on: turning it off again
+    would orphan every ``config.worktree`` written under it. Git's own
+    rule for enabling it is that ``core.worktree`` and a true
+    ``core.bare`` must first move into the main worktree's
+    ``config.worktree``; a repository carrying either is refused by name
+    rather than re-shaped here. Returns ``None`` when the scope is usable,
+    else the reason.
+    """
+    if not checkout.linked:
+        return None
+    ws = checkout.workspace_root
+    current = _git_config_at(ws, _CONFIG_SCOPE_LOCAL, "--get", _WORKTREE_CONFIG_EXTENSION)
+    if current.returncode == 0 and current.stdout.strip().lower() == "true":
+        return None
+    if _git_config_at(ws, _CONFIG_SCOPE_LOCAL, "--get", "core.worktree").returncode == 0:
+        return "core.worktree is set in the common config"
+    bare = _git_config_at(ws, _CONFIG_SCOPE_LOCAL, "--get", "core.bare")
+    if bare.returncode == 0 and bare.stdout.strip().lower() == "true":
+        return "core.bare is true in the common config"
+    enabled = _git_config_at(ws, _CONFIG_SCOPE_LOCAL, _WORKTREE_CONFIG_EXTENSION, "true")
+    if enabled.returncode != 0:
+        return f"git config {_WORKTREE_CONFIG_EXTENSION} failed rc={enabled.returncode}"
+    return None
+
+
+@dataclass(frozen=True)
 class SigningKey:
     """Per-cycle ed25519 signing keypair. Frozen — once minted the
     keypair is the cycle's commit-signing identity; rotating
@@ -58,6 +176,12 @@ class SigningKey:
     public_key_path: Path
     fingerprint: str
     algorithm: str = "ed25519"
+    # ARIA-HIGH-114 — what the mint did to the checkout's git signing
+    # config. ``None`` on an idempotent re-mint (the first mint wired it);
+    # otherwise the receipt, so the V9 runner refuses to dispatch an
+    # implementer whose commits the merge gate could never verify instead
+    # of learning that at ``git verify-commit`` after the run.
+    git_signing: GitSigningWiring | None = None
 
 
 @dataclass(frozen=True)
@@ -271,7 +395,7 @@ def mint_signing_key(
     # plan_convergence.record_implementation_outcome calls
     # verify_commit_signature against this allowed_signers file before
     # accepting the impl row.
-    _configure_git_commit_signing(
+    git_signing = _configure_git_commit_signing(
         workspace_root=workspace_root,
         cycle_id=cycle_id,
         private_path=private_path,
@@ -283,6 +407,7 @@ def mint_signing_key(
         private_key_path=private_path,
         public_key_path=public_path,
         fingerprint=_compute_fingerprint(public_path),
+        git_signing=git_signing,
     )
 
 
@@ -325,15 +450,17 @@ _SIGNING_CONFIG_SNAPSHOTS_DIRNAME: str = "aria-signing-config-snapshots"
 _SIGNING_CONFIG_SNAPSHOT_SUFFIX: str = ".json"
 
 
-def _signing_config_snapshots_dir(workspace_root: Path) -> Path:
-    """``<workspace>/.git/aria-signing-config-snapshots`` — checkout-resident
-    state the lane's pre-clean never wipes. Not created here: the mint
-    creates it (mode 0700) on first use, and a workspace without ``.git/``
-    has no snapshots at all."""
-    return workspace_root / ".git" / _SIGNING_CONFIG_SNAPSHOTS_DIRNAME
+def _signing_config_snapshots_dir(git_dir: Path) -> Path:
+    """``<git_dir>/aria-signing-config-snapshots`` — checkout-resident
+    state the lane's pre-clean never wipes (``SigningCheckout.git_dir``:
+    ``.git/`` on a main checkout, the worktree's private directory under
+    the common ``.git/worktrees/`` on a linked one). Not created here: the
+    mint creates it (mode 0700) on first use, and a workspace that is not
+    a checkout has no snapshots at all."""
+    return git_dir / _SIGNING_CONFIG_SNAPSHOTS_DIRNAME
 
 
-def _signing_config_snapshot_path(workspace_root: Path, cycle_id: str) -> Path:
+def _signing_config_snapshot_path(git_dir: Path, cycle_id: str) -> Path:
     """Where the mint records the config it is about to replace.
 
     One file per cycle. ``revoke_signing_key`` unwinds it on every path
@@ -342,18 +469,28 @@ def _signing_config_snapshot_path(workspace_root: Path, cycle_id: str) -> Path:
     including the crash path where the pre-clean has since wiped the key
     files it belonged to.
     """
-    return _signing_config_snapshots_dir(workspace_root) / f"{cycle_id}{_SIGNING_CONFIG_SNAPSHOT_SUFFIX}"
+    return _signing_config_snapshots_dir(git_dir) / f"{cycle_id}{_SIGNING_CONFIG_SNAPSHOT_SUFFIX}"
 
 
-def _git_config(workspace_root: Path, *args: str) -> subprocess.CompletedProcess[str]:
+def _git_config_at(workspace_root: Path, scope: str, *args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        ["git", "-C", str(workspace_root), "config", "--local", *args],
+        ["git", "-C", str(workspace_root), "config", scope, *args],
         capture_output=True, text=True, timeout=10, check=False,
     )
 
 
+def _git_config(workspace_root: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    """One ``git config`` call in the scope the checkout's transaction owns
+    (``SigningCheckout.config_scope``): ``--local`` on a main checkout,
+    ``--worktree`` on a linked worktree. A workspace that is not a checkout
+    falls through to ``--local`` and git answers rc=128 as before."""
+    checkout = _resolve_signing_checkout(workspace_root)
+    scope = checkout.config_scope if checkout is not None else _CONFIG_SCOPE_LOCAL
+    return _git_config_at(workspace_root, scope, *args)
+
+
 def _snapshot_git_commit_signing(*, workspace_root: Path) -> dict[str, Any]:
-    """Read the local values the mint will overwrite, and which sections exist."""
+    """Read the scoped values the mint will overwrite, and which sections exist."""
     keys: dict[str, str | None] = {}
     for key in _SIGNING_CONFIG_KEYS:
         current = _git_config(workspace_root, "--get", key)
@@ -365,7 +502,7 @@ def _snapshot_git_commit_signing(*, workspace_root: Path) -> dict[str, Any]:
 
 
 def _inherit_crashed_cycle_snapshot(
-    *, workspace_root: Path, cycle_id: str, snapshot: dict[str, Any],
+    *, workspace_root: Path, git_dir: Path, cycle_id: str, snapshot: dict[str, Any],
 ) -> str | None:
     """B7 — a snapshot records the state before ANY kernel key, not the state
     the mint happened to find.
@@ -405,7 +542,7 @@ def _inherit_crashed_cycle_snapshot(
         return None
     try:
         inherited = json.loads(
-            _signing_config_snapshot_path(workspace_root, installed_path.name).read_text(encoding="utf-8"),
+            _signing_config_snapshot_path(git_dir, installed_path.name).read_text(encoding="utf-8"),
         )
         keys = dict(inherited["keys"])
         sections = dict(inherited["sections_present"])
@@ -423,17 +560,26 @@ def _configure_git_commit_signing(
     cycle_id: str,
     private_path: Path,
     public_path: Path,
-) -> None:
+) -> GitSigningWiring:
     """Plan ARIA-V3.1-B-3 — wire git for per-cycle SSH commit signing.
 
     Writes the SSH-format allowed-signers file at
-    `<workspace>/.git/aria-allowed-signers` so `git verify-commit
+    `<git_dir>/aria-allowed-signers` so `git verify-commit
     --raw` resolves against the cycle's public key. Calls
-    `git config --local`:
+    `git config <scope>` (``SigningCheckout.config_scope``):
       * commit.gpgsign true
       * gpg.format ssh
       * user.signingkey <private_path>
-      * gpg.ssh.allowedSignersFile <.git/aria-allowed-signers>
+      * gpg.ssh.allowedSignersFile <git_dir/aria-allowed-signers>
+
+    ARIA-HIGH-114 — the checkout is what git says it is, not
+    ``<workspace>/.git`` tested as a directory: in a linked worktree —
+    the executor's per-request worktrees, a trial's task-source, every
+    production shape — ``.git`` is a file, the old test skipped the whole
+    wiring, every commit went unsigned and the merge gate's
+    ``verify_commit_signature`` refused the run at its end. The receipt
+    (``GitSigningWiring``) says what happened; the V9 runner refuses to
+    dispatch on a receipt that is not ``configured``.
 
     B7 — BEFORE the first write, the current local value of each of those
     keys (and whether its section exists at all) is recorded in
@@ -459,24 +605,35 @@ def _configure_git_commit_signing(
     cycle's own (``_inherit_crashed_cycle_snapshot``), so it records the
     operator's config whatever the crash chain before this mint.
 
-    Best-effort: errors are swallowed so a worktree without `.git/`
-    (test fixture, archive checkout) does not block the autonomy
-    run. The implementer agent's commit step will surface the
-    failure via `git commit` exit code if signing is unavailable.
+    Never raises: a workspace that is not a checkout (an archive
+    checkout, the operator-side tools/aria-poc invocations, sandbox
+    tests) answers ``not_a_checkout``, a git that does not answer
+    ``git_unavailable``, and the mint itself still succeeds — the key is
+    a knowledge signer whether or not git signs with it. Only the V9
+    runner needs the wiring, and it reads the receipt.
     """
-    git_dir = workspace_root / ".git"
-    if not git_dir.is_dir():
-        # Caller's workspace_root is not a git checkout. Skip silently —
-        # operator-side tools/aria-poc invocations + sandbox tests
-        # exercise this path.
-        return
+    try:
+        checkout = _resolve_signing_checkout(workspace_root)
+    except (OSError, subprocess.SubprocessError):
+        return GitSigningWiring(configured=False, scope=None, reason="git_unavailable")
+    if checkout is None:
+        return GitSigningWiring(configured=False, scope=None, reason="not_a_checkout")
+    try:
+        scope_refusal = _worktree_config_scope_available(checkout)
+    except (OSError, subprocess.SubprocessError):
+        return GitSigningWiring(configured=False, scope=None, reason="git_unavailable")
+    if scope_refusal is not None:
+        return GitSigningWiring(
+            configured=False, scope=None, reason=f"worktree_scope_unavailable:{scope_refusal}",
+        )
+    git_dir = checkout.git_dir
     allowed_signers = git_dir / "aria-allowed-signers"
-    snapshot_path = _signing_config_snapshot_path(workspace_root, cycle_id)
+    snapshot_path = _signing_config_snapshot_path(git_dir, cycle_id)
     try:
         if not snapshot_path.exists():
             snapshot = {"cycle_id": cycle_id, **_snapshot_git_commit_signing(workspace_root=workspace_root)}
             _inherit_crashed_cycle_snapshot(
-                workspace_root=workspace_root, cycle_id=cycle_id, snapshot=snapshot,
+                workspace_root=workspace_root, git_dir=git_dir, cycle_id=cycle_id, snapshot=snapshot,
             )
             snapshot_path.parent.mkdir(mode=0o700, exist_ok=True)
             # Written whole or not at all: a process killed mid-write must
@@ -497,7 +654,7 @@ def _configure_git_commit_signing(
                 encoding="utf-8",
             )
     except (OSError, subprocess.SubprocessError):
-        return
+        return GitSigningWiring(configured=False, scope=checkout.config_scope, reason="git_unavailable")
     cfg = (
         ("commit.gpgsign", "true"),
         ("gpg.format", "ssh"),
@@ -506,12 +663,15 @@ def _configure_git_commit_signing(
     )
     for key, value in cfg:
         try:
-            _git_config(workspace_root, key, value)
+            written = _git_config(workspace_root, key, value)
         except (subprocess.SubprocessError, OSError):
-            # Best-effort — operator audit will surface unsigned-commit
-            # rows via verify_commit_signature mismatch when signing is
-            # truly required.
-            return
+            return GitSigningWiring(configured=False, scope=checkout.config_scope, reason="git_unavailable")
+        if written.returncode != 0:
+            return GitSigningWiring(
+                configured=False, scope=checkout.config_scope,
+                reason=f"git_config_failed:{key}:rc={written.returncode}",
+            )
+    return GitSigningWiring(configured=True, scope=checkout.config_scope, reason=None)
 
 
 class SigningConfigRestore(str, Enum):
@@ -591,9 +751,15 @@ def _restore_git_commit_signing(
     and unsetting an absent one are no-ops. Never raises: no ``.git`` or
     no snapshot is ``ABSENT``; a git that does not answer is ``UNDECIDED``.
     """
-    git_dir = workspace_root / ".git"
-    snapshot_path = _signing_config_snapshot_path(workspace_root, cycle_id)
-    if not git_dir.is_dir() or not snapshot_path.is_file():
+    try:
+        checkout = _resolve_signing_checkout(workspace_root)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return SigningConfigRestoreReceipt(SigningConfigRestore.UNDECIDED, type(exc).__name__)
+    if checkout is None:
+        return SigningConfigRestoreReceipt(SigningConfigRestore.ABSENT)
+    git_dir = checkout.git_dir
+    snapshot_path = _signing_config_snapshot_path(git_dir, cycle_id)
+    if not snapshot_path.is_file():
         return SigningConfigRestoreReceipt(SigningConfigRestore.ABSENT)
     try:
         snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
@@ -973,7 +1139,6 @@ def prune_stale_signing_keys(
     """
     workspace_root = _resolve_workspace_root(workspace_root)
     keys_dir = workspace_root / "aria-debts" / "keys"
-    snapshots_dir = _signing_config_snapshots_dir(workspace_root)
     import time as _time
     now = _time.time()
     pruned: list[str] = []
@@ -995,8 +1160,19 @@ def prune_stale_signing_keys(
                 pruned.append(entry.name)
             except OSError as exc:
                 errors.append({"name": entry.name, "error": str(exc)[:200]})
-    # Pass 2 — snapshots whose key is gone, whichever way it went.
-    if snapshots_dir.is_dir():
+    # Pass 2 — snapshots whose key is gone, whichever way it went. The
+    # snapshots live in the checkout's private git dir; a git that does
+    # not answer here is one undecided pass, not an empty one.
+    snapshots_dir: Path | None = None
+    try:
+        checkout = _resolve_signing_checkout(workspace_root)
+    except (OSError, subprocess.SubprocessError) as exc:
+        errors.append({"name": _SIGNING_CONFIG_SNAPSHOTS_DIRNAME,
+                       "error": f"git_signing_config_restore_undecided:{type(exc).__name__}"})
+        checkout = None
+    if checkout is not None:
+        snapshots_dir = _signing_config_snapshots_dir(checkout.git_dir)
+    if snapshots_dir is not None and snapshots_dir.is_dir():
         for entry in sorted(snapshots_dir.iterdir()):
             if not entry.is_file() or not entry.name.endswith(_SIGNING_CONFIG_SNAPSHOT_SUFFIX):
                 continue
@@ -1061,6 +1237,8 @@ def revoke_installation_token(*, lease: InstallationTokenLease) -> None:
 
 
 __all__ = (
+    "GitSigningWiring",
+    "SigningCheckout",
     "SigningKey",
     "InstallationTokenLease",
     "mint_signing_key",

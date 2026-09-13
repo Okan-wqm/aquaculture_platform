@@ -2931,6 +2931,13 @@ class LearnedConventionContinuity(StateStoreTestCase):
             )
             key = mint_signing_key(cycle_id=cycle_id, workspace_root=self.repo)
             try:
+                # The cycle seam registers the public half before it hands
+                # the fingerprint out (B7); promotion verifies against it.
+                knowledge_graph.register_convention_signer(
+                    cycle_id=cycle_id, signer_key_fp=key.fingerprint,
+                    public_key=key.public_key_path.read_text(encoding="utf-8"),
+                    base_dir=tools,
+                )
                 observation = MemoryHookImpl().record(
                     cycle_id=cycle_id, plan_id=plan_id,
                     workspace_root=self.repo, base_dir=tools,

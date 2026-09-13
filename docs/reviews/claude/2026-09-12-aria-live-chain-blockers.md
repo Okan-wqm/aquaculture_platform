@@ -794,3 +794,61 @@ logged in` and exits 1, and both probes tested the exit code before the
   green; `test_runtime_artifacts` (31 + 6 subtests),
   `test_prompt_render_versioning` (16), `test_control_reachability`,
   pedagogy lint + narrative shape, validation-matrix correlation (35 + 8).
+
+## ARIA-HIGH-114 — signing was wired only where `.git` is a directory
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-16
+- **Evidence:** trial eleven's task-source `.git` is a 50-byte `gitdir:`
+  file — a linked worktree of the shared checkout — and so is every
+  executor per-request worktree (`_add_request_worktree`).
+  `gh_token_factory._configure_git_commit_signing` returned at
+  `if not git_dir.is_dir()` and `_restore_git_commit_signing` answered
+  `absent`: no allowed-signers file, no snapshot, no config, no word. Had
+  the test been dropped, `git config --local` in a linked worktree writes
+  the COMMON config every worktree shares — the operator's checkout and
+  every other lane would have signed with the cycle key and lost it at
+  the pre-clean.
+- **What is now true:** `SigningCheckout` resolves the checkout from
+  `git rev-parse --absolute-git-dir --git-common-dir`; the allowed-signers
+  file and the snapshots live in the private git dir (`.git/` or
+  `.git/worktrees/<name>/`); the config scope is `--local` on a main
+  checkout and `--worktree` on a linked one, with
+  `extensions.worktreeConfig` enabled once in the common config and a
+  repository carrying `core.worktree` / a true `core.bare` refused by
+  name; a git that does not answer is `undecided` in restore and prune,
+  never `absent`; the mint returns `GitSigningWiring` on
+  `SigningKey.git_signing` and the V9 runner refuses
+  `git_signing_unconfigured` before an implementer turn is spent.
+- **Proof (candidate):** `test_phase_v31_p_linked_worktree_signing.py`
+  under `tests/invariants/v3_1/` (6 — a commit made in the worktree
+  verifies against the cycle key with the worktree's own config, the
+  sibling worktree signs with nothing, the common config carries only the
+  extension flag; all six fail on the pre-change factory),
+  `test_implementer_merge_seam` refusal test, the 46 B7 tests unchanged.
+
+## ARIA-HIGH-115 — the implementer's signing identity does not reach the lane that commits
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-17
+- **Evidence:** `AutonomousV9ImplementationRunner.run` mints the cycle
+  key, stages, issues the envelope and revokes the key in `finally`. The
+  implementer is claimed later by `tools/aria-poc/ci_executor.py` in a
+  per-request worktree where no key, config or fingerprint exists; the
+  prompt says "commit with the per-cycle signing key" and demands
+  `details.implementation.signer_key_fp`;
+  `plan_convergence.record_implementation_outcome` requires it non-empty
+  and `plan_convergence_bridge` verifies `branch_tip_sha` against it with
+  `git verify-commit --raw` in the process cwd. An executor-lane result
+  is therefore refused with an empty fingerprint or refused
+  `commit_signature_unverified` with a fabricated one; cost attribution
+  reads `ARIA_CYCLE_SIGNER_KEY_FP`, which nothing exports.
+- **Design (open):** for `role=implementation` the executor mints the
+  cycle key INSIDE the request worktree at claim (worktree-scoped,
+  ARIA-HIGH-114), registers the public half in `kg_signers`, stamps
+  `signer_key_fp` on the submitted response itself (kernel-owned, never
+  the agent's), exports the fingerprint to the cost record and revokes on
+  release/submit; the bridge verifies against the registered public key
+  (an allowed-signers file built from `kg_signers`, run in the request
+  worktree) so verification does not depend on the process cwd. Pin: an
+  executor-lane run whose commit is signed by the executor-minted key
+  lands the IMPL row; the same run with the fingerprint removed or with
+  another key is refused. Blocks halka 4→5 of the live chain.

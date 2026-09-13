@@ -244,6 +244,29 @@ class AutonomousV9ImplementationRunner:
             signing_key = mint_signing_key(
                 cycle_id=cycle_id, workspace_root=workspace_root,
             )
+            # ARIA-HIGH-114 — the merge gate verifies every implementer
+            # commit against this cycle's key (`verify_commit_signature`),
+            # so a checkout git could not be wired to sign in is a run
+            # that can only end refused. The mint says whether it wired
+            # the checkout (`SigningKey.git_signing`); refuse here, before
+            # the implementer spends a turn, and say why by name.
+            wiring = signing_key.git_signing
+            if wiring is not None and not wiring.configured:
+                append_tools_governance(
+                    base_dir, "implementation_git_signing_unconfigured",
+                    {
+                        "plan_id": plan_id,
+                        "cycle_id": cycle_id,
+                        "workspace_root": str(workspace_root),
+                        "reason": wiring.reason,
+                    },
+                )
+                return V9ImplementationResult(
+                    terminal_state="IMPLEMENTATION_REQUEST_REFUSED",
+                    pr_url=None,
+                    rejection_class="git_signing_unconfigured",
+                    specialist_review_signal="review_converged_plan",
+                )
             installation_lease = mint_installation_token(
                 cycle_id=cycle_id, workspace_root=workspace_root,
             )

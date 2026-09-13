@@ -183,6 +183,33 @@ class ImplementerMergeSeamTests(unittest.TestCase):
             for word in (_PATH_WORD, _WORDING_WORD):
                 self.assertNotIn(word, item["description"], item["id"])
 
+    def test_a_checkout_git_cannot_sign_in_is_refused_before_the_implementer_runs(self) -> None:
+        """ARIA-HIGH-114 — the merge gate verifies every implementer commit
+        against the cycle key, so a checkout the mint could not wire is a
+        run that can only end refused. The runner reads the mint's receipt
+        and refuses by name, spending no implementer turn and leaving the
+        plan CONVERGED for a checkout that can sign."""
+        from aria_kernel import gh_token_factory
+        from aria_kernel.ledger import load_declared_jsonl
+
+        with patch.object(gh_token_factory, "_resolve_signing_checkout", lambda root: None):
+            result = self._run_runner()
+        self.assertEqual(result.terminal_state, "IMPLEMENTATION_REQUEST_REFUSED")
+        self.assertEqual(result.rejection_class, "git_signing_unconfigured")
+        rows = [row for row in load_declared_jsonl(self.tools / "governance.jsonl", expected_surface="tools_governance")
+                if row.get("kind") == "implementation_git_signing_unconfigured"]
+        self.assertEqual(len(rows), 1, rows)
+        self.assertEqual(rows[0]["details"]["reason"], "not_a_checkout")
+        self.assertEqual(rows[0]["details"]["cycle_id"], CYCLE_ID)
+        self.assertEqual(fold_plan_state(plan_id=PLAN_ID, base_dir=self.tools)["state"], "CONVERGED",
+                         "no envelope was minted; the plan waits for a checkout that can sign")
+        self.assertEqual(
+            [row for row in list_agent_invocation_requests(base_dir=self.tools, convergence_id=PLAN_ID)
+             if row.get("role") == "implementation"], [],
+        )
+        self.assertEqual(sorted(p.name for p in (self.repo / "aria-debts" / "keys").iterdir()), [],
+                         "the cycle key is revoked on the refusal path too")
+
     def test_the_perimeter_refuses_an_invented_trailer_and_opens_the_derived_one(self) -> None:
         self._run_runner()
         row = self._implementation_row()

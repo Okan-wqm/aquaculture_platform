@@ -243,7 +243,7 @@ class TestV9InstallationTokenFactory(unittest.TestCase):
 class TestV9TokenFactoryPublicApi(unittest.TestCase):
 
     def test_i_v9_token_factory_all_exports(self):
-        """__all__ MUST contain the 7 canonical symbols.
+        """__all__ MUST contain the 9 canonical symbols.
 
         Plan ARIA-V9.0-C baseline pinned 5 symbols
         (SigningKey, InstallationTokenLease, mint_signing_key,
@@ -254,10 +254,16 @@ class TestV9TokenFactoryPublicApi(unittest.TestCase):
         keypair cleanup) + prune_stale_signing_keys (orchestrator
         startup orphan reaper). The V3.1-P-extended contract is the
         new SSoT.
+
+        ARIA-HIGH-114 extends it by 2 — ``SigningCheckout`` (where the
+        transaction lives: git dir + config scope) and
+        ``GitSigningWiring`` (the mint's receipt the V9 runner reads).
         """
         self.assertEqual(
             set(_tf.__all__),
             {
+                "GitSigningWiring",
+                "SigningCheckout",
                 "SigningKey",
                 "InstallationTokenLease",
                 "mint_signing_key",

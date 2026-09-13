@@ -1950,6 +1950,22 @@ publisher contract. Earlier inner cycle projections are not consumers of these o
   ownership marker — is released by the restore's LAST git call, after every other key and
   section is back: an interrupted restore always leaves the marker for the retry to recognise, and
   re-setting a key to its snapshot value or unsetting an absent one is a no-op.
+- The checkout the transaction runs on is what git says it is, not `<workspace>/.git` tested as
+  a directory (ARIA-HIGH-114): `gh_token_factory.SigningCheckout` resolves `git rev-parse
+  --absolute-git-dir --git-common-dir`, and the allowed-signers file and the snapshots live in
+  that private git dir — `.git/` on a main checkout, `.git/worktrees/<name>/` on a linked
+  worktree, the shape of every executor per-request worktree and every trial task-source, where
+  `.git` is a file and the old test skipped the wiring without a word. On a linked worktree the
+  config scope is `--worktree` (`config.worktree`), because `--local` there is the config every
+  worktree of the repository shares and a per-cycle key installed there signs everybody's
+  commits; the mint turns `extensions.worktreeConfig` on in the common config once and leaves it
+  on (git's rule: a repository carrying `core.worktree` or a true `core.bare` is refused by name
+  instead of re-shaped). The mint's receipt (`SigningKey.git_signing`, a `GitSigningWiring`:
+  `configured`, `scope`, `reason` ∈ `not_a_checkout`, `git_unavailable`,
+  `worktree_scope_unavailable:<why>`, `git_config_failed:<key>:rc=<n>`) is read by the V9
+  runner, which refuses `IMPLEMENTATION_REQUEST_REFUSED` / `git_signing_unconfigured` and records
+  `implementation_git_signing_unconfigured` before an implementer turn is spent on commits the
+  merge gate's `verify_commit_signature` could never accept; the plan stays CONVERGED.
 - Original cycle/plan/revision/content identities and public signer provenance retain their
   separate meanings. If the initial hook omits its plan ID, the supplied outer convergence linkage
   can provide it. No plan is inferred from a cycle name. An overlong supplied identity is omitted

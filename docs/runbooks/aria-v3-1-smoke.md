@@ -400,14 +400,16 @@ This means the V3.1-B-2 base64 delimiter encoding OR the V3.1-B-3 mint_signing_k
 ```bash
 # Check the cycle's signing key on disk:
 ls /var/aqua-saas/aria-debts/keys/
-# Check git config:
-git -C /var/aqua-saas config --local --get commit.gpgsign
+# Check git config — `--local` on a main checkout, `--worktree` on a linked
+# worktree (every executor per-request worktree; ARIA-HIGH-114):
+git -C <workspace> config --local --get commit.gpgsign      # main checkout
+git -C <workspace> config --worktree --get commit.gpgsign   # linked worktree
 # Expected: "true"
-git -C /var/aqua-saas config --local --get gpg.ssh.allowedSignersFile
-# Expected: path to .git/aria-allowed-signers
+git -C <workspace> config --worktree --get gpg.ssh.allowedSignersFile
+# Expected: <git rev-parse --absolute-git-dir>/aria-allowed-signers
 ```
 
-If the git config is missing, `mint_signing_key` failed silently. Re-run with `PYTHONPATH=aria-kernel:. python3 -c "from aria_kernel.gh_token_factory import mint_signing_key; print(mint_signing_key(cycle_id='diagnostic', workspace_root='.'))"` and trace.
+If the git config is missing, read the mint's receipt: `PYTHONPATH=aria-kernel:. python3 -c "from aria_kernel.gh_token_factory import mint_signing_key; print(mint_signing_key(cycle_id='diagnostic', workspace_root='.').git_signing)"` — `configured=False` names the reason (`not_a_checkout`, `git_unavailable`, `worktree_scope_unavailable:<why>`, `git_config_failed:<key>:rc=<n>`); revoke the diagnostic key afterwards (`revoke_signing_key`).
 
 ## Rollback procedure
 

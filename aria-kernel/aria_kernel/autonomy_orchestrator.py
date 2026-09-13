@@ -1325,8 +1325,9 @@ def run_autonomy_orchestrator(
                 # cycle under the default `standard` profile, and revokes it
                 # in `finally`; a process killed outright never reaches that
                 # `finally`, so the key files stay behind and the git
-                # signing config snapshot the mint took into
-                # `.git/aria-signing-config-snapshots/` still describes the
+                # signing config snapshot the mint took into the checkout's
+                # private git dir (`aria-signing-config-snapshots/`, under
+                # `.git/` or `.git/worktrees/<name>/`) still describes the
                 # operator's config. Same shape as the implementation-orphan
                 # reaper above: key files are age-bounded (24h), so a cycle
                 # still running in another process keeps its key; a snapshot

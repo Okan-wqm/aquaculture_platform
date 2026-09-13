@@ -161,3 +161,61 @@ it were a budget. `RACE_LIVENESS_SECONDS = 120` now names what the bound
 is for; the same class of wait in the sibling `submit-before-release`
 fixture uses it too. Not a hermeticity defect — the branch's own suite
 run measured it, so it is closed here rather than carried.
+
+## ARIA-HIGH-109 — liveness guards used as performance budgets: the state lock, the evidence probes, the executor children
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-20
+- **Evidence:** push #4 of this branch (33,754 s pre-push suite, 3 failures):
+  `test_publish_contention` writers raised `with_exclusive_lock_timeout`
+  at `file_lock`'s 5 s default while a replay legitimately held the
+  state-group locks across capped git steps; `test_seed_evidence_concrete`
+  graded a committed glob `worktree_candidate` because
+  `_git_blob_matches` returned `False` on `TimeoutExpired`. The same class
+  sat one seam further at every turn the five verification rounds looked:
+  the executor killed its submit child at 120 s while the kernel bound was
+  minutes, the acceptance harness billed a host stall to ARIA's FP rate,
+  the lifecycle lock waited one git step's cap for a holder running five,
+  the ledger bound was a typed "two steps" against a traced three-step
+  recovery, and `human-required record` children ran at 30 s.
+- **What is now true (five rounds, each independently re-verified):**
+  `state_store_lifecycle_arcs.py` registers every heavy git step under the
+  lifecycle lock (11 steps) and under a state transaction (3 arcs) and
+  derives the bounds from the arcs — `STATE_LOCK_LIVENESS_SECONDS` = the
+  pending-recovery arc (900 s), one deadline across the ordered locks;
+  `STATE_STORE_LIFECYCLE_LIVENESS_SECONDS` = the publish arc (5400 s); a
+  runtime guard refuses an unregistered or unpriced heavy step; the arcs
+  are AST-walked (`test_state_lifecycle_arcs_derived`) and runtime-traced
+  positionally (`test_state_lock_arcs_traced`). `evidence_probe.GitProbeSession`
+  (30 s attempts ×3, backoff, one 300 s clock per decision, baseline
+  resolved once) grades `verification_unavailable` — never resolvable,
+  never `worktree_candidate`; every decision-side caller (memory, debt,
+  finding, expert gate, the submit seam, `evidence_target_sha`, the anchor
+  probe) runs one session; the submit response carries `rejection_codes`
+  and the executor releases harness-class
+  `evidence_verification_unavailable`; a pre-claim git gate refuses a
+  workspace whose git cannot answer. The executor's children are priced
+  from the kernel bounds (`child_worst_case_seconds` 6333 s; drain window
+  7200 s; job reserve 9000 s; job 280 min; per-request worktree add/remove
+  bounded; kernel-import fallback visible). Claim/reaper timestamps are
+  read under the lock. `notify` senders run under one wall clock and the
+  acceptance harness reports `host_unavailable` apart from `fp_rate`.
+- **Residuals, tracked:** ARIA-MEDIUM-110 (notify dedup across channels),
+  ARIA-MEDIUM-111 (direct transaction appends bypass the ENOSPC
+  translation; the executor's model-refusal append is unpriced).
+- **Proof:** the lane battery (61 modules, 878 tests / 277 subtests) + 14
+  adjacent modules (142) + the acceptance harness (18 unit, `harness.py`
+  OVERALL ACCEPT); every pinning test fails on `2591fcc79`. Verified by
+  `wf_5229dba4-11e`, `wf_c02ed913-698`, `wf_6a5e9dd8-e28`,
+  `wf_cf0825d5-602`, `wf_afce3d0e-768`, `wf_883d4922-940`.
+
+## ARIA-MEDIUM-112 — the registry allocator could not run once the worktree sweep outgrew a spread call
+
+- **Severity:** MEDIUM · **Owner:** claude · **Deadline:** 2026-09-20
+- **Evidence:** registering ARIA-HIGH-109 on this branch: `add-explicit`
+  failed closed with `Maximum call stack size exceeded` at
+  `claimedIdsForDomain` — `claimed.push(...ids)` over 98 worktrees ×
+  ~1,600 registry rows.
+- **What is now true:** the sweep appends in a loop (`appendAll`) and
+  `idsFromActiveRegistries` takes an injectable reader, so
+  `finding-registry-allocation-scale.spec.ts` pins 100 registries × 2,000
+  ids without touching disk; the spread variant fails it.

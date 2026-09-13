@@ -47,7 +47,7 @@ from aria_kernel.agent_invocations import (
     submit_claim_result,
 )
 from aria_kernel.file_lock import with_exclusive_lock
-from aria_kernel.ledger import load_jsonl, rewrite_jsonl
+from aria_kernel.ledger import STATE_LOCK_LIVENESS_SECONDS, load_jsonl, rewrite_jsonl
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from tests._helpers.declared_fixtures import append_declared_fixture, sha256_file
 
@@ -418,7 +418,17 @@ class LockTimeoutTests(_SubmitFixture):
         `lock_timeout_seconds` so the lock contention behaviour is
         callable-level configurable rather than module-attribute
         monkey-patched. The test exercises the explicit parameter; the
-        TimeoutError surfaces unmodified from with_exclusive_lock.
+        TimeoutError surfaces from the state transaction's one deadline.
+
+        What is asserted is LIVENESS, not a wall-clock budget. The holder
+        keeps the lock for 5 s; a submit that honoured its 0.5 s parameter
+        raises TimeoutError, and one that ignored it would have acquired
+        the lock at 5 s and SUCCEEDED — so the raise alone proves the
+        parameter was honoured. The elapsed check only says the submit did
+        not wait the production bound (`STATE_LOCK_LIVENESS_SECONDS`) in
+        place of the explicit one. The former `assertLess(elapsed, 2.0)`
+        was a performance budget around a 0.5 s timeout and failed at
+        2.43 s under load 7 with nothing wrong.
         """
         envelope = self._envelope()
         out = self._write_envelope(envelope)
@@ -453,8 +463,9 @@ class LockTimeoutTests(_SubmitFixture):
             elapsed = time.monotonic() - start
             self.assertLess(
                 elapsed,
-                2.0,
-                f"timeout took {elapsed:.2f}s; should be <2s with 0.5s lock_timeout",
+                STATE_LOCK_LIVENESS_SECONDS,
+                f"the submit waited {elapsed:.2f}s — the production bound, not "
+                "the explicit 0.5s lock_timeout it was given",
             )
 
             # No partial write: results.jsonl carries no row for this claim.

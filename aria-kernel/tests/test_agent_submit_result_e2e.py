@@ -35,16 +35,24 @@ from aria_kernel.ledger import load_jsonl
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from tests._helpers.declared_fixtures import sha256_file
 
-# A liveness guard for the threaded race fixtures — the bound after which a
-# peer that never resumes is declared wedged — not a performance budget for
-# a real submit. The fixtures pause one writer before it takes any lock and
-# let the other run the REAL submit_claim_result (evidence checks, ledger
-# hashing, sealing); a wedge shows as a wait that never ends, and a loaded
-# host shows as a wait of tens of seconds. The pre-push suite of 2026-09-11
-# (3137 tests, five hours, host in IO wait beside two live model runs) saw
-# the real submit exceed a 5 s bound three times, each recorded as a
-# `TimeoutError('submit did not finish')` — no deadlock, one busy host. The
-# guard is now large enough that only a wedge reaches it.
+# A liveness guard for the race and crash fixtures — the bound after which a
+# peer that never resumes, or a spawned submit child that never reaches its
+# exit boundary, is declared wedged — not a performance budget for a real
+# submit. The threaded fixtures pause one writer before it takes any lock
+# and let the other run the REAL submit_claim_result (evidence checks,
+# ledger hashing, sealing); the crash fixtures spawn a fresh interpreter
+# that imports the kernel and runs that same submit up to an append
+# boundary. A wedge shows as a wait that never ends, and a loaded host shows
+# as a wait of tens of seconds. The pre-push suite of 2026-09-11 (3137
+# tests, five hours, host in IO wait beside two live model runs) saw the
+# real submit exceed a 5 s bound three times, each recorded as a
+# `TimeoutError('submit did not finish')`; the lane battery of 2026-09-13
+# (load 21 on four CPUs beside three other suites) saw the spawned child
+# exceed a 30 s join seven times, each recorded as `submit child hung after
+# artifact seals` — the module green alone in 66 s. No deadlock either
+# time, one busy host. The guard is large enough that only a wedge reaches
+# it, and it is ONE number for every fixture here, so a second budget
+# cannot be typed beside a wait again.
 RACE_LIVENESS_SECONDS = 120
 
 
@@ -322,7 +330,7 @@ class SubmitResultE2ETests(unittest.TestCase):
             },
         )
         process.start()
-        process.join(timeout=30)
+        process.join(timeout=RACE_LIVENESS_SECONDS)
         if process.is_alive():
             process.kill()
             process.join(timeout=5)
@@ -787,7 +795,7 @@ class SubmitResultE2ETests(unittest.TestCase):
                     },
                 )
                 process.start()
-                process.join(timeout=30)
+                process.join(timeout=RACE_LIVENESS_SECONDS)
                 if process.is_alive():
                     process.kill()
                     process.join(timeout=5)
@@ -856,7 +864,7 @@ class SubmitResultE2ETests(unittest.TestCase):
             },
         )
         process.start()
-        process.join(timeout=30)
+        process.join(timeout=RACE_LIVENESS_SECONDS)
         if process.is_alive():
             process.kill()
             process.join(timeout=5)

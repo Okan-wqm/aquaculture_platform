@@ -1,4 +1,4 @@
-# The kernel suite inherited the caller's state roots, and a fixed one turned every fixture into every other fixture's history
+# The kernel suite inherited the caller's state roots; one fixed root made every fixture another's
 
 **Date:** 2026-09-11 · **Agent:** claude · **Cycle:** 2026-09-11 Codex handoff — publication-lane forensics
 **Finding:** ARIA-HIGH-065 — closed by this branch; this document is its evidence.
@@ -10,7 +10,7 @@ regressions fail native cycles") ran the pre-push kernel suite and reported
 **2,849 tests / 8 failures / 38 errors / 16 skipped in 7,948 s**. Thirty-seven
 of the errors had one shape:
 
-```
+```text
 aria_kernel.tool_registry.GovernanceError: finding event
 'finding:F-901:finding_reproduced:2026-08-16T03:00:00+00:00' references
 'F-901' before its finding_emitted row
@@ -162,7 +162,7 @@ is for; the same class of wait in the sibling `submit-before-release`
 fixture uses it too. Not a hermeticity defect — the branch's own suite
 run measured it, so it is closed here rather than carried.
 
-## ARIA-HIGH-109 — liveness guards used as performance budgets: the state lock, the evidence probes, the executor children
+## ARIA-HIGH-109 — liveness guards used as performance budgets across the lock, probes and executor
 
 - **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-20
 - **Evidence:** push #4 of this branch (33,754 s pre-push suite, 3 failures):

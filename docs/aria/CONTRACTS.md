@@ -1708,7 +1708,10 @@ The verdict vocabulary (`RUNTIME_STATUSES`):
 - `integrity_failed` — the STORE cannot be trusted: the artifact index did not verify, or a run's own
   artifact is missing / mismatched / never written (`INTEGRITY_ARTIFACT_STATUSES`, or the run status
   `integrity_failed` that `tool_health.record_run` assigns on a failed artifact write). Terminal row
-  `failed`; the orchestrator fails closed on this and only this.
+  `failed`; the orchestrator fails closed on this and only this. An index that compaction emptied
+  lawfully — zero rows, every artifact the runs still reference attested on
+  `run-artifacts/compacted.jsonl` — DID verify (§12.5, ARIA-HIGH-117): `verify_artifacts` answers
+  valid with `compacted_artifact_count`, and the night's verdict is its own.
 - `degraded` — the index is valid and at least one tool run is non-ok (`budget_exceeded`,
   `evidence_error`, `crash`, `schema_error`, `scope_violation`, `tool_unhealthy`,
   `environment_unavailable`). The cycle COMPLETES (terminal row `completed`, every post-tool phase
@@ -2006,6 +2009,91 @@ artifact ref, hash, and verification status.
 The current implementation records `suppressed_count` and `truncated_count` in the summary contract.
 Real `v2` source-of-truth promotion remains blocked until those counters are derived from runtime
 evidence and covered by tests; hard-coded zero counters are smoke evidence only.
+
+### Compaction ↔ verification (ARIA-HIGH-117)
+
+`state compact` (`aria-kernel/aria_kernel/state_compact.py`, run daily by
+`aria-state-maintenance.yml` with `--retain-days 7`) removes hot-artifact cycle directories older
+than the retention window and drops their `run-artifacts/artifact-index.jsonl` rows
+(ORPHAN-CRITICAL-805; presence on disk is the predicate). `runs.jsonl` refs and
+`raw-findings.jsonl` pointers keep naming the stripped artifacts BY DESIGN — the rows compaction
+slims keep `finding_summary`, `evidence_hash`, `artifact_hash` and `artifact_ref`, and the compact
+archive `archives/artifact_index-compact-<stamp>.jsonl.gz` holds every dropped index row; nothing
+is lost. Until 2026-09-13 the verifier had no notion of a compacted artifact: it read every such
+ref as `artifact_ref_missing`, every such pointer as `raw_pointer_corrupt` and the emptied index as
+`artifact_index_empty_with_run_refs` (3,898 issues on the tip the executor lane restored), so the
+store the kernel's own maintenance produced was refused by the kernel's own integrity verb and no
+executor publish landed after 09-04. The contract that ends that contradiction:
+
+- **Compaction attests what it strips.** `run-artifacts/compacted.jsonl` (surface
+  `runtime_artifact_compactions`, declared in `state_manifest.py`, hash-chained, published) carries
+  one row per stripped artifact — `artifact_id`, `uri`, `sha256`, `cycle_id`, `run_id`, `kind`,
+  `compacted_at`, `archive` (the compact archive holding the dropped index row), `retain_days`,
+  `retention_cutoff`, `attested_by` — appended inside the index compaction's own transaction
+  (`_compact_artifact_index`). The `state_compacted` governance row carries the count as
+  `compacted_artifacts_attested` and names the compact archive the run wrote as
+  `artifact_index_archive` (`null` when it dropped no index row).
+- **The ledger attests policy, not absence.** A dropped index row is attested only when the
+  retention policy removed its artifact: its cycle stamp (or `created_at`) is older than the
+  cutoff in force when its archive was written, or this very run pruned its hot directory
+  (`pruned_paths`). A row whose artifact is absent inside the window is archived but NOT
+  attested — the verifier keeps reporting it, and a later compaction never re-judges it: that is
+  the lost artifact the verifier exists to catch.
+- **The window in force is the archive's own.** The cutoff an archive is judged by is
+  `<archive stamp> − retain_days` where `retain_days` is the `--retain-days` of the compaction
+  that WROTE the archive — never the input of the run that reads it, so a supported operator
+  dispatch with a shorter window cannot re-judge a row the daily runs refused. That value lives
+  on the writing run's `state_compacted` governance row: a row names its archive
+  (`artifact_index_archive`) and speaks for that archive alone; the rows that predate the name
+  (the nine on the live store, each stamped to the second of its archive) are paired by clock —
+  the first such row at or after the archive's stamp, provided it precedes the next archive. A
+  run's own archive (and a dry run's pending drop) is judged by that run's `--retain-days`. An
+  archive no row vouches for — a run that died between its archive and its governance row — is
+  attested from NOT AT ALL; its artifacts stay visibly missing rather than judged under a guessed
+  window, and the lane refuses to publish (`_archive_windows`).
+- **Backfill is the same mechanism.** Every compaction reads every
+  `artifact_index-compact-*.jsonl.gz` archive, not only the one it wrote, and attests any row whose
+  artifact is absent and policy-eligible and whose id the ledger does not yet carry
+  (`attested_by: archive_backfill`; idempotent — a second pass appends nothing). A store stripped
+  before the ledger existed (the live store: 0 index rows, 3,825 thin raw rows, three compact
+  archives, no ledger) is therefore healed by the NEXT maintenance run by construction — no
+  manual repair of `aria/state`.
+- **The verifier classifies, it does not launder.** `verify_runtime_artifacts` loads the ledger
+  once (`CompactedArtifacts`; a ledger whose chain fails to verify attests nothing) and, for an
+  artifact that is ABSENT from the hot tier, consults it before the retention ledger: a run ref
+  or index ref into an attested artifact is `compacted` — valid, counted in
+  `compacted_artifact_count`, and exempt from `artifact_index_ref_missing` /
+  `artifact_index_empty_with_run_refs` / `missing_artifact_index`. A raw-findings pointer into an
+  attested artifact is verified STRUCTURALLY instead of dereferenced: the row must be the thin
+  pointer `record_findings` writes (a v2 `artifact_ref`, a `/payload/raw_findings/<n>` pointer, a
+  `finding_summary` with `rule` and `id`, a sha256 `evidence_hash`, and an `artifact_hash` equal to
+  the ref's `sha256`); anything less is still `raw_pointer_corrupt` (`artifact: compacted`, with
+  `reasons`). A present hot file is always verified by its bytes; an attestation whose recorded
+  `sha256` differs from the ref's names a different artifact and does not apply. Absent, unattested
+  and unretained stays `artifact_ref_missing` / `raw_pointer_corrupt`. Both counts are per
+  REFERENCE (a run's `artifact_ref` and `artifact_refs[0]`, each raw pointer), the convention
+  `verified_artifact_count` already used: 3,861 on the live store for 18 artifacts.
+  `verify_artifacts` (the index walk `cycle._runtime_status` reads) was already valid on a
+  zero-row index; it now reports `compacted_artifact_count` (ledger rows) so that verdict says
+  why the index is empty. `compacted_artifacts(base_dir).attesting(ref)` is the one query — the
+  verifier's own — that answers, by name, whether a ref names a compacted artifact; the readers
+  that surface raw findings (`feedback_store`, `rule_health`) fall back to `finding_summary` for
+  one.
+- **No lane publishes an unverified store.** `state_store.publish_state` — the ONE publish path —
+  runs `verify_runtime_artifacts` on the store's tools root with the checkout as workspace root
+  (the same call `integrity verify` makes) before its first mutation and refuses
+  `state_publish_runtime_artifacts_unverified`, naming the issues; the verdict travels in the
+  publish result as `runtime_artifacts`. `aria-state-maintenance.yml` additionally runs the
+  executor lane's whole `integrity verify` step after compaction and gates its publish on the same
+  `state_valid` output, failing closed (`Fail when the compacted state was not published`), so
+  the producer of the compacted tree applies the consumer's verdict, not only the pointer half.
+
+Pinned by `aria-kernel/tests/test_compaction_attestation.py` (the live store's shape rebuilt,
+one `compact_state` pass, the verifier and `integrity verify` answering valid; a hand-deleted
+artifact still refused; a later `--retain-days 1` pass attesting nothing a 7-day archive
+refused; a pre-name row paired by clock and its window ruling; an archive no row vouches for
+attested from not at all; the publish refusal) alongside `tests/test_state_compact.py`,
+`tests/test_runtime_artifacts.py` and `tests/test_state_publish_maintenance.py`.
 
 ---
 

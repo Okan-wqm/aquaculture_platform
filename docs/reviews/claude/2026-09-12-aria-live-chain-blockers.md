@@ -970,20 +970,35 @@ logged in` and exits 1, and both probes tested the exit code before the
   and the `runs.jsonl` refs that name them stayed. Both the main
   (`43f0aa3bf6`) and candidate (`88f64f7e6e`) verifiers refuse the tree
   identically.
-- **Fix shape (open, tier 1):** compaction is one transaction over every
-  surface that references an artifact — it records what it stripped on a
-  declared ledger (`runtime_artifact_compactions`: artifact id, uri,
-  cycle, compacted_at, archive path), archives and drops the raw-finding
-  rows that point into stripped artifacts in the same pass (nothing is
-  lost: they ride the compact archive), and `verify_runtime_artifacts`
-  classifies a run or raw pointer whose artifact is on that ledger as
-  `compacted` (valid, counted separately) rather than missing or corrupt.
-  The next maintenance run then heals the live store by construction —
-  the presence predicate, the way index compaction already heals a
-  stranded index — with no manual repair of `aria/state`. Pins: a store
-  compacted past the window verifies ok with compacted counts; a store
-  with a truly missing artifact (not on the ledger) still fails; the
-  maintenance lane's publish verifies runtime pointers too.
+- **What is now true (lane `wf_a4e68c08-436`, two verify rounds,
+  accepted):** compaction attests POLICY, not absence, on the declared
+  ledger `run-artifacts/compacted.jsonl` (`runtime_artifact_compactions`),
+  written inside the same transaction as the index rewrite: a stripped
+  artifact is attested only if its cycle was older than the window in
+  force when its archive was written — read from that run's
+  `state_compacted` governance row, never from this run's `retain_days` —
+  or this run pruned its hot directory; a within-window loss is archived
+  but never attested. Every compaction backfills the ledger from the
+  archives it already holds, idempotently, so the live store heals on its
+  next maintenance run with no manual repair. `verify_runtime_artifacts`
+  consults the ledger for an absent artifact before the retention tier:
+  attested refs are `compacted` (valid, `compacted_artifact_count` per
+  reference), raw pointers into them are verified structurally
+  (`finding_summary`, hashes), a mismatched sha256 does not apply, and a
+  lost artifact no row vouches for is still `artifact_ref_missing` /
+  `raw_pointer_corrupt`. The one publish path
+  (`state_store._publish_state_locked`) refuses
+  `state_publish_runtime_artifacts_unverified`, and
+  `aria-state-maintenance.yml` runs the executor's own integrity verdict
+  before it mints a credential (CONTRACTS.md §12.5).
+- **Proof:** on a copy of the quarantined live tree the pre-change kernel
+  refuses with the exact 3,898-issue verdict; the new kernel alone
+  launders nothing; one `state compact --retain-days 7` attests 176 rows
+  (158/9/9 across the three archives) and `integrity verify` answers
+  valid; a second pass attests 0; a hand-removed attestation is refused
+  by name. `tests/test_compaction_attestation.py` (22 + 6 subtests; 24
+  fail on the pre-change tree); twenty mutations each killed by a named
+  pin.
 
 ## ARIA-MEDIUM-120 — the doctor counted zero issues in a verdict that had 3,898
 

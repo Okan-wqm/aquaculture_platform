@@ -9,6 +9,8 @@ Codex runtime output is summary-first and artifact-backed. The operator may see 
 - `v2` run rows are thin and must resolve to a full artifact.
 - `runs_reader` is the only supported consumer surface for `runs.jsonl`.
 - Missing artifact, hash mismatch, path escape, write failure, or failed restore is `integrity_failed`.
+- An artifact the compaction ledger attests as stripped is `compacted`: valid, counted apart, its
+  raw-finding pointers verified structurally. Absent and unattested is still missing.
 
 ## No Silent Loss
 
@@ -39,6 +41,8 @@ These fields must be derived from produced evidence, not defaulted for a green s
 - `runs/by-cycle/<cycle_uid>.jsonl`: bounded per-cycle run index.
 - `raw-findings.jsonl`: finding pointers and fingerprints.
 - `run-artifacts/artifact-index.jsonl`: current artifact location and hash.
+- `run-artifacts/compacted.jsonl`: the artifacts `state compact` stripped, attested by the
+  compaction that stripped them (ARIA-HIGH-117; contract in `CONTRACTS.md` §12.5).
 - `run-artifacts/manifest.jsonl`: artifact lifecycle events.
 - `retention/events.jsonl`: archive/restore events.
 - `observability/alerts.jsonl`: SLO and silence alerts.

@@ -495,6 +495,19 @@ STATE_SURFACES: tuple[StateSurface, ...] = (
     StateSurface("runtime_artifact_index", "run-artifacts/artifact-index.jsonl", "ledger", "runtime_artifacts", "runtime", True, "append_fsync", True),
     StateSurface("runtime_artifact_manifest", "run-artifacts/manifest.jsonl", "ledger", "runtime_artifacts", "runtime", True, "append_fsync", True),
     StateSurface("runtime_artifact_inventory", "observability/artifact-inventory.jsonl", "ledger", "runtime_artifacts", "runtime", True, "append_fsync", True),
+    # ARIA-HIGH-117 — what compaction stripped, attested by the compaction
+    # that stripped it. `state compact` removes hot-artifact cycles past the
+    # retention window and drops their index rows, while `runs.jsonl` refs
+    # and `raw-findings.jsonl` pointers keep naming those artifacts by
+    # design ("nothing is lost": the compact archive holds the rows). The
+    # verifier had no notion of a compacted artifact and read every one as
+    # missing/corrupt, so the store the kernel's own maintenance produced
+    # was refused by the kernel's own integrity verb (3,898 issues on the
+    # 2026-09-13 tip; no executor publish since 09-04). One row per stripped
+    # artifact; `verify_runtime_artifacts` classifies a ref/pointer into a
+    # row here as `compacted` and still refuses an absent artifact no row
+    # names. Written and read only by `state_compact` / `runtime_artifacts`.
+    StateSurface("runtime_artifact_compactions", "run-artifacts/compacted.jsonl", "ledger", "runtime_artifacts", "runtime", True, "append_fsync", True),
     StateSurface("runtime_artifact_hot", "run-artifacts/hot/**/*.json", "artifact", "runtime_artifacts", "runtime", True, "rewrite_fsync", True),
     StateSurface("runtime_artifact_archives", ".archive/runtime/**/*.json", "artifact", "runtime_artifacts", "runtime", True, "rewrite_fsync", True),
     StateSurface("runtime_validation_log_archives", ".archive/runtime/**/*.log", "artifact", "runtime_artifacts", "runtime", True, "rewrite_fsync", True),

@@ -34,6 +34,26 @@ name: ARIA State Maintenance
 # immutable verification, then a fast-forward push of the verified commit.
 # tests/invariants/aria-single-publish-path.spec.ts pins that no lane pushes
 # aria/state any other way.
+#
+# THE COMPACTED STORE IS VERIFIED THE WAY THE CONSUMER VERIFIES IT
+# (ARIA-HIGH-117). The snapshot attests the ledgers' bytes; it says nothing
+# about whether the artifacts those ledgers point at exist. This lane ran
+# `state compact` and published on the snapshot alone, so once the 09-04
+# cycles aged past the seven-day window (09-11, 09-12) their hot artifacts
+# were stripped and their index rows dropped while `runs.jsonl` refs and
+# every `raw-findings.jsonl` pointer still named them — by design, the
+# compact archive holds the rows — and the executor lane's "Verify ARIA
+# state integrity" refused the tip it inherited (3,898 issues on runs
+# 34745606502 and 34762798856) on every run since. Two fixes, both here:
+# compaction now attests what it strips on `run-artifacts/compacted.jsonl`
+# (the verifier reads a ref into an attested artifact as `compacted`), and
+# this lane runs the SAME `integrity verify` the executor runs, before its
+# publish, and fails closed on the same `state_valid` verdict. The kernel's
+# `state publish` verifies the runtime pointers on its own as well
+# (`state_publish_runtime_artifacts_unverified`), so no lane can publish a
+# store whose pointers do not verify even without this step; the step is
+# what makes this lane's verdict the consumer's whole verdict (ledger
+# chains, index drift, workspace, cycle lifecycle), not the pointers alone.
 # =============================================================================
 
 on:
@@ -130,10 +150,43 @@ jobs:
           AFTER=$(du -sb "${ARIA_TOOLS_DIR}/" | cut -f1)
           echo "compact_result: before=${BEFORE} after=${AFTER} saved=$((BEFORE - AFTER))"
 
+      # ARIA-HIGH-117 — the consumer's verdict, applied by the producer of
+      # the compacted tree. Identical to the executor lane's step: the same
+      # verb, the same roots (the restored tools root and this checkout),
+      # the same `state_valid` output the publish is gated on, the verdict
+      # in the step summary. The compaction ledger is what lets a lawfully
+      # stripped store answer valid here; a store that does not is left
+      # unpublished with the previous tip intact.
+      - name: Verify ARIA state integrity
+        id: integrity
+        run: |
+          set -uo pipefail
+          VERDICT="${RUNNER_TEMP}/aria-integrity-verdict.json"
+          VERDICT_ERR="${RUNNER_TEMP}/aria-integrity-verdict.err"
+          if PYTHONPATH=aria-kernel python3 -m aria_kernel integrity verify \
+               --tools-dir "$ARIA_TOOLS_DIR" \
+               --workspace-root "$GITHUB_WORKSPACE" > "$VERDICT" 2>"$VERDICT_ERR"; then
+            echo "state_valid=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "state_valid=false" >> "$GITHUB_OUTPUT"
+          fi
+          {
+            echo '### ARIA state integrity (after compaction)'
+            echo '```json'
+            head -c 4000 "$VERDICT" 2>/dev/null || echo '{}'
+            echo '```'
+            if [ -s "$VERDICT_ERR" ]; then
+              echo '```'
+              tail -20 "$VERDICT_ERR"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
       # The restore's credential lived only in its own step; the publish
       # mints its own the same way (extraheader in this step's environment).
       - name: Mint the aria/state push credential
         id: publish_credential
+        if: steps.integrity.outputs.state_valid == 'true'
         env:
           PUBLISH_TOKEN: ${{ github.token }}
         run: |
@@ -159,7 +212,11 @@ jobs:
       # exported here (the runbook forbids one in a workflow); the
       # acknowledgement below is empty on every scheduled run and carries
       # the operator's one-run input only on a manual dispatch.
+      #
+      # Gated on the integrity verdict above (ARIA-HIGH-117), and the verb
+      # itself refuses a store whose runtime pointers do not verify.
       - name: Publish the compacted state through the kernel
+        if: steps.integrity.outputs.state_valid == 'true'
         env:
           GIT_CONFIG_COUNT: '1'
           GIT_CONFIG_KEY_0: http.https://github.com/.extraheader
@@ -171,6 +228,16 @@ jobs:
             --repo-root . \
             --snapshot-id "state-maintenance-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
             --cycle-id "state-maintenance-${GITHUB_RUN_ID}"
+
+      # ARIA-HIGH-117 — a compaction whose result did not verify is not a
+      # green run. The previous tip is untouched (nothing was pushed); what
+      # is lost is only this run's compaction, which the next run redoes.
+      - name: Fail when the compacted state was not published
+        if: always() && steps.integrity.outputs.state_valid != 'true'
+        run: |
+          set -euo pipefail
+          echo "::error::the compacted aria/state tree did not pass integrity verification; nothing was published (see the step summary)"
+          exit 1
 
       - name: Report size
         if: always()

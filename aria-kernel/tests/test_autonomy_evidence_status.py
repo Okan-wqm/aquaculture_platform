@@ -1704,6 +1704,19 @@ def alias_factory(root):
                     "consumer",
                 ),
             },
+            "publish_integrity_gate": {
+                # ARIA-HIGH-117 — the one publish path runs
+                # verify_runtime_artifacts on the store before its first
+                # mutation, which reads the cycle chain bytes the way
+                # integrity.py does (already observational above): it
+                # refuses an unverifiable store and authorizes no cycle.
+                (
+                    "cycle_runtime",
+                    "cycles",
+                    f"{KERNEL}state_store.py",
+                    "consumer",
+                ),
+            },
         }
 
         trees: dict[str, ast.Module] = {}

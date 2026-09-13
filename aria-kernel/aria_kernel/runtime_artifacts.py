@@ -23,6 +23,7 @@ from .ledger import (
     verify_jsonl_chunks as _verify_archive_chunks,
 )
 from .cycle_runtime_status import is_integrity_class, runtime_status
+from .state_manifest import resolve_surface_path, surface_by_name, surface_for_path
 from .tool_registry import GovernanceError, ensure_tools_binding, ensure_tools_dir, tools_dir, utc_now
 
 
@@ -678,6 +679,86 @@ def resolve_artifact_payload(
     return payload if isinstance(payload, dict) else None
 
 
+COMPACTIONS_SURFACE = "runtime_artifact_compactions"
+
+
+@dataclass(frozen=True)
+class CompactedArtifacts:
+    """The artifacts a compaction attested it stripped (ARIA-HIGH-117).
+
+    WHY a set the verifier consults rather than a rule it infers. Compaction
+    removes hot-artifact cycles older than the retention window and drops
+    their index rows; `runs.jsonl` refs and `raw-findings.jsonl` pointers
+    keep naming those artifacts on purpose — the compact archive holds the
+    dropped rows, nothing is lost. The verifier used to see only "the file
+    the ref names is not there" and call every such ref missing and every
+    such pointer corrupt, so the store the kernel's own daily maintenance
+    produced was refused by the kernel's own integrity verb: 3,898 issues
+    on the 2026-09-13 tip, every executor publish since 09-04 blocked.
+    An attestation is what separates "stripped by the sanctioned policy"
+    from "lost": a ref whose artifact is absent AND unattested is still
+    missing, and that is the verdict the verifier exists to give.
+
+    ``by_id`` / ``by_uri`` index the ledger rows; ``attesting`` answers the
+    one question every caller asks — is THIS reference into an artifact
+    this ledger vouches for — and refuses a ref whose recorded hash is not
+    the hash of the artifact that was stripped (a different version at
+    the same id/uri is a different artifact).
+    """
+
+    rows: tuple[dict[str, Any], ...]
+    by_id: dict[str, dict[str, Any]]
+    by_uri: dict[str, dict[str, Any]]
+
+    @classmethod
+    def from_rows(cls, rows: list[dict[str, Any]]) -> "CompactedArtifacts":
+        by_id: dict[str, dict[str, Any]] = {}
+        by_uri: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            artifact_id = str(row.get("artifact_id") or "")
+            uri = str(row.get("uri") or "")
+            if artifact_id:
+                by_id.setdefault(artifact_id, row)
+            if uri:
+                by_uri.setdefault(uri, row)
+        return cls(rows=tuple(rows), by_id=by_id, by_uri=by_uri)
+
+    def __len__(self) -> int:
+        return len(self.rows)
+
+    def attesting(self, ref: Any) -> dict[str, Any] | None:
+        """The ledger row vouching for ``ref``, or None."""
+        if not isinstance(ref, dict):
+            return None
+        row = self.by_id.get(str(ref.get("artifact_id") or ""))
+        if row is None:
+            row = self.by_uri.get(str(ref.get("uri") or ""))
+        if row is None:
+            return None
+        recorded = str(row.get("sha256") or "")
+        claimed = str(ref.get("sha256") or "")
+        if recorded and claimed and recorded != claimed:
+            return None
+        return row
+
+
+def compacted_artifacts(base_dir: str | Path | None = None) -> CompactedArtifacts:
+    """Load the compaction ledger — a pure read, empty when no compaction
+    has attested anything. A broken chain raises ``LedgerIntegrityError``:
+    a ledger that does not verify attests nothing."""
+    root = Path(base_dir) if base_dir is not None else ensure_tools_dir(None)
+    path = resolve_surface_path(root, surface_by_name(COMPACTIONS_SURFACE))
+    if not path.exists():
+        return CompactedArtifacts.from_rows([])
+    if surface_for_path(path) is None:
+        # An unbound tools root: read by path, chain-verified (see
+        # ``_safe_load_jsonl`` for why that is a verification, not a bypass).
+        return CompactedArtifacts.from_rows(load_jsonl(path, verify=True))
+    return CompactedArtifacts.from_rows(
+        load_declared_jsonl(path, expected_surface=COMPACTIONS_SURFACE),
+    )
+
+
 def resolve_finding_from_artifact(
     row: dict[str, Any],
     *,
@@ -703,9 +784,20 @@ def resolve_finding_from_artifact(
 
 
 def verify_artifacts(*, base_dir: str | Path | None = None) -> dict[str, Any]:
+    """Walk the hot artifact index and hash every file it names.
+
+    A zero-row index has always been valid here — there is nothing to
+    open, so nothing can fail. What ARIA-HIGH-117 adds is the WHY:
+    ``compacted_artifact_count`` (rows on the compaction ledger) tells a
+    reader of the verdict that the index is empty because compaction
+    attested what it stripped, not because nothing was ever indexed.
+    ``cycle_runtime_status`` reads ``valid`` for ``integrity_failed``
+    (ARIA-HIGH-098), unchanged.
+    """
     root = Path(base_dir) if base_dir is not None else ensure_tools_dir(None)
     issues: list[dict[str, Any]] = []
     rows = load_declared_jsonl(root / "run-artifacts" / "artifact-index.jsonl", expected_surface="runtime_artifact_index")
+    compacted = compacted_artifacts(root)
     verified = 0
     for row in rows:
         artifact_id = str(row.get("artifact_id") or "")
@@ -738,6 +830,7 @@ def verify_artifacts(*, base_dir: str | Path | None = None) -> dict[str, Any]:
         "valid": not issues,
         "artifact_count": len(rows),
         "verified_count": verified,
+        "compacted_artifact_count": len(compacted),
         "issues": issues,
     }
 
@@ -795,7 +888,16 @@ def verify_runtime_artifacts(
     issues.extend(_ledger_issues(root / "run-artifacts" / "artifact-index.jsonl", "runtime_artifact_index"))
     issues.extend(_ledger_issues(root / "run-artifacts" / "manifest.jsonl", "runtime_artifact_manifest"))
     issues.extend(_ledger_issues(root / "observability" / "artifact-inventory.jsonl", "runtime_artifact_inventory"))
+    compactions = resolve_surface_path(root, surface_by_name(COMPACTIONS_SURFACE))
+    issues.extend(_ledger_issues(compactions, COMPACTIONS_SURFACE))
     _load_registry_tools(root, issues=issues)
+    # ARIA-HIGH-117 — the attestation the classification below reads. A
+    # ledger that fails to load attests nothing (the load failure is its
+    # own issue), so a tampered ledger cannot launder a lost artifact.
+    compacted = CompactedArtifacts.from_rows(_safe_load_jsonl(
+        compactions, issues, COMPACTIONS_SURFACE, expected_surface=COMPACTIONS_SURFACE,
+    ))
+    compacted_count = 0
     runs = _safe_load_jsonl(root / "runs.jsonl", issues, "runs", expected_surface="runs")
     by_cycle = root / "runs" / "by-cycle" / f"{_safe_segment(cycle_id)}.jsonl" if cycle_id is not None else None
     if by_cycle is not None and by_cycle.exists():
@@ -807,9 +909,11 @@ def verify_runtime_artifacts(
     raw_by_run: dict[str, list[dict[str, Any]]] = {}
     for row in raw_findings:
         raw_by_run.setdefault(str(row.get("run_id") or ""), []).append(row)
-        raw_issue = _raw_finding_issue(row, base_dir=root)
+        raw_verdict, raw_issue = _raw_finding_verdict(row, base_dir=root, compacted=compacted)
         if raw_issue:
             issues.append(raw_issue)
+        elif raw_verdict == ARTIFACT_COMPACTED:
+            compacted_count += 1
     artifact_refs_seen: list[Any] = []
     seen_run_ids: set[str] = set()
     for run in runs:
@@ -824,16 +928,32 @@ def verify_runtime_artifacts(
             issues.append({"code": "raw_pointer_missing", "run_id": run_id, "cycle_id": run.get("cycle_id") or run.get("cycle_uid"), "expected_raw_findings_count": expected_raw})
         for ref in _artifact_refs_from_run(run):
             artifact_refs_seen.append(ref)
-            issue = _verify_artifact_ref(ref, root=root, workspace_root=workspace, source={"kind": "run", "run_id": run_id})
+            verdict, issue = _artifact_ref_verdict(
+                ref, root=root, workspace_root=workspace,
+                source={"kind": "run", "run_id": run_id}, compacted=compacted,
+            )
             if issue:
                 issues.append(issue)
+            elif verdict == ARTIFACT_COMPACTED:
+                compacted_count += 1
             else:
                 verified += 1
     verified += _verify_cycle_files(root=root, cycle_id=cycle_id, issues=issues)
-    _verify_artifact_indexes(root=root, artifact_refs_seen=artifact_refs_seen, issues=issues)
+    _verify_artifact_indexes(root=root, artifact_refs_seen=artifact_refs_seen, issues=issues, compacted=compacted)
     _verify_manifests_and_inventory(root=root, cycle_id=cycle_id, artifact_refs_seen=artifact_refs_seen, issues=issues)
     _verify_retention_events(root=root, issues=issues)
-    return {"schema_version": 1, "status": "ok" if not issues else "failed", "valid": not issues, "cycle_id": cycle_id, "verified_artifact_count": verified, "issues": issues}
+    return {
+        "schema_version": 1,
+        "status": "ok" if not issues else "failed",
+        "valid": not issues,
+        "cycle_id": cycle_id,
+        "verified_artifact_count": verified,
+        # Refs and pointers into artifacts the compaction ledger attests:
+        # valid, and counted apart so a store that has aged past its
+        # retention window is not mistaken for one that verified nothing.
+        "compacted_artifact_count": compacted_count,
+        "issues": issues,
+    }
 
 
 def approve_runtime_v2_promotion(
@@ -1601,8 +1721,24 @@ def _safe_load_jsonl(
     *,
     expected_surface: str | None = None,
 ) -> list[dict[str, Any]]:
+    """A verified read of one ledger; a failure is an issue, not a crash.
+
+    A declared surface is read through the manifest when the tools root
+    resolves as one (it carries this host's identity); otherwise the
+    file is read with the same full hash-chain verification by path.
+    WHY the second route (ARIA-HIGH-117): the publish gate verifies the
+    runtime pointers of every store it commits, and a store the kernel
+    has just bootstrapped (a genuine first run, before any binding) has
+    no identity yet — the manifest reader refuses every path under it as
+    ``declared_jsonl_unknown_surface`` whether or not the file exists,
+    which made the verdict "unreadable", never "verified" or "lost". The
+    identity guard exists so a rogue root cannot resolve as CANONICAL
+    state; verifying a root's own chains does not make it canonical. A
+    path that resolves to a DIFFERENT surface than expected still fails
+    through the declared reader, as before.
+    """
     try:
-        if expected_surface is not None:
+        if expected_surface is not None and surface_for_path(path) is not None:
             return load_declared_jsonl(path, expected_surface=expected_surface)
         return load_jsonl(path, verify=True)
     except LedgerIntegrityError as exc:
@@ -1627,29 +1763,71 @@ def _artifact_refs_from_run(run: dict[str, Any]) -> list[Any]:
     return refs
 
 
-def _verify_artifact_ref(ref: Any, *, root: Path, workspace_root: Path | None, source: dict[str, Any]) -> dict[str, Any] | None:
+# The three ways a reference can be valid. ``verified`` is a hot file whose
+# bytes hash to the recorded digest; ``retained`` is a cold copy the
+# retention ledger names (R1); ``compacted`` is an artifact the compaction
+# ledger attests it stripped (ARIA-HIGH-117). Only the last is counted
+# apart — the other two both produced the bytes.
+ARTIFACT_VERIFIED = "verified"
+ARTIFACT_RETAINED = "retained"
+ARTIFACT_COMPACTED = "compacted"
+
+
+def _verify_artifact_ref(
+    ref: Any,
+    *,
+    root: Path,
+    workspace_root: Path | None,
+    source: dict[str, Any],
+    compacted: CompactedArtifacts | None = None,
+) -> dict[str, Any] | None:
+    """The issue with ``ref``, or None when it verifies by any lawful route."""
+    _verdict, issue = _artifact_ref_verdict(
+        ref, root=root, workspace_root=workspace_root, source=source, compacted=compacted,
+    )
+    return issue
+
+
+def _artifact_ref_verdict(
+    ref: Any,
+    *,
+    root: Path,
+    workspace_root: Path | None,
+    source: dict[str, Any],
+    compacted: CompactedArtifacts | None = None,
+) -> tuple[str | None, dict[str, Any] | None]:
+    """``(verdict, issue)`` — exactly one of the two is set.
+
+    ORDER IS THE CONTRACT. A present hot file is verified by its bytes,
+    whatever any ledger says. An absent one is asked of the compaction
+    ledger FIRST — attestation is what the verifier verifies, and reading
+    three ledgers per reference to look for a cold copy is what made the
+    live store's verification take 49 s — then of the retention ledger.
+    Absent, unattested and unretained is ``artifact_ref_missing``: the lost
+    artifact the verifier exists to catch.
+    """
     if isinstance(ref, str):
-        return {"code": "artifact_ref_hashless_legacy", "ref": ref, "source": source}
+        return None, {"code": "artifact_ref_hashless_legacy", "ref": ref, "source": source}
     if isinstance(ref, dict):
         shape_issue = _artifact_ref_v2_issue(ref, source=source)
         if shape_issue is not None:
-            return shape_issue
+            return None, shape_issue
         artifact = ArtifactRefV2.from_dict(ref)
         raw_path = artifact.uri
         expected_hash = artifact.sha256
     else:
-        return {"code": "artifact_ref_invalid", "ref": repr(ref), "source": source}
+        return None, {"code": "artifact_ref_invalid", "ref": repr(ref), "source": source}
     if not raw_path.strip():
-        return {"code": "artifact_ref_missing_path", "ref": ref, "source": source}
+        return None, {"code": "artifact_ref_missing_path", "ref": ref, "source": source}
     raw_path_obj = Path(raw_path)
     if raw_path_obj.is_absolute():
-        return {"code": "artifact_ref_absolute_uri_forbidden", "path": raw_path, "source": source}
+        return None, {"code": "artifact_ref_absolute_uri_forbidden", "path": raw_path, "source": source}
     if raw_path.startswith("aria-tools/"):
-        return {"code": "artifact_ref_aria_tools_alias_forbidden", "path": raw_path, "source": source}
+        return None, {"code": "artifact_ref_aria_tools_alias_forbidden", "path": raw_path, "source": source}
     try:
         path = _resolve_artifact_path(raw_path, root=root, workspace_root=workspace_root)
     except GovernanceError as exc:
-        return {"code": "artifact_path_escape", "path": raw_path, "source": source, "reason": str(exc)}
+        return None, {"code": "artifact_path_escape", "path": raw_path, "source": source, "reason": str(exc)}
     rels = [raw_path]
     for allowed in [root.resolve(), *( [workspace_root.resolve()] if workspace_root is not None else [] )]:
         try:
@@ -1661,17 +1839,19 @@ def _verify_artifact_ref(ref: Any, *, root: Path, workspace_root: Path | None, s
         for rel in rels
         for prefix in ARTIFACT_REF_FORBIDDEN_URI_PREFIXES
     ):
-        return {"code": "artifact_ref_self_output_uri_forbidden", "path": raw_path, "source": source}
+        return None, {"code": "artifact_ref_self_output_uri_forbidden", "path": raw_path, "source": source}
     if not path.exists():
+        if compacted is not None and compacted.attesting(ref) is not None:
+            return ARTIFACT_COMPACTED, None
         try:
             retained = _resolve_artifact_bytes(ref, base_dir=root, max_bytes=_ARCHIVE_FILE_BYTES)
         except (LedgerIntegrityError, GovernanceError, OSError):
-            return {"code": "artifact_ref_missing", "path": raw_path, "source": source,
-                    "reason": "archive_history_unavailable"}
+            return None, {"code": "artifact_ref_missing", "path": raw_path, "source": source,
+                          "reason": "archive_history_unavailable"}
         if retained["status"] == "resolved" and retained["source_tier"] == "archive":
-            return None
-        return {"code": "artifact_ref_missing", "path": raw_path, "source": source,
-                "reason": retained["reason"]}
+            return ARTIFACT_RETAINED, None
+        return None, {"code": "artifact_ref_missing", "path": raw_path, "source": source,
+                      "reason": retained["reason"]}
     if path.is_file():
         actual = file_hash(path)
         normalized = str(expected_hash)
@@ -1684,9 +1864,9 @@ def _verify_artifact_ref(ref: Any, *, root: Path, workspace_root: Path | None, s
             except (LedgerIntegrityError, GovernanceError, OSError):
                 retained = None
             if retained is not None and retained["status"] == "resolved":
-                return None
-            return {"code": "artifact_hash_mismatch", "path": raw_path, "expected": expected_hash, "actual": "sha256:" + actual, "source": source}
-    return None
+                return ARTIFACT_RETAINED, None
+            return None, {"code": "artifact_hash_mismatch", "path": raw_path, "expected": expected_hash, "actual": "sha256:" + actual, "source": source}
+    return ARTIFACT_VERIFIED, None
 
 
 def _artifact_ref_v2_issue(ref: dict[str, Any], *, source: dict[str, Any]) -> dict[str, Any] | None:
@@ -1758,18 +1938,99 @@ def _artifact_ref_has_raw_findings(run: dict[str, Any], *, base_dir: Path) -> bo
     return False
 
 
-def _raw_finding_issue(row: dict[str, Any], *, base_dir: Path) -> dict[str, Any] | None:
+def _raw_finding_verdict(
+    row: dict[str, Any],
+    *,
+    base_dir: Path,
+    compacted: CompactedArtifacts | None,
+) -> tuple[str | None, dict[str, Any] | None]:
+    """``(verdict, issue)`` for one raw-findings row.
+
+    An inline finding, or one resolved from a hot artifact, is verified by
+    its evidence hash as before. A pointer into an artifact the compaction
+    ledger attests cannot be dereferenced — the finding went with the
+    artifact, by policy — so the ROW is verified instead: it must be the
+    thin pointer `record_findings` writes (a v2 ref, a `/payload/raw_findings/<n>`
+    pointer, a `finding_summary`, an `evidence_hash`, and an `artifact_hash`
+    that names the very artifact the ledger attests). A row that lacks any
+    of those is still ``raw_pointer_corrupt``: compaction attests the
+    artifact, it does not launder the row.
+    """
     finding = row.get("finding")
+    if isinstance(finding, dict):
+        return ARTIFACT_VERIFIED, _raw_finding_hash_issue(row, finding)
+    ref = row.get("artifact_ref")
+    attestation = compacted.attesting(ref) if compacted is not None else None
+    if attestation is not None and not _hot_artifact_present(ref, base_dir=base_dir):
+        structural = _compacted_raw_pointer_issue(row, ref)
+        return (None, structural) if structural else (ARTIFACT_COMPACTED, None)
+    finding = resolve_finding_from_artifact(row, base_dir=base_dir)
     if not isinstance(finding, dict):
-        finding = resolve_finding_from_artifact(row, base_dir=base_dir)
-    if not isinstance(finding, dict):
-        return {"code": "raw_pointer_corrupt", "run_id": row.get("run_id"), "finding_id": row.get("finding_id")}
+        return None, {"code": "raw_pointer_corrupt", "run_id": row.get("run_id"), "finding_id": row.get("finding_id")}
+    return ARTIFACT_VERIFIED, _raw_finding_hash_issue(row, finding)
+
+
+def _raw_finding_hash_issue(row: dict[str, Any], finding: dict[str, Any]) -> dict[str, Any] | None:
     expected = row.get("evidence_hash")
     if expected:
         actual = _evidence_hash_for_finding(finding)
         if actual != expected:
             return {"code": "raw_pointer_hash_mismatch", "run_id": row.get("run_id"), "finding_id": row.get("finding_id"), "expected": expected, "actual": actual}
     return None
+
+
+def _hot_artifact_present(ref: Any, *, base_dir: Path) -> bool:
+    """Is the artifact the ref names still a file in the hot tier?
+
+    A present file is verified by its bytes, never by an attestation —
+    the ledger only ever speaks for what compaction actually removed.
+    """
+    if not isinstance(ref, dict):
+        return False
+    try:
+        return _resolve_uri(base_dir, str(ref.get("uri") or "")).is_file()
+    except (GovernanceError, OSError):
+        return False
+
+
+def _compacted_raw_pointer_issue(row: dict[str, Any], ref: dict[str, Any]) -> dict[str, Any] | None:
+    """What is wrong with a thin row whose artifact was compacted, or None."""
+    reasons: list[str] = []
+    try:
+        artifact = ArtifactRefV2.from_dict(ref)
+    except GovernanceError as exc:
+        return _compacted_pointer_issue(row, [f"artifact_ref_invalid:{exc}"])
+    pointer = row.get("json_pointer")
+    if not isinstance(pointer, str) or not pointer.startswith("/payload/raw_findings/"):
+        reasons.append("json_pointer_missing")
+    else:
+        try:
+            int(pointer.rsplit("/", 1)[-1])
+        except ValueError:
+            reasons.append("json_pointer_index_invalid")
+    summary = row.get("finding_summary")
+    if not isinstance(summary, dict) or not summary:
+        reasons.append("finding_summary_missing")
+    elif not isinstance(summary.get("rule"), str) or not isinstance(summary.get("id"), str):
+        reasons.append("finding_summary_incomplete")
+    if not _is_sha256_digest(str(row.get("evidence_hash") or "")):
+        reasons.append("evidence_hash_missing")
+    artifact_hash = str(row.get("artifact_hash") or "")
+    if not _is_sha256_digest(artifact_hash):
+        reasons.append("artifact_hash_missing")
+    elif artifact_hash != artifact.sha256:
+        reasons.append("artifact_hash_mismatch")
+    return _compacted_pointer_issue(row, reasons) if reasons else None
+
+
+def _compacted_pointer_issue(row: dict[str, Any], reasons: list[str]) -> dict[str, Any]:
+    return {
+        "code": "raw_pointer_corrupt",
+        "run_id": row.get("run_id"),
+        "finding_id": row.get("finding_id"),
+        "artifact": "compacted",
+        "reasons": reasons,
+    }
 
 
 def _evidence_hash_for_finding(finding: dict[str, Any]) -> str:
@@ -1806,9 +2067,15 @@ def _verify_cycle_files(*, root: Path, cycle_id: str | None, issues: list[dict[s
     return verified
 
 
-def _refs_requiring_hot_index(root: Path, refs: list[Any]) -> list[Any]:
+def _refs_requiring_hot_index(
+    root: Path, refs: list[Any], *, compacted: CompactedArtifacts | None = None,
+) -> list[Any]:
     remaining = []
     for ref in refs:
+        # A compacted artifact's index row went to the compact archive with
+        # the artifact; the ledger row is what stands in for both.
+        if compacted is not None and compacted.attesting(ref) is not None:
+            continue
         try:
             # Restoring an identical hot copy does not recreate a compacted
             # index row. Qualify the retained source independently of hot state.
@@ -1822,11 +2089,17 @@ def _refs_requiring_hot_index(root: Path, refs: list[Any]) -> list[Any]:
     return remaining
 
 
-def _verify_artifact_indexes(*, root: Path, artifact_refs_seen: list[Any], issues: list[dict[str, Any]]) -> None:
+def _verify_artifact_indexes(
+    *,
+    root: Path,
+    artifact_refs_seen: list[Any],
+    issues: list[dict[str, Any]],
+    compacted: CompactedArtifacts | None = None,
+) -> None:
     index_paths = [root / "run-artifacts" / "artifact-index.jsonl", root / "artifact-index.json", root / "artifact-index.jsonl", root / "artifacts" / "index.json"]
     existing = [path for path in index_paths if path.exists()]
     if artifact_refs_seen and not existing:
-        if _refs_requiring_hot_index(root, artifact_refs_seen):
+        if _refs_requiring_hot_index(root, artifact_refs_seen, compacted=compacted):
             issues.append({"code": "missing_artifact_index", "artifact_ref_count": len(artifact_refs_seen)})
         return
     for path in existing:
@@ -1842,8 +2115,11 @@ def _verify_artifact_indexes(*, root: Path, artifact_refs_seen: list[Any], issue
                 "artifact_index",
                 expected_surface=expected_surface,
             )
-            required_refs = (_refs_requiring_hot_index(root, artifact_refs_seen)
+            required_refs = (_refs_requiring_hot_index(root, artifact_refs_seen, compacted=compacted)
                              if expected_surface == "runtime_artifact_index" else artifact_refs_seen)
+            # An index with no rows is empty by design once every ref it
+            # would have covered is compacted — the rows are in the compact
+            # archive and the ledger vouches for each.
             if required_refs and not rows:
                 issues.append({"code": "artifact_index_empty_with_run_refs", "path": path.as_posix()})
             _verify_index_rows_cover_refs(rows, required_refs, issues=issues, path=path)
@@ -2214,12 +2490,18 @@ def _artifact_hash_status(
     root = tools_dir(base_dir)
     workspace = Path(workspace_root).resolve() if workspace_root else None
     issues: list[dict[str, Any]] = []
+    try:
+        compacted = compacted_artifacts(root)
+    except LedgerIntegrityError as exc:
+        compacted = CompactedArtifacts.from_rows([])
+        issues.append({"code": "ledger_load_failed", "ledger": COMPACTIONS_SURFACE, "error": str(exc)})
     for ref in refs:
         issue = _verify_artifact_ref(
             ref,
             root=root,
             workspace_root=workspace,
             source={"surface": "autonomy_summary"},
+            compacted=compacted,
         )
         if issue is not None:
             issues.append(issue)
@@ -2343,6 +2625,7 @@ __all__ = [
     "budget_projection",
     "autonomy_exit_code", "autonomy_output_summary", "by_cycle_runs_path",
     "classify_cycle_evidence", "read_runs_for_cycle", "require_runtime_v2_promotion",
+    "compacted_artifacts",
     "resolve_artifact_payload", "resolve_finding_from_artifact", "restore_artifact",
     "retention_apply", "retention_dry_run", "rollback_retention", "run_artifacts_root",
     "run_ledger_format", "verify_artifacts", "verify_runtime_artifacts", "write_run_artifact",

@@ -900,6 +900,22 @@ def _publish_state_locked(
             "not match its content; refusing to publish an unverifiable claim"
         )
 
+    # ARIA-HIGH-117 — THE RUNTIME POINTERS ARE VERIFIED HERE, BY EVERY
+    # PUBLISHER. The snapshot attests that the ledgers' bytes are what
+    # the manifest says; it says nothing about whether the artifacts those
+    # ledgers point at exist. The executor lane runs `integrity verify`
+    # before its publish and fails closed on `state_valid=false`; the
+    # maintenance lane ran `state compact` and published on the snapshot
+    # alone, so a compaction that stripped what the runs and raw findings
+    # still named was pushed green daily and every executor run since
+    # 2026-09-04 refused the tip it inherited. One publish path, one gate:
+    # a tree whose runtime pointers do not verify is not published from
+    # anywhere, and the refusal names what did not verify. A pure read —
+    # nothing below this line has mutated the store yet.
+    runtime_artifacts = _runtime_artifacts_verdict_summary(
+        _refuse_unverified_runtime_artifacts(store),
+    )
+
     published = read_published_snapshot(store)
     continuity = snapshot_continuity(snapshot, published)
 
@@ -1046,6 +1062,7 @@ def _publish_state_locked(
             "snapshot_id": snapshot.get("snapshot_id"),
             "manifest_root": snapshot.get("manifest_root"),
             "continuity": continuity,
+            "runtime_artifacts": runtime_artifacts,
         }
 
     # The commit that the push must either carry or undo is the same immutable
@@ -1158,6 +1175,9 @@ def _publish_state_locked(
         "continuity": continuity,
         "push_outcome": push_outcome,
         "remote_tip": remote_tip,
+        # The runtime-pointer verdict this publish was gated on, so the
+        # lane's log shows what verified and what was compacted.
+        "runtime_artifacts": runtime_artifacts,
     }
 
 
@@ -1733,6 +1753,52 @@ def _reconcile_nonzero_push(
         base_head,
         detail,
     )
+
+
+# How many issues a refusal names before it summarises the rest. The
+# verdict carries every issue; the message is for the run log.
+_RUNTIME_REFUSAL_NAMED_ISSUES = 5
+
+
+def _refuse_unverified_runtime_artifacts(store: StateStore) -> dict[str, Any]:
+    """Refuse the publish unless the store's runtime pointers verify.
+
+    The verdict is ``runtime_artifacts.verify_runtime_artifacts`` on the
+    store's tools root with the checkout as the workspace root — the same
+    call, with the same roots, that `integrity verify` makes in the
+    executor lane's "Verify ARIA state integrity" step. Returned on
+    success so a caller can carry the counts into its own verdict.
+    """
+    from .runtime_artifacts import verify_runtime_artifacts
+
+    tools = tools_root(store)
+    if not tools.is_dir():
+        return {"status": "ok", "valid": True, "issues": [], "verified_artifact_count": 0,
+                "compacted_artifact_count": 0}
+    verdict = verify_runtime_artifacts(base_dir=tools, workspace_root=store.repo_root)
+    if verdict.get("valid") is True:
+        return verdict
+    issues = list(verdict.get("issues") or [])
+    named = ", ".join(
+        json.dumps(issue, sort_keys=True, default=str)
+        for issue in issues[:_RUNTIME_REFUSAL_NAMED_ISSUES]
+    )
+    remainder = len(issues) - _RUNTIME_REFUSAL_NAMED_ISSUES
+    raise StateStoreRefusal(
+        "state_publish_runtime_artifacts_unverified: the store's run refs, raw-finding "
+        f"pointers or artifact ledgers do not verify ({len(issues)} issue"
+        f"{'' if len(issues) == 1 else 's'}: {named}"
+        f"{f', and {remainder} more' if remainder > 0 else ''}); a compaction that "
+        "leaves the store unverifiable is not published, and neither is a lost artifact"
+    )
+
+
+def _runtime_artifacts_verdict_summary(verdict: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "status": verdict.get("status"),
+        "verified_artifact_count": int(verdict.get("verified_artifact_count") or 0),
+        "compacted_artifact_count": int(verdict.get("compacted_artifact_count") or 0),
+    }
 
 
 def build_publishable_snapshot(

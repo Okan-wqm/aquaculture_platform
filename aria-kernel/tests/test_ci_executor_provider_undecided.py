@@ -265,7 +265,7 @@ class ProviderUndecidedLane(unittest.TestCase):
         key = self.root / "zai.key"
         key.write_text("fixture-credential-never-sent\n", encoding="utf-8")
         key.chmod(0o600)
-        with socket.socket() as probe:
+        with socket.socket() as probe:  # allowlist-external-network: binds 127.0.0.1:0 only to learn a closed local port; nothing is sent anywhere
             probe.bind(("127.0.0.1", 0))
             closed_port = probe.getsockname()[1]
         self.environment["ARIA_ZAI_API_KEY_FILE"] = str(key)

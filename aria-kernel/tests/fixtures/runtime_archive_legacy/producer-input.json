@@ -25,7 +25,9 @@
   "emitted_findings": [],
   "emitted_observations": [],
   "evidence_validation": {
-    "evidence_sources": ["apps/farm-service/src/app.module.ts"]
+    "evidence_sources": [
+      "apps/farm-service/src/app.module.ts"
+    ]
   },
   "input_hash": "sha256:input",
   "operator_feedback_refs": [],
@@ -44,7 +46,9 @@
       "severity": "high"
     }
   ],
-  "read_paths": ["apps/farm-service/src/app.module.ts"],
+  "read_paths": [
+    "apps/farm-service/src/app.module.ts"
+  ],
   "run_id": "run-native-legacy-retention",
   "runner": {
     "raw_findings_count": 1,

@@ -1,5 +1,8 @@
 {
-  "allowed_scope": ["src/**", "apps/svc/**"],
+  "allowed_scope": [
+    "src/**",
+    "apps/svc/**"
+  ],
   "context_hash": "sha256:2c1c28daeea0f9bdd78050e47abf64bd7820ce1d59fa1dec2226686e2344bb0a",
   "context_ledger_hash": "sha256:488a1c2219feaa095c81c5a2795cd4fe4b25dc7f0a0da4bc076cbe9cf7b45cf5",
   "convergence_id": "s3-v4-history-consumer",
@@ -33,8 +36,14 @@
           "evidence: {'code': 'agent_evidence_not_repo_verified', 'ref': 'src/missing.py:1', 'reason': 'evidence_ref_not_repo_verif… [truncated]",
           "evidence: {'code': 'agent_evidence_path_missing', 'path': 'src/missing.py'}"
         ],
-        "request_allowed_scope": ["src/**", "apps/svc/**"],
-        "request_evidence_refs": ["src/feed.py:1", "apps/svc/src/a.ts:1"],
+        "request_allowed_scope": [
+          "src/**",
+          "apps/svc/**"
+        ],
+        "request_evidence_refs": [
+          "src/feed.py:1",
+          "apps/svc/src/a.ts:1"
+        ],
         "request_id": "AIR-aria-evidence-judge-718e2ec75c07",
         "request_ledger_hash": "sha256:d4f06606aa098964c5b6ae7ca199e0844304214f65a0b66a41df1eda39dfeba0",
         "result_ledger_hash": "sha256:cd7e3ed4083b9fdb366eb4aa9264d3cab7c88dabc905e31800d751510decbbab",
@@ -89,7 +98,10 @@
       "truncated": false
     }
   ],
-  "evidence_refs": ["src/feed.py:1", "apps/svc/src/a.ts:1"],
+  "evidence_refs": [
+    "src/feed.py:1",
+    "apps/svc/src/a.ts:1"
+  ],
   "expected_output_path": "/tmp/codex-aria-s3-20260910-jkaa_1c4/v4-issued-baseline-fixture/store/tools/agent-invocations/outputs/s3-v4-history-consumer/round-na-evidence_judgment-AIR-aria-evidence-judge-c09bcab42abd.md",
   "must_satisfy": [
     {
@@ -132,7 +144,9 @@
         "co_changes_with": [],
         "file": "apps/svc/src/a.ts",
         "project": "svc",
-        "tests": ["apps/svc/src/a.spec.ts"]
+        "tests": [
+          "apps/svc/src/a.spec.ts"
+        ]
       },
       {
         "churn_commits": 0,

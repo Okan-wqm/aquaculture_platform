@@ -757,3 +757,40 @@ logged in` and exits 1, and both probes tested the exit code before the
   dispatcher, `test_zai_runtime`, native-claude lane, cost pricing — 157
   tests; on 665213990 the executor cases fail with exactly the trial-eleven
   shape `[('openai', 'gpt-6-astra')]`. Verified by `wf_9eb2e54f-ec1`.
+
+## ARIA-MEDIUM-113 — twenty-three inherited reds, each a defect in the tree
+
+- **Severity:** MEDIUM · **Owner:** claude · **Deadline:** 2026-09-16
+- **Evidence:** the candidate battery on `86360d76d0` carried 23 red tests
+  that four independent verifiers reported as "pre-existing"; none was a
+  stale expectation. (1) Prettier had rewritten byte-pinned capture
+  fixtures at integration — the `prompt_render_legacy` inputs, the
+  `prompt_render_issued_v4` request/fused JSON and five
+  `runtime_archive_legacy` files — while their capture manifests and
+  `SHA256SUMS` still named the captured bytes, so every hash pin refused.
+  (2) `knowledge_graph.verify_convention_signer` had no production caller
+  (`test_control_reachability`): a promotion never read the signature the
+  B7 signer wrote. (3) `validation_matrix_gate` matched a required nx
+  command by substring, so `nx test P` never satisfied
+  `run-many --target=test --projects=P`. (4) Four suites loaded
+  `ci_executor` by hand under divergent module names. (5) The v31 cost-hook
+  pins read `ci_executor.main` after main split it into `_main`. (6) The
+  kg public-API pin lacked the signer surface. (7) Two hermetic socket
+  tests lacked the external-network allowlist marker. (8)
+  `aria-primary-planner.md` / `aria-cross-reviewer.md` carried imperatives
+  without their pedagogy pair or example.
+- **What is now true:** the captured bytes are restored (the canonical
+  `json.dumps` shapes reproduce every recorded sha256) and
+  `aria-kernel/tests/fixtures/` is an `archive_immutable` formatter
+  exclusion, so a capture can never be reformatted again;
+  `reconcile_convention_promotion` verifies the hypothesis row's signer
+  and answers `signer_unverified` (CONTRACTS.md B7);
+  `required_test_cmd_satisfied_by` compares nx run identity (target +
+  projects; `affected` only matches an `affected` requirement) and keeps
+  substring for non-nx requirements; `tests/_helpers/executor_module.py`
+  is the one executor loader; the pins follow `_main`; the prompts carry
+  their pairs inside the tier-2 token budget.
+- **Proof (candidate):** the 24-module battery named in the fix commit is
+  green; `test_runtime_artifacts` (31 + 6 subtests),
+  `test_prompt_render_versioning` (16), `test_control_reachability`,
+  pedagogy lint + narrative shape, validation-matrix correlation (35 + 8).

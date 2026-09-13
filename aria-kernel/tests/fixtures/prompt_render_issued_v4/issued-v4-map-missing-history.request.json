@@ -1,6 +1,9 @@
 {
   "$schema": "aria/agent-invocation-request/v1",
-  "allowed_scope": ["src/**", "apps/svc/**"],
+  "allowed_scope": [
+    "src/**",
+    "apps/svc/**"
+  ],
   "budget_audit_hash": "sha256:695762e242a12af7a9ee842bdcede76f80dcc0d4de9eb6a33ce3a8291f056fa0",
   "context_hash": "sha256:96036cafcf74bfc9c2c5b449a856614d797428043772715204ccd64ce5c87b71",
   "context_ledger_hash": "sha256:42ba6b6fbae869af9ddfdf697afc79140a159f27560001c7a0b29a698db7a719",
@@ -56,7 +59,10 @@
       "truncated": false
     }
   ],
-  "evidence_refs": ["src/feed.py:1", "apps/svc/src/a.ts:1"],
+  "evidence_refs": [
+    "src/feed.py:1",
+    "apps/svc/src/a.ts:1"
+  ],
   "expected_output_path": "/tmp/codex-aria-s3-20260910-jkaa_1c4/v4-issued-baseline-fixture/store/tools/agent-invocations/outputs/s3-v4-original/round-na-evidence_judgment-AIR-aria-evidence-judge-718e2ec75c07.md",
   "implementation_ids": null,
   "ledger_hash": "sha256:d4f06606aa098964c5b6ae7ca199e0844304214f65a0b66a41df1eda39dfeba0",
@@ -105,7 +111,9 @@
         "co_changes_with": [],
         "file": "apps/svc/src/a.ts",
         "project": "svc",
-        "tests": ["apps/svc/src/a.spec.ts"]
+        "tests": [
+          "apps/svc/src/a.spec.ts"
+        ]
       },
       {
         "churn_commits": 0,

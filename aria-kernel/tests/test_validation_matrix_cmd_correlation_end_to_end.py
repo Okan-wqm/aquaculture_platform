@@ -272,8 +272,14 @@ class CmdCorrelationEndToEndTests(unittest.TestCase):
                 self.assertEqual(run["exit_code"], 0)
                 self.assertEqual(observation["run_refs"], [run["ledger_hash"]])
                 self.assertIn("upcasters.spec.ts", log)
-                matched = re.search(r"Tests:\s+(\d+) passed", log)
-                self.assertIsNotNone(matched, log)
+                # The log is the child's raw bytes. nx re-enables colour for
+                # the tasks it runs (jest's summary arrives as
+                # `\x1b[1mTests: \x1b[22m\x1b[1m\x1b[32m34 passed`) whatever the
+                # parent's FORCE_COLOR says; the count is read through the
+                # escapes, not by forbidding them.
+                plain = re.sub(r"\x1b\[[0-9;]*m", "", log)
+                matched = re.search(r"Tests:\s+(\d+) passed", plain)
+                self.assertIsNotNone(matched, plain[-4000:])
                 self.assertGreater(int(matched.group(1)), 0)
                 self.assertEqual(subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(), head)
                 for rel, data in expected_bytes.items():
@@ -290,3 +296,37 @@ class CmdCorrelationEndToEndTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RequiredTestIdentityTests(unittest.TestCase):
+    """Plan 023 v3 §R-3, corrected: an nx requirement is matched by what the
+    command RUNS (target on project), not by the spec table's spelling —
+    `nx test <project>` is the one nx form the validation runner refuses."""
+
+    def test_every_runnable_spelling_of_the_same_run_satisfies_the_requirement(self) -> None:
+        from aria_kernel.validation_matrix_gate import required_test_cmd_satisfied_by
+
+        for spelling in (
+            "npx nx run-many --target=test --projects=event-contracts --parallel=1 --skip-nx-cache",
+            "npx nx run-many -t=test -p=event-contracts,auth-service",
+            "npx nx run event-contracts:test --runInBand",
+            "nx test event-contracts",
+        ):
+            with self.subTest(spelling=spelling):
+                self.assertTrue(required_test_cmd_satisfied_by("nx test event-contracts", spelling))
+
+    def test_a_different_target_project_or_an_unknown_affected_set_does_not(self) -> None:
+        from aria_kernel.validation_matrix_gate import required_test_cmd_satisfied_by
+
+        for spelling in (
+            "npx nx run-many --target=lint --projects=event-contracts",
+            "npx nx run-many --target=test --projects=auth-service",
+            "npx nx affected --target=test --parallel=1",
+            "echo nx test event-contracts-was-not-run",
+        ):
+            with self.subTest(spelling=spelling):
+                self.assertFalse(required_test_cmd_satisfied_by("nx test event-contracts", spelling))
+        self.assertTrue(required_test_cmd_satisfied_by("nx affected --target=test", "npx nx affected --target=test --parallel=1"))
+        self.assertFalse(required_test_cmd_satisfied_by("nx affected --target=test", "npx nx run-many --target=test --projects=a"))
+        self.assertTrue(required_test_cmd_satisfied_by("schema-invariants", "npx jest e2e/tests/integration/schema-invariants.spec.ts"))
+        self.assertFalse(required_test_cmd_satisfied_by("schema-invariants", "echo ok"))

@@ -104,7 +104,10 @@ class InvokeClaudeCodeSignatureTests(unittest.TestCase):
 
     def test_i_v31_d3_03_main_callsite_threads_request_envelope_and_tools_dir(self) -> None:
         ci_executor = _load_ci_executor()
-        main_src = inspect.getsource(ci_executor.main)
+        # The entry point is a two-layer function since ARIA-HIGH-095: `main`
+        # holds the ExitStack that releases a held claim on every exit and
+        # `_main` holds the body this invariant reads.
+        main_src = inspect.getsource(ci_executor._main)
         self.assertIn("request_envelope=request_envelope", main_src,
                       "main() does not thread request_envelope to invoke_claude_cli")
         self.assertIn("tools_dir=tools_dir", main_src,

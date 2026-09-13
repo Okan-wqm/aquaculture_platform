@@ -260,6 +260,11 @@ class TestV9PublicApi(unittest.TestCase):
             "KnowledgeGraphSchemaError", "KnowledgeGraphObservationConflict",
             "verify_chain_or_quarantine", "record_convention",
             "record_anti_pattern", "lookup_pattern", "rank_pressure_sources",
+            # B7 (ARIA-HIGH-106) — the knowledge signer registry: the public
+            # half of every cycle key, registered before a fingerprint is
+            # handed out and verified by the promotion reader.
+            "register_convention_signer", "lookup_convention_signer",
+            "verify_convention_signer", "fingerprint_of_public_key",
         }
         self.assertEqual(set(_kg.__all__), canonical)
         self.assertTrue(issubclass(

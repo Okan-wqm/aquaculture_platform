@@ -98,6 +98,30 @@ def converging_plan_content(title: str = "E2 plan", **fields: object) -> dict:
     }
 
 
+def registered_signer(*, cycle_id: str, workspace_root: Path, base_dir: Path | None = None) -> str:
+    """A real cycle key whose PUBLIC half is in the store's signer registry.
+
+    Promotion verifies the hypothesis it promotes against `kg_signers`
+    (B7): a fingerprint the registry does not hold is not the kernel's word
+    and is refused `signer_unverified`, so a fixture that promotes seeds
+    the registry the way the cycle seam does. The private key is revoked
+    at once — a promotion never needs it, only the registered public half.
+    """
+    from aria_kernel.gh_token_factory import mint_signing_key, revoke_signing_key
+    from aria_kernel.knowledge_graph import register_convention_signer
+
+    key = mint_signing_key(cycle_id=cycle_id, workspace_root=workspace_root)
+    try:
+        register_convention_signer(
+            cycle_id=cycle_id, signer_key_fp=key.fingerprint,
+            public_key=key.public_key_path.read_text(encoding="utf-8"),
+            base_dir=base_dir, workspace_root=None if base_dir is not None else workspace_root,
+        )
+    finally:
+        revoke_signing_key(cycle_id=cycle_id, workspace_root=workspace_root)
+    return key.fingerprint
+
+
 def seed_reviewer_agent(workspace_root: Path) -> None:
     """The one agent `record_critique` resolves the reviewer against."""
     agents = workspace_root / ".claude" / "agents"
@@ -261,6 +285,13 @@ class ImplementationChainTests(unittest.TestCase):
         self.assertFalse(convention.exists())
         key = mint_signing_key(cycle_id="separate-root", workspace_root=root)
         try:
+            # The seam registers the public half before the hook signs with it;
+            # the promotion below verifies the row against that registry.
+            from aria_kernel.knowledge_graph import register_convention_signer
+            register_convention_signer(
+                cycle_id="separate-root", signer_key_fp=key.fingerprint,
+                public_key=key.public_key_path.read_text(encoding="utf-8"), base_dir=tools,
+            )
             observed = hook.record(**args, signer_key_fp=key.fingerprint)
         finally:
             revoke_signing_key(cycle_id="separate-root", workspace_root=root)
@@ -344,7 +375,7 @@ class ImplementationChainTests(unittest.TestCase):
                 outcome_status="hypothesis", plan_id="plan-e2",
             ),
             workspace_root=self.tools.parent,
-            signer_key_fp="SHA256:promotion-retry-fixture",
+            signer_key_fp=registered_signer(cycle_id="cycle-promotion-retry", workspace_root=self.tools.parent),
         )
         self.assertEqual(convention_path, self.tools / "knowledge-graph/conventions.jsonl")
         hypothesis_bytes = convention_path.read_bytes()
@@ -401,7 +432,8 @@ class ImplementationChainTests(unittest.TestCase):
                 pattern_id="conv-recovery", pattern_type="convention", confidence=0.5,
                 evidence_refs=("docs/aria/SPEC.md",), discovered_by_cycle_id="cycle-recovery",
                 observed_at="2026-09-10T00:00:00Z", outcome_status="hypothesis", plan_id="plan-e2",
-            ), workspace_root=self.tools.parent, signer_key_fp="SHA256:recovery-fixture",
+            ), workspace_root=self.tools.parent,
+            signer_key_fp=registered_signer(cycle_id="cycle-recovery", workspace_root=self.tools.parent),
         )
 
     def _process_reconciliations(self, *, count: int, available: bool) -> list[dict]:

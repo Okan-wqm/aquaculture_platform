@@ -24,10 +24,28 @@ def observation(**changes) -> kg.Pattern:
 @pytest.fixture
 def signer(tmp_path) -> Iterator[str]:
     key = mint_signing_key(cycle_id="fixture-key", workspace_root=tmp_path)
+    _PUBLIC_KEYS[key.fingerprint] = key.public_key_path.read_text(encoding="utf-8")
     try:
         yield key.fingerprint
     finally:
         revoke_signing_key(cycle_id="fixture-key", workspace_root=tmp_path)
+
+
+# The public half of every fixture key, by fingerprint: read at mint time,
+# because the revoke deletes the `.pub` file the way a cycle's revoke does.
+_PUBLIC_KEYS: dict[str, str] = {}
+_REGISTERED: set[tuple[str, str]] = set()
+
+
+def register(signer, _tmp_path=None, **roots) -> None:
+    """The seam's half the fixture key lacks: its public key in the store's
+    signer registry, so a promotion can verify the hypothesis it promotes.
+    Once per (signer, root): the registry refuses a second identical row."""
+    root_key = (signer, json.dumps({k: str(v) for k, v in sorted(roots.items())}))
+    if root_key in _REGISTERED:
+        return
+    kg.register_convention_signer(cycle_id="fixture-key", signer_key_fp=signer, public_key=_PUBLIC_KEYS[signer], **roots)
+    _REGISTERED.add(root_key)
 
 
 def record(root, signer, pattern=None) -> Path:
@@ -65,6 +83,7 @@ def test_conflicting_identity(tmp_path, signer, changes) -> None:
 
 def test_promotion_then_original_retry(tmp_path, signer) -> None:
     path = record(tmp_path, signer)
+    register(signer, workspace_root=tmp_path)
     promoted = kg.promote_convention_for_plan(plan_id="plan", workspace_root=tmp_path)
     before = path.read_bytes()
     record(tmp_path, signer)
@@ -247,6 +266,7 @@ def test_replay_retry_verifies_envelope(tmp_path, signer, damage) -> None:
 def test_promotion_checks_history_before_append_or_noop(tmp_path, signer, damage, already_promoted) -> None:
     path = record(tmp_path, signer)
     if already_promoted:
+        register(signer, workspace_root=tmp_path)
         kg.promote_convention_for_plan(plan_id="plan", workspace_root=tmp_path)
     if damage == "schema":
         kg._append_row(path, asdict(observation(schema_version=2)))
@@ -261,6 +281,7 @@ def test_promotion_checks_history_before_append_or_noop(tmp_path, signer, damage
         path.write_text("".join(json.dumps(row) + "\n" for row in rows))
     before = path.read_bytes()
     with pytest.raises((kg.KnowledgeGraphTamper, kg.KnowledgeGraphSchemaError)):
+        register(signer, workspace_root=tmp_path)
         kg.promote_convention_for_plan(plan_id="plan", workspace_root=tmp_path)
     assert path.read_bytes() == before
     assert not list(path.parent.glob("*.quarantined.*"))
@@ -285,6 +306,7 @@ def _child_probe_promotion_lock(path, ready, result) -> None:
 def test_promotion_serializes_the_success_lookup(tmp_path, signer, already_promoted) -> None:
     path = record(tmp_path, signer)
     if already_promoted:
+        register(signer, workspace_root=tmp_path)
         kg.promote_convention_for_plan(plan_id="plan", workspace_root=tmp_path)
     ctx = multiprocessing.get_context("spawn")
     ready, result = ctx.Event(), ctx.Queue()
@@ -302,6 +324,7 @@ def test_promotion_serializes_the_success_lookup(tmp_path, signer, already_promo
     try:
         probe.start()
         with patch.object(kg, "_read_jsonl_strict", side_effect=read_with_probe):
+            register(signer, workspace_root=tmp_path)
             kg.promote_convention_for_plan(plan_id="plan", workspace_root=tmp_path)
         probe.join(timeout=5)
         assert probe.exitcode == 0
@@ -331,6 +354,11 @@ def test_explicit_tools_root_wins_over_workspace_environment_and_cwd(tmp_path, s
     path = kg.record_convention(observation(), signer_key_fp=signer, **roots)
     assert path == tools / "knowledge-graph/conventions.jsonl"
     assert kg.lookup_pattern("observation", min_confidence=0.5, **roots)["plan_id"] == "plan"
+    # B7 — a hypothesis whose signer is not in the store's registry is not
+    # the kernel's word and is not promoted; registered, it is.
+    refused = kg.reconcile_convention_promotion(plan_id="plan", **roots)
+    assert refused == {"status": "signer_unverified", "pattern_id": "observation", "signer_key_fp": signer}
+    register(signer, tmp_path, **roots)
     first = kg.reconcile_convention_promotion(plan_id="plan", **roots)
     assert first["status"] == "promoted"
     before = path.read_bytes()
@@ -350,6 +378,7 @@ def test_legacy_workspace_root_ignores_unrelated_environment(tmp_path, signer, m
     path = record(workspace, signer)
     assert path == workspace / "aria-tools/knowledge-graph/conventions.jsonl"
     assert kg.lookup_pattern("observation", workspace_root=workspace, min_confidence=0.5)
+    register(signer, tmp_path, workspace_root=workspace)
     assert kg.promote_convention_for_plan(plan_id="plan", workspace_root=workspace)["outcome_status"] == "verified"
     assert kg.reconcile_convention_promotion(plan_id="plan", workspace_root=workspace)["status"] == "already_verified"
     assert len(kg.conventions_for_paths(workspace_root=workspace, paths=["fixture/a.py"])) == 1
@@ -452,6 +481,7 @@ def test_recorded_convention_lookup_verifies_entire_history_before_match(tmp_pat
 @pytest.mark.parametrize("later_status", ["verified", "refuted"])
 def test_recorded_convention_lookup_retains_superseded_original(tmp_path, signer, later_status) -> None:
     path = record(tmp_path, signer)
+    register(signer, workspace_root=tmp_path)
     promoted = kg.promote_convention_for_plan(plan_id="plan", workspace_root=tmp_path)
     assert promoted["pattern_id"] == "observation-verified"
     if later_status == "refuted":

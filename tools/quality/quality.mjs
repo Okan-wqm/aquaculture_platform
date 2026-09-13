@@ -276,6 +276,14 @@ function classifyFormatFile(path) {
       'checked-in browser bundle; generator/source package is canonical',
     );
   }
+  if (path.startsWith('aria-kernel/tests/fixtures/')) {
+    return excluded(
+      path,
+      'archive_immutable',
+      'aria-kernel-fixture-capture',
+      'byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)',
+    );
+  }
   if (path.startsWith('.aria-ci/') || path.startsWith('aria-tools/')) {
     return excluded(
       path,

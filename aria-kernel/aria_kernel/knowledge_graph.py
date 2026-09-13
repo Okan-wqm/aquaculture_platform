@@ -988,6 +988,19 @@ def reconcile_convention_promotion(
             return {"status": "already_verified", "pattern_id": verified["pattern_id"]}
         if hypothesis is None:
             return {"status": "no_hypothesis"}
+        # B7 — promotion is where a signature is READ. The hypothesis was
+        # signed by the cycle that converged the plan and that key is gone;
+        # its public half is in the signer registry (`kg_signers`), and a row
+        # whose fingerprint names no registered key — or a key that does not
+        # hash to it — is not the kernel's word and is not promoted. Named,
+        # not raised: the reconciler records the status beside the plan and
+        # the operator sees which row was refused.
+        if not verify_convention_signer(hypothesis, base_dir=base_dir, workspace_root=workspace_root):
+            return {
+                "status": "signer_unverified",
+                "pattern_id": hypothesis["pattern_id"],
+                "signer_key_fp": hypothesis.get("signer_key_fp"),
+            }
         promoted = dict(hypothesis)
         promoted.pop("prev_row_hash", None)
         promoted.update({

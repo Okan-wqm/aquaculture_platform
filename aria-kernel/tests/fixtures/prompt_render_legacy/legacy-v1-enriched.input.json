@@ -1,5 +1,7 @@
 {
-  "allowed_scope": ["aria-kernel/**"],
+  "allowed_scope": [
+    "aria-kernel/**"
+  ],
   "convergence_id": "conv-1",
   "decision_memory": {
     "decisions": [
@@ -15,7 +17,9 @@
   "established_knowledge": {
     "anti_patterns": [
       {
-        "evidence_refs": ["aria-kernel/aria_kernel/agent_invocations.py:1"],
+        "evidence_refs": [
+          "aria-kernel/aria_kernel/agent_invocations.py:1"
+        ],
         "pattern_id": "ANTI-render-only-ordering",
         "reason_class": "changed_output_order",
         "recorded_at": "2026-09-01T00:00:00Z"
@@ -26,7 +30,9 @@
         "belief_id": "B-1",
         "claim": "renderer is hash-bound",
         "confidence": 0.9,
-        "evidence_refs": ["aria-kernel/aria_kernel/agent_invocations.py:1"],
+        "evidence_refs": [
+          "aria-kernel/aria_kernel/agent_invocations.py:1"
+        ],
         "support_count": 3
       }
     ],
@@ -34,7 +40,9 @@
       {
         "confidence": 0.55,
         "discovered_by_cycle_id": "cycle-render-only-1",
-        "evidence_refs": ["aria-kernel/aria_kernel/agent_invocations.py:1"],
+        "evidence_refs": [
+          "aria-kernel/aria_kernel/agent_invocations.py:1"
+        ],
         "outcome_status": "hypothesis",
         "pattern_id": "CONV-render-only-hypothesis",
         "pattern_type": "maintenance"
@@ -42,7 +50,9 @@
       {
         "confidence": 0.75,
         "discovered_by_cycle_id": "cycle-render-only-2",
-        "evidence_refs": ["aria-kernel/aria_kernel/agent_invocations.py:1"],
+        "evidence_refs": [
+          "aria-kernel/aria_kernel/agent_invocations.py:1"
+        ],
         "outcome_status": "verified",
         "pattern_id": "CONV-render-only-verified",
         "pattern_type": "maintenance"
@@ -51,8 +61,12 @@
     "past_failed_attempts": [
       {
         "at": "2026-09-02T00:00:00Z",
-        "reasons": ["validation_failed: ordinary maintenance expectation was not satisfied"],
-        "rejection_classes": ["validation_failed"]
+        "reasons": [
+          "validation_failed: ordinary maintenance expectation was not satisfied"
+        ],
+        "rejection_classes": [
+          "validation_failed"
+        ]
       }
     ]
   },
@@ -66,10 +80,16 @@
       "truncated": false
     }
   ],
-  "evidence_refs": ["aria-kernel/aria_kernel/agent_invocations.py:1"],
+  "evidence_refs": [
+    "aria-kernel/aria_kernel/agent_invocations.py:1"
+  ],
   "expected_output_path": "outputs/AIR-z8-test.md",
-  "forbidden_scope": ["web/**"],
-  "impact_graph_refs": ["aria-kernel/aria_kernel/agent_invocations.py:705"],
+  "forbidden_scope": [
+    "web/**"
+  ],
+  "impact_graph_refs": [
+    "aria-kernel/aria_kernel/agent_invocations.py:705"
+  ],
   "must_satisfy": [
     {
       "description": "stay in scope",
@@ -85,7 +105,9 @@
       {
         "commits": [
           {
-            "refs": ["aria-kernel/tests/test_prompt_render_versioning.py:70"],
+            "refs": [
+              "aria-kernel/tests/test_prompt_render_versioning.py:70"
+            ],
             "sha": "2222222222222222222222222222222222222222",
             "subject": "Preserve maintenance prompt formatting",
             "why": "Stable bytes preserve the replay contract."
@@ -108,14 +130,18 @@
         ],
         "file": "aria-kernel/aria_kernel/agent_invocations.py",
         "project": "aria-kernel",
-        "tests": ["aria-kernel/tests/test_prompt_render_versioning.py"]
+        "tests": [
+          "aria-kernel/tests/test_prompt_render_versioning.py"
+        ]
       }
     ],
     "impacted_projects": [
       [
         "aria-kernel",
         {
-          "dependents": ["aria-executor"],
+          "dependents": [
+            "aria-executor"
+          ],
           "layer": "tools"
         }
       ]

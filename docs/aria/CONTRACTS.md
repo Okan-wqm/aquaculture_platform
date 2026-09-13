@@ -1908,6 +1908,10 @@ publisher contract. Earlier inner cycle projections are not consumers of these o
   the fingerprint from the registered key (`fingerprint_of_public_key`, the value `ssh-keygen -lf`
   prints) so a reader can check a row's `signer_key_fp` names a real key after the cycle's key
   files are gone. The registry refuses a fingerprint that is not the supplied key's own.
+  Promotion is where the signature is read: `knowledge_graph.reconcile_convention_promotion`
+  verifies the hypothesis row's signer before it promotes, and a row whose `signer_key_fp` names
+  no registered key (or a key that does not hash to it) is answered `signer_unverified` with the
+  pattern id and fingerprint — recorded beside the plan, never promoted.
 - The mint/revoke pair is a transaction on the workspace checkout's LOCAL git signing config
   (`commit.gpgsign`, `gpg.format`, `user.signingkey`, `gpg.ssh.allowedSignersFile`): the mint
   snapshots the operator's values to `.git/aria-signing-config-snapshots/<cycle_id>.json` (0600, the

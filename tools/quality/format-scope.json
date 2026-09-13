@@ -28315,124 +28315,224 @@
       "prettier_managed": true
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "archive_immutable",
+      "content_sha256": "d3be2f4f18fe5ebf7618acf3d7e9bd9b034689641806bd1568124fa7697fdb34",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
       "path": "aria-kernel/tests/fixtures/feedback_v2/feedback_event.json",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "archive_immutable",
+      "content_sha256": "00383d52391b1dd6d736b0696936704e6a0caaa351be6b5d4db29b96b31d21fd",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
       "path": "aria-kernel/tests/fixtures/feedback_v2/health_decision.json",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "archive_immutable",
+      "content_sha256": "147ab2278ee7beb0eee45c006cc1367e3b46b74334d9c3a513ea5b4005f2d393",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
       "path": "aria-kernel/tests/fixtures/feedback_v2/run_record.json",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "archive_immutable",
+      "content_sha256": "78480aeab47c13f95ac34b142d996fa94628009ec964a8e61118814b809e23ee",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
       "path": "aria-kernel/tests/fixtures/prompt_render_issued_v4/capture-manifest.json",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "archive_immutable",
+      "content_sha256": "2b3b357e67c420ba39bfe9049de4d56cbf0a2ca82e08dd2b9bc65bbf39b5f908",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
       "path": "aria-kernel/tests/fixtures/prompt_render_issued_v4/issued-v4-map-missing-history.context.json",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "archive_immutable",
+      "content_sha256": "c3534964455a15634e751af679b61a4db9b4bd030ec282c29ca5336aa8974e63",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
       "path": "aria-kernel/tests/fixtures/prompt_render_issued_v4/issued-v4-map-missing-history.fused.json",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "archive_immutable",
+      "content_sha256": "5985bbb54d89170b44a4c755d17dbde896a423b3cacfa6dbfdd46fd1a3ee1a76",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
       "path": "aria-kernel/tests/fixtures/prompt_render_issued_v4/issued-v4-map-missing-history.prompt-row.json",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "archive_immutable",
+      "content_sha256": "5b4174268381064499b6b6abac7b2ce652b9468d5f47d6f34a5c4f7fc28a4292",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
       "path": "aria-kernel/tests/fixtures/prompt_render_issued_v4/issued-v4-map-missing-history.request.json",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "archive_immutable",
+      "content_sha256": "ced2ea28a95a823a66629dbd6c2818c56b70ca83c4a2091b4338caf4560081ad",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
       "path": "aria-kernel/tests/fixtures/prompt_render_issued_v4/issued-v4-map-rejected-history.context.json",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "archive_immutable",
+      "content_sha256": "09b83c37733fe43f6be317499bc54e0b1ea07aa279d30c06e1e2deeee88ce13b",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
       "path": "aria-kernel/tests/fixtures/prompt_render_issued_v4/issued-v4-map-rejected-history.fused.json",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "archive_immutable",
+      "content_sha256": "9a471116e1c5ceaa217100885e6a564322a1789a72d09ffc78cf8fac48453db6",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
       "path": "aria-kernel/tests/fixtures/prompt_render_issued_v4/issued-v4-map-rejected-history.prompt-row.json",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "archive_immutable",
+      "content_sha256": "e93e3dc3c1ead091f61eada6d4e84196c4e502160081ae5294b54e479c9cf069",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
       "path": "aria-kernel/tests/fixtures/prompt_render_issued_v4/issued-v4-map-rejected-history.request.json",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "archive_immutable",
+      "content_sha256": "1d1f5aed4a2ea7b8af78f6b2c1364cca5e4727afb4548252e35f607f5b7ec909",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
       "path": "aria-kernel/tests/fixtures/prompt_render_legacy/capture-manifest.json",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "archive_immutable",
+      "content_sha256": "69404bd7b1c3f8047ef8e4e8e5c2379608ade070836c0434e936ce470fba463c",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
       "path": "aria-kernel/tests/fixtures/prompt_render_legacy/legacy-v1-base.input.json",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "archive_immutable",
+      "content_sha256": "51d81a8d923a549250a93159213490781bf30df779225a16ae728f0daf7cd083",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
       "path": "aria-kernel/tests/fixtures/prompt_render_legacy/legacy-v1-enriched.input.json",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "archive_immutable",
+      "content_sha256": "88e6c06daabb959a1c9f41e2070fb01503cd14a31afb6c1c7f302866fbf1a518",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
       "path": "aria-kernel/tests/fixtures/prompt_render_legacy/legacy-v2-base.input.json",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "archive_immutable",
+      "content_sha256": "c514f61a3794cdf7b32f3c8b5c180aaaa1476358361fe3e4d27e7264f4b6bedc",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
       "path": "aria-kernel/tests/fixtures/prompt_render_legacy/legacy-v2-enriched.input.json",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "archive_immutable",
+      "content_sha256": "4000992341216b738dc61ce6311ddc573fc7e51f569213e9385ea88108cbf31e",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
       "path": "aria-kernel/tests/fixtures/prompt_render_legacy/legacy-v3-base.input.json",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "archive_immutable",
+      "content_sha256": "0ce8368129160b2f3ba298e1f613cf7d3e3b297a987ddf5f92ce4acc86630bb8",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
       "path": "aria-kernel/tests/fixtures/prompt_render_legacy/legacy-v3-enriched.input.json",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "archive_immutable",
+      "content_sha256": "011959fc331420caa0bca42432656d1bcce39132bd4300b0b4ee73d0b25c0d86",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
       "path": "aria-kernel/tests/fixtures/runtime_archive_legacy/capture-manifest.json",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
       "class": "archive_immutable",
@@ -28446,46 +28546,81 @@
       "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "archive_immutable",
+      "content_sha256": "c266b87d7f4c344c8bf25ee5d16bc3366c28af393369ff4a230bedb565926bff",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
       "path": "aria-kernel/tests/fixtures/runtime_archive_legacy/cold-tools/integrity_index.json",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "archive_immutable",
+      "content_sha256": "e11c4bce917a207fc705e83f27253425a3624ed5df8d3c4b3f4b989164b30dd6",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
       "path": "aria-kernel/tests/fixtures/runtime_archive_legacy/cold-tools/registry.json",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "archive_immutable",
+      "content_sha256": "91b6766d9f5afc3653d7b3827204a846ffd50db1c9fda3d70b5b7b1dbf86468e",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
       "path": "aria-kernel/tests/fixtures/runtime_archive_legacy/cold-tools/repo_identity.json",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "archive_immutable",
+      "content_sha256": "cd5beb38e116ae207d6efef1b1b16815e77ef57f25490f212b78457ac050ed15",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
       "path": "aria-kernel/tests/fixtures/runtime_archive_legacy/cold-tools/runtime/v2-promotion-evidence.json",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "archive_immutable",
+      "content_sha256": "f5de75b9253947b34f52280a6e3bd8b5a0ee4a226c1f3fca396be24193a59884",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
       "path": "aria-kernel/tests/fixtures/runtime_archive_legacy/cold-tools/tools_contract.json",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "archive_immutable",
+      "content_sha256": "aad8856b614488dab02b7b01645da8682013858bb0ae61d6c19081c6add45a3a",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
       "path": "aria-kernel/tests/fixtures/runtime_archive_legacy/original-artifact.json",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
-      "class": "canonical_source",
-      "owner": "source",
+      "class": "archive_immutable",
+      "content_sha256": "67197bf4b000373f4116e7eb83379af97fa92c69aec5f215411e2cb2c880fd31",
+      "hash_policy": "sha256",
+      "owner": "aria-kernel-fixture-capture",
       "path": "aria-kernel/tests/fixtures/runtime_archive_legacy/producer-input.json",
-      "prettier_managed": true
+      "prettier_managed": false,
+      "reason": "byte-pinned capture fixtures: each capture-manifest.json / SHA256SUMS holds the sha256 of every captured file and tests/test_prompt_render_versioning.py + tests/test_runtime_artifacts.py refuse a byte that drifted, so a reformat is a tampered capture (the prompt inputs and the legacy archive were reformatted at integration and stayed red for two days)",
+      "review_required": true,
+      "source_of_truth": "committed_hash"
     },
     {
       "class": "canonical_source",

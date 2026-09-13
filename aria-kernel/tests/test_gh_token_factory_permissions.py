@@ -57,7 +57,7 @@ class TheMintSendsTheCallersPermissions(unittest.TestCase):
         jwt_patch = patch.dict("sys.modules", {"jwt": _FakeJwt()})
         jwt_patch.start()
         self.addCleanup(jwt_patch.stop)
-        url_patch = patch("urllib.request.urlopen", urlopen)
+        url_patch = patch("urllib.request.urlopen", urlopen)  # allowlist-external-network: the opener is replaced by the in-process fake above; no request leaves the test
         url_patch.start()
         self.addCleanup(url_patch.stop)
 

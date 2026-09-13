@@ -174,11 +174,23 @@ reject envelopes that drift):
    `blocked` or `contradicted` verdict MUST carry a non-empty `note`
    (the reason, in prose) AND a non-empty `evidence_refs[]` —
    `agent_contract.validate_response` rejects the whole envelope
-   otherwise, and the request is terminal for the round. Do not emit
-   alternate field names like `constraint_id`, `satisfied:bool` or
-   `evidence` in place of `note` — the kernel reads `id`, `verdict`,
-   `note` and `evidence_refs`. The validator's own rendering of these
-   rules closes every delivered contract; it is authoritative.
+   otherwise, and the request is terminal for the round.
+   **Example:** a blocked entry that the validator accepts:
+
+   ```json
+   {
+     "id": "ms-2",
+     "verdict": "blocked",
+     "note": "the migration the plan names does not exist at this SHA",
+     "evidence_refs": ["apps/farm-service/src/database/migrations/"]
+   }
+   ```
+
+   Do not emit alternate field names like `constraint_id`,
+   `satisfied:bool` or `evidence` in place of `note` — the kernel reads
+   `id`, `verdict`, `note` and `evidence_refs`. The validator's own
+   rendering of these rules closes every delivered contract; it is
+   authoritative.
 
 `details.usage` (Anthropic CLI usage block) is admitted as additional
 context and ignored by the kernel.

@@ -302,14 +302,18 @@
       "observations": 0
     },
     "evidence_validation": {
-      "evidence_sources": ["apps/farm-service/src/app.module.ts"]
+      "evidence_sources": [
+        "apps/farm-service/src/app.module.ts"
+      ]
     },
     "input_hash": "sha256:input",
     "ledger_hash": "sha256:a942a7b502df24f9b2174db0a399659f40d50bc0430bcb7535dcedef0278bb76",
     "operator_feedback_refs": [],
     "output_hash": "sha256:output",
     "previous_ledger_hash": null,
-    "read_paths": ["apps/farm-service/src/app.module.ts"],
+    "read_paths": [
+      "apps/farm-service/src/app.module.ts"
+    ],
     "recorded_at": "2026-09-11T05:05:58+00:00",
     "run_id": "run-native-legacy-retention",
     "run_ledger_format": "v2",

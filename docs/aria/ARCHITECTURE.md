@@ -1168,7 +1168,7 @@ readiness, provider execution or remote merge is established.
   The stale branch case fails branch verification while content remains valid;
   the later native rejection makes both checks unavailable.
 
-### aria-kernel/aria_kernel/agent_invocations.py
+### aria-kernel/aria_kernel/agent_invocations.py — native binding entries
 
 - Entries: `verify_invocation_context_binding`, its private shared row
   comparison `_verify_invocation_context_binding_rows`, `claim_request`, and
@@ -1321,7 +1321,6 @@ flowchart TD
   GitHub[GhCliGitHubAdapter.get_pr] -->|returns native base head body URL| Merge
 ```
 
-
 ### aria-kernel/aria_kernel/plan_coverage.py
 
 - Entry: `compute_plan_coverage`; SHA256
@@ -1403,7 +1402,6 @@ distinguish issuer authority and exact change/revision scope from signature vali
 feedback is not permission to fabricate endorsement. Runtime budget qualification must consume the
 shared managed-subscription policy and actual attempts, while expert qualification must join
 independent native sessions and their current source evidence.
-
 
 ## Connected managed runtime dispatch
 
@@ -1810,7 +1808,6 @@ flowchart LR
   Mint -->|appends| Sealed[Native request context and prompt ledgers]
   Specialist -->|polls own request| Accepted[Accepted result owner]
 ```
-
 
 ### aria-kernel/aria_kernel/expert_review_gate.py
 

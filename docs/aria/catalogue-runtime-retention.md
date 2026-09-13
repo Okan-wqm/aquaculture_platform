@@ -11,14 +11,14 @@ three test owners across R1 and R2. **Six entries is this shard's completeness, 
 ARIA's source inventory.** The wider kernel, executor, configuration, workflow and service catalogue
 remains in progress.
 
-| Entry                                                                     | Kind       | Read completeness                          | Review                                                                 |
-| ------------------------------------------------------------------------- | ---------- | ------------------------------------------ | ---------------------------------------------------------------------- |
-| [runtime_artifacts.py](#aria-kernel-aria-kernel-runtime-artifacts-py)     | Production | Full manual file read by audit_memory_diff | Root checked causal source, actual callers and diagram semantics       |
-| [state_manifest.py](#aria-kernel-aria-kernel-state-manifest-py)           | Production | Full manual file read by audit_memory_diff | Root checked declarations, snapshot/ledger consumers and limits        |
-| [test_runtime_artifacts.py](#aria-kernel-tests-test-runtime-artifacts-py) | Tests      | Full manual file read by root              | Different-author helper/oracle/evidence review by audit_memory_diff    |
-| [test_state_snapshot.py](#aria-kernel-tests-test-state-snapshot-py)       | Tests      | Full manual file read by root              | Different-author helper/oracle/evidence review by audit_memory_diff    |
-| [validation_runs_ledger.py](#validation-run-ledger)                       | Production | Full manual file read by audit_memory_diff | Different-author source/evidence review by audit_test_evidence         |
-| [test_state_store.py](#state-store-tests)                                 | Tests      | Full manual file read by audit_memory_diff | Different-author fixture/oracle/evidence review by audit_test_evidence |
+| Entry                                                                  | Kind       | Read completeness                          | Review                                                                 |
+| ---------------------------------------------------------------------- | ---------- | ------------------------------------------ | ---------------------------------------------------------------------- |
+| [runtime_artifacts.py](#aria-kernelaria_kernelruntime_artifactspy)     | Production | Full manual file read by audit_memory_diff | Root checked causal source, actual callers and diagram semantics       |
+| [state_manifest.py](#aria-kernelaria_kernelstate_manifestpy)           | Production | Full manual file read by audit_memory_diff | Root checked declarations, snapshot/ledger consumers and limits        |
+| [test_runtime_artifacts.py](#aria-kernelteststest_runtime_artifactspy) | Tests      | Full manual file read by root              | Different-author helper/oracle/evidence review by audit_memory_diff    |
+| [test_state_snapshot.py](#aria-kernelteststest_state_snapshotpy)       | Tests      | Full manual file read by root              | Different-author helper/oracle/evidence review by audit_memory_diff    |
+| [validation_runs_ledger.py](#validation-run-ledger)                    | Production | Full manual file read by audit_memory_diff | Different-author source/evidence review by audit_test_evidence         |
+| [test_state_store.py](#state-store-tests)                              | Tests      | Full manual file read by audit_memory_diff | Different-author fixture/oracle/evidence review by audit_test_evidence |
 
 A source digest below identifies the whole file; it is neither a Git commit nor a complete-tree
 identity. A changed source invalidates its entry until behavior, affected edges and evidence are
@@ -32,8 +32,6 @@ deployed, or that a model was called. Dashed edges identify missing proof. Snaps
 distinct from archive transfer and reference closure. Each entry identifies its own evidence cutoff.
 R1 final-ten and R2 isolated two/six-method results remain distinct; later documentation and central
 integration checks are reported separately.
-
-<a id="aria-kernel-aria-kernel-runtime-artifacts-py"></a>
 
 ## [aria-kernel/aria_kernel/runtime_artifacts.py](../../aria-kernel/aria_kernel/runtime_artifacts.py)
 
@@ -158,8 +156,6 @@ flowchart LR
   STATUS --> OUTER[Outer progression decision]
 ```
 
-<a id="aria-kernel-aria-kernel-state-manifest-py"></a>
-
 ## [aria-kernel/aria_kernel/state_manifest.py](../../aria-kernel/aria_kernel/state_manifest.py)
 
 **Source and read completeness.** SHA256
@@ -228,8 +224,6 @@ flowchart LR
   MAN -. does not itself prove .-> COLD[Portable bytes / retained reference closure]
 ```
 
-<a id="aria-kernel-tests-test-runtime-artifacts-py"></a>
-
 ## [aria-kernel/tests/test_runtime_artifacts.py](../../aria-kernel/tests/test_runtime_artifacts.py)
 
 Source SHA256: `8989906b087031651500b6a6a148a600df389ac3076928cc95106b3b3ccb8179`. Read
@@ -281,8 +275,6 @@ consumers, but their earlier G0 results are historical separate checkpoints. The
 does not execute the whole module, its existing altered-record cases, R2 portable validation-log
 recovery, R3 concurrent eviction, live services or model learning utility. No such scenario is newly
 authorized by this catalogue entry.
-
-<a id="aria-kernel-tests-test-state-snapshot-py"></a>
 
 ## [aria-kernel/tests/test_state_snapshot.py](../../aria-kernel/tests/test_state_snapshot.py)
 

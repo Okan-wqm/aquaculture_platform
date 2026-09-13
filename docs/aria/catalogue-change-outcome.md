@@ -19,8 +19,6 @@ reread at the exact hashes below, not merely indexed with AST. Production ranges
 reading ranges, symbols and exact selectors. This read-completeness statement covers these two files
 only.
 
-<a id="change-outcome-owner"></a>
-
 ## `aria-kernel/aria_kernel/change_outcome.py`
 
 SHA256 `a50daf854cd49d7bec12607f66d69298bff8cf108cf7910094e994e9e95a7b2c`; 50,538 bytes, 1,132
@@ -102,8 +100,6 @@ flowchart TD
 
 Arrows name calls unless explicitly labelled data. There is deliberately no cycle/planner→assessment
 edge: that runtime connection is absent in this source slice. No model/provider action is involved.
-
-<a id="change-outcome-tests"></a>
 
 ## `aria-kernel/tests/test_change_outcome.py`
 

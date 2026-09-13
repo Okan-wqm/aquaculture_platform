@@ -52,6 +52,14 @@ for _path in (_POC_DIR, _KERNEL_DIR):
 from tests import test_ci_executor_live_path_smoke as _smoke  # noqa: E402
 
 
+# The installed CLI's own status arm (Claude Code 2.1.269, read from the
+# binary: `process.exit(loggedIn ? 0 : 1)`): the document is printed
+# whatever the answer, and a logged-out session ALSO exits 1. A fixture
+# that exited 0 on a logged-out document let the lane pass a shape the
+# real CLI never produces (verifier, ARIA-HIGH-107).
+_STATUS_ARM = "    print(json.dumps(status)); raise SystemExit(0 if status['loggedIn'] else 1)\n"
+
+
 def _fake_claude(status: dict, response: dict, host_login_dir: Path) -> str:
     return (
         f"#!{sys.executable}\n"
@@ -59,9 +67,10 @@ def _fake_claude(status: dict, response: dict, host_login_dir: Path) -> str:
         "from pathlib import Path\n"
         "argv = sys.argv[1:]\n"
         "if argv == ['--version']:\n"
-        "    print('2.1.268 (Claude Code)'); raise SystemExit(0)\n"
+        "    print('2.1.269 (Claude Code)'); raise SystemExit(0)\n"
         "if argv[:3] == ['auth', 'status', '--json']:\n"
-        f"    print(json.dumps({status!r})); raise SystemExit(0)\n"
+        f"    status = {status!r}\n"
+        + _STATUS_ARM +
         "prompt = sys.stdin.read()\n"
         # The spawn may run inside the write-containment sandbox (private /tmp),
         # so the child's observation travels INSIDE its answer, as the native
@@ -98,9 +107,10 @@ def _fake_exhausted_claude(status: dict) -> str:
         "import json, sys\n"
         "argv = sys.argv[1:]\n"
         "if argv == ['--version']:\n"
-        "    print('2.1.268 (Claude Code)'); raise SystemExit(0)\n"
+        "    print('2.1.269 (Claude Code)'); raise SystemExit(0)\n"
         "if argv[:3] == ['auth', 'status', '--json']:\n"
-        f"    print(json.dumps({status!r})); raise SystemExit(0)\n"
+        f"    status = {status!r}\n"
+        + _STATUS_ARM +
         "sys.stdin.read()\n"
         f"message = {_USAGE_LIMIT_NOTICE!r}\n"
         "print(json.dumps({'type': 'assistant', 'message': {'role': 'assistant', 'content': [{'type': 'text', 'text': message}]}}))\n"
@@ -288,14 +298,24 @@ class NativeClaudeLane(unittest.TestCase):
     def test_a_logged_out_session_keeps_the_request_pending(self) -> None:
         from aria_kernel.ledger import load_declared_jsonl
 
-        self._install_claude({"loggedIn": False})
+        # The real shape: `{"loggedIn": false, "authMethod": "none"}` AND
+        # exit 1 (the fixture's status arm mirrors the installed CLI).
+        self._install_claude({"loggedIn": False, "authMethod": "none", "apiProvider": "firstParty"})
         completed = self._run_executor()
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertEqual(self.ai.derive_request_state(request_id=self.request["request_id"], base_dir=self.tools), "PENDING")
         governance = load_declared_jsonl(self.tools / "governance.jsonl", expected_surface="tools_governance")
         decisions = [row["details"] for row in governance if row["kind"] == "runtime_admission_unavailable"]
+        self.assertEqual(len(decisions), 1)
         anthropic = next(row for row in decisions[0]["candidate_observations"] if row["provider"] == "anthropic")
-        self.assertEqual((anthropic["auth_observation"], anthropic["status_reason"]), ("unavailable", "managed_session_logged_out"))
+        # DECIDED by the document, with the exit code as evidence — the
+        # defect, first: exit-code-first classification recorded
+        # ("unknown", "status_not_confirmed") for the vendor's own "no".
+        self.assertEqual((anthropic["auth_observation"], anthropic["status_reason"], anthropic["status_exit_code"]),
+                         ("unavailable", "managed_session_logged_out", 1))
+        # One attempt, no retry, `no_eligible_provider` — never a stall.
+        self.assertEqual((anthropic["decision"], anthropic["probe"]["attempts"]), ("unavailable", 1))
+        self.assertEqual((decisions[0]["reason"], decisions[0]["halting_provider"]), ("no_eligible_provider", None))
 
     def test_an_exhausted_session_requeues_under_a_provider_cooldown(self) -> None:
         from aria_kernel.ledger import load_declared_jsonl

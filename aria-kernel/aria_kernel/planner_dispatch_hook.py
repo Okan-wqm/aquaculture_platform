@@ -38,13 +38,38 @@ from pathlib import Path
 from typing import Any
 
 from .ledger import read_jsonl
+from .release_reason import NATIVE_RUNTIME_CONTROL_UNAVAILABLE, NATIVE_RUNTIME_PROVIDER_UNDECIDED
 
 
 __all__ = [
+    "ADMISSION_BACKOFF_STATUSES",
+    "ADMISSION_HALT_STATUSES",
     "DEFAULT_PLANNER_ROLES",
     "DEFAULT_LEASE_SECONDS",
+    "PROVIDER_CONTROL_UNAVAILABLE_STATUS",
+    "PROVIDER_UNDECIDED_STATUS",
     "dispatch_one_pending_planner_request",
 ]
+
+# The tick statuses when the executor child released the claim because the
+# fleet admission HALTED on its first provider in contention (ARIA-HIGH-107):
+# the status probe never answered (`provider_undecided`;
+# `release_reason.NATIVE_RUNTIME_PROVIDER_UNDECIDED`) or this host could
+# not bind the route's controls (`provider_control_unavailable`;
+# `NATIVE_RUNTIME_CONTROL_UNAVAILABLE`). Neither is a dispatch (nothing
+# ran) nor an executor failure (the child did its job and said so): the
+# daemon backs off one poll interval, as the worker scheduler does for a
+# provider cooldown, and the request is retried. Keyed by the release
+# reason the child wrote, so the hook reads the ledger, never the exit code.
+PROVIDER_UNDECIDED_STATUS = "provider_undecided"
+PROVIDER_CONTROL_UNAVAILABLE_STATUS = "provider_control_unavailable"
+ADMISSION_HALT_STATUSES: dict[str, str] = {
+    NATIVE_RUNTIME_PROVIDER_UNDECIDED: PROVIDER_UNDECIDED_STATUS,
+    NATIVE_RUNTIME_CONTROL_UNAVAILABLE: PROVIDER_CONTROL_UNAVAILABLE_STATUS,
+}
+# What the daemon backs off on: exactly the halt statuses, derived, so a
+# third halted release cannot reach the daemon as a plain "dispatched".
+ADMISSION_BACKOFF_STATUSES: frozenset[str] = frozenset(ADMISSION_HALT_STATUSES.values())
 
 
 DEFAULT_PLANNER_ROLES: tuple[str, ...] = ("primary_plan", "challenger_plan")
@@ -236,6 +261,23 @@ def _release_abandoned_claim(
         return False
 
 
+def _child_release_reason(root: Path, claim_id: str) -> str | None:
+    """The reason the CHILD released this claim under, or None if it did not.
+
+    The executor releases an admission refusal before it exits 0, so the
+    hook cannot read the outcome off the exit code; the claims ledger is
+    where the child said what happened, and the hook owns this claim.
+    """
+    claims_path = root / "agent-invocations" / "claims.jsonl"
+    if not claims_path.exists():
+        return None
+    reason: str | None = None
+    for row in read_jsonl(claims_path, expected_surface="agent_invocation_claims"):
+        if row.get("claim_id") == claim_id and row.get("event") == "released":
+            reason = str(row.get("reason") or "")
+    return reason
+
+
 def _default_ci_executor_path(base_dir: Path) -> Path:
     """Resolve the ci_executor.py path — from the CODE tree, not the store.
 
@@ -307,9 +349,13 @@ def dispatch_one_pending_planner_request(
     Claude Code CLI via ci_executor.py subprocess.
 
     Returns aggregate dict with ``status`` ∈
-    ``{no_pending, claim_failed, executor_failed, dispatched}``,
-    plus ``request_id``, ``claim_id``, ``exit_code``,
-    ``governance_event_count``, ``stderr_redacted``.
+    ``{no_pending, claim_failed, executor_failed, dispatched,
+    provider_undecided}``, plus ``request_id``, ``claim_id``,
+    ``exit_code``, ``governance_event_count``, ``stderr_redacted``.
+    ``provider_undecided`` (ARIA-HIGH-107): the child released the claim
+    because the fleet's first provider in contention never answered its
+    status probe; nothing ran, the request is back in the queue, and the
+    daemon backs off before asking again.
 
     Does NOT raise on operational failures (claim rejections,
     subprocess non-zero exit, subprocess timeout); only programmer
@@ -573,6 +619,20 @@ def dispatch_one_pending_planner_request(
     governance_count += 1
 
     status = "dispatched" if exit_code == 0 else "executor_failed"
+    halted = ADMISSION_HALT_STATUSES.get(_child_release_reason(root, claim_id) or "") if exit_code == 0 else None
+    if halted is not None:
+        # ARIA-HIGH-107 — exit 0 with the claim handed back by name: the
+        # fleet halted on its first provider (undecided, or unbindable on
+        # this host). Neither a dispatch nor a failure; the caller backs
+        # off and the request is retried. The governance kind carries the
+        # status (`planner_dispatch_provider_undecided`,
+        # `planner_dispatch_provider_control_unavailable`).
+        status = halted
+        append_tools_governance(
+            root, f"planner_dispatch_{halted}",
+            {"request_id": request_id, "claim_id": claim_id, "target_agent": target_agent},
+        )
+        governance_count += 1
     if exit_code != 0:
         # Y1 (ORPHAN-703) — a failed child usually releases through its own
         # CLI-failure classes; when it dies before reaching them (spawn

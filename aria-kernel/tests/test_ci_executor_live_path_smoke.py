@@ -468,16 +468,19 @@ class NativeAdaptiveAdmissionTests(unittest.TestCase):
         with patch.dict(os.environ, environment), chdir(workspace):
             return ci_executor.main([self.request["request_id"], "aria-evidence-judge"])
 
-    def _assert_refused_summary(self, detail_code: str) -> dict:
+    def _assert_refused_summary(self, detail_code: str, *, failure_class: str = "policy_violation",
+                                retryable: bool = False) -> dict:
         """B8 — a by-design non-dispatch is NAMED in the child's summary: the
         drain counts nothing but a `succeeded` summary as drained, so a
         refusal that wrote no summary would now read as a failure, and one
-        that wrote none before this fix read as a success."""
+        that wrote none before this fix read as a success. The executor's
+        own policy refusals are `policy_violation`; a halted fleet
+        admission (ARIA-HIGH-107) is `harness_unavailable` and retryable."""
         summary_path = self.runner_temp / f"dispatch-result-{self.request['request_id']}.json"
         self.assertTrue(summary_path.is_file(), "the refusal must write the dispatch summary")
         summary = json.loads(summary_path.read_text(encoding="utf-8"))
         self.assertEqual(summary["outcome"], "refused")
-        self.assertEqual(summary["failure_class"], "policy_violation")
+        self.assertEqual((summary["failure_class"], summary["retryable"]), (failure_class, retryable))
         self.assertEqual(summary["failure_detail_code"], detail_code)
         self.assertEqual(summary["exit_code"], 0)
         self.assertEqual((summary["target_agent"], summary["role"]), ("aria-evidence-judge", "evidence_judgment"))
@@ -952,7 +955,9 @@ class NativeAdaptiveAdmissionTests(unittest.TestCase):
         self.assertEqual(policy.read_bytes(), original)
 
 
-    def _install_public_codex_status_fixture(self, status_text: str) -> Path:
+    def _install_public_codex_status_fixture(self, status_text: str, *, exit_code: int = 0) -> Path:
+        # `exit_code` mirrors the installed CLI: 0 with a login line, 1 with
+        # `Not logged in` (codex-rs/cli/src/login.rs; reproduced offline).
         calls = self.root / "managed-status-child.jsonl"
         names = ("OPENAI_API_KEY", "CODEX_API_KEY", "ANTHROPIC_API_KEY",
                  "CLAUDE_API_KEY", "ARIA_ZAI_API_KEY", "ANTHROPIC_AUTH_TOKEN")
@@ -968,10 +973,35 @@ class NativeAdaptiveAdmissionTests(unittest.TestCase):
             "if sys.argv[1:] != ['login', 'status']:\n"
             "    raise SystemExit(97)\n"
             f"print({status_text!r}, file=sys.stderr)\n"
-            "raise SystemExit(0)\n", encoding="utf-8",
+            f"raise SystemExit({exit_code})\n", encoding="utf-8",
         )
         executable.chmod(0o755)
         return calls
+
+    def test_native_codex_not_logged_in_is_decided_and_never_a_stall(self) -> None:
+        # Verifier, ARIA-HIGH-107: the installed CLI answers a logged-out
+        # session with `Not logged in` AND exit 1. The line is the vendor's
+        # DECIDED no — one attempt, no retry — and, as the only provider
+        # left in contention, the admission is `no_eligible_provider`, not
+        # `provider_undecided`: nothing waits on a human who is simply
+        # logged out of Codex when the fleet has been asked and answered.
+        self._enable_adaptive_policy()
+        calls = self._install_public_codex_status_fixture("Not logged in", exit_code=1)
+        exit_code = self._run_native_entry()
+        rows = self._assert_native_request_untouched()
+        self.assertEqual(exit_code, 0)
+        self.assertEqual([json.loads(line) for line in calls.read_text().splitlines()],
+                         [{"argv": ["login", "status"], "provider_key_names": []}], "a decided refusal is asked once")
+        decisions = [row for row in rows if row["kind"] == "runtime_admission_unavailable"]
+        self.assertEqual(len(decisions), 1)
+        details = decisions[0]["details"]
+        candidate = next(row for row in details["candidate_observations"] if row["provider"] == "openai")
+        self.assertEqual((candidate["decision"], candidate["auth_observation"], candidate["status_reason"],
+                          candidate["status_exit_code"], candidate["probe"]),
+                         ("unavailable", "unavailable", "cli_reported_not_logged_in", 1,
+                          {"attempts": 1, "undecided_reasons": [], "backoff_seconds": 0.0}))
+        self.assertEqual((details["reason"], details["halting_provider"]), ("no_eligible_provider", None))
+        self._assert_refused_summary("no_eligible_provider")
 
     def test_native_managed_status_child_excludes_provider_api_key_environment(self) -> None:
         self._enable_adaptive_policy()
@@ -1017,13 +1047,19 @@ class NativeAdaptiveAdmissionTests(unittest.TestCase):
 
 
     def test_native_unrecognized_codex_status_remains_unknown_and_pending(self) -> None:
+        from aria_kernel.status_probe import STATUS_PROBE_ATTEMPTS, STATUS_PROBE_BACKOFF_SECONDS
+
         self._enable_adaptive_policy()
         calls = self._install_public_codex_status_fixture("Ordinary status format not yet supported")
         exit_code = self._run_native_entry()
         rows = self._assert_native_request_untouched()
         self.assertEqual(exit_code, 0)
+        # ARIA-HIGH-107 — an answer the probe cannot read establishes nothing
+        # about the vendor: UNDECIDED, retried within the liveness bound, and
+        # the admission names the provider it could not decide rather than
+        # rounding the silence to a refusal.
         self.assertEqual([json.loads(line) for line in calls.read_text().splitlines()],
-                         [{"argv": ["login", "status"], "provider_key_names": []}])
+                         [{"argv": ["login", "status"], "provider_key_names": []}] * STATUS_PROBE_ATTEMPTS)
         decisions = [row for row in rows if row["kind"] == "runtime_admission_unavailable"]
         self.assertEqual(len(decisions), 1)
         details = decisions[0]["details"]
@@ -1032,7 +1068,13 @@ class NativeAdaptiveAdmissionTests(unittest.TestCase):
         self.assertEqual((candidate["auth_observation"], candidate["auth_method"],
                           candidate["quota_observation"], candidate["status_reason"]),
                          ("unknown", "unknown", "unknown", "status_output_unrecognized"))
+        self.assertEqual(candidate["decision"], "undecided")
+        self.assertEqual(candidate["probe"], {"attempts": STATUS_PROBE_ATTEMPTS,
+                                              "undecided_reasons": ["status_output_unrecognized"] * STATUS_PROBE_ATTEMPTS,
+                                              "backoff_seconds": sum(STATUS_PROBE_BACKOFF_SECONDS)})
         self.assertEqual(details["eligible_routes"], [])
+        self.assertEqual((details["reason"], details["halting_provider"]), ("provider_undecided", "openai"))
+        self._assert_refused_summary("provider_undecided", failure_class="harness_unavailable", retryable=True)
 
     def test_native_codex_status_read_limit_reaps_its_child(self) -> None:
         import codex_runtime
@@ -1069,16 +1111,21 @@ class NativeAdaptiveAdmissionTests(unittest.TestCase):
             exit_code = self._run_native_entry()
         rows = self._assert_native_request_untouched()
         self.assertEqual(exit_code, 0)
+        # ARIA-HIGH-107 — a truncated answer is UNDECIDED and retried within
+        # the liveness bound; every started status child is reaped, each
+        # read no more than its own 4096-byte allowance.
+        from aria_kernel.status_probe import STATUS_PROBE_ATTEMPTS
         self.assertEqual([json.loads(line) for line in calls.read_text().splitlines()],
-                         [{"argv": ["login", "status"], "provider_key_names": []}])
-        self.assertEqual(len(status_processes), 1)
-        self.assertIsNotNone(status_processes[0].returncode)
-        self.assertTrue(status_processes[0].stdout.closed)
-        self.assertEqual(sum(received for _, received in reads), 4096)
+                         [{"argv": ["login", "status"], "provider_key_names": []}] * STATUS_PROBE_ATTEMPTS)
+        self.assertEqual(len(status_processes), STATUS_PROBE_ATTEMPTS)
+        for process in status_processes:
+            self.assertIsNotNone(process.returncode)
+            self.assertTrue(process.stdout.closed)
+        self.assertEqual(sum(received for _, received in reads), 4096 * STATUS_PROBE_ATTEMPTS)
         consumed = 0
         for requested, received in reads:
             self.assertLessEqual(requested, 4096 - consumed)
-            consumed += received
+            consumed = (consumed + received) % 4096
         decisions = [row for row in rows if row["kind"] == "runtime_admission_unavailable"]
         self.assertEqual(len(decisions), 1)
         details = decisions[0]["details"]

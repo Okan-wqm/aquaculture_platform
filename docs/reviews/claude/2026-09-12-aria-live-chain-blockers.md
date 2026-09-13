@@ -667,3 +667,50 @@ surface_writers_and_consumers` had been red since ARIA-HIGH-092's commit.
   the branch survives a publish, a genesis-less lineage refuses),
   `test_memory_gap` (never-restored vs forked verdicts), the state-store
   and continuity suites (151 + 200), `test_autonomy_evidence_status` (135).
+
+## ARIA-HIGH-108 — a probe that did not answer was admitted as a vendor refusal
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-19
+- **Evidence (live, trial eleven, dispatch 3, 2026-09-12 20:42–20:51Z, load
+  ~7):** the anthropic row observed `status_reason=status_timeout`
+  (`claude auth status --json` past the 20 s `recheck_timeout_seconds`),
+  `auth_observation=unknown`, controls unknown; `_native_runtime_admission`
+  treated the row exactly like an auth refusal and admitted
+  `openai/gpt-6-astra` for the primary plan, two dispatches after the same
+  probe had answered `available`. The operator decision on record (opus
+  is a leaf; a read-only role fails over cross-vendor on AUTH reasons
+  only) forbids that. The inverse defect sat beside it: Claude Code
+  2.1.269 prints `{"loggedIn": false, …}` AND exits 1, Codex prints `Not
+logged in` and exits 1, and both probes tested the exit code before the
+  document — a logged-out session would have read as a stall, been
+  retried, and blocked the fail-over the decision allows.
+- **What is now true:** `StatusDecision` (available / unavailable /
+  undecided) is a required, contradiction-checked field of every status
+  observation; `status_probe.observe_until_decided` retries only an
+  undecided probe (3 attempts, 2/5 s backoff, one `AdmissionClock` per
+  admission; `recheck_timeout_seconds` keeps its meaning as the per-attempt
+  cap and the admission budget derives from it); `native_admission.py`
+  owns the ladder — a provider is passed only on a DECIDED unavailable
+  observation or a cooldown; the first provider in contention that stays
+  undecided halts the admission as `provider_undecided` (no route, request
+  PENDING, no attempt burned, harness-class release
+  `native_runtime_provider_undecided`, the planner hook backs off one
+  tick); a host that cannot bind its controls after a decided-available
+  auth halts as `provider_control_unavailable` by name;
+  `tools/aria-poc/status_answers.py` classifies the vendor's document or
+  line before the exit code, so a logged-out session is DECIDED unavailable
+  and fails over; every candidate row carries `decision` and `probe
+{attempts, undecided_reasons, backoff_seconds}`.
+- **Integration:** the two release-site invariants (v12 RELEASE_02 and
+  `test_requeue_fault_ownership`) had two private AST walks of one
+  property and disagreed on the refusal record's attribute; they now share
+  one reading (`tests/_helpers/release_sites.py`). A Z.ai transport that
+  does not answer is pinned through the ladder as `provider_undecided(zai)`.
+- **Proof (candidate):** `test_native_admission_undecided` (21),
+  `test_ci_executor_provider_undecided` (6, scripted claude/codex/closed
+  port through the real executor), `test_native_admission_status_budget`,
+  `test_provider_quota_cooldown`, `test_glm_model_admission`,
+  `test_requeue_fault_ownership`, v12 queue/release, planner hook and
+  dispatcher, `test_zai_runtime`, native-claude lane, cost pricing — 157
+  tests; on 665213990 the executor cases fail with exactly the trial-eleven
+  shape `[('openai', 'gpt-6-astra')]`. Verified by `wf_9eb2e54f-ec1`.

@@ -70,43 +70,23 @@ class FaultOwnedCountingTest(unittest.TestCase):
     def test_every_executor_release_reason_is_classified(self) -> None:
         # The executor's RELEASE SITES are the source of these strings. A new
         # reason added there without a classification here is exactly how the
-        # list would go stale, so it is a test failure instead. The scan walks
-        # the AST for `_release_claim(..., reason=...)` calls and collects the
-        # string literals that expression can yield (a bare literal, or each
-        # branch of a conditional) — not every `reason="..."` in the file: the
-        # native fleet's `_RuntimeStatusObservation(reason=...)` and
-        # `control_reason=...` are admission observations, never releases,
-        # and a text regex over the module counted them as release reasons.
-        import ast
-        from pathlib import Path
+        # list would go stale, so it is a test failure instead. The reading is
+        # the one shared with the v12 release-site invariant
+        # (`tests/_helpers/release_sites`): `_release_claim(..., reason=...)`
+        # calls — a literal, each branch of a conditional, an f-string prefix,
+        # a pinned name, or a refusal record's `release_reason` whose literal
+        # lives in the module-level `ADMISSION_REFUSALS` / `TASK_BINDING_REFUSAL`
+        # tables (ARIA-HIGH-107) — never every `reason="..."` in the file: the
+        # native fleet's status observations are admissions, not releases.
+        from tests._helpers.release_sites import REFUSAL_TABLE_NAMES, scan_executor_release_sites
 
-        source = (
-            Path(__file__).resolve().parents[2] / "tools" / "aria-poc" / "ci_executor.py"
-        ).read_text(encoding="utf-8")
-
-        def literals(node: ast.AST) -> set[str]:
-            if isinstance(node, ast.Constant) and isinstance(node.value, str):
-                return {node.value}
-            if isinstance(node, ast.IfExp):
-                return literals(node.body) | literals(node.orelse)
-            # A name (a module constant) or an f-string: owned by the prefix
-            # tables or by the constant's own classification test, not here.
-            return set()
-
-        reasons: set[str] = set()
-        release_sites = 0
-        for node in ast.walk(ast.parse(source)):
-            if not isinstance(node, ast.Call):
-                continue
-            callee = node.func
-            name = callee.attr if isinstance(callee, ast.Attribute) else getattr(callee, "id", None)
-            if name != "_release_claim":
-                continue
-            release_sites += 1
-            for keyword in node.keywords:
-                if keyword.arg == "reason":
-                    reasons |= literals(keyword.value)
-        self.assertGreater(release_sites, 0, "the executor must still release through _release_claim")
+        scan = scan_executor_release_sites()
+        reasons = set(scan.literal)
+        self.assertEqual(scan.refusal_tables_seen, set(REFUSAL_TABLE_NAMES),
+                         "the executor's admission-refusal release table must stay a module-level literal this scan can read")
+        self.assertIn("native_runtime_provider_undecided", reasons)
+        self.assertIn("native_runtime_control_unavailable", reasons)
+        self.assertGreater(scan.release_sites, 0, "the executor must still release through _release_claim")
         self.assertGreater(len(reasons), 0, "release sites must carry literal reasons this scan can see")
         classified = HARNESS_FAULT_RELEASE_REASONS | REQUEST_FAULT_RELEASE_REASONS
 

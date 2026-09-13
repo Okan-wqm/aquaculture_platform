@@ -45,6 +45,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from aria_kernel.model_fleet import zai_provider as _zai_provider
+from aria_kernel.status_probe import StatusDecision
 
 _PROVIDER = _zai_provider()
 ZAI_PROVIDER_KEY = _PROVIDER.key
@@ -299,7 +300,16 @@ def _vendor_error(body: bytes) -> tuple[str | None, str | None]:
 
 @dataclass(frozen=True)
 class ZaiStatusObservation:
-    """What one minimal call to the selected endpoint actually said."""
+    """What one minimal call to the selected endpoint actually said.
+
+    `decision` is the fleet's three-valued verdict (`status_probe.StatusDecision`)
+    stated where the HTTP answer was read: a 200 is DECIDED available; an
+    auth rejection, a quota/rate refusal and an authenticated refusal (a
+    model the plan does not carry) are all DECIDED unavailable — the vendor
+    answered, and its answer was no for this dispatch; a 5xx, an
+    unclassified status and a transport failure are UNDECIDED — the vendor
+    was not heard, so the fleet retries within its liveness bound.
+    """
 
     auth_observation: str
     quota_observation: str
@@ -311,6 +321,7 @@ class ZaiStatusObservation:
     error_code: str | None
     error_message: str | None
     elapsed_ms: int
+    decision: StatusDecision
     transport: str = ZAI_TRANSPORT
 
     def as_row(self) -> dict[str, Any]:
@@ -321,25 +332,30 @@ class ZaiStatusObservation:
             "model": self.model, "http_status": self.http_status,
             "error_code": self.error_code, "error_message": self.error_message,
             "elapsed_ms": self.elapsed_ms, "transport": self.transport,
+            "decision": self.decision.value,
         }
 
 
-def _classify(status: int, code: str | None) -> tuple[str, str, str]:
-    """(auth, quota, reason) from HTTP status + vendor code. Conservative:
-    anything not named stays ``unknown`` rather than being rounded to a verdict."""
+def _classify(status: int, code: str | None) -> tuple[str, str, str, StatusDecision]:
+    """(auth, quota, reason, decision) from HTTP status + vendor code.
+    Conservative: anything not named stays ``unknown`` and UNDECIDED rather
+    than being rounded to a verdict; anything the vendor refused is DECIDED
+    unavailable, whichever of auth or quota it refused on."""
     if status == 200:
-        return "available", "available", "chat_completion_ok"
+        return "available", "available", "chat_completion_ok", StatusDecision.AVAILABLE
     if status in (401, 403) or (code in _AUTH_ERROR_CODES):
-        return "unavailable", "unknown", f"auth_rejected_http_{status}"
+        return "unavailable", "unknown", f"auth_rejected_http_{status}", StatusDecision.UNAVAILABLE
     if status == 429 or status == 402 or (code in _QUOTA_ERROR_CODES):
-        return "available", "exhausted", f"quota_or_rate_limited_http_{status}"
+        # Authenticated, out of quota (or rate): a provider-level fact the
+        # operator's 2026-09-12 decision answers with the next vendor.
+        return "available", "exhausted", f"quota_or_rate_limited_http_{status}", StatusDecision.UNAVAILABLE
     if 400 <= status < 500:
         # Authenticated, but the request was refused: a model the plan does
         # not carry, or a route the key is not entitled to. Named, not admitted.
-        return "available", "unknown", f"request_refused_http_{status}"
+        return "available", "unknown", f"request_refused_http_{status}", StatusDecision.UNAVAILABLE
     if status >= 500:
-        return "unknown", "unknown", f"vendor_error_http_{status}"
-    return "unknown", "unknown", f"unclassified_http_{status}"
+        return "unknown", "unknown", f"vendor_error_http_{status}", StatusDecision.UNDECIDED
+    return "unknown", "unknown", f"unclassified_http_{status}", StatusDecision.UNDECIDED
 
 
 def probe_zai_status(
@@ -370,14 +386,14 @@ def probe_zai_status(
         return ZaiStatusObservation(
             auth_observation="unknown", quota_observation="unknown", reason=str(exc),
             endpoint=endpoint, base_url=base_url, model=model, http_status=None,
-            error_code=None, error_message=None, elapsed_ms=0,
+            error_code=None, error_message=None, elapsed_ms=0, decision=StatusDecision.UNDECIDED,
         )
     code, message = _vendor_error(response.body)
-    auth, quota, reason = _classify(response.status, code)
+    auth, quota, reason, decision = _classify(response.status, code)
     return ZaiStatusObservation(
         auth_observation=auth, quota_observation=quota, reason=reason,
         endpoint=endpoint, base_url=base_url, model=model, http_status=response.status,
-        error_code=code, error_message=message, elapsed_ms=response.elapsed_ms,
+        error_code=code, error_message=message, elapsed_ms=response.elapsed_ms, decision=decision,
     )
 
 
@@ -455,7 +471,9 @@ def run_zai_chat(
         timeout_seconds=max(1.0, float(timeout_seconds)), opener=opener,
     )
     code, message = _vendor_error(response.body)
-    auth, quota, reason = _classify(response.status, code)
+    # The run reads the same classification as the probe; the admission
+    # decision is the probe's business, the run keeps auth/quota/reason.
+    auth, quota, reason, _decision = _classify(response.status, code)
     final_message = ""
     usage: dict[str, int] | None = None
     response_id: str | None = None

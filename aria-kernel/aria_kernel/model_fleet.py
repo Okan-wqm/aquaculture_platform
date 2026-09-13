@@ -14,6 +14,10 @@ function of the probe results plus the role order. No network calls happen
 here — probing "is the credential present" is an env/PATH fact; whether the
 credential WORKS is the runtime's own auth-failure contract (and, since
 ARIA-HIGH-023, its cross-provider fallback).
+
+The native admission — the per-dispatch fleet decision that probes each
+provider's status to a three-valued verdict and walks the ladder — lives in
+`aria_kernel.native_admission`; this module holds the fleet it walks.
 """
 
 from __future__ import annotations
@@ -22,14 +26,6 @@ import os
 import shutil
 from pathlib import Path
 from dataclasses import dataclass
-from dataclasses import asdict as _asdict
-import hashlib as _hashlib
-import json as _json
-import time as _time
-from typing import Any as _Any, Callable as _Callable, Mapping as _Mapping
-
-from .agent_runtime_profile import AgentRuntimeProfile as _AgentRuntimeProfile
-from .genesis_policy import _AdaptiveRuntimePolicy
 
 
 @dataclass(frozen=True)
@@ -267,165 +263,3 @@ def provider_admits_writes(provider_key: str) -> bool:
     typo or a future row cannot silently become a write-capable route.
     """
     return any(provider.key == provider_key and provider.admits_writes for provider in _FLEET)
-
-
-# The status reason a provider row carries when it is refused WITHOUT a
-# probe: the reason is a fleet/policy fact, not something the vendor said.
-READONLY_RUNTIME_STATUS_REASON = "provider_readonly_runtime"
-COOLDOWN_STATUS_REASON = "provider_quota_cooldown"
-
-
-@dataclass(frozen=True)
-class _RuntimeStatusObservation:
-    auth_observation: str
-    quota_observation: str = "unknown"
-    reason: str = "status_unavailable"
-    command: tuple[str, ...] = ()
-    exit_code: int | None = None
-    control_status: str = "unknown"
-    control_reason: str = "native_runtime_control_binding_unavailable"
-    auth_method: str = "unknown"
-    credential_source: str = "unknown"
-    """Which boundary supplied the credential ('managed_session', 'file', 'env'). Never a value."""
-
-
-@dataclass(frozen=True)
-class _NativeRuntimeAdmission:
-    configuration_digest: str
-    candidate_observations: tuple[dict[str, _Any], ...]
-    eligible_routes: tuple[dict[str, str], ...]
-
-
-def native_admission_budget_seconds(policy: _AdaptiveRuntimePolicy) -> float:
-    """The wall-clock bound of one native admission: one recheck per fleet member."""
-    return float(policy.recheck_timeout_seconds) * len(_FLEET)
-
-
-def _native_runtime_admission(
-    *,
-    repo_root: Path,
-    profile: _AgentRuntimeProfile,
-    policy: _AdaptiveRuntimePolicy,
-    environ: dict[str, str],
-    observe_status: _Callable[[Provider, float], _RuntimeStatusObservation],
-    cooled_providers: _Mapping[str, _Mapping[str, _Any]],
-) -> _NativeRuntimeAdmission:
-    """Prepare native route observations; the runtime supplies its status transport.
-
-    Legacy marker discovery is deliberately not a native auth prerequisite.
-    Neither a status exit nor a price alone establishes control admission.
-
-    Every fleet member is offered one full `recheck_timeout_seconds` for its
-    own status observation: the budget is per probe, and the admission as a
-    whole is bounded by that budget times the fleet's size. A first probe
-    that stalls to its limit (a swapped-out CLI on a loaded host) is its own
-    `status_timeout`; the providers behind it are still asked. The fleet
-    owns this arithmetic so no caller can hand the whole fleet a single
-    probe's budget and starve the last member into `status_deadline_elapsed`.
-
-    Two refusals are decided here WITHOUT a probe, because they are facts the
-    fleet and the ledger already hold, not questions for the vendor:
-
-    * `provider_readonly_runtime` — the profile is write-capable and this
-      provider's runtime cannot write (`Provider.admits_writes`). Probing it
-      would only ever admit a route that fails at execution.
-    * `provider_quota_cooldown` — the provider is under an active quota
-      cooldown (`cooled_providers`, keyed by provider, read by the caller
-      from `aria_kernel.provider_cooldown`, whose reader validates every
-      field indexed here). The last run on it ended in
-      credit exhaustion inside `provider_cooldown_seconds`; the status CLI
-      cannot see quota (`quota_observation` is `unknown` from
-      `claude auth status`), so the ledger is the only evidence. The row
-      says so and carries the cooldown's `until`, and the next vendor in
-      fleet order is admitted for the roles it can serve.
-    """
-    deadline_monotonic = _time.monotonic() + native_admission_budget_seconds(policy)
-    from .budget import price_spawn_reservation
-    from .genesis_policy import _runtime_monetary_admission
-
-    configuration = _json.dumps(
-        {"schema_version": 1, "policy_digest": policy.policy_digest,
-         "resolved_profile": _asdict(profile)}, sort_keys=True, separators=(",", ":"),
-    )
-    observations: list[dict[str, _Any]] = []
-    eligible: list[dict[str, str]] = []
-    search_path = environ.get("PATH", os.defpath)
-    for provider in _FLEET:
-        if provider.key == "openai":
-            model = "gpt-6-astra"
-        elif provider.key == "anthropic" and provider_for_model(profile.model) in (None, "anthropic"):
-            # The managed Claude route runs the agent's own declared tier
-            # (its frontmatter), exactly as the legacy spawn does; a foreign
-            # tier in the frontmatter falls back to the fleet default.
-            model = profile.model
-        else:
-            model = provider_model(provider, environ)
-        effort = "ultra" if provider.key == "openai" else profile.effort
-        route = {"provider": provider.key, "runtime": provider.runtime_hint,
-                 "model": model, "effort": effort}
-        binary = _RUNTIME_BINARIES.get(provider.runtime_hint, "claude")
-        remaining = min(float(policy.recheck_timeout_seconds), deadline_monotonic - _time.monotonic())
-        cooldown = cooled_providers.get(provider.key)
-        if profile.write_capable and not provider.admits_writes:
-            status = _RuntimeStatusObservation(
-                "unknown", reason=READONLY_RUNTIME_STATUS_REASON,
-                control_status="unavailable", control_reason=READONLY_RUNTIME_STATUS_REASON,
-            )
-        elif cooldown is not None:
-            status = _RuntimeStatusObservation(
-                "unknown", quota_observation="unavailable", reason=COOLDOWN_STATUS_REASON,
-            )
-        elif binary is not None and shutil.which(binary, path=search_path) is None:
-            status = _RuntimeStatusObservation("unavailable", reason="cli_unavailable")
-        elif provider.key == "zai" and not _credential_named(provider, environ):
-            status = _RuntimeStatusObservation("unavailable", reason="provider_not_configured")
-        elif remaining <= 0:
-            status = _RuntimeStatusObservation("unknown", reason="status_deadline_elapsed")
-        else:
-            status = observe_status(provider, remaining)
-        # The reservation ceiling is budget's (SPAWN_RESERVATION_CEILING_TOKENS);
-        # this row, the executor's spawn gate and the attempt ledger price
-        # one alias through the one function, so the admission can never
-        # quote a price the gate or the ledger would not.
-        price = price_spawn_reservation(model=model)
-        monetary = _runtime_monetary_admission(
-            repo_root, provider=provider.key, runtime=provider.runtime_hint,
-            auth_method=status.auth_method, expected_policy_digest=policy.policy_digest,
-        )
-        pricing = ({"status": "unavailable", "reason": "model_pricing_unknown"}
-                   if price.source == "unknown" else
-                   {"status": "available", "reason": price.source, "estimated_usd": price.usd,
-                    "basis": "published_api_notional"})
-        row = {
-            **route, "auth_observation": status.auth_observation,
-            "auth_method": status.auth_method,
-            "credential_source": status.credential_source,
-            "quota_observation": status.quota_observation, "status_reason": status.reason,
-            "status_command": list(status.command), "status_exit_code": status.exit_code,
-            "pricing": pricing,
-            "monetary_admission": monetary.mode,
-            "monetary_reason": monetary.reason,
-            "controls": {"status": status.control_status, "reason": status.control_reason},
-        }
-        if cooldown is not None:
-            # The evidence the refusal rests on, on the row itself: when the
-            # cooldown ends and which run started it. Indexed without guards
-            # on purpose: `cooled_providers` rows come from
-            # `provider_cooldown.active_provider_cooldowns`, whose contract
-            # refuses a row missing any of these fields by name before it
-            # can reach this admission.
-            row["quota_cooldown"] = {
-                "until": cooldown["until"], "recorded_at": cooldown["recorded_at"],
-                "request_id": cooldown["request_id"], "model": cooldown["model"],
-            }
-        observations.append(row)
-        monetary_available = (monetary.subscription_applies if monetary.mode == "managed_subscription"
-                              else price.source != "unknown")
-        if (status.auth_observation == "available" and monetary_available
-                and status.quota_observation != "unavailable"
-                and status.control_status == "available"):
-            eligible.append(route)
-    return _NativeRuntimeAdmission(
-        configuration_digest="sha256:" + _hashlib.sha256(configuration.encode()).hexdigest(),
-        candidate_observations=tuple(observations), eligible_routes=tuple(eligible),
-    )

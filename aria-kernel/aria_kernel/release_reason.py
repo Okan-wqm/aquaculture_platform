@@ -23,6 +23,20 @@ from dataclasses import dataclass
 RELEASE_REASON_CODES: tuple[str, ...] = (
     "NATIVE_RUNTIME_ADMISSION_UNAVAILABLE", "NATIVE_RUNTIME_EXECUTION_UNAVAILABLE",
     "NATIVE_RUNTIME_TASK_BINDING_UNAVAILABLE",
+    # ARIA-HIGH-107 — the fleet's first provider in contention never
+    # answered its status probe inside the liveness bound. Not the fleet
+    # declining (that is ADMISSION_UNAVAILABLE): a stalled probe is not an
+    # auth fact, so nothing behind it ran and the request waits for a
+    # later tick. Harness-class: the host's state, not the request's.
+    "NATIVE_RUNTIME_PROVIDER_UNDECIDED",
+    # ARIA-HIGH-107 (verifier, 2026-09-12) — the fleet's first provider in
+    # contention was not refused by its vendor, but THIS host could not
+    # bind the controls its route runs under (write containment, managed
+    # Codex context, limiter bus). A host fault is not an auth reason
+    # either, so nothing behind it ran. Harness-class, its own name: an
+    # operator reading the ledger must tell a broken host from a stalled
+    # probe and from a vendor's refusal.
+    "NATIVE_RUNTIME_CONTROL_UNAVAILABLE",
     "CLAUDE_CLI_AUTH_FAILURE", "CLAUDE_SPAWN_REFUSED", "CLAUDE_CLI_EXIT", "DISPATCH_BUDGET_REFUSED",
     "JUDGE_VERDICT_CONTRACT_VIOLATION", "SELF_CHANGE_CONTRACT_VIOLATION", "KERNEL_PROMPT_RENDERER_UNAVAILABLE",
     "PLANNER_DISPATCH_EXECUTOR_TIMEOUT", "PLANNER_DISPATCH_EXECUTOR_EXIT_NONZERO",
@@ -37,8 +51,15 @@ RELEASE_REASON_CODES: tuple[str, ...] = (
 )
 FAULT_DOMAINS: tuple[str, ...] = ("harness", "request", "operator", "unclassified")
 
+# The one spelling of each halted-admission release, read by the executor
+# (its refusal table) and the planner dispatch hook (its back-off statuses).
+NATIVE_RUNTIME_PROVIDER_UNDECIDED = "native_runtime_provider_undecided"
+NATIVE_RUNTIME_CONTROL_UNAVAILABLE = "native_runtime_control_unavailable"
+
 _LITERALS: dict[str, tuple[str, str]] = {
     "native_runtime_admission_unavailable": ("NATIVE_RUNTIME_ADMISSION_UNAVAILABLE", "harness"),
+    NATIVE_RUNTIME_PROVIDER_UNDECIDED: ("NATIVE_RUNTIME_PROVIDER_UNDECIDED", "harness"),
+    NATIVE_RUNTIME_CONTROL_UNAVAILABLE: ("NATIVE_RUNTIME_CONTROL_UNAVAILABLE", "harness"),
     "native_runtime_execution_unavailable": ("NATIVE_RUNTIME_EXECUTION_UNAVAILABLE", "harness"),
     "native_runtime_task_binding_unavailable": ("NATIVE_RUNTIME_TASK_BINDING_UNAVAILABLE", "harness"),
     "claude_cli_auth_failure": ("CLAUDE_CLI_AUTH_FAILURE", "harness"),
@@ -94,4 +115,7 @@ def parse_release_reason(reason: str | None) -> ReleaseReason:
     return ReleaseReason("UNCLASSIFIED", text[:200], "unclassified")
 
 
-__all__ = ["FAULT_DOMAINS", "RELEASE_REASON_CODES", "ReleaseReason", "parse_release_reason"]
+__all__ = [
+    "FAULT_DOMAINS", "NATIVE_RUNTIME_CONTROL_UNAVAILABLE", "NATIVE_RUNTIME_PROVIDER_UNDECIDED",
+    "RELEASE_REASON_CODES", "ReleaseReason", "parse_release_reason",
+]

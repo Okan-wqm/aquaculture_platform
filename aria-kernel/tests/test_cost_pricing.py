@@ -17,7 +17,7 @@ from aria_kernel.budget import MODEL_PRICING_USD_PER_MTOK, estimate_tokens_usd
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 CI_EXECUTOR = _REPO_ROOT / "tools" / "aria-poc" / "ci_executor.py"
-MODEL_FLEET = _REPO_ROOT / "aria-kernel" / "aria_kernel" / "model_fleet.py"
+NATIVE_ADMISSION = _REPO_ROOT / "aria-kernel" / "aria_kernel" / "native_admission.py"
 BUDGET = _REPO_ROOT / "aria-kernel" / "aria_kernel" / "budget.py"
 
 # Every name through which a module could price a reservation WITHOUT going
@@ -352,7 +352,7 @@ class SpawnReservationPricesThroughTheAliasMap(unittest.TestCase):
         self.assertEqual(offenders, [])
 
     def test_the_fleet_admission_row_prices_through_the_reservation_function(self) -> None:
-        tree = ast.parse(MODEL_FLEET.read_text(encoding="utf-8"))
+        tree = ast.parse(NATIVE_ADMISSION.read_text(encoding="utf-8"))
         admission = next(node for node in ast.walk(tree)
                          if isinstance(node, ast.FunctionDef) and node.name == "_native_runtime_admission")
         called = {_called_name(node) for node in ast.walk(admission) if isinstance(node, ast.Call)}

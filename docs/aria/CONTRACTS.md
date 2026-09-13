@@ -1351,6 +1351,128 @@ submission refusals, the historical fold and the gate row; `tests/test_agent_sub
 the acceptance-seam rejection; `tests/test_convergence_resumable_step.py` owns the carried obligations;
 `tests/test_pr_manager_e2e.py` owns staging past both refusals.
 
+## 12.16 — Native Fleet Admission: a probe that did not answer is not an auth fact
+
+`aria-kernel/aria_kernel/native_admission.py` (split out of `model_fleet.py`, which keeps the fleet
+declaration) owns one dispatch's whole-fleet decision; `aria-kernel/aria_kernel/status_probe.py` owns
+the observation type and the liveness bound the decision is reached under. Measured on 2026-09-12
+(trial eleven, host load ~7, `AIR-aria-primary-planner-31777217eba4` dispatch 03): the managed
+Anthropic probe `claude auth status --json` stalled to its 20 s cap (`status_timeout`) and the
+admission read the row like an auth refusal — anthropic not eligible, next vendor — so a converging
+plan's primary planner ran on openai/gpt-6-astra while two dispatches earlier the same probe had
+answered `available`. Operator decision on record (2026-09-12): opus is a leaf for its roles; read-only
+roles fail over across vendors for AUTH reasons only (auth unavailable, quota exhausted or cooled), and
+a probe that did not answer is neither.
+
+The observation is three-valued BY CONSTRUCTION. Every `_RuntimeStatusObservation` carries a required
+`decision: StatusDecision` named at the site that saw the answer — `AVAILABLE` (the vendor confirmed the
+managed session / credential), `UNAVAILABLE` (the vendor or the ledger SAID no: `managed_session_logged_out`,
+`api_key_auth_not_managed`, `managed_login_required`, `cli_reported_not_logged_in`, a Z.ai 401/403, a Z.ai
+429/402 or entitlement refusal, `cli_unavailable`, `provider_not_configured`, `provider_quota_cooldown`,
+`provider_readonly_runtime`, and the managed Codex route's decided refusals `codex_managed_auth_file_unavailable`
+/ `codex_managed_auth_directory_unavailable` / `codex_cli_unavailable` / `codex_native_profile_controls_unavailable`
+— `codex_runtime.ManagedCodexRouteUnavailable`, its own type beside the host's `SandboxUnavailable`) or
+`UNDECIDED` (nothing was heard: `status_timeout`, `status_command_unavailable`, `status_deadline_elapsed`,
+`status_not_confirmed` and `status_output_unrecognized` — both ONLY when no status document or line was
+read —, `status_output_limit`, `control_plane_failure`, a transport error, a vendor 5xx, a managed context
+this host could not bind). A contradictory row (auth `unavailable` marked undecided, auth `unknown` marked
+available) cannot be built. Readers branch on the type, never on a reason string. The Z.ai probe's
+`_classify` returns the decision beside auth/quota/reason; a 429 is DECIDED unavailable with auth still
+`available`.
+
+The answer decides before the exit code (verifier, 2026-09-12). Both managed CLIs report a logged-out
+session as an answer AND a non-zero exit: Claude Code 2.1.269 prints `{"loggedIn": false, …}` then
+`process.exit(loggedIn ? 0 : 1)` (read from the installed binary; reproduced offline with an empty
+config dir), Codex 0.154.0 prints `Not logged in` and exits 1 (reproduced offline with an empty
+`CODEX_HOME`). `tools/aria-poc/status_answers.py` owns the classification for both:
+`classify_claude_status_answer(stdout, returncode)` reads the JSON document first (a boolean `loggedIn`
+is the vendor's answer whatever the exit — logged out → `managed_session_logged_out` UNAVAILABLE carrying
+`exit_code=1`), `classify_codex_status_answer(output, returncode)` reads the line first (`Not logged in` →
+`cli_reported_not_logged_in` UNAVAILABLE, with the same read-only PATH-alias-warning tolerance as the login
+lines). The exit code is consulted in the shared no-answer arm and nowhere else — pinned structurally by
+`tests/test_status_answers_before_exit_codes.py` (an AST scan: neither classifier compares `returncode`)
+and behaviourally through the real probes with scripted binaries that mirror the installed exit codes; the
+lane fixtures (`test_ci_executor_native_claude._fake_claude`, the smoke suite's Codex status fixture) exit
+as the real CLIs do. The probes (`claude_runtime._probe_claude_auth_status`,
+`codex_runtime._probe_codex_auth_status`) keep the spawn — environment boundary, per-attempt cap, byte
+cap, reaping, the limiter's dead-bus arm — and hand the bytes to the classifier.
+
+The liveness bound. `recheck_timeout_seconds` (genesis policy, 20 s) keeps its meaning as the cap of ONE
+attempt. `status_probe.observe_until_decided` retries ONLY an undecided observation:
+`STATUS_PROBE_ATTEMPTS` (3) attempts with `STATUS_PROBE_BACKOFF_SECONDS` (2 s, 5 s) between them, so
+one provider costs at most `status_probe_liveness_seconds(cap)` = 3 × 20 + 7 = 67 s; a decided
+observation — available OR unavailable — ends the retry at once. One `AdmissionClock` per admission
+bounds the whole fleet: `native_admission_budget_seconds(policy)` = 67 s × fleet size (201 s). Every
+attempt is offered `min(cap, remaining)`; once the clock is spent the observation is
+`status_deadline_elapsed` with the attempts so far (zero for a member never reached). The executor
+passes no deadline; the fleet builds the clock from the policy. The `ProbeRecord` beside the
+observation lists EVERY undecided attempt's reason, the last one included, on both paths (attempts
+exhausted, clock elapsed): `len(undecided_reasons)` is the number of attempts that established nothing.
+
+The ladder. `_native_runtime_admission` walks `_FLEET` in order and moves past a provider ONLY on a
+DECIDED unavailable observation or a policy fact the row names (controls never bound — `controls.status`
+"unknown", the metered policy's bare probe — or the monetary policy not applying). The first provider
+still in contention whose row is neither eligible nor decided-unavailable halts it, by the name of what
+stopped it: `AdmissionOutcome.PROVIDER_CONTROL_UNAVAILABLE` when the vendor did not refuse but THIS host
+could not bind the route's controls (`controls.status` "unavailable": an attempted binding that failed —
+the Claude arm's `sandbox_unavailable` after a decided-available auth, the Codex arm's managed context
+failing on `SandboxUnavailable` / `ResourceLimitsUnavailable` / `OSError` before its probe, the limiter's
+`user_bus_unavailable`), `AdmissionOutcome.PROVIDER_UNDECIDED` when the probe stayed UNDECIDED after its
+bound. A host fault is not an auth reason any more than a stall is (operator decision 2026-09-12), so
+neither moves the ladder. Both name `halting_provider` and leave `eligible_routes` EMPTY — a later vendor
+that answered `available` is observed and recorded, never admitted (the type refuses an admission whose
+outcome is in `HALTING_OUTCOMES` without a halting provider, or with one and a route). A later-ranked
+provider that is undecided or unbindable behind an eligible one is skipped for this admission and never
+cooled. `ADMITTED` (first eligible route runs) and `NO_ELIGIBLE_PROVIDER` (every provider decided, none
+eligible) are the other two outcomes. The Codex arm reaches its host fault BEFORE its probe (the managed
+context wraps the status command), so it is seen as an undecided probe and retried within the bound
+first; the Claude arm reaches it AFTER a decided auth and is not retried — the outcome, release and
+back-off are the same by name. A Z.ai transport error (timeout, DNS, connection) is the stall class:
+UNDECIDED with controls "unknown", never a host control fault. Every candidate row carries `decision`
+and `probe` (`{attempts, undecided_reasons, backoff_seconds}`) so a reader can tell a stalled probe from
+a refused login from a broken host; the whole decision rides the attempt row as `admission` (`as_row()`).
+
+The executor. `tools/aria-poc/ci_executor._adaptive_pre_claim_admission` dispatches only on
+`ADMITTED`; otherwise it records `runtime_admission_unavailable` with `reason` = the outcome and
+`halting_provider`, writes the child's `refused` summary, and — on the inherited-claim path — releases
+the claim under the reason its refusal was BUILT with. `ADMISSION_REFUSALS` is one
+`_AdmissionRefusalKind(release_reason, failure_class, retryable)` per non-admitted outcome, so the
+claims-ledger release and the summary shape cannot be declared apart: `provider_undecided` →
+`native_runtime_provider_undecided`, `provider_control_unavailable` → `native_runtime_control_unavailable`
+(both `harness_unavailable`, retryable — the host, not the request, and the daemon retries after a
+back-off), `no_eligible_provider` → `native_runtime_admission_unavailable` (`policy_violation`, not
+retryable); a task-binding refusal → `TASK_BINDING_REFUSAL` (the same general reason, `policy_violation`).
+`harness_unavailable` is a member of `dispatch_failure.DISPATCH_FAILURE_CLASSES` (a refused summary
+whose cause is the executor's own host); the drain never counts a refusal as a failure or a breaker
+event. On the pre-claim path no claim is taken: the request stays PENDING with no attempt burned.
+`native_runtime_provider_undecided` and `native_runtime_control_unavailable` are registered in
+`release_reason.RELEASE_REASON_CODES` (`NATIVE_RUNTIME_PROVIDER_UNDECIDED`,
+`NATIVE_RUNTIME_CONTROL_UNAVAILABLE`, harness) and `agent_invocations.HARNESS_FAULT_RELEASE_REASONS`,
+so the requeue budget does not burn for a stalled or broken host.
+
+The dispatcher. `planner_dispatch_hook.dispatch_one_pending_planner_request` reads the claim's release
+row after the child exits and reports the halt status the release names (`ADMISSION_HALT_STATUSES`:
+`native_runtime_provider_undecided` → `provider_undecided`, `native_runtime_control_unavailable` →
+`provider_control_unavailable`; governance `planner_dispatch_<status>`);
+`autonomous_planner_dispatcher.run_planner_dispatch_daemon` treats every status in the derived
+`ADMISSION_BACKOFF_STATUSES` as a back-off tick — recorded, not counted as a dispatch, one poll interval
+slept — exactly as the worker scheduler treats a provider cooldown, so a stalled or broken host is not
+re-probed on the very next tick.
+
+Pinned by `aria-kernel/tests/test_native_admission_undecided.py` (the type, the retry, the ladder for
+both halts and the policy pass, the clock arithmetic, the refusal kinds, the hook and daemon statuses),
+`tests/test_status_answers_before_exit_codes.py` (the answer-before-exit-code contract for both CLIs,
+structurally and through the real probes; the managed Codex route refusal's type),
+`tests/test_ci_executor_provider_undecided.py` (the real executor child: a probe that stalls once then
+answers is admitted with its attempts on the row; one that stays undecided admits nobody — no openai
+route although openai is up — and burns nothing; a logged-out document with exit 1 is DECIDED and a
+read-only role fails over to openai on it; an unusable sandbox with the session logged in halts as
+`provider_control_unavailable` naming anthropic; through the real planner hook three real 20 s stalls
+release under `native_runtime_provider_undecided` and the hook reports `provider_undecided`),
+`tests/test_ci_executor_live_path_smoke.py` (Codex `Not logged in` + exit 1 is decided once and the
+fleet reaches `no_eligible_provider`) and `tests/test_native_admission_status_budget.py`
+(ARIA-HIGH-075's arithmetic under the new bound).
+
 ## 13 — Phase-1 PoC (IMPLEMENTED)
 
 Before committing to months of kernel work, the operator runs this PoC to answer: **"do we actually

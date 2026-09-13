@@ -40,7 +40,7 @@ from typing import Any, Callable
 from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 if _TYPE_CHECKING:
-    from aria_kernel.model_fleet import _RuntimeStatusObservation
+    from aria_kernel.status_probe import _RuntimeStatusObservation
 
 CODEX_BINARY = "codex"
 DEFAULT_CODEX_MODEL = "gpt-5.2-codex"
@@ -65,13 +65,25 @@ def _probe_codex_auth_status(
     A reported ChatGPT login is a local status observation, not remaining
     quota, model access, or authentication enforcement for a later model run.
     Unknown output forms remain unknown; raw output never leaves this owner.
+    Each row names its `StatusDecision` where the answer was seen. This
+    owner runs the spawn (environment boundary, pipe, byte cap, reaping,
+    the per-attempt cap) and names what never produced an answer: a stall,
+    a spawn failure, a truncated read, or a limiter that could not reach
+    its bus are UNDECIDED — the vendor was not heard, and the fleet retries
+    within its liveness bound. The bytes the CLI wrote go to
+    `status_answers.classify_codex_status_answer`, which reads the LINE
+    before the exit code: the installed CLI prints `Not logged in` and
+    exits 1, and that is a DECIDED refusal, not a stall. Only when no
+    known line was read does the exit code name the undecided reason.
     """
+    from status_answers import classify_codex_status_answer
     from aria_kernel.agent_env import _codex_status_environment
-    from aria_kernel.model_fleet import _RuntimeStatusObservation
+    from aria_kernel.status_probe import StatusDecision, _RuntimeStatusObservation
 
     command = (CODEX_BINARY, "login", "status")
     if timeout_seconds <= 0:
-        return _RuntimeStatusObservation("unknown", reason="status_deadline_elapsed", command=command)
+        return _RuntimeStatusObservation("unknown", reason="status_deadline_elapsed", command=command,
+                                         decision=StatusDecision.UNDECIDED)
     deadline = _time.monotonic() + min(20.0, timeout_seconds)
     proc = None
     output = bytearray()
@@ -97,6 +109,7 @@ def _probe_codex_auth_status(
                 if allowance <= 0:
                     return _RuntimeStatusObservation(
                         "unknown", reason="status_output_limit", command=command,
+                        decision=StatusDecision.UNDECIDED,
                     )
                 chunk = os.read(proc.stdout.fileno(), allowance)
                 if not chunk:
@@ -109,9 +122,11 @@ def _probe_codex_auth_status(
             if _time.monotonic() >= deadline:
                 raise subprocess.TimeoutExpired(command, timeout_seconds)
     except subprocess.TimeoutExpired:
-        return _RuntimeStatusObservation("unknown", reason="status_timeout", command=command)
+        return _RuntimeStatusObservation("unknown", reason="status_timeout", command=command,
+                                         decision=StatusDecision.UNDECIDED)
     except OSError:
-        return _RuntimeStatusObservation("unknown", reason="status_command_unavailable", command=command)
+        return _RuntimeStatusObservation("unknown", reason="status_command_unavailable", command=command,
+                                         decision=StatusDecision.UNDECIDED)
     finally:
         if proc is not None:
             if proc.poll() is None:
@@ -130,43 +145,9 @@ def _probe_codex_auth_status(
         return _RuntimeStatusObservation(
             "unknown", reason="control_plane_failure", command=command, exit_code=returncode,
             control_status="unavailable", control_reason="user_bus_unavailable",
+            decision=StatusDecision.UNDECIDED,
         )
-    if returncode != 0:
-        return _RuntimeStatusObservation(
-            "unknown", reason="status_not_confirmed", command=command, exit_code=returncode,
-        )
-    try:
-        status = output.decode("utf-8").strip()
-    except UnicodeDecodeError:
-        status = ""
-    # The supported CLI can report an optional PATH-alias write warning
-    # while successfully reading a managed login from the read-only store.
-    # Admit that exact complete diagnostic only; any other extra/conflicting
-    # output remains unknown rather than selecting a convenient auth substring.
-    lines = status.splitlines()
-    readonly_alias_warning = (
-        len(lines) == 2 and lines[0] ==
-        "WARNING: proceeding, even though we could not create PATH aliases: Read-only file system (os error 30)"
-    )
-    if readonly_alias_warning:
-        status = lines[1]
-    elif len(lines) != 1:
-        status = ""
-    if status == "Logged in using ChatGPT":
-        return _RuntimeStatusObservation(
-            "available", reason=("cli_reported_managed_login_with_readonly_path_alias_warning"
-                                 if readonly_alias_warning else "cli_reported_managed_login"), command=command,
-            exit_code=returncode, auth_method="chatgpt",
-        )
-    if status.startswith("Logged in using an API key - "):
-        return _RuntimeStatusObservation(
-            "unavailable", reason=("managed_login_required_with_readonly_path_alias_warning"
-                                   if readonly_alias_warning else "managed_login_required"), command=command,
-            exit_code=returncode, auth_method="api_key",
-        )
-    return _RuntimeStatusObservation(
-        "unknown", reason="status_output_unrecognized", command=command, exit_code=returncode,
-    )
+    return classify_codex_status_answer(bytes(output), returncode, command=command)
 
 
 @dataclass(frozen=True)
@@ -349,22 +330,43 @@ class _ManagedCodexContext:
         return "sha256:" + _hashlib.sha256(encoded).hexdigest()
 
 
+class ManagedCodexRouteUnavailable(RuntimeError):
+    """The managed Codex route is DECIDED unavailable for this dispatch before
+    any probe: a fact about the fleet, the host's credential store or the
+    profile — not about containment. Distinct from `SandboxUnavailable` /
+    `ResourceLimitsUnavailable` (this host could not bind the controls;
+    the vendor was never asked) so the executor's observe arm can name a
+    decided refusal the ladder may pass and a host fault that halts it,
+    instead of laundering both into one undecided class (ARIA-HIGH-107).
+
+    `auth_observation` is what the refusal says about the session:
+    `unavailable` when no managed credential exists on this host (the CLI
+    would answer "Not logged in") or the CLI is absent; `unknown` when the
+    route cannot serve the profile's controls (nothing about the session).
+    """
+
+    def __init__(self, reason: str, *, auth_observation: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+        self.auth_observation = auth_observation
+
+
 def _prepare_managed_codex_context(
     *, workspace: Path, runtime_directory: Path, environment: dict[str, str], profile: Any,
 ) -> _ManagedCodexContext:
     from aria_kernel.agent_env import _codex_exec_environment
-    from aria_kernel.implementation_safety import SANDBOX_HOME, SandboxUnavailable, limiter_control_environment
+    from aria_kernel.implementation_safety import SANDBOX_HOME, limiter_control_environment
 
     if profile.write_capable or profile.external_writes or set(profile.tools) - {"Read", "Grep", "Glob"}:
-        raise SandboxUnavailable("codex_native_profile_controls_unavailable")
+        raise ManagedCodexRouteUnavailable("codex_native_profile_controls_unavailable", auth_observation="unknown")
     binary = _shutil.which(CODEX_BINARY, path=environment.get("PATH", os.defpath))
     if binary is None:
-        raise SandboxUnavailable("codex_cli_unavailable")
+        raise ManagedCodexRouteUnavailable("codex_cli_unavailable", auth_observation="unavailable")
     auth = Path(environment.get("CODEX_HOME") or str(Path(environment.get("HOME", str(Path.home()))) / ".codex"))
     if not auth.is_absolute() or not auth.is_dir():
-        raise SandboxUnavailable("codex_managed_auth_directory_unavailable")
+        raise ManagedCodexRouteUnavailable("codex_managed_auth_directory_unavailable", auth_observation="unavailable")
     if not (auth / "auth.json").is_file():
-        raise SandboxUnavailable("codex_managed_auth_file_unavailable")
+        raise ManagedCodexRouteUnavailable("codex_managed_auth_file_unavailable", auth_observation="unavailable")
     runtime = runtime_directory.resolve(strict=True)
     for name in ("codex-home", "sqlite", "logs", "tmp", "cache", "config", "data", "state"):
         (runtime / name).mkdir()

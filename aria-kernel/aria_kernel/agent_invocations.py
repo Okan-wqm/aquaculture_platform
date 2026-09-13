@@ -2230,6 +2230,16 @@ def _request_event_count(rows: list[dict[str, Any]], request_id: str, kind: str)
 # row here fails test_every_executor_release_reason_is_classified.
 HARNESS_FAULT_RELEASE_REASONS: frozenset[str] = frozenset({
     "native_runtime_admission_unavailable",
+    # ARIA-HIGH-107 — the fleet's first provider in contention stayed
+    # undecided (a stalled status probe) inside the liveness bound; the
+    # executor released without an attempt. The host did not answer; the
+    # request said nothing, so its budget stands.
+    "native_runtime_provider_undecided",
+    # ARIA-HIGH-107 (verifier) — the first provider in contention was not
+    # refused, but this host could not bind its route's controls (no usable
+    # containment, no managed context, no limiter bus). The host's state,
+    # not the request's: released without an attempt, budget intact.
+    "native_runtime_control_unavailable",
     "native_runtime_execution_unavailable",
     "native_runtime_task_binding_unavailable",
     "claude_cli_auth_failure",

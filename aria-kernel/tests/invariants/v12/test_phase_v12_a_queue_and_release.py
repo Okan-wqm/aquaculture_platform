@@ -116,44 +116,26 @@ class ReleaseReasonOwnership(unittest.TestCase):
 
     def test_I_V12_RELEASE_02_every_executor_release_site_is_owned(self) -> None:
         # RELEASE sites only — the `reason=` keyword of a `_release_claim(...)`
-        # call. A text scan for `reason="..."` also matched the fleet's
-        # `_RuntimeStatusObservation(reason=..., control_reason=...)` status
-        # words once the native admission landed, and read
-        # `native_http_transport_prepared` as an unowned release reason.
-        # The lease guard's prefix is a release site in its own module.
-        import ast
+        # call, read by the one shared reading (`tests/_helpers/release_sites`):
+        # a text scan for `reason="..."` once matched the fleet's
+        # `_RuntimeStatusObservation(reason=...)` status words, and a second
+        # private walker refused the admission refusal's record attribute
+        # that the other invariant had been taught (ARIA-HIGH-107). The lease
+        # guard's prefix is a release site in its own module.
         import sys
+
+        from tests._helpers.release_sites import scan_executor_release_sites
 
         if str(_EXECUTOR.parent) not in sys.path:
             sys.path.insert(0, str(_EXECUTOR.parent))
         from ci_executor_lease import UNCAUGHT_EXIT_RELEASE_PREFIX
 
-        literal: set[str] = set()
-        fstring: set[str] = {UNCAUGHT_EXIT_RELEASE_PREFIX}
-
-        def collect(expr: ast.expr) -> None:
-            if isinstance(expr, ast.Constant) and isinstance(expr.value, str):
-                literal.add(expr.value)
-            elif isinstance(expr, ast.JoinedStr):
-                # The static text before the first placeholder is the prefix
-                # the kernel must own (`f"submit_timeout_{N}s"` -> `submit_timeout_`).
-                head = expr.values[0]
-                self.assertIsInstance(head, ast.Constant, ast.dump(expr))
-                fstring.add(str(head.value))
-            elif isinstance(expr, ast.IfExp):
-                # `reason=(A if cond else B)` — every arm is a site.
-                collect(expr.body)
-                collect(expr.orelse)
-            else:
-                # A name (OPERATOR_CANCELLED_RELEASE_REASON, _release_reason):
-                # its literal value is pinned where it is assigned/derived.
-                self.assertIsInstance(expr, ast.Name, ast.dump(expr))
-
-        for node in ast.walk(ast.parse(_EXECUTOR.read_text(encoding="utf-8"))):
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "_release_claim":
-                collect(next(kw.value for kw in node.keywords if kw.arg == "reason"))
+        scan = scan_executor_release_sites(_EXECUTOR.read_text(encoding="utf-8"))
+        literal = scan.literal
+        fstring = scan.fstring_prefixes | {UNCAUGHT_EXIT_RELEASE_PREFIX}
         self.assertTrue(literal, "the executor releases with literal reasons; none found")
         self.assertTrue(len(fstring) > 1, "the executor releases with parameterised reasons; none found")
+        self.assertGreater(scan.attribute_sites, 0, "the admission refusal releases under its record's reason")
 
         unowned = sorted(
             [r for r in literal if classify_release_reason(r) == "unclassified"]

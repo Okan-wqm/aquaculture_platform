@@ -411,8 +411,11 @@ def preflight_claude_auth(*, timeout_seconds: int = 20) -> dict[str, Any]:
 # authMethod "claude.ai" is the managed subscription; an API-key or console
 # login is the billing bypass ARIA refuses. It is the Anthropic mirror of
 # `codex login status` and, like it, proves the session at admission time —
-# not remaining quota, and not the result of a later model turn.
-MANAGED_AUTH_METHOD_CLAUDE_AI = "claude.ai"
+# not remaining quota, and not the result of a later model turn. The
+# document is classified by `status_answers` (the one reader of the
+# vendor's answer for both CLIs; `MANAGED_AUTH_METHOD_CLAUDE_AI` lives
+# there), imported where the probe runs like every other kernel-side
+# import in this module.
 
 
 @dataclass(frozen=True)
@@ -435,22 +438,30 @@ def _probe_claude_auth_status(
 ) -> Any:
     """Observe `claude auth status --json`, retaining only its type.
 
-    Returned as the fleet's `_RuntimeStatusObservation`: logged in on
-    claude.ai → auth `available` with auth_method `subscription`; logged in
-    another way → `unavailable` named `api_key_auth_not_managed` (the
-    binding table admits only the subscription); logged out → `unavailable`;
-    non-JSON, non-zero or slow → `unknown`, never rounded to a verdict. Raw
-    output never leaves this owner; the email/org fields are not recorded.
+    Returned as the fleet's `_RuntimeStatusObservation`, each row naming its
+    `StatusDecision` at the site that saw the answer. This owner runs the
+    spawn (the environment boundary, the per-attempt cap) and names what
+    never produced an answer: no CLI on PATH → `cli_unavailable` (DECIDED —
+    the host, not the vendor, said so); slow or unspawnable → UNDECIDED.
+    The bytes the CLI wrote go to `status_answers.classify_claude_status_answer`,
+    which reads the DOCUMENT before the exit code: the installed CLI exits
+    1 on a logged-out session while still printing `{"loggedIn": false}`,
+    and that is a DECIDED refusal, not a stall. Only when no document was
+    read does the exit code name the undecided reason. Raw output never
+    leaves this owner; the email/org fields are not recorded.
     """
-    from aria_kernel.model_fleet import _RuntimeStatusObservation
+    from status_answers import classify_claude_status_answer
+    from aria_kernel.status_probe import StatusDecision, _RuntimeStatusObservation
 
     name = binary or environ.get(CLAUDE_BINARY_ENV_VAR, "claude")
     executable = name if os.path.isabs(name) else shutil.which(name, path=environ.get("PATH", os.defpath))
     command = (name, "auth", "status", "--json")
     if executable is None:
-        return _RuntimeStatusObservation("unavailable", reason="cli_unavailable", command=command)
+        return _RuntimeStatusObservation("unavailable", reason="cli_unavailable", command=command,
+                                         decision=StatusDecision.UNAVAILABLE)
     if timeout_seconds <= 0:
-        return _RuntimeStatusObservation("unknown", reason="status_deadline_elapsed", command=command)
+        return _RuntimeStatusObservation("unknown", reason="status_deadline_elapsed", command=command,
+                                         decision=StatusDecision.UNDECIDED)
     allowed = {"PATH", "HOME", "CLAUDE_CONFIG_DIR", "LANG", "LC_ALL", "TMPDIR", "XDG_CONFIG_HOME"}
     status_env = {name: value for name, value in environ.items() if name in allowed}
     try:
@@ -459,30 +470,12 @@ def _probe_claude_auth_status(
             timeout=min(20.0, float(timeout_seconds)), env=status_env, check=False,
         )
     except subprocess.TimeoutExpired:
-        return _RuntimeStatusObservation("unknown", reason="status_timeout", command=command)
+        return _RuntimeStatusObservation("unknown", reason="status_timeout", command=command,
+                                         decision=StatusDecision.UNDECIDED)
     except OSError:
-        return _RuntimeStatusObservation("unknown", reason="status_command_unavailable", command=command)
-    if completed.returncode != 0:
-        return _RuntimeStatusObservation("unknown", reason="status_not_confirmed", command=command,
-                                         exit_code=completed.returncode)
-    try:
-        payload = json.loads(completed.stdout.strip() or "null")
-    except ValueError:
-        payload = None
-    if not isinstance(payload, dict) or not isinstance(payload.get("loggedIn"), bool):
-        return _RuntimeStatusObservation("unknown", reason="status_output_unrecognized", command=command,
-                                         exit_code=completed.returncode)
-    if not payload["loggedIn"]:
-        return _RuntimeStatusObservation("unavailable", reason="managed_session_logged_out", command=command,
-                                         exit_code=0, credential_source="managed_session")
-    method = str(payload.get("authMethod") or "")
-    if method != MANAGED_AUTH_METHOD_CLAUDE_AI:
-        return _RuntimeStatusObservation("unavailable", reason="api_key_auth_not_managed", command=command,
-                                         exit_code=0, auth_method="api_key", credential_source="managed_session")
-    return _RuntimeStatusObservation(
-        "available", quota_observation="unknown", reason="managed_session_logged_in", command=command,
-        exit_code=0, auth_method="subscription", credential_source="managed_session",
-    )
+        return _RuntimeStatusObservation("unknown", reason="status_command_unavailable", command=command,
+                                         decision=StatusDecision.UNDECIDED)
+    return classify_claude_status_answer(completed.stdout, completed.returncode, command=command)
 
 
 def _managed_auth_present() -> bool:

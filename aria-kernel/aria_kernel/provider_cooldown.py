@@ -16,7 +16,7 @@ same two moves, which this module makes explicit and testable:
   and releases under the same provider-naming reason.
 * READ — the next admission asks `active_provider_cooldowns` before it
   probes or claims: the native fleet refuses a cooled provider by name
-  (`model_fleet.COOLDOWN_STATUS_REASON`) and admits the next vendor for the
+  (`native_admission.COOLDOWN_STATUS_REASON`) and admits the next vendor for the
   roles it can serve; the worker dispatch hook, whose write-scope profile
   only the managed Claude route can run, skips the assignment without a
   claim (`worker_dispatch_provider_cooldown`) and the scheduler backs off
@@ -50,7 +50,7 @@ PROVIDER_COOLDOWN_REASON = "quota_unavailable"
 PROVIDER_COOLDOWN_SCHEMA_VERSION = 1
 
 # The row contract, as data: every non-empty string field a reader indexes
-# (`model_fleet._native_runtime_admission`, `worker_dispatch_hook`), the
+# (`native_admission._native_runtime_admission`, `worker_dispatch_hook`), the
 # two instants, the window and the detection record. A row that fails any
 # line of this is refused by name, so a reader can index these keys
 # without guarding them.

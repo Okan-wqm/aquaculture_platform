@@ -42,7 +42,7 @@ import tempfile as _tempfile
 import uuid as _uuid
 import functools as _functools
 from contextlib import ExitStack as _ExitStack
-from dataclasses import asdict as _asdict, dataclass as _dataclass, replace as _replace
+from dataclasses import dataclass as _dataclass, replace as _replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -272,6 +272,7 @@ def _dispatch_route_for(request: dict[str, Any], *, target_agent: str) -> Dispat
 
 def _refuse_dispatch(
     *, request: dict[str, Any], request_id: str, target_agent: str, reason: str,
+    failure_class: str = "policy_violation", retryable: bool = False,
 ) -> int:
     """A by-design non-dispatch, NAMED in the child's summary (B8, 2026-09-12).
 
@@ -286,16 +287,20 @@ def _refuse_dispatch(
     counts nothing but a ``succeeded`` summary as drained; this is the other
     half: every by-design exit says what it was.
 
-    WHAT: outcome ``refused``, ``failure_class`` ``policy_violation`` (the
-    dispatch met one of the executor's own admission policies), and
-    ``reason`` as the detail code — the closed vocabulary the drain and the
-    operator read. Returns the exit code a refusal carries.
+    WHAT: outcome ``refused``, ``failure_class``/``retryable`` as the
+    refusal's own kind — ``policy_violation`` / not retryable by default
+    (the dispatch met one of the executor's own admission policies), and
+    what the fleet's refusal table declares for a halted admission
+    (``harness_unavailable`` / retryable: the host, not the request, and
+    the daemon retries it after a back-off) — and ``reason`` as the detail
+    code, the closed vocabulary the drain and the operator read. Returns
+    the exit code a refusal carries.
     """
     _write_dispatch_summary(
         route=_dispatch_route_for(request, target_agent=target_agent),
         request_id=request_id, outcome="refused",
         failure=DispatchFailure(
-            failure_class="policy_violation", retryable=False, detail_code=reason,
+            failure_class=failure_class, retryable=retryable, detail_code=reason,
             phase="preflight", exit_code=REFUSAL_EXIT_CODE,
         ),
         exit_code=REFUSAL_EXIT_CODE,
@@ -2882,26 +2887,85 @@ def _native_task_binding_refusal(*, repo_root: Path, tools_dir: Path, request: d
 
 
 @_dataclass(frozen=True)
+class _AdmissionRefusalKind:
+    """Everything one kind of admission refusal says about itself, in one
+    record: the claims-ledger reason an inherited claim is released under,
+    and the summary class/retryability the child writes. One record per
+    kind so the two vocabularies cannot be declared apart and disagree
+    (a stalled host released as a harness fault but summarised as a
+    non-retryable policy violation was the shape the verifier found)."""
+
+    release_reason: str
+    failure_class: str
+    retryable: bool
+
+
+# The refusal each fleet outcome hands back, keyed by the fleet's own closed
+# vocabulary so a new outcome cannot reach `_main` without naming its
+# release AND its summary shape (a missing key is a KeyError at refusal
+# time; `test_native_admission_undecided` pins keys == non-admitted
+# outcomes). Every release reason here is harness-class (`release_reason`,
+# `agent_invocations`): none says anything about the request, so its
+# requeue budget stands. The two halted admissions — `provider_undecided`
+# (a stalled probe) and `provider_control_unavailable` (this host could not
+# bind the route's controls) — are their own reasons, not the fleet
+# declining, so a reader of the claims ledger can tell the three apart
+# (ARIA-HIGH-107); their summaries are `harness_unavailable` and retryable,
+# because the daemon retries them after a back-off and the drain must not
+# read them as a policy the dispatch violated.
+ADMISSION_REFUSALS: dict[str, _AdmissionRefusalKind] = {
+    "provider_undecided": _AdmissionRefusalKind(
+        release_reason="native_runtime_provider_undecided",
+        failure_class="harness_unavailable", retryable=True,
+    ),
+    "provider_control_unavailable": _AdmissionRefusalKind(
+        release_reason="native_runtime_control_unavailable",
+        failure_class="harness_unavailable", retryable=True,
+    ),
+    "no_eligible_provider": _AdmissionRefusalKind(
+        release_reason="native_runtime_admission_unavailable",
+        failure_class="policy_violation", retryable=False,
+    ),
+}
+# A task-binding refusal (`_native_task_binding_refusal`) is not a fleet
+# outcome; it releases under the admission's general reason as before and
+# summarises as the executor's own policy.
+TASK_BINDING_REFUSAL = _AdmissionRefusalKind(
+    release_reason="native_runtime_admission_unavailable",
+    failure_class="policy_violation", retryable=False,
+)
+
+
+@_dataclass(frozen=True)
 class _NativeAdmissionRefusal:
     """The native admission declined to dispatch, by name.
 
     Built only by ``_refuse_native_admission``, which has already written the
-    child's ``refused`` summary carrying ``reason``; ``_main`` returns
-    ``exit_code`` and nothing else, so no admission refusal can leave the
-    child without a summary (the 2026-09-04 → 2026-09-12 false-green class).
+    child's ``refused`` summary carrying ``reason`` in the shape its
+    ``kind`` declares; ``_main`` returns ``exit_code`` and nothing else, so
+    no admission refusal can leave the child without a summary (the
+    2026-09-04 → 2026-09-12 false-green class). ``release_reason`` is the
+    claims-ledger reason ``_main`` releases an inherited claim under — set
+    by the constructor from the refusal's own kind, never chosen at the
+    release site.
     """
 
     reason: str
     exit_code: int
+    release_reason: str
 
 
-def _refuse_native_admission(*, request: dict[str, Any], reason: str) -> _NativeAdmissionRefusal:
+def _refuse_native_admission(
+    *, request: dict[str, Any], reason: str, kind: _AdmissionRefusalKind,
+) -> _NativeAdmissionRefusal:
     return _NativeAdmissionRefusal(
         reason=reason,
         exit_code=_refuse_dispatch(
             request=request, request_id=str(request["request_id"]),
             target_agent=str(request["target_agent"]), reason=reason,
+            failure_class=kind.failure_class, retryable=kind.retryable,
         ),
+        release_reason=kind.release_reason,
     )
 
 
@@ -2919,9 +2983,9 @@ def _adaptive_pre_claim_admission(
     from aria_kernel.agent_invocations import derive_request_state, list_agent_invocation_requests
     from aria_kernel.agent_runtime_profile import read_agent_runtime_profile
     from aria_kernel.genesis_policy import _adaptive_runtime_policy
-    from aria_kernel.model_fleet import (
-        Provider, _RuntimeStatusObservation, _native_runtime_admission,
-    )
+    from aria_kernel.model_fleet import Provider
+    from aria_kernel.native_admission import AdmissionOutcome, _native_runtime_admission
+    from aria_kernel.status_probe import StatusDecision, _RuntimeStatusObservation
     from aria_kernel.tool_registry import GovernanceError, append_tools_governance
 
     policy_root = _operator_policy_root(tools_dir)
@@ -2954,7 +3018,7 @@ def _adaptive_pre_claim_admission(
     if policy.monetary_admission == "managed_subscription":
         binding_refusal = _native_task_binding_refusal(repo_root=repo_root, tools_dir=tools_dir, request=request)
         if binding_refusal is not None:
-            return _refuse_native_admission(request=request, reason=binding_refusal)
+            return _refuse_native_admission(request=request, reason=binding_refusal, kind=TASK_BINDING_REFUSAL)
     profile = read_agent_runtime_profile(target_agent, repo_root=repo_root)
     environment = dict(os.environ)
     contexts: dict[str, Any] = {}
@@ -2964,7 +3028,7 @@ def _adaptive_pre_claim_admission(
             from codex_runtime import _probe_codex_auth_status
 
             if policy.monetary_admission == "managed_subscription":
-                from codex_runtime import _prepare_managed_codex_context
+                from codex_runtime import ManagedCodexRouteUnavailable, _prepare_managed_codex_context
                 from aria_kernel.implementation_safety import SandboxUnavailable, ResourceLimitsUnavailable
 
                 if _runtime_stack is None:
@@ -2975,9 +3039,30 @@ def _adaptive_pre_claim_admission(
                     context = _prepare_managed_codex_context(
                         workspace=repo_root, runtime_directory=Path(directory), environment=environment, profile=profile,
                     )
+                except ManagedCodexRouteUnavailable as exc:
+                    # DECIDED before any probe: the route cannot serve this
+                    # dispatch — no managed session credential on this
+                    # host (the CLI would answer "Not logged in"), no CLI,
+                    # or a profile that needs controls the native Codex
+                    # route does not grant. A fleet/auth fact the ladder
+                    # may pass, by name, exactly as `cli_unavailable` and
+                    # `provider_readonly_runtime` are.
+                    return _RuntimeStatusObservation(exc.auth_observation, reason=exc.reason,
+                                                     control_status="unavailable", control_reason=exc.reason,
+                                                     decision=StatusDecision.UNAVAILABLE)
                 except (OSError, SandboxUnavailable, ResourceLimitsUnavailable) as exc:
+                    # This host could not bind the managed context (no
+                    # usable containment, no limiter, an EAGAIN under a
+                    # fork storm), so the vendor was never asked: auth
+                    # UNDECIDED, controls UNAVAILABLE. The fleet retries
+                    # within its bound (the transient shape heals) and
+                    # otherwise halts the ladder as
+                    # `provider_control_unavailable` — the same host fault
+                    # the Claude arm names `sandbox_unavailable`, answered
+                    # the same way: never a later vendor.
                     return _RuntimeStatusObservation("unknown", reason=type(exc).__name__,
-                                                     control_status="unavailable", control_reason=str(exc))
+                                                     control_status="unavailable", control_reason=str(exc),
+                                                     decision=StatusDecision.UNDECIDED)
                 observed = _probe_codex_auth_status(
                     environ=context.environment, timeout_seconds=status_deadline - time.monotonic(),
                     _wrap_command=lambda argv: context.wrap(argv, max(1, int(status_deadline - time.monotonic()))),
@@ -2998,9 +3083,14 @@ def _adaptive_pre_claim_admission(
             from claude_runtime import ManagedClaudeContext, _probe_claude_auth_status
 
             observed = _probe_claude_auth_status(environ=environment, timeout_seconds=timeout_seconds)
-            if observed.auth_observation != "available":
+            if observed.decision is not StatusDecision.AVAILABLE:
                 return observed
             if _sandbox_backend_probe() is None:
+                # The vendor said yes; THIS host cannot contain the spawn.
+                # Controls unavailable on a decided-available auth: the
+                # ladder halts here as `provider_control_unavailable`
+                # (never a later vendor — a missing sandbox is not an auth
+                # reason), and the row says which host fact stopped it.
                 return _replace(observed, control_status="unavailable", control_reason="sandbox_unavailable")
             recording = UsageRecording(request_id=request_id, role=str(request.get("role") or ""),
                                        target_agent=target_agent, base_dir=tools_dir)
@@ -3022,29 +3112,42 @@ def _adaptive_pre_claim_admission(
             try:
                 context = prepare_zai_context(environment, default_model=provider.default_model)
             except ZaiCredentialUnavailable as exc:
+                # The credential boundary refused (absent, unreadable,
+                # wrong mode, ambiguous): a host fact, DECIDED.
                 return _RuntimeStatusObservation("unavailable", reason=exc.reason,
                                                  control_status="unavailable", control_reason=str(exc),
-                                                 auth_method=_ZAI_AUTH_METHOD)
+                                                 auth_method=_ZAI_AUTH_METHOD, decision=StatusDecision.UNAVAILABLE)
             try:
                 observed = probe_zai_status(
                     context.credential, endpoint=context.endpoint, base_url=context.base_url,
                     model=context.model, timeout_seconds=timeout_seconds,
                 )
             except ZaiTransportUnavailable as exc:
-                return _RuntimeStatusObservation("unknown", reason=str(exc), control_status="unavailable",
-                                                 control_reason="native_http_transport_unavailable",
+                # The request did not complete (timeout, DNS, connection):
+                # the vendor was not heard — the stall class, UNDECIDED and
+                # retried within the bound. The transport WAS prepared
+                # (credential read, endpoint chosen); what this attempt
+                # established about it is nothing, so controls stay
+                # "unknown" with the transport error as the reason — not
+                # "unavailable", which names a host that could not bind
+                # its controls and halts the ladder by that name.
+                return _RuntimeStatusObservation("unknown", reason=str(exc), control_status="unknown",
+                                                 control_reason=str(exc),
                                                  auth_method=_ZAI_AUTH_METHOD,
-                                                 credential_source=context.credential.source)
+                                                 credential_source=context.credential.source,
+                                                 decision=StatusDecision.UNDECIDED)
             contexts[provider.key] = context
             return _RuntimeStatusObservation(
                 observed.auth_observation, quota_observation=observed.quota_observation,
                 reason=observed.reason, command=(), exit_code=observed.http_status,
                 control_status="available", control_reason="native_http_transport_prepared",
                 auth_method=_ZAI_AUTH_METHOD, credential_source=context.credential.source,
+                decision=observed.decision,
             )
         # The legacy version/file preflight is not supported native auth proof.
         # Its unchanged caller remains the omitted-policy path below.
-        return _RuntimeStatusObservation("unknown", reason="supported_auth_status_unavailable")
+        return _RuntimeStatusObservation("unknown", reason="supported_auth_status_unavailable",
+                                         decision=StatusDecision.UNDECIDED)
 
     from aria_kernel.provider_cooldown import active_provider_cooldowns
 
@@ -3055,11 +3158,19 @@ def _adaptive_pre_claim_admission(
         # attempt's ClaudeCreditExhausted is refused here without a probe.
         cooled_providers=active_provider_cooldowns(tools_dir),
     )
-    if admission.eligible_routes:
+    if admission.outcome is AdmissionOutcome.ADMITTED:
         route = admission.eligible_routes[0]
         observation = next(row for row in admission.candidate_observations if row["provider"] == route["provider"])
         return _NativeRuntimePlan(policy, request, route, observation, contexts[route["provider"]],
-                                  _asdict(admission))
+                                  admission.as_row())
+    # Not admitted: `no_eligible_provider` (every provider decided, none
+    # eligible), `provider_undecided` (the first provider in contention
+    # never answered) or `provider_control_unavailable` (it was not refused
+    # but this host could not bind its controls) — ARIA-HIGH-107: for the
+    # two halts no attempt is burned, nothing behind the halting provider
+    # runs, the request waits for a later tick. The row names which and
+    # whom, and the refusal releases an inherited claim under the matching
+    # harness-class reason with the summary shape its kind declares.
     append_tools_governance(tools_dir, "runtime_admission_unavailable", {
         "schema_version": 1, "policy_id": policy.policy_id,
         "policy_digest": policy.policy_digest,
@@ -3070,10 +3181,13 @@ def _adaptive_pre_claim_admission(
         "request_id": request_id, "request_ledger_hash": request["ledger_hash"],
         "role": request["role"], "target_agent": request["target_agent"],
         "context_hash": request["context_hash"], "prompt_hash": request["prompt_hash"],
-        "reason": "no_eligible_provider", "eligible_routes": [],
+        "reason": admission.outcome.value, "halting_provider": admission.halting_provider,
+        "eligible_routes": [],
         "candidate_observations": list(admission.candidate_observations),
     })
-    return _refuse_native_admission(request=request, reason="no_eligible_provider")
+    return _refuse_native_admission(
+        request=request, reason=admission.outcome.value, kind=ADMISSION_REFUSALS[admission.outcome.value],
+    )
 
 
 def _node_modules_resolvable_from(workspace: Path) -> bool:
@@ -3250,10 +3364,12 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
             if isinstance(admission_exit, _NativeRuntimePlan):
                 native_runtime = admission_exit
             elif isinstance(admission_exit, _NativeAdmissionRefusal):
+                # The reason is the refusal's own (`ADMISSION_REFUSALS` /
+                # `TASK_BINDING_REFUSAL`), never picked here.
                 released = _release_claim(
                     tools_dir=tools_dir, repo=repo, claim_id=claim_id,
                     agent_id=agent_id, lease_token=lease_token,
-                    reason="native_runtime_admission_unavailable",
+                    reason=admission_exit.release_reason,
                 )
                 return admission_exit.exit_code if released else 1
     else:

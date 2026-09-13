@@ -72,6 +72,9 @@ class ClosedVocabularyTests(unittest.TestCase):
                 "usage_unavailable",
                 "credit_exhausted",
                 "policy_violation",
+                # ARIA-HIGH-107 — a refused summary whose cause is the
+                # executor's own host (a halted fleet admission), retryable.
+                "harness_unavailable",
                 "timeout",
                 "response_schema_rejected",
                 "process_exit",

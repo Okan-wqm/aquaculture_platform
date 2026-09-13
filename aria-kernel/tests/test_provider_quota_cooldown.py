@@ -37,15 +37,13 @@ from pathlib import Path
 from aria_kernel.agent_runtime_profile import AgentRuntimeProfile
 from aria_kernel.genesis_policy import _adaptive_runtime_policy
 from aria_kernel.ledger import load_declared_jsonl
-from aria_kernel.model_fleet import (
-    _FLEET,
+from aria_kernel.model_fleet import _FLEET, Provider, provider_admits_writes
+from aria_kernel.native_admission import (
     COOLDOWN_STATUS_REASON,
     READONLY_RUNTIME_STATUS_REASON,
-    Provider,
-    _RuntimeStatusObservation,
     _native_runtime_admission,
-    provider_admits_writes,
 )
+from aria_kernel.status_probe import StatusDecision, _RuntimeStatusObservation
 from aria_kernel.provider_cooldown import (
     PROVIDER_COOLDOWN_GOVERNANCE_KIND,
     active_provider_cooldowns,
@@ -252,7 +250,8 @@ class _AdmissionFixture(_ToolsFixture):
         self.probed.append(provider.key)
         auth_method = {"anthropic": "subscription", "zai": "subscription_api_key", "openai": "chatgpt"}[provider.key]
         return _RuntimeStatusObservation("available", reason="fixture_available", auth_method=auth_method,
-                                         control_status="available", control_reason="fixture_prepared")
+                                         control_status="available", control_reason="fixture_prepared",
+                                         decision=StatusDecision.AVAILABLE)
 
     def _admit(self, profile: AgentRuntimeProfile, cooled: dict):
         return _native_runtime_admission(

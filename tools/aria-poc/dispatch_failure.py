@@ -46,6 +46,7 @@ DispatchFailureClass = Literal[
     "usage_unavailable",
     "credit_exhausted",
     "policy_violation",
+    "harness_unavailable",
     "timeout",
     "response_schema_rejected",
     "process_exit",
@@ -54,6 +55,15 @@ DispatchFailureClass = Literal[
 
 #: The closed vocabulary. A failure outside this set is a programming
 #: error, not a new category someone may improvise at a callsite.
+#:
+#: ``harness_unavailable`` (ARIA-HIGH-107) is the class of a REFUSED
+#: summary whose cause is the executor's own host — the fleet admission
+#: halted because a status probe never answered inside its bound or the
+#: host could not bind a route's controls. It is not a policy the dispatch
+#: violated and it heals on its own (the daemon retries the request after
+#: a back-off), so it is ``retryable`` where ``policy_violation`` is not;
+#: the summary agrees with the claims-ledger release (harness fault) and
+#: the hook's back-off status instead of contradicting them.
 DISPATCH_FAILURE_CLASSES: tuple[DispatchFailureClass, ...] = (
     "cli_unavailable",
     "auth_unavailable",
@@ -61,6 +71,7 @@ DISPATCH_FAILURE_CLASSES: tuple[DispatchFailureClass, ...] = (
     "usage_unavailable",
     "credit_exhausted",
     "policy_violation",
+    "harness_unavailable",
     "timeout",
     "response_schema_rejected",
     "process_exit",

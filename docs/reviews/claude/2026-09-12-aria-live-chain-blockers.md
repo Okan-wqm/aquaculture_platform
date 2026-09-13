@@ -322,6 +322,83 @@ orchestrator does not fail closed on when the index is valid, and a first
 `budget_exceeded` should be a calibration/pressure signal (retry or
 re-budget), not a dropped night. Owner claude; open.
 
+- **What is now true (integrated from `lane/aria-high-098`, four verify
+  rounds):** `aria_kernel/cycle_runtime_status.py` is the one verdict rule
+  — `integrity_failed` only for the store (an invalid artifact index, or a
+  run whose own artifact is missing / mismatched / never written),
+  `degraded` for any other non-ok run under a valid index, read by
+  `cycle._runtime_status`, the metrics row,
+  `runtime_artifacts._cycle_result_status` / `autonomy_output_summary` and
+  the orchestrator, which continues on `degraded` and fails closed only on
+  `failed` / `integrity_failed`. A degraded cycle seals `completed` with
+  `degraded_tools[]`; the `tool_degradation` phase appends one
+  `tool_run_degraded` row per tool with its consecutive streak and opens a
+  HIGH HUMAN_REQUIRED record at `TOOL_DEGRADATION_HUMAN_REQUIRED_STREAK`
+  (3); a QUARANTINED tool's sat-out cycles ARE its streak
+  (`tool_sit_out`, dated and reasoned from one anchor that survives the
+  nightly manifest re-sync, the ledger row stamped with the transition's
+  own `at`); an operator release ends a streak; an ARCHIVED tool has no
+  standing (`DEGRADATION_STANDING_STATUSES`), so the doctor's `tools` organ
+  clears while the record stays with the operator; exit-history no longer
+  lists degraded cycles as causes of a failed exit. Both kernel PR lanes
+  fire on `tools/aria-adapters/**` and the suite selector maps it
+  (CONTRACTS.md §12.18).
+- **Proof (candidate):** `test_cycle_runtime_status_degraded` (13; five
+  real nights for both the crashing and the quarantined class),
+  `test_tool_sit_out` (8), `test_doctor::ToolsOrgan`,
+  `test_ci_workflow_invariants`, `aria-doc-runtime-ssot.spec.ts`; each pin
+  fails under its mutation (verified by `wf_21487a46-bd7` rounds 1–2 and
+  `wf_4a4fb60b-126` round 3).
+
+## ARIA-HIGH-118 — an adapter could be registered without a fixture-backed evidence contract
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-16
+- **Evidence (live, trial eleven `cyc-20260912T221237Z-auto`):**
+  `agent-harness-security-adapter` emitted findings whose evidence the
+  validator could not read (`evidence_error`) and was quarantined on the
+  spot; nothing at registration had ever required the adapter to prove,
+  against a fixture, that the validator accepts its output. Its
+  `read_paths` were capped at 200 entries, contradicting findings past the
+  200th file, and its evidence carried a `ref` the contract does not know.
+- **What is now true:** `aria_kernel/adapter_fixture_contract.py` refuses,
+  at the manifest-sync door (`cycle._phase_tool_manifest_sync`, the one
+  production path from `tools/aria-adapters/*.tool.json` into the
+  registry), any manifest whose `fixture_set` has no case expecting an
+  `ok` run (`fixture_cases_missing`, `fixture_case_expects_non_ok_run`,
+  `fixture_case_malformed`, by name); the adapter emits per-finding
+  `evidence: [{path, line?}]`, `id`, `message`, its full `read_paths` and
+  plain-path `evidence_sources`, and ships
+  `tools/aria-adapters/fixtures/agent-harness-security-adapter/cases/real-repo-baseline.json`;
+  the PR-time pin runs every shipped manifest's suite through the real
+  fixture runner and requires each case's status to be `ok`, reporting a
+  `budget_exceeded` case as unverified by name.
+- **Proof (candidate):** `test_adapter_fixture_evidence_contract` (6 + 19
+  subtests when node deps are present; named skips otherwise),
+  `test_agent_harness_security`, `test_tool_manifest_sync_phase`,
+  `test_manifest_sync_lifecycle`.
+
+## ARIA-HIGH-119 — a workspace that is itself a linked worktree was judged outside the repo
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-16
+- **Evidence (live, trial eleven):** the fixture path guard walked up from
+  the tools root accepting only a `.git` DIRECTORY, stepped past the
+  checkout's own `gitdir:` file, fell back to `tools_root.parent` (the
+  state store) and judged every registry fixture path an escape
+  (`fixture_path_escape_outside_repo` for nine of ten tools). The
+  executor's per-request worktrees have the same shape.
+- **What is now true:** `aria_kernel/checkout_root.py` is the one parser
+  for every walker that asks where a checkout begins — a checkout root is
+  the directory holding `.git` whether a directory or a `gitdir:` pointer
+  file; the state store is skipped by its `GENESIS` record, not by the
+  shape of its `.git`; `fixture_runner._discover_git_root` delegates to
+  it, the path guard consults the store's declared `bound_repo_root`
+  before discovery, `latest_fixture_status` takes `workspace_root`;
+  `agent_invocations` and `gh_token_factory` (ARIA-HIGH-114) read the same
+  parser.
+- **Proof (candidate):** `test_fixture_guard_linked_worktree` (real linked
+  worktrees), `test_fixture_dir_state_store_layout`,
+  `test_phase_v31_p_linked_worktree_signing`.
+
 ## ARIA-HIGH-095 — the executor admission chain admits, prices, releases and fails loudly
 
 - **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-19
@@ -808,8 +885,8 @@ logged in` and exits 1, and both probes tested the exit code before the
   the COMMON config every worktree shares — the operator's checkout and
   every other lane would have signed with the cycle key and lost it at
   the pre-clean.
-- **What is now true:** `SigningCheckout` resolves the checkout from
-  `git rev-parse --absolute-git-dir --git-common-dir`; the allowed-signers
+- **What is now true:** `SigningCheckout` reads the checkout through
+  `checkout_root` (the one parser every kernel walker uses); the allowed-signers
   file and the snapshots live in the private git dir (`.git/` or
   `.git/worktrees/<name>/`); the config scope is `--local` on a main
   checkout and `--worktree` on a linked one, with
@@ -868,3 +945,42 @@ logged in` and exits 1, and both probes tested the exit code before the
   directory removed at exit and `addCleanup` for the codex home/bin dirs;
   `SignerRegistryTests` cleans its root. A run of the three modules adds
   no `/dev/shm` entries.
+
+## ARIA-HIGH-117 — compaction strips the artifacts the raw findings still point at
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-16
+- **Evidence (live, main):** the executor lane has refused to publish
+  `aria/state` since 2026-09-12 (`aria-agent-executor` runs 34745606502
+  and 34762798856, "the store was restored but failed integrity
+  verification"; tree preserved as `quarantine-evidence-34762798856`).
+  In that tree all 93 ledgers are valid and `runtime_artifacts` fails
+  with 3898 issues: 3825 `raw_pointer_corrupt` — every `raw-findings.jsonl`
+  row, all thin (`json_pointer` into the run artifact, no inline
+  finding), from the two 2026-09-04 cycles — plus 36
+  `artifact_ref_missing`, 36 `artifact_index_ref_missing` and
+  `artifact_index_empty_with_run_refs`. `artifact-index.jsonl` has 0
+  rows, `run-artifacts/hot` and `.archive/runtime` are empty, no
+  `retention/events.jsonl` exists (retention never ran on the live
+  store), and the three `archives/artifact_index-compact-*.jsonl.gz`
+  files (2026-09-05, 09-11, 09-12) are there: `aria-state-maintenance.yml` runs
+  `state compact --retain-days 7` daily and publishes the result green
+  (its publish verifies the snapshot, not the runtime pointers). Seven
+  days after the last cycle, the hot artifacts were stripped and their
+  index rows dropped (ORPHAN-CRITICAL-805), while the raw-finding rows
+  and the `runs.jsonl` refs that name them stayed. Both the main
+  (`43f0aa3bf6`) and candidate (`88f64f7e6e`) verifiers refuse the tree
+  identically.
+- **Fix shape (open, tier 1):** compaction is one transaction over every
+  surface that references an artifact — it records what it stripped on a
+  declared ledger (`runtime_artifact_compactions`: artifact id, uri,
+  cycle, compacted_at, archive path), archives and drops the raw-finding
+  rows that point into stripped artifacts in the same pass (nothing is
+  lost: they ride the compact archive), and `verify_runtime_artifacts`
+  classifies a run or raw pointer whose artifact is on that ledger as
+  `compacted` (valid, counted separately) rather than missing or corrupt.
+  The next maintenance run then heals the live store by construction —
+  the presence predicate, the way index compaction already heals a
+  stranded index — with no manual repair of `aria/state`. Pins: a store
+  compacted past the window verifies ok with compacted counts; a store
+  with a truly missing artifact (not on the ledger) still fails; the
+  maintenance lane's publish verifies runtime pointers too.

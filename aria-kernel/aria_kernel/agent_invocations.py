@@ -17,6 +17,7 @@ from .agent_surface import (
     allowed_targets_for_role,
 )
 from .bridge_exceptions import BridgeContractViolation
+from .checkout_root import is_git_worktree_marker as _is_git_worktree_marker
 from .genesis_lifecycle import verify_shadow_eval_proof
 from .must_satisfy import MUST_SATISFY_ID_FIELD, MUST_SATISFY_TEXT_FIELD, must_satisfy_text, validate_must_satisfy
 from .git_probe import refuse_shallow_checkout
@@ -2823,7 +2824,6 @@ def accepted_result_for_request(
 # is daily and a request is meant to be consumed by the cycle that minted it,
 # so anything still unclaimed after this window was never picked up at all.
 DEFAULT_ANCHOR_MAX_AGE_SECONDS = 3 * 24 * 3600
-_GITDIR_POINTER_PREFIX = "gitdir: "
 
 
 def _anchor_max_age_seconds(root: Path) -> int:
@@ -2845,89 +2845,6 @@ def _anchor_max_age_seconds(root: Path) -> int:
         return DEFAULT_ANCHOR_MAX_AGE_SECONDS
 
 
-def _read_single_line(path: Path) -> str | None:
-    """Read one non-empty control-file line without accepting extensions."""
-    try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except (OSError, UnicodeError):
-        return None
-    if len(lines) != 1:
-        return None
-    value = lines[0].strip()
-    return value or None
-
-
-def _resolve_git_directory(marker: Path) -> Path | None:
-    """Resolve a worktree marker to its per-worktree git directory."""
-    try:
-        if marker.is_dir():
-            return marker.resolve()
-        if not marker.is_file():
-            return None
-    except OSError:
-        return None
-
-    pointer = _read_single_line(marker)
-    if pointer is None or not pointer.startswith(_GITDIR_POINTER_PREFIX):
-        return None
-    raw_git_dir = pointer.removeprefix(_GITDIR_POINTER_PREFIX).strip()
-    if not raw_git_dir:
-        return None
-    git_dir = Path(raw_git_dir)
-    if not git_dir.is_absolute():
-        git_dir = marker.parent / git_dir
-    try:
-        resolved = git_dir.resolve()
-        return resolved if resolved.is_dir() else None
-    except (OSError, RuntimeError):
-        return None
-
-
-def _resolve_git_common_directory(git_dir: Path) -> Path | None:
-    """Resolve the object/ref store shared by a normal or linked worktree."""
-    commondir_file = git_dir / "commondir"
-    if not commondir_file.exists():
-        return git_dir
-    if not commondir_file.is_file():
-        return None
-    raw_common_dir = _read_single_line(commondir_file)
-    if raw_common_dir is None:
-        return None
-    common_dir = Path(raw_common_dir)
-    if not common_dir.is_absolute():
-        common_dir = git_dir / common_dir
-    try:
-        resolved = common_dir.resolve()
-        return resolved if resolved.is_dir() else None
-    except (OSError, RuntimeError):
-        return None
-
-
-def _has_valid_git_head(git_dir: Path) -> bool:
-    """Validate symbolic and detached HEAD forms used by Git worktrees."""
-    head = _read_single_line(git_dir / "HEAD")
-    if head is None:
-        return False
-    if head.startswith("ref: "):
-        return head.removeprefix("ref: ").startswith("refs/")
-    return len(head) in {40, 64} and all(char in "0123456789abcdefABCDEF" for char in head)
-
-
-def _is_git_worktree_marker(marker: Path) -> bool:
-    """Whether marker names a structurally complete Git worktree."""
-    git_dir = _resolve_git_directory(marker)
-    if git_dir is None or not _has_valid_git_head(git_dir):
-        return False
-    common_dir = _resolve_git_common_directory(git_dir)
-    if common_dir is None or not (common_dir / "objects").is_dir():
-        return False
-    return (
-        (common_dir / "refs").is_dir()
-        or (common_dir / "packed-refs").is_file()
-        or (common_dir / "reftable").is_dir()
-    )
-
-
 def _anchor_repo_root(root: Path) -> Path | None:
     """The git work tree the queue's requests would execute against.
 
@@ -2947,6 +2864,13 @@ def _anchor_repo_root(root: Path) -> Path | None:
     and linked-worktree ``gitdir:`` files are resolved to their Git metadata
     and structurally validated. A host-owned empty or broken ``.git`` path is
     not repository authority and cannot activate destructive anchor expiry.
+
+    The ``gitdir:`` grammar, HEAD validation and common-dir resolution are
+    ``checkout_root``'s — one parser for every walker that asks where a
+    checkout begins (the fixture path guard walks the same shapes). This
+    gate keeps the STRUCTURAL standard (``is_git_worktree_marker``) because
+    it activates destructive anchor expiry; the fixture guard needs only
+    the shape.
     """
     try:
         resolved = root.resolve()

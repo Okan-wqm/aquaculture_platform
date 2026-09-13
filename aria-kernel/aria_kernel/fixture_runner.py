@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 from typing import Any, Iterator
 
+from .adapter_fixture_contract import expected_run_status
 from .evidence_validator import validate_tool_output_evidence
 from .implementation_safety import BashAllowlistMiss, BashDenylistHit, verify_bash_command_allowed
 from .ledger import (
@@ -21,7 +22,7 @@ from .ledger import (
 )
 from .ledger_inline import spill_evidence_validation
 from .state_manifest import surface_for_path
-from .tool_registry import GovernanceError, ensure_tools_dir, get_tool, utc_now
+from .tool_registry import GovernanceError, declared_bound_repo_root, ensure_tools_dir, get_tool, utc_now
 from .tool_runner import _canonical_json_bytes, _decode_timeout_stream, _parse_tool_output
 
 
@@ -205,13 +206,24 @@ def latest_fixture_status(
     tool_id: str,
     *,
     base_dir: str | os.PathLike[str] | None = None,
+    workspace_root: str | os.PathLike[str] | None = None,
 ) -> dict[str, Any]:
+    """The tool's latest fixture verdict, judged against the CURRENT corpus.
+
+    ``workspace_root`` is the same anchor ``run_fixture_suite`` takes: the
+    current fixture-set hash is read off the corpus in the checkout, so the
+    reader that decides "is this verdict still current" must find that
+    corpus the way the runner did. Trial eleven's refresh
+    (``refresh_fixture_suite``) called this reader WITHOUT the workspace it
+    had in hand, and the reader's own guess at the checkout was the escape
+    that blocked nine tools' refreshes before their suites ever ran.
+    """
     rows = load_fixture_runs(tool_id, base_dir=base_dir)
     tool = get_tool(tool_id, base_dir)
     latest = rows[-1] if rows else {}
     version_matches = latest.get("tool_version") == tool.get("version")
     manifest_matches = latest.get("tool_manifest_hash") == tool_manifest_hash(tool)
-    fixture_dir = resolve_fixture_dir(tool, base_dir)
+    fixture_dir = resolve_fixture_dir(tool, base_dir, workspace_root=workspace_root)
     fixture_matches = True if latest and "fixture_set_hash" not in latest else latest.get("fixture_set_hash") == fixture_set_hash(fixture_dir)
     passed = latest.get("passed") is True
     return {
@@ -270,9 +282,9 @@ def refresh_fixture_suite(
     cycle_id: str,
     base_dir: str | os.PathLike[str] | None = None,
 ) -> dict[str, Any]:
-    before = latest_fixture_status(tool_id, base_dir=base_dir)
+    before = latest_fixture_status(tool_id, base_dir=base_dir, workspace_root=workspace_root)
     result = run_fixture_suite(tool_id, workspace_root=workspace_root, cycle_id=cycle_id, base_dir=base_dir)
-    after = latest_fixture_status(tool_id, base_dir=base_dir)
+    after = latest_fixture_status(tool_id, base_dir=base_dir, workspace_root=workspace_root)
     return {
         "schema_version": 1,
         "tool_id": tool_id,
@@ -669,8 +681,12 @@ def evaluate_fixture_expectation(
 ) -> tuple[bool, list[str]]:
     errors: list[str] = []
     expected = expected if isinstance(expected, dict) else {}
-    if status != expected.get("status", "ok"):
-        errors.append(f"status expected {expected.get('status', 'ok')} got {status}")
+    # The registration door (``adapter_fixture_contract.assert_fixture_backed``)
+    # reads a case's expected status through the same function, so a case
+    # the door admits is a case this judge holds to the same status.
+    expected_status = expected_run_status(expected)
+    if status != expected_status:
+        errors.append(f"status expected {expected_status} got {status}")
     findings = array_or_empty(output.get("findings"))
     observations = array_or_empty(output.get("observations"))
     finding_rules = {item.get("rule") for item in findings if isinstance(item, dict)}
@@ -778,26 +794,27 @@ def _enforce_path_inside_repo(candidate: Path, repo_root: Path) -> Path:
 
 
 def _discover_git_root(start: Path) -> Path | None:
-    """Walk upward looking for a real `.git` DIRECTORY — the filesystem
-    shape of "this is a repository checkout", independent of any git
-    subprocess and therefore safe in sandboxed runners where git itself
-    may be absent.
+    """The source checkout at or above ``start`` — ``checkout_root``'s answer.
 
-    ORPHAN-HIGH-797 — only a .git DIRECTORY anchors discovery. A `.git`
-    FILE is a linked-worktree stub (the state store at
-    ``.aria-state-store/`` is a worktree of the aria/state branch), and
-    anchoring there makes the CHECKOUT's own paths read as escapes —
-    exactly the live failure the fixture_refresh_blocked signal surfaced
-    on the first fully-alive night: discovery walked up from the store's
-    tools root, hit the store's stub first, and repo-relative fixture
-    paths "escaped" a repo that was never their repo. Skipping stub
-    files lets discovery continue to the checkout's real .git.
+    ORPHAN-HIGH-797 taught this walker to step past a ``.git`` FILE, on the
+    reading that a pointer file is always the state store's stub (the store
+    at ``.aria-state-store/`` is a linked worktree of ``aria/state``). Trial
+    eleven (``cyc-20260912T221237Z-auto``) ran in a workspace that is ITSELF
+    a linked worktree: the checkout's own ``.git`` is a pointer file, the
+    walk stepped past it, found no directory-shaped ``.git`` anywhere above,
+    and ``_repo_root_for_path_guard`` fell back to ``tools_root.parent`` —
+    the state store — so nine of ten registry fixture paths were judged
+    ``fixture_path_escape_outside_repo`` inside their own repository. The
+    executor's per-request worktrees (``aria-worktrees/``) are the same
+    shape.
+
+    A checkout root is the directory holding ``.git`` in EITHER shape; what
+    distinguishes the state store is not its ``.git`` but the ``GENESIS``
+    record the kernel wrote at its root, and that is what discovery skips.
     """
-    current = start.resolve()
-    for candidate in (current, *current.parents):
-        if (candidate / ".git").is_dir():
-            return candidate
-    return None
+    from .checkout_root import discover_checkout_root
+
+    return discover_checkout_root(start)
 
 
 def _repo_root_for_path_guard(
@@ -812,11 +829,30 @@ def _repo_root_for_path_guard(
     1. ``ARIA_REPO_ROOT`` env var (test override, unchanged);
     2. ``workspace_root`` — the cycle/phase knows its workspace and passes
        it down (ORPHAN-HIGH-779);
-    3. git-root discovery upward from the tools root — the state-store
-       layout (``<workspace>/.aria-state-store/tools``) keeps the tools
-       root INSIDE the checkout, so the checkout's ``.git`` is on the
-       ancestor chain even though the tools root's parent is not the repo;
-    4. ``tools_dir.parent`` — the original "aria-tools/ lives inside the
+    3. checkout discovery upward from the tools root (``checkout_root``),
+       WHEN the checkout it lands on is a worktree of the repository the
+       store's binding names — or the store declares none. The
+       state-store layout (``<workspace>/.aria-state-store/tools``) keeps
+       the tools root INSIDE the checkout it serves, so the checkout's
+       ``.git`` (directory or ``gitdir:`` pointer file) is on the ancestor
+       chain, and the worktree the store physically lives in is the one
+       whose fixture corpus its registry was synced from;
+    4. the store's DECLARED workspace — ``bound_repo_root`` in
+       ``repo_identity.json``, written by ``ensure_tools_binding`` on the
+       FIRST bind and never refreshed: a worktree of one repository binds
+       identically to every other (``canonical_identity`` resolves through
+       ``--git-common-dir``), so a store carried into a sibling worktree
+       keeps the path of the checkout it was born in. That is why the
+       declared root ranks BELOW discovery for the same repository — a
+       stale-but-existing path would send every reader without a
+       ``workspace_root`` (``readiness``, ``promotion``) to hash the OTHER
+       checkout's corpus and report ``fixture_matches=False`` for a reason
+       that is not the adapter's — and ABOVE a discovered checkout of some
+       other repository (a store kept under a git-tracked home directory
+       serves the repository it was bound to, not the tree that happens to
+       enclose it). The declared root is the whole answer for a store
+       outside every checkout (``trial/store/tools``);
+    5. ``tools_dir.parent`` — the original "aria-tools/ lives inside the
        repo by convention" assumption, DEMOTED to last resort. It was the
        production default until ORPHAN-HIGH-779: with tools at
        ``.aria-state-store/tools`` the parent is ``.aria-state-store``, the
@@ -826,6 +862,8 @@ def _repo_root_for_path_guard(
        temp trees, genesis fixtures) where the caller is the layout's own
        author.
     """
+    from .checkout_root import same_repository
+
     override = os.environ.get("ARIA_REPO_ROOT")
     if override:
         return Path(override).resolve()
@@ -833,8 +871,11 @@ def _repo_root_for_path_guard(
         return Path(workspace_root).resolve()
     tools_root = ensure_tools_dir(base_dir).resolve()
     discovered = _discover_git_root(tools_root)
-    if discovered is not None:
+    declared = declared_bound_repo_root(base_dir)
+    if discovered is not None and (declared is None or same_repository(discovered, declared)):
         return discovered
+    if declared is not None:
+        return declared
     return tools_root.parent
 
 

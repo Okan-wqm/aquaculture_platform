@@ -190,6 +190,22 @@ class CIWorkflowInvariants(unittest.TestCase):
         self.assertIn("pull_request", on, msg="aria-kernel-fast.yml missing pull_request")
         self.assertNotIn("push", on, msg="aria-kernel-fast.yml must not carry a push trigger (ORPHAN-MEDIUM-769)")
 
+    def test_both_kernel_pr_lanes_fire_on_the_adapter_registry_directory(self) -> None:
+        # ARIA-HIGH-098 — tests/test_adapter_fixture_evidence_contract.py is
+        # the registry contract over tools/aria-adapters/** (a manifest
+        # carries a fixture case expecting ok; every case runs ok through the
+        # evidence validator). It lives in the kernel suite, so the lanes
+        # that run the suite must fire on the directory it pins: before this
+        # pin an adapters-only PR ran neither lane and the contract was first
+        # checked on the push to main.
+        for name in ("aria-kernel.yml", "aria-kernel-fast.yml"):
+            with self.subTest(workflow=name):
+                workflow = self.workflows.get(name)
+                self.assertIsNotNone(workflow, f"{name} missing")
+                on = workflow.get("on") if "on" in workflow else workflow.get(True)
+                paths = (on or {}).get("pull_request", {}).get("paths") or []
+                self.assertIn("tools/aria-adapters/**", paths, f"{name}: pull_request.paths lacks tools/aria-adapters/**")
+
     def test_deleted_kernel_full_stays_deleted(self) -> None:
         # ORPHAN-MEDIUM-769 — aria-kernel-full.yml ran a strict subset of
         # aria-kernel.yml on the same push and was never a required context.

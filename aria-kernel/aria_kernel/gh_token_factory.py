@@ -70,9 +70,9 @@ class GitSigningWiring:
 class SigningCheckout:
     """ARIA-HIGH-114 — where one workspace's signing transaction lives.
 
-    ``git_dir`` is the checkout's PRIVATE git directory as git itself
-    reports it (``rev-parse --absolute-git-dir``): ``<ws>/.git`` for a
-    main checkout, ``<common>/worktrees/<name>`` for a linked worktree.
+    ``git_dir`` is the checkout's PRIVATE git directory as ``checkout_root``
+    reads it from the ``.git`` marker: ``<ws>/.git`` for a main checkout,
+    ``<common>/worktrees/<name>`` for a linked worktree.
     The allowed-signers file and the config snapshots live there — a
     directory the lane's pre-clean never wipes in either shape, and one
     that exists for the per-request worktrees the executor drain adds,
@@ -103,34 +103,31 @@ _CONFIG_SCOPE_WORKTREE: str = "--worktree"
 _WORKTREE_CONFIG_EXTENSION: str = "extensions.worktreeConfig"
 
 
-def _git_rev_parse(workspace_root: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["git", "-C", str(workspace_root), "rev-parse", *args],
-        capture_output=True, text=True, timeout=10, check=False,
-    )
-
-
 def _resolve_signing_checkout(workspace_root: Path) -> SigningCheckout | None:
-    """The checkout ``workspace_root`` is inside, or ``None`` when it is
-    not one (an archive checkout, a bare fixture directory). Git that does
-    not answer raises ``subprocess.TimeoutExpired``: the caller decides
-    whether that is best-effort (the mint) or UNDECIDED (the restore) —
-    it is never "not a checkout"."""
-    probe = _git_rev_parse(workspace_root, "--absolute-git-dir", "--git-common-dir")
-    if probe.returncode != 0:
+    """The checkout rooted at ``workspace_root``, or ``None`` when it is not
+    one (an archive checkout, a bare fixture directory).
+
+    Read through ``checkout_root`` — the one parser for every walker that
+    asks where a checkout begins: ``.git`` as a directory or as the
+    ``gitdir:`` pointer file ``git worktree add`` writes, the per-worktree
+    git dir it names, and the ``commondir`` that tells a linked worktree
+    from a main checkout. No git process is spawned here, so "git did not
+    answer" can only arise at the ``git config`` calls, where it is
+    UNDECIDED (the restore) or best-effort (the mint) — never "not a
+    checkout".
+    """
+    from .checkout_root import resolve_git_common_directory, resolve_git_directory
+
+    git_dir = resolve_git_directory(workspace_root / ".git")
+    if git_dir is None:
         return None
-    lines = probe.stdout.splitlines()
-    if len(lines) != 2:
+    common_dir = resolve_git_common_directory(git_dir)
+    if common_dir is None:
         return None
-    git_dir = Path(lines[0])
-    common_dir = Path(lines[1])
-    if not common_dir.is_absolute():
-        common_dir = workspace_root / common_dir
-    linked = git_dir.resolve() != common_dir.resolve()
     return SigningCheckout(
         workspace_root=workspace_root,
         git_dir=git_dir,
-        config_scope=_CONFIG_SCOPE_WORKTREE if linked else _CONFIG_SCOPE_LOCAL,
+        config_scope=_CONFIG_SCOPE_WORKTREE if git_dir != common_dir else _CONFIG_SCOPE_LOCAL,
     )
 
 
@@ -612,10 +609,7 @@ def _configure_git_commit_signing(
     a knowledge signer whether or not git signs with it. Only the V9
     runner needs the wiring, and it reads the receipt.
     """
-    try:
-        checkout = _resolve_signing_checkout(workspace_root)
-    except (OSError, subprocess.SubprocessError):
-        return GitSigningWiring(configured=False, scope=None, reason="git_unavailable")
+    checkout = _resolve_signing_checkout(workspace_root)
     if checkout is None:
         return GitSigningWiring(configured=False, scope=None, reason="not_a_checkout")
     try:
@@ -751,10 +745,7 @@ def _restore_git_commit_signing(
     and unsetting an absent one are no-ops. Never raises: no ``.git`` or
     no snapshot is ``ABSENT``; a git that does not answer is ``UNDECIDED``.
     """
-    try:
-        checkout = _resolve_signing_checkout(workspace_root)
-    except (OSError, subprocess.SubprocessError) as exc:
-        return SigningConfigRestoreReceipt(SigningConfigRestore.UNDECIDED, type(exc).__name__)
+    checkout = _resolve_signing_checkout(workspace_root)
     if checkout is None:
         return SigningConfigRestoreReceipt(SigningConfigRestore.ABSENT)
     git_dir = checkout.git_dir
@@ -1161,17 +1152,9 @@ def prune_stale_signing_keys(
             except OSError as exc:
                 errors.append({"name": entry.name, "error": str(exc)[:200]})
     # Pass 2 — snapshots whose key is gone, whichever way it went. The
-    # snapshots live in the checkout's private git dir; a git that does
-    # not answer here is one undecided pass, not an empty one.
-    snapshots_dir: Path | None = None
-    try:
-        checkout = _resolve_signing_checkout(workspace_root)
-    except (OSError, subprocess.SubprocessError) as exc:
-        errors.append({"name": _SIGNING_CONFIG_SNAPSHOTS_DIRNAME,
-                       "error": f"git_signing_config_restore_undecided:{type(exc).__name__}"})
-        checkout = None
-    if checkout is not None:
-        snapshots_dir = _signing_config_snapshots_dir(checkout.git_dir)
+    # snapshots live in the checkout's private git dir.
+    checkout = _resolve_signing_checkout(workspace_root)
+    snapshots_dir = _signing_config_snapshots_dir(checkout.git_dir) if checkout is not None else None
     if snapshots_dir is not None and snapshots_dir.is_dir():
         for entry in sorted(snapshots_dir.iterdir()):
             if not entry.is_file() or not entry.name.endswith(_SIGNING_CONFIG_SNAPSHOT_SUFFIX):

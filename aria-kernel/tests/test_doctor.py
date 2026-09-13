@@ -497,6 +497,23 @@ class OrchestratorOrgan(unittest.TestCase):
         self.assertEqual((check.status, check.reason), ("warn", "last_orchestrator_exit_cycle_failed"))
         self.assertEqual(check.detail["failed_cycles"][0]["cycle_id"], "cyc-bad")
 
+    def test_a_degraded_night_is_not_a_cause_of_a_failed_exit(self) -> None:
+        # ARIA-HIGH-098 — a degraded cycle completed and never produced a
+        # cycle_failed exit; the tool it names belongs to the tools organ.
+        self._exit("max_cycles", 1)
+        self._cycle_completed("cyc-degraded", "degraded", {
+            "status": "completed", "runtime_status": "degraded", "failed_phases": [],
+            "non_ok_tools": [{"tool_id": "agent-harness-security-adapter", "status": "evidence_error"}],
+        })
+        self._exit("max_cycles", 1)
+        self._cycle_completed("cyc-bad", "failed", {"status": "failed", "runtime_status": "failed", "failed_phases": [], "non_ok_tools": []})
+        self._exit("cycle_failed", 0)
+
+        check = doctor._check_orchestrator(self.tools)
+
+        self.assertEqual(check.status, "warn")
+        self.assertEqual([cause["cycle_id"] for cause in check.detail["failed_cycles"]], ["cyc-bad"])
+
     def test_a_single_failed_exit_is_a_warn_not_a_streak(self) -> None:
         self._exit("cycle_failed", 0)
 
@@ -522,6 +539,105 @@ class OrchestratorOrgan(unittest.TestCase):
         self.assertEqual((check.status, check.reason), ("ok", ""))
         self.assertEqual(check.detail["failed_cycles"], [])
 
+
+
+class ToolsOrgan(unittest.TestCase):
+    """ARIA-HIGH-098 — the adapters that are not answering, by name and class."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        self.tools = self.root / "aria-tools"
+        ensure_tools_dir(self.tools)
+        (self.root / "src").mkdir()
+        (self.root / "src" / "app.ts").write_text("export const app = true;\n", encoding="utf-8")
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _tool(self, tool_id: str, *, exit_code: int = 0) -> None:
+        from aria_kernel import register_tool
+        from tests.test_enterprise_cycle import fake_tool_argv, shadow_tool, tool_output
+
+        tool = shadow_tool()
+        tool["tool_id"] = tool_id
+        tool["runner"] = {**tool["runner"], "argv": [*fake_tool_argv(tool_output()), "--exit-code", str(exit_code)]}
+        register_tool(tool, base_dir=self.tools)
+
+    def _run(self, tool_id: str, cycle_id: str) -> str:
+        from aria_kernel import run_tool
+
+        return run_tool(tool_id, {}, cycle_id, workspace_root=self.root, base_dir=self.tools)["envelope"]["status"]
+
+    def test_an_empty_roster_and_an_answering_tool_are_ok(self) -> None:
+        self.assertEqual(doctor._check_tools(self.tools).status, "ok")
+        self._tool("fine-tool")
+        self.assertEqual(self._run("fine-tool", "cyc-1"), "ok")
+        check = doctor._check_tools(self.tools)
+        self.assertEqual((check.status, check.detail["degraded"], check.detail["quarantined"]), ("ok", [], []))
+
+    def test_a_degraded_tool_is_a_warn_naming_the_class_and_the_streak(self) -> None:
+        self._tool("dark-tool", exit_code=2)
+        self._run("dark-tool", "cyc-1")
+        self._run("dark-tool", "cyc-2")
+        check = doctor._check_tools(self.tools)
+        self.assertEqual((check.status, check.reason), ("warn", "tools_degraded:dark-tool=crashx2"))
+        self.assertEqual(check.detail["degraded"][0]["latest_cycle_id"], "cyc-2")
+        self.assertFalse(check.detail["degraded"][0]["human_required"])
+        self.assertIn("[WARN] tools — tools_degraded:dark-tool=crashx2", render_doctor_text(run_doctor(base_dir=self.tools, workspace_root=self.root)))
+
+    def test_a_streak_at_the_human_required_line_is_a_fail(self) -> None:
+        from aria_kernel.tool_degradation import TOOL_DEGRADATION_HUMAN_REQUIRED_STREAK
+
+        self._tool("dark-tool", exit_code=2)
+        for n in range(TOOL_DEGRADATION_HUMAN_REQUIRED_STREAK):
+            self._run("dark-tool", f"cyc-{n}")
+        check = doctor._check_tools(self.tools)
+        self.assertEqual((check.status, check.reason), ("fail", "tools_degraded_human_required:dark-tool"))
+
+    def test_a_recovered_tool_clears_the_streak(self) -> None:
+        self._tool("flaky-tool", exit_code=2)
+        self._run("flaky-tool", "cyc-1")
+        self.assertEqual(doctor._check_tools(self.tools).status, "warn")
+        # The operator ships the fix: the manifest re-registers with a runner
+        # that answers, and the next night's run is ok.
+        self._tool("flaky-tool")
+        self.assertEqual(self._run("flaky-tool", "cyc-2"), "ok")
+        check = doctor._check_tools(self.tools)
+        self.assertEqual((check.status, check.detail["degraded"]), ("ok", []))
+
+    def test_a_quarantined_tool_is_named_even_when_nothing_is_degraded(self) -> None:
+        from aria_kernel.quarantine import quarantine_tool
+
+        self._tool("benched-tool")
+        quarantine_tool("benched-tool", "test: quarantined by hand", base_dir=self.tools)
+        check = doctor._check_tools(self.tools)
+        self.assertEqual((check.status, check.reason), ("warn", "tools_quarantined:benched-tool"))
+
+    def test_the_cycles_a_quarantined_tool_sits_out_are_its_streak(self) -> None:
+        # Verifier defect 2: a quarantined tool is never dispatched again, so
+        # a streak read off its runs alone froze where the quarantine left
+        # it and the organ could never reach FAIL for the trial-eleven class.
+        from aria_kernel.ledger import append_declared_jsonl
+        from aria_kernel.quarantine import quarantine_tool
+        from aria_kernel.tool_degradation import TOOL_DEGRADATION_HUMAN_REQUIRED_STREAK
+        from aria_kernel.tool_registry import utc_now
+
+        self._tool("benched-tool")
+        quarantine_tool("benched-tool", "test: quarantined by hand", base_dir=self.tools)
+        for n in range(1, TOOL_DEGRADATION_HUMAN_REQUIRED_STREAK + 1):
+            append_declared_jsonl(
+                self.tools / "cycles.jsonl",
+                {"schema_version": 3, "at": utc_now(), "cycle_id": f"cyc-{n}", "event": "started", "status": "started"},
+                expected_surface="cycles",
+            )
+            check = doctor._check_tools(self.tools)
+            if n < TOOL_DEGRADATION_HUMAN_REQUIRED_STREAK:
+                self.assertEqual((check.status, check.reason), ("warn", f"tools_degraded:benched-tool=quarantinedx{n}"))
+            else:
+                self.assertEqual((check.status, check.reason), ("fail", "tools_degraded_human_required:benched-tool"))
+        self.assertEqual(check.detail["quarantined"], ["benched-tool"])
+        self.assertEqual(check.detail["degraded"][0]["latest_cycle_id"], f"cyc-{TOOL_DEGRADATION_HUMAN_REQUIRED_STREAK}")
 
 
 class CliSurface(unittest.TestCase):

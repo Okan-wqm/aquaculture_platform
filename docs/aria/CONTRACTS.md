@@ -1685,6 +1685,137 @@ and no contract stated. What is now true, in one derivation per fact:
 trailer; `tests/test_must_satisfy_shape.py`, `tests/test_plan_origin_commit_contract.py`,
 `tests/test_validation_suite_ssot.py` and `tests/test_request_contract_minter.py` own the parts.
 
+## 12.18 — Cycle Runtime Verdict and the Tool Degradation Contract
+
+`aria-kernel/aria_kernel/cycle_runtime_status.py` (ARIA-HIGH-098) owns the one rule every reader of
+a cycle's verdict applies — `cycle._runtime_status`, the metrics row, `runtime_artifacts._cycle_result_status`,
+`autonomy_output_summary` and the orchestrator's continue/fail-closed decision. Trial eleven
+(`cyc-20260912T221237Z-auto`, 2026-09-12): nine of ten tools ok, artifact index 10/10 verified, a
+CONVERGED plan in the store, and one adapter's `evidence_error` made the cycle `integrity_failed`;
+the orchestrator failed closed and the funnel counter, knowledge signer, memory hook and V9
+implementation never ran. The 2026-09-04 morning died the same way on a 651 ms budget overrun.
+
+The verdict vocabulary (`RUNTIME_STATUSES`):
+
+- `failed` — a phase raised or declared itself failed. Terminal row `failed`; fail-closed.
+- `integrity_failed` — the STORE cannot be trusted: the artifact index did not verify, or a run's own
+  artifact is missing / mismatched / never written (`INTEGRITY_ARTIFACT_STATUSES`, or the run status
+  `integrity_failed` that `tool_health.record_run` assigns on a failed artifact write). Terminal row
+  `failed`; the orchestrator fails closed on this and only this.
+- `degraded` — the index is valid and at least one tool run is non-ok (`budget_exceeded`,
+  `evidence_error`, `crash`, `schema_error`, `scope_violation`, `tool_unhealthy`,
+  `environment_unavailable`). The cycle COMPLETES (terminal row `completed`, every post-tool phase
+  runs, the orchestrator's drainers, planner, convergence and post-CONVERGED phases run as on `ok`);
+  the state carries `runtime_status: degraded` and `degraded_tools[]` (tool_id, run_id, status,
+  `degradation_class`, artifact_status), the metrics row carries `degraded`, the autonomy-state
+  `cycle_completed` row carries status `degraded` with the tools in its summary, and
+  `autonomy_output_summary.overall_status` is `degraded` (exit code 2). The tool's raw findings are
+  already quarantined by `feedback_store` (`invalid_evidence`) and the tool by `tool_health`.
+- `ok` — none of the above.
+
+`degradation_class` is the run status, or `artifact_missing` when the run's artifact — not the tool —
+is what failed (a store-class entry, which is what makes the cycle `integrity_failed`).
+
+`aria-kernel/aria_kernel/tool_degradation.py` is the recording and escalation side. The `tool_degradation`
+cycle phase (post_tool, writes-permitted, record_and_continue, consulted every cycle) appends one
+`tool_run_degraded` governance row per degraded tool per cycle (`cycle_id`, `tool_id`, `run_id`,
+`status`, `degradation_class`, `consecutive_cycles`, `human_required_at`, and `quarantine_reason`
+for a sat-out tool) and, at `TOOL_DEGRADATION_HUMAN_REQUIRED_STREAK` (3) consecutive degraded cycles
+of one tool, opens a HIGH HUMAN_REQUIRED record `tool-degraded:<tool_id>:<first cycle of the streak>`
+with
+context kind `tool_degradation` (`tool_id`, `degradation_class`, `quarantine_reason`,
+`consecutive_cycles`, `cycle_ids`, `latest_run_id`). A tool's streak is its trailing degraded runs read
+off `runs.jsonl` PLUS, for a QUARANTINED tool, every cycle it has sat out
+(`aria-kernel/aria_kernel/tool_sit_out.py`: the `started` rows of `cycles.jsonl` stamped at or after
+the tool's standing quarantine took effect, in which the tool has no run; class `quarantined`). The
+standing quarantine is ONE record (`tool_sit_out.standing_quarantine`: `at` + `reason`): the registry
+row's `last_transition` into QUARANTINED while it carries one, else the tool's latest QUARANTINED row
+in `quarantine.jsonl` — and the ledger is the production anchor, not the edge: the nightly manifest
+re-sync re-registers a shipped adapter with its live status, which keeps the status but replaces the
+row and drops `last_transition`, so a date or reason read from the row alone was gone by night 2
+(`quarantine_tool` stamps the ledger row with the transition's own `at` and the same reason, so
+the two anchors agree to the byte). `tool_health` quarantines an
+`evidence_error` / `schema_error` / `scope_violation` / `tool_unhealthy` run on the spot and
+`cycle._phase_tools` never dispatches a QUARANTINED tool, so a streak read off runs alone froze at 1
+for exactly the trial-eleven class; the third night the tool sits out now opens the record, keyed on
+the quarantining cycle. A sat-out tool does not change the CYCLE's verdict (`runtime_status` reads the
+runs of the cycle; a tool that did not run did nothing wrong tonight) — its standing is a tool fact.
+The kind is not panel-adjudicable, so the record stays with the operator; the id is keyed on the
+streak's first cycle, so one streak escalates once and a tool that recovers and breaks again escalates
+again; an operator release (`unquarantine_tool`, QUARANTINED → CALIBRATE) ends the streak it was asked
+about whether the next run is ok or not — a quarantined tool cannot run, so a run recorded after a
+quarantine row proves a release (`tool_sit_out.released_after`), and only runs after the last such
+release count, so a tool released and re-quarantined without an ok run in between starts a NEW streak
+keyed on its own first cycle rather than re-using a record id the operator may already have resolved.
+The doctor's `tools` organ reads the same streak: FAIL at the streak line, WARN for a
+shorter streak (`<tool>=<class>x<n>`, quarantined included) or a QUARANTINED tool with no cycle behind
+it yet. A streak is a live fact only for a tool with standing
+(`tool_degradation.DEGRADATION_STANDING_STATUSES`: the roster `cycle._phase_tools` dispatches — ACTIVE
+/ SHADOW / CALIBRATE — and QUARANTINED, the tools awaiting release): a DRAFT or SANDBOX tool was never
+dispatched and an ARCHIVED tool never runs again, so archiving — the exit the escalation reason itself
+names — retires the tool from the organ and from the sat-out roster at once, while the HUMAN_REQUIRED
+record the escalation opened stays with the operator to resolve; without that rule the organ stayed
+FAIL forever after the operator had done what the record asked (the scheduler paging
+`doctor_unhealthy` every tick, `self_improvement` opening a mission). `orchestrator_exit_history` does
+not list a degraded cycle among the causes of a `cycle_failed` exit.
+
+The adapter side of the same finding: every registered adapter carries a fixture-backed evidence
+contract. `aria-kernel/aria_kernel/adapter_fixture_contract.py` refuses, at the manifest-sync door
+(`cycle._phase_tool_manifest_sync`, the one production path from `tools/aria-adapters/*.tool.json`
+into the registry), a manifest whose `fixture_set` holds no `cases/*.json` expecting an `ok` run
+(`fixture_cases_missing:<tool_id>`, `fixture_case_expects_non_ok_run:<tool_id>:<case>`,
+`fixture_case_malformed:<tool_id>:<case>` for a case that is not a JSON object). What a case expects
+is read by ONE function, `expected_run_status` (`expected.status` when declared, `ok` otherwise), shared
+with the runner's judge `fixture_runner.evaluate_fixture_expectation`, so a case with no `expected`
+block is admitted by the door and judged against `ok` by the runner alike. The fixture runner
+(`run_fixture_case`) applies `validate_tool_output_evidence` before judging the expectation, so a case
+expecting `ok` IS the evidence contract: per-finding `evidence: [{path, line?}]`, `path`/`line` split,
+plain paths in `evidence_sources`, every evidence path declared in `read_paths`.
+`tools/aria-poc/agent_harness_security_adapter.py` emits that shape and ships its case under
+`tools/aria-adapters/fixtures/agent-harness-security-adapter/cases/`.
+
+The PR-time pin (`tests/test_adapter_fixture_evidence_contract.py`, in the `aria-kernel` lane whose
+budget it raised from 60 to 75 minutes) runs every shipped manifest's suite through the real fixture
+runner against the checkout and requires each case's *status* to be `ok` — the tool executed, its
+envelope parsed, the validator accepted it. Both kernel PR lanes (`aria-kernel.yml`,
+`aria-kernel-fast.yml`) fire on `tools/aria-adapters/**` and the pre-push selector
+(`scripts/ci/aria-suite-changed.mjs`) maps that directory to every kernel test module naming
+`aria-adapters`, so an adapters-only change — a manifest without a case, a case rewritten to expect a
+non-ok run, a TS adapter that drops per-finding evidence — meets the pin before merge, not on the push
+to main (pinned by `tests/invariants/aria-doc-runtime-ssot.spec.ts` and
+`aria-kernel/tests/test_ci_workflow_invariants.py`). A case's expectations (`max_findings`,
+`raw_observations_count`, required observation types) are the fixture's calibration of the corpus:
+the nightly `fixture_refresh` phase judges them and `readiness`/`promotion` consume the verdict, so a
+stale count blocks a promotion without making an adapter's evidence invalid, and the PR pin does not
+turn a corpus change into a fixture treadmill. A `budget_exceeded` case is reported as unverified by
+name (the tool never answered, so its shape was not observed; `tool_health` prices the miss), and an
+adapter whose repo-local node runner is absent is skipped by the runner's own predicate
+(`tool_runner._runner_missing_node_deps`).
+
+The fixture path guard (`fixture_runner._repo_root_for_path_guard`) resolves its anchor as
+`ARIA_REPO_ROOT` → the caller's `workspace_root` → checkout discovery from the tools root, when the
+discovered checkout is a worktree of the repository the store's declared `bound_repo_root` names or
+the store declares none → the declared `bound_repo_root` (`tool_registry.declared_bound_repo_root`) →
+`tools_dir.parent`. The binding writes `bound_repo_root` on the first bind only and every worktree of
+one repository binds identically, so a store carried into a sibling worktree keeps the path of the
+checkout it was born in; discovery therefore outranks the binding for the SAME repository
+(`checkout_root.same_repository`: the two checkouts share a git common directory — filesystem only,
+no subprocess), while a binding to ANOTHER repository outranks a checkout that merely encloses the
+store (a git-tracked home directory), and a store outside every checkout is anchored by its binding
+alone. Discovery is `aria-kernel/aria_kernel/checkout_root.py`: a checkout root is the directory
+holding `.git` whether a directory or a `gitdir:` pointer file (a linked worktree — the trial
+workspace and the executor's `aria-worktrees/` are both one), and the state store is skipped by the
+`GENESIS` record the kernel wrote into it, not by the shape of its `.git`. `latest_fixture_status`
+takes `workspace_root` and the refresh threads it through, so the reader that judges a verdict current
+finds the corpus the runner did.
+
+`aria-kernel/tests/test_cycle_runtime_status_degraded.py` owns the verdict rule, the orchestrator's
+continuation, the full-cycle degraded pin, the fail-closed integrity pin and the streak escalation for
+both the crashing and the quarantined class (three real cycles, release, recovery);
+`tests/test_tool_sit_out.py` the sat-out reader; `tests/test_doctor.py::ToolsOrgan` the organ;
+`tests/test_adapter_fixture_evidence_contract.py` the registry contract over every shipped manifest and
+the sync door; `tests/test_fixture_guard_linked_worktree.py` the path guard on real linked worktrees.
+
 ## 13 — Phase-1 PoC (IMPLEMENTED)
 
 Before committing to months of kernel work, the operator runs this PoC to answer: **"do we actually
@@ -1951,8 +2082,9 @@ publisher contract. Earlier inner cycle projections are not consumers of these o
   section is back: an interrupted restore always leaves the marker for the retry to recognise, and
   re-setting a key to its snapshot value or unsetting an absent one is a no-op.
 - The checkout the transaction runs on is what git says it is, not `<workspace>/.git` tested as
-  a directory (ARIA-HIGH-114): `gh_token_factory.SigningCheckout` resolves `git rev-parse
-  --absolute-git-dir --git-common-dir`, and the allowed-signers file and the snapshots live in
+  a directory (ARIA-HIGH-114): `gh_token_factory.SigningCheckout` reads the `.git` marker through
+  `checkout_root` (the one parser for every walker: the directory or the `gitdir:` pointer file, its
+  per-worktree git dir, its `commondir`), and the allowed-signers file and the snapshots live in
   that private git dir — `.git/` on a main checkout, `.git/worktrees/<name>/` on a linked
   worktree, the shape of every executor per-request worktree and every trial task-source, where
   `.git` is a file and the old test skipped the wiring without a word. On a linked worktree the

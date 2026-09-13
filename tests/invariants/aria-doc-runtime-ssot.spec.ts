@@ -83,6 +83,7 @@ const LIVE_WORKFLOWS = [
 
 const ARIA_SUITE_RUNNER = 'scripts/ci/aria-suite-run.sh';
 const ARIA_SUITE_SELECTOR = 'scripts/ci/aria-suite-changed.mjs';
+const ARIA_ADAPTERS_DIR = 'tools/aria-adapters';
 const ARIA_PYTEST_NATIVE_PLUGIN = 'aria_kernel.pytest_native_only';
 
 type WorkflowStep = { run?: string };
@@ -620,16 +621,29 @@ describe('ARIA live runtime/documentation SSoT', () => {
   });
 
   it('triggers both ARIA PR workflows when the canonical suite runner changes', () => {
-    for (const rel of [
-      '.github/workflows/aria-kernel.yml',
-      '.github/workflows/aria-kernel-fast.yml',
-    ]) {
+    // Budgets are per lane, reasoned in each workflow next to the value.
+    // aria-kernel runs the WHOLE suite — 40.9 min measured (run 34578152903)
+    // plus ARIA-HIGH-098's registry pin, which runs every shipped adapter's
+    // fixture suite through the evidence validator (~8 min on a quiet host;
+    // two of those adapters are the ones whose runtime the finding recorded
+    // as weather-sensitive) — so its cap is 75. aria-kernel-fast runs the
+    // affected subset and keeps 60.
+    const budgetMinutes: Record<string, number> = {
+      '.github/workflows/aria-kernel.yml': 75,
+      '.github/workflows/aria-kernel-fast.yml': 60,
+    };
+    for (const rel of Object.keys(budgetMinutes)) {
       const workflow = yaml.load(read(rel)) as PullRequestWorkflow;
       expect(workflow.on?.pull_request?.paths).toContain(ARIA_SUITE_RUNNER);
+      // ARIA-HIGH-098 — the adapter registry contract
+      // (aria-kernel/tests/test_adapter_fixture_evidence_contract.py) is a
+      // suite test over tools/aria-adapters/**; a lane that does not fire
+      // on that directory checks an adapters-only PR first on main.
+      expect(workflow.on?.pull_request?.paths).toContain(ARIA_ADAPTERS_DIR + '/**');
 
       const jobs = Object.values(workflow.jobs ?? {});
       expect(jobs).toHaveLength(1);
-      expect(jobs[0]?.['timeout-minutes']).toBe(60);
+      expect(jobs[0]?.['timeout-minutes']).toBe(budgetMinutes[rel]);
       const suiteSteps = (jobs[0]?.steps ?? []).filter(
         (step) => step.run === `bash ${ARIA_SUITE_RUNNER}`,
       );
@@ -696,7 +710,51 @@ describe('ARIA live runtime/documentation SSoT', () => {
       expect(diffArgs).toContain(ARIA_SUITE_SELECTOR);
       expect(diffArgs).toContain(ARIA_SUITE_RUNNER);
       expect(diffArgs).toContain('package.json');
+      expect(diffArgs).toContain(ARIA_ADAPTERS_DIR);
       expect(readFileSync(bashLog, 'utf8').trim()).toBe(ARIA_SUITE_RUNNER);
+    } finally {
+      removeFixtureTree(probeDir);
+    }
+  });
+
+  it('selects the adapter registry contract when only tools/aria-adapters changes', () => {
+    // ARIA-HIGH-098 — a manifest without a fixture case, or a case rewritten
+    // to expect a non-ok run, touches only tools/aria-adapters/**. The
+    // pre-push selector must reach the kernel module that refuses both.
+    const probeDir = mkdtempSync(join(tmpdir(), 'aria-suite-changed-adapters-'));
+    const bashLog = join(probeDir, 'bash-args');
+    try {
+      writeExecutable(
+        join(probeDir, 'git'),
+        [
+          'if [ "$1" = "rev-parse" ] && [ "$2" = "--abbrev-ref" ]; then',
+          "  printf 'probe-branch\\n'",
+          '  exit 0',
+          'fi',
+          'if [ "$1" = "rev-parse" ] && [ "$2" = "--verify" ]; then',
+          '  exit 0',
+          'fi',
+          'if [ "$1" = "diff" ]; then',
+          `  printf '${ARIA_ADAPTERS_DIR}/probe-adapter.tool.json\\n'`,
+          '  exit 0',
+          'fi',
+          'exit 2',
+        ].join('\n'),
+      );
+      writeExecutable(join(probeDir, 'bash'), 'printf \'%s\\n\' "$@" > "$ARIA_BASH_PROBE"');
+
+      execFileSync(process.execPath, ['scripts/ci/aria-suite-changed.mjs'], {
+        cwd: REPO_ROOT,
+        env: {
+          ...process.env,
+          ARIA_BASH_PROBE: bashLog,
+          PATH: `${probeDir}:${process.env.PATH ?? ''}`,
+        },
+      });
+
+      const bashArgs = readFileSync(bashLog, 'utf8').trim().split('\n');
+      expect(bashArgs[0]).toBe(ARIA_SUITE_RUNNER);
+      expect(bashArgs).toContain('test_adapter_fixture_evidence_contract.py');
     } finally {
       removeFixtureTree(probeDir);
     }

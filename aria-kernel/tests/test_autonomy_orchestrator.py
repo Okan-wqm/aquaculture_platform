@@ -493,17 +493,24 @@ class AutonomyOrchestratorTests(unittest.TestCase):
         from unittest.mock import Mock
         from aria_kernel.runtime_artifacts import autonomy_output_summary
 
+        # (label, cycle fields, cycles_completed, projected status, autonomy-state
+        # row status, overall summary status). ARIA-HIGH-098 — a claimed-ok cycle
+        # carrying non-ok tools projects by the tools' CLASS: a tool-class entry
+        # (budget, evidence, crash) is `degraded` and the run continues; a
+        # store-class entry (a lost artifact) is `integrity_failed` and fails
+        # closed. Pre-fix both were `failed`.
         cases = (
-            ("terminal-only", {"status": "completed"}, 1, "ok"),
-            ("runtime-only", {"runtime_status": "ok"}, 1, "ok"),
-            ("both-clean", {"status": "completed", "runtime_status": "ok"}, 1, "ok"),
-            ("unknown-terminal", {"status": "unknown", "runtime_status": "ok"}, 0, "unknown"),
-            ("aborted-terminal", {"status": "aborted"}, 0, "aborted"),
-            ("stopped-terminal", {"status": "stopped"}, 0, "stopped"),
-            ("runtime-integrity", {"status": "failed", "runtime_status": "integrity_failed"}, 0, "integrity_failed"),
-            ("non-ok-tools", {"status": "completed", "runtime_status": "ok", "non_ok_tools": [{"status": "failed"}]}, 0, "failed"),
+            ("terminal-only", {"status": "completed"}, 1, "ok", "ok", "ok"),
+            ("runtime-only", {"runtime_status": "ok"}, 1, "ok", "ok", "ok"),
+            ("both-clean", {"status": "completed", "runtime_status": "ok"}, 1, "ok", "ok", "ok"),
+            ("unknown-terminal", {"status": "unknown", "runtime_status": "ok"}, 0, "unknown", "failed", "failed"),
+            ("aborted-terminal", {"status": "aborted"}, 0, "aborted", "failed", "failed"),
+            ("stopped-terminal", {"status": "stopped"}, 0, "stopped", "failed", "failed"),
+            ("runtime-integrity", {"status": "failed", "runtime_status": "integrity_failed"}, 0, "integrity_failed", "failed", "failed"),
+            ("non-ok-tool-class", {"status": "completed", "runtime_status": "ok", "non_ok_tools": [{"tool_id": "t", "status": "budget_exceeded", "artifact_status": "present"}]}, 1, "degraded", "degraded", "degraded"),
+            ("non-ok-store-class", {"status": "completed", "runtime_status": "ok", "non_ok_tools": [{"tool_id": "t", "status": "ok", "artifact_status": "missing"}]}, 0, "integrity_failed", "failed", "failed"),
         )
-        for label, fields, completed, projected in cases:
+        for label, fields, completed, projected, row_status, overall in cases:
             with self.subTest(result_shape=label):
                 base = self.tmp / label
                 set_profile("standard", operator_approval_ref="ordinary-status-contract", base_dir=base)
@@ -528,13 +535,13 @@ class AutonomyOrchestratorTests(unittest.TestCase):
                 rows = [row for row in load_jsonl(autonomy_state_path(base))
                         if row.get("phase") == "cycle_completed"]
                 self.assertEqual(len(rows), 1)
-                self.assertEqual(rows[0]["status"], "ok" if completed else "failed")
+                self.assertEqual(rows[0]["status"], row_status)
                 if label == "unknown-terminal":
                     self.assertEqual(rows[0]["details"]["summary"]["status"], "unknown")
                 summary = autonomy_output_summary(result, base_dir=base)
                 self.assertEqual(summary["cycle_status_counts"], {projected: 1})
-                self.assertEqual(summary["overall_status"], "ok" if completed else "failed")
-                self.assertEqual(summary["exit_code"], 0 if completed else 1)
+                self.assertEqual(summary["overall_status"], overall)
+                self.assertEqual(summary["exit_code"], {"ok": 0, "degraded": 2}.get(overall, 1))
 
     def test_terminal_failure_preserves_explicit_continue_policy(self) -> None:
         from unittest.mock import Mock

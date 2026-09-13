@@ -459,6 +459,43 @@ def _check_orchestrator(tools_dir: Path) -> DoctorCheck:
     return DoctorCheck("orchestrator", "ok", "", detail)
 
 
+def _check_tools(tools_dir: Path) -> DoctorCheck:
+    """ARIA-HIGH-098 — the adapters that are not answering, by name and class.
+
+    A non-ok tool run no longer fails the night (``cycle_runtime_status``),
+    which is exactly why it needs an organ: a degraded tool used to announce
+    itself by killing the cycle, and now announces itself here. A streak that
+    reached ``TOOL_DEGRADATION_HUMAN_REQUIRED_STREAK`` is a FAIL (a record is
+    open for an operator); a shorter streak is a WARN naming the class and
+    the count. A QUARANTINED tool's streak counts the cycles it has sat out
+    (``tool_sit_out``: class ``quarantined``), so a tool ``tool_health``
+    benched reaches FAIL on the same third night as one that crashes —
+    quarantine is ``tool_health`` doing its job, but a tool out of the roster
+    until an operator un-quarantines it is not something a healthy readout
+    may be silent about; a quarantine with no cycle behind it yet is still
+    named (``tools_quarantined``)."""
+    from .tool_degradation import degradation_report
+
+    report = degradation_report(tools_dir)
+    detail = {
+        "degraded": report["degraded"],
+        "quarantined": report["quarantined"],
+        "human_required_streak": report["human_required_streak"],
+    }
+    escalated = [entry["tool_id"] for entry in report["degraded"] if entry["human_required"]]
+    if escalated:
+        return DoctorCheck("tools", "fail", f"tools_degraded_human_required:{','.join(escalated)}", detail)
+    if report["degraded"]:
+        named = ",".join(
+            f"{entry['tool_id']}={entry['degradation_class']}x{entry['consecutive_cycles']}"
+            for entry in report["degraded"]
+        )
+        return DoctorCheck("tools", "warn", f"tools_degraded:{named}", detail)
+    if report["quarantined"]:
+        return DoctorCheck("tools", "warn", f"tools_quarantined:{','.join(report['quarantined'])}", detail)
+    return DoctorCheck("tools", "ok", "", detail)
+
+
 def _check_economy(tools_dir: Path) -> DoctorCheck:
     """Plan 032 Faz 032i — a standing effort downgrade is information; no accepted
     result across a busy agent is a warning."""
@@ -514,6 +551,7 @@ def run_doctor(
         _guarded("gateway_heartbeat_fresh", lambda: _check_gateway_heartbeat_fresh(tools_dir)),
         _guarded("economy", lambda: _check_economy(tools_dir)),
         _guarded("orchestrator", lambda: _check_orchestrator(tools_dir)),
+        _guarded("tools", lambda: _check_tools(tools_dir)),
     )
     return DoctorReport(
         checks=(*store_checks, *host_checks),

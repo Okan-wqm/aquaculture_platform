@@ -159,7 +159,11 @@ def _failed_cycles(
     rows = load_declared_jsonl(path, expected_surface="autonomy_state")
     causes: list[dict[str, Any]] = []
     for row in reversed(rows):
-        if row.get("phase") != "cycle_completed" or row.get("status") == "ok":
+        # ARIA-HIGH-098 — a ``degraded`` cycle completed and never causes a
+        # ``cycle_failed`` exit; listing it among the causes of one would
+        # name a tool as the reason a night died when the night lived. The
+        # doctor's ``tools`` organ is where a degraded tool is reported.
+        if row.get("phase") != "cycle_completed" or row.get("status") in {"ok", "degraded"}:
             continue
         recorded_at = _stamp(row.get("recorded_at"))
         if recorded_at is None or recorded_at > newest_exit_at:

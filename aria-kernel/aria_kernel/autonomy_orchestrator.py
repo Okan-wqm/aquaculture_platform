@@ -460,6 +460,20 @@ _CYCLE_MARKER_KEYS: tuple[str, ...] = (
 )
 
 
+def _outer_cycle_status(projected: str) -> str:
+    """The orchestrator's verdict on a cycle: ``ok``, ``degraded`` or ``failed``.
+
+    ``projected`` is ``runtime_artifacts._cycle_result_status``'s word. The
+    autonomy-state row and the continue/fail-closed decision both read this
+    one mapping, so they cannot disagree about what a degraded night is.
+    """
+    if projected in {"ok", "completed"}:
+        return "ok"
+    if projected == "degraded":
+        return "degraded"
+    return "failed"
+
+
 def _bounded_cycle_summary(cycle_result: dict[str, Any]) -> dict[str, Any]:
     tool_runs = cycle_result.get("tool_run_summary") if isinstance(cycle_result.get("tool_run_summary"), list) else []
     artifact_refs = [
@@ -481,6 +495,10 @@ def _bounded_cycle_summary(cycle_result: dict[str, Any]) -> dict[str, Any]:
         "artifact_refs": artifact_refs,
         "artifact_integrity": cycle_result.get("artifact_integrity"),
         "non_ok_tools": cycle_result.get("non_ok_tools", []),
+        # ARIA-HIGH-098 — the degraded tools by class, so the autonomy-state
+        # row (and the doctor reading it) names the tool without resolving
+        # the run artifact.
+        "degraded_tools": cycle_result.get("degraded_tools", []),
         "failed_phases": failed_phases,
         "incomplete_lifecycle_count": cycle_result.get("incomplete_lifecycle_count", 0),
     }
@@ -1505,9 +1523,19 @@ def run_autonomy_orchestrator(
                         defer_reflection=True,
                     )
                     cycle_summary["cycle"] = _bounded_cycle_summary(cycle_result)
-                    cycle_status = "ok" if _cycle_result_status(
-                        cycle_result, default="failed",
-                    ) in {"ok", "completed"} else "failed"
+                    # ARIA-HIGH-098 — three verdicts, not two. ``degraded``
+                    # (one or more tools non-ok, artifact index valid) is a
+                    # completed cycle whose degraded tools are named in the
+                    # summary; the drainers, the planner, convergence and
+                    # the post-CONVERGED phases run on it exactly as on
+                    # ``ok``. Fail-closed is reserved for ``failed`` and
+                    # ``integrity_failed`` — the cycle did not finish, or the
+                    # store cannot be trusted. Trial eleven's night ended
+                    # here on ``integrity_failed`` for one adapter's
+                    # ``evidence_error`` with 10/10 artifacts verified.
+                    cycle_status = _outer_cycle_status(
+                        _cycle_result_status(cycle_result, default="failed"),
+                    )
                 except Exception as exc:
                     # Plan 032 Faz 032e — a failed cycle is an operator event.
                     _notify_cycle_failed(root, cycle_id, exc)
@@ -1544,7 +1572,7 @@ def run_autonomy_orchestrator(
                         "summary": cycle_summary.get("cycle"),
                     },
                 )
-                if cycle_status == "ok":
+                if cycle_status in {"ok", "degraded"}:
                     cycles_completed += 1
                 elif fail_closed_on_cycle_failure:
                     per_cycle_results.append(cycle_summary)

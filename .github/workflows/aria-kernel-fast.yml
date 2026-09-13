@@ -21,6 +21,10 @@ on:
       - ".github/workflows/aria-kernel*.yml"
       - "tools/aria-poc/**"
       - "tools/shared/**"
+      # ARIA-HIGH-098 — the adapter registry contract is a suite test;
+      # an adapters-only PR must run the lane that holds it (see the
+      # same entry in aria-kernel.yml).
+      - "tools/aria-adapters/**"
 
 permissions:
   contents: read

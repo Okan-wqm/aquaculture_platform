@@ -6,8 +6,9 @@ checkout carries them. There ``<workspace>/.git`` is a FILE
 (``gitdir: <common>/.git/worktrees/<name>``), and the factory's
 ``is_dir()`` test skipped the whole wiring without a word — every
 implementer commit went unsigned and ``verify_commit_signature`` refused
-the run at its end. The factory now asks git where the checkout lives
-(``SigningCheckout``) and writes ``--worktree`` config there, because
+the run at its end. The factory now reads the checkout the way every
+kernel walker does (``checkout_root`` → ``SigningCheckout``) and writes
+``--worktree`` config there, because
 ``--local`` in a linked worktree is the config every worktree of the
 repository shares.
 """
@@ -170,6 +171,9 @@ class LinkedWorktreeSigningTests(unittest.TestCase):
         self.assertFalse((self._worktree_git_dir(self.worktree) / "aria-allowed-signers").exists())
 
     def test_i_high_114_06_a_git_that_does_not_answer_is_undecided_not_absent(self) -> None:
+        """The checkout is read structurally (``checkout_root``), so the only
+        git the restore spawns is ``git config`` in the worktree scope; one
+        that does not answer keeps the snapshot for the next attempt."""
         from unittest.mock import patch
 
         from aria_kernel import gh_token_factory
@@ -180,10 +184,11 @@ class LinkedWorktreeSigningTests(unittest.TestCase):
         key = mint_signing_key(cycle_id="cyc-stall", workspace_root=self.worktree)
         shutil.rmtree(key.private_key_path.parent)
 
-        def stalled(*args: object, **kwargs: object) -> None:
-            raise subprocess.TimeoutExpired(cmd=["git", "rev-parse"], timeout=10)
+        def stalled(workspace_root: Path, scope: str, *args: str) -> None:
+            self.assertEqual(scope, "--worktree")
+            raise subprocess.TimeoutExpired(cmd=["git", "config", scope, *args], timeout=10)
 
-        with patch.object(gh_token_factory, "_git_rev_parse", stalled):
+        with patch.object(gh_token_factory, "_git_config_at", stalled):
             receipt = _restore_git_commit_signing(
                 workspace_root=self.worktree, cycle_id="cyc-stall", private_path=key.private_key_path,
             )
@@ -192,7 +197,7 @@ class LinkedWorktreeSigningTests(unittest.TestCase):
             pruned = prune_stale_signing_keys(workspace_root=self.worktree)
         self.assertEqual(pruned["snapshots_unwound"], [])
         self.assertEqual(pruned["errors"], [{
-            "name": "aria-signing-config-snapshots",
+            "name": "cyc-stall.json",
             "error": "git_signing_config_restore_undecided:TimeoutExpired",
         }])
         # The next startup, with git answering, finishes the restore.

@@ -1492,6 +1492,8 @@ def alias_factory(root):
                 "runner attestation reports readiness without authorizing it",
             ("cycle_runtime", f"{KERNEL}integrity.py", "consumer"):
                 "integrity verification observes cycle chain bytes only",
+            ("cycle_runtime", f"{KERNEL}tool_sit_out.py", "consumer"):
+                "the sat-out reader counts the cycles a quarantined tool missed; it cannot start or seal one",
             ("executor", f"{KERNEL}shadow_eval_bridge.py", "consumer"):
                 "shadow bridge consumes execution to authorize genesis evidence",
             ("executor", f"{KERNEL}tool_registry.py", "consumer"):

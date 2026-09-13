@@ -22,6 +22,7 @@ from .ledger import (
     state_transaction as _archive_transaction,
     verify_jsonl_chunks as _verify_archive_chunks,
 )
+from .cycle_runtime_status import is_integrity_class, runtime_status
 from .tool_registry import GovernanceError, ensure_tools_binding, ensure_tools_dir, tools_dir, utc_now
 
 
@@ -1382,6 +1383,13 @@ def _cycle_result_status(cycle: dict[str, Any], *, default: str = "unknown") -> 
     Runtime failures retain their detail. Successful execution cannot hide
     a failed or unresolved terminal result. Older callers that omit either
     field retain their existing fallback; the original fields are not changed.
+
+    ARIA-HIGH-098 — a cycle that claims ``ok`` while carrying non-ok tools
+    is projected through the same rule the cycle itself now applies
+    (``cycle_runtime_status.runtime_status``): a store-class entry (missing
+    artifact, ``integrity_failed`` run) is ``integrity_failed``, any other
+    non-ok tool is ``degraded``. Before this the projection said ``failed``
+    for both, and the orchestrator failed the night closed on the word.
     """
     runtime = str(cycle.get("runtime_status") or cycle.get("status") or default)
     terminal = str(cycle.get("status") or runtime)
@@ -1389,7 +1397,10 @@ def _cycle_result_status(cycle: dict[str, Any], *, default: str = "unknown") -> 
         return runtime
     if terminal not in {"ok", "completed"}:
         return terminal
-    return "failed" if cycle.get("non_ok_tools") else runtime
+    non_ok = cycle.get("non_ok_tools")
+    if isinstance(non_ok, list) and non_ok:
+        return runtime_status(phase_failed=False, integrity_valid=True, non_ok=non_ok)
+    return runtime
 
 
 def autonomy_output_summary(
@@ -1479,11 +1490,15 @@ def autonomy_output_summary(
                     "status": "integrity_failed",
                     "artifact_status": run.get("artifact_status"),
                 })
+    # ARIA-HIGH-098 — a non-ok tool degrades the run; only a store-class
+    # entry (a run whose artifact is missing, mismatched or unwritten)
+    # fails it. The per-tool classifier is the cycle's own.
+    integrity_tools = [item for item in non_ok_tools if is_integrity_class(item)]
     if result.get("exits_clean") is False:
         overall = "blocked" if result.get("exit_reason") == "daemon_already_running" else "failed"
-    elif any(status in cycle_status_counts for status in ("failed", "integrity_failed", "aborted")) or non_ok_tools:
+    elif any(status in cycle_status_counts for status in ("failed", "integrity_failed", "aborted")) or integrity_tools:
         overall = "failed"
-    elif any(status in cycle_status_counts for status in ("degraded", "partial")):
+    elif any(status in cycle_status_counts for status in ("degraded", "partial")) or non_ok_tools:
         overall = "degraded"
     else:
         overall = "ok"
@@ -1536,6 +1551,8 @@ def autonomy_output_summary(
         "cycles_completed": result.get("cycles_completed", 0),
         "cycle_status_counts": dict(sorted(cycle_status_counts.items())),
         "tool_status_counts": dict(sorted(tool_status_counts.items())),
+        # A non-ok tool is that TOOL's error, whatever the run's overall
+        # verdict: the count stays honest under ``degraded``.
         "error_count": len(non_ok_tools),
         "warning_count": len(warnings),
         "warnings": warnings,

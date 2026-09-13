@@ -852,3 +852,19 @@ logged in` and exits 1, and both probes tested the exit code before the
   executor-lane run whose commit is signed by the executor-minted key
   lands the IMPL row; the same run with the fingerprint removed or with
   another key is refused. Blocks halka 4→5 of the live chain.
+
+## ARIA-LOW-116 — the suite left its scratch directories in RAM
+
+- **Severity:** LOW · **Owner:** claude · **Deadline:** 2026-09-20
+- **Evidence (2026-09-13 17:00Z, the droplet):** `/dev/shm` held 2173
+  entries, 1110 of them `aria-*` test directories older than 12 h
+  (`aria-test-tools-` / `aria-test-workspaces-` 319 each — one pair per
+  pytest process from `tests/__init__.py`; `aria-codex-bin*` /
+  `aria-codex-home*` ~45; `aria-fleet-empty-path-` 28; `signer-registry-`
+  39), 1.5 GB of tmpfs on a host that runs the nightly lane.
+- **What is now true:** `tests/__init__.py` mints the two process-lifetime
+  roots through `_process_scratch_dir` (removed at interpreter exit);
+  `test_model_fleet_and_codex` uses one module-level empty `PATH`
+  directory removed at exit and `addCleanup` for the codex home/bin dirs;
+  `SignerRegistryTests` cleans its root. A run of the three modules adds
+  no `/dev/shm` entries.

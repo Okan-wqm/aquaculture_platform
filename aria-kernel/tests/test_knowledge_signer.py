@@ -264,6 +264,7 @@ class SignerRegistryTests(unittest.TestCase):
 
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp(prefix="signer-registry-")).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
         self.base = ensure_tools_dir(self.tmp / "aria-tools")
         self.workspace = self.tmp / "workspace"
         self.workspace.mkdir()

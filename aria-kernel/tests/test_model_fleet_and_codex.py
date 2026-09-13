@@ -30,12 +30,24 @@ from aria_kernel.model_fleet import (  # noqa: E402
 )
 
 
+def _empty_path_dir() -> str:
+    """One empty directory per test process for PATH, removed at exit."""
+    import atexit
+    import shutil
+
+    path = tempfile.mkdtemp(prefix="aria-fleet-empty-path-")
+    atexit.register(shutil.rmtree, path, True)
+    return path
+
+
+_EMPTY_PATH_DIR = _empty_path_dir()
+
+
 def _probe(environ: dict[str, str]) -> list[str]:
     # Binary probes must read deterministically False on ANY host: point
     # PATH at an empty directory so shutil.which finds nothing, making
     # availability PURELY credential-env-driven in these fixtures.
-    empty = tempfile.mkdtemp(prefix="aria-fleet-empty-path-")
-    env = {"PATH": empty, **environ}
+    env = {"PATH": _EMPTY_PATH_DIR, **environ}
     return [p.key for p in available_providers(env)]
 
 
@@ -106,21 +118,29 @@ class Availability(unittest.TestCase):
         # Operator decision 2026-08-29: Codex rides a ChatGPT subscription
         # login, not an API key. A CODEX_HOME carrying auth.json plus the
         # binary on PATH activates the provider with NO OPENAI_API_KEY.
+        import shutil as _sh
         import tempfile as _tf
         from pathlib import Path as _P
+        # Every mkdtemp is removed at teardown: under the suite's
+        # TMPDIR=/dev/shm the two probes left ~1100 empty directories behind.
         home = _tf.mkdtemp(prefix="aria-codex-home-")
+        self.addCleanup(_sh.rmtree, home, True)
         (_P(home) / "auth.json").write_text("{}", encoding="utf-8")
         binp = _tf.mkdtemp(prefix="aria-codex-bin-")
+        self.addCleanup(_sh.rmtree, binp, True)
         (_P(binp) / "codex").write_text("#!/bin/sh\n", encoding="utf-8")
         (_P(binp) / "codex").chmod(0o755)
         found = _probe({"CODEX_HOME": home, "PATH": binp})
         self.assertIn("openai", found)
 
     def test_codex_without_session_or_key_stays_off(self) -> None:
+        import shutil as _sh
         import tempfile as _tf
         from pathlib import Path as _P
         home = _tf.mkdtemp(prefix="aria-codex-empty-")
+        self.addCleanup(_sh.rmtree, home, True)
         binp = _tf.mkdtemp(prefix="aria-codex-bin2-")
+        self.addCleanup(_sh.rmtree, binp, True)
         (_P(binp) / "codex").write_text("#!/bin/sh\n", encoding="utf-8")
         (_P(binp) / "codex").chmod(0o755)
         self.assertNotIn("openai", _probe({"CODEX_HOME": home, "PATH": binp}))
@@ -186,8 +206,7 @@ class MixedAssignment(unittest.TestCase):
         self.assertEqual(set(assignment.values()), {"glm-5.3"})
 
     def test_no_providers_assign_nothing(self) -> None:
-        empty = tempfile.mkdtemp(prefix="aria-fleet-empty-path-")
-        self.assertEqual(assign_mixed_models(["a"], environ={"PATH": empty}), {})
+        self.assertEqual(assign_mixed_models(["a"], environ={"PATH": _EMPTY_PATH_DIR}), {})
 
     def test_provider_for_model_mapping(self) -> None:
         self.assertEqual(provider_for_model("opus"), "anthropic")

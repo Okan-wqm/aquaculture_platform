@@ -89,7 +89,7 @@ class CounterIncrementTests(unittest.TestCase):
             target_agent="aria-primary-planner",
             role="primary_plan",
             suggested_prompt="claim test",
-            must_satisfy=[{"id": "claim-test", "criterion": "claim is active"}],
+            must_satisfy=[{"id": "claim-test", "description": "claim is active"}],
             allowed_scope=["aria-kernel/**"],
             base_dir=self.tools,
         )

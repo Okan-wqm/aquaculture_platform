@@ -416,7 +416,7 @@ class NativeAdaptiveAdmissionTests(unittest.TestCase):
         self.request = ai.create_agent_invocation_request(
             target_agent="aria-evidence-judge", role="evidence_judgment",
             suggested_prompt="Inspect the provider declaration at the supplied source line.",
-            must_satisfy=[{"id": "provider-source", "criterion": "cite the provider declaration"}],
+            must_satisfy=[{"id": "provider-source", "description": "cite the provider declaration"}],
             allowed_scope=["src/**"], evidence_refs=["src/model_fleet.py:1"],
             convergence_id="s4-native-admission", cycle_id="s4-native-admission",
             target_sha=target_sha, context_repo_root=self.repo, base_dir=self.tools,
@@ -620,7 +620,7 @@ class NativeAdaptiveAdmissionTests(unittest.TestCase):
         request = self.ai.create_agent_invocation_request(
             target_agent=agent_name, role="challenger_plan",
             suggested_prompt="Challenge the supplied source claim using its actual first line.",
-            must_satisfy=[{"id": "source-line", "criterion": "cite the supplied source"}],
+            must_satisfy=[{"id": "source-line", "description": "cite the supplied source"}],
             allowed_scope=["src/**"], evidence_refs=["src/model_fleet.py:1"],
             convergence_id="s4-hook-root", cycle_id="s4-hook-root", target_sha=target_sha,
             context_repo_root=self.repo, context_source_paths=["src/model_fleet.py"], base_dir=self.tools,
@@ -1210,7 +1210,7 @@ class NativeAdaptiveAdmissionTests(unittest.TestCase):
         request = self.ai.create_agent_invocation_request(
             target_agent=agent_name, role="verification",
             suggested_prompt="Verify the supplied first source line and cite it. No file changes are required.",
-            must_satisfy=[{"id": "source-line", "criterion": "verify the supplied first source line"}],
+            must_satisfy=[{"id": "source-line", "description": "verify the supplied first source line"}],
             allowed_scope=["src/**"], evidence_refs=["src/model_fleet.py:1"],
             convergence_id="s4-native-verification", cycle_id="s4-native-verification",
             target_sha=target_sha, context_repo_root=self.repo, base_dir=self.tools,

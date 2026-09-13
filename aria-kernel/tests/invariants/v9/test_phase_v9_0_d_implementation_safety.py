@@ -28,13 +28,14 @@ _REPO_ROOT = Path(__file__).resolve().parents[4]
 class TestV9HardFailRegistry(unittest.TestCase):
 
     def test_i_v9_safety_15_hard_fail_checks(self):
-        """HARD_FAIL_CHECKS MUST contain exactly 17 entries. v1 plan had
+        """HARD_FAIL_CHECKS MUST contain exactly 18 entries. v1 plan had
         6; v3 audit grew to 15; Plan 031 §031e added the 16th
         (expert_consensus_evidence_verified); the plan-coverage gate
-        (ORPHAN-HIGH-310) added the 17th (plan_coverage_witness_verified)."""
+        (ORPHAN-HIGH-310) added the 17th (plan_coverage_witness_verified);
+        ARIA-HIGH-104 added the 18th (commit_contract_honoured)."""
         self.assertEqual(
-            len(_is.HARD_FAIL_CHECKS), 17,
-            f"HARD_FAIL_CHECKS count drifted: {len(_is.HARD_FAIL_CHECKS)} (expected 17)",
+            len(_is.HARD_FAIL_CHECKS), 18,
+            f"HARD_FAIL_CHECKS count drifted: {len(_is.HARD_FAIL_CHECKS)} (expected 18)",
         )
 
     # ORPHAN-CRITICAL-428 — the count above was the ONLY thing pinned, and
@@ -211,6 +212,7 @@ class TestV9HardFailRegistry(unittest.TestCase):
             "cycle_and_turn_budget_cap", "content_hash_recheck",
             "expert_consensus_evidence_verified",
             "plan_coverage_witness_verified",
+            "commit_contract_honoured",
         }
         actual = {c.name for c in _is.HARD_FAIL_CHECKS}
         self.assertEqual(
@@ -816,6 +818,11 @@ class TestPhaseAGateExitCriterion(unittest.TestCase):
             validation_commands=_is.CANONICAL_VALIDATION_COMMANDS,
             base_branch="main",
             pr_body="\n\n".join(f"## {s}\ncontent" for s in REQUIRED_PR_SECTIONS),
+            # ARIA-HIGH-104 (4) — a plan-less (operator-lane) action with one
+            # trailer-free commit; the plan-originated shapes are pinned in
+            # tests/test_plan_origin_commit_contract.py.
+            commit_contract=None,
+            branch_commits=({"sha": "a" * 40, "subject": "docs: note", "body": ""},),
         )
 
     def test_pre_pr_open_gate_passes_for_a_clean_action(self):
@@ -854,6 +861,17 @@ class TestPhaseAGateExitCriterion(unittest.TestCase):
             },
             "pr_body_templating": {
                 "pr_body": "## Problem\nno other sections"
+            },
+            "commit_contract_honoured": {
+                "commit_contract": {
+                    "schema_version": 1, "plan_id": "plan-x", "origin_kind": "plan",
+                    "origin_finding_id": None, "trailer": None,
+                    "commit_types": ["chore"],
+                },
+                "branch_commits": ({
+                    "sha": "b" * 40, "subject": "fix(x): invented",
+                    "body": "Closes: docs/reviews/orphan-findings.md#ORPHAN-HIGH-001\n",
+                },),
             },
         }
         with tempfile.TemporaryDirectory() as tmp:
@@ -1049,6 +1067,9 @@ class TestV9PublicApi(unittest.TestCase):
             # the private home (the mirror of the Codex runtime-state wrapper).
             "LIMITER_CONTROL_ENV_NAMES", "limiter_control_environment",
             "wrap_managed_claude_in_sandbox", "CLAUDE_LOGIN_CREDENTIALS_FILENAME",
+            # ARIA-HIGH-104 (2) — the one whole-entry matching rule the
+            # pre-PR-open suite check and the merge gate's hygiene battery share.
+            "canonical_command_satisfied_by",
         }
         self.assertEqual(
             set(_is.__all__), canonical,

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import unittest
 
+from aria_kernel.agent_genesis import BANNED_PHRASES
 from aria_kernel.agent_contract import (
     DEFAULT_TARGET_AGENT_WHITELIST,
     REQUEST_ROLES,
@@ -29,8 +30,8 @@ def _good_request(**overrides):
         "allowed_scope": ["aria-kernel/**"],
         "forbidden_scope": ["aria-tools/**"],
         "must_satisfy": [
-            {"id": "MS-1", "statement": "Plan must list the affected adapter."},
-            {"id": "MS-2", "statement": "Plan must include validation commands."},
+            {"id": "MS-1", "description": "Plan must list the affected adapter."},
+            {"id": "MS-2", "description": "Plan must include validation commands."},
         ],
         "validation_commands": ["nx affected --target=test"],
         "expected_output_path": "aria-tools/agent-invocations/results/req-2026-05-07-001.json",
@@ -89,17 +90,18 @@ class RequestValidationTests(unittest.TestCase):
     def test_duplicate_must_satisfy_id_rejected(self) -> None:
         env = _good_request(
             must_satisfy=[
-                {"id": "MS-1", "statement": "first"},
-                {"id": "MS-1", "statement": "second"},
+                {"id": "MS-1", "description": "first"},
+                {"id": "MS-1", "description": "second"},
             ]
         )
         with self.assertRaisesRegex(GovernanceError, "must_satisfy.*duplicate"):
             validate_request(env)
 
-    def test_banned_phrase_in_must_satisfy_statement_rejected(self) -> None:
+    def test_banned_phrase_in_must_satisfy_description_rejected(self) -> None:
         env = _good_request(
             must_satisfy=[
-                {"id": "MS-1", "statement": "Ship this for now and revisit later."},
+                # The phrase is read from the SSoT the validator scans with.
+                {"id": "MS-1", "description": "Ship this " + BANNED_PHRASES[0] + " and revisit later."},
             ]
         )
         with self.assertRaisesRegex(GovernanceError, "banned phrase"):

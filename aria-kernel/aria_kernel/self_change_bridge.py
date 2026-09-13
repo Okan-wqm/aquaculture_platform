@@ -52,13 +52,13 @@ SELF_CHANGE_ROLE = "maintenance_utility"
 SELF_CHANGE_FIELDS: tuple[str, ...] = ("evidence_paths", "problem", "proposed_change")
 SELF_CHANGE_MUST_SATISFY: tuple[dict[str, str], ...] = (
     {"id": "self_change_evidence_paths",
-     "criterion": "details.evidence_paths is a non-empty list of repo-relative file paths that evidence the defect, "
+     "description": "details.evidence_paths is a non-empty list of repo-relative file paths that evidence the defect, "
                   "every one inside ARIA's own scope (allowed_prefixes) and none on an authority surface "
                   "(authority_surfaces); each path was read at the request's target SHA"},
     {"id": "self_change_problem",
-     "criterion": "details.problem states the defect the mission's signal evidences, grounded in evidence_paths"},
+     "description": "details.problem states the defect the mission's signal evidences, grounded in evidence_paths"},
     {"id": "self_change_proposed_change",
-     "criterion": "details.proposed_change states the concrete change to ARIA's own code and how validation_command proves it"},
+     "description": "details.proposed_change states the concrete change to ARIA's own code and how validation_command proves it"},
 )
 SELF_CHANGE_CONTRACT_IDS: tuple[str, ...] = tuple(item["id"] for item in SELF_CHANGE_MUST_SATISFY)
 # The executor's release reason for a malformed answer — harness-class (the

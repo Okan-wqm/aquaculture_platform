@@ -67,6 +67,7 @@ from .independence_check import (
     verify_independence,
 )
 from .ledger import load_declared_jsonl
+from .must_satisfy import architecture_spine_obligation, coverage_gap_obligation, plan_contract_obligation
 from .plan_convergence import (
     TERMINAL_STATES,
     converged_plan_body,
@@ -332,7 +333,7 @@ def _plan_contract_gate_reasons(eval_result: dict[str, Any]) -> dict[str, list[s
     string per undeclared entry — all travel with it: trial ten's body carried
     seven undeclared commands, and an obligation naming only the first would
     have told the primary about one of them. The details are plan-authored
-    text and are rendered as such (see ``_plan_contract_carry``).
+    text and ride as obligation DATA (see ``_plan_contract_carry``).
     """
     from .plan_contract import PLAN_CONTRACT_GATE
 
@@ -354,32 +355,22 @@ def _plan_contract_carry(grouped: dict[str, list[str]]) -> list[dict[str, Any]]:
     """The obligations the next round's primary answers, one per reason code.
 
     The detail strings are the plan's own ``validation_commands[].cmd`` text —
-    LLM-authored in round two and later — and an obligation is rendered in
-    the prompt outside the ``<untrusted_*>`` tags. They are therefore carried
-    as a JSON-encoded list (quoted, escaped, bounded per entry), never as
-    prose the renderer would print verbatim; the reason code alone is the
-    obligation's language.
+    LLM-authored in round two and later. They are DATA on the obligation
+    (``refused_entries``, bounded per entry so a megabyte plan cannot bloat
+    the request row), never part of its description: the description is
+    the kernel's statement and is what the mint's banned-phrase scan reads,
+    so a command spelled with a banned phrase is carried to the primary as
+    the entry to fix rather than making its envelope unmintable. The prompt
+    renderer prints the data delimited and escaped under the bullet.
     """
-    carry = []
-    for code, details in grouped.items():
-        bounded = [detail[:_PLAN_CONTRACT_DETAIL_LIMIT] for detail in details]
-        description = (
-            f"{code} — make plan_content satisfy the Plan contract section of this "
-            "request (architectural_tier claim; validation_commands from the admissible set)"
+    return [
+        plan_contract_obligation(
+            reason_code=code,
+            refused_entries=[detail[:_PLAN_CONTRACT_DETAIL_LIMIT] for detail in details],
+            source="plan-contract-gate",
         )
-        if bounded:
-            # Valid JSON with the two characters that could spell a tag
-            # escaped, so a plan-authored `</untrusted_…>` can never read as
-            # one in the rendered prompt.
-            encoded = json.dumps(bounded).replace("<", "\\u003c").replace(">", "\\u003e")
-            description += "; the entries the gate refused, as data: " + encoded
-        carry.append({
-            "id": "plan_contract:" + code,
-            "kind": "plan_contract_violation",
-            "description": description,
-            "source": "plan-contract-gate",
-        })
-    return carry
+        for code, details in grouped.items()
+    ]
 
 
 def _structured_revision_content(state: dict[str, Any]) -> dict[str, Any] | None:
@@ -1187,25 +1178,24 @@ def run_convergence_drainer(
             # primary revision envelope, resume next cycle.
             state_after = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
             coverage_after = (state_after.get("coverage_by_round") or {}).get(current_round) or {}
+            # Each carry is a measured fact restated by the kernel with its
+            # measurement as data: the node path and the witness's reason,
+            # the spine descriptor, the refused commands are not the
+            # kernel's words and never enter the scanned description.
             coverage_carry = [
-                {
-                    "id": f"coverage:{node.get('node_id')}",
-                    "kind": "coverage_gap",
-                    "description": (
-                        f"{node.get('node_id')}: {node.get('why')} — widen affected_surfaces "
-                        "to address this impact-closure node or add a coverage.waivers entry {node, reason}"
-                    ),
-                    "source": "plan-coverage-witness",
-                }
+                coverage_gap_obligation(
+                    node_id=str(node.get("node_id")),
+                    why=str(node.get("why")),
+                    node_kind=node.get("kind"),
+                    source="plan-coverage-witness",
+                )
                 for node in coverage_after.get("uncovered", [])
             ]
             spine = eval_result.get("architecture_spine")
-            spine_carry = ([{
-                "id": "architecture_spine:" + spine["postcheck_ledger_hash"],
-                "kind": "architecture_spine_regression",
-                "description": "Resolve the native comparison obligation: " + json.dumps(spine, sort_keys=True),
-                "source": "architecture-spine-native-postcheck",
-            }] if isinstance(spine, dict) and spine.get("status") == "regression" else [])
+            spine_carry = (
+                [architecture_spine_obligation(spine=spine, source="architecture-spine-native-postcheck")]
+                if isinstance(spine, dict) and spine.get("status") == "regression" else []
+            )
             # The plan-contract gate row names exactly what the body that
             # would have converged lacks; the primary's satisfaction matrix
             # answers each reason, and the envelope's plan_contract block

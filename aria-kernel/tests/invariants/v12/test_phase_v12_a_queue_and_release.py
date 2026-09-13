@@ -55,7 +55,7 @@ def _seed(tools: Path, prompt: str) -> dict:
         target_agent="aria-challenger-planner",
         role="challenger_plan",
         suggested_prompt=prompt,
-        must_satisfy=[{"id": "v12-queue", "criterion": "the queue is read once"}],
+        must_satisfy=[{"id": "v12-queue", "description": "the queue is read once"}],
         allowed_scope=["aria-kernel/**"],
         convergence_id="conv-v12",
         base_dir=tools,

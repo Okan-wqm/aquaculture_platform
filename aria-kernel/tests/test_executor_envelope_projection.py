@@ -107,7 +107,7 @@ class ExecutorUsesTheKernelProjectionTest(unittest.TestCase):
             "target_agent": "aria-autonomy-planner",
             "expected_output_path": "aria-tools/out/x.json",
             "suggested_prompt": "close the loop",
-            "must_satisfy": [{"id": "M1", "criterion": "hash reproduces"}],
+            "must_satisfy": [{"id": "M1", "description": "hash reproduces"}],
             "allowed_scope": ["aria-kernel/**"],
             "evidence_refs": ["docs/x.md:1"],
             "repository_map": {"projects": ["aria-kernel"]},

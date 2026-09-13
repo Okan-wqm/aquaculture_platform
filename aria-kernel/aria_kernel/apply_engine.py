@@ -492,6 +492,7 @@ def _staged_validation_inputs(
     from .experiment import _add_recipe_input, _recipe_input_source, _unknown_input_selection
     from .plan_contract import (
         REASON_RECIPE_UNKNOWN,
+        plan_validation_suite,
         resolve_declared_validation_command,
         validation_command_catalog,
     )
@@ -501,7 +502,6 @@ def _staged_validation_inputs(
     # the planners' envelopes and the submit-time refusal are rendered from,
     # so what staging refuses here is exactly what the planner was told.
     catalog = validation_command_catalog(base_dir)
-    commands: list[str] = list(catalog.canonical)
     timeout_ms = CANONICAL_VALIDATION_TIMEOUT_MS
     contributors = {}
     contributor_ids = set()
@@ -534,8 +534,6 @@ def _staged_validation_inputs(
             continue
         if recipe is not None:
             timeout_ms = max(timeout_ms, int(recipe["timeout_ms"]))
-        if command not in commands:
-            commands.append(command)
         if recipe is not None and recipe.get("input_scope") is not None:
             source, reason = _recipe_input_source(recipe, command)
             if reason is not None:
@@ -559,6 +557,14 @@ def _staged_validation_inputs(
                 # precedence; no selected reference/descriptor prefix survives.
                 contributors.clear()
 
+    # ARIA-HIGH-104 (1) — the command list is the plan contract's own
+    # composition (canonical suite + declared entries), read through the one
+    # function the envelope mint and the request validator read, so the suite
+    # staging runs as baseline is byte-for-byte the suite the implementer is
+    # told to run and the merge gate later demands evidence for. The loop
+    # above has already refused every violation in staging's wording, so this
+    # call cannot raise here.
+    commands = list(plan_validation_suite(converged_plan, base_dir=base_dir, catalog=catalog))
     for command in commands:
         parse_allowed_command(command)
     selection = None
@@ -581,24 +587,18 @@ def _staged_validation_inputs(
 def _intended_files_from_plan(converged_plan: dict[str, Any]) -> list[str]:
     """The change's ``intended_affected_files``, from the plan's own claims.
 
-    Both spellings the repository actually produces are read: ``key_changes``
-    entries carry ``paths`` (plan_synthesizer._cluster_changes) or ``file``
-    (the aria-implementer contract's shape), and ``affected_surfaces`` is read
-    through plan_convergence's own reader so the ledger's file list cannot
-    disagree with the list the plan validator accepted.
+    ``key_changes`` entries are read through ``plan_convergence.key_change_paths``
+    — the ONE key-change shape (ARIA-HIGH-104 (3); the ``file`` spelling this
+    function once also read was the implementer prompt's invention, written by
+    no producer) — and ``affected_surfaces`` through plan_convergence's own
+    reader, so the ledger's file list cannot disagree with the list the plan
+    validator accepted.
     """
-    from .plan_convergence import affected_surface_paths
+    from .plan_convergence import affected_surface_paths, key_change_paths
 
     files: set[str] = set(affected_surface_paths(converged_plan.get("affected_surfaces") or []))
     for change in converged_plan.get("key_changes") or []:
-        if not isinstance(change, dict):
-            continue
-        single = change.get("file")
-        if isinstance(single, str) and single.strip():
-            files.add(single.strip())
-        for path in change.get("paths") or []:
-            if isinstance(path, str) and path.strip():
-                files.add(path.strip())
+        files.update(path.strip() for path in key_change_paths(change))
     if not files:
         raise GovernanceError(
             "stage_plan_declares_no_files: the CONVERGED plan carries neither "

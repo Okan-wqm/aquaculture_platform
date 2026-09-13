@@ -282,8 +282,9 @@ class TheGateReasonsAreCarriedAsData(unittest.TestCase):
     next round's must_satisfy. One obligation per reason code (unique ids),
     every refused entry kept — trial ten's body carried seven undeclared
     commands and an obligation naming only the first would have told the
-    primary about one — and the entries, which are plan-authored text
-    rendered outside the untrusted tags, travel JSON-encoded and bounded."""
+    primary about one — and the entries, which are plan-authored text, ride
+    as obligation DATA (``refused_entries``, bounded), never in the
+    kernel-authored description the mint's banned-phrase scan reads."""
 
     def test_all_refused_entries_travel_under_one_obligation_per_code(self) -> None:
         from aria_kernel.convergence_drainer import _plan_contract_carry, _plan_contract_gate_reasons
@@ -305,18 +306,35 @@ class TheGateReasonsAreCarriedAsData(unittest.TestCase):
         self.assertEqual([item["id"] for item in carry],
                          ["plan_contract:plan_architectural_tier_missing",
                           "plan_contract:plan_validation_command_not_declared"])
-        description = carry[1]["description"]
+        # Plan-authored text is data: bounded, under its own key, and absent
+        # from the description — so a command spelled with a banned phrase
+        # is carried, not fatal to the mint.
+        self.assertEqual(carry[1]["refused_entries"], commands + [evil[:120]])
+        self.assertEqual(carry[1]["reason_code"], "plan_validation_command_not_declared")
         for command in commands:
-            self.assertIn(json.dumps(command), description)
-        # Plan-authored text is data: quoted, escaped, bounded — never printed
-        # raw, and never able to spell a tag.
-        self.assertNotIn(evil, description)
-        payload = description.split("as data: ", 1)[1]
-        self.assertNotIn("<", payload)
-        self.assertNotIn(">", payload)
-        self.assertEqual(json.loads(payload), commands + [evil[:120]])
+            self.assertNotIn(command, carry[1]["description"])
+        self.assertNotIn(evil[:40], carry[1]["description"])
+        self.assertIn("`refused_entries`", carry[1]["description"])
+        self.assertEqual(carry[0]["refused_entries"], [])
         self.assertTrue(carry[0]["description"].startswith("plan_architectural_tier_missing — "))
         self.assertEqual({item["kind"] for item in carry}, {"plan_contract_violation"})
+        # Rendered, the data block is delimited and cannot close its own tag.
+        from aria_kernel.agent_invocations import _render_obligation_data
+
+        rendered = "\n".join(_render_obligation_data(carry[1]))
+        self.assertIn('<obligation_data id="plan_contract:plan_validation_command_not_declared">', rendered)
+        self.assertNotIn("</untrusted_primary_plan>", rendered)
+        self.assertEqual(json.loads(rendered.splitlines()[1])["refused_entries"], commands + [evil[:120]])
+
+    def test_a_refused_command_spelled_with_a_banned_phrase_still_carries(self) -> None:
+        from aria_kernel.convergence_drainer import _plan_contract_carry
+        from aria_kernel.draft_intent import BANNED_PHRASES_DEFAULT
+
+        # Read from the SSoT the mint scans rather than spelled here.
+        command = "echo skip tests " + BANNED_PHRASES_DEFAULT[0]
+        carry = _plan_contract_carry({"plan_validation_command_not_declared": [command]})
+        self.assertEqual(carry[0]["refused_entries"], [command])
+        self.assertNotIn(BANNED_PHRASES_DEFAULT[0], carry[0]["description"])
 
 
 if __name__ == "__main__":

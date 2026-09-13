@@ -73,7 +73,7 @@ def _seed_review_request(tools: Path) -> str:
         target_agent="aria-adversarial-judge",
         role=_ADVERSARIAL_ROLE,
         suggested_prompt="audit the implementation against must_satisfy",
-        must_satisfy=[{"id": "gate-binding-test", "criterion": "gate needs evidence"}],
+        must_satisfy=[{"id": "gate-binding-test", "description": "gate needs evidence"}],
         allowed_scope=["aria-kernel/**"],
         convergence_id="conv-gate-001",
         base_dir=tools,
@@ -109,7 +109,7 @@ def _run_review(tools: Path, **overrides: object) -> ReviewResult:
         "convergence_id": "conv-gate-001",
         "impl_artifacts_ref": "",
         "worker_artifact_hash": "",
-        "must_satisfy": [{"id": "gate-binding-test", "statement": "gate needs evidence"}],
+        "must_satisfy": [{"id": "gate-binding-test", "description": "gate needs evidence"}],
         "max_review_rounds": 1,
         "judge_timeout_seconds": 0.4,
     }

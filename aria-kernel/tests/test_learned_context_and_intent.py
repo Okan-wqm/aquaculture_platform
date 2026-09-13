@@ -68,7 +68,7 @@ def _mint(tools: Path, *, evidence_refs: list[str], repo_root: Path | None = Non
         target_agent="aria-primary-planner",
         role="primary_plan",
         suggested_prompt="harden the feed write path",
-        must_satisfy=[{"id": "K1", "criterion": "root cause fixed"}],
+        must_satisfy=[{"id": "K1", "description": "root cause fixed"}],
         allowed_scope=["apps/farm-service/**"],
         evidence_refs=evidence_refs,
         convergence_id="conv-know",
@@ -247,7 +247,7 @@ class RejectedHistoryAtMintTest(unittest.TestCase):
                 return ai.create_agent_invocation_request(
                     target_agent="aria-evidence-judge", role="evidence_judgment",
                     suggested_prompt="Check the feed rate using repository evidence.",
-                    must_satisfy=[{"id": "feed-evidence", "criterion": "cite the feed rate source"}],
+                    must_satisfy=[{"id": "feed-evidence", "description": "cite the feed rate source"}],
                     allowed_scope=["src/**"], evidence_refs=["src/feed.py:1"],
                     convergence_id=cycle, cycle_id=cycle, target_sha=target_sha,
                     context_repo_root=repo, base_dir=tools,
@@ -336,7 +336,7 @@ class _NativeHistoryFixture:
         return ai.create_agent_invocation_request(
             target_agent="aria-evidence-judge", role="evidence_judgment",
             suggested_prompt="Check the feed rate using repository evidence.",
-            must_satisfy=[{"id": "feed-evidence", "criterion": "cite the feed rate source"}],
+            must_satisfy=[{"id": "feed-evidence", "description": "cite the feed rate source"}],
             allowed_scope=["src/**"] if scope is None else scope,
             evidence_refs=["src/feed.py:1"] if refs is None else refs,
             convergence_id=cycle, cycle_id=cycle, target_sha=self.target_sha,

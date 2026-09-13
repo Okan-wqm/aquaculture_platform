@@ -177,6 +177,183 @@ class TestV9ImplementerAgentFile(unittest.TestCase):
             )
 
 
+class TestV9ImplementerPromptReadsTheDataModel(unittest.TestCase):
+    """ARIA-HIGH-104 (3) — every ``key_changes[].<field>`` the implementer
+    prompt cites is a field the plan data model defines.
+
+    The prompt used to read ``key_changes[].file`` while the skeleton defined
+    strings and the synthesizer emitted ``paths``: an agent following its
+    prompt found no file to verify and no path to write. The field names are
+    read from ``plan_convergence.KEY_CHANGE_FIELDS`` — the one shape the plan
+    contract enforces, staging reads and the envelope's obligations carry —
+    so a renamed field is a red test here, not a silent no-op in the agent.
+    """
+
+    _CITATION = re.compile(r"key_changes\[\]\.([A-Za-z_]+)")
+    # A `key_changes:` YAML example inside a code fence: the entry lines that
+    # follow it (`  - field: …` / `    field: …`) until the fence closes or the
+    # indentation returns to the key's own level.
+    _YAML_BLOCK = re.compile(r"^key_changes:\n((?:[ \t]+.*\n)+)", re.MULTILINE)
+    _YAML_FIELD = re.compile(r"^[ \t]+-?[ \t]*([A-Za-z_]+):", re.MULTILINE)
+    # Both files the implementer is told to Read as its SSoT: the residue the
+    # ARIA-HIGH-104 verifier found (`- file:`) sat in the shared contract,
+    # which the first version of this pin never opened.
+    _PROMPT_FILES = (_AGENT_FILE, _SHARED_CONTRACT_FILE)
+
+    def _cited_fields(self, body: str) -> set[str]:
+        cited = set(self._CITATION.findall(body))
+        for block in self._YAML_BLOCK.findall(body):
+            cited.update(self._YAML_FIELD.findall(block))
+        return cited
+
+    def test_every_cited_key_change_field_exists(self) -> None:
+        from aria_kernel.plan_convergence import KEY_CHANGE_FIELDS
+
+        cited_anywhere: set[str] = set()
+        for path in self._PROMPT_FILES:
+            body = path.read_text(encoding="utf-8")
+            cited = self._cited_fields(body)
+            with self.subTest(file=path.name):
+                self.assertTrue(cited, f"{path.name} cites no key_changes[] field at all")
+                self.assertEqual(
+                    cited - set(KEY_CHANGE_FIELDS), set(),
+                    f"{path.name} cites key_changes[] fields the data model lacks: "
+                    f"{sorted(cited - set(KEY_CHANGE_FIELDS))}; KEY_CHANGE_FIELDS={KEY_CHANGE_FIELDS}",
+                )
+            cited_anywhere |= cited
+        self.assertIn("paths", cited_anywhere)
+
+    def test_the_yaml_scan_reads_an_example_the_way_the_residue_was_written(self) -> None:
+        # The scan has to see the exact shape that evaded the first pin, or a
+        # green run here proves nothing about the shared contract.
+        residue = "```\nkey_changes:\n  - file: .claude/agents/aria-implementer.md\n    description: relax\n```\n"
+        self.assertEqual(self._cited_fields(residue), {"file", "description"})
+        current = "```yaml\nkey_changes:\n  - id: kc-1\n    description: d\n    paths: [a.ts]\n```\n"
+        self.assertEqual(self._cited_fields(current), {"id", "description", "paths"})
+
+    def test_the_plan_contract_refuses_the_field_the_prompt_used_to_cite(self) -> None:
+        import tempfile
+
+        from aria_kernel.plan_contract import REASON_KEY_CHANGE_SHAPE, plan_contract_violations
+
+        with tempfile.TemporaryDirectory() as tmp:
+            violations = plan_contract_violations(
+                {"architectural_tier": 1, "validation_commands": [],
+                 "key_changes": [{"file": "apps/x.ts", "description": "d"}, "a string step",
+                                 {"id": "k", "description": "d", "paths": ["apps/x.ts"]}]},
+                base_dir=Path(tmp) / "aria-tools",
+            )
+        self.assertEqual(len(violations), 1)
+        self.assertTrue(violations[0].startswith(f"{REASON_KEY_CHANGE_SHAPE}:key_changes[0]"))
+        self.assertIn("unknown field(s) ['file']", violations[0])
+
+
+class TestV9ImplementerPromptCitesRealKernelCommands(unittest.TestCase):
+    """ARIA-HIGH-104 verifier — the prompt told the agent to record runs via
+    `validation-run submit`, a subcommand the kernel CLI has never had; the
+    one recording path is `apply gate`. Every command the implementer prompt
+    and the shared contract cite — spelled `python3 -m aria_kernel <group>
+    <sub>` OR bare, the way the residue read ("each recorded via
+    validation-run submit") — is resolved through `cli.build_parser()`'s own
+    subparser tree, so a renamed or invented subcommand is a red test here
+    rather than a step the agent cannot take. The round-2 re-verifier found
+    the first version of this pin scanning the qualified form only: it was
+    green over the very line it was written for."""
+
+    # `python3 -m aria_kernel` followed by one or two bare words (a group and
+    # its subcommand); a line break inside a backtick span is one space.
+    _CITATION = re.compile(r"python3 -m aria_kernel\s+([a-z][a-z0-9-]*)(?:\s+([a-z][a-z0-9-]*))?")
+    # A bare citation: a group-shaped token (a real CLI group, or a
+    # hyphenated lowercase name — the CLI's own group spelling, and how the
+    # residue's `validation-run` read) followed by one of the verbs an agent
+    # is told to run to WRITE into the kernel. Plain prose ("the triple
+    # gate", "the merge gate") has neither a group nor a hyphen before the
+    # verb and is not a citation.
+    _RECORDING_VERBS = ("submit", "create", "gate", "record", "claim")
+    _BARE_CITATION = re.compile(
+        r"(?<![\w./-])([a-z][a-z0-9]*(?:-[a-z0-9]+)*)\s+(" + "|".join(_RECORDING_VERBS) + r")(?![\w-])"
+    )
+
+    @staticmethod
+    def _subcommands(parser) -> dict[str, object]:
+        import argparse
+
+        for action in parser._actions:
+            if isinstance(action, argparse._SubParsersAction):
+                return dict(action.choices)
+        return {}
+
+    @classmethod
+    def _groups(cls) -> dict[str, object]:
+        from aria_kernel.cli import build_parser
+
+        return cls._subcommands(build_parser())
+
+    @classmethod
+    def _cited(cls, body: str, groups: dict[str, object]) -> set[tuple[str, str | None]]:
+        """Every command the text cites, qualified or bare."""
+        flat = " ".join(body.split())
+        cited: set[tuple[str, str | None]] = set(cls._CITATION.findall(flat))
+        for name, verb in cls._BARE_CITATION.findall(flat):
+            if name in groups or "-" in name:
+                cited.add((name, verb))
+        return cited
+
+    @classmethod
+    def _unresolved(cls, body: str, groups: dict[str, object]) -> list[str]:
+        """The cited commands the parser tree does not have."""
+        missing = []
+        for group, sub in sorted(cls._cited(body, groups), key=lambda pair: (pair[0], pair[1] or "")):
+            if group not in groups:
+                missing.append(f"{group} {sub}".strip() + " (no such CLI group)")
+            elif sub and sub not in cls._subcommands(groups[group]):
+                missing.append(f"{group} {sub} (no such subcommand of {group})")
+        return missing
+
+    def test_every_cited_subcommand_exists(self) -> None:
+        groups = self._groups()
+        cited_anywhere: set[tuple[str, str | None]] = set()
+        for path in (_AGENT_FILE, _SHARED_CONTRACT_FILE):
+            body = path.read_text(encoding="utf-8")
+            with self.subTest(file=path.name):
+                self.assertEqual(self._unresolved(body, groups), [])
+            cited_anywhere |= self._cited(body, groups)
+        self.assertTrue(cited_anywhere, "the implementer prompt cites no kernel CLI command at all")
+        self.assertIn(("apply", "gate"), cited_anywhere)
+
+    def test_the_recording_verbs_are_subcommands_the_cli_has(self) -> None:
+        # The verb list cannot drift from the CLI: each is a real subcommand
+        # of some group, so a renamed verb is a red test, not a dead scan.
+        groups = self._groups()
+        verbs = {sub for group in groups.values() for sub in self._subcommands(group)}
+        self.assertEqual(set(self._RECORDING_VERBS) - verbs, set())
+
+    def test_the_scan_sees_the_citation_that_was_wrong(self) -> None:
+        groups = self._groups()
+        qualified = "Record each run via `python3 -m aria_kernel\n   validation-run submit`."
+        self.assertEqual(self._unresolved(qualified, groups), ["validation-run submit (no such CLI group)"])
+        # The pristine line, spelled the way the agent file read it: bare,
+        # broken across a line, no backticks — the residue the qualified scan
+        # never saw.
+        pristine = (
+            "`npm run type-check` and affected tests, each recorded via\n"
+            "   validation-run submit — the triple gate blocks\n"
+            "   (`triple_gate_hygiene_run_missing:<dimension>`) without all three."
+        )
+        self.assertEqual(self._cited(pristine, groups), {("validation-run", "submit")})
+        self.assertEqual(self._unresolved(pristine, groups), ["validation-run submit (no such CLI group)"])
+        # The corrected line resolves; prose around a verb is not a citation.
+        current = (
+            "The one recorded run — the evidence the merge gate's hygiene battery joins on — is the "
+            "apply gate's (step 8b); `python3 -m aria_kernel apply gate --proposal-id <id>`; "
+            "the triple gate blocks; raw `gh pr create` is NOT an alternative."
+        )
+        self.assertEqual(self._cited(current, groups), {("apply", "gate"), ("pr", "create")})
+        self.assertEqual(self._unresolved(current, groups), [])
+        # An invented subcommand of a real group is caught too.
+        self.assertEqual(self._unresolved("run `apply record` first", groups), ["apply record (no such subcommand of apply)"])
+
+
 class TestV9ImplementerRunnerSelectionIsDerived(unittest.TestCase):
     """I-V9-IMPL-03 (ORPHAN-HIGH-728) — the agent above only ever runs if a
     runner selects it, and that selection must READ the profile table rather

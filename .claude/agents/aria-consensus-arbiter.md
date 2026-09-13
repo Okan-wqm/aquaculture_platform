@@ -55,7 +55,7 @@ When the kernel invokes you via the bound async queue, you receive a single `ari
 
 - `request_id`, `cycle_id`, `target_agent: "aria-consensus-arbiter"`, `expected_output_path`.
 - `evidence_refs[]` — paths to the submitted judge responses (`aria/agent-response/v1` files from `aria-evidence-judge`, `aria-adversarial-judge`, etc.). NOT new repo evidence — your input is the judges' verdicts.
-- `must_satisfy[]` — typically a single item: `{id: "MS-1", statement: "Aggregate the supplied judge verdicts and emit a consensus that satisfies the >=2 unique judges + agreement + mean confidence >=0.80 gate"}`.
+- `must_satisfy[]` — typically a single item: `{id: "MS-1", description: "Aggregate the supplied judge verdicts and emit a consensus that satisfies the >=2 unique judges + agreement + mean confidence >=0.80 gate"}`.
 
 ### Outputs you produce
 

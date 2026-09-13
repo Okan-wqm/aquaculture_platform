@@ -1316,13 +1316,25 @@ The two rules, in the one wording the refusals use:
   `plan_architectural_tier_invalid`.
 * Every `plan_content.validation_commands[]` entry is either `{cmd}` naming one of the admissible
   commands — the canonical executable suite (`implementation_safety.CANONICAL_VALIDATION_COMMANDS_EXECUTABLE`:
-  `npx nx affected --target=test`, `npx nx affected --target=lint`, `npm run type-check`; matched
+  `npx nx affected --target=test`, `npx nx affected --target=lint`, `npm run type-check`,
+  `npm run format:check`; matched
   after whitespace is collapsed, the bare `nx ...` form read as its `npx nx ...` spelling under
   `implementation_safety.executable_spelling`) or a registered recipe's command — or `{recipe_id}`
   naming a recipe registered with
   `experiment.register_recipe`. Reasons: `plan_validation_command_not_declared`,
   `plan_validation_recipe_unknown`. `resolve_declared_validation_command` is the ONE matching rule;
   staging reads it too, so what a planner was told is what staging runs.
+* Every `plan_content.key_changes[]` entry is a string (one step) or an object
+  `{id?, description, paths?}` (`plan_convergence.KEY_CHANGE_FIELDS`); any other object shape is
+  refused as `plan_key_change_shape` (ARIA-HIGH-104 (3) — the implementer prompt used to read a
+  `file` field no producer wrote).
+* `plan_content.finding_id`, when present, names an origin `plan_origin` derives a commit contract
+  for — `ORPHAN-<SEV>-NNN` or `F-NNN` / `F-AUTO-V<x.y>-<TOPIC>`; any other id is refused as
+  `plan_origin_unrecognised` at submission and at the `plan_contract_complete` gate, the same read
+  the implementation mint makes, so a plan the mint would refuse never CONVERGES (a registry-form
+  `<PREFIX>-<SEV>-NNN` id is one the kernel does not contract: the review-file binding the commit-msg
+  gate checks lives in the checkout's `findings.jsonl`, not the plan store, and no synthesizer source
+  mints such a plan).
 
 Where it is stated (rendered, never retyped): every planning envelope
 (`convergent_planning_bridge.issue_challenger_envelope`, `cross_review_bridge.issue_cross_review_envelope`,
@@ -1472,6 +1484,103 @@ release under `native_runtime_provider_undecided` and the hook reports `provider
 `tests/test_ci_executor_live_path_smoke.py` (Codex `Not logged in` + exit 1 is decided once and the
 fleet reaches `no_eligible_provider`) and `tests/test_native_admission_status_budget.py`
 (ARIA-HIGH-075's arithmetic under the new bound).
+
+## 12.17 — The Implementer→Merge Seam (ARIA-HIGH-104)
+
+Five gaps between the implementation envelope and the gates behind it, each a rule one side enforced
+and no contract stated. What is now true, in one derivation per fact:
+
+* **The request row is the request envelope.** `agent_invocations.create_agent_invocation_request`
+  writes `$schema` = `agent_contract.REQUEST_SCHEMA` (`aria/agent-request/v1`; rows sealed earlier
+  carry `aria/agent-invocation-request/v1` and replay unchanged — nothing reads a row's `$schema`
+  back), always writes `forbidden_scope` and `validation_commands`, and for every role in
+  `agent_contract.CONTRACT_ENFORCED_ROLES` (`implementation`) calls `validate_request(row, base_dir)`
+  BEFORE the append — a row the contract refuses never reaches the queue, and the plan stays
+  CONVERGED. ORPHAN-MEDIUM-572's dormant `validate_request` has its production caller. The set's
+  boundary is what the contract binds — a request to its cycle (`cycle_id`) and to the plan
+  revision it works from (`convergence_id` + `plan_revision_hash`); the implementation role has
+  both on every production mint, while the operator-driven judge, curation, questioning and
+  self-change lanes run in no cycle and implement no plan revision, so the contract has nothing to
+  bind them to (their rows are held by the queue's field validation at mint and `validate_response`
+  at submit).
+* **`validation_commands` are derived, never supplied.** `plan_contract.plan_validation_suite(body)`
+  is the ONE composition (canonical executable suite + the body's declared entries resolved through
+  the contract's matching rule); staging's baseline and staged apply action, the queue's
+  `_validation_commands_for_revision` (over `plan_convergence.plan_body_for_revision`, the body the
+  row's `convergence_id` + `plan_revision_hash` name — the CONVERGED body for the implementation role,
+  the seed's for a planner — through `plan_contract.envelope_validation_suite`, which states an
+  EMPTY suite for a body whose declared commands the contract refuses rather than one the lane
+  cannot run) and `validate_request`'s agreement check all read it. The drainer's opener
+  (`convergent_planning_bridge.start_convergent_plan_drafted_by_primary`) refuses such a seed
+  before the plan is opened (`require_plan_contract(..., require_tier=False)`), so no round is spent
+  on a body the `plan_contract_complete` gate would refuse
+  (`validation_commands_disagree_with_plan_revision`; an implementation envelope must name a body the
+  store reproduces, `implementation_plan_body_unavailable`, and its `commit_contract` must equal the
+  origin's derivation, `commit_contract_disagrees_with_plan_origin`). The prompt prints the list under
+  `## Validation commands`; the implementation `must_satisfy` obligation `validation:canonical_suite`
+  carries it as data.
+* **One validation suite.** `validation_suite.CANONICAL_VALIDATION_COMMANDS` (re-exported by
+  `implementation_safety` under the names every importer uses) grew `npm run format:check`;
+  `auto_merge._HYGIENE_DIMENSIONS` IS that tuple (one dimension per command, reason
+  `triple_gate_hygiene_run_missing:<command>`), and `canonical_command_satisfied_by` is the
+  whole-entry matching rule the pre-PR-open `test_gate_canonical_suite` check and the hygiene battery
+  share. The suite lives below `command_policy` so the implementer's Bash allowlist is DERIVED from it
+  too: `command_policy.VALIDATION_SUITE_RULES` is one allow rule per executable spelling
+  (`validation_suite.bash_allow_pattern_for` — the invocation plus trailing narrowing arguments), so
+  the commands the envelope and the prompt tell the implementer to run are commands its PreToolUse
+  hook admits, by construction (the hand-kept rules admitted `npm run format`, which writes, and a
+  bare `nx`, and refused three of the four suite entries). A direct run by the agent records nothing;
+  the recorded run the merge gate reads is the apply gate's (`validation.run_validation_commands`
+  at the branch HEAD). `tests/test_validation_suite_ssot.py` pins that every command the merge gate
+  requires is one the plan contract admits, the implementer contract names, and the implementer's
+  own gate (kernel matcher, hook and Claude projection) allows.
+* **One `key_changes[]` shape.** `plan_convergence.KEY_CHANGE_FIELDS` = `(id, description, paths)`
+  with `key_change_description` / `key_change_paths` / `key_change_violation`; the plan contract
+  refuses any other object (`plan_key_change_shape`), staging's `intended_affected_files` and the
+  envelope's per-change obligations read `paths`, and the implementer prompt cites only fields in
+  that tuple (`tests/invariants/v9/test_phase_v9_1_aria_implementer_agent.py` derives the check).
+* **The commit trailer is the kernel's.** `plan_synthesizer.convert_candidate_to_plan_content` stamps
+  a finding-sourced plan's origin into `plan_content.finding_id`; `plan_origin.commit_contract_for_plan`
+  derives the `commit_contract` — the exact `Closes: docs/reviews/orphan-findings.md#ORPHAN-<SEV>-NNN`
+  line for an ORPHAN origin, no trailer (and only the commit types the gate does not require one for:
+  `refactor`, `test`, `chore`) for an origin the gate cannot resolve on a CI checkout (`aria-findings/`
+  is gitignored, so an F-NNN trailer fails the range check) or for a plan with no finding. It rides on
+  the implementation envelope as a structured field, the prompt prints it under `## Commit contract`,
+  and the pre-PR-open check `commit_contract_honoured` (`HardFailContext.commit_contract` +
+  `branch_commits`, supplied by `pr_manager.open_pr_for_action`) refuses a branch whose commits carry
+  anything else. The mirrored gate rules (`REQUIRE_CLOSES_SUBJECT_RE`, `CLOSES_TRAILER_RE`) are pinned
+  against `tools/gates/commit-msg-validator.ts` by `tests/test_plan_origin_commit_contract.py`.
+* **One `must_satisfy` item shape.** `aria_kernel/must_satisfy.py`: `{id, description, kind?, ...data}`,
+  built through `must_satisfy_item`, validated by `validate_must_satisfy` (which
+  `agent_contract._ensure_must_satisfy` and the queue's mint both call), rendered through
+  `must_satisfy_text`. The `statement` field the validator once required had no producer; the
+  `criterion` spelling the judge lanes minted is readable on sealed rows only (prompt-hash replay) and
+  unmintable. `description` is KERNEL-AUTHORED, always: the banned-phrase scan the validator applies
+  is a rule over what the kernel asserts, and the plan contract applies no such rule to a plan body —
+  a CONVERGED plan whose key change named a file carrying a banned word was refused at its
+  implementation mint, every cycle. Text a plan or an agent wrote rides as DATA under its own key: `key_change_obligation`
+  carries the plan's wording as `plan_description` (plus `key_change_id`, `paths`) and
+  `waiver_adjudication_obligation` carries a waiver's `claimed_reason` (plus `node_id`); both compose
+  the description themselves, so no producer has a parameter through which foreign prose reaches the
+  scanned field (`cross_review_bridge._implementation_must_satisfy`,
+  `issue_completeness_critic_envelope`, the orchestrator's convergence obligations). The same rule
+  holds for the suite: a registered recipe's command is opaque operator text
+  (`experiment.register_recipe` validates none of it), so the `validation:canonical_suite` obligation
+  carries the suite under its `validation_commands` data key and its description names that key
+  rather than joining the commands in (`tests/test_must_satisfy_shape.py` drives a plan declaring a
+  recipe whose command carries a banned word to CONVERGED and mints its envelope). Prompt render
+  version 6 (`agent_invocations.PROMPT_RENDER_VERSION`) renders each obligation's data keys under its
+  bullet as an `<obligation_data id=…>` JSON block (`<` escaped; the DATA notice names the tag) — the
+  `content_hash`, `paths` and `plan_description` the contract says the agent receives were, before v6,
+  never shown to it; v5 rows keep their v5 bytes for prompt-hash replay. Agent files document the item
+  shape from the module constants (`tests/test_must_satisfy_shape.py` scans `.claude/agents/aria-*.md`,
+  `_shared/*.md` and the canonical-envelope knowledge file).
+
+`tests/test_implementer_merge_seam.py` drives a plan to CONVERGED, runs
+`AutonomousV9ImplementationRunner.run` under `strict`, and asserts the minted envelope validates under
+`validate_request`, carries the plan's suite, its commit contract, and a prompt naming `paths` and the
+trailer; `tests/test_must_satisfy_shape.py`, `tests/test_plan_origin_commit_contract.py`,
+`tests/test_validation_suite_ssot.py` and `tests/test_request_contract_minter.py` own the parts.
 
 ## 13 — Phase-1 PoC (IMPLEMENTED)
 
@@ -1982,7 +2091,7 @@ not substitute for this mint qualification.
   root on the public controller preserves legacy optional orientation, with no qualified feature
   claim. No signer, model, profile, merge, review or credential permission changes are implied.
 
-New prompts use render version 5. The native request captures qualification and whole feature entries
+New prompts use render version 6 (5 plus the `<obligation_data>` block, §12.17). The native request captures qualification and whole feature entries
 before sealing. Selection considers at most eight candidates/four displayed entries and 1,200
 estimated tokens for the feature section, including labels/diagnostics, under the existing total
 context cap. Up to four unavailable-source diagnostics are displayed with an omission count.

@@ -2954,6 +2954,65 @@ def _validate_id(value: str, field: str) -> None:
         raise GovernanceError(f"{field} contains invalid characters")
 
 
+# ARIA-HIGH-104 (3) — the ONE ``key_changes[]`` entry shape. An entry is
+# either a string (one numbered plan step) or an object carrying
+# ``description`` (the step), optional ``paths`` (the repo-relative files the
+# step touches — the spelling `plan_synthesizer._cluster_changes` and
+# `convert_candidate_to_plan_content` emit) and optional ``id``. The
+# implementer prompt used to read ``key_changes[].file``, a field no producer
+# wrote and no validator knew; the field names below are what that prompt
+# may cite (tests/invariants/v9/test_phase_v9_1_aria_implementer_agent.py
+# derives its check from this tuple), what staging reads for
+# ``intended_affected_files`` and what the envelope's per-change obligations
+# carry.
+KEY_CHANGE_FIELDS: tuple[str, ...] = ("id", "description", "paths")
+
+
+def key_change_description(change: Any) -> str:
+    """The step text of one ``key_changes[]`` entry."""
+    if isinstance(change, str):
+        return change
+    if isinstance(change, dict):
+        return str(change.get("description") or "")
+    return ""
+
+
+def key_change_id(change: Any) -> str | None:
+    """The plan's own id for one ``key_changes[]`` entry, or None (a string step has none)."""
+    if not isinstance(change, dict):
+        return None
+    value = change.get("id")
+    return value if isinstance(value, str) and value.strip() else None
+
+
+def key_change_paths(change: Any) -> list[str]:
+    """The repo paths one ``key_changes[]`` entry declares (a string step declares none)."""
+    if not isinstance(change, dict):
+        return []
+    paths = change.get("paths")
+    return [path for path in paths if isinstance(path, str) and path.strip()] if isinstance(paths, list) else []
+
+
+def key_change_violation(change: Any) -> str | None:
+    """Why one ``key_changes[]`` entry is not the shape above, or None."""
+    if isinstance(change, str):
+        return None if change.strip() else "empty string entry"
+    if not isinstance(change, dict):
+        return f"entry must be a string or an object, got {type(change).__name__}"
+    unknown = sorted(set(change) - set(KEY_CHANGE_FIELDS))
+    if unknown:
+        return f"unknown field(s) {unknown}; an entry carries only {list(KEY_CHANGE_FIELDS)}"
+    description = change.get("description")
+    if not isinstance(description, str) or not description.strip():
+        return "description is required"
+    if "id" in change and (not isinstance(change["id"], str) or not change["id"].strip()):
+        return "id must be a non-empty string when present"
+    paths = change.get("paths")
+    if paths is not None and (not isinstance(paths, list) or not all(_valid_repo_path(path) for path in paths)):
+        return "paths must be a list of repo-relative POSIX paths"
+    return None
+
+
 def affected_surface_paths(affected_surfaces: Any) -> list[str]:
     """Read the file paths out of a plan's ``affected_surfaces`` block.
 
@@ -3113,11 +3172,30 @@ def plan_body_from_state(state: dict[str, Any]) -> dict[str, Any]:
             "latest_revision.content_hash, so no body can be proven to be "
             "the one it converged on"
         )
-    # Every place the reducer keeps a plan body, newest first. `content` is
-    # the post-revision body (revision_recorded), `plan_content` the initial
-    # seed (plan_started) and the challenger draft. Which one is CURRENT is
-    # decided by the hash, never by the order — the order only bounds the
-    # search.
+    body = _recorded_body_hashing_to(state, target_hash)
+    if body is not None:
+        return {
+            "plan_content": body,
+            "revision_id": revision_id,
+            "content_hash": target_hash,
+        }
+    raise GovernanceError(
+        f"plan_body_unavailable_for_revision: no recorded body hashes to "
+        f"{target_hash} (revision_id={revision_id!r}); the ledger holds the "
+        f"revision's identity but not a body that reproduces it"
+    )
+
+
+def _recorded_body_hashing_to(state: dict[str, Any], target_hash: str) -> dict[str, Any] | None:
+    """The recorded body whose content hash is ``target_hash``, or None.
+
+    Every place the reducer keeps a plan body, newest first. `content` is
+    the post-revision body (revision_recorded), `plan_content` the initial
+    seed (plan_started) and the challenger draft. Which one matches is
+    decided by the hash, never by the order — the order only bounds the
+    search.
+    """
+    latest = state.get("latest_revision") or {}
     challenger = state.get("challenger") or {}
     candidates = (
         latest.get("content"),
@@ -3127,16 +3205,32 @@ def plan_body_from_state(state: dict[str, Any]) -> dict[str, Any]:
     for candidate in candidates:
         body = _coerce_plan_body(candidate)
         if body is not None and content_hash(body) == target_hash:
-            return {
-                "plan_content": body,
-                "revision_id": revision_id,
-                "content_hash": target_hash,
-            }
-    raise GovernanceError(
-        f"plan_body_unavailable_for_revision: no recorded body hashes to "
-        f"{target_hash} (revision_id={revision_id!r}); the ledger holds the "
-        f"revision's identity but not a body that reproduces it"
-    )
+            return body
+    return None
+
+
+def plan_body_for_revision(
+    *, plan_id: str, content_hash: str, base_dir: str | Path | None = None,
+) -> dict[str, Any] | None:
+    """The recorded body of ``plan_id`` that hashes to ``content_hash``, or None.
+
+    ARIA-HIGH-104 (1) — the one lookup both the envelope mint
+    (``agent_invocations.create_agent_invocation_request`` deriving
+    ``validation_commands``) and the request validator
+    (``agent_contract.validate_request`` checking them) make, so the two read
+    the same body for the same (plan, revision) pair. None means the store
+    holds no plan of that id, or no recorded body reproduces the hash (a
+    legacy prose revision): a caller that needs the body decides what that
+    absence means for its role.
+    """
+    root = ensure_tools_dir(base_dir)
+    if not events_path(root).is_file():
+        return None
+    state = fold_plan_state(plan_id=plan_id, base_dir=root)
+    if not state.get("plan_started"):
+        return None
+    body = _recorded_body_hashing_to(state, content_hash)
+    return None if body is None else {"plan_content": body, "content_hash": content_hash}
 
 
 def _planning_source_context(state: dict[str, Any], fallback_refs: list[str]) -> tuple[list[str], str | None, list[str] | None]:

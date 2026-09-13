@@ -23,6 +23,7 @@ from tests.invariants.v12 import _helpers  # noqa: F401 — sys.path
 
 from aria_kernel import command_policy as cp
 from aria_kernel import implementation_safety as isf
+from aria_kernel import validation_suite as vs
 
 # The literal pattern sets `implementation_safety` carried before Plan 032
 # Faz 032b-2 (copied verbatim at refactor time). Any drift is a policy change
@@ -65,13 +66,26 @@ _LEGACY_DENY = {
 }
 
 
+# ARIA-HIGH-104 (2) — the one policy change made here on purpose since the
+# refactor: an allow rule per canonical validation command, DERIVED from
+# `validation_suite.CANONICAL_VALIDATION_COMMANDS_EXECUTABLE` (the hand-kept
+# patterns above refused `npm run format:check` and every `npx nx …` entry the
+# implementer's envelope tells it to run). Read from the suite, not retyped,
+# so a command joining the suite is admitted without this literal growing.
+_DERIVED_ALLOW = {
+    vs.bash_allow_pattern_for(spelling) for spelling in vs.CANONICAL_VALIDATION_COMMANDS_EXECUTABLE
+}
+
+
 class TheKernelListsAreDerived(unittest.TestCase):
     def test_I_V12_POLICY_01_patterns_are_the_legacy_patterns(self) -> None:
-        self.assertEqual({r.pattern for r in isf.ALLOWED_BASH_COMMANDS}, _LEGACY_ALLOW)
+        self.assertEqual({r.pattern for r in cp.STATED_ALLOW_RULES}, _LEGACY_ALLOW)
+        self.assertEqual({r.pattern for r in isf.ALLOWED_BASH_COMMANDS}, _LEGACY_ALLOW | _DERIVED_ALLOW)
         self.assertEqual({r.pattern for r in isf.DENIED_BASH_COMMANDS}, _LEGACY_DENY)
         self.assertIs(isf.ALLOWED_BASH_COMMANDS, isf.ALLOWED_BASH_COMMANDS)
         self.assertEqual(isf.ARIA_IMPL_BRANCH_FRAGMENT, cp.ARIA_IMPL_BRANCH_FRAGMENT)
-        self.assertEqual(len(cp.ALLOW_RULES), len(_LEGACY_ALLOW))
+        self.assertEqual(len(cp.STATED_ALLOW_RULES), len(_LEGACY_ALLOW))
+        self.assertEqual(len(cp.ALLOW_RULES), len(_LEGACY_ALLOW) + len(_DERIVED_ALLOW))
         self.assertEqual(len(cp.DENY_RULES), len(_LEGACY_DENY))
         for rule in (*cp.ALLOW_RULES, *cp.DENY_RULES):
             self.assertIsInstance(rule.regex, re.Pattern)

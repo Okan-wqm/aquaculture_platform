@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from .agent_invocations import create_agent_invocation_request
-from .plan_contract import render_plan_contract
+from .plan_contract import render_plan_contract, require_plan_contract
 from .plan_convergence import start_plan
 from .tool_registry import GovernanceError, ensure_tools_dir
 
@@ -49,6 +49,14 @@ def start_convergent_plan_drafted_by_primary(
     """
     if not isinstance(plan_content, dict) or not plan_content:
         raise GovernanceError("plan_content is required and must be a non-empty dict")
+    # ARIA-HIGH-104 (1) — the seed's validation commands must already be ones
+    # the plan contract admits. Every planning envelope minted on this plan
+    # derives its `validation_commands` from the revision it names, and the
+    # `plan_contract_complete` gate refuses the body at CONVERGED anyway: a
+    # seed carrying an undeclared command could start rounds no planner could
+    # converge. Refused here, before the plan is opened, in the contract's
+    # own wording — the tier is not required of a seed (`require_tier=False`).
+    require_plan_contract(plan_content, base_dir=base_dir, require_tier=False)
     plan_row = start_plan(
         plan_id=plan_id,
         plan_content=plan_content,

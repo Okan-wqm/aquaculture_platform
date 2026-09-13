@@ -1038,9 +1038,10 @@ class PlanConvergenceTests(unittest.TestCase):
         self.assertEqual((request["role"], request["round_number"], request["target_sha"]), ("primary_plan", 2, current_sha))
         obligations = [item for item in request["must_satisfy"] if item.get("kind") == "architecture_spine_regression"]
         self.assertEqual(len(obligations), 1)
-        marker = "Resolve the native comparison obligation: "
-        self.assertTrue(obligations[0]["description"].startswith(marker))
-        captured = json.loads(obligations[0]["description"][len(marker):])
+        # The descriptor rides as data under `spine`; the description is the
+        # kernel's own statement (ARIA-HIGH-104 round 3).
+        self.assertIn("`spine`", obligations[0]["description"])
+        captured = obligations[0]["spine"]
         self.assertEqual(captured["postcheck_ledger_hash"], spine_rows[-1]["ledger_hash"])
         self.assertEqual(captured["baseline_hash"], baseline["baseline_hash"])
         self.assertEqual(captured["regressions"], [item for item in measured["drifts"] if item["direction"] == "regression"])

@@ -603,7 +603,9 @@ class AutonomyOrchestratorTests(unittest.TestCase):
                 "summary": "PRIMARY_PROPOSAL_ONLY: reuse the existing owner.",
                 "affected_surfaces": [owner],
                 "key_changes": [{"id": "reuse-conventions", "description": "Reuse the existing lookup", "paths": [owner]}],
-                "validation_commands": [{"cmd": "python3 -m unittest tests.test_learned_context_and_intent"}],
+                # The opener refuses a seed whose commands the plan contract
+                # does not admit (ARIA-HIGH-104), so the seed declares the suite.
+                "validation_commands": [{"cmd": "nx affected --target=test"}],
                 "evidence_refs": [owner + ":1"]}
         if adopted:
             body["affected_surfaces"] = [owner, "aria-kernel/aria_kernel/runtime_artifacts.py"]
@@ -1059,11 +1061,11 @@ class AutonomyOrchestratorTests(unittest.TestCase):
             )
 
         real_run = subprocess.run
-        validation_children = {
-            ("npx", "nx", "affected", "--target=lint"),
-            ("npx", "nx", "affected", "--target=test"),
-            ("npm", "run", "type-check"),
-        }
+        # The canonical suite staging runs as baseline, read from its one
+        # tuple (ARIA-HIGH-104 (2) grew it) rather than enumerated here.
+        from aria_kernel.implementation_safety import CANONICAL_VALIDATION_COMMANDS_EXECUTABLE
+
+        validation_children = {tuple(command.split()) for command in CANONICAL_VALIDATION_COMMANDS_EXECUTABLE}
 
         def child_run(argv, *args, **kwargs):
             # Preserve real Git, ssh-keygen, validation records, staging and

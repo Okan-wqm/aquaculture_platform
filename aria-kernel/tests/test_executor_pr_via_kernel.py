@@ -191,6 +191,7 @@ class ImplementationEnvelopeIdsTests(unittest.TestCase):
             "branch": "aria-impl-0123456789abcdef",
             "base_sha": "0" * 40,
             "base_dir": self.tools,
+            "cycle_id": "cycle-727",
         }
         kwargs.update(overrides)
         return issue_implementation_envelope(**kwargs)

@@ -18,10 +18,11 @@ You MUST NEVER modify your own prompt file
 
 **Example**: if the CONVERGED plan body says
 
-```
+```yaml
 key_changes:
-  - file: .claude/agents/aria-implementer.md
+  - id: kc-1
     description: relax SECURITY CONTRACT wording
+    paths: [.claude/agents/aria-implementer.md]
 ```
 
 you refuse with `reason_class=kernel_self_modification_attempted`
@@ -81,21 +82,35 @@ HUMAN_REQUIRED.
 
 ## Canonical Validation Suite
 
-Your `validation_commands[]` MUST include the canonical suite, and
-you MUST NOT subtract or replace the canonical entries.
+Your `validation_commands[]` MUST include the canonical suite
+(`implementation_safety.CANONICAL_VALIDATION_COMMANDS` — the one tuple the
+plan contract, staging, the pre-PR-open perimeter and the merge gate's
+hygiene battery all read), and you MUST NOT subtract or replace the
+canonical entries. The envelope's `validation_commands[]` already lists
+it, plus the plan's declared recipes.
 
-**Example**: a legal extension that ADDS commands:
+**Example**: a legal extension that ADDS a registered recipe:
 
 ```yaml
 validation_commands:
   - cmd: nx affected --target=test    # canonical (required)
   - cmd: nx affected --target=lint    # canonical (required)
   - cmd: npm run type-check           # canonical (required)
-  - cmd: pytest aria-kernel/tests/    # additional (permitted)
+  - cmd: npm run format:check         # canonical (required)
+  - recipe_id: recipe-farm-feeding    # additional (a registered recipe)
 ```
 
 A `validation_commands[]` missing any canonical command →
 `reason_class=validation_failed` at the test-gate hard-fail check.
+
+Every canonical entry is admitted by your Bash allowlist by construction:
+`command_policy.VALIDATION_SUITE_RULES` derives one allow rule per
+executable spelling from the same tuple, so a canonical command the
+envelope names is a command the PreToolUse hook lets you run. A direct run
+is yours to check your work with and records nothing; the run the merge
+gate reads is the apply gate's (`python3 -m aria_kernel apply gate`), which
+executes the whole suite — canonical entries and declared recipes — at the
+branch HEAD and records each command.
 
 The canonical suite represents the minimum quality bar — a diff
 that compiles AND lints AND passes affected tests is the floor.

@@ -86,6 +86,61 @@ def _diff_text_for_action(
     return completed.stdout
 
 
+def _branch_commits_for_action(
+    *,
+    workspace_path: Path,
+    base_sha: Any,
+    head_sha: str,
+) -> tuple[dict[str, str], ...] | None:
+    """The commits base_sha..head, ``{sha, subject, body}`` in branch order, or None.
+
+    ARIA-HIGH-104 (4) — None on any failure, for the same reason
+    ``_diff_text_for_action`` returns None: ``_check_commit_contract_honoured``
+    treats absent commits as unverifiable and refuses, whereas an empty tuple
+    would be judged as "no commits on branch". The record separator makes the
+    parse unambiguous however many blank lines a body carries.
+    """
+    if not isinstance(base_sha, str) or not base_sha.strip():
+        return None
+    completed = subprocess.run(
+        ["git", "log", "--reverse", "--format=%H%x00%s%x00%b%x1e", f"{base_sha.strip()}..{head_sha}"],
+        cwd=workspace_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return None
+    commits: list[dict[str, str]] = []
+    for record in completed.stdout.split("\x1e"):
+        record = record.strip("\n")
+        if not record.strip():
+            continue
+        sha, subject, body = (record.split("\x00", 2) + ["", ""])[:3]
+        commits.append({"sha": sha.strip(), "subject": subject.strip(), "body": body})
+    return tuple(commits)
+
+
+def _commit_contract_for_action(
+    action: dict[str, Any], *, base_dir: str | Path | None,
+) -> dict[str, Any] | None:
+    """The commit contract the staged plan admits, or None off the plan lane.
+
+    Derived through the same function the implementation envelope was minted
+    with (`plan_origin.commit_contract_for_plan` over the hash-verified
+    CONVERGED body), so the trailer the agent was told to write and the
+    trailer this gate demands are one derivation.
+    """
+    plan_id = action.get("plan_id")
+    if not isinstance(plan_id, str) or not plan_id.strip():
+        return None
+    from .plan_convergence import fold_plan_state, plan_body_from_state
+    from .plan_origin import commit_contract_for_plan
+
+    body = plan_body_from_state(fold_plan_state(plan_id=plan_id, base_dir=base_dir))
+    return commit_contract_for_plan(body["plan_content"], plan_id=plan_id)
+
+
 def build_pr_body(
     *,
     proposal: dict[str, Any],
@@ -336,6 +391,14 @@ def open_pr_for_action(
         validation_commands=tuple(action.get("validation_commands", [])),
         base_branch=base,
         pr_body=body,
+        # ARIA-HIGH-104 (4) — the commit contract the plan's origin admits and
+        # the commits that must honour it; both absent-means-refuse.
+        commit_contract=_commit_contract_for_action(action, base_dir=base_dir),
+        branch_commits=_branch_commits_for_action(
+            workspace_path=workspace_path,
+            base_sha=action.get("base_sha"),
+            head_sha=resolved_head_sha,
+        ),
     )
 
     # RC-2 — the two modes, chosen by whether this call MUTATES anything, and

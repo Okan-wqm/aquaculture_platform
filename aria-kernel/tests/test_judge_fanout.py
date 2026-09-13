@@ -81,7 +81,7 @@ class JudgeFanoutTests(unittest.TestCase):
         group = f"judge:{item['tool_id']}:{item['finding_fingerprint']}"
         create_agent_invocation_request(
             target_agent="aria-evidence-judge", role="evidence_judgment",
-            suggested_prompt="seed", must_satisfy=[{"id": "v", "criterion": "c"}],
+            suggested_prompt="seed", must_satisfy=[{"id": "v", "description": "c"}],
             allowed_scope=["**"], finding_id=item["finding_id"], tool_id=item["tool_id"],
             run_id=item["run_id"], judgment_group_id=group, base_dir=self.tools,
         )

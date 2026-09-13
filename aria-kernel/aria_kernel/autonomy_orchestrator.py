@@ -1905,19 +1905,36 @@ def run_autonomy_orchestrator(
                 # the actual work surface (evidence_refs +
                 # allowed_scope from synthesized plan; must_satisfy
                 # derived from key_changes clusters).
+                # ARIA-HIGH-104 (3)/(5) — one key-change shape (a string step
+                # or {id?, description, paths?}) read through its accessors,
+                # one obligation shape built through its constructor; a
+                # string entry no longer crashes on `.get` and an obligation
+                # the request contract refuses cannot be assembled here. The
+                # plan's wording rides as `plan_description` data: the
+                # obligation text is the kernel's, so a planner's word choice
+                # cannot fail the mint's banned-phrase scan, and the
+                # obligation id is positional so two plan entries sharing an
+                # id cannot collide at the mint either.
+                from .must_satisfy import key_change_obligation, must_satisfy_item
+                from .plan_convergence import key_change_description, key_change_id, key_change_paths
+
                 _v7_must_satisfy = [
-                    {
-                        "id": str(kc.get("id", f"key-change-{i}")),
-                        "description": str(kc.get("description", "")),
-                    }
+                    key_change_obligation(
+                        id=f"key-change-{i}",
+                        index=i,
+                        plan_description=key_change_description(kc) or str(kc),
+                        paths=key_change_paths(kc),
+                        key_change_id=key_change_id(kc),
+                    )
                     for i, kc in enumerate(_v7_plan_content.get("key_changes") or [])
-                ] or [{
-                    "id": "cycle-impl-satisfies-scope",
-                    "description":
+                ] or [must_satisfy_item(
+                    id="cycle-impl-satisfies-scope",
+                    description=(
                         "Implementation must satisfy the cycle's "
                         "must_satisfy contract derived from "
-                        "discovery + planner output.",
-                }]
+                        "discovery + planner output."
+                    ),
+                )]
                 _v7_evidence_refs = list(
                     _v7_plan_content.get("evidence_refs") or [f"cycle:{cycle_id}"]
                 )

@@ -526,8 +526,51 @@ the skeleton defines strings and the synthesizer emits `paths`; (4) the
 `plan:<plan_id>`, and no gate checks it; (5) kernel-minted `must_satisfy`
 items carry `{id, kind, description, source}` while
 `agent_contract._ensure_must_satisfy` requires `{id, statement}`. Owner
-claude; open — the first native implementer trial reaches whichever comes
-first.
+claude.
+
+- **What is now true (three verified rounds):** (1) the queue row IS the
+  `aria/agent-request/v1` envelope — `create_agent_invocation_request` writes
+  `$schema`, `forbidden_scope` and `validation_commands` (derived from the plan
+  revision the row names: the CONVERGED body for the implementation role, the
+  seed's for planners) and, for the implementation role, runs
+  `validate_request` BEFORE the append, so a refused envelope never reaches
+  the queue and the plan stays CONVERGED; the drainer refuses a seed whose
+  commands the contract does not admit before opening the plan. (2) ONE
+  validation suite: `CANONICAL_VALIDATION_COMMANDS` grew `npm run
+format:check`, `auto_merge._HYGIENE_DIMENSIONS` IS that tuple,
+  `canonical_command_satisfied_by` is the one matching rule shared by the
+  pre-PR-open check and the hygiene battery, staging reads the suite through
+  `plan_contract.plan_validation_suite`, and `command_policy` derives an allow
+  rule per executable spelling so the implementer can run what it is told to
+  run. (3) ONE `key_changes[]` shape — `plan_convergence.KEY_CHANGE_FIELDS =
+(id, description, paths)` with a plan-contract reason; staging, the
+  envelope, the orchestrator and both implementer prompts read `paths`, and
+  the prompt invariant derives the citable fields from the tuple. (4)
+  `plan_origin.py` derives the commit contract from the plan's origin (the
+  exact `Closes:` line for an ORPHAN origin; trailer-free commit types for an
+  origin the CI checkout cannot resolve or a plan with none), it rides on the
+  envelope as `commit_contract`, the prompt prints it verbatim, and the 18th
+  pre-PR-open hard-fail check `commit_contract_honoured` refuses a branch
+  whose commits carry anything else; the mirrored gate regexes are pinned
+  against `tools/gates/commit-msg-validator.ts`, and the kernel's
+  `FINDING_ID_RE` is the one source for F-ids. (5) `must_satisfy.py` is the one
+  obligation shape `{id, description, kind?, ...data}` — every producer moved
+  (`statement` and the seven lanes' `criterion` are gone), sealed legacy rows
+  are upcast at re-mint (`upcast_sealed_items`), and an obligation carries its
+  kernel-authored statement in `description` and its quoted data (a node path,
+  a critic's reason, a spine, a refused command) in typed data keys the
+  banned-phrase scan never reads and the renderer prints delimited — the
+  drainer's own carries had been refused by the scan and stuck the plan.
+- **Proof (candidate):** `test_implementer_merge_seam` (a plan driven to
+  CONVERGED, the real V9 runner under strict, the minted envelope validates,
+  carries the suite and the trailer, the perimeter refuses an invented
+  trailer), `test_must_satisfy_shape`, `test_request_contract_minter`,
+  `test_validation_suite_ssot`, `test_plan_origin_commit_contract`,
+  `test_convergence_drainer_carried_data`, `test_y7_self_adjudication`
+  (legacy-row re-mint), the plan-contract, coverage, continuity, PR-manager,
+  perimeter, merge-discipline and v9/v12 invariant suites — 841 tests on the
+  candidate; every pin fails on `665213990`. Verified by `wf_b1186d0b-255`
+  (verify → fix → reverify must_fix) and `wf_ab072ff3-aa2` (round 3, accept).
 
 ## ARIA-HIGH-105 — the kernel lanes check out a whole clone; a partial one is refused by name
 

@@ -53,7 +53,7 @@ When the kernel invokes you via the bound async queue, you receive a single `ari
 
 - `request_id`, `cycle_id`, `target_agent: "aria-evidence-judge"`, `expected_output_path`.
 - `evidence_refs[]` — file:line refs at the snapshot SHA. The ONLY admissible evidence; using prior ARIA reports or your own self-output as evidence is a hard reject.
-- `must_satisfy[]` — each item is a single concrete claim to validate (e.g. `{id: "MS-1", statement: "Finding F-247's evidence chain points to apps/.../FarmStatusSelect.tsx and the file contains the cited literal at line 42"}`).
+- `must_satisfy[]` — each item is a single concrete claim to validate (e.g. `{id: "MS-1", description: "Finding F-247's evidence chain points to apps/.../FarmStatusSelect.tsx and the file contains the cited literal at line 42"}`).
 - `allowed_scope[]`, `forbidden_scope[]`, `validation_commands[]` — typically empty for judges; a non-empty `forbidden_scope` still binds you (do not search inside it).
 
 ### Outputs you produce

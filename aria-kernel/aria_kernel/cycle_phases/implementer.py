@@ -301,6 +301,10 @@ class AutonomousV9ImplementationRunner:
                     branch=str(staged["branch"]),
                     base_sha=str(staged["base_sha"]),
                     base_dir=base_dir,
+                    # ARIA-HIGH-104 — the request contract requires the
+                    # cycle the envelope belongs to; this runner is the
+                    # only producer that knows it.
+                    cycle_id=cycle_id,
                 )
             except BridgeContractViolation as exc:
                 # Plan ARIA-V3.1-B-5 closes C-10: BridgeContractViolation

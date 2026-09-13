@@ -189,7 +189,7 @@ class SubmitResultE2ETests(unittest.TestCase):
             role="evidence_judgment",
             suggested_prompt=f"validate F-001 evidence{nonce}",
             must_satisfy=[
-                {"id": "F-001-evidence", "criterion": "F-001 evidence is sufficient"},
+                {"id": "F-001-evidence", "description": "F-001 evidence is sufficient"},
             ],
             allowed_scope=["**"],
             convergence_id=f"conv-001{nonce}",
@@ -2160,7 +2160,7 @@ class SubmitResultE2ETests(unittest.TestCase):
             role="primary_plan",
             suggested_prompt="draft architecture-first plan",
             must_satisfy=[
-                {"id": "sod-test", "criterion": "separation of duties enforced"},
+                {"id": "sod-test", "description": "separation of duties enforced"},
             ],
             allowed_scope=["aria-kernel/**"],
             convergence_id="conv-002",
@@ -2234,7 +2234,7 @@ class SubmitResultE2ETests(unittest.TestCase):
             target_agent="aria-challenger-planner",
             role="challenger_plan",
             suggested_prompt="write a competing plan " + plan_content["title"],
-            must_satisfy=[{"id": "MS-1", "criterion": "one falsifiable obligation"}],
+            must_satisfy=[{"id": "MS-1", "description": "one falsifiable obligation"}],
             allowed_scope=["**"],
             convergence_id="plan-contract-seam",
             target_sha=self.target_sha,

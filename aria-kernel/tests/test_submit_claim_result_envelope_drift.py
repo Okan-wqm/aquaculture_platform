@@ -90,7 +90,7 @@ class _SubmitFixture(unittest.TestCase):
             role="evidence_judgment",
             suggested_prompt="validate F-006 envelope drift",
             must_satisfy=[
-                {"id": "F-006-evidence", "criterion": "F-006 envelope drift gated"},
+                {"id": "F-006-evidence", "description": "F-006 envelope drift gated"},
             ],
             allowed_scope=["**"],
             convergence_id="conv-plan-025-a1",

@@ -1099,6 +1099,20 @@ def convert_candidate_to_plan_content(
         ],
         "evidence_refs": evidence_refs,
     }
+    # ARIA-HIGH-104 (4) — the plan's ORIGIN is a plan claim, recorded in the
+    # body (hash-covered, revised and cross-reviewed like every other claim)
+    # and not only in the sidecar metadata that never reaches the plan
+    # ledger. Staging already read `plan_content.finding_id` onto the change
+    # chain and fell back to `plan:<plan_id>` because no producer wrote it;
+    # `plan_origin.commit_contract_for_plan` derives the commit trailer from
+    # it. A finding-sourced candidate's id IS the finding id (ORPHAN-<SEV>-NNN
+    # from the orphan register, F-NNN from aria-findings/); the other sources
+    # have no finding, so the key is absent rather than invented.
+    if source_type in {
+        PlanCandidateSource.ORPHAN_FINDING.value,
+        PlanCandidateSource.F_FINDING.value,
+    }:
+        content["finding_id"] = candidate_id
     metadata: dict[str, Any] = {
         "_pressure_source_type": source_type,
         "_candidate_id": candidate_id,

@@ -61,8 +61,17 @@ REASON_TIER_MISSING = "plan_architectural_tier_missing"
 REASON_TIER_INVALID = "plan_architectural_tier_invalid"
 REASON_COMMAND_NOT_DECLARED = "plan_validation_command_not_declared"
 REASON_RECIPE_UNKNOWN = "plan_validation_recipe_unknown"
+# ARIA-HIGH-104 (3) — a key_changes[] entry that is not a string step or a
+# {id?, description, paths?} object (plan_convergence.KEY_CHANGE_FIELDS).
+REASON_KEY_CHANGE_SHAPE = "plan_key_change_shape"
+# ARIA-HIGH-104 (4) — a `finding_id` naming an origin the kernel derives no
+# commit contract for (`plan_origin.plan_origin`): the same read the
+# implementation mint makes, applied at submission, so a plan cannot reach
+# CONVERGED — and be staged — carrying an origin the mint would refuse.
+REASON_ORIGIN_UNRECOGNISED = "plan_origin_unrecognised"
 PLAN_CONTRACT_REASONS: tuple[str, ...] = (
     REASON_TIER_MISSING, REASON_TIER_INVALID, REASON_COMMAND_NOT_DECLARED, REASON_RECIPE_UNKNOWN,
+    REASON_KEY_CHANGE_SHAPE, REASON_ORIGIN_UNRECOGNISED,
 )
 
 
@@ -133,6 +142,59 @@ def resolve_declared_validation_command(
     return None, None, None
 
 
+def plan_validation_suite(
+    plan_content: Any, *, base_dir: str | Path | None, catalog: ValidationCommandCatalog | None = None,
+) -> tuple[str, ...]:
+    """The validation suite a change implementing ``plan_content`` must evidence.
+
+    ARIA-HIGH-104 (1)/(2) — ONE composition rule, read by staging (the
+    baseline run and the staged apply action's ``validation_commands``), by
+    the envelope mint (the ``validation_commands`` the agent is told to run)
+    and by the request validator (what the envelope must carry): the
+    canonical executable suite first, then every declared entry resolved
+    through :func:`resolve_declared_validation_command`, in declaration
+    order, without duplicates. A declared entry the contract refuses raises
+    in the contract vocabulary; a caller that wants its own wording (staging)
+    refuses through :func:`plan_contract_violations` first.
+    """
+    if not isinstance(plan_content, dict):
+        raise GovernanceError("plan_contract_violation: plan_content_absent_or_not_object")
+    catalog = validation_command_catalog(base_dir) if catalog is None else catalog
+    commands: list[str] = list(catalog.canonical)
+    declared = plan_content.get("validation_commands")
+    for entry in declared if isinstance(declared, list) else []:
+        command, _recipe, violation = resolve_declared_validation_command(entry, catalog)
+        if violation is not None:
+            raise GovernanceError(f"plan_contract_violation: {violation}")
+        if command is not None and command not in commands:
+            commands.append(command)
+    return tuple(commands)
+
+
+def envelope_validation_suite(plan_content: Any, *, base_dir: str | Path | None) -> list[str]:
+    """The ``validation_commands`` an envelope naming ``plan_content`` carries.
+
+    The composed suite when the body's declared commands are ones the
+    contract admits; an EMPTY list when they are not. A body breaking the
+    command rule cannot converge (``plan_contract_complete`` refuses it) and
+    cannot be staged, so an envelope minted on it — a planner round on a
+    seed some operator started by hand — states no suite rather than a suite
+    the lane could not run. The queue's mint
+    (``agent_invocations._validation_commands_for_revision``) and the request
+    validator (``agent_contract.validate_request``) both read THIS function,
+    so the two agree by construction; the implementation role additionally
+    requires the suite to be non-empty, which a CONVERGED body guarantees.
+    """
+    if not isinstance(plan_content, dict):
+        return []
+    catalog = validation_command_catalog(base_dir)
+    declared = plan_content.get("validation_commands")
+    for entry in declared if isinstance(declared, list) else []:
+        if resolve_declared_validation_command(entry, catalog)[2] is not None:
+            return []
+    return list(plan_validation_suite(plan_content, base_dir=base_dir, catalog=catalog))
+
+
 def architectural_tier_violation(tier: Any, *, required: bool) -> str | None:
     """The tier rule in its one wording — read by the contract check and by
     ``plan_convergence._validate_plan_content`` (which validates a claim that
@@ -167,6 +229,18 @@ def plan_contract_violations(
         _command, _recipe, violation = resolve_declared_validation_command(entry, catalog)
         if violation is not None:
             violations.append(violation)
+    from .plan_convergence import key_change_violation
+    from .plan_origin import plan_origin
+
+    changes = plan_content.get("key_changes")
+    for index, change in enumerate(changes if isinstance(changes, list) else []):
+        shape_violation = key_change_violation(change)
+        if shape_violation is not None:
+            violations.append(f"{REASON_KEY_CHANGE_SHAPE}:key_changes[{index}] {shape_violation}")
+    try:
+        plan_origin(plan_content)
+    except GovernanceError as exc:
+        violations.append(f"{REASON_ORIGIN_UNRECOGNISED}:{exc}")
     return violations
 
 
@@ -258,7 +332,18 @@ def render_plan_contract_rules(plan_contract: dict[str, Any] | None = None) -> l
         lines.extend(f"    - `{row['recipe_id']}` -> `{row['command']}`" for row in recipes)
     else:
         lines.append("  - registered recipes for this store: none; only the canonical suite is admissible")
-    lines.append("- A plan breaking either rule is refused before acceptance and cannot CONVERGE"
+    lines.append(
+        "- Every `plan_content.key_changes[]` entry is a string (one step) or an object"
+        " `{id?, description, paths?}` — `description` the step, `paths` the repo-relative files it"
+        " touches; the implementer reads `paths`, never any other field."
+    )
+    lines.append(
+        "- `plan_content.finding_id`, when present, names the finding the plan addresses in a form the"
+        " kernel derives a commit trailer from: `ORPHAN-<SEV>-NNN` (docs/reviews/orphan-findings.md) or"
+        " `F-NNN` / `F-AUTO-V<x.y>-<TOPIC>` (aria-findings/). A plan with no finding carries no"
+        " `finding_id`; any other id is refused."
+    )
+    lines.append("- A plan breaking any rule is refused before acceptance and cannot CONVERGE"
                  f" (gate `{PLAN_CONTRACT_GATE}`); refusal reasons: "
                  + ", ".join(f"`{reason}`" for reason in contract["refusal_reasons"]) + ".")
     return lines
@@ -282,13 +367,17 @@ __all__ = [
     "PLAN_CONTRACT_REASONS",
     "PLAN_CONTRACT_SCHEMA_VERSION",
     "REASON_COMMAND_NOT_DECLARED",
+    "REASON_KEY_CHANGE_SHAPE",
+    "REASON_ORIGIN_UNRECOGNISED",
     "REASON_RECIPE_UNKNOWN",
     "REASON_TIER_INVALID",
     "REASON_TIER_MISSING",
     "ValidationCommandCatalog",
     "architectural_tier_violation",
+    "envelope_validation_suite",
     "plan_contract_gate",
     "plan_contract_violations",
+    "plan_validation_suite",
     "render_plan_contract",
     "render_plan_contract_rules",
     "render_plan_contract_section",

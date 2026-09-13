@@ -13,12 +13,16 @@ satisfy before it can be enqueued, claimed, or accepted:
   must enumerate every must_satisfy item with one of the closed verdicts.
 
 Distinct from `agent_invocations.py`: that module owns request/result ledger
-writes, lease/heartbeat/reap-stale lifecycle, and the existing
-`aria/agent-invocation-request/v1` envelope (preserved unchanged for
-backward compatibility per operator instruction). The richer v1 envelope
-defined here composes on top — callers wanting the strict Plan 016
-contract route through this module's validators before handing rows to the
-queue layer.
+writes and the lease/heartbeat/reap-stale lifecycle. The request row it
+appends IS the `aria/agent-request/v1` envelope (ORPHAN-MEDIUM-572,
+reconciled under ARIA-HIGH-104): the queue writes `REQUEST_SCHEMA` from this
+module, validates every `must_satisfy` item through the shape both modules
+import, and derives `validation_commands` from the plan revision the row
+names — so a row the queue mints is a row `validate_request` accepts, and the
+implementation mint proves it by calling `validate_request` before the plan
+leaves CONVERGED. Rows sealed before the reconciliation carry the older
+`aria/agent-invocation-request/v1` string; nothing reads a row's `$schema`
+back, so they replay unchanged.
 
 This file does NOT import `agent_invocations.py` (one-way dependency: the
 queue layer depends on the contract layer, never the other way around).
@@ -28,6 +32,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from pathlib import Path
 from typing import Any, Iterable
 
 from .agent_surface import (
@@ -38,6 +43,7 @@ from .agent_surface import (
     allowed_targets_for_role,
 )
 from .agent_genesis import BANNED_PHRASES
+from .must_satisfy import validate_must_satisfy
 from .tool_registry import GovernanceError
 
 
@@ -67,6 +73,12 @@ REQUEST_OPTIONAL_FIELDS = (
     "round_number",
     "created_at",
     "plan_contract",
+    # ARIA-HIGH-104 (4) — the commit contract an implementation envelope
+    # carries: the trailer the plan's origin admits (or none) and the commit
+    # types the commit-msg gate accepts without one. Derived by
+    # `plan_origin.commit_contract_for_plan`, REQUIRED of role=implementation
+    # (checked below), absent on every other role.
+    "commit_contract",
 )
 
 RESPONSE_REQUIRED_FIELDS = (
@@ -86,6 +98,26 @@ SATISFACTION_VERDICTS = ("satisfied", "blocked", "contradicted")
 REASON_CLASSES = ("law", "scope", "evidence", "safety")
 
 REQUEST_SCHEMA = "aria/agent-request/v1"
+
+# ARIA-HIGH-104 — the roles whose row the queue refuses to append unless
+# `validate_request` accepts it (with the store, so the plan-revision
+# agreement check runs). A declared set rather than a per-call flag, so a
+# minter cannot forget to opt in.
+#
+# The boundary of the set is what this contract BINDS: a request to the
+# cycle it runs in (`cycle_id`, REQUIRED above) and to the plan revision it
+# works from (`convergence_id` + `plan_revision_hash`, whose derived
+# validation suite and commit contract the envelope must equal). A role
+# belongs here when every production mint of it has both. The
+# implementation role does: it is minted by the cycle's implementation
+# phase from a CONVERGED revision. The operator-driven judge, curation,
+# questioning and self-change lanes run in no cycle and implement no plan
+# revision, so there is nothing for this contract to bind them to; their
+# rows are held by the queue's own field validation at mint
+# (`validate_must_satisfy`, scope, evidence refs) and by `validate_response`
+# at submit, and their envelopes still carry the derived
+# `validation_commands` and `forbidden_scope` fields.
+CONTRACT_ENFORCED_ROLES: frozenset[str] = frozenset({"implementation"})
 RESPONSE_SCHEMA = "aria/agent-response/v1"
 REFUSAL_SCHEMA = "aria/agent-refusal/v1"
 
@@ -120,37 +152,36 @@ def _ensure_string_list(value: Any, *, field: str, allow_empty: bool = False) ->
 
 
 def _ensure_must_satisfy(items: Any) -> list[dict[str, Any]]:
-    if not isinstance(items, list) or not items:
-        raise GovernanceError("must_satisfy must be a non-empty list")
-    cleaned: list[dict[str, Any]] = []
-    seen_ids: set[str] = set()
-    for idx, raw in enumerate(items):
-        if not isinstance(raw, dict):
-            raise GovernanceError(f"must_satisfy[{idx}] must be an object")
-        item_id = raw.get("id")
-        statement = raw.get("statement")
-        if not isinstance(item_id, str) or not item_id.strip():
-            raise GovernanceError(f"must_satisfy[{idx}].id is required")
-        if item_id in seen_ids:
-            raise GovernanceError(f"must_satisfy[{idx}].id duplicate: {item_id}")
-        seen_ids.add(item_id)
-        if not isinstance(statement, str) or not statement.strip():
-            raise GovernanceError(f"must_satisfy[{idx}].statement is required")
-        _check_banned_phrases(statement, field=f"must_satisfy[{item_id}].statement")
-        cleaned.append({"id": item_id, "statement": statement})
-    return cleaned
+    """ARIA-HIGH-104 (5) — the one shape, read from ``must_satisfy``.
+
+    This validator used to require ``{id, statement}`` while every kernel
+    minter wrote ``{id, kind, description, ...}``; the contract could only
+    accept an envelope nobody produced. Delegating to the shape module the
+    minters build through makes the disagreement unexpressible.
+    """
+    return validate_must_satisfy(items, field="must_satisfy")
 
 
 def validate_request(
     envelope: dict[str, Any],
     *,
     target_agent_whitelist: Iterable[str] = DEFAULT_TARGET_AGENT_WHITELIST,
+    base_dir: str | Path | None = None,
 ) -> None:
     """Validate an `aria/agent-request/v1` envelope. Raise GovernanceError on any defect.
 
     Why: every field below corresponds to a fail-closed gate Plan 016
     requires. A request that passes this validator is contractually safe to
     enqueue; one that fails must be rejected before any agent sees it.
+
+    ``base_dir`` — the store the envelope's plan lives in. When given and the
+    envelope names a plan revision (``convergence_id`` + ``plan_revision_hash``),
+    the envelope's ``validation_commands`` must equal the suite the plan
+    contract derives for THAT body (ARIA-HIGH-104 (1)): the field cannot be
+    absent (it is REQUIRED above) and cannot disagree with the plan it names.
+    An implementation envelope must name a body the store can reproduce —
+    an implementer handed a suite the ledger cannot vouch for is handed a
+    claim, not evidence — and must carry its commit contract.
     """
     missing = [f for f in REQUEST_REQUIRED_FIELDS if f not in envelope]
     if missing:
@@ -253,6 +284,80 @@ def validate_request(
         not isinstance(envelope["plan_contract"], dict) or not envelope["plan_contract"]
     ):
         raise GovernanceError("agent-request.plan_contract must be a non-empty object")
+    _validate_commit_contract(envelope)
+    _validate_agreement_with_named_plan_revision(envelope, base_dir=base_dir)
+
+
+def _validate_agreement_with_named_plan_revision(
+    envelope: dict[str, Any], *, base_dir: str | Path | None,
+) -> None:
+    """ARIA-HIGH-104 (1)/(4) — what the envelope carries IS what the plan
+    revision it names derives: the validation suite
+    (``plan_contract.plan_validation_suite``) and, for the implementation
+    role, the commit contract (``plan_origin.commit_contract_for_plan``).
+    Both sides read the same functions over the same body, so the only way
+    for them to disagree is a producer that did not derive — which is what
+    these refusals exist to catch.
+    """
+    from .plan_contract import envelope_validation_suite
+    from .plan_convergence import plan_body_for_revision
+    from .plan_origin import commit_contract_for_plan
+
+    plan_id = envelope.get("convergence_id")
+    revision_hash = envelope.get("plan_revision_hash")
+    names_plan = bool(
+        isinstance(plan_id, str) and plan_id.strip() and isinstance(revision_hash, str) and revision_hash.strip()
+    )
+    if envelope["role"] == "implementation" and not names_plan:
+        raise GovernanceError(
+            "agent-request.implementation_envelope_names_no_plan_revision: "
+            "convergence_id and plan_revision_hash are required of role=implementation"
+        )
+    if base_dir is None or not names_plan:
+        return
+    body = plan_body_for_revision(plan_id=str(plan_id), content_hash=str(revision_hash), base_dir=base_dir)
+    if body is None:
+        if envelope["role"] == "implementation":
+            raise GovernanceError(
+                f"agent-request.implementation_plan_body_unavailable: no recorded body of "
+                f"plan {plan_id!r} hashes to {revision_hash!r}"
+            )
+        expected: list[str] = []
+    else:
+        expected = envelope_validation_suite(body["plan_content"], base_dir=base_dir)
+        if envelope["role"] == "implementation" and not expected:
+            raise GovernanceError(
+                f"agent-request.implementation_plan_breaks_the_plan_contract: the body of plan "
+                f"{plan_id!r} at {revision_hash!r} declares commands the contract refuses, so no "
+                f"suite can be handed to an implementer"
+            )
+    if list(envelope["validation_commands"]) != expected:
+        raise GovernanceError(
+            "agent-request.validation_commands_disagree_with_plan_revision: "
+            f"envelope={list(envelope['validation_commands'])!r} plan={expected!r} "
+            f"(plan_id={plan_id!r}, revision={revision_hash!r})"
+        )
+    if envelope["role"] == "implementation" and body is not None:
+        derived = commit_contract_for_plan(body["plan_content"], plan_id=str(plan_id))
+        if envelope.get("commit_contract") != derived:
+            raise GovernanceError(
+                "agent-request.commit_contract_disagrees_with_plan_origin: "
+                f"envelope={envelope.get('commit_contract')!r} plan={derived!r}"
+            )
+
+
+def _validate_commit_contract(envelope: dict[str, Any]) -> None:
+    """ARIA-HIGH-104 (4) — an implementation envelope states its commit contract."""
+    from .plan_origin import validate_commit_contract
+
+    contract = envelope.get("commit_contract")
+    if envelope["role"] == "implementation" and contract is None:
+        raise GovernanceError(
+            "agent-request.commit_contract_required: role=implementation must carry the "
+            "commit contract derived from the plan's origin (plan_origin.commit_contract_for_plan)"
+        )
+    if contract is not None:
+        validate_commit_contract(contract)
 
 
 def validate_response(

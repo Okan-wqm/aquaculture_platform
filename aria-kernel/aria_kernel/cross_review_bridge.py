@@ -40,17 +40,22 @@ from typing import Any
 from .agent_invocations import create_agent_invocation_request
 from .bridge_exceptions import BridgeContractViolation
 from .implementation_safety import (
-    CANONICAL_VALIDATION_COMMANDS,
+    READONLY_PATHS,
     implementation_allowed_scope,
 )
-from .plan_contract import render_plan_contract
+from .must_satisfy import key_change_obligation, must_satisfy_item, waiver_adjudication_obligation
+from .plan_contract import plan_validation_suite, render_plan_contract
 from .plan_convergence import (
     affected_surface_paths,
     fold_plan_state,
+    key_change_description,
+    key_change_id,
+    key_change_paths,
     plan_body_from_state,
     _planning_source_context,
     request_implementation,
 )
+from .plan_origin import commit_contract_for_plan
 from .tool_registry import GovernanceError
 
 
@@ -428,16 +433,17 @@ def issue_completeness_critic_envelope(
         waivers_text=_json.dumps(waivers, indent=2, sort_keys=True),
         closure_manifest_hash=closure_manifest_hash,
     )
+    # The node and the reason are the planner's words; they ride as data so
+    # the obligation text stays the kernel's (ARIA-HIGH-104 verifier: a
+    # waiver worded with a banned phrase made the critic envelope itself
+    # unmintable, and the waiver un-adjudicable).
     must_satisfy = [
-        {
-            "id": f"adjudicate:{waiver.get('node_id')}",
-            "kind": "waiver_adjudication",
-            "description": (
-                f"Adjudicate waiver for closure node {waiver.get('node_id')} "
-                f"(claimed reason: {waiver.get('reason')})"
-            ),
-            "closure_manifest_hash": closure_manifest_hash,
-        }
+        waiver_adjudication_obligation(
+            id=f"adjudicate:{waiver.get('node_id')}",
+            node_id=str(waiver.get("node_id")),
+            claimed_reason=waiver.get("reason"),
+            closure_manifest_hash=closure_manifest_hash,
+        )
         for waiver in waivers
     ]
     return create_agent_invocation_request(
@@ -503,8 +509,13 @@ def _implementation_suggested_prompt(
     ids_block = _json.dumps(implementation_ids, sort_keys=True, indent=2)
     return (
         "Apply the CONVERGED plan's key_changes via Edit/Write under\n"
-        "sandboxed Bash. Run validation_commands (canonical suite\n"
-        "REQUIRED). Submit aria/agent-response/v1 envelope where\n"
+        "sandboxed Bash: each entry is a string step or {id?, description,\n"
+        "paths?}; every `paths[]` entry must lie inside allowed_scope. Run\n"
+        "every command under `## Validation commands` of this request (the\n"
+        "plan's suite: canonical + declared recipes; the merge gate needs a\n"
+        "verified exit-0 run of each). Commit per `## Commit contract`: the\n"
+        "trailer line printed there verbatim, or none when it prints none.\n"
+        "Submit aria/agent-response/v1 envelope where\n"
         "`details.implementation` carries what the kernel records\n"
         "(plan_convergence.record_implementation_outcome): {branch,\n"
         "pr_url (the opened PR's html url), diff_hash (\"sha256:\" + 64 hex\n"
@@ -592,6 +603,7 @@ def _implementation_must_satisfy(
     plan_content: dict[str, Any],
     allowed_scope: list[str],
     refused_surfaces: list[dict[str, str]],
+    validation_commands: list[str],
 ) -> list[dict[str, Any]]:
     """The obligations the implementer's response is judged against.
 
@@ -600,8 +612,20 @@ def _implementation_must_satisfy(
     recheck step in the prompt refers to; one entry per declared
     ``key_changes`` item makes "did the agent do what the plan said" a
     per-item judgement rather than one all-or-nothing verdict; the last
-    entry pins the canonical suite, which the pre-PR-open perimeter
+    entry pins the plan's validation suite — the canonical suite plus the
+    plan's declared recipes, the same list the envelope's
+    ``validation_commands`` carries and the pre-PR-open perimeter
     (``test_gate_canonical_suite``) refuses a PR without.
+
+    ARIA-HIGH-104 (5) — every entry is built through
+    ``must_satisfy.must_satisfy_item``, the one shape
+    ``agent_contract.validate_request`` accepts. (3) — a key change's text
+    and paths are read through ``plan_convergence``'s own accessors, so the
+    obligation names the ``paths`` the data model has. The plan's wording
+    rides as ``plan_description`` DATA through ``key_change_obligation``:
+    the obligation text is the kernel's, so no word a planner chose — a
+    file whose name carries a banned word — can make a CONVERGED plan's
+    mint fail the banned-phrase scan the plan contract never applied.
 
     Refused surfaces are carried as DATA on the authenticity obligation
     rather than dropped: an implementer that reads its scope and finds a
@@ -609,45 +633,49 @@ def _implementation_must_satisfy(
     subtracted it and why, instead of concluding the envelope is wrong.
     """
     obligations: list[dict[str, Any]] = [
-        {
-            "id": f"authenticity:{plan_id}",
-            "kind": "converged_plan_authenticity",
-            "description": (
+        must_satisfy_item(
+            id=f"authenticity:{plan_id}",
+            kind="converged_plan_authenticity",
+            description=(
                 "Recompute the content_hash of the CONVERGED plan body in "
                 "<untrusted_converged_plan> and refuse if it does not equal "
                 "content_hash below."
             ),
-            "revision_id": revision_id,
-            "content_hash": content_hash,
-            "allowed_scope": list(allowed_scope),
-            "refused_surfaces": list(refused_surfaces),
-        },
+            revision_id=revision_id,
+            content_hash=content_hash,
+            allowed_scope=list(allowed_scope),
+            refused_surfaces=list(refused_surfaces),
+        ),
     ]
     for index, change in enumerate(plan_content.get("key_changes") or []):
-        if isinstance(change, dict):
-            description = str(
-                change.get("description") or change.get("summary") or change,
-            )
-        else:
-            description = str(change)
         obligations.append(
-            {
-                "id": f"key_change:{index}",
-                "kind": "plan_key_change",
-                "description": description,
-                "content_hash": content_hash,
-            },
-        )
-    obligations.append(
-        {
-            "id": "validation:canonical_suite",
-            "kind": "validation_evidence",
-            "description": (
-                "Run the canonical validation suite and record it through "
-                "`apply gate`: " + ", ".join(CANONICAL_VALIDATION_COMMANDS)
+            key_change_obligation(
+                id=f"key_change:{index}",
+                index=index,
+                plan_description=key_change_description(change),
+                paths=key_change_paths(change),
+                key_change_id=key_change_id(change),
+                content_hash=content_hash,
             ),
-            "content_hash": content_hash,
-        },
+        )
+    # The suite rides as DATA only. A registered recipe's command is opaque
+    # operator text (`experiment.register_recipe` validates none of it), so
+    # joining the suite into the scanned description would be the seam the
+    # plan's own wording just left: one recipe whose command carries a
+    # banned word, and a CONVERGED plan declaring it could never mint.
+    obligations.append(
+        must_satisfy_item(
+            id="validation:canonical_suite",
+            kind="validation_evidence",
+            description=(
+                "Run every command under this obligation's `validation_commands` "
+                "(the same list the request's `validation_commands` and its "
+                "`## Validation commands` section carry) and record each through "
+                "`apply gate`."
+            ),
+            validation_commands=list(validation_commands),
+            content_hash=content_hash,
+        ),
     )
     return obligations
 
@@ -661,6 +689,7 @@ def issue_implementation_envelope(
     change_id: str,
     branch: str,
     base_sha: str,
+    cycle_id: str,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     """Plan ARIA-V9.3 — issue implementation envelope (Tier-1).
@@ -710,6 +739,11 @@ def issue_implementation_envelope(
       * ``evidence_refs`` — the plan's own ``evidence_refs`` (a real plan
         field with a real producer).
 
+    ``cycle_id`` is REQUIRED (ARIA-HIGH-104): the request contract requires
+    the cycle an envelope belongs to and this mint is the one producer whose
+    caller — the V9 implementation runner — always has it; a default of None
+    would mint a row the contract refuses.
+
     ``proposal_id`` / ``change_id`` / ``branch`` / ``base_sha`` are REQUIRED
     and are the output of ``apply_engine.stage_converged_plan_for_pr``.
     ORPHAN-CRITICAL-727 — they are not optional because the envelope's whole
@@ -731,6 +765,11 @@ def issue_implementation_envelope(
             "implementation_envelope_missing_staged_ids:" + ",".join(missing)
             + " — stage the plan through apply_engine.stage_converged_plan_for_pr "
             "before minting the envelope; the agent's final commands name these ids"
+        )
+    if not isinstance(cycle_id, str) or not cycle_id.strip():
+        raise GovernanceError(
+            "implementation_envelope_cycle_id_required: the request contract binds "
+            "an implementation envelope to the cycle that staged it"
         )
 
     state_dict = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
@@ -773,6 +812,11 @@ def issue_implementation_envelope(
             f"content, so its absence means the body read back is not a plan"
         )
 
+    # ARIA-HIGH-104 (1) — the suite the implementer runs is the plan's own,
+    # composed by the one function staging ran the baseline through; the
+    # queue derives the envelope's `validation_commands` from the same body
+    # and the request validator refuses a disagreement.
+    validation_commands = list(plan_validation_suite(plan_content, base_dir=base_dir))
     must_satisfy = _implementation_must_satisfy(
         plan_id=plan_id,
         revision_id=converged_plan_revision_id,
@@ -780,7 +824,11 @@ def issue_implementation_envelope(
         plan_content=plan_content,
         allowed_scope=allowed_scope,
         refused_surfaces=refused_surfaces,
+        validation_commands=validation_commands,
     )
+    # ARIA-HIGH-104 (4) — the trailer is the kernel's to derive, from the
+    # finding the plan was minted from; the agent prints it verbatim.
+    commit_contract = commit_contract_for_plan(plan_content, plan_id=plan_id)
 
     target_agent, role = IMPLEMENTATION_ROLE
     suggested = _implementation_suggested_prompt(
@@ -806,6 +854,17 @@ def issue_implementation_envelope(
         base_dir=base_dir,
         plan_revision_hash=converged_content_hash,
         implementation_ids=implementation_ids,
+        # ARIA-HIGH-104 — the request-contract fields the row never carried.
+        # `cycle_id` binds the envelope to the cycle that staged it (REQUIRED
+        # by the contract); `forbidden_scope` is the kernel's READONLY set,
+        # structured rather than only prose in the prompt; the commit
+        # contract rides as data. The queue validates the whole row against
+        # `agent_contract.validate_request` before appending it (the role is
+        # in CONTRACT_ENFORCED_ROLES), so a mint the contract refuses stops
+        # here, with the plan still CONVERGED.
+        cycle_id=cycle_id,
+        forbidden_scope=list(READONLY_PATHS),
+        commit_contract=commit_contract,
     )
     # E2/F1 — the mint IS the state transition. This function's own error
     # message above says "exactly one escape from CONVERGED — into

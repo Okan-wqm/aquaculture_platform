@@ -62,7 +62,7 @@ class CreateRequestStrictFieldsTests(unittest.TestCase):
             role="evidence_judgment",
             suggested_prompt="validate a thing",
             must_satisfy=[
-                {"id": "c1", "criterion": "thing is valid"},
+                {"id": "c1", "description": "thing is valid"},
             ],
             allowed_scope=["aria-kernel/**"],
             evidence_refs=["aria-kernel/aria_kernel/agent_contract.py:1"],
@@ -102,7 +102,7 @@ class CreateRequestStrictFieldsTests(unittest.TestCase):
                 target_agent="aria-evidence-judge",
                 role="evidence_judgment",
                 suggested_prompt="x",
-                must_satisfy=[{"id": "c", "criterion": "ok"}],
+                must_satisfy=[{"id": "c", "description": "ok"}],
                 allowed_scope=[],
                 base_dir=self.tools_dir,
             )
@@ -167,7 +167,7 @@ class CreateRequestStrictFieldsTests(unittest.TestCase):
                 target_agent="farm-expert",
                 role="implementation",
                 suggested_prompt="x",
-                must_satisfy=[{"id": "c", "criterion": "ok"}],
+                must_satisfy=[{"id": "c", "description": "ok"}],
                 allowed_scope=["aria-kernel/**"],
                 base_dir=self.tools_dir,
             )
@@ -180,7 +180,7 @@ class CreateRequestStrictFieldsTests(unittest.TestCase):
                 target_agent="aria-evidence-judge",
                 role="evidence_judgment",
                 suggested_prompt="x",
-                must_satisfy=[{"id": "c", "criterion": "ok"}],
+                must_satisfy=[{"id": "c", "description": "ok"}],
                 allowed_scope=["aria-kernel/**"],
                 evidence_refs=["valid-string", 123],
                 base_dir=self.tools_dir,
@@ -194,7 +194,7 @@ class CreateRequestStrictFieldsTests(unittest.TestCase):
         """Plan 024 §B-2 acceptance (7)."""
         request = {
             "request_id": "REQ-X",
-            "must_satisfy": [{"id": "c", "criterion": "ok"}],
+            "must_satisfy": [{"id": "c", "description": "ok"}],
             "allowed_scope": ["aria-kernel/**"],
             "role": "evidence_judgment",
         }
@@ -215,7 +215,7 @@ class CreateRequestStrictFieldsTests(unittest.TestCase):
         """Plan 024 §B-2 acceptance (8)."""
         request = {
             "request_id": "REQ-Y",
-            "must_satisfy": [{"id": "c", "criterion": "ok"}],
+            "must_satisfy": [{"id": "c", "description": "ok"}],
             "allowed_scope": ["aria-kernel/**"],
             "allow_empty_satisfaction_matrix": True,
         }

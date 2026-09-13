@@ -50,6 +50,12 @@ from . import command_policy as _command_policy
 from typing import Any, Callable
 
 from .text_safety import contains_bidi_or_control
+from .validation_suite import (
+    CANONICAL_VALIDATION_COMMANDS,
+    CANONICAL_VALIDATION_COMMANDS_EXECUTABLE,
+    canonical_command_satisfied_by,
+    executable_spelling,
+)
 
 
 # =============================================================================
@@ -1264,6 +1270,14 @@ class HardFailContext:
     base_branch: str | None = None
     pr_body: str | None = None
     pre_merge_evidence: _PreMergeEvidence | None = None
+    # ARIA-HIGH-104 (4) — the commit contract the plan's origin admits
+    # (`plan_origin.commit_contract_for_plan`; None on the operator lane,
+    # whose commits the commit-msg gate judges directly) and the commits
+    # base_sha..head on the branch being opened, `{sha, subject, body}` in
+    # branch order. Both are stage inputs: a preview without a branch
+    # reports the check as not evaluable rather than as a refusal.
+    commit_contract: dict[str, Any] | None = None
+    branch_commits: tuple[dict[str, str], ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -1673,57 +1687,14 @@ _HOOK_BYPASS_FLAGS: frozenset[str] = frozenset({
 })
 _HOOKS_PATH_KEY = "core.hookspath"
 
-# The canonical validation suite an implementation MUST declare.
-#
-# CLAUDE.md mandates `nx affected --target=test` + `nx affected
-# --target=lint` before any commit, and `npm run type-check` is the
-# platform-wide type gate. The registry description for this check also
-# named "mutation" and "coverage"; this repository has no mutation-
-# testing and no coverage target (there is no such npm script and no nx
-# target), so requiring them would make the gate permanently
-# unsatisfiable and S0 unexitable. Requiring what does not exist is not
-# strictness, it is a gate that can only ever be bypassed.
-#
-# The absence is tracked as ORPHAN-MEDIUM-436 (owner okan, deadline
-# 2026-09-06) rather than silently dropped, and the registry description
-# is corrected to match what is enforced.
-CANONICAL_VALIDATION_COMMANDS: tuple[str, ...] = (
-    "nx affected --target=test",
-    "nx affected --target=lint",
-    "npm run type-check",
-)
-
-# ORPHAN-CRITICAL-727 — the same suite, spelled the way a lane can RUN it.
-#
-# Two gates read the suite and they disagreed on the spelling. The
-# pre-PR-open perimeter accepts the bare `nx ...` form above (or that form
-# behind an `npx` prefix); `validation.parse_allowed_command` admits
-# `npx nx` and refuses a bare `nx`, because argv-0 is what it pins. A lane
-# that staged the perimeter's spelling therefore declared a suite its own
-# validation runner would refuse to execute — the change would carry a
-# declaration nobody could produce evidence for.
-#
-# Derived rather than retyped so the two tuples cannot drift: the executable
-# form IS the canonical form with the runner prefix the allowlist requires.
-
-
-def executable_spelling(command: str) -> str:
-    """The spelling under which a declared command is RUN.
-
-    One rule, owned here beside the canonical tuple it derives: whitespace
-    collapsed, and the bare ``nx`` form the plan synthesizer emits given the
-    ``npx`` prefix ``parse_allowed_command`` pins argv-0 on. Staging
-    (``apply_engine``) and the plan contract (``plan_contract``) both read a
-    plan's ``validation_commands`` through this function, so the two cannot
-    disagree about whether a spelling is the canonical suite.
-    """
-    collapsed = " ".join(str(command).split())
-    return f"npx {collapsed}" if collapsed.startswith("nx ") else collapsed
-
-
-CANONICAL_VALIDATION_COMMANDS_EXECUTABLE: tuple[str, ...] = tuple(
-    executable_spelling(command) for command in CANONICAL_VALIDATION_COMMANDS
-)
+# The canonical validation suite an implementation MUST declare lives in
+# ``validation_suite`` (ARIA-HIGH-104 (2)): below this module AND below
+# ``command_policy``, so the Bash allowlist derives its admission of the
+# suite from the same tuple the plan contract, staging, the pre-PR-open
+# perimeter and the merge gate read. Re-exported from the import block at
+# the top of this module under the names every importer has always used;
+# the history of the tuple (ORPHAN-MEDIUM-436, ORPHAN-CRITICAL-461,
+# ORPHAN-CRITICAL-727) is documented beside it.
 
 # ORPHAN-CRITICAL-728 — how long the canonical suite is allowed to take.
 #
@@ -1963,31 +1934,38 @@ def _check_test_gate_canonical_suite(context: HardFailContext) -> HardFailResult
     if not context.validation_commands:
         return _failed(name, "validation_commands_absent")
     # ORPHAN-CRITICAL-461 — WHOLE-ENTRY membership, not substring over the
-    # concatenation. The previous body joined every declared command into one
-    # string and asked whether each canonical command appeared ANYWHERE in
-    # it, so a single entry that merely mentions them cleared the gate:
-    #
-    #   validation_commands=("echo 'nx affected --target=test nx affected
-    #                         --target=lint npm run type-check'",)   -> PASSED
-    #
-    # An echo of a comment is not a test run. Each canonical command must be
-    # a declared entry in its own right; leading `npx`/`npm exec` wrappers are
-    # tolerated because they are the same invocation, and a trailing argument
-    # is allowed because narrowing a suite is legitimate while replacing it
-    # with prose is not.
-    entries = [" ".join(str(command).split()) for command in context.validation_commands]
-    missing: list[str] = []
-    for required in CANONICAL_VALIDATION_COMMANDS:
-        if not any(
-            entry == required
-            or entry.startswith(required + " ")
-            or entry.endswith(" " + required)
-            and entry.split(required)[0].strip() in {"npx", "npm exec"}
-            for entry in entries
-        ):
-            missing.append(required)
+    # concatenation (the rule lives in `canonical_command_satisfied_by`,
+    # shared with the merge gate's hygiene battery).
+    missing: list[str] = [
+        required for required in CANONICAL_VALIDATION_COMMANDS
+        if not any(canonical_command_satisfied_by(entry, required) for entry in context.validation_commands)
+    ]
     if missing:
         return _failed(name, "missing_canonical_commands:" + ",".join(missing))
+    return _passed(name)
+
+
+def _check_commit_contract_honoured(context: HardFailContext) -> HardFailResult:
+    """ARIA-HIGH-104 (4) — the branch's commits carry exactly the trailer the
+    plan's origin admits, or none when the origin admits none.
+
+    The contract is derived twice from the same function — once onto the
+    envelope the agent read, once here from the staged action's plan — so the
+    agent cannot have been told one thing and judged by another. An action
+    with no plan (the operator lane) has no kernel-derived contract; its
+    commits are the operator's and the commit-msg gate (husky + CI range
+    check) judges them, which this check records rather than re-implements.
+    """
+    from .plan_origin import verify_commits_honour_contract
+
+    name = "commit_contract_honoured"
+    if context.branch_commits is None:
+        return _failed(name, "branch_commits_absent")
+    if context.commit_contract is None:
+        return _passed(name, "operator_lane:commit_msg_gate_judges_these_commits")
+    verdict = verify_commits_honour_contract(list(context.branch_commits), context.commit_contract)
+    if not verdict.honoured:
+        return _failed(name, "commit_contract_violated:" + ";".join(verdict.violations))
     return _passed(name)
 
 
@@ -2146,6 +2124,7 @@ _STAGE_ONLY_CONTEXT_FIELDS: tuple[str, ...] = (
     "envelope",
     "validation_commands",
     "pr_body",
+    "branch_commits",
 )
 
 
@@ -2235,12 +2214,12 @@ HARD_FAIL_CHECKS: tuple[HardFailCheck, ...] = (
         name="test_gate_canonical_suite",
         description=(
             "validation_commands[] MUST include the canonical suite "
-            "(nx affected --target=test, nx affected --target=lint, "
-            "npm run type-check). Mutation + coverage were named in this "
-            "description before the check had an implementation; neither "
-            "target exists in this repository, so requiring them would "
-            "make the gate unsatisfiable rather than strict. Tracked as "
-            "ORPHAN-MEDIUM-436, not dropped."
+            "(CANONICAL_VALIDATION_COMMANDS: " + ", ".join(CANONICAL_VALIDATION_COMMANDS) + "). "
+            "Mutation + coverage were named in this description before the "
+            "check had an implementation; neither target exists in this "
+            "repository, so requiring them would make the gate "
+            "unsatisfiable rather than strict. Tracked as ORPHAN-MEDIUM-436, "
+            "not dropped."
         ),
         closes_findings=("ai-HIGH-008",),
         check=_check_test_gate_canonical_suite,
@@ -2251,6 +2230,21 @@ HARD_FAIL_CHECKS: tuple[HardFailCheck, ...] = (
         description="verify_no_secret_in_diff BEFORE gh pr create",
         closes_findings=("ai-CRIT-004", "sec-HIGH-005"),
         check=_check_secret_scan_diff_clean,
+        gate=GATE_PRE_PR_OPEN,
+    ),
+    # ARIA-HIGH-104 (4) — the 18th check. The trailer on an ARIA commit is
+    # derived from the plan's origin by the kernel (plan_origin), printed on
+    # the implementation envelope, and verified here against the branch's
+    # commits before `gh pr create`; the agent never invents one.
+    HardFailCheck(
+        name="commit_contract_honoured",
+        description=(
+            "every commit base_sha..head carries exactly the Closes: trailer "
+            "plan_origin.commit_contract_for_plan derives for the staged plan "
+            "(or none, with a trailer-free commit type, when its origin admits none)"
+        ),
+        closes_findings=("ARIA-HIGH-104",),
+        check=_check_commit_contract_honoured,
         gate=GATE_PRE_PR_OPEN,
     ),
     HardFailCheck(
@@ -2391,6 +2385,7 @@ __all__ = (
     "CANONICAL_VALIDATION_COMMANDS",
     "CANONICAL_VALIDATION_COMMANDS_EXECUTABLE",
     "CANONICAL_VALIDATION_TIMEOUT_MS",
+    "canonical_command_satisfied_by",
     "executable_spelling",
     # exceptions
     "SecretLeakDetected",

@@ -26,6 +26,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from aria_kernel.implementation_safety import CANONICAL_VALIDATION_COMMANDS_EXECUTABLE
 from aria_kernel.merge_authority import merge_pr_if_ready
 from aria_kernel.tool_registry import ensure_tools_dir
 
@@ -342,7 +343,10 @@ class NativeImplementationContextTests(unittest.TestCase):
             **{path: data.decode("utf-8") for path, data in native_tool_bytes.items()},
             ".gitignore": "/node_modules\n.nx/\naria-debts/\n",
             "package.json": json.dumps({"name": "pre-merge-native-fixture", "private": True,
-                "scripts": {"type-check": "tsc --noEmit --pretty false -p tsconfig.json"}}),
+                "scripts": {"type-check": "tsc --noEmit --pretty false -p tsconfig.json",
+                            # ARIA-HIGH-104 (2) — format:check joined the canonical
+                            # suite; the offline fixture answers it like type-check.
+                            "format:check": "node -e 0"}}),
             "nx.json": json.dumps({"neverConnectToCloud": True, "plugins": []}),
             "apps/farm-service/project.json": json.dumps({
                 "name": "native-implementation-fixture", "root": "apps/farm-service",
@@ -449,6 +453,7 @@ class NativeImplementationContextTests(unittest.TestCase):
             cross_review_summary_text="Direct native convergence fixture; no separate expert panel.",
             proposal_id=staged["proposal_id"], change_id=staged["change_id"],
             branch=staged["branch"], base_sha=staged["base_sha"], base_dir=tools,
+            cycle_id="cycle-pre-merge-fixture",
         )
         self.assertEqual(request["implementation_ids"]["change_id"], staged["change_id"])
         self.assertEqual(request["plan_revision_hash"], plan.content_hash)
@@ -515,10 +520,12 @@ class NativeImplementationContextTests(unittest.TestCase):
         self.assertIn("sample-interval-behavior=15000", test_log)
         baseline_rows = [row for row in load_declared_jsonl(tools / "validation" / "validation-runs.jsonl",
             expected_surface="validation_runs") if row["commit_sha"] == staged["base_sha"]]
-        self.assertEqual(len(baseline_rows), 3)
+        # One baseline row per canonical command, read from the suite's one
+        # tuple (ARIA-HIGH-104 (2) grew it) rather than counted by hand.
+        self.assertEqual(len(baseline_rows), len(CANONICAL_VALIDATION_COMMANDS_EXECUTABLE))
         for row in baseline_rows:
             self.assertEqual(verify_validation_run(row["validation_run_id"], base_dir=tools), row)
-            self.assertEqual(row["exit_code"], 0)
+            self.assertEqual(row["exit_code"], 0, (row["cmd"], Path(row["log_path"]).read_text(encoding="utf-8")[-1600:]))
         self.assertTrue(any("sample-interval-behavior=30000" in Path(row["log_path"]).read_text(encoding="utf-8")
             for row in baseline_rows))
         diff_text = git("diff", staged["base_sha"], head_sha)
@@ -780,12 +787,15 @@ class NativeImplementationContextTests(unittest.TestCase):
             self.assertFalse(partial_checks["content_hash_recheck"].passed)
             self.assertFalse(partial_checks["per_file_mutual_exclusion"].passed)
 
-        from aria_kernel.agent_invocations import create_agent_invocation_request, release_claim
-        competing = create_agent_invocation_request(
-            target_agent="aria-implementer", role="implementation",
-            suggested_prompt="inspect the same source during the pending merge review",
-            must_satisfy=[{"id": "inspect-source", "criterion": "inspect the declared source"}],
-            allowed_scope=[source_path], target_sha=head_sha, base_dir=tools,
+        from aria_kernel.agent_invocations import release_claim
+        from tests._helpers.production_shaped import production_implementation_request
+
+        # ARIA-HIGH-104 — a competing implementation envelope is minted the
+        # way production mints one: on its own CONVERGED plan over the same
+        # source path, through the real bridge.
+        competing = production_implementation_request(
+            tools_dir=tools, workspace_root=repo, plan_id="plan-competing-source-inspection",
+            allowed_path=source_path, base_sha=head_sha,
         )
         competing_claim = claim_request(request_id=competing["request_id"],
             agent_id="competing-source-worker", base_dir=tools)

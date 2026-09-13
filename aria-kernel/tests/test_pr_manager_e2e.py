@@ -400,7 +400,10 @@ class StagedConvergedPlanChainTests(unittest.TestCase):
         files = {
             ".gitignore": "aria-tools/\nnode_modules/\n.nx/\n__pycache__/\n",
             "package.json": json.dumps({"name": "ordinary-env-fixture", "private": True,
-                                       "scripts": {"type-check": "tsc --noEmit --pretty false --listFiles -p tsconfig.json"}}),
+                                       "scripts": {"type-check": "tsc --noEmit --pretty false --listFiles -p tsconfig.json",
+                                                   # ARIA-HIGH-104 (2) — format:check joined the
+                                                   # canonical suite; the offline fixture answers it.
+                                                   "format:check": "node -e 0"}}),
             "nx.json": json.dumps({"neverConnectToCloud": True, "plugins": []}),
             "apps/farm-service/project.json": json.dumps({
                 "name": "env-fixture", "root": "apps/farm-service",
@@ -668,8 +671,9 @@ class StagedConvergedPlanChainTests(unittest.TestCase):
         self.assertGreater(len(encoded({"recipe_sources": expected_sources})), 65_536)
         for order in (declarations, list(reversed(declarations))):
             commands, timeout, selection = _staged_validation_inputs({"validation_commands": order}, base_dir=self.tools)
-            self.assertEqual(commands[:3], list(CANONICAL_VALIDATION_COMMANDS_EXECUTABLE))
-            self.assertEqual(len(commands), 19)
+            self.assertEqual(commands[:len(CANONICAL_VALIDATION_COMMANDS_EXECUTABLE)], list(CANONICAL_VALIDATION_COMMANDS_EXECUTABLE))
+            # The canonical suite plus the 16 declared spellings, deduplicated to 8 recipe commands.
+            self.assertEqual(len(commands), len(CANONICAL_VALIDATION_COMMANDS_EXECUTABLE) + 16)
             self.assertEqual(timeout, CANONICAL_VALIDATION_TIMEOUT_MS)
             self.assertEqual(selection, {"schema_version": 1, "status": "unknown", "input_scope": None,
                                         "recipe_sources": [], "plan_content_hash": None, "reason": "selection_metadata_limit"})
@@ -683,7 +687,7 @@ class StagedConvergedPlanChainTests(unittest.TestCase):
         both_limits = [*declarations, {"recipe_id": ninth["recipe_id"]}]
         for order in (both_limits, list(reversed(both_limits))):
             commands, timeout, selection = _staged_validation_inputs({"validation_commands": order}, base_dir=self.tools)
-            self.assertEqual(len(commands), 20)
+            self.assertEqual(len(commands), len(CANONICAL_VALIDATION_COMMANDS_EXECUTABLE) + 17)
             self.assertEqual(timeout, CANONICAL_VALIDATION_TIMEOUT_MS)
             self.assertEqual(selection, {"schema_version": 1, "status": "unknown", "input_scope": None,
                                         "recipe_sources": [], "plan_content_hash": None, "reason": "selection_input_limit"})

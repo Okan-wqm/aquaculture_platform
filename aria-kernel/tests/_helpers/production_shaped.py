@@ -274,6 +274,50 @@ def production_converged_plan(
         content_hash=str(final["content_hash"]),
     )
 
+def production_implementation_request(
+    *,
+    tools_dir: Path,
+    workspace_root: Path,
+    plan_id: str,
+    allowed_path: str,
+    cycle_id: str = "cycle-implementation-fixture",
+    base_sha: str | None = None,
+) -> dict[str, Any]:
+    """An implementation envelope minted the way production mints one.
+
+    ARIA-HIGH-104 — ``create_agent_invocation_request`` refuses a bare
+    ``role=implementation`` row: the request contract requires the plan
+    revision it names (for the suite it derives), the cycle that staged it
+    and the commit contract of the plan's origin, and production's one
+    producer (``cycle_phases.implementer`` →
+    ``cross_review_bridge.issue_implementation_envelope``) supplies all three.
+    A fixture that hand-minted the row was testing an input production never
+    produces, so this helper drives a plan to CONVERGED through
+    :func:`production_converged_plan` (scoped to ``allowed_path``) and mints
+    through the real bridge. The staged ids are fixture literals: the mint
+    names them, it does not resolve them.
+    """
+    import hashlib
+
+    from aria_kernel.cross_review_bridge import issue_implementation_envelope
+
+    plan = production_converged_plan(
+        tools_dir=tools_dir, workspace_root=workspace_root, plan_id=plan_id,
+        affected_paths=[allowed_path],
+    )
+    return issue_implementation_envelope(
+        plan_id=plan.plan_id,
+        cross_review_revision_id=plan.revision_id,
+        cross_review_summary_text="Direct native convergence fixture; no separate expert panel.",
+        proposal_id=f"proposal-{plan_id}",
+        change_id=f"chg-{plan_id}",
+        branch="aria-impl-" + hashlib.sha256(plan_id.encode("utf-8")).hexdigest()[:16],
+        base_sha=base_sha or "0" * 40,
+        base_dir=tools_dir,
+        cycle_id=cycle_id,
+    )
+
+
 def production_request_without_anchor(
     *,
     target_agent: str = "aria-evidence-judge",

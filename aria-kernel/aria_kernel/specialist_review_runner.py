@@ -53,6 +53,7 @@ from .agent_invocations import (
     derive_request_state,
 )
 from .agent_surface import TERMINAL_REQUEST_STATES
+from .must_satisfy import must_satisfy_item
 from .tool_registry import ensure_tools_dir
 
 _SPECIALIST_ROLE = "specialist_domain_review"
@@ -540,14 +541,18 @@ def run_specialist_review_runner(
                     f"plans are reviewed by domain specialists before "
                     f"worker dispatch."
                 ) + plan_prompt,
-                must_satisfy=[{
-                    "id": f"specialist-review-{agent_name}",
-                    "description": (
-                        f"Specialist {agent_name} reviewed the converged "
-                        f"plan and emitted findings with verified "
-                        f"evidence_refs."
+                # The agent's name is roster data (a file under
+                # .claude/agents), not the kernel's statement: it rides as
+                # `specialist_agent` so the scanned description stays the
+                # kernel's own whatever the roster names a specialist.
+                must_satisfy=[must_satisfy_item(
+                    id=f"specialist-review-{agent_name}",
+                    description=(
+                        "The specialist named by this obligation's `specialist_agent` reviewed "
+                        "the converged plan and emitted findings with verified evidence_refs."
                     ),
-                }],
+                    specialist_agent=agent_name,
+                )],
                 convergence_id=convergence_id,
                 base_dir=base_dir,
                 **request_context,

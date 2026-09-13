@@ -236,17 +236,19 @@ class ImplementationScopeClaimTests(unittest.TestCase):
         ensure_tools_binding(tools, workspace_root=repo)
         set_profile("strict", operator_approval_ref="test:native-scope-claims", base_dir=tools)
 
-        def request_for(path: str, purpose: str) -> dict:
-            return create_agent_invocation_request(
-                target_agent="aria-implementer", role="implementation",
-                suggested_prompt=purpose,
-                must_satisfy=[{"id": "scope-owner", "criterion": "update the declared source"}],
-                allowed_scope=[path], base_dir=tools,
+        from tests._helpers.production_shaped import production_implementation_request
+
+        # ARIA-HIGH-104 — minted through the real bridge on a CONVERGED plan
+        # scoped to the path (a bare implementation row is refused by the
+        # request contract); one plan per request keeps the ids distinct.
+        def request_for(path: str, plan_id: str) -> dict:
+            return production_implementation_request(
+                tools_dir=tools, workspace_root=repo, plan_id=plan_id, allowed_path=path,
             )
 
-        first = request_for("apps/farm-service/src/interval.ts", "first interval update")
-        overlapping = request_for("apps/farm-service/src/interval.ts", "second interval update")
-        disjoint = request_for("apps/farm-service/src/unit.ts", "independent unit update")
+        first = request_for("apps/farm-service/src/interval.ts", "plan-first-interval-update")
+        overlapping = request_for("apps/farm-service/src/interval.ts", "plan-second-interval-update")
+        disjoint = request_for("apps/farm-service/src/unit.ts", "plan-independent-unit-update")
         self.assertEqual(len({row["request_id"] for row in (first, overlapping, disjoint)}), 3)
         first_claim = claim_request(request_id=first["request_id"], agent_id="scope-worker-a", base_dir=tools)
         disjoint_claim = claim_request(request_id=disjoint["request_id"], agent_id="scope-worker-c", base_dir=tools)
@@ -299,15 +301,24 @@ class ImplementationScopeClaimTests(unittest.TestCase):
         tools = fixture / "store" / "tools"
         ensure_tools_binding(tools, workspace_root=repo)
         set_profile("strict", operator_approval_ref="test:scope-lifecycle", base_dir=tools)
+        self._scope_repo = repo
         return repo, tools
 
     def _scope_request(self, tools: Path, path: str, purpose: str, *, role: str = "implementation") -> dict:
         from aria_kernel.agent_invocations import create_agent_invocation_request
+        from tests._helpers.production_shaped import production_implementation_request
 
+        if role == "implementation":
+            # ARIA-HIGH-104 — through the real bridge on a CONVERGED plan;
+            # the purpose names the plan so each request is a distinct row.
+            return production_implementation_request(
+                tools_dir=tools, workspace_root=self._scope_repo, plan_id="plan-" + purpose.replace(" ", "-"),
+                allowed_path=path,
+            )
         return create_agent_invocation_request(
-            target_agent="aria-implementer" if role == "implementation" else "aria-primary-planner",
+            target_agent="aria-primary-planner",
             role=role, suggested_prompt=purpose,
-            must_satisfy=[{"id": "scope-owner", "criterion": "inspect the declared source"}],
+            must_satisfy=[{"id": "scope-owner", "description": "inspect the declared source"}],
             allowed_scope=[path], base_dir=tools,
         )
 
@@ -398,12 +409,7 @@ class ImplementationScopeClaimTests(unittest.TestCase):
         repo, tools = self._scope_fixture()
         path = "apps/farm-service/src/interval.ts"
         head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
-        request = create_agent_invocation_request(
-            target_agent="aria-implementer", role="implementation",
-            suggested_prompt="inspect interval before returning the bound response",
-            must_satisfy=[{"id": "scope-owner", "criterion": "inspect the declared source"}],
-            allowed_scope=[path], target_sha=head, base_dir=tools,
-        )
+        request = self._scope_request(tools, path, "inspect interval before returning the bound response")
         next_request = self._scope_request(tools, path, "inspect interval after terminal response")
         stamp = datetime.now(timezone.utc).replace(microsecond=0)
         with patch("aria_kernel.agent_invocations._utc_now_dt", return_value=stamp):
@@ -413,8 +419,9 @@ class ImplementationScopeClaimTests(unittest.TestCase):
             "$schema": "aria/agent-response/v1", "request_id": request["request_id"],
             "claim_id": claim["claim_id"], "agent_id": claim["agent_id"],
             "role": "implementation", "status": "submitted",
-            "satisfaction_matrix": [{"id": "scope-owner", "verdict": "satisfied",
-                "evidence_refs": [path + ":1"]}],
+            # One entry per obligation the real envelope carries.
+            "satisfaction_matrix": [{"id": entry["id"], "verdict": "satisfied",
+                "evidence_refs": [path + ":1"]} for entry in request["must_satisfy"]],
             "evidence_refs": [path + ":1"],
         }
         output = Path(request["expected_output_path"])
@@ -430,6 +437,10 @@ class ImplementationScopeClaimTests(unittest.TestCase):
             "context_hash": request["context_hash"], "prompt_hash": request["prompt_hash"],
             "transcript_hash": "sha256:" + hashlib.sha256(transcript.read_bytes()).hexdigest(),
             "transcript_artifact_ref": str(transcript),
+            # The real implementation envelope carries no target_sha (the
+            # executor verifies evidence at the tree it ran on), so the
+            # submitter names the tree the fixture's evidence was read at.
+            "evidence_target_sha": head,
         }
         real_append = ledger.StateTransaction.append_declared_jsonl
         observed_journals = []

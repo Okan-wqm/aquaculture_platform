@@ -1,7 +1,8 @@
 # The model was told to obey a contract it was never shown — and the first accepted native planner result
 
 **Date:** 2026-09-11 · **Agent:** claude · **Cycle:** 2026-09-11 Codex handoff — native planner
-**Findings:** ARIA-HIGH-073 — closed by this branch. ARIA-HIGH-068 (live Z.ai) — closed by the evidence in the last section. This document is the evidence for both.
+**Findings:** ARIA-HIGH-073 — closed by this branch. ARIA-HIGH-068 (live Z.ai) — closed by the
+evidence in the last section. This document is the evidence for both.
 
 ## What the first completed native planner attempt said
 

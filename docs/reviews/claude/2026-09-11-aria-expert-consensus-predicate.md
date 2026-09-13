@@ -1,4 +1,4 @@
-# The expert panel could be minted, claimed and answered — and never admitted; now it is the fifth live merge predicate
+# The expert panel could be answered and never admitted; now it is the fifth live merge predicate
 
 **Date:** 2026-09-11 · **Agent:** claude · **Cycle:** 2026-09-11 Codex handoff — merge predicates
 **Finding:** ARIA-HIGH-072 — closed by this branch; this document is its evidence.
@@ -170,7 +170,7 @@ separate decision. The last placeholder predicate is
 
 ## Addendum 2026-09-12 — the seventh predicate: `cycle_and_turn_budget_cap`
 
-### ARIA-HIGH-088 — the seventh pre-merge predicate was a placeholder; nothing bounded an implementer's turns
+### ARIA-HIGH-088 — the seventh pre-merge predicate was a placeholder; implementer turns unbounded
 
 - **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-19
 - **Evidence:** `aria-kernel/aria_kernel/implementation_safety.py`,

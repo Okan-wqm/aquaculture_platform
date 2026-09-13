@@ -1,7 +1,8 @@
 # Z.ai gets its own transport; the claude binary serves Anthropic and nothing else
 
-**Date:** 2026-09-11 · **Agent:** claude · **Cycle:** 2026-09-11 Codex handoff — Z.ai subscription route
-**Findings:** ARIA-HIGH-067 — closed by this branch; ARIA-HIGH-068 — OPEN until the live exercise records vendor evidence. This document is the evidence for both.
+**Date:** 2026-09-11 · **Agent:** claude · **Cycle:** 2026-09-11 Codex handoff — Z.ai subscription
+route **Findings:** ARIA-HIGH-067 — closed by this branch; ARIA-HIGH-068 — OPEN until the live
+exercise records vendor evidence. This document is the evidence for both.
 
 ## The policy, and what the code did instead
 

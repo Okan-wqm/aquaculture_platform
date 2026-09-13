@@ -241,17 +241,18 @@ pressure-source invariant.
 ONE parameterised form — the parameter is a tool id validated against the registry's ACTIVE set
 (`scheduler.validate_action`), never text.
 
-Amendment 2026-09-12 (B6): the table exists by construction. `gateway.default_schedules.DEFAULT_SCHEDULES`
-(`doctor`, `self_improve`, `economy`, `deliver`) is seeded by the daemon on start
-(`ensure_default_schedules`, `add` rows with `operator_ref = kernel:default_schedules`, recorded once — a
-seeded store records nothing on restart); every other `SCHEDULE_ACTIONS` member is in
-`OPERATOR_ONLY_ACTIONS` with the reason it must not be seeded (a workflow cron, the systemd timer, the
-tick, the auto-cycle already own that cadence). The partition is total
-(`tests/test_gateway_default_schedules.py`). After seeding the LEDGER is the SSoT: an operator's remove is
-never resurrected, a pause survives restarts, and a cadence drift between code and ledger is reported
-(`gateway_daemon_started.schedules_drift`), never rewritten. The heartbeat carries
-`poll_interval_seconds`; the doctor organ `gateway_heartbeat_fresh` FAILS (not warns) when the beat is
-older than `HEARTBEAT_STALE_AFTER_BEATS` beats of that cadence, or absent while a schedule table exists.
+Amendment 2026-09-12 (B6): the table exists by construction.
+`gateway.default_schedules.DEFAULT_SCHEDULES` (`doctor`, `self_improve`, `economy`, `deliver`) is
+seeded by the daemon on start (`ensure_default_schedules`, `add` rows with `operator_ref =
+kernel:default_schedules`, recorded once — a seeded store records nothing on restart); every other
+`SCHEDULE_ACTIONS` member is in `OPERATOR_ONLY_ACTIONS` with the reason it must not be seeded (a
+workflow cron, the systemd timer, the tick, the auto-cycle already own that cadence). The partition
+is total (`tests/test_gateway_default_schedules.py`). After seeding the LEDGER is the SSoT: an
+operator's remove is never resurrected, a pause survives restarts, and a cadence drift between code
+and ledger is reported (`gateway_daemon_started.schedules_drift`), never rewritten. The heartbeat
+carries `poll_interval_seconds`; the doctor organ `gateway_heartbeat_fresh` FAILS (not warns) when
+the beat is older than `HEARTBEAT_STALE_AFTER_BEATS` beats of that cadence, or absent while a
+schedule table exists.
 
 ## 15. MCP registry, strict per-spawn config, call ledger + quarantine (Plan 032 Faz 032g)
 

@@ -1413,11 +1413,11 @@ contract, and by the time it fired the plan was CONVERGED and immutable.
 
 The two rules, in the one wording the refusals use:
 
-* `plan_content.architectural_tier` is REQUIRED of every agent-authored body and must be one of
+- `plan_content.architectural_tier` is REQUIRED of every agent-authored body and must be one of
   `change_ledger.ARCHITECTURAL_TIERS` (1 make it impossible, 2 make it automatic, 3 make it
   detectable, 4 document it — `ARCHITECTURAL_TIER_MEANINGS`). Reasons: `plan_architectural_tier_missing`,
   `plan_architectural_tier_invalid`.
-* Every `plan_content.validation_commands[]` entry is either `{cmd}` naming one of the admissible
+- Every `plan_content.validation_commands[]` entry is either `{cmd}` naming one of the admissible
   commands — the canonical executable suite (`implementation_safety.CANONICAL_VALIDATION_COMMANDS_EXECUTABLE`:
   `npx nx affected --target=test`, `npx nx affected --target=lint`, `npm run type-check`,
   `npm run format:check`; matched
@@ -1427,11 +1427,11 @@ The two rules, in the one wording the refusals use:
   `experiment.register_recipe`. Reasons: `plan_validation_command_not_declared`,
   `plan_validation_recipe_unknown`. `resolve_declared_validation_command` is the ONE matching rule;
   staging reads it too, so what a planner was told is what staging runs.
-* Every `plan_content.key_changes[]` entry is a string (one step) or an object
+- Every `plan_content.key_changes[]` entry is a string (one step) or an object
   `{id?, description, paths?}` (`plan_convergence.KEY_CHANGE_FIELDS`); any other object shape is
   refused as `plan_key_change_shape` (ARIA-HIGH-104 (3) — the implementer prompt used to read a
   `file` field no producer wrote).
-* `plan_content.finding_id`, when present, names an origin `plan_origin` derives a commit contract
+- `plan_content.finding_id`, when present, names an origin `plan_origin` derives a commit contract
   for — `ORPHAN-<SEV>-NNN` or `F-NNN` / `F-AUTO-V<x.y>-<TOPIC>`; any other id is refused as
   `plan_origin_unrecognised` at submission and at the `plan_contract_complete` gate, the same read
   the implementation mint makes, so a plan the mint would refuse never CONVERGES (a registry-form
@@ -1440,11 +1440,12 @@ The two rules, in the one wording the refusals use:
   mints such a plan).
 
 Where it is stated (rendered, never retyped): every planning envelope
-(`convergent_planning_bridge.issue_challenger_envelope`, `cross_review_bridge.issue_cross_review_envelope`,
-`cross_review_bridge.issue_primary_envelope`, `plan_round_controller`) carries a `plan_contract` block
-(`render_plan_contract(base_dir)`: the tier vocabulary with meanings, the canonical suite, THIS store's
-recipes, the refusal reasons) rendered into the sealed prompt as `## Plan contract`; every delivered agent
-contract ends with the same rules (`agent_contract.render_response_validator_contract`);
+(`convergent_planning_bridge.issue_challenger_envelope`,
+`cross_review_bridge.issue_cross_review_envelope`, `cross_review_bridge.issue_primary_envelope`,
+`plan_round_controller`) carries a `plan_contract` block (`render_plan_contract(base_dir)`: the tier
+vocabulary with meanings, the canonical suite, THIS store's recipes, the refusal reasons) rendered
+into the sealed prompt as `## Plan contract`; every delivered agent contract ends with the same
+rules (`agent_contract.render_response_validator_contract`);
 `.claude/knowledge/layer-2-aria-canonical-envelope.md` carries the prose mirror.
 
 Where it is enforced (all through `plan_contract_violations`): `agent_invocations.submit_claim_result`
@@ -1479,41 +1480,44 @@ answered `available`. Operator decision on record (2026-09-12): opus is a leaf f
 roles fail over across vendors for AUTH reasons only (auth unavailable, quota exhausted or cooled), and
 a probe that did not answer is neither.
 
-The observation is three-valued BY CONSTRUCTION. Every `_RuntimeStatusObservation` carries a required
-`decision: StatusDecision` named at the site that saw the answer — `AVAILABLE` (the vendor confirmed the
-managed session / credential), `UNAVAILABLE` (the vendor or the ledger SAID no: `managed_session_logged_out`,
-`api_key_auth_not_managed`, `managed_login_required`, `cli_reported_not_logged_in`, a Z.ai 401/403, a Z.ai
-429/402 or entitlement refusal, `cli_unavailable`, `provider_not_configured`, `provider_quota_cooldown`,
-`provider_readonly_runtime`, and the managed Codex route's decided refusals `codex_managed_auth_file_unavailable`
-/ `codex_managed_auth_directory_unavailable` / `codex_cli_unavailable` / `codex_native_profile_controls_unavailable`
-— `codex_runtime.ManagedCodexRouteUnavailable`, its own type beside the host's `SandboxUnavailable`) or
-`UNDECIDED` (nothing was heard: `status_timeout`, `status_command_unavailable`, `status_deadline_elapsed`,
-`status_not_confirmed` and `status_output_unrecognized` — both ONLY when no status document or line was
-read —, `status_output_limit`, `control_plane_failure`, a transport error, a vendor 5xx, a managed context
-this host could not bind). A contradictory row (auth `unavailable` marked undecided, auth `unknown` marked
-available) cannot be built. Readers branch on the type, never on a reason string. The Z.ai probe's
-`_classify` returns the decision beside auth/quota/reason; a 429 is DECIDED unavailable with auth still
-`available`.
+The observation is three-valued BY CONSTRUCTION. Every `_RuntimeStatusObservation` carries a
+required `decision: StatusDecision` named at the site that saw the answer — `AVAILABLE` (the vendor
+confirmed the managed session / credential), `UNAVAILABLE` (the vendor or the ledger SAID no:
+`managed_session_logged_out`, `api_key_auth_not_managed`, `managed_login_required`,
+`cli_reported_not_logged_in`, a Z.ai 401/403, a Z.ai 429/402 or entitlement refusal,
+`cli_unavailable`, `provider_not_configured`, `provider_quota_cooldown`,
+`provider_readonly_runtime`, and the managed Codex route's decided refusals
+`codex_managed_auth_file_unavailable` / `codex_managed_auth_directory_unavailable` /
+`codex_cli_unavailable` / `codex_native_profile_controls_unavailable` —
+`codex_runtime.ManagedCodexRouteUnavailable`, its own type beside the host's `SandboxUnavailable`)
+or `UNDECIDED` (nothing was heard: `status_timeout`, `status_command_unavailable`,
+`status_deadline_elapsed`, `status_not_confirmed` and `status_output_unrecognized` — both ONLY when
+no status document or line was read —, `status_output_limit`, `control_plane_failure`, a transport
+error, a vendor 5xx, a managed context this host could not bind). A contradictory row (auth
+`unavailable` marked undecided, auth `unknown` marked available) cannot be built. Readers branch on
+the type, never on a reason string. The Z.ai probe's `_classify` returns the decision beside
+auth/quota/reason; a 429 is DECIDED unavailable with auth still `available`.
 
-The answer decides before the exit code (verifier, 2026-09-12). Both managed CLIs report a logged-out
-session as an answer AND a non-zero exit: Claude Code 2.1.269 prints `{"loggedIn": false, …}` then
-`process.exit(loggedIn ? 0 : 1)` (read from the installed binary; reproduced offline with an empty
-config dir), Codex 0.154.0 prints `Not logged in` and exits 1 (reproduced offline with an empty
-`CODEX_HOME`). `tools/aria-poc/status_answers.py` owns the classification for both:
-`classify_claude_status_answer(stdout, returncode)` reads the JSON document first (a boolean `loggedIn`
-is the vendor's answer whatever the exit — logged out → `managed_session_logged_out` UNAVAILABLE carrying
-`exit_code=1`), `classify_codex_status_answer(output, returncode)` reads the line first (`Not logged in` →
-`cli_reported_not_logged_in` UNAVAILABLE, with the same read-only PATH-alias-warning tolerance as the login
-lines). The exit code is consulted in the shared no-answer arm and nowhere else — pinned structurally by
-`tests/test_status_answers_before_exit_codes.py` (an AST scan: neither classifier compares `returncode`)
-and behaviourally through the real probes with scripted binaries that mirror the installed exit codes; the
-lane fixtures (`test_ci_executor_native_claude._fake_claude`, the smoke suite's Codex status fixture) exit
-as the real CLIs do. The probes (`claude_runtime._probe_claude_auth_status`,
-`codex_runtime._probe_codex_auth_status`) keep the spawn — environment boundary, per-attempt cap, byte
-cap, reaping, the limiter's dead-bus arm — and hand the bytes to the classifier.
+The answer decides before the exit code (verifier, 2026-09-12). Both managed CLIs report a
+logged-out session as an answer AND a non-zero exit: Claude Code 2.1.269 prints `{"loggedIn": false,
+…}` then `process.exit(loggedIn ? 0 : 1)` (read from the installed binary; reproduced offline with
+an empty config dir), Codex 0.154.0 prints `Not logged in` and exits 1 (reproduced offline with an
+empty `CODEX_HOME`). `tools/aria-poc/status_answers.py` owns the classification for both:
+`classify_claude_status_answer(stdout, returncode)` reads the JSON document first (a boolean
+`loggedIn` is the vendor's answer whatever the exit — logged out → `managed_session_logged_out`
+UNAVAILABLE carrying `exit_code=1`), `classify_codex_status_answer(output, returncode)` reads the
+line first (`Not logged in` → `cli_reported_not_logged_in` UNAVAILABLE, with the same read-only
+PATH-alias-warning tolerance as the login lines). The exit code is consulted in the shared no-answer
+arm and nowhere else — pinned structurally by `tests/test_status_answers_before_exit_codes.py` (an
+AST scan: neither classifier compares `returncode`) and behaviourally through the real probes with
+scripted binaries that mirror the installed exit codes; the lane fixtures
+(`test_ci_executor_native_claude._fake_claude`, the smoke suite's Codex status fixture) exit as the
+real CLIs do. The probes (`claude_runtime._probe_claude_auth_status`,
+`codex_runtime._probe_codex_auth_status`) keep the spawn — environment boundary, per-attempt cap,
+byte cap, reaping, the limiter's dead-bus arm — and hand the bytes to the classifier.
 
-The liveness bound. `recheck_timeout_seconds` (genesis policy, 20 s) keeps its meaning as the cap of ONE
-attempt. `status_probe.observe_until_decided` retries ONLY an undecided observation:
+The liveness bound. `recheck_timeout_seconds` (genesis policy, 20 s) keeps its meaning as the cap of
+ONE attempt. `status_probe.observe_until_decided` retries ONLY an undecided observation:
 `STATUS_PROBE_ATTEMPTS` (3) attempts with `STATUS_PROBE_BACKOFF_SECONDS` (2 s, 5 s) between them, so
 one provider costs at most `status_probe_liveness_seconds(cap)` = 3 × 20 + 7 = 67 s; a decided
 observation — available OR unavailable — ends the retry at once. One `AdmissionClock` per admission
@@ -1522,30 +1526,33 @@ attempt is offered `min(cap, remaining)`; once the clock is spent the observatio
 `status_deadline_elapsed` with the attempts so far (zero for a member never reached). The executor
 passes no deadline; the fleet builds the clock from the policy. The `ProbeRecord` beside the
 observation lists EVERY undecided attempt's reason, the last one included, on both paths (attempts
-exhausted, clock elapsed): `len(undecided_reasons)` is the number of attempts that established nothing.
+exhausted, clock elapsed): `len(undecided_reasons)` is the number of attempts that established
+nothing.
 
 The ladder. `_native_runtime_admission` walks `_FLEET` in order and moves past a provider ONLY on a
-DECIDED unavailable observation or a policy fact the row names (controls never bound — `controls.status`
-"unknown", the metered policy's bare probe — or the monetary policy not applying). The first provider
-still in contention whose row is neither eligible nor decided-unavailable halts it, by the name of what
-stopped it: `AdmissionOutcome.PROVIDER_CONTROL_UNAVAILABLE` when the vendor did not refuse but THIS host
-could not bind the route's controls (`controls.status` "unavailable": an attempted binding that failed —
-the Claude arm's `sandbox_unavailable` after a decided-available auth, the Codex arm's managed context
-failing on `SandboxUnavailable` / `ResourceLimitsUnavailable` / `OSError` before its probe, the limiter's
-`user_bus_unavailable`), `AdmissionOutcome.PROVIDER_UNDECIDED` when the probe stayed UNDECIDED after its
-bound. A host fault is not an auth reason any more than a stall is (operator decision 2026-09-12), so
-neither moves the ladder. Both name `halting_provider` and leave `eligible_routes` EMPTY — a later vendor
-that answered `available` is observed and recorded, never admitted (the type refuses an admission whose
-outcome is in `HALTING_OUTCOMES` without a halting provider, or with one and a route). A later-ranked
-provider that is undecided or unbindable behind an eligible one is skipped for this admission and never
-cooled. `ADMITTED` (first eligible route runs) and `NO_ELIGIBLE_PROVIDER` (every provider decided, none
-eligible) are the other two outcomes. The Codex arm reaches its host fault BEFORE its probe (the managed
-context wraps the status command), so it is seen as an undecided probe and retried within the bound
-first; the Claude arm reaches it AFTER a decided auth and is not retried — the outcome, release and
-back-off are the same by name. A Z.ai transport error (timeout, DNS, connection) is the stall class:
-UNDECIDED with controls "unknown", never a host control fault. Every candidate row carries `decision`
-and `probe` (`{attempts, undecided_reasons, backoff_seconds}`) so a reader can tell a stalled probe from
-a refused login from a broken host; the whole decision rides the attempt row as `admission` (`as_row()`).
+DECIDED unavailable observation or a policy fact the row names (controls never bound —
+`controls.status` "unknown", the metered policy's bare probe — or the monetary policy not applying).
+The first provider still in contention whose row is neither eligible nor decided-unavailable halts
+it, by the name of what stopped it: `AdmissionOutcome.PROVIDER_CONTROL_UNAVAILABLE` when the vendor
+did not refuse but THIS host could not bind the route's controls (`controls.status` "unavailable":
+an attempted binding that failed — the Claude arm's `sandbox_unavailable` after a decided-available
+auth, the Codex arm's managed context failing on `SandboxUnavailable` / `ResourceLimitsUnavailable`
+/ `OSError` before its probe, the limiter's `user_bus_unavailable`),
+`AdmissionOutcome.PROVIDER_UNDECIDED` when the probe stayed UNDECIDED after its bound. A host fault
+is not an auth reason any more than a stall is (operator decision 2026-09-12), so neither moves the
+ladder. Both name `halting_provider` and leave `eligible_routes` EMPTY — a later vendor that
+answered `available` is observed and recorded, never admitted (the type refuses an admission whose
+outcome is in `HALTING_OUTCOMES` without a halting provider, or with one and a route). A
+later-ranked provider that is undecided or unbindable behind an eligible one is skipped for this
+admission and never cooled. `ADMITTED` (first eligible route runs) and `NO_ELIGIBLE_PROVIDER` (every
+provider decided, none eligible) are the other two outcomes. The Codex arm reaches its host fault
+BEFORE its probe (the managed context wraps the status command), so it is seen as an undecided probe
+and retried within the bound first; the Claude arm reaches it AFTER a decided auth and is not
+retried — the outcome, release and back-off are the same by name. A Z.ai transport error (timeout,
+DNS, connection) is the stall class: UNDECIDED with controls "unknown", never a host control fault.
+Every candidate row carries `decision` and `probe` (`{attempts, undecided_reasons,
+backoff_seconds}`) so a reader can tell a stalled probe from a refused login from a broken host; the
+whole decision rides the attempt row as `admission` (`as_row()`).
 
 The executor. `tools/aria-poc/ci_executor._adaptive_pre_claim_admission` dispatches only on
 `ADMITTED`; otherwise it records `runtime_admission_unavailable` with `reason` = the outcome and
@@ -1593,7 +1600,7 @@ fleet reaches `no_eligible_provider`) and `tests/test_native_admission_status_bu
 Five gaps between the implementation envelope and the gates behind it, each a rule one side enforced
 and no contract stated. What is now true, in one derivation per fact:
 
-* **The request row is the request envelope.** `agent_invocations.create_agent_invocation_request`
+- **The request row is the request envelope.** `agent_invocations.create_agent_invocation_request`
   writes `$schema` = `agent_contract.REQUEST_SCHEMA` (`aria/agent-request/v1`; rows sealed earlier
   carry `aria/agent-invocation-request/v1` and replay unchanged — nothing reads a row's `$schema`
   back), always writes `forbidden_scope` and `validation_commands`, and for every role in
@@ -1606,7 +1613,7 @@ and no contract stated. What is now true, in one derivation per fact:
   self-change lanes run in no cycle and implement no plan revision, so the contract has nothing to
   bind them to (their rows are held by the queue's field validation at mint and `validate_response`
   at submit).
-* **`validation_commands` are derived, never supplied.** `plan_contract.plan_validation_suite(body)`
+- **`validation_commands` are derived, never supplied.** `plan_contract.plan_validation_suite(body)`
   is the ONE composition (canonical executable suite + the body's declared entries resolved through
   the contract's matching rule); staging's baseline and staged apply action, the queue's
   `_validation_commands_for_revision` (over `plan_convergence.plan_body_for_revision`, the body the
@@ -1622,7 +1629,7 @@ and no contract stated. What is now true, in one derivation per fact:
   origin's derivation, `commit_contract_disagrees_with_plan_origin`). The prompt prints the list under
   `## Validation commands`; the implementation `must_satisfy` obligation `validation:canonical_suite`
   carries it as data.
-* **One validation suite.** `validation_suite.CANONICAL_VALIDATION_COMMANDS` (re-exported by
+- **One validation suite.** `validation_suite.CANONICAL_VALIDATION_COMMANDS` (re-exported by
   `implementation_safety` under the names every importer uses) grew `npm run format:check`;
   `auto_merge._HYGIENE_DIMENSIONS` IS that tuple (one dimension per command, reason
   `triple_gate_hygiene_run_missing:<command>`), and `canonical_command_satisfied_by` is the
@@ -1637,12 +1644,12 @@ and no contract stated. What is now true, in one derivation per fact:
   at the branch HEAD). `tests/test_validation_suite_ssot.py` pins that every command the merge gate
   requires is one the plan contract admits, the implementer contract names, and the implementer's
   own gate (kernel matcher, hook and Claude projection) allows.
-* **One `key_changes[]` shape.** `plan_convergence.KEY_CHANGE_FIELDS` = `(id, description, paths)`
+- **One `key_changes[]` shape.** `plan_convergence.KEY_CHANGE_FIELDS` = `(id, description, paths)`
   with `key_change_description` / `key_change_paths` / `key_change_violation`; the plan contract
   refuses any other object (`plan_key_change_shape`), staging's `intended_affected_files` and the
   envelope's per-change obligations read `paths`, and the implementer prompt cites only fields in
   that tuple (`tests/invariants/v9/test_phase_v9_1_aria_implementer_agent.py` derives the check).
-* **The commit trailer is the kernel's.** `plan_synthesizer.convert_candidate_to_plan_content` stamps
+- **The commit trailer is the kernel's.** `plan_synthesizer.convert_candidate_to_plan_content` stamps
   a finding-sourced plan's origin into `plan_content.finding_id`; `plan_origin.commit_contract_for_plan`
   derives the `commit_contract` — the exact `Closes: docs/reviews/orphan-findings.md#ORPHAN-<SEV>-NNN`
   line for an ORPHAN origin, no trailer (and only the commit types the gate does not require one for:
@@ -1653,7 +1660,7 @@ and no contract stated. What is now true, in one derivation per fact:
   `branch_commits`, supplied by `pr_manager.open_pr_for_action`) refuses a branch whose commits carry
   anything else. The mirrored gate rules (`REQUIRE_CLOSES_SUBJECT_RE`, `CLOSES_TRAILER_RE`) are pinned
   against `tools/gates/commit-msg-validator.ts` by `tests/test_plan_origin_commit_contract.py`.
-* **One `must_satisfy` item shape.** `aria_kernel/must_satisfy.py`: `{id, description, kind?, ...data}`,
+- **One `must_satisfy` item shape.** `aria_kernel/must_satisfy.py`: `{id, description, kind?, ...data}`,
   built through `must_satisfy_item`, validated by `validate_must_satisfy` (which
   `agent_contract._ensure_must_satisfy` and the queue's mint both call), rendered through
   `must_satisfy_text`. The `statement` field the validator once required had no producer; the
@@ -2157,11 +2164,11 @@ it does not prove that the rejected response passed evidence/context/transcript 
 - These are display bounds. Full verified history reads and joins remain proportional to history
   size; neither bounded latency nor archive-resolvable retention is established by this slice.
   No path query starts a global history search. The reader creates no additional state surface.
-- Render version 4 introduced this history projection (new v5 requests retain it). Hypotheses, recorded legacy verified status, supported
-  beliefs, operator-adjudicated anti-patterns and rejected submission episodes retain distinct
-  labels. This projection does not revalidate merge lineage or measured gain, and rejection is
-  not a permanent prohibition or measured ineffective repair. Historical refs are provenance,
-  not newly admissible evidence for the current task.
+- Render version 4 introduced this history projection (new v5 requests retain it). Hypotheses,
+  recorded legacy verified status, supported beliefs, operator-adjudicated anti-patterns and
+  rejected submission episodes retain distinct labels. This projection does not revalidate merge
+  lineage or measured gain, and rejection is not a permanent prohibition or measured ineffective
+  repair. Historical refs are provenance, not newly admissible evidence for the current task.
 - The captured data is sealed at mint. Exact submission replay serves one episode, while a later
   legitimate result can inform a new request without rewriting an earlier prompt. Absent version
   and literal versions 2/3 keep their entire original UTF-8 rendering; no legacy expectation is
@@ -2346,12 +2353,13 @@ not substitute for this mint qualification.
   root on the public controller preserves legacy optional orientation, with no qualified feature
   claim. No signer, model, profile, merge, review or credential permission changes are implied.
 
-New prompts use render version 6 (5 plus the `<obligation_data>` block, §12.17). The native request captures qualification and whole feature entries
-before sealing. Selection considers at most eight candidates/four displayed entries and 1,200
-estimated tokens for the feature section, including labels/diagnostics, under the existing total
-context cap. Up to four unavailable-source diagnostics are displayed with an omission count.
-These are development-trial parameters, not optimality or useful-coverage guarantees. Evidence,
-retrieval hints, feature observations, rejected history and proposal permissions retain distinct labels.
+New prompts use render version 6 (5 plus the `<obligation_data>` block, §12.17). The native request
+captures qualification and whole feature entries before sealing. Selection considers at most eight
+candidates/four displayed entries and 1,200 estimated tokens for the feature section, including
+labels/diagnostics, under the existing total context cap. Up to four unavailable-source diagnostics
+are displayed with an omission count. These are development-trial parameters, not optimality or
+useful-coverage guarantees. Evidence, retrieval hints, feature observations, rejected history and
+proposal permissions retain distinct labels.
 
 The existing context-budget owner prices the final rendered prompt once plus captured agent/bookmark
 costs. Optional feature entries shrink before sealing. An oversized mandatory baseline retains the
@@ -2475,16 +2483,17 @@ The candidate uses that stored selection; it does not replace it with a later re
 The existing two-result command helper and public stage/apply signatures remain callable unchanged.
 
 Selection retains at most eight distinct recipe rows, 256 distinct paths and eight module names.
-Source-reference recipe IDs are limited to 256 UTF-8 bytes and source commands to 4,096 UTF-8 bytes. Reference
-gathering and the complete selection each have a 65,536-byte canonical JSON cap. These bound retained
-metadata, not the existing full recipe-ledger read. An unsupported or oversized optional selection
-becomes `unknown` metadata within 1,024 canonical JSON bytes with no retained scope or source prefix; otherwise admitted
-commands still execute. Gather failures have deterministic priority: intrinsic source metadata,
-unavailable source identity, distinct-row limit, then aggregate reference bytes. Both byte failures
-report `selection_metadata_limit`; row/path/module excess reports `selection_input_limit`.
-After successful gathering, sorted descriptor merging retains its first diagnostic, including
-`selection_incompatible_scope` or `selection_input_unavailable`. The final complete-selection
-cap independently accounts for scope and source metadata together.
+Source-reference recipe IDs are limited to 256 UTF-8 bytes and source commands to 4,096 UTF-8 bytes.
+Reference gathering and the complete selection each have a 65,536-byte canonical JSON cap. These
+bound retained metadata, not the existing full recipe-ledger read. An unsupported or oversized
+optional selection becomes `unknown` metadata within 1,024 canonical JSON bytes with no retained
+scope or source prefix; otherwise admitted commands still execute. Gather failures have
+deterministic priority: intrinsic source metadata, unavailable source identity, distinct-row limit,
+then aggregate reference bytes. Both byte failures report `selection_metadata_limit`;
+row/path/module excess reports `selection_input_limit`. After successful gathering, sorted
+descriptor merging retains its first diagnostic, including `selection_incompatible_scope` or
+`selection_input_unavailable`. The final complete-selection cap independently accounts for scope and
+source metadata together.
 
 `experiment.run_experiment` gives an explicit non-None scope precedence. Omitted/None selects
 only from an opted-in recipe and records that selection on the ordinary observation. Legacy
@@ -2539,9 +2548,10 @@ Author/planner reuse is not proof of command execution or environment completene
 does not schedule the seeder, infer descriptors, migrate legacy recipes or opt in the default
 Nx/Cargo recipes. Loaded-content applicability, portable retention and measured utility remain open.
 
-`tools/aria-poc/invariants/test_experiment_recipes_manifest.py::ExperimentRecipeManifestTests`
-owns actual alternate-manifest main/seed/bench execution, null/legacy runs, three-registration
-reseed continuity and positive canonicalization. Its separate direct-seed regression owns the
+`tools/aria-poc/invariants/test_experiment_recipes_manifest.py::ExperimentRecipeManifestTests` owns
+actual alternate-manifest main/seed/bench execution, null/legacy runs, three-registration reseed
+continuity and positive canonicalization. Its separate direct-seed regression owns the
 before-all-appends invalid/oversized-descriptor proof against genuine preexisting native history.
-`aria-kernel/tests/test_x2_experiment_author.py::AuthorTests` owns unscoped author and explicit recipe reuse
-through actual finding/author/planner owners, with a separate repository-state root per fixture.
+`aria-kernel/tests/test_x2_experiment_author.py::AuthorTests` owns unscoped author and explicit
+recipe reuse through actual finding/author/planner owners, with a separate repository-state root per
+fixture.

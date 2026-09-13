@@ -2,14 +2,31 @@
 
 Date: 2026-09-13
 Target ref: `origin/main`
-Last verified ARIA authority hash: `54af850e90b22027fe2b6d0819d4309bef760314b2301a4714d8c53e49bb88fb`
+Last verified ARIA authority hash: `de034c989eac9d52ecd89ba21571ab7056d42fa134ce240eb70e55bed9e72621`
 Status: post-snowball mainline hardening in progress
 
 ## Connected execution checkpoint
 
-The integrated candidate now contains selected-commit source excerpts, event-identity regression detection, cycle/outer failure propagation and same-plan baseline retention. These owners share the preserved central evidence readers. The four verified merge-predicate exports are now integrated; runtime native claim/revision binding and the corrective-planning consumer are integrated into the same checkout. The genuine planning call is next; unfinished merge predicates do not gate this read-only planning action. Isolated component results must not be combined into end-to-end acceptance. A separately peer-checked installed Codex component returned `ARIA_COMPONENT_OK` in 40.03 seconds with private writable state and a read-only managed-auth file; it did not exercise the native task/claim/result chain. Requested Astra Ultra is distinct from unavailable returned model/effort fields.
+The integrated candidate now contains selected-commit source excerpts, event-identity regression
+detection, cycle/outer failure propagation and same-plan baseline retention. These owners share the
+preserved central evidence readers. The four verified merge-predicate exports are now integrated;
+runtime native claim/revision binding and the corrective-planning consumer are integrated into the
+same checkout. The genuine planning call is next; unfinished merge predicates do not gate this
+read-only planning action. Isolated component results must not be combined into end-to-end
+acceptance. A separately peer-checked installed Codex component returned `ARIA_COMPONENT_OK` in
+40.03 seconds with private writable state and a read-only managed-auth file; it did not exercise the
+native task/claim/result chain. Requested Astra Ultra is distinct from unavailable returned
+model/effort fields.
 
-The connected selection includes existing targeted current/legacy retention, post-restore verification, retained-version and receiving-hot-log continuity controls. Source integration preserves the inherited index and all R1 reader definitions; the actual six-method selection passed with eight subtests in 136.97 seconds. The connected scope/caller selection passed seven methods; its native Nx prerequisite initially hit sandbox Git EPERM, then the exact unchanged remaining method passed with eight subtests in 202.49 seconds outside that sandbox. These are separate runs, not a fabricated combined run. [Current owner entries and result-flow edges](./ARCHITECTURE.md#connected-candidate-cycle-and-retained-evidence-consumers) distinguish source integration, isolated test results and remaining native proof.
+The connected selection includes existing targeted current/legacy retention, post-restore
+verification, retained-version and receiving-hot-log continuity controls. Source integration
+preserves the inherited index and all R1 reader definitions; the actual six-method selection passed
+with eight subtests in 136.97 seconds. The connected scope/caller selection passed seven methods;
+its native Nx prerequisite initially hit sandbox Git EPERM, then the exact unchanged remaining
+method passed with eight subtests in 202.49 seconds outside that sandbox. These are separate runs,
+not a fabricated combined run. [Current owner entries and result-flow
+edges](./ARCHITECTURE.md#connected-candidate-cycle-and-retained-evidence-consumers) distinguish
+source integration, isolated test results and remaining native proof.
 
 ## Authority Chain
 
@@ -266,11 +283,12 @@ already-loaded named modules after the test. One bounded pipe receipt joins the 
 run and hash-bound log. `aria-kernel/aria_kernel/experiment.py::run_experiment` forwards an explicit
 scope or selects one from an opted-in recipe; its record-only outcome and call shape remain unchanged.
 
-`CONTRACTS.md` §12.11 specifies shared read limits, active observation-time accounting, ordinary
-I/O fallback and unknowns. Post-run source/cache hashes do not establish executed code bytes.
+`CONTRACTS.md` §12.11 specifies shared read limits, active observation-time accounting, ordinary I/O
+fallback and unknowns. Post-run source/cache hashes do not establish executed code bytes.
 Control-profile observation remains unknown; action/profile and scheduler-ceiling owners are
-unchanged. The recipe-to-stage/night connection is described below. Applicable loaded-content/native-state proof, portable retained logs,
-S2 assessment/reinstatement, S3 Card 4, runtime integration and measured utility remain open.
+unchanged. The recipe-to-stage/night connection is described below. Applicable
+loaded-content/native-state proof, portable retained logs, S2 assessment/reinstatement, S3 Card 4,
+runtime integration and measured utility remain open.
 
 ## Recipe Inputs in Normal Validation Callers (2026-09-11)
 

@@ -237,7 +237,7 @@ sonnet→glm-5.3, glm-5.3→opus}` retried an exhausted opus on sonnet at
   claiming). Verified by `wf_284f4dbe-940`; fixed and re-verified (integrate)
   by `wf_5be8bcb2-3ca`.
 
-## ARIA-HIGH-096 — mission candidate admission: no starvation, owners named, a dead orchestrator is a fault
+## ARIA-HIGH-096 — mission admission: no starvation, owners named, a dead orchestrator is a fault
 
 - **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-19
 - **What the audit said (B3) and what the store shows:** the 71

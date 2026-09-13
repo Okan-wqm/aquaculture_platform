@@ -9,6 +9,7 @@ own obligations.
 """
 from __future__ import annotations
 
+import ast
 import re
 import tempfile
 import unittest
@@ -42,6 +43,22 @@ from tests.test_implementation_lifecycle_continuity import (
     drive_plan_to_converged,
     seed_reviewer_agent,
 )
+
+
+def _call_name(call: ast.Call) -> str:
+    func = call.func
+    if isinstance(func, ast.Name):
+        return func.id
+    if isinstance(func, ast.Attribute):
+        return func.attr
+    return ""
+
+
+def _calls_in(module: Path) -> list[tuple[str, ast.Call]]:
+    """Every call in the module as (callee name, node) — the AST-backed
+    reading Plan 026R §H.1 asks for in place of source substrings."""
+    tree = ast.parse(module.read_text(encoding="utf-8"))
+    return [(_call_name(node), node) for node in ast.walk(tree) if isinstance(node, ast.Call)]
 
 
 class OneShapeTests(unittest.TestCase):
@@ -315,13 +332,21 @@ class PlanTextNeverReachesTheScannedFieldTests(unittest.TestCase):
         # reaches `description`; this pins that the two producers that build
         # per-change obligations go through them rather than through
         # `must_satisfy_item(description=<plan text>)` — the exact shape that
-        # was refused.
+        # was refused. Read as node shapes (Plan 026R §H.1), not substrings.
         kernel = Path(__file__).resolve().parents[1] / "aria_kernel"
         for module in ("cross_review_bridge.py", "autonomy_orchestrator.py"):
-            source = (kernel / module).read_text(encoding="utf-8")
+            calls = _calls_in(kernel / module)
             with self.subTest(module=module):
-                self.assertIn("key_change_obligation(", source)
-                self.assertIsNone(re.search(r"(?<!\w)description=key_change_description", source))
+                self.assertIn("key_change_obligation", {name for name, _ in calls})
+                for name, call in calls:
+                    if name != "must_satisfy_item":
+                        continue
+                    for keyword in call.keywords:
+                        if keyword.arg == "description":
+                            self.assertNotIsInstance(
+                                keyword.value, ast.Name,
+                                f"{module}: must_satisfy_item(description=<variable>) hands foreign text to the scanned field",
+                            )
         bridge = (kernel / "cross_review_bridge.py").read_text(encoding="utf-8")
         self.assertNotIn("waiver.get('reason')})", bridge)
         # The suite (canonical + opaque recipe commands) rides on the
@@ -353,11 +378,36 @@ class SealedRowsUpcastForReMintTests(unittest.TestCase):
 
     def test_every_re_mint_from_a_persisted_row_upcasts(self) -> None:
         # The one producer that copies obligations off a persisted row; a
-        # verbatim copy is the exact shape the verifier found refused.
+        # verbatim copy is the exact shape the verifier found refused. Read
+        # as node shapes (Plan 026R §H.1): the re-mint's `must_satisfy=`
+        # keyword is an `upcast_sealed_items(...)` call, never a bare copy.
         kernel = Path(__file__).resolve().parents[1] / "aria_kernel"
-        source = (kernel / "human_required_adjudication.py").read_text(encoding="utf-8")
-        self.assertIn('upcast_sealed_items(dead.get("must_satisfy")', source)
-        self.assertNotIn('must_satisfy=list(dead.get("must_satisfy")', source)
+        tree = ast.parse((kernel / "human_required_adjudication.py").read_text(encoding="utf-8"))
+        upcast_remints = 0
+        for function in (node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)):
+            assigned_from = {
+                target.id: _call_name(node.value) if isinstance(node.value, ast.Call) else None
+                for node in ast.walk(function) if isinstance(node, ast.Assign)
+                for target in node.targets if isinstance(target, ast.Name)
+            }
+            for name, call in ((_call_name(node), node) for node in ast.walk(function) if isinstance(node, ast.Call)):
+                if name != "create_agent_invocation_request":
+                    continue
+                for keyword in call.keywords:
+                    if keyword.arg != "must_satisfy":
+                        continue
+                    value = keyword.value
+                    if isinstance(value, ast.List):
+                        continue  # a fresh mint's literal obligations, not a copy of a sealed row
+                    if isinstance(value, ast.Call):
+                        self.assertEqual(_call_name(value), "upcast_sealed_items")
+                        upcast_remints += 1
+                        continue
+                    self.assertIsInstance(value, ast.Name, f"{function.name}: unexpected must_satisfy shape")
+                    self.assertEqual(assigned_from.get(value.id), "upcast_sealed_items",
+                                     f"{function.name}: must_satisfy={value.id} is not the upcast of the sealed row")
+                    upcast_remints += 1
+        self.assertGreaterEqual(upcast_remints, 1, "the re-mint hands the upcast obligations to the fresh request")
 
 
 class ConvergedPlanWithBannedWordsStillMintsTests(unittest.TestCase):

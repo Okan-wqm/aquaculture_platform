@@ -984,3 +984,28 @@ logged in` and exits 1, and both probes tested the exit code before the
   compacted past the window verifies ok with compacted counts; a store
   with a truly missing artifact (not on the ledger) still fails; the
   maintenance lane's publish verifies runtime pointers too.
+
+## ARIA-MEDIUM-120 — the doctor counted zero issues in a verdict that had 3,898
+
+- **Severity:** MEDIUM · **Owner:** claude · **Deadline:** 2026-09-20
+- **Evidence:** `integrity.verify_integrity` computes the runtime-artifact
+  issues but returns only the tools-ledger list, so `doctor._check_integrity`
+  reports `integrity_drift:0_issues` on the quarantined live store whose
+  runtime pointers fail with 3,898 issues — observed independently by the
+  ARIA-HIGH-117 implementer and verifier (`wf_a4e68c08-436`).
+- **Fix shape (open):** return the full issue list (tools + workspace +
+  runtime artifacts) and have the doctor read the same count the executor's
+  integrity step prints; pin with the quarantined-store shape.
+
+## ARIA-LOW-121 — two source-marker assertions the Plan 026R invariant refuses
+
+- **Severity:** LOW · **Owner:** claude · **Deadline:** 2026-09-16
+- **Evidence:** the ARIA-HIGH-104 integration pinned two producer facts in
+  `tests/test_must_satisfy_shape.py` (lines 323, 359) by `assertIn` of a
+  call-site substring in kernel source the test had read; the
+  `tests/test_source_marker_invariant.py` gate was red on the candidate.
+- **What is now true:** both pins parse the module AST — a producer that
+  hands a variable to `must_satisfy_item(description=…)` is refused by
+  shape, the producers call `key_change_obligation`, and the re-mint's
+  `must_satisfy` keyword must be the `upcast_sealed_items(…)` assignment;
+  a verbatim copy of the sealed row fails the pin (mutation-checked).

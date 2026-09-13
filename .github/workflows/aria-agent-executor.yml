@@ -122,7 +122,19 @@ jobs:
   executor:
     needs: runner-preflight
     runs-on: [self-hosted, linux, claude]
-    timeout-minutes: 150
+    # The drain window (ARIA_DRAIN_BUDGET_SECONDS below, 7200 s) plus the
+    # reserve the job needs outside it — the state restore before the loop
+    # (the checkout arc, 2700 s), the publish after it (the lifecycle
+    # holder's longest arc, 5400 s) and the unbounded setup/verification
+    # steps around them (900 s), every arc a sum over the registered git
+    # steps of `state_store_lifecycle_arcs` at the store's git cap, as
+    # `ci_executor_drain.JOB_RESERVE_SECONDS` (9000 s) — is 16200 s = 270
+    # minutes; 280 keeps ten minutes of margin. The pairing is pinned by
+    # `aria-kernel/tests/test_state_lock_liveness_bound.py`, which reads
+    # this file, and mirrored in `workflow_contract_registry` (150 → 200
+    # with the child pricing of 2026-09-12; 200 → 280 once the lifecycle
+    # arcs were derived from the code instead of typed).
+    timeout-minutes: 280
     steps:
       # ORPHAN-HIGH-802 — reset the persistent workspace HERE, so checkout
       # does not have to. actions/checkout's `clean` runs `git clean -ffdx`,
@@ -551,13 +563,28 @@ jobs:
           MAX_REQUESTS_PER_RUN: '30'
           MAX_TIMEOUT_SECONDS: '1800'
           # The whole drain loop INCLUDING the last child's worst case must
-          # fit in this window (the loop starts a child only when
-          # elapsed + MAX_TIMEOUT_SECONDS <= budget). 7200s of loop inside
-          # the 150-minute job leaves a full 30 minutes for restore,
-          # integrity verification, publish and artifacts — the first live
-          # night (run 31542485896) was reaped mid-child by the old
-          # 45-minute timeout and its two submitted results died
-          # unpublished with the runner.
+          # fit in this window: the loop starts a child only when
+          # elapsed + child_worst_case_seconds(MAX_TIMEOUT_SECONDS) <= budget,
+          # where the child's worst case is the ONE derivation in
+          # `ci_executor.child_worst_case_seconds` — the claim child (one
+          # state-lock wait plus its work) and the pre-claim git probe, the
+          # Claude CLI at MAX_TIMEOUT_SECONDS, the terminal writer at the
+          # longer of its two wall clocks (the submit: evidence probes, one
+          # state-lock wait, its work = 1320 s; the human-required record
+          # on a refusal exit: its governance transaction, the notification's
+          # channels and outbox transaction, its work = 2400 s) and the
+          # release child: 1020 + 93 + 1800 + 2400 + 1020 = 6333 s, plus the
+          # per-request worktree bracket (600 s) when the executor policy
+          # turns it on. The state-lock wait in each of those is the
+          # pending-recovery transaction arc (three git steps at the store's
+          # cap, 900 s), derived in `state_store_lifecycle_arcs`. 7200 s of
+          # loop therefore holds one child at its worst case with 867 s
+          # (267 s with worktrees) of start window before it, and leaves
+          # the job's reserve
+          # (`ci_executor_drain.JOB_RESERVE_SECONDS`, see timeout-minutes)
+          # untouched by any child — the first live night (run 31542485896)
+          # was reaped mid-child by the old 45-minute timeout and its two
+          # submitted results died unpublished with the runner.
           ARIA_DRAIN_BUDGET_SECONDS: '7200'
         run: |
           # ORPHAN-722 — PR identity. PRs opened with the job token are

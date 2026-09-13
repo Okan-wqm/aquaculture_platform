@@ -82,6 +82,48 @@ parse with warning semantics.
 Default governance actor: if `ARIA_ACTOR` is set, parse it as JSON `{kind, id, session?}`. Otherwise
 use `{kind: "human", id: "<user>@<hostname>"}`.
 
+### 0.1.1 — State-transaction bound (`ledger.state_transaction`)
+
+Every governed writer — a claim, a release, a submit, a cycle's governance row, the publish/replay
+orchestrator — reaches a ledger through one ordered acquisition: manifest state-group locks, then
+integrity-index locks, then concrete file locks, each bucket sorted by absolute path. The wait for a
+LIVE holder is bounded by ONE deadline for the whole acquisition, `ledger.STATE_LOCK_LIVENESS_SECONDS`
+(900 s), not by a wait per lock: each lock is asked only for the time that remains, so a writer behind
+a wedged group holder and a wedged file holder fails at the bound, not at N times it. The bound is a
+liveness guard DERIVED from the longest legitimate holder, never a performance budget or a count typed
+beside it: three `state_store` regions keep one transaction open across tree-or-remote-scaled git
+steps, each capped at `state_store.GIT_TIMEOUT_SECONDS` — the resumed accepted-loser recovery
+(fetch, fast-forward, probe), the rebase (fetch, then `reset --hard` or a fast-forward) and the
+checkout cleanup (probe, worktree removal) — each written as an arc in
+`state_store_lifecycle_arcs.STATE_TRANSACTION_ARCS`, and the bound is the longest arc's sum (the
+recovery: 3 x 300 s). A registered step from a lifecycle arc that no transaction arc prices (a push,
+a worktree add) is refused by the raw git runner while a transaction is held
+(`state_store_transaction_git_step_unpriced`); a wedge fails loudly as
+`state_transaction_liveness_bound_exhausted: bound=<s> lock_ordinal=<n>
+lock=<path>`. A caller passes `timeout_seconds` only when it knows its holder (a probe that must not
+wait, a fixture proving lock order). Readers of a writer-owned ledger (the worker-result gate's
+claim check) take the same ordered acquisition, never a bare file lock. One layer up, the
+state-store lifecycle lock (checkout, publish, recovery) waits
+`state_store.STATE_STORE_LIFECYCLE_LIVENESS_SECONDS` — the holder's longest arc at the git cap,
+DERIVED from the code rather than typed beside it: every tree-or-remote-scaled git call under the
+lock (push, fetch, ls-remote, reset, merge, worktree add/remove, checkout, rm) is a registered step
+in `state_store_lifecycle_arcs`, each arc the lock is held across is written as the steps it runs
+(the pending-recovery replay every arc starts with: fetch, fast-forward, probe; one publish attempt
+at its longest: push, probe, reconciliation fetch, the rebase's fresh fetch, the tree move — for
+`PUBLISH_MAX_ATTEMPTS` attempts; the checkout: probes, fetch, the recovery, the old store's
+removal, the new worktree), and the bound is the longest arc's sum
+(`STATE_STORE_PUBLISH_ARC_SECONDS`, `STATE_STORE_CHECKOUT_ARC_SECONDS`). A metadata-scaled call
+(rev-parse, cat-file, update-ref, …) is classified as such and not priced; a call in neither class
+fails `tests/test_state_lifecycle_arcs_derived.py`, which walks the lifecycle-locked and the
+state-transaction regions' AST and checks the steps each region reaches against its arcs, and the raw
+runner refuses a tree-or-remote-scaled call made under the lock outside a registered step.
+`tests/test_state_lock_arcs_traced.py` runs the holders (a lost-race publish, a resumed recovery, a
+checkout over an existing store) and checks the steps they spawn under the lock and under each
+transaction equal the registered arc in order and multiplicity; `tests/test_state_lock_liveness_bound.py`
+pins the numbers and every executor and workflow figure that cascades from them. The executor's job
+reserve (`ci_executor_drain.JOB_RESERVE_SECONDS`) reads the restore and publish arcs from the same
+derivation.
+
 ## 0.2 — Phase-2A Learning Pass Contract
 
 Each cycle runs an ordered learning pass before normal cycle work:
@@ -713,6 +755,67 @@ Every finding's L1 compliance proof.
 `git_history`, `trusted_config_file`, `trusted_prior_doc` (CLAUDE.md, ADRs, knowledge layers per
 SPEC §5.1). Anything else = L1 violation, claim rejected at the gate.
 <!-- judge-digest:end -->
+
+### 5.1 — Evidence-probe session contract (`evidence_probe.GitProbeSession`)
+
+Every evidence ref is graded against the committed tree with a git probe (`git rev-parse` for the
+baseline, `git show` / `git cat-file` for the path). The probes of ONE decision — a submission, a
+belief, a finding, an expert panel, a debt, an acceptance-harness run — run on ONE session that the
+decision constructs and threads through every `classify_evidence_ref` call:
+
+- **Attempts and backoff.** One probe is tried up to `GIT_PROBE_ATTEMPTS` (3) times, each attempt
+  bounded by `GIT_PROBE_ATTEMPT_TIMEOUT_SECONDS` (30 s), with `GIT_PROBE_BACKOFF_SECONDS` (1 s, 2 s)
+  between attempts. A completed attempt — any exit code — is the answer; only a stall or a spawn
+  failure is retried. One probe's worst case is `GIT_PROBE_WORST_CASE_SECONDS` (93 s).
+- **Per-decision clock.** All probes of the decision share `EVIDENCE_VERIFICATION_LIVENESS_SECONDS`
+  (300 s); once it runs out no further probe is spawned and every remaining ref grades
+  `verification_unavailable` at once.
+- **Baseline once.** The target commit is resolved once per decision with
+  `git rev-parse --verify <target>^{commit}` and cached (under the requested name and the resolved
+  id). A readable baseline means a non-zero path probe is a verdict about the PATH
+  (`worktree_candidate`); an unreachable baseline (`bad object`, `not a git repository`) or a probe
+  that did not answer grades `verification_unavailable` — the host's or the workspace's gap, never
+  the agent's.
+- **Pre-claim git gate.** The executor refuses to CLAIM a request when `git rev-parse HEAD` in the
+  workspace does not answer through the same probe (`git_unavailable`); the request stays PENDING
+  for a host whose git answers instead of burning a paid run the validator could not verify.
+- **Evidence-target proof on the same session.** The `evidence_target_sha` override (ARIA-HIGH-022;
+  `auto` = the workspace HEAD, resolved INSIDE the submit decision, not by the CLI) is proven on the
+  decision's session: `rev-parse --verify` for existence, `merge-base --is-ancestor` for descent
+  from the request's base. Git ANSWERING "no" is the request's fault (`GovernanceError`:
+  `evidence_target_sha_unknown_commit`, `_not_descendant_of_base`); git NOT answering is
+  `agent_invocations.EvidenceTargetUnavailable` — the decision rejects under
+  `agent_evidence_verification_unavailable` and grades its refs at the same requested anchor through
+  the same session, so the session's memory of the non-answer makes every ref
+  `verification_unavailable` rather than `worktree_candidate` against a base the submitter did not
+  cite.
+- **Selection anchor gate on a session.** `next_pending_request`'s anchor probes (`cat-file -e`,
+  `rev-parse --is-shallow-repository`) run on ONE session per selection and are tri-state
+  (`AnchorVerdict`): `anchor_unreachable` needs git to have ANSWERED "not here" and "not shallow";
+  a non-answer is `undecided` — the candidate is skipped and stays PENDING, no `anchor_stale` row is
+  written, age still refuses without git. A selection that could claim nothing and could not decide
+  something writes one `agent_request_anchor_undecided` governance row and raises
+  `AnchorVerificationUnavailable`; the CLI prints `{"stop_reason": "anchor_verification_unavailable",
+  …}` non-zero and the drain stops by that name.
+- **Drain worktree bracket.** With `executor.worktree_per_request`, the drain's `git worktree add`
+  before a child and `git worktree remove` after it each run at `state_store.GIT_TIMEOUT_SECONDS`
+  (`ci_executor_drain.REQUEST_WORKTREE_GIT_TIMEOUT_SECONDS`) and are priced into the child
+  (`ci_executor.REQUEST_WORKTREE_WORST_CASE_SECONDS`). An add git did not answer starts no child —
+  the request stays PENDING — and stops the drain (`worktree_unavailable`, breaker kind
+  `subprocess_timeout`); a remove that did not answer is a breaker row, never a request failure.
+- **Human-required record child.** The executor's `human-required record` children run at
+  `HUMAN_REQUIRED_RECORD_TIMEOUT_SECONDS`, derived from the kernel's own worst case for that path
+  (`human_required.HUMAN_REQUIRED_RECORD_WAIT_SECONDS` = one state transaction for the governance
+  row + `notify.NOTIFY_WORST_CASE_SECONDS`: every channel at `SENDER_WALL_CLOCK_SECONDS` on a
+  joined worker, then ONE transaction for the call's outbox rows) plus the kernel work allowance.
+  The terminal-writer slot of `child_worst_case_seconds` is priced at the longer of the submit and
+  the record.
+- **`rejection_codes` on the submit response.** A rejected `agent submit-result` carries one machine
+  code per prose reason (`rejection_codes`, same length and order as `reasons`, persisted on the
+  rejection row). A rejection whose codes are ALL in
+  `evidence_validator.EVIDENCE_VERIFICATION_UNAVAILABLE_CODES` is released by the executor as
+  `evidence_verification_unavailable` (harness class, no requeue budget charged); any other code
+  stays `submit_rejected`.
 
 ---
 

@@ -129,17 +129,39 @@ TOOLS_SUBDIR = "tools"
 WORKSPACE_SUBDIR = "workspace"
 FINDINGS_SUBDIR = "findings"
 
-# Every git call is bounded. An unbounded fetch against an unreachable
-# remote hangs the publishing step, and a cycle that cannot finish also
-# cannot be recovered by a watchdog waiting for that cycle to report.
-# 300 (was 120): the store pushes the aria/state branch — hundreds of MB of
-# JSONL ledgers — and 120s measured too tight twice on the shared runner:
-# a sandboxed test push in the suite timed out at exactly this budget while
-# the box ran a second test workload (suite run 2026-08-28,
-# test_publish_with_replay_keeps_nested_lifecycle_entries_reentrant; green
-# in 0.8s in isolation on the same code). A production push that needs more
-# than 5 minutes is genuinely stuck; one that needs 3 is normal.
-GIT_TIMEOUT_SECONDS = 300
+# The git bound, the publish attempt count, the registered lifecycle git
+# steps and the liveness bound DERIVED from the arcs they form live in
+# `state_store_lifecycle_arcs`; re-exported here because every reader of
+# "how long may the store wait" reads them off this module. A tree-or-
+# remote-scaled git call under the lifecycle lock runs through
+# `_run_git_step` / `_git_step` with its registered step, and
+# `_run_git_bytes_bounded` refuses one that does not.
+from .state_store_lifecycle_arcs import (
+    BOOTSTRAP_DETACH_CHECKOUT_STEP,
+    BOOTSTRAP_ORPHAN_CHECKOUT_STEP,
+    BOOTSTRAP_TREE_CLEAR_STEP,
+    BOOTSTRAP_WORKTREE_ADD_STEP,
+    GIT_TIMEOUT_SECONDS,
+    OWNED_STORE_FAST_FORWARD_STEP,
+    PUBLISH_MAX_ATTEMPTS,
+    PUBLISH_PUSH_STEP,
+    REMOTE_BRANCH_FETCH_STEP,
+    REMOTE_TIP_PROBE_STEP,
+    REPLAY_RESET_STEP,
+    STATE_STORE_CHECKOUT_ARC_SECONDS,
+    STATE_STORE_LIFECYCLE_LIVENESS_SECONDS,
+    STATE_STORE_PUBLISH_ARC_SECONDS,
+    STATE_TRANSACTION_STEPS,
+    STORE_WORKTREE_ADD_STEP,
+    STORE_WORKTREE_REMOVE_STEP,
+    TREE_OR_REMOTE_SCALED_GIT_OPERATIONS,
+    LifecycleGitStep,
+    active_lifecycle_step,
+    active_state_transaction,
+    git_operation,
+    lifecycle_step_active,
+    require_step_operation,
+)
 
 # The store commits under its own identity, passed per-invocation rather
 # than read from ambient config. A runner without user.name set would
@@ -256,12 +278,18 @@ def _state_store_lifecycle_lock(repo_root: Path):
         handle = lock_stack.enter_context(
             with_exclusive_lock(
                 common_dir / _LIFECYCLE_LOCK_TARGET,
-                timeout_seconds=GIT_TIMEOUT_SECONDS,
+                # The holder's whole legitimate arc, not one git call's cap:
+                # see STATE_STORE_LIFECYCLE_LIVENESS_SECONDS.
+                timeout_seconds=STATE_STORE_LIFECYCLE_LIVENESS_SECONDS,
             ),
         )
     except TimeoutError as exc:
         lock_stack.close()
-        raise StateStoreError("state_store_lifecycle_lock_timeout") from exc
+        raise StateStoreError(
+            "state_store_lifecycle_lock_timeout: waited "
+            f"{STATE_STORE_LIFECYCLE_LIVENESS_SECONDS:g}s for the live holder of "
+            f"{(common_dir / _LIFECYCLE_LOCK_TARGET).as_posix()}"
+        ) from exc
 
     with lock_stack:
         held[key] = (handle, 0)
@@ -520,7 +548,8 @@ def _checkout_state_store_locked(
         # happening, which is worse than the race it was meant to catch.
         # Detached, each store's HEAD moves alone and the only shared ref
         # is the remote's, where the server arbitrates.
-        _git(
+        _git_step(
+            STORE_WORKTREE_ADD_STEP,
             repo_root,
             "worktree",
             "add",
@@ -542,15 +571,18 @@ def _checkout_state_store_locked(
         return store
 
     _require_bootstrap_ack(repo_root, branch)
-    _git(repo_root, "worktree", "add", "--detach", "--force", str(root), "HEAD")
+    _git_step(
+        BOOTSTRAP_WORKTREE_ADD_STEP,
+        repo_root, "worktree", "add", "--detach", "--force", str(root), "HEAD",
+    )
 
     # An orphan needs a branch name to be created under; it does not need
     # to keep one. The name is store-local and deleted as soon as the
     # genesis commit exists, so bootstrap does not reintroduce the shared
     # ref the restored path just avoided.
     orphan_ref = f"aria-state-bootstrap-{hashlib.sha256(str(root).encode()).hexdigest()[:12]}"
-    _git(root, "checkout", "--orphan", orphan_ref)
-    _git(root, "rm", "-rf", "--quiet", "--ignore-unmatch", ".")
+    _git_step(BOOTSTRAP_ORPHAN_CHECKOUT_STEP, root, "checkout", "--orphan", orphan_ref)
+    _git_step(BOOTSTRAP_TREE_CLEAR_STEP, root, "rm", "-rf", "--quiet", "--ignore-unmatch", ".")
     for subdir in (TOOLS_SUBDIR, WORKSPACE_SUBDIR, FINDINGS_SUBDIR):
         (root / subdir).mkdir(parents=True, exist_ok=True)
         (root / subdir / ".gitkeep").write_text("", encoding="utf-8")
@@ -568,7 +600,7 @@ def _checkout_state_store_locked(
     )
     _git(root, "add", "--all", ".")
     _git_commit(root, f"chore(aria-state): genesis for {branch}")
-    _git(root, "checkout", "--detach", "HEAD")
+    _git_step(BOOTSTRAP_DETACH_CHECKOUT_STEP, root, "checkout", "--detach", "HEAD")
     _git(root, "branch", "--delete", "--force", orphan_ref)
     store = StateStore(
         root=root,
@@ -1091,7 +1123,8 @@ def _publish_state_locked(
     # Push the exact verified object id, never the moving ``HEAD`` symbolic
     # ref. A non-fast-forward update is rejected by the server, which is the
     # compare-and-swap this design relies on.
-    proc = _run_git(
+    proc = _run_git_step(
+        PUBLISH_PUSH_STEP,
         store.root,
         (
             "push",
@@ -1242,7 +1275,8 @@ def _probe_remote_tip_at(
 ) -> _RemoteTipProbe:
     ref = f"refs/heads/{branch}"
     try:
-        proc = _run_git(
+        proc = _run_git_step(
+            REMOTE_TIP_PROBE_STEP,
             root,
             ("ls-remote", "--heads", remote, ref),
         )
@@ -1308,7 +1342,8 @@ def _fetch_remote_branch_tip_at(
     fetched_ref = f"refs/aria/tmp/state-fetch-{os.getpid()}-{uuid.uuid4().hex}"
     try:
         try:
-            proc = _run_git(
+            proc = _run_git_step(
+                REMOTE_BRANCH_FETCH_STEP,
                 root,
                 (
                     "fetch",
@@ -1497,7 +1532,8 @@ def _refresh_clean_owned_store(
         raise StatePublishOutcomeUnknown(
             "state_publish_outcome_unknown: store became dirty before refresh"
         )
-    refresh = _run_git(
+    refresh = _run_git_step(
+        OWNED_STORE_FAST_FORWARD_STEP,
         store.root,
         ("merge", "--ff-only", "--no-edit", target_head),
     )
@@ -1896,7 +1932,7 @@ def publish_with_contention_replay(
     cycle_id: str,
     lane: str,
     repo_hash: str,
-    max_attempts: int = 3,
+    max_attempts: int = PUBLISH_MAX_ATTEMPTS,
 ) -> dict[str, Any]:
     with _state_store_lifecycle_lock(store.repo_root):
         return _publish_with_contention_replay_locked(
@@ -1916,7 +1952,7 @@ def _publish_with_contention_replay_locked(
     cycle_id: str,
     lane: str,
     repo_hash: str,
-    max_attempts: int = 3,
+    max_attempts: int = PUBLISH_MAX_ATTEMPTS,
 ) -> dict[str, Any]:
     """Publish, and on a lost race rebuild onto the winner and try again.
 
@@ -4651,7 +4687,7 @@ def _rebase_store_onto_remote_locked(
                 manifest,
                 "destructive_started",
             )
-            reset = _run_git(store.root, ("reset", "--hard", tip))
+            reset = _run_git_step(REPLAY_RESET_STEP, store.root, ("reset", "--hard", tip))
             if reset.returncode != 0 or _read_commit_ref(store.root, "HEAD") != tip:
                 raise StatePublishOutcomeUnknown(
                     "state_publish_outcome_unknown: replay reset could not be verified"
@@ -5624,7 +5660,12 @@ def _clear_existing_store(
             # Full manifest groups + index/concrete closure remain held through
             # removal.  An absent fixed/glob writer therefore cannot appear
             # after the second cleanliness scan and lose its bytes here.
-            _git(repo_root, "worktree", "remove", "--force", str(root), check=False)
+            _git_step(
+                STORE_WORKTREE_REMOVE_STEP,
+                repo_root,
+                "worktree", "remove", "--force", str(root),
+                check=False,
+            )
     if root.exists():
         raise StateStoreError(
             f"state_store_worktree_removal_failed: {root.as_posix()} could not be removed"
@@ -5683,6 +5724,29 @@ def _run_git_bytes_bounded(
     """
     if deadline_monotonic is not None and deadline_monotonic <= time.monotonic():
         raise StateStoreError(f"state_store_git_timeout: git {' '.join(args)}")
+    operation = git_operation(args)
+    if operation in TREE_OR_REMOTE_SCALED_GIT_OPERATIONS:
+        step = active_lifecycle_step()
+        if _lifecycle_lock_held_by_this_thread() and step is None:
+            # The lifecycle bound is a sum over registered steps; a tree-or-
+            # remote-scaled call the holder runs outside one is time the bound
+            # does not price, and a peer would give up on a healthy holder.
+            raise StateStoreError(
+                f"state_store_lifecycle_git_step_unregistered: git {operation} ran "
+                "under the lifecycle lock outside a registered step; register it "
+                "in state_store_lifecycle_arcs and run it through _run_git_step"
+            )
+        if active_state_transaction() is not None and step not in STATE_TRANSACTION_STEPS:
+            # The state-transaction bound (`ledger.STATE_LOCK_LIVENESS_SECONDS`)
+            # is a sum over the transaction arcs only: a registered step from
+            # a lifecycle arc (a push, a worktree add) run while the group
+            # locks are held is time every claim, release and submit behind
+            # those locks would wait unpriced.
+            raise StateStoreError(
+                f"state_store_transaction_git_step_unpriced: git {operation} ran "
+                "under a state transaction outside the transaction arcs; add the "
+                "step to STATE_TRANSACTION_ARCS in state_store_lifecycle_arcs"
+            )
     try:
         process = subprocess.Popen(
             ["git", "-C", str(cwd), *args],
@@ -5855,6 +5919,46 @@ def _git_succeeds(cwd: Path, *args: str) -> bool:
     return _run_git(cwd, args).returncode == 0
 
 
+def _run_git_step(
+    step: LifecycleGitStep,
+    cwd: Path,
+    args: tuple[str, ...],
+) -> subprocess.CompletedProcess[str]:
+    """`_run_git` for one registered tree-or-remote-scaled lifecycle step.
+
+    The step is the unit the lifecycle bound is derived from
+    (`state_store_lifecycle_arcs`): naming it at the call makes the call
+    countable, and the runner below it refuses the same operation unnamed.
+    Delegates to the module's `_run_git` by name so a test that fakes the
+    transport there still sees ``(cwd, args)``.
+    """
+    try:
+        require_step_operation(step, args)
+    except ValueError as exc:
+        raise StateStoreError(str(exc)) from exc
+    with lifecycle_step_active(step):
+        return _run_git(cwd, args)
+
+
+def _git_step(
+    step: LifecycleGitStep,
+    cwd: Path,
+    *args: str,
+    check: bool = True,
+) -> str:
+    """`_git` for one registered lifecycle step (see `_run_git_step`)."""
+    try:
+        require_step_operation(step, args)
+    except ValueError as exc:
+        raise StateStoreError(str(exc)) from exc
+    with lifecycle_step_active(step):
+        return _git(cwd, *args, check=check)
+
+
+def _lifecycle_lock_held_by_this_thread() -> bool:
+    return bool(getattr(_LIFECYCLE_LOCKS, "held", {}))
+
+
 def _git_commit(cwd: Path, message: str) -> str:
     """Commit under the store's own identity, never the ambient one."""
     return _git(
@@ -5874,7 +5978,12 @@ def _git_commit(cwd: Path, message: str) -> str:
 __all__ = [
     "BOOTSTRAP_ACK_ENV",
     "GENESIS_FILENAME",
+    "GIT_TIMEOUT_SECONDS",
+    "PUBLISH_MAX_ATTEMPTS",
     "SNAPSHOT_FILENAME",
+    "STATE_STORE_CHECKOUT_ARC_SECONDS",
+    "STATE_STORE_LIFECYCLE_LIVENESS_SECONDS",
+    "STATE_STORE_PUBLISH_ARC_SECONDS",
     "STATE_BRANCH",
     "STORE_DIRNAME",
     "STORE_ENVIRONMENT_NAMES",

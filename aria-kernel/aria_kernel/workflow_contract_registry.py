@@ -318,7 +318,17 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
                 dlp_artifact="aria-agent-executor-preflight.json",
                 clean_worktree_policy="pre_and_post",
                 external_root_allowlist=("RUNNER_TEMP",),
-                job_timeout_minutes=150,
+                # 150 → 200 (2026-09-12): the drain window (7200 s) plus the
+                # job reserve priced from the store's bounds
+                # (`ci_executor_drain.JOB_RESERVE_SECONDS`) once every
+                # child's claim, probe, submit and release waits were charged
+                # to the window instead of the reserve. 200 → 280: the
+                # reserve's restore and publish arcs are now sums over the
+                # store's registered lifecycle git steps
+                # (`state_store_lifecycle_arcs`: 2700 s + 5400 s + 900 s =
+                # 9000 s), not typed counts. The YAML is the pin; this must
+                # move with it (`_verify_job_timeout_minutes`).
+                job_timeout_minutes=280,
                 required_steps=(
                     _EXECUTOR_RESTORE_STEP,
                     _EXECUTOR_LEASE_STEP,

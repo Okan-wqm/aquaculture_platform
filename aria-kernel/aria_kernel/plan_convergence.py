@@ -2926,7 +2926,11 @@ def _require_coverage_for_implementation(state: dict[str, Any]) -> None:
 
 
 def _require_started(state: dict[str, Any], action: str) -> None:
-    if state["plan_started"] is None:
+    # A fold always carries the key; a caller-shaped state (a resumed
+    # persistence record, a round controller's minimal view) may not, and
+    # "no plan_started" IS "not started" — the named refusal every caller
+    # of this gate catches, never a KeyError that escapes it.
+    if state.get("plan_started") is None:
         raise GovernanceError(f"cannot {action}: plan has not been started")
 
 

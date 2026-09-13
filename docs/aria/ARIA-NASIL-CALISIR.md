@@ -64,7 +64,35 @@ zorunlu (`:525-551`). Yazımlar POSIX-locked + fsync + atomik rename.
 - **`repo_verified`** — dosya var **ve** sha256'sı `target_sha`'daki git blob'uyla eşleşiyor
   (`_git_blob_matches`, `:177`). Yani kanıt **commit'lenmiş bir SHA'da** var olmalı, kirli
   worktree'de değil. Güvenilir tek derece budur.
-- `worktree_candidate` — diskte var ama SHA'da doğrulanmamış.
+- `worktree_candidate` — diskte var; **baseline commit okunabildi** ve yol sondajı (`git show`
+  / `git cat-file`) **cevap verdi**: ya sıfır-dışı çıktı (ağaç bu yolu taşımıyor) ya da blob
+  hash'i uyuşmadı. Ağaç okundu ve ajanın kanıtıyla çelişiyor — ajanın kanıtı hakkında bir
+  iddia.
+- `baseline_unavailable` — çağıran `target_sha` geçirmedi, karşılaştırma hiç denenmedi
+  (harness'in boşluğu, 2026-08-09).
+- `verification_unavailable` — karşılaştırma denendi ve **hiçbir şey karşılaştırılamadı**; üç
+  sebepten biri: (1) sondaj **koşamadı** — git tüm denemelerde süresi içinde cevap vermedi
+  (yüklü host, 2026-09-12) ya da spawn edilemedi; (2) kararın **canlılık saati doldu** — kalan
+  her ref sondajsız bu dereceyi alır; (3) **baseline commit bu store'da ulaşılamaz** —
+  `git rev-parse --verify <sha>^{commit}` `bad object` / `not a git repository` ile döndü.
+  Host'un ya da workspace'in boşluğu, ajanın değil. Sondaj `evidence_probe.GitProbeSession`
+  üzerinden yürür: karar başına (teslim, inanç, bulgu, uzman paneli, borç, kabul harness'i
+  koşusu) tek oturum, baseline bir kez çözülür (istenen ad ve çözülen id altında önbelleğe
+  alınır), her sondaj 30 s deneme sınırı + 3 deneme + geri çekilme (tek sondaj en kötü 93 s),
+  kararın tüm sondajları için tek 300 s canlılık saati. Sözleşme: `CONTRACTS.md §5.1`. Üçü de
+  `repo_verified` değildir.
+  Yalnızca bu sonuncusu için reddedilen bir teslim (`rejection_codes` yalnız
+  `*_evidence_verification_unavailable`) executor'da `evidence_verification_unavailable`
+  (harness-sınıfı) ile serbest bırakılır ve requeue bütçesini yakmaz — aynı zarf sakin bir
+  host'ta doğrulanır; executor ayrıca git'in cevap vermediği bir workspace'te hiç claim
+  yapmaz (`git_unavailable` ön-kapısı). Kabul harness'i de bu dereceyi ARIA'ya
+  faturalamaz: ayrı `verification_unavailable` sonucudur, fp_rate'e girmez, tek başına
+  `clean`'i çevirmez; hiçbir şey ölçülemediyse koşu `inconclusive`'dir. `baseline_unavailable`
+  ise yeniden denemeyle düzelmez (SHA istek satırında yok), bu yüzden istek-hatası kalır.
+  `evidence_target_sha` geçersiz-kılması (`auto` = workspace HEAD, çekirdek içinde çözülür) de aynı
+  oturumda kanıtlanır: git "hayır" derse istek hatası (`GovernanceError`), git cevap vermezse
+  `EvidenceTargetUnavailable` — karar harness-sınıfı kodla reddedilir ve ref'ler aynı oturum
+  üzerinden aynı çapada derecelendirildiğinden hiçbiri `worktree_candidate` okunmaz.
 - `missing` / `invalid` — yok / bozuk.
 - **`self_output`** — ref `aria-tools/`, `aria-findings/`, `agent-workspace/`, `.aria-poc/`…
   öneklerinden biriyle başlıyorsa (`SELF_OUTPUT_PREFIXES`, `:13-23`): **ARIA'nın kendi çıktısı

@@ -4,7 +4,6 @@ import argparse
 import hashlib
 import json
 import os
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -23,6 +22,8 @@ from aria_kernel.cycle import run_cycle
 from aria_kernel.agent_invocations import (
     DEFAULT_HEARTBEAT_EXTEND_SECONDS,
     DEFAULT_LEASE_SECONDS,
+    ANCHOR_VERIFICATION_UNAVAILABLE_STOP_REASON,
+    AnchorVerificationUnavailable,
     claim_request,
     create_agent_invocation_request,
     heartbeat_claim,
@@ -4611,12 +4612,24 @@ def _main(argv: list[str] | None = None) -> int:
 
     if args.command == "agent":
         if args.agent_command == "next-pending":
-            row = next_pending_request(
-                role=args.role,
-                target_agent=args.target_agent,
-                base_dir=args.tools_dir,
-                exclude_request_ids=set(args.exclude or []) or None,
-            )
+            try:
+                row = next_pending_request(
+                    role=args.role,
+                    target_agent=args.target_agent,
+                    base_dir=args.tools_dir,
+                    exclude_request_ids=set(args.exclude or []) or None,
+                )
+            except AnchorVerificationUnavailable as undecided:
+                # Not "nothing pending": candidates exist and git did not
+                # answer for them. A structured stop on stdout, non-zero, so
+                # the drain stops by name instead of asking the next role
+                # the same unanswerable question (`ci_executor_drain`).
+                print(json.dumps({
+                    "stop_reason": ANCHOR_VERIFICATION_UNAVAILABLE_STOP_REASON,
+                    "undecided_request_ids": undecided.request_ids,
+                    "reasons": undecided.reasons,
+                }, indent=2, sort_keys=True))
+                return 1
             print(json.dumps(row, indent=2, sort_keys=True))
             return 0 if row is not None else 0
         if args.agent_command == "claim":
@@ -4705,19 +4718,13 @@ def _main(argv: list[str] | None = None) -> int:
                     file=sys.stderr,
                 )
                 return 2
-            _evidence_target = args.evidence_target_sha
-            if _evidence_target == "auto":
-                # ARIA-HIGH-022 — resolve the AGENT worktree's HEAD here; the
-                # kernel-side descent proof in submit_claim_result decides
-                # whether it is a valid stronger anchor. Unresolvable or
-                # malformed output degrades to the legacy base-anchored check
-                # (fail-closed, never fail-open).
-                _head_proc = subprocess.run(
-                    ["git", "-C", str(workspace), "rev-parse", "HEAD"],
-                    capture_output=True, text=True, check=False,
-                )
-                _head = _head_proc.stdout.strip()
-                _evidence_target = _head if len(_head) == 40 and all(c in "0123456789abcdef" for c in _head) else None
+            # ARIA-HIGH-022 — `auto` names the AGENT worktree's HEAD. It is
+            # resolved INSIDE the submit decision (`agent_invocations.
+            # _verified_evidence_target_sha`), on the decision's own bounded
+            # git-probe session, so a git that does not answer grades the
+            # submission `verification_unavailable` instead of hanging this
+            # command or silently degrading the anchor. The CLI used to run
+            # an unbounded `git rev-parse HEAD` of its own here.
             result = submit_claim_result(
                 claim_id=args.claim_id,
                 agent_id=args.agent_id,
@@ -4729,7 +4736,7 @@ def _main(argv: list[str] | None = None) -> int:
                 prompt_hash=args.prompt_hash,
                 transcript_hash=args.transcript_hash,
                 transcript_artifact_ref=args.transcript_artifact_ref,
-                evidence_target_sha=_evidence_target,
+                evidence_target_sha=args.evidence_target_sha,
             )
             print(json.dumps(result, indent=2, sort_keys=True))
             return 0 if result.get("status") == "accepted" else 1

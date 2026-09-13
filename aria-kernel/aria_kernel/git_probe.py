@@ -50,15 +50,20 @@ def is_shallow_checkout(root: Path) -> bool:
     return completed.returncode == 0 and completed.stdout.strip() == "true"
 
 
-def refuse_shallow_checkout(root: Path, *, reason: str, needs: str) -> None:
+def refuse_shallow_checkout(
+    root: Path, *, reason: str, needs: str, observed: bool | None = None,
+) -> None:
     """Raise ``GovernanceError`` named ``reason`` when ``root`` is a shallow clone.
 
     ``reason`` is the caller's stable reason code (the first token of the
     message, what an outcome row or an operator log shows); ``needs`` says
     what the caller reads from history and why a partial clone cannot
     supply it. The remedy is the same for every reader and is stated once.
+    ``observed`` is the fact a caller has already read through its own
+    bounded probe (the anchor gate's ``GitProbeSession``): the refusal is
+    then spelled from that answer and no second git call is made.
     """
-    if is_shallow_checkout(root):
+    if is_shallow_checkout(root) if observed is None else observed:
         raise GovernanceError(
             f"{reason}: {root} is a shallow clone "
             f"(git rev-parse --is-shallow-repository = true); {needs}. "

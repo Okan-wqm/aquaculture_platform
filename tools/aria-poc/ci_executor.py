@@ -81,6 +81,11 @@ from dispatch_failure import (
 )
 from ci_executor_lease import HeldClaim
 
+# The one stderr line that says the kernel could not be imported and the
+# standalone fallbacks are live. A fixed prefix so a run log — and the test
+# that pins it — can find the fact instead of inferring it from behaviour.
+KERNEL_IMPORT_FALLBACK_MARKER = "::warning::aria_executor_kernel_import_fallback"
+
 try:
     sys.path[:0] = [str(_CODE_ROOT), str(_CODE_ROOT / "aria-kernel")]
     from aria_kernel.agent_surface import DISPATCHABLE_ROLES as _DISPATCHABLE_ROLES
@@ -102,7 +107,55 @@ try:
     # the kernel and probes the sandbox through the runtime's own accessor.
     from aria_kernel.tool_registry import append_tools_governance as _append_tools_governance
     from aria_kernel.implementation_safety import sandbox_backend as _sandbox_backend
-except Exception:  # pragma: no cover - fallback keeps standalone contract importable
+    # The rejection codes that mean "the kernel could not verify" — owned by
+    # the validator that mints them; the release seam below classifies a
+    # rejected submit against this set and nothing else.
+    from aria_kernel.evidence_validator import (
+        EVIDENCE_VERIFICATION_UNAVAILABLE_CODES as _EVIDENCE_VERIFICATION_UNAVAILABLE_CODES,
+    )
+    # The two kernel liveness bounds the submit child can legitimately wait
+    # out: one state-transaction lock wait and one decision's evidence
+    # probes. The executor's own wall clock for that child is DERIVED from
+    # them below so it can never kill the child before the kernel's bound
+    # has had its say (the 120 s-vs-600 s disagreement of 2026-09-12).
+    from aria_kernel.ledger import STATE_LOCK_LIVENESS_SECONDS as _STATE_LOCK_LIVENESS_SECONDS
+    from aria_kernel.evidence_probe import (
+        EVIDENCE_VERIFICATION_LIVENESS_SECONDS as _EVIDENCE_VERIFICATION_LIVENESS_SECONDS,
+    )
+    # The pre-claim gate proves git answers in the workspace with the SAME
+    # probe (bounds, retry) the kernel's evidence validator will use; its
+    # worst case (every attempt at its bound, every backoff) is priced into
+    # the child's worst case below.
+    from aria_kernel.evidence_probe import GitProbeSession as _GitProbeSession
+    from aria_kernel.evidence_probe import (
+        GIT_PROBE_WORST_CASE_SECONDS as _GIT_PROBE_WORST_CASE_SECONDS,
+    )
+    # The bounds of the steps the JOB runs outside the drain window — the
+    # state restore before it and the publish after it — so the reserve the
+    # window must leave (`ci_executor_drain.JOB_RESERVE_SECONDS`) is derived
+    # from the store's own numbers, not retyped beside them.
+    from aria_kernel.state_store import GIT_TIMEOUT_SECONDS as _GIT_TIMEOUT_SECONDS
+    from aria_kernel.state_store import (
+        STATE_STORE_CHECKOUT_ARC_SECONDS as _STATE_STORE_CHECKOUT_ARC_SECONDS,
+        STATE_STORE_LIFECYCLE_LIVENESS_SECONDS as _STATE_STORE_LIFECYCLE_LIVENESS_SECONDS,
+    )
+    # What the kernel's `human-required record` can legitimately wait
+    # (its governance append, then the notification's channels and outbox
+    # row): the executor runs it as a child on the refusal exits and sizes
+    # that child's wall clock from this number, never from a guess.
+    from aria_kernel.human_required import (
+        HUMAN_REQUIRED_RECORD_WAIT_SECONDS as _HUMAN_REQUIRED_RECORD_WAIT_SECONDS,
+    )
+except Exception as _kernel_import_error:  # pragma: no cover - fallback keeps standalone contract importable
+    # Say so. This block used to fail silently, and a single missing kernel
+    # name switched EVERY kernel-backed seam (renderer, fusion, governance,
+    # sandbox probe, rejection classification) to its standalone fallback
+    # with nothing in the run log to explain the changed behaviour.
+    sys.stderr.write(
+        f"{KERNEL_IMPORT_FALLBACK_MARKER} "
+        f"{type(_kernel_import_error).__name__}: {_kernel_import_error} — "
+        "standalone fallbacks active for every kernel-backed seam\n"
+    )
     _DISPATCHABLE_ROLES = frozenset({
         "specialist_domain_review",
         "primary_authoring",
@@ -135,6 +188,25 @@ except Exception:  # pragma: no cover - fallback keeps standalone contract impor
     _derive_request_state = None
     _append_tools_governance = None
     _sandbox_backend = None
+    # Without the kernel nothing can be classified as the kernel's own gap:
+    # every rejected submit stays the request's fault (fail toward the
+    # human). An empty set cannot drift from the kernel's.
+    _EVIDENCE_VERIFICATION_UNAVAILABLE_CODES = frozenset()
+    # Standalone mirrors of the kernel bounds, so the submit wall clock and
+    # the child worst case derived below are the same numbers with or
+    # without the kernel; `tests/test_state_lock_liveness_bound.py` and
+    # `tests/test_executor_kernel_import_fallback.py` pin them equal. The
+    # lock bound is the pending-recovery transaction arc (three git steps
+    # at the store's cap); the record wait is that bound, the notifier's
+    # channels at their wall clock, and that bound again for the outbox.
+    _STATE_LOCK_LIVENESS_SECONDS = 900.0
+    _EVIDENCE_VERIFICATION_LIVENESS_SECONDS = 300.0
+    _GIT_PROBE_WORST_CASE_SECONDS = 93.0
+    _GIT_TIMEOUT_SECONDS = 300
+    _STATE_STORE_CHECKOUT_ARC_SECONDS = 2700.0
+    _STATE_STORE_LIFECYCLE_LIVENESS_SECONDS = 5400.0
+    _HUMAN_REQUIRED_RECORD_WAIT_SECONDS = 2280.0
+    _GitProbeSession = None
     # Standalone-mode fallback: identical value/order to the kernel SSoT.
     # Intentional duplication for kernel-less importability; WS2 adds a
     # drift guard asserting this equals plan_convergence.PLAN_CONTENT_REQUIRED.
@@ -147,12 +219,128 @@ except Exception:  # pragma: no cover - fallback keeps standalone contract impor
 DEFAULT_MAX_TURNS = 12
 DEFAULT_MAX_REQUESTS = 30
 DEFAULT_TIMEOUT_SECONDS = 1800
+# The kernel's own work inside ONE state-writing child once its waits are
+# done — `agent claim` and `agent release` load the claim ledger, CAS the
+# row and append it; `agent submit-result` also reads and seals the
+# envelope, runs the contract checks, appends the journal and the result
+# and runs the bridges. Seconds on any host, the ledger loads dominating
+# all three; this is the whole pre-2026-09 submit bound, kept as the one
+# work allowance every kernel child is priced with.
+KERNEL_CHILD_WORK_SECONDS = 120
+# A kernel child that only writes state (`agent claim`, `agent release`)
+# carries no executor-side wall clock: the kernel's own lock bound is what
+# bounds it — one state-transaction wait behind a live holder
+# (`ledger.STATE_LOCK_LIVENESS_SECONDS`, one deadline across the ordered
+# locks) — and then its work. Priced here so the drain loop can charge the
+# child for both of them instead of letting them spill into the job reserve.
+STATE_WRITE_CHILD_WORST_CASE_SECONDS = int(
+    _STATE_LOCK_LIVENESS_SECONDS + KERNEL_CHILD_WORK_SECONDS
+)
 # ORPHAN-HIGH-081 diagnostic + survivability bound. submit-result has
 # been observed to hang past consumer-loop timeout 360 (submit hung
 # without ever returning, no stderr, claim leaked). This bound localizes
 # the hang via timestamped stage logs AND lets ci_executor release the
 # claim itself on timeout rather than leaking via SIGKILL.
-SUBMIT_RESULT_TIMEOUT_SECONDS = 120
+#
+# DERIVED, not chosen: the child legitimately waits out two kernel liveness
+# bounds — its evidence probes (one decision's clock,
+# `evidence_probe.EVIDENCE_VERIFICATION_LIVENESS_SECONDS`) and then ONE
+# state-transaction lock wait behind a healthy replay
+# (`ledger.STATE_LOCK_LIVENESS_SECONDS`) — plus its own work. A wall clock
+# below that sum kills a healthy child while the kernel is still inside
+# its bound: that was 120 s against 600 s, released as
+# `submit_timeout_120s` and re-dispatched the next night.
+#
+# The lane still fits: the drain loop starts a child only while the WHOLE
+# child's worst case (`child_worst_case_seconds`, of which this wall clock
+# is one term) fits the remaining ARIA_DRAIN_BUDGET_SECONDS window, so a
+# submit that waits its full bound still ends inside the window. Pinned by
+# `tests/test_state_lock_liveness_bound.py` against the workflow file.
+SUBMIT_RESULT_TIMEOUT_SECONDS = int(
+    _EVIDENCE_VERIFICATION_LIVENESS_SECONDS
+    + _STATE_LOCK_LIVENESS_SECONDS
+    + KERNEL_CHILD_WORK_SECONDS
+)
+# The wall clock of the `human-required record` child the refusal exits run
+# instead of the submit (a model refusal, an agent refusal envelope). It
+# used to be 30 s against a kernel path that waits one state transaction
+# for its governance row and then notifies — the same class as the submit's
+# 120 s against 600 s: a healthy record killed by its own executor, the
+# operator never told. DERIVED from the kernel's own worst case for that
+# path (`human_required.HUMAN_REQUIRED_RECORD_WAIT_SECONDS`) plus the work
+# allowance every kernel child is priced with.
+HUMAN_REQUIRED_RECORD_TIMEOUT_SECONDS = int(
+    _HUMAN_REQUIRED_RECORD_WAIT_SECONDS + KERNEL_CHILD_WORK_SECONDS
+)
+# The child that ends a run after the CLI is ONE of two: the submit, or on
+# a refusal exit the human-required record. The worst case prices the slot
+# at the longer of the two, so neither branch can run past what the drain
+# loop checked — whichever bound grows.
+TERMINAL_WRITER_TIMEOUT_SECONDS = max(
+    SUBMIT_RESULT_TIMEOUT_SECONDS,
+    HUMAN_REQUIRED_RECORD_TIMEOUT_SECONDS,
+)
+
+
+# Plan 032 Faz 032h — when the drain gives each request its own worktree,
+# the child is bracketed by `git worktree add` before it and `git worktree
+# remove` after it: whole-tree materialisations, each bounded by the store's
+# git cap (`ci_executor_drain.REQUEST_WORKTREE_GIT_TIMEOUT_SECONDS`, read
+# from `state_store.GIT_TIMEOUT_SECONDS`). They ran unbounded and unpriced
+# until 2026-09-12; `child_worst_case_seconds` charges them to the child
+# when the policy turns the worktrees on.
+REQUEST_WORKTREE_WORST_CASE_SECONDS = 2 * _GIT_TIMEOUT_SECONDS
+
+
+def child_worst_case_seconds(
+    max_timeout_seconds: int,
+    *,
+    worktree_per_request: bool = False,
+) -> int:
+    """How long ONE executor child may legally run, end to end.
+
+    The ONE derivation every consumer of "how long can a child take" reads:
+    the drain loop's start check (`ci_executor_drain.drain_pending`), the
+    env-less drain window default (`DEFAULT_DRAIN_BUDGET_SECONDS`) and the
+    job-reserve arithmetic test. Pricing the CLI cap alone (the first shape)
+    let a submit that waited its full lock bound run past the window; pricing
+    the CLI cap plus the submit wall clock (the second) still left the claim
+    child, the release child and the pre-claim git probe unpriced — up to two
+    state-lock waits and a three-attempt probe, spilling out of the window
+    into the reserve the job keeps for restore and publish.
+
+    In the order the child runs them:
+
+    1. `agent claim` — one state-transaction wait plus its work
+       (STATE_WRITE_CHILD_WORST_CASE_SECONDS); the pre-claim git gate runs
+       first and is priced with it (GIT_PROBE_WORST_CASE_SECONDS: every
+       attempt at its bound, every backoff).
+    2. The Claude CLI — `max_timeout_seconds`, the lane's MAX_TIMEOUT_SECONDS.
+    3. The terminal writer — TERMINAL_WRITER_TIMEOUT_SECONDS: `agent
+       submit-result` at SUBMIT_RESULT_TIMEOUT_SECONDS (the evidence
+       probes' clock, one state-transaction wait, its work), or on a
+       refusal exit the `human-required record` child at
+       HUMAN_REQUIRED_RECORD_TIMEOUT_SECONDS (its governance transaction,
+       the notification's channels and outbox transaction, its work);
+       the slot is priced at the longer of the two.
+    4. `agent release` — the same shape as the claim; every exit of the
+       child that does not seal a result releases, including a submit that
+       timed out, so the release is charged after the terminal writer's
+       full bound.
+
+    With ``worktree_per_request`` the drain brackets all of that with the
+    request's `git worktree add` and `git worktree remove`
+    (REQUEST_WORKTREE_WORST_CASE_SECONDS); the workflow pin prices the lane
+    with them on, so turning the policy on cannot outgrow the window.
+    """
+    return int(
+        STATE_WRITE_CHILD_WORST_CASE_SECONDS
+        + _GIT_PROBE_WORST_CASE_SECONDS
+        + max_timeout_seconds
+        + TERMINAL_WRITER_TIMEOUT_SECONDS
+        + STATE_WRITE_CHILD_WORST_CASE_SECONDS
+        + (REQUEST_WORKTREE_WORST_CASE_SECONDS if worktree_per_request else 0)
+    )
 
 # Plan ARIA-V8.1 Phase 3 — fail-fast canonical plan_content / cross_review
 # validation BEFORE submit subprocess. Mirrors the kernel-side gate at
@@ -899,6 +1087,14 @@ def _max_requests() -> int:
 
 def _max_timeout_seconds() -> int:
     return int(os.environ.get("MAX_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS))
+
+
+def _child_worst_case_seconds(*, worktree_per_request: bool = False) -> int:
+    """`child_worst_case_seconds` at this run's MAX_TIMEOUT_SECONDS — the
+    number the drain loop checks before starting a child."""
+    return child_worst_case_seconds(
+        _max_timeout_seconds(), worktree_per_request=worktree_per_request,
+    )
 
 # ORPHAN-HIGH-472 — `_max_budget_usd` and `_max_budget_usd_per_cycle` lived
 # here and are gone. Their own docstring already conceded the point ("Default
@@ -1675,7 +1871,7 @@ def invoke_claude_cli(
                         capture_output=True,
                         text=True,
                         env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[2] / "aria-kernel")},
-                        timeout=30,
+                        timeout=HUMAN_REQUIRED_RECORD_TIMEOUT_SECONDS,
                     )
                     if _hr_refusal.returncode != 0:
                         sys.stderr.write(
@@ -2128,6 +2324,38 @@ def _held_request_state(request_id: str, base_dir: Path) -> str | None:
     if not list_agent_invocation_requests(request_id=request_id, base_dir=base_dir):
         return None
     return _derive_request_state(request_id=request_id, base_dir=base_dir)
+
+
+def _rejected_only_for_verification_unavailable(submit_stdout: str) -> bool:
+    """Did the kernel reject the submission SOLELY because it could not verify?
+
+    The kernel CLI prints its verdict as JSON on stdout: on a rejection,
+    ``reasons`` (prose, for the ledger and the operator) and
+    ``rejection_codes`` (one machine code per reason). This reads the codes
+    — never the prose — and answers True only when every code says the
+    kernel's evidence probe could not run (git did not answer inside its
+    bound on a loaded host). That is the harness's gap, not the work's: the
+    same envelope resubmitted on a quiet host usually verifies, and it must
+    not burn the request's requeue budget the way `submit_rejected` does
+    (the 2026-08-09 `baseline_unavailable` class, at the acceptance seam).
+
+    Anything else — unparseable output, a kernel exception, no codes, or
+    ONE code that is about the work — is the request's fault: fail toward
+    the human, never toward silent infinite retry.
+    """
+    try:
+        payload = json.loads(submit_stdout or "")
+    except ValueError:
+        return False
+    if not isinstance(payload, dict) or payload.get("status") != "rejected":
+        return False
+    codes = payload.get("rejection_codes")
+    if not isinstance(codes, list) or not codes:
+        return False
+    return all(
+        isinstance(code, str) and code in _EVIDENCE_VERIFICATION_UNAVAILABLE_CODES
+        for code in codes
+    )
 
 
 def _release_claim(
@@ -2861,7 +3089,8 @@ def _native_task_binding_refusal(*, repo_root: Path, tools_dir: Path, request: d
     binding compares git common directories), which is what lets the drain
     serve each request in a worktree at its own ``target_sha``.
     """
-    from aria_kernel.agent_invocations import _git_ok
+    from aria_kernel.agent_invocations import _git_probe
+    from aria_kernel.evidence_probe import GitProbeSession
     from aria_kernel.state_store import _valid_host_identity
     from aria_kernel.tool_registry import append_tools_governance
     from aria_kernel.workspace import canonical_identity
@@ -2871,8 +3100,14 @@ def _native_task_binding_refusal(*, repo_root: Path, tools_dir: Path, request: d
     if not _valid_host_identity(tools_dir, canonical_identity(repo_root), repo_root):
         reason = "task_root_binding_unavailable"
     else:
-        ok, observed_head = _git_ok(repo_root, "rev-parse", "HEAD")
-        if not ok or not request.get("target_sha"):
+        # The kernel's own bounded, retried probe (ARIA-HIGH-109): a git that
+        # does not answer is `target_revision_unavailable` by name with the
+        # probe's reason, never a 5 s guess read as "no HEAD".
+        head = _git_probe(repo_root, "rev-parse", "HEAD", probes=GitProbeSession())
+        observed_head = head.stdout or None
+        if head.ok is None:
+            reason = f"target_revision_unavailable:{head.unavailable_reason}"
+        elif not head.ok or not request.get("target_sha"):
             reason = "target_revision_unavailable"
         elif observed_head != request["target_sha"]:
             reason = "target_revision_mismatch"
@@ -3202,6 +3437,28 @@ def _node_modules_resolvable_from(workspace: Path) -> bool:
     return any((ancestor / "node_modules").is_dir() for ancestor in (workspace.resolve(), *workspace.resolve().parents))
 
 
+def _git_availability_gap(session: Any, *, workspace: Path) -> str | None:
+    """``None`` when git answers `rev-parse HEAD` in ``workspace`` through
+    the kernel's own probe session (its attempt bound and retry), else a
+    one-line reason: the probe that did not answer, or the non-zero exit
+    that says this is not a repository with a readable HEAD."""
+    outcome = session.run(
+        ["git", "rev-parse", "--verify", "HEAD^{commit}"], cwd=workspace,
+    )
+    if not outcome.answered:
+        return (
+            f"git rev-parse HEAD did not answer in {workspace}: "
+            f"{outcome.unavailable_reason} after {outcome.attempts} attempt(s)"
+        )
+    if outcome.returncode != 0:
+        first_line = outcome.stderr.strip().splitlines()[0] if outcome.stderr.strip() else ""
+        return (
+            f"git rev-parse HEAD exited {outcome.returncode} in {workspace}: "
+            f"{first_line or 'no readable HEAD'}"
+        )
+    return None
+
+
 def _pre_claim_environment_gate(*, tools_dir: Path) -> str | None:
     """Refuse to CLAIM a request the environment cannot host (FAZ 5b).
 
@@ -3213,7 +3470,7 @@ def _pre_claim_environment_gate(*, tools_dir: Path) -> str | None:
 
     Returns None when the dispatch can proceed, else the governance kind
     recorded (`claude_auth_unavailable` / `sandbox_unavailable` /
-    `env_deps_missing`). On refusal the request is NEVER claimed: it stays
+    `git_unavailable` / `env_deps_missing`). On refusal the request is NEVER claimed: it stays
     PENDING for a healthy host instead of consuming a lease + requeue here.
     Mock mode skips the gate — a mock dispatch needs none of the surfaces.
     """
@@ -3230,6 +3487,18 @@ def _pre_claim_environment_gate(*, tools_dir: Path) -> str | None:
         kind, detail = "sandbox_unavailable", (
             "sandbox_backend() returned None; write-capable spawns would be refused"
         )
+    if kind is None and _GitProbeSession is not None:
+        # The kernel verifies every evidence ref of the result with git
+        # probes in this workspace. A git that cannot answer `rev-parse
+        # HEAD` here — not spawnable, stalled past the probe's retries, or
+        # no repository at all — would reject the finished result as
+        # `verification_unavailable` (a harness fault, uncounted against
+        # the request) and re-run the same paid work every night with only
+        # cost caps as the bound. Refusing to claim keeps the request
+        # PENDING for a host whose git answers.
+        git_detail = _git_availability_gap(_GitProbeSession(), workspace=Path.cwd())
+        if git_detail is not None:
+            kind, detail = "git_unavailable", git_detail
     if kind is None and not _node_modules_resolvable_from(Path.cwd()):
         kind, detail = "env_deps_missing", (
             "no node_modules on the walk up from the workspace; agent validation commands cannot run"
@@ -3829,8 +4098,8 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
                     ],
                     capture_output=True,
                     text=True,
-                    env={**os.environ, "PYTHONPATH": _KERNEL_PYTHONPATH},
-                    timeout=30,
+                        env={**os.environ, "PYTHONPATH": _KERNEL_PYTHONPATH},
+                        timeout=HUMAN_REQUIRED_RECORD_TIMEOUT_SECONDS,
                 )
                 if _hr_proc.returncode != 0:
                     sys.stderr.write(
@@ -4037,14 +4306,28 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
             + _redact_lease_in_message(detail, lease_token)
             + "\n"
         )
-        # Two different refusals arrive here. A REJECTED result row is the
-        # kernel's own terminal effect on the claim: the request derives
-        # REJECTED from it and `release_claim` refuses with `result already
-        # terminal` — measured on the first live managed-Claude cross-review
-        # (2026-09-11, ARIA-HIGH-078), where the release failed after every
-        # rejection and reported a CLAIMED leak that did not exist. A refusal
-        # BEFORE that row (lease, transport, argparse) leaves a live claim,
-        # and that one is released like every other failure path here.
+        # Three refusals arrive here, and WHICH one decides both whether the
+        # claim is still live and whether the request's requeue budget is
+        # charged. A rejection the kernel issued only because its own evidence
+        # probes could not run says nothing about the work: the kernel appends
+        # no result row for that class (`_prepared_claim_rejection`), the claim
+        # is live, and it is released as the harness's fault so the request
+        # goes back to PENDING without spending its budget on the host's load.
+        # A REJECTED result row is the kernel's own terminal effect on the
+        # claim: the request derives REJECTED from it and `release_claim`
+        # refuses with `result already terminal` — measured on the first live
+        # managed-Claude cross-review (2026-09-11, ARIA-HIGH-078), where the
+        # release failed after every rejection and reported a CLAIMED leak that
+        # did not exist. A refusal BEFORE any row (lease, transport, argparse)
+        # leaves a live claim, released like every other failure path here.
+        if _rejected_only_for_verification_unavailable(submit_proc.stdout or ""):
+            _stage("submit_rejected_for_verification_unavailable — releasing as harness fault")
+            _release_claim(
+                tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+                agent_id=agent_id, lease_token=lease_token,
+                reason="evidence_verification_unavailable",
+            )
+            return 1
         if _rejected_result_recorded(submit_proc.stdout):
             _stage("submit_rejected_recorded: the kernel appended the rejected result row; "
                    "the claim is terminal and the request derives REJECTED")

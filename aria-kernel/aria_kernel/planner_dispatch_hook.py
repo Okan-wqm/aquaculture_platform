@@ -349,10 +349,14 @@ def dispatch_one_pending_planner_request(
     Claude Code CLI via ci_executor.py subprocess.
 
     Returns aggregate dict with ``status`` ∈
-    ``{no_pending, claim_failed, executor_failed, dispatched,
+    ``{no_pending, anchor_undecided, claim_failed, executor_failed, dispatched,
     provider_undecided}``, plus ``request_id``, ``claim_id``,
     ``exit_code``, ``governance_event_count``, ``stderr_redacted``.
-    ``provider_undecided`` (ARIA-HIGH-107): the child released the claim
+    ``anchor_undecided`` is the selection that could claim nothing because
+    git did not answer for the candidates' anchors
+    (`AnchorVerificationUnavailable`): not "nothing pending", and not a tick
+    that asks the next role the same unanswerable question.
+    ``provider_undecided`` (ARIA-HIGH-108): the child released the claim
     because the fleet's first provider in contention never answered its
     status probe; nothing ran, the request is back in the queue, and the
     daemon backs off before asking again.
@@ -374,7 +378,11 @@ def dispatch_one_pending_planner_request(
     # Local imports keep kernel cold-start light. The daemon module
     # already imports this hook lazily from inside its own loop; the
     # sub-imports below run only on the first dispatch tick.
-    from .agent_invocations import claim_request, next_pending_request
+    from .agent_invocations import (
+        AnchorVerificationUnavailable,
+        claim_request,
+        next_pending_request,
+    )
     from .tool_registry import (
         GovernanceError,
         append_tools_governance,
@@ -388,7 +396,22 @@ def dispatch_one_pending_planner_request(
     # default; operator can re-order via the planner_roles kwarg).
     request: dict[str, Any] | None = None
     for role in planner_roles:
-        request = next_pending_request(role=role, base_dir=root)
+        try:
+            request = next_pending_request(role=role, base_dir=root)
+        except AnchorVerificationUnavailable as undecided:
+            # The kernel already wrote the governance row naming the
+            # candidates; this tick reports the condition and does not
+            # spend another probe clock per remaining role on a git that
+            # is not answering.
+            return {
+                "status": "anchor_undecided",
+                "request_id": None,
+                "claim_id": None,
+                "exit_code": None,
+                "governance_event_count": 0,
+                "stderr_redacted": str(undecided)[:500],
+                "undecided_request_ids": list(undecided.request_ids),
+            }
         if request is not None:
             break
     if request is None:

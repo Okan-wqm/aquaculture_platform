@@ -20,12 +20,14 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
+from aria_kernel.evidence_probe import GitProbeSession
 from aria_kernel.ledger import append_declared_jsonl
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 
@@ -171,9 +173,32 @@ class AttestationProducerTest(unittest.TestCase):
         self.assertEqual(result["refused"], [])
 
 
+def _checkout_with_one_commit(workspace: Path) -> None:
+    """A healthy executor workspace is a checkout with a readable HEAD."""
+    def git(*args: str) -> None:
+        subprocess.run(
+            ["git", *args], cwd=str(workspace), check=True, capture_output=True, text=True,
+        )
+
+    git("init", "-q")
+    git("config", "user.email", "t@example.invalid")
+    git("config", "user.name", "t")
+    (workspace / "README").write_text("seed\n", encoding="utf-8")
+    git("add", "README")
+    git("commit", "-qm", "seed")
+
+
 class PreClaimGateTest(unittest.TestCase):
     def _gate(self, tools: Path):
         return ci_executor._pre_claim_environment_gate(tools_dir=tools)
+
+    def _healthy_probes(self):
+        """Auth and sandbox answer; only the workspace itself is under test."""
+        return (
+            patch.object(ci_executor, "_MOCK_MODE_AT_ENTRY", False),
+            patch.object(ci_executor, "preflight_claude_auth", return_value={"status": "ok"}),
+            patch.object(ci_executor, "_sandbox_backend", return_value="bwrap"),
+        )
 
     def test_broken_auth_is_named_and_the_request_is_never_claimed(self) -> None:
         with TemporaryDirectory() as tmp:
@@ -203,15 +228,13 @@ class PreClaimGateTest(unittest.TestCase):
     def test_a_healthy_host_passes(self) -> None:
         with TemporaryDirectory() as tmp:
             workspace = Path(tmp)
+            _checkout_with_one_commit(workspace)
             (workspace / "node_modules").mkdir()
             cwd = os.getcwd()
             os.chdir(workspace)
             try:
-                with patch.object(ci_executor, "_MOCK_MODE_AT_ENTRY", False), \
-                     patch.object(ci_executor, "preflight_claude_auth",
-                                  return_value={"status": "ok"}), \
-                     patch.object(ci_executor, "_sandbox_backend",
-                                  return_value="bwrap"):
+                mock_mode, auth, sandbox = self._healthy_probes()
+                with mock_mode, auth, sandbox:
                     kind = self._gate(workspace)
             finally:
                 os.chdir(cwd)
@@ -228,6 +251,11 @@ class PreClaimGateTest(unittest.TestCase):
             (checkout / "node_modules").mkdir()
             worktree = checkout / "aria-worktrees" / "req-AIR-1"
             worktree.mkdir(parents=True)
+            # The gate also asks git for HEAD in the child's cwd (ARIA-HIGH-109):
+            # the per-request worktree is a real checkout, so it is one here.
+            subprocess.run(["git", "init", "-q", str(worktree)], check=True)
+            subprocess.run(["git", "-C", str(worktree), "-c", "user.name=t", "-c", "user.email=t@x.invalid",
+                            "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "seed"], check=True)
             cwd = os.getcwd()
             os.chdir(worktree)
             try:
@@ -243,6 +271,65 @@ class PreClaimGateTest(unittest.TestCase):
             self.assertTrue(ci_executor._node_modules_resolvable_from(worktree))
         with TemporaryDirectory() as bare:
             self.assertFalse(ci_executor._node_modules_resolvable_from(Path(bare) / "nested" / "deeper"))
+
+    def test_a_workspace_whose_git_cannot_answer_is_never_claimed(self) -> None:
+        # The kernel verifies every evidence ref with git probes in this
+        # workspace; a git that cannot answer `rev-parse HEAD` here would
+        # reject the finished result as verification_unavailable — a harness
+        # fault, uncounted — and re-run the same paid work every night. The
+        # gate refuses to claim instead. Here: no repository at all.
+        with TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            (workspace / "node_modules").mkdir()
+            cwd = os.getcwd()
+            os.chdir(workspace)
+            try:
+                mock_mode, auth, sandbox = self._healthy_probes()
+                with mock_mode, auth, sandbox, \
+                     patch.dict(os.environ, {"GIT_CEILING_DIRECTORIES": str(workspace.parent)}), \
+                     patch.object(ci_executor, "_append_tools_governance") as gov:
+                    kind = self._gate(workspace)
+            finally:
+                os.chdir(cwd)
+
+        self.assertEqual(kind, "git_unavailable")
+        self.assertEqual(gov.call_args.args[1], "git_unavailable")
+        self.assertIn("rev-parse HEAD exited", gov.call_args.args[2]["detail"])
+
+    def test_a_git_that_stalls_past_its_retries_is_named_as_such(self) -> None:
+        # The probe is the kernel's own session (attempt bound + retry), so
+        # the gate's notion of "git answers" is the validator's. A session
+        # whose every attempt stalls reports the stall, not a non-zero exit.
+        with TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            _checkout_with_one_commit(workspace)
+            (workspace / "node_modules").mkdir()
+            cwd = os.getcwd()
+            os.chdir(workspace)
+            try:
+                stalled = GitProbeSession(
+                    attempt_timeout_seconds=0.0, attempts=2, backoff_seconds=(0.0,),
+                )
+                mock_mode, auth, sandbox = self._healthy_probes()
+                with mock_mode, auth, sandbox, \
+                     patch.object(ci_executor, "_GitProbeSession", return_value=stalled), \
+                     patch.object(ci_executor, "_append_tools_governance") as gov:
+                    kind = self._gate(workspace)
+            finally:
+                os.chdir(cwd)
+
+        self.assertEqual(kind, "git_unavailable")
+        self.assertIn("did not answer", gov.call_args.args[2]["detail"])
+        self.assertEqual(stalled.stalled_attempts, 2)
+
+    def test_the_git_probe_is_the_kernels_own_session(self) -> None:
+        # Not a private subprocess with its own bound: the same probe the
+        # validator runs, so the two cannot disagree on what "answers" is.
+        import inspect
+
+        source = inspect.getsource(ci_executor._pre_claim_environment_gate)
+        self.assertIn("_GitProbeSession()", source)
+        self.assertIn("_git_availability_gap(", source)
 
     def test_mock_mode_skips_the_gate(self) -> None:
         with TemporaryDirectory() as tmp:

@@ -695,9 +695,16 @@ class StepOrderingAndAbortGateContract(unittest.TestCase):
         # 45 → 150 (ORPHAN-HIGH-640): the drain loop's whole window including
         # the last child's 1800s worst case plus a 30-minute publish reserve
         # must fit; the first live drain night was reaped mid-child at 45.
+        # 150 → 200 (2026-09-12): the child's worst case now prices its
+        # claim, pre-claim probe, submit and release waits too, and the
+        # reserve is derived from the store's git bounds
+        # (`ci_executor_drain.JOB_RESERVE_SECONDS`); the window-plus-reserve
+        # arithmetic is pinned in test_state_lock_liveness_bound. 200 → 280:
+        # the reserve's restore and publish arcs are sums over the store's
+        # registered lifecycle git steps (`state_store_lifecycle_arcs`).
         self.assertEqual(
             cycle_wall_clock_cap_seconds(self._EXECUTOR),
-            (150 - WALL_CLOCK_RESERVE_MINUTES) * 60,
+            (280 - WALL_CLOCK_RESERVE_MINUTES) * 60,
         )
         # 50 → 360 (operator decision 2026-08-13): the night's window is the
         # 360-minute platform ceiling. Smoke runs 1-3 proved 50 was the

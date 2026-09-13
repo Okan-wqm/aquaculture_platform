@@ -46464,6 +46464,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/finding-registry-allocation-scale.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/finding-registry-closure-drift.spec.ts",
       "prettier_managed": true
     },

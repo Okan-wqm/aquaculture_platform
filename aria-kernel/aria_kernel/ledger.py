@@ -7,6 +7,7 @@ import os
 import re
 import stat
 import sys
+import time
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -14,6 +15,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator
 
 from .file_lock import ExclusiveLockHandle, with_exclusive_lock
+from .state_store_lifecycle_arcs import STATE_LOCK_LIVENESS_SECONDS, state_transaction_held
 from .state_manifest import (
     normalize_surface_relative_path,
     state_group_lock_relative_path,
@@ -29,6 +31,7 @@ __all__ = [
     "LEDGER_ROW_MAX_BYTES",
     "REPLAY_TRANSPORT_SCHEMA_PREFIX",
     "ROW_FORMAT_VERSION",
+    "STATE_LOCK_LIVENESS_SECONDS",
     "StateTransaction",
     "append_declared_jsonl",
     "append_jsonl",
@@ -85,6 +88,61 @@ class LedgerReadLimitError(RuntimeError):
 # write-side and read-side agree by construction. The snapshot module
 # imports this constant; it has no number of its own.
 LEDGER_ROW_MAX_BYTES = 1024 * 1024
+
+# How long a state writer waits for the LIVE holder of a state-group, index
+# or file lock before concluding the holder is wedged:
+# `STATE_LOCK_LIVENESS_SECONDS`, imported above from
+# `state_store_lifecycle_arcs` and re-exported here as the transaction's
+# default.
+#
+# WHY this is a liveness bound and not a budget: the lock is `flock`, so a
+# holder that dies releases through the kernel and nobody ever waits on a
+# dead process. The only holder a waiter can be stuck behind is a live one,
+# and the longest legitimate live holds are the three `state_store` holders
+# that keep ONE transaction open across git steps bounded by
+# `GIT_TIMEOUT_SECONDS` — the resumed accepted-loser recovery
+# (`_resume_accepted_loser_recovery`: fetch, fast-forward, probe), the
+# rebase (`_rebase_store_onto_remote_locked`: fetch, then the tree move)
+# and the checkout cleanup (`_clear_existing_store`: probe, worktree
+# removal). An ordinary appender holds the same locks for milliseconds.
+#
+# WHY it is not the lock helper's default: `file_lock._DEFAULT_TIMEOUT_SECONDS`
+# (5 s) is what every state transaction inherited when it passed no timeout,
+# and 5 s is a fine guard for a millisecond hold — but a real writer (an
+# executor appending its claim, a cycle appending governance) arriving while
+# a replay legitimately holds the group locks for longer than that raised
+# `TimeoutError('with_exclusive_lock_timeout: …/state-groups/<group>.lock')`
+# while the holder was healthy. Measured on the third pre-push suite run of
+# 2026-09-12 (load 6-20 on 4 CPUs): the two replay-contention fixtures failed
+# exactly so, and a replay's `git reset` on the live governance ledger is the
+# production shape of the same wait. That is the class
+# `tests/test_agent_submit_result_e2e.RACE_LIVENESS_SECONDS` names for the
+# fixtures (a liveness guard used as a performance budget), inside
+# production code.
+#
+# WHY the number is derived, not typed: the first repair typed "two such
+# steps at cap" (600 s) beside the constant, and the pending-recovery holder
+# runs three — a claim or submit gave up at 600 s behind a healthy 900 s
+# recovery, the class the lifecycle bound had already been re-derived for.
+# This module sits below `state_store` and cannot read its code, but the
+# arcs registry is a leaf both import: the bound is the longest arc held
+# under one transaction (`STATE_TRANSACTION_ARCS`), each arc a sequence of
+# registered steps the AST walker `tests/test_state_lifecycle_arcs_derived.py`
+# checks against the holders' code and `tests/test_state_lock_arcs_traced.py`
+# checks against the git spawns the holders make, in order. The span of the
+# yield below is marked (`state_transaction_held`) so the store's git
+# runner can refuse a step no transaction arc prices while one is held.
+#
+# WHO receives this bound: every writer that reaches `state_transaction`
+# without a `timeout_seconds` of its own — the kernel CLI's `agent claim`,
+# `agent release` and `agent submit-result` (the executor's subprocesses),
+# the cycle's governance and queue appends, the reaper, the bridges. It is
+# the bound of the WHOLE transaction: the group, index and file locks are
+# taken in order against one deadline (see `state_transaction`), so a
+# writer behind several wedged holders still waits at most this long. The
+# executor sizes its own wall clock for the submit child from this number
+# (`tools/aria-poc/ci_executor.SUBMIT_RESULT_TIMEOUT_SECONDS`), so the
+# child is never killed before the kernel's own bound can act.
 
 
 class LedgerRowTooLargeError(RuntimeError):
@@ -621,6 +679,17 @@ def state_transaction(
     Lock order is deterministic across processes: manifest group locks,
     integrity-index locks, then concrete file locks, each sorted by
     absolute path.  Reads default to strict hash-chain verification.
+
+    ``timeout_seconds`` is how long the WHOLE acquisition may wait for live
+    holders; ``None`` means ``STATE_LOCK_LIVENESS_SECONDS`` — the bound
+    sized to the replay orchestrator, the longest legitimate holder of
+    these locks. It is one deadline across the ordered locks, not a wait
+    per lock: each lock is asked for only what remains, so a writer behind
+    a wedged group holder AND a wedged file holder fails at the bound, not
+    at N times the bound. Pass a value only when the caller knows its
+    holder (a probe that must not wait, a fixture proving lock order); an
+    ordinary writer cannot know who holds the group lock and must not
+    guess a shorter wait.
     """
     concrete_paths = [Path(path).resolve() for path in paths]
     if not concrete_paths:
@@ -649,9 +718,13 @@ def state_transaction(
         concrete_paths,
         group_lock_paths=explicit_group_locks,
     )
-    lock_kwargs: dict[str, Any] = {}
-    if timeout_seconds is not None:
-        lock_kwargs["timeout_seconds"] = timeout_seconds
+    # One monotonic deadline for the ordered acquisition below. Each lock
+    # receives the time that is LEFT, so the transaction as a whole — group
+    # locks, then index locks, then file locks — is bounded by one number.
+    wait_bound = (
+        STATE_LOCK_LIVENESS_SECONDS if timeout_seconds is None else timeout_seconds
+    )
+    acquisition_deadline = time.monotonic() + wait_bound
 
     def assert_declared_bindings_unchanged() -> None:
         for concrete_path, expected in declared_bindings.items():
@@ -672,12 +745,28 @@ def state_transaction(
     with contextlib.ExitStack() as stack:
         lock_handles: list[ExclusiveLockHandle] = []
         for ordinal, lock_path in enumerate(lock_paths):
+            remaining = max(0.0, acquisition_deadline - time.monotonic())
             try:
                 lock_handles.append(
                     stack.enter_context(
-                        with_exclusive_lock(lock_path, **lock_kwargs)
+                        with_exclusive_lock(lock_path, timeout_seconds=remaining)
                     )
                 )
+            except TimeoutError as exc:
+                # The declared root may have vanished while this writer
+                # waited; that semantic refusal outranks the timeout, as it
+                # does for the I/O fault below.
+                if ordinal == 0 and ordered_group_locks and declared_bindings:
+                    assert_declared_bindings_unchanged()
+                # Name the bound that fired and where: the helper's message
+                # says only which side-car was contended, and a reader of
+                # the log needs to know the writer waited the WHOLE
+                # transaction bound, not a per-lock default.
+                raise TimeoutError(
+                    "state_transaction_liveness_bound_exhausted: "
+                    f"bound={wait_bound}s lock_ordinal={ordinal} "
+                    f"lock={lock_path.as_posix()}"
+                ) from exc
             except OSError:
                 # A cleanup may unlink the group sidecar while this waiter has
                 # it open.  The lock helper correctly rejects that changed
@@ -688,11 +777,12 @@ def state_transaction(
                 raise
             if ordinal == 0 and ordered_group_locks and declared_bindings:
                 assert_declared_bindings_unchanged()
-        yield StateTransaction(
-            frozenset(concrete_paths),
-            verify_reads=verify_reads,
-            lock_handles=tuple(lock_handles),
-        )
+        with state_transaction_held():
+            yield StateTransaction(
+                frozenset(concrete_paths),
+                verify_reads=verify_reads,
+                lock_handles=tuple(lock_handles),
+            )
 
 
 def file_hash(path: Path) -> str:

@@ -76,6 +76,7 @@ EXECUTOR_ACCEPTANCE_AUTHORITY = (
     f"{KERNEL}implementation_safety.py",
     f"{KERNEL}agent_genesis.py",
     f"{KERNEL}evidence_trust.py",
+    f"{KERNEL}evidence_probe.py",
     f"{KERNEL}canonical_path.py",
     f"{KERNEL}tool_health.py",
     f"{KERNEL}ledger_refs.py",

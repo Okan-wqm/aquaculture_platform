@@ -794,7 +794,9 @@ class NativeAdaptiveAdmissionTests(unittest.TestCase):
         _git(["add", "src/model_fleet.py"], cwd=self.repo)
         _git(["commit", "-m", "test: move task source after sealed request"], cwd=self.repo)
         self.assertNotEqual(_git(["rev-parse", "HEAD"], cwd=self.repo).stdout.strip(), self.request["target_sha"])
-        worktree = ci_executor_drain._add_request_worktree(self.repo, self.request["request_id"], self.request["target_sha"])
+        added = ci_executor_drain._add_request_worktree(self.repo, self.request["request_id"], self.request["target_sha"])
+        self.assertIsNone(added.unanswered_reason, added)
+        worktree = added.path
         self.assertIsNotNone(worktree)
         assert worktree is not None
         self.addCleanup(ci_executor_drain._remove_request_worktree, self.repo, worktree)

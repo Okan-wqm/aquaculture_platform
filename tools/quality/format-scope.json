@@ -46279,6 +46279,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/finding-registry-merge-driver.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/finding-sweep-critical-exemption.spec.ts",
       "prettier_managed": true
     },
@@ -48410,6 +48416,24 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/gates/finding-registry-chain.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/finding-registry-merge-driver.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/finding-registry-merge.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/gates/finding-registry-store.spec.ts",
       "prettier_managed": true
     },
@@ -48494,6 +48518,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/gates/git-merge-drivers.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/gates/git-reachability.spec.ts",
       "prettier_managed": true
     },
@@ -48501,6 +48531,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/gates/git-reachability.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/gates/install-git-merge-drivers.mjs",
       "prettier_managed": true
     },
     {

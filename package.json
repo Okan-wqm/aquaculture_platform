@@ -36,7 +36,7 @@
     "type-check": "node tools/scripts/type-check-all.mjs",
     "affected:graph": "node tools/toolchain/run.mjs nx affected:graph",
     "graph": "node tools/toolchain/run.mjs nx graph",
-    "prepare": "husky install",
+    "prepare": "husky install && node tools/gates/install-git-merge-drivers.mjs",
     "docker:build": "docker buildx bake --load",
     "docker:build:backend": "docker buildx bake backend --load",
     "docker:build:backend:simple": "npm run build:backend && docker buildx bake backend-simple --load",

@@ -1083,17 +1083,88 @@ logged in` and exits 1, and both probes tested the exit code before the
 ## ARIA-HIGH-123 — the implementer's sandbox cannot run git where the implementer commits
 
 - **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-17
-- **Evidence (reproduced on this host, `wf_85686100-726` reverifier):** the write-capable
-  implementer spawn is bwrap-contained with only the workspace bound and `.git/` /
-  `aria-debts/` in `READONLY_PATHS`. In a linked per-request worktree `git status` fails
-  `not a git repository: <checkout>/.git/worktrees/<name>` (the common dir and the worktree's
-  private git dir sit outside the bound workspace); in a main checkout `git add` fails
-  `Unable to create .git/index.lock: Read-only file system`. The `git commit` the identity
-  contract (ARIA-HIGH-115) relies on cannot run in the real sandbox in either lane; the HIGH-115
-  end-to-end pin proves the chain through a pass-through bwrap and says so.
-- **Fix shape (open, tier 1):** the write-capable profile derives its binds from the checkout
-  (`checkout_root`: the worktree, its private git dir and the common object store, writable)
-  and keeps the private key unreadable to the agent (git reads it, the agent does not — bind
-  it for git alone, or route the commit through a kernel-owned helper the agent invokes);
-  pin with a real bwrap child committing in a linked worktree. Blocks ring 4 in production
-  regardless of ARIA-HIGH-115.
+- **Evidence (reverifier of ARIA-HIGH-115, reproduced 2026-09-14 with the
+  real wrapper and bwrap 0.9.0 on a throwaway repo under `/dev/shm`):** the
+  write-capable implementer spawn is bwrap-contained with only the workspace
+  bound and `.git/` read-only, so inside a linked per-request worktree git
+  fails `fatal: not a git repository: <checkout>/.git/worktrees/<name>` and in
+  a main checkout `git add` cannot create `.git/index.lock` (`Read-only file
+system`) — the agent's `git commit` the identity contract relies on cannot
+  run in the real sandbox in either lane. The same measurement showed the
+  private signing key readable inside (`aria-debts/` ro-bound — read-only is
+  readable), bwrap's root tmpfs writable (an unbound store is a phantom the
+  hooks journal into and lose), a host `TMPDIR` the sandbox does not mount
+  (`git commit` died `could not create temporary file`), and `/bin/true`
+  reporting the sandbox usable on every such host.
+- **Round 1 (refused by the adversarial verifier):** the first cut bound the
+  shared common dir's `objects/`, `refs/heads/`, `logs/refs/heads/`, the
+  worktree's private git dir and the WHOLE state store writable, committed
+  unsigned in the probe, and left the ssh-agent to outlive a killed holder.
+  Reproduced with the real wrapper: for the runner's uid the signed commit
+  died with `No user exists for uid 1000?` (no `/etc/passwd` inside; the
+  probe passed unsigned); `rm objects/pack/*.pack`, `git repack -adq`,
+  `objects/info/alternates`, `refs/heads/main.lock`,
+  `objects/maintenance.lock` and `<private>/locked` all persisted on the
+  host; every kernel ledger (requests, claims, governance, signers,
+  control, adjudications, cost) was appendable from inside; a SIGKILLed
+  holder left a live agent holding the cycle key; a raw AF_UNIX listener in
+  a pin made the no-network invariant red.
+- **What is now true:** the shared repository is never writable inside the
+  sandbox. The agent's git runs against a kernel-made REPLICA of the
+  worktree's private git dir bound over it (HEAD, index, logs/HEAD, control
+  files overlaid read-only; a `locked` the agent writes lands in the
+  replica) and a QUARANTINE — git's own receive-pack shape:
+  `GIT_OBJECT_DIRECTORY` at the replica's `objects/` (alternates at the
+  shared store for reads), the replica's `refs/heads/` and
+  `logs/refs/heads/` bound AT the common paths, existing loose refs overlaid
+  read-only on top (bounded: `loose_refs_exceed_overlay_bound:<n>`, remedy
+  `git pack-refs --all`); the common dir read-only as a whole (packs,
+  `objects/info`, `maintenance.lock`, `config`, `hooks`, `packed-refs`);
+  sibling worktrees and the main working tree absent
+  (`aria_kernel/git_containment.py`). After the spawn the KERNEL publishes
+  the quarantine from outside (`publish_quarantine`): every loose object
+  inflated and re-hashed (a file whose bytes do not hash to its name is
+  refused by name — git reads loose objects before packed, so a crafted
+  loose object would shadow a packed one), packs fed to
+  `git unpack-objects --strict` (never copied), only `aria-impl-*` refs
+  published with `git update-ref`, everything else (a planted `main.lock`,
+  a shadow `main`, a branch of the agent's naming) discarded and named on the
+  `implementation_quarantine_published` governance row; the worktree's HEAD
+  then adopts the published branch so the executor's evidence check grades
+  the agent's files against the agent's commit. A killed executor publishes
+  nothing. `/etc/passwd` and `/etc/group` are system binds, and the probe
+  runs the SIGNED route (a throwaway key minted into a throwaway linked
+  worktree, the kernel-held agent, publication, `git verify-commit` from
+  outside) with the managed route's network setting
+  (`MANAGED_SPAWN_ALLOW_NETWORK`). The store is NOT mounted: the hooks
+  compiled into the settings run a stdlib-only client by path
+  (`aria_kernel/hook_client.py`, naming nothing but the verb) that ships the
+  payload to a kernel-side broker on a bound unix socket
+  (`aria_kernel/hook_broker.py`, served in the executor around the spawn
+  with the store, workspace, request id and turn cap as ITS facts) — the
+  decision ledger, the turn count, the work journal, the checkpoint and the
+  handoff are written outside. The ssh-agent dies with its holder however
+  it dies (`PR_SET_PDEATHSIG` under `PR_SET_NO_NEW_PRIVS` — the
+  distribution's set-gid `ssh-agent` would otherwise drop the signal at
+  exec, measured), its key lifetime is bounded by `ARIA_JOB_DEADLINE_EPOCH`
+  (`-t`), it starts with PATH only and `-P '!*'` (no provider library can
+  be loaded through the socket); the orchestrator's startup sweep removes
+  `aria-sa-*` / `aria-hb-*` socket dirs whose listener is gone. The fixture
+  listener lives in `tests/_helpers/unix_sockets.py` with the no-network
+  invariant's own allowlist marker. Contract in `docs/aria/CONTRACTS.md`
+  (next to the HIGH-115 paragraph); runbook R-3b.
+- **Proof:** on the pre-change tip (`b97fb0af5f`) the HIGH-115 end-to-end
+  under REAL bwrap fails `git switch -q rc=128: fatal: not a git repository`
+  and the new modules do not import; on the round-1 tree the round-2 pins
+  fail as the verifier reproduced (the passwd bind dropped with the network
+  off → `No user exists for uid`; the store bound writable → every ledger
+  forgeable; the shared `refs/heads` bound writable → `main.lock` on the
+  host; a SIGKILLed holder → a live agent). After: the IMPL row lands
+  through the real wrapper as the runner's uid AND as root, with the hook
+  journal row shipped from inside reaching the real store, the store's
+  ledgers absent inside, planted locks and `locked` never on the host, the
+  shared packs/alternates/maintenance lock EROFS, a crafted loose object
+  refused by name at publication, a pack unpacked never copied, the probe
+  refusing by name without the account database, the agent gone within a
+  second of the holder's SIGKILL — each mutation (store root bound, shared
+  refs bound, `config.worktree` overlay dropped) caught by its pin.

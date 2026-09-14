@@ -15,18 +15,20 @@ the executor hands to ``--settings``. The document is deterministic for a
 given profile + hook context, so its hash is part of the session fingerprint
 (Faz 032c).
 
-Hook commands invoke the kernel CLI (``python3 -m aria_kernel hook ...``)
-with the tools dir and request id spelled out — the hook runs inside the
-agent's sandbox, where nothing but argv tells it who it is working for. A
-profile with a write scope also gets ``--turn-budget N`` on its PreToolUse
-command (cycle_and_turn_budget_cap, :mod:`turn_budget`): N is the
-``implementer_turn_budget.budgeted_turns`` of the policy of the workspace the
-spawn's store (``hook_context["tools_dir"]``) is bound to
-(:mod:`turn_budget_policy`), compiled into the settings document, so it is
-part of the session fingerprint and not something the agent's own
-instructions could omit — and the sandboxed hook, which cannot trust a policy
-file the agent could have edited in its tree, admits turns against exactly
-the number the kernel compiled.
+Hook commands run the kernel's hook CLIENT by path
+(``<python> <kernel_root>/aria_kernel/hook_client.py <verb>``, ARIA-HIGH-123):
+inside the agent's sandbox the command ships the verb and the CLI's payload
+to the kernel-side broker (:mod:`hook_broker`) over the socket the wrapper
+binds in, and the broker decides and journals OUTSIDE the sandbox with the
+kernel's own facts — the store, the workspace, the request id and the turn
+cap are the broker's, never argv the agent can read or a store the agent
+can reach. The command therefore names no store, no request and no cap. A
+profile with a write scope is still BUDGETED (cycle_and_turn_budget_cap,
+:mod:`turn_budget`): N is the ``implementer_turn_budget.budgeted_turns`` of
+the policy of the workspace the spawn's store (``hook_context["tools_dir"]``)
+is bound to (:mod:`turn_budget_policy`), recorded in the settings document
+(``_aria.turn_budget``) so it is part of the session fingerprint, and handed
+to the broker by the spawner (``claude_runtime``) from that same document.
 """
 from __future__ import annotations
 
@@ -36,6 +38,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .command_policy import claude_permission_rules
+from .hook_client import HOOK_VERBS as HOOK_CLIENT_VERBS
 from .runtime_profiles import RuntimeProfile, disallowed_tools_for
 from .turn_budget import BUDGETED_TOOL_NAMES, turn_budget_for
 
@@ -51,34 +54,33 @@ _POST_TOOL_MATCHER = _PRE_TOOL_MATCHER + "|Read|Grep|Glob|Agent"
 _ENV_READ_DENIES: tuple[str, ...] = ("Read(./.env)", "Read(./.env.*)", "Read(**/.env)", "Read(**/.env.*)")
 
 
+HOOK_CLIENT_RELPATH = ("aria_kernel", "hook_client.py")
+
+
+def hook_client_path(kernel_root: str | Path) -> Path:
+    """The in-sandbox hook client under ``kernel_root`` (the workspace's
+    ``aria-kernel/``, which READONLY_PATHS keeps read-only)."""
+    return Path(kernel_root).joinpath(*HOOK_CLIENT_RELPATH)
+
+
 def hook_command(
     *,
     python: str,
     kernel_root: str | Path,
-    tools_dir: str | Path,
-    workspace_root: str | Path,
-    request_id: str,
     verb: str,
-    turn_budget: int | None = None,
 ) -> str:
     """The shell line the CLI runs for one hook event. Quoted for /bin/sh.
 
-    ``turn_budget`` is only meaningful for ``pre-tool`` — it is the cap the
-    kernel admits each budgeted turn against; None leaves the spawn
-    unbudgeted (a read-only or Bash-only profile has no diff to bound).
+    The client is run BY PATH, not as ``-m aria_kernel …``: it imports
+    nothing from the kernel package, so no kernel code runs inside the
+    sandbox for a hook, and the line carries nothing but the verb — the
+    store, the request id and the cap are the broker's.
     """
     import shlex
 
-    parts = [
-        "env", f"PYTHONPATH={shlex.quote(str(kernel_root))}", shlex.quote(python), "-m", "aria_kernel",
-        "hook", verb,
-        "--tools-dir", shlex.quote(str(tools_dir)),
-        "--workspace-root", shlex.quote(str(workspace_root)),
-        "--request-id", shlex.quote(request_id),
-    ]
-    if turn_budget is not None:
-        parts.extend(["--turn-budget", str(int(turn_budget))])
-    return " ".join(parts)
+    if verb not in HOOK_CLIENT_VERBS:
+        raise ValueError(f"unknown hook verb {verb!r}")
+    return " ".join([shlex.quote(python), shlex.quote(str(hook_client_path(kernel_root))), verb])
 
 
 def build_settings(
@@ -116,11 +118,13 @@ def build_settings(
         },
     }
     if hook_context is not None:
-        def entry(verb: str, matcher: str | None, *, turn_budget: int | None = None) -> dict[str, Any]:
+        def entry(verb: str, matcher: str | None) -> dict[str, Any]:
             row: dict[str, Any] = {
                 "hooks": [{
                     "type": "command",
-                    "command": hook_command(verb=verb, turn_budget=turn_budget, **hook_context),
+                    "command": hook_command(
+                        verb=verb, python=str(hook_context["python"]), kernel_root=hook_context["kernel_root"],
+                    ),
                     "timeout": HOOK_TIMEOUT_SECONDS,
                 }],
             }
@@ -129,7 +133,7 @@ def build_settings(
             return row
 
         settings["hooks"] = {
-            "PreToolUse": [entry("pre-tool", _PRE_TOOL_MATCHER, turn_budget=turn_budget)],
+            "PreToolUse": [entry("pre-tool", _PRE_TOOL_MATCHER)],
             "PostToolUse": [entry("post-tool", _POST_TOOL_MATCHER)],
             "SessionStart": [entry("session", None)],
             "SessionEnd": [entry("session", None)],
@@ -161,10 +165,12 @@ def write_settings_file(settings: Mapping[str, Any], *, directory: str | Path, r
 
 
 __all__ = [
+    "HOOK_CLIENT_RELPATH",
     "HOOK_EVENTS",
     "HOOK_TIMEOUT_SECONDS",
     "SETTINGS_SCHEMA_NOTE",
     "build_settings",
+    "hook_client_path",
     "hook_command",
     "settings_hash",
     "write_settings_file",

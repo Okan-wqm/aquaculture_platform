@@ -134,7 +134,12 @@ class ProbeMirrorsWrapper(unittest.TestCase):
         workspace_binds = {
             str((_REPO_ROOT / ro).resolve()) for ro in READONLY_PATHS
         }
-        system_only = binds(wrapper) - workspace_binds
+        # ARIA-HIGH-123 — binds DERIVED from the workspace (the dependency
+        # tree a nested worktree resolves; the checkout's git dirs when a
+        # containment is given) are not system binds: the probe builds its
+        # own throwaway checkout and derives its own.
+        derived = binds(impl._dependency_tree_binds(_REPO_ROOT.resolve()))
+        system_only = binds(wrapper) - workspace_binds - derived
         missing = system_only - binds(probe)
         self.assertEqual(
             missing,

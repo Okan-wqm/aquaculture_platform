@@ -348,19 +348,23 @@ class SettingsCompileTheCap(unittest.TestCase):
     def tearDown(self) -> None:
         self._tmp.cleanup()
 
-    def test_write_scope_profiles_get_the_policy_cap_on_pre_tool_only(self) -> None:
+    def test_write_scope_profiles_get_the_policy_cap_in_the_document(self) -> None:
+        # ARIA-HIGH-123 — the cap is recorded in the document (part of the
+        # session fingerprint) and handed to the kernel-side hook broker by
+        # the spawner; the hook COMMAND names nothing but the client and the
+        # verb, because the sandboxed command must not be the carrier of a
+        # number the kernel admits turns against.
         for budgeted in ("implementer", "worker"):
             settings = build_settings(profile_by_id(budgeted), hook_context=self.ctx)
             self.assertEqual(settings["_aria"]["turn_budget"], _CAP, budgeted)
             pre = settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
-            self.assertTrue(pre.endswith(f"--request-id AIR-1 --turn-budget {_CAP}"), pre)
+            self.assertTrue(pre.endswith("/aria_kernel/hook_client.py pre-tool"), pre)
+            self.assertNotIn("--turn-budget", pre)
+            self.assertNotIn("--request-id", pre)
             self.assertEqual(settings["hooks"]["PreToolUse"][0]["matcher"], "|".join(turn_budget.BUDGETED_TOOL_NAMES))
-            for event in ("PostToolUse", "SessionStart", "SessionEnd", "PreCompact"):
-                self.assertNotIn("--turn-budget", settings["hooks"][event][0]["hooks"][0]["command"], event)
         for unbudgeted in ("validator", "judge_opus", "planner"):
             settings = build_settings(profile_by_id(unbudgeted), hook_context=self.ctx)
             self.assertIsNone(settings["_aria"]["turn_budget"], unbudgeted)
-            self.assertNotIn("--turn-budget", settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"])
         # No hooks, no cap: nothing would admit turns against it.
         self.assertIsNone(build_settings(profile_by_id("implementer"), hook_context=None)["_aria"]["turn_budget"])
 
@@ -368,7 +372,6 @@ class SettingsCompileTheCap(unittest.TestCase):
         write_override(self.workspace, {"budgeted_turns": 25})
         settings = build_settings(profile_by_id("implementer"), hook_context=self.ctx)
         self.assertEqual(settings["_aria"]["turn_budget"], 25)
-        self.assertTrue(settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"].endswith("--turn-budget 25"))
         # The policy is part of the session fingerprint: another cap is another document.
         write_override(self.workspace, {"budgeted_turns": 26})
         self.assertNotEqual(settings_hash(settings),

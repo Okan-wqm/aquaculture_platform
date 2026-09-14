@@ -221,7 +221,6 @@ Emit `aria/agent-response/v1` where:
     "diff_hash": "sha256:...",
     "branch_tip_sha": "<git rev-parse HEAD>",
     "base_branch_sha": "<git rev-parse origin/<ARIA_PR_BASE>>",
-    "signer_key_fp": "SHA256:<base64>",
     "completed_at": "<ISO-8601 UTC; optional — the kernel stamps acceptance time when omitted>",
     "validation_results": [
       {
@@ -233,6 +232,14 @@ Emit `aria/agent-response/v1` where:
     ]
   }
   ```
+- `signer_key_fp` is NOT yours to report: the executor that runs you
+  minted the cycle key in this worktree, wired `git commit` to it, and
+  stamps the fingerprint on this record itself (ARIA-HIGH-115). A value
+  you write there is replaced and the replacement recorded
+  (`implementation_signer_fp_overridden`); the bridge verifies
+  `branch_tip_sha` against the registered cycle key, so a commit made
+  with any other key — or unsigned — is refused
+  `commit_signature_unverified` and the outcome never lands.
 - `details.usage` — Claude Code CLI usage block (stream-json `usage` totals)
 - `satisfaction_matrix[]` — one entry per `must_satisfy[]` constraint with
   `verdict` ∈ `satisfied | blocked | contradicted`

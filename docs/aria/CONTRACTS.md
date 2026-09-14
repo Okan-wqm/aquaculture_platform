@@ -2123,10 +2123,11 @@ publisher contract. Earlier inner cycle projections are not consumers of these o
   disclosure reason under the cycle's own signer (`memory_completion`) — in the disclosing cycle
   first and in every later cycle that holds a signer — so an observation that could not be
   appended is never lost. `memory_hook.pending_reason` names the disclosure written, or is null.
-  Knowledge-write authority is independent of `pr_create`; under `pr_create` the V9 runner re-mints
-  the same identity, so one cycle carries one fingerprint. `memory_hook` and `knowledge_signer` on
-  the outer cycle summary carry public signer provenance (`signer_cycle_id`, `signer_key_fp`),
-  never the key.
+  Knowledge-write authority is independent of `pr_create`; the V9 runner mints no identity of
+  its own (ARIA-HIGH-115, below), so this key signs the convention row and nothing else, and the
+  implementer's commits carry a second, separately registered fingerprint under the same cycle
+  id. `memory_hook` and `knowledge_signer` on the outer cycle summary carry public signer
+  provenance (`signer_cycle_id`, `signer_key_fp`), never the key.
 - The PUBLIC half of every knowledge signer is registered in `knowledge-graph/signers.jsonl`
   (declared surface `kg_signers`; `knowledge_graph.register_convention_signer`) before the seam
   hands out the fingerprint, and a fingerprint whose key could not be registered is never handed
@@ -2189,10 +2190,68 @@ publisher contract. Earlier inner cycle projections are not consumers of these o
   on (git's rule: a repository carrying `core.worktree` or a true `core.bare` is refused by name
   instead of re-shaped). The mint's receipt (`SigningKey.git_signing`, a `GitSigningWiring`:
   `configured`, `scope`, `reason` ∈ `not_a_checkout`, `git_unavailable`,
-  `worktree_scope_unavailable:<why>`, `git_config_failed:<key>:rc=<n>`) is read by the V9
-  runner, which refuses `IMPLEMENTATION_REQUEST_REFUSED` / `git_signing_unconfigured` and records
-  `implementation_git_signing_unconfigured` before an implementer turn is spent on commits the
-  merge gate's `verify_commit_signature` could never accept; the plan stays CONVERGED.
+  `worktree_scope_unavailable:<why>`, `git_config_failed:<key>:rc=<n>`) is read by the executor
+  child that holds the implementer's identity (next paragraph), which refuses by name before an
+  implementer turn is spent on commits the merge gate's `verify_commit_signature` could never
+  accept.
+- The implementer's signing identity is minted where the commit is made, and stamped and
+  verified by the kernel (ARIA-HIGH-115). WHO mints: the executor child
+  (`tools/aria-poc/ci_executor.py`), for a claimed request of role `implementation`, as the LAST
+  step before the spawn — after the dispatch-budget, prompt-renderer, recovery and operator-cancel
+  refusals, so none of them costs an ssh-keygen or leaves a `kg_signers` row for a key that never
+  signed — and before any agent turn, through
+  `implementation_identity.hold_implementation_identity(cycle_id=<request's cycle_id>,
+  workspace_root=<the tree the agent runs in>)`. WHERE: inside that tree — the per-request
+  worktree the drain adds (`worktree_per_request`) — with `--worktree` scope, so a plain
+  `git commit` by the agent signs and no other worktree or the shared checkout sees the key. The
+  V9 runner (`cycle_phases.implementer`) mints nothing: its former key + installation-token
+  bracket had no consumer inside its window (staging and the envelope mint make no commit and no
+  GitHub call; the delivery token is the spawn's, `delivery_credentials`), and revoking it in its
+  `finally` before the implementer was even claimed is what left every executor-lane result
+  without an identity. The identity is REFUSED by name, before any turn, when it cannot be held
+  in that tree: the claim is released under the harness-class reason
+  `implementation_signing_unavailable` — the executor's own refusal record
+  `IMPLEMENTATION_IDENTITY_REFUSAL` (an `_AdmissionRefusalKind`, rostered in the release-site
+  invariant like `ADMISSION_REFUSALS` / `TASK_BINDING_REFUSAL`) spells that reason, and the
+  dispatch summary it writes says the same thing: `harness_unavailable`, retryable — the request
+  returns to the queue with its requeue budget intact, and a governance row of the same name
+  carries the cause. The cause is decided in two stages. From the checkout's SHAPE first
+  (`gh_token_factory.signing_checkout`: the `.git` marker and its `commondir`, no git process),
+  BEFORE the mint, so the refused path writes nothing — no key file, no config, no snapshot:
+  `not_a_checkout`, and `shared_checkout_scope:--local` (the tree is a main checkout, whose
+  `--local` config every worktree of the repository shares: an implementation is served only from
+  a linked worktree, and a lane without `worktree_per_request` is refused rather than signing
+  everybody's commits — the mint that used to precede this refusal had already replaced the
+  operator's `user.signingkey` in that shared config). Then from the mint's receipt and the
+  registry, the mint unwound by the same revoke the body's exit uses: the receipt reasons above,
+  `identity_already_held` (the key file already existed, so the mint wired nothing — another
+  holder owns this cycle's identity in this tree), `mint_failed:<ErrorClass>` and
+  `register_failed:<ErrorClass>`. The PUBLIC half is registered in `kg_signers`
+  (`knowledge_graph.register_convention_signer`, under the request's cycle id) before the agent
+  starts, and the key is revoked — config restored — on every exit after the submit or the
+  release; the worktree's removal takes its private git dir with it. WHO stamps: the executor,
+  after the agent returns and before the submit, writes the fingerprint of the key it holds on
+  the result's outcome record (`implementation_identity.stamp_implementation_signer`, at the
+  place `implementation_record` reads — `details.implementation`, or the flat legacy `details`);
+  a value the agent wrote is replaced, and a differing one recorded
+  (`implementation_signer_fp_overridden`: `agent_supplied`, `signer_key_fp`), never trusted. The
+  agent contract asks for no `signer_key_fp` at all. The same fingerprint reaches the cost row
+  (`record_cost_attribution(signer_key_fp=)`) from the one holder, explicitly; a role that holds
+  no key records `SHA256:no-key`, and no environment variable carries it. WHO verifies, against
+  WHAT, WHERE: the bridge (`plan_convergence_bridge.verify_implementation_commit`), before any
+  plan-state mutation, resolves the stamped fingerprint in `kg_signers` — an unregistered one, or
+  one registered under any cycle but the request's own `cycle_id`, is refused
+  `commit_signature_unverified` by name with no git step — builds an allowed-signers file
+  of that one registered key and runs `git verify-commit --raw` with it as the only trust anchor
+  (`verify_commit_signature(..., allowed_signers=)`) in the checkout the submission names
+  (`submit_claim_result(workspace_root=)`: the request worktree, on the submit path) or, on the
+  bridge replay where no such tree exists, in the checkout the store is bound to
+  (`bound_workspace_root`), where the branch ref the worktree created survives its removal —
+  never in the process cwd, and never against the checkout's own signing config. A commit made
+  unsigned, or with any other key, is refused `commit_signature_unverified` and the IMPL row never
+  lands; the plan stays where the envelope mint left it. Pinned end to end through the real
+  executor child in `aria-kernel/tests/test_executor_implementation_identity.py` and at the
+  boundary in `tests/test_implementation_signature_boundary.py`.
 - Original cycle/plan/revision/content identities and public signer provenance retain their
   separate meanings. If the initial hook omits its plan ID, the supplied outer convergence linkage
   can provide it. No plan is inferred from a cycle name. An overlong supplied identity is omitted

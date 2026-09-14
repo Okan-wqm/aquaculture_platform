@@ -60,22 +60,22 @@ class LinkedWorktreeSigningTests(unittest.TestCase):
         return Path(_git(["rev-parse", "--absolute-git-dir"], cwd=worktree).stdout.strip())
 
     def test_i_high_114_01_the_checkout_is_what_git_says_it_is(self) -> None:
-        from aria_kernel.gh_token_factory import _resolve_signing_checkout
+        from aria_kernel.gh_token_factory import signing_checkout
 
         self.assertTrue((self.worktree / ".git").is_file(), "a linked worktree's .git is a file")
-        linked = _resolve_signing_checkout(self.worktree)
+        linked = signing_checkout(self.worktree)
         self.assertIsNotNone(linked)
         self.assertTrue(linked.linked)
         self.assertEqual(linked.config_scope, "--worktree")
         self.assertEqual(linked.git_dir, self._worktree_git_dir(self.worktree))
         self.assertTrue(linked.git_dir.is_dir())
-        main = _resolve_signing_checkout(self.main)
+        main = signing_checkout(self.main)
         self.assertFalse(main.linked)
         self.assertEqual(main.config_scope, "--local")
         self.assertEqual(main.git_dir, self.main / ".git")
         plain = self.tmp / "not-a-checkout"
         plain.mkdir()
-        self.assertIsNone(_resolve_signing_checkout(plain))
+        self.assertIsNone(signing_checkout(plain))
 
     def test_i_high_114_02_a_mint_in_a_linked_worktree_signs_that_worktrees_commits_only(self) -> None:
         """The whole finding: the commit made inside the worktree is signed

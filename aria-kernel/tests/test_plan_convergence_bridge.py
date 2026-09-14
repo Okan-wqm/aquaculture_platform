@@ -308,7 +308,12 @@ class RecordPlanResultDispatchTests(unittest.TestCase):
             ), patch(
                 "aria_kernel.plan_convergence.record_implementation_outcome",
                 return_value={"event_type": "implementation_outcome_recorded"},
-            ) as recorded:
+            ) as recorded, patch(
+                # The claimed commit is a fixture sha with no repository behind
+                # it; the verification boundary is its own property
+                # (`test_implementation_signature_boundary`).
+                "aria_kernel.plan_convergence_bridge.verify_implementation_commit",
+            ):
                 record_plan_result(role="implementation", request=request,
                                    response={"role": "implementation", "details": details}, base_dir=None)
             stamped = recorded.call_args.kwargs["completed_at"]

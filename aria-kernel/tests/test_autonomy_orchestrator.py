@@ -988,7 +988,6 @@ class AutonomyOrchestratorTests(unittest.TestCase):
         import os
         import subprocess
         from contextlib import ExitStack
-        from datetime import datetime, timezone
 
         from aria_kernel import gh_token_factory, validation
         from aria_kernel.cycle_phases import select_memory_hook, select_v9_implementation_runner
@@ -1041,31 +1040,26 @@ class AutonomyOrchestratorTests(unittest.TestCase):
             self.assertTrue(key.private_key_path.is_relative_to(workspace))
             self.assertTrue(key.private_key_path.is_file())
             self.assertTrue(key.public_key_path.is_file())
-            if not any(item["cycle_id"] == cycle_id for item in acquired):
-                # The cycle's FIRST mint is the seam's, BEFORE the memory
-                # hook records: this cycle has disclosed nothing yet, and
-                # its plan is CONVERGED. The V9 runner's later re-mint of
-                # the same identity carries no such claim — by then the
-                # hook may have disclosed a pending row for this cycle.
-                pending = [row for row in load_jsonl(self.base / "governance.jsonl")
-                           if row.get("kind") == "convention_record_needs_signing"]
-                self.assertEqual([row for row in pending if row["details"]["cycle_id"] == cycle_id], [])
-                state = fold_plan_state(plan_id="plan-" + cycle_id, base_dir=self.base)
-                self.assertEqual(state["state"], "CONVERGED")
+            # The cycle's ONE mint in this process is the knowledge seam's,
+            # BEFORE the memory hook records: this cycle has disclosed
+            # nothing yet, and its plan is CONVERGED. The V9 runner mints
+            # nothing (ARIA-HIGH-115): the implementer's identity is the
+            # executor child's, in the request worktree.
+            self.assertFalse(any(item["cycle_id"] == cycle_id for item in acquired),
+                             "one mint per cycle in the orchestrator process: the knowledge seam's")
+            pending = [row for row in load_jsonl(self.base / "governance.jsonl")
+                       if row.get("kind") == "convention_record_needs_signing"]
+            self.assertEqual([row for row in pending if row["details"]["cycle_id"] == cycle_id], [])
+            state = fold_plan_state(plan_id="plan-" + cycle_id, base_dir=self.base)
+            self.assertEqual(state["state"], "CONVERGED")
             acquired.append({"cycle_id": cycle_id, "fingerprint": key.fingerprint})
             return key
 
         def mint_token(*, cycle_id: str, workspace_root: Path):
-            # This is the external delivery boundary. No ambient credentials
-            # are read; the real runner and local revocation own this lease.
-            self.assertEqual(workspace_root, workspace)
-            token_file = workspace / "aria-debts/keys" / f"{cycle_id}.token"
-            token_file.write_text("fixture-only-invalid-token", encoding="utf-8")
-            return gh_token_factory.InstallationTokenLease(
-                cycle_id=cycle_id, token_file=token_file, ttl_seconds=300,
-                gh_app_installation_id=None, fallback_active=True,
-                minted_at_utc=datetime.now(timezone.utc).isoformat(),
-            )
+            # The delivery token is the spawn's (`delivery_credentials`), and
+            # this process spawns no implementer: a runner that reached for a
+            # token here again would fail by name (ARIA-HIGH-115).
+            raise AssertionError("the orchestrator process mints no installation token")
 
         real_run = subprocess.run
         # The canonical suite staging runs as baseline, read from its one
@@ -1105,14 +1099,15 @@ class AutonomyOrchestratorTests(unittest.TestCase):
             for suffix in ("", ".pub", ".token"):
                 self.assertFalse((workspace / "aria-debts/keys" / (cycle_id + suffix)).exists())
 
-    def test_strict_signs_the_hypothesis_under_one_identity_shared_with_implementation(self) -> None:
-        """B7 — under `pr_create` the seam's key IS the implementation key.
+    def test_strict_signs_the_hypothesis_and_the_runner_mints_no_identity(self) -> None:
+        """B7 + ARIA-HIGH-115 — under `pr_create` the seam signs the row with
+        the cycle's knowledge key, and the V9 runner mints NOTHING.
 
-        `SigningKey` forbids rotating the cycle identity mid-cycle. The V9
-        runner's own mint is the factory's idempotent re-mint, so the
-        convention row and the implementation phase carry one fingerprint,
-        and the runner's `finally` revoking it leaves nothing for the seam
-        to fail on.
+        The runner used to re-mint the seam's identity and revoke it in its
+        `finally` — before the implementer had been claimed, so the key
+        never reached the commit it was for. The implementer's identity is
+        the executor child's, minted in the request worktree; this process
+        holds exactly one key, the seam's, and registers exactly one.
         """
         from aria_kernel.knowledge_graph import lookup_pattern
 
@@ -1126,10 +1121,8 @@ class AutonomyOrchestratorTests(unittest.TestCase):
             "memory_hook_failed", "v9_implementation_phase_failed",
             "knowledge_signer_mint_failed", "convention_record_needs_signing",
         } for row in governance))
-        # The seam minted once; the runner re-minted the same identity.
-        self.assertEqual(len(acquired), 2)
-        self.assertEqual({item["cycle_id"] for item in acquired}, {summary["cycle_id"]})
-        self.assertEqual(len({item["fingerprint"] for item in acquired}), 1)
+        # The seam minted once; the runner minted nothing.
+        self.assertEqual([item["cycle_id"] for item in acquired], [summary["cycle_id"]])
         fingerprint = acquired[0]["fingerprint"]
         self.assertEqual(summary["knowledge_signer"]["signer_key_fp"], fingerprint)
         self.assertEqual(summary["memory_hook"]["status"], "memory_hook_recorded")
@@ -1262,7 +1255,9 @@ class AutonomyOrchestratorTests(unittest.TestCase):
         self.assertEqual([row["kind"] for row in audits], ["convention_audit_failed"])
         self.assertEqual(audits[0]["details"]["signer_key_fp"], acquired[0]["fingerprint"])
         self.assertEqual(len(load_jsonl(self.base / "knowledge-graph/conventions.jsonl")), 1)
-        self.assertEqual(len(acquired), 2)
+        # One mint in this process: the seam's. The V9 runner mints nothing
+        # (ARIA-HIGH-115), so a runner failure has no key of its own to lose.
+        self.assertEqual(len(acquired), 1)
         self._assert_keys_revoked(workspace, [summary["cycle_id"]])
 
     def test_signed_memory_row_survives_when_both_audits_fail_and_the_hook_escapes(self) -> None:
@@ -1396,13 +1391,12 @@ class AutonomyOrchestratorTests(unittest.TestCase):
         self.assertTrue(result["exits_clean"])
         self.assertEqual(result["cycles_completed"], 2)
         first, second = result["per_cycle"]
-        # strict: the seam mints once per cycle and the runner re-mints the
-        # same identity, so two cycles show two distinct fingerprints.
-        self.assertEqual(len(acquired), 4)
+        # strict: the seam mints once per cycle and the runner mints nothing
+        # (ARIA-HIGH-115), so two cycles show two distinct fingerprints.
+        self.assertEqual(len(acquired), 2)
         first_fp = acquired[0]["fingerprint"]
-        second_fp = acquired[2]["fingerprint"]
-        self.assertEqual([item["cycle_id"] for item in acquired],
-                         [first["cycle_id"], first["cycle_id"], second["cycle_id"], second["cycle_id"]])
+        second_fp = acquired[1]["fingerprint"]
+        self.assertEqual([item["cycle_id"] for item in acquired], [first["cycle_id"], second["cycle_id"]])
         self.assertNotEqual(first_fp, second_fp)
         for summary in (first, second):
             self.assertEqual(summary["v9_implementation"]["terminal_state"], "IMPLEMENTATION_DISPATCHED")

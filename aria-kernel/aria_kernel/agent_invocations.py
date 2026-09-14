@@ -2394,6 +2394,14 @@ HARNESS_FAULT_RELEASE_REASONS: frozenset[str] = frozenset({
     # nothing about the mission, and re-asking usually succeeds.
     "self_change_contract_violation",
     "kernel_prompt_renderer_unavailable",
+    # ARIA-HIGH-115 — the executor could not hold the implementer's signing
+    # identity in the tree it runs in (`implementation_identity`): the
+    # workspace is the shared checkout rather than a per-request worktree,
+    # git could not be wired, ssh-keygen is absent, the registry refused.
+    # Every cause is the host's or the lane's; the request said nothing, so
+    # it goes back to PENDING with its budget intact, and the governance
+    # row of the same name carries the cause.
+    "implementation_signing_unavailable",
     # Y1 (ORPHAN-703) — the planner dispatch hook now releases its claim on
     # every failure exit instead of abandoning it to lease expiry. A killed
     # or failed CHILD PROCESS says nothing about the request (the measured
@@ -4012,9 +4020,16 @@ def _invoke_bridges_for_result(
     root: Path,
     claim_id: str,
     request_id: str,
+    workspace_root: str | Path | None = None,
 ) -> dict[str, Any]:
     """Run the three §C.1 bridges (judge / supporting / plan_convergence)
     for an accepted result envelope and return the ``bridged`` summary.
+
+    ``workspace_root`` is the checkout the submission was made from, when
+    the caller is the submit path; the replay path (``bridge_status_ledger``)
+    has none — the executor's per-request worktree is gone by then — and
+    the implementation bridge then verifies in the checkout the store is
+    bound to (ARIA-HIGH-115).
 
     Extracted from the ``submit_claim_result`` accepted path so the
     §C.5 replay primitive (``bridge_status_ledger.replay_pending_bridges``)
@@ -4072,6 +4087,7 @@ def _invoke_bridges_for_result(
                 request=request,
                 response=envelope,
                 base_dir=base_dir,
+                workspace_root=workspace_root,
             )
         except BridgeContractViolation:
             # Plan ARIA-V8 v2 §4 Phase 8.2 (B-V2-03) — typed contract
@@ -5852,6 +5868,11 @@ def submit_claim_result(
         root=root,
         claim_id=claim_id,
         request_id=request_id,
+        # ARIA-HIGH-115 — the checkout this submission was made from: the
+        # implementation bridge verifies the claimed commit THERE, never in
+        # the process cwd. The replay path passes none and verifies in the
+        # checkout the store is bound to.
+        workspace_root=workspace_root,
     )
 
     # Plan 026R §C.5 — record the bridge outcome on the append-only

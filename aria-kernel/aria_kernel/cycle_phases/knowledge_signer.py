@@ -23,22 +23,20 @@ follows for ``pr_create``. Granting a profile the cell enrols it here on
 the same edit; revoking it demotes the seam to "no signer" on the same
 edit. There is no second copy of the profile → authority mapping.
 
-The key itself is the EXISTING per-cycle ed25519 identity
-(``gh_token_factory.mint_signing_key``), under its existing lifecycle
-discipline: minted for ``cycle_id`` inside the workspace's
-``aria-debts/keys/`` and revoked in ``finally`` so it cannot outlive the
-phase on any path Python unwinds. A process killed outright leaves the
-files where the V9 runner's identical ``finally`` would leave them;
+The key itself is the per-cycle ed25519 identity the factory mints
+(``gh_token_factory.mint_signing_key``), under its lifecycle discipline:
+minted for ``cycle_id`` inside the workspace's ``aria-debts/keys/`` and
+revoked in ``finally`` so it cannot outlive the phase on any path Python
+unwinds. A process killed outright leaves the files behind;
 ``run_autonomy_orchestrator`` runs ``gh_token_factory.prune_stale_signing_keys``
 at startup, next to the orphan-implementation reaper, for exactly that
-case. ``SigningKey`` forbids rotating the identity mid-cycle, so the seam
-holds ONE key across the memory hook AND the V9 implementation phase:
-the runner's own ``mint_signing_key`` call is the factory's documented
-idempotent re-mint and returns this same identity, so a convention row
-and an implementation outcome recorded in one cycle carry one
-fingerprint. Whichever ``finally`` runs second finds the files already
-gone; ``revoke_signing_key`` reports that as ``missing`` rather than
-failing.
+case. This key signs the convention row and nothing else: the V9 runner
+mints no identity (ARIA-HIGH-115 — the bracket it held was revoked before
+the implementer was even claimed), and the implementer's commits are
+signed by a second key the executor child mints in the request worktree
+(``implementation_identity``), registered separately under the same cycle
+id. One cycle therefore carries two fingerprints, each on the ledger
+where its rows are read.
 
 The PUBLIC half of the key is registered in the knowledge-graph signer
 registry (``knowledge_graph.register_convention_signer`` →
@@ -157,8 +155,9 @@ def cycle_knowledge_signer(
     Yields a ``KnowledgeSigner``. Under a profile without
     ``knowledge_record`` nothing is minted and the status says so. Under a
     permitted profile the key is minted before the body runs and revoked
-    after it, whatever the body did — the same ``try/finally`` shape the
-    V9 runner uses for the same key (V3.1-B-7).
+    after it, whatever the body did — the ``try/finally`` shape every
+    holder of a cycle key keeps (V3.1-B-7; the executor's
+    ``implementation_identity`` holds the implementer's the same way).
     """
     if not knowledge_record_permitted(profile=profile):
         yield KnowledgeSigner(cycle_id=cycle_id, status="not_permitted", fingerprint=None)
@@ -196,8 +195,7 @@ def cycle_knowledge_signer(
         # The public key goes on the ledger BEFORE the fingerprint goes
         # anywhere: a fingerprint the memory hook stamps on a row is one a
         # later reader can resolve to a real key after the cycle's files
-        # are gone. Registration is idempotent for the same key, so the
-        # V9 runner's re-mint of this identity registers nothing new.
+        # are gone. Registration is idempotent for the same key.
         register_convention_signer(
             cycle_id=cycle_id, signer_key_fp=key.fingerprint,
             public_key=key.public_key_path.read_text(encoding="utf-8"),
@@ -215,10 +213,8 @@ def cycle_knowledge_signer(
         yield KnowledgeSigner(cycle_id=cycle_id, status="minted", fingerprint=key.fingerprint)
     finally:
         # Per-cycle keypair cannot outlive the phase. `revoke_signing_key`
-        # is idempotent and never raises on an absent file, so a V9 runner
-        # that already revoked the shared identity costs nothing here; an
-        # OS-level refusal is reported in its return value, the same
-        # contract the V9 runner keeps (V3.1-P-6).
+        # is idempotent and never raises on an absent file; an OS-level
+        # refusal is reported in its return value (V3.1-P-6).
         revoke_signing_key(cycle_id=cycle_id, workspace_root=workspace_root)
 
 

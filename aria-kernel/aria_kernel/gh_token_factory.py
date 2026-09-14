@@ -98,12 +98,16 @@ class SigningCheckout:
         return self.config_scope == _CONFIG_SCOPE_WORKTREE
 
 
-_CONFIG_SCOPE_LOCAL: str = "--local"
-_CONFIG_SCOPE_WORKTREE: str = "--worktree"
+# Public: the executor's identity seam (`implementation_identity`) accepts a
+# mint only in the per-worktree scope, and names the other by this constant.
+CONFIG_SCOPE_LOCAL: str = "--local"
+CONFIG_SCOPE_WORKTREE: str = "--worktree"
+_CONFIG_SCOPE_LOCAL: str = CONFIG_SCOPE_LOCAL
+_CONFIG_SCOPE_WORKTREE: str = CONFIG_SCOPE_WORKTREE
 _WORKTREE_CONFIG_EXTENSION: str = "extensions.worktreeConfig"
 
 
-def _resolve_signing_checkout(workspace_root: Path) -> SigningCheckout | None:
+def signing_checkout(workspace_root: Path) -> SigningCheckout | None:
     """The checkout rooted at ``workspace_root``, or ``None`` when it is not
     one (an archive checkout, a bare fixture directory).
 
@@ -115,6 +119,14 @@ def _resolve_signing_checkout(workspace_root: Path) -> SigningCheckout | None:
     answer" can only arise at the ``git config`` calls, where it is
     UNDECIDED (the restore) or best-effort (the mint) — never "not a
     checkout".
+
+    Public: it is the same reading the mint, the restore and the revoke
+    use, and the executor's identity seam (``implementation_identity``)
+    reads it BEFORE minting, so a workspace whose config scope would be
+    the shared ``--local`` is refused without a single config write
+    (ARIA-HIGH-115 round 2: the refusal used to come after the mint had
+    already replaced ``user.signingkey`` in the config every worktree of
+    the repository shares).
     """
     from .checkout_root import resolve_git_common_directory, resolve_git_directory
 
@@ -175,9 +187,10 @@ class SigningKey:
     algorithm: str = "ed25519"
     # ARIA-HIGH-114 — what the mint did to the checkout's git signing
     # config. ``None`` on an idempotent re-mint (the first mint wired it);
-    # otherwise the receipt, so the V9 runner refuses to dispatch an
-    # implementer whose commits the merge gate could never verify instead
-    # of learning that at ``git verify-commit`` after the run.
+    # otherwise the receipt, so the executor child that holds the
+    # implementer's identity (``implementation_identity``, ARIA-HIGH-115)
+    # refuses to run an implementer whose commits the merge gate could never
+    # verify instead of learning that at ``git verify-commit`` after the run.
     git_signing: GitSigningWiring | None = None
 
 
@@ -481,7 +494,7 @@ def _git_config(workspace_root: Path, *args: str) -> subprocess.CompletedProcess
     (``SigningCheckout.config_scope``): ``--local`` on a main checkout,
     ``--worktree`` on a linked worktree. A workspace that is not a checkout
     falls through to ``--local`` and git answers rc=128 as before."""
-    checkout = _resolve_signing_checkout(workspace_root)
+    checkout = signing_checkout(workspace_root)
     scope = checkout.config_scope if checkout is not None else _CONFIG_SCOPE_LOCAL
     return _git_config_at(workspace_root, scope, *args)
 
@@ -575,8 +588,9 @@ def _configure_git_commit_signing(
     production shape — ``.git`` is a file, the old test skipped the whole
     wiring, every commit went unsigned and the merge gate's
     ``verify_commit_signature`` refused the run at its end. The receipt
-    (``GitSigningWiring``) says what happened; the V9 runner refuses to
-    dispatch on a receipt that is not ``configured``.
+    (``GitSigningWiring``) says what happened; the executor's identity seam
+    (``implementation_identity``) refuses to run an implementer on a
+    receipt that is not ``configured`` in ``--worktree`` scope.
 
     B7 — BEFORE the first write, the current local value of each of those
     keys (and whether its section exists at all) is recorded in
@@ -606,10 +620,11 @@ def _configure_git_commit_signing(
     checkout, the operator-side tools/aria-poc invocations, sandbox
     tests) answers ``not_a_checkout``, a git that does not answer
     ``git_unavailable``, and the mint itself still succeeds — the key is
-    a knowledge signer whether or not git signs with it. Only the V9
-    runner needs the wiring, and it reads the receipt.
+    a knowledge signer whether or not git signs with it. Only the
+    executor's implementation identity needs the wiring, and it reads the
+    receipt.
     """
-    checkout = _resolve_signing_checkout(workspace_root)
+    checkout = signing_checkout(workspace_root)
     if checkout is None:
         return GitSigningWiring(configured=False, scope=None, reason="not_a_checkout")
     try:
@@ -745,7 +760,7 @@ def _restore_git_commit_signing(
     and unsetting an absent one are no-ops. Never raises: no ``.git`` or
     no snapshot is ``ABSENT``; a git that does not answer is ``UNDECIDED``.
     """
-    checkout = _resolve_signing_checkout(workspace_root)
+    checkout = signing_checkout(workspace_root)
     if checkout is None:
         return SigningConfigRestoreReceipt(SigningConfigRestore.ABSENT)
     git_dir = checkout.git_dir
@@ -1011,9 +1026,10 @@ def revoke_signing_key(
 
     Closes 6-validator audit C-11 (R-V31-4): ed25519 keypairs minted
     by `mint_signing_key` persisted to `aria-debts/keys/<cycle_id>`
-    indefinitely. The V3.1-B AutonomousV9ImplementationRunner calls
-    this helper inside a `try/finally` so the keypair lifetime equals
-    the implementation phase wall-clock (typically <30min), not
+    indefinitely. Every holder of a cycle key — the knowledge seam
+    (`cycle_phases.knowledge_signer`) and the executor's implementation
+    identity (`implementation_identity`) — calls this helper inside a
+    `try/finally` so the keypair lifetime equals the phase it serves, not
     "until disk fills".
 
     Files removed (idempotent, best-effort):
@@ -1153,7 +1169,7 @@ def prune_stale_signing_keys(
                 errors.append({"name": entry.name, "error": str(exc)[:200]})
     # Pass 2 — snapshots whose key is gone, whichever way it went. The
     # snapshots live in the checkout's private git dir.
-    checkout = _resolve_signing_checkout(workspace_root)
+    checkout = signing_checkout(workspace_root)
     snapshots_dir = _signing_config_snapshots_dir(checkout.git_dir) if checkout is not None else None
     if snapshots_dir is not None and snapshots_dir.is_dir():
         for entry in sorted(snapshots_dir.iterdir()):
@@ -1220,6 +1236,8 @@ def revoke_installation_token(*, lease: InstallationTokenLease) -> None:
 
 
 __all__ = (
+    "CONFIG_SCOPE_LOCAL",
+    "CONFIG_SCOPE_WORKTREE",
     "GitSigningWiring",
     "SigningCheckout",
     "SigningKey",
@@ -1229,4 +1247,5 @@ __all__ = (
     "prune_stale_signing_keys",
     "revoke_installation_token",
     "revoke_signing_key",
+    "signing_checkout",
 )

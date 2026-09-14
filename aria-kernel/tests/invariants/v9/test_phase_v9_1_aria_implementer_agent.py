@@ -165,16 +165,25 @@ class TestV9ImplementerAgentFile(unittest.TestCase):
             )
 
     def test_i_v9_impl_01_implementer_output_envelope_shape(self):
-        """details.implementation field set documented."""
+        """details.implementation field set documented — the AGENT's fields.
+
+        ``signer_key_fp`` is not among them (ARIA-HIGH-115): the executor
+        that holds the key stamps it, and the contract says so by name
+        instead of asking the agent for a value it cannot know.
+        """
         for field in (
             "branch", "pr_number", "diff_hash", "branch_tip_sha",
-            "base_branch_sha", "signer_key_fp", "validation_results",
+            "base_branch_sha", "validation_results",
         ):
             self.assertIn(
                 f'"{field}"',
                 self.contract_body,
                 f"output envelope missing {field}",
             )
+        self.assertNotIn('"signer_key_fp"', self.contract_body,
+                         "the agent is not asked for the executor's fingerprint")
+        self.assertIn("`signer_key_fp` is NOT yours to report", self.contract_body)
+        self.assertIn("implementation_signer_fp_overridden", self.contract_body)
 
 
 class TestV9ImplementerPromptReadsTheDataModel(unittest.TestCase):

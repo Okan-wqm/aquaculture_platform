@@ -53,7 +53,19 @@ concurrency:
 
 jobs:
   aria-kernel:
-    runs-on: ubuntu-latest
+    # ARIA-MEDIUM-134/139 — the suite proves the REAL sandbox, and the
+    # hosted 24.04 image cannot host it: bubblewrap installs cleanly there
+    # and every invocation dies `loopback: Failed RTM_NEWADDR: Operation not
+    # permitted` because `kernel.apparmor_restrict_unprivileged_userns=1`
+    # hands an unconfined binary a user namespace without capabilities
+    # (measured, run 34897063564). The 22.04 image ships unprivileged user
+    # namespaces as the OS default — no sysctl is relaxed, the lane takes
+    # the host as it is. Its bubblewrap (0.6.1) carries every flag the
+    # wrapper uses; its git (2.34) carries ssh signing. The image is a
+    # bridge: the durable answer is a runner that confines and is not
+    # production (ARIA-MEDIUM-139), and `ensure-sandbox-backend` still
+    # fails closed by name if this image stops confining.
+    runs-on: ubuntu-22.04
     # 75, not 60: the suite step measured 40.9 min on run 34578152903, and
     # ARIA-HIGH-098's registry pin (tests/test_adapter_fixture_evidence_contract.py)
     # now runs every shipped adapter's fixture suite through the evidence

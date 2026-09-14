@@ -153,6 +153,13 @@ Deferrable without cost returning, by the operator's call: 131 (after external t
   the self-hosted runner — the production droplet (Suderra, 36 containers), where this session's
   harness already killed processes for memory and where the executor lane will run ring 4–6 live
   beside the tenants.
+- **Measured 2026-09-14 (run 34897063564):** on the hosted 24.04 image bubblewrap 0.9.0 installs
+  and the probe dies `bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted` with
+  `apparmor_restrict_unprivileged_userns=1` — the cause named by the action, not assumed. The
+  kernel lane now runs on the hosted `ubuntu-22.04` image, where unprivileged user namespaces
+  are the OS default (no sysctl relaxed; bubblewrap 0.6.1 carries every flag the wrapper uses,
+  git 2.34 carries ssh signing). A bridge, not the answer: the image is one GitHub decision from
+  retirement.
 - **Decision for the operator:** a small dedicated runner VM (label `[self-hosted, linux, claude]`
   plus a kernel-CI label) that carries bubblewrap, the managed CLIs and nothing of production;
   the kernel lane and the executor lane move there; the droplet keeps only what serves tenants.

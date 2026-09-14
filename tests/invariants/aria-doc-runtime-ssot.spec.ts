@@ -627,11 +627,16 @@ describe('ARIA live runtime/documentation SSoT', () => {
     // ARIA-HIGH-098's registry pin, which runs every shipped adapter's
     // fixture suite through the evidence validator (~8 min on a quiet host;
     // two of those adapters are the ones whose runtime the finding recorded
-    // as weather-sensitive) — so its cap is 75. ARIA-MEDIUM-135: the fast
-    // lane claimed the "affected subset" here and ran the full suite under
-    // 60, so it is gone; a second lane over the same suite is drift.
+    // as weather-sensitive) — so its cap was 75 on the 24.04 image. On the
+    // 22.04 image the lane moved to for its sandbox (ARIA-MEDIUM-134) the
+    // same suite measured ~77 min (run 34902506329: last stage marker at
+    // 3539 s against 2236 s on 24.04), so the cap is 110 — the measurement
+    // plus the margin the old cap carried; ARIA-HIGH-136 brings it down.
+    // ARIA-MEDIUM-135: the fast lane claimed the "affected subset" here and
+    // ran the full suite under 60, so it is gone; a second lane over the
+    // same suite is drift.
     const budgetMinutes: Record<string, number> = {
-      '.github/workflows/aria-kernel.yml': 75,
+      '.github/workflows/aria-kernel.yml': 110,
     };
     expect(existsSync(join(REPO_ROOT, '.github/workflows/aria-kernel-fast.yml'))).toBe(false);
     for (const rel of Object.keys(budgetMinutes)) {

@@ -75,7 +75,14 @@ jobs:
     # finding recorded as weather-sensitive; the lane must not be timed out
     # by the class of miss it exists to price correctly. Pinned by
     # tests/invariants/aria-doc-runtime-ssot.spec.ts.
-    timeout-minutes: 75
+    # 110, not 75, since the lane moved to the 22.04 image (ARIA-MEDIUM-134):
+    # measured on run 34902506329 — the suite's last stage marker sat at
+    # t=3539 s where the 24.04 run's sat at t=2236 s (77% of its 2902 s), so
+    # the same suite needs ~77 min here and the 75-minute cap killed it at
+    # the finish line. The budget follows the measurement, with the margin
+    # the previous cap carried (~1.4×); it comes down with ARIA-HIGH-136,
+    # never ahead of a measurement.
+    timeout-minutes: 110
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

@@ -416,7 +416,62 @@ git -C <worktree> config --worktree --get gpg.ssh.allowedSignersFile
 An `implementation_signing_unavailable` release (harness-class; the request stays queued) names why
 the identity could not be held in that tree: `shared_checkout_scope:--local` means the child ran
 in the shared checkout — turn `executor.worktree_per_request` on; `identity_already_held` means
-another holder owns this cycle's key in that tree.
+another holder owns this cycle's key in that tree; `signing_agent_unavailable:<reason>` means the
+kernel could not hold the ssh-agent that signs for the sandbox (`ssh_agent_missing`,
+`socket_path_too_long` — the host's temp root is too long for a unix socket);
+`git_containment_refused:<reason>` means the worktree cannot host a commit-capable sandbox
+(`hooks_dir_unresolvable:<why>` — git did not name the effective hooks directory).
+
+### Recovery R-3b: The sandbox cannot host a commit (ARIA-HIGH-123)
+
+Symptom: the pre-claim gate refuses `sandbox_unavailable` with `git containment probe refused:
+<reason>` in the governance row's `detail`, and the request stays PENDING with no claim.
+
+The containment probe (`aria_kernel.containment_probe`) mints a throwaway key into a throwaway
+linked worktree, holds the kernel-side ssh-agent, derives a commit-capable sandbox and runs
+`git status`, `git switch -c` and a SIGNED `git commit` inside the real bwrap argv (the managed
+route's network setting), then publishes the worktree's quarantine the way the executor does and
+verifies the commit from outside. The reason names what failed:
+
+```bash
+# Reproduce the probe by hand (no request, no claim, no key of yours):
+PYTHONPATH=aria-kernel python3 -c "
+from aria_kernel.implementation_safety import _git_containment_probe_reason
+print(_git_containment_probe_reason())"   # Expected: None
+# `git_in_sandbox_failed:rc=128:error: No user exists for uid N?` — the account database is not
+#   bound (`/etc/passwd`, `/etc/group` are system binds; ssh-keygen resolves its uid before it
+#   signs). Runs as the runner's uid what a root shell hides (nss-systemd synthesizes root).
+# `git_in_sandbox_failed:rc=128:...Read-only file system` — a bind the sandbox needs is missing
+#   (the replica over the worktree's git dir, the quarantine's refs dirs at the common paths);
+#   read the wrapper's argv.
+# `sandbox_commit_did_not_reach_repository` / `sandbox_publication_refused:<why>` — the branch
+#   never reached the quarantine the kernel publishes from, or the publication refused it.
+# `sandbox_lock_reached_repository` — a ref lock planted inside landed on the host: the shared
+#   `refs/heads` is bound writable somewhere.
+# `git_in_sandbox_failed:rc=41` / `rc=42` / `rc=43` — the common config, the hooks dir or the
+#   PRIVATE KEY is reachable inside: the read-only overlays / the keys-dir mask are not the last
+#   mounts.
+# `probe_containment_refused:loose_refs_exceed_overlay_bound:<n>` — the checkout carries more
+#   loose branches than the sandbox overlays one by one; run `git pack-refs --all` in it.
+```
+
+Inside a request worktree's sandbox the implementer can `git add`, `git commit` (signed through the
+kernel-held ssh-agent — the private key is not mounted), `git switch -c` and `git push origin
+aria-impl-*`. Its git writes go to the worktree's QUARANTINE (`<private git dir>/aria-sandbox/`:
+objects, refs, reflogs), never to the shared repository; the executor publishes the quarantine
+after the spawn (`implementation_quarantine_published` on governance: objects migrated, packs
+unpacked, the `aria-impl-*` ref published, everything else discarded by name). `.git/hooks` (the
+EFFECTIVE hooks dir — `.husky` when `core.hooksPath` says so), `config`, `config.worktree`,
+`aria-allowed-signers`, existing loose refs, the shared packs, `objects/info/alternates`, sibling
+worktrees and the main checkout's working tree are read-only or absent. A write there fails with
+`Read-only file system`; that is the sandbox working, not a fault. The state store is not mounted
+at all: the hooks reach the kernel through the broker's socket (`/tmp/aria-hook-broker.sock`); a
+hook that prints `hook_broker_unreachable:<why>` means the executor's broker is not being served
+around the spawn — read the executor's stderr for the spawn that ran.
+
+A `sockets_pruned` governance row at orchestrator startup names `aria-sa-*` / `aria-hb-*` socket
+directories a killed executor left behind (their listener is gone; the agent itself died with
+its holder). Nothing to do.
 
 If the git config is missing, read the mint's receipt: `PYTHONPATH=aria-kernel:. python3 -c "from
 aria_kernel.gh_token_factory import mint_signing_key; print(mint_signing_key(cycle_id='diagnostic',

@@ -12,6 +12,20 @@ Invariants:
 
 * I-V31-P-01 — READONLY_PATHS contains tools/aria-poc/,
   tools/aria-adapters/, .git/, aria-debts/, aria-kernel/tests/.
+* I-V31-P-01b (ARIA-HIGH-123) — `.git/` and `aria-debts/` are the SCOPE
+  and HOOK unit of READONLY_PATHS, not the mount layer's: the sandbox
+  derives a linked worktree's git binds from the checkout
+  (`git_containment`) — the shared common dir read-only as a whole and
+  never writable at all (packs, `objects/info`, `packed-refs`, `config`,
+  `hooks`); the worktree's own git dir replaced inside by a kernel-made
+  REPLICA whose quarantine (`objects/`, `refs/heads/`, `logs/refs/heads/`)
+  is what git writes to, the quarantine's ref dirs bound AT the common
+  paths, `GIT_OBJECT_DIRECTORY` at the quarantine; the replica's control
+  files (`config.worktree`, the signers file, the snapshots) and the
+  effective hooks dir overlaid read-only; every existing loose ref overlaid
+  read-only on top; sibling worktrees masked — and masks `aria-debts/keys/`
+  so the private key is not in the sandbox at all. The state store is
+  never mounted: the hooks reach the kernel through the broker's socket.
 * I-V31-P-02 — runtime_profile.PROFILES contains "autonomous" AND
   ACTION_PERMISSIONS["agent_claim"] permits "autonomous" (the V9.0-C
   pre-existing wire-up — invariant pins it against regression).
@@ -89,6 +103,89 @@ class ReadonlyPathsExtensionTests(unittest.TestCase):
             missing, set(),
             f"READONLY_PATHS missing V3.1-P-1 additions: {sorted(missing)}",
         )
+
+    def test_i_v31_p_01b_the_mount_layer_derives_git_binds_from_the_checkout(self) -> None:
+        """ARIA-HIGH-123 — WHY the unit moved: in a linked worktree `.git`
+        is a pointer file whose git dirs live OUTSIDE the workspace, so the
+        blanket ro-bind of `.git/` bound a file and git died `not a git
+        repository`; in a main checkout it made `git add` die on
+        `index.lock`. The scope guard and the Edit/Write hook keep `.git/`
+        and `aria-debts/` as their unit; the wrapper appends binds derived
+        from the checkout's shape after the READONLY_PATHS loop — and the
+        shared repository is never writable inside: the agent's git writes
+        into the worktree's quarantine, which the kernel publishes."""
+        from aria_kernel import implementation_safety as impl
+        from aria_kernel.git_containment import (
+            GIT_OBJECT_DIRECTORY_ENV, PRIVATE_GIT_DIR_CONTROL_ENTRIES, SANDBOX_GIT_DIR_NAME, SandboxSigning,
+            derive_git_containment,
+        )
+        from aria_kernel.hook_broker import HOOK_BROKER_SOCKET_ENV, SANDBOX_HOOK_BROKER_SOCKET
+        from tests._helpers.git_fixtures import _git, make_repo_with_initial_commit
+        from tests._helpers.unix_sockets import bound_unix_socket
+
+        with tempfile.TemporaryDirectory(prefix="aria-v31-p-01b-") as tmp:
+            repo = make_repo_with_initial_commit(Path(tmp).resolve(), {"f.txt": "x\n"}, name="checkout")
+            worktree = repo / "aria-worktrees" / "req-1"
+            worktree.parent.mkdir()
+            _git(["worktree", "add", "--detach", "-q", str(worktree), "HEAD"], cwd=repo)
+            common = (repo / ".git").resolve()
+            private = common / "worktrees" / "req-1"
+            replica = private / SANDBOX_GIT_DIR_NAME
+            (private / "config.worktree").write_text("[user]\n\tsigningkey = k\n", encoding="utf-8")
+            (private / "aria-allowed-signers").write_text("aria-cycle-x ssh-ed25519 AAAA\n", encoding="utf-8")
+            keys = worktree / "aria-debts" / "keys"
+            keys.mkdir(parents=True)
+            (keys / "cyc.pub").write_text("ssh-ed25519 AAAA\n", encoding="utf-8")
+            store = Path(tmp) / "state" / "tools"
+            store.mkdir(parents=True)
+            with bound_unix_socket(Path(tmp) / "sa" / "agent") as agent_socket, \
+                    bound_unix_socket(Path(tmp) / "hb" / "sock") as broker_socket:
+                containment = derive_git_containment(worktree, commit_capable=True, signing=SandboxSigning(
+                    keys_dir=keys, public_key_path=keys / "cyc.pub", agent_socket=agent_socket,
+                ))
+                argv = impl._sandbox_argv(["true"], workspace_root=worktree, allow_network=False, git=containment,
+                                          hook_broker_socket=broker_socket)
+            binds = [(argv[i], argv[i + 1]) for i, tok in enumerate(argv) if tok in ("--bind", "--ro-bind", "--tmpfs")]
+            targets = [(argv[i], argv[i + 2]) for i, tok in enumerate(argv) if tok in ("--bind", "--ro-bind")]
+            # The READONLY_PATHS loop binds the pointer FILE and aria-debts;
+            # the derived git binds follow it.
+            self.assertIn(("--ro-bind", str(worktree / ".git")), binds)
+            self.assertLess(binds.index(("--ro-bind", str(worktree / ".git"))), binds.index(("--ro-bind", str(common))))
+            # Nothing of the shared repository is writable inside — not the
+            # common dir, not `objects/`, not `refs/heads/`, not the host's
+            # private git dir.
+            writable_sources = [source for flag, source in binds if flag == "--bind"]
+            for shared in (common, common / "objects", common / "refs" / "heads", common / "logs" / "refs" / "heads", private):
+                self.assertNotIn(str(shared), writable_sources, shared)
+            self.assertEqual(sorted(writable_sources), sorted([
+                str(worktree), str(replica / "refs" / "heads"), str(replica / "logs" / "refs" / "heads"), str(replica),
+                str(agent_socket), str(broker_socket),
+            ]))
+            # The quarantine stands in for the shared ref dirs; the replica
+            # for the private dir; git writes objects into the quarantine.
+            self.assertIn(("--bind", str(common / "refs" / "heads")), targets)
+            self.assertIn(("--bind", str(common / "logs" / "refs" / "heads")), targets)
+            self.assertIn(("--bind", str(private)), targets)
+            self.assertIn(GIT_OBJECT_DIRECTORY_ENV, argv)
+            self.assertEqual(argv[argv.index(GIT_OBJECT_DIRECTORY_ENV) + 1], str(private / "objects"))
+            self.assertEqual((replica / "objects" / "info" / "alternates").read_text(encoding="utf-8").strip(),
+                             str(common / "objects"))
+            for name in PRIVATE_GIT_DIR_CONTROL_ENTRIES:
+                if (replica / name).exists():
+                    self.assertIn(("--ro-bind", str(private / name)), targets, name)
+                    self.assertLess(binds.index(("--bind", str(replica))), binds.index(("--ro-bind", str(replica / name))))
+            self.assertIn(("--ro-bind", str(common / "refs" / "heads" / "main")), binds)
+            self.assertIn(("--tmpfs", str(common / "worktrees")), binds)
+            # The key: `aria-debts/` read-only (the debt JSONs), `keys/`
+            # masked on top, the public half alone bound back in.
+            self.assertLess(binds.index(("--ro-bind", str(worktree / "aria-debts"))), binds.index(("--tmpfs", str(keys))))
+            self.assertIn(("--ro-bind", str(keys / "cyc.pub")), binds)
+            self.assertNotIn(str(keys / "cyc"), argv)
+            # The store is not mounted; the hooks' one way out is the
+            # broker's socket, at a fixed path, named by the environment.
+            self.assertNotIn(str(store), argv)
+            self.assertIn(("--bind", SANDBOX_HOOK_BROKER_SOCKET), targets)
+            self.assertEqual(argv[argv.index(HOOK_BROKER_SOCKET_ENV) + 1], SANDBOX_HOOK_BROKER_SOCKET)
 
 
 class RuntimeProfileAutonomousTests(unittest.TestCase):

@@ -134,6 +134,39 @@ class TheBaseSandboxIsKept(_Fixture):
         self.assertNotIn("--unshare-net", command)
         self.assertEqual(command[0], "bwrap")
 
+    def test_the_git_binds_and_the_broker_socket_reach_the_base_wrapper_unchanged(self) -> None:
+        """ARIA-HIGH-123 — both routes derive ONE set of git binds: the
+        managed route hands `git` and `hook_broker_socket` to
+        `wrap_bash_in_sandbox` and adds nothing of its own about either;
+        no store is bound by either route."""
+        from aria_kernel.git_containment import derive_git_containment
+        from aria_kernel.hook_broker import SANDBOX_HOOK_BROKER_SOCKET
+        from tests._helpers.git_fixtures import _git, make_repo_with_initial_commit
+        from tests._helpers.unix_sockets import bound_unix_socket
+
+        repo = make_repo_with_initial_commit(self.root, {"f.txt": "x\n"}, name="checkout")
+        worktree = repo / "aria-worktrees" / "req-1"
+        worktree.parent.mkdir()
+        _git(["worktree", "add", "--detach", "-q", str(worktree), "HEAD"], cwd=repo)
+        (worktree / "aria-kernel" / "aria_kernel").mkdir(parents=True)
+        containment = derive_git_containment(worktree, commit_capable=True)
+        with bound_unix_socket(self.root / "hb" / "sock") as broker_socket:
+            managed = self._wrap(workspace_root=worktree, git=containment, hook_broker_socket=broker_socket)
+            base = impl.wrap_bash_in_sandbox(
+                [str(self.root / "claude"), "-p", "--model", "opus"], workspace_root=worktree,
+                allow_network=impl.MANAGED_SPAWN_ALLOW_NETWORK, write_scope=(),
+                extra_ro_binds=(self.root / "claude", self.documents, self.mcp_dir),
+                git=containment, hook_broker_socket=broker_socket,
+            )
+        self.assertEqual([pair for pair in _pairs(managed, "--bind")], [pair for pair in _pairs(base, "--bind")])
+        self.assertIn((str(broker_socket), SANDBOX_HOOK_BROKER_SOCKET), _pairs(managed, "--bind"))
+        common = (repo / ".git").resolve()
+        replica = containment.sandbox_git_dir
+        self.assertIn((str(replica / "refs" / "heads"), str(common / "refs" / "heads")), _pairs(managed, "--bind"))
+        self.assertNotIn((str(common / "objects"), str(common / "objects")), _pairs(managed, "--bind"))
+        self.assertIn((str(common), str(common)), _pairs(managed, "--ro-bind"))
+        self.assertNotIn("tools_dir", wrap_managed_claude_in_sandbox.__code__.co_varnames)
+
 
 if __name__ == "__main__":
     unittest.main()

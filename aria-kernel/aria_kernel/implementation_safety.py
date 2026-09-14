@@ -49,6 +49,8 @@ from collections.abc import Mapping, Sequence
 from . import command_policy as _command_policy
 from typing import Any, Callable
 
+from .git_containment import GitContainment
+from .hook_broker import HOOK_BROKER_SOCKET_ENV, SANDBOX_HOOK_BROKER_SOCKET
 from .text_safety import contains_bidi_or_control
 from .validation_suite import (
     CANONICAL_VALIDATION_COMMANDS,
@@ -87,7 +89,25 @@ READONLY_PATHS: tuple[str, ...] = (
     # mount layer (wrap_bash_in_sandbox iterates READONLY_PATHS).
     "tools/aria-poc/",          # ci_executor + canonical envelopes
     "tools/aria-adapters/",     # adapter trust boundary
-    ".git/",                    # git plumbing self-mod (refs, objects, hooks)
+    # ARIA-HIGH-123 — `.git/` here is the SCOPE and HOOK unit: a plan may
+    # not declare a surface under it and the Edit/Write hook refuses a path
+    # under it. It is NOT the unit of the mount layer any more: a linked
+    # worktree's `.git` is a pointer file whose git dirs live outside the
+    # workspace, and a blanket ro-bind of `.git/` in a main checkout made
+    # `git add` die on `index.lock`. The sandbox derives what git needs
+    # writable (objects, refs/heads, logs/refs/heads, the worktree's own git
+    # dir) and what stays read-only (config, config.worktree, hooks — the
+    # EFFECTIVE hooks dir —, info, packed-refs, the signers file, the
+    # signing snapshots, every existing loose ref) from the checkout's shape
+    # (`git_containment.derive_git_containment`); the ro-bind loop below
+    # still binds this entry, which in a linked worktree is the pointer
+    # file and in a main checkout the whole directory (read-only git).
+    ".git/",                    # git plumbing self-mod: scope + hook unit
+    # ARIA-HIGH-123 — ro-bound for the debt JSONs it carries; `keys/` under
+    # it is MASKED by the sandbox (a fresh tmpfs with only the held
+    # identity's public key bound back in), because read-only is readable
+    # and the private key must not enter the sandbox at all — git signs
+    # through the kernel-held ssh-agent's socket (`signing_agent`).
     "aria-debts/",              # signing keys + installation tokens
     "aria-kernel/tests/",       # broaden from invariants/ — kernel tests read-only
     # ARIA-MEDIUM-087 — operator policy. The kernel reads
@@ -603,6 +623,16 @@ _SANDBOX_SYSTEM_ROOTS: tuple[str, ...] = (
     "/lib",
     "/lib64",
     "/bin",
+    # ARIA-HIGH-123 — the account database, read-only. `ssh-keygen -Y sign`
+    # (what a signed `git commit` runs) resolves its own uid BEFORE it
+    # signs and dies `No user exists for uid N?` when it cannot; git then
+    # reports `failed to write commit object`. Measured on this host as the
+    # runner's uid (1000): without these two binds no commit lands inside
+    # the sandbox — a root shell passed only because nss-systemd
+    # synthesizes root when `/etc/nsswitch.conf` is bound (network on),
+    # which the runner's uid is not. Existence-guarded like the rest.
+    "/etc/passwd",
+    "/etc/group",
 )
 
 # Name resolution. Bound ONLY when the caller asked for network, because these
@@ -671,11 +701,58 @@ def _sandbox_probe_succeeds(
     return completed.returncode == 0
 
 
+# The network setting of the one route that hosts a commit-capable spawn
+# (`wrap_managed_claude_in_sandbox`): the Claude CLI talks to its provider,
+# so the managed sandbox shares the host's network namespace and binds the
+# name-resolution files. The containment probe builds with the SAME value,
+# so what it proves is the argv the implementer gets — not a smaller one.
+MANAGED_SPAWN_ALLOW_NETWORK = True
+
+
+def _git_containment_probe_reason() -> str | None:
+    """ARIA-HIGH-123 — why the sandbox cannot host the implementer's git
+    contract, or ``None``. The probe builds its argv through the SAME
+    builder the wrapper uses (``_sandbox_argv``) with the managed route's
+    network setting, so what it proves is what a commit-capable spawn gets;
+    recorded on the process for the refusal message
+    (``_LAST_CONTAINMENT_PROBE_REASON``)."""
+    from .containment_probe import probe_git_containment
+
+    def build(command: list[str], workspace: Path, containment: Any) -> list[str]:
+        return _sandbox_argv(
+            command, workspace_root=workspace, allow_network=MANAGED_SPAWN_ALLOW_NETWORK, git=containment,
+        )
+
+    return probe_git_containment(build)
+
+
+# The last reason the git containment probe refused with, for the refusal
+# message a caller raises; a process-level cell because the probe result
+# itself is a cached bool.
+_LAST_CONTAINMENT_PROBE_REASON: list[str | None] = [None]
+
+
 @lru_cache(maxsize=1)
 def _bwrap_available() -> bool:
+    """bwrap is usable when it builds its namespaces AND hosts a git commit.
+
+    ORPHAN-CRITICAL-439 made "available" mean "builds the namespaces the
+    wrapper uses" (``/bin/true`` under the system binds). ARIA-HIGH-123
+    extends the meaning to the property the implementer lane depends on: a
+    commit-capable containment derived from a linked worktree lets git
+    status, switch and commit run — and refuses the control writes — inside
+    the real argv (``containment_probe``). A runner that fails either probe
+    reports no backend, so the pre-claim gate refuses to claim
+    (``sandbox_unavailable``; the request stays PENDING) instead of
+    spending a turn on a commit the sandbox cannot make.
+    """
     if shutil.which("bwrap") is None:
         return False
-    return _sandbox_probe_succeeds(_bwrap_probe_argv())
+    if not _sandbox_probe_succeeds(_bwrap_probe_argv()):
+        return False
+    reason = _git_containment_probe_reason()
+    _LAST_CONTAINMENT_PROBE_REASON[0] = reason
+    return reason is None
 
 
 class SandboxUnavailable(RuntimeError):
@@ -687,6 +764,18 @@ class SandboxUnavailable(RuntimeError):
     one forgotten check away from spawning an unconfined process. Callers
     that genuinely may proceed unconfined must catch this explicitly.
     """
+
+
+def sandbox_unavailable_detail() -> str:
+    """Why ``sandbox_backend()`` answers None on this host, for the refusal
+    record: the git containment probe's reason when it refused
+    (ARIA-HIGH-123), else the namespace probe's shape."""
+    if shutil.which("bwrap") is None:
+        return "bwrap is not on PATH"
+    reason = _LAST_CONTAINMENT_PROBE_REASON[0]
+    if reason is not None:
+        return f"git containment probe refused: {reason}"
+    return "bwrap cannot build the namespaces the wrapper uses"
 
 
 def sandbox_backend() -> str | None:
@@ -721,6 +810,9 @@ def sandbox_backend() -> str | None:
 # Ephemeral HOME handed to a sandboxed agent runtime. Under the sandbox's own
 # /tmp tmpfs, so it is created empty per run and discarded with the sandbox.
 SANDBOX_HOME = "/tmp/aria-agent-home"
+# The sandbox's temp directory: the /tmp tmpfs it mounts itself, exported as
+# TMPDIR so no host value can point the agent's temp files off the sandbox.
+SANDBOX_TMPDIR = "/tmp"
 
 
 
@@ -748,6 +840,33 @@ def scope_directories(workspace: Path, write_scope: Sequence[str]) -> list[Path]
     return dirs
 
 
+# ARIA-HIGH-123 — the dependency tree a nested worktree resolves. Node walks
+# UP from the cwd for `node_modules`; a per-request worktree
+# (`<checkout>/aria-worktrees/req-<id>`) carries none of its own and resolves
+# the checkout's — the pre-claim gate asserts exactly that resolution
+# (`ci_executor._node_modules_resolvable_from`) — and the sandbox hid it:
+# inside, the walk found nothing and the canonical validation suite
+# (`nx affected …`) could not start. The nearest ancestor `node_modules`
+# outside the workspace is bound read-only, so the walk inside answers what
+# the gate proved outside.
+DEPENDENCY_TREE_DIRNAME = "node_modules"
+
+
+def _is_socket(path: Path) -> bool:
+    try:
+        return path.is_socket()
+    except OSError:
+        return False
+
+
+def _dependency_tree_binds(workspace: Path) -> list[str]:
+    for ancestor in workspace.parents:
+        candidate = ancestor / DEPENDENCY_TREE_DIRNAME
+        if candidate.is_dir():
+            return ["--ro-bind", str(candidate), str(candidate)]
+    return []
+
+
 def _workspace_binds(workspace: Path, write_scope: Sequence[str] | None) -> list[str]:
     if write_scope is None:
         return ["--bind", str(workspace), str(workspace)]
@@ -767,8 +886,23 @@ def wrap_bash_in_sandbox(
     allow_network: bool = False,
     write_scope: Sequence[str] | None = None,
     extra_ro_binds: Sequence[str | Path] = (),
+    git: GitContainment | None = None,
+    hook_broker_socket: str | Path | None = None,
 ) -> list[str]:
     """Hard-fail check 8c — Bash sandbox wrapper.
+
+    ARIA-HIGH-123 — ``git`` is the checkout-derived git containment
+    (``git_containment.derive_git_containment``): the binds git needs to
+    read (and, for a commit-capable one, to add/commit/switch/push against
+    the worktree's quarantine) in a LINKED worktree, appended after the
+    READONLY_PATHS loop so its read-only overlays are the last word.
+    Without it, git in a linked worktree fails ``not a git repository`` —
+    the pre-fix production shape. ``hook_broker_socket`` is the host socket
+    of the kernel-side hook broker (``hook_broker.serve_hook_broker``),
+    bound in at ``SANDBOX_HOOK_BROKER_SOCKET`` with its environment name set
+    by bwrap: the hooks inside decide and journal THROUGH it, so the durable
+    store is never mounted in the sandbox — not writable (the first cut
+    handed the agent every kernel surface), not at all.
 
     Plan 032 Faz 032b — ``write_scope`` narrows the writable tree: when given,
     the workspace is mounted READ-ONLY and only the scope's directories are
@@ -798,75 +932,126 @@ def wrap_bash_in_sandbox(
     fails with EROFS at the syscall level rather than by the agent
     choosing to obey.
     """
-    workspace = Path(workspace_root).resolve()
     if _bwrap_available():
-        # The system ro-binds come from the same helper the probe uses, so
-        # the two argvs cannot drift (ORPHAN-MEDIUM-452).
-        wrap = [
-            "bwrap",
-            *_system_ro_binds(),
-            "--proc", "/proc",
-            "--dev", "/dev",
-            "--tmpfs", "/tmp",
-            *_workspace_binds(workspace, write_scope),
-            "--chdir", str(workspace),
-            # The agent runtime needs a HOME it can WRITE.
-            #
-            # Without this the sandbox left $HOME resolvable but read-only — it
-            # survives only as an implicit parent of the workspace bind, on the
-            # read-only root — so the Claude CLI blocked trying to write its own
-            # state and the executor reported a bare `claude exec exited 1`.
-            # Every nightly agent dispatch died there; measured 2026-08-08 by
-            # reproducing the exact bwrap argv, where the CLI hung until the
-            # timeout and returned `OK` the moment HOME became writable.
-            #
-            # An EPHEMERAL home rather than a bind of the real one, and that is
-            # the stronger choice: the agent gets a fresh empty directory each
-            # run, so it can neither read the operator's real ~/.claude.json nor
-            # leave anything behind in it. Credentials arrive through
-            # CLAUDE_CODE_OAUTH_TOKEN in the environment, which is the
-            # documented mechanism and does not require the config file.
-            #
-            # It lives under the /tmp tmpfs mounted just above, so it costs no
-            # extra mount and cannot shadow the workspace bind the way a tmpfs
-            # over the real home directory could when the workspace sits
-            # beneath it.
-            # `--tmpfs` rather than only `--setenv`: bwrap creates the mount
-            # point, so the directory is guaranteed to EXIST. Setting HOME to a
-            # path that does not exist reproduces the same hang by a different
-            # route.
-            "--tmpfs", SANDBOX_HOME,
-            "--setenv", "HOME", SANDBOX_HOME,
-        ]
-        # READONLY_PATHS mounted ro-bind on top of the writable
-        # workspace — ANY mutation under these paths gets EROFS.
-        for ro in READONLY_PATHS:
-            full = workspace / ro
-            if full.exists():
-                wrap.extend(["--ro-bind", str(full), str(full)])
-        for extra in extra_ro_binds:
-            extra_path = Path(extra)
-            if extra_path.exists():
-                wrap.extend(["--ro-bind", str(extra_path), str(extra_path)])
-        if allow_network:
-            # Existence-guarded for the same reason _system_ro_binds is: bwrap
-            # aborts on a bind source it cannot find, so an unconditional bind
-            # would turn a container without /etc/nsswitch.conf into a total
-            # failure rather than a smaller sandbox.
-            for network_file in _SANDBOX_NETWORK_FILES:
-                if Path(network_file).exists():
-                    wrap.extend(["--ro-bind", network_file, network_file])
-        else:
-            wrap.append("--unshare-net")
-        wrap.append("--")
-        return wrap + list(argv)
+        return _sandbox_argv(
+            argv, workspace_root=workspace_root, allow_network=allow_network, write_scope=write_scope,
+            extra_ro_binds=extra_ro_binds, git=git, hook_broker_socket=hook_broker_socket,
+        )
+    probe_reason = _LAST_CONTAINMENT_PROBE_REASON[0]
     raise SandboxUnavailable(
         "sandbox_backend_unavailable: bwrap is not usable on this host, so "
         "READONLY_PATHS cannot be enforced at the syscall level. Note that "
         "'installed' is not enough — bwrap is probed for the namespaces the "
         "wrapper actually builds, and a container without unprivileged user "
         "namespaces will install it cleanly and fail every invocation."
+        + (f" The git containment probe refused: {probe_reason}." if probe_reason else "")
     )
+
+
+def _sandbox_argv(
+    argv: list[str],
+    *,
+    workspace_root: str | Path,
+    allow_network: bool,
+    write_scope: Sequence[str] | None = None,
+    extra_ro_binds: Sequence[str | Path] = (),
+    git: GitContainment | None = None,
+    hook_broker_socket: str | Path | None = None,
+) -> list[str]:
+    """The bwrap argv, built without consulting availability — the one
+    builder the wrapper AND the containment probe use, so the probe proves
+    the argv a spawn gets (ORPHAN-MEDIUM-452 for the system binds; the
+    same rule for the git binds, ARIA-HIGH-123)."""
+    workspace = Path(workspace_root).resolve()
+    if git is not None and git.workspace_root != workspace:
+        raise SandboxUnavailable(
+            f"git_containment_workspace_mismatch: derived for {git.workspace_root}, spawning in {workspace}"
+        )
+    # The system ro-binds come from the same helper the probe uses, so
+    # the two argvs cannot drift (ORPHAN-MEDIUM-452).
+    wrap = [
+        "bwrap",
+        *_system_ro_binds(),
+        "--proc", "/proc",
+        "--dev", "/dev",
+        "--tmpfs", "/tmp",
+        *_workspace_binds(workspace, write_scope),
+        *_dependency_tree_binds(workspace),
+        "--chdir", str(workspace),
+        # The agent runtime needs a HOME it can WRITE.
+        #
+        # Without this the sandbox left $HOME resolvable but read-only — it
+        # survives only as an implicit parent of the workspace bind, on the
+        # read-only root — so the Claude CLI blocked trying to write its own
+        # state and the executor reported a bare `claude exec exited 1`.
+        # Every nightly agent dispatch died there; measured 2026-08-08 by
+        # reproducing the exact bwrap argv, where the CLI hung until the
+        # timeout and returned `OK` the moment HOME became writable.
+        #
+        # An EPHEMERAL home rather than a bind of the real one, and that is
+        # the stronger choice: the agent gets a fresh empty directory each
+        # run, so it can neither read the operator's real ~/.claude.json nor
+        # leave anything behind in it. Credentials arrive through
+        # CLAUDE_CODE_OAUTH_TOKEN in the environment, which is the
+        # documented mechanism and does not require the config file.
+        #
+        # It lives under the /tmp tmpfs mounted just above, so it costs no
+        # extra mount and cannot shadow the workspace bind the way a tmpfs
+        # over the real home directory could when the workspace sits
+        # beneath it.
+        # `--tmpfs` rather than only `--setenv`: bwrap creates the mount
+        # point, so the directory is guaranteed to EXIST. Setting HOME to a
+        # path that does not exist reproduces the same hang by a different
+        # route.
+        "--tmpfs", SANDBOX_HOME,
+        "--setenv", "HOME", SANDBOX_HOME,
+        # ARIA-HIGH-123 — the temp dir is the sandbox's own /tmp tmpfs, by
+        # name. `TMPDIR` is in the spawn's baseline environment, and a host
+        # value naming a directory the sandbox does not mount (`/dev/shm`
+        # on the test host; any operator-set path) made `git commit`
+        # inside the sandbox die `could not create temporary file: No such
+        # file or directory` — git writes the buffer it signs there.
+        "--setenv", "TMPDIR", SANDBOX_TMPDIR,
+    ]
+    if hook_broker_socket is not None:
+        # ARIA-HIGH-123 — the hooks' only way out: one socket, at a fixed
+        # path under the sandbox's own /tmp, named to the hook client by
+        # the environment bwrap sets. No store is mounted.
+        broker = Path(hook_broker_socket)
+        if not _is_socket(broker):
+            raise SandboxUnavailable(f"hook_broker_socket_missing: {broker} is not a listening socket")
+        wrap.extend([
+            "--bind", str(broker), SANDBOX_HOOK_BROKER_SOCKET,
+            "--setenv", HOOK_BROKER_SOCKET_ENV, SANDBOX_HOOK_BROKER_SOCKET,
+        ])
+    # READONLY_PATHS mounted ro-bind on top of the writable
+    # workspace — ANY mutation under these paths gets EROFS.
+    for ro in READONLY_PATHS:
+        full = workspace / ro
+        if full.exists():
+            wrap.extend(["--ro-bind", str(full), str(full)])
+    for extra in extra_ro_binds:
+        extra_path = Path(extra)
+        if extra_path.exists():
+            wrap.extend(["--ro-bind", str(extra_path), str(extra_path)])
+    if git is not None:
+        # ARIA-HIGH-123 — after READONLY_PATHS: the git binds are the
+        # last mounts, so their read-only overlays (config, hooks, the
+        # signers file, existing refs) shadow anything bound above them,
+        # and the keys-dir mask sits on top of the `aria-debts/` ro-bind.
+        wrap.extend(git.bwrap_flags())
+    if allow_network:
+        # Existence-guarded for the same reason _system_ro_binds is: bwrap
+        # aborts on a bind source it cannot find, so an unconditional bind
+        # would turn a container without /etc/nsswitch.conf into a total
+        # failure rather than a smaller sandbox.
+        for network_file in _SANDBOX_NETWORK_FILES:
+            if Path(network_file).exists():
+                wrap.extend(["--ro-bind", network_file, network_file])
+    else:
+        wrap.append("--unshare-net")
+    wrap.append("--")
+    return wrap + list(argv)
 
 
 def _wrap_runtime_state_in_sandbox(
@@ -919,8 +1104,14 @@ CLAUDE_LOGIN_CREDENTIALS_FILENAME = ".credentials.json"
 def wrap_managed_claude_in_sandbox(
     argv: list[str], *, workspace_root: Path, write_scope: Sequence[str] | None,
     executable: Path, spawn_files: Sequence[Path], managed_login_dir: Path | None,
+    git: GitContainment | None = None, hook_broker_socket: str | Path | None = None,
 ) -> list[str]:
     """Contain a Claude CLI spawn so that what the attempt names is what runs.
+
+    ``git`` and ``hook_broker_socket`` are the checkout-derived git binds
+    and the kernel-side hook broker's socket (ARIA-HIGH-123) — handed
+    straight to :func:`wrap_bash_in_sandbox`, so both routes derive one set
+    of binds.
 
     On top of :func:`wrap_bash_in_sandbox` (system, network, workspace,
     READONLY_PATHS, private /tmp and home) this binds exactly three things
@@ -952,8 +1143,9 @@ def wrap_managed_claude_in_sandbox(
     if any(directory.is_relative_to(workspace) or workspace.is_relative_to(directory) for directory in documents):
         raise SandboxUnavailable("spawn_document_directory_overlaps_workspace")
     command = wrap_bash_in_sandbox(
-        [str(binary), *argv[1:]], workspace_root=workspace, allow_network=True,
-        write_scope=write_scope, extra_ro_binds=(binary, *documents),
+        [str(binary), *argv[1:]], workspace_root=workspace, allow_network=MANAGED_SPAWN_ALLOW_NETWORK,
+        write_scope=write_scope, extra_ro_binds=(binary, *documents), git=git,
+        hook_broker_socket=hook_broker_socket,
     )
     separator = command.index("--")
     private_config_dir = f"{SANDBOX_HOME}/.claude"
@@ -2420,7 +2612,9 @@ __all__ = (
     "implementation_allowed_scope",
     "is_gh_api_path_forbidden",
     "SandboxUnavailable",
+    "MANAGED_SPAWN_ALLOW_NETWORK",
     "sandbox_backend",
+    "sandbox_unavailable_detail",
     "wrap_bash_in_sandbox",
     "ResourceLimitsUnavailable",
     "apply_resource_limits",

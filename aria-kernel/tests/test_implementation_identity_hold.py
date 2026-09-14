@@ -18,7 +18,14 @@ config primitive (`gh_token_factory._git_config_at`) recorded:
   the worktree's config, however the body exits;
 * the executor's refusal record (`IMPLEMENTATION_IDENTITY_REFUSAL`) spells
   the kernel's release reason, harness-classified, and summarises as a
-  retryable `harness_unavailable` — the same fact in every vocabulary.
+  retryable `harness_unavailable` — the same fact in every vocabulary;
+* ARIA-HIGH-123 — the held identity carries its sandbox shape: a
+  commit-capable containment for the worktree whose signing exposure names
+  the keys dir to mask, the public key to show and the socket of an
+  ssh-agent THIS process holds, which lists exactly the cycle key and dies
+  with the window; an agent that cannot be held, or a containment that
+  cannot be derived, is refused by name BEFORE the registry write (no
+  `kg_signers` row for a key that never signed) and unwinds the mint.
 """
 from __future__ import annotations
 
@@ -130,6 +137,71 @@ class IdentityHoldTests(unittest.TestCase):
         self.assertTrue(writes)
         for _root, scope, key, _value in writes:
             self.assertEqual(scope, "--local" if key == "extensions.worktreeConfig" else "--worktree", key)
+
+    def test_the_held_identity_carries_its_sandbox_shape(self) -> None:
+        import os
+        import subprocess
+
+        from aria_kernel.git_containment import GitContainment
+
+        worktree = make_git_worktree(self.main, self.tmp / "worktrees" / "req-1", branch="req-1")
+        with self._hold(worktree) as identity:
+            containment = identity.containment
+            self.assertIsInstance(containment, GitContainment)
+            self.assertTrue(containment.commit_capable)
+            self.assertEqual(containment.workspace_root, worktree)
+            signing = containment.signing
+            assert signing is not None
+            self.assertEqual(signing.keys_dir, worktree / "aria-debts" / "keys")
+            self.assertEqual(signing.public_key_path, worktree / "aria-debts" / "keys" / f"{CYCLE_ID}.pub")
+            self.assertTrue(signing.agent_socket.is_socket())
+            socket_path = signing.agent_socket
+            listed = subprocess.run(["ssh-add", "-l"], capture_output=True, text=True,
+                                    env={**os.environ, "SSH_AUTH_SOCK": str(socket_path)})
+            self.assertEqual(listed.returncode, 0, listed.stderr)
+            self.assertEqual([line.split()[1] for line in listed.stdout.splitlines()], [identity.fingerprint])
+            # The private key path is not carried by the shape the sandbox is
+            # built from; the flags name the public key and the socket only.
+            flags = containment.bwrap_flags()
+            self.assertNotIn(str(worktree / "aria-debts" / "keys" / CYCLE_ID), flags)
+            self.assertIn(str(signing.public_key_path), flags)
+            self.assertIn(str(socket_path), flags)
+        self.assertFalse(socket_path.exists(), "the agent dies with the window")
+
+    def test_an_agent_that_cannot_be_held_is_refused_before_the_registry_write(self) -> None:
+        from aria_kernel import implementation_identity as seam
+        from aria_kernel.signing_agent import SigningAgentUnavailable
+
+        worktree = make_git_worktree(self.main, self.tmp / "worktrees" / "req-1", branch="req-1")
+
+        def refusing(*_args, **_kwargs):
+            raise SigningAgentUnavailable("ssh_agent_missing")
+
+        with patch.object(seam, "hold_signing_agent", refusing):
+            with self.assertRaises(ImplementationIdentityRefusal) as refused:
+                with self._hold(worktree):
+                    self.fail("no identity without its agent")
+        self.assertEqual(refused.exception.reason, "signing_agent_unavailable:ssh_agent_missing")
+        self.assertFalse((self.tools / "knowledge-graph" / "signers.jsonl").exists(), "nothing registered")
+        self.assertFalse((worktree / "aria-debts" / "keys" / CYCLE_ID).exists(), "the mint is unwound")
+        self.assertIsNone(self._config(worktree, "user.signingkey", "--worktree"))
+
+    def test_a_containment_that_cannot_be_derived_is_refused_before_the_registry_write(self) -> None:
+        from aria_kernel import implementation_identity as seam
+        from aria_kernel.git_containment import GitContainmentRefusal
+
+        worktree = make_git_worktree(self.main, self.tmp / "worktrees" / "req-1", branch="req-1")
+
+        def refusing(*_args, **_kwargs):
+            raise GitContainmentRefusal("hooks_dir_unresolvable:rc=128")
+
+        with patch.object(seam, "derive_git_containment", refusing):
+            with self.assertRaises(ImplementationIdentityRefusal) as refused:
+                with self._hold(worktree):
+                    self.fail("no identity without its sandbox shape")
+        self.assertEqual(refused.exception.reason, "git_containment_refused:hooks_dir_unresolvable:rc=128")
+        self.assertFalse((self.tools / "knowledge-graph" / "signers.jsonl").exists(), "nothing registered")
+        self.assertFalse((worktree / "aria-debts" / "keys" / CYCLE_ID).exists(), "the mint is unwound")
 
     def test_an_exception_in_the_body_still_revokes(self) -> None:
         worktree = make_git_worktree(self.main, self.tmp / "worktrees" / "req-1", branch="req-1")

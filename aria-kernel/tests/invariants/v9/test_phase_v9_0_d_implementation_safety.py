@@ -1004,6 +1004,11 @@ class TestV9PublicApi(unittest.TestCase):
             # returning bare argv, and sandbox_backend lets a caller fail
             # closed before it builds a command.
             "SandboxUnavailable", "sandbox_backend",
+            # ARIA-HIGH-123 — why sandbox_backend() answered None (the git
+            # containment probe's reason), for the pre-claim gate's row; and
+            # the managed route's network setting, which the containment
+            # probe builds with so it proves the implementer's own argv.
+            "sandbox_unavailable_detail", "MANAGED_SPAWN_ALLOW_NETWORK",
             # ORPHAN-HIGH-470 — the limiter contract is typed for the same
             # reason: apply_resource_limits RAISES rather than handing back
             # bare argv when no limiter is usable.

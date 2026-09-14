@@ -1389,6 +1389,33 @@ def run_autonomy_orchestrator(
                             },
                             bypass_profile_gate=True,
                         )
+                # ARIA-HIGH-123 — the same net for the sockets the executor
+                # holds for an implementer's window: the ssh-agent that
+                # signs for the sandbox (`signing_agent`) and the hook
+                # broker the sandbox's hooks talk to (`hook_broker`). Each
+                # dies with its holder (PR_SET_PDEATHSIG; a daemon thread of
+                # the executor), but the socket directory a killed holder
+                # left behind stays until swept; a directory whose socket
+                # still answers belongs to a live holder and is left alone.
+                # Nothing swept, nothing said.
+                try:
+                    from .hook_broker import prune_stale_hook_brokers
+                    from .signing_agent import prune_stale_signing_agents
+                    _sockets_pruned = {
+                        "signing_agents": prune_stale_signing_agents(),
+                        "hook_brokers": prune_stale_hook_brokers(),
+                    }
+                except Exception as _sweep_exc:
+                    append_tools_governance(
+                        root, "sockets_prune_failed",
+                        {"error_class": type(_sweep_exc).__name__, "error_message": str(_sweep_exc)[:500]},
+                        bypass_profile_gate=True,
+                    )
+                else:
+                    if any(summary["swept"] or summary["errors"] for summary in _sockets_pruned.values()):
+                        append_tools_governance(
+                            root, "sockets_pruned", _sockets_pruned, bypass_profile_gate=True,
+                        )
 
             for cycle_n in range(max_cycles):
                 # Plan ARIA-V7 §3 V7.7 — per-cycle watchdog.

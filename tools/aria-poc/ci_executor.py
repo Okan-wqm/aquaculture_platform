@@ -107,6 +107,7 @@ try:
     # the kernel and probes the sandbox through the runtime's own accessor.
     from aria_kernel.tool_registry import append_tools_governance as _append_tools_governance
     from aria_kernel.implementation_safety import sandbox_backend as _sandbox_backend
+    from aria_kernel.implementation_safety import sandbox_unavailable_detail as _sandbox_unavailable_detail
     # The rejection codes that mean "the kernel could not verify" — owned by
     # the validator that mints them; the release seam below classifies a
     # rejected submit against this set and nothing else.
@@ -188,6 +189,7 @@ except Exception as _kernel_import_error:  # pragma: no cover - fallback keeps s
     _derive_request_state = None
     _append_tools_governance = None
     _sandbox_backend = None
+    _sandbox_unavailable_detail = None
     # Without the kernel nothing can be classified as the kernel's own gap:
     # every rejected submit stays the request's fault (fail toward the
     # human). An empty set cannot drift from the kernel's.
@@ -1439,6 +1441,38 @@ def _rollback_after_blocked_spawn(*, tools_dir: Path, request_id: str, subagent_
     except Exception as exc:  # noqa: BLE001
         sys.stderr.write(f"rollback_after_blocked_spawn_failed: {type(exc).__name__}\n")
 
+
+# ARIA-HIGH-123 — the governance row the publication of a request's sandbox
+# quarantine lands on: what moved into the shared repository, what was
+# refused by name.
+IMPLEMENTATION_QUARANTINE_PUBLISHED_EVENT = "implementation_quarantine_published"
+
+
+def _publish_sandbox_commits(*, tools_dir: Path, request_id: str, claim_id: str, containment: Any) -> Any:
+    """ARIA-HIGH-123 — move what the implementer committed inside its sandbox
+    into the shared repository, from outside, with git's own checks
+    (`git_containment.publish_quarantine`), and record the receipt. The
+    bridge verifies the commit in the shared checkout right after; a
+    publication that refused an object or a ref is on the row by name, and
+    the refused commit is then simply not there to verify."""
+    from aria_kernel.git_containment import publish_quarantine
+    from aria_kernel.tool_registry import append_tools_governance, ensure_tools_dir
+
+    publication = publish_quarantine(containment)
+    append_tools_governance(
+        ensure_tools_dir(tools_dir), IMPLEMENTATION_QUARANTINE_PUBLISHED_EVENT,
+        {"request_id": request_id, "claim_id": claim_id, "workspace_root": str(containment.workspace_root),
+         **publication.to_row()},
+    )
+    _stage(
+        f"implementation_quarantine_published refs={list(publication.refs_published)} "
+        f"objects={publication.loose_objects_migrated} packs={publication.packs_unpacked} "
+        f"refused_objects={len(publication.objects_refused)} discarded_refs={len(publication.refs_discarded)} "
+        f"refusal={publication.refusal}"
+    )
+    return publication
+
+
 def invoke_claude_cli(
     *,
     request_id: str,
@@ -1466,6 +1500,11 @@ def invoke_claude_cli(
     # None for every role that holds no key (the row then carries the
     # `SHA256:no-key` sentinel).
     signer_key_fp: str | None = None,
+    # ARIA-HIGH-123 — the commit-capable git containment the same holder
+    # derived (`ImplementationIdentity.containment`): the spawn is wrapped
+    # with it, so the agent's git can commit in the request worktree and
+    # sign through the kernel-held agent. None for every other role.
+    git_containment: Any | None = None,
 ) -> int:
     """Call the Claude Code CLI; mock path for tests + CI dry-runs.
 
@@ -1721,6 +1760,8 @@ def invoke_claude_cli(
                 extra_env=spawn_extra_env,
                 # Plan 032 Faz 032e — operator cancel polling + progress tail.
                 spawn_control=spawn_control,
+                # ARIA-HIGH-123 — the executor-held commit containment.
+                git_containment=git_containment,
                 # E17-d — per-spawn usage accounting. This callsite is the
                 # seam where the full identity is in scope: request_id +
                 # envelope role + subagent_type are REQUIRED parameters of
@@ -2964,6 +3005,7 @@ def _invoke_native_claude(
     target_agent: str, session_id: str, prompt: str, output_path: Path,
     transcript_path: Path, timeout_seconds: int, spawn_control: Any,
     prompt_file: Path, resume: bool, signer_key_fp: str | None = None,
+    git_containment: Any | None = None,
 ) -> int:
     """The managed Anthropic session on the native lane.
 
@@ -3004,7 +3046,7 @@ def _invoke_native_claude(
             timeout_seconds=timeout_seconds, claim_id=claim_id, agent_id=agent_id,
             role=request["role"], must_satisfy=request.get("must_satisfy") or [],
             request_envelope=request, tools_dir=tools_dir, spawn_control=spawn_control,
-            signer_key_fp=signer_key_fp,
+            signer_key_fp=signer_key_fp, git_containment=git_containment,
         )
         if cli_exit != 0:
             result_admission = "provider_nonzero"
@@ -3524,8 +3566,12 @@ def _pre_claim_environment_gate(*, tools_dir: Path) -> str | None:
     except (ClaudeAuthUnavailable, ClaudeCliUnavailable, ClaudePolicyViolation) as exc:
         kind, detail = "claude_auth_unavailable", str(exc)
     if kind is None and _sandbox_backend is not None and _sandbox_backend() is None:
+        # ARIA-HIGH-123 — the detail names WHY (the git containment probe's
+        # refusal when that is what failed): an operator reading the row
+        # must tell "no bwrap" from "bwrap cannot host a commit".
+        why = _sandbox_unavailable_detail() if _sandbox_unavailable_detail is not None else "no detail"
         kind, detail = "sandbox_unavailable", (
-            "sandbox_backend() returned None; write-capable spawns would be refused"
+            f"sandbox_backend() returned None ({why}); write-capable spawns would be refused"
         )
     if kind is None and _GitProbeSession is not None:
         # The kernel verifies every evidence ref of the result with git
@@ -3970,59 +4016,81 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
             )
         _stage(f"implementation_identity_held cycle_id={_identity_cycle_id} scope={implementation_identity.scope}")
     _signer_key_fp = implementation_identity.fingerprint if implementation_identity is not None else None
+    # ARIA-HIGH-123 — the same holder's sandbox shape: the request worktree's
+    # git dirs bound the way a commit needs, the key masked, the agent socket
+    # bound. Only the Claude route can carry it (the native Codex and Z.ai
+    # routes prepare read-only runtimes and never host an implementation).
+    _git_containment = implementation_identity.containment if implementation_identity is not None else None
     _spawn_control = SpawnControl(
         should_cancel=lambda: is_cancelled(request_id, tools_dir),
         on_event=ProgressWriter(request_id, base_dir=tools_dir, claim_id=claim_id).write,
     )
     _run_started_at = time.monotonic()
     try:
-        # Plan 024 v3 §B-8 — pass real lease identity + role from
-        # request row into the mock envelope writer. claim_id +
-        # agent_id come from the kernel CLI's claim output (line 209-
-        # 211); role + must_satisfy come from the request_envelope
-        # we already loaded for cost-cap evaluation.
-        if native_runtime is not None:
-            _invoke_native = {
-                "codex": _invoke_native_codex, "zai": _invoke_native_zai,
-                "claude": _functools.partial(_invoke_native_claude, prompt_file=prompt_file, resume=_resume),
-            }[native_runtime.route["runtime"]]
-            cli_exit = _invoke_native(
-                native_runtime=native_runtime, repo=repo, tools_dir=tools_dir,
-                request=request_envelope, request_id=request_id, claim_id=claim_id, agent_id=agent_id,
-                lease_token=lease_token,
-                target_agent=subagent_type, session_id=_session_id, prompt=_prompt_payload,
-                output_path=expected_output_path, transcript_path=transcript_output_path,
-                timeout_seconds=timeout, spawn_control=_spawn_control,
+        # ARIA-HIGH-123 — whatever the spawn's exit, what the agent committed
+        # inside the sandbox is in the worktree's quarantine, never in the
+        # shared repository: the kernel publishes it here, from outside, with
+        # git's own checks (objects re-hashed, packs unpacked, only this
+        # request's `aria-impl-*` branch published, the rest discarded by
+        # name), BEFORE the result is read — the bridge verifies the commit
+        # in the shared checkout. A killed executor never reaches this line,
+        # and the quarantine dies with its worktree.
+        try:
+            # Plan 024 v3 §B-8 — pass real lease identity + role from
+            # request row into the mock envelope writer. claim_id +
+            # agent_id come from the kernel CLI's claim output (line 209-
+            # 211); role + must_satisfy come from the request_envelope
+            # we already loaded for cost-cap evaluation.
+            if native_runtime is not None:
+                _invoke_native = {
+                    "codex": _invoke_native_codex, "zai": _invoke_native_zai,
+                    "claude": _functools.partial(_invoke_native_claude, prompt_file=prompt_file, resume=_resume,
+                                                 git_containment=_git_containment),
+                }[native_runtime.route["runtime"]]
+                cli_exit = _invoke_native(
+                    native_runtime=native_runtime, repo=repo, tools_dir=tools_dir,
+                    request=request_envelope, request_id=request_id, claim_id=claim_id, agent_id=agent_id,
+                    lease_token=lease_token,
+                    target_agent=subagent_type, session_id=_session_id, prompt=_prompt_payload,
+                    output_path=expected_output_path, transcript_path=transcript_output_path,
+                    timeout_seconds=timeout, spawn_control=_spawn_control,
+                    signer_key_fp=_signer_key_fp,
+                )
+            else:
+                cli_exit = invoke_claude_cli(
+                request_id=request_id,
+                subagent_type=subagent_type,
+                session_id=_session_id,
+                resume=_resume,
+                prompt_file=prompt_file,
+                output_path=expected_output_path,
+                transcript_path=transcript_output_path,
+                timeout_seconds=timeout,
+                claim_id=claim_id,
+                agent_id=agent_id,
+                # Plan 025 §B — request_envelope["role"] is now guaranteed
+                # populated (validated above); direct subscript surfaces a
+                # KeyError if a future regression skips the validation.
+                role=request_envelope["role"],
+                must_satisfy=request_envelope.get("must_satisfy") or [],
+                # Plan ARIA-V3.1-D3 — per-LLM-call cost attribution wire.
+                # Pass the request_envelope (provides cycle_id +
+                # pressure_source_type + convergence_id) + tools_dir so
+                # invoke_claude_cli can mint a V10.4 cost row gated on
+                # the V3.1-D2 _MOCK_MODE_AT_ENTRY frozen sentinel.
+                request_envelope=request_envelope,
+                tools_dir=tools_dir,
+                spawn_control=_spawn_control,
+                # ARIA-HIGH-115 — the executor-held identity, for the cost row.
                 signer_key_fp=_signer_key_fp,
+                # ARIA-HIGH-123 — and its sandbox shape, for the spawn.
+                git_containment=_git_containment,
             )
-        else:
-            cli_exit = invoke_claude_cli(
-            request_id=request_id,
-            subagent_type=subagent_type,
-            session_id=_session_id,
-            resume=_resume,
-            prompt_file=prompt_file,
-            output_path=expected_output_path,
-            transcript_path=transcript_output_path,
-            timeout_seconds=timeout,
-            claim_id=claim_id,
-            agent_id=agent_id,
-            # Plan 025 §B — request_envelope["role"] is now guaranteed
-            # populated (validated above); direct subscript surfaces a
-            # KeyError if a future regression skips the validation.
-            role=request_envelope["role"],
-            must_satisfy=request_envelope.get("must_satisfy") or [],
-            # Plan ARIA-V3.1-D3 — per-LLM-call cost attribution wire.
-            # Pass the request_envelope (provides cycle_id +
-            # pressure_source_type + convergence_id) + tools_dir so
-            # invoke_claude_cli can mint a V10.4 cost row gated on
-            # the V3.1-D2 _MOCK_MODE_AT_ENTRY frozen sentinel.
-            request_envelope=request_envelope,
-            tools_dir=tools_dir,
-            spawn_control=_spawn_control,
-            # ARIA-HIGH-115 — the executor-held identity, for the cost row.
-            signer_key_fp=_signer_key_fp,
-        )
+        finally:
+            if _git_containment is not None:
+                _publish_sandbox_commits(
+                    tools_dir=tools_dir, request_id=request_id, claim_id=claim_id, containment=_git_containment,
+                )
         if cli_exit != 0:
             # Plan 032 Faz 032c — a write-capable spawn that ended non-zero has
             # its LOCAL edits put back from the pre-spawn checkpoint (hand

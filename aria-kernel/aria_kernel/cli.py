@@ -2867,6 +2867,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     # Plan 032 Faz 032b-2 — the Claude Code hook entry points. The CLI reads
     # the hook payload on stdin and prints the protocol's decision JSON.
+    # ARIA-HIGH-123 — this is the KERNEL-side entry (an operator replaying a
+    # payload against a store); a spawn's settings never compile it. Inside
+    # the sandbox the hook client (`hook_client.py`, stdlib only) ships the
+    # payload to the executor's broker (`hook_broker`), which runs the same
+    # `hooks.run_hook` with the kernel's own store, request id and cap.
     hook_parser = add_subparser(sub, "hook")
     hook_sub = hook_parser.add_subparsers(dest="hook_command", required=True)
     for verb in ("pre-tool", "post-tool", "session"):
@@ -2874,12 +2879,11 @@ def build_parser() -> argparse.ArgumentParser:
         hook_verb.add_argument("--workspace-root", required=True)
         hook_verb.add_argument("--request-id", required=True)
         if verb == "pre-tool":
-            # cycle_and_turn_budget_cap — compiled into the spawn settings by
-            # claude_settings.build_settings for write-scope profiles from the
-            # policy of the store's bound workspace (turn_budget_policy);
-            # absent for an unbudgeted spawn. The sandboxed hook takes the
-            # cap from argv only — it never reads a policy file the agent
-            # could have edited in its own tree.
+            # cycle_and_turn_budget_cap — the cap the kernel compiled for the
+            # spawn (claude_settings.build_settings, write-scope profiles,
+            # from the policy of the store's bound workspace); absent for an
+            # unbudgeted spawn. Taken from argv only — never from a policy
+            # file an agent could have edited in its own tree.
             hook_verb.add_argument("--turn-budget", type=int, default=None)
 
     # Plan 032 Faz 032c — checkpoints, sessions, recovery, search.

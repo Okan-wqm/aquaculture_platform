@@ -22,15 +22,22 @@ Fail-closed: a PreToolUse handler that raises is a DENY (exit 2) — an
 unreadable policy is not permission.
 
 cycle_and_turn_budget_cap (policy §14): a budgeted spawn — one whose profile
-has a write scope, so the kernel compiled ``--turn-budget N`` into its hook
-command, N being the ``implementer_turn_budget.budgeted_turns`` of the policy
-the spawn's store is bound to (:mod:`turn_budget_policy`, kernel default 60)
-— has every Edit/Write/Bash turn admitted against the job deadline and that
-turn cap INSIDE the state transaction that appends its verdict, so the count
-and the row are one atomic step. The hook trusts argv, never a policy file:
-inside the sandbox the agent's tree is the agent's, and the number the kernel
-compiled is the only one the executor vouched for. The refusal owner and the
-evidence reader are :mod:`turn_budget`.
+has a write scope, so the kernel compiled a turn cap into its settings
+document (``_aria.turn_budget``), N being the
+``implementer_turn_budget.budgeted_turns`` of the policy the spawn's store is
+bound to (:mod:`turn_budget_policy`, kernel default 60) — has every
+Edit/Write/Bash turn admitted against the job deadline and that turn cap
+INSIDE the state transaction that appends its verdict, so the count and the
+row are one atomic step. The refusal owner and the evidence reader are
+:mod:`turn_budget`.
+
+ARIA-HIGH-123 — WHERE this runs: outside the sandbox. The spawn's settings
+compile the stdlib-only hook client (:mod:`hook_client`), which ships the
+CLI's payload to the executor's broker (:mod:`hook_broker`); the broker calls
+:func:`run_hook` with the kernel's own store, workspace, request id and cap.
+The agent's sandbox holds no store and names no cap; the number the kernel
+compiled is the only one the executor vouched for, and the count lives where
+the agent cannot reach it.
 """
 from __future__ import annotations
 
@@ -219,9 +226,8 @@ def admit_budgeted_turn(
     root = ensure_tools_dir(base_dir)
     path = root.joinpath(*HOOK_DECISIONS_RELPATH)
     at = time.time() if now is None else now
-    # The hook runs inside the agent's sandbox; the deadline reaches it the
-    # way it reaches the spawn clamp — through the built environment
-    # (agent_env.ARIA_RUNTIME_ENV_NAMES), never through argv the agent sees.
+    # The deadline is the executor's own (the broker runs in its process):
+    # the same variable the spawn clamp reads, never argv the agent sees.
     deadline = parse_deadline_epoch(os.environ.get(JOB_DEADLINE_EPOCH_ENV))
     with state_transaction([path]) as transaction:
         rows = (

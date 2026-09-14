@@ -2252,6 +2252,113 @@ publisher contract. Earlier inner cycle projections are not consumers of these o
   lands; the plan stays where the envelope mint left it. Pinned end to end through the real
   executor child in `aria-kernel/tests/test_executor_implementation_identity.py` and at the
   boundary in `tests/test_implementation_signature_boundary.py`.
+- The implementer's sandbox never writes the shared repository, and never sees the store
+  (ARIA-HIGH-123). The write-containment sandbox (`implementation_safety.wrap_bash_in_sandbox`,
+  and `wrap_managed_claude_in_sandbox` on top of it — ONE builder, `_sandbox_argv`, for both
+  routes and for the probe) used to bind the workspace and ro-bind `.git/` and nothing else, so
+  in a linked worktree — the executor's per-request tree, whose `.git` is a pointer file and whose
+  git dirs live outside the workspace — every git command died `not a git repository`, in a main
+  checkout `git add` died on `index.lock`, and the private signing key was readable inside
+  (`aria-debts/` ro-bound). The binds are now DERIVED from the checkout's shape by
+  `git_containment.derive_git_containment` (the one parser, `checkout_root` +
+  `gh_token_factory.signing_checkout`), measured under real bwrap one bind at a time — and the
+  agent's git runs against a REPLICA and a QUARANTINE, git's own receive-pack shape. The REPLICA
+  is a kernel-made copy of the worktree's private git dir (`<private>/aria-sandbox/`: `HEAD`,
+  `index`, `logs/HEAD`, the control files) bound over `<private>` inside, so `git switch`, `git add`
+  and `git commit` rewrite the replica's `HEAD` and `index` and the host's stay as the drain left
+  them (a `locked` the agent writes lands in the replica; the reaper's `git worktree remove --force`
+  is never refused). The QUARANTINE is what git writes to: `GIT_OBJECT_DIRECTORY` at the
+  replica's `objects/` (its `info/alternates` names the shared store for READS), the replica's
+  `refs/heads/` and `logs/refs/heads/` bound AT `<common>/refs/heads` and `<common>/logs/refs/heads`
+  — so a plain `git switch -c aria-impl-…` + `git commit` + `git push origin aria-impl-…` works
+  unchanged inside while the shared common dir is bound READ-ONLY as a whole (`config`, `hooks/`,
+  `info/`, `objects/` with its packs, `objects/info/alternates` and `maintenance.lock`,
+  `packed-refs`, `refs/tags`, `refs/remotes`, the main checkout's `HEAD`/`index`/`logs/HEAD`): a
+  write there is EROFS at the syscall. Existing loose refs under `refs/heads/` are overlaid
+  read-only on top of the quarantine (visible, not rewritable — EBUSY on the mountpoint), bounded
+  by `LOOSE_REF_OVERLAY_BOUND` (refused `loose_refs_exceed_overlay_bound:<n>`; `git pack-refs
+  --all` is the remedy — bwrap admits at most 9000 argv tokens, which is also why existing loose
+  OBJECTS are not overlaid one by one). READ-ONLY beside the workspace: the nearest ancestor
+  `node_modules` (a per-request worktree resolves the checkout's tree). The EFFECTIVE hooks
+  directory (`git rev-parse --path-format=absolute --git-path hooks`) is read-only inside. HIDDEN:
+  `<common>/worktrees/` is a fresh tmpfs with only this worktree's entry (the replica) bound back;
+  the main checkout's working tree is never bound; `<worktree>/aria-debts/keys/` is a fresh tmpfs
+  with only the held identity's PUBLIC key bound back. The temp dir is the sandbox's own /tmp
+  (`TMPDIR` exported by name). READONLY_PATHS keeps `.git/` and `aria-debts/` as the SCOPE and HOOK
+  unit; `.git/` is no longer the unit of the mount layer.
+  PUBLICATION: after the spawn — whatever its exit — the executor publishes the quarantine from
+  OUTSIDE (`git_containment.publish_quarantine`, `ci_executor._publish_sandbox_commits`,
+  governance row `implementation_quarantine_published`): every loose object is inflated and
+  re-hashed before it moves (git reads loose objects BEFORE packed ones, so a crafted file under a
+  packed object's name would shadow the good object — refused `object_hash_mismatch`, never
+  migrated); a verified object is renamed into the shared store (content-addressed, an object the
+  store holds is dropped, never overwritten); a pack the agent's git made is fed to `git
+  unpack-objects --strict` against the shared store (each object under the hash of its inflated
+  bytes; never a pack file copied whole); only ref files whose name matches the push grammar's own
+  fragment (`command_policy.ARIA_IMPL_BRANCH_FRAGMENT`) and whose content is an object the store
+  now holds are published with `git update-ref` (a real reflog row, the kernel's); everything else
+  — a planted `main.lock`, a shadow `main`, a branch of the agent's naming — is discarded and named
+  in the receipt; the worktree's HEAD then adopts the published branch the replica's HEAD names,
+  so the executor's evidence check (`--evidence-target-sha auto`) grades the agent's files against
+  the agent's commit. A killed executor publishes nothing: the quarantine dies with its worktree,
+  and the shared repository never carried a byte of it.
+  WHERE THE KEY LIVES: with the kernel. `implementation_identity` holds an ssh-agent
+  (`signing_agent.hold_signing_agent`) for the identity window — started after the mint and BEFORE
+  the registry write, so a refusal leaves no `kg_signers` row; listing exactly the cycle key;
+  stopped on every exit of the body AND dying with its holder however the holder dies
+  (`PR_SET_PDEATHSIG`, armed under `PR_SET_NO_NEW_PRIVS` because the distribution's set-gid
+  `ssh-agent` drops the death signal at exec); its key lifetime is the window's remaining time
+  (`-t`, from `ARIA_JOB_DEADLINE_EPOCH`, `lifetime_until`) so a socket that outlived everything
+  holds no key past the deadline; started with PATH only (never the executor's environ) and with
+  `-P '!*'` (no provider library can be loaded through the socket the sandbox holds) — and hands
+  the sandbox the agent's socket (`/tmp/aria-signing-agent.sock`, `SSH_AUTH_SOCK` set by bwrap
+  after the spawn environment was built, which drops the name as secret-shaped). `user.signingkey`
+  still names the private path (the B7 config transaction's ownership marker is unchanged): git
+  2.43 / OpenSSH 9.6 load `<private path>.pub` when the private file is absent and sign through the
+  agent; without the agent the commit fails `No private key found`, never silently unsigned. The
+  orchestrator's startup sweep (`prune_stale_signing_agents`, `prune_stale_hook_brokers`,
+  governance `sockets_pruned`) removes socket directories whose listener is gone. The refusals
+  ride the HIGH-115 release reason `implementation_signing_unavailable` with the cause in the
+  governance row: `signing_agent_unavailable:<reason>`, `git_containment_refused:<reason>`; a MAIN
+  checkout is refused `shared_checkout_scope:--local` (one spelling, one reading) and is never
+  bound writable.
+  WHERE THE STORE LIVES: outside, only. The hook commands compiled into the spawn's settings run
+  the stdlib-only hook CLIENT by path (`<python> <kernel_root>/aria_kernel/hook_client.py <verb>`,
+  `claude_settings.hook_command` — no store, no request id, no cap on the line) which ships the
+  CLI's payload to the kernel-side BROKER (`hook_broker.serve_hook_broker`, served in the executor
+  process around the spawn with the store, the workspace, the request id and the compiled turn cap
+  as ITS facts) over one unix socket bound into the sandbox (`/tmp/aria-hook-broker.sock`,
+  `ARIA_HOOK_BROKER_SOCKET` set by bwrap; an unconfined spawn gets the host path in its
+  environment). The decision ledger, the turn count, the work journal, the checkpoint and the
+  handoff snapshot are written by the kernel outside; a broker that cannot be reached is a DENY
+  for PreToolUse and an "unrecorded" note for the verbs that cannot block. Nothing of the state
+  store is mounted in the sandbox — not writable, not at all: the round-1 shape (the store root
+  bound writable) handed the agent the request queue, claims, governance, the signer registry,
+  operator control, adjudications, the cost ledgers and the very turn count it is gated by. What
+  the agent can do through the socket is what a hook could always do for its own request. (The
+  store-touching kernel commands the implementer contract still has the agent run inside —
+  `apply gate`, `pr create` — and the `aria` MCP server spawned inside are ARIA-HIGH-124: they
+  never worked in the production sandbox and are served outside next.)
+  WHAT THE PROBE PROVES: `sandbox_backend()` is non-None only when bwrap builds its namespaces AND
+  hosts the SIGNED contract (`containment_probe.probe_git_containment`: a throwaway linked
+  worktree, a throwaway key minted into it by the identity's own mint, the kernel-held agent, a
+  commit-capable containment derived with that signing exposure, `git status` / `git switch -c` /
+  a signed `git commit` inside the real argv built with the managed route's network setting
+  (`MANAGED_SPAWN_ALLOW_NETWORK`), `git config --local`, a hooks write and a read of the private
+  key REFUSED inside, a planted `refs/heads/main.lock` that must not reach the repository, then
+  the executor's own publication and `git verify-commit` against the minted key from outside).
+  `/etc/passwd` and `/etc/group` are system binds: `ssh-keygen -Y sign` resolves its uid before it
+  signs and dies `No user exists for uid N?` without them — the production runner's uid, which a
+  root shell never showed because nss-systemd synthesizes root when `nsswitch.conf` is bound. A
+  runner whose sandbox cannot host the signed commit is therefore refused by the pre-claim
+  environment gate (`sandbox_unavailable`, the probe's reason in the row): the request stays
+  PENDING, nothing is claimed, no identity is minted, no turn is spent. Pinned under real bwrap in
+  `tests/test_git_containment.py` (the measurement, the refusals, the publication, the store's
+  absence with a hook row reaching it through the broker, three mutations),
+  `tests/test_containment_probe.py`, `tests/test_signing_agent.py` (a SIGKILLed holder),
+  `tests/test_hook_broker.py`, `tests/test_implementation_identity_hold.py`, and end to end — the
+  HIGH-115 chain through the REAL wrapper as the runner's uid and as root — in
+  `tests/test_executor_implementation_identity.py`.
 - Original cycle/plan/revision/content identities and public signer provenance retain their
   separate meanings. If the initial hook omits its plan ID, the supplied outer convergence linkage
   can provide it. No plan is inferred from a cycle name. An overlong supplied identity is omitted

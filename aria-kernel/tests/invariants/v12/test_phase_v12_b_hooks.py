@@ -14,7 +14,8 @@ Invariants:
                  a quoted secret is redacted and its pattern class named.
   I-V12-HOOK-05  session hooks produce a handoff snapshot with the matching
                  trigger.
-  I-V12-HOOK-06  the CLI `hook` verbs read stdin and print the protocol JSON.
+  I-V12-HOOK-06  the CLI `hook` verbs read stdin and print the protocol JSON
+                 (the kernel-side entry; the sandbox runs the hook client).
   (cycle_and_turn_budget_cap — the per-turn cap the PreToolUse hook admits
   against, and the pre-merge predicate that reads its rows, are pinned in
   tests/test_turn_budget.py.)
@@ -85,15 +86,21 @@ class SettingsCarryRulesAndHooks(unittest.TestCase):
         self.assertNotIn("Bash(git push origin aria-impl-*)", closed["permissions"]["allow"])
         self.assertIn("Bash(git push*)", closed["permissions"]["deny"])
         command = settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
-        self.assertIn("-m aria_kernel hook pre-tool", command)
-        self.assertIn("--request-id AIR-1", command)
-        # cycle_and_turn_budget_cap: a write-scope profile's PreToolUse hook is
-        # compiled with the policy's turn cap for the store's bound workspace
-        # — the kernel default 60 here, since this context names a store with
-        # no override (operator decision 2026-09-12; the policy block is
-        # pinned in tests/test_turn_budget_policy.py, the full reader matrix
-        # in tests/test_turn_budget.py).
-        self.assertIn("--turn-budget 60", command)
+        # ARIA-HIGH-123 — the command runs the stdlib-only hook client BY
+        # PATH under the workspace's read-only kernel tree and names nothing
+        # but the verb: the store, the request id and the turn cap are the
+        # kernel-side broker's facts (`hook_broker`), never argv the
+        # sandboxed agent can read, and the store is not mounted inside.
+        self.assertEqual(command, f"python3 {workspace / 'aria-kernel' / 'aria_kernel' / 'hook_client.py'} pre-tool")
+        for forbidden in ("-m aria_kernel", "--tools-dir", str(tools), "--request-id", "AIR-1", "--turn-budget"):
+            self.assertNotIn(forbidden, command)
+        # cycle_and_turn_budget_cap: a write-scope profile's document records
+        # the policy's turn cap for the store's bound workspace — the kernel
+        # default 60 here, since this context names a store with no override
+        # (operator decision 2026-09-12; the policy block is pinned in
+        # tests/test_turn_budget_policy.py, the full reader matrix in
+        # tests/test_turn_budget.py) — and the spawner hands that number to
+        # the broker (`claude_runtime.SpawnSettings.turn_budget`).
         self.assertEqual(settings["_aria"]["turn_budget"], 60)
         self.assertTrue(settings_hash(settings).startswith("sha256:"))
         self.assertEqual(settings_hash(settings), settings_hash(build_settings(profile_by_id("implementer"), hook_context=ctx)))
@@ -114,13 +121,14 @@ class SettingsCarryRulesAndHooks(unittest.TestCase):
                 agent_profile=profile, usage_recording=None, workspace_root="/w", write_capable=True,
             )
         with tempfile.TemporaryDirectory() as tmp, mock.patch.dict(os.environ, {"RUNNER_TEMP": tmp}):
-            path = claude_runtime._write_spawn_settings(
+            spawn_settings = claude_runtime._write_spawn_settings(
                 agent_profile=profile, usage_recording=None, workspace_root="/w", write_capable=False,
             )
-            self.assertTrue(path and path.exists())
+            self.assertTrue(spawn_settings.path and spawn_settings.path.exists())
+            self.assertIsNone(spawn_settings.hook_context, "no ledger context, no hooks, no broker")
         self.assertIsNone(claude_runtime._write_spawn_settings(
             agent_profile=None, usage_recording=None, workspace_root="/w", write_capable=True,
-        ))
+        ).path)
 
 
 class PreToolUseDecides(unittest.TestCase):

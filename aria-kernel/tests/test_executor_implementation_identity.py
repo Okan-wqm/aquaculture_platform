@@ -10,14 +10,18 @@ the bridge's ``git verify-commit``.
 
 These pins run the ACTUAL executor child (``tools/aria-poc/ci_executor.py``)
 in a per-request worktree the drain's own provisioning adds, with the ACTUAL
-kernel claiming, submitting and bridging; the declared substitutes are the
-``claude`` binary (a script that switches to the staged branch, edits the
-plan's file and runs a plain ``git commit`` in its cwd, then answers the
-envelope) and ``bwrap`` (a pass-through: the containment's own bind of
-``.git/`` as read-only and its silence about a linked worktree's common git
-dir are a separate finding, and the property here is the identity chain, not
-the sandbox). No dry-run flag is set, so the bridge's verification is the
-real ``git verify-commit``.
+kernel claiming, submitting and bridging, under the REAL bwrap containment
+(ARIA-HIGH-123: the sandbox derives the worktree's git binds from the
+checkout, masks the private key, and binds the kernel-held signing agent's
+socket — the pre-change containment bound only the workspace, so the agent's
+first git command died ``not a git repository`` and these pins had to run a
+pass-through ``bwrap``); the one declared substitute is the ``claude``
+binary (a script that switches to the staged branch, edits the plan's file
+and runs a plain ``git commit`` in its cwd, then answers the envelope). No
+dry-run flag is set, so the bridge's verification is the real
+``git verify-commit``. A host without a usable bwrap skips: the executor
+refuses to claim there (``sandbox_unavailable``), which is its own pin
+(``tests/test_containment_probe.py``).
 
 One property per test:
 
@@ -96,7 +100,11 @@ def _scripted_implementer(
         f"    print(json.dumps({_STATUS!r})); raise SystemExit(0)\n"
         "prompt = sys.stdin.read()\n"
         "def git(*args):\n"
-        "    return subprocess.run(['git', *args], check=True, capture_output=True, text=True).stdout.strip()\n"
+        "    done = subprocess.run(['git', *args], capture_output=True, text=True)\n"
+        "    if done.returncode != 0:\n"
+        "        sys.stderr.write('git ' + ' '.join(args[:2]) + ' rc=' + str(done.returncode) + ': ' + done.stderr.strip()[-600:] + '\\n')\n"
+        "        raise SystemExit(1)\n"
+        "    return done.stdout.strip()\n"
         "def config(key):\n"
         "    done = subprocess.run(['git', 'config', '--get', key], capture_output=True, text=True)\n"
         "    return done.stdout.strip() if done.returncode == 0 else None\n"
@@ -117,6 +125,71 @@ def _scripted_implementer(
         }[commit_shape]
         + "git(*commit)\n"
         "head = git('rev-parse', 'HEAD')\n"
+        # ARIA-HIGH-123 — what the sandbox lets this process reach, probed
+        # from the inside: each entry is a boolean the test asserts on.
+        "def readable(path):\n"
+        "    try:\n"
+        "        open(path, 'rb').read(); return True\n"
+        "    except OSError:\n"
+        "        return False\n"
+        "def writable(path):\n"
+        "    try:\n"
+        "        open(path, 'a').close(); return True\n"
+        "    except OSError:\n"
+        "        return False\n"
+        "def rc(*args):\n"
+        "    return subprocess.run(['git', *args], capture_output=True, text=True).returncode\n"
+        "checkout = os.path.dirname(os.path.dirname(os.getcwd()))\n"
+        "hooks = git('rev-parse', '--path-format=absolute', '--git-path', 'hooks')\n"
+        "worktree_config = git('rev-parse', '--path-format=absolute', '--git-path', 'config.worktree')\n"
+        "common = git('rev-parse', '--path-format=absolute', '--git-common-dir')\n"
+        "private = git('rev-parse', '--path-format=absolute', '--git-dir')\n"
+        "signingkey = config('user.signingkey') or ''\n"
+        "store = os.environ.get('ARIA_TOOLS_DIR') or ''\n"
+        # The store must not be reachable; a hook row must reach the kernel
+        # through the broker's socket, which the client finds by name.
+        "hook_payload = json.dumps({'session_id': 'sess-e2e', 'tool_use_id': 'toolu_e2e', 'hook_event_name': 'PostToolUse',\n"
+        "    'tool_name': 'Bash', 'tool_input': {'command': 'git status'}, 'tool_response': {'exit_code': 0}})\n"
+        "client = os.path.join(os.getcwd(), 'aria-kernel', 'aria_kernel', 'hook_client.py')\n"
+        "hook = subprocess.run([sys.executable, client, 'post-tool'], input=hook_payload, capture_output=True, text=True)\n"
+        "packs = [p for p in os.listdir(os.path.join(common, 'objects', 'pack')) if p.endswith('.pack')]\n"
+        "def unlinkable(path):\n"
+        "    try:\n"
+        "        os.unlink(path); return True\n"
+        "    except OSError:\n"
+        "        return False\n"
+        "sandbox = {\n"
+        # The fixture CLI lives under the store (`fixture-bin/claude`, bound
+        # read-only by the spawner as the real CLI is), so the store's ROOT
+        # exists inside as that bind's parent; its ledgers must not.
+        "    'store_ledgers_visible': any(os.path.exists(os.path.join(store, p)) for p in\n"
+        "        ('agent-invocations', 'governance.jsonl', 'knowledge-graph', 'control', 'human-required')),\n"
+        "    'store_forgeable': writable(os.path.join(store, 'agent-invocations', 'requests.jsonl')),\n"
+        "    'hook_broker_env': os.environ.get('ARIA_HOOK_BROKER_SOCKET'),\n"
+        "    'hook_client_rc': hook.returncode,\n"
+        "    'git_object_directory': os.environ.get('GIT_OBJECT_DIRECTORY'),\n"
+        "    'shared_objects_writable': writable(os.path.join(common, 'objects', 'aria-probe')),\n"
+        "    'shared_pack_unlinkable': bool(packs) and unlinkable(os.path.join(common, 'objects', 'pack', packs[0])),\n"
+        "    'alternates_writable': writable(os.path.join(common, 'objects', 'info', 'alternates')),\n"
+        "    'maintenance_lock_plantable': writable(os.path.join(common, 'objects', 'maintenance.lock')),\n"
+        "    'main_lock_planted_inside': writable(os.path.join(common, 'refs', 'heads', 'main.lock')),\n"
+        "    'worktree_lock_written_inside': writable(os.path.join(private, 'locked')),\n"
+        "    'private_key_readable': readable(signingkey),\n"
+        "    'public_key_readable': readable(signingkey + '.pub'),\n"
+        "    'hooks_writable': writable(os.path.join(hooks, 'aria-probe')),\n"
+        "    'worktree_config_writable': writable(worktree_config),\n"
+        "    'allowed_signers_writable': writable(config('gpg.ssh.allowedSignersFile') or ''),\n"
+        "    'common_config_writable': writable(os.path.join(common, 'config')),\n"
+        "    'signingkey_reconfigurable': rc('config', '--worktree', 'user.signingkey', '/tmp/other') == 0,\n"
+        "    'local_config_writable_by_git': rc('config', '--local', 'aria.probe', '1') == 0,\n"
+        "    'main_ref_rewritable': rc('update-ref', 'refs/heads/main', head) == 0,\n"
+        "    'sibling_worktree_visible': os.path.exists(os.path.join(checkout, 'aria-worktrees', 'req-sibling')),\n"
+        "    'sibling_git_dir_visible': os.path.exists(os.path.join(common, 'worktrees', 'req-sibling')),\n"
+        "    'main_working_tree_visible': os.path.exists(os.path.join(checkout, 'apps')),\n"
+        "    'dependency_tree_visible': os.path.isdir(os.path.join(checkout, 'node_modules')),\n"
+        "    'ssh_auth_sock': os.environ.get('SSH_AUTH_SOCK'),\n"
+        "    'tmpdir': os.environ.get('TMPDIR'),\n"
+        "}\n"
         f"diff = git('diff', {base_sha!r}, head)\n"
         f"implementation = {{'branch': {branch!r}, 'pr_url': {PR_URL!r},\n"
         "    'diff_hash': 'sha256:' + hashlib.sha256(diff.encode('utf-8')).hexdigest(),\n"
@@ -127,7 +200,8 @@ def _scripted_implementer(
         "    'details': {'implementation': implementation, 'agent_observation': {\n"
         "        'cwd': os.getcwd(), 'registered_before_agent': registered,\n"
         "        'commit_gpgsign': config('commit.gpgsign'), 'user_signingkey': config('user.signingkey'),\n"
-        "        'gpg_format': config('gpg.format'), 'allowed_signers': config('gpg.ssh.allowedSignersFile')}}}\n"
+        "        'gpg_format': config('gpg.format'), 'allowed_signers': config('gpg.ssh.allowedSignersFile'),\n"
+        "        'sandbox': sandbox}}}\n"
         "message = json.dumps(response)\n"
         "print(json.dumps({'type': 'assistant', 'message': {'role': 'assistant', 'content': [{'type': 'text', 'text': message}]}}))\n"
         "print(json.dumps({'type': 'result', 'subtype': 'success', 'is_error': False, 'result': message,\n"
@@ -138,8 +212,11 @@ def _scripted_implementer(
 class ExecutorImplementationIdentityTests(unittest.TestCase):
     def setUp(self) -> None:
         from aria_kernel import agent_invocations as ai
+        from aria_kernel.implementation_safety import sandbox_backend
         from aria_kernel.tool_registry import ensure_tools_binding
 
+        if sandbox_backend() is None:
+            self.skipTest("bwrap is not usable on this host; the executor refuses to claim here")
         scratch = tempfile.TemporaryDirectory(prefix="aria-115-identity-")
         self.addCleanup(scratch.cleanup)
         self.root = Path(scratch.name).resolve()
@@ -158,7 +235,12 @@ class ExecutorImplementationIdentityTests(unittest.TestCase):
             ".gitignore": "aria-tools/\naria-debts/keys/\naria-worktrees/\nnode_modules/\n__pycache__/\n",
             SOURCE: "export const sampleIntervalMs = 60000;\n",
             ".claude/agents/aria-implementer.md": agent.read_text(encoding="utf-8"),
+            # The in-sandbox hook client rides the checkout's own kernel tree
+            # (ARIA-HIGH-123): the scripted implementer ships a hook through it.
+            "aria-kernel/aria_kernel/hook_client.py": (_KERNEL_DIR / "aria_kernel" / "hook_client.py").read_text(encoding="utf-8"),
         }, name="checkout")
+        # The shared store carries a pack, as the runner checkout's does.
+        _git(["repack", "-a", "-d", "-q"], cwd=self.repo)
         # A validation command resolves node modules by walking up from the
         # worktree; the checkout carries them (the environment gate's probe).
         (self.repo / "node_modules").mkdir()
@@ -175,7 +257,6 @@ class ExecutorImplementationIdentityTests(unittest.TestCase):
         # real CLI lives on a bound path (the native lanes' shape).
         self.fixture_bin = self.tools / "fixture-bin"
         self.fixture_bin.mkdir()
-        self._install_pass_through_bwrap()
         self.environment = {
             "PATH": os.pathsep.join([str(self.fixture_bin), str(self.binary_dir), os.defpath]),
             "HOME": str(self.home), "CLAUDE_CONFIG_DIR": str(config_dir),
@@ -216,13 +297,26 @@ class ExecutorImplementationIdentityTests(unittest.TestCase):
         self.sibling.parent.mkdir(exist_ok=True)
         _git(["worktree", "add", "--detach", "-q", str(self.sibling), self.base_sha], cwd=self.repo)
 
-    def _install_pass_through_bwrap(self) -> None:
+    def _install_bwrap_without_the_quarantine_refs_bind(self) -> None:
+        """ARIA-HIGH-123 — a runner whose containment cannot host a commit:
+        the real bwrap, minus the one bind that stands the quarantine in for
+        the shared `refs/heads` (the pre-change shape, where nothing under
+        the common git dir was writable: `git switch -c` dies EROFS). Every
+        other argv reaches bwrap unchanged."""
+        import shutil
+
+        real = shutil.which("bwrap")
+        assert real is not None
         executable = self.fixture_bin / "bwrap"
         executable.write_text(
             f"#!{sys.executable}\n"
             "import os, sys\n"
-            "command = sys.argv[sys.argv.index('--') + 1:]\n"
-            "os.execvp(command[0], command)\n",
+            "argv = sys.argv[1:]\n"
+            "for index in range(len(argv) - 2):\n"
+            "    if argv[index] == '--bind' and argv[index + 2].endswith('/.git/refs/heads'):\n"
+            "        argv = argv[:index] + argv[index + 3:]\n"
+            "        break\n"
+            f"os.execv({real!r}, [{real!r}, *argv])\n",
             encoding="utf-8",
         )
         executable.chmod(0o755)
@@ -343,11 +437,65 @@ class ExecutorImplementationIdentityTests(unittest.TestCase):
         self.assertEqual(observed["gpg_format"], "ssh")
         self.assertEqual(Path(observed["user_signingkey"]), worktree / "aria-debts" / "keys" / CYCLE_ID)
         self.assertEqual(Path(observed["allowed_signers"]).parent, self.worktree_git_dir)
-        self.assertEqual([row["signer_key_fp"] for row in observed["registered_before_agent"]], [fingerprint])
-        self.assertEqual([row["cycle_id"] for row in observed["registered_before_agent"]], [CYCLE_ID])
-        # The commit verifies against the registered key from the shared
-        # checkout, where the branch ref survives the worktree's removal.
+        # The registry is on the store, which the sandbox does not see
+        # (ARIA-HIGH-123): the agent observes no rows. The public key was
+        # registered BEFORE the agent's first command all the same — the
+        # executor's stage line says so, and the row is on the ledger.
+        self.assertEqual(observed["registered_before_agent"], [])
+        self.assertEqual([row["signer_key_fp"] for row in self._registered()], [fingerprint])
+        self.assertEqual([row["cycle_id"] for row in self._registered()], [CYCLE_ID])
+        self.assertLess(completed.stderr.index("implementation_identity_held"), completed.stderr.index("claude_returned_exit"))
+        # ARIA-HIGH-123 — inside the REAL sandbox: the private key is not
+        # there to read (git signed through the kernel-held agent's socket),
+        # the public half is; hooks, both configs, the signers file and the
+        # loose `main` ref refuse writes; the sibling worktree, its git dir
+        # and the main checkout's working tree are not even visible — only
+        # its `node_modules`, the tree a nested worktree's validation suite
+        # resolves; the temp dir is the sandbox's own.
+        from aria_kernel.git_containment import SANDBOX_SIGNING_AGENT_SOCKET
+        from aria_kernel.hook_broker import SANDBOX_HOOK_BROKER_SOCKET
+        from aria_kernel.hooks import journal_rows_for
+        from aria_kernel.implementation_safety import SANDBOX_TMPDIR
+
+        self.assertEqual(observed["sandbox"], {
+            "store_ledgers_visible": False, "store_forgeable": False,
+            "hook_broker_env": SANDBOX_HOOK_BROKER_SOCKET, "hook_client_rc": 0,
+            "git_object_directory": str(self.worktree_git_dir / "objects"),
+            "shared_objects_writable": False, "shared_pack_unlinkable": False, "alternates_writable": False,
+            "maintenance_lock_plantable": False,
+            # Both land in the worktree's quarantine/replica, never on the host.
+            "main_lock_planted_inside": True, "worktree_lock_written_inside": True,
+            "private_key_readable": False, "public_key_readable": True,
+            "hooks_writable": False, "worktree_config_writable": False, "allowed_signers_writable": False,
+            "common_config_writable": False, "signingkey_reconfigurable": False,
+            "local_config_writable_by_git": False, "main_ref_rewritable": False,
+            "sibling_worktree_visible": False, "sibling_git_dir_visible": False,
+            "main_working_tree_visible": False, "dependency_tree_visible": True,
+            "ssh_auth_sock": SANDBOX_SIGNING_AGENT_SOCKET, "tmpdir": SANDBOX_TMPDIR,
+        })
+        # The hook row the agent's client shipped reached the REAL store
+        # through the executor's broker, under the executor's request id;
+        # the request ledger it could not reach is as the kernel wrote it.
+        journal = [row for row in journal_rows_for(self.request_id, base_dir=self.tools) if row["tool_use_id"] == "toolu_e2e"]
+        self.assertEqual([row["command_family"] for row in journal], ["git_read"])
+        self.assertNotIn("forged", (self.tools / "agent-invocations" / "requests.jsonl").read_text(encoding="utf-8"))
+        # The planted locks stayed in the sandbox: the shared `main` is not
+        # wedged and the worktree was removable (the fixture removed it).
+        self.assertFalse((self.repo / ".git" / "refs" / "heads" / "main.lock").exists())
+        self.assertFalse((self.repo / ".git" / "objects" / "maintenance.lock").exists())
+        self.assertEqual(_git(["fsck", "--no-dangling"], cwd=self.repo, check=False).returncode, 0)
+        # The commit reached the shared checkout through the kernel's
+        # publication of the worktree's quarantine — recorded by name — and
+        # verifies there against the registered key, where the branch ref
+        # survives the worktree's removal.
         head = implementation["branch_tip_sha"]
+        published = self._governance(ci_executor.IMPLEMENTATION_QUARANTINE_PUBLISHED_EVENT)
+        self.assertEqual(len(published), 1, published)
+        self.assertEqual(published[0]["details"]["refs_published"], [self.ids["branch"]])
+        self.assertEqual(published[0]["details"]["refusal"], None)
+        self.assertEqual(published[0]["details"]["objects_refused"], [])
+        self.assertGreaterEqual(published[0]["details"]["loose_objects_migrated"], 3)
+        self.assertEqual({row["ref"] for row in published[0]["details"]["refs_discarded"]}, {"main.lock"})
         self.assertEqual(_git(["rev-parse", self.ids["branch"]], cwd=self.repo).stdout.strip(), head)
         self.assertTrue(self._verify_against_registry(head, fingerprint))
         # The IMPL row landed: the bridge accepted the outcome.
@@ -444,6 +592,33 @@ class ExecutorImplementationIdentityTests(unittest.TestCase):
         # no snapshot could have been either.
         self.assertFalse((self.repo / "aria-debts" / "keys").exists())
         self.assertFalse((self.repo / ".git" / "aria-signing-config-snapshots").exists())
+
+    def test_a_runner_whose_sandbox_cannot_commit_is_refused_before_any_claim(self) -> None:
+        # ARIA-HIGH-123 — the containment probe runs the contract's git
+        # commands inside the real argv; a bwrap that cannot host them is
+        # "no backend" to the pre-claim environment gate: the request is
+        # never claimed (PENDING, requeue budget untouched), no identity is
+        # minted, no agent turn is spent, and the governance row names the
+        # git failure the probe saw.
+        self._install_implementer()
+        self._install_bwrap_without_the_quarantine_refs_bind()
+        completed, worktree = self._run_in_request_worktree()
+        # The gate's own exit (1, the FAZ 5b shape: the job reports an
+        # environment fault), never a claim.
+        self.assertEqual(completed.returncode, 1, self._diagnostic(completed))
+        self.assertIn("::error::pre_claim_environment_gate: sandbox_unavailable", completed.stderr)
+        self.assertEqual(self.ai.derive_request_state(request_id=self.request_id, base_dir=self.tools), "PENDING")
+        self.assertEqual(self._governance("agent_claim_created"), [], "nothing was claimed")
+        self.assertEqual(self._governance("agent_requeued"), [])
+        self.assertFalse(Path(self.request["expected_output_path"]).exists(), "no agent turn was spent")
+        self.assertNotIn("implementation_identity_held", completed.stderr)
+        self.assertEqual(self._registered(), [])
+        self.assertFalse(self.worktree_keys_dir_existed, "no key was minted")
+        refusals = self._governance("sandbox_unavailable")
+        self.assertEqual(len(refusals), 1, refusals)
+        self.assertEqual(refusals[0]["details"]["source"], "ci_executor_pre_claim_gate")
+        self.assertIn("git containment probe refused: git_in_sandbox_failed", refusals[0]["details"]["detail"])
+        self.assertIn("Read-only file system", refusals[0]["details"]["detail"])
 
     def test_a_pre_spawn_refusal_mints_no_identity(self) -> None:
         # The identity is held as the LAST pre-spawn step: a refusal decided

@@ -66,17 +66,39 @@ the cause (``ImplementationIdentityRefusal.reason``):
   factory or the registry refused (no ``ssh-keygen`` on PATH, a malformed
   cycle id, a refused ledger write); an unregistrable key is revoked on
   the spot, because a fingerprint no later reader can resolve is not an
-  identity.
+  identity;
+* ``signing_agent_unavailable:<reason>`` / ``git_containment_refused:<reason>``
+  (ARIA-HIGH-123) — the kernel could not hold the ssh-agent that signs for
+  the sandbox (``signing_agent``), or the checkout cannot host a
+  commit-capable sandbox (``git_containment``: a hooks dir git would not
+  name, a git dir it could not prepare); the mint and the registration are
+  unwound the same way.
+
+ARIA-HIGH-123 — the key never enters the sandbox. The held identity carries
+its SANDBOX shape (``ImplementationIdentity.containment``, a
+``git_containment.GitContainment`` with ``SandboxSigning``): the sandbox
+masks ``aria-debts/keys/``, shows the public half only, and binds the socket
+of the ssh-agent this process holds for the window; git signs through it.
+The agent's key lifetime is the window's remaining time (``signing_agent
+.lifetime_until`` from ``ARIA_JOB_DEADLINE_EPOCH``), and the agent dies with
+this process however it dies. The executor hands the containment to the
+spawn and, after the spawn, publishes what the agent committed from the
+worktree's quarantine (``git_containment.publish_quarantine``) — the shared
+repository is written by the kernel, never by the sandbox.
 """
 from __future__ import annotations
 
+import os
 import subprocess
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator
 
+from .git_containment import GitContainment, GitContainmentRefusal, SandboxSigning, derive_git_containment
 from .release_reason import IMPLEMENTATION_SIGNING_UNAVAILABLE
+from .signing_agent import SigningAgentUnavailable, hold_signing_agent, lifetime_until
+from .turn_budget import JOB_DEADLINE_EPOCH_ENV, parse_deadline_epoch
 
 # The release reason the executor hands the claim back with: the closed
 # vocabulary's own spelling (``release_reason``), classified as a harness
@@ -110,17 +132,23 @@ class ImplementationIdentityRefusal(Exception):
 
 @dataclass(frozen=True)
 class ImplementationIdentity:
-    """The held identity: its public fingerprint and where it is wired.
+    """The held identity: its public fingerprint, where it is wired, and
+    the sandbox shape that lets a contained spawn commit with it.
 
     The private key never leaves ``<workspace_root>/aria-debts/keys/`` and is
     not carried here; ``scope`` is the git config scope the mint wrote
-    (``--worktree`` — the only scope this seam accepts).
+    (``--worktree`` — the only scope this seam accepts). ``containment`` is
+    the commit-capable git containment derived from the worktree
+    (ARIA-HIGH-123): the spawn is wrapped with it, and inside it the keys
+    dir is masked, the public key shown, and signing goes through the
+    kernel-held agent's socket.
     """
 
     cycle_id: str
     workspace_root: Path
     fingerprint: str
     scope: str
+    containment: GitContainment
 
 
 def _registration_failure_classes() -> tuple[type[BaseException], ...]:
@@ -191,24 +219,49 @@ def hold_implementation_identity(
         raise ImplementationIdentityRefusal(refusal)
 
     try:
-        # The public key goes on the ledger BEFORE the agent runs: the
-        # fingerprint the executor stamps on the result is one the bridge
-        # can resolve to a real key after the worktree and its files are
-        # gone. Registration is idempotent for the same key.
-        register_convention_signer(
-            cycle_id=cycle_id, signer_key_fp=key.fingerprint,
-            public_key=key.public_key_path.read_text(encoding="utf-8"),
-            base_dir=base_dir,
-        )
-    except _registration_failure_classes() as exc:
-        revoke_signing_key(cycle_id=cycle_id, workspace_root=workspace)
-        raise ImplementationIdentityRefusal(f"register_failed:{type(exc).__name__}") from exc
-
-    try:
-        yield ImplementationIdentity(
-            cycle_id=cycle_id, workspace_root=workspace,
-            fingerprint=key.fingerprint, scope=str(wiring.scope),
-        )
+        # ARIA-HIGH-123 — the sandbox shape is decided BEFORE the registry
+        # write, so a refusal here (no ssh-agent, a hooks dir git would not
+        # name) leaves no `kg_signers` row for a key that never signed: the
+        # registry is append-only. The agent that signs for the sandbox is
+        # held by THIS process for the window; the sandbox gets its socket
+        # and the public key, never the private file. It is stopped
+        # (SIGTERM) on every exit, before the revoke unlinks the key.
+        with hold_signing_agent(
+            key.private_key_path, expected_fingerprint=key.fingerprint,
+            # The key lives in the agent no longer than the job: past the
+            # deadline the executor is killed, and an agent that outlived
+            # the kill must hold nothing.
+            lifetime_seconds=lifetime_until(parse_deadline_epoch(os.environ.get(JOB_DEADLINE_EPOCH_ENV))),
+        ) as agent:
+            containment = derive_git_containment(
+                workspace, commit_capable=True,
+                signing=SandboxSigning(
+                    keys_dir=key.private_key_path.parent, public_key_path=key.public_key_path,
+                    agent_socket=agent.socket_path,
+                ),
+            )
+            assert containment is not None
+            try:
+                # The public key goes on the ledger BEFORE the agent runs:
+                # the fingerprint the executor stamps on the result is one
+                # the bridge can resolve to a real key after the worktree
+                # and its files are gone. Registration is idempotent for the
+                # same key.
+                register_convention_signer(
+                    cycle_id=cycle_id, signer_key_fp=key.fingerprint,
+                    public_key=key.public_key_path.read_text(encoding="utf-8"),
+                    base_dir=base_dir,
+                )
+            except _registration_failure_classes() as exc:
+                raise ImplementationIdentityRefusal(f"register_failed:{type(exc).__name__}") from exc
+            yield ImplementationIdentity(
+                cycle_id=cycle_id, workspace_root=workspace,
+                fingerprint=key.fingerprint, scope=str(wiring.scope), containment=containment,
+            )
+    except SigningAgentUnavailable as exc:
+        raise ImplementationIdentityRefusal(f"signing_agent_unavailable:{exc.reason}") from exc
+    except GitContainmentRefusal as exc:
+        raise ImplementationIdentityRefusal(f"git_containment_refused:{exc.reason}") from exc
     finally:
         # The key cannot outlive the request: the same `finally` discipline
         # the knowledge signer keeps for the same key (V3.1-B-7). The

@@ -30,6 +30,7 @@ import subprocess
 import sys
 import threading
 import time
+from contextlib import ExitStack as _ExitStack
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
@@ -641,6 +642,8 @@ def _apply_write_containment(
     executable: Path | None = None,
     spawn_files: Sequence[Path] = (),
     managed_login_dir: Path | None = None,
+    git_containment: Any | None = None,
+    hook_broker_socket: Path | None = None,
 ) -> list[str]:
     """Wrap a write-capable spawn so READONLY_PATHS are enforced by the OS.
 
@@ -649,6 +652,18 @@ def _apply_write_containment(
     CLI, ``managed_login_dir`` the login directory whose one credential file
     is mounted into the private home — see the kernel's
     ``wrap_managed_claude_in_sandbox`` (ARIA-HIGH-077).
+
+    ARIA-HIGH-123 — ``git_containment`` is the commit-capable git
+    containment the executor derived when it held the implementer's
+    identity (``implementation_identity``: the worktree's git dirs bound
+    the way a commit needs, the private key masked, the kernel-held
+    signing agent's socket bound in). Without one, the workspace's git
+    binds are derived here READ-ONLY (``derive_git_containment(...,
+    commit_capable=False)``): git reads work in a linked worktree and
+    nothing under either git dir is writable. ``hook_broker_socket`` is the
+    kernel-side hook broker's socket (``hook_broker.serve_hook_broker``),
+    bound into the sandbox so the hooks decide and journal OUTSIDE it; the
+    durable store is never mounted in the sandbox.
 
     Fail-closed: with no sandbox backend the spawn is REFUSED unless the
     operator has set ``ARIA_ALLOW_UNCONFINED_WRITE``. Pre-fix
@@ -668,6 +683,7 @@ def _apply_write_containment(
         return argv
     workspace = Path(workspace_root) if workspace_root is not None else Path.cwd()
     try:
+        from aria_kernel.git_containment import GitContainmentRefusal, derive_git_containment
         from aria_kernel.implementation_safety import (
             SandboxUnavailable,
             wrap_bash_in_sandbox,
@@ -678,14 +694,25 @@ def _apply_write_containment(
             f"claude_write_containment_unavailable: cannot import the sandbox "
             f"helper ({exc}); refusing to spawn a write-capable agent unconfined"
         ) from exc
+    git = git_containment
+    if git is None:
+        try:
+            git = derive_git_containment(workspace, commit_capable=False)
+        except GitContainmentRefusal as exc:
+            raise ClaudePolicyViolation(
+                f"claude_write_containment_git_refused: {exc.reason}; refusing to spawn a "
+                f"write-capable agent whose git binds cannot be derived from {workspace}"
+            ) from exc
     try:
         if executable is None:
             return wrap_bash_in_sandbox(
                 argv, workspace_root=workspace, allow_network=True, write_scope=write_scope,
+                git=git, hook_broker_socket=hook_broker_socket,
             )
         return wrap_managed_claude_in_sandbox(
             argv, workspace_root=workspace, write_scope=write_scope, executable=executable,
-            spawn_files=spawn_files, managed_login_dir=managed_login_dir,
+            spawn_files=spawn_files, managed_login_dir=managed_login_dir, git=git,
+            hook_broker_socket=hook_broker_socket,
         )
     except SandboxUnavailable as exc:
         if _parse_bool(
@@ -936,19 +963,36 @@ def _write_spawn_mcp_config(*, agent_profile: Any | None, base_dir: Any | None) 
     return write_mcp_config_file(config, label=str(profile_id))
 
 
+@dataclass(frozen=True)
+class SpawnSettings:
+    """The `--settings` document of one spawn and the kernel facts its hooks
+    are served with (ARIA-HIGH-123): ``hook_context`` is None for a document
+    without hooks (then no broker is served), ``turn_budget`` is the cap the
+    document records (``_aria.turn_budget``) and the broker admits turns
+    against — one number, read from the document the CLI carries."""
+
+    path: Path | None
+    hook_context: dict[str, str] | None = None
+    turn_budget: int | None = None
+
+
+_NO_SPAWN_SETTINGS = SpawnSettings(path=None)
+
+
 def _write_spawn_settings(
     *,
     agent_profile: Any | None,
     usage_recording: UsageRecording | None,
     workspace_root: str | Path | None,
     write_capable: bool,
-) -> Path | None:
-    """The `--settings` document for this spawn, or None for the profile-less
-    legacy shape. Fail-closed: a write-capable spawn under a kernel profile
-    without a settings file is refused rather than run on prose."""
+) -> SpawnSettings:
+    """The `--settings` document for this spawn (``path`` None for the
+    profile-less legacy shape). Fail-closed: a write-capable spawn under a
+    kernel profile without a settings file is refused rather than run on
+    prose."""
     profile_id = getattr(agent_profile, "profile_id", None)
     if not profile_id:
-        return None
+        return _NO_SPAWN_SETTINGS
     try:
         from aria_kernel.claude_settings import build_settings, write_settings_file
         from aria_kernel.runtime_profiles import profile_by_id
@@ -975,9 +1019,14 @@ def _write_spawn_settings(
     import tempfile
 
     directory = Path(os.environ.get("RUNNER_TEMP") or tempfile.gettempdir()) / "aria-spawn-settings"
-    return write_settings_file(
+    path = write_settings_file(
         settings, directory=directory,
         request_id=(usage_recording.request_id if usage_recording is not None else f"preview-{os.getpid()}"),
+    )
+    turn_budget = settings["_aria"]["turn_budget"]
+    return SpawnSettings(
+        path=path, hook_context=hook_context,
+        turn_budget=int(turn_budget) if turn_budget is not None else None,
     )
 
 def _build_spawn_env(*, passthrough: Sequence[str], extra: dict[str, str]) -> tuple[dict[str, str], Any | None]:
@@ -1167,6 +1216,10 @@ def run_claude_exec(
     extra_env: dict[str, str] | None = None,
     # Plan 032 Faz 032e — cancel polling + live progress observer.
     spawn_control: SpawnControl | None = None,
+    # ARIA-HIGH-123 — the commit-capable git containment the executor
+    # derived while holding the implementer's identity; None for every
+    # spawn that holds no identity (its git binds are derived read-only).
+    git_containment: Any | None = None,
 ) -> ClaudeRunResult:
     assert_model_served_by_claude_runtime(model)
     preflight_claude_auth()
@@ -1191,12 +1244,13 @@ def run_claude_exec(
     # compiled from the command policy + the kernel hooks. A write-capable
     # spawn under a kernel profile MUST carry it (I-V12-HOOK-01); a spawn
     # with no profile or no ledger context carries permission rules only.
-    settings_path = _write_spawn_settings(
+    spawn_settings = _write_spawn_settings(
         agent_profile=agent_profile,
         usage_recording=usage_recording,
         workspace_root=cwd,
         write_capable=_is_write_capable(skip_permissions=skip_permissions, permission_mode=permission_mode),
     )
+    settings_path = spawn_settings.path
     if settings_path is not None:
         argv.extend(["--settings", str(settings_path)])
     # Plan 032 Faz 032g — MCP config per spawn, ALWAYS strict: only the kernel
@@ -1210,74 +1264,97 @@ def run_claude_exec(
     # wrapped so READONLY_PATHS are ro-bind: a write under aria-kernel/ or
     # .github/ then fails with EROFS at the syscall level instead of
     # depending on the agent choosing to obey.
-    # The spawn environment is BUILT (agent_env), never copied: baseline +
-    # CLI auth + profile passthrough, secrets dropped by name. Built before
-    # containment so the managed-login directory it derived can be ro-bound.
-    spawn_env, env_report = _build_spawn_env(
-        passthrough=passthrough,
-        extra={**({"IS_SANDBOX": "1"} if _sandbox_acknowledged() else {}),
-               # The hooks run `python3 -m aria_kernel` inside the sandbox;
-               # the kernel rides PYTHONPATH there exactly as in the lanes.
-               **({"PYTHONPATH": str(Path(cwd).resolve() / "aria-kernel")} if cwd is not None else {}),
-               **(dict(extra_env) if extra_env else {})},
-    )
-    config_dir = env_report.claude_config_dir if env_report is not None else None
-    # The binary the attempt names is the binary that runs: resolved ONCE,
-    # here, in the built environment's PATH, and run by that absolute path
-    # inside and outside the sandbox (ARIA-HIGH-077).
-    executable = _resolve_claude_executable(spawn_env)
-    argv[0] = str(executable)
-    argv = _apply_write_containment(
-        argv,
-        skip_permissions=skip_permissions,
-        permission_mode=permission_mode,
-        workspace_root=cwd,
-        write_scope=write_scope,
-        executable=executable,
-        spawn_files=tuple(path for path in (settings_path, mcp_config_path) if path is not None),
-        managed_login_dir=Path(config_dir) if config_dir else None,
-    )
-    # ORPHAN-MEDIUM-459 — resource limits, applied by the spawner for the same
-    # reason containment is. `apply_resource_limits` shipped with the sandbox
-    # work, was exported, was name-pinned by a test, and had ZERO production
-    # callers: its only instruction to actually run it lived in
-    # `.claude/agents/aria-implementer.md`, addressed to the process being
-    # limited. A fork bomb or a runaway allocation in a write-capable agent
-    # was bounded by nothing.
-    #
-    # OUTSIDE the sandbox wrapper on purpose: `timeout` and `systemd-run`
-    # must own the whole process tree including bwrap, not run inside it.
-    #
-    # The caller's `timeout_seconds`, not the helper's 120s default — an
-    # agent run is minutes, and a 120s cap would kill every real invocation.
-    # The subprocess timeout below stays 30s looser so the cgroup/`timeout`
-    # limit fires first and its exit status is what the caller sees.
-    # Probed in the environment the agent launches with, plus the bus
-    # plumbing only the limiter receives (it is unset again for the agent).
-    argv = _apply_resource_limits(
-        argv, timeout_seconds=timeout_seconds, environ=spawn_env, control_source=os.environ,
-    )
-    # IS_SANDBOX (root bypass acknowledgement) and the vendor redirect
-    # (ORPHAN-HIGH-764, scoped to THIS spawn) were folded into the built
-    # environment above; nothing else from the runner's environment reaches
-    # the agent. Names only are recorded, best-effort, next to usage.
-    if usage_recording is not None and env_report is not None:
-        _record_env_report_best_effort(recording=usage_recording, report=env_report)
-    run_env = spawn_env
-    try:
-        # Plan 032 Faz 032e — one seam: buffered without a control, streamed
-        # and cancellable (process group) with one.
-        proc = _run_spawn(
-            argv,
-            input_text=prompt_text,
-            timeout_seconds=timeout_seconds + 30,
-            cwd=str(cwd) if cwd is not None else None,
-            env=run_env,
-            control=spawn_control,
+    # ARIA-HIGH-123 — the hooks the settings compile are served by a broker
+    # in THIS process (`hook_broker`), on a socket the sandbox is handed:
+    # the store, the workspace, the request id and the turn cap are the
+    # broker's own facts, read from the document the CLI carries; nothing
+    # of the store is mounted in the sandbox. One broker per spawn, alive
+    # exactly as long as the spawn.
+    from aria_kernel.hook_broker import HOOK_BROKER_SOCKET_ENV, serve_hook_broker
+
+    with _ExitStack() as spawn_stack:
+        broker = None
+        if spawn_settings.hook_context is not None:
+            broker = spawn_stack.enter_context(serve_hook_broker(
+                base_dir=spawn_settings.hook_context["tools_dir"],
+                workspace_root=spawn_settings.hook_context["workspace_root"],
+                request_id=spawn_settings.hook_context["request_id"],
+                turn_budget=spawn_settings.turn_budget,
+            ))
+        # The spawn environment is BUILT (agent_env), never copied: baseline +
+        # CLI auth + profile passthrough, secrets dropped by name. Built before
+        # containment so the managed-login directory it derived can be ro-bound.
+        spawn_env, env_report = _build_spawn_env(
+            passthrough=passthrough,
+            extra={**({"IS_SANDBOX": "1"} if _sandbox_acknowledged() else {}),
+                   # The kernel CLI the agent may run (`apply gate`, `pr
+                   # create`) rides PYTHONPATH exactly as in the lanes.
+                   **({"PYTHONPATH": str(Path(cwd).resolve() / "aria-kernel")} if cwd is not None else {}),
+                   # The broker's HOST socket: what an unconfined spawn's
+                   # hooks connect to; the sandbox overrides the name with
+                   # the bound path.
+                   **({HOOK_BROKER_SOCKET_ENV: str(broker.socket_path)} if broker is not None else {}),
+                   **(dict(extra_env) if extra_env else {})},
         )
-    finally:
-        if env_report is not None:
-            _cleanup_spawn_home(env_report.home)
+        config_dir = env_report.claude_config_dir if env_report is not None else None
+        # The binary the attempt names is the binary that runs: resolved ONCE,
+        # here, in the built environment's PATH, and run by that absolute path
+        # inside and outside the sandbox (ARIA-HIGH-077).
+        executable = _resolve_claude_executable(spawn_env)
+        argv[0] = str(executable)
+        argv = _apply_write_containment(
+            argv,
+            skip_permissions=skip_permissions,
+            permission_mode=permission_mode,
+            workspace_root=cwd,
+            write_scope=write_scope,
+            executable=executable,
+            spawn_files=tuple(path for path in (settings_path, mcp_config_path) if path is not None),
+            managed_login_dir=Path(config_dir) if config_dir else None,
+            git_containment=git_containment,
+            hook_broker_socket=broker.socket_path if broker is not None else None,
+        )
+        # ORPHAN-MEDIUM-459 — resource limits, applied by the spawner for the same
+        # reason containment is. `apply_resource_limits` shipped with the sandbox
+        # work, was exported, was name-pinned by a test, and had ZERO production
+        # callers: its only instruction to actually run it lived in
+        # `.claude/agents/aria-implementer.md`, addressed to the process being
+        # limited. A fork bomb or a runaway allocation in a write-capable agent
+        # was bounded by nothing.
+        #
+        # OUTSIDE the sandbox wrapper on purpose: `timeout` and `systemd-run`
+        # must own the whole process tree including bwrap, not run inside it.
+        #
+        # The caller's `timeout_seconds`, not the helper's 120s default — an
+        # agent run is minutes, and a 120s cap would kill every real invocation.
+        # The subprocess timeout below stays 30s looser so the cgroup/`timeout`
+        # limit fires first and its exit status is what the caller sees.
+        # Probed in the environment the agent launches with, plus the bus
+        # plumbing only the limiter receives (it is unset again for the agent).
+        argv = _apply_resource_limits(
+            argv, timeout_seconds=timeout_seconds, environ=spawn_env, control_source=os.environ,
+        )
+        # IS_SANDBOX (root bypass acknowledgement) and the vendor redirect
+        # (ORPHAN-HIGH-764, scoped to THIS spawn) were folded into the built
+        # environment above; nothing else from the runner's environment reaches
+        # the agent. Names only are recorded, best-effort, next to usage.
+        if usage_recording is not None and env_report is not None:
+            _record_env_report_best_effort(recording=usage_recording, report=env_report)
+        run_env = spawn_env
+        try:
+            # Plan 032 Faz 032e — one seam: buffered without a control, streamed
+            # and cancellable (process group) with one.
+            proc = _run_spawn(
+                argv,
+                input_text=prompt_text,
+                timeout_seconds=timeout_seconds + 30,
+                cwd=str(cwd) if cwd is not None else None,
+                env=run_env,
+                control=spawn_control,
+            )
+        finally:
+            if env_report is not None:
+                _cleanup_spawn_home(env_report.home)
     events = parse_claude_jsonl(proc.stdout)
     final_message = extract_final_message(events)
     usage = extract_usage(events)

@@ -471,6 +471,87 @@ class WriteContainmentTests(unittest.TestCase):
             msg=f"aria-kernel not ro-bind; ro targets={sorted(ro_targets)}",
         )
 
+    def test_a_write_capable_spawn_in_a_linked_worktree_gets_read_only_git_and_the_broker_socket(self) -> None:
+        """ARIA-HIGH-123 — without an executor-held commit containment the
+        spawner derives the workspace's git binds READ-ONLY (git reads
+        answer in a linked worktree, nothing under either git dir is
+        writable) and binds the hook broker's socket — never a store."""
+        import tempfile
+
+        from aria_kernel import implementation_safety
+        from aria_kernel.hook_broker import HOOK_BROKER_SOCKET_ENV, SANDBOX_HOOK_BROKER_SOCKET
+        from tests._helpers.git_fixtures import _git, make_repo_with_initial_commit
+        from tests._helpers.unix_sockets import bound_unix_socket
+
+        with tempfile.TemporaryDirectory(prefix="aria-123-runtime-") as tmp:
+            repo = make_repo_with_initial_commit(Path(tmp).resolve(), {"f.txt": "x\n"}, name="checkout")
+            worktree = repo / "aria-worktrees" / "req-1"
+            worktree.parent.mkdir()
+            _git(["worktree", "add", "--detach", "-q", str(worktree), "HEAD"], cwd=repo)
+            with patch.object(implementation_safety, "_bwrap_available", return_value=True), \
+                    bound_unix_socket(Path(tmp) / "hb" / "sock") as broker_socket:
+                wrapped = claude_runtime._apply_write_containment(
+                    list(self._ARGV), skip_permissions=True, permission_mode=None,
+                    workspace_root=worktree, hook_broker_socket=broker_socket,
+                )
+            common = (repo / ".git").resolve()
+            pairs = [(wrapped[i], wrapped[i + 1]) for i, tok in enumerate(wrapped) if tok in ("--bind", "--ro-bind", "--tmpfs")]
+            self.assertIn(("--ro-bind", str(common)), pairs)
+            self.assertIn(("--ro-bind", str(common / "worktrees" / "req-1")), pairs)
+            self.assertIn(("--tmpfs", str(common / "worktrees")), pairs)
+            self.assertEqual([source for flag, source in pairs if flag == "--bind"], [str(worktree), str(broker_socket)])
+            self.assertEqual(wrapped[wrapped.index(HOOK_BROKER_SOCKET_ENV) + 1], SANDBOX_HOOK_BROKER_SOCKET)
+            self.assertNotIn("tools_dir", claude_runtime._apply_write_containment.__code__.co_varnames)
+
+    def test_an_executor_held_commit_containment_is_threaded_through_unchanged(self) -> None:
+        import tempfile
+
+        from aria_kernel import implementation_safety
+        from aria_kernel.git_containment import derive_git_containment
+        from tests._helpers.git_fixtures import _git, make_repo_with_initial_commit
+
+        with tempfile.TemporaryDirectory(prefix="aria-123-runtime-") as tmp:
+            repo = make_repo_with_initial_commit(Path(tmp).resolve(), {"f.txt": "x\n"}, name="checkout")
+            worktree = repo / "aria-worktrees" / "req-1"
+            worktree.parent.mkdir()
+            _git(["worktree", "add", "--detach", "-q", str(worktree), "HEAD"], cwd=repo)
+            containment = derive_git_containment(worktree, commit_capable=True)
+            with patch.object(implementation_safety, "_bwrap_available", return_value=True):
+                wrapped = claude_runtime._apply_write_containment(
+                    list(self._ARGV), skip_permissions=True, permission_mode=None,
+                    workspace_root=worktree, git_containment=containment,
+                )
+            common = (repo / ".git").resolve()
+            private = common / "worktrees" / "req-1"
+            replica = containment.sandbox_git_dir
+            writable = [wrapped[i + 1] for i, tok in enumerate(wrapped) if tok == "--bind"]
+            self.assertIn(str(replica), writable)
+            self.assertIn(str(replica / "refs" / "heads"), writable)
+            self.assertNotIn(str(common), writable)
+            self.assertNotIn(str(common / "objects"), writable)
+            self.assertNotIn(str(private), writable)
+
+    def test_run_claude_exec_serves_the_broker_and_hands_the_containment_to_the_spawner(self) -> None:
+        import ast
+
+        source = (_REPO_ROOT / "tools" / "aria-poc" / "claude_runtime.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        fn = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "run_claude_exec")
+        call = next(node for node in ast.walk(fn)
+                    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "_apply_write_containment")
+        keywords = {keyword.arg for keyword in call.keywords}
+        self.assertLessEqual({"git_containment", "hook_broker_socket"}, keywords)
+        self.assertNotIn("tools_dir", keywords, "the store is never handed to the sandbox")
+        self.assertIn("git_containment", {arg.arg for arg in fn.args.kwonlyargs})
+        # The broker is served around the spawn, from the settings' own facts.
+        served = next(node for node in ast.walk(fn)
+                      if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "serve_hook_broker")
+        self.assertEqual({keyword.arg for keyword in served.keywords},
+                         {"base_dir", "workspace_root", "request_id", "turn_budget"})
+        spawn = next(node for node in ast.walk(fn)
+                     if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "_run_spawn")
+        self.assertLess(served.lineno, spawn.lineno)
+
     def test_operator_ack_permits_unconfined_write(self) -> None:
         """The escape hatch exists but must be named, never inferred."""
         from aria_kernel import implementation_safety

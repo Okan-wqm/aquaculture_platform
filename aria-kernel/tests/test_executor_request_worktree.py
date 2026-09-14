@@ -49,10 +49,18 @@ class TheWorktreeIsProvisionedWhereTheChildNeedsIt(unittest.TestCase):
         _git(["commit", "-qam", "main moved on"], cwd=self.repo)
         self.assertNotEqual(_git(["rev-parse", "HEAD"], cwd=self.repo).stdout.strip(), self.target_sha)
 
+    def _add(self, request_id: str, target_sha: str) -> Path:
+        """The worktree git created — the answer, not the receipt. The drain's
+        receipt (`_RequestWorktree`) also carries "git did not answer"
+        (`unanswered_reason`), which these fixtures never provoke."""
+        provisioned = drain._add_request_worktree(self.repo, request_id, target_sha)
+        self.assertIsNone(provisioned.unanswered_reason)
+        self.assertIsNotNone(provisioned.path)
+        assert provisioned.path is not None
+        return provisioned.path
+
     def test_the_worktree_sits_inside_the_checkout_at_the_target_sha(self) -> None:
-        path = drain._add_request_worktree(self.repo, "AIR-1", self.target_sha)
-        self.assertIsNotNone(path)
-        assert path is not None
+        path = self._add("AIR-1", self.target_sha)
         self.assertEqual(path.parent, self.repo / drain.REQUEST_WORKTREES_DIR,
                          "inside the checkout: node resolution walks UP to <checkout>/node_modules")
         self.assertEqual(_git(["rev-parse", "HEAD"], cwd=path).stdout.strip(), self.target_sha)
@@ -67,13 +75,12 @@ class TheWorktreeIsProvisionedWhereTheChildNeedsIt(unittest.TestCase):
         # A run reaped mid-child, then the next checkout's clean: the
         # directory is gone, `.git/worktrees/req-AIR-1` is not. Bare `git
         # worktree add` refuses "missing but already registered".
-        first = drain._add_request_worktree(self.repo, "AIR-1", self.target_sha)
-        assert first is not None
+        first = self._add("AIR-1", self.target_sha)
         shutil.rmtree(first)
         refused = subprocess.run(["git", "worktree", "add", "--detach", str(first), self.target_sha],
                                  cwd=self.repo, capture_output=True, text=True, check=False)
         self.assertNotEqual(refused.returncode, 0, "the fixture must reproduce git's refusal")
-        second = drain._add_request_worktree(self.repo, "AIR-1", self.target_sha)
+        second = self._add("AIR-1", self.target_sha)
         self.assertEqual(second, first)
         self.assertEqual(_git(["rev-parse", "HEAD"], cwd=first).stdout.strip(), self.target_sha)
         drain._remove_request_worktree(self.repo, first)
@@ -81,17 +88,19 @@ class TheWorktreeIsProvisionedWhereTheChildNeedsIt(unittest.TestCase):
     def test_a_registered_and_present_leftover_is_removed_before_the_add(self) -> None:
         # A run reaped mid-child with no clean in between: the worktree is
         # still there. Bare `git worktree add` refuses "already exists".
-        first = drain._add_request_worktree(self.repo, "AIR-1", self.target_sha)
-        assert first is not None
+        first = self._add("AIR-1", self.target_sha)
         (first / "scratch.txt").write_text("half-written by the reaped child\n", encoding="utf-8")
-        second = drain._add_request_worktree(self.repo, "AIR-1", self.target_sha)
+        second = self._add("AIR-1", self.target_sha)
         self.assertEqual(second, first)
         self.assertFalse((first / "scratch.txt").exists(), "a fresh tree, not the reaped child's leftovers")
         self.assertEqual(_git(["rev-parse", "HEAD"], cwd=first).stdout.strip(), self.target_sha)
         drain._remove_request_worktree(self.repo, first)
 
     def test_an_unreachable_target_sha_falls_back_to_the_shared_checkout(self) -> None:
-        self.assertIsNone(drain._add_request_worktree(self.repo, "AIR-2", "0" * 40))
+        # Git ANSWERED that it could not add the tree: no path, and no
+        # "did not answer" reason — the shared checkout is used instead.
+        self.assertEqual(drain._add_request_worktree(self.repo, "AIR-2", "0" * 40),
+                         drain._RequestWorktree(path=None, unanswered_reason=None))
         self.assertFalse((self.repo / drain.REQUEST_WORKTREES_DIR / "req-AIR-2").exists())
 
 

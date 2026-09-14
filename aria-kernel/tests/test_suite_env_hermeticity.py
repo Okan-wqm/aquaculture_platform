@@ -58,11 +58,15 @@ def _import_tests_in_fresh_interpreter(
             env.pop(key, None)
         else:
             env[key] = value
+    # The bootstrap's scratch roots live exactly as long as the child
+    # process (ARIA-LOW-116: removed at interpreter exit), so whether the
+    # bound base EXISTS is answered inside the child, before it exits.
     probe = (
         "import json, os\n"
         "import tests\n"
-        "print(json.dumps({k: os.environ.get(k) for k in "
-        "('ARIA_REPO_STATE_ROOT', 'ARIA_WORKSPACE_BASE', 'ARIA_TOOLS_DIR')}))\n"
+        "print(json.dumps({**{k: os.environ.get(k) for k in "
+        "('ARIA_REPO_STATE_ROOT', 'ARIA_WORKSPACE_BASE', 'ARIA_TOOLS_DIR')}, "
+        "'workspace_base_is_dir': os.path.isdir(os.environ.get('ARIA_WORKSPACE_BASE') or '')}))\n"
     )
     return subprocess.run(
         [sys.executable, "-c", probe],
@@ -113,7 +117,8 @@ class WorkspaceBaseIsIsolatedByDefault(unittest.TestCase):
         seen = json.loads(result.stdout.strip().splitlines()[-1])
         base = seen["ARIA_WORKSPACE_BASE"]
         self.assertTrue(base, "bootstrap must bind a workspace base")
-        self.assertTrue(Path(base).is_dir())
+        self.assertTrue(seen["workspace_base_is_dir"], "the bound base exists while the child runs")
+        self.assertFalse(Path(base).is_dir(), "and is removed when the child exits (ARIA-LOW-116)")
         self.assertNotIn(
             str(Path.home() / ".aria"), base,
             "the default must not be the operator's ~/.aria tree",

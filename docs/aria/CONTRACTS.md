@@ -1850,36 +1850,38 @@ rows from the source of record, never from a kept list of dates:
 | `human_required_sla`       | the open records through `human_required.list_human_required` — the daily report's HUMAN_REQUIRED section counts the same queue | `SLA_WINDOWS` (Plan 016 operator SLA; the report's escalation ladder)                                                                | FAULT       |
 | `registry_finding`         | `docs/reviews/_registry/findings.jsonl`, every finding not RESOLVED or BLOCKED that carries a `deadline`                        | `finding-state-sweep.yml` → sweep PR (`finding-registry.ts planSweep` plans BLOCKED; the state lands when a CODEOWNER merges the PR) | information |
 
-**The waiver manifests are one closed registry.** `surface_waivers.WAIVER_MANIFESTS` (`WaiverManifest`:
-kind, path, shape, enforcing gate, consequence) is the closed registry of every dated waiver manifest
-the kernel enforces; the three waiver rows above are built from it (one `DeadlineSource` per
-manifest, never written by hand), every manifest is read by ONE parser
+**The waiver manifests are one closed registry.** `surface_waivers.WAIVER_MANIFESTS`
+(`WaiverManifest`: kind, path, shape, enforcing gate, consequence) is the closed registry of every
+dated waiver manifest the kernel enforces; the three waiver rows above are built from it (one
+`DeadlineSource` per manifest, never written by hand), every manifest is read by ONE parser
 (`surface_waivers.load_waiver_manifest` — absent file = no waivers; present and malformed RAISES,
-never `{}`), walked by `iter_waivers` and judged by ONE predicate, `surface_waivers.waiver_has_lapsed`
-(`expires_on < today`, UTC: honoured through its own day). Each gate imports its reader and its
-predicate from there and keeps no `json.loads` and no `fromisoformat` of its own. A kernel gate that
-reads a dated waiver manifest without registering it in `WAIVER_MANIFESTS` is the defect this section
-exists to prevent: the first cut of this contract registered the surface manifest alone while
-`control-reachability.dormant.json` carried six waivers dated 2026-09-20 under the control gate's own
-parser and clock — the lanes would have gone red on the 21st with the organ, the report and the scan
-silent, the opening incident wearing another manifest's name. Such a gate has two doors, and each is
-closed where it is passed rather than only named here. A gate that borrows the reader with a
-`WaiverManifest` of its own is refused by every reader (`waiver_manifest_path`,
-`load_waiver_manifest`, `iter_waivers`, `lapsed_waivers` raise `LookupError` naming the spec and
-`register it in surface_waivers.WAIVER_MANIFESTS`) the first time it runs. A gate that keeps a parser
-or a clock of its own is found by `test_deadlines.py` walking EVERY Python module under
-`aria-kernel/tests/` by AST — helpers and invariants included, not only the gates the registry names:
-a walk over the registry cannot open the gate that never registered, which is how a fourth gate with
-its own `json.loads` and `fromisoformat` over `aria-kernel/closure.waivers.json` once passed every pin
-(round-3 verifier, M6) — and refusing a module that handles dated waivers (the `expires_on` field, a
+never `{}`), walked by `iter_waivers` and judged by ONE predicate,
+`surface_waivers.waiver_has_lapsed` (`expires_on < today`, UTC: honoured through its own day). Each
+gate imports its reader and its predicate from there and keeps no `json.loads` and no
+`fromisoformat` of its own. A kernel gate that reads a dated waiver manifest without registering it
+in `WAIVER_MANIFESTS` is the defect this section exists to prevent: the first cut of this contract
+registered the surface manifest alone while `control-reachability.dormant.json` carried six waivers
+dated 2026-09-20 under the control gate's own parser and clock — the lanes would have gone red on
+the 21st with the organ, the report and the scan silent, the opening incident wearing another
+manifest's name. Such a gate has two doors, and each is closed where it is passed rather than only
+named here. A gate that borrows the reader with a `WaiverManifest` of its own is refused by every
+reader (`waiver_manifest_path`, `load_waiver_manifest`, `iter_waivers`, `lapsed_waivers` raise
+`LookupError` naming the spec and `register it in surface_waivers.WAIVER_MANIFESTS`) the first time
+it runs. A gate that keeps a parser or a clock of its own is found by `test_deadlines.py` walking
+EVERY Python module under `aria-kernel/tests/` by AST — helpers and invariants included, not only
+the gates the registry names: a walk over the registry cannot open the gate that never registered,
+which is how a fourth gate with its own `json.loads` and `fromisoformat` over
+`aria-kernel/closure.waivers.json` once passed every pin (round-3 verifier, M6) — and refusing a
+module that handles dated waivers (the `expires_on` field, a
 `*.waivers.json`/`*.dormant.json`/`*.unwritten.json` path, `REQUIRED_WAIVER_FIELDS`) with a
 `json.load`/`json.loads`, `fromisoformat`, `strptime` or `date.today` call of its own, or that
-constructs a `WaiverManifest`, with the same instruction. The manifest file is the third witness: every
-JSON file under `aria-kernel/` outside `tests/` whose entries carry `expires_on`, in either shape, must
-be a registered spec's path. Registering the manifest is the whole remedy — the source list is built
-from the registry, so the organ, the report and the scan announce the new manifest's waivers the day it
-is registered (confirmed on a throwaway copy: the M6 manifest, once registered, was a `closure_waiver`
-row at +6d on 2026-09-14 and a lapsed FAULT on the 21st with no other change).
+constructs a `WaiverManifest`, with the same instruction. The manifest file is the third witness:
+every JSON file under `aria-kernel/` outside `tests/` whose entries carry `expires_on`, in either
+shape, must be a registered spec's path. Registering the manifest is the whole remedy — the source
+list is built from the registry, so the organ, the report and the scan announce the new manifest's
+waivers the day it is registered (confirmed on a throwaway copy: the M6 manifest, once registered,
+was a `closure_waiver` row at +6d on 2026-09-14 and a lapsed FAULT on the 21st with no other
+change).
 
 Each row mirrors the CLOCK of its enforcer so the organ and the gate cannot disagree by a day: a
 waiver is honoured through its `expires_on` day (`waiver_has_lapsed`, the gates' own call); a registry

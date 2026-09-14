@@ -9,8 +9,9 @@ exercise:
   scan_orphan_implementation_requests + reaps each via
   record_implementation_rejected.
 * H-11 — integration tests over AutonomousV9ImplementationRunner.run()
-  with mocked dependencies (mint_signing_key, mint_installation_token,
-  stage_converged_plan_for_pr, issue_implementation_envelope).
+  with mocked dependencies (stage_converged_plan_for_pr,
+  issue_implementation_envelope); the credential factory is patched to
+  REFUSE, because the runner must never reach it (ARIA-HIGH-115).
 
 Invariants:
 
@@ -353,51 +354,26 @@ class AutonomousRunnerDispatchPathTests(unittest.TestCase):
         from aria_kernel.cycle_phases.implementer import (
             AutonomousV9ImplementationRunner,
         )
-        from aria_kernel.gh_token_factory import (
-            InstallationTokenLease, SigningKey,
-        )
         tmp = Path(tempfile.mkdtemp(prefix="v31b3-run-")).resolve()
         try:
-            fake_key = SigningKey(
-                cycle_id="cyc-test",
-                private_key_path=tmp / "key",
-                public_key_path=tmp / "key.pub",
-                fingerprint="SHA256:test-fp",
-            )
-            fake_lease = InstallationTokenLease(
-                cycle_id="cyc-test",
-                token_file=tmp / "key.token",
-                ttl_seconds=300,
-                gh_app_installation_id=None,
-                fallback_active=True,
-                minted_at_utc="2026-05-19T00:00:00Z",
-            )
             envelope_mock = MagicMock(return_value={"request_id": "AIR-impl-001"})
             stage_mock = MagicMock(
                 return_value=dict(self.STAGED), side_effect=stage_side_effect,
             )
+            # ARIA-HIGH-115 — the runner mints no credential: the factory is
+            # patched to refuse, so a runner that reached for a key or a
+            # token again would fail here by name.
+            refuse = MagicMock(side_effect=AssertionError("the V9 runner must not touch gh_token_factory"))
             patches = [
-                patch(
-                    "aria_kernel.gh_token_factory.mint_signing_key",
-                    return_value=fake_key,
-                ),
-                patch(
-                    "aria_kernel.gh_token_factory.mint_installation_token",
-                    return_value=fake_lease,
-                ),
+                patch("aria_kernel.gh_token_factory.mint_signing_key", refuse),
+                patch("aria_kernel.gh_token_factory.mint_installation_token", refuse),
                 patch("aria_kernel.apply_engine.stage_converged_plan_for_pr", stage_mock),
                 patch(
                     "aria_kernel.cross_review_bridge.issue_implementation_envelope",
                     envelope_mock,
                 ),
-                patch(
-                    "aria_kernel.gh_token_factory.revoke_signing_key",
-                    return_value={"removed": [], "missing": []},
-                ),
-                patch(
-                    "aria_kernel.gh_token_factory.revoke_installation_token",
-                    return_value=None,
-                ),
+                patch("aria_kernel.gh_token_factory.revoke_signing_key", refuse),
+                patch("aria_kernel.gh_token_factory.revoke_installation_token", refuse),
                 patch("aria_kernel.tool_registry.append_tools_governance", MagicMock()),
             ]
             for item in patches:
@@ -510,14 +486,21 @@ class AutonomousRunnerDispatchPathTests(unittest.TestCase):
 
 
 class RunnerResourceLifecycleTests(unittest.TestCase):
-    """The runner releases exactly the credentials it acquired, on every path.
+    """The runner acquires NO credential, on every path (ARIA-HIGH-115).
 
-    This class carried the `on_signer_ready` callback pins while the runner
-    lent its signer to the memory hook. B7 moved the signer and the replay
-    into the orchestrator's knowledge seam; the callback had no production
-    caller left (ORPHAN-694 class) and is deleted. What survives here is
-    what the callback tests were REALLY pinning underneath: key and token
-    cleanup on success, on refusal, on a raised fault and on cancellation.
+    This class pinned the key + token bracket the runner used to hold:
+    acquired first, released in `finally` on success, refusal, fault and
+    cancellation. That bracket had no consumer inside its window — the
+    implementer is claimed later, by the executor lane, in a per-request
+    worktree where this process's key never existed — and revoking it in
+    `finally` here was what left every executor-lane result without an
+    identity. The signing identity now lives with the executor child
+    (`implementation_identity`, tested end to end in
+    `tests/test_executor_implementation_identity.py`); the delivery token
+    with the spawn (`delivery_credentials`). What survives here is the
+    inverse pin: the credential factory is patched to REFUSE, the runner
+    stages and dispatches without reaching it, and no key or token file
+    appears in the workspace on any exit.
     """
 
     def setUp(self) -> None:
@@ -526,37 +509,17 @@ class RunnerResourceLifecycleTests(unittest.TestCase):
         self.root = Path(scratch.name).resolve()
         self.workspace = self.root
         self.events: list[str] = []
-        self.owned: set[str] = set()
-        self.key: Any = None
 
     def _run(
         self,
         *,
-        real_key: bool = False,
         failure_at: str | None = None,
         failure: BaseException | None = None,
         runner: Any = None,
-        at_stage: Any = None,
     ) -> Any:
-        from aria_kernel import gh_token_factory
         from aria_kernel.cycle_phases.implementer import AutonomousV9ImplementationRunner
 
         self.events.clear()
-        cycle_id = "cyc-lifecycle"
-        private_path = self.workspace / "aria-debts/keys" / cycle_id
-        public_path = private_path.with_suffix(".pub")
-        token_path = private_path.with_suffix(".token")
-        key = gh_token_factory.SigningKey(
-            cycle_id=cycle_id, private_key_path=private_path,
-            public_key_path=public_path, fingerprint="SHA256:fixture-lifecycle-key",
-        )
-        lease = gh_token_factory.InstallationTokenLease(
-            cycle_id=cycle_id, token_file=token_path, ttl_seconds=300,
-            gh_app_installation_id=None, fallback_active=True,
-            minted_at_utc="2026-09-10T00:00:00Z",
-        )
-        real_mint = gh_token_factory.mint_signing_key
-        real_revoke = gh_token_factory.revoke_signing_key
 
         def enter(phase: str) -> None:
             self.events.append(phase)
@@ -564,78 +527,37 @@ class RunnerResourceLifecycleTests(unittest.TestCase):
                 assert failure is not None
                 raise failure
 
-        def mint_key(*, cycle_id: str, workspace_root: Path) -> Any:
-            self.assertEqual((cycle_id, workspace_root), ("cyc-lifecycle", self.workspace))
-            enter("mint_key")
-            if real_key:
-                self.key = real_mint(cycle_id=cycle_id, workspace_root=workspace_root)
-            else:
-                private_path.parent.mkdir(parents=True, exist_ok=True)
-                private_path.write_text("fixture-only-private-placeholder", encoding="utf-8")
-                public_path.write_text("fixture-only-public-placeholder", encoding="utf-8")
-                self.key = key
-            self.owned.add("key")
-            return self.key
-
-        def mint_token(*, cycle_id: str, workspace_root: Path) -> Any:
-            self.assertEqual((cycle_id, workspace_root), ("cyc-lifecycle", self.workspace))
-            enter("mint_token")
-            token_path.write_text("fixture-only-invalid-token", encoding="utf-8")
-            self.owned.add("token")
-            return lease
+        def refuse(**_kwargs: Any) -> Any:
+            raise AssertionError("the V9 runner must not mint or revoke a credential")
 
         def stage(**stage_kwargs: Any) -> dict[str, str]:
             enter("stage")
-            if at_stage is not None:
-                # The one step that runs while BOTH credentials are held.
-                at_stage()
             return dict(AutonomousRunnerDispatchPathTests.STAGED)
 
         def envelope(**envelope_kwargs: Any) -> dict[str, str]:
             enter("envelope")
             return {"request_id": "AIR-lifecycle-001"}
 
-        def revoke_key(*, cycle_id: str, workspace_root: Path) -> dict[str, list]:
-            self.assertEqual((cycle_id, workspace_root), ("cyc-lifecycle", self.workspace))
-            enter("revoke_key")
-            if real_key:
-                real_revoke(cycle_id=cycle_id, workspace_root=workspace_root)
-            else:
-                private_path.unlink()
-                public_path.unlink()
-            self.owned.remove("key")
-            return {"removed": [], "missing": []}
-
-        def revoke_token(*, lease: Any) -> None:
-            self.assertEqual(lease.token_file, token_path)
-            enter("revoke_token")
-            token_path.unlink(missing_ok=True)
-            self.owned.remove("token")
-
-        # Keep the runner real; delivery/staging are separate owners. The
-        # acquisition/revocation doubles expose actual fixture-file lifetime.
         with ExitStack() as stack:
             for target, operation in (
-                ("aria_kernel.gh_token_factory.mint_signing_key", mint_key),
-                ("aria_kernel.gh_token_factory.mint_installation_token", mint_token),
+                ("aria_kernel.gh_token_factory.mint_signing_key", refuse),
+                ("aria_kernel.gh_token_factory.mint_installation_token", refuse),
+                ("aria_kernel.gh_token_factory.revoke_signing_key", refuse),
+                ("aria_kernel.gh_token_factory.revoke_installation_token", refuse),
                 ("aria_kernel.apply_engine.stage_converged_plan_for_pr", stage),
                 ("aria_kernel.cross_review_bridge.issue_implementation_envelope", envelope),
-                ("aria_kernel.gh_token_factory.revoke_signing_key", revoke_key),
-                ("aria_kernel.gh_token_factory.revoke_installation_token", revoke_token),
             ):
                 stack.enter_context(patch(target, side_effect=operation))
             stack.enter_context(patch("aria_kernel.tool_registry.append_tools_governance", return_value={}))
             selected = AutonomousV9ImplementationRunner() if runner is None else runner
             return selected.run(
-                cycle_id=cycle_id, plan_id="plan-lifecycle", workspace_root=self.workspace,
+                cycle_id="cyc-lifecycle", plan_id="plan-lifecycle", workspace_root=self.workspace,
                 base_dir=self.root / "aria-tools", cross_review_summary={"verdict": "agreed"},
                 profile="autonomous",
             )
 
-    def _assert_released(self) -> None:
-        self.assertEqual(self.owned, set())
-        for suffix in ("", ".pub", ".token"):
-            self.assertFalse((self.workspace / "aria-debts/keys" / f"cyc-lifecycle{suffix}").exists())
+    def _assert_nothing_acquired(self) -> None:
+        self.assertFalse((self.workspace / "aria-debts").exists())
 
     def test_run_takes_no_signer_callback(self) -> None:
         """ORPHAN-694 class — a parameter with no production caller is not
@@ -652,29 +574,20 @@ class RunnerResourceLifecycleTests(unittest.TestCase):
         from aria_kernel.cycle_phases import implementer
         self.assertFalse(hasattr(implementer, "_validate_signer_ready_callback"))
 
-    def test_real_key_is_owned_for_the_run_and_released_after_it(self) -> None:
+    def test_the_dispatch_acquires_nothing(self) -> None:
         from dataclasses import asdict
         from tests._helpers.git_fixtures import make_repo_with_initial_commit
 
         self.workspace = make_repo_with_initial_commit(
             self.root, name="checkout", files={"fixture.txt": "signer owner fixture\n"},
         )
-        seen: dict[str, bool] = {}
-
-        def observe_key() -> None:
-            seen["owned"] = self.owned == {"key", "token"}
-            seen["private"] = self.key.private_key_path.is_file()
-            seen["public"] = self.key.public_key_path.is_file()
-
-        result = self._run(real_key=True, at_stage=observe_key)
-        self.assertEqual(seen, {"owned": True, "private": True, "public": True})
-        self.assertTrue(str(self.key.fingerprint).startswith("SHA256:"))
-        self.assertEqual(self.events, ["mint_key", "mint_token", "stage", "envelope", "revoke_key", "revoke_token"])
+        result = self._run()
+        self.assertEqual(self.events, ["stage", "envelope"])
         self.assertEqual(asdict(result), {
             "terminal_state": "IMPLEMENTATION_DISPATCHED", "pr_url": None,
             "rejection_class": None, "specialist_review_signal": "review_converged_plan",
         })
-        self._assert_released()
+        self._assert_nothing_acquired()
 
     def test_noop_acquires_nothing(self) -> None:
         from aria_kernel.cycle_phases.implementer import NoOpV9ImplementationRunner
@@ -683,21 +596,18 @@ class RunnerResourceLifecycleTests(unittest.TestCase):
         self.assertEqual(result.rejection_class, "no_op_v9_runner")
         self.assertEqual(result.specialist_review_signal, "review_converged_plan")
         self.assertEqual(self.events, [])
-        self._assert_released()
+        self._assert_nothing_acquired()
 
-    def test_pipeline_failure_releases_only_acquired_resources(self) -> None:
+    def test_pipeline_failure_acquires_nothing(self) -> None:
         from aria_kernel.bridge_exceptions import BridgeContractViolation
         from aria_kernel.tool_registry import GovernanceError
 
         for phase, error, refusal, expected_events in (
-            ("mint_token", RuntimeError("fixture token failure"), None,
-             ["mint_key", "mint_token", "revoke_key"]),
-            ("stage", GovernanceError("fixture staging refusal"), "staging_governance_error",
-             ["mint_key", "mint_token", "stage", "revoke_key", "revoke_token"]),
+            ("stage", GovernanceError("fixture staging refusal"), "staging_governance_error", ["stage"]),
             ("envelope", GovernanceError("fixture envelope refusal"), "envelope_governance_error",
-             ["mint_key", "mint_token", "stage", "envelope", "revoke_key", "revoke_token"]),
-            ("envelope", BridgeContractViolation("fixture envelope violation"), None,
-             ["mint_key", "mint_token", "stage", "envelope", "revoke_key", "revoke_token"]),
+             ["stage", "envelope"]),
+            ("envelope", BridgeContractViolation("fixture envelope violation"), None, ["stage", "envelope"]),
+            ("envelope", KeyboardInterrupt("fixture cancellation"), None, ["stage", "envelope"]),
         ):
             with self.subTest(phase=phase, error_type=type(error).__name__):
                 if refusal is None:
@@ -708,19 +618,7 @@ class RunnerResourceLifecycleTests(unittest.TestCase):
                     self.assertEqual(result.terminal_state, "IMPLEMENTATION_REQUEST_REFUSED")
                     self.assertEqual(result.rejection_class, refusal)
                 self.assertEqual(self.events, expected_events)
-                self._assert_released()
-
-    def test_token_keyboard_interrupt_unwinds_key_cleanup(self) -> None:
-        with self.assertRaises(KeyboardInterrupt):
-            self._run(failure_at="mint_token", failure=KeyboardInterrupt("fixture cancellation"))
-        self.assertEqual(self.events, ["mint_key", "mint_token", "revoke_key"])
-        self._assert_released()
-
-    def test_envelope_keyboard_interrupt_unwinds_both_resources(self) -> None:
-        with self.assertRaises(KeyboardInterrupt):
-            self._run(failure_at="envelope", failure=KeyboardInterrupt("fixture cancellation"))
-        self.assertEqual(self.events, ["mint_key", "mint_token", "stage", "envelope", "revoke_key", "revoke_token"])
-        self._assert_released()
+                self._assert_nothing_acquired()
 
 
 if __name__ == "__main__":

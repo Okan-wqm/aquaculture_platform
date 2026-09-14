@@ -65,6 +65,7 @@ KEY_CHANGE_TEXT = f"halve the {_WORDING_WORD}-shipment sample interval"
 PLAN_ID = "plan-aria-high-104"
 CYCLE_ID = "cyc-aria-high-104"
 FINDING = "ORPHAN-HIGH-104"
+_SIGNING_CONFIG_KEYS = ("commit.gpgsign", "gpg.format", "user.signingkey", "gpg.ssh.allowedSignersFile")
 
 
 class ImplementerMergeSeamTests(unittest.TestCase):
@@ -73,8 +74,9 @@ class ImplementerMergeSeamTests(unittest.TestCase):
         fixture = Path(self.tmp.name).resolve()
         self.repo = make_repo_with_initial_commit(fixture, {
             SOURCE: "export const sampleIntervalMs = 60000;\n",
-            # The signing key the runner mints lands under aria-debts/keys/;
-            # the real repository ignores it and staging refuses a dirty tree.
+            # The real repository ignores aria-debts/keys/ (the executor's
+            # per-request identity lands there in the request worktree) and
+            # staging refuses a dirty tree; the fixture mirrors that rule.
             ".gitignore": "aria-debts/keys/\n",
         }, name="workspace")
         self.tools = fixture / "aria-tools"
@@ -105,6 +107,10 @@ class ImplementerMergeSeamTests(unittest.TestCase):
 
     def _git(self, *argv: str) -> str:
         return subprocess.run(["git", *argv], cwd=self.repo, check=True, capture_output=True, text=True).stdout.strip()
+
+    def _config(self, key: str) -> str | None:
+        done = subprocess.run(["git", "config", "--get", key], cwd=self.repo, capture_output=True, text=True)
+        return done.stdout.strip() if done.returncode == 0 else None
 
     def _run_runner(self):
         with _fake_child_process(validation_module):
@@ -183,32 +189,29 @@ class ImplementerMergeSeamTests(unittest.TestCase):
             for word in (_PATH_WORD, _WORDING_WORD):
                 self.assertNotIn(word, item["description"], item["id"])
 
-    def test_a_checkout_git_cannot_sign_in_is_refused_before_the_implementer_runs(self) -> None:
-        """ARIA-HIGH-114 — the merge gate verifies every implementer commit
-        against the cycle key, so a checkout the mint could not wire is a
-        run that can only end refused. The runner reads the mint's receipt
-        and refuses by name, spending no implementer turn and leaving the
-        plan CONVERGED for a checkout that can sign."""
-        from aria_kernel import gh_token_factory
+    def test_the_runner_mints_no_identity_and_leaves_the_checkout_untouched(self) -> None:
+        """ARIA-HIGH-115 — the identity is minted where the commit is made.
+
+        The runner used to mint the cycle key here and revoke it in
+        ``finally`` before the implementer had been claimed (and, after
+        ARIA-HIGH-114, refuse ``git_signing_unconfigured`` on the mint's
+        receipt). The executor child that runs the implementer mints its own
+        key in the request worktree (``implementation_identity``) and
+        carries that refusal (``implementation_signing_unavailable``); this
+        runner stages and dispatches, and leaves no key, no signing config
+        and no registry row behind."""
         from aria_kernel.ledger import load_declared_jsonl
 
-        with patch.object(gh_token_factory, "_resolve_signing_checkout", lambda root: None):
-            result = self._run_runner()
-        self.assertEqual(result.terminal_state, "IMPLEMENTATION_REQUEST_REFUSED")
-        self.assertEqual(result.rejection_class, "git_signing_unconfigured")
-        rows = [row for row in load_declared_jsonl(self.tools / "governance.jsonl", expected_surface="tools_governance")
-                if row.get("kind") == "implementation_git_signing_unconfigured"]
-        self.assertEqual(len(rows), 1, rows)
-        self.assertEqual(rows[0]["details"]["reason"], "not_a_checkout")
-        self.assertEqual(rows[0]["details"]["cycle_id"], CYCLE_ID)
-        self.assertEqual(fold_plan_state(plan_id=PLAN_ID, base_dir=self.tools)["state"], "CONVERGED",
-                         "no envelope was minted; the plan waits for a checkout that can sign")
-        self.assertEqual(
-            [row for row in list_agent_invocation_requests(base_dir=self.tools, convergence_id=PLAN_ID)
-             if row.get("role") == "implementation"], [],
-        )
-        self.assertEqual(sorted(p.name for p in (self.repo / "aria-debts" / "keys").iterdir()), [],
-                         "the cycle key is revoked on the refusal path too")
+        signing_before = {key: self._config(key) for key in _SIGNING_CONFIG_KEYS}
+        result = self._run_runner()
+        self.assertEqual(result.terminal_state, "IMPLEMENTATION_DISPATCHED", result)
+        self.assertFalse((self.repo / "aria-debts" / "keys").exists(), "the runner minted no key")
+        self.assertEqual({key: self._config(key) for key in _SIGNING_CONFIG_KEYS}, signing_before)
+        self.assertFalse((self.tools / "knowledge-graph" / "signers.jsonl").exists())
+        kinds = {row.get("kind") for row in load_declared_jsonl(self.tools / "governance.jsonl",
+                                                                expected_surface="tools_governance")}
+        self.assertNotIn("implementation_git_signing_unconfigured", kinds)
+        self.assertNotIn("installation_token_fallback_active", kinds, "no delivery token is minted at dispatch")
 
     def test_the_perimeter_refuses_an_invented_trailer_and_opens_the_derived_one(self) -> None:
         self._run_runner()

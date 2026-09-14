@@ -141,8 +141,15 @@ def record_plan_result(
     request: dict[str, Any],
     response: dict[str, Any],
     base_dir: str | Path | None = None,
+    workspace_root: str | Path | None = None,
 ) -> dict[str, Any] | None:
     """Plan 026R §C.1 (V8 v2 §4 Phase 8.2 — state-aware primary dispatch).
+
+    ``workspace_root`` is the checkout the submission was made from (the
+    request worktree, on the submit path); the implementation dispatch
+    verifies the claimed commit there. The bridge replay carries none — the
+    worktree is gone by then — and verifies in the checkout the store is
+    bound to instead (ARIA-HIGH-115).
 
     Returns:
         ``None`` when ``role`` is not a planner bridge role (no-op for
@@ -268,6 +275,7 @@ def record_plan_result(
                 plan_id=plan_id,
                 base_dir=base_dir,
                 record_implementation_outcome=record_implementation_outcome,
+                workspace_root=workspace_root,
             )
         case _:
             # Tier-1 exhaustiveness. The role was filtered against
@@ -368,6 +376,119 @@ def _dispatch_cross_review(
     )
 
 
+def verification_checkout(
+    *, workspace_root: str | Path | None, base_dir: str | Path | None,
+) -> Path:
+    """The checkout the implementation commit is verified in.
+
+    The submit path names the tree the executor submitted from (the
+    per-request worktree, where the commit is HEAD). The replay path has
+    no such tree — the drain removed it — and uses the checkout the store
+    is bound to, where the branch ref the worktree created survives the
+    worktree's removal (refs are the repository's, not the worktree's).
+    Never the process cwd: the bridge used to run ``git verify-commit``
+    wherever the kernel happened to be invoked, which is the executor
+    child's cwd on the submit path and the orchestrator's on replay.
+    """
+    if workspace_root is not None:
+        return Path(workspace_root).resolve()
+    from .tool_registry import bound_workspace_root
+
+    return bound_workspace_root(base_dir)
+
+
+def verify_implementation_commit(
+    *,
+    branch_tip_sha: str,
+    signer_key_fp: str,
+    cycle_id: str,
+    plan_id: str,
+    base_dir: str | Path | None,
+    workspace_root: str | Path | None,
+) -> None:
+    """The trust boundary between the implementer's claim and the ledger.
+
+    Plan ARIA-V3.1-B2 put ``git verify-commit`` here so the IMPL row is
+    never written for a commit the cycle key did not sign. ARIA-HIGH-115
+    changes what it verifies AGAINST and WHERE: the fingerprint on the
+    result is the executor's stamp (``implementation_identity``), its
+    public key is on the ``kg_signers`` ledger under the request's cycle
+    id, and this check builds the allowed-signers anchor from that
+    registered key and runs in the checkout that holds the commit
+    (``verification_checkout``). A fingerprint the registry does not hold
+    is refused by name — a key nobody registered is not the kernel's
+    identity, whatever signed with it — and so is one registered under
+    another cycle: the executor mints and registers for the request's
+    ``cycle_id``, so a key of any other cycle vouching for this commit is
+    a key the executor never held for it, however it verifies.
+    Raises ``GovernanceError("commit_signature_unverified: ...")``.
+
+    ``ARIA_DRY_RUN`` short-circuits the git step (mocked test environments
+    cannot reach a repository carrying the commit) and records
+    ``commit_signature_verify_skipped_dry_run`` so the audit trail carries
+    the bypass; the registry check is not a git step and always runs.
+    """
+    import os as _os
+    import tempfile as _tempfile
+
+    from .implementation_safety import verify_commit_signature
+    from .knowledge_graph import lookup_convention_signer
+    from .tool_registry import GovernanceError, append_tools_governance
+
+    if not signer_key_fp:
+        raise GovernanceError(
+            f"commit_signature_unverified: branch_tip_sha={branch_tip_sha!r} carries no "
+            "signer_key_fp — the executor stamps the fingerprint of the key it minted "
+            "in the request worktree; a result without one was not made under that key."
+        )
+    registered = lookup_convention_signer(signer_key_fp, base_dir=base_dir)
+    if registered is None:
+        raise GovernanceError(
+            f"commit_signature_unverified: signer_key_fp={signer_key_fp!r} is not a "
+            "registered cycle key (kg_signers); the executor registers the public half "
+            "before the implementer starts, so an unregistered fingerprint is not the "
+            "kernel's identity."
+        )
+    if not cycle_id or registered.get("cycle_id") != cycle_id:
+        raise GovernanceError(
+            f"commit_signature_unverified: signer_key_fp={signer_key_fp!r} is registered "
+            f"under cycle {registered.get('cycle_id')!r}, not this request's cycle "
+            f"{cycle_id!r}; the executor holds a key for the request's own cycle only."
+        )
+    if _os.environ.get("ARIA_DRY_RUN", "").lower() in ("true", "1", "yes"):
+        append_tools_governance(
+            base_dir, "commit_signature_verify_skipped_dry_run",
+            {
+                "plan_id": plan_id,
+                "branch_tip_sha": branch_tip_sha,
+                "signer_key_fp": signer_key_fp,
+            },
+            bypass_profile_gate=True,
+        )
+        return
+    checkout = verification_checkout(workspace_root=workspace_root, base_dir=base_dir)
+    # The anchor is the REGISTERED key alone, in a file of this call's own:
+    # the checkout's ``gpg.ssh.allowedSignersFile`` (if any) is the mint's
+    # wiring while the key is held and absent once revoked, and neither is
+    # what the ledger vouches for.
+    with _tempfile.NamedTemporaryFile("w", prefix="aria-registered-signer-", suffix=".allowed",
+                                      encoding="utf-8", delete=True) as allowed:
+        allowed.write(
+            f"aria-cycle-{registered.get('cycle_id')} {registered.get('key_type')} "
+            f"{registered.get('public_key')}\n"
+        )
+        allowed.flush()
+        verified = verify_commit_signature(
+            branch_tip_sha, signer_key_fp, repo=checkout, allowed_signers=allowed.name,
+        )
+    if not verified:
+        raise GovernanceError(
+            f"commit_signature_unverified: branch_tip_sha={branch_tip_sha!r} "
+            f"signer_key_fp={signer_key_fp!r} — the commit does not verify against the "
+            f"registered key in {checkout} (git verify-commit); impl row refused."
+        )
+
+
 def _dispatch_implementation(
     *,
     request: dict[str, Any],
@@ -376,13 +497,17 @@ def _dispatch_implementation(
     plan_id: str,
     base_dir: str | Path | None,
     record_implementation_outcome: Any,
+    workspace_root: str | Path | None = None,
 ) -> dict[str, Any]:
     """Plan ARIA-V9.3 — bridge dispatch for role="implementation".
 
     aria-implementer agent submits an aria/agent-response/v1 envelope
-    whose ``details.implementation`` carries the full outcome record.
-    The bridge extracts the record + calls
-    plan_convergence.record_implementation_outcome which validates
+    whose ``details.implementation`` carries the outcome record; the
+    executor stamps ``signer_key_fp`` on it (ARIA-HIGH-115). The bridge
+    reads the record through ``implementation_record`` — the one reading
+    the executor's stamp also uses — verifies the claimed commit against
+    the registered key (``verify_implementation_commit``) and calls
+    plan_convergence.record_implementation_outcome which validates the
     state precondition (IMPLEMENTATION_IN_FLIGHT) + payload shape +
     transitions to IMPLEMENTATION_RECORDED.
 
@@ -395,61 +520,30 @@ def _dispatch_implementation(
     _validate_event payload check (defense-in-depth — the bridge
     doesn't re-validate shape here).
     """
-    impl = details.get("implementation") or details
-    if not isinstance(impl, dict):
-        raise GovernanceError(
-            f"implementation dispatch: details.implementation must be a dict, "
-            f"got {type(impl).__name__}"
-        )
-    # Plan ARIA-V3.1-B2 — verify_commit_signature wire (closes
-    # V31-B-3 follow-up + C-7 second-half). The kernel state machine
-    # validator stays git-agnostic per plan_convergence.py:697-699
-    # design; the bridge IS the trust boundary between the
-    # aria-implementer agent's claim and the kernel ledger. We
-    # cross-check the agent-supplied branch_tip_sha against the
-    # cycle's expected signer_key_fp via `git verify-commit --raw`
-    # BEFORE letting the impl row land. Mismatch raises
-    # GovernanceError("commit_signature_unverified") — the IMPL row
-    # is NEVER written for an unsigned commit, and the agent's
-    # response becomes a no-op terminal rejection at the bridge.
-    #
-    # Tier-1 anchor: the verify happens at the trust boundary, not
-    # the validator. Adding a verifier inside the state machine
-    # would require git access from every kernel callsite (CLI,
-    # tests, sandbox runs).
-    #
-    # Behavioral fallback: ARIA_DRY_RUN=true short-circuits the
-    # verify (mocked test envs cannot reach a real git repo with
-    # the per-cycle signing key). The dry-run path emits a
-    # `commit_signature_verify_skipped_dry_run` governance event so
-    # operator audit captures the bypass.
-    import os as _os
+    from .implementation_identity import implementation_record
+
+    impl = implementation_record(details)
+    # Plan ARIA-V3.1-B2 — the verify happens at the trust boundary, not
+    # the validator: the kernel state machine stays git-agnostic
+    # (plan_convergence.py design), and a verifier inside it would need
+    # git access from every kernel callsite (CLI, tests, sandbox runs).
+    # A claimed commit is verified before anything is recorded; a result
+    # that claims no commit falls through to the recorder, which refuses
+    # its shape (`branch_tip_sha` is required) — the IMPL row is NEVER
+    # written for a commit the registered key did not sign.
     _claimed_branch_tip = impl.get("branch_tip_sha") or ""
     _claimed_signer_fp = impl.get("signer_key_fp") or ""
-    if _claimed_branch_tip and _claimed_signer_fp:
-        # Both fields supplied → cross-check.
-        if _os.environ.get("ARIA_DRY_RUN", "").lower() in ("true", "1", "yes"):
-            from .tool_registry import append_tools_governance
-            append_tools_governance(
-                base_dir, "commit_signature_verify_skipped_dry_run",
-                {
-                    "plan_id": plan_id,
-                    "branch_tip_sha": _claimed_branch_tip,
-                    "signer_key_fp": _claimed_signer_fp,
-                },
-                bypass_profile_gate=True,
-            )
-        else:
-            from .implementation_safety import verify_commit_signature
-            if not verify_commit_signature(
-                _claimed_branch_tip, _claimed_signer_fp,
-            ):
-                raise GovernanceError(
-                    f"commit_signature_unverified: branch_tip_sha="
-                    f"{_claimed_branch_tip!r} signer_key_fp="
-                    f"{_claimed_signer_fp!r} — agent-claimed commit "
-                    "fails kernel-side git verify-commit; impl row refused."
-                )
+    if _claimed_branch_tip:
+        verify_implementation_commit(
+            branch_tip_sha=_claimed_branch_tip,
+            signer_key_fp=_claimed_signer_fp,
+            # The request's cycle: the one the executor minted and registered
+            # the stamped key under (`implementation_identity`).
+            cycle_id=str(request.get("cycle_id") or ""),
+            plan_id=plan_id,
+            base_dir=base_dir,
+            workspace_root=workspace_root,
+        )
     # E2/F1 — bring the machine to the state the outcome validator expects,
     # with the REAL claim data the response carries. `implementation_started`
     # means "agent has claimed the lease"; the claim id and the agent are in

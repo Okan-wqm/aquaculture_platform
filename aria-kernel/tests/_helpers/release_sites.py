@@ -20,7 +20,18 @@ What a `reason=` expression may be, and where its literal lives:
   assigned or derived (its own classification test);
 * `<name>.release_reason` — a refusal record; its literal is one of the
   `release_reason=` keywords of the refusal tables, which this scan also
-  reads, so the table and the site are classified together.
+  reads, so the table and the site are classified together. The tables are
+  the module-level names in `REFUSAL_TABLE_NAMES` and nothing else: a
+  record built anywhere else — an exception's property, a local — has a
+  literal this reading never sees, and the site it feeds is classified by
+  nothing (ARIA-HIGH-115 round 2: `exc.release_reason` satisfied the shape
+  while its literal lived in a kernel property, and a wholly unclassified
+  executor release reason failed no static pin). So a `release_reason`
+  attribute site is admitted ONLY on a refusal table's own name, or on one
+  of the `REFUSAL_RECORD_READERS` — the locals that carry a record built
+  from a table (`_refuse_native_admission` from `ADMISSION_REFUSALS` /
+  `TASK_BINDING_REFUSAL`). Any other name is a new shape and needs a rule
+  here, which is where its literal gets classified.
 """
 from __future__ import annotations
 
@@ -29,8 +40,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 EXECUTOR_PATH = Path(__file__).resolve().parents[3] / "tools" / "aria-poc" / "ci_executor.py"
-REFUSAL_TABLE_NAMES: frozenset[str] = frozenset({"ADMISSION_REFUSALS", "TASK_BINDING_REFUSAL"})
+REFUSAL_TABLE_NAMES: frozenset[str] = frozenset({
+    "ADMISSION_REFUSALS", "TASK_BINDING_REFUSAL", "IMPLEMENTATION_IDENTITY_REFUSAL",
+})
 REFUSAL_RECORD_ATTRIBUTE = "release_reason"
+# The locals a release site may read `.release_reason` off besides the tables
+# themselves: each carries a `_NativeAdmissionRefusal` that
+# `_refuse_native_admission` built from a kind in the tables, so the literal
+# behind it is one this scan read there. A site on any other name is refused
+# by `scan_executor_release_sites` — the reading names its admitted shapes.
+REFUSAL_RECORD_READERS: frozenset[str] = frozenset({"admission_exit"})
 
 
 class UnreadableReleaseSite(AssertionError):
@@ -47,6 +66,8 @@ class ReleaseSiteScan:
     release_sites: int = 0
     attribute_sites: int = 0
     """Release sites that read a refusal record's `release_reason`."""
+    attribute_site_names: set[str] = field(default_factory=set)
+    """The names those sites read the record off: a refusal table's own, or a rostered reader's."""
 
 
 def _literals(node: ast.AST) -> set[str]:
@@ -86,7 +107,13 @@ def scan_executor_release_sites(source: str | None = None) -> ReleaseSiteScan:
             return
         elif (isinstance(expr, ast.Attribute) and expr.attr == REFUSAL_RECORD_ATTRIBUTE
               and isinstance(expr.value, ast.Name)):
+            if expr.value.id not in REFUSAL_TABLE_NAMES | REFUSAL_RECORD_READERS:
+                raise UnreadableReleaseSite(
+                    f"a release site reads `.{REFUSAL_RECORD_ATTRIBUTE}` off {expr.value.id!r}, which is neither a "
+                    "refusal table nor a rostered reader of one: the literal behind it is classified by nothing"
+                )
             scan.attribute_sites += 1
+            scan.attribute_site_names.add(expr.value.id)
         else:
             raise UnreadableReleaseSite(f"release reason shape not admitted: {ast.dump(expr)}")
 

@@ -48,6 +48,13 @@ RELEASE_REASON_CODES: tuple[str, ...] = (
     # The executor's lease guard released a claim its body abandoned
     # (uncaught exception / return without release); detail names the exit.
     "EXECUTOR_UNCAUGHT_EXIT",
+    # ARIA-HIGH-115 — the executor could not hold the implementer's signing
+    # identity in the tree it runs in (`implementation_identity`): the
+    # shared checkout instead of a per-request worktree, an unwirable git,
+    # no ssh-keygen, a refused registry write. The lane's or the host's
+    # state, never the request's; the governance row of the same name
+    # carries the cause. Harness-class.
+    "IMPLEMENTATION_SIGNING_UNAVAILABLE",
     "UNCLASSIFIED",
 )
 FAULT_DOMAINS: tuple[str, ...] = ("harness", "request", "operator", "unclassified")
@@ -56,6 +63,9 @@ FAULT_DOMAINS: tuple[str, ...] = ("harness", "request", "operator", "unclassifie
 # (its refusal table) and the planner dispatch hook (its back-off statuses).
 NATIVE_RUNTIME_PROVIDER_UNDECIDED = "native_runtime_provider_undecided"
 NATIVE_RUNTIME_CONTROL_UNAVAILABLE = "native_runtime_control_unavailable"
+# The one spelling of the executor's identity refusal, read by
+# `implementation_identity` (its release reason) and the executor.
+IMPLEMENTATION_SIGNING_UNAVAILABLE = "implementation_signing_unavailable"
 
 _LITERALS: dict[str, tuple[str, str]] = {
     "native_runtime_admission_unavailable": ("NATIVE_RUNTIME_ADMISSION_UNAVAILABLE", "harness"),
@@ -75,6 +85,7 @@ _LITERALS: dict[str, tuple[str, str]] = {
     "planner_dispatch_executor_timeout": ("PLANNER_DISPATCH_EXECUTOR_TIMEOUT", "harness"),
     "planner_dispatch_executor_exit_nonzero": ("PLANNER_DISPATCH_EXECUTOR_EXIT_NONZERO", "harness"),
     "prompt_hash_binding_mismatch": ("PROMPT_HASH_BINDING_MISMATCH", "harness"),
+    IMPLEMENTATION_SIGNING_UNAVAILABLE: ("IMPLEMENTATION_SIGNING_UNAVAILABLE", "harness"),
     "lease_expired": ("LEASE_EXPIRED", "request"),
     "request_envelope_missing_expected_output_path": ("REQUEST_ENVELOPE_MISSING_EXPECTED_OUTPUT_PATH", "request"),
     "request_envelope_missing_role": ("REQUEST_ENVELOPE_MISSING_ROLE", "request"),

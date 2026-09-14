@@ -113,13 +113,13 @@ Your steps:
 6. **Stage and secret-scan before commit** using `git add <touched paths>`
    then `implementation_safety.verify_no_secret_in_diff(git diff --staged)`:
    a leaked secret becomes durable in history the moment it is committed.
-7. **Commit** with the per-cycle signing key, honouring `## Commit
-   contract` exactly: a subject type from `commit_contract.commit_types`
-   and, when `commit_contract.trailer` is printed, that one `Closes:` line
-   verbatim as the last body line — when none is printed, no `Closes:` line
-   at all. The kernel derived it from the plan's origin (`plan_origin`); the
-   pre-PR-open check `commit_contract_honoured` refuses a branch whose
-   commits differ. Never invent a trailer.
+7. **Commit** with a plain `git commit` (the executor wired this worktree's
+   git to the cycle key it minted, `implementation_identity`; `-S`,
+   `--no-gpg-sign` or your own `user.signingkey` yield a signature the merge
+   gate refuses), honouring `## Commit contract` exactly: a subject type from
+   `commit_contract.commit_types` and the printed `commit_contract.trailer`
+   verbatim as the last body line — none printed, none written. Derived by
+   `plan_origin`; `commit_contract_honoured` refuses a branch whose commits differ.
 8. **Secret-scan committed patch** using
    `implementation_safety.verify_no_secret_in_diff(git show --format= --patch HEAD)`
    — catches formatter hooks, generated changes or commit-time transformations
@@ -147,8 +147,8 @@ Your steps:
    `ARIA_EXECUTOR_PR_VIA_KERNEL=1` the allowlist refuses it.
 10. **Submit response envelope**. `aria/agent-response/v1` where:
    - `details.implementation` carries `{branch, pr_url, diff_hash ("sha256:"
-     + 64 hex), branch_tip_sha, base_branch_sha, validation_results, signer_key_fp}`
-     — the fields `plan_convergence.record_implementation_outcome` requires
+     + 64 hex), branch_tip_sha, base_branch_sha, validation_results}`; the
+     kernel stamps `signer_key_fp` (executor) and `completed_at` (bridge)
    - `satisfaction_matrix[]` — one entry per `must_satisfy[]` constraint
 
 ## SECURITY CONTRACT

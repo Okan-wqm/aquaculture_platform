@@ -395,19 +395,28 @@ If the rate of cycle_budget_exhausted exceeds 30% of cycles, the per-cycle budge
 
 Symptom: governance shows `commit_signature_unverified` rejections.
 
-This means the V3.1-B-2 base64 delimiter encoding OR the V3.1-B-3 mint_signing_key git config wire is broken for some reason. STOP the run. Verify:
+The bridge verifies `branch_tip_sha` against the public key registered in `kg_signers` for the
+fingerprint the executor stamped on the result (ARIA-HIGH-115); the message names which step
+refused — no fingerprint on the result, a fingerprint the registry does not hold, or a commit
+that does not verify against the registered key in the named checkout. STOP the run. Verify:
 
 ```bash
-# Check the cycle's signing key on disk:
-ls /var/aqua-saas/aria-debts/keys/
-# Check git config — `--local` on a main checkout, `--worktree` on a linked
-# worktree (every executor per-request worktree; ARIA-HIGH-114):
-git -C <workspace> config --local --get commit.gpgsign      # main checkout
-git -C <workspace> config --worktree --get commit.gpgsign   # linked worktree
-# Expected: "true"
-git -C <workspace> config --worktree --get gpg.ssh.allowedSignersFile
+# The executor's identity is minted in the REQUEST WORKTREE while the request runs
+# (<checkout>/aria-worktrees/req-<id>/aria-debts/keys/<cycle_id>), registered in
+# knowledge-graph/signers.jsonl (surface kg_signers) before the agent starts, and
+# revoked after the submit — so look at the ledgers, not the (removed) worktree:
+grep '"cycle_id"' <tools-dir>/knowledge-graph/signers.jsonl
+grep 'implementation_signing_unavailable\|implementation_signer_fp_overridden' <tools-dir>/governance.jsonl
+# While a request worktree still exists, its config is `--worktree` scoped:
+git -C <worktree> config --worktree --get commit.gpgsign   # Expected: "true"
+git -C <worktree> config --worktree --get gpg.ssh.allowedSignersFile
 # Expected: <git rev-parse --absolute-git-dir>/aria-allowed-signers
 ```
+
+An `implementation_signing_unavailable` release (harness-class; the request stays queued) names why
+the identity could not be held in that tree: `shared_checkout_scope:--local` means the child ran
+in the shared checkout — turn `executor.worktree_per_request` on; `identity_already_held` means
+another holder owns this cycle's key in that tree.
 
 If the git config is missing, read the mint's receipt: `PYTHONPATH=aria-kernel:. python3 -c "from
 aria_kernel.gh_token_factory import mint_signing_key; print(mint_signing_key(cycle_id='diagnostic',

@@ -320,6 +320,7 @@ class NativeImplementationContextTests(unittest.TestCase):
             GATE_PRE_MERGE, _native_implementation_is_bound, run_hard_fail_checks,
             verify_commit_signature,
         )
+        from aria_kernel.knowledge_graph import register_convention_signer
         from aria_kernel.ledger import load_declared_jsonl
         from aria_kernel.plan_convergence import plan_status
         from aria_kernel.runtime_profile import set_profile
@@ -489,7 +490,16 @@ class NativeImplementationContextTests(unittest.TestCase):
         hook_rows = load_declared_jsonl(tools.joinpath(*kernel_hooks.HOOK_DECISIONS_RELPATH),
             expected_surface=kernel_hooks.HOOK_DECISIONS_SURFACE)
         self.assertEqual([row["turn_budget"]["used_before"] for row in hook_rows], [0, 1, 2])
-        signer = mint_signing_key(cycle_id="cyc-native-pre-merge", workspace_root=repo)
+        # The executor mints and registers the public half under the
+        # REQUEST'S cycle before the implementer runs (`implementation_identity`,
+        # ARIA-HIGH-115); the bridge verifies the commit against the key
+        # registered for that cycle, so a fixture that plays the executor
+        # mints and registers the way the executor does.
+        signer = mint_signing_key(cycle_id=request["cycle_id"], workspace_root=repo)
+        register_convention_signer(
+            cycle_id=request["cycle_id"], signer_key_fp=signer.fingerprint,
+            public_key=signer.public_key_path.read_text(encoding="utf-8"), base_dir=tools,
+        )
         git("checkout", "-q", "-b", staged["branch"])
         (repo / source_path).write_text("export const sampleIntervalMs: number = 20000;\n", encoding="utf-8")
         git("add", source_path)
@@ -551,9 +561,11 @@ class NativeImplementationContextTests(unittest.TestCase):
         output.write_text(json.dumps(response), encoding="utf-8")
         transcript = fixture / "native-worker-transcript.txt"
         transcript.write_text("Fixture worker used the real staged request, signed commits and native validation runs.\n", encoding="utf-8")
-        # The existing implementation result bridge invokes Git at its process
-        # cwd. Exercise its normal workspace cwd; do not replace its verifier.
-        with chdir(repo):
+        # The bridge verifies the commit in the checkout the submission
+        # names (`workspace_root`), never in the process cwd (ARIA-HIGH-115):
+        # the kernel is invoked from a directory that is no checkout at all,
+        # and the verification still finds the commit and the registered key.
+        with chdir(fixture):
             submitted = submit_claim_result(claim_id=claim["claim_id"], agent_id=claim["agent_id"],
                 lease_token=claim["lease_token"], output_path=output, workspace_root=repo, base_dir=tools,
                 context_hash=request["context_hash"], prompt_hash=request["prompt_hash"],

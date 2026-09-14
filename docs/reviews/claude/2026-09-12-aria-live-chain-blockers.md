@@ -918,17 +918,40 @@ logged in` and exits 1, and both probes tested the exit code before the
   is therefore refused with an empty fingerprint or refused
   `commit_signature_unverified` with a fabricated one; cost attribution
   reads `ARIA_CYCLE_SIGNER_KEY_FP`, which nothing exports.
-- **Design (open):** for `role=implementation` the executor mints the
-  cycle key INSIDE the request worktree at claim (worktree-scoped,
-  ARIA-HIGH-114), registers the public half in `kg_signers`, stamps
-  `signer_key_fp` on the submitted response itself (kernel-owned, never
-  the agent's), exports the fingerprint to the cost record and revokes on
-  release/submit; the bridge verifies against the registered public key
-  (an allowed-signers file built from `kg_signers`, run in the request
-  worktree) so verification does not depend on the process cwd. Pin: an
-  executor-lane run whose commit is signed by the executor-minted key
-  lands the IMPL row; the same run with the fingerprint removed or with
-  another key is refused. Blocks halka 4→5 of the live chain.
+- **What is now true (lane `wf_85686100-726`, two verify rounds,
+  accepted):** `aria_kernel/implementation_identity.py` — the executor
+  child holds the identity for a claimed `implementation` request as the
+  last step before the spawn: it mints the key inside the request
+  worktree (worktree scope, ARIA-HIGH-114), refuses by name when the
+  receipt is not `configured` or the lane is a shared checkout
+  (`shared_checkout_scope:--local`, before a single config write) —
+  releasing the claim harness-class as `implementation_signing_unavailable`
+  (rostered in `release_reason` and the release-site scan), request
+  REQUEUED with no turn spent — registers the public half in `kg_signers`
+  before the agent's first command and revokes on every exit. The kernel
+  stamps `details.implementation.signer_key_fp` from the held key
+  (`stamp_implementation_signer`; an agent value that differs is
+  overwritten and recorded `implementation_signer_fp_overridden`).
+  `plan_convergence_bridge.verify_implementation_commit` resolves the
+  fingerprint in `kg_signers`, requires the registered key's cycle to be
+  this request's cycle, builds an allowed-signers file from that one key
+  and runs `git verify-commit --raw` in the checkout the submission names
+  (or the bound workspace on replay) — never the process cwd; the cost row
+  takes the fingerprint from that one holder. The V9 runner's dead mint and
+  its token bracket are gone (nothing in that window committed or called
+  GitHub). The implementer prompt and the shared safety contract no longer
+  ask the agent for a fingerprint.
+- **Proof (candidate):** `tests/test_executor_implementation_identity.py`
+  (the real executor child in a drain-provisioned worktree with a scripted
+  agent: plain commit lands the IMPL row with the fingerprint on the
+  result and the cost row, registry before the agent, verification from
+  the shared checkout, revocation and no leakage; unsigned / other-key /
+  fabricated / unregistered / other-cycle fingerprints refused by name
+  before any plan-state mutation), `tests/test_implementation_signature_boundary.py`;
+  eleven mutations each killed by a pin. The reverifier reproduced the
+  adjacent ARIA-HIGH-123 (the production sandbox cannot run git in a linked
+  worktree); the end-to-end pin proves the chain through a pass-through
+  sandbox and says so.
 
 ## ARIA-LOW-116 — the suite left its scratch directories in RAM
 
@@ -1024,3 +1047,53 @@ logged in` and exits 1, and both probes tested the exit code before the
   shape, the producers call `key_change_obligation`, and the re-mint's
   `must_satisfy` keyword must be the `upcast_sealed_items(…)` assignment;
   a verbatim copy of the sealed row fails the pin (mutation-checked).
+
+## ARIA-HIGH-122 — the adaptation loop: a condition the kernel can name becomes a plan
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-30 · **Operator direction
+  (2026-09-14):** "ARIA koşulların değişmesine de kendini adapte edebilmeli."
+- **Evidence:** the kernel COPES with a changed condition (provider failover on a decided
+  unavailable, bounded retry, requeue on harness faults, store backfill, tool quarantine and
+  sat-out streaks, orphan-key pruning) and NAMES what it refused (`provider_undecided`,
+  `state_publish_runtime_artifacts_unverified`, `native_task_binding` refusals,
+  `tool-degraded` escalations, lapsed dormant-surface waivers) — but those refusals and the
+  HUMAN_REQUIRED records they open are not a mission source. `self_improvement.scan_signals`
+  feeds missions from capability gaps, funnel stalls, delivery gaps, MCP quarantine and doctor
+  FAIL only; a kernel-path change is refused for self-merge (`implementation_safety`, Plan 009
+  operator lane) with no path from a refusal to a drafted kernel PR. Every environment change
+  of the last three days (CLI probe timeout, compaction ↔ verify, lapsed waivers) therefore
+  waited for an operator or for this session.
+- **Design:**
+  1. Every named refusal / escalation class is a `Signal` carrying its evidence rows
+     (governance kind, request id, refusal reason, HUMAN_REQUIRED id); the mission it opens
+     names the surface it expects to change.
+  2. The adaptation surface is split: **self-merge** for `tools/aria-adapters/**`, adapter
+     fixtures, policy JSON under `aria-kernel/aria_kernel/data/` and dormant-surface waiver
+     re-dating — each with measured before/after evidence; **operator-approved PR drafted by
+     ARIA** for `aria-kernel/**` core, identity and security surfaces (the Plan 009 lane, now
+     entered automatically from the signal); **notify-only** for credentials, subscriptions
+     and production infrastructure. The operator sets the exact self-merge set.
+  3. Every adaptation carries the lane discipline as a kernel contract: a pin that fails on the
+     pre-change tree, an adversarial verification row, and the refusal it answers named in the
+     commit trailer.
+- **Sequence:** after ARIA-HIGH-115 (executor signing identity), ARIA-HIGH-097 (adjudication
+  readers) and the first live end-to-end merge — the loop has nothing to merge before the
+  chain it adapts is alive.
+
+## ARIA-HIGH-123 — the implementer's sandbox cannot run git where the implementer commits
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-17
+- **Evidence (reproduced on this host, `wf_85686100-726` reverifier):** the write-capable
+  implementer spawn is bwrap-contained with only the workspace bound and `.git/` /
+  `aria-debts/` in `READONLY_PATHS`. In a linked per-request worktree `git status` fails
+  `not a git repository: <checkout>/.git/worktrees/<name>` (the common dir and the worktree's
+  private git dir sit outside the bound workspace); in a main checkout `git add` fails
+  `Unable to create .git/index.lock: Read-only file system`. The `git commit` the identity
+  contract (ARIA-HIGH-115) relies on cannot run in the real sandbox in either lane; the HIGH-115
+  end-to-end pin proves the chain through a pass-through bwrap and says so.
+- **Fix shape (open, tier 1):** the write-capable profile derives its binds from the checkout
+  (`checkout_root`: the worktree, its private git dir and the common object store, writable)
+  and keeps the private key unreadable to the agent (git reads it, the agent does not — bind
+  it for git alone, or route the commit through a kernel-owned helper the agent invokes);
+  pin with a real bwrap child committing in a linked worktree. Blocks ring 4 in production
+  regardless of ARIA-HIGH-115.

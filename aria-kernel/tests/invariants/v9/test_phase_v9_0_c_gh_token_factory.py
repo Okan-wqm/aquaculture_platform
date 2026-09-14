@@ -243,7 +243,7 @@ class TestV9InstallationTokenFactory(unittest.TestCase):
 class TestV9TokenFactoryPublicApi(unittest.TestCase):
 
     def test_i_v9_token_factory_all_exports(self):
-        """__all__ MUST contain the 9 canonical symbols.
+        """__all__ MUST contain the 12 canonical symbols.
 
         Plan ARIA-V9.0-C baseline pinned 5 symbols
         (SigningKey, InstallationTokenLease, mint_signing_key,
@@ -257,11 +257,20 @@ class TestV9TokenFactoryPublicApi(unittest.TestCase):
 
         ARIA-HIGH-114 extends it by 2 — ``SigningCheckout`` (where the
         transaction lives: git dir + config scope) and
-        ``GitSigningWiring`` (the mint's receipt the V9 runner reads).
+        ``GitSigningWiring`` (the mint's receipt the executor's identity
+        seam reads).
+
+        ARIA-HIGH-115 extends it by 3 — ``signing_checkout`` (the one
+        reading of a workspace's checkout shape, which the executor's
+        identity seam consults BEFORE minting so a shared-scope workspace
+        is refused without a config write) and the two scope constants
+        it answers with, ``CONFIG_SCOPE_LOCAL`` / ``CONFIG_SCOPE_WORKTREE``.
         """
         self.assertEqual(
             set(_tf.__all__),
             {
+                "CONFIG_SCOPE_LOCAL",
+                "CONFIG_SCOPE_WORKTREE",
                 "GitSigningWiring",
                 "SigningCheckout",
                 "SigningKey",
@@ -271,6 +280,7 @@ class TestV9TokenFactoryPublicApi(unittest.TestCase):
                 "prune_stale_signing_keys",
                 "revoke_installation_token",
                 "revoke_signing_key",
+                "signing_checkout",
             },
             "gh_token_factory.__all__ drifted",
         )

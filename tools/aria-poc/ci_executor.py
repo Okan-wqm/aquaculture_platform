@@ -1461,6 +1461,11 @@ def invoke_claude_cli(
     session_id: str | None = None,
     resume: bool = False,
     spawn_control: Any | None = None,
+    # ARIA-HIGH-115 — the fingerprint of the signing identity THIS executor
+    # holds for the request (`implementation_identity`), for the cost row;
+    # None for every role that holds no key (the row then carries the
+    # `SHA256:no-key` sentinel).
+    signer_key_fp: str | None = None,
 ) -> int:
     """Call the Claude Code CLI; mock path for tests + CI dry-runs.
 
@@ -1977,6 +1982,7 @@ def invoke_claude_cli(
                 tools_dir=tools_dir,
                 role=role,
                 request_id=request_id,
+                signer_key_fp=signer_key_fp,
             )
     _emit_dispatch_summary(
         outcome="succeeded" if completed.returncode == 0 else "failed",
@@ -1998,8 +2004,15 @@ def _record_claude_cli_usage(
     tools_dir: Path,
     role: str,
     request_id: str,
+    signer_key_fp: str | None = None,
 ) -> None:
     """Record Claude usage with a TRUTHFUL USD attribution.
+
+    ``signer_key_fp`` is the fingerprint of the signing identity this
+    executor holds for the request (ARIA-HIGH-115: minted in the request
+    worktree by `implementation_identity`), passed by the one holder rather
+    than read from an environment variable nothing exported; a role that
+    holds no key records the ledger's `SHA256:no-key` sentinel.
 
     Cost resolution order (ORPHAN-HIGH-311 — the previous hardcoded
     ``estimated_usd=0.0`` made the operator's USD budget caps toothless
@@ -2052,7 +2065,6 @@ def _record_claude_cli_usage(
     if not isinstance(pressure_source_type, str):
         pressure_source_type = None
 
-    signer_key_fp = os.environ.get("ARIA_CYCLE_SIGNER_KEY_FP")
     if not isinstance(signer_key_fp, str) or not signer_key_fp.startswith("SHA256:"):
         signer_key_fp = "SHA256:no-key"
 
@@ -2715,8 +2727,13 @@ def _invoke_native_codex(
     lease_token: str,
     target_agent: str, session_id: str, prompt: str, output_path: Path,
     transcript_path: Path, timeout_seconds: int, spawn_control: Any,
+    signer_key_fp: str | None = None,
 ) -> int:
-    """Use the existing CI claim/result lane with the selected Codex callback."""
+    """Use the existing CI claim/result lane with the selected Codex callback.
+
+    ``signer_key_fp`` is the executor-held implementation identity
+    (ARIA-HIGH-115), recorded on the usage row; None for a role without one.
+    """
     from aria_kernel.budget import _reserve_native_runtime_attempt, price_tokens, record_cost_attribution
     from aria_kernel.tool_registry import GovernanceError, append_tools_governance
     from codex_runtime import _run_managed_codex_exec
@@ -2792,6 +2809,7 @@ def _invoke_native_codex(
                 cycle_id=request["cycle_id"], plan_id=request["convergence_id"],
                 agent_role=request["role"], model=route["model"], input_tokens=input_tokens,
                 output_tokens=output_tokens, estimated_usd=price.usd, base_dir=tools_dir,
+                signer_key_fp=signer_key_fp,
             )
         result_admission = "pending_native_submit"
         return 0
@@ -2823,6 +2841,7 @@ def _invoke_native_zai(
     lease_token: str,
     target_agent: str, session_id: str, prompt: str, output_path: Path,
     transcript_path: Path, timeout_seconds: int, spawn_control: Any,
+    signer_key_fp: str | None = None,
 ) -> int:
     """The same CI claim/result lane, with the Z.ai HTTP transport as the callback.
 
@@ -2911,6 +2930,7 @@ def _invoke_native_zai(
                 cycle_id=request["cycle_id"], plan_id=request["convergence_id"],
                 agent_role=request["role"], model=route["model"], input_tokens=input_tokens,
                 output_tokens=output_tokens, estimated_usd=price.usd, base_dir=tools_dir,
+                signer_key_fp=signer_key_fp,
             )
         result_admission = "pending_native_submit"
         return 0
@@ -2943,7 +2963,7 @@ def _invoke_native_claude(
     lease_token: str,
     target_agent: str, session_id: str, prompt: str, output_path: Path,
     transcript_path: Path, timeout_seconds: int, spawn_control: Any,
-    prompt_file: Path, resume: bool,
+    prompt_file: Path, resume: bool, signer_key_fp: str | None = None,
 ) -> int:
     """The managed Anthropic session on the native lane.
 
@@ -2984,6 +3004,7 @@ def _invoke_native_claude(
             timeout_seconds=timeout_seconds, claim_id=claim_id, agent_id=agent_id,
             role=request["role"], must_satisfy=request.get("must_satisfy") or [],
             request_envelope=request, tools_dir=tools_dir, spawn_control=spawn_control,
+            signer_key_fp=signer_key_fp,
         )
         if cli_exit != 0:
             result_admission = "provider_nonzero"
@@ -3123,12 +3144,15 @@ def _native_task_binding_refusal(*, repo_root: Path, tools_dir: Path, request: d
 
 @_dataclass(frozen=True)
 class _AdmissionRefusalKind:
-    """Everything one kind of admission refusal says about itself, in one
-    record: the claims-ledger reason an inherited claim is released under,
-    and the summary class/retryability the child writes. One record per
-    kind so the two vocabularies cannot be declared apart and disagree
-    (a stalled host released as a harness fault but summarised as a
-    non-retryable policy violation was the shape the verifier found)."""
+    """Everything one kind of pre-spawn refusal says about itself, in one
+    record: the claims-ledger reason the claim is released under, and the
+    summary class/retryability the child writes. One record per kind so
+    the two vocabularies cannot be declared apart and disagree (a stalled
+    host released as a harness fault but summarised as a non-retryable
+    policy violation was the shape the verifier found — twice: the fleet's
+    halted admissions, ARIA-HIGH-107, and the identity refusal,
+    ARIA-HIGH-115). Every record is a module-level literal the release-site
+    invariant reads (`tests/_helpers/release_sites.REFUSAL_TABLE_NAMES`)."""
 
     release_reason: str
     failure_class: str
@@ -3168,6 +3192,22 @@ ADMISSION_REFUSALS: dict[str, _AdmissionRefusalKind] = {
 TASK_BINDING_REFUSAL = _AdmissionRefusalKind(
     release_reason="native_runtime_admission_unavailable",
     failure_class="policy_violation", retryable=False,
+)
+# ARIA-HIGH-115 — the implementer's signing identity could not be held in
+# the tree this child runs in (`aria_kernel.implementation_identity`): the
+# shared checkout instead of a per-request worktree, an unwirable git, no
+# ssh-keygen, a refused registry write. Every cause is the lane's or the
+# host's, so the release is harness-class (the request returns to PENDING
+# with its requeue budget intact) AND the summary says so — a harness
+# refusal summarised as a non-retryable policy violation is the
+# two-vocabularies defect `_AdmissionRefusalKind` exists to prevent. The
+# literal is the kernel's `release_reason.IMPLEMENTATION_SIGNING_UNAVAILABLE`
+# (pinned equal in `tests/test_implementation_identity_hold.py`), spelled
+# here so the release-site invariant reads it from this module's AST like
+# the tables above (`tests/_helpers/release_sites.REFUSAL_TABLE_NAMES`).
+IMPLEMENTATION_IDENTITY_REFUSAL = _AdmissionRefusalKind(
+    release_reason="implementation_signing_unavailable",
+    failure_class="harness_unavailable", retryable=True,
 )
 
 
@@ -3881,6 +3921,55 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
             request=request_envelope, request_id=request_id, target_agent=subagent_type,
             reason=OPERATOR_CANCELLED_RELEASE_REASON,
         )
+    # ARIA-HIGH-115 — the implementer's signing identity is minted HERE, in
+    # the tree the agent will commit in (`_REPO_ROOT`: the per-request
+    # worktree the drain added, or whatever the lane handed this child), as
+    # the LAST step before the spawn — after the budget, renderer, recovery
+    # and operator-cancel refusals, each of which would otherwise have cost
+    # an ssh-keygen and left a `kg_signers` row for a key that never signed
+    # — and held on the runtime stack so it is revoked (config restored) on
+    # every exit after the submit or the release. The mint wires the
+    # worktree's git config, so the agent's plain `git commit` signs; the
+    # public half is on `kg_signers` before the agent starts, so the bridge
+    # can verify against it after the worktree is gone. A tree the identity
+    # cannot be held in (the shared checkout, an unwirable git, no
+    # ssh-keygen) is refused by name before any turn is spent, under
+    # `IMPLEMENTATION_IDENTITY_REFUSAL` (harness-class release, retryable
+    # `harness_unavailable` summary); the request stays PENDING.
+    implementation_identity = None
+    if request_envelope["role"] == "implementation":
+        from aria_kernel.implementation_identity import (
+            ImplementationIdentityRefusal,
+            hold_implementation_identity,
+        )
+        from aria_kernel.tool_registry import append_tools_governance as _identity_governance
+
+        _identity_cycle_id = str(request_envelope.get("cycle_id") or "")
+        try:
+            implementation_identity = _runtime_stack.enter_context(hold_implementation_identity(
+                cycle_id=_identity_cycle_id, workspace_root=_REPO_ROOT, base_dir=tools_dir,
+            ))
+        except ImplementationIdentityRefusal as exc:
+            _identity_governance(tools_dir, IMPLEMENTATION_IDENTITY_REFUSAL.release_reason, {
+                "request_id": request_id, "claim_id": claim_id, "cycle_id": _identity_cycle_id,
+                "workspace_root": str(_REPO_ROOT), "reason": exc.reason,
+            })
+            sys.stderr.write(
+                f"{IMPLEMENTATION_IDENTITY_REFUSAL.release_reason}: {exc.reason} workspace_root={_REPO_ROOT}\n"
+            )
+            _release_claim(
+                tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+                agent_id=agent_id, lease_token=lease_token,
+                reason=IMPLEMENTATION_IDENTITY_REFUSAL.release_reason,
+            )
+            return _refuse_dispatch(
+                request=request_envelope, request_id=request_id, target_agent=subagent_type,
+                reason=IMPLEMENTATION_IDENTITY_REFUSAL.release_reason,
+                failure_class=IMPLEMENTATION_IDENTITY_REFUSAL.failure_class,
+                retryable=IMPLEMENTATION_IDENTITY_REFUSAL.retryable,
+            )
+        _stage(f"implementation_identity_held cycle_id={_identity_cycle_id} scope={implementation_identity.scope}")
+    _signer_key_fp = implementation_identity.fingerprint if implementation_identity is not None else None
     _spawn_control = SpawnControl(
         should_cancel=lambda: is_cancelled(request_id, tools_dir),
         on_event=ProgressWriter(request_id, base_dir=tools_dir, claim_id=claim_id).write,
@@ -3904,6 +3993,7 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
                 target_agent=subagent_type, session_id=_session_id, prompt=_prompt_payload,
                 output_path=expected_output_path, transcript_path=transcript_output_path,
                 timeout_seconds=timeout, spawn_control=_spawn_control,
+                signer_key_fp=_signer_key_fp,
             )
         else:
             cli_exit = invoke_claude_cli(
@@ -3930,6 +4020,8 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
             request_envelope=request_envelope,
             tools_dir=tools_dir,
             spawn_control=_spawn_control,
+            # ARIA-HIGH-115 — the executor-held identity, for the cost row.
+            signer_key_fp=_signer_key_fp,
         )
         if cli_exit != 0:
             # Plan 032 Faz 032c — a write-capable spawn that ended non-zero has
@@ -4152,10 +4244,22 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
             _envelope_for_validation,
             must_satisfy=request_envelope.get("must_satisfy") or [],
         )
-        if _mutated or _mutated_cr or _mutated_sm:
+        # ARIA-HIGH-115 — the signer fingerprint is a kernel fact stamped by
+        # the executor that holds the key; a value the agent wrote is
+        # replaced, and a differing one recorded, never trusted.
+        _mutated_signer = False
+        if implementation_identity is not None:
+            from aria_kernel.implementation_identity import stamp_implementation_signer
+
+            _mutated_signer = stamp_implementation_signer(
+                _envelope_for_validation, fingerprint=implementation_identity.fingerprint,
+                request_id=request_id, claim_id=claim_id, base_dir=tools_dir,
+            )
+        if _mutated or _mutated_cr or _mutated_sm or _mutated_signer:
             _stage(
                 f"canonicalize auto-filled plan_content={_mutated} "
-                f"cross_review={_mutated_cr} satisfaction_matrix={_mutated_sm}"
+                f"cross_review={_mutated_cr} satisfaction_matrix={_mutated_sm} "
+                f"implementation_signer={_mutated_signer}"
             )
             try:
                 _write_sanitized_envelope(expected_output_path, _envelope_for_validation)

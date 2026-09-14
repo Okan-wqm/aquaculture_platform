@@ -315,13 +315,24 @@ def verify_no_secret_in_envelope(envelope: dict[str, Any]) -> None:
 _GIT_VERIFY_COMMIT_FP_RE = re.compile(r"\bSHA256:[A-Za-z0-9+/]+={0,2}")
 
 
-def verify_commit_signature(commit_sha: str, expected_signer_fp: str, *, repo: str | Path | None = None) -> bool:
+def verify_commit_signature(
+    commit_sha: str, expected_signer_fp: str, *,
+    repo: str | Path | None = None, allowed_signers: str | Path | None = None,
+) -> bool:
     """Hard-fail check 1 — kernel-side commit signature verification.
 
     Runs ``git verify-commit --raw <sha>`` (or ``git -C <repo>``), parses
     output for the signer fingerprint, asserts equality with
     ``expected_signer_fp`` (the per-cycle ephemeral key minted by
     ``gh_token_factory.mint_signing_key``).
+
+    ARIA-HIGH-115 — ``allowed_signers`` names the trust anchor for THIS
+    verification (``-c gpg.ssh.allowedSignersFile=``): the bridge builds it
+    from the public key registered in ``kg_signers``, so the answer depends
+    on the registry and the commit, never on whatever signing config the
+    checkout the command runs in happens to carry. Without it git reads the
+    checkout's own config, which is the mint's wiring while the key is held
+    and nothing once it is revoked.
 
     Returns True on match, False on absence/mismatch (kernel-side
     raises ``CommitSignatureMismatch`` via the caller, not this
@@ -332,6 +343,8 @@ def verify_commit_signature(commit_sha: str, expected_signer_fp: str, *, repo: s
     args = ["git"]
     if repo is not None:
         args.extend(["-C", str(repo)])
+    if allowed_signers is not None:
+        args.extend(["-c", f"gpg.ssh.allowedSignersFile={allowed_signers}"])
     args.extend(["verify-commit", "--raw", commit_sha])
     try:
         proc = subprocess.run(args, capture_output=True, text=True, timeout=10)

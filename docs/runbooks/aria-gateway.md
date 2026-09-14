@@ -89,6 +89,16 @@ is in effect. Every run lands on `gateway/schedules.jsonl` (`ran`) and `governan
   `HEARTBEAT_STALE_AFTER_BEATS` (5) beats of the cadence the beat declares (`poll_interval_seconds`),
   or absent while a schedule table exists; organ `gateway` reports inbox backlog and the last beat.
   A failing organ becomes a `doctor_fail` self-improvement signal on the next `self_improve` run.
+- `aria-kernel doctor` → organ `deadlines` names every deadline the kernel enforces that is due within
+  `DEADLINE_WARNING_DAYS` (7) or lapsed — waiver `expires_on`, HUMAN_REQUIRED `sla_deadline`, registry
+  finding `deadline` — with days left (`deadlines_due:<n>:<key(+days)…>`); FAIL on a lapsed waiver or
+  SLA (`deadlines_lapsed:…`) or on a source it could not read (`deadlines_undecided:<source>`); a lapsed
+  registry deadline is a WARN (`deadlines_lapsed_swept:…` — the daily sweep plans BLOCKED into a sweep
+  PR that lands only when a CODEOWNER merges it; the sweep PR of 2026-08-28, #1335, is still open). Re-date
+  or resolve BEFORE the day: a lapsed waiver turns every kernel lane red on main (2026-09-13). The daily
+  report's `## Deadlines` section and the `deadline_due` self-improvement signal read the same list;
+  the signal is announced (`self-improve scan` shows `remedy: announce`) and never minted as a mission
+  (CONTRACTS.md §12.19).
 - `curl -s https://app.suderra.com/aria/status` → read-only JSON (no secrets).
 - `aria-kernel gateway status` → inbox counts + schedule table.
 - Stop cleanly: `touch /var/aqua-saas/aria-tools/ARIA_STOP` or `systemctl stop aria-gateway`.

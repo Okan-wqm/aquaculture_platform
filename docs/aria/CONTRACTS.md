@@ -303,18 +303,18 @@ ARIA does **not** run as a standalone Python daemon calling the Anthropic API di
 
 ### Component map (CLI mode)
 
-| Concern | v7.2 assumed | Reality (CLI mode) |
-|---|---|---|
-| Orchestrator | Custom Python daemon | Claude Code session driven by slash command (`/aria-cycle`) and/or cron-launched `claude` invocations |
-| Engines (Discovery, Memory, Pressure, Reflection) | In-process Python modules | Python scripts in `tools/aria/` invoked via `Bash` tool |
-| Adapters | In-process Python ABCs | Python scripts in `tools/aria/adapters/` invoked via `Bash`; output JSON to disk |
-| Skills | Subclasses of `Skill` Protocol | Sub-agent definitions in `.claude/agents/aria-*.md`; invoked via Claude Code `Agent` tool |
-| Hooks (gates, redactor) | In-process Python | `.claude/settings.json` PreToolUse / PostToolUse hooks, e.g. `tools/aria/gates/*.ts` |
-| LLM amplification | Direct `anthropic` SDK calls | Claude Code's own model selection — kernel never imports `anthropic` |
-| Budget tracking | Custom `budget_gate.py` | Claude Code's existing cost telemetry + a thin observation hook |
-| Cycle scheduler | Custom Python timer | OS cron / systemd timer running `claude /aria-cycle` |
-| State persistence | Same — filesystem + workspace-internal git | Same |
-| Kill switch | Same — file sentinel checked at every step | Same — slash command checks sentinel before tool calls |
+| Concern                                           | v7.2 assumed                               | Reality (CLI mode)                                                                                    |
+| ------------------------------------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| Orchestrator                                      | Custom Python daemon                       | Claude Code session driven by slash command (`/aria-cycle`) and/or cron-launched `claude` invocations |
+| Engines (Discovery, Memory, Pressure, Reflection) | In-process Python modules                  | Python scripts in `tools/aria/` invoked via `Bash` tool                                               |
+| Adapters                                          | In-process Python ABCs                     | Python scripts in `tools/aria/adapters/` invoked via `Bash`; output JSON to disk                      |
+| Skills                                            | Subclasses of `Skill` Protocol             | Sub-agent definitions in `.claude/agents/aria-*.md`; invoked via Claude Code `Agent` tool             |
+| Hooks (gates, redactor)                           | In-process Python                          | `.claude/settings.json` PreToolUse / PostToolUse hooks, e.g. `tools/aria/gates/*.ts`                  |
+| LLM amplification                                 | Direct `anthropic` SDK calls               | Claude Code's own model selection — kernel never imports `anthropic`                                  |
+| Budget tracking                                   | Custom `budget_gate.py`                    | Claude Code's existing cost telemetry + a thin observation hook                                       |
+| Cycle scheduler                                   | Custom Python timer                        | OS cron / systemd timer running `claude /aria-cycle`                                                  |
+| State persistence                                 | Same — filesystem + workspace-internal git | Same                                                                                                  |
+| Kill switch                                       | Same — file sentinel checked at every step | Same — slash command checks sentinel before tool calls                                                |
 
 ### What this means for the §1–§12 contracts
 
@@ -406,15 +406,15 @@ A different repository would produce a different set of `aria-*.md` files. The s
 
 ### Documents in this folder, after CLI clarification
 
-| Document | What it describes |
-|---|---|
-| `SPEC.md` | Boundaries (laws, engines, mastery, claim authority). Mostly unchanged by CLI mode; references to `anthropic` SDK are inaccurate but non-load-bearing. |
-| `IDENTITY.md` | Behavior. Unchanged by CLI mode. |
-| `CONTRACTS.md` (this) | Data + protocol contracts + CLI execution model + Phase-1 PoC. |
-| `ROADMAP.md` | Physical phase gates after the PoC decision. Details link to `docs/aria/plans/`. |
-| `plans/` | Decision-complete implementation plans for Phase 0 kernel, skill/agent genesis, and validation harness. |
-| `plans/004-self-renewal-feedback-loop.md` | How missed signals, false positives, and external scanner disagreements become pressure without becoming trusted findings. |
-| `.claude/knowledge/layer-1-aria.md` | Discoverable knowledge anchor for OTHER specialized agents — not ARIA's own configuration. |
+| Document                                  | What it describes                                                                                                                                      |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `SPEC.md`                                 | Boundaries (laws, engines, mastery, claim authority). Mostly unchanged by CLI mode; references to `anthropic` SDK are inaccurate but non-load-bearing. |
+| `IDENTITY.md`                             | Behavior. Unchanged by CLI mode.                                                                                                                       |
+| `CONTRACTS.md` (this)                     | Data + protocol contracts + CLI execution model + Phase-1 PoC.                                                                                         |
+| `ROADMAP.md`                              | Physical phase gates after the PoC decision. Details link to `docs/aria/plans/`.                                                                       |
+| `plans/`                                  | Decision-complete implementation plans for Phase 0 kernel, skill/agent genesis, and validation harness.                                                |
+| `plans/004-self-renewal-feedback-loop.md` | How missed signals, false positives, and external scanner disagreements become pressure without becoming trusted findings.                             |
+| `.claude/knowledge/layer-1-aria.md`       | Discoverable knowledge anchor for OTHER specialized agents — not ARIA's own configuration.                                                             |
 
 ---
 
@@ -467,45 +467,45 @@ class AdapterResult:
 ARIA'nın "su gibi şekil alması" iddiasının test edilebilir olması için adapter set'in bu 14 ekseni
 karşılaması zorunlu. Eksen-adapter eşleştirmesi §1.2'de.
 
-| # | Eksen | Pattern manifesti | Hangi servisleri etkiler |
-|---|---|---|---|
-| 1 | CQRS folder topology | `commands/ handlers/ queries/ query-handlers/` per domain | 17 backend |
-| 2 | Event contracts | `BaseEvent extends` + JSON Schema + upcaster chain | event-store + tüm event publisher'lar |
-| 3 | Outbox pattern | `@PublishToOutbox` + outbox table + consumer | 12 service |
-| 4 | Dual-alias | `@aquaculture/backend-common` ↔ `@platform/backend-common` aynı modül | tüm backend |
-| 5 | NATS BEGIN GENERATED | `services.yaml` SSoT → `nats.conf` generated region (ADR-015) | infrastructure |
-| 6 | Schema drift validator | `SchemaDriftModule.forRoot` per service, boot-time check (ADR-012) | 13 schema-owning |
-| 7 | Banned-phrase enforcement | `tools/gates/banned-phrase.ts` CI gate (CLAUDE.md) | tüm commit'ler |
-| 8 | Nx graph weighting | `nx.json` + `project.json` dependency depth | 17 backend + 7 frontend |
-| 9 | Tenant scoping discipline | `getScopedRepository()` + tenant_id where-clause + JWT trust anchor | tüm tenant-data services |
-| 10 | Sensor protocol register maps | Modbus / OPC UA / Atlas EZO register definitions | sens-api-gateway + sensor-service |
-| 11 | Path → agent mapping | `apps/auth-service/**` → `auth-security-expert`, vs. | 38+ agent ↔ 17+7+1 servis |
-| 12 | Sensor-ingestion sidecar | Rust sidecar + NATS publish + TS consumer (hybrid runtime) | hybrid TS+Rust |
-| 13 | TypeORM auto-mapping | snake_case column ↔ camelCase property (drift değil, framework convention) | tüm TypeORM kullanan |
-| 14 | NATS cert-CN identity | `services.yaml` + cert mint + `verify_and_map: true` (ADR-014/015) | NATS infrastructure |
+| #   | Eksen                         | Pattern manifesti                                                           | Hangi servisleri etkiler              |
+| --- | ----------------------------- | --------------------------------------------------------------------------- | ------------------------------------- |
+| 1   | CQRS folder topology          | `commands/ handlers/ queries/ query-handlers/` per domain                   | 17 backend                            |
+| 2   | Event contracts               | `BaseEvent extends` + JSON Schema + upcaster chain                          | event-store + tüm event publisher'lar |
+| 3   | Outbox pattern                | `@PublishToOutbox` + outbox table + consumer                                | 12 service                            |
+| 4   | Dual-alias                    | `@aquaculture/backend-common` ↔ `@platform/backend-common` aynı modül      | tüm backend                           |
+| 5   | NATS BEGIN GENERATED          | `services.yaml` SSoT → `nats.conf` generated region (ADR-015)               | infrastructure                        |
+| 6   | Schema drift validator        | `SchemaDriftModule.forRoot` per service, boot-time check (ADR-012)          | 13 schema-owning                      |
+| 7   | Banned-phrase enforcement     | `tools/gates/banned-phrase.ts` CI gate (CLAUDE.md)                          | tüm commit'ler                        |
+| 8   | Nx graph weighting            | `nx.json` + `project.json` dependency depth                                 | 17 backend + 7 frontend               |
+| 9   | Tenant scoping discipline     | `getScopedRepository()` + tenant_id where-clause + JWT trust anchor         | tüm tenant-data services              |
+| 10  | Sensor protocol register maps | Modbus / OPC UA / Atlas EZO register definitions                            | sens-api-gateway + sensor-service     |
+| 11  | Path → agent mapping          | `apps/auth-service/**` → `auth-security-expert`, vs.                        | 38+ agent ↔ 17+7+1 servis            |
+| 12  | Sensor-ingestion sidecar      | Rust sidecar + NATS publish + TS consumer (hybrid runtime)                  | hybrid TS+Rust                        |
+| 13  | TypeORM auto-mapping          | snake_case column ↔ camelCase property (drift değil, framework convention) | tüm TypeORM kullanan                  |
+| 14  | NATS cert-CN identity         | `services.yaml` + cert mint + `verify_and_map: true` (ADR-014/015)          | NATS infrastructure                   |
 
 ### 1.2 — First-day adapter set (15 adapter, repo-aware)
 
 Generic adapter (TypeScript-only / NestJS-only) yerine, her biri **belirli bir repo pattern'i** için
 yazılmıştır. Sıra üretim önceliği — pressure'a göre adapter doğum sırası.
 
-| # | Adapter | Globs | Ne çıkartır (pattern manifest) | Eksen | Tamamlayıcı agent(lar) |
-|---|---|---|---|---|---|
-| 1 | `typescript-nestjs-cqrs` | `apps/*/src/**/*.ts` minus `__tests__` | `@CommandHandler`, `@QueryHandler`, `@EventsHandler`, command/query/event class defs, `commandBus.execute()` call sites, **command → handler → event chain** | 1 | data-expert, contract-parity-enforcer |
-| 2 | `typescript-event-contracts` | `libs/event-contracts/src/**/*.ts` + event publisher call sites | `BaseEvent extends` interfaces, `createBaseEvent()` factory calls, JSON Schema validators, upcaster transformations, **PascalCase eventType enforcement** | 2 | data-expert, contract-parity-enforcer |
-| 3 | `typescript-outbox` | files importing `@platform/outbox` + `*.outbox.entity.ts` | `@PublishToOutbox` decorators, outbox entity registrations, publisher call paths, **entity → event → consumer matching** | 3 | data-expert, messaging-expert |
-| 4 | `typescript-dual-alias` | `tsconfig.json` paths + `import` statements across `apps/`, `libs/` | resolves `@aquaculture/*` ↔ `@platform/*` to **canonical single module identity**; mismatched imports = alias-drift, NOT module-drift | 4 | platform-kernel-expert |
-| 5 | `typescript-tenant-scoping` | files calling `getRepository\|getScopedRepository\|x-tenant-id` | `getScopedRepository()` vs forbidden `getRepository()`, tenant_id where-clause discipline, JWT-claim-vs-header trust path | 9 | tenant-isolation-auditor, auth-security-expert |
-| 6 | `typescript-nestjs` | residual `apps/*/src/**/*.ts` not covered by 1–5 | generic `@Module`, `@Controller`, `@Injectable`, `@Entity` (dual-alias-normalized), `@Body()`, **TypeORM camelCase↔snake_case framework convention** (NOT drift) | 13 | (generic NestJS) |
-| 7 | `sql-typeorm-migration` | `apps/*/src/database/migrations/*.ts` | migration class extends, schema declaration (per ADR-011), table CRUD, **timestamp ordering**, BEGIN-GENERATED region detection | 6 | database-reviewer, data-expert |
-| 8 | `sql-schema-invariants-delegation` | (no globs — orchestrator) | runs `e2e/tests/integration/schema-invariants.spec.ts` headlessly, parses pass/fail per invariant; **defers schema-drift detection to existing validator instead of duplicating** | 6 | database-reviewer |
-| 9 | `nats-services-yaml` | `infrastructure/nats/services.yaml` + `infrastructure/docker/nats/nats.conf` | services.yaml accounts list, nats.conf BEGIN-GENERATED region, **invariant: regenerate from services.yaml = exact byte match** | 5, 14 | infra-expert |
-| 10 | `rust-sensor-protocol` | `sens-api-gateway/src/protocols/**/*.rs` + sensor protocol .md docs | Modbus register map, OPC UA NodeIds, Atlas EZO command sets, **register definition ↔ TS DTO drift detection** | 10, 12 | edge-expert, sensor-expert |
-| 11 | `rust-sens-gateway-core` | `sens-api-gateway/src/**/*.rs` minus protocols | tokio runtime, async fn signatures, spawn/TaskTracker discipline, offline queue patterns, IEC 62443 surface markers | 10 | edge-expert, edge-industrial-auditor |
-| 12 | `nx-graph` | `nx.json` + `apps/*/project.json` + `web/modules/*/project.json` | parses `npx nx graph --json`, builds dependency depth map, **weights cross-service drift severity by graph distance** | 8 | infra-expert |
-| 13 | `agent-priors-mapper` | `.claude/agents/*.md` + `.claude/shared/orchestrator-routing-table.md` | agent name + scope from frontmatter, routing-table glob → agent mapping, **path → specialized-agent reference resolver** for finding `related_specialized_agent_domains` | 11 | (meta — no specialized agent owner) |
-| 14 | `config-yaml-toml` | residual `**/*.{yaml,yml,toml,json}` not covered above | manifest sniff, package.json/Cargo.toml metadata, helm values, terraform IaC | (none specific) | infra-expert |
-| 15 | `generic-bootstrap` | everything else | extension histogram, manifest detection, regex import extraction (≈70%) | (fallback) | (fallback) |
+| #   | Adapter                            | Globs                                                                        | Ne çıkartır (pattern manifest)                                                                                                                                                    | Eksen           | Tamamlayıcı agent(lar)                         |
+| --- | ---------------------------------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- | ---------------------------------------------- |
+| 1   | `typescript-nestjs-cqrs`           | `apps/*/src/**/*.ts` minus `__tests__`                                       | `@CommandHandler`, `@QueryHandler`, `@EventsHandler`, command/query/event class defs, `commandBus.execute()` call sites, **command → handler → event chain**                      | 1               | data-expert, contract-parity-enforcer          |
+| 2   | `typescript-event-contracts`       | `libs/event-contracts/src/**/*.ts` + event publisher call sites              | `BaseEvent extends` interfaces, `createBaseEvent()` factory calls, JSON Schema validators, upcaster transformations, **PascalCase eventType enforcement**                         | 2               | data-expert, contract-parity-enforcer          |
+| 3   | `typescript-outbox`                | files importing `@platform/outbox` + `*.outbox.entity.ts`                    | `@PublishToOutbox` decorators, outbox entity registrations, publisher call paths, **entity → event → consumer matching**                                                          | 3               | data-expert, messaging-expert                  |
+| 4   | `typescript-dual-alias`            | `tsconfig.json` paths + `import` statements across `apps/`, `libs/`          | resolves `@aquaculture/*` ↔ `@platform/*` to **canonical single module identity**; mismatched imports = alias-drift, NOT module-drift                                            | 4               | platform-kernel-expert                         |
+| 5   | `typescript-tenant-scoping`        | files calling `getRepository\|getScopedRepository\|x-tenant-id`              | `getScopedRepository()` vs forbidden `getRepository()`, tenant_id where-clause discipline, JWT-claim-vs-header trust path                                                         | 9               | tenant-isolation-auditor, auth-security-expert |
+| 6   | `typescript-nestjs`                | residual `apps/*/src/**/*.ts` not covered by 1–5                             | generic `@Module`, `@Controller`, `@Injectable`, `@Entity` (dual-alias-normalized), `@Body()`, **TypeORM camelCase↔snake_case framework convention** (NOT drift)                 | 13              | (generic NestJS)                               |
+| 7   | `sql-typeorm-migration`            | `apps/*/src/database/migrations/*.ts`                                        | migration class extends, schema declaration (per ADR-011), table CRUD, **timestamp ordering**, BEGIN-GENERATED region detection                                                   | 6               | database-reviewer, data-expert                 |
+| 8   | `sql-schema-invariants-delegation` | (no globs — orchestrator)                                                    | runs `e2e/tests/integration/schema-invariants.spec.ts` headlessly, parses pass/fail per invariant; **defers schema-drift detection to existing validator instead of duplicating** | 6               | database-reviewer                              |
+| 9   | `nats-services-yaml`               | `infrastructure/nats/services.yaml` + `infrastructure/docker/nats/nats.conf` | services.yaml accounts list, nats.conf BEGIN-GENERATED region, **invariant: regenerate from services.yaml = exact byte match**                                                    | 5, 14           | infra-expert                                   |
+| 10  | `rust-sensor-protocol`             | `sens-api-gateway/src/protocols/**/*.rs` + sensor protocol .md docs          | Modbus register map, OPC UA NodeIds, Atlas EZO command sets, **register definition ↔ TS DTO drift detection**                                                                    | 10, 12          | edge-expert, sensor-expert                     |
+| 11  | `rust-sens-gateway-core`           | `sens-api-gateway/src/**/*.rs` minus protocols                               | tokio runtime, async fn signatures, spawn/TaskTracker discipline, offline queue patterns, IEC 62443 surface markers                                                               | 10              | edge-expert, edge-industrial-auditor           |
+| 12  | `nx-graph`                         | `nx.json` + `apps/*/project.json` + `web/modules/*/project.json`             | parses `npx nx graph --json`, builds dependency depth map, **weights cross-service drift severity by graph distance**                                                             | 8               | infra-expert                                   |
+| 13  | `agent-priors-mapper`              | `.claude/agents/*.md` + `.claude/shared/orchestrator-routing-table.md`       | agent name + scope from frontmatter, routing-table glob → agent mapping, **path → specialized-agent reference resolver** for finding `related_specialized_agent_domains`          | 11              | (meta — no specialized agent owner)            |
+| 14  | `config-yaml-toml`                 | residual `**/*.{yaml,yml,toml,json}` not covered above                       | manifest sniff, package.json/Cargo.toml metadata, helm values, terraform IaC                                                                                                      | (none specific) | infra-expert                                   |
+| 15  | `generic-bootstrap`                | everything else                                                              | extension histogram, manifest detection, regex import extraction (≈70%)                                                                                                           | (fallback)      | (fallback)                                     |
 
 > **Sayım:** 15 adapter, 14 ekseni karşılar (8 adapter ekseni doğrudan kapatır; 1 delegation-only; 1
 > meta; 2 generic NestJS+config; 2 jenerik fallback; 1 framework-convention adapter eksen 13'ü
@@ -751,9 +751,11 @@ Every finding's L1 compliance proof.
      (rendered by aria-kernel/aria_kernel/contract_digest.py). Marked text is extracted
      VERBATIM — this file stays the SSoT; edit here, then regenerate the digest. -->
 <!-- judge-digest:begin -->
+
 **source_type allowlist:** `code_reference`, `external_authoritative_source`, `test_demand`,
 `git_history`, `trusted_config_file`, `trusted_prior_doc` (CLAUDE.md, ADRs, knowledge layers per
 SPEC §5.1). Anything else = L1 violation, claim rejected at the gate.
+
 <!-- judge-digest:end -->
 
 ### 5.1 — Evidence-probe session contract (`evidence_probe.GitProbeSession`)
@@ -796,7 +798,7 @@ decision constructs and threads through every `classify_evidence_ref` call:
   written, age still refuses without git. A selection that could claim nothing and could not decide
   something writes one `agent_request_anchor_undecided` governance row and raises
   `AnchorVerificationUnavailable`; the CLI prints `{"stop_reason": "anchor_verification_unavailable",
-  …}` non-zero and the drain stops by that name.
+…}` non-zero and the drain stops by that name.
 - **Drain worktree bracket.** With `executor.worktree_per_request`, the drain's `git worktree add`
   before a child and `git worktree remove` after it each run at `state_store.GIT_TIMEOUT_SECONDS`
   (`ci_executor_drain.REQUEST_WORKTREE_GIT_TIMEOUT_SECONDS`) and are priced into the child
@@ -867,22 +869,24 @@ decision constructs and threads through every `classify_evidence_ref` call:
 ```
 
 <!-- judge-digest:begin -->
+
 ### `claim_type` allowlist (semantics)
 
 The kernel rejects any finding emitted with a claim_type outside this list. New types require an ADR.
 
-| Claim type | What it captures | Min severity floor | Min evidence count |
-|---|---|---|---|
-| `spine_drift` | Same domain concept differs across layers (DB vs entity vs DTO vs frontend). | MEDIUM | 2 (one per drifted layer) |
-| `naming_drift` | Same concept named with different conventions across layers (`tenant_id` vs `tenantId` for the same column). | LOW | 2 |
-| `convention_inconsistency` | A convention used uniformly in N places, broken in M places, no documented reason. | LOW | 3 (consistent samples + violator) |
-| `wrong_code` | Bug — dead branch, unreachable return, swapped argument, missing await, swallowed exception, off-by-one, type-coerced equality with security implication. | MEDIUM | 1 (single code ref + reasoning) — this is the **bug note** category |
-| `absence_in_scope` | Capability expected to exist but evidence not found in searched scope. Confidence cap 0.7 per L1 absence-claim discipline. | INFORMATIONAL | searched-scope record + synonym list |
-| `currency_gap` | Dependency / pattern / library is N versions behind current stable. Informational only — recommendation requires L1 five-criteria gate. | INFORMATIONAL | 1 (registry + repo usage ref) |
-| `duplication` | Identical-or-near-identical code structure repeated ≥3 times. May be intentional. | LOW | 3 |
-| `contradiction` | Two evidences disagree (test asserts X, code does Y). | MEDIUM | 2 |
-| `test_disagreement` | Test name suggests behavior, test body asserts different behavior. | MEDIUM | 1 (test ref) |
-| `regression` | ARIA's own action's baseline comparison failed — emergency. | HIGH | baseline + comparison artifact |
+| Claim type                 | What it captures                                                                                                                                          | Min severity floor | Min evidence count                                                  |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ | ------------------------------------------------------------------- |
+| `spine_drift`              | Same domain concept differs across layers (DB vs entity vs DTO vs frontend).                                                                              | MEDIUM             | 2 (one per drifted layer)                                           |
+| `naming_drift`             | Same concept named with different conventions across layers (`tenant_id` vs `tenantId` for the same column).                                              | LOW                | 2                                                                   |
+| `convention_inconsistency` | A convention used uniformly in N places, broken in M places, no documented reason.                                                                        | LOW                | 3 (consistent samples + violator)                                   |
+| `wrong_code`               | Bug — dead branch, unreachable return, swapped argument, missing await, swallowed exception, off-by-one, type-coerced equality with security implication. | MEDIUM             | 1 (single code ref + reasoning) — this is the **bug note** category |
+| `absence_in_scope`         | Capability expected to exist but evidence not found in searched scope. Confidence cap 0.7 per L1 absence-claim discipline.                                | INFORMATIONAL      | searched-scope record + synonym list                                |
+| `currency_gap`             | Dependency / pattern / library is N versions behind current stable. Informational only — recommendation requires L1 five-criteria gate.                   | INFORMATIONAL      | 1 (registry + repo usage ref)                                       |
+| `duplication`              | Identical-or-near-identical code structure repeated ≥3 times. May be intentional.                                                                         | LOW                | 3                                                                   |
+| `contradiction`            | Two evidences disagree (test asserts X, code does Y).                                                                                                     | MEDIUM             | 2                                                                   |
+| `test_disagreement`        | Test name suggests behavior, test body asserts different behavior.                                                                                        | MEDIUM             | 1 (test ref)                                                        |
+| `regression`               | ARIA's own action's baseline comparison failed — emergency.                                                                                               | HIGH               | baseline + comparison artifact                                      |
+
 <!-- judge-digest:end -->
 
 **Bug note as first-class concept.** A "bug note" is a Finding with `claim_type: "wrong_code"` and
@@ -1198,7 +1202,7 @@ Every Zone-2 parameter change is hypothesis-tested in shadow before promotion.
   "parameter": "skill.spine_drift_detector.precision_threshold",
   "hypothesis": "Lowering threshold from 0.85 to 0.80 will surface real drift currently suppressed",
   "current_value": 0.85,
-  "shadow_value": 0.80,
+  "shadow_value": 0.8,
   "shadow_window_days": 14,
   "shadow_started_at": "2026-05-02T10:30:00Z",
   "shadow_ends_at": "2026-05-16T10:30:00Z",
@@ -1233,7 +1237,7 @@ class LLMTaskSpec:
 ```
 
 `LLMTaskSpec` is metadata attached to every sub-agent invocation. It is recorded in the episodic log
-so the operator can audit *what kind* of LLM work each skill triggered, even though ARIA cannot
+so the operator can audit _what kind_ of LLM work each skill triggered, even though ARIA cannot
 directly observe the underlying API call.
 
 ### Tiering policy (advisory)
@@ -1346,20 +1350,20 @@ attempting to start exits 0 silently — no crash, no error report, no race.
 
 Workspace components by recoverability:
 
-| Component | Source of truth | Backup needed |
-|---|---|---|
-| `aria-kernel/`, `aria-immutable/` | Versioned in separate kernel repo | No (re-install) |
-| `aria-grown/` | This workspace | Yes — skills are unique investment |
-| `aria-memory/` | This workspace, internal git | Yes — knowledge is the product |
-| `aria-capsules/` | Regenerable from repo + adapters, but expensive | Optional (rebuild on restore is acceptable) |
-| `aria-spines/` | Same as capsules | Optional |
-| `aria-indices/` | Regenerable from capsules | No |
-| `aria-findings/`, `aria-proposals/` | This workspace | Yes — audit trail |
-| `aria-config/` | Operator-managed | Yes (operator's responsibility) |
-| `aria-baselines/` | This workspace | No (only useful for in-flight actions) |
-| `aria-worktrees/` | Transient | No |
-| `aria-episodic/` | This workspace, append-only | Yes — audit trail |
-| `private_reports/` | This workspace | Yes — security record |
+| Component                           | Source of truth                                 | Backup needed                               |
+| ----------------------------------- | ----------------------------------------------- | ------------------------------------------- |
+| `aria-kernel/`, `aria-immutable/`   | Versioned in separate kernel repo               | No (re-install)                             |
+| `aria-grown/`                       | This workspace                                  | Yes — skills are unique investment          |
+| `aria-memory/`                      | This workspace, internal git                    | Yes — knowledge is the product              |
+| `aria-capsules/`                    | Regenerable from repo + adapters, but expensive | Optional (rebuild on restore is acceptable) |
+| `aria-spines/`                      | Same as capsules                                | Optional                                    |
+| `aria-indices/`                     | Regenerable from capsules                       | No                                          |
+| `aria-findings/`, `aria-proposals/` | This workspace                                  | Yes — audit trail                           |
+| `aria-config/`                      | Operator-managed                                | Yes (operator's responsibility)             |
+| `aria-baselines/`                   | This workspace                                  | No (only useful for in-flight actions)      |
+| `aria-worktrees/`                   | Transient                                       | No                                          |
+| `aria-episodic/`                    | This workspace, append-only                     | Yes — audit trail                           |
+| `private_reports/`                  | This workspace                                  | Yes — security record                       |
 
 **Backup discipline:**
 
@@ -1786,7 +1790,7 @@ plain paths in `evidence_sources`, every evidence path declared in `read_paths`.
 
 The PR-time pin (`tests/test_adapter_fixture_evidence_contract.py`, in the `aria-kernel` lane whose
 budget it raised from 60 to 75 minutes) runs every shipped manifest's suite through the real fixture
-runner against the checkout and requires each case's *status* to be `ok` — the tool executed, its
+runner against the checkout and requires each case's _status_ to be `ok` — the tool executed, its
 envelope parsed, the validator accepted it. The kernel PR lane (`aria-kernel.yml`; the fast
 lane was retired under ARIA-MEDIUM-135) fires on `tools/aria-adapters/**` and the pre-push selector
 (`scripts/ci/aria-suite-changed.mjs`) maps that directory to every kernel test module naming
@@ -1826,6 +1830,124 @@ both the crashing and the quarantined class (three real cycles, release, recover
 `tests/test_adapter_fixture_evidence_contract.py` the registry contract over every shipped manifest and
 the sync door; `tests/test_fixture_guard_linked_worktree.py` the path guard on real linked worktrees.
 
+## 12.19 — A deadline the kernel enforces is a deadline the doctor announces (ARIA-MEDIUM-128)
+
+**The rule.** A deadline the kernel will enforce is announced by the doctor seven days ahead
+(`deadlines.DEADLINE_WARNING_DAYS`), named, with days left, from the authoritative place the enforcing
+gate reads it from. Eight dormant-surface waivers lapsed on 2026-09-13 and every kernel lane on main
+was red the next morning; nothing had said a word the week before, because the only reader of a
+waiver's date was the gate that refuses it, and a gate reads a date on the day it fires.
+
+**One reader.** `aria-kernel/aria_kernel/deadlines.py` holds the registry of clock-bound rules
+(`DEADLINE_SOURCES`); each `DeadlineSource` yields `(kind, key, due_at, enforced_by, consequence)`
+rows from the source of record, never from a kept list of dates:
+
+| kind                       | read from                                                                                                                       | enforced by                                                                                                                          | lapse       |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ----------- |
+| `surface_waiver`           | `aria-kernel/surface-reachability.unwritten.json` (surface → member → entry)                                                    | `tests/test_surface_reachability.py::test_a_waiver_expires_against_the_clock_not_against_a_regex` (kernel lanes red on main)         | FAULT       |
+| `control_waiver`           | `aria-kernel/control-reachability.dormant.json` (name → entry)                                                                  | `tests/test_control_reachability.py::test_a_waiver_expires_against_the_clock_not_against_a_regex` (kernel lanes red on main)         | FAULT       |
+| `batch_containment_waiver` | `aria-kernel/batch-containment.waivers.json` (name → entry; absent = no waivers)                                                | `tests/test_batch_containment_gate.py::test_the_declared_waivers_are_all_valid` (kernel lanes red on main)                           | FAULT       |
+| `human_required_sla`       | the open records through `human_required.list_human_required` — the daily report's HUMAN_REQUIRED section counts the same queue | `SLA_WINDOWS` (Plan 016 operator SLA; the report's escalation ladder)                                                                | FAULT       |
+| `registry_finding`         | `docs/reviews/_registry/findings.jsonl`, every finding not RESOLVED or BLOCKED that carries a `deadline`                        | `finding-state-sweep.yml` → sweep PR (`finding-registry.ts planSweep` plans BLOCKED; the state lands when a CODEOWNER merges the PR) | information |
+
+**The waiver manifests are one closed registry.** `surface_waivers.WAIVER_MANIFESTS` (`WaiverManifest`:
+kind, path, shape, enforcing gate, consequence) is the closed registry of every dated waiver manifest
+the kernel enforces; the three waiver rows above are built from it (one `DeadlineSource` per
+manifest, never written by hand), every manifest is read by ONE parser
+(`surface_waivers.load_waiver_manifest` — absent file = no waivers; present and malformed RAISES,
+never `{}`), walked by `iter_waivers` and judged by ONE predicate, `surface_waivers.waiver_has_lapsed`
+(`expires_on < today`, UTC: honoured through its own day). Each gate imports its reader and its
+predicate from there and keeps no `json.loads` and no `fromisoformat` of its own. A kernel gate that
+reads a dated waiver manifest without registering it in `WAIVER_MANIFESTS` is the defect this section
+exists to prevent: the first cut of this contract registered the surface manifest alone while
+`control-reachability.dormant.json` carried six waivers dated 2026-09-20 under the control gate's own
+parser and clock — the lanes would have gone red on the 21st with the organ, the report and the scan
+silent, the opening incident wearing another manifest's name. Such a gate has two doors, and each is
+closed where it is passed rather than only named here. A gate that borrows the reader with a
+`WaiverManifest` of its own is refused by every reader (`waiver_manifest_path`,
+`load_waiver_manifest`, `iter_waivers`, `lapsed_waivers` raise `LookupError` naming the spec and
+`register it in surface_waivers.WAIVER_MANIFESTS`) the first time it runs. A gate that keeps a parser
+or a clock of its own is found by `test_deadlines.py` walking EVERY Python module under
+`aria-kernel/tests/` by AST — helpers and invariants included, not only the gates the registry names:
+a walk over the registry cannot open the gate that never registered, which is how a fourth gate with
+its own `json.loads` and `fromisoformat` over `aria-kernel/closure.waivers.json` once passed every pin
+(round-3 verifier, M6) — and refusing a module that handles dated waivers (the `expires_on` field, a
+`*.waivers.json`/`*.dormant.json`/`*.unwritten.json` path, `REQUIRED_WAIVER_FIELDS`) with a
+`json.load`/`json.loads`, `fromisoformat`, `strptime` or `date.today` call of its own, or that
+constructs a `WaiverManifest`, with the same instruction. The manifest file is the third witness: every
+JSON file under `aria-kernel/` outside `tests/` whose entries carry `expires_on`, in either shape, must
+be a registered spec's path. Registering the manifest is the whole remedy — the source list is built
+from the registry, so the organ, the report and the scan announce the new manifest's waivers the day it
+is registered (confirmed on a throwaway copy: the M6 manifest, once registered, was a `closure_waiver`
+row at +6d on 2026-09-14 and a lapsed FAULT on the 21st with no other change).
+
+Each row mirrors the CLOCK of its enforcer so the organ and the gate cannot disagree by a day: a
+waiver is honoured through its `expires_on` day (`waiver_has_lapsed`, the gates' own call); a registry
+deadline lapses at the start of its day (`new Date(deadline) < now`); an SLA lapses at its instant. A
+source that cannot be read answers undecided BY NAME (`<kind>:<ExceptionName>`, or
+`<kind>:checkout_unbound` when a committed source has no checkout to be read from) — one malformed
+manifest is undecided under its own kind and the other manifests are still read.
+
+**Three consumers, one readout.** The doctor's `deadlines` organ (`doctor._check_deadlines`): FAIL on
+`deadlines_undecided:<sources>` or `deadlines_lapsed:<n>:<key(±days)…>` for a lapsed FAULT row; WARN
+on `deadlines_due:<n>:…` (inside the window) and on `deadlines_lapsed_swept:<n>:…` (a lapsed registry
+deadline — the daily sweep plans BLOCKED into a sweep PR that lands only when merged; the workflow
+never pushes to main because auto-commits are a tampering surface, and the sweep PR opened on
+2026-08-28 (#1335) has carried lapsed rows unmerged for weeks — so the doctor names the row without
+declaring the store ill: 132 registry deadlines had lapsed on the day the organ was written, and an
+organ red for a quarter is one nobody reads); every part is named in the reason and every row is in
+the detail. The daily report renders `## Deadlines` beside HUMAN_REQUIRED
+(`reflection._render_deadlines_section`, undecided sources first). `self_improvement.scan_signals`
+emits one `deadline_due` signal per lapsed or in-window row (key `<kind>:<key>`, priority 2 at two
+days or lapsed, 3 otherwise). Adding a rule the kernel enforces means adding its reader to
+`DEADLINE_SOURCES`; the organ, the report and the scan follow.
+
+**A signal is routed by its remedy, not by its priority.** `self_improvement.SIGNAL_REMEDIES` gives
+every signal kind exactly one closed remedy — `self_change` for the five kinds whose answer is a
+change to ARIA's own code (`capability_gap`, `funnel_stall`, `delivery_slo_gap`, `mcp_quarantine`,
+`doctor_fail`, together `SELF_CHANGE_SIGNAL_KINDS`) and `announce` for `deadline_due` — and a
+`Signal` of a kind outside the table cannot be built (`signal_kind_unknown`). The mission opener
+(`open_self_improvement_missions` → `self_change_signals`) mints `propose_self_change` missions only
+for the `self_change` remedy, ordered by priority within it. `deadline_due` is announced — the doctor,
+the daily report and `aria-kernel self-improve scan` (whose rows carry `remedy`) — and never becomes
+a mission: the mission's contract (`mission_dispatch._self_change_contract` →
+`SELF_CHANGE_ALLOWED_PREFIXES`) cannot address a registry finding's or an operator SLA's date, and its
+accepted answer would mint a HUMAN_REQUIRED adjudication that itself becomes a `human_required_sla`
+row. Confirmed on a throwaway store over the pre-fix tree: five lapsed registry rows and one
+quarantined MCP server; three nights of `self_improve` opened three `deadline_due:registry_finding:*`
+missions and the `mcp_quarantine:context7` row never got one (132 lapsed rows on the live checkout
+made the starvation permanent). A lapsed FAULT still reaches the opener at priority 1 as the
+`deadlines` organ's own `doctor_fail`. When HIGH-122's adaptation loop owns a contract for a dated
+row, that contract is added to `SIGNAL_REMEDIES` — not to the opener's sort key.
+
+Not in the registry, on purpose: rolling housekeeping windows (`state_compact` `retain_days`, the
+signing-key 24 h grace in `prune_stale_signing_keys`). Passing those windows IS their design — the row
+is archived, the orphan key is pruned — not a lapse anyone must act on before the day; a "deadline"
+that is always due within the window would make the organ the always-burning signal this contract
+exists to prevent.
+
+`aria-kernel/tests/test_deadlines.py` pins every row above, the one-reader identity (every manifest
+in `WAIVER_MANIFESTS` is a `DeadlineSource`; every gate a manifest names imports `load_waiver_manifest`
+and `lapsed_waivers`/`waiver_has_lapsed` from `surface_waivers` and, by AST over its `Call` nodes,
+keeps no parser and no clock of its own; the organ resolves each manifest through the same function;
+the live checkout's control waivers are `control_waiver` rows due the day after each `expires_on`),
+the closed-registry rule from outside the registry (`UnregisteredWaiverManifests`: every reader refuses
+a spec outside `WAIVER_MANIFESTS`; no module under `aria-kernel/tests/` other than the registered gates
+handles dated waivers with a parser or a clock of its own or builds a `WaiverManifest`; no dated
+manifest file under `aria-kernel/` is unregistered; and the walk's positive control, the M6 gate
+byte-shaped, is refused on every count), the undecided-by-name rule, the daily report as written to
+disk by `run_reflection` (`## Deadlines` with the LAPSED/DUE rows in the file, not a render helper
+checked in isolation) and
+the signal. `aria-kernel/tests/test_self_improvement_remedy.py` pins the remedy table, the refusal of
+a kind without one, and the opener over lapsed registry rows beside a quarantined server.
+
+Named, not pinned: a registry `deadline` the sweep cannot parse (`planSweep` skips a NaN date, and
+`finding-registry.ts` validates no deadline format) makes the whole `registry_finding` source
+undecided by name (`deadlines_undecided:registry_finding:ValueError`) — a date the sweep can never
+compare is a defect in the registry, and the organ says so rather than counting the rest as clean.
+`days_left` is a floor: a row that lapsed N days ago reads `-(N+1)d` once the clock is past the
+instant, the same convention the report and the doctor share.
+
 ## 13 — Phase-1 PoC (IMPLEMENTED)
 
 Before committing to months of kernel work, the operator runs this PoC to answer: **"do we actually
@@ -1862,16 +1984,16 @@ Runtime: ≈30 seconds on the full repo. Output: `.aria-poc/` (gitignored).
    ADR count, agent count, nx availability)
 
 5. Ingest TRUSTED priors (mechanical extraction, no LLM):
-
    - `CLAUDE.md` → `CLAUDE_MD_PRIORS.md` (heading inventory + content SHA-256)
    - `docs/adr/[0-9][0-9][0-9]-*.md` → `ADR_PRIORS.md` (canonical only, title + status)
    - `.claude/agents/*.md` → `AGENT_PRIORS.md` (frontmatter `description` field per agent)
+
 6. Run `npx nx graph --file=.aria-poc/BUILD_GRAPH.json` (best-effort, optional; `--skip-nx-graph` to
    disable)
 
 7. Mechanical drift scan: TypeScript `enum`, string-literal union types, string `as const` arrays,
    Zod `z.enum([...])`, GraphQL SDL enums, frontend literal option groups, and PostgreSQL `CREATE
-   TYPE ... AS ENUM`.
+TYPE ... AS ENUM`.
 
 8. Gate UI option promotion by frontend surface plus named concept relationship. Value overlap alone
    is never enough.
@@ -1950,11 +2072,11 @@ It is the operator's "do we even start?" gate.
 
 Three documents now define ARIA on paper:
 
-| Document | Layer |
-|---|---|
-| `SPEC.md` | Boundaries — laws, engines, mastery, claim authority, workspace |
-| `IDENTITY.md` | Behavior — daily rhythm, refusals, speech, trajectory, self-honesty, missing-protocols (§12–§22) |
-| `CONTRACTS.md` (this) | Data shapes, protocol contracts, LLM discipline, state machine, Phase-1 PoC |
+| Document              | Layer                                                                                            |
+| --------------------- | ------------------------------------------------------------------------------------------------ |
+| `SPEC.md`             | Boundaries — laws, engines, mastery, claim authority, workspace                                  |
+| `IDENTITY.md`         | Behavior — daily rhythm, refusals, speech, trajectory, self-honesty, missing-protocols (§12–§22) |
+| `CONTRACTS.md` (this) | Data shapes, protocol contracts, LLM discipline, state machine, Phase-1 PoC                      |
 
 What is **still missing on paper:** runtime implementation, not plan shape. The physical
 implementation plans live in `docs/aria/plans/`, with the phase-level summary in
@@ -2147,7 +2269,7 @@ publisher contract. Earlier inner cycle projections are not consumers of these o
   (`git_signing_config_restored`). The snapshot is checkout-resident, next to
   `.git/aria-allowed-signers`, and NOT next to the key in the gitignored `aria-debts/keys/`: the
   production lane (`.github/workflows/aria-auto-cycle.yml`) runs `git reset --hard && git clean
-  -ffdx -e node_modules` on the persistent self-hosted workspace at the start of every run, which
+-ffdx -e node_modules` on the persistent self-hosted workspace at the start of every run, which
   wipes the keys dir but never `.git/`, so a cycle killed mid-window (OOM, a cancelled run — the
   autonomy CLI installs no SIGTERM handler) loses its key to the next run's pre-clean while its
   config and its snapshot both survive. The orchestrator runs
@@ -2201,7 +2323,7 @@ publisher contract. Earlier inner cycle projections are not consumers of these o
   refusals, so none of them costs an ssh-keygen or leaves a `kg_signers` row for a key that never
   signed — and before any agent turn, through
   `implementation_identity.hold_implementation_identity(cycle_id=<request's cycle_id>,
-  workspace_root=<the tree the agent runs in>)`. WHERE: inside that tree — the per-request
+workspace_root=<the tree the agent runs in>)`. WHERE: inside that tree — the per-request
   worktree the drain adds (`worktree_per_request`) — with `--worktree` scope, so a plain
   `git commit` by the agent signs and no other worktree or the shared checkout sees the key. The
   V9 runner (`cycle_phases.implementer`) mints nothing: its former key + installation-token
@@ -2484,7 +2606,15 @@ boundary; this metadata does not introduce per-command HEAD admission or continu
 The descriptor names explicit files, never hashes, verdicts or claims of coverage:
 
 ```json
-{"schema_version":1,"files":{"source":["feature.py"],"test":["test_feature.py"],"config":["settings.json"],"dependency":["local_helper.py"]}}
+{
+  "schema_version": 1,
+  "files": {
+    "source": ["feature.py"],
+    "test": ["test_feature.py"],
+    "config": ["settings.json"],
+    "dependency": ["local_helper.py"]
+  }
+}
 ```
 
 Roles may be omitted or empty; their absence means unknown, not a proven empty input universe.

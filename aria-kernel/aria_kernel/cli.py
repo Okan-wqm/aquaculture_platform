@@ -6238,7 +6238,7 @@ def _main(argv: list[str] | None = None) -> int:
         from . import self_improvement as si
 
         if args.self_command == "scan":
-            print(json.dumps([s.__dict__ for s in si.scan_signals(base_dir=args.tools_dir, workspace_root=args.workspace_root)], indent=2, sort_keys=True))
+            print(json.dumps([s.to_dict() for s in si.scan_signals(base_dir=args.tools_dir, workspace_root=args.workspace_root)], indent=2, sort_keys=True))
             return 0
         if args.self_command == "open":
             print(json.dumps(si.open_self_improvement_missions(base_dir=args.tools_dir, workspace_root=args.workspace_root, max_new=args.max_new), indent=2, sort_keys=True))

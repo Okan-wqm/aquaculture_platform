@@ -31,7 +31,28 @@ from .tool_registry import GovernanceError, append_tools_governance, ensure_tool
 
 SELF_IMPROVEMENT_SOURCE_KIND = "self_improvement"
 SELF_CHANGE_NEXT_ACTION = "propose_self_change"
-SIGNAL_KINDS: tuple[str, ...] = ("capability_gap", "funnel_stall", "delivery_slo_gap", "mcp_quarantine", "doctor_fail")
+# ARIA-MEDIUM-128 — a signal's REMEDY is decided by its kind, here, once. The
+# opener mints a `propose_self_change` mission only for a kind whose answer
+# is a change to ARIA's own code (`SELF_CHANGE_ALLOWED_PREFIXES`): that is the
+# only contract the mission's prompt (`mission_dispatch._self_change_contract`)
+# can dispatch, and its accepted answer mints a HUMAN_REQUIRED adjudication.
+# A `deadline_due` row names a registry finding's or an operator SLA's date —
+# an answer nobody can write in aria-kernel/ — so it is ANNOUNCED (doctor,
+# daily report, `self-improve scan`) and never becomes a mission: on the live
+# checkout 132 lapsed registry rows would otherwise fill the opener's budget
+# every night and starve the `mcp_quarantine` row beside them.
+SELF_CHANGE_REMEDY = "self_change"
+ANNOUNCE_REMEDY = "announce"
+SIGNAL_REMEDIES: dict[str, str] = {
+    "capability_gap": SELF_CHANGE_REMEDY,
+    "funnel_stall": SELF_CHANGE_REMEDY,
+    "delivery_slo_gap": SELF_CHANGE_REMEDY,
+    "mcp_quarantine": SELF_CHANGE_REMEDY,
+    "doctor_fail": SELF_CHANGE_REMEDY,
+    "deadline_due": ANNOUNCE_REMEDY,
+}
+SIGNAL_KINDS: tuple[str, ...] = tuple(SIGNAL_REMEDIES)
+SELF_CHANGE_SIGNAL_KINDS: tuple[str, ...] = tuple(kind for kind, remedy in SIGNAL_REMEDIES.items() if remedy == SELF_CHANGE_REMEDY)
 # Where a self-change may point. Anything else is not ARIA's own code.
 SELF_CHANGE_ALLOWED_PREFIXES: tuple[str, ...] = ("aria-kernel/", "tools/aria-poc/", ".github/workflows/aria-", "aria-config/", ".claude/agents/aria-")
 # The authority surfaces: a self-change naming any of these is refused. These
@@ -86,6 +107,20 @@ class Signal:
     title: str
     evidence: dict[str, Any] = field(default_factory=dict)
     priority: int = 2
+
+    def __post_init__(self) -> None:
+        # A kind without a remedy cannot be routed; refusing it at
+        # construction keeps `SIGNAL_REMEDIES` the one place a kind is born.
+        if self.kind not in SIGNAL_REMEDIES:
+            raise GovernanceError(f"signal_kind_unknown:{self.kind}")
+
+    @property
+    def remedy(self) -> str:
+        return SIGNAL_REMEDIES[self.kind]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"kind": self.kind, "key": self.key, "title": self.title, "evidence": self.evidence,
+                "priority": self.priority, "remedy": self.remedy}
 
 
 def is_self_change_mission(mission_row: dict[str, Any]) -> bool:
@@ -186,18 +221,42 @@ def scan_signals(*, base_dir: str | Path | None, workspace_root: str | Path) -> 
                 signals.append(Signal("doctor_fail", check.name, f"Doctor organ {check.name} failing: {check.reason}", {"reason": check.reason}, 1))
     except Exception:  # noqa: BLE001
         pass
+    try:
+        # ARIA-MEDIUM-128 — every deadline the kernel enforces that is lapsed or
+        # inside the warning window, one signal per row, from the same reader
+        # the doctor organ uses. Its remedy is ANNOUNCE (`SIGNAL_REMEDIES`):
+        # the scan and the CLI carry the row; the opener mints no mission for
+        # it, because a registry finding's or an operator SLA's date is not
+        # answered by a change under `SELF_CHANGE_ALLOWED_PREFIXES`.
+        from .deadlines import read_deadlines, signal_priority
+
+        readout = read_deadlines(tools_dir=root, workspace_root=workspace_root)
+        for row in (*readout.lapsed, *readout.due_soon):
+            days = row.days_left(readout.now)
+            signals.append(Signal("deadline_due", f"{row.kind}:{row.key}", f"Deadline {row.key} ({row.kind}) {'lapsed' if row.lapsed(readout.now) else 'due'} {days:+d}d: {row.consequence}",
+                                  row.to_dict(readout.now), signal_priority(row, readout.now)))
+    except Exception:  # noqa: BLE001
+        pass
     return signals
 
 
+def self_change_signals(signals: list[Signal]) -> list[Signal]:
+    """The signals the opener may mint, in the order it mints them: only a
+    kind whose remedy is a self-change, then priority, kind, key. Routing by
+    remedy BEFORE priority is what keeps an announced row from taking a
+    mission slot it could never fill."""
+    return sorted((s for s in signals if s.remedy == SELF_CHANGE_REMEDY), key=lambda s: (s.priority, s.kind, s.key))
+
+
 def open_self_improvement_missions(*, base_dir: str | Path | None, workspace_root: str | Path, max_new: int = 3) -> list[dict[str, Any]]:
-    """Signals → missions (idempotent on source id); never more than `max_new` per call."""
+    """Self-change signals → missions (idempotent on source id); never more than `max_new` per call."""
     from .mission import open_mission
     from .workspace import canonical_identity
 
     root = ensure_tools_dir(base_dir)
     repo_hash = canonical_identity(Path(workspace_root).resolve())
     opened: list[dict[str, Any]] = []
-    for signal in sorted(scan_signals(base_dir=root, workspace_root=workspace_root), key=lambda s: (s.priority, s.kind, s.key)):
+    for signal in self_change_signals(scan_signals(base_dir=root, workspace_root=workspace_root)):
         if len(opened) >= max_new:
             break
         source_id = f"{signal.kind}:{signal.key}"
@@ -258,7 +317,9 @@ def propose_self_change(*, mission_id: str, base_dir: str | Path | None, workspa
     return {"proposal": proposal, "human_required": adjudication}
 
 
-__all__ = ["AUTHORITY_SURFACES", "DEFAULT_VALIDATION_COMMAND", "SELF_CHANGE_ALLOWED_PREFIXES", "SELF_CHANGE_MISSION_REFUSALS",
-           "SELF_CHANGE_MISSION_REFUSED_EVENT", "SELF_CHANGE_NEXT_ACTION", "SELF_CHANGE_PROPOSED_EVENT", "SELF_CHANGE_REFUSED_EVENT",
-           "SELF_IMPROVEMENT_SOURCE_KIND", "SIGNAL_KINDS", "Signal", "authority_surface_violations", "is_self_change_mission",
-           "open_self_change_adjudication", "open_self_improvement_missions", "propose_self_change", "scan_signals"]
+__all__ = ["ANNOUNCE_REMEDY", "AUTHORITY_SURFACES", "DEFAULT_VALIDATION_COMMAND", "SELF_CHANGE_ALLOWED_PREFIXES",
+           "SELF_CHANGE_MISSION_REFUSALS", "SELF_CHANGE_MISSION_REFUSED_EVENT", "SELF_CHANGE_NEXT_ACTION", "SELF_CHANGE_PROPOSED_EVENT",
+           "SELF_CHANGE_REFUSED_EVENT", "SELF_CHANGE_REMEDY", "SELF_CHANGE_SIGNAL_KINDS", "SELF_IMPROVEMENT_SOURCE_KIND",
+           "SIGNAL_KINDS", "SIGNAL_REMEDIES", "Signal", "authority_surface_violations", "is_self_change_mission",
+           "open_self_change_adjudication", "open_self_improvement_missions", "propose_self_change", "scan_signals",
+           "self_change_signals"]

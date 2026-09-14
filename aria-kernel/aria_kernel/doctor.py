@@ -510,6 +510,45 @@ def _check_economy(tools_dir: Path) -> DoctorCheck:
     return DoctorCheck("economy", "ok", "" if stats else "no_usage_rows", detail)
 
 
+def _check_deadlines(tools_dir: Path, workspace_root: Path) -> DoctorCheck:
+    """ARIA-MEDIUM-128 — a deadline the kernel will enforce is announced here
+    `DEADLINE_WARNING_DAYS` ahead, named, with days left.
+
+    FAIL when a source could not be read (`deadlines_undecided:<source>` —
+    an organ that cannot see a clock must not say the clock is fine) or when
+    a deadline whose lapse is a fault has lapsed (a waiver: the kernel lanes
+    are red; a HUMAN_REQUIRED SLA: the operator's promise is broken). WARN
+    when anything is due inside the window, or when a registry deadline has
+    lapsed — the daily sweep plans that into BLOCKED through a sweep PR that
+    lands when merged, so the doctor names it without declaring the store
+    ill (132 such rows on the day this was written). OK otherwise. One reader
+    (`deadlines.read_deadlines`) feeds this organ, the daily report and
+    the `deadline_due` signal, so the three cannot name different dates."""
+    from .deadlines import name_rows, read_deadlines
+
+    readout = read_deadlines(tools_dir=tools_dir, workspace_root=workspace_root)
+    detail = readout.to_dict()
+    now = readout.now
+    faults: list[str] = []
+    if readout.undecided:
+        faults.append("deadlines_undecided:" + ",".join(readout.undecided))
+    if readout.lapsed_faults:
+        faults.append(f"deadlines_lapsed:{len(readout.lapsed_faults)}:" + name_rows(readout.lapsed_faults, now))
+    warnings: list[str] = []
+    if readout.due_soon:
+        warnings.append(f"deadlines_due:{len(readout.due_soon)}:" + name_rows(readout.due_soon, now))
+    swept = tuple(row for row in readout.lapsed if not row.lapse_is_fault)
+    if swept:
+        warnings.append(f"deadlines_lapsed_swept:{len(swept)}:" + name_rows(swept, now))
+    # The strongest verdict first; every part is named so the one-line
+    # readout carries the whole picture and the detail carries every row.
+    if faults:
+        return DoctorCheck("deadlines", "fail", ";".join((*faults, *warnings)), detail)
+    if warnings:
+        return DoctorCheck("deadlines", "warn", ";".join(warnings), detail)
+    return DoctorCheck("deadlines", "ok", "", detail)
+
+
 def run_doctor(
     *,
     base_dir: str | Path | None = None,
@@ -552,6 +591,7 @@ def run_doctor(
         _guarded("economy", lambda: _check_economy(tools_dir)),
         _guarded("orchestrator", lambda: _check_orchestrator(tools_dir)),
         _guarded("tools", lambda: _check_tools(tools_dir)),
+        _guarded("deadlines", lambda: _check_deadlines(tools_dir, workspace)),
     )
     return DoctorReport(
         checks=(*store_checks, *host_checks),

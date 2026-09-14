@@ -71,6 +71,16 @@ jobs:
           # aria-auto-cycle.yml carries the full account.
           fetch-depth: 0
       - uses: ./.github/actions/setup-aria-kernel
+      # ARIA-MEDIUM-134 — the suite proves the REAL sandbox: the managed
+      # Claude/Codex lanes, the provider-admission lanes and the implementer
+      # identity/containment pins each spawn through wrap_bash_in_sandbox and
+      # refuse by name when no backend confines. The droplet provisions bwrap;
+      # the hosted image does not, and fourteen tests were red on the
+      # candidate's first hosted run (34853938794) for exactly that. The lane
+      # provisions the backend the way the executor and nightly lanes do — one
+      # definition — and the action fails closed, naming the host facts, when
+      # the host still cannot confine.
+      - uses: ./.github/actions/ensure-sandbox-backend
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"

@@ -29,6 +29,7 @@ from unittest.mock import patch
 from aria_kernel.implementation_safety import CANONICAL_VALIDATION_COMMANDS_EXECUTABLE
 from aria_kernel.merge_authority import merge_pr_if_ready
 from aria_kernel.tool_registry import ensure_tools_dir
+from tests._helpers.node_modules import installed_node_modules
 
 _SHA = "a" * 40
 _SOURCE = Path(__file__).resolve().parents[1] / "aria_kernel" / "merge_authority.py"
@@ -405,9 +406,7 @@ class NativeImplementationContextTests(unittest.TestCase):
         initial_sha = git("rev-parse", "HEAD")
         os.environ["NX_BASE"] = initial_sha
         os.environ["NX_HEAD"] = "HEAD"
-        installed = Path("/var/aqua-saas/node_modules")
-        for package in ("nx", "typescript", "eslint", "ts-node"):
-            self.assertTrue((installed / package / "package.json").is_file())
+        installed = installed_node_modules("nx", "typescript", "eslint", "ts-node")
         (repo / "node_modules").symlink_to(installed, target_is_directory=True)
         set_profile("strict", operator_approval_ref="test:native-pre-merge-result", base_dir=tools)
         ensure_tools_binding(tools, workspace_root=repo)

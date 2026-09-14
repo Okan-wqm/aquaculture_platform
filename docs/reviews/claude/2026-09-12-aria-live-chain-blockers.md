@@ -1168,3 +1168,36 @@ system`) — the agent's `git commit` the identity contract relies on cannot
   refusing by name without the account database, the agent gone within a
   second of the holder's SIGKILL — each mutation (store root bound, shared
   refs bound, `config.worktree` overlay dropped) caught by its pin.
+
+## ARIA-MEDIUM-134 — the kernel suite was green on one host only
+
+- **Severity:** MEDIUM · **Owner:** claude · **Deadline:** 2026-09-21
+- **Evidence (PR #1553, kernel job 104008882051, 2026-09-14 — the candidate's
+  first run on a hosted runner):** fourteen failures the droplet passes. Four
+  fixtures (`test_pr_manager_e2e._ordinary_scoped_stage`,
+  `test_plan_coverage`, `test_merge_authority_pre_merge_perimeter`) symlinked
+  `Path("/var/aqua-saas/node_modules")` — the operator host's main checkout,
+  a Codex-era hardcode (`4f4918c88c`) — into their throwaway repositories
+  while `npm ci` had installed the same packages under the checkout being
+  tested. Eleven tests that spawn through `wrap_bash_in_sandbox` (the managed
+  Codex bridge, the native Claude lane, the provider-undecided lane, the live
+  path smoke) failed `SandboxUnavailable`: `aria-kernel.yml` never provisioned
+  a sandbox backend because until this candidate no kernel test proved the
+  real one, and the executor/nightly lanes provision theirs through
+  `ensure-sandbox-backend` on the self-hosted runner.
+- **What is now true:** `tests/_helpers/node_modules.installed_node_modules`
+  resolves the checkout's own `node_modules` (through a worktree's symlink)
+  and names a missing package; the three fixtures read it and nothing else.
+  `test_suite_env_hermeticity.NoTestIsBoundToOneHost` walks every test
+  module's AST and refuses a string literal under `/var/aqua-saas` or
+  `/root/` (docstrings excluded — they name the class, they do not depend on
+  the host). The kernel lane runs `ensure-sandbox-backend` after
+  `setup-aria-kernel` — one definition with the executor and nightly lanes —
+  and the action's refusal now names the host facts the two causes differ by
+  (`detail=`, `bwrap=`, `apparmor_restrict_unprivileged_userns=`).
+- **Named, not decided here:** whether the hosted Ubuntu 24.04 image can
+  confine at all. Its kernel keeps unprivileged user namespaces under
+  AppArmor, so bubblewrap may install cleanly and fail every invocation; the
+  run decides, and lifting that restriction on the ephemeral VM (or moving
+  the kernel lane to a runner that confines) is the operator's call, recorded
+  on this finding when made.

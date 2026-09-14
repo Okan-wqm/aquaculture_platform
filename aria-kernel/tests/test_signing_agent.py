@@ -253,14 +253,24 @@ class SigningAgentTests(unittest.TestCase):
         self.assertNotEqual(unsigned.returncode, 0)
         self.assertIn("No private key found", unsigned.stderr)
 
+    @staticmethod
+    def _live_agent_dirs() -> set[Path]:
+        return {path for path in Path(tempfile.gettempdir()).glob("aria-sa-*")
+                if path.is_dir() and (path / sa._SOCKET_NAME).exists()}
+
     def test_a_wrong_fingerprint_is_refused_and_leaves_no_agent(self) -> None:
+        # The host temp dir is shared with every other suite running on this
+        # machine (a sibling lane's executor fixture holds a real agent there
+        # for seconds at a time), so the pin is the DELTA the refused hold
+        # leaves behind, never the absolute set — the first cut asserted the
+        # whole directory empty and failed a pre-push on another process's
+        # agent (push #7, 2026-09-14).
+        before = self._live_agent_dirs()
         with self.assertRaises(SigningAgentUnavailable) as refused:
             with hold_signing_agent(self.key, expected_fingerprint="SHA256:" + "A" * 43):
                 self.fail("an agent holding a key the caller did not expect must not be handed out")
         self.assertEqual(refused.exception.reason, "agent_holds_wrong_keys")
-        leftovers = [path for path in Path(tempfile.gettempdir()).glob("aria-sa-*")
-                     if path.is_dir() and (path / sa._SOCKET_NAME).exists()]
-        self.assertEqual(leftovers, [])
+        self.assertEqual(sorted(self._live_agent_dirs() - before), [])
 
     def test_an_unloadable_key_is_refused_by_name(self) -> None:
         broken = self.root / "broken"

@@ -46,6 +46,7 @@ from aria_kernel.runtime_profile import set_profile
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from tests._helpers.declared_fixtures import append_declared_fixture
 from tests._helpers.production_shaped import production_converged_plan
+from tests._helpers.node_modules import installed_node_modules
 from tests._gh_mock import (
     gh_create_failure,
     gh_create_success,
@@ -390,9 +391,7 @@ class StagedConvergedPlanChainTests(unittest.TestCase):
         self.tools = outside / "store" / "tools"
         set_profile("strict", operator_approval_ref="test:stage-inputs", base_dir=self.tools)
         ensure_tools_binding(self.tools, workspace_root=self.repo)
-        installed = Path("/var/aqua-saas/node_modules")
-        for name in ("nx", "typescript", "eslint"):
-            self.assertTrue((installed / name / "package.json").is_file(), f"offline fixture requires installed {name}")
+        installed = installed_node_modules("nx", "typescript", "eslint")
         (self.repo / "node_modules").symlink_to(installed, target_is_directory=True)
         self.scoped_prefix = "apps/farm-service/env/"
         self.scoped_selector = "test_paths.PathTests.test_normalized_case_sensitive_deduplication"

@@ -21,6 +21,12 @@ What this pins, one property per test:
   that point the suite at a restore-action store keep working.
 * ``ARIA_TOOLS_DIR`` keeps its ORPHAN-MEDIUM-767 contract (real mirror refused,
   temp default) — the same owner, pinned here because nothing pinned it.
+* No test names a path that exists on one host (ARIA-MEDIUM-134): three
+  fixtures symlinked ``/var/aqua-saas/node_modules`` — the operator host's
+  main checkout — into their throwaway repositories, so the suite was green
+  on the droplet and red on the kernel CI lane, where ``npm ci`` had put the
+  same packages under the checkout under test. A fixture's dependencies come
+  from ``tests._helpers.node_modules.installed_node_modules``.
 
 The subprocess tests run ``import tests`` in a fresh interpreter because the
 bootstrap executes once per process; asserting on THIS process would only
@@ -155,6 +161,44 @@ class ToolsDirContractIsPinned(unittest.TestCase):
         seen = json.loads(result.stdout.strip().splitlines()[-1])
         self.assertTrue(seen["ARIA_TOOLS_DIR"])
         self.assertNotEqual(Path(seen["ARIA_TOOLS_DIR"]).resolve(), (REPO_ROOT / "aria-tools").resolve())
+
+
+class NoTestIsBoundToOneHost(unittest.TestCase):
+    """ARIA-MEDIUM-134 — a string literal naming the operator host's checkout
+    is a dependency on one machine. The walk is over the AST, not a grep,
+    so a docstring or comment that explains the class (this file, the
+    helper) does not fail it while a path fed to ``Path()`` does."""
+
+    # The operator host's checkout and home. Not ``/home/``: a synthetic
+    # runner-shaped environment (``test_validation_env._RUNNER_ENV``) spells
+    # ``/home/runner`` as fixture data and depends on no host.
+    HOST_BOUND_PREFIXES = ("/var/aqua-saas", "/root/")
+
+    def test_no_test_literal_names_the_operator_host(self) -> None:
+        import ast
+
+        offenders: list[str] = []
+        for module in sorted((REPO_ROOT / "aria-kernel" / "tests").rglob("*.py")):
+            if module == Path(__file__).resolve():
+                continue  # the pin's own vocabulary
+            tree = ast.parse(module.read_text(encoding="utf-8"), filename=str(module))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant):
+                    continue  # a docstring names the class; it does not depend on the host
+                if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value.startswith(
+                    self.HOST_BOUND_PREFIXES
+                ):
+                    offenders.append(f"{module.relative_to(REPO_ROOT)}:{node.lineno}: {node.value!r}")
+        self.assertEqual(offenders, [], "host-bound path literal(s) in the suite:\n" + "\n".join(offenders))
+
+    def test_the_helper_resolves_the_checkouts_own_install(self) -> None:
+        from tests._helpers.node_modules import installed_node_modules
+
+        installed = installed_node_modules("nx")
+        self.assertEqual(installed, (REPO_ROOT / "node_modules").resolve())
+        with self.assertRaises(AssertionError) as refused:
+            installed_node_modules("nx", "a-package-nobody-installed")
+        self.assertIn("node_modules_missing:a-package-nobody-installed", str(refused.exception))
 
 
 if __name__ == "__main__":

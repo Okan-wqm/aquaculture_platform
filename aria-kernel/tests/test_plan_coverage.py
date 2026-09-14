@@ -14,6 +14,7 @@ from pathlib import Path
 
 from aria_kernel.plan_convergence import _validate_cross_review_risk
 from aria_kernel.plan_coverage import build_synthetic_risk, compute_plan_coverage
+from tests._helpers.node_modules import installed_node_modules
 
 PLAN_CONTENT = {
     "schema_version": 2,
@@ -203,9 +204,7 @@ class NativePlanCoverageTests(unittest.TestCase):
         environment.start()
         self.addCleanup(environment.stop)
         repo = make_repo_with_initial_commit(fixture / "source", files)
-        installed = Path("/var/aqua-saas/node_modules")
-        for package in ("nx", "typescript", "ts-node"):
-            self.assertTrue((installed / package / "package.json").is_file())
+        installed = installed_node_modules("nx", "typescript", "ts-node")
         (repo / "node_modules").symlink_to(installed, target_is_directory=True)
         head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
         self.assertEqual(subprocess.check_output(["git", "status", "--porcelain"], cwd=repo), b"")

@@ -746,20 +746,16 @@ WORKFLOW_CONTRACTS: dict[str, WorkflowContract] = {
 }
 
 
-# ADR-036 D1 — the 3 test-only kernel workflows carry no governed ARIA write
+# ADR-036 D1 — the test-only kernel workflow carries no governed ARIA write
 # authority; audited-excluded with a non-expiring sentinel (no time-bomb).
+# aria-kernel-fast was retired (ARIA-MEDIUM-135: the same full suite under a
+# budget it could not meet) and carries no exclusion, so its return would be
+# refused by the registry rather than silently excluded.
 AUDITED_WORKFLOW_EXCLUSIONS: dict[str, AuditedWorkflowExclusion] = {
     "aria-kernel": AuditedWorkflowExclusion(
         workflow_id="aria-kernel",
         reason="test-only kernel validation workflow; writes only ephemeral ./.aria-ci, "
         "verifies a clean worktree post-run, and uploads no governed ARIA artifact",
-        owner="aria-kernel",
-        expires_at=_NEVER_EXPIRES,
-    ),
-    "aria-kernel-fast": AuditedWorkflowExclusion(
-        workflow_id="aria-kernel-fast",
-        reason="test-only fast kernel validation workflow; writes only ephemeral .aria-ci "
-        "and uploads no governed ARIA artifact",
         owner="aria-kernel",
         expires_at=_NEVER_EXPIRES,
     ),

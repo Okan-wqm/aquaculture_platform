@@ -7,12 +7,14 @@ Six clauses locked here:
      `paths-ignore` is allowed because it's the opt-out form for the
      INFRA-MED-001 doc-only fanout case).
   2. Every `uses: actions/*` SHA-pinned with a comment tag.
-  3. `aria-kernel-fast.yml` is PR-ONLY: the push: trigger was removed
-     (ORPHAN-MEDIUM-769) because aria-kernel.yml already runs on every
-     main push unfiltered — fast re-firing on push duplicated the
-     always-on suite at ~90% overlap. aria-kernel-full.yml was deleted
-     outright (a strict subset of aria-kernel.yml, never a required
-     context).
+  3. `aria-kernel.yml` is THE kernel lane, on PR and on every main push.
+     aria-kernel-full.yml was deleted (ORPHAN-MEDIUM-769: a strict subset
+     of aria-kernel.yml, never a required context) and so was
+     aria-kernel-fast.yml (ARIA-MEDIUM-135: it ran the identical full
+     suite — aria-suite-run.sh takes no mode — with less provisioning
+     under a 60-minute budget the 48-minute suite plus setup cannot meet
+     on a hosted runner, so every kernel PR carried a duplicate lane that
+     ended cancelled). Neither may return.
   4. Every `npm ci` invocation carries `--ignore-scripts`
      (INFRA-CRITICAL-001 supply-chain).
   5. Every `actions/checkout` carries `persist-credentials: false`
@@ -45,7 +47,6 @@ _WORKFLOWS = _REPO_ROOT / ".github" / "workflows"
 # checkout persist-credentials false, top-level permissions, etc.).
 _GOVERNED_WORKFLOWS: frozenset[str] = frozenset({
     "aria-kernel.yml",
-    "aria-kernel-fast.yml",
     "aria-daily-report.yml",
     "aria-agent-executor.yml",
     "aria-agent-eval.yml",
@@ -179,32 +180,34 @@ class CIWorkflowInvariants(unittest.TestCase):
                     violations.append(f"{name}: not SHA-pinned: {stripped}")
         self.assertEqual(violations, [], msg="\n".join(violations))
 
-    def test_fast_workflow_is_pr_only(self) -> None:
-        # Clause 3 — ORPHAN-MEDIUM-769. aria-kernel.yml owns the push lane
-        # unfiltered (ARIA-V-007); a push trigger here would re-run ~90% of
-        # the always-on suite on every non-docs merge.
-        fast = self.workflows.get("aria-kernel-fast.yml")
-        self.assertIsNotNone(fast, "aria-kernel-fast.yml missing")
-        on = fast.get("on") if "on" in fast else fast.get(True)
-        self.assertIsInstance(on, dict, msg="aria-kernel-fast.yml has no `on:` block")
-        self.assertIn("pull_request", on, msg="aria-kernel-fast.yml missing pull_request")
-        self.assertNotIn("push", on, msg="aria-kernel-fast.yml must not carry a push trigger (ORPHAN-MEDIUM-769)")
+    def test_the_kernel_lane_fires_on_pr_and_on_every_main_push(self) -> None:
+        # Clause 3 — the one kernel lane. Its PR trigger carries the suite's
+        # own inputs (ARIA-HIGH-098: an adapters-only PR must run the
+        # registry contract; ARIA-MEDIUM-135: docs/adr/** came over from
+        # the retired fast lane so a SPEC/ADR amendment fires it on the PR)
+        # and its push trigger is unfiltered (ARIA-V-007).
+        kernel = self.workflows.get("aria-kernel.yml")
+        self.assertIsNotNone(kernel, "aria-kernel.yml missing")
+        on = kernel.get("on") if "on" in kernel else kernel.get(True)
+        self.assertIsInstance(on, dict, msg="aria-kernel.yml has no `on:` block")
+        paths = (on.get("pull_request") or {}).get("paths") or []
+        for required in ("aria-kernel/**", "scripts/ci/aria-suite-run.sh", "docs/aria/**", "docs/adr/**",
+                         "tools/aria-adapters/**"):
+            self.assertIn(required, paths, f"aria-kernel.yml: pull_request.paths lacks {required}")
+        self.assertIn("push", on, msg="aria-kernel.yml must run on every main push")
 
-    def test_both_kernel_pr_lanes_fire_on_the_adapter_registry_directory(self) -> None:
-        # ARIA-HIGH-098 — tests/test_adapter_fixture_evidence_contract.py is
-        # the registry contract over tools/aria-adapters/** (a manifest
-        # carries a fixture case expecting ok; every case runs ok through the
-        # evidence validator). It lives in the kernel suite, so the lanes
-        # that run the suite must fire on the directory it pins: before this
-        # pin an adapters-only PR ran neither lane and the contract was first
-        # checked on the push to main.
-        for name in ("aria-kernel.yml", "aria-kernel-fast.yml"):
-            with self.subTest(workflow=name):
-                workflow = self.workflows.get(name)
-                self.assertIsNotNone(workflow, f"{name} missing")
-                on = workflow.get("on") if "on" in workflow else workflow.get(True)
-                paths = (on or {}).get("pull_request", {}).get("paths") or []
-                self.assertIn("tools/aria-adapters/**", paths, f"{name}: pull_request.paths lacks tools/aria-adapters/**")
+    def test_deleted_kernel_fast_stays_deleted(self) -> None:
+        # ARIA-MEDIUM-135 — aria-kernel-fast.yml ran the identical full suite
+        # (aria-suite-run.sh has no mode) with no npm ci and no sandbox
+        # backend under a 60-minute budget the suite cannot meet on a hosted
+        # runner: PR #1553 run 34853938795 was cancelled by its own timeout
+        # while aria-kernel finished the same 6,484 tests inside 75. Its
+        # return would re-introduce a duplicate lane that only ever ends
+        # cancelled.
+        self.assertFalse(
+            (_WORKFLOWS / "aria-kernel-fast.yml").exists(),
+            "aria-kernel-fast.yml was deleted for cause (ARIA-MEDIUM-135); do not re-add it",
+        )
 
     def test_deleted_kernel_full_stays_deleted(self) -> None:
         # ORPHAN-MEDIUM-769 — aria-kernel-full.yml ran a strict subset of

@@ -176,13 +176,16 @@ class WorkflowEnterprisePreflightTests(unittest.TestCase):
         self.assertTrue(verdict.valid, verdict.reasons)
 
     def test_audited_kernel_workflows_have_no_expiry_time_bomb(self) -> None:
-        # D1 (ADR-036) — the kernel workflows are audited-excluded with a
+        # D1 (ADR-036) — the kernel workflow is audited-excluded with a
         # NON-expiring sentinel; the canonical's dated expires_at=2026-07-05
-        # time-bomb is rejected. (aria-kernel-full was deleted outright —
-        # ORPHAN-MEDIUM-769 — so it is neither excluded nor contracted.)
-        for workflow_id in ("aria-kernel", "aria-kernel-fast"):
-            self.assertIn(workflow_id, AUDITED_WORKFLOW_EXCLUSIONS)
-            self.assertEqual(AUDITED_WORKFLOW_EXCLUSIONS[workflow_id].expires_at, "9999-12-31")
+        # time-bomb is rejected. (aria-kernel-full and aria-kernel-fast were
+        # deleted outright — ORPHAN-MEDIUM-769, ARIA-MEDIUM-135 — so they
+        # are neither excluded nor contracted; an exclusion for a workflow
+        # that does not exist would be a standing licence for its return.)
+        self.assertIn("aria-kernel", AUDITED_WORKFLOW_EXCLUSIONS)
+        self.assertEqual(AUDITED_WORKFLOW_EXCLUSIONS["aria-kernel"].expires_at, "9999-12-31")
+        for retired in ("aria-kernel-full", "aria-kernel-fast"):
+            self.assertNotIn(retired, AUDITED_WORKFLOW_EXCLUSIONS)
 
     def test_workflow_registry_rejects_expired_audited_exclusion(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

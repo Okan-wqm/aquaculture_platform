@@ -1201,3 +1201,31 @@ system`) — the agent's `git commit` the identity contract relies on cannot
   run decides, and lifting that restriction on the ephemeral VM (or moving
   the kernel lane to a runner that confines) is the operator's call, recorded
   on this finding when made.
+
+## ARIA-MEDIUM-135 — the fast kernel lane was the full suite under a budget it could not meet
+
+- **Severity:** MEDIUM · **Owner:** claude · **Deadline:** 2026-09-21
+- **Evidence (PR #1553, run 34853938795, 2026-09-14):** `aria-kernel-fast.yml`'s
+  `unittest` job was cancelled at 60m15s by its own `timeout-minutes: 60`
+  while `aria-kernel` (run 34853938794) finished the same suite —
+  `Ran 6484 tests in 2901 s` — inside its 75-minute budget.
+  `scripts/ci/aria-suite-run.sh` takes no mode: both lanes invoked it
+  without arguments, so "fast" had been the whole suite since 2026-08-27,
+  when its 15-minute budget was raised to 60 rather than its scope narrowed
+  (ARIA-MEDIUM-020); the invariant that pinned the two budgets described
+  the fast lane as "the affected subset", which it never ran. It also
+  provisioned less than the lane it duplicated (no `npm ci`, no sandbox
+  backend), so on a hosted runner it could only end cancelled or red.
+  ORPHAN-MEDIUM-769 had already deleted `aria-kernel-full.yml` for the same
+  shape.
+- **What is now true:** `aria-kernel-fast.yml` is deleted. `aria-kernel.yml`
+  is the one kernel lane — on the PR (its paths now carry `docs/adr/**`,
+  inherited from the fast lane, so a SPEC/ADR amendment fires it before
+  merge — I-V3-31c) and unfiltered on every push to main. Every pin that
+  named the fast lane now pins its absence: `test_ci_workflow_invariants`
+  (`test_deleted_kernel_fast_stays_deleted`, the governed set, the PR-path
+  pin), `test_workflow_enterprise_preflight` (no audited exclusion for a
+  retired workflow — one would be a standing licence for its return),
+  `workflow_contract_registry.AUDITED_WORKFLOW_EXCLUSIONS`, the V3 B3
+  amendment pin, `aria-doc-runtime-ssot.spec.ts` (one budget, 75), the
+  runner's consumer list, CONTRACTS §12.18.

@@ -77,7 +77,6 @@ const LIVE_WORKFLOWS = [
   '.github/workflows/aria-agent-executor.yml',
   '.github/workflows/aria-daily-report.yml',
   '.github/workflows/aria-kernel.yml',
-  '.github/workflows/aria-kernel-fast.yml',
   '.github/workflows/aria-operational-proof.yml',
 ];
 
@@ -511,9 +510,10 @@ describe('ARIA live runtime/documentation SSoT', () => {
     expect(executor).toContain('REQUIRED_CLAUDE_VERSION="2.1.221"');
     expect(executor).toContain('claude --version');
     // ORPHAN-MEDIUM-769 — aria-kernel-full.yml was deleted (a strict subset
-    // of aria-kernel.yml, never a required context) and aria-kernel-fast.yml
-    // became PR-only, so the push-on-main contract belongs to aria-kernel.yml
-    // alone.
+    // of aria-kernel.yml, never a required context); ARIA-MEDIUM-135 retired
+    // aria-kernel-fast.yml the same way (the identical full suite under a
+    // 60-minute budget it could not meet), so the kernel suite on PR and on
+    // main push belongs to aria-kernel.yml alone.
     expect(read('.github/workflows/aria-kernel.yml')).toMatch(/branches:\s*\n\s*- main/);
     const kernelWorkflow = read('.github/workflows/aria-kernel.yml');
     expect(kernelWorkflow).toContain('node-version: "22"');
@@ -620,18 +620,20 @@ describe('ARIA live runtime/documentation SSoT', () => {
     expect(pythonFiles).toEqual(['*test*.py']);
   });
 
-  it('triggers both ARIA PR workflows when the canonical suite runner changes', () => {
-    // Budgets are per lane, reasoned in each workflow next to the value.
-    // aria-kernel runs the WHOLE suite — 40.9 min measured (run 34578152903)
-    // plus ARIA-HIGH-098's registry pin, which runs every shipped adapter's
+  it('triggers the ARIA PR workflow when the canonical suite runner changes', () => {
+    // The budget is reasoned in the workflow next to the value: aria-kernel
+    // runs the WHOLE suite — 40.9 min measured (run 34578152903), 48.4 min
+    // for the 6,484 tests of PR #1553 (run 34853938794) — plus
+    // ARIA-HIGH-098's registry pin, which runs every shipped adapter's
     // fixture suite through the evidence validator (~8 min on a quiet host;
     // two of those adapters are the ones whose runtime the finding recorded
-    // as weather-sensitive) — so its cap is 75. aria-kernel-fast runs the
-    // affected subset and keeps 60.
+    // as weather-sensitive) — so its cap is 75. ARIA-MEDIUM-135: the fast
+    // lane claimed the "affected subset" here and ran the full suite under
+    // 60, so it is gone; a second lane over the same suite is drift.
     const budgetMinutes: Record<string, number> = {
       '.github/workflows/aria-kernel.yml': 75,
-      '.github/workflows/aria-kernel-fast.yml': 60,
     };
+    expect(existsSync(join(REPO_ROOT, '.github/workflows/aria-kernel-fast.yml'))).toBe(false);
     for (const rel of Object.keys(budgetMinutes)) {
       const workflow = yaml.load(read(rel)) as PullRequestWorkflow;
       expect(workflow.on?.pull_request?.paths).toContain(ARIA_SUITE_RUNNER);

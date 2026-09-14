@@ -18,8 +18,8 @@
  * an ARIA surface change?" with yes/no and on yes run ALL 5048+ tests — ~2.5
  * hours on the shared runner, for a one-line workflow edit. The operator
  * relaxed the rule: the pre-push gate runs only the tests the changed files
- * can mechanically reach; the FULL suite remains the CI lanes' job
- * (aria-kernel / aria-kernel-fast, 60-minute budgets). Selection is
+ * can mechanically reach; the FULL suite remains the CI lane's job
+ * (aria-kernel, 75-minute budget). Selection is
  * deliberately over-inclusive, never under-inclusive:
  *
  *   - `aria-kernel/aria_kernel/<mod>.py` → its conventional test module

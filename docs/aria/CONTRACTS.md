@@ -1787,8 +1787,8 @@ plain paths in `evidence_sources`, every evidence path declared in `read_paths`.
 The PR-time pin (`tests/test_adapter_fixture_evidence_contract.py`, in the `aria-kernel` lane whose
 budget it raised from 60 to 75 minutes) runs every shipped manifest's suite through the real fixture
 runner against the checkout and requires each case's *status* to be `ok` — the tool executed, its
-envelope parsed, the validator accepted it. Both kernel PR lanes (`aria-kernel.yml`,
-`aria-kernel-fast.yml`) fire on `tools/aria-adapters/**` and the pre-push selector
+envelope parsed, the validator accepted it. The kernel PR lane (`aria-kernel.yml`; the fast
+lane was retired under ARIA-MEDIUM-135) fires on `tools/aria-adapters/**` and the pre-push selector
 (`scripts/ci/aria-suite-changed.mjs`) maps that directory to every kernel test module naming
 `aria-adapters`, so an adapters-only change — a manifest without a case, a case rewritten to expect a
 non-ok run, a TS adapter that drops per-finding evidence — meets the pin before merge, not on the push

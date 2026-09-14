@@ -19,6 +19,10 @@ on:
       - "aria-kernel/**"
       - "scripts/ci/aria-suite-run.sh"
       - "docs/aria/**"
+      # ARIA-MEDIUM-135 — inherited from the retired aria-kernel-fast.yml: a
+      # SPEC/ADR amendment fires the kernel lane on the PR, not first on the
+      # push to main (I-V3-31c).
+      - "docs/adr/**"
       - ".github/workflows/aria-kernel.yml"
       # Plan ARIA-V2 §3.6 — tools/aria-poc + tools/shared are now
       # kernel-quality-gate adjacent (I-19..I-22, I-39 land here).

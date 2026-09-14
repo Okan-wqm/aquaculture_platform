@@ -28,14 +28,31 @@ from aria_kernel.tool_sit_out import (
 )
 
 
+# One clock reading per TEST: every stamp a fixture writes is an offset from
+# the same second, so an assertion that recomputes "now" can never land one
+# second after the row it compares against (the boundary these tests
+# exercise is "at or after" to the second — a second-resolution race in the
+# fixture itself read as a red gate under a four-hour pre-push suite). Read
+# in setUp, not at import: unittest imports every module before it runs
+# any, and a fixture stamped hours before the rows the kernel stamps "now"
+# would invert the orderings the release tests rely on.
+_BASE = parse_utc_stamp(utc_now())
+
+
+def _reset_clock() -> None:
+    global _BASE
+    _BASE = parse_utc_stamp(utc_now())
+    assert _BASE is not None
+
+
 def _stamp(offset_seconds: int) -> str:
-    base = parse_utc_stamp(utc_now())
-    assert base is not None
-    return (base + timedelta(seconds=offset_seconds)).replace(microsecond=0).isoformat()
+    assert _BASE is not None
+    return (_BASE + timedelta(seconds=offset_seconds)).replace(microsecond=0).isoformat()
 
 
 class SitOutReaderTests(unittest.TestCase):
     def setUp(self) -> None:
+        _reset_clock()
         self.tmp = Path(tempfile.mkdtemp(prefix="aria-098-sitout-"))
         self.addCleanup(shutil.rmtree, self.tmp, True)
         self.tools = ensure_tools_dir(self.tmp / "aria-tools")

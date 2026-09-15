@@ -1,0 +1,102 @@
+{
+  "base_head": "fea5890da74f6a8b253c06af765a77c3b5b958e7",
+  "binary_diff_sha256_after": "46defc69fec9fc891c41f5dfe532ef43c47a4c3eade321fcdcd065e6ecfde590",
+  "binary_diff_sha256_before": "46defc69fec9fc891c41f5dfe532ef43c47a4c3eade321fcdcd065e6ecfde590",
+  "cases": [
+    {
+      "case_id": "legacy-v1-base",
+      "direct_equals_fused": true,
+      "fused_input_unchanged": true,
+      "fused_json_sha256": "69404bd7b1c3f8047ef8e4e8e5c2379608ade070836c0434e936ce470fba463c",
+      "fused_output_sha256": "9164714d8c35296d6489e8dd668ce612a99f6ad6b33ae19f5450e72e69b64f4d",
+      "input_sha256": "69404bd7b1c3f8047ef8e4e8e5c2379608ade070836c0434e936ce470fba463c",
+      "input_unchanged": true,
+      "output_byte_length": 1319,
+      "output_sha256": "9164714d8c35296d6489e8dd668ce612a99f6ad6b33ae19f5450e72e69b64f4d",
+      "version_present": false,
+      "version_value": null
+    },
+    {
+      "case_id": "legacy-v2-base",
+      "direct_equals_fused": true,
+      "fused_input_unchanged": true,
+      "fused_json_sha256": "88e6c06daabb959a1c9f41e2070fb01503cd14a31afb6c1c7f302866fbf1a518",
+      "fused_output_sha256": "1203444bbe755842cb43554917b64966116996d573e2ee212bb3d01def6871a1",
+      "input_sha256": "88e6c06daabb959a1c9f41e2070fb01503cd14a31afb6c1c7f302866fbf1a518",
+      "input_unchanged": true,
+      "output_byte_length": 1596,
+      "output_sha256": "1203444bbe755842cb43554917b64966116996d573e2ee212bb3d01def6871a1",
+      "version_present": true,
+      "version_value": 2
+    },
+    {
+      "case_id": "legacy-v3-base",
+      "direct_equals_fused": true,
+      "fused_input_unchanged": true,
+      "fused_json_sha256": "4000992341216b738dc61ce6311ddc573fc7e51f569213e9385ea88108cbf31e",
+      "fused_output_sha256": "79b074223070ccd6327bc3cae83c076f103ad7255e0774aa66ba6c33311ef95f",
+      "input_sha256": "4000992341216b738dc61ce6311ddc573fc7e51f569213e9385ea88108cbf31e",
+      "input_unchanged": true,
+      "output_byte_length": 2088,
+      "output_sha256": "79b074223070ccd6327bc3cae83c076f103ad7255e0774aa66ba6c33311ef95f",
+      "version_present": true,
+      "version_value": 3
+    },
+    {
+      "case_id": "legacy-v1-enriched",
+      "direct_equals_fused": true,
+      "fused_input_unchanged": true,
+      "fused_json_sha256": "51d81a8d923a549250a93159213490781bf30df779225a16ae728f0daf7cd083",
+      "fused_output_sha256": "7d2fb61494e3029d4f7db62c0413b79bd8f47ec65be9ab6aa4ff36b7e28b013e",
+      "input_sha256": "51d81a8d923a549250a93159213490781bf30df779225a16ae728f0daf7cd083",
+      "input_unchanged": true,
+      "output_byte_length": 3521,
+      "output_sha256": "7d2fb61494e3029d4f7db62c0413b79bd8f47ec65be9ab6aa4ff36b7e28b013e",
+      "version_present": false,
+      "version_value": null
+    },
+    {
+      "case_id": "legacy-v2-enriched",
+      "direct_equals_fused": true,
+      "fused_input_unchanged": true,
+      "fused_json_sha256": "c514f61a3794cdf7b32f3c8b5c180aaaa1476358361fe3e4d27e7264f4b6bedc",
+      "fused_output_sha256": "271400ed2d518655cba589055a5404b339fa811afd081f9a30eda8fb37d70e21",
+      "input_sha256": "c514f61a3794cdf7b32f3c8b5c180aaaa1476358361fe3e4d27e7264f4b6bedc",
+      "input_unchanged": true,
+      "output_byte_length": 3987,
+      "output_sha256": "271400ed2d518655cba589055a5404b339fa811afd081f9a30eda8fb37d70e21",
+      "version_present": true,
+      "version_value": 2
+    },
+    {
+      "case_id": "legacy-v3-enriched",
+      "direct_equals_fused": true,
+      "fused_input_unchanged": true,
+      "fused_json_sha256": "0ce8368129160b2f3ba298e1f613cf7d3e3b297a987ddf5f92ce4acc86630bb8",
+      "fused_output_sha256": "7a3d75c7a6fd127b33cc5fe3f56eff1dec807e0843f2043b7e33328da5557a8d",
+      "input_sha256": "0ce8368129160b2f3ba298e1f613cf7d3e3b297a987ddf5f92ce4acc86630bb8",
+      "input_unchanged": true,
+      "output_byte_length": 4479,
+      "output_sha256": "7a3d75c7a6fd127b33cc5fe3f56eff1dec807e0843f2043b7e33328da5557a8d",
+      "version_present": true,
+      "version_value": 3
+    }
+  ],
+  "command": "/usr/bin/python3 -B /tmp/codex-aria-signer-20260910-7bbllb8b/s1-legacy-capture/capture.py",
+  "cwd": "/var/aqua-saas/.worktrees/codex-aria-learning-20260910",
+  "executable": "/usr/bin/python3",
+  "exit_code": 0,
+  "finished_at": "2026-09-10T19:27:04.560799+00:00",
+  "fixture_kind": "render-only DTO; never minted, claimed, persisted, or submitted",
+  "plan_sha256": "14fd4c57dfe916ee3de6e26a2b8154c99877c1aa4355003f4257ab87a4283623",
+  "python": "3.12.3 (main, Jun 19 2026, 12:46:00) [GCC 13.3.0]",
+  "renderer_module_file": "/var/aqua-saas/.worktrees/codex-aria-learning-20260910/aria-kernel/aria_kernel/agent_invocations.py",
+  "script_sha256": "cecfc683bf398b119e5a81026dd7d9411b183104be0b794c940f0c0b4fa0bb38",
+  "sources": {
+    "aria-kernel/aria_kernel/agent_invocations.py": "e86632cae28be82a3992c89da87de248ec7e8c201aa3c098c803cb7d92353f87",
+    "aria-kernel/aria_kernel/context_compiler.py": "08ee381b9afbfe832f9b5c8eec79854a4062ab486f0f7b74a23eb0abd7245a1b",
+    "aria-kernel/tests/test_prompt_render_versioning.py": "acfb3b985f77a5c888bbc29cb0a725ad7cbc8e1b0ee5b56c5cea626ecbd9a0af",
+    "tools/aria-poc/ci_executor.py": "4b60322a13ec1bd6da6bd300deda903c00888b6dec5e39e0fefcf4c249f97760"
+  },
+  "started_at": "2026-09-10T19:27:04.324343+00:00"
+}

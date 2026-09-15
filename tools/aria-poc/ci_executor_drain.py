@@ -65,6 +65,16 @@ PERSISTENT_BREAKER_KIND_BY_CLASS: dict[str, str] = {
 
 SELECTION_FAILURE_KIND = "executor_selection_failure"
 
+# B8 (2026-09-12) — a child that exited without writing its dispatch summary.
+# The summary is the ONLY evidence of success the drain accepts: a bare
+# exit 0 used to count as drained, and under managed_subscription the
+# native admission's target_revision_mismatch refusal (exit 0, no summary
+# — a routine outcome whenever main moved past a request's target_sha) read
+# as a green drain of requests nothing had dispatched. Classified here, in
+# the drain's own vocabulary, because the child said nothing: the
+# detail_code carries the exit code, the only fact the drain has.
+CHILD_WITHOUT_SUMMARY_FAILURE_CLASS = "child_without_summary"
+
 
 def _record_breaker_failure(
     tools_dir: Path,
@@ -338,6 +348,20 @@ def _executor_policy(repo_root: Path) -> dict:
         return {"max_concurrent": 1, "worktree_per_request": False}
 
 
+# The per-request worktrees live INSIDE the checkout, under this directory,
+# and nowhere else. Inside, because the child's validation commands resolve
+# node modules by walking UP from their cwd: `<checkout>/aria-worktrees/req-x`
+# reaches `<checkout>/node_modules` (measured: require.resolve and
+# `npx --no-install` from a nested worktree both resolve the parent's
+# modules); a sibling directory would never reach them. The directory is
+# git-ignored, so the persistent workspace's `git status` never sees a
+# worktree, and nx writes its cache to `<worktree>/.nx/cache` (nx.json's
+# cacheDirectory is workspace-relative and the worktree carries nx.json),
+# which goes with the worktree when it is removed.
+REQUEST_WORKTREES_DIR = "aria-worktrees"
+
+
+
 # Plan 032 Faz 032h — the per-request worktree bracket. Each of its two git
 # calls materialises or deletes a whole tree, so each gets the store's own
 # git cap (`state_store.GIT_TIMEOUT_SECONDS`, via the engine's kernel
@@ -381,12 +405,50 @@ def _run_worktree_git(argv: list[str], *, cwd: Path) -> tuple[subprocess.Complet
     return done, None
 
 
-def _add_request_worktree(repo_root: Path, request_id: str, target_sha: object) -> _RequestWorktree:
-    """`git worktree add --detach aria-worktrees/req-<id> <target_sha|HEAD>`, bounded."""
+
+def _request_worktree_path(repo_root: Path, request_id: str) -> Path:
     safe = "".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in str(request_id))[:64]
-    path = Path(repo_root) / "aria-worktrees" / f"req-{safe}"
+    return Path(repo_root) / REQUEST_WORKTREES_DIR / f"req-{safe}"
+
+
+def _add_request_worktree(repo_root: Path, request_id: str, target_sha: object) -> _RequestWorktree:
+    """`git worktree add --detach aria-worktrees/req-<id> <target_sha|HEAD>`, bounded; `path=None` = fall back to the shared checkout.
+
+    WHY a worktree per request: under managed_subscription the native
+    admission binds request.target_sha == the checkout's HEAD, so a request
+    can only be served from a tree at its own target_sha; the shared
+    checkout (main, moving nightly) refuses every request minted before its
+    last advance. The child inherits ARIA_TOOLS_DIR (the persistent store,
+    exported by restore-aria-state as an absolute path), so its ledgers
+    never land inside the worktree; ARIA_WORKSPACE_ROOT points every
+    workspace-bound path at the worktree.
+
+    A leftover registration is reconciled first: a run reaped mid-child
+    leaves `.git/worktrees/req-<id>` registered — with its directory gone
+    (the next checkout's clean) `git worktree add` refuses "missing but
+    already registered" until pruned; with the directory still there it
+    refuses "already exists" until removed. Both are git's own reconcile
+    commands, run before the add, so the same request id can be drained
+    again tomorrow instead of falling back to the shared checkout and its
+    target mismatch.
+    """
+    path = _request_worktree_path(repo_root, request_id)
     ref = str(target_sha or "").strip() or "HEAD"
     path.parent.mkdir(parents=True, exist_ok=True)
+    pruned, unanswered = _run_worktree_git(["git", "worktree", "prune"], cwd=Path(repo_root))
+    if pruned is None:
+        _engine._stage(
+            f"drain_worktree_prune_unanswered request_id={request_id} reason={unanswered} "
+            f"bound={REQUEST_WORKTREE_GIT_TIMEOUT_SECONDS}s"
+        )
+        return _RequestWorktree(path=None, unanswered_reason=unanswered)
+    if pruned.returncode != 0:
+        _engine._stage(f"drain_worktree_prune_failed rc={pruned.returncode} {(pruned.stderr or '').strip()[:120]}")
+    if path.exists():
+        _engine._stage(f"drain_worktree_leftover_removed request_id={request_id} path={path}")
+        leftover_unanswered = _remove_request_worktree(repo_root, path)
+        if leftover_unanswered is not None:
+            return _RequestWorktree(path=None, unanswered_reason=leftover_unanswered)
     done, unanswered = _run_worktree_git(
         ["git", "worktree", "add", "--detach", str(path), ref], cwd=Path(repo_root),
     )
@@ -465,10 +527,13 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
     would otherwise run under the `aria-evidence-judge` default profile even
     when the kernel minted it for a different agent.
 
-    Exit code: 0 when every attempted dispatch succeeded (or none were
-    pending); 1 when any child failed — the work that DID succeed is already
-    submitted by the children, so a red run reports the failure without
-    discarding the night's progress.
+    Exit code: 0 when every attempted dispatch succeeded or was refused by
+    name (or none were pending); 1 when any child failed — the work that
+    DID succeed is already submitted by the children, so a red run reports
+    the failure without discarding the night's progress. Success is the
+    child's ``succeeded`` summary and nothing else: a child that exited
+    without a summary is a ``child_without_summary`` failure, and
+    ``drained`` counts summaries, never exit codes.
     """
     started = time.monotonic()
     attempted: set[str] = set()
@@ -511,11 +576,18 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
         child_argv = ["python3", str(_POC_DIR / "ci_executor.py"), request_id]
         if target_agent:
             child_argv.append(target_agent)
-        child_output = (
-            Path(os.environ.get("RUNNER_TEMP", "/tmp"))
-            / f"aria-drain-output-{request_id}.txt"
-        )
-        child_env = {**os.environ, "GITHUB_OUTPUT": str(child_output)}
+        # The child writes its summary under RUNNER_TEMP and publishes the
+        # path through GITHUB_OUTPUT; both are handed to it explicitly so the
+        # summary channel exists wherever the drain runs (a local drain with
+        # no RUNNER_TEMP would otherwise make every child summary-less). The
+        # store is handed over the same way: the child derives its tools dir
+        # from ARIA_TOOLS_DIR or else `<cwd>/aria-tools`, and with a worktree
+        # as cwd that fallback is the tracked skeleton at target_sha, not the
+        # store this drain selected the request from.
+        runner_temp = Path(os.environ.get("RUNNER_TEMP", "/tmp"))
+        child_output = runner_temp / f"aria-drain-output-{request_id}.txt"
+        child_env = {**os.environ, "GITHUB_OUTPUT": str(child_output), "RUNNER_TEMP": str(runner_temp),
+                     "ARIA_TOOLS_DIR": str(tools_dir)}
         cwd = repo_root
         if worktree is not None:
             cwd = worktree
@@ -577,11 +649,13 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
             child_output.unlink()
 
         # ARIA-HIGH-003 — classify the terminal outcome from the child's own
-        # v1 summary (falling back to the exit code when the child died
-        # before writing one) and fold it into the circuit, the persistent
-        # breaker, and the schema-v2 aggregate.
+        # v1 summary and fold it into the circuit, the persistent breaker,
+        # and the schema-v2 aggregate. B8: the summary is the only evidence
+        # of success; a child that wrote none is a named failure whatever
+        # its exit code, and a refusal is neither success nor failure.
         outcome = (summary or {}).get("outcome")
         failure_class = (summary or {}).get("failure_class")
+        detail_code = (summary or {}).get("failure_detail_code")
         provider = str((summary or {}).get("provider") or "unknown")
         model = str((summary or {}).get("model") or "unknown")
         role = str(
@@ -591,16 +665,24 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
         bucket = _bucket(route_key)
         bucket["attempted"] += 1
         if outcome == "refused":
-            # A model refusal is not a build failure and never a breaker
-            # event: it stays visible as the attempted/succeeded/failed delta.
-            pass
-        elif outcome == "succeeded" or (outcome is None and child.returncode == 0):
+            # A refusal — the model's, the contract's, or the executor's own
+            # admission (target_revision_mismatch, no_eligible_provider, a
+            # budget signal, an operator cancel) — is not a build failure and
+            # never a breaker event: it stays visible as the
+            # attempted/succeeded/failed delta, and its detail names why.
+            _engine._stage(f"drain_child_refused request_id={request_id} detail={detail_code or '-'}")
+        elif outcome == "succeeded":
             succeeded += 1
             bucket["succeeded"] += 1
         else:
             failed += 1
             bucket["failed"] += 1
-            counted_class = str(failure_class or "unknown")
+            if summary is None:
+                counted_class = CHILD_WITHOUT_SUMMARY_FAILURE_CLASS
+                detail_code = f"exit_{child.returncode}"
+                _engine._stage(f"drain_child_without_summary request_id={request_id} rc={child.returncode}")
+            else:
+                counted_class = str(failure_class or "unknown")
             failure_counts[counted_class] = failure_counts.get(counted_class, 0) + 1
             bucket["failure_classes"][counted_class] = (
                 bucket["failure_classes"].get(counted_class, 0) + 1
@@ -610,7 +692,7 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
                     "request_id": request_id,
                     "failure_class": counted_class,
                     "retryable": bool((summary or {}).get("retryable")),
-                    "detail_code": (summary or {}).get("failure_detail_code"),
+                    "detail_code": detail_code,
                     "provider": provider,
                     "model": model,
                 }

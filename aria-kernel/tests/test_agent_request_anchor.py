@@ -23,13 +23,14 @@ import unittest
 from pathlib import Path
 
 from aria_kernel.agent_invocations import (
+    ANCHOR_HISTORY_UNAVAILABLE,
     _anchor_repo_root,
     create_agent_invocation_request,
     derive_request_state,
     next_pending_request,
 )
 from aria_kernel.ledger import load_declared_jsonl
-from aria_kernel.tool_registry import ensure_tools_dir
+from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 
 
 def _git(root: Path, *args: str) -> str:
@@ -75,7 +76,7 @@ def _seed(tools: Path, *, target_sha: str | None, prompt: str = "plan it") -> di
         target_agent="aria-primary-planner",
         role="primary_plan",
         suggested_prompt=prompt,
-        must_satisfy=[{"id": "anchor-test", "criterion": "request names its tree"}],
+        must_satisfy=[{"id": "anchor-test", "description": "request names its tree"}],
         allowed_scope=["aria-kernel/**"],
         target_sha=target_sha,
         base_dir=tools,
@@ -217,14 +218,19 @@ class AnchorGateTests(unittest.TestCase):
             )
 
     def test_request_anchored_to_an_unknown_commit_is_refused(self) -> None:
-        # Force-push / rebase / a tree this checkout never had.
-        with _repo_with_tools() as (_root, tools, _head):
+        # Force-push / rebase / a tree this checkout never had. The fixture
+        # clone is WHOLE (git init, not a depth-limited clone), so the
+        # fabricated sha's absence is a fact and is recorded as one.
+        with _repo_with_tools() as (root, tools, _head):
+            self.assertEqual(_git(root, "rev-parse", "--is-shallow-repository"), "false")
             req = _seed(tools, target_sha="0" * 40)
             self.assertIsNone(next_pending_request(role="primary_plan", base_dir=tools))
             self.assertEqual(
                 derive_request_state(request_id=req["request_id"], base_dir=tools),
                 "ANCHOR_STALE",
             )
+            events = _claim_events(tools, req["request_id"])
+            self.assertEqual([e["reason"] for e in events], ["anchor_unreachable"])
 
     def test_reachable_but_expired_anchor_is_refused(self) -> None:
         """The live case, and the reason reachability alone is not enough.
@@ -284,20 +290,30 @@ class AnchorGateTests(unittest.TestCase):
                 "ANCHOR_STALE",
             )
 
-    def test_shallow_clone_does_not_kill_a_cross_run_request(self) -> None:
-        """The production layout, and the case that nearly made this worse.
+    def test_an_anchor_absent_from_a_shallow_clone_is_refused_by_name_and_nothing_is_written(self) -> None:
+        """A commit cut by the clone depth is not a commit that never existed.
 
-        `actions/checkout` defaults to fetch-depth: 1 and neither ARIA lane
-        overrides it, so a request minted by the 01:00 producer and consumed
-        by the 02:00 executor has an anchor that is simply ABSENT from the
-        consumer's clone. Reading that absence as "unreachable" would mark
-        every cross-run request terminally ANCHOR_STALE and destroy the queue
-        ORPHAN-CRITICAL-469 exists to carry — irreversibly, since the state is
-        terminal. Absence in a partial clone is not evidence of absence.
+        Every reason the gate returns is written as a terminal ANCHOR_STALE
+        event, so on a shallow clone "absent" must not be returned at all:
+        the gate cannot tell a force-pushed-away anchor from one the clone
+        simply does not reach, and a guess written as a terminal fact is
+        irreversible. The gate raises ``GovernanceError`` naming
+        ``ANCHOR_HISTORY_UNAVAILABLE`` instead — the same probe the twin
+        refuses with (``git_probe``) — and the ledger is untouched, so the
+        executor fails loudly and the request is judged for real once the
+        operator unshallows the clone.
+
+        History: until 2026-09-12 the lanes ran on actions/checkout's
+        depth-1 default and this arm was softened by the same probe, so the
+        01:00 producer's requests survived to the 02:00 consumer
+        (ORPHAN-CRITICAL-469). The lanes now check out the whole history
+        (``fetch-depth: 0``, pinned by
+        tests/invariants/test_kernel_lanes_check_out_full_history.py); a
+        clone that does not hold it is refused, not judged.
         """
         with _repo_with_tools() as (root, tools, head):
             # A second commit, then a shallow re-clone that keeps only the
-            # tip: `head` is now a real ancestor that this clone cannot see.
+            # tip: `head` is a real ancestor that this clone does not hold.
             (root / "second.txt").write_text("second\n", encoding="utf-8")
             _git(root, "add", "second.txt")
             _git(root, "commit", "-q", "-m", "second")
@@ -322,18 +338,41 @@ class AnchorGateTests(unittest.TestCase):
                 ensure_tools_dir(shallow_tools)
                 req = _seed(shallow_tools, target_sha=head)
 
-                nxt = next_pending_request(
-                    role="primary_plan", base_dir=shallow_tools
+                with self.assertRaises(GovernanceError) as refused:
+                    next_pending_request(role="primary_plan", base_dir=shallow_tools)
+                self.assertTrue(
+                    str(refused.exception).startswith(f"{ANCHOR_HISTORY_UNAVAILABLE}: "),
+                    str(refused.exception),
                 )
-                self.assertIsNotNone(
-                    nxt, "a cross-run request must survive a shallow checkout"
+                self.assertIn(head, str(refused.exception))
+                # Nothing recorded: no claim event, no terminal state, no
+                # governance row. The request is still PENDING for the
+                # whole clone to judge.
+                self.assertEqual(_claim_events(shallow_tools, req["request_id"]), [])
+                self.assertEqual(
+                    derive_request_state(request_id=req["request_id"], base_dir=shallow_tools),
+                    "PENDING",
                 )
+                governance = shallow_tools / "governance.jsonl"
+                self.assertNotIn(
+                    "agent_request_refused_stale_anchor",
+                    governance.read_text(encoding="utf-8") if governance.exists() else "",
+                )
+
+                # The refusal is the checkout's, not the request's: once the
+                # clone is whole the same request is judged, and the anchor
+                # it names is an ancestor of HEAD — so it is current.
+                _git(shallow, "fetch", "-q", "--unshallow")
+                self.assertEqual(
+                    _git(shallow, "rev-parse", "--is-shallow-repository"), "false"
+                )
+                nxt = next_pending_request(role="primary_plan", base_dir=shallow_tools)
+                self.assertIsNotNone(nxt)
                 self.assertEqual(nxt["request_id"], req["request_id"])
 
     def test_shallow_clone_still_refuses_an_aged_request(self) -> None:
-        # The guard above must not become a blanket exemption: age needs no
-        # history, so the stale-queue case this whole finding is about is
-        # still caught on exactly the checkout production uses.
+        # Age needs no history: the tip IS the anchor here, so the clone
+        # holds it, and the request is refused for its age alone.
         with _repo_with_tools() as (root, tools, head):
             with tempfile.TemporaryDirectory() as shallow_tmp:
                 shallow = Path(shallow_tmp) / "shallow"

@@ -40,15 +40,27 @@ that outlives its reason is a lie with a date on it.
 from __future__ import annotations
 
 import ast
-import json
 import unittest
 from datetime import date
 from pathlib import Path
 from typing import Any
 
+from aria_kernel.surface_waivers import (
+    BATCH_CONTAINMENT_MANIFEST,
+    REQUIRED_WAIVER_FIELDS,
+    load_waiver_manifest,
+    utc_today,
+    waiver_expires_on,
+    waiver_has_lapsed,
+    waiver_manifest_path,
+)
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 KERNEL = REPO_ROOT / "aria-kernel" / "aria_kernel"
-WAIVERS_PATH = REPO_ROOT / "aria-kernel" / "batch-containment.waivers.json"
+# Named here for the gate's message text; resolved by the one reader every
+# dated manifest goes through (ARIA-MEDIUM-128), so the path this gate names
+# is the path the doctor's `deadlines` organ reads.
+WAIVERS_PATH = waiver_manifest_path(REPO_ROOT, BATCH_CONTAINMENT_MANIFEST)
 
 # What counts as touching the disk, expressed as syntax rather than as names.
 # The first version of this seed matched a name prefix — `record_` — and so
@@ -304,13 +316,10 @@ def unguarded_commits_in_hooks() -> dict[str, list[dict[str, Any]]]:
 
 
 def _load_waivers() -> dict[str, dict[str, Any]]:
-    if not WAIVERS_PATH.exists():
-        return {}
-    payload = json.loads(WAIVERS_PATH.read_text(encoding="utf-8"))
-    return payload if isinstance(payload, dict) else {}
-
-
-REQUIRED_WAIVER_FIELDS = ("owner", "reason", "expires_on", "finding_id")
+    """The manifest through `surface_waivers.load_waiver_manifest`: absent
+    means no waivers; present and malformed RAISES, so a file that is not
+    name→entry fails this gate instead of silently waiving nothing."""
+    return load_waiver_manifest(REPO_ROOT, BATCH_CONTAINMENT_MANIFEST)
 
 
 def waiver_defects(
@@ -336,13 +345,17 @@ def waiver_defects(
             defects.append(f"{hook}: empty reason")
         raw_expiry = str(waiver.get("expires_on", ""))
         try:
-            expires = date.fromisoformat(raw_expiry)
+            expires = waiver_expires_on(waiver)
         except ValueError:
             defects.append(f"{hook}: unparsable expires_on {raw_expiry!r}")
         else:
             # The lesson `invariant-reachability.spec.ts` paid for: validating
             # the SHAPE of a date lets every waiver expire together in silence.
-            if expires < today:
+            # The comparison is `surface_waivers.waiver_has_lapsed` — the one
+            # predicate the doctor's `deadlines` organ announces ahead of
+            # (ARIA-MEDIUM-128), so this gate cannot lapse a waiver on a day
+            # the organ did not warn about.
+            if waiver_has_lapsed(waiver, today):
                 defects.append(f"{hook}: expired on {expires} ({waiver.get('finding_id')})")
         if hook not in roster:
             defects.append(f"{hook}: no longer a learning hook")
@@ -383,7 +396,7 @@ class BatchContainmentGateTests(unittest.TestCase):
                 _load_waivers(),
                 findings=unguarded_commits_in_hooks(),
                 roster=_hook_roster(),
-                today=date.today(),
+                today=utc_today(),
             ),
             [],
         )

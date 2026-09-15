@@ -19,11 +19,24 @@ on:
       - "aria-kernel/**"
       - "scripts/ci/aria-suite-run.sh"
       - "docs/aria/**"
+      # ARIA-MEDIUM-135 — inherited from the retired aria-kernel-fast.yml: a
+      # SPEC/ADR amendment fires the kernel lane on the PR, not first on the
+      # push to main (I-V3-31c).
+      - "docs/adr/**"
       - ".github/workflows/aria-kernel.yml"
       # Plan ARIA-V2 §3.6 — tools/aria-poc + tools/shared are now
       # kernel-quality-gate adjacent (I-19..I-22, I-39 land here).
       - "tools/aria-poc/**"
       - "tools/shared/**"
+      # ARIA-HIGH-098 — the registry contract lives in the suite
+      # (tests/test_adapter_fixture_evidence_contract.py: every shipped
+      # manifest carries a fixture case expecting ok, and every case runs
+      # ok through the evidence validator). Without this path the pin was
+      # PR-time in name only: a manifest without a case, a case rewritten
+      # to expect evidence_error, or a TS adapter that drops per-finding
+      # evidence touched only tools/aria-adapters/**, ran neither kernel
+      # lane, and was first checked on the push to main.
+      - "tools/aria-adapters/**"
   push:
     branches:
       - main
@@ -40,13 +53,57 @@ concurrency:
 
 jobs:
   aria-kernel:
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # ARIA-MEDIUM-134/139 — the suite proves the REAL sandbox, and the
+    # hosted 24.04 image cannot host it: bubblewrap installs cleanly there
+    # and every invocation dies `loopback: Failed RTM_NEWADDR: Operation not
+    # permitted` because `kernel.apparmor_restrict_unprivileged_userns=1`
+    # hands an unconfined binary a user namespace without capabilities
+    # (measured, run 34897063564). The 22.04 image ships unprivileged user
+    # namespaces as the OS default — no sysctl is relaxed, the lane takes
+    # the host as it is. Its bubblewrap (0.6.1) carries every flag the
+    # wrapper uses; its git (2.34) carries ssh signing. The image is a
+    # bridge: the durable answer is a runner that confines and is not
+    # production (ARIA-MEDIUM-139), and `ensure-sandbox-backend` still
+    # fails closed by name if this image stops confining.
+    runs-on: ubuntu-22.04
+    # 75, not 60: the suite step measured 40.9 min on run 34578152903, and
+    # ARIA-HIGH-098's registry pin (tests/test_adapter_fixture_evidence_contract.py)
+    # now runs every shipped adapter's fixture suite through the evidence
+    # validator inside it — ~8 min on a quiet host (trial eleven: tenant-scoping
+    # 285 s, test-gap 99 s, the other eight under 30 s each). 60 would have
+    # left ~11 min of margin for the two adapters whose runtime this very
+    # finding recorded as weather-sensitive; the lane must not be timed out
+    # by the class of miss it exists to price correctly. Pinned by
+    # tests/invariants/aria-doc-runtime-ssot.spec.ts.
+    # 110, not 75, since the lane moved to the 22.04 image (ARIA-MEDIUM-134):
+    # measured on run 34902506329 — the suite's last stage marker sat at
+    # t=3539 s where the 24.04 run's sat at t=2236 s (77% of its 2902 s), so
+    # the same suite needs ~77 min here and the 75-minute cap killed it at
+    # the finish line. The budget follows the measurement, with the margin
+    # the previous cap carried (~1.4×); it comes down with ARIA-HIGH-136,
+    # never ahead of a measurement.
+    timeout-minutes: 110
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # A kernel workspace is a whole clone: the kernel reads this
+          # checkout's history (twin churn/co-change, anchor existence) and
+          # refuses a shallow one by name. Pinned on every kernel lane by
+          # aria-kernel/tests/invariants/test_kernel_lanes_check_out_full_history.py;
+          # aria-auto-cycle.yml carries the full account.
+          fetch-depth: 0
       - uses: ./.github/actions/setup-aria-kernel
+      # ARIA-MEDIUM-134 — the suite proves the REAL sandbox: the managed
+      # Claude/Codex lanes, the provider-admission lanes and the implementer
+      # identity/containment pins each spawn through wrap_bash_in_sandbox and
+      # refuse by name when no backend confines. The droplet provisions bwrap;
+      # the hosted image does not, and fourteen tests were red on the
+      # candidate's first hosted run (34853938794) for exactly that. The lane
+      # provisions the backend the way the executor and nightly lanes do — one
+      # definition — and the action fails closed, naming the host facts, when
+      # the host still cannot confine.
+      - uses: ./.github/actions/ensure-sandbox-backend
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"

@@ -38,11 +38,12 @@ class ClaudeRuntimeContractTests(unittest.TestCase):
             ],
         )
 
-    def test_exec_argv_defaults_to_fable(self) -> None:
-        # K5 tier flip — the fail-safe default is the most capable tier.
+    def test_exec_argv_defaults_to_opus(self) -> None:
+        # The fail-safe default is the strongest SELECTED tier — opus since
+        # the operator retired fable from selection (2026-09-12).
         argv = claude_runtime.build_claude_exec_argv()
         self.assertIn("--model", argv)
-        self.assertEqual(argv[argv.index("--model") + 1], "fable")
+        self.assertEqual(argv[argv.index("--model") + 1], "opus")
 
     def test_exec_argv_read_only_omits_skip_permissions(self) -> None:
         argv = claude_runtime.build_claude_exec_argv(model="opus", skip_permissions=False)
@@ -78,6 +79,35 @@ class ClaudeRuntimeContractTests(unittest.TestCase):
             claude_runtime.extract_usage(events),
             {"input_tokens": 10, "output_tokens": 3},
         )
+
+    def test_a_final_turn_streamed_in_frames_is_read_whole(self) -> None:
+        """ARIA-HIGH-083 — the CLI's `result` is the LAST assistant frame; a
+        long envelope that hits the output token limit is resumed after a
+        synthetic user turn. The final turn is every assistant text frame
+        after the last REAL user event, a synthetic continuation joins the
+        frames it separates, and `result` must be the turn's suffix — trial
+        nine's challenger lost 38,681 of 42,661 chars."""
+        raw = "\n".join([
+            '{"type":"assistant","message":{"content":[{"type":"text","text":"reading first"}]}}',
+            '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{}}]}}',
+            '{"type":"user","message":{"content":[{"type":"tool_result","content":"file body"}]}}',
+            '{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"…"},{"type":"text","text":"{\\"$schema\\": \\"aria/agent-response/v1\\", \\"plan_content\\": {\\"title\\": \\"t\\"}, "}]}}',
+            '{"type":"user","isSynthetic":true,"message":{"role":"user","content":[{"type":"text","text":"Output token limit hit. Resume directly."}]}}',
+            '{"type":"assistant","message":{"content":[{"type":"text","text":"\\"status\\": \\"submitted\\"}"}]}}',
+            '{"type":"result","subtype":"success","result":"\\"status\\": \\"submitted\\"}","usage":{"input_tokens":1,"output_tokens":2}}',
+        ])
+        events = claude_runtime.parse_claude_jsonl(raw)
+        final = claude_runtime.extract_final_message(events)
+        self.assertEqual(final, '{"$schema": "aria/agent-response/v1", "plan_content": {"title": "t"}, "status": "submitted"}')
+        self.assertNotIn("reading first", final)
+
+    def test_a_result_that_is_not_the_turns_suffix_wins(self) -> None:
+        raw = "\n".join([
+            '{"type":"assistant","message":{"content":[{"type":"text","text":"partial"}]}}',
+            '{"type":"result","subtype":"error_max_turns","result":"Reached max turns","usage":{}}',
+        ])
+        events = claude_runtime.parse_claude_jsonl(raw)
+        self.assertEqual(claude_runtime.extract_final_message(events), "Reached max turns")
 
     def test_assistant_fallback_when_no_result_text(self) -> None:
         raw = '{"type":"assistant","message":{"content":[{"type":"text","text":"only-assistant"}]}}'
@@ -198,7 +228,9 @@ class RefusalDetectionTests(unittest.TestCase):
 
 
 class CreditExhaustionDetectionTests(unittest.TestCase):
-    """Credit/quota-exhaustion detection — the fable→opus fallback trigger."""
+    """Credit/quota-exhaustion detection — the trigger of the terminal
+    ClaudeCreditExhausted (requeue under a provider cooldown, never a weaker
+    tier — operator decision 2026-09-12)."""
 
     # The LIVE managed-session failure mode (proven 2026-07-03: ARIA's Fable
     # pool ran dry). The CLI returns its limit notice as ASSISTANT CONTENT on
@@ -438,6 +470,87 @@ class WriteContainmentTests(unittest.TestCase):
             any("aria-kernel" in t for t in ro_targets),
             msg=f"aria-kernel not ro-bind; ro targets={sorted(ro_targets)}",
         )
+
+    def test_a_write_capable_spawn_in_a_linked_worktree_gets_read_only_git_and_the_broker_socket(self) -> None:
+        """ARIA-HIGH-123 — without an executor-held commit containment the
+        spawner derives the workspace's git binds READ-ONLY (git reads
+        answer in a linked worktree, nothing under either git dir is
+        writable) and binds the hook broker's socket — never a store."""
+        import tempfile
+
+        from aria_kernel import implementation_safety
+        from aria_kernel.hook_broker import HOOK_BROKER_SOCKET_ENV, SANDBOX_HOOK_BROKER_SOCKET
+        from tests._helpers.git_fixtures import _git, make_repo_with_initial_commit
+        from tests._helpers.unix_sockets import bound_unix_socket
+
+        with tempfile.TemporaryDirectory(prefix="aria-123-runtime-") as tmp:
+            repo = make_repo_with_initial_commit(Path(tmp).resolve(), {"f.txt": "x\n"}, name="checkout")
+            worktree = repo / "aria-worktrees" / "req-1"
+            worktree.parent.mkdir()
+            _git(["worktree", "add", "--detach", "-q", str(worktree), "HEAD"], cwd=repo)
+            with patch.object(implementation_safety, "_bwrap_available", return_value=True), \
+                    bound_unix_socket(Path(tmp) / "hb" / "sock") as broker_socket:
+                wrapped = claude_runtime._apply_write_containment(
+                    list(self._ARGV), skip_permissions=True, permission_mode=None,
+                    workspace_root=worktree, hook_broker_socket=broker_socket,
+                )
+            common = (repo / ".git").resolve()
+            pairs = [(wrapped[i], wrapped[i + 1]) for i, tok in enumerate(wrapped) if tok in ("--bind", "--ro-bind", "--tmpfs")]
+            self.assertIn(("--ro-bind", str(common)), pairs)
+            self.assertIn(("--ro-bind", str(common / "worktrees" / "req-1")), pairs)
+            self.assertIn(("--tmpfs", str(common / "worktrees")), pairs)
+            self.assertEqual([source for flag, source in pairs if flag == "--bind"], [str(worktree), str(broker_socket)])
+            self.assertEqual(wrapped[wrapped.index(HOOK_BROKER_SOCKET_ENV) + 1], SANDBOX_HOOK_BROKER_SOCKET)
+            self.assertNotIn("tools_dir", claude_runtime._apply_write_containment.__code__.co_varnames)
+
+    def test_an_executor_held_commit_containment_is_threaded_through_unchanged(self) -> None:
+        import tempfile
+
+        from aria_kernel import implementation_safety
+        from aria_kernel.git_containment import derive_git_containment
+        from tests._helpers.git_fixtures import _git, make_repo_with_initial_commit
+
+        with tempfile.TemporaryDirectory(prefix="aria-123-runtime-") as tmp:
+            repo = make_repo_with_initial_commit(Path(tmp).resolve(), {"f.txt": "x\n"}, name="checkout")
+            worktree = repo / "aria-worktrees" / "req-1"
+            worktree.parent.mkdir()
+            _git(["worktree", "add", "--detach", "-q", str(worktree), "HEAD"], cwd=repo)
+            containment = derive_git_containment(worktree, commit_capable=True)
+            with patch.object(implementation_safety, "_bwrap_available", return_value=True):
+                wrapped = claude_runtime._apply_write_containment(
+                    list(self._ARGV), skip_permissions=True, permission_mode=None,
+                    workspace_root=worktree, git_containment=containment,
+                )
+            common = (repo / ".git").resolve()
+            private = common / "worktrees" / "req-1"
+            replica = containment.sandbox_git_dir
+            writable = [wrapped[i + 1] for i, tok in enumerate(wrapped) if tok == "--bind"]
+            self.assertIn(str(replica), writable)
+            self.assertIn(str(replica / "refs" / "heads"), writable)
+            self.assertNotIn(str(common), writable)
+            self.assertNotIn(str(common / "objects"), writable)
+            self.assertNotIn(str(private), writable)
+
+    def test_run_claude_exec_serves_the_broker_and_hands_the_containment_to_the_spawner(self) -> None:
+        import ast
+
+        source = (_REPO_ROOT / "tools" / "aria-poc" / "claude_runtime.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        fn = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "run_claude_exec")
+        call = next(node for node in ast.walk(fn)
+                    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "_apply_write_containment")
+        keywords = {keyword.arg for keyword in call.keywords}
+        self.assertLessEqual({"git_containment", "hook_broker_socket"}, keywords)
+        self.assertNotIn("tools_dir", keywords, "the store is never handed to the sandbox")
+        self.assertIn("git_containment", {arg.arg for arg in fn.args.kwonlyargs})
+        # The broker is served around the spawn, from the settings' own facts.
+        served = next(node for node in ast.walk(fn)
+                      if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "serve_hook_broker")
+        self.assertEqual({keyword.arg for keyword in served.keywords},
+                         {"base_dir", "workspace_root", "request_id", "turn_budget"})
+        spawn = next(node for node in ast.walk(fn)
+                     if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "_run_spawn")
+        self.assertLess(served.lineno, spawn.lineno)
 
     def test_operator_ack_permits_unconfined_write(self) -> None:
         """The escape hatch exists but must be named, never inferred."""

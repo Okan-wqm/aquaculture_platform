@@ -44,6 +44,7 @@ if str(_KERNEL_ROOT) not in sys.path:
 from aria_kernel import implementation_safety as impl  # noqa: E402
 from aria_kernel.implementation_safety import (  # noqa: E402
     BashDenylistHit,
+    CANONICAL_VALIDATION_COMMANDS,
     DENIED_BASH_COMMANDS,
     READONLY_PATHS,
     HardFailContext,
@@ -133,7 +134,12 @@ class ProbeMirrorsWrapper(unittest.TestCase):
         workspace_binds = {
             str((_REPO_ROOT / ro).resolve()) for ro in READONLY_PATHS
         }
-        system_only = binds(wrapper) - workspace_binds
+        # ARIA-HIGH-123 — binds DERIVED from the workspace (the dependency
+        # tree a nested worktree resolves; the checkout's git dirs when a
+        # containment is given) are not system binds: the probe builds its
+        # own throwaway checkout and derives its own.
+        derived = binds(impl._dependency_tree_binds(_REPO_ROOT.resolve()))
+        system_only = binds(wrapper) - workspace_binds - derived
         missing = system_only - binds(probe)
         self.assertEqual(
             missing,
@@ -405,26 +411,28 @@ class BroaderScopeClaimsAndSubstringGates(unittest.TestCase):
                 )
 
     def test_echoing_the_canonical_commands_is_not_running_them(self) -> None:
-        """One entry that merely MENTIONS all three cleared the gate, because
-        the check was a substring test over the concatenated entries."""
+        """One entry that merely MENTIONS the whole suite cleared the gate,
+        because the check was a substring test over the concatenated entries."""
         self.assertFalse(
             _check_test_gate_canonical_suite(
                 HardFailContext(validation_commands=(
-                    "echo 'nx affected --target=test nx affected --target=lint "
-                    "npm run type-check'",
+                    "echo '" + " ".join(CANONICAL_VALIDATION_COMMANDS) + "'",
                 )),
             ).passed,
         )
 
     def test_a_real_declaration_and_a_narrowed_suite_both_pass(self) -> None:
-        """Narrowing a suite is legitimate; replacing it with prose is not."""
+        """Narrowing a suite is legitimate; replacing it with prose is not.
+
+        The suites are built from ``CANONICAL_VALIDATION_COMMANDS`` rather
+        than retyped: this test hardcoded the three-command suite and went
+        red the day the tuple grew (ARIA-HIGH-104 (2)), which is a test
+        pinning a copy of the contract instead of the contract.
+        """
+        first, *rest = CANONICAL_VALIDATION_COMMANDS
         for commands in (
-            ("nx affected --target=test", "nx affected --target=lint", "npm run type-check"),
-            (
-                "nx affected --target=test --projects=farm-service",
-                "nx affected --target=lint",
-                "npm run type-check",
-            ),
+            tuple(CANONICAL_VALIDATION_COMMANDS),
+            (f"{first} --projects=farm-service", *rest),
         ):
             with self.subTest(commands=commands):
                 self.assertTrue(

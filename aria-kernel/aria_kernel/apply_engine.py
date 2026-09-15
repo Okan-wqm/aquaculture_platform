@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any
 
 from .implementation_safety import (
-    CANONICAL_VALIDATION_COMMANDS_EXECUTABLE,
     CANONICAL_VALIDATION_TIMEOUT_MS,
     mint_unpredictable_feature_branch_name,
 )
@@ -123,6 +122,7 @@ def _record_apply_action(
     baseline_validation_ref: str | None = None,
     validation_timeout_ms: int | None = None,
     base_dir: str | Path | None = None,
+    validation_input_selection: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The ONE OPENER of the ``apply_actions`` surface.
 
@@ -169,6 +169,8 @@ def _record_apply_action(
         "baseline_validation_ref": baseline_validation_ref,
         "validation_timeout_ms": validation_timeout_ms,
     }
+    if validation_input_selection is not None:
+        row["validation_input_selection"] = validation_input_selection
     return append_declared_jsonl(
         ensure_tools_dir(base_dir) / "apply" / "actions.jsonl",
         row,
@@ -436,18 +438,6 @@ def lane_runner_identity(*, fallback: str) -> str:
     return f"ci-executor:gha-{run_id}" if run_id else fallback
 
 
-def _executable_spelling(command: str) -> str:
-    """The canonical suite's spelling of a declared command.
-
-    ``plan_synthesizer`` emits ``nx affected --target=test`` and
-    ``parse_allowed_command`` pins argv-0, so the same suite arrives under two
-    spellings. Normalising here is what lets a plan declare the perimeter's
-    form without that form being treated as a second, unknown command.
-    """
-    collapsed = " ".join(str(command).split())
-    return f"npx {collapsed}" if collapsed.startswith("nx ") else collapsed
-
-
 def _staged_validation_commands(
     converged_plan: dict[str, Any], *, base_dir: str | Path | None,
 ) -> tuple[list[str], int]:
@@ -490,84 +480,125 @@ def _staged_validation_commands(
     the function the runner itself calls — before a single ledger row is
     written.
     """
-    from .experiment import list_recipes
+    commands, timeout_ms, _selection = _staged_validation_inputs(converged_plan, base_dir=base_dir)
+    return commands, timeout_ms
 
-    recipes = list_recipes(base_dir=base_dir)
-    by_id = {str(row.get("recipe_id")): row for row in recipes}
-    by_command = {str(row.get("command")): row for row in recipes}
 
-    commands: list[str] = list(CANONICAL_VALIDATION_COMMANDS_EXECUTABLE)
-    canonical = set(commands)
+def _staged_validation_inputs(
+    converged_plan: dict[str, Any], *, base_dir: str | Path | None,
+    plan_content_hash: str | None = None,
+) -> tuple[list[str], int, dict[str, Any] | None]:
+    """Resolve commands and optional observations from one verified read."""
+    from .experiment import _add_recipe_input, _recipe_input_source, _unknown_input_selection
+    from .plan_contract import (
+        REASON_RECIPE_UNKNOWN,
+        plan_validation_suite,
+        resolve_declared_validation_command,
+        validation_command_catalog,
+    )
+    from .validation import _input_metadata_within_limit
+
+    # The matching rule is the plan contract's, read through the one function
+    # the planners' envelopes and the submit-time refusal are rendered from,
+    # so what staging refuses here is exactly what the planner was told.
+    catalog = validation_command_catalog(base_dir)
     timeout_ms = CANONICAL_VALIDATION_TIMEOUT_MS
+    contributors = {}
+    contributor_ids = set()
+    gather_errors = set()
 
     for declared in converged_plan.get("validation_commands") or []:
-        if isinstance(declared, dict):
-            raw = declared.get("cmd")
-            recipe_id = declared.get("recipe_id")
-            declared_timeout = declared.get("timeout_ms")
-        else:
-            raw, recipe_id, declared_timeout = declared, None, None
+        declared_timeout = declared.get("timeout_ms") if isinstance(declared, dict) else None
         if isinstance(declared_timeout, int) and declared_timeout > 0:
             timeout_ms = max(timeout_ms, declared_timeout)
-
-        if isinstance(recipe_id, str) and recipe_id.strip():
-            recipe = by_id.get(recipe_id.strip())
-            if recipe is None:
-                raise GovernanceError(
-                    f"stage_validation_recipe_unknown: plan declares "
-                    f"recipe_id={recipe_id!r}, which is not a registered "
-                    f"experiment recipe; register it with "
-                    f"`experiment.register_recipe` (operator-declared) before "
-                    f"a plan may have this lane execute it"
-                )
-            command = str(recipe["command"])
-            timeout_ms = max(timeout_ms, int(recipe["timeout_ms"]))
-        elif isinstance(raw, str) and raw.strip():
-            command = _executable_spelling(raw)
-            if command not in canonical:
-                recipe = by_command.get(command) or by_command.get(raw.strip())
-                if recipe is None:
-                    raise GovernanceError(
-                        f"stage_validation_command_not_declared: plan-authored "
-                        f"command {raw!r} is neither the canonical suite nor a "
-                        f"registered experiment recipe. This lane executes it "
-                        f"outside the implementer sandbox, so the command set "
-                        f"is operator-declared, not plan-declared; register it "
-                        f"with `experiment.register_recipe` and name it by "
-                        f"recipe_id"
-                    )
-                timeout_ms = max(timeout_ms, int(recipe["timeout_ms"]))
-        else:
+        command, recipe, violation = resolve_declared_validation_command(declared, catalog)
+        if violation is not None and violation.startswith(REASON_RECIPE_UNKNOWN):
+            raise GovernanceError(
+                f"stage_validation_recipe_unknown: plan declares "
+                f"recipe_id={violation.split(':', 1)[1]!r}, which is not a "
+                f"registered experiment recipe; register it with "
+                f"`experiment.register_recipe` (operator-declared) before "
+                f"a plan may have this lane execute it"
+            )
+        if violation is not None:
+            raise GovernanceError(
+                f"stage_validation_command_not_declared: plan-authored "
+                f"command {violation.split(':', 1)[1]!r} is neither the "
+                f"canonical suite nor a registered experiment recipe. This "
+                f"lane executes it outside the implementer sandbox, so the "
+                f"command set is operator-declared, not plan-declared; "
+                f"register it with `experiment.register_recipe` and name it "
+                f"by recipe_id"
+            )
+        if command is None:
             continue
-        if command not in commands:
-            commands.append(command)
+        if recipe is not None:
+            timeout_ms = max(timeout_ms, int(recipe["timeout_ms"]))
+        if recipe is not None and recipe.get("input_scope") is not None:
+            source, reason = _recipe_input_source(recipe, command)
+            if reason is not None:
+                gather_errors.add(reason)
+            else:
+                row_id = (source["recipe_id"], source["ledger_hash"])
+                if row_id not in contributor_ids:
+                    if len(contributor_ids) >= 8:
+                        gather_errors.add("selection_input_limit")
+                    else:
+                        contributor_ids.add(row_id)
+                key = (command, *row_id)
+                if not gather_errors and key not in contributors:
+                    sources = [item[0] for item in contributors.values()]
+                    if _input_metadata_within_limit({"recipe_sources": [*sources, source]}):
+                        contributors[key] = (source, recipe)
+                    else:
+                        gather_errors.add("aggregate_metadata_limit")
+            if gather_errors:
+                # Keep only bounded IDs/error flags for deterministic failure
+                # precedence; no selected reference/descriptor prefix survives.
+                contributors.clear()
 
+    # ARIA-HIGH-104 (1) — the command list is the plan contract's own
+    # composition (canonical suite + declared entries), read through the one
+    # function the envelope mint and the request validator read, so the suite
+    # staging runs as baseline is byte-for-byte the suite the implementer is
+    # told to run and the merge gate later demands evidence for. The loop
+    # above has already refused every violation in staging's wording, so this
+    # call cannot raise here.
+    commands = list(plan_validation_suite(converged_plan, base_dir=base_dir, catalog=catalog))
     for command in commands:
         parse_allowed_command(command)
-    return commands, timeout_ms
+    selection = None
+    if gather_errors:
+        # Intrinsic source diagnostics precede row cardinality, then the
+        # aggregate byte cap. Continue counting up to eight IDs after a byte
+        # overflow so multiple breached gather limits are order independent.
+        reason = next(reason for reason in ("selection_metadata_limit", "selection_source_unavailable",
+                                            "selection_input_limit", "aggregate_metadata_limit") if reason in gather_errors)
+        selection = _unknown_input_selection("selection_metadata_limit" if reason == "aggregate_metadata_limit" else reason,
+                                             plan_content_hash)
+    else:
+        for key in sorted(contributors, key=lambda key: (commands.index(key[0]), key[1], key[2])):
+            source, recipe = contributors[key]
+            selection = _add_recipe_input(selection, recipe=recipe, command=source["command"],
+                                          plan_content_hash=plan_content_hash)
+    return commands, timeout_ms, selection
 
 
 def _intended_files_from_plan(converged_plan: dict[str, Any]) -> list[str]:
     """The change's ``intended_affected_files``, from the plan's own claims.
 
-    Both spellings the repository actually produces are read: ``key_changes``
-    entries carry ``paths`` (plan_synthesizer._cluster_changes) or ``file``
-    (the aria-implementer contract's shape), and ``affected_surfaces`` is read
-    through plan_convergence's own reader so the ledger's file list cannot
-    disagree with the list the plan validator accepted.
+    ``key_changes`` entries are read through ``plan_convergence.key_change_paths``
+    — the ONE key-change shape (ARIA-HIGH-104 (3); the ``file`` spelling this
+    function once also read was the implementer prompt's invention, written by
+    no producer) — and ``affected_surfaces`` through plan_convergence's own
+    reader, so the ledger's file list cannot disagree with the list the plan
+    validator accepted.
     """
-    from .plan_convergence import affected_surface_paths
+    from .plan_convergence import affected_surface_paths, key_change_paths
 
     files: set[str] = set(affected_surface_paths(converged_plan.get("affected_surfaces") or []))
     for change in converged_plan.get("key_changes") or []:
-        if not isinstance(change, dict):
-            continue
-        single = change.get("file")
-        if isinstance(single, str) and single.strip():
-            files.add(single.strip())
-        for path in change.get("paths") or []:
-            if isinstance(path, str) and path.strip():
-                files.add(path.strip())
+        files.update(path.strip() for path in key_change_paths(change))
     if not files:
         raise GovernanceError(
             "stage_plan_declares_no_files: the CONVERGED plan carries neither "
@@ -648,8 +679,8 @@ def stage_converged_plan_for_pr(
     converged_content_hash = str(body["content_hash"])
 
     root = Path(workspace_root).resolve()
-    commands, timeout_ms = _staged_validation_commands(
-        converged_plan, base_dir=base_dir,
+    commands, timeout_ms, input_selection = _staged_validation_inputs(
+        converged_plan, base_dir=base_dir, plan_content_hash=converged_content_hash,
     )
     intended_files = _intended_files_from_plan(converged_plan)
     # ORPHAN-CRITICAL-728 — no default tier. The previous body silently
@@ -705,6 +736,8 @@ def stage_converged_plan_for_pr(
         runner_identity=lane_runner_identity(fallback=f"aria-kernel:stage:{plan_id}"),
         base_dir=base_dir,
         timeout_ms=timeout_ms,
+        **({"input_scope": input_selection["input_scope"]}
+           if input_selection is not None and input_selection["status"] == "selected" else {}),
     )
 
     proposal = record_proposal(
@@ -757,6 +790,7 @@ def stage_converged_plan_for_pr(
         # compare two different experiments.
         validation_timeout_ms=timeout_ms,
         base_dir=base_dir,
+        **({"validation_input_selection": input_selection} if input_selection is not None else {}),
     )
     return {
         "proposal_id": proposal_id,
@@ -914,6 +948,7 @@ def run_apply_gate(
             f"commit it never ran. Check the branch out "
             f"(`git switch {branch}`) before running the gate"
         )
+    input_selection = action.get("validation_input_selection")
     candidate = run_validation_commands(
         commands=list(action.get("validation_commands") or []),
         workspace_root=root,
@@ -929,6 +964,8 @@ def run_apply_gate(
         timeout_ms=int(
             action.get("validation_timeout_ms") or CANONICAL_VALIDATION_TIMEOUT_MS,
         ),
+        **({"input_scope": input_selection["input_scope"]}
+           if input_selection is not None and input_selection["status"] == "selected" else {}),
     )
     comparison = compare_validation_groups(
         baseline_ref=str(baseline_ref),

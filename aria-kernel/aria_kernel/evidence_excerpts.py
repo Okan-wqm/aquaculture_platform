@@ -81,6 +81,9 @@ SKIP_REASONS: frozenset[str] = frozenset(
         SKIP_EMPTY_FILE,
         SKIP_LINE_OUT_OF_RANGE,
         SKIP_TOTAL_CAP,
+        "qualification_deadline", "input_path_limit", "input_path_unavailable",
+        "committed_snapshot_base_unavailable", "committed_blob_unavailable",
+        "input_total_byte_limit", "input_file_byte_limit", "committed_blob_size_mismatch",
     }
 )
 
@@ -149,6 +152,37 @@ def excerpts_for_refs(
     A ref with no line number (``path``) gets the file HEAD within cap, which
     is what "look at this file" means when nobody named a line.
     """
+    return _excerpts_for_refs(
+        evidence_refs, repo_root=repo_root, line_radius=line_radius,
+        per_ref_cap=per_ref_cap, total_cap=total_cap,
+    )
+
+
+def _excerpts_for_refs(
+    evidence_refs: Sequence[str] | None,
+    *,
+    repo_root: str | Path,
+    line_radius: int = DEFAULT_LINE_RADIUS,
+    per_ref_cap: int = DEFAULT_PER_REF_CAP,
+    total_cap: int = DEFAULT_TOTAL_CAP,
+    target_sha: str | None = None,
+) -> list[dict[str, Any]]:
+    """Shared packer; pinned mint callers read only their selected Git blobs.
+
+    The public working-file API keeps its existing observation semantics.
+    Snapshot owns transport/resource limits; this owner retains excerpt
+    windows, presentation caps, order, hashes and structural skip entries.
+    """
+    from .genesis_policy import source_qualification_policy
+    from .snapshot import _ScopedSourceBudget, _read_scoped_committed_file
+
+    # The pinned-blob reads share the kernel's one qualification allowance
+    # (ARIA-MEDIUM-082): the deadline is policy, resolved against the same
+    # repo root the twin qualification reads, never a constructor literal.
+    source_budget = (
+        _ScopedSourceBudget(deadline_seconds=source_qualification_policy(repo_root)["deadline_seconds"])
+        if target_sha is not None else None
+    )
     if line_radius < 0:
         raise GovernanceError(f"line_radius must be >= 0, got {line_radius!r}")
     if per_ref_cap <= 0:
@@ -195,22 +229,35 @@ def excerpts_for_refs(
             entries.append(_skip(path, SKIP_TOTAL_CAP))
             continue
 
-        # The shared canonical resolver owns traversal defence (Plan 026R
-        # §E.5) — a lexical check here would be a second, weaker copy.
-        try:
-            _rel, absolute = _canonical_evidence_path(path, root)
-        except GovernanceError:
-            entries.append(_skip(path, SKIP_OUTSIDE_REPO_ROOT))
-            continue
+        source_observation = None
+        if target_sha is not None:
+            # Committed reads must not resolve a working symlink or depend
+            # on a file still existing in the current checkout. The snapshot
+            # owner admits bounded literal paths against the selected object.
+            source_observation, data = _read_scoped_committed_file(
+                root, path, target_sha, budget=source_budget,
+            )
+            if data is None:
+                entries.append(_skip(path, source_observation["reason"]))
+                continue
+            text = data.decode("utf-8", errors="replace")
+        else:
+            # The shared canonical resolver owns traversal defence (Plan 026R
+            # §E.5) — a lexical check here would be a second, weaker copy.
+            try:
+                _rel, absolute = _canonical_evidence_path(path, root)
+            except GovernanceError:
+                entries.append(_skip(path, SKIP_OUTSIDE_REPO_ROOT))
+                continue
 
-        try:
-            if not absolute.is_file():
+            try:
+                if not absolute.is_file():
+                    entries.append(_skip(path, SKIP_UNREADABLE))
+                    continue
+                text = absolute.read_text(encoding="utf-8", errors="replace")
+            except (OSError, ValueError):
                 entries.append(_skip(path, SKIP_UNREADABLE))
                 continue
-            text = absolute.read_text(encoding="utf-8", errors="replace")
-        except (OSError, ValueError):
-            entries.append(_skip(path, SKIP_UNREADABLE))
-            continue
 
         lines = text.splitlines(keepends=True)
         if not lines:
@@ -244,6 +291,9 @@ def excerpts_for_refs(
         cap = min(per_ref_cap, remaining)
         content, packed_lines, truncated = _fit_lines(window, cap)
         remaining -= len(content.encode("utf-8"))
+        if source_budget is not None and source_budget.expired():
+            entries.append(_skip(path, "qualification_deadline"))
+            continue
         entries.append(
             {
                 "path": path,
@@ -252,6 +302,10 @@ def excerpts_for_refs(
                 "content": content,
                 "content_hash": excerpt_content_hash(content),
                 "truncated": truncated,
+                **({"source_commit_sha": source_observation["commit_sha"],
+                    "source_content_hash": source_observation["content_hash"],
+                    "source_size_bytes": source_observation["size_bytes"]}
+                   if source_observation is not None else {}),
             }
         )
 

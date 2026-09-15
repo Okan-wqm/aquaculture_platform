@@ -12,12 +12,14 @@ requests into a runtime that could not start, the judgment → consensus →
 calibration → gold-corpus chain stayed empty, and the reason was visible only
 to someone who ran the CLI by hand as the runner user.
 
-The distinction these tests pin is not cosmetic. Credit exhaustion is
-model-pool specific and a lower tier can clear it; a refusal is content
-specific and another model can clear it. An expired session clears on NEITHER —
-every tier authenticates through the same credential — so retrying is two
-attempts spent to learn the same thing, and then reporting the second failure
-as though it were the cause.
+The distinction these tests pin is not cosmetic. Credit exhaustion is a
+quota fact about one provider and clears with time (the request waits it out
+under the provider cooldown — operator decision 2026-09-12, never a weaker
+tier); a refusal is content specific and is escalated. An expired session is a
+CREDENTIAL fact: every tier of the same vendor shares it, so retrying in the
+same vendor is two attempts spent to learn the same thing, and then reporting
+the second failure as though it were the cause. The only honest retry is on
+another vendor (ARIA-HIGH-023), and only for a role its runtime can serve.
 """
 from __future__ import annotations
 
@@ -92,7 +94,7 @@ class AuthFailureIsNotRetriedTest(unittest.TestCase):
             )
 
         with self.assertRaises(cr.ClaudeAuthFailure):
-            cr.run_with_model_fallback(run=run, model="fable", effort="high")
+            cr.run_with_model_fallback(run=run, model="opus", effort="high", write_capable=False)
 
         # ARIA-HIGH-023 revised the single-attempt rule: every same-vendor
         # tier shares the dead credential, so the ONLY honest second attempt
@@ -101,29 +103,48 @@ class AuthFailureIsNotRetriedTest(unittest.TestCase):
         # cross-vendor retry; more would be chaining, none would hide a
         # curable vendor outage behind a terminal error.
         self.assertEqual(len(attempts), 2)
-        self.assertEqual(attempts[0][0], "fable")
+        self.assertEqual(attempts[0][0], "opus")
         self.assertEqual(attempts[1][0], "glm-5.3")
 
-    def test_credit_exhaustion_still_falls_back(self) -> None:
-        # The new branch must not swallow the behaviour it sits in front of.
+    def test_a_write_scope_role_gets_no_second_attempt(self) -> None:
+        # The other vendors' runtimes are read-only: an implementer whose
+        # session expired is terminal after ONE attempt, in those words.
         attempts: list[tuple[str, str]] = []
 
         def run(model: str, effort: str) -> cr.ClaudeRunResult:
             attempts.append((model, effort))
-            if len(attempts) == 1:
-                return _result(returncode=1, credit_exhaustion={"marker": "credit balance"})
-            return _result(returncode=0, final_message="ok")
+            return _result(
+                returncode=1,
+                stderr="Failed to authenticate: OAuth session expired",
+                auth_failure={"kind": "auth_failure", "marker": "oauth session expired", "remedy": "re-authenticate"},
+            )
 
-        out = cr.run_with_model_fallback(run=run, model="fable", effort="high")
+        with self.assertRaises(cr.ClaudeAuthFailure) as raised:
+            cr.run_with_model_fallback(run=run, model="opus", effort="max", write_capable=True)
+        self.assertEqual(attempts, [("opus", "max")])
+        self.assertIn("write-scope", str(raised.exception))
 
-        self.assertEqual(out.returncode, 0)
-        self.assertEqual(len(attempts), 2)
+    def test_credit_exhaustion_is_terminal_not_retried(self) -> None:
+        # Operator decision 2026-09-12: the branch in front of this one must
+        # not resurrect a downgrade — an exhausted opus raises after one call.
+        attempts: list[tuple[str, str]] = []
+
+        def run(model: str, effort: str) -> cr.ClaudeRunResult:
+            attempts.append((model, effort))
+            return _result(returncode=1, credit_exhaustion={"marker": "credit balance"})
+
+        with self.assertRaises(cr.ClaudeCreditExhausted) as raised:
+            cr.run_with_model_fallback(run=run, model="opus", effort="high", write_capable=False)
+        self.assertEqual(attempts, [("opus", "high")])
+        self.assertEqual(raised.exception.provider, "anthropic")
 
     def test_a_healthy_run_is_untouched(self) -> None:
         def run(model: str, effort: str) -> cr.ClaudeRunResult:
             return _result(returncode=0, final_message="ok")
 
-        self.assertEqual(cr.run_with_model_fallback(run=run, model="opus", effort="high").returncode, 0)
+        self.assertEqual(
+            cr.run_with_model_fallback(run=run, model="opus", effort="high", write_capable=True).returncode, 0,
+        )
 
 
 class ExecutorReleasesUnderItsOwnReasonTest(unittest.TestCase):
@@ -151,19 +172,27 @@ class ExecutorReleasesUnderItsOwnReasonTest(unittest.TestCase):
         ]
         self.assertEqual(len(handlers), 1, "exactly one auth-failure handler")
 
-        reasons = [
-            keyword.value.value
+        # The reason may be one constant, or a conditional choosing between
+        # constants (the native-runtime lane names its own condition); what
+        # is forbidden is any reason that is not a specific constant at all.
+        reason_expressions = [
+            keyword.value
             for node in ast.walk(handlers[0])
             if isinstance(node, ast.Call)
             and isinstance(node.func, ast.Name)
             and node.func.id == "_release_claim"
             for keyword in node.keywords
-            if keyword.arg == "reason" and isinstance(keyword.value, ast.Constant)
+            if keyword.arg == "reason"
         ]
+        self.assertEqual(len(reason_expressions), 1, "exactly one release in the handler")
+        reasons = sorted({
+            node.value for node in ast.walk(reason_expressions[0])
+            if isinstance(node, ast.Constant) and isinstance(node.value, str)
+        })
 
         # A generic reason here is what made five nights of failures look like
         # five agent crashes.
-        self.assertEqual(reasons, ["claude_cli_auth_failure"])
+        self.assertEqual(reasons, ["claude_cli_auth_failure", "native_runtime_execution_unavailable"])
 
 
 if __name__ == "__main__":

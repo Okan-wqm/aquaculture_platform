@@ -92,9 +92,29 @@ V9.6 (auto_merge runner) consumes the registry via a sequential loop pre-merge. 
 ### 12. `operator_feedback_signature`
 - **Closes:** ai HIGH-010
 - **Tier:** 1
-- **Fires when:** `plan_synthesizer` reads a row from `aria-tools/operator-feedback.jsonl` with missing OR invalid `signature` / `signer_kid` field.
-- **Routing:** Row dropped + governance event `unsigned_operator_feedback` (one per drop). Synthesizer continues with remaining valid rows.
-- **Defense:** Tier-1 — signature verification at source ingestion. V9.4 implements (lands later in the V9 arc).
+- **Fires when:** `operator_feedback_ingestion.ingest_operator_feedback` (the plan synthesizer's
+  scan of `aria-tools/operator-feedback.jsonl`) reads a row whose keyed HMAC-SHA256 `signature` /
+  `signer_kid` is missing, malformed, minted under a `signer_kid` the store's rolling key list never
+  held, or does not recompute over the canonical row
+  (`operator_feedback_signature.verify_operator_feedback_row`, closed reason vocabulary
+  `signature_missing | signer_kid_missing | signer_kid_unknown | signature_malformed |
+  signature_invalid`, plus `schema_invalid` for a signed row that is not a request row).
+- **Routing:** Row dropped + governance event `unsigned_operator_feedback` (one per drop: id, line,
+  reason, kid — never the body). Synthesizer continues with the remaining valid rows; the scan is
+  recorded as an `ingestion` row on `operator-feedback-ingestion.jsonl` (admitted rows by
+  `ledger_hash` + `signer_kid`, dropped rows by reason) and the selected synthesis is bound to that
+  scan by a `synthesis_bound` row carrying the plan_content hash.
+- **Defense:** Tier-1 — the kernel is both signer and verifier. Every kernel writer of the ledger
+  (`feedback_store` verdict rows, `calibration_bootstrap` corpus fixtures, `record_operator_request`
+  behind `aria-kernel feedback request`) appends through `append_signed_operator_feedback_row`; key
+  material lives at `aria-tools/secrets/operator-feedback-hmac.key` (0600, rolling five-entry list
+  shared with the ack ledger's custody via `hmac_keyring`; `aria-kernel feedback rotate-signing-key`
+  retires a head key without orphaning historical rows). A hand-appended row is therefore not a code
+  path to authority. At merge time `merge_authority._capture_pre_merge_context` walks
+  `plan_started.content_hash → synthesis_bound → ingestion → consumed rows` and re-verifies every
+  consumed signature; the predicate refuses on any named gap
+  (`operator_feedback_synthesis_binding_unavailable`, `…_ingestion_unavailable`,
+  `…_consumption_mismatch`, `…_consumed_row_unavailable`, `…_consumed_row_unsigned:<reason>`).
 
 ### 13. `pr_body_templating`
 - **Closes:** ai HIGH-012 + sec HIGH-008
@@ -106,9 +126,47 @@ V9.6 (auto_merge runner) consumes the registry via a sequential loop pre-merge. 
 ### 14. `cycle_and_turn_budget_cap`
 - **Closes:** ai HIGH-013 + perf CRIT-001
 - **Tier:** 1
-- **Fires when:** Per-cycle cost reservation would exceed `--max-budget-usd-per-cycle` (default $1.50) at next turn boundary; OR per-implementer-turn count exceeds N=10 Edit+Write+Bash.
-- **Routing:** Refusal `reason_class=cycle_budget_exhausted` OR `implementer_turn_budget_exhausted`. Cycle terminates cleanly at turn boundary (not mid-turn — reservation/reconcile discipline holds).
-- **Defense:** Tier-1 — reservation-then-reconcile pattern at every LLM call.
+- **Fires when:** at the next Edit/Write/Bash turn boundary the run's wall clock is inside the
+  close-out margin of the job deadline (`ARIA_JOB_DEADLINE_EPOCH`, bound by
+  `cycle.job_deadline_epoch`; margin `turn_budget.JOB_DEADLINE_CLOSE_OUT_MARGIN_SECONDS` = 120 s);
+  OR the implementer request has already been admitted the policy's
+  `implementer_turn_budget.budgeted_turns` budgeted turns (Edit + Write + Bash + MultiEdit +
+  NotebookEdit combined, `BUDGETED_TOOL_NAMES`). The cap is a POLICY value, not a literal (operator
+  decision 2026-09-12): the kernel default is 60 (`aria_kernel/data/genesis_policy_default.json`;
+  each Edit is one turn and each test run one Bash turn, so a root-cause implementation spends 20–40
+  and the former literal 10 was a wall, not a cap), `<workspace>/aria-config/genesis_policy.json`
+  overrides it, and `turn_budget_policy.implementer_turn_budget_policy` REFUSES, naming the
+  offender, values below 1 (a cap of zero refuses the first turn — that switches implementers off,
+  it does not budget them), values above 2 × `plan_convergence.MAX_AFFECTED_PATHS` = 400 (one Edit
+  and one validating Bash turn per affected path of the widest plan the kernel converges — past that
+  a policy would switch the cap off, and the job deadline is the real budget), non-integers, a block
+  that is not an object, and a key the block does not know (a misspelled `budgeted_turns` never
+  silently runs on the default; `_`-prefixed keys are annotations). Dollars are not admission here:
+  under the managed-subscription policy they are telemetry (`cost_budget.assert_within_budget`,
+  ARIA-HIGH-074/079) and under the metered policy they remain `cost_budget`'s own caps
+  (ORPHAN-HIGH-472 retired the USD dispatch gate).
+- **Routing:** Refusal `reason_class=cycle_budget_exhausted` OR `implementer_turn_budget_exhausted`,
+  always at the turn boundary (the spawn is not killed mid-turn; the implementer can still write its
+  final report). A policy-denied turn never counts; a budget refusal consumes nothing, so every
+  later attempt is refused at the boundary too.
+- **Defense:** Tier-1 — every reader takes the cap from the policy of the workspace the tools store
+  is bound to (`turn_budget_policy.implementer_turn_budget_for_store` over
+  `tool_registry.bound_workspace_root`, ARIA-HIGH-079): the kernel compiles `--turn-budget N` into
+  the PreToolUse hook command of write-scope profiles (implementer, worker) via
+  `claude_settings.build_settings` from the spawn's store, so the cap is part of the session
+  fingerprint and the sandboxed hook admits against the number the kernel compiled, never against a
+  policy file the agent could have edited in its tree; `hooks.admit_budgeted_turn` counts the
+  request's admitted turns from `hooks/decisions.jsonl` and appends its verdict inside ONE state
+  transaction, so parallel tool calls cannot both be admitted as the last one; every budgeted
+  verdict carries a `turn_budget` observation (cap, used_before, deadline_epoch, remaining_seconds,
+  margin). At merge time `merge_authority._capture_pre_merge_turn_budget` resolves the same policy
+  for the store being merged and reduces the request's rows against it
+  (`turn_budget.turn_budget_evidence`); the predicate refuses on absent/malformed evidence, an
+  invalid policy (`native_turn_budget_policy_invalid`), a recorded cap other than the policy's
+  (`native_turn_budget_cap_mismatch` — a spawn compiled against another workspace's policy, or a
+  policy changed since the spawn), either refusal class, or more admitted turns than the cap
+  (`implementer_turn_budget_exceeded_unrefused`); it passes only as
+  `native_cycle_and_turn_budget_respected`.
 
 ### 15. `content_hash_recheck`
 - **Closes:** ai MED-019

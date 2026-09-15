@@ -68,7 +68,9 @@ class _Fixture:
         def fake_run(argv, **kwargs):
             if argv[:2] == ["git", "worktree"]:
                 self.git_calls.append((list(argv), kwargs.get("timeout")))
-                answer = self.add if argv[2] == "add" else self.remove
+                # `prune` is the bracket's reconcile step and answers unless a
+                # test scripts it; `add` and `remove` are the scripted calls.
+                answer = {"add": self.add, "remove": self.remove}.get(argv[2], "ok")
                 if answer == "stall":
                     raise subprocess.TimeoutExpired(argv, kwargs.get("timeout") or 0)
                 if answer == "refuse":
@@ -80,6 +82,20 @@ class _Fixture:
                     self.queue.remove(row)
                 return _FakeProc(stdout=json.dumps(row) if row else "null")
             self.dispatch.append({"argv": list(argv), "cwd": kwargs.get("cwd"), "env": kwargs.get("env")})
+            # The summary is the drain's only evidence of success (ARIA-HIGH-095):
+            # a child that writes none is a named failure whatever its exit
+            # code, so the scripted child writes the v1 summary a real one does
+            # and names it on its own GITHUB_OUTPUT.
+            child_env = kwargs.get("env") or {}
+            summary_path = self.tmp / "dispatch-summary-AIR-1.json"
+            summary_path.write_text(json.dumps({
+                "schema_version": 1, "request_id": "AIR-1", "role": "evidence_judgment",
+                "provider": "anthropic", "model": "opus", "outcome": "succeeded",
+                "failure_class": None, "retryable": False,
+            }), encoding="utf-8")
+            Path(child_env["GITHUB_OUTPUT"]).write_text(
+                f"dispatch_summary_path={summary_path}\n", encoding="utf-8",
+            )
             return _FakeProc()
 
         def fake_record_failure(**kwargs):
@@ -113,12 +129,15 @@ class TheBracketIsBounded(unittest.TestCase):
         fixture = _Fixture(self.tmp, add="ok", remove="ok")
         rc, output = fixture.run()
         self.assertEqual(rc, 0)
-        self.assertEqual([call[0][2] for call in fixture.git_calls], ["add", "remove"])
+        # The bracket reconciles a leftover registration first (`prune`, the
+        # per-request worktree doctrine of ARIA-HIGH-095), then adds, then
+        # removes — every one of them bounded.
+        self.assertEqual([call[0][2] for call in fixture.git_calls], ["prune", "add", "remove"])
         for argv, timeout in fixture.git_calls:
             with self.subTest(argv=argv):
                 self.assertEqual(timeout, ci_executor_drain.REQUEST_WORKTREE_GIT_TIMEOUT_SECONDS)
         self.assertEqual(len(fixture.dispatch), 1)
-        worktree = Path(fixture.git_calls[0][0][4])
+        worktree = Path(fixture.git_calls[1][0][4])
         self.assertEqual(Path(fixture.dispatch[0]["cwd"]), worktree)
         self.assertEqual(fixture.dispatch[0]["env"]["ARIA_WORKSPACE_ROOT"], str(worktree))
         self.assertEqual(fixture.breaker_rows, [])
@@ -132,7 +151,7 @@ class TheBracketIsBounded(unittest.TestCase):
         self.assertEqual(len(fixture.dispatch), 1)
         self.assertEqual(Path(fixture.dispatch[0]["cwd"]), _REPO_ROOT)
         self.assertNotIn("ARIA_WORKSPACE_ROOT", fixture.dispatch[0]["env"])
-        self.assertEqual([call[0][2] for call in fixture.git_calls], ["add"])
+        self.assertEqual([call[0][2] for call in fixture.git_calls], ["prune", "add"])
 
     def test_an_add_that_does_not_answer_starts_no_child_and_stops_the_drain_by_name(self) -> None:
         fixture = _Fixture(self.tmp, add="stall")

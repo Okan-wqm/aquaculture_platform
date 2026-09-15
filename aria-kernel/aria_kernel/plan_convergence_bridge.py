@@ -75,6 +75,31 @@ def is_planner_bridge_role(role: str | None) -> bool:
     return role in PLANNER_BRIDGE_ROLES
 
 
+# Where each plan-authoring role's canonical wrapper may nest the body. The
+# top-level `plan_content` is the contract; the nested spellings are the
+# ones the bridge has always read back, kept so a wrapper-style envelope
+# still folds. ONE table, read by both canonicalizers and by the submit-time
+# plan-contract check, so the body the kernel judges is the body the bridge
+# would record.
+_PLAN_CONTENT_WRAPPERS: dict[str, tuple[str, ...]] = {
+    "challenger_plan": ("challenger", "plan"),
+    "primary_plan": ("revision", "plan"),
+}
+
+
+def submitted_plan_content(role: str | None, response: dict[str, Any]) -> Any:
+    """The plan body a planner response submits, or ``None`` when it has none."""
+    details = response.get("details")
+    details = details if isinstance(details, dict) else {}
+    for wrapper in _PLAN_CONTENT_WRAPPERS.get(str(role), ()):
+        block = details.get(wrapper)
+        if isinstance(block, dict) and "plan_content" in block:
+            return block.get("plan_content")
+    if response.get("plan_content") is not None:
+        return response.get("plan_content")
+    return details.get("plan_content")
+
+
 def _extract_plan_id(request: dict[str, Any], response: dict[str, Any]) -> str | None:
     """Resolve the convergent-plan id from either the request envelope
     (preferred — the planner request row carries it) or the response
@@ -116,8 +141,15 @@ def record_plan_result(
     request: dict[str, Any],
     response: dict[str, Any],
     base_dir: str | Path | None = None,
+    workspace_root: str | Path | None = None,
 ) -> dict[str, Any] | None:
     """Plan 026R §C.1 (V8 v2 §4 Phase 8.2 — state-aware primary dispatch).
+
+    ``workspace_root`` is the checkout the submission was made from (the
+    request worktree, on the submit path); the implementation dispatch
+    verifies the claimed commit there. The bridge replay carries none — the
+    worktree is gone by then — and verifies in the checkout the store is
+    bound to instead (ARIA-HIGH-115).
 
     Returns:
         ``None`` when ``role`` is not a planner bridge role (no-op for
@@ -243,6 +275,7 @@ def record_plan_result(
                 plan_id=plan_id,
                 base_dir=base_dir,
                 record_implementation_outcome=record_implementation_outcome,
+                workspace_root=workspace_root,
             )
         case _:
             # Tier-1 exhaustiveness. The role was filtered against
@@ -343,6 +376,119 @@ def _dispatch_cross_review(
     )
 
 
+def verification_checkout(
+    *, workspace_root: str | Path | None, base_dir: str | Path | None,
+) -> Path:
+    """The checkout the implementation commit is verified in.
+
+    The submit path names the tree the executor submitted from (the
+    per-request worktree, where the commit is HEAD). The replay path has
+    no such tree — the drain removed it — and uses the checkout the store
+    is bound to, where the branch ref the worktree created survives the
+    worktree's removal (refs are the repository's, not the worktree's).
+    Never the process cwd: the bridge used to run ``git verify-commit``
+    wherever the kernel happened to be invoked, which is the executor
+    child's cwd on the submit path and the orchestrator's on replay.
+    """
+    if workspace_root is not None:
+        return Path(workspace_root).resolve()
+    from .tool_registry import bound_workspace_root
+
+    return bound_workspace_root(base_dir)
+
+
+def verify_implementation_commit(
+    *,
+    branch_tip_sha: str,
+    signer_key_fp: str,
+    cycle_id: str,
+    plan_id: str,
+    base_dir: str | Path | None,
+    workspace_root: str | Path | None,
+) -> None:
+    """The trust boundary between the implementer's claim and the ledger.
+
+    Plan ARIA-V3.1-B2 put ``git verify-commit`` here so the IMPL row is
+    never written for a commit the cycle key did not sign. ARIA-HIGH-115
+    changes what it verifies AGAINST and WHERE: the fingerprint on the
+    result is the executor's stamp (``implementation_identity``), its
+    public key is on the ``kg_signers`` ledger under the request's cycle
+    id, and this check builds the allowed-signers anchor from that
+    registered key and runs in the checkout that holds the commit
+    (``verification_checkout``). A fingerprint the registry does not hold
+    is refused by name — a key nobody registered is not the kernel's
+    identity, whatever signed with it — and so is one registered under
+    another cycle: the executor mints and registers for the request's
+    ``cycle_id``, so a key of any other cycle vouching for this commit is
+    a key the executor never held for it, however it verifies.
+    Raises ``GovernanceError("commit_signature_unverified: ...")``.
+
+    ``ARIA_DRY_RUN`` short-circuits the git step (mocked test environments
+    cannot reach a repository carrying the commit) and records
+    ``commit_signature_verify_skipped_dry_run`` so the audit trail carries
+    the bypass; the registry check is not a git step and always runs.
+    """
+    import os as _os
+    import tempfile as _tempfile
+
+    from .implementation_safety import verify_commit_signature
+    from .knowledge_graph import lookup_convention_signer
+    from .tool_registry import GovernanceError, append_tools_governance
+
+    if not signer_key_fp:
+        raise GovernanceError(
+            f"commit_signature_unverified: branch_tip_sha={branch_tip_sha!r} carries no "
+            "signer_key_fp — the executor stamps the fingerprint of the key it minted "
+            "in the request worktree; a result without one was not made under that key."
+        )
+    registered = lookup_convention_signer(signer_key_fp, base_dir=base_dir)
+    if registered is None:
+        raise GovernanceError(
+            f"commit_signature_unverified: signer_key_fp={signer_key_fp!r} is not a "
+            "registered cycle key (kg_signers); the executor registers the public half "
+            "before the implementer starts, so an unregistered fingerprint is not the "
+            "kernel's identity."
+        )
+    if not cycle_id or registered.get("cycle_id") != cycle_id:
+        raise GovernanceError(
+            f"commit_signature_unverified: signer_key_fp={signer_key_fp!r} is registered "
+            f"under cycle {registered.get('cycle_id')!r}, not this request's cycle "
+            f"{cycle_id!r}; the executor holds a key for the request's own cycle only."
+        )
+    if _os.environ.get("ARIA_DRY_RUN", "").lower() in ("true", "1", "yes"):
+        append_tools_governance(
+            base_dir, "commit_signature_verify_skipped_dry_run",
+            {
+                "plan_id": plan_id,
+                "branch_tip_sha": branch_tip_sha,
+                "signer_key_fp": signer_key_fp,
+            },
+            bypass_profile_gate=True,
+        )
+        return
+    checkout = verification_checkout(workspace_root=workspace_root, base_dir=base_dir)
+    # The anchor is the REGISTERED key alone, in a file of this call's own:
+    # the checkout's ``gpg.ssh.allowedSignersFile`` (if any) is the mint's
+    # wiring while the key is held and absent once revoked, and neither is
+    # what the ledger vouches for.
+    with _tempfile.NamedTemporaryFile("w", prefix="aria-registered-signer-", suffix=".allowed",
+                                      encoding="utf-8", delete=True) as allowed:
+        allowed.write(
+            f"aria-cycle-{registered.get('cycle_id')} {registered.get('key_type')} "
+            f"{registered.get('public_key')}\n"
+        )
+        allowed.flush()
+        verified = verify_commit_signature(
+            branch_tip_sha, signer_key_fp, repo=checkout, allowed_signers=allowed.name,
+        )
+    if not verified:
+        raise GovernanceError(
+            f"commit_signature_unverified: branch_tip_sha={branch_tip_sha!r} "
+            f"signer_key_fp={signer_key_fp!r} — the commit does not verify against the "
+            f"registered key in {checkout} (git verify-commit); impl row refused."
+        )
+
+
 def _dispatch_implementation(
     *,
     request: dict[str, Any],
@@ -351,13 +497,17 @@ def _dispatch_implementation(
     plan_id: str,
     base_dir: str | Path | None,
     record_implementation_outcome: Any,
+    workspace_root: str | Path | None = None,
 ) -> dict[str, Any]:
     """Plan ARIA-V9.3 — bridge dispatch for role="implementation".
 
     aria-implementer agent submits an aria/agent-response/v1 envelope
-    whose ``details.implementation`` carries the full outcome record.
-    The bridge extracts the record + calls
-    plan_convergence.record_implementation_outcome which validates
+    whose ``details.implementation`` carries the outcome record; the
+    executor stamps ``signer_key_fp`` on it (ARIA-HIGH-115). The bridge
+    reads the record through ``implementation_record`` — the one reading
+    the executor's stamp also uses — verifies the claimed commit against
+    the registered key (``verify_implementation_commit``) and calls
+    plan_convergence.record_implementation_outcome which validates the
     state precondition (IMPLEMENTATION_IN_FLIGHT) + payload shape +
     transitions to IMPLEMENTATION_RECORDED.
 
@@ -370,61 +520,30 @@ def _dispatch_implementation(
     _validate_event payload check (defense-in-depth — the bridge
     doesn't re-validate shape here).
     """
-    impl = details.get("implementation") or details
-    if not isinstance(impl, dict):
-        raise GovernanceError(
-            f"implementation dispatch: details.implementation must be a dict, "
-            f"got {type(impl).__name__}"
-        )
-    # Plan ARIA-V3.1-B2 — verify_commit_signature wire (closes
-    # V31-B-3 follow-up + C-7 second-half). The kernel state machine
-    # validator stays git-agnostic per plan_convergence.py:697-699
-    # design; the bridge IS the trust boundary between the
-    # aria-implementer agent's claim and the kernel ledger. We
-    # cross-check the agent-supplied branch_tip_sha against the
-    # cycle's expected signer_key_fp via `git verify-commit --raw`
-    # BEFORE letting the impl row land. Mismatch raises
-    # GovernanceError("commit_signature_unverified") — the IMPL row
-    # is NEVER written for an unsigned commit, and the agent's
-    # response becomes a no-op terminal rejection at the bridge.
-    #
-    # Tier-1 anchor: the verify happens at the trust boundary, not
-    # the validator. Adding a verifier inside the state machine
-    # would require git access from every kernel callsite (CLI,
-    # tests, sandbox runs).
-    #
-    # Behavioral fallback: ARIA_DRY_RUN=true short-circuits the
-    # verify (mocked test envs cannot reach a real git repo with
-    # the per-cycle signing key). The dry-run path emits a
-    # `commit_signature_verify_skipped_dry_run` governance event so
-    # operator audit captures the bypass.
-    import os as _os
+    from .implementation_identity import implementation_record
+
+    impl = implementation_record(details)
+    # Plan ARIA-V3.1-B2 — the verify happens at the trust boundary, not
+    # the validator: the kernel state machine stays git-agnostic
+    # (plan_convergence.py design), and a verifier inside it would need
+    # git access from every kernel callsite (CLI, tests, sandbox runs).
+    # A claimed commit is verified before anything is recorded; a result
+    # that claims no commit falls through to the recorder, which refuses
+    # its shape (`branch_tip_sha` is required) — the IMPL row is NEVER
+    # written for a commit the registered key did not sign.
     _claimed_branch_tip = impl.get("branch_tip_sha") or ""
     _claimed_signer_fp = impl.get("signer_key_fp") or ""
-    if _claimed_branch_tip and _claimed_signer_fp:
-        # Both fields supplied → cross-check.
-        if _os.environ.get("ARIA_DRY_RUN", "").lower() in ("true", "1", "yes"):
-            from .tool_registry import append_tools_governance
-            append_tools_governance(
-                base_dir, "commit_signature_verify_skipped_dry_run",
-                {
-                    "plan_id": plan_id,
-                    "branch_tip_sha": _claimed_branch_tip,
-                    "signer_key_fp": _claimed_signer_fp,
-                },
-                bypass_profile_gate=True,
-            )
-        else:
-            from .implementation_safety import verify_commit_signature
-            if not verify_commit_signature(
-                _claimed_branch_tip, _claimed_signer_fp,
-            ):
-                raise GovernanceError(
-                    f"commit_signature_unverified: branch_tip_sha="
-                    f"{_claimed_branch_tip!r} signer_key_fp="
-                    f"{_claimed_signer_fp!r} — agent-claimed commit "
-                    "fails kernel-side git verify-commit; impl row refused."
-                )
+    if _claimed_branch_tip:
+        verify_implementation_commit(
+            branch_tip_sha=_claimed_branch_tip,
+            signer_key_fp=_claimed_signer_fp,
+            # The request's cycle: the one the executor minted and registered
+            # the stamped key under (`implementation_identity`).
+            cycle_id=str(request.get("cycle_id") or ""),
+            plan_id=plan_id,
+            base_dir=base_dir,
+            workspace_root=workspace_root,
+        )
     # E2/F1 — bring the machine to the state the outcome validator expects,
     # with the REAL claim data the response carries. `implementation_started`
     # means "agent has claimed the lease"; the claim id and the agent are in
@@ -453,7 +572,11 @@ def _dispatch_implementation(
         base_branch_sha=impl.get("base_branch_sha") or "",
         validation_results=impl.get("validation_results") or [],
         signer_key_fp=_claimed_signer_fp,
-        completed_at=impl.get("completed_at") or "",
+        # When the outcome was recorded is a kernel fact: the bridge runs at
+        # acceptance, and no contract ever asked the agent for a timestamp —
+        # an empty one was refused as "completed_at must be a non-empty
+        # string" on every implementer result that reached this line.
+        completed_at=impl.get("completed_at") or _bridge_utc_now(),
         base_dir=base_dir,
     )
 
@@ -487,18 +610,8 @@ def _canonicalize_challenger_payload(
     """
     from .plan_convergence import fold_plan_state  # local import; avoid cycle
 
-    plan_content: Any = None
     challenger_block = details.get("challenger")
-    if isinstance(challenger_block, dict) and "plan_content" in challenger_block:
-        plan_content = challenger_block.get("plan_content")
-    if plan_content is None:
-        plan_block = details.get("plan")
-        if isinstance(plan_block, dict) and "plan_content" in plan_block:
-            plan_content = plan_block.get("plan_content")
-    if plan_content is None:
-        plan_content = response.get("plan_content")
-    if plan_content is None:
-        plan_content = details.get("plan_content")
+    plan_content = submitted_plan_content("challenger_plan", {**response, "details": details})
 
     state = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
     latest = (state.get("latest_revision") or {}) if isinstance(state, dict) else {}
@@ -559,8 +672,14 @@ def _canonicalize_revision_payload(
       3. response.plan_content (TOP-LEVEL — current agent contract)
       4. details.plan_content (semi-canonical)
 
-    If the agent supplies a partial wrapper (e.g. an explicit
-    ``revision_id``), the kernel-derived values fill only the gaps.
+    If the agent supplies a partial wrapper, only its ``revision_id`` label
+    is honoured. ``round`` and ``parent_revision_hash`` are kernel-state
+    FACTS the agent cannot read: trial eight's round-2 primary (2026-09-12,
+    ARIA-HIGH-080) echoed the request's ``round_number`` (2) as
+    ``details.revision.round`` while the plan's critique round was still 1,
+    the reducer refused ``revision round must match current critique round``,
+    and the drainer declared the accepted envelope dead — HUMAN_REQUIRED
+    after a 1,133 s run the kernel had already accepted.
     """
     from .plan_convergence import (
         fold_plan_state,
@@ -568,17 +687,11 @@ def _canonicalize_revision_payload(
     )
     import hashlib
 
-    # Extract plan_content from agent response. Mirror challenger
-    # extraction order; the round-2 primary agent emits its plan with
-    # the same top-level shape as the round-1 primary + the challenger.
-    plan_content: Any = None
+    # Extract plan_content from agent response through the shared table;
+    # the round-2 primary agent emits its plan with the same top-level
+    # shape as the round-1 primary + the challenger.
     primary_block = details.get("revision") or details.get("plan")
-    if isinstance(primary_block, dict) and "plan_content" in primary_block:
-        plan_content = primary_block.get("plan_content")
-    if plan_content is None:
-        plan_content = response.get("plan_content")
-    if plan_content is None:
-        plan_content = details.get("plan_content")
+    plan_content = submitted_plan_content("primary_plan", {**response, "details": details})
 
     # Read kernel state. ``fold_plan_state`` is the authoritative
     # source for ``current_round`` and ``latest_revision``; the agent
@@ -617,10 +730,10 @@ def _canonicalize_revision_payload(
         "revised_by_agent": supplied.get("revised_by_agent") or response.get("agent_id"),
         "revision_id": supplied.get("revision_id")
             or f"rev-{plan_id}-r{current_round or 1}-{request_id[-12:]}",
-        "round": supplied.get("round") if isinstance(supplied.get("round"), int) and supplied.get("round") > 0 else current_round,
+        "round": current_round,
         "content": content,
         "content_hash": content_hash,
-        "parent_revision_hash": supplied.get("parent_revision_hash") or parent_content_hash,
+        "parent_revision_hash": parent_content_hash,
         "addresses_review_risk_ids": (
             [str(item) for item in supplied.get("addresses_review_risk_ids", []) if isinstance(item, str) and item]
         ),
@@ -631,4 +744,5 @@ __all__ = [
     "PLANNER_BRIDGE_ROLES",
     "is_planner_bridge_role",
     "record_plan_result",
+    "submitted_plan_content",
 ]

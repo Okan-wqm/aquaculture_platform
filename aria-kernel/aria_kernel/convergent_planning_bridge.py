@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from .agent_invocations import create_agent_invocation_request
+from .plan_contract import render_plan_contract, require_plan_contract
 from .plan_convergence import start_plan
 from .tool_registry import GovernanceError, ensure_tools_dir
 
@@ -48,6 +49,14 @@ def start_convergent_plan_drafted_by_primary(
     """
     if not isinstance(plan_content, dict) or not plan_content:
         raise GovernanceError("plan_content is required and must be a non-empty dict")
+    # ARIA-HIGH-104 (1) — the seed's validation commands must already be ones
+    # the plan contract admits. Every planning envelope minted on this plan
+    # derives its `validation_commands` from the revision it names, and the
+    # `plan_contract_complete` gate refuses the body at CONVERGED anyway: a
+    # seed carrying an undeclared command could start rounds no planner could
+    # converge. Refused here, before the plan is opened, in the contract's
+    # own wording — the tier is not required of a seed (`require_tier=False`).
+    require_plan_contract(plan_content, base_dir=base_dir, require_tier=False)
     plan_row = start_plan(
         plan_id=plan_id,
         plan_content=plan_content,
@@ -68,6 +77,9 @@ def issue_challenger_envelope(
     base_dir: str | Path | None = None,
     plan_revision_hash: str | None = None,
     target_sha: str | None = None,
+    context_repo_root: str | Path | None = None,
+    cycle_id: str | None = None,
+    context_source_paths: list[str] | None = None,
 ) -> dict[str, Any]:
     """Issue the challenger planner envelope for a given convergence round.
 
@@ -99,4 +111,11 @@ def issue_challenger_envelope(
         base_dir=base_dir,
         plan_revision_hash=plan_revision_hash,
         target_sha=target_sha,
+        context_repo_root=context_repo_root,
+        cycle_id=cycle_id,
+        context_source_paths=context_source_paths,
+        # What the challenger's plan body must carry to be accepted and to
+        # converge, rendered from this store — the rule and the refusal
+        # read the same function.
+        plan_contract=render_plan_contract(base_dir),
     )

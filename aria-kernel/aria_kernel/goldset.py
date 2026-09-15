@@ -264,7 +264,7 @@ def dispatch_goldset_curation(
         suggested_prompt=prompt,
         must_satisfy=[{
             "id": "corpus-draft",
-            "criterion": (
+            "description": (
                 "details.proposal lists a fixture candidate per confirmed "
                 "gold item with evidence_refs, expected behaviour and verdict "
                 "source"

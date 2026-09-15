@@ -42,7 +42,7 @@ def _row(**overrides: object) -> dict[str, object]:
         "target_agent": "aria-autonomy-planner",
         "expected_output_path": "aria-tools/out/x.json",
         "suggested_prompt": "do the thing",
-        "must_satisfy": [{"id": "M1", "criterion": "be right"}],
+        "must_satisfy": [{"id": "M1", "description": "be right"}],
         "allowed_scope": ["aria-kernel/**"],
         "evidence_refs": ["docs/x.md:1"],
         "repository_map": {"projects": ["aria-kernel"]},

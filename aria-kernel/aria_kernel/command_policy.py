@@ -33,6 +33,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Iterable
 
+from .validation_suite import CANONICAL_VALIDATION_COMMANDS_EXECUTABLE, bash_allow_pattern_for
+
 # The one grammar for an ARIA implementation branch. Both the push allow rule
 # and the refspec-aware force-push check build on it (re-exported by
 # implementation_safety so existing importers keep working).
@@ -46,7 +48,7 @@ COMMAND_FAMILIES: tuple[str, ...] = (
     "privilege", "package_manager", "orchestration", "gh_mutation", "gh_workflow",
     "gh_secret", "gh_release", "gh_merge", "env_dump", "token_reference",
     "dotenv_access", "ssh_key", "force_flag", "hook_bypass", "signing_bypass",
-    "git_push_force", "git_push_main", "hooks_path", "unknown",
+    "git_push_force", "git_push_main", "hooks_path", "validation_suite", "unknown",
 )
 
 
@@ -82,7 +84,9 @@ class CommandRule:
 
 _PY = r"^(?:/[\w./-]+/)?python3?(\.\d+)?"
 
-ALLOW_RULES: tuple[CommandRule, ...] = (
+# The rules stated by hand; ALLOW_RULES below appends the ones derived from
+# the canonical validation suite.
+STATED_ALLOW_RULES: tuple[CommandRule, ...] = (
     CommandRule(
         "python_script", "python_script", _PY + r"\s+[\w./-]+\.py(\s+\S+)*\s*$",
         claude_rule=("Bash(python3 *)", "Bash(python *)"),
@@ -161,6 +165,35 @@ ALLOW_RULES: tuple[CommandRule, ...] = (
     CommandRule("eslint", "linter_formatter", r"^eslint(\s+\S+)*\s*$", claude_rule="Bash(eslint*)",
                 allow_examples=("eslint . --fix",), deny_examples=("eslintx",)),
 )
+
+
+def _validation_suite_rule(spelling: str) -> CommandRule:
+    """ARIA-HIGH-104 (2) — one allow rule per canonical command, DERIVED.
+
+    The envelope's ``validation_commands`` and the implementer prompt name
+    the suite in its executable spelling; the hand-kept rules above admitted
+    ``npm run format`` (which writes) and a bare ``nx``, and refused
+    ``npm run format:check`` and every ``npx nx …`` entry — three of the four
+    commands the agent was told to run were refused by the gate it runs
+    under. The rule's pattern is rendered by ``validation_suite``, beside the
+    tuple it admits: the exact invocation plus trailing narrowing arguments,
+    the same admission the merge gate grants a recorded run. A command that
+    joins the suite is admitted here without anyone editing this module; a
+    command that leaves it stops being admitted the same way.
+    """
+    return CommandRule(
+        f"validation_suite:{spelling}", "validation_suite", bash_allow_pattern_for(spelling),
+        claude_rule=f"Bash({spelling}*)",
+        allow_examples=(spelling, f"{spelling} --projects=farm-service"),
+        deny_examples=(f"echo '{spelling}'", f"{spelling}ing"),
+        note="derived from validation_suite.CANONICAL_VALIDATION_COMMANDS_EXECUTABLE",
+    )
+
+
+VALIDATION_SUITE_RULES: tuple[CommandRule, ...] = tuple(
+    _validation_suite_rule(spelling) for spelling in CANONICAL_VALIDATION_COMMANDS_EXECUTABLE
+)
+ALLOW_RULES: tuple[CommandRule, ...] = (*STATED_ALLOW_RULES, *VALIDATION_SUITE_RULES)
 
 DENY_RULES: tuple[CommandRule, ...] = (
     CommandRule("net_egress", "network", r"^(curl|wget|nc|ncat|telnet|ftp)\b",
@@ -318,6 +351,8 @@ __all__ = [
     "COMMAND_FAMILIES",
     "CommandRule",
     "DENY_RULES",
+    "STATED_ALLOW_RULES",
+    "VALIDATION_SUITE_RULES",
     "allowed_regexes",
     "claude_permission_rules",
     "claude_rule_matches",

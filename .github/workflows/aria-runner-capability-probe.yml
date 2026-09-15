@@ -54,6 +54,12 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # A kernel workspace is a whole clone: the kernel reads this
+          # checkout's history (twin churn/co-change, anchor existence) and
+          # refuses a shallow one by name. Pinned on every kernel lane by
+          # aria-kernel/tests/invariants/test_kernel_lanes_check_out_full_history.py;
+          # aria-auto-cycle.yml carries the full account.
+          fetch-depth: 0
 
       - uses: ./.github/actions/setup-aria-kernel
 

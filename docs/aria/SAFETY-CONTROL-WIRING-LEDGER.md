@@ -380,12 +380,19 @@ says something untrue about the code.
   over every agent file. Its consumer is an invariant test, which is this
   control's intended and sufficient consumer.
 
-- **`validate_request`** — reason re-verified and stands (`ORPHAN-MEDIUM-572`).
-  No producer mints `aria/agent-request/v1`; the live dispatch path mints
-  `aria/agent-invocation-request/v1`, while its sibling `validate_response` has 11
-  callsites. Unlike the entry points deleted above, this one has **no live sibling
-  answering its question** — it is the only validator for a contract half, so
-  deleting it is not available either. The vocabulary is reconciled first.
+- **`validate_request`** — WIRED (ARIA-HIGH-104, 2026-09-12; the waiver is gone).
+  The vocabularies are reconciled: the queue row `create_agent_invocation_request`
+  appends IS the `aria/agent-request/v1` envelope (`$schema` written from
+  `agent_contract.REQUEST_SCHEMA`; `forbidden_scope` and `validation_commands`
+  always written), and for every role in `agent_contract.CONTRACT_ENFORCED_ROLES`
+  the queue calls `validate_request(row, base_dir)` before the append. The set's
+  boundary is what the contract binds — a request to its cycle (`cycle_id`) and to
+  the plan revision it works from (`convergence_id` + `plan_revision_hash`); the
+  implementation role has both on every production mint. The operator-driven
+  judge, curation, questioning and self-change lanes run in no cycle and implement
+  no plan revision, so the contract has nothing to bind them to; their rows are
+  held by the queue's field validation at mint and `validate_response` at submit.
+  See CONTRACTS §12.17.
 
 ### The classification problem, now seen three ways
 

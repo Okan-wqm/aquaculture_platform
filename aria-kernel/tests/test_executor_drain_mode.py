@@ -40,6 +40,16 @@ class _FakeProc:
         self.stderr = stderr
 
 
+def _succeeded_summary(request_id: str, target: str | None) -> dict:
+    """The `aria/dispatch-result/v1` row a completed child publishes."""
+    return {
+        "$schema": "aria/dispatch-result/v1", "schema_version": 1, "request_id": request_id,
+        "role": "evidence_judgment", "target_agent": target or "aria-evidence-judge",
+        "provider": "anthropic", "model": "opus", "outcome": "succeeded",
+        "failure_class": None, "retryable": False, "failure_detail_code": None, "exit_code": 0,
+    }
+
+
 def _drain(queue, child_results, env=None, tmp=None):
     """Run drain_pending against a scripted queue.
 
@@ -76,12 +86,20 @@ def _drain(queue, child_results, env=None, tmp=None):
         calls["dispatch"].append((request_id, target))
         exit_code, publishes = child_results[request_id]
         child_output = Path(kwargs["env"]["GITHUB_OUTPUT"])
+        lines = []
         if publishes:
-            child_output.write_text(
-                f"envelope_path=outputs/{request_id}.md\n"
-                f"transcript_path=outputs/{request_id}.transcript.jsonl\n",
-                encoding="utf-8",
-            )
+            lines += [f"envelope_path=outputs/{request_id}.md",
+                      f"transcript_path=outputs/{request_id}.transcript.jsonl"]
+        if exit_code == 0 and publishes:
+            # What a real child that ran to completion writes: its v1 summary
+            # (B8 — the summary, never the exit code, is the drain's evidence
+            # of success). A child scripted as (0, False) is one that exited 0
+            # and said nothing, which the drain must NOT count as drained.
+            summary_path = Path(kwargs["env"]["RUNNER_TEMP"]) / f"dispatch-result-{request_id}.json"
+            summary_path.write_text(json.dumps(_succeeded_summary(request_id, target)), encoding="utf-8")
+            lines.append(f"dispatch_summary_path={summary_path}")
+        if lines:
+            child_output.write_text("".join(f"{line}\n" for line in lines), encoding="utf-8")
         return _FakeProc(returncode=exit_code)
 
     env_vars = {
@@ -91,6 +109,13 @@ def _drain(queue, child_results, env=None, tmp=None):
     }
     with patch.dict(os.environ, env_vars), patch.object(
         ci_executor_drain.subprocess, "run", side_effect=fake_run
+    ), patch.object(
+        # The loop contract under test is independent of the operator's live
+        # executor block (worktree_per_request is on since B8); the serial
+        # shared-checkout lane keeps every subprocess a next-pending or a
+        # child. Worktree provisioning: test_executor_request_worktree.py.
+        ci_executor_drain, "_executor_policy",
+        return_value={"max_concurrent": 1, "worktree_per_request": False},
     ):
         rc = ci_executor_drain.drain_pending(
             tools_dir=out_dir / "aria-tools", repo_root=_REPO_ROOT
@@ -127,6 +152,24 @@ class DrainPendingTests(unittest.TestCase):
         self.assertIn("outputs/AIR-2.md", output)
         self.assertIn("drained=2\n", output)
         self.assertIn("drain_failed=0\n", output)
+
+    def test_an_exit_zero_child_that_published_no_summary_is_not_drained(self) -> None:
+        # B8 — the false green: a child that exits 0 without its dispatch
+        # summary (the native admission's target_revision_mismatch refusal
+        # before this fix) used to count as drained=1 with rc 0. The
+        # summary, not the exit code, is the evidence of success; silence
+        # is a named failure and the run is red.
+        queue = [
+            {"request_id": "AIR-1", "target_agent": "aria-evidence-judge"},
+            {"request_id": "AIR-2", "target_agent": "aria-evidence-judge"},
+        ]
+        rc, calls, output = _drain(
+            queue, {"AIR-1": (0, False), "AIR-2": (0, True)}, tmp=self._tmp.name
+        )
+        self.assertEqual(rc, 1)
+        self.assertEqual([rid for rid, _ in calls["dispatch"]], ["AIR-1", "AIR-2"])
+        self.assertIn("drained=1\n", output)
+        self.assertIn("drain_failed=1\n", output)
 
     def test_poison_request_is_skipped_not_fatal(self) -> None:
         # E3/F10 — AIR-1 fails and releases its claim; the kernel-side

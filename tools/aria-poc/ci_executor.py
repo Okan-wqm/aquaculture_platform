@@ -38,11 +38,18 @@ import shutil
 import subprocess
 import sys
 import time
+import tempfile as _tempfile
+import uuid as _uuid
+import functools as _functools
+from contextlib import ExitStack as _ExitStack
+from dataclasses import dataclass as _dataclass, replace as _replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 _THIS_DIR = Path(__file__).resolve().parent
+_CODE_ROOT = _THIS_DIR.parents[1]
+_KERNEL_PYTHONPATH = os.pathsep.join((str(_CODE_ROOT), str(_CODE_ROOT / "aria-kernel")))
 if str(_THIS_DIR) not in sys.path:
     sys.path.insert(0, str(_THIS_DIR))
 
@@ -51,14 +58,11 @@ from claude_runtime import (
     CLAUDE_MOCK_ENV_VAR,
     ClaudeAuthFailure,
     ClaudeCreditExhausted,
-    CREDIT_FALLBACK_EFFORT,
-    MODEL_FALLBACK_TIER,
     ClaudeAuthUnavailable,
     ClaudeCliUnavailable,
     ClaudePolicyViolation,
     ClaudeRunResult,
     ClaudeUsageUnavailable,
-    ProviderRedirectUnavailable,
     UsageRecording,
     extract_final_message,
     extract_usage,
@@ -70,10 +74,12 @@ from claude_runtime import (
 )
 from dispatch_failure import (
     DispatchFailure,
+    DispatchRoute,
     classify_dispatch_failure,
     emit_dispatch_result_summary,
     resolve_dispatch_route,
 )
+from ci_executor_lease import HeldClaim
 
 # The one stderr line that says the kernel could not be imported and the
 # standalone fallbacks are live. A fixed prefix so a run log — and the test
@@ -81,7 +87,7 @@ from dispatch_failure import (
 KERNEL_IMPORT_FALLBACK_MARKER = "::warning::aria_executor_kernel_import_fallback"
 
 try:
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "aria-kernel"))
+    sys.path[:0] = [str(_CODE_ROOT), str(_CODE_ROOT / "aria-kernel")]
     from aria_kernel.agent_surface import DISPATCHABLE_ROLES as _DISPATCHABLE_ROLES
     from aria_kernel.agent_invocations import render_invocation_prompt as _render_invocation_prompt
     # The ONE projection of a claim response into a prompt envelope. The
@@ -89,6 +95,9 @@ try:
     # no repository_map — and that copy is where the prompt-hash binding
     # died AFTER the kernel-side fusion was fixed: same defect, one layer up.
     from aria_kernel.agent_invocations import fuse_prompt_envelope as _fuse_prompt_envelope
+    # The lease guard asks the kernel whether a claim is still held at exit;
+    # the kernel's own derivation, not a flag this file would have to keep.
+    from aria_kernel.agent_invocations import derive_request_state as _derive_request_state
     # Plan ARIA WS1 — import the canonical plan_content required-field set
     # from the kernel SSoT (plan_convergence.PLAN_CONTENT_REQUIRED) instead
     # of re-declaring it here, so the fail-fast gate below can never drift
@@ -98,6 +107,7 @@ try:
     # the kernel and probes the sandbox through the runtime's own accessor.
     from aria_kernel.tool_registry import append_tools_governance as _append_tools_governance
     from aria_kernel.implementation_safety import sandbox_backend as _sandbox_backend
+    from aria_kernel.implementation_safety import sandbox_unavailable_detail as _sandbox_unavailable_detail
     # The rejection codes that mean "the kernel could not verify" — owned by
     # the validator that mints them; the release seam below classifies a
     # rejected submit against this set and nothing else.
@@ -176,8 +186,10 @@ except Exception as _kernel_import_error:  # pragma: no cover - fallback keeps s
     })
     _render_invocation_prompt = None
     _fuse_prompt_envelope = None
+    _derive_request_state = None
     _append_tools_governance = None
     _sandbox_backend = None
+    _sandbox_unavailable_detail = None
     # Without the kernel nothing can be classified as the kernel's own gap:
     # every rejected submit stays the request's fault (fail toward the
     # human). An empty set cannot drift from the kernel's.
@@ -379,10 +391,111 @@ _PRE_SPAWN_CHECKPOINT_REASON = "pre_spawn"
 _REPO_ROOT = Path(os.environ.get("ARIA_WORKSPACE_ROOT") or Path(__file__).resolve().parents[2]).resolve()
 
 
+def _operator_policy_root(tools_dir: Path) -> Path:
+    """The root the operator policy (aria-config/genesis_policy.json) is read from.
+
+    WHY not the workspace: the workspace is the TASK tree — with
+    worktree_per_request (B8) it is a worktree at the request's target_sha,
+    and the policy as of that commit is not the operator's policy. A request
+    minted before an operator decision landed would otherwise be governed by
+    the policy from before the decision (pre-B8: no adaptive block, the
+    metered gate, refused by price), so the decision would reach only
+    requests minted after it. The kernel already answers "which root's
+    policy" for the cost gate (ARIA-HIGH-079): the workspace the tools store
+    is BOUND to — the persistent checkout the drain runs from, the fixture
+    repo a test binds its store to. The executor reads the same root, so the
+    admission, the spawn gate and the cost gate read ONE policy.
+    """
+    from aria_kernel.tool_registry import bound_workspace_root
+
+    return bound_workspace_root(tools_dir)
+
+
 def _stage(msg: str) -> None:
     elapsed = time.monotonic() - _CI_T0
     sys.stderr.write(f"[ci-stage t={elapsed:7.2f}s] {msg}\n")
     sys.stderr.flush()
+
+
+def _write_dispatch_summary(
+    *, route: DispatchRoute, request_id: str, outcome: str,
+    failure: DispatchFailure | None, exit_code: int | None,
+) -> None:
+    """One sanitized ``aria/dispatch-result/v1`` summary for a terminal path.
+
+    The summary is telemetry: a dispatch outcome must never fail because the
+    telemetry channel did, so an unwritable summary is named on stderr and
+    the outcome stands. Every terminal path — inside ``invoke_claude_cli``
+    and every by-design exit of ``_main`` before it — writes through here.
+    """
+    try:
+        emit_dispatch_result_summary(
+            route=route, request_id=request_id, outcome=outcome,
+            failure=failure, exit_code=exit_code,
+        )
+    except (OSError, ValueError) as summary_exc:
+        sys.stderr.write(f"dispatch_summary_unwritable: {summary_exc}\n")
+
+
+# A refusal is a legitimate terminal, not a build failure: the request keeps
+# its budget, the run stays green, and the SUMMARY — never the exit code —
+# says it was not a success.
+REFUSAL_EXIT_CODE = 0
+
+
+def _dispatch_route_for(request: dict[str, Any], *, target_agent: str) -> DispatchRoute:
+    """ARIA-HIGH-002 — the route this child dispatches (or would dispatch) on.
+
+    The trusted request envelope names the agent/role; the frontmatter SSoT
+    in the CODE root resolves the model and the fleet resolves the provider.
+    The code root, not the workspace: the drain resolves the same route from
+    the same checkout before it claims, and the two must key one circuit.
+    ``target_agent`` is the dispatched argv agent, the fallback when the
+    envelope (a mocked one) names none.
+    """
+    return resolve_dispatch_route(
+        request={"role": request.get("role"),
+                 "target_agent": str(request.get("target_agent") or target_agent)},
+        repo_root=_CODE_ROOT,
+    )
+
+
+def _refuse_dispatch(
+    *, request: dict[str, Any], request_id: str, target_agent: str, reason: str,
+    failure_class: str = "policy_violation", retryable: bool = False,
+) -> int:
+    """A by-design non-dispatch, NAMED in the child's summary (B8, 2026-09-12).
+
+    WHY: the child exited 0 with no summary on every refusal decided before
+    ``invoke_claude_cli`` — the native admission's task-binding refusal, the
+    fleet's ``no_eligible_provider``, the budget signal, the operator cancel,
+    the recovery escalation — and the drain read "exit 0, no summary" as a
+    drained success. Under ``managed_subscription`` the task binding refuses
+    whenever main has moved past a request's ``target_sha``, so a night of
+    orphaned requests read as a green drain (verifier B8 MUST FIX 1). The
+    drain now names a summary-less child as ``child_without_summary`` and
+    counts nothing but a ``succeeded`` summary as drained; this is the other
+    half: every by-design exit says what it was.
+
+    WHAT: outcome ``refused``, ``failure_class``/``retryable`` as the
+    refusal's own kind — ``policy_violation`` / not retryable by default
+    (the dispatch met one of the executor's own admission policies), and
+    what the fleet's refusal table declares for a halted admission
+    (``harness_unavailable`` / retryable: the host, not the request, and
+    the daemon retries it after a back-off) — and ``reason`` as the detail
+    code, the closed vocabulary the drain and the operator read. Returns
+    the exit code a refusal carries.
+    """
+    _write_dispatch_summary(
+        route=_dispatch_route_for(request, target_agent=target_agent),
+        request_id=request_id, outcome="refused",
+        failure=DispatchFailure(
+            failure_class=failure_class, retryable=retryable, detail_code=reason,
+            phase="preflight", exit_code=REFUSAL_EXIT_CODE,
+        ),
+        exit_code=REFUSAL_EXIT_CODE,
+    )
+    return REFUSAL_EXIT_CODE
 
 
 def _publish_artifact_paths(envelope_path: Path, transcript_path: Path) -> None:
@@ -667,6 +780,7 @@ def _canonicalize_cross_review(
 
 def _pre_submit_validate_envelope(
     envelope: dict[str, Any], role: str, request: dict[str, Any] | None = None,
+    tools_dir: str | Path | None = None,
 ) -> list[str]:
     """Plan ARIA-V8.1 Phase 3 — fail-fast canonical schema gate.
 
@@ -722,6 +836,20 @@ def _pre_submit_validate_envelope(
             request=gate_request,
             response={**envelope, "role": role},
         )
+    # B6 — a self-change request shares `maintenance_utility` with the queue
+    # projection, so the gate keys on the CONTRACT the request declared
+    # (self_change_bridge.is_self_change_request), never on the role. Same
+    # doctrine as the judge branch: the check is the KERNEL's own validator,
+    # so the gate and the accepted-result bridge cannot disagree about what a
+    # well-formed answer is. Shape only — the authority boundary is judged
+    # by `propose_self_change` in the kernel, where a refusal is a ledger row.
+    from aria_kernel.self_change_bridge import is_self_change_request, validate_self_change_response
+
+    if is_self_change_request(request or {}):
+        return validate_self_change_response(
+            request=request or {},
+            response={**envelope, "role": role},
+        )
     if role in ("primary_plan", "challenger_plan"):
         plan_content = envelope.get("plan_content")
         if not isinstance(plan_content, dict):
@@ -754,6 +882,24 @@ def _pre_submit_validate_envelope(
             plan_content["evidence_refs"], list
         ):
             errors.append("plan_content.evidence_refs:not_list")
+        # The plan contract (architectural_tier + admissible validation
+        # commands), read through the KERNEL's own check so this gate, the
+        # submit refusal and the CONVERGED gate judge one truth. Released
+        # here as `plan_content_invalid:plan_architectural_tier_missing`
+        # (request fault, retried under the Y1 budget) instead of accepted
+        # and then bridged into a dead envelope.
+        if not errors:
+            from aria_kernel.plan_contract import plan_contract_violations
+
+            # The contract is judged against THIS store's recipe catalog, so
+            # the store must be named; this function's contract is to return
+            # error strings, so an unnamed store is one of them rather than a
+            # GovernanceError escaping from the catalog read.
+            store = tools_dir or os.environ.get("ARIA_TOOLS_DIR") or None
+            if store is None:
+                errors.append("plan_contract_store_unnamed")
+            else:
+                errors.extend(plan_contract_violations(plan_content, base_dir=store))
     elif role == "cross_review":
         # Plan ARIA-V8.1 — accept cross_review at top-level OR inside
         # details.cross_review OR details.review. The aria-cross-reviewer
@@ -778,15 +924,18 @@ def _pre_submit_validate_envelope(
 
 MOCK_MODE_ENV_VAR = CLAUDE_MOCK_ENV_VAR
 
-# Plan 026R §B.5 — single-claim env-var contract (mirror of
-# planner_dispatch_hook.CLAIM_METADATA_ENV_VAR). When set by the
-# planner, ci_executor SKIPS its own ``agent claim`` step and uses
-# the fused envelope + ledger-hash anchors from this var. The raw
-# lease_token continues to transit ONLY via ARIA_LEASE_TOKEN — the
-# metadata payload schema rejects it on both serialise + deserialise.
-CLAIM_METADATA_ENV_VAR = "ARIA_CLAIM_METADATA"
+# Plan 026R §B.5 — single-claim contract (mirror of
+# planner_dispatch_hook.CLAIM_METADATA_FILE_ENV_VAR). When the planner sets
+# it, ci_executor SKIPS its own ``agent claim`` step and uses the fused
+# envelope + ledger-hash anchors from the FILE this variable names. A file,
+# not the value: an environment string is bounded like an argument
+# (MAX_ARG_STRLEN), and a round-3 cross-review envelope carrying both plans
+# was refused by execve before the executor started (ARIA-HIGH-085). The raw
+# lease_token continues to transit ONLY via ARIA_LEASE_TOKEN — the metadata
+# payload schema rejects it on both serialise + deserialise.
+CLAIM_METADATA_FILE_ENV_VAR = "ARIA_CLAIM_METADATA_FILE"
 
-# Forbidden keys in ARIA_CLAIM_METADATA — mirrors
+# Forbidden keys in the claim metadata — mirrors
 # planner_dispatch_hook.CLAIM_METADATA_FORBIDDEN_KEYS. Source of truth
 # for "what MUST NOT be serialised into the metadata env-var" lives at
 # both boundaries so a tamper at one boundary is caught at the other.
@@ -873,7 +1022,7 @@ def claim_and_dispatch_one(
         ],
         capture_output=True,
         text=True,
-        env={**os.environ, "PYTHONPATH": str(repo_root / "aria-kernel")},
+        env={**os.environ, "PYTHONPATH": _KERNEL_PYTHONPATH},
     )
     if list_proc.returncode != 0:
         return {
@@ -909,7 +1058,7 @@ def claim_and_dispatch_one(
         ["python3", str(Path(__file__).resolve()), request_id, target_agent],
         capture_output=True,
         text=True,
-        env={**os.environ, "PYTHONPATH": str(repo_root / "aria-kernel")},
+        env={**os.environ, "PYTHONPATH": _KERNEL_PYTHONPATH},
         cwd=str(repo_root),
     )
     return {
@@ -1201,8 +1350,8 @@ def _try_reconcile_envelope_cost(*, envelope_id: str, actual_cost_usd: float, to
 def _clear_stale_dispatch_artifacts(output_path: Path, transcript_path: Path) -> None:
     """Remove a prior attempt's output + transcript before a (re)dispatch.
 
-    ORPHAN-332 — a requeued request (poll timeout, which under the credit→opus
-    fallback happens more because opus is slower) MUST start from a clean slate.
+    ORPHAN-332 — a requeued request (poll timeout on the slower opus tier;
+    since 2026-09-12 also a provider-quota requeue) MUST start from a clean slate.
     The dispatched agent has Read tools and is told the expected output path; if
     a prior attempt's envelope is still on disk it invokes the repo's "look
     before you write / don't overwrite existing work" discipline and REFUSES to
@@ -1229,6 +1378,7 @@ def _decide_session_and_recovery(
     subagent_type: str,
     request_envelope: dict[str, Any],
     prompt_hash: str,
+    native_runtime: _NativeRuntimePlan | None = None,
 ) -> tuple[str | None, bool]:
     """Plan 032 Faz 032c — (session_id, resume), or (None, False) after a
     human_required recovery decision released the claim.
@@ -1243,18 +1393,19 @@ def _decide_session_and_recovery(
     from aria_kernel.recovery import classify_recovery, gh_remote_reader
     from aria_kernel.session_continuity import decide_session, session_fingerprint
 
-    profile = read_agent_runtime_profile(subagent_type, repo_root=_REPO_ROOT)
+    profile = read_agent_runtime_profile(subagent_type, repo_root=repo)
     recording = UsageRecording(request_id=request_id, role=str(request_envelope.get("role") or ""),
                                target_agent=subagent_type, base_dir=tools_dir)
     fingerprint = session_fingerprint(
         target_sha=str(request_envelope.get("target_sha") or ""),
         profile_id=profile.profile_id,
         prompt_hash=prompt_hash,
-        settings_hash=spawn_settings_hash(agent_profile=profile, usage_recording=recording, workspace_root=_REPO_ROOT),
-        model=profile.model,
+        settings_hash=(native_runtime.context.settings_hash if native_runtime is not None else
+                       spawn_settings_hash(agent_profile=profile, usage_recording=recording, workspace_root=repo)),
+        model=native_runtime.route["model"] if native_runtime is not None else profile.model,
     )
     decision = classify_recovery(
-        request_id, base_dir=tools_dir, fingerprint=fingerprint, remote_reader=gh_remote_reader(_REPO_ROOT),
+        request_id, base_dir=tools_dir, fingerprint=fingerprint, remote_reader=gh_remote_reader(repo),
     )
     if decision.decision == "human_required":
         sys.stderr.write(f"recovery_unresolved_external_effect: {request_id} {decision.reason}\n")
@@ -1266,7 +1417,7 @@ def _decide_session_and_recovery(
     session_id, resume = decide_session(request_id=request_id, claim_id=claim_id, fingerprint=fingerprint, base_dir=tools_dir)
     if profile.write_capable:
         try:
-            take_checkpoint(workspace_root=_REPO_ROOT, request_id=request_id, reason=_PRE_SPAWN_CHECKPOINT_REASON, base_dir=tools_dir)
+            take_checkpoint(workspace_root=repo, request_id=request_id, reason=_PRE_SPAWN_CHECKPOINT_REASON, base_dir=tools_dir)
         except Exception as exc:  # noqa: BLE001 — a checkpoint that cannot be taken is named, not fatal
             sys.stderr.write(f"checkpoint_pre_spawn_failed: {type(exc).__name__}\n")
     return session_id, resume
@@ -1290,6 +1441,38 @@ def _rollback_after_blocked_spawn(*, tools_dir: Path, request_id: str, subagent_
     except Exception as exc:  # noqa: BLE001
         sys.stderr.write(f"rollback_after_blocked_spawn_failed: {type(exc).__name__}\n")
 
+
+# ARIA-HIGH-123 — the governance row the publication of a request's sandbox
+# quarantine lands on: what moved into the shared repository, what was
+# refused by name.
+IMPLEMENTATION_QUARANTINE_PUBLISHED_EVENT = "implementation_quarantine_published"
+
+
+def _publish_sandbox_commits(*, tools_dir: Path, request_id: str, claim_id: str, containment: Any) -> Any:
+    """ARIA-HIGH-123 — move what the implementer committed inside its sandbox
+    into the shared repository, from outside, with git's own checks
+    (`git_containment.publish_quarantine`), and record the receipt. The
+    bridge verifies the commit in the shared checkout right after; a
+    publication that refused an object or a ref is on the row by name, and
+    the refused commit is then simply not there to verify."""
+    from aria_kernel.git_containment import publish_quarantine
+    from aria_kernel.tool_registry import append_tools_governance, ensure_tools_dir
+
+    publication = publish_quarantine(containment)
+    append_tools_governance(
+        ensure_tools_dir(tools_dir), IMPLEMENTATION_QUARANTINE_PUBLISHED_EVENT,
+        {"request_id": request_id, "claim_id": claim_id, "workspace_root": str(containment.workspace_root),
+         **publication.to_row()},
+    )
+    _stage(
+        f"implementation_quarantine_published refs={list(publication.refs_published)} "
+        f"objects={publication.loose_objects_migrated} packs={publication.packs_unpacked} "
+        f"refused_objects={len(publication.objects_refused)} discarded_refs={len(publication.refs_discarded)} "
+        f"refusal={publication.refusal}"
+    )
+    return publication
+
+
 def invoke_claude_cli(
     *,
     request_id: str,
@@ -1312,6 +1495,16 @@ def invoke_claude_cli(
     session_id: str | None = None,
     resume: bool = False,
     spawn_control: Any | None = None,
+    # ARIA-HIGH-115 — the fingerprint of the signing identity THIS executor
+    # holds for the request (`implementation_identity`), for the cost row;
+    # None for every role that holds no key (the row then carries the
+    # `SHA256:no-key` sentinel).
+    signer_key_fp: str | None = None,
+    # ARIA-HIGH-123 — the commit-capable git containment the same holder
+    # derived (`ImplementationIdentity.containment`): the spawn is wrapped
+    # with it, so the agent's git can commit in the request worktree and
+    # sign through the kernel-held agent. None for every other role.
+    git_containment: Any | None = None,
 ) -> int:
     """Call the Claude Code CLI; mock path for tests + CI dry-runs.
 
@@ -1435,7 +1628,14 @@ def invoke_claude_cli(
         )
         return 0
 
-    prompt_text = prompt_file.read_text(encoding="utf-8") if prompt_file.exists() else ""
+    request_prompt_text = prompt_file.read_text(encoding="utf-8") if prompt_file.exists() else ""
+    # ARIA-HIGH-073 — the model is told to answer "per your agent contract";
+    # this route sends the rendered request on stdin and never passed
+    # `--agent`, so the contract reached the model only if it chose to Read
+    # the file. Deliver it: contract first, request second. prompt_hash keeps
+    # binding the request bytes; the contract's own hash rides the envelope.
+    agent_contract = _deliver_agent_contract(subagent_type, _REPO_ROOT)
+    prompt_text = agent_contract.text + "\n\n" + request_prompt_text
     output_path.parent.mkdir(parents=True, exist_ok=True)
     resolved_transcript_path = transcript_path or output_path.with_suffix(".transcript.jsonl")
     # ORPHAN-332 — a re-dispatched request must start from a clean slate (see
@@ -1472,14 +1672,9 @@ def invoke_claude_cli(
     # resolves the model, the redirect SSoT resolves the provider, and a
     # drain can key its circuit on that route without claiming work. The
     # provider/model fallback policy itself stays owned by claude_runtime.
-    _route_request: dict[str, Any] = {"role": role, "target_agent": subagent_type}
-    if isinstance(request_envelope, dict):
-        _route_request["target_agent"] = str(
-            request_envelope.get("target_agent") or subagent_type,
-        )
-    _dispatch_route = resolve_dispatch_route(
-        request=_route_request,
-        repo_root=Path(__file__).resolve().parents[2],
+    _dispatch_route = _dispatch_route_for(
+        {**(request_envelope if isinstance(request_envelope, dict) else {}), "role": role},
+        target_agent=subagent_type,
     )
     _summary_emitted = False
 
@@ -1491,18 +1686,10 @@ def invoke_claude_cli(
         if _summary_emitted:
             return
         _summary_emitted = True
-        try:
-            emit_dispatch_result_summary(
-                route=_dispatch_route,
-                request_id=request_id,
-                outcome=outcome,
-                failure=failure,
-                exit_code=exit_code,
-            )
-        except (OSError, ValueError) as summary_exc:
-            # The summary is telemetry; a dispatch outcome must never fail
-            # because the telemetry channel did. Name it on stderr instead.
-            sys.stderr.write(f"dispatch_summary_unwritable: {summary_exc}\n")
+        _write_dispatch_summary(
+            route=_dispatch_route, request_id=request_id, outcome=outcome,
+            failure=failure, exit_code=exit_code,
+        )
     # Plan 032 Faz 032d — scoped delivery credential for external-write
     # profiles (today: the implementer). Minted here, exported ONLY into this
     # spawn's env, revoked in `finally`. Every other profile gets no GitHub
@@ -1536,11 +1723,27 @@ def invoke_claude_cli(
         if delivery_credential is not None:
             spawn_extra_env.update(delivery_credential.env)
     try:
-        # Model dispatch with the fable→opus fallback policy (credit + refusal),
-        # applied by the claude_runtime SSoT helper. The executor supplies the
-        # attempt closure and its governance-audit callbacks; the helper owns
+        # Model dispatch through the claude_runtime SSoT helper: a credit
+        # exhaustion is terminal for the attempt (ClaudeCreditExhausted,
+        # handled by main()'s requeue arm), a refusal rides the result and is
+        # escalated below, and only an AUTH failure of a read-only role is
+        # retried — once, on the other vendor. The executor supplies the
+        # attempt closure and its governance-audit callback; the helper owns
         # the single-retry-bounded control flow.
         def _dispatch_attempt(model: str, effort: str) -> ClaudeRunResult:
+            # The auth failover is written in tier names; the runtime that
+            # serves a tier is the fleet's decision. A Z.ai tier (its own HTTP
+            # transport since the 2026-09-11 policy) never reaches the claude
+            # binary — run_claude_exec refuses it by name if asked.
+            if _provider_for_model(model) == "zai":
+                return _run_zai_as_claude_result(
+                    prompt_text=prompt_text, model=model, timeout_seconds=timeout_seconds,
+                    usage_recording=(
+                        UsageRecording(request_id=request_id, role=role,
+                                       target_agent=subagent_type, base_dir=tools_dir)
+                        if tools_dir is not None else None
+                    ),
+                )
             return run_claude_exec(
                 prompt_text=prompt_text,
                 timeout_seconds=timeout_seconds,
@@ -1557,6 +1760,8 @@ def invoke_claude_cli(
                 extra_env=spawn_extra_env,
                 # Plan 032 Faz 032e — operator cancel polling + progress tail.
                 spawn_control=spawn_control,
+                # ARIA-HIGH-123 — the executor-held commit containment.
+                git_containment=git_containment,
                 # E17-d — per-spawn usage accounting. This callsite is the
                 # seam where the full identity is in scope: request_id +
                 # envelope role + subagent_type are REQUIRED parameters of
@@ -1587,41 +1792,25 @@ def invoke_claude_cli(
             except Exception:
                 pass
 
-        # ORPHAN-HIGH-478 — the audit rows named the fable->opus@xhigh hop as a
-        # literal. Once the ladder gained a second rung those strings would have
-        # written factually false entries into an append-only, hash-chained
-        # governance ledger, which is the one artifact here that cannot be
-        # corrected after the fact.
-        _credit_fallback_target = MODEL_FALLBACK_TIER.get(agent_profile.model, "(none)")
-        _refusal_fallback_target = _credit_fallback_target
-
-        def _on_credit(marker: dict[str, Any]) -> None:
-            _gov("model_credit_fallback_attempted", {
+        # Operator decision 2026-09-12 — the detection is audited where it is
+        # made; the DECISION (requeue under a provider cooldown, never a
+        # weaker tier) is main()'s and is recorded there with the claim
+        # identity. ORPHAN-HIGH-478 still applies: this row states what
+        # happened (which marker, which model) and names no hop, because
+        # there is none.
+        def _on_credit(model: str, marker: dict[str, Any]) -> None:
+            # `model` is the tier that ran out — the auth failover rung when
+            # the primary's credential was dead — never assumed to be the
+            # profile's own.
+            _gov("model_credit_exhausted", {
                 "request_id": request_id,
                 "subagent_type": subagent_type,
-                "from_model": agent_profile.model,
-                "to_model": _credit_fallback_target,
-                "to_effort": CREDIT_FALLBACK_EFFORT,
+                "model": model,
                 "credit_exhaustion": marker,
             })
             _stage(
-                f"model_credit_fallback request_id={request_id} "
-                f"marker={marker.get('matched_marker')!r} "
-                f"{agent_profile.model}->{_credit_fallback_target}@{CREDIT_FALLBACK_EFFORT}"
-            )
-
-        def _on_refusal(refusal: dict[str, Any]) -> None:
-            _gov("model_refusal_fallback_attempted", {
-                "request_id": request_id,
-                "subagent_type": subagent_type,
-                "from_model": agent_profile.model,
-                "to_model": _refusal_fallback_target,
-                "refusal": refusal,
-            })
-            _stage(
-                f"model_refusal_fallback request_id={request_id} "
-                f"category={refusal.get('category')!r} "
-                f"{agent_profile.model}->{_refusal_fallback_target}"
+                f"model_credit_exhausted request_id={request_id} "
+                f"marker={marker.get('matched_marker')!r} model={model}"
             )
 
         # ARIA-AUDIT-021: reserve BEFORE the external call. The budget
@@ -1632,42 +1821,52 @@ def invoke_claude_cli(
         # family; a model with NO resolvable price refuses unless the
         # operator injects ARIA_COST_UNKNOWN_ACK (unknown-cost = deny,
         # never zero).
-        if tools_dir is not None and _MOCK_MODE_AT_ENTRY is False:
-            from aria_kernel.budget import (
-                MODEL_FAMILY_PRICING_USD_PER_MTOK,
-                MODEL_PRICING_USD_PER_MTOK,
-            )
+        # Under the managed-subscription policy the notional price is
+        # telemetry the attempt row already carries (ORPHAN-HIGH-472: a
+        # subscription session has no marginal per-run charge to cap), and
+        # the native admission has already decided; the dollar reservation
+        # below stays the rule for the metered policy only.
+        from aria_kernel.genesis_policy import _adaptive_runtime_policy as _runtime_policy
+
+        _policy = _runtime_policy(_operator_policy_root(tools_dir)) if tools_dir is not None else None
+        _managed_subscription = _policy is not None and _policy.monetary_admission == "managed_subscription"
+        if tools_dir is not None and _MOCK_MODE_AT_ENTRY is False and not _managed_subscription:
+            from aria_kernel.budget import PRICING_SOURCE_UNKNOWN, price_spawn_reservation
             from aria_kernel.cost_budget import assert_within_budget
             from aria_kernel.tool_registry import GovernanceError as _BudgetRefusal
 
-            _normalized = (agent_profile.model or "").strip().lower()
-            _rates = None
-            for _known, _r in MODEL_PRICING_USD_PER_MTOK.items():
-                if _normalized == _known or _normalized.startswith(f"{_known}-"):
-                    _rates = _r
-                    break
-            if _rates is None:
-                for _family, _r in MODEL_FAMILY_PRICING_USD_PER_MTOK.items():
-                    if _normalized == _family or _normalized.startswith(f"{_family}-"):
-                        _rates = _r
-                        break
-            if _rates is None and not os.environ.get("ARIA_COST_UNKNOWN_ACK", "").strip():
+            # The profile names a CLI ALIAS ("opus"), and the pricing tables
+            # are keyed by resolved id and family. This gate used to look the
+            # alias up in those tables itself, found nothing for every
+            # Anthropic profile, and refused the night as "unknown cost" —
+            # 82 requests, 0 results, 2026-09-04. The ledger prices through
+            # budget's alias map; the reservation now takes the same road,
+            # so the gate cannot price a model the ledger prices differently.
+            _reservation = price_spawn_reservation(model=agent_profile.model)
+            if _reservation.source == PRICING_SOURCE_UNKNOWN and not os.environ.get("ARIA_COST_UNKNOWN_ACK", "").strip():
+                # A typed failure, not a string: the summary writer reads
+                # .failure_class, and a str here crashed the refusal path.
                 _emit_dispatch_summary(
                     outcome="failed",
-                    failure="cost_reservation_refused: model pricing unknown and "
-                            "ARIA_COST_UNKNOWN_ACK unset (unknown-cost = deny)",
+                    failure=DispatchFailure(
+                        failure_class="policy_violation", retryable=False,
+                        detail_code="cost_reservation_refused_pricing_unknown", phase="preflight", exit_code=1,
+                    ),
                     exit_code=1,
                 )
                 return 1
-            # Conservative ceiling: 400k in / 64k out tokens for one call.
-            _in_rate, _out_rate = _rates or (0.0, 0.0)
-            _estimate = (400_000 * _in_rate + 64_000 * _out_rate) / 1_000_000
+            # The ceiling (SPAWN_RESERVATION_CEILING_TOKENS) is budget's; an
+            # acknowledged unknown model reserves $0 exactly as before.
+            _estimate = _reservation.usd
             try:
                 assert_within_budget(tools_dir, estimated_run_usd=_estimate)
-            except _BudgetRefusal as _refusal:
+            except _BudgetRefusal:
                 _emit_dispatch_summary(
                     outcome="failed",
-                    failure=f"cost_reservation_refused: {_refusal}"[:200],
+                    failure=DispatchFailure(
+                        failure_class="policy_violation", retryable=False,
+                        detail_code="cost_reservation_refused", phase="preflight", exit_code=1,
+                    ),
                     exit_code=1,
                 )
                 return 1
@@ -1682,8 +1881,10 @@ def invoke_claude_cli(
             run=_dispatch_attempt,
             model=agent_profile.model,
             effort=_effort,
+            # The role condition of the auth failover, from the profile SSoT:
+            # a write-scope profile is never handed to a read-only runtime.
+            write_capable=agent_profile.write_capable,
             on_credit=_on_credit,
-            on_refusal=_on_refusal,
         )
         if completed.refusal is not None:
             _unresolved_payload = {
@@ -1742,7 +1943,6 @@ def invoke_claude_cli(
         ClaudeUsageUnavailable,
         ClaudeAuthFailure,
         ClaudeCreditExhausted,
-        ProviderRedirectUnavailable,
         subprocess.TimeoutExpired,
     ) as exc:
         # ARIA-HIGH-002 — every terminal perimeter path writes exactly one
@@ -1800,6 +2000,7 @@ def invoke_claude_cli(
             must_satisfy=must_satisfy or [],
             dispatch_model=agent_profile.model,
         )
+        envelope["details"]["agent_contract_hash"] = agent_contract.contract_hash
         output_path.parent.mkdir(parents=True, exist_ok=True)
         _write_sanitized_envelope(output_path, envelope)
         resolved_transcript_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1822,12 +2023,18 @@ def invoke_claude_cli(
                 tools_dir=tools_dir,
                 role=role,
                 request_id=request_id,
+                signer_key_fp=signer_key_fp,
             )
     _emit_dispatch_summary(
         outcome="succeeded" if completed.returncode == 0 else "failed",
         failure=classify_dispatch_failure(result=completed, phase="runtime"),
         exit_code=completed.returncode,
     )
+    if completed.returncode != 0 and completed.stderr:
+        # The child's own last words, bounded and lease-redacted: a non-zero
+        # exit with no cause is the operator reading four ledgers to learn
+        # that the limiter could not reach a bus.
+        sys.stderr.write("claude_stderr_tail: " + _redact_lease_in_message(completed.stderr[-2000:], None) + "\n")
     return completed.returncode
 
 
@@ -1838,8 +2045,15 @@ def _record_claude_cli_usage(
     tools_dir: Path,
     role: str,
     request_id: str,
+    signer_key_fp: str | None = None,
 ) -> None:
     """Record Claude usage with a TRUTHFUL USD attribution.
+
+    ``signer_key_fp`` is the fingerprint of the signing identity this
+    executor holds for the request (ARIA-HIGH-115: minted in the request
+    worktree by `implementation_identity`), passed by the one holder rather
+    than read from an environment variable nothing exported; a role that
+    holds no key records the ledger's `SHA256:no-key` sentinel.
 
     Cost resolution order (ORPHAN-HIGH-311 — the previous hardcoded
     ``estimated_usd=0.0`` made the operator's USD budget caps toothless
@@ -1892,7 +2106,6 @@ def _record_claude_cli_usage(
     if not isinstance(pressure_source_type, str):
         pressure_source_type = None
 
-    signer_key_fp = os.environ.get("ARIA_CYCLE_SIGNER_KEY_FP")
     if not isinstance(signer_key_fp, str) or not signer_key_fp.startswith("SHA256:"):
         signer_key_fp = "SHA256:no-key"
 
@@ -2127,6 +2340,45 @@ def _build_envelope_from_claude_output(
     return envelope
 
 
+def _rejected_result_recorded(submit_stdout: str) -> bool:
+    """True when the submit step's answer is a kernel-recorded REJECTED result row.
+
+    `aria_kernel agent submit-result` prints its result document on stdout and
+    exits 1 for anything but `accepted`. When that document carries a result
+    row with status `rejected`, the kernel has already appended the row: the
+    claim is terminal (`_assert_lifecycle_mutation_allowed`) and the request
+    derives REJECTED (`derive_request_state`, results dominate). Anything else
+    on a non-zero exit is a refusal before the row and leaves the claim live.
+    """
+    text = submit_stdout or ""
+    start = text.find("{")
+    if start < 0:
+        return False
+    try:
+        payload = json.loads(text[start:])
+    except ValueError:
+        return False
+    row = payload.get("row") if isinstance(payload, dict) else None
+    return (isinstance(payload, dict) and payload.get("status") == "rejected"
+            and isinstance(row, dict) and row.get("row_type") == "result" and row.get("status") == "rejected")
+
+
+def _held_request_state(request_id: str, base_dir: Path) -> str | None:
+    """The lease guard's question to the kernel: what state is the request in?
+
+    None when the kernel has no such request — nothing can be held, so the
+    guard has nothing to hand back (the mocked executor fixtures claim a
+    request that was never minted). `derive_request_state` refuses an
+    unknown id, and a refusal the guard could not tell from an unreadable
+    ledger would make it release on every mocked run.
+    """
+    from aria_kernel.agent_invocations import list_agent_invocation_requests
+
+    if not list_agent_invocation_requests(request_id=request_id, base_dir=base_dir):
+        return None
+    return _derive_request_state(request_id=request_id, base_dir=base_dir)
+
+
 def _rejected_only_for_verification_unavailable(submit_stdout: str) -> bool:
     """Did the kernel reject the submission SOLELY because it could not verify?
 
@@ -2167,7 +2419,7 @@ def _release_claim(
     agent_id: str,
     lease_token: str,
     reason: str,
-) -> None:
+) -> bool:
     """Release a leased claim with a structured reason code.
 
     Plan 025 §B — extracted from the cost-cap path so every fail-fast
@@ -2197,7 +2449,7 @@ def _release_claim(
         ],
         env={
             **os.environ,
-            "PYTHONPATH": str(repo / "aria-kernel"),
+            "PYTHONPATH": _KERNEL_PYTHONPATH,
             LEASE_TOKEN_ENV_VAR: lease_token,
         },
         capture_output=True,
@@ -2225,6 +2477,22 @@ def _release_claim(
             + _redact_lease_in_message(detail, lease_token)
             + ". The request stays CLAIMED and no later run can pick it up.\n"
         )
+    return released.returncode == 0
+
+
+def _read_claim_metadata_file(path: str | None) -> str | None:
+    """The serialised claim metadata the planner hook wrote for this child.
+
+    None when no file is named (the executor then claims for itself). A
+    named file that cannot be read is a refusal, not a silent fall-through
+    to a second claim: the planner already holds the lease.
+    """
+    if not path:
+        return None
+    try:
+        return Path(path).read_text(encoding="utf-8")
+    except OSError as exc:
+        raise SystemExit(f"single_claim_mode_metadata_unreadable: {type(exc).__name__}") from exc
 
 
 def _deserialise_inherited_claim_metadata(
@@ -2234,7 +2502,7 @@ def _deserialise_inherited_claim_metadata(
     request_id: str,
     tools_dir: Path,
 ) -> tuple[dict[str, Any], str | None]:
-    """Plan 026R §B.5 — deserialise ARIA_CLAIM_METADATA + verify integrity.
+    """Plan 026R §B.5 — deserialise the claim metadata + verify integrity.
 
     Returns ``(claim_dict, error_message)`` where ``error_message`` is
     None on success. The error_message is printed verbatim by main() so
@@ -2383,6 +2651,874 @@ def _record_mock_mode_audit(tools_dir: Path) -> None:
     )
 
 
+def _provider_for_model(model: str | None) -> str:
+    from aria_kernel.model_fleet import dispatching_provider_for_model
+
+    return dispatching_provider_for_model(model)
+
+
+def _run_zai_as_claude_result(
+    *, prompt_text: str, model: str, timeout_seconds: int,
+    usage_recording: UsageRecording | None,
+) -> ClaudeRunResult:
+    """One Z.ai call, reported in the shape the shared auth failover reads.
+
+    The helper (claude_runtime.run_with_model_fallback) decides on
+    ``auth_failure`` / ``credit_exhaustion`` / ``refusal`` and the executor
+    reads ``stdout`` and ``usage``; those are filled from the transport's own
+    classification. The vendor's response id stands in for a stream event
+    so the transcript keeps a session reference; the auth remedy names the
+    credential BOUNDARY, never a value.
+    """
+    from claude_runtime import _record_usage_best_effort
+    from zai_runtime import (
+        ZaiCredentialUnavailable, ZaiTransportUnavailable, prepare_zai_context, resolve_zai_max_tokens,
+        run_zai_chat,
+    )
+
+    try:
+        context = prepare_zai_context(dict(os.environ), default_model=model)
+    except ZaiCredentialUnavailable as exc:
+        raise ClaudeAuthUnavailable(f"zai_{exc.reason}: {exc}") from exc
+    try:
+        completed = run_zai_chat(
+            context.credential, base_url=context.base_url, model=model,
+            system=_ZAI_SYSTEM_PROMPT, user=prompt_text, timeout_seconds=timeout_seconds,
+            max_tokens=resolve_zai_max_tokens(dict(os.environ)),
+        )
+    except ZaiTransportUnavailable as exc:
+        raise ClaudeCliUnavailable(f"zai_transport_unavailable: {exc}") from exc
+    auth_failure = None
+    credit_exhaustion = None
+    failure_class = None
+    if completed.auth_failure is not None:
+        auth_failure = {
+            "marker": completed.auth_failure, "matched_marker": completed.auth_failure,
+            "vendor_error_code": completed.error_code, "vendor_error_message": completed.error_message,
+            "remedy": f"re-provision the Z.ai subscription key at its boundary ({context.credential.location})",
+        }
+        failure_class = "auth_failed"
+    elif completed.credit_exhaustion is not None:
+        credit_exhaustion = {
+            "marker": completed.credit_exhaustion, "matched_marker": completed.credit_exhaustion,
+            "vendor_error_code": completed.error_code, "vendor_error_message": completed.error_message,
+        }
+        failure_class = "credit_exhausted"
+    elif completed.returncode != 0:
+        failure_class = "process_exit"
+    if usage_recording is not None and completed.usage is not None:
+        _record_usage_best_effort(recording=usage_recording, model=model, usage=completed.usage)
+    return ClaudeRunResult(
+        returncode=completed.returncode, stdout=completed.final_message,
+        stderr="" if completed.error_message is None else f"{completed.error_code}: {completed.error_message}",
+        final_message=completed.final_message, usage=completed.usage,
+        events=(({"type": "zai.response", "id": completed.response_id, "model": completed.model,
+                  "finish_reason": completed.finish_reason, "http_status": completed.http_status},)
+                if completed.response_id else ()),
+        auth_failure=auth_failure, credit_exhaustion=credit_exhaustion,
+        failure_class=failure_class, retryable=False if failure_class else None,
+        failure_detail_code=(completed.auth_failure or completed.credit_exhaustion
+                             or (None if completed.returncode == 0 else f"http_{completed.http_status}")),
+    )
+
+
+def _deliver_agent_contract(target_agent: str, repo: Path) -> Any:
+    """The agent's contract, rendered for the model (ARIA-HIGH-073).
+
+    Raised, never skipped: a run without its contract is the run that returns
+    `plan` for `plan_content` and is refused after spending its tokens.
+    """
+    from aria_kernel.agent_contract_delivery import AgentContractUnavailable, render_agent_contract
+
+    try:
+        return render_agent_contract(target_agent, repo_root=repo)
+    except AgentContractUnavailable as exc:
+        raise ClaudeCliUnavailable(f"agent_contract_unavailable: {exc}") from exc
+
+
+# The Z.ai transport has no agent harness of its own: the system turn names
+# the contract the executor validates, and the kernel-rendered prompt (agent
+# body + envelope + inline evidence) is the user turn. Same prompt bytes as
+# the CLI runtimes receive, so prompt_hash binds identically.
+_ZAI_SYSTEM_PROMPT = (
+    "You are an ARIA agent executed through the Z.ai transport. Follow the agent "
+    "instructions in the message exactly. Your entire reply must be the single "
+    "JSON object the instructions require (schema aria/agent-response/v1), with "
+    "no prose before or after it."
+)
+_ZAI_AUTH_METHOD = "subscription_api_key"
+
+
+@_dataclass(frozen=True)
+class _NativeRuntimePlan:
+    policy: Any
+    request: dict[str, Any]
+    route: dict[str, str]
+    observation: dict[str, Any]
+    context: Any
+    admission: dict[str, Any]
+    """The whole fleet decision (`_NativeRuntimeAdmission`, as a row) — every
+    candidate's observation, not only the chosen route's — recorded on the
+    attempt row so a skipped preferred provider is explained in the ledger."""
+
+
+def _invoke_native_codex(
+    *, native_runtime: _NativeRuntimePlan, repo: Path, tools_dir: Path,
+    request: dict[str, Any], request_id: str, claim_id: str, agent_id: str,
+    lease_token: str,
+    target_agent: str, session_id: str, prompt: str, output_path: Path,
+    transcript_path: Path, timeout_seconds: int, spawn_control: Any,
+    signer_key_fp: str | None = None,
+) -> int:
+    """Use the existing CI claim/result lane with the selected Codex callback.
+
+    ``signer_key_fp`` is the executor-held implementation identity
+    (ARIA-HIGH-115), recorded on the usage row; None for a role without one.
+    """
+    from aria_kernel.budget import _reserve_native_runtime_attempt, price_tokens, record_cost_attribution
+    from aria_kernel.tool_registry import GovernanceError, append_tools_governance
+    from codex_runtime import _run_managed_codex_exec
+
+    route = native_runtime.route
+    contract = _deliver_agent_contract(target_agent, repo)
+    try:
+        attempt = _reserve_native_runtime_attempt(
+            repo_root=repo, base_dir=tools_dir, request_id=request_id,
+            request_ledger_hash=request["request_ledger_hash"], claim_id=claim_id,
+            claim_ledger_hash=request["claim_ledger_hash"], session_id=session_id,
+            agent_id=agent_id, lease_token=lease_token,
+            attempt_id=str(_uuid.uuid4()), provider=route["provider"], runtime=route["runtime"],
+            model=route["model"], requested_effort=route["effort"],
+            auth_method=native_runtime.observation["auth_method"],
+            expected_policy_digest=native_runtime.policy.policy_digest,
+            settings_hash=native_runtime.context.settings_hash, pricing=native_runtime.observation["pricing"],
+            admission=native_runtime.admission,
+        )
+    except GovernanceError as exc:
+        raise ClaudeCliUnavailable("native_runtime_reservation_unavailable:" + str(exc)) from exc
+    completed = None
+    usage_row = None
+    result_admission = "execution_unavailable"
+    try:
+        # `codex exec` takes one prompt: the contract precedes the request it
+        # governs. The request bytes stay bound to prompt_hash; the contract is
+        # bound to this attempt by its own hash on the finished row and envelope.
+        completed = _run_managed_codex_exec(
+            native_runtime.context, contract.text + "\n\n" + prompt, model=route["model"], effort=route["effort"],
+            timeout_seconds=timeout_seconds, control=spawn_control,
+        )
+        transcript_path.parent.mkdir(parents=True, exist_ok=True)
+        transcript_path.write_text(completed.stdout, encoding="utf-8")
+        if completed.auth_failure is not None:
+            result_admission = "auth_unavailable"
+            raise ClaudeAuthFailure("Codex managed authentication unavailable")
+        if completed.credit_exhaustion is not None:
+            result_admission = "quota_unavailable"
+            raise ClaudeCreditExhausted(
+                "Codex subscription capacity unavailable", provider=route["provider"],
+                model=route["model"], detail=dict(completed.credit_exhaustion),
+            )
+        if completed.returncode != 0:
+            result_admission = "provider_nonzero"
+            return completed.returncode
+        envelope = _build_envelope_from_claude_output(
+            raw_stdout=completed.final_message, request_id=request_id, claim_id=claim_id,
+            agent_id=agent_id, role=request["role"], subagent_type=target_agent,
+            must_satisfy=request.get("must_satisfy") or [], dispatch_model=route["model"],
+        )
+        envelope["details"]["runtime_attempt_ledger_hash"] = attempt["ledger_hash"]
+        envelope["details"]["agent_contract_hash"] = contract.contract_hash
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        _write_sanitized_envelope(output_path, envelope)
+        usage_events = [event["usage"] for event in completed.events
+                        if event.get("type") == "turn.completed" and isinstance(event.get("usage"), dict)]
+        if not usage_events or any(type(event.get(name)) is not int or event[name] < 0
+                                   for event in usage_events for name in ("input_tokens", "output_tokens")):
+            result_admission = "usage_unavailable"
+            raise ClaudeCliUnavailable("codex_native_usage_unavailable")
+        input_tokens = sum(event["input_tokens"] for event in usage_events)
+        output_tokens = sum(event["output_tokens"] for event in usage_events)
+        price = price_tokens(model=route["model"], input_tokens=input_tokens, output_tokens=output_tokens)
+        if price.source == "unknown":
+            # Unknown is retained as an explicit gap, never a zero cost row.
+            append_tools_governance(tools_dir, "runtime_usage_pricing_unavailable", {
+                "attempt_ledger_hash": attempt["ledger_hash"], "request_id": request_id,
+                "model": route["model"], "input_tokens": input_tokens, "output_tokens": output_tokens,
+            })
+        else:
+            usage_row = record_cost_attribution(
+                cycle_id=request["cycle_id"], plan_id=request["convergence_id"],
+                agent_role=request["role"], model=route["model"], input_tokens=input_tokens,
+                output_tokens=output_tokens, estimated_usd=price.usd, base_dir=tools_dir,
+                signer_key_fp=signer_key_fp,
+            )
+        result_admission = "pending_native_submit"
+        return 0
+    except subprocess.TimeoutExpired as exc:
+        result_admission = "timeout"
+        raise ClaudeCliUnavailable("codex_native_execution_unavailable:TimeoutExpired") from exc
+    except (OSError, GovernanceError) as exc:
+        result_admission = "control_or_transport_unavailable"
+        raise ClaudeCliUnavailable("codex_native_execution_unavailable:" + type(exc).__name__) from exc
+    finally:
+        thread_ids = ([] if completed is None else
+                      [event["thread_id"] for event in completed.events
+                       if event.get("type") == "thread.started" and isinstance(event.get("thread_id"), str)])
+        append_tools_governance(tools_dir, "runtime_attempt_finished", {
+            "schema_version": 1, "attempt_ledger_hash": attempt["ledger_hash"],
+            "request_id": request_id, "claim_id": claim_id, "session_id": session_id,
+            "provider_session_ids": thread_ids, "provider_session_provenance": "cli_thread_started",
+            "exit_code": completed.returncode if completed is not None else None,
+            "observed_effort": None,
+            "usage_ledger_hash": usage_row["ledger_hash"] if usage_row is not None else None,
+            "result_admission": result_admission,
+            "agent_contract": contract.as_row(),
+        })
+
+
+def _invoke_native_zai(
+    *, native_runtime: _NativeRuntimePlan, repo: Path, tools_dir: Path,
+    request: dict[str, Any], request_id: str, claim_id: str, agent_id: str,
+    lease_token: str,
+    target_agent: str, session_id: str, prompt: str, output_path: Path,
+    transcript_path: Path, timeout_seconds: int, spawn_control: Any,
+    signer_key_fp: str | None = None,
+) -> int:
+    """The same CI claim/result lane, with the Z.ai HTTP transport as the callback.
+
+    Mirrors ``_invoke_native_codex`` row for row so the attempt, transcript,
+    envelope, usage and ``runtime_attempt_finished`` evidence read the same
+    for every provider. Differences are the transport's: there is no process
+    exit code (the HTTP status stands in), no CLI thread ids (the vendor's
+    response id stands in), and no usage-events stream (the vendor's usage
+    block is the one measurement). A completion whose usage the vendor did
+    not report is ``usage_unavailable`` — never priced as zero.
+    """
+    from aria_kernel.budget import _reserve_native_runtime_attempt, price_tokens, record_cost_attribution
+    from aria_kernel.tool_registry import GovernanceError, append_tools_governance
+    from zai_runtime import ZaiTransportUnavailable, resolve_zai_json_object, resolve_zai_max_tokens, run_zai_chat
+
+    route = native_runtime.route
+    context = native_runtime.context
+    contract = _deliver_agent_contract(target_agent, repo)
+    try:
+        attempt = _reserve_native_runtime_attempt(
+            repo_root=repo, base_dir=tools_dir, request_id=request_id,
+            request_ledger_hash=request["request_ledger_hash"], claim_id=claim_id,
+            claim_ledger_hash=request["claim_ledger_hash"], session_id=session_id,
+            agent_id=agent_id, lease_token=lease_token,
+            attempt_id=str(_uuid.uuid4()), provider=route["provider"], runtime=route["runtime"],
+            model=route["model"], requested_effort=route["effort"],
+            auth_method=native_runtime.observation["auth_method"],
+            expected_policy_digest=native_runtime.policy.policy_digest,
+            settings_hash=context.settings_hash, pricing=native_runtime.observation["pricing"],
+            admission=native_runtime.admission,
+        )
+    except GovernanceError as exc:
+        raise ClaudeCliUnavailable("native_runtime_reservation_unavailable:" + str(exc)) from exc
+    completed = None
+    usage_row = None
+    result_admission = "execution_unavailable"
+    try:
+        if spawn_control is not None and spawn_control.should_cancel():
+            result_admission = "operator_cancelled_before_call"
+            return 1
+        completed = run_zai_chat(
+            context.credential, base_url=context.base_url, model=route["model"],
+            system=_ZAI_SYSTEM_PROMPT + "\n\n" + contract.text, user=prompt, timeout_seconds=timeout_seconds,
+            max_tokens=resolve_zai_max_tokens(dict(os.environ)), reasoning_effort=route["effort"],
+            json_object=resolve_zai_json_object(dict(os.environ)),
+        )
+        transcript_path.parent.mkdir(parents=True, exist_ok=True)
+        transcript_path.write_text(completed.raw_body.decode("utf-8", errors="replace"), encoding="utf-8")
+        if completed.auth_failure is not None:
+            result_admission = "auth_unavailable"
+            raise ClaudeAuthFailure("Z.ai subscription authentication unavailable")
+        if completed.credit_exhaustion is not None:
+            result_admission = "quota_unavailable"
+            raise ClaudeCreditExhausted(
+                "Z.ai subscription capacity unavailable", provider=route["provider"],
+                model=route["model"],
+                detail={"marker": completed.credit_exhaustion, "vendor_error_code": completed.error_code,
+                        "vendor_error_message": completed.error_message, "http_status": completed.http_status},
+            )
+        if completed.returncode != 0:
+            result_admission = ("output_budget_exhausted" if completed.finish_reason == "length"
+                                else "provider_nonzero")
+            return completed.returncode
+        envelope = _build_envelope_from_claude_output(
+            raw_stdout=completed.final_message, request_id=request_id, claim_id=claim_id,
+            agent_id=agent_id, role=request["role"], subagent_type=target_agent,
+            must_satisfy=request.get("must_satisfy") or [], dispatch_model=route["model"],
+        )
+        envelope["details"]["runtime_attempt_ledger_hash"] = attempt["ledger_hash"]
+        envelope["details"]["agent_contract_hash"] = contract.contract_hash
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        _write_sanitized_envelope(output_path, envelope)
+        if completed.usage is None:
+            result_admission = "usage_unavailable"
+            raise ClaudeCliUnavailable("zai_native_usage_unavailable")
+        input_tokens = completed.usage["input_tokens"]
+        output_tokens = completed.usage["output_tokens"]
+        price = price_tokens(model=route["model"], input_tokens=input_tokens, output_tokens=output_tokens)
+        if price.source == "unknown":
+            append_tools_governance(tools_dir, "runtime_usage_pricing_unavailable", {
+                "attempt_ledger_hash": attempt["ledger_hash"], "request_id": request_id,
+                "model": route["model"], "input_tokens": input_tokens, "output_tokens": output_tokens,
+            })
+        else:
+            usage_row = record_cost_attribution(
+                cycle_id=request["cycle_id"], plan_id=request["convergence_id"],
+                agent_role=request["role"], model=route["model"], input_tokens=input_tokens,
+                output_tokens=output_tokens, estimated_usd=price.usd, base_dir=tools_dir,
+                signer_key_fp=signer_key_fp,
+            )
+        result_admission = "pending_native_submit"
+        return 0
+    except ZaiTransportUnavailable as exc:
+        result_admission = "transport_unavailable"
+        raise ClaudeCliUnavailable("zai_native_execution_unavailable:" + str(exc)) from exc
+    except (OSError, GovernanceError) as exc:
+        result_admission = "control_or_transport_unavailable"
+        # The kernel's own refusal text is a named reason, never vendor or
+        # credential material; carry it so the operator sees the cause.
+        raise ClaudeCliUnavailable(f"zai_native_execution_unavailable:{type(exc).__name__}:{exc}") from exc
+    finally:
+        append_tools_governance(tools_dir, "runtime_attempt_finished", {
+            "schema_version": 1, "attempt_ledger_hash": attempt["ledger_hash"],
+            "request_id": request_id, "claim_id": claim_id, "session_id": session_id,
+            "provider_session_ids": ([] if completed is None or completed.response_id is None
+                                     else [completed.response_id]),
+            "provider_session_provenance": "http_response_id",
+            "exit_code": completed.http_status if completed is not None else None,
+            "observed_effort": None,
+            "usage_ledger_hash": usage_row["ledger_hash"] if usage_row is not None else None,
+            "result_admission": result_admission,
+            "agent_contract": contract.as_row(),
+        })
+
+
+def _invoke_native_claude(
+    *, native_runtime: _NativeRuntimePlan, repo: Path, tools_dir: Path,
+    request: dict[str, Any], request_id: str, claim_id: str, agent_id: str,
+    lease_token: str,
+    target_agent: str, session_id: str, prompt: str, output_path: Path,
+    transcript_path: Path, timeout_seconds: int, spawn_control: Any,
+    prompt_file: Path, resume: bool, signer_key_fp: str | None = None,
+    git_containment: Any | None = None,
+) -> int:
+    """The managed Anthropic session on the native lane.
+
+    The spawn is the existing `invoke_claude_cli` — agent_env build, bwrap
+    containment, cancel polling, contract prefix, sealed envelope, per-call
+    usage attribution — so nothing about how a Claude agent runs changes.
+    What this adds is the native evidence the other routes carry: a reserved
+    attempt bound to the admission's settings identity, and a finished row
+    naming the session, the exit, the usage row and the contract hash.
+    """
+    from aria_kernel.budget import _reserve_native_runtime_attempt, read_cost_attribution
+    from aria_kernel.tool_registry import GovernanceError, append_tools_governance
+
+    route = native_runtime.route
+    try:
+        attempt = _reserve_native_runtime_attempt(
+            repo_root=repo, base_dir=tools_dir, request_id=request_id,
+            request_ledger_hash=request["request_ledger_hash"], claim_id=claim_id,
+            claim_ledger_hash=request["claim_ledger_hash"], session_id=session_id,
+            agent_id=agent_id, lease_token=lease_token,
+            attempt_id=str(_uuid.uuid4()), provider=route["provider"], runtime=route["runtime"],
+            model=route["model"], requested_effort=route["effort"],
+            auth_method=native_runtime.observation["auth_method"],
+            expected_policy_digest=native_runtime.policy.policy_digest,
+            settings_hash=native_runtime.context.settings_hash, pricing=native_runtime.observation["pricing"],
+            admission=native_runtime.admission,
+        )
+    except GovernanceError as exc:
+        raise ClaudeCliUnavailable("native_runtime_reservation_unavailable:" + str(exc)) from exc
+    cli_exit: int | None = None
+    result_admission = "execution_unavailable"
+    usage_row_hash: str | None = None
+    contract_row: dict[str, Any] | None = None
+    try:
+        cli_exit = invoke_claude_cli(
+            request_id=request_id, subagent_type=target_agent, session_id=session_id, resume=resume,
+            prompt_file=prompt_file, output_path=output_path, transcript_path=transcript_path,
+            timeout_seconds=timeout_seconds, claim_id=claim_id, agent_id=agent_id,
+            role=request["role"], must_satisfy=request.get("must_satisfy") or [],
+            request_envelope=request, tools_dir=tools_dir, spawn_control=spawn_control,
+            signer_key_fp=signer_key_fp, git_containment=git_containment,
+        )
+        if cli_exit != 0:
+            result_admission = "provider_nonzero"
+            return cli_exit
+        if output_path.is_file():
+            envelope = json.loads(output_path.read_text(encoding="utf-8"))
+            details = envelope.get("details") if isinstance(envelope, dict) else None
+            if isinstance(details, dict):
+                envelope.setdefault("details", {})["runtime_attempt_ledger_hash"] = attempt["ledger_hash"]
+                _write_sanitized_envelope(output_path, envelope)
+                contract_hash = details.get("agent_contract_hash")
+                contract_row = {"agent_contract_hash": contract_hash} if contract_hash else None
+                if not isinstance(details.get("claude_cli_usage"), dict):
+                    result_admission = "usage_unavailable"
+                    raise ClaudeCliUnavailable("claude_native_usage_unavailable")
+        cycle_id = request.get("cycle_id")
+        for row in reversed(read_cost_attribution(base_dir=tools_dir)):
+            if row.get("cycle_id") == cycle_id and row.get("agent_role") == request.get("role"):
+                usage_row_hash = row.get("ledger_hash")
+                break
+        result_admission = "pending_native_submit"
+        return 0
+    except Exception as exc:
+        # Classification only, by type: the ONE handler that releases the
+        # claim on an auth failure lives in the executor's main body and
+        # stays the only `except ClaudeAuthFailure` in this module.
+        result_admission = {
+            ClaudeAuthFailure: "auth_unavailable", ClaudeCreditExhausted: "quota_unavailable",
+            subprocess.TimeoutExpired: "timeout",
+        }.get(type(exc), "control_or_transport_unavailable")
+        raise
+    finally:
+        append_tools_governance(tools_dir, "runtime_attempt_finished", {
+            "schema_version": 1, "attempt_ledger_hash": attempt["ledger_hash"],
+            "request_id": request_id, "claim_id": claim_id, "session_id": session_id,
+            "provider_session_ids": [session_id], "provider_session_provenance": "claude_session_id",
+            "exit_code": cli_exit, "observed_effort": None,
+            "usage_ledger_hash": usage_row_hash, "result_admission": result_admission,
+            **({"agent_contract": contract_row} if contract_row else {}),
+        })
+
+
+def _accepted_native_runtime_result(
+    *, tools_dir: Path, request_id: str, claim_id: str, agent_id: str,
+    session_id: str, policy_digest: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Join native acceptance to the sealed output and original attempt rows."""
+    from aria_kernel import agent_invocations as invocations
+    from aria_kernel.ledger import load_declared_jsonl
+    from aria_kernel.tool_registry import GovernanceError
+
+    requests = invocations.list_agent_invocation_requests(request_id=request_id, base_dir=tools_dir)
+    if len(requests) != 1:
+        raise GovernanceError("native_runtime_result_request_unavailable")
+    request = requests[0]
+    accepted = invocations.accepted_result_for_request(
+        request_id=request_id, role=request["role"], base_dir=tools_dir,
+    )
+    if accepted is None or accepted.get("claim_id") != claim_id or accepted.get("agent_id") != agent_id:
+        raise GovernanceError("native_runtime_result_acceptance_unavailable")
+    if any(accepted.get(name) != request.get(name) for name in ("target_sha", "context_hash", "prompt_hash")):
+        raise GovernanceError("native_runtime_result_request_evidence_unavailable")
+    sealed_path = invocations.resolve_output_artifact_path(tools_dir, accepted["output_path"])
+    invocations._assert_submission_artifact_path_safe(tools_dir, sealed_path)
+    content = invocations._read_stable_submission_artifact(sealed_path)
+    digest = "sha256:" + hashlib.sha256(content).hexdigest()
+    if digest != accepted.get("output_hash") or digest != accepted.get("content_hash"):
+        raise GovernanceError("native_runtime_result_sealed_hash_unavailable")
+    envelope = json.loads(content)
+    if (not isinstance(envelope, dict) or envelope.get("request_id") != request_id
+            or envelope.get("claim_id") != claim_id or envelope.get("agent_id") != agent_id
+            or envelope.get("role") != request["role"] or not isinstance(envelope.get("details"), dict)):
+        raise GovernanceError("native_runtime_result_envelope_binding_unavailable")
+    claims = load_declared_jsonl(tools_dir / "agent-invocations/claims.jsonl",
+                                expected_surface="agent_invocation_claims")
+    original_claims = [row for row in claims if row.get("event") == "claimed"
+                       and row.get("claim_id") == claim_id and row.get("agent_id") == agent_id
+                       and row.get("request_id") == request_id]
+    if len(original_claims) != 1:
+        raise GovernanceError("native_runtime_result_claim_unavailable")
+    governance = load_declared_jsonl(tools_dir / "governance.jsonl", expected_surface="tools_governance")
+    attempts = [row for row in governance if row.get("kind") == "runtime_attempt_started"
+                and row.get("ledger_hash") == envelope["details"].get("runtime_attempt_ledger_hash")]
+    if len(attempts) != 1:
+        raise GovernanceError("native_runtime_result_attempt_unavailable")
+    attempt = attempts[0]
+    required = {"request_id": request_id, "request_ledger_hash": request["ledger_hash"],
+                "claim_id": claim_id, "claim_ledger_hash": original_claims[0]["ledger_hash"],
+                "agent_id": agent_id, "session_id": session_id, "policy_digest": policy_digest}
+    if any(attempt["details"].get(name) != value for name, value in required.items()):
+        raise GovernanceError("native_runtime_result_attempt_binding_unavailable")
+    return accepted, attempt
+
+
+def _native_task_binding_refusal(*, repo_root: Path, tools_dir: Path, request: dict[str, Any]) -> str | None:
+    """Observe the actual checkout through existing binding and Git owners.
+
+    None when the checkout IS the request's task root at its ``target_sha``;
+    otherwise the named reason (``task_root_binding_unavailable`` /
+    ``target_revision_unavailable`` / ``target_revision_mismatch``), recorded
+    as a governance row and carried into the child's summary by the caller.
+    A worktree of the bound repository passes the identity check (the
+    binding compares git common directories), which is what lets the drain
+    serve each request in a worktree at its own ``target_sha``.
+    """
+    from aria_kernel.agent_invocations import _git_probe
+    from aria_kernel.evidence_probe import GitProbeSession
+    from aria_kernel.state_store import _valid_host_identity
+    from aria_kernel.tool_registry import append_tools_governance
+    from aria_kernel.workspace import canonical_identity
+
+    reason = None
+    observed_head = None
+    if not _valid_host_identity(tools_dir, canonical_identity(repo_root), repo_root):
+        reason = "task_root_binding_unavailable"
+    else:
+        # The kernel's own bounded, retried probe (ARIA-HIGH-109): a git that
+        # does not answer is `target_revision_unavailable` by name with the
+        # probe's reason, never a 5 s guess read as "no HEAD".
+        head = _git_probe(repo_root, "rev-parse", "HEAD", probes=GitProbeSession())
+        observed_head = head.stdout or None
+        if head.ok is None:
+            reason = f"target_revision_unavailable:{head.unavailable_reason}"
+        elif not head.ok or not request.get("target_sha"):
+            reason = "target_revision_unavailable"
+        elif observed_head != request["target_sha"]:
+            reason = "target_revision_mismatch"
+    if reason is None:
+        return None
+    append_tools_governance(tools_dir, "runtime_task_binding_unavailable", {
+        "schema_version": 1, "request_id": request["request_id"],
+        "request_ledger_hash": request["ledger_hash"], "target_sha": request.get("target_sha"),
+        "observed_head_sha": observed_head, "reason": reason,
+    })
+    return reason
+
+
+@_dataclass(frozen=True)
+class _AdmissionRefusalKind:
+    """Everything one kind of pre-spawn refusal says about itself, in one
+    record: the claims-ledger reason the claim is released under, and the
+    summary class/retryability the child writes. One record per kind so
+    the two vocabularies cannot be declared apart and disagree (a stalled
+    host released as a harness fault but summarised as a non-retryable
+    policy violation was the shape the verifier found — twice: the fleet's
+    halted admissions, ARIA-HIGH-107, and the identity refusal,
+    ARIA-HIGH-115). Every record is a module-level literal the release-site
+    invariant reads (`tests/_helpers/release_sites.REFUSAL_TABLE_NAMES`)."""
+
+    release_reason: str
+    failure_class: str
+    retryable: bool
+
+
+# The refusal each fleet outcome hands back, keyed by the fleet's own closed
+# vocabulary so a new outcome cannot reach `_main` without naming its
+# release AND its summary shape (a missing key is a KeyError at refusal
+# time; `test_native_admission_undecided` pins keys == non-admitted
+# outcomes). Every release reason here is harness-class (`release_reason`,
+# `agent_invocations`): none says anything about the request, so its
+# requeue budget stands. The two halted admissions — `provider_undecided`
+# (a stalled probe) and `provider_control_unavailable` (this host could not
+# bind the route's controls) — are their own reasons, not the fleet
+# declining, so a reader of the claims ledger can tell the three apart
+# (ARIA-HIGH-107); their summaries are `harness_unavailable` and retryable,
+# because the daemon retries them after a back-off and the drain must not
+# read them as a policy the dispatch violated.
+ADMISSION_REFUSALS: dict[str, _AdmissionRefusalKind] = {
+    "provider_undecided": _AdmissionRefusalKind(
+        release_reason="native_runtime_provider_undecided",
+        failure_class="harness_unavailable", retryable=True,
+    ),
+    "provider_control_unavailable": _AdmissionRefusalKind(
+        release_reason="native_runtime_control_unavailable",
+        failure_class="harness_unavailable", retryable=True,
+    ),
+    "no_eligible_provider": _AdmissionRefusalKind(
+        release_reason="native_runtime_admission_unavailable",
+        failure_class="policy_violation", retryable=False,
+    ),
+}
+# A task-binding refusal (`_native_task_binding_refusal`) is not a fleet
+# outcome; it releases under the admission's general reason as before and
+# summarises as the executor's own policy.
+TASK_BINDING_REFUSAL = _AdmissionRefusalKind(
+    release_reason="native_runtime_admission_unavailable",
+    failure_class="policy_violation", retryable=False,
+)
+# ARIA-HIGH-115 — the implementer's signing identity could not be held in
+# the tree this child runs in (`aria_kernel.implementation_identity`): the
+# shared checkout instead of a per-request worktree, an unwirable git, no
+# ssh-keygen, a refused registry write. Every cause is the lane's or the
+# host's, so the release is harness-class (the request returns to PENDING
+# with its requeue budget intact) AND the summary says so — a harness
+# refusal summarised as a non-retryable policy violation is the
+# two-vocabularies defect `_AdmissionRefusalKind` exists to prevent. The
+# literal is the kernel's `release_reason.IMPLEMENTATION_SIGNING_UNAVAILABLE`
+# (pinned equal in `tests/test_implementation_identity_hold.py`), spelled
+# here so the release-site invariant reads it from this module's AST like
+# the tables above (`tests/_helpers/release_sites.REFUSAL_TABLE_NAMES`).
+IMPLEMENTATION_IDENTITY_REFUSAL = _AdmissionRefusalKind(
+    release_reason="implementation_signing_unavailable",
+    failure_class="harness_unavailable", retryable=True,
+)
+
+
+@_dataclass(frozen=True)
+class _NativeAdmissionRefusal:
+    """The native admission declined to dispatch, by name.
+
+    Built only by ``_refuse_native_admission``, which has already written the
+    child's ``refused`` summary carrying ``reason`` in the shape its
+    ``kind`` declares; ``_main`` returns ``exit_code`` and nothing else, so
+    no admission refusal can leave the child without a summary (the
+    2026-09-04 → 2026-09-12 false-green class). ``release_reason`` is the
+    claims-ledger reason ``_main`` releases an inherited claim under — set
+    by the constructor from the refusal's own kind, never chosen at the
+    release site.
+    """
+
+    reason: str
+    exit_code: int
+    release_reason: str
+
+
+def _refuse_native_admission(
+    *, request: dict[str, Any], reason: str, kind: _AdmissionRefusalKind,
+) -> _NativeAdmissionRefusal:
+    return _NativeAdmissionRefusal(
+        reason=reason,
+        exit_code=_refuse_dispatch(
+            request=request, request_id=str(request["request_id"]),
+            target_agent=str(request["target_agent"]), reason=reason,
+            failure_class=kind.failure_class, retryable=kind.retryable,
+        ),
+        release_reason=kind.release_reason,
+    )
+
+
+def _adaptive_pre_claim_admission(
+    *, repo_root: Path, tools_dir: Path, request_id: str, target_agent: str,
+    _runtime_stack: _ExitStack | None = None,
+    _inherited_claim: dict[str, Any] | None = None, _lease_token: str | None = None,
+) -> _NativeRuntimePlan | _NativeAdmissionRefusal | None:
+    """Record opt-in native unavailability before any lease is consumed.
+
+    None when no adaptive policy is declared (the legacy spawn path); a plan
+    when a route is admitted; a NAMED refusal — summary already written —
+    when the task binding or the fleet declines. Never a bare exit code.
+    """
+    from aria_kernel.agent_invocations import derive_request_state, list_agent_invocation_requests
+    from aria_kernel.agent_runtime_profile import read_agent_runtime_profile
+    from aria_kernel.genesis_policy import _adaptive_runtime_policy
+    from aria_kernel.model_fleet import Provider
+    from aria_kernel.native_admission import AdmissionOutcome, _native_runtime_admission
+    from aria_kernel.status_probe import StatusDecision, _RuntimeStatusObservation
+    from aria_kernel.tool_registry import GovernanceError, append_tools_governance
+
+    policy_root = _operator_policy_root(tools_dir)
+    policy = _adaptive_runtime_policy(policy_root)
+    if policy is None:
+        return None
+    requests = list_agent_invocation_requests(request_id=request_id, base_dir=tools_dir)
+    if len(requests) != 1 or requests[0].get("target_agent") != target_agent:
+        raise GovernanceError("adaptive_runtime_request_binding_unavailable")
+    request = requests[0]
+    if _inherited_claim is not None:
+        from aria_kernel import agent_invocations as invocations
+        from aria_kernel.ledger import state_transaction
+
+        request_path = tools_dir / "agent-invocations/requests.jsonl"
+        claims_path = tools_dir / "agent-invocations/claims.jsonl"
+        results_path = tools_dir / "agent-invocations/results.jsonl"
+        with state_transaction([request_path, claims_path, results_path]) as transaction:
+            invocations._validate_claim_dispatch_authority(
+                requests=transaction.load_declared_jsonl(request_path, expected_surface="agent_invocation_requests"),
+                claims=transaction.load_declared_jsonl(claims_path, expected_surface="agent_invocation_claims"),
+                results=transaction.load_declared_jsonl(results_path, expected_surface="agent_invocation_results"),
+                request_id=request_id, request_ledger_hash=_inherited_claim["request_ledger_hash"],
+                claim_id=_inherited_claim["claim_id"], claim_ledger_hash=_inherited_claim["claim_ledger_hash"],
+                agent_id=_inherited_claim["agent_id"], lease_token=_lease_token or "",
+                now=invocations._utc_now_dt(),
+            )
+    elif derive_request_state(request_id=request_id, base_dir=tools_dir) not in ("PENDING", "REQUEUED"):
+        raise GovernanceError("adaptive_runtime_request_not_pending")
+    if policy.monetary_admission == "managed_subscription":
+        binding_refusal = _native_task_binding_refusal(repo_root=repo_root, tools_dir=tools_dir, request=request)
+        if binding_refusal is not None:
+            return _refuse_native_admission(request=request, reason=binding_refusal, kind=TASK_BINDING_REFUSAL)
+    profile = read_agent_runtime_profile(target_agent, repo_root=repo_root)
+    environment = dict(os.environ)
+    contexts: dict[str, Any] = {}
+
+    def observe_status(provider: Provider, timeout_seconds: float) -> _RuntimeStatusObservation:
+        if provider.runtime_hint == "codex":
+            from codex_runtime import _probe_codex_auth_status
+
+            if policy.monetary_admission == "managed_subscription":
+                from codex_runtime import ManagedCodexRouteUnavailable, _prepare_managed_codex_context
+                from aria_kernel.implementation_safety import SandboxUnavailable, ResourceLimitsUnavailable
+
+                if _runtime_stack is None:
+                    raise GovernanceError("native_runtime_lifetime_owner_unavailable")
+                status_deadline = time.monotonic() + timeout_seconds
+                directory = _runtime_stack.enter_context(_tempfile.TemporaryDirectory(prefix="aria-native-codex-"))
+                try:
+                    context = _prepare_managed_codex_context(
+                        workspace=repo_root, runtime_directory=Path(directory), environment=environment, profile=profile,
+                    )
+                except ManagedCodexRouteUnavailable as exc:
+                    # DECIDED before any probe: the route cannot serve this
+                    # dispatch — no managed session credential on this
+                    # host (the CLI would answer "Not logged in"), no CLI,
+                    # or a profile that needs controls the native Codex
+                    # route does not grant. A fleet/auth fact the ladder
+                    # may pass, by name, exactly as `cli_unavailable` and
+                    # `provider_readonly_runtime` are.
+                    return _RuntimeStatusObservation(exc.auth_observation, reason=exc.reason,
+                                                     control_status="unavailable", control_reason=exc.reason,
+                                                     decision=StatusDecision.UNAVAILABLE)
+                except (OSError, SandboxUnavailable, ResourceLimitsUnavailable) as exc:
+                    # This host could not bind the managed context (no
+                    # usable containment, no limiter, an EAGAIN under a
+                    # fork storm), so the vendor was never asked: auth
+                    # UNDECIDED, controls UNAVAILABLE. The fleet retries
+                    # within its bound (the transient shape heals) and
+                    # otherwise halts the ladder as
+                    # `provider_control_unavailable` — the same host fault
+                    # the Claude arm names `sandbox_unavailable`, answered
+                    # the same way: never a later vendor.
+                    return _RuntimeStatusObservation("unknown", reason=type(exc).__name__,
+                                                     control_status="unavailable", control_reason=str(exc),
+                                                     decision=StatusDecision.UNDECIDED)
+                observed = _probe_codex_auth_status(
+                    environ=context.environment, timeout_seconds=status_deadline - time.monotonic(),
+                    _wrap_command=lambda argv: context.wrap(argv, max(1, int(status_deadline - time.monotonic()))),
+                )
+                contexts[provider.key] = context
+                if observed.control_status == "unavailable":
+                    return observed
+                return _replace(observed, control_status="available", control_reason="native_readonly_runtime_prepared")
+            return _probe_codex_auth_status(environ=environment, timeout_seconds=timeout_seconds)
+        if provider.runtime_hint == "claude":
+            # The managed Anthropic session: `claude auth status --json` is the
+            # non-model status the CLI itself reports (authMethod claude.ai =
+            # subscription); control is the existing bwrap containment that
+            # every Claude spawn already runs under. The spawn stays
+            # run_claude_exec; this only admits it natively and binds the
+            # attempt to the same settings identity the session fingerprint uses.
+            from aria_kernel.implementation_safety import sandbox_backend as _sandbox_backend_probe
+            from claude_runtime import ManagedClaudeContext, _probe_claude_auth_status
+
+            observed = _probe_claude_auth_status(environ=environment, timeout_seconds=timeout_seconds)
+            if observed.decision is not StatusDecision.AVAILABLE:
+                return observed
+            if _sandbox_backend_probe() is None:
+                # The vendor said yes; THIS host cannot contain the spawn.
+                # Controls unavailable on a decided-available auth: the
+                # ladder halts here as `provider_control_unavailable`
+                # (never a later vendor — a missing sandbox is not an auth
+                # reason), and the row says which host fact stopped it.
+                return _replace(observed, control_status="unavailable", control_reason="sandbox_unavailable")
+            recording = UsageRecording(request_id=request_id, role=str(request.get("role") or ""),
+                                       target_agent=target_agent, base_dir=tools_dir)
+            contexts[provider.key] = ManagedClaudeContext(
+                auth_method=observed.auth_method, subscription_type=None,
+                config_dir=environment.get("CLAUDE_CONFIG_DIR"),
+                settings_hash=spawn_settings_hash(agent_profile=profile, usage_recording=recording,
+                                                  workspace_root=repo_root),
+            )
+            return _replace(observed, control_status="available", control_reason="native_write_containment_prepared")
+        if provider.runtime_hint == "zai":
+            # The kernel's own HTTP transport (operator policy 2026-09-11):
+            # the credential is read from its boundary here, held in the
+            # context, and the status is what ONE minimal completion against
+            # the operator-selected endpoint actually returned. No CLI, no
+            # redirect, no value in any row.
+            from zai_runtime import ZaiCredentialUnavailable, ZaiTransportUnavailable, prepare_zai_context, probe_zai_status
+
+            try:
+                context = prepare_zai_context(environment, default_model=provider.default_model)
+            except ZaiCredentialUnavailable as exc:
+                # The credential boundary refused (absent, unreadable,
+                # wrong mode, ambiguous): a host fact, DECIDED.
+                return _RuntimeStatusObservation("unavailable", reason=exc.reason,
+                                                 control_status="unavailable", control_reason=str(exc),
+                                                 auth_method=_ZAI_AUTH_METHOD, decision=StatusDecision.UNAVAILABLE)
+            try:
+                observed = probe_zai_status(
+                    context.credential, endpoint=context.endpoint, base_url=context.base_url,
+                    model=context.model, timeout_seconds=timeout_seconds,
+                )
+            except ZaiTransportUnavailable as exc:
+                # The request did not complete (timeout, DNS, connection):
+                # the vendor was not heard — the stall class, UNDECIDED and
+                # retried within the bound. The transport WAS prepared
+                # (credential read, endpoint chosen); what this attempt
+                # established about it is nothing, so controls stay
+                # "unknown" with the transport error as the reason — not
+                # "unavailable", which names a host that could not bind
+                # its controls and halts the ladder by that name.
+                return _RuntimeStatusObservation("unknown", reason=str(exc), control_status="unknown",
+                                                 control_reason=str(exc),
+                                                 auth_method=_ZAI_AUTH_METHOD,
+                                                 credential_source=context.credential.source,
+                                                 decision=StatusDecision.UNDECIDED)
+            contexts[provider.key] = context
+            return _RuntimeStatusObservation(
+                observed.auth_observation, quota_observation=observed.quota_observation,
+                reason=observed.reason, command=(), exit_code=observed.http_status,
+                control_status="available", control_reason="native_http_transport_prepared",
+                auth_method=_ZAI_AUTH_METHOD, credential_source=context.credential.source,
+                decision=observed.decision,
+            )
+        # The legacy version/file preflight is not supported native auth proof.
+        # Its unchanged caller remains the omitted-policy path below.
+        return _RuntimeStatusObservation("unknown", reason="supported_auth_status_unavailable",
+                                         decision=StatusDecision.UNDECIDED)
+
+    from aria_kernel.provider_cooldown import active_provider_cooldowns
+
+    admission = _native_runtime_admission(
+        repo_root=policy_root, profile=profile, policy=policy, environ=environment,
+        observe_status=observe_status,
+        # The exhausted-provider memory: a provider cooled by a previous
+        # attempt's ClaudeCreditExhausted is refused here without a probe.
+        cooled_providers=active_provider_cooldowns(tools_dir),
+    )
+    if admission.outcome is AdmissionOutcome.ADMITTED:
+        route = admission.eligible_routes[0]
+        observation = next(row for row in admission.candidate_observations if row["provider"] == route["provider"])
+        return _NativeRuntimePlan(policy, request, route, observation, contexts[route["provider"]],
+                                  admission.as_row())
+    # Not admitted: `no_eligible_provider` (every provider decided, none
+    # eligible), `provider_undecided` (the first provider in contention
+    # never answered) or `provider_control_unavailable` (it was not refused
+    # but this host could not bind its controls) — ARIA-HIGH-107: for the
+    # two halts no attempt is burned, nothing behind the halting provider
+    # runs, the request waits for a later tick. The row names which and
+    # whom, and the refusal releases an inherited claim under the matching
+    # harness-class reason with the summary shape its kind declares.
+    append_tools_governance(tools_dir, "runtime_admission_unavailable", {
+        "schema_version": 1, "policy_id": policy.policy_id,
+        "policy_digest": policy.policy_digest,
+        "configuration_digest": admission.configuration_digest,
+        "policy_sources": {"default_sha256": policy.default_sha256,
+                           "override_sha256": policy.override_sha256},
+        "profile_source_bytes": {"status": "unknown", "reason": "resolved_profile_has_no_source_byte_receipt"},
+        "request_id": request_id, "request_ledger_hash": request["ledger_hash"],
+        "role": request["role"], "target_agent": request["target_agent"],
+        "context_hash": request["context_hash"], "prompt_hash": request["prompt_hash"],
+        "reason": admission.outcome.value, "halting_provider": admission.halting_provider,
+        "eligible_routes": [],
+        "candidate_observations": list(admission.candidate_observations),
+    })
+    return _refuse_native_admission(
+        request=request, reason=admission.outcome.value, kind=ADMISSION_REFUSALS[admission.outcome.value],
+    )
+
+
+def _node_modules_resolvable_from(workspace: Path) -> bool:
+    """Can a validation command run from ``workspace`` find its modules?
+
+    Node resolves a bare import by walking UP from the cwd, so the question
+    is "does any ancestor carry node_modules", not "does the cwd". A drain
+    child in a per-request worktree (B8: `<checkout>/aria-worktrees/req-x`)
+    has none of its own and resolves the checkout's — measured with
+    require.resolve and `npx --no-install` from a nested worktree.
+    """
+    return any((ancestor / "node_modules").is_dir() for ancestor in (workspace.resolve(), *workspace.resolve().parents))
+
+
 def _git_availability_gap(session: Any, *, workspace: Path) -> str | None:
     """``None`` when git answers `rev-parse HEAD` in ``workspace`` through
     the kernel's own probe session (its attempt bound and retry), else a
@@ -2430,8 +3566,12 @@ def _pre_claim_environment_gate(*, tools_dir: Path) -> str | None:
     except (ClaudeAuthUnavailable, ClaudeCliUnavailable, ClaudePolicyViolation) as exc:
         kind, detail = "claude_auth_unavailable", str(exc)
     if kind is None and _sandbox_backend is not None and _sandbox_backend() is None:
+        # ARIA-HIGH-123 — the detail names WHY (the git containment probe's
+        # refusal when that is what failed): an operator reading the row
+        # must tell "no bwrap" from "bwrap cannot host a commit".
+        why = _sandbox_unavailable_detail() if _sandbox_unavailable_detail is not None else "no detail"
         kind, detail = "sandbox_unavailable", (
-            "sandbox_backend() returned None; write-capable spawns would be refused"
+            f"sandbox_backend() returned None ({why}); write-capable spawns would be refused"
         )
     if kind is None and _GitProbeSession is not None:
         # The kernel verifies every evidence ref of the result with git
@@ -2445,9 +3585,9 @@ def _pre_claim_environment_gate(*, tools_dir: Path) -> str | None:
         git_detail = _git_availability_gap(_GitProbeSession(), workspace=Path.cwd())
         if git_detail is not None:
             kind, detail = "git_unavailable", git_detail
-    if kind is None and not (Path.cwd() / "node_modules").is_dir():
+    if kind is None and not _node_modules_resolvable_from(Path.cwd()):
         kind, detail = "env_deps_missing", (
-            "workspace has no node_modules; agent validation commands cannot run"
+            "no node_modules on the walk up from the workspace; agent validation commands cannot run"
         )
     if kind is None:
         return None
@@ -2470,7 +3610,7 @@ def _pre_claim_environment_gate(*, tools_dir: Path) -> str | None:
     return kind
 
 
-def main(argv: list[str] | None = None) -> int:
+def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
     """Entry point — runs one cycle. Designed to be called by GHA step."""
     args = argv if argv is not None else sys.argv[1:]
     if len(args) < 1:
@@ -2539,12 +3679,13 @@ def main(argv: list[str] | None = None) -> int:
     agent_id = f"ci-executor:gha-{os.environ.get('GITHUB_RUN_ID', 'local')}"
 
     # Plan 026R §B.5 — single-claim mode. When the planner has already
-    # claimed the request and exported ARIA_CLAIM_METADATA + ARIA_LEASE_
+    # claimed the request and exported ARIA_CLAIM_METADATA_FILE + ARIA_LEASE_
     # TOKEN, this executor SKIPS its own ``agent claim`` step and uses
     # the inherited envelope + ledger-hash anchors directly. Pre-§B.5
     # the subprocess re-claimed (double-claim) and the defensive reject
     # was noisy + tagged every planner-driven cycle as a failure.
-    metadata_env = os.environ.get(CLAIM_METADATA_ENV_VAR)
+    native_runtime = None
+    metadata_env = _read_claim_metadata_file(os.environ.get(CLAIM_METADATA_FILE_ENV_VAR))
     if metadata_env:
         claim, single_claim_error = _deserialise_inherited_claim_metadata(
             metadata_env,
@@ -2563,12 +3704,51 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         claim_id = claim["claim_id"]
         agent_id = str(claim["agent_id"])
+        if not _MOCK_MODE_AT_ENTRY:
+            from aria_kernel.tool_registry import GovernanceError as _AdmissionRefusal
+
+            try:
+                admission_exit = _adaptive_pre_claim_admission(
+                    repo_root=repo, tools_dir=tools_dir, request_id=request_id,
+                    target_agent=subagent_type, _runtime_stack=_runtime_stack,
+                    _inherited_claim=claim, _lease_token=lease_token,
+                )
+            except _AdmissionRefusal as exc:
+                sys.stderr.write(f"adaptive_runtime_admission_failed: {exc}\n")
+                return 1
+            if isinstance(admission_exit, _NativeRuntimePlan):
+                native_runtime = admission_exit
+            elif isinstance(admission_exit, _NativeAdmissionRefusal):
+                # The reason is the refusal's own (`ADMISSION_REFUSALS` /
+                # `TASK_BINDING_REFUSAL`), never picked here.
+                released = _release_claim(
+                    tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+                    agent_id=agent_id, lease_token=lease_token,
+                    reason=admission_exit.release_reason,
+                )
+                return admission_exit.exit_code if released else 1
     else:
         # FAZ 5b — environment gate BEFORE the claim. Single-claim mode skips
         # it deliberately: the claim already exists there (the planner made
         # it), so the request is already spent from the queue's perspective
         # and refusing here would strand a held lease instead of saving one.
-        gate_kind = _pre_claim_environment_gate(tools_dir=tools_dir)
+        if not _MOCK_MODE_AT_ENTRY:
+            from aria_kernel.tool_registry import GovernanceError as _AdmissionRefusal
+
+            try:
+                admission_exit = _adaptive_pre_claim_admission(
+                    repo_root=repo, tools_dir=tools_dir, request_id=request_id,
+                    target_agent=subagent_type,
+                    _runtime_stack=_runtime_stack,
+                )
+            except _AdmissionRefusal as exc:
+                sys.stderr.write(f"adaptive_runtime_admission_failed: {exc}\n")
+                return 1
+            if isinstance(admission_exit, _NativeRuntimePlan):
+                native_runtime = admission_exit
+            elif isinstance(admission_exit, _NativeAdmissionRefusal):
+                return admission_exit.exit_code
+        gate_kind = _pre_claim_environment_gate(tools_dir=tools_dir) if native_runtime is None else None
         if gate_kind is not None:
             return 1
         # Step 1 — claim the request through the kernel CLI.
@@ -2581,7 +3761,7 @@ def main(argv: list[str] | None = None) -> int:
             ],
             capture_output=True,
             text=True,
-            env={**os.environ, "PYTHONPATH": str(repo / "aria-kernel")},
+            env={**os.environ, "PYTHONPATH": _KERNEL_PYTHONPATH},
         )
         if claim_proc.returncode != 0:
             sys.stderr.write(_redact_lease_in_message(claim_proc.stderr, None) + "\n")
@@ -2598,6 +3778,19 @@ def main(argv: list[str] | None = None) -> int:
         if not lease_token or not claim_id:
             sys.stderr.write("claim missing lease_token or claim_id\n")
             return 1
+
+    # From here on a lease is HELD. Every explicit `_release_claim` below
+    # keeps its precise reason; this guard is the floor beneath them: when
+    # the runtime stack unwinds — return or uncaught exception — a request
+    # the kernel still derives CLAIMED/RUNNING is released with a reason
+    # naming the exit, so no path can leak a lease again (seven did on
+    # 2026-09-04, when the spawn gate's refusal crashed before its release).
+    _runtime_stack.enter_context(HeldClaim(
+        tools_dir=tools_dir, repo=repo, request_id=request_id, claim_id=claim_id,
+        agent_id=agent_id, lease_token=lease_token, release=_release_claim,
+        derive_state=_held_request_state if _derive_request_state is not None else None,
+        log=_stage,
+    ))
 
     # Step 2 — read the fused request envelope from the claim response.
     # Plan 026R §B.3 — ``agent claim`` now returns the request envelope
@@ -2630,6 +3823,14 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
     request_envelope = _fuse_prompt_envelope(claim)
+    if native_runtime is not None:
+        if native_runtime.request["ledger_hash"] != claim["request_ledger_hash"]:
+            sys.stderr.write("native_runtime_request_hash_changed\n")
+            _release_claim(tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+                           agent_id=agent_id, lease_token=lease_token,
+                           reason="native_runtime_task_binding_unavailable")
+            return 1
+        request_envelope["target_sha"] = native_runtime.request["target_sha"]
     request_envelope.setdefault("request_id", request_id)
     # Operational anchors, NOT prompt material: the renderer never reads
     # these, so carrying them cannot perturb the binding. claim/request
@@ -2684,7 +3885,13 @@ def main(argv: list[str] | None = None) -> int:
             agent_id=agent_id, lease_token=lease_token,
             reason="dispatch_budget_refused",
         )
-        return 0  # a budget signal, NOT a build failure
+        # A budget signal, NOT a build failure — and NOT a success: the
+        # summary names which budget refused, so the drain counts it as
+        # refused rather than reading a bare exit 0 as drained.
+        return _refuse_dispatch(
+            request=request_envelope, request_id=request_id, target_agent=subagent_type,
+            reason="dispatch_budget_refused:" + ("wall_clock" if isinstance(exc, WallClockExhausted) else "cost_cap"),
+        )
 
     # Plan ARIA-V7 §2g v2 — write the request's suggested_prompt to
     # the canonical prompts/ path BEFORE invoking the CLI. Pre-V7
@@ -2731,9 +3938,15 @@ def main(argv: list[str] | None = None) -> int:
         tools_dir=tools_dir, repo=repo, request_id=request_id, claim_id=claim_id,
         agent_id=agent_id, lease_token=lease_token, subagent_type=subagent_type,
         request_envelope=request_envelope, prompt_hash=_computed_prompt_hash,
+        **({"native_runtime": native_runtime} if native_runtime is not None else {}),
     )
     if _session_id is None:
-        return 0  # released to HUMAN_REQUIRED by the recovery classifier
+        # Released to HUMAN_REQUIRED by the recovery classifier: an
+        # escalation, named as such in the summary — never a drained success.
+        return _refuse_dispatch(
+            request=request_envelope, request_id=request_id, target_agent=subagent_type,
+            reason="recovery_unresolved_external_effect",
+        )
     # Plan 032 Faz 032e — operator control. A cancel recorded after the claim
     # is honoured BEFORE the spawn (release with the operator fault domain);
     # during the spawn the runtime polls the same ledger and stops the
@@ -2750,43 +3963,134 @@ def main(argv: list[str] | None = None) -> int:
             agent_id=agent_id, lease_token=lease_token,
             reason=OPERATOR_CANCELLED_RELEASE_REASON,
         )
-        return 0
+        return _refuse_dispatch(
+            request=request_envelope, request_id=request_id, target_agent=subagent_type,
+            reason=OPERATOR_CANCELLED_RELEASE_REASON,
+        )
+    # ARIA-HIGH-115 — the implementer's signing identity is minted HERE, in
+    # the tree the agent will commit in (`_REPO_ROOT`: the per-request
+    # worktree the drain added, or whatever the lane handed this child), as
+    # the LAST step before the spawn — after the budget, renderer, recovery
+    # and operator-cancel refusals, each of which would otherwise have cost
+    # an ssh-keygen and left a `kg_signers` row for a key that never signed
+    # — and held on the runtime stack so it is revoked (config restored) on
+    # every exit after the submit or the release. The mint wires the
+    # worktree's git config, so the agent's plain `git commit` signs; the
+    # public half is on `kg_signers` before the agent starts, so the bridge
+    # can verify against it after the worktree is gone. A tree the identity
+    # cannot be held in (the shared checkout, an unwirable git, no
+    # ssh-keygen) is refused by name before any turn is spent, under
+    # `IMPLEMENTATION_IDENTITY_REFUSAL` (harness-class release, retryable
+    # `harness_unavailable` summary); the request stays PENDING.
+    implementation_identity = None
+    if request_envelope["role"] == "implementation":
+        from aria_kernel.implementation_identity import (
+            ImplementationIdentityRefusal,
+            hold_implementation_identity,
+        )
+        from aria_kernel.tool_registry import append_tools_governance as _identity_governance
+
+        _identity_cycle_id = str(request_envelope.get("cycle_id") or "")
+        try:
+            implementation_identity = _runtime_stack.enter_context(hold_implementation_identity(
+                cycle_id=_identity_cycle_id, workspace_root=_REPO_ROOT, base_dir=tools_dir,
+            ))
+        except ImplementationIdentityRefusal as exc:
+            _identity_governance(tools_dir, IMPLEMENTATION_IDENTITY_REFUSAL.release_reason, {
+                "request_id": request_id, "claim_id": claim_id, "cycle_id": _identity_cycle_id,
+                "workspace_root": str(_REPO_ROOT), "reason": exc.reason,
+            })
+            sys.stderr.write(
+                f"{IMPLEMENTATION_IDENTITY_REFUSAL.release_reason}: {exc.reason} workspace_root={_REPO_ROOT}\n"
+            )
+            _release_claim(
+                tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+                agent_id=agent_id, lease_token=lease_token,
+                reason=IMPLEMENTATION_IDENTITY_REFUSAL.release_reason,
+            )
+            return _refuse_dispatch(
+                request=request_envelope, request_id=request_id, target_agent=subagent_type,
+                reason=IMPLEMENTATION_IDENTITY_REFUSAL.release_reason,
+                failure_class=IMPLEMENTATION_IDENTITY_REFUSAL.failure_class,
+                retryable=IMPLEMENTATION_IDENTITY_REFUSAL.retryable,
+            )
+        _stage(f"implementation_identity_held cycle_id={_identity_cycle_id} scope={implementation_identity.scope}")
+    _signer_key_fp = implementation_identity.fingerprint if implementation_identity is not None else None
+    # ARIA-HIGH-123 — the same holder's sandbox shape: the request worktree's
+    # git dirs bound the way a commit needs, the key masked, the agent socket
+    # bound. Only the Claude route can carry it (the native Codex and Z.ai
+    # routes prepare read-only runtimes and never host an implementation).
+    _git_containment = implementation_identity.containment if implementation_identity is not None else None
     _spawn_control = SpawnControl(
         should_cancel=lambda: is_cancelled(request_id, tools_dir),
         on_event=ProgressWriter(request_id, base_dir=tools_dir, claim_id=claim_id).write,
     )
     _run_started_at = time.monotonic()
     try:
-        # Plan 024 v3 §B-8 — pass real lease identity + role from
-        # request row into the mock envelope writer. claim_id +
-        # agent_id come from the kernel CLI's claim output (line 209-
-        # 211); role + must_satisfy come from the request_envelope
-        # we already loaded for cost-cap evaluation.
-        cli_exit = invoke_claude_cli(
-            request_id=request_id,
-            subagent_type=subagent_type,
-            session_id=_session_id,
-            resume=_resume,
-            prompt_file=prompt_file,
-            output_path=expected_output_path,
-            transcript_path=transcript_output_path,
-            timeout_seconds=timeout,
-            claim_id=claim_id,
-            agent_id=agent_id,
-            # Plan 025 §B — request_envelope["role"] is now guaranteed
-            # populated (validated above); direct subscript surfaces a
-            # KeyError if a future regression skips the validation.
-            role=request_envelope["role"],
-            must_satisfy=request_envelope.get("must_satisfy") or [],
-            # Plan ARIA-V3.1-D3 — per-LLM-call cost attribution wire.
-            # Pass the request_envelope (provides cycle_id +
-            # pressure_source_type + convergence_id) + tools_dir so
-            # invoke_claude_cli can mint a V10.4 cost row gated on
-            # the V3.1-D2 _MOCK_MODE_AT_ENTRY frozen sentinel.
-            request_envelope=request_envelope,
-            tools_dir=tools_dir,
-            spawn_control=_spawn_control,
-        )
+        # ARIA-HIGH-123 — whatever the spawn's exit, what the agent committed
+        # inside the sandbox is in the worktree's quarantine, never in the
+        # shared repository: the kernel publishes it here, from outside, with
+        # git's own checks (objects re-hashed, packs unpacked, only this
+        # request's `aria-impl-*` branch published, the rest discarded by
+        # name), BEFORE the result is read — the bridge verifies the commit
+        # in the shared checkout. A killed executor never reaches this line,
+        # and the quarantine dies with its worktree.
+        try:
+            # Plan 024 v3 §B-8 — pass real lease identity + role from
+            # request row into the mock envelope writer. claim_id +
+            # agent_id come from the kernel CLI's claim output (line 209-
+            # 211); role + must_satisfy come from the request_envelope
+            # we already loaded for cost-cap evaluation.
+            if native_runtime is not None:
+                _invoke_native = {
+                    "codex": _invoke_native_codex, "zai": _invoke_native_zai,
+                    "claude": _functools.partial(_invoke_native_claude, prompt_file=prompt_file, resume=_resume,
+                                                 git_containment=_git_containment),
+                }[native_runtime.route["runtime"]]
+                cli_exit = _invoke_native(
+                    native_runtime=native_runtime, repo=repo, tools_dir=tools_dir,
+                    request=request_envelope, request_id=request_id, claim_id=claim_id, agent_id=agent_id,
+                    lease_token=lease_token,
+                    target_agent=subagent_type, session_id=_session_id, prompt=_prompt_payload,
+                    output_path=expected_output_path, transcript_path=transcript_output_path,
+                    timeout_seconds=timeout, spawn_control=_spawn_control,
+                    signer_key_fp=_signer_key_fp,
+                )
+            else:
+                cli_exit = invoke_claude_cli(
+                request_id=request_id,
+                subagent_type=subagent_type,
+                session_id=_session_id,
+                resume=_resume,
+                prompt_file=prompt_file,
+                output_path=expected_output_path,
+                transcript_path=transcript_output_path,
+                timeout_seconds=timeout,
+                claim_id=claim_id,
+                agent_id=agent_id,
+                # Plan 025 §B — request_envelope["role"] is now guaranteed
+                # populated (validated above); direct subscript surfaces a
+                # KeyError if a future regression skips the validation.
+                role=request_envelope["role"],
+                must_satisfy=request_envelope.get("must_satisfy") or [],
+                # Plan ARIA-V3.1-D3 — per-LLM-call cost attribution wire.
+                # Pass the request_envelope (provides cycle_id +
+                # pressure_source_type + convergence_id) + tools_dir so
+                # invoke_claude_cli can mint a V10.4 cost row gated on
+                # the V3.1-D2 _MOCK_MODE_AT_ENTRY frozen sentinel.
+                request_envelope=request_envelope,
+                tools_dir=tools_dir,
+                spawn_control=_spawn_control,
+                # ARIA-HIGH-115 — the executor-held identity, for the cost row.
+                signer_key_fp=_signer_key_fp,
+                # ARIA-HIGH-123 — and its sandbox shape, for the spawn.
+                git_containment=_git_containment,
+            )
+        finally:
+            if _git_containment is not None:
+                _publish_sandbox_commits(
+                    tools_dir=tools_dir, request_id=request_id, claim_id=claim_id, containment=_git_containment,
+                )
         if cli_exit != 0:
             # Plan 032 Faz 032c — a write-capable spawn that ended non-zero has
             # its LOCAL edits put back from the pre-spawn checkpoint (hand
@@ -2810,19 +4114,41 @@ def main(argv: list[str] | None = None) -> int:
         _release_claim(
             tools_dir=tools_dir, repo=repo, claim_id=claim_id,
             agent_id=agent_id, lease_token=lease_token,
-            reason="claude_cli_auth_failure",
+            reason=("native_runtime_execution_unavailable" if native_runtime is not None else "claude_cli_auth_failure"),
         )
         return 1
-    except (ClaudeCliUnavailable, ClaudeCreditExhausted) as exc:
+    except ClaudeCreditExhausted as exc:
+        # Operator decision 2026-09-12 — a quota exhaustion is a PROVIDER
+        # fact, answered by the queue, never by a weaker tier. Three things
+        # happen here and nowhere else: (1) on the native lane the provider
+        # is cooled for `provider_cooldown_seconds` so the next admission
+        # skips it and admits the next vendor for the roles it can serve
+        # (`claude auth status` cannot see quota; the ledger row is the only
+        # evidence); (2) the claim is released under a reason that NAMES the
+        # provider, classified as a harness fault so the request's requeue
+        # budget does not burn for a billing event — the request derives
+        # REQUEUED and is retried when the provider is back; (3) nothing is
+        # submitted, because a usage-limit notice is not an answer
+        # (ORPHAN-HIGH-475). ORPHAN-HIGH-489 remains the reason this arm
+        # exists at all: a raise with no handler left the claim CLAIMED for
+        # the full lease window.
         sys.stderr.write(_redact_lease_in_message(str(exc), lease_token) + "\n")
-        # ORPHAN-HIGH-489 — ClaudeCreditExhausted belongs here too. I added that
-        # raise in ORPHAN-HIGH-475 so a quota notice could not be returned as
-        # the agent's answer, and then left it in nobody's handler: exactly the
-        # ResourceLimitsUnavailable defect one release earlier, in my own code.
-        # A quota-exhausted run would escape main() with the claim CLAIMED, so
-        # a billing event — the most likely reason to run out mid-cycle — would
-        # also block the request for the full lease window. Found by the review
-        # panel while attacking the ResourceLimitsUnavailable fix.
+        if native_runtime is not None:
+            from aria_kernel.provider_cooldown import record_provider_cooldown
+
+            record_provider_cooldown(
+                tools_dir, provider=exc.provider, model=exc.model,
+                cooldown_seconds=native_runtime.policy.provider_cooldown_seconds,
+                request_id=request_id, claim_id=claim_id, detection=exc.detail,
+            )
+        _release_claim(
+            tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+            agent_id=agent_id, lease_token=lease_token,
+            reason=f"provider_quota_unavailable:{exc.provider}",
+        )
+        return 1
+    except ClaudeCliUnavailable as exc:
+        sys.stderr.write(_redact_lease_in_message(str(exc), lease_token) + "\n")
         # ORPHAN-HIGH-470 follow-through — this arm is the landing site for
         # every refused spawn: `invoke_claude_cli` re-raises the whole
         # perimeter family (auth / CLI / policy / usage — policy now including
@@ -2834,11 +4160,12 @@ def main(argv: list[str] | None = None) -> int:
         # below both release; this arm now matches them. (An earlier draft of
         # this comment claimed EVERY fail-fast branch in main() releases — a
         # reviewer flagged that as unverified, and it is narrowed here rather
-        # than left as a claim nobody checked.)
+        # than left as a claim nobody checked.) ClaudeCreditExhausted had its
+        # own arm carved out above (ORPHAN-HIGH-489 put it here first).
         _release_claim(
             tools_dir=tools_dir, repo=repo, claim_id=claim_id,
             agent_id=agent_id, lease_token=lease_token,
-            reason="claude_spawn_refused",
+            reason=("native_runtime_execution_unavailable" if native_runtime is not None else "claude_spawn_refused"),
         )
         return 1
     finally:
@@ -2869,7 +4196,8 @@ def main(argv: list[str] | None = None) -> int:
         _release_claim(
             tools_dir=tools_dir, repo=repo, claim_id=claim_id,
             agent_id=agent_id, lease_token=lease_token,
-            reason=(OPERATOR_CANCELLED_RELEASE_REASON if _spawn_control.cancelled else f"claude_cli_exit_{cli_exit}"),
+            reason=(OPERATOR_CANCELLED_RELEASE_REASON if _spawn_control.cancelled else
+                    "native_runtime_execution_unavailable" if native_runtime is not None else f"claude_cli_exit_{cli_exit}"),
         )
         return 1
 
@@ -2930,8 +4258,8 @@ def main(argv: list[str] | None = None) -> int:
                     ],
                     capture_output=True,
                     text=True,
-                    env={**os.environ, "PYTHONPATH": str(repo / "aria-kernel")},
-                    timeout=HUMAN_REQUIRED_RECORD_TIMEOUT_SECONDS,
+                        env={**os.environ, "PYTHONPATH": _KERNEL_PYTHONPATH},
+                        timeout=HUMAN_REQUIRED_RECORD_TIMEOUT_SECONDS,
                 )
                 if _hr_proc.returncode != 0:
                     sys.stderr.write(
@@ -2950,7 +4278,17 @@ def main(argv: list[str] | None = None) -> int:
                 agent_id=agent_id, lease_token=lease_token,
                 reason=f"agent_refused:{_reason_class}",
             )
-            return 0  # refusal is a legitimate terminal — not a build failure
+            # Refusal is a legitimate terminal — not a build failure, and not
+            # a success either: invoke_claude_cli's summary said "succeeded"
+            # (the CLI ran to completion); this later terminal supersedes it
+            # so the drain never counts a refused envelope as drained. The
+            # agent-supplied class stays out of the summary (it is sanitized
+            # by construction); the release reason and the HUMAN_REQUIRED
+            # row carry it.
+            return _refuse_dispatch(
+                request=request_envelope, request_id=request_id, target_agent=subagent_type,
+                reason="agent_refused",
+            )
     if isinstance(_envelope_for_validation, dict):
         # Plan ARIA-V8.4 — auto-fill missing canonical plan_content
         # fields from compatible sources within the envelope before
@@ -2974,10 +4312,22 @@ def main(argv: list[str] | None = None) -> int:
             _envelope_for_validation,
             must_satisfy=request_envelope.get("must_satisfy") or [],
         )
-        if _mutated or _mutated_cr or _mutated_sm:
+        # ARIA-HIGH-115 — the signer fingerprint is a kernel fact stamped by
+        # the executor that holds the key; a value the agent wrote is
+        # replaced, and a differing one recorded, never trusted.
+        _mutated_signer = False
+        if implementation_identity is not None:
+            from aria_kernel.implementation_identity import stamp_implementation_signer
+
+            _mutated_signer = stamp_implementation_signer(
+                _envelope_for_validation, fingerprint=implementation_identity.fingerprint,
+                request_id=request_id, claim_id=claim_id, base_dir=tools_dir,
+            )
+        if _mutated or _mutated_cr or _mutated_sm or _mutated_signer:
             _stage(
                 f"canonicalize auto-filled plan_content={_mutated} "
-                f"cross_review={_mutated_cr} satisfaction_matrix={_mutated_sm}"
+                f"cross_review={_mutated_cr} satisfaction_matrix={_mutated_sm} "
+                f"implementation_signer={_mutated_signer}"
             )
             try:
                 _write_sanitized_envelope(expected_output_path, _envelope_for_validation)
@@ -2988,6 +4338,7 @@ def main(argv: list[str] | None = None) -> int:
             _envelope_for_validation,
             role=_role_for_validation,
             request=request_envelope,
+            tools_dir=tools_dir,
         )
         if validation_errors:
             _stage(f"pre_submit_validation_FAILED errors={validation_errors}")
@@ -2999,8 +4350,17 @@ def main(argv: list[str] | None = None) -> int:
             # re-judging usually succeeds), with the field-level errors in
             # the log line above so the operator sees WHICH field was wrong.
             # Plan-content violations keep their request-fault pricing.
+            from aria_kernel.self_change_bridge import (
+                SELF_CHANGE_CONTRACT_RELEASE_REASON,
+                is_self_change_request as _is_self_change_request,
+            )
+
             if _role_for_validation in ("evidence_judgment", "adversarial_judgment"):
                 _release_reason = "judge_verdict_contract_violation"
+            elif _is_self_change_request(request_envelope):
+                # B6 — same harness-class pricing as the judge contract: a
+                # missing `details.problem` says nothing about the mission.
+                _release_reason = SELF_CHANGE_CONTRACT_RELEASE_REASON
             else:
                 _release_reason = f"plan_content_invalid:{','.join(validation_errors)[:160]}"
             _release_claim(
@@ -3018,7 +4378,14 @@ def main(argv: list[str] | None = None) -> int:
             # and, through the drain's `0 if failed == 0 else 1`, painted a
             # 10-of-11 night RED — the honest-partial-red class ORPHAN-716
             # closed for the meta-watchdog, still open here.
-            return 0
+            # B8 — and not a SUCCESS: the CLI's own summary said "succeeded";
+            # this later terminal supersedes it with the refusal, named by
+            # the same code family as the release reason (the field-level
+            # errors are in the stage line above, not in the summary).
+            return _refuse_dispatch(
+                request=request_envelope, request_id=request_id, target_agent=subagent_type,
+                reason=_release_reason.split(":", 1)[0],
+            )
         _stage("pre_submit_validation_passed")
 
     _stage("submit_step_begin claim=" + claim_id)
@@ -3071,7 +4438,7 @@ def main(argv: list[str] | None = None) -> int:
             text=True,
             env={
                 **os.environ,
-                "PYTHONPATH": str(repo / "aria-kernel"),
+                "PYTHONPATH": _KERNEL_PYTHONPATH,
                 LEASE_TOKEN_ENV_VAR: lease_token,
             },
             timeout=SUBMIT_RESULT_TIMEOUT_SECONDS,
@@ -3111,16 +4478,20 @@ def main(argv: list[str] | None = None) -> int:
             + _redact_lease_in_message(detail, lease_token)
             + "\n"
         )
-        # Release, like every other failure path in this function does. This
-        # was the one exit that did not, and a rejected result therefore held
-        # its claim forever — the request could never be retried by anyone.
-        # Runaway retries are already bounded: DEFAULT_MAX_REQUEUES caps the
-        # requeue count and the state then derives HUMAN_REQUIRED.
-        #
-        # WHICH reason decides whether that cap is charged. A rejection the
-        # kernel issued only because its own evidence probes could not run
-        # says nothing about the work; releasing it as `submit_rejected`
-        # would spend the request's budget on the host's load.
+        # Three refusals arrive here, and WHICH one decides both whether the
+        # claim is still live and whether the request's requeue budget is
+        # charged. A rejection the kernel issued only because its own evidence
+        # probes could not run says nothing about the work: the kernel appends
+        # no result row for that class (`_prepared_claim_rejection`), the claim
+        # is live, and it is released as the harness's fault so the request
+        # goes back to PENDING without spending its budget on the host's load.
+        # A REJECTED result row is the kernel's own terminal effect on the
+        # claim: the request derives REJECTED from it and `release_claim`
+        # refuses with `result already terminal` — measured on the first live
+        # managed-Claude cross-review (2026-09-11, ARIA-HIGH-078), where the
+        # release failed after every rejection and reported a CLAIMED leak that
+        # did not exist. A refusal BEFORE any row (lease, transport, argparse)
+        # leaves a live claim, released like every other failure path here.
         if _rejected_only_for_verification_unavailable(submit_proc.stdout or ""):
             _stage("submit_rejected_for_verification_unavailable — releasing as harness fault")
             _release_claim(
@@ -3129,13 +4500,42 @@ def main(argv: list[str] | None = None) -> int:
                 reason="evidence_verification_unavailable",
             )
             return 1
-        _release_claim(
-            tools_dir=tools_dir, repo=repo, claim_id=claim_id,
-            agent_id=agent_id, lease_token=lease_token,
-            reason="submit_rejected",
-        )
+        if _rejected_result_recorded(submit_proc.stdout):
+            _stage("submit_rejected_recorded: the kernel appended the rejected result row; "
+                   "the claim is terminal and the request derives REJECTED")
+        else:
+            _release_claim(
+                tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+                agent_id=agent_id, lease_token=lease_token,
+                reason="submit_rejected",
+            )
         return 1
+    if native_runtime is not None:
+        from aria_kernel.tool_registry import GovernanceError, append_tools_governance
+
+        try:
+            accepted, attempt = _accepted_native_runtime_result(
+                tools_dir=tools_dir, request_id=request_id, claim_id=claim_id, agent_id=agent_id,
+                session_id=_session_id, policy_digest=native_runtime.policy.policy_digest,
+            )
+        except (GovernanceError, OSError, ValueError) as exc:
+            sys.stderr.write("native_runtime_result_reconciliation_unavailable:" + type(exc).__name__ + "\n")
+            return 1
+        append_tools_governance(tools_dir, "runtime_attempt_reconciled", {
+            "schema_version": 1, "request_id": request_id, "claim_id": claim_id,
+            "request_ledger_hash": request_envelope["request_ledger_hash"],
+            "claim_ledger_hash": request_envelope["claim_ledger_hash"],
+            "attempt_ledger_hash": attempt["ledger_hash"],
+            "result_ledger_hash": accepted["ledger_hash"], "result_status": accepted["status"],
+            "agent_id": agent_id, "session_id": _session_id,
+            "policy_digest": native_runtime.policy.policy_digest,
+        })
     return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    with _ExitStack() as runtime_stack:
+        return _main(argv, _runtime_stack=runtime_stack)
 
 
 if __name__ == "__main__":

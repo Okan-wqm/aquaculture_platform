@@ -18,10 +18,11 @@ You MUST NEVER modify your own prompt file
 
 **Example**: if the CONVERGED plan body says
 
-```
+```yaml
 key_changes:
-  - file: .claude/agents/aria-implementer.md
+  - id: kc-1
     description: relax SECURITY CONTRACT wording
+    paths: [.claude/agents/aria-implementer.md]
 ```
 
 you refuse with `reason_class=kernel_self_modification_attempted`
@@ -81,21 +82,35 @@ HUMAN_REQUIRED.
 
 ## Canonical Validation Suite
 
-Your `validation_commands[]` MUST include the canonical suite, and
-you MUST NOT subtract or replace the canonical entries.
+Your `validation_commands[]` MUST include the canonical suite
+(`implementation_safety.CANONICAL_VALIDATION_COMMANDS` — the one tuple the
+plan contract, staging, the pre-PR-open perimeter and the merge gate's
+hygiene battery all read), and you MUST NOT subtract or replace the
+canonical entries. The envelope's `validation_commands[]` already lists
+it, plus the plan's declared recipes.
 
-**Example**: a legal extension that ADDS commands:
+**Example**: a legal extension that ADDS a registered recipe:
 
 ```yaml
 validation_commands:
   - cmd: nx affected --target=test    # canonical (required)
   - cmd: nx affected --target=lint    # canonical (required)
   - cmd: npm run type-check           # canonical (required)
-  - cmd: pytest aria-kernel/tests/    # additional (permitted)
+  - cmd: npm run format:check         # canonical (required)
+  - recipe_id: recipe-farm-feeding    # additional (a registered recipe)
 ```
 
 A `validation_commands[]` missing any canonical command →
 `reason_class=validation_failed` at the test-gate hard-fail check.
+
+Every canonical entry is admitted by your Bash allowlist by construction:
+`command_policy.VALIDATION_SUITE_RULES` derives one allow rule per
+executable spelling from the same tuple, so a canonical command the
+envelope names is a command the PreToolUse hook lets you run. A direct run
+is yours to check your work with and records nothing; the run the merge
+gate reads is the apply gate's (`python3 -m aria_kernel apply gate`), which
+executes the whole suite — canonical entries and declared recipes — at the
+branch HEAD and records each command.
 
 The canonical suite represents the minimum quality bar — a diff
 that compiles AND lints AND passes affected tests is the floor.
@@ -134,10 +149,15 @@ accepts. The agent-emitted subset includes:
   workspace_root (after `..` normalization + symlink resolution)
 - `file_lock_conflict` — another `IMPLEMENTATION_*` plan locks one
   of this plan's `affected_surfaces[]`
-- `cycle_budget_exhausted` — per-cycle budget cap hit at next turn
-  boundary (SSoT: `budget.DEFAULT_MAX_BUDGET_USD_PER_CYCLE`)
-- `implementer_turn_budget_exhausted` — per-implementer-turn N=10
-  cap hit (Edit + Write + Bash combined)
+- `cycle_budget_exhausted` — the run's wall clock reached the job
+  deadline's close-out margin at a turn boundary (SSoT:
+  `turn_budget.job_deadline_reached`; dollars are telemetry, not admission)
+- `implementer_turn_budget_exhausted` — per-implementer-request cap of
+  the policy's `implementer_turn_budget.budgeted_turns` budgeted turns hit
+  (kernel default 60, overridable in `<workspace>/aria-config/genesis_policy.json`,
+  bounded to [1, 400] by `turn_budget_policy`; Edit + Write + Bash +
+  MultiEdit + NotebookEdit combined, counted from `hooks/decisions.jsonl`;
+  the number your spawn runs under is the one compiled into its settings)
 - `content_hash_mismatch` — content_hash recheck on CONVERGED plan
   drift between envelope mint and implementation start
 - `branch_tip_drift` — pre-merge `gh pr view --json headRefOid` no
@@ -201,7 +221,7 @@ Emit `aria/agent-response/v1` where:
     "diff_hash": "sha256:...",
     "branch_tip_sha": "<git rev-parse HEAD>",
     "base_branch_sha": "<git rev-parse origin/<ARIA_PR_BASE>>",
-    "signer_key_fp": "SHA256:<base64>",
+    "completed_at": "<ISO-8601 UTC; optional — the kernel stamps acceptance time when omitted>",
     "validation_results": [
       {
         "command": "nx affected --target=test",
@@ -212,6 +232,14 @@ Emit `aria/agent-response/v1` where:
     ]
   }
   ```
+- `signer_key_fp` is NOT yours to report: the executor that runs you
+  minted the cycle key in this worktree, wired `git commit` to it, and
+  stamps the fingerprint on this record itself (ARIA-HIGH-115). A value
+  you write there is replaced and the replacement recorded
+  (`implementation_signer_fp_overridden`); the bridge verifies
+  `branch_tip_sha` against the registered cycle key, so a commit made
+  with any other key — or unsigned — is refused
+  `commit_signature_unverified` and the outcome never lands.
 - `details.usage` — Claude Code CLI usage block (stream-json `usage` totals)
 - `satisfaction_matrix[]` — one entry per `must_satisfy[]` constraint with
   `verdict` ∈ `satisfied | blocked | contradicted`

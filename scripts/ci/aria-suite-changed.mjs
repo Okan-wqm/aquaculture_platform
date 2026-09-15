@@ -18,8 +18,8 @@
  * an ARIA surface change?" with yes/no and on yes run ALL 5048+ tests — ~2.5
  * hours on the shared runner, for a one-line workflow edit. The operator
  * relaxed the rule: the pre-push gate runs only the tests the changed files
- * can mechanically reach; the FULL suite remains the CI lanes' job
- * (aria-kernel / aria-kernel-fast, 60-minute budgets). Selection is
+ * can mechanically reach; the FULL suite remains the CI lane's job
+ * (aria-kernel, 75-minute budget). Selection is
  * deliberately over-inclusive, never under-inclusive:
  *
  *   - `aria-kernel/aria_kernel/<mod>.py` → its conventional test module
@@ -28,6 +28,11 @@
  *     few seconds; a missed importer costs a red main).
  *   - `aria-kernel/tests/<t>.py` → that module itself.
  *   - `tools/aria-poc/<tool>.py` → test modules mentioning the tool basename.
+ *   - `tools/aria-adapters/**` → every test module mentioning `aria-adapters`
+ *     (ARIA-HIGH-098: the registry/evidence contract over the shipped
+ *     manifests and their fixture cases is a kernel test —
+ *     `test_adapter_fixture_evidence_contract.py` — and an adapters-only
+ *     push that skipped it was checked first on main).
  *   - `.github/workflows` / `.github/actions` → the workflow-contract test
  *     modules, DISCOVERED by grepping the test tree for `.github/` readers
  *     (no hand-kept list to drift).
@@ -46,6 +51,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 const ARIA_SURFACES = [
   'aria-kernel',
   'tools/aria-poc',
+  'tools/aria-adapters',
   '.github/workflows',
   '.github/actions',
   'scripts/ci/aria-suite-changed.mjs',
@@ -178,6 +184,15 @@ function selectAffectedTests(files) {
       kernelCodeChanged = true;
       const stem = file.slice('tools/aria-poc/'.length).replace(/\.py$/, '').split('/').pop();
       addByToken(stem);
+      continue;
+    }
+    if (file.startsWith('tools/aria-adapters/')) {
+      // The shipped manifests, their fixture cases and the TS adapters
+      // behind them: the kernel tests that read that directory are the
+      // contract (over-inclusive by the same token rule as above), and the
+      // safety floor below turns a mapping hole into the full suite.
+      kernelCodeChanged = true;
+      addByToken('aria-adapters');
       continue;
     }
     if (file.startsWith('.github/workflows') || file.startsWith('.github/actions')) {

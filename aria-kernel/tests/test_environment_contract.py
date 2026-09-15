@@ -241,6 +241,37 @@ class PreClaimGateTest(unittest.TestCase):
 
         self.assertIsNone(kind)
 
+    def test_a_per_request_worktree_resolves_the_checkouts_node_modules(self) -> None:
+        # B8 — the drain child runs in `<checkout>/aria-worktrees/req-x`, which
+        # has no node_modules of its own; Node walks up to the checkout's, and
+        # so must the gate (a cwd-only check refused every worktree child as
+        # env_deps_missing).
+        with TemporaryDirectory() as tmp:
+            checkout = Path(tmp)
+            (checkout / "node_modules").mkdir()
+            worktree = checkout / "aria-worktrees" / "req-AIR-1"
+            worktree.mkdir(parents=True)
+            # The gate also asks git for HEAD in the child's cwd (ARIA-HIGH-109):
+            # the per-request worktree is a real checkout, so it is one here.
+            subprocess.run(["git", "init", "-q", str(worktree)], check=True)
+            subprocess.run(["git", "-C", str(worktree), "-c", "user.name=t", "-c", "user.email=t@x.invalid",
+                            "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "seed"], check=True)
+            cwd = os.getcwd()
+            os.chdir(worktree)
+            try:
+                with patch.object(ci_executor, "_MOCK_MODE_AT_ENTRY", False), \
+                     patch.object(ci_executor, "preflight_claude_auth",
+                                  return_value={"status": "ok"}), \
+                     patch.object(ci_executor, "_sandbox_backend",
+                                  return_value="bwrap"):
+                    kind = self._gate(checkout)
+            finally:
+                os.chdir(cwd)
+            self.assertIsNone(kind)
+            self.assertTrue(ci_executor._node_modules_resolvable_from(worktree))
+        with TemporaryDirectory() as bare:
+            self.assertFalse(ci_executor._node_modules_resolvable_from(Path(bare) / "nested" / "deeper"))
+
     def test_a_workspace_whose_git_cannot_answer_is_never_claimed(self) -> None:
         # The kernel verifies every evidence ref with git probes in this
         # workspace; a git that cannot answer `rev-parse HEAD` here would
@@ -312,10 +343,12 @@ class PreClaimGateTest(unittest.TestCase):
     def test_the_gate_runs_before_the_claim_in_main(self) -> None:
         # Position pin: the whole defect was ordering (claim first, discover
         # the broken host after). The gate must precede the kernel claim call
-        # in the self-claim branch of main().
+        # in the self-claim branch of the entry body — `_main`; `main` is the
+        # three-line ExitStack wrapper around it, and pinning the wrapper's
+        # source (as this test did) raised ValueError instead of gating.
         import inspect
 
-        source = inspect.getsource(ci_executor.main)
+        source = inspect.getsource(ci_executor._main)
         gate_at = source.index("_pre_claim_environment_gate")
         claim_at = source.index('"agent", "claim"')
 

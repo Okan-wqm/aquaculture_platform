@@ -87,7 +87,40 @@ permissions:
   actions: read
 
 jobs:
+  # B8 (2026-09-12) — a run that cannot get its runner fails by name. The
+  # only runner carrying [self-hosted, linux, claude] went offline on
+  # 2026-09-08 09:48Z; every scheduled run since queued with zero jobs and
+  # was CANCELLED ~12h later by the next schedule taking this concurrency
+  # group's single pending slot (cancel-in-progress: false keeps ONE pending
+  # run). No red, no error, no notification: green by absence. This hosted
+  # job refuses the run with a named reason unless an ONLINE runner carries
+  # every label the self-hosted job needs; the self-hosted job `needs` it,
+  # so a run is either dispatched or red within a minute. One definition
+  # for every self-hosted lane: .github/actions/require-self-hosted-runner
+  # (decision logic: aria-kernel/aria_kernel/runner_availability.py; wiring
+  # pinned by aria-kernel/tests/test_runner_availability.py).
+  runner-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+
+      - uses: ./.github/actions/require-self-hosted-runner
+        with:
+          # Verbatim the self-hosted job's runs-on; the invariant test
+          # compares the two so they cannot drift apart.
+          required-labels: self-hosted,linux,claude
+          app-id: ${{ secrets.ARIA_GH_APP_ID }}
+          app-installation-id: ${{ secrets.ARIA_GH_APP_INSTALLATION_ID }}
+          app-private-key: ${{ secrets.ARIA_GH_APP_PRIVATE_KEY }}
+
   executor:
+    needs: runner-preflight
     runs-on: [self-hosted, linux, claude]
     # The drain window (ARIA_DRAIN_BUDGET_SECONDS below, 7200 s) plus the
     # reserve the job needs outside it — the state restore before the loop
@@ -127,6 +160,20 @@ jobs:
         with:
           ref: main
           persist-credentials: false
+          # The anchor gate (`agent_invocations._anchor_refusal_reason`)
+          # refuses a request whose `target_sha` this checkout does not
+          # hold, and that refusal is terminal (ANCHOR_STALE). It is only a
+          # FACT on a whole clone: on the depth-1 default the producer's
+          # commit was absent here as a matter of course, and the gate had
+          # to be softened with a shallow-clone probe to keep the queue
+          # alive. The full history makes absence evidence again, and the
+          # gate no longer judges a shallow clone at all: an anchor absent
+          # from one is refused by name (`anchor_history_unavailable_shallow`)
+          # with nothing recorded, so the executor fails loudly instead of
+          # writing a guess as ANCHOR_STALE. See aria-auto-cycle.yml for the
+          # twin layers the same depth killed.
+          # Pinned by aria-kernel/tests/invariants/test_kernel_lanes_check_out_full_history.py.
+          fetch-depth: 0
           # See the reset step above: checkout's default clean is the flag
           # that deleted node_modules before every executor dispatch.
           clean: false

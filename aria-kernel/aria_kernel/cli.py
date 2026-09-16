@@ -4,7 +4,6 @@ import argparse
 import hashlib
 import json
 import os
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -23,6 +22,8 @@ from aria_kernel.cycle import run_cycle
 from aria_kernel.agent_invocations import (
     DEFAULT_HEARTBEAT_EXTEND_SECONDS,
     DEFAULT_LEASE_SECONDS,
+    ANCHOR_VERIFICATION_UNAVAILABLE_STOP_REASON,
+    AnchorVerificationUnavailable,
     claim_request,
     create_agent_invocation_request,
     heartbeat_claim,
@@ -4577,12 +4578,24 @@ def _main(argv: list[str] | None = None) -> int:
 
     if args.command == "agent":
         if args.agent_command == "next-pending":
-            row = next_pending_request(
-                role=args.role,
-                target_agent=args.target_agent,
-                base_dir=args.tools_dir,
-                exclude_request_ids=set(args.exclude or []) or None,
-            )
+            try:
+                row = next_pending_request(
+                    role=args.role,
+                    target_agent=args.target_agent,
+                    base_dir=args.tools_dir,
+                    exclude_request_ids=set(args.exclude or []) or None,
+                )
+            except AnchorVerificationUnavailable as undecided:
+                # Not "nothing pending": candidates exist and git did not
+                # answer for them. A structured stop on stdout, non-zero, so
+                # the drain stops by name instead of asking the next role
+                # the same unanswerable question (`ci_executor_drain`).
+                print(json.dumps({
+                    "stop_reason": ANCHOR_VERIFICATION_UNAVAILABLE_STOP_REASON,
+                    "undecided_request_ids": undecided.request_ids,
+                    "reasons": undecided.reasons,
+                }, indent=2, sort_keys=True))
+                return 1
             print(json.dumps(row, indent=2, sort_keys=True))
             return 0 if row is not None else 0
         if args.agent_command == "claim":
@@ -4671,19 +4684,13 @@ def _main(argv: list[str] | None = None) -> int:
                     file=sys.stderr,
                 )
                 return 2
-            _evidence_target = args.evidence_target_sha
-            if _evidence_target == "auto":
-                # ARIA-HIGH-022 — resolve the AGENT worktree's HEAD here; the
-                # kernel-side descent proof in submit_claim_result decides
-                # whether it is a valid stronger anchor. Unresolvable or
-                # malformed output degrades to the legacy base-anchored check
-                # (fail-closed, never fail-open).
-                _head_proc = subprocess.run(
-                    ["git", "-C", str(workspace), "rev-parse", "HEAD"],
-                    capture_output=True, text=True, check=False,
-                )
-                _head = _head_proc.stdout.strip()
-                _evidence_target = _head if len(_head) == 40 and all(c in "0123456789abcdef" for c in _head) else None
+            # ARIA-HIGH-022 — `auto` names the AGENT worktree's HEAD. It is
+            # resolved INSIDE the submit decision (`agent_invocations.
+            # _verified_evidence_target_sha`), on the decision's own bounded
+            # git-probe session, so a git that does not answer grades the
+            # submission `verification_unavailable` instead of hanging this
+            # command or silently degrading the anchor. The CLI used to run
+            # an unbounded `git rev-parse HEAD` of its own here.
             result = submit_claim_result(
                 claim_id=args.claim_id,
                 agent_id=args.agent_id,
@@ -4695,7 +4702,7 @@ def _main(argv: list[str] | None = None) -> int:
                 prompt_hash=args.prompt_hash,
                 transcript_hash=args.transcript_hash,
                 transcript_artifact_ref=args.transcript_artifact_ref,
-                evidence_target_sha=_evidence_target,
+                evidence_target_sha=args.evidence_target_sha,
             )
             print(json.dumps(result, indent=2, sort_keys=True))
             return 0 if result.get("status") == "accepted" else 1
@@ -5868,11 +5875,17 @@ def _main(argv: list[str] | None = None) -> int:
         # the waits it was sized for: the resumable step function never
         # blocks on challenger_timeout, so a cycle deadline no longer
         # needs to fit max_rounds × envelopes × timeout inside one run.
-        # Plan ARIA-V8 §4 Phase 8.0 (B-V2-11) — surface the per-run
-        # budget cap to the orchestrator environment so child ci_executor
-        # subprocesses read it via MAX_BUDGET_USD_PER_RUN env var.
-        os.environ["MAX_BUDGET_USD_PER_RUN"] = str(args.max_budget_usd_per_run)
-        os.environ["MAX_BUDGET_USD_PER_CYCLE"] = str(args.max_budget_usd_per_cycle)
+        # ARIA-HIGH-064 — the two budget caps used to be exported here as
+        # MAX_BUDGET_USD_PER_RUN / MAX_BUDGET_USD_PER_CYCLE "so child
+        # ci_executor subprocesses read them" (Plan ARIA-V8 §4 Phase 8.0).
+        # No child reads them any more: ORPHAN-HIGH-472 retired the dollar
+        # gate because a subscription session has no marginal per-run
+        # charge to cap. What the export still DID was leak: the kernel
+        # suite runs ~260 modules in one interpreter, and an unrestored
+        # os.environ write outlives the command that made it — the same
+        # defect class as the deadline epoch this finding closes. The caps
+        # now travel as parameters and are RECORDED on the orchestrator's
+        # started event (telemetry, not a gate), never exported.
         convergence_runner = select_convergence_runner(profile=profile)
         review_runner = select_review_runner(profile=profile)
         specialist_review_runner = select_specialist_review_runner(profile=profile)
@@ -5904,16 +5917,10 @@ def _main(argv: list[str] | None = None) -> int:
         # arasındaki minimuma çekilir. Faz içinde kesilme =
         # PhaseDeadlineExceeded = temiz mühürleme; between-iteration kontrolü
         # (cycle_deadline_exceeded) yerinde kalır, bu onun kesen eşi.
-        if getattr(args, "cycle_deadline_seconds", 0):
-            _cap = time.time() + args.cycle_deadline_seconds
-            _existing = os.environ.get("ARIA_JOB_DEADLINE_EPOCH")
-            if _existing:
-                try:
-                    _cap = min(_cap, float(_existing))
-                except ValueError:
-                    pass
-            os.environ["ARIA_JOB_DEADLINE_EPOCH"] = str(_cap)
-        
+        # ARIA-HIGH-064 — the binding moved INTO run_autonomy_orchestrator,
+        # which already receives cycle_deadline_seconds and now owns the
+        # scope. Assigning the env var here left it set for the rest of the
+        # process; the orchestrator's decorator restores it.
         result = run_autonomy_orchestrator(
             base_dir=args.tools_dir,
             auto_merge_runner=auto_merge_runner,
@@ -5957,6 +5964,7 @@ def _main(argv: list[str] | None = None) -> int:
             # profile table it was describing.
             v9_implementation_runner=select_v9_implementation_runner(profile=profile),
             max_budget_usd_per_cycle=args.max_budget_usd_per_cycle,
+            max_budget_usd_per_run=args.max_budget_usd_per_run,
         )
         if args.output == "full" and not args.artifact:
             contract = {

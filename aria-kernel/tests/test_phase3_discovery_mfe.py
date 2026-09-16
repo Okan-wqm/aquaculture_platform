@@ -15,6 +15,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from aria_kernel.discovery import (
@@ -47,6 +48,11 @@ class IsLeafProjectPredicateTests(unittest.TestCase):
     """
 
     def setUp(self) -> None:
+        # ARIA-HIGH-065 — scope environment edits to the test; a tearDown that
+        # POPS ARIA_WORKSPACE_BASE leaves every later fixture writing under ~/.aria.
+        _environment = patch.dict(os.environ)
+        _environment.start()
+        self.addCleanup(_environment.stop)
         self._tmpdir = tempfile.TemporaryDirectory()
         self.tmp = Path(self._tmpdir.name)
 
@@ -100,6 +106,11 @@ class WebMfeCountRelationalTests(unittest.TestCase):
     """
 
     def setUp(self) -> None:
+        # ARIA-HIGH-065 — scope environment edits to the test; a tearDown that
+        # POPS ARIA_WORKSPACE_BASE leaves every later fixture writing under ~/.aria.
+        _environment = patch.dict(os.environ)
+        _environment.start()
+        self.addCleanup(_environment.stop)
         self._tmpdir = tempfile.TemporaryDirectory()
         self.tmp = Path(self._tmpdir.name)
 
@@ -139,6 +150,11 @@ class ServiceMapV2TypedBucketsTests(unittest.TestCase):
     """
 
     def setUp(self) -> None:
+        # ARIA-HIGH-065 — scope environment edits to the test; a tearDown that
+        # POPS ARIA_WORKSPACE_BASE leaves every later fixture writing under ~/.aria.
+        _environment = patch.dict(os.environ)
+        _environment.start()
+        self.addCleanup(_environment.stop)
         self._tmpdir = tempfile.TemporaryDirectory()
         self.tmp = Path(self._tmpdir.name)
         # Build a minimal web/ tree with all 4 buckets populated
@@ -255,6 +271,11 @@ class LegacyFieldDeprecationEventTests(unittest.TestCase):
     """
 
     def setUp(self) -> None:
+        # ARIA-HIGH-065 — scope environment edits to the test; a tearDown that
+        # POPS ARIA_WORKSPACE_BASE leaves every later fixture writing under ~/.aria.
+        _environment = patch.dict(os.environ)
+        _environment.start()
+        self.addCleanup(_environment.stop)
         self._tmpdir = tempfile.TemporaryDirectory()
         self.tmp = Path(self._tmpdir.name)
         self.repo = git_fixtures.make_repo_with_initial_commit(
@@ -320,6 +341,11 @@ class WebModulesMissingProjectJsonBeliefTests(unittest.TestCase):
     """
 
     def setUp(self) -> None:
+        # ARIA-HIGH-065 — scope environment edits to the test; a tearDown that
+        # POPS ARIA_WORKSPACE_BASE leaves every later fixture writing under ~/.aria.
+        _environment = patch.dict(os.environ)
+        _environment.start()
+        self.addCleanup(_environment.stop)
         self._tmpdir = tempfile.TemporaryDirectory()
         self.tmp = Path(self._tmpdir.name)
         # 2 MFEs missing project.json, 1 MFE has it.

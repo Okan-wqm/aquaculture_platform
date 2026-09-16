@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .ledger import append_declared_jsonl, load_declared_jsonl
+from .evidence_probe import GitProbeSession
 from .evidence_trust import EvidencePolicy, SELF_OUTPUT_PREFIXES, classify_evidence_ref
 from .runs_reader import read_runs_rows
 from .feedback_store import load_feedback
@@ -475,21 +476,30 @@ def validate_repo_evidence(
     """
     if not evidence_refs:
         raise GovernanceError("memory belief requires at least one repo evidence reference")
+    # ONE decision — this belief — so ONE probe session (evidence_probe): the
+    # baseline is resolved once for every ref and every git probe of the
+    # decision shares one liveness clock. A session per ref gave a belief
+    # with N refs N baseline probes and, on a git that had stopped
+    # answering, N full retry arcs before the decision was reached.
+    workspace = Path(workspace_root) if workspace_root is not None else None
+    target_sha = (
+        "HEAD" if workspace is not None and (workspace / ".git").exists() else None
+    )
+    probe_session = GitProbeSession()
     for raw_ref in evidence_refs:
         ref = str(raw_ref).replace("\\", "/")
         while ref.startswith("./"):
             ref = ref[2:]
         if not ref.strip():
             raise GovernanceError("memory belief evidence reference must not be empty")
-        if workspace_root is not None:
-            workspace = Path(workspace_root)
-            target_sha = "HEAD" if (workspace / ".git").exists() else None
+        if workspace is not None:
             envelope = classify_evidence_ref(
                 ref,
                 workspace_root=workspace,
                 source_hint="repo_source",
                 context="memory_belief",
                 target_sha=target_sha,
+                probe_session=probe_session,
             )
             if envelope.self_output_class == "aria_self_output":
                 raise GovernanceError(

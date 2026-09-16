@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from .evidence_probe import GitProbeSession
 from .evidence_trust import EvidencePolicy, classify_evidence_ref
 from .tool_health import SELF_OUTPUT_MARKERS, find_scope_violations, normalize_path
 from .tool_registry import GovernanceError
@@ -46,6 +47,50 @@ from .ledger import load_declared_jsonl
 _AGENT_REF_RE = re.compile(r"^(?P<path>[^\s:]+)(?::(?P<line>\d+)(?::.*)?)?$")
 
 
+# An unverified ref is rejected under a code that says WHOSE gap it is. Three
+# grades reach this mapping and only one of them is about the evidence:
+#
+# * ``worktree_candidate`` — the tree was read and disagrees: the agent's.
+# * ``baseline_unavailable`` — the caller threaded no target_sha, so no
+#   comparison was attempted (2026-08-09): the harness's.
+# * ``verification_unavailable`` — a comparison was attempted and git did not
+#   answer inside its bound (2026-09-12, loaded host): the harness's.
+#
+# One table for both evidence sources so the tool-output side and the agent
+# side cannot drift apart again — the agent side kept a single code for a
+# month after the tool side had split.
+_UNVERIFIED_GRADE_CODE_SUFFIX: dict[str, str] = {
+    "baseline_unavailable": "evidence_baseline_unavailable",
+    "verification_unavailable": "evidence_verification_unavailable",
+}
+_UNVERIFIED_DEFAULT_CODE_SUFFIX = "evidence_not_repo_verified"
+
+# The rejection codes that mean "the validator could not verify", on either
+# source. The executor releases a submission rejected ONLY for these under a
+# harness-class reason (`evidence_verification_unavailable`) so the request
+# is retried without burning its requeue budget; every other rejection stays
+# the request's fault. Kept next to the mapping that mints them.
+EVIDENCE_VERIFICATION_UNAVAILABLE_CODES: frozenset[str] = frozenset({
+    f"{source}_{_UNVERIFIED_GRADE_CODE_SUFFIX['verification_unavailable']}"
+    for source in ("tool_output", "agent")
+})
+
+
+def _unverified_evidence_code(source: str, grade: Any) -> str:
+    """``<source>_evidence_<why>`` for a ref that is not ``repo_verified``."""
+    suffix = _UNVERIFIED_GRADE_CODE_SUFFIX.get(str(grade), _UNVERIFIED_DEFAULT_CODE_SUFFIX)
+    return f"{source}_{suffix}"
+
+
+# The agent-side "could not verify" code, minted by the same table as the
+# per-ref grades so a decision that could not even resolve its evidence
+# target (`agent_invocations._verified_evidence_target_sha`) rejects under
+# a code the executor's release seam already classifies as the harness's.
+AGENT_EVIDENCE_VERIFICATION_UNAVAILABLE_CODE = _unverified_evidence_code(
+    "agent", "verification_unavailable",
+)
+
+
 def validate_tool_output_evidence(
     tool: dict[str, Any],
     output: dict[str, Any],
@@ -59,6 +104,9 @@ def validate_tool_output_evidence(
     allowed_paths = snapshot_allowed_set(repo_snapshot)
     target_sha = _snapshot_target_sha(repo_snapshot)
     require_repo_verified = _snapshot_requires_repo_verified(repo_snapshot)
+    # ONE probe session for the whole decision: every ref below shares its
+    # liveness clock and its once-resolved baseline (evidence_probe).
+    probe_session = GitProbeSession()
 
     # Plan 023 v3 §C-2 — distinguish "read_paths not in envelope" (None
     # from .get on an absent key) from "read_paths declared empty" (a
@@ -109,6 +157,7 @@ def validate_tool_output_evidence(
                     allowed_paths=allowed_paths,
                     target_sha=target_sha,
                     require_repo_verified=require_repo_verified,
+                    probe_session=probe_session,
                 )
                 if envelope is not None:
                     evidence_envelopes.append(envelope)
@@ -147,6 +196,7 @@ def validate_tool_output_evidence(
                 allowed_paths=allowed_paths,
                 target_sha=target_sha,
                 require_repo_verified=require_repo_verified,
+                probe_session=probe_session,
             )
             if envelope is not None:
                 evidence_envelopes.append(envelope)
@@ -185,6 +235,7 @@ def validate_evidence_ref(
     allowed_paths: set[str] | None = None,
     target_sha: str | None = None,
     require_repo_verified: bool = False,
+    probe_session: GitProbeSession | None = None,
 ) -> dict[str, Any] | None:
     if not isinstance(ref, dict) or not isinstance(ref.get("path"), str):
         errors.append({"code": "invalid_evidence_ref"})
@@ -200,6 +251,7 @@ def validate_evidence_ref(
         allowed_paths=allowed_paths,
         target_sha=target_sha,
         require_repo_verified=require_repo_verified,
+        probe_session=probe_session,
     )
 
 
@@ -213,6 +265,7 @@ def validate_evidence_path(
     allowed_paths: set[str] | None = None,
     target_sha: str | None = None,
     require_repo_verified: bool = False,
+    probe_session: GitProbeSession | None = None,
 ) -> dict[str, Any] | None:
     # Plan 024 v3 §H-5 — canonical-resolve BEFORE the SELF_OUTPUT
     # prefix check, mirroring _check_agent_ref. Pre-fix this code
@@ -230,6 +283,7 @@ def validate_evidence_path(
         source_hint="tool_output",
         context=str(tool.get("id") or tool.get("name") or "tool"),
         target_sha=target_sha,
+        probe_session=probe_session,
     ).to_dict()
 
     if allowed_paths and raw_path_str not in allowed_paths:
@@ -262,19 +316,12 @@ def validate_evidence_path(
         })
         return envelope
     if require_repo_verified and envelope.get("trust_grade") != "repo_verified":
-        # Two different failures used to share one code, and only one of them
-        # is about the agent. `baseline_unavailable` means the CALLER threaded
-        # no target_sha, so no comparison was ever attempted; reporting that as
-        # "your evidence is not repo-verified" sends the reader hunting a
-        # fabricating agent that does not exist. Still rejected — nothing was
-        # verified — but under a name that says whose gap it is.
-        code = (
-            "tool_output_evidence_baseline_unavailable"
-            if envelope.get("trust_grade") == "baseline_unavailable"
-            else "tool_output_evidence_not_repo_verified"
-        )
+        # Three different failures used to share one code, and only one of
+        # them is about the agent — see `_UNVERIFIED_GRADE_CODE_SUFFIX`.
+        # Still rejected — nothing was verified — but under a name that says
+        # whose gap it is.
         errors.append({
-            "code": code,
+            "code": _unverified_evidence_code("tool_output", envelope.get("trust_grade")),
             "path": raw_path_str,
             "grade": envelope.get("trust_grade"),
         })
@@ -495,6 +542,7 @@ def validate_agent_response_evidence(
     response: dict[str, Any],
     workspace_root: str | Path,
     request: dict[str, Any] | None = None,
+    probe_session: GitProbeSession | None = None,
 ) -> dict[str, Any]:
     """Re-fetch every evidence ref claimed by an agent response and verify it exists in the repo.
 
@@ -522,6 +570,15 @@ def validate_agent_response_evidence(
     allow_kernel_artifacts = str(
         (request or {}).get("role") or "",
     ) in ARBITRATION_ROLES
+    # ONE probe session for the whole submission (evidence_probe): the
+    # baseline is resolved once for all refs, and every git probe of this
+    # decision shares one liveness clock — the seam that used to hand each
+    # ref a 5 s budget and re-dispatched the whole paid run on one stall.
+    # The submit decision passes the session it already resolved its
+    # evidence target on, so a target git could not read is remembered here
+    # and every ref grades `verification_unavailable` rather than being
+    # compared against an anchor the submitter did not cite.
+    probe_session = probe_session if probe_session is not None else GitProbeSession()
 
     response_refs = response.get("evidence_refs") or []
     if not isinstance(response_refs, list):
@@ -547,12 +604,17 @@ def validate_agent_response_evidence(
             workspace_root=root,
             source_hint="agent_output",
             target_sha=_request_target_sha(request),
+            probe_session=probe_session,
         )
         evidence_envelopes.append(envelope.to_dict())
         try:
             EvidencePolicy.require_repo_verified(envelope)
         except GovernanceError as exc:
-            errors.append({"code": "agent_evidence_not_repo_verified", "ref": ref, "reason": str(exc)})
+            errors.append({
+                "code": _unverified_evidence_code("agent", envelope.trust_grade),
+                "ref": ref,
+                "reason": str(exc),
+            })
 
     # Plan 024 §B-2 — satisfaction_matrix non-empty enforcement.
     # Pre-fix an agent response with `satisfaction_matrix: []` passed
@@ -593,12 +655,17 @@ def validate_agent_response_evidence(
                     workspace_root=root,
                     source_hint="agent_output",
                     target_sha=_request_target_sha(request),
+                    probe_session=probe_session,
                 )
                 evidence_envelopes.append(envelope.to_dict())
                 try:
                     EvidencePolicy.require_repo_verified(envelope)
                 except GovernanceError as exc:
-                    errors.append({"code": "agent_evidence_not_repo_verified", "ref": ref, "reason": str(exc)})
+                    errors.append({
+                        "code": _unverified_evidence_code("agent", envelope.trust_grade),
+                        "ref": ref,
+                        "reason": str(exc),
+                    })
 
     # Cross-check: when a request is provided, every ref the agent
     # claims must either live inside `allowed_scope` OR be one of the

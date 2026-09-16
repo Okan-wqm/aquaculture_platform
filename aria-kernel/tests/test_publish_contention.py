@@ -56,6 +56,13 @@ from tests._helpers.declared_fixtures import (
 
 REPO_HASH = "repohash0001"
 SURFACE = "cycles"
+# The threaded fixtures below pause a real replay/recovery on one event and
+# let it finish real git work (fetch, reset, replay, verify) once released.
+# Every wait on that work is a LIVENESS guard for a wedged peer, never a
+# performance budget: the third pre-push run of this branch (load 6-20 on
+# 4 CPUs) took more than the old 10 s/15 s on exactly this work while nothing
+# was stuck. Same rule as test_agent_submit_result_e2e.RACE_LIVENESS_SECONDS.
+RACE_LIVENESS_SECONDS = 120
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -1682,7 +1689,7 @@ class PublishContentionTests(unittest.TestCase):
         @contextmanager
         def delayed_transaction(*args, **kwargs):
             waiting_for_lock.set()
-            if not release_lock.wait(timeout=10):
+            if not release_lock.wait(timeout=RACE_LIVENESS_SECONDS):
                 raise RuntimeError("test did not release state transaction")
             with real_transaction(*args, **kwargs) as transaction:
                 yield transaction
@@ -1708,13 +1715,13 @@ class PublishContentionTests(unittest.TestCase):
         ) as fetch:
             replay_thread = threading.Thread(target=run_rebase, daemon=True)
             replay_thread.start()
-            self.assertTrue(waiting_for_lock.wait(timeout=10))
+            self.assertTrue(waiting_for_lock.wait(timeout=RACE_LIVENESS_SECONDS))
             appeared = self._create_unmanifested_recovery_package(
                 store,
                 "0" * 32,
             )
             release_lock.set()
-            replay_thread.join(timeout=15)
+            replay_thread.join(timeout=RACE_LIVENESS_SECONDS)
 
         self.assertFalse(replay_thread.is_alive())
         self.assertEqual(len(errors), 1)
@@ -1768,7 +1775,7 @@ class PublishContentionTests(unittest.TestCase):
         @contextmanager
         def delayed_transaction(*args, **kwargs):
             waiting_for_lock.set()
-            if not release_lock.wait(timeout=10):
+            if not release_lock.wait(timeout=RACE_LIVENESS_SECONDS):
                 raise RuntimeError("test did not release state transaction")
             with real_transaction(*args, **kwargs) as held:
                 yield held
@@ -1795,14 +1802,14 @@ class PublishContentionTests(unittest.TestCase):
         ) as discover:
             recovery_thread = threading.Thread(target=run_recovery, daemon=True)
             recovery_thread.start()
-            self.assertTrue(waiting_for_lock.wait(timeout=10))
+            self.assertTrue(waiting_for_lock.wait(timeout=RACE_LIVENESS_SECONDS))
             second_name = "0" * 32 if transaction.name != "0" * 32 else "1" * 32
             second = self._create_unmanifested_recovery_package(
                 store,
                 second_name,
             )
             release_lock.set()
-            recovery_thread.join(timeout=15)
+            recovery_thread.join(timeout=RACE_LIVENESS_SECONDS)
 
         self.assertFalse(recovery_thread.is_alive())
         self.assertEqual(results, [])
@@ -1826,7 +1833,7 @@ class PublishContentionTests(unittest.TestCase):
 
         def pause_after_staging(current_store):
             staged.set()
-            if not release.wait(timeout=10):
+            if not release.wait(timeout=RACE_LIVENESS_SECONDS):
                 raise RuntimeError("test did not release replay fetch")
             return real_fetch(current_store)
 
@@ -1877,7 +1884,7 @@ class PublishContentionTests(unittest.TestCase):
         ):
             replay_thread = threading.Thread(target=run_replay, daemon=True)
             replay_thread.start()
-            self.assertTrue(staged.wait(timeout=10))
+            self.assertTrue(staged.wait(timeout=RACE_LIVENESS_SECONDS))
             writer_threads = [
                 threading.Thread(
                     target=run_writer,
@@ -1894,9 +1901,9 @@ class PublishContentionTests(unittest.TestCase):
                 for name, _writer in writer_specs
             }
             release.set()
-            replay_thread.join(timeout=15)
+            replay_thread.join(timeout=RACE_LIVENESS_SECONDS)
             for writer_thread in writer_threads:
-                writer_thread.join(timeout=15)
+                writer_thread.join(timeout=RACE_LIVENESS_SECONDS)
 
         self.assertTrue(replay_done.is_set())
         self.assertEqual(errors, [])
@@ -1925,7 +1932,7 @@ class PublishContentionTests(unittest.TestCase):
 
         def pause_after_staging(current_store):
             staged.set()
-            if not release.wait(timeout=10):
+            if not release.wait(timeout=RACE_LIVENESS_SECONDS):
                 raise RuntimeError("test did not release replay fetch")
             return real_fetch(current_store)
 
@@ -1953,14 +1960,14 @@ class PublishContentionTests(unittest.TestCase):
         ):
             replay_thread = threading.Thread(target=run_replay, daemon=True)
             replay_thread.start()
-            self.assertTrue(staged.wait(timeout=10))
+            self.assertTrue(staged.wait(timeout=RACE_LIVENESS_SECONDS))
             writer_thread = threading.Thread(target=run_writer, daemon=True)
             writer_thread.start()
             time.sleep(0.25)
             blocked = not writer_done.is_set()
             release.set()
-            replay_thread.join(timeout=15)
-            writer_thread.join(timeout=15)
+            replay_thread.join(timeout=RACE_LIVENESS_SECONDS)
+            writer_thread.join(timeout=RACE_LIVENESS_SECONDS)
 
         self.assertTrue(blocked)
         self.assertEqual(writer_errors, [])

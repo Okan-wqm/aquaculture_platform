@@ -64,21 +64,41 @@ export interface CreateLegalHoldInput {
 // Types -- Retention
 // ============================================================================
 
+/**
+ * One `messaging.retention_policies` row (ADMIN-CRITICAL-151).
+ *
+ * The previous declaration had NINE fields, seven of them invented:
+ * `tenantName`, `channelOverridesCount`, `lastCleanup`, `nextCleanup`,
+ * `messagesCount`, `expiredCount`, and `defaultRetention` as one of four
+ * labels — `'90d' | '1y' | '3y' | 'indefinite'` — when the wire carries a
+ * NUMBER OF DAYS. The table rendered three of the invented counts through
+ * `.toLocaleString()`, so the first row that ever arrived would have thrown.
+ */
 export interface RetentionPolicy {
   id: string;
   tenantId: string;
-  tenantName: string;
-  defaultRetention: '90d' | '1y' | '3y' | 'indefinite';
-  channelOverridesCount: number;
-  lastCleanup: string | null;
-  nextCleanup: string;
-  messagesCount: number;
-  expiredCount: number;
+  /** `null` is the tenant's default window; a channel id is an override. */
+  channelId: string | null;
+  /** `-1` is indefinite: the nightly cleanup skips the policy. */
+  retentionDays: number;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
+/**
+ * What `PUT /messaging/retention/policies/:tenantId` accepts.
+ *
+ * The previous shape was `{defaultRetention: string, applyToAll: boolean}` —
+ * neither key exists on `UpdateRetentionPolicyDto`, and the platform's
+ * ValidationPipe runs `forbidNonWhitelisted: true`, so every save was refused
+ * twice over: two unknown properties, and no `retentionDays`.
+ */
 export interface RetentionPolicyUpdate {
-  defaultRetention: string;
-  applyToAll: boolean;
+  /** Omit or pass null for the tenant default; a channel id sets an override. */
+  readonly channelId?: string | null;
+  /** -1 for indefinite, otherwise 1–3650. Never 0. */
+  readonly retentionDays: number;
 }
 
 // ============================================================================
@@ -302,15 +322,33 @@ export const messagingApi = {
   // ── Retention ──
 
   /** Fetch all tenant retention policies */
-  getRetentionPolicies: (): Promise<RetentionPolicy[]> =>
-    apiFetch<RetentionPolicy[]>('/messaging/retention/policies'),
+  /**
+   * The tenant's retention policies: its default, plus one row per channel
+   * override.
+   *
+   * `tenantId` is REQUIRED — the route declares `@TenantParam('query')` and
+   * refuses a request without one (ADMIN-CRITICAL-151, third instance of
+   * ADMIN-HIGH-149's consequence).
+   */
+  getRetentionPolicies: (tenantId: string, signal?: AbortSignal): Promise<RetentionPolicy[]> =>
+    apiFetch<RetentionPolicy[]>(
+      `/messaging/retention/policies?${buildQueryString({ tenantId })}`,
+      { signal },
+    ),
 
-  /** Update a single tenant retention policy */
+  /**
+   * Set the tenant's default window, or one channel's override.
+   *
+   * The path parameter is the TENANT id — the route reads it through
+   * `@TenantParam('param', { key: 'id' })` and verifies it against
+   * `auth.tenants`. The page used to pass the POLICY id, so even a
+   * well-formed body answered `Tenant <policy-uuid> not found`.
+   */
   updateRetentionPolicy: (
-    policyId: string,
+    tenantId: string,
     update: RetentionPolicyUpdate,
   ): Promise<RetentionPolicy> =>
-    apiFetch<RetentionPolicy>(`/messaging/retention/policies/${policyId}`, {
+    apiFetch<RetentionPolicy>(`/messaging/retention/policies/${tenantId}`, {
       method: 'PUT',
       body: JSON.stringify(update),
     }),

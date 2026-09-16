@@ -39,7 +39,11 @@ export const adminKeys = {
     messages: (threadId: string) =>
       [...adminKeys.messaging.all(), 'messages', threadId] as const,
     stats: () => [...adminKeys.messaging.all(), 'stats'] as const,
-    retention: () => [...adminKeys.messaging.all(), 'retention'] as const,
+    // Per tenant: the retention route refuses a request without a tenant id,
+    // and a key without one would show one tenant's deletion windows under
+    // another tenant's view (ADMIN-CRITICAL-151).
+    retention: (tenantId: string) =>
+      [...adminKeys.messaging.all(), 'retention', tenantId] as const,
     compliance: () => [...adminKeys.messaging.all(), 'compliance'] as const,
     // Both are PER TENANT — the routes reject a request without a tenant id,
     // and a key without one would serve one tenant's legal holds under

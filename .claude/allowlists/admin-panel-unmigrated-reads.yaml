@@ -51,11 +51,12 @@
 # batch is finished at W8q; the TENANT batch is finished at W8v, whose
 # CreateTenantPage was the last of its six. The BILLING batch is finished at
 # W9l, whose BillingReportsPage was the last of its eleven; the messaging
-# batch's six remain — MessagingCompliancePage left at ADMIN-CRITICAL-147 and
-# MessagingAuditPage at ADMIN-CRITICAL-150. The ceiling drops with each batch and this file is
+# batch's five remain — MessagingCompliancePage left at ADMIN-CRITICAL-147,
+# MessagingAuditPage at ADMIN-CRITICAL-150 and MessagingRetentionPage at
+# ADMIN-CRITICAL-151. The ceiling drops with each batch and this file is
 # deleted at 0.
 version: 1
-ceiling: 6
+ceiling: 5
 entries:
   - site: web/modules/admin-panel/src/pages/MessagingPage.tsx
     batch: messaging
@@ -76,12 +77,6 @@ entries:
     findingId: ADMIN-HIGH-121
     reason: messaging batch — reads move to useAdminQuery with an adminKeys.messaging key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/messaging/MessagingMonitoringPage.tsx
-    batch: messaging
-    owner: okan
-    expiry: 2026-12-31
-    findingId: ADMIN-HIGH-121
-    reason: messaging batch — reads move to useAdminQuery with an adminKeys.messaging key, writes to useAdminMutation with invalidateKeys
-  - site: web/modules/admin-panel/src/pages/messaging/MessagingRetentionPage.tsx
     batch: messaging
     owner: okan
     expiry: 2026-12-31

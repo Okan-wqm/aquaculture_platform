@@ -11,7 +11,7 @@ import { JwtService } from '@nestjs/jwt';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, IsNull, Repository } from 'typeorm';
 
 import { MobileSettingsService } from '../../tenant/services/mobile-settings.service';
 import { RefreshToken } from '../entities/refresh-token.entity';
@@ -143,6 +143,7 @@ describe('TokenService — planLevel JWT claim (MT-MEDIUM-001)', () => {
       id: '11111111-1111-1111-1111-111111111111',
       role: Role.TENANT_ADMIN,
       tenantId: '22222222-2222-2222-2222-222222222222',
+      credentialVersion: 1,
       ...overrides,
     });
 
@@ -312,6 +313,7 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
       phoneNumber: '+10000000000',
       role: Role.MODULE_USER,
       tenantId: VALID_TENANT_ID,
+      credentialVersion: 1,
       ...overrides,
     });
 
@@ -749,8 +751,10 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
   describe('authorization-revocation issuance fence', () => {
     it('cannot insert a refresh token while deactivation owns the User fence and fails stale issuance closed', async () => {
       service = await createService();
-      const authenticatedAt = new Date('2026-08-01T12:00:00.000Z');
-      const authenticatedSnapshot = buildUser({ updatedAt: authenticatedAt });
+      // The anchor is the database-owned credential version loaded at
+      // authentication time — an integer, so it cannot lose precision crossing
+      // the pg driver the way the previous `updatedAt` anchor did.
+      const authenticatedSnapshot = buildUser({ credentialVersion: 7 });
       let finishCredentialFence: ((lockedUser: { id: string } | null) => void) | undefined;
       credentialUserLockFindOne.mockImplementationOnce(
         () =>
@@ -782,12 +786,67 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
           role: authenticatedSnapshot.role,
           tenantId: authenticatedSnapshot.tenantId,
           isActive: true,
-          updatedAt: authenticatedAt,
+          credentialVersion: 7,
         },
         lock: { mode: 'pessimistic_write' },
       });
       expect(refreshSave).not.toHaveBeenCalled();
       expect(createSession).not.toHaveBeenCalled();
+    });
+
+    it('ORPHAN-CRITICAL-808: the fence predicate is built only from precision-safe authorization state — never from a timestamp column', async () => {
+      // WHY: `updatedAt` is written by Postgres with microsecond precision and
+      // hydrated into a millisecond JS Date, so an equality predicate on it can
+      // never match — that combination refused every login in production. Any
+      // Date (or `updatedAt`/`createdAt` key) re-entering the predicate is the
+      // same outage again, whatever the column is called.
+      service = await createService();
+      const authenticatedSnapshot = buildUser({
+        credentialVersion: 3,
+        updatedAt: new Date('2026-09-05T07:08:16.095Z'),
+        lastLoginAt: new Date('2026-09-05T07:08:16.087Z'),
+      });
+
+      await service.generateTokens(authenticatedSnapshot);
+
+      const fenceCall = credentialUserLockFindOne.mock.calls[0]?.[0] as {
+        where: Record<string, unknown>;
+      };
+      expect(Object.keys(fenceCall.where).sort()).toEqual(
+        ['credentialVersion', 'id', 'isActive', 'role', 'tenantId'].sort(),
+      );
+      for (const value of Object.values(fenceCall.where)) {
+        expect(value).not.toBeInstanceOf(Date);
+      }
+      expect(fenceCall.where.credentialVersion).toBe(3);
+    });
+
+    it('ORPHAN-CRITICAL-808: a platform principal without a tenant is fenced with IS NULL, still anchored on credentialVersion', async () => {
+      service = await createService();
+
+      await service.generateTokens(buildUser({ role: Role.SUPER_ADMIN, tenantId: null, credentialVersion: 2 }));
+
+      expect(credentialUserLockFindOne).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ tenantId: IsNull(), credentialVersion: 2 }),
+        }),
+      );
+    });
+
+    it('ORPHAN-CRITICAL-808: refuses to mint from a principal that carries no credential-version anchor', async () => {
+      // A partial select that omits the column would otherwise turn the fence
+      // into a no-op (`undefined` predicates are dropped by TypeORM). Fail
+      // closed instead of issuing an unfenced token.
+      service = await createService();
+      const unfenced = buildUser({});
+      delete (unfenced as { credentialVersion?: number }).credentialVersion;
+
+      await expect(service.generateTokens(unfenced)).rejects.toThrow(
+        'Cannot issue a token for an unfenced principal',
+      );
+      expect(credentialUserLockFindOne).not.toHaveBeenCalled();
+      expect(refreshSave).not.toHaveBeenCalled();
+      expect(signAsync).not.toHaveBeenCalled();
     });
 
     it('waits for the real next clock second and performs two authoritative revocation reads', async () => {
@@ -1067,6 +1126,7 @@ describe('TokenService — assignedSiteIds + mobileFeatures claims (SEC-HIGH-051
       id: USER,
       role: Role.MODULE_USER,
       tenantId: TENANT,
+      credentialVersion: 1,
       ...overrides,
     });
 

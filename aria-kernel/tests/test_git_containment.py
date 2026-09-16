@@ -331,8 +331,11 @@ class _HeldIdentity(_Checkout):
 
 class UnderRealBwrapTests(_HeldIdentity):
     def test_the_implementers_git_operations_succeed_inside_and_land_only_when_the_kernel_publishes(self) -> None:
+        # (round 3) the branch is the KERNEL's seed; only the seeded name
+        # is ever published, so the sandbox is stood on it first.
+        self.containment = gc.stand_on_implementation_branch(self.containment, branch=BRANCH, base_sha=self.base)
         done = self._run(
-            f"set -e; git status --short >/dev/null; git switch -q -c {BRANCH} HEAD; "
+            f"set -e; git status --short >/dev/null; test \"$(git branch --show-current)\" = {BRANCH}; "
             "echo two > apps/sample.ts; git add apps/sample.ts; git commit -q -m 'feat: two'; "
             f"git verify-commit HEAD 2>&1; git push -q origin {BRANCH} 2>/dev/null || true; git rev-parse HEAD",
             self.containment, extra_flags=["--bind", str(self.remote), str(self.remote)],
@@ -407,10 +410,13 @@ class UnderRealBwrapTests(_HeldIdentity):
         # no agent, the commit is refused rather than going unsigned.
         self.assertRegex(without_agent.stderr, r"No private key found|No such file or directory")
         # `git switch -c` made the ref at its base; the refused commit never
-        # existed, so the published branch never moved past the base.
+        # existed, so nothing is published: a branch the kernel never seeded
+        # is discarded by name (round 3), and had it been the seed it would
+        # be discarded as unadvanced.
         publication = publish_quarantine(self.containment)
-        self.assertEqual(publication.refs_published, ("aria-impl-00000a9e",))
-        self.assertEqual(_git(["rev-parse", "aria-impl-00000a9e"], cwd=self.repo).stdout.strip(), self.base)
+        self.assertEqual(publication.refs_published, ())
+        self.assertIn(("aria-impl-00000a9e", "not_the_seeded_branch"), publication.refs_discarded)
+        self.assertNotEqual(_git(["rev-parse", "--verify", "-q", "aria-impl-00000a9e"], cwd=self.repo, check=False).returncode, 0)
 
     def test_control_surfaces_are_unwritable_and_siblings_invisible(self) -> None:
         pack = self.common / "objects" / "pack" / self.packs_before[0]
@@ -455,8 +461,9 @@ class UnderRealBwrapTests(_HeldIdentity):
         self.assertEqual(_git(["fsck", "--no-dangling"], cwd=self.repo, check=False).returncode, 0)
 
     def test_planted_locks_a_repack_and_a_worktree_lock_stay_in_the_quarantine(self) -> None:
+        self.containment = gc.stand_on_implementation_branch(self.containment, branch=BRANCH, base_sha=self.base)
         done = self._run(
-            f"git switch -q -c {BRANCH} HEAD && git commit -q --allow-empty -m probe && git repack -dq 2>/dev/null && echo REPACK_OK; "
+            f"git commit -q --allow-empty -m probe && git repack -dq 2>/dev/null && echo REPACK_OK; "
             f"git repack -adq 2>/dev/null; echo REPACK_ALL_RC=$?; "
             f"touch {self.common}/refs/heads/main.lock && echo LOCK_PLANTED; "
             f"touch {self.common}/refs/heads/{BRANCH}.lock && echo BRANCH_LOCK_PLANTED; "
@@ -619,11 +626,16 @@ class PublicationTests(_Checkout):
         (self.replica / "refs" / "heads" / branch).write_text(sha + "\n", encoding="utf-8")
         return sha
 
-    def test_verified_objects_move_and_only_aria_branches_are_published(self) -> None:
+    def test_verified_objects_move_and_only_the_seeded_branch_is_published(self) -> None:
         objects_before = self._shared_objects()
+        self.containment = gc.replace(self.containment, seeded_refs=((BRANCH, self.base),))
         sha = self._quarantined_commit(BRANCH)
         (self.replica / "refs" / "heads" / "feature-of-my-own").write_text(sha + "\n", encoding="utf-8")
         (self.replica / "refs" / "heads" / "aria-impl-0000dead").write_text("not a sha\n", encoding="utf-8")
+        # (round 3) a well-formed `aria-impl-*` ref the kernel never seeded —
+        # ANOTHER request's name — is discarded, never published: it would
+        # make that request collide before its first turn.
+        (self.replica / "refs" / "heads" / "aria-impl-0000beef").write_text(sha + "\n", encoding="utf-8")
         (self.replica / "refs" / "heads" / "main").write_text("", encoding="utf-8")
         (self.replica / "refs" / "heads" / "main.lock").write_text("", encoding="utf-8")
         self.assertNotIn(sha, objects_before)
@@ -631,10 +643,12 @@ class PublicationTests(_Checkout):
         self.assertIsNone(publication.refusal)
         self.assertEqual(publication.refs_published, (BRANCH,))
         self.assertEqual(sorted(publication.refs_discarded), [
+            ("aria-impl-0000beef", "not_the_seeded_branch"),
             ("aria-impl-0000dead", "not_an_object_id"),
             ("feature-of-my-own", "not_an_aria_implementation_branch"),
             ("main.lock", "not_an_aria_implementation_branch"),
         ])
+        self.assertNotEqual(_git(["rev-parse", "--verify", "-q", "aria-impl-0000beef"], cwd=self.repo, check=False).returncode, 0)
         self.assertEqual(publication.objects_refused, ())
         self.assertGreaterEqual(publication.loose_objects_migrated, 3)
         self.assertIn(sha, self._shared_objects())
@@ -658,7 +672,7 @@ class PublicationTests(_Checkout):
         (self.quarantine / wrong_name[:2]).mkdir()
         (self.quarantine / wrong_name[:2] / wrong_name[2:]).write_bytes(zlib.compress(payload))
         (self.replica / "refs" / "heads" / "aria-impl-0000ea11").write_text(wrong_name + "\n", encoding="utf-8")
-        publication = publish_quarantine(self.containment)
+        publication = publish_quarantine(gc.replace(self.containment, seeded_refs=(("aria-impl-0000ea11", self.base),)))
         self.assertIsNone(publication.refusal)
         self.assertEqual(sorted(publication.objects_refused),
                          sorted([(self.base, "object_hash_mismatch"), (wrong_name, "object_hash_mismatch")]))
@@ -673,6 +687,7 @@ class PublicationTests(_Checkout):
         self.assertEqual(_git(["fsck", "--no-dangling"], cwd=self.repo, check=False).returncode, 0)
 
     def test_a_pack_in_the_quarantine_is_unpacked_never_copied(self) -> None:
+        self.containment = gc.replace(self.containment, seeded_refs=((BRANCH, self.base),))
         sha = self._quarantined_commit(BRANCH)
         subprocess.run(["git", "repack", "-d", "-q"], cwd=self.worktree, env=self.env, check=True)
         self.assertTrue(any(p.suffix == ".pack" for p in (self.quarantine / "pack").iterdir()))
@@ -723,6 +738,126 @@ class MutationTests(_HeldIdentity):
         self.assertEqual(done.stdout.strip(), "PLANTED")
         self.assertTrue((self.common / "refs" / "heads" / "main.lock").exists())
         (self.common / "refs" / "heads" / "main.lock").unlink()
+
+
+class KernelMadeBranchTests(_HeldIdentity):
+    """ARIA-HIGH-124 — the implementation branch is the kernel's to make.
+
+    The contract's ``git switch -c <branch> <base_sha>`` was never admitted
+    by the command policy; the executor stands the sandbox on the branch in
+    the replica before the spawn, and the agent's plain commit advances a
+    ref that exists only in the quarantine until the kernel publishes it.
+    """
+
+    def test_the_sandbox_starts_on_the_branch_and_a_plain_commit_publishes_to_it(self) -> None:
+        seeded = gc.stand_on_implementation_branch(self.containment, branch=BRANCH, base_sha=self.base)
+        # (round 2) the seed is the containment's fact: the binds are the
+        # same, the publication reads the seed off it.
+        self.assertEqual(seeded.seeded_refs, ((BRANCH, self.base),))
+        self.assertEqual(seeded.bwrap_flags(), self.containment.bwrap_flags())
+        self.containment = seeded
+        # Written in the replica only: the host worktree's HEAD and the
+        # shared repository carry nothing of it.
+        self.assertEqual((self.replica / "HEAD").read_text(encoding="utf-8"), f"ref: refs/heads/{BRANCH}\n")
+        self.assertEqual((self.replica / "refs" / "heads" / BRANCH).read_text(encoding="utf-8").strip(), self.base)
+        self.assertEqual((self.private / "HEAD").read_text(encoding="utf-8"), self.host_head_before)
+        self.assertNotEqual(_git(["rev-parse", "--verify", "-q", BRANCH], cwd=self.repo, check=False).returncode, 0)
+        done = self._run(
+            "set -e; git branch --show-current; git rev-parse HEAD; git status --porcelain; "
+            "echo two > apps/sample.ts; git add apps/sample.ts; git commit -q -m 'feat: two'; git rev-parse HEAD",
+            self.containment,
+        )
+        self.assertEqual(done.returncode, 0, done.stderr)
+        lines = done.stdout.strip().splitlines()
+        self.assertEqual(lines[:2], [BRANCH, self.base], done.stdout)
+        head = lines[-1]
+        self.assertNotEqual(head, self.base)
+        self.assertEqual((self.replica / "refs" / "heads" / BRANCH).read_text(encoding="utf-8").strip(), head)
+        publication = publish_quarantine(self.containment)
+        self.assertEqual((publication.refusal, publication.refs_published, publication.head_adopted), (None, (BRANCH,), BRANCH))
+        self.assertEqual(_git(["rev-parse", BRANCH], cwd=self.repo).stdout.strip(), head)
+        self.assertEqual(_git(["rev-parse", "HEAD"], cwd=self.worktree).stdout.strip(), head)
+
+    def test_a_seed_the_agent_never_advanced_is_discarded_not_published(self) -> None:
+        # ARIA-HIGH-124 (round 2) — a spawn that ends before any commit (a
+        # timeout, a provider outage, a cancel, an agent that commits
+        # nothing) leaves the quarantine ref at its seed. Publishing it made
+        # the kernel's own two file writes a real branch of the shared
+        # repository, and the retry the harness-class release promises was
+        # then refused pre-turn as `implementation_branch_exists`.
+        seeded = gc.stand_on_implementation_branch(self.containment, branch=BRANCH, base_sha=self.base)
+        publication = publish_quarantine(seeded)
+        self.assertEqual((publication.refusal, publication.refs_published, publication.head_adopted), (None, (), None))
+        self.assertEqual(publication.refs_discarded, ((BRANCH, "branch_unadvanced"),))
+        self.assertNotEqual(_git(["rev-parse", "--verify", "-q", BRANCH], cwd=self.repo, check=False).returncode, 0,
+                            "the seed reached the shared repository")
+        self.assertEqual((self.private / "HEAD").read_text(encoding="utf-8"), self.host_head_before)
+        # A containment WITHOUT the seed recorded publishes nothing at all
+        # (round 3: only the seeded name is ever published) — the
+        # publication reads the seed, not the branch's content.
+        unseeded = gc.stand_on_implementation_branch(self.containment, branch=f"{BRANCH}ff", base_sha=self.base)
+        self.assertEqual(unseeded.seeded_refs, ((f"{BRANCH}ff", self.base),))
+        without_seed = publish_quarantine(gc.replace(unseeded, seeded_refs=()))
+        self.assertEqual((without_seed.refs_published, without_seed.refs_discarded),
+                         ((), ((f"{BRANCH}ff", "not_the_seeded_branch"),)))
+        # The same tree can be stood on the branch again: no collision, and
+        # a commit inside then advances and publishes it.
+        seeded = gc.stand_on_implementation_branch(self.containment, branch=BRANCH, base_sha=self.base)
+        done = self._run("echo two > apps/sample.ts; git add apps/sample.ts; git commit -q -m 'feat: two'; git rev-parse HEAD", seeded)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        head = done.stdout.strip().splitlines()[-1]
+        publication = publish_quarantine(seeded)
+        self.assertEqual((publication.refs_published, publication.head_adopted, publication.refs_discarded), ((BRANCH,), BRANCH, ()))
+        self.assertEqual(_git(["rev-parse", BRANCH], cwd=self.repo).stdout.strip(), head)
+
+    def test_refusals_are_by_name_and_write_nothing(self) -> None:
+        replica_head = (self.replica / "HEAD").read_text(encoding="utf-8")
+        for branch, base, reason in (
+            ("feature/mine", self.base, "implementation_branch_name_invalid"),
+            (BRANCH, "not-a-sha", "base_sha_not_an_object_id"),
+            (BRANCH, "0" * 40, f"worktree_not_at_base_sha:{self.base}"),
+        ):
+            with self.subTest(reason=reason):
+                with self.assertRaises(GitContainmentRefusal) as refused:
+                    gc.stand_on_implementation_branch(self.containment, branch=branch, base_sha=base)
+                self.assertEqual(refused.exception.reason, reason)
+        self.assertEqual((self.replica / "HEAD").read_text(encoding="utf-8"), replica_head)
+        self.assertFalse((self.replica / "refs" / "heads" / BRANCH).exists())
+        # A branch the shared repository already holds (an earlier attempt
+        # published it): refused, never re-pointed, nothing written.
+        _git(["branch", BRANCH, self.base], cwd=self.repo)
+        with self.assertRaises(GitContainmentRefusal) as refused:
+            gc.stand_on_implementation_branch(self.containment, branch=BRANCH, base_sha=self.base)
+        self.assertEqual(refused.exception.reason, "implementation_branch_exists")
+        self.assertFalse((self.replica / "refs" / "heads" / BRANCH).exists())
+        # And a read-only containment cannot host a branch at all.
+        read_only = derive_git_containment(self.worktree, commit_capable=False)
+        assert read_only is not None
+        with self.assertRaises(GitContainmentRefusal) as refused:
+            gc.stand_on_implementation_branch(read_only, branch=BRANCH, base_sha=self.base)
+        self.assertEqual(refused.exception.reason, "branch_without_commit_capability")
+
+    def test_mutation_a_branch_made_in_the_shared_repository_is_caught_by_the_pin(self) -> None:
+        # The tempting shape — `git switch -c` on the host worktree — creates
+        # the ref in the SHARED repository; the loose-ref overlay then makes
+        # it read-only inside and the agent's commit dies on it. The pin
+        # above (a commit inside advances the ref) catches that shape.
+        _git(["switch", "-q", "-c", BRANCH, self.base], cwd=self.worktree)
+        self.addCleanup(lambda: _git(["switch", "-q", "--detach", self.base], cwd=self.worktree, check=False))
+        containment = derive_git_containment(self.worktree, commit_capable=True, signing=SandboxSigning(
+            keys_dir=self.key.private_key_path.parent, public_key_path=self.key.public_key_path,
+            agent_socket=self.agent.socket_path,
+        ))
+        assert containment is not None
+        done = self._run(
+            "echo two > apps/sample.ts; git add apps/sample.ts; git commit -q -m 'feat: two'",
+            containment,
+        )
+        self.assertNotEqual(done.returncode, 0)
+        # git's own words for a ref it cannot rename over (the overlay's
+        # mountpoint: EBUSY): the branch would never advance.
+        self.assertIn(f"couldn't set 'refs/heads/{BRANCH}'", done.stderr + done.stdout)
+        _git(["branch", "-D", BRANCH], cwd=self.repo, check=False)
 
 
 class DependencyTreeTests(_Checkout):

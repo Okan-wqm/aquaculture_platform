@@ -705,9 +705,16 @@ class StepOrderingAndAbortGateContract(unittest.TestCase):
         # arithmetic is pinned in test_state_lock_liveness_bound. 200 → 280:
         # the reserve's restore and publish arcs are sums over the store's
         # registered lifecycle git steps (`state_store_lifecycle_arcs`).
+        # 280 → 500 (ARIA-HIGH-124 round 3): the window holds an
+        # implementation child whose delivery — the contained apply gate at
+        # the canonical ceiling per command, the publication, the push, the
+        # PR — is priced into the child's worst case. 500 -> 510 (round 6):
+        # the drain window grew to 21000 s so an implementation child has a
+        # 657 s start window (the first `next-pending` alone took over 40 s
+        # under load), and this cap moves with the YAML timeout it mirrors.
         self.assertEqual(
             cycle_wall_clock_cap_seconds(self._EXECUTOR),
-            (280 - WALL_CLOCK_RESERVE_MINUTES) * 60,
+            (510 - WALL_CLOCK_RESERVE_MINUTES) * 60,
         )
         # 50 → 360 (operator decision 2026-08-13): the night's window is the
         # 360-minute platform ceiling. Smoke runs 1-3 proved 50 was the

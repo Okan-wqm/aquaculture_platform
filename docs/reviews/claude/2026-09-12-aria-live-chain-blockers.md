@@ -1169,6 +1169,66 @@ system`) — the agent's `git commit` the identity contract relies on cannot
   second of the holder's SIGKILL — each mutation (store root bound, shared
   refs bound, `config.worktree` overlay dropped) caught by its pin.
 
+## ARIA-HIGH-124 — the implementer's kernel commands and MCP server run where the store is not
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-21
+- **Evidence (found while closing ARIA-HIGH-123 round 2, 2026-09-14):**
+  the implementer's contract (`.claude/agents/aria-implementer.md`, steps
+  8b and 9) has the AGENT run `python3 -m aria_kernel apply gate …` and
+  `python3 -m aria_kernel pr create …` inside its own sandbox, and the
+  `implementer` profile loads the `aria` MCP server
+  (`python3 -m aria_kernel mcp serve`, `ARIA_TOOLS_DIR` passed through)
+  inside the same sandbox.
+  All three read AND write the durable state store (`apply gate` promotes
+  the action, `pr create` records the PR, the MCP server bootstraps and
+  journals `mcp/tool-calls.jsonl`). On `b97fb0af5f` the store was a phantom
+  on bwrap's root tmpfs (each command bootstrapped an empty store and
+  failed to find its proposal, or served an empty view); the HIGH-123
+  first cut "fixed" this by binding the store writable, which the
+  reverify refused; the HIGH-123 close leaves the store unmounted on
+  purpose. None of the three has ever worked in the production sandbox,
+  and the HIGH-115/123 end-to-end pins carry `pr_url` as a fixture
+  constant. Running kernel-authority commands inside the agent's sandbox is
+  unsound regardless of the mount: `python3 -m aria_kernel` resolves the
+  package from the cwd first, so a package the agent writes into its
+  worktree shadows the read-only kernel tree.
+- **Fix shape:** the same seam HIGH-123 gave the hooks — a kernel-side
+  request broker: the in-sandbox `apply gate` / `pr create` become thin
+  clients; the broker runs the store mutation and the PR opening OUTSIDE
+  with the executor's authority (the validation half of the apply gate
+  stays INSIDE, contained, and its evidence is what the broker records);
+  the `aria` MCP server is served outside the sandbox over a bound socket
+  (or its read view is compiled into the spawn), never spawned inside
+  against the store. Until then an implementer result cannot carry a real
+- **What is now true (rounds 1–6, 2026-09-14 → 09-15):** the kernel-authority commands never run
+  inside the agent's sandbox. `apply gate` and `pr create` are the executor's, run OUTSIDE on the
+  quarantine the sandbox produced (`implementation_delivery`): the validation half of the gate
+  runs CONTAINED (`run_validation_commands(spawn_wrapper=)`, `wrap_validation_in_sandbox` over an
+  empty `--tmpfs` where the keys dir was, round 5) and its evidence is what the delivery records;
+  the `aria` MCP server is served outside over a bound socket (`mcp_broker`, `mcp_relay` inside
+  as a thin client, `kernel_socket` transport). The branch is the kernel's
+  (`stand_on_implementation_branch` seeds it; only the seeded branch is published, round 3);
+  the delivery token is minted by the
+  delivery where it is consumed and revoked in its own `finally` (round 6 — the token minted
+  before the spawn had expired by the push); the signing key is in a private 0700 directory of
+  the executor's outside the workspace and retired before the delivery (round 5); the executor's
+  own git runs with hooks off (`KERNEL_GIT_NO_HOOKS_ARGS`, round 6); the executor's kernel resolves
+  from the code root, never from the agent's tree (round 2). The implementation child is priced
+  (`child_worst_case_seconds` with `IMPLEMENTATION_DELIVERY_WORST_CASE_SECONDS`, 13410 s; the
+  lease is the child's own worst case), the drain window holds it with 657 s of start window
+  (`ARIA_DRAIN_BUDGET_SECONDS` 21000, job 510 min — round 6 measured the first `next-pending`
+  of a drain at over 40 s under load, so the 57 s the previous window left skipped the child by
+  name every night), and the absolute deadline every spawn and delivery runs under is anchored
+  at job launch. Every result the executor accepts carries a kernel-stamped `pr_url` or a refusal
+  by name (`deadline_insufficient`, `implementation_signing_unavailable`, the admission
+  refusals) — never a fixture constant. Pinned across `test_implementation_delivery`,
+  `test_mcp_broker`, `test_executor_pr_via_kernel`, `test_executor_implementation_identity`,
+  `test_git_containment`, `test_containment_probe`, `test_state_lock_liveness_bound` and the
+  executor lanes; round 6's reverify under a real bwrap ran 20/20 on the droplet.
+- **Named, not closed here:** the clients the sandbox runs are still resolved from the
+  workspace (ARIA-HIGH-142), and the implementer's sandbox has no egress boundary
+  (ARIA-HIGH-143); both are their own findings.
+
 ## ARIA-MEDIUM-134 — the kernel suite was green on one host only
 
 - **Severity:** MEDIUM · **Owner:** claude · **Deadline:** 2026-09-21
@@ -1292,3 +1352,66 @@ system`) — the agent's `git commit` the identity contract relies on cannot
   loose `refs/heads` only (a branch git packs inside is unadvanced and discarded); the
   containment probe pins the property under the host's git and names a git below the proven
   floor. Until it lands the hosted kernel lane carries these three failures by name.
+
+## ARIA-HIGH-142 — the in-sandbox kernel clients were served from the workspace, not the kernel
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-22
+- **Evidence (found preparing ring 4 on trial eleven, 2026-09-16):** `claude_runtime` derived
+  `hook_context["kernel_root"]` as `<workspace>/aria-kernel` (`:948`, `:1044`) and the MCP relay
+  followed it (`McpRelayContext.kernel_root`); the trial's task source (`6652139901`) predates
+  `hook_client.py`, `mcp_relay.py`, `git_containment.py` and `hook_broker.py`, so the settings
+  document named a hook line and a relay path that did not exist inside the sandbox. Nothing
+  refused: a hook that cannot be executed is an `execvp` failure the CLI reports as a hook error,
+  and the relay's server simply never came up. `ci_executor._REPO_ROOT` (`:455`) falls back to
+  the module's own checkout when `ARIA_WORKSPACE_ROOT` is unset — the kernel's tree, not the
+  request's — with no line in the log saying so. ARIA-HIGH-133's class: a live seam that had never
+  seen a workspace other than the kernel's own checkout.
+- **What is now true:** `claude_settings.kernel_code_root()` is the one root — the running
+  kernel's `aria-kernel/`. `claude_runtime._hook_context` names it for any workspace and refuses
+  `kernel_client_missing:<path>` before a settings document is written when either client is
+  absent there. `implementation_safety.kernel_root_ro_binds` binds that root read-only, at its
+  own path, on every sandbox route (`wrap_bash_in_sandbox` is the one builder) when it lies
+  outside the workspace and under no system root — the kernel's own checkout adds nothing, since
+  READONLY_PATHS already keeps `aria-kernel/aria_kernel/` read-only there. The executor writes
+  `REPO_ROOT_FROM_MODULE_MARKER` at entry whenever its root came from its own module.
+  Pinned by `test_kernel_clients_from_code_root` (the root holds both clients; the context points
+  at the kernel for a workspace without `aria-kernel/`; a kernel tree missing a client is refused
+  by name; the bind is present for a foreign workspace and absent for the checkout and under a
+  system root; the executor's note and its silence), red on the tree before the fix.
+- **Named, not closed here:** the executor's `_REPO_ROOT` stays a fallback rather than a
+  refusal — the drain always exports the env, and a targeted operator run now says which tree
+  it is about; making the env mandatory is a contract change for `ci_executor.py <request_id>`
+  and is recorded on this finding when decided.
+
+## ARIA-HIGH-143 — the implementer sandbox had no egress boundary
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-22
+- **Evidence (Fable review, confirmed against `origin/main` and the candidate, 2026-09-16):** the
+  managed spawn shares the host's network namespace on purpose — `MANAGED_SPAWN_ALLOW_NETWORK`
+  is `True` so the Claude CLI can reach its provider — and `/etc/resolv.conf` is bound in. The
+  command policy refuses `curl`/`wget`/`nc` by name, but `pytest` and `nx test` run whatever the
+  agent committed, `.env` is a read-only but VISIBLE bind, and the sandbox already has
+  `--unshare-pid`. So a prompt-injected agent needed one allowed runner and one test file it wrote
+  to send a secret to any host it liked; the only brake was the model's judgement, which is
+  precisely what an injection subverts. This sandbox has never run on a real implementation
+  request, so the boundary is cheapest to add before the first live run (Blok 6), not after.
+- **What is now true:** `aria_kernel/egress_proxy.py` is an allowlist CONNECT proxy — standard
+  library, ~180 lines, one verb — run on the host by `infrastructure/aria/aria-egress-proxy.service`
+  (loopback `:3128` and a unix socket), allowing only the provider endpoints and refusing every
+  other target by name with one JSON line per decision. The spawn is handed it through
+  `HTTPS_PROXY` (`agent_env.BASELINE_ENV_NAMES` already carries the proxy vars). The kernel adds
+  the three free namespace flags to `MANAGED_SPAWN_ISOLATION_FLAGS` (`--unshare-ipc`,
+  `--unshare-uts`, `--new-session` — so `/proc` shows only the spawn's own PIDs, System V IPC and
+  the UTS names are the spawn's, and no TIOCSTI reaches the executor's terminal) and the bwrap
+  probe mirrors them (ORPHAN-MEDIUM-452). `ci_executor._pre_claim_environment_gate` gains
+  `egress_boundary_probe`: it asks the proxy for a tunnel to a TEST-NET address and accepts only a
+  refusal by name, so a host with no proxy, a silent one or a permissive one is refused
+  `egress_boundary_unavailable` and the request stays PENDING. The network namespace itself is
+  deliberately NOT unshared — the CLI needs the provider — which is why the proxy, not
+  `--unshare-net`, is the boundary. Pinned by `test_egress_proxy` (admit the allowlist end to
+  end, refuse everything else by name, a permissive proxy is not a boundary) and the gate and
+  isolation pins in `test_environment_contract`, `test_managed_claude_sandbox` and
+  `test_sandbox_and_perimeter_hardening`.
+- **Rejected as over-engineering (Fable concurred):** a seccomp profile, gVisor / a microVM, a
+  separate worker VM (ARIA-MEDIUM-139 already records that path), and hiding `.env` behind
+  `/dev/null` (the wrong layer). The boundary belongs at egress, enforced by the host.

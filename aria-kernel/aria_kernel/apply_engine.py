@@ -27,6 +27,7 @@ from .validation import (
     list_validation_gates,
     parse_allowed_command,
     run_validation_commands,
+    SpawnWrapper,
 )
 
 
@@ -277,6 +278,14 @@ def gate_apply_action(
             "suppression_matches": suppression_matches,
             "status": final_status,
             "blocked_by": blocked_by,
+            # ARIA-HIGH-124 (round 3) — WHERE the candidate validation ran:
+            # the override (the executor's request worktree) when given,
+            # else the staged root. The PR body names it; `workspace_root`
+            # stays the staging's, as the row copied it.
+            "gate_workspace_root": (
+                str(Path(str(workspace_root)).resolve()) if workspace_root is not None
+                else action.get("workspace_root")
+            ),
         },
     )
     return append_declared_jsonl(
@@ -450,9 +459,12 @@ def _staged_validation_commands(
 
     ORPHAN-CRITICAL-728 — WHAT A PLAN MAY ADD TO IT, and why the rule is not
     "whatever the allowlist happens to pass". These commands are executed by
-    ``run_validation_commands``, which runs OUTSIDE the implementer's bwrap
-    sandbox, and ``validation_commands`` is plan content: written by one LLM,
-    reviewed by others, with no human in the loop. The previous body appended
+    ``run_validation_commands`` — for the BASELINE here, in the cycle job at
+    the trusted checkout HEAD, unconfined; for the candidate, by the
+    executor's gate at the agent's tip, contained (ARIA-HIGH-124 round 3,
+    ``implementation_delivery``) — and ``validation_commands`` is plan
+    content: written by one LLM, reviewed by others, with no human in the
+    loop. The previous body appended
     any string the allowlist admitted, and the allowlist admits
     ``python3 -m unittest <anything>`` with no target restriction and permits
     a ``PYTHONPATH=`` override — so
@@ -870,6 +882,7 @@ def run_apply_gate(
     runner_identity: str | None = None,
     cycle_id: str | None = None,
     workspace_root: str | Path | None = None,
+    spawn_wrapper: SpawnWrapper | None = None,
 ) -> dict[str, Any]:
     """Run the candidate validation and promote the action to ``ready_for_pr``.
 
@@ -887,6 +900,14 @@ def run_apply_gate(
     arm read the ledger row and nothing else, so the gate could only ever run
     on the machine and at the path where staging happened. That is true of
     both GHA jobs today and of nothing else.
+
+    ``spawn_wrapper`` (ARIA-HIGH-124, round 3) is handed to
+    ``run_validation_commands`` unchanged: the executor's gate runs the suite
+    of a tree the AGENT wrote and passes the validation sandbox's builder
+    (``implementation_safety.wrap_validation_in_sandbox``), so the candidate
+    validation executes contained — the READONLY_PATHS read-only, the store
+    and the code root not mounted, no network — while the promotion stays
+    the kernel's, outside.
     """
     from .runtime_profile import enforce_profile_for_action
 
@@ -964,6 +985,7 @@ def run_apply_gate(
         timeout_ms=int(
             action.get("validation_timeout_ms") or CANONICAL_VALIDATION_TIMEOUT_MS,
         ),
+        spawn_wrapper=spawn_wrapper,
         **({"input_scope": input_selection["input_scope"]}
            if input_selection is not None and input_selection["status"] == "selected" else {}),
     )

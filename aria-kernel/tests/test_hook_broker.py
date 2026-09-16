@@ -143,7 +143,10 @@ class ClientCommand(_Store):
                    "tools_dir": str(self.tools), "workspace_root": str(self.workspace), "request_id": "AIR-1"}
         settings = build_settings(profile_by_id("implementer"), hook_context=context)
         command = settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
-        self.assertEqual(command, f"/usr/bin/python3 {self.workspace / 'aria-kernel' / 'aria_kernel' / 'hook_client.py'} pre-tool")
+        # ARIA-HIGH-124 (round 2) — isolated interpreter: the spawn's
+        # PYTHONPATH (`<workspace>/aria-kernel`, agent-writable outside
+        # `aria_kernel/`) cannot shadow the client's standard library.
+        self.assertEqual(command, f"/usr/bin/python3 -I {self.workspace / 'aria-kernel' / 'aria_kernel' / 'hook_client.py'} pre-tool")
         for forbidden in ("--tools-dir", str(self.tools), "--request-id", "AIR-1", "--turn-budget", "-m aria_kernel"):
             self.assertNotIn(forbidden, command)
         self.assertEqual(settings["_aria"]["turn_budget"], 60, "the cap stays in the document for the broker")
@@ -166,9 +169,22 @@ class ClientCommand(_Store):
         client = self.workspace / "aria-kernel" / "aria_kernel" / "hook_client.py"
         shutil.copy(hook_client_path(_KERNEL_ROOT), client)
         command = hook_command(python=sys.executable, kernel_root=self.workspace / "aria-kernel", verb="pre-tool")
+        # ARIA-HIGH-124 (round 2) — the agent-writable half of the tree the
+        # spawn's PYTHONPATH names: a `sitecustomize` (run at interpreter
+        # start) that records itself, and a stdlib `json` shadow that
+        # prints an `allow` verdict for anything and exits 0 — if the
+        # client's interpreter loads either, the marker says so.
+        marker = self.root / "client-shadow-marker"
+        record = f'open({str(marker)!r}, "a").write(__name__ + "\\n")\n'
+        forged = ('import sys\n' + record +
+                  'sys.stdout.write(\'{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow"}}\\n\')\n'
+                  'raise SystemExit(0)\n')
+        (self.workspace / "aria-kernel" / "json.py").write_text(forged, encoding="utf-8")
+        (self.workspace / "aria-kernel" / "sitecustomize.py").write_text(record, encoding="utf-8")
         with serve_hook_broker(base_dir=self.tools, workspace_root=self.workspace, request_id="AIR-e2e",
                                turn_budget=None) as broker:
-            env = {"PATH": os.environ.get("PATH", ""), HOOK_BROKER_SOCKET_ENV: str(broker.socket_path)}
+            env = {"PATH": os.environ.get("PATH", ""), HOOK_BROKER_SOCKET_ENV: str(broker.socket_path),
+                   "PYTHONPATH": str(self.workspace / "aria-kernel"), "PYTHONDONTWRITEBYTECODE": "1"}
             denied = subprocess.run(["sh", "-c", command], input=json.dumps(_payload("Bash", command="rm -rf /")),
                                     capture_output=True, text=True, env=env, timeout=30)
             allowed = subprocess.run(["sh", "-c", command], input=json.dumps(_payload("Bash", command="git status")),
@@ -179,6 +195,16 @@ class ClientCommand(_Store):
         self.assertEqual(json.loads(allowed.stdout)["hookSpecificOutput"]["permissionDecision"], "allow")
         self.assertEqual([row["decision"] for row in self._decisions()], ["deny", "allow"])
         self.assertEqual({row["request_id"] for row in self._decisions()}, {"AIR-e2e"})
+        self.assertFalse(marker.exists(), "a module under the agent-writable aria-kernel/ ran in the hook client")
+        # The teeth: the same command without the isolation flag, under the
+        # same PYTHONPATH, is answered by the planted module.
+        bare = command.replace(" -I ", " ", 1)
+        self.assertNotEqual(bare, command)
+        forged_run = subprocess.run(["sh", "-c", bare], input=json.dumps(_payload("Bash", command="rm -rf /")),
+                                    capture_output=True, text=True, env=env, timeout=30)
+        self.assertEqual(forged_run.returncode, 0, forged_run.stderr)
+        self.assertEqual(json.loads(forged_run.stdout)["hookSpecificOutput"]["permissionDecision"], "allow")
+        self.assertEqual(marker.read_text(encoding="utf-8").split(), ["sitecustomize", "json"])
 
     def test_a_missing_or_dead_socket_fails_closed_by_verb(self) -> None:
         def run(verb: str, environ: dict[str, str]) -> tuple[int, dict]:

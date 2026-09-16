@@ -644,6 +644,7 @@ def _apply_write_containment(
     managed_login_dir: Path | None = None,
     git_containment: Any | None = None,
     hook_broker_socket: Path | None = None,
+    mcp_broker_socket: Path | None = None,
 ) -> list[str]:
     """Wrap a write-capable spawn so READONLY_PATHS are enforced by the OS.
 
@@ -663,7 +664,9 @@ def _apply_write_containment(
     nothing under either git dir is writable. ``hook_broker_socket`` is the
     kernel-side hook broker's socket (``hook_broker.serve_hook_broker``),
     bound into the sandbox so the hooks decide and journal OUTSIDE it; the
-    durable store is never mounted in the sandbox.
+    durable store is never mounted in the sandbox. ``mcp_broker_socket``
+    is the kernel-side MCP broker's (ARIA-HIGH-124): the `aria` view is
+    served outside and relayed in through it.
 
     Fail-closed: with no sandbox backend the spawn is REFUSED unless the
     operator has set ``ARIA_ALLOW_UNCONFINED_WRITE``. Pre-fix
@@ -707,12 +710,12 @@ def _apply_write_containment(
         if executable is None:
             return wrap_bash_in_sandbox(
                 argv, workspace_root=workspace, allow_network=True, write_scope=write_scope,
-                git=git, hook_broker_socket=hook_broker_socket,
+                git=git, hook_broker_socket=hook_broker_socket, mcp_broker_socket=mcp_broker_socket,
             )
         return wrap_managed_claude_in_sandbox(
             argv, workspace_root=workspace, write_scope=write_scope, executable=executable,
             spawn_files=spawn_files, managed_login_dir=managed_login_dir, git=git,
-            hook_broker_socket=hook_broker_socket,
+            hook_broker_socket=hook_broker_socket, mcp_broker_socket=mcp_broker_socket,
         )
     except SandboxUnavailable as exc:
         if _parse_bool(
@@ -938,19 +941,74 @@ def spawn_settings_hash(*, agent_profile: Any | None, usage_recording: UsageReco
     from aria_kernel.claude_settings import build_settings, settings_hash
     from aria_kernel.runtime_profiles import profile_by_id
 
-    hook_context = None
-    if usage_recording is not None and workspace_root is not None:
-        hook_context = {
-            "python": sys.executable or "python3",
-            "kernel_root": str(Path(workspace_root).resolve() / "aria-kernel"),
-            "tools_dir": str(Path(usage_recording.base_dir).resolve()),
-            "workspace_root": str(Path(workspace_root).resolve()),
-            "request_id": usage_recording.request_id,
-        }
+    hook_context = _hook_context(usage_recording=usage_recording, workspace_root=workspace_root)
     return settings_hash(build_settings(profile_by_id(str(profile_id)), hook_context=hook_context))
 
-def _write_spawn_mcp_config(*, agent_profile: Any | None, base_dir: Any | None) -> Path:
-    """Plan 032 Faz 032g — the `--mcp-config` document for this spawn."""
+def _hook_context(*, usage_recording: UsageRecording | None, workspace_root: str | Path | None) -> dict[str, str] | None:
+    """The kernel facts the spawn's hooks and MCP relay are served with, or
+    None for a spawn without a ledger or a workspace.
+
+    ARIA-HIGH-142 — ``kernel_root`` is the RUNNING kernel's ``aria-kernel/``
+    (``claude_settings.kernel_code_root``), not ``<workspace>/aria-kernel``:
+    the clients are the kernel's, and a workspace checked out at a commit
+    without them (trial eleven's task source) gave every hook and the relay
+    a path that did not exist inside the sandbox. Both clients are checked
+    HERE, before a settings document names them, so a kernel tree that
+    lacks one refuses by name instead of a hook dying silently by path.
+    """
+    if usage_recording is None or workspace_root is None:
+        return None
+    from aria_kernel.claude_settings import hook_client_path, kernel_code_root
+    from aria_kernel.mcp_client import MCP_RELAY_RELPATH
+
+    kernel_root = kernel_code_root()
+    for client in (hook_client_path(kernel_root), kernel_root.joinpath(*MCP_RELAY_RELPATH)):
+        if not client.is_file():
+            raise ClaudePolicyViolation(f"kernel_client_missing:{client}")
+    return {
+        "python": _spawn_interpreter(),
+        "kernel_root": str(kernel_root),
+        "tools_dir": str(Path(usage_recording.base_dir).resolve()),
+        "workspace_root": str(Path(workspace_root).resolve()),
+        "request_id": usage_recording.request_id,
+    }
+
+
+def _spawn_interpreter() -> str:
+    """The interpreter the in-sandbox hook client and MCP relay run under:
+    this process's, by its REAL path. The sandbox binds the system tree,
+    not the directory a symlink named on PATH (ARIA-HIGH-124: a symlinked
+    ``python3`` outside the binds gave the relay no interpreter inside),
+    so the resolved binary is what exists on both sides."""
+    executable = sys.executable or "python3"
+    try:
+        return os.path.realpath(executable)
+    except OSError:
+        return executable
+
+
+def _kernel_profile(agent_profile: Any | None) -> Any | None:
+    """The kernel runtime profile behind a spawn's agent profile, or None
+    for the profile-less legacy shape."""
+    profile_id = getattr(agent_profile, "profile_id", None)
+    if not profile_id:
+        return None
+    from aria_kernel.runtime_profiles import profile_by_id
+
+    return profile_by_id(str(profile_id))
+
+
+def _write_spawn_mcp_config(*, agent_profile: Any | None, base_dir: Any | None, relay: Any | None = None) -> Path:
+    """Plan 032 Faz 032g — the `--mcp-config` document for this spawn.
+
+    ARIA-HIGH-124 — ``relay`` (an ``mcp_client.McpRelayContext``) is how the
+    document reaches the kernel's own `aria` server: served OUTSIDE by this
+    process (``mcp_broker``), relayed in by ``mcp_relay.py`` run by path
+    under the workspace's read-only kernel tree. A profile that names the
+    kernel's server on a spawn that serves no broker is refused by the
+    kernel (``mcp_kernel_socket_requires_relay``), never handed a server
+    spawned inside against a store that is not there.
+    """
     from aria_kernel.mcp_client import mcp_config_for_profile, write_mcp_config_file
 
     profile_id = getattr(agent_profile, "profile_id", None)
@@ -959,7 +1017,7 @@ def _write_spawn_mcp_config(*, agent_profile: Any | None, base_dir: Any | None) 
     from aria_kernel.runtime_profiles import profile_by_id
 
     kernel = profile_by_id(str(profile_id))
-    config = mcp_config_for_profile(kernel, base_dir=base_dir)
+    config = mcp_config_for_profile(kernel, base_dir=base_dir, relay=relay)
     return write_mcp_config_file(config, label=str(profile_id))
 
 
@@ -1001,16 +1059,8 @@ def _write_spawn_settings(
             f"claude_settings_builder_unavailable: {exc}; refusing a profiled spawn without its settings"
         ) from exc
     kernel = profile_by_id(str(profile_id))
-    hook_context = None
-    if usage_recording is not None and workspace_root is not None:
-        hook_context = {
-            "python": sys.executable or "python3",
-            "kernel_root": str(Path(workspace_root).resolve() / "aria-kernel"),
-            "tools_dir": str(Path(usage_recording.base_dir).resolve()),
-            "workspace_root": str(Path(workspace_root).resolve()),
-            "request_id": usage_recording.request_id,
-        }
-    elif write_capable:
+    hook_context = _hook_context(usage_recording=usage_recording, workspace_root=workspace_root)
+    if hook_context is None and write_capable:
         raise ClaudePolicyViolation(
             "claude_write_spawn_without_hook_context: a write-capable spawn needs a "
             "ledger (usage_recording.base_dir) and a workspace so its hooks can decide and journal"
@@ -1253,11 +1303,6 @@ def run_claude_exec(
     settings_path = spawn_settings.path
     if settings_path is not None:
         argv.extend(["--settings", str(settings_path)])
-    # Plan 032 Faz 032g — MCP config per spawn, ALWAYS strict: only the kernel
-    # registry servers the profile names (minus quarantined); a profile-less
-    # spawn gets an empty document, i.e. no MCP server at all.
-    mcp_config_path = _write_spawn_mcp_config(agent_profile=agent_profile, base_dir=getattr(usage_recording, "base_dir", None))
-    argv.extend(["--strict-mcp-config", "--mcp-config", str(mcp_config_path)])
     # ORPHAN-CRITICAL-427 — containment is applied HERE, by the code that
     # spawns the process, not by prose in the agent's own instruction file.
     # A write-capable shape (full permission bypass or acceptEdits) gets
@@ -1271,9 +1316,12 @@ def run_claude_exec(
     # of the store is mounted in the sandbox. One broker per spawn, alive
     # exactly as long as the spawn.
     from aria_kernel.hook_broker import HOOK_BROKER_SOCKET_ENV, serve_hook_broker
+    from aria_kernel.mcp_broker import MCP_BROKER_SOCKET_ENV, serve_mcp_broker
+    from aria_kernel.mcp_client import McpRelayContext, kernel_socket_servers
 
     with _ExitStack() as spawn_stack:
         broker = None
+        mcp_broker = None
         if spawn_settings.hook_context is not None:
             broker = spawn_stack.enter_context(serve_hook_broker(
                 base_dir=spawn_settings.hook_context["tools_dir"],
@@ -1281,19 +1329,52 @@ def run_claude_exec(
                 request_id=spawn_settings.hook_context["request_id"],
                 turn_budget=spawn_settings.turn_budget,
             ))
+            # ARIA-HIGH-124 — the kernel's own MCP server is served HERE,
+            # outside the sandbox, against the store the hooks journal
+            # into, for the spawn's life; the relay the document names is
+            # its only way in. A profile that names no kernel server gets
+            # no broker.
+            if kernel_socket_servers(_kernel_profile(agent_profile)):
+                mcp_broker = spawn_stack.enter_context(serve_mcp_broker(
+                    base_dir=spawn_settings.hook_context["tools_dir"],
+                    workspace_root=spawn_settings.hook_context["workspace_root"],
+                    request_id=spawn_settings.hook_context["request_id"],
+                ))
+        # Plan 032 Faz 032g — MCP config per spawn, ALWAYS strict: only the
+        # kernel registry servers the profile names (minus quarantined); a
+        # profile-less spawn gets an empty document, i.e. no MCP server at
+        # all. Written after the brokers exist, because the kernel's server
+        # renders as the relay to this spawn's broker socket.
+        mcp_config_path = _write_spawn_mcp_config(
+            agent_profile=agent_profile, base_dir=getattr(usage_recording, "base_dir", None),
+            relay=(McpRelayContext(
+                python=_spawn_interpreter(),
+                kernel_root=Path(spawn_settings.hook_context["kernel_root"]),
+            ) if mcp_broker is not None else None),
+        )
+        argv.extend(["--strict-mcp-config", "--mcp-config", str(mcp_config_path)])
         # The spawn environment is BUILT (agent_env), never copied: baseline +
         # CLI auth + profile passthrough, secrets dropped by name. Built before
         # containment so the managed-login directory it derived can be ro-bound.
         spawn_env, env_report = _build_spawn_env(
             passthrough=passthrough,
             extra={**({"IS_SANDBOX": "1"} if _sandbox_acknowledged() else {}),
-                   # The kernel CLI the agent may run (`apply gate`, `pr
-                   # create`) rides PYTHONPATH exactly as in the lanes.
+                   # PYTHONPATH names the workspace's kernel tree exactly as
+                   # in the lanes, for the agent's own validation runs
+                   # (`python3 -m unittest …` over kernel tests). No kernel
+                   # CLI runs inside any more: `python3 -m aria_kernel …` is
+                   # refused by the command policy (ARIA-HIGH-124), and the
+                   # hook client and the MCP relay are run by path and
+                   # import nothing from the package.
                    **({"PYTHONPATH": str(Path(cwd).resolve() / "aria-kernel")} if cwd is not None else {}),
                    # The broker's HOST socket: what an unconfined spawn's
                    # hooks connect to; the sandbox overrides the name with
                    # the bound path.
                    **({HOOK_BROKER_SOCKET_ENV: str(broker.socket_path)} if broker is not None else {}),
+                   # ARIA-HIGH-124 — the MCP broker's HOST socket, the same
+                   # way: the relay inherits it from the CLI; the sandbox
+                   # overrides the name with the bound path.
+                   **({MCP_BROKER_SOCKET_ENV: str(mcp_broker.socket_path)} if mcp_broker is not None else {}),
                    **(dict(extra_env) if extra_env else {})},
         )
         config_dir = env_report.claude_config_dir if env_report is not None else None
@@ -1313,6 +1394,7 @@ def run_claude_exec(
             managed_login_dir=Path(config_dir) if config_dir else None,
             git_containment=git_containment,
             hook_broker_socket=broker.socket_path if broker is not None else None,
+            mcp_broker_socket=mcp_broker.socket_path if mcp_broker is not None else None,
         )
         # ORPHAN-MEDIUM-459 — resource limits, applied by the spawner for the same
         # reason containment is. `apply_resource_limits` shipped with the sandbox

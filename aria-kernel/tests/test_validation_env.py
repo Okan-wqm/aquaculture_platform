@@ -192,16 +192,36 @@ class SpawnSeamInvariantTests(unittest.TestCase):
         call = parents[reads[0]]
         self.assertIsInstance(call, ast.Call)
         self.assertEqual(getattr(call.func, "id", None), "build_validation_env")
-        # The spawn hands subprocess the BUILT mapping, never a literal.
-        spawns = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
-                  and isinstance(node.func, ast.Attribute) and node.func.attr == "run"
-                  and isinstance(node.func.value, ast.Name) and node.func.value.id == "subprocess"
-                  and any(kw.arg == "env" for kw in node.keywords)]
-        self.assertEqual(len(spawns), 1)
-        env_kw = next(kw for kw in spawns[0].keywords if kw.arg == "env")
+        # The spawn hands the process the BUILT mapping, never a literal.
+        # ARIA-HIGH-124 round 3 wraps the command in bwrap, so the spawn is
+        # `_run_to_completion(...)` (which kills the whole process group of a
+        # bwrap parent, not the one pid `subprocess.run` reaps) rather than a
+        # direct `subprocess.run`. The seam is unchanged: the run call is
+        # handed `env=spawn_env.env`, and `_run_to_completion` passes that
+        # straight to the one Popen — never `os.environ` and never a literal.
+        run_calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
+                     and isinstance(node.func, ast.Name) and node.func.id == "_run_to_completion"
+                     and any(kw.arg == "env" for kw in node.keywords)]
+        self.assertEqual(len(run_calls), 1)
+        env_kw = next(kw for kw in run_calls[0].keywords if kw.arg == "env")
         self.assertIsInstance(env_kw.value, ast.Attribute)
         self.assertEqual(env_kw.value.attr, "env")
         self.assertEqual(getattr(env_kw.value.value, "id", None), "spawn_env")
+        # `_run_to_completion` is the ONLY place a process is spawned, and its
+        # env comes from its own parameter — no `os.environ`, no `{**...}`.
+        run_defs = [node for node in ast.walk(tree)
+                    if isinstance(node, ast.FunctionDef) and node.name == "_run_to_completion"]
+        self.assertEqual(len(run_defs), 1)
+        spawns = [node for node in ast.walk(run_defs[0]) if isinstance(node, ast.Call)
+                  and isinstance(node.func, ast.Attribute)
+                  and node.func.attr in ("Popen", "run")
+                  and isinstance(node.func.value, ast.Name) and node.func.value.id == "subprocess"]
+        self.assertEqual(len(spawns), 1)
+        spawn_env_kw = next(kw for kw in spawns[0].keywords if kw.arg == "env")
+        # `env=dict(env)` — a copy of the passed-in mapping, not os.environ.
+        self.assertIsInstance(spawn_env_kw.value, ast.Call)
+        self.assertEqual(getattr(spawn_env_kw.value.func, "id", None), "dict")
+        self.assertEqual(getattr(spawn_env_kw.value.args[0], "id", None), "env")
 
 
 if __name__ == "__main__":

@@ -1404,11 +1404,21 @@ def run_autonomy_orchestrator(
                 # still answers belongs to a live holder and is left alone.
                 # Nothing swept, nothing said.
                 try:
+                    from .delivery_credentials import prune_stale_delivery_credential_dirs
                     from .hook_broker import prune_stale_hook_brokers
+                    from .mcp_broker import prune_stale_mcp_brokers
                     from .signing_agent import prune_stale_signing_agents
                     _sockets_pruned = {
                         "signing_agents": prune_stale_signing_agents(),
                         "hook_brokers": prune_stale_hook_brokers(),
+                        # ARIA-HIGH-124 — the MCP broker's socket, the same class.
+                        "mcp_brokers": prune_stale_mcp_brokers(),
+                        # ARIA-HIGH-124 (round 6) — the delivery credential's
+                        # private directory: a killed executor leaves it
+                        # (with the token file, if the kill fell between the
+                        # mint's write and the hold's read); older than the
+                        # provider's hour it is nobody's.
+                        "delivery_credential_dirs": prune_stale_delivery_credential_dirs(),
                     }
                 except Exception as _sweep_exc:
                     append_tools_governance(

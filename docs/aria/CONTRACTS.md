@@ -805,13 +805,51 @@ decision constructs and threads through every `classify_evidence_ref` call:
   (`ci_executor.REQUEST_WORKTREE_WORST_CASE_SECONDS`). An add git did not answer starts no child —
   the request stays PENDING — and stops the drain (`worktree_unavailable`, breaker kind
   `subprocess_timeout`); a remove that did not answer is a breaker row, never a request failure.
-- **Human-required record child.** The executor's `human-required record` children run at
-  `HUMAN_REQUIRED_RECORD_TIMEOUT_SECONDS`, derived from the kernel's own worst case for that path
-  (`human_required.HUMAN_REQUIRED_RECORD_WAIT_SECONDS` = one state transaction for the governance
-  row + `notify.NOTIFY_WORST_CASE_SECONDS`: every channel at `SENDER_WALL_CLOCK_SECONDS` on a
-  joined worker, then ONE transaction for the call's outbox rows) plus the kernel work allowance.
-  The terminal-writer slot of `child_worst_case_seconds` is priced at the longer of the submit and
+- **Human-required record.** The executor writes its HUMAN_REQUIRED records IN-PROCESS through
+  the kernel's own recorder (`ci_executor._record_human_required` →
+  `human_required.record_human_required`; ARIA-HIGH-124 round 3 — the former `human-required
+  record` CHILD passed the reason through the operator CLI's free-text `--reason` validator,
+  whose phone-number shape matches any ten consecutive digits, so an escalation naming an
+  `aria-impl-*` branch or a sha carrying such a run was refused at argparse and lost). The
+  record's bound is the kernel's own for that path (`HUMAN_REQUIRED_RECORD_WAIT_SECONDS` = one
+  state transaction for the governance row + `notify.NOTIFY_WORST_CASE_SECONDS`: every channel
+  at `SENDER_WALL_CLOCK_SECONDS` on a joined worker, then ONE transaction for the call's outbox
+  rows) plus the kernel work allowance (`HUMAN_REQUIRED_RECORD_WORST_CASE_SECONDS`). The
+  terminal-writer slot of `child_worst_case_seconds` is priced at the longer of the submit and
   the record.
+- **Implementation delivery pricing (ARIA-HIGH-124 round 3).** `child_worst_case_seconds` takes
+  `implementation_delivery_seconds`: for an implementation child, the quarantine's publication
+  (`git_containment.QUARANTINE_PUBLICATION_WORST_CASE_SECONDS`, five publish-cap git calls), the
+  contained apply gate at the STAGED suite's ceiling per command, the delivery's four git calls
+  at `state_store.GIT_TIMEOUT_SECONDS`, the tip's identity verification
+  (`implementation_safety.COMMIT_SIGNATURE_VERIFY_TIMEOUT_SECONDS`, round 4), the kernel's own
+  decision on the result envelope before the push (`DELIVERY_RESULT_ADMISSIBLE_SECONDS` = one
+  decision's `evidence_probe.EVIDENCE_VERIFICATION_LIVENESS_SECONDS`, round 5),
+  `pr_manager.GH_PR_CREATE_TIMEOUT_SECONDS` (the one
+  network subprocess, bounded since round 3; a timed-out `gh pr create` leaves its intent
+  unresolved for recovery) and the work allowance
+  (`implementation_delivery.delivery_worst_case_seconds`, the ONE derivation). The drain prices
+  each request off its staged action (`ci_executor._request_delivery_seconds` →
+  `staged_delivery_worst_case_seconds`: a plan's recipes make it larger) after selection and
+  skips one that no longer fits the window without a claim (`executor_drain_window_skip`); the
+  env-less default window and the workflow pin hold the canonical shape
+  (`IMPLEMENTATION_DELIVERY_WORST_CASE_SECONDS` = 13410 s with round 6's two credential
+  mints — the delivery's own after the gate and the pre-spawn admission's,
+  `delivery_credentials.DELIVERY_CREDENTIAL_WORST_CASE_SECONDS` each; the implementation child
+  with worktrees = 20343 s; `ARIA_DRAIN_BUDGET_SECONDS` 21000 — 657 s of start window, since
+  the first `next-pending` of a drain took over 40 s under load — job 510 min). The executor's
+  kernel-less standalone mirror (`ci_executor._IMPLEMENTATION_DELIVERY_WORST_CASE_SECONDS`) is
+  pinned equal to the kernel's derivation by `tests/test_executor_kernel_import_fallback.py` —
+  round 4 moved the kernel's sum without the mirror and the pin was red. The executor claims
+  with `--lease-seconds` equal to that child's priced worst case (the 30-minute default expired
+  under a healthy delivery and `submit_claim_result` refuses an expired lease), reserves the
+  delivery out of `ARIA_JOB_DEADLINE_EPOCH` before an implementation spawn and again before it
+  publishes the quarantine (a window that cannot hold it discards the quarantine —
+  `implementation_quarantine_discarded` — and releases harness-class under
+  `implementation_delivery_unavailable`, so no branch collides), and
+  `deliver_implementation` refuses `admission:deadline_insufficient:…` by name with nothing
+  pushed. The executor workflow exports the deadline: its ceiling anchored at job launch minus
+  `ci_executor_drain.JOB_RESERVE_AFTER_DRAIN_SECONDS`.
 - **`rejection_codes` on the submit response.** A rejected `agent submit-result` carries one machine
   code per prose reason (`rejection_codes`, same length and order as `reasons`, persisted on the
   rejection row). A rejection whose codes are ALL in
@@ -2330,10 +2368,11 @@ workspace_root=<the tree the agent runs in>)`. WHERE: inside that tree — the p
   `git commit` by the agent signs and no other worktree or the shared checkout sees the key. The
   V9 runner (`cycle_phases.implementer`) mints nothing: its former key + installation-token
   bracket had no consumer inside its window (staging and the envelope mint make no commit and no
-  GitHub call; the delivery token is the spawn's, `delivery_credentials`), and revoking it in its
-  `finally` before the implementer was even claimed is what left every executor-lane result
-  without an identity. The identity is REFUSED by name, before any turn, when it cannot be held
-  in that tree: the claim is released under the harness-class reason
+  GitHub call; the delivery token is the executor's, minted by its delivery where it is
+  consumed — `delivery_credentials.hold_delivery_credentials`, ARIA-HIGH-124), and revoking it
+  in its `finally` before the implementer was even claimed is what left every executor-lane
+  result without an identity. The identity is REFUSED by name, before any turn, when it cannot
+  be held in that tree: the claim is released under the harness-class reason
   `implementation_signing_unavailable` — the executor's own refusal record
   `IMPLEMENTATION_IDENTITY_REFUSAL` (an `_AdmissionRefusalKind`, rostered in the release-site
   invariant like `ADMISSION_REFUSALS` / `TASK_BINDING_REFUSAL`) spells that reason, and the
@@ -2394,8 +2433,9 @@ workspace_root=<the tree the agent runs in>)`. WHERE: inside that tree — the p
   is never refused). The QUARANTINE is what git writes to: `GIT_OBJECT_DIRECTORY` at the
   replica's `objects/` (its `info/alternates` names the shared store for READS), the replica's
   `refs/heads/` and `logs/refs/heads/` bound AT `<common>/refs/heads` and `<common>/logs/refs/heads`
-  — so a plain `git switch -c aria-impl-…` + `git commit` + `git push origin aria-impl-…` works
-  unchanged inside while the shared common dir is bound READ-ONLY as a whole (`config`, `hooks/`,
+  — so a plain `git add` + `git commit` on the branch the kernel stood the sandbox on
+  (ARIA-HIGH-124, below) works unchanged inside while the shared common dir is bound READ-ONLY as
+  a whole (`config`, `hooks/`,
   `info/`, `objects/` with its packs, `objects/info/alternates` and `maintenance.lock`,
   `packed-refs`, `refs/tags`, `refs/remotes`, the main checkout's `HEAD`/`index`/`logs/HEAD`): a
   write there is EROFS at the syscall. Existing loose refs under `refs/heads/` are overlaid
@@ -2459,15 +2499,17 @@ workspace_root=<the tree the agent runs in>)`. WHERE: inside that tree — the p
   store is mounted in the sandbox — not writable, not at all: the round-1 shape (the store root
   bound writable) handed the agent the request queue, claims, governance, the signer registry,
   operator control, adjudications, the cost ledgers and the very turn count it is gated by. What
-  the agent can do through the socket is what a hook could always do for its own request. (The
-  store-touching kernel commands the implementer contract still has the agent run inside —
-  `apply gate`, `pr create` — and the `aria` MCP server spawned inside are ARIA-HIGH-124: they
-  never worked in the production sandbox and are served outside next.)
+  the agent can do through the socket is what a hook could always do for its own request. The
+  store-touching kernel commands the implementer contract once had the agent run inside — `apply
+  gate`, `pr create`, the push — and the `aria` MCP server once spawned inside are the executor's
+  and served outside (ARIA-HIGH-124, next paragraph).
   WHAT THE PROBE PROVES: `sandbox_backend()` is non-None only when bwrap builds its namespaces AND
   hosts the SIGNED contract (`containment_probe.probe_git_containment`: a throwaway linked
   worktree, a throwaway key minted into it by the identity's own mint, the kernel-held agent, a
-  commit-capable containment derived with that signing exposure, `git status` / `git switch -c` /
-  a signed `git commit` inside the real argv built with the managed route's network setting
+  commit-capable containment derived with that signing exposure, the sandbox stood on the probe's
+  `aria-impl-*` branch by the kernel (`stand_on_implementation_branch`, ARIA-HIGH-124), `git
+  status` / the branch check / a signed `git commit` inside the real argv built with the managed
+  route's network setting
   (`MANAGED_SPAWN_ALLOW_NETWORK`), `git config --local`, a hooks write and a read of the private
   key REFUSED inside, a planted `refs/heads/main.lock` that must not reach the repository, then
   the executor's own publication and `git verify-commit` against the minted key from outside).
@@ -2483,6 +2525,421 @@ workspace_root=<the tree the agent runs in>)`. WHERE: inside that tree — the p
   `tests/test_hook_broker.py`, `tests/test_implementation_identity_hold.py`, and end to end — the
   HIGH-115 chain through the REAL wrapper as the runner's uid and as root — in
   `tests/test_executor_implementation_identity.py`.
+- Kernel authority is exercised outside the agent's sandbox: the agent produces evidence, the
+  executor delivers (ARIA-HIGH-124). The implementer contract had the AGENT run `python3 -m
+  aria_kernel apply gate` and `python3 -m aria_kernel pr create` inside its sandbox after a `git
+  push` of its own, and the `implementer` profile loaded the `aria` MCP server spawned inside as
+  `python3 -m aria_kernel mcp serve`. All of them read and write the durable state store, which
+  is not mounted in the sandbox (previous paragraph): measured on `5072864525` (2026-09-14) through
+  the real executor child under real bwrap, the in-sandbox kernel CLI bootstrapped a PHANTOM store
+  (the host store's profile was `strict`; inside, `apply_gate` and `pr_create` were "blocked under
+  profile 'standard'" — no rows at all), the kernel package resolved from the agent's own worktree
+  tree, the delivery token rode the agent's environment, and no row reached the host store; the
+  end-to-end pins carried `pr_url` as a fixture constant. Kernel authority inside the agent's
+  sandbox is unsound regardless of the mount, so nothing of it runs there any more:
+  WHO PUSHES, GATES, OPENS: the executor child, after the spawn and after the quarantine's
+  publication (`implementation_delivery.deliver_implementation`), in the request worktree whose
+  HEAD the publication adopted — (0a, round 4) the tip's IDENTITY: the published tip must
+  verify against the key THIS request's executor minted and registered under its cycle
+  (`plan_convergence_bridge.verify_implementation_commit` — the ONE verifier the submit's
+  bridge runs, called here with the held fingerprint, in the checkout that holds the commit,
+  and with the `ARIA_DRY_RUN` git bypass refused: `dry_run_skips_git=False`, because the push
+  it guards is real wherever it runs), refused `implementation_delivery_refused:commit_identity`
+  (`commit_unverified:commit_signature_unverified…`) BEFORE the admission, the gate, the push
+  and the PR — escalated request-class like every stage but `admission`. Until round 4 the
+  delivery pushed `refs/heads/aria-impl-*` to origin under the App's identity and opened the
+  `[ARIA-AUTO]` PR, and only the SUBMIT's bridge then refused the same commit: the request
+  derived `ACCEPTED_PENDING_BRIDGE` (non-terminal, no HUMAN_REQUIRED record), the plan stayed
+  `IMPLEMENTATION_REQUESTED`, and a live PR nobody owned stood on a branch a later cycle could
+  request again — reproduced on the round-3 tree through the real executor child under real
+  bwrap with a scripted agent that signed with a key of its own (`gh pr create` called, the
+  fixture remote holding the branch, `implementation_delivered` on governance), and reachable
+  by the real CLI agent because the command policy admitted `git commit -m x --gpg-sign=<its
+  own key>` (below). (0b, round 3) the admission
+  (`implementation_delivery.delivery_admission_refusal`: the validation sandbox buildable for
+  every staged command, the job's remaining window above the delivery's worst case; stage
+  `admission`, harness-class); (1) the change ledger's scope verdict
+  (`change_ledger.verify_change_scope`, round 3 — BEFORE the tip's own suite executes); (1b,
+  round 5) THE RESULT'S ADMISSIBILITY — the kernel's own decision on the envelope the executor
+  will submit, BEFORE the suite runs and before any authority is spent: stage
+  `result_admissible` runs `agent_invocations.judge_claim_submission`, the ONE decision chain
+  `submit_claim_result` applies (factored out of `_prepare_claim_submission`, which now calls
+  it: the schema and the matrix against the request, separation of duties, the plan contract
+  for the authoring roles, the secret scan, the evidence refs graded at the worktree's HEAD the
+  publication adopted — resolved and descent-proven by the kernel, the reading
+  `--evidence-target-sha auto` takes —, the declared route, the compliance grade), against the
+  request ROW (`agent_invocations.find_request`) and the envelope as it stands (canonicalized,
+  the signer stamped; the delivery's own stamp comes after). A rejection refuses
+  `implementation_delivery_refused:result_admissible` (`result_rejected:<codes>:…`, escalated
+  request-class, nothing pushed, no `gh`); a decision the kernel could not reach (every code in
+  `EVIDENCE_VERIFICATION_UNAVAILABLE_CODES`) refuses at the `admission` stage, harness-class,
+  the way the submit releases it. Until round 5 NOTHING before the delivery decided the
+  envelope: reproduced on the round-4 tree through the real executor child under real bwrap
+  with a scripted agent identical to the passing one except that its evidence cited
+  `<source>:4000`, a line the file does not have — `gh pr create` called once, the fixture
+  remote holding the branch, `implementation_delivered` on governance, the submit then
+  rejecting `agent_evidence_line_missing` ×4: the request REJECTED (terminal), the plan left
+  `IMPLEMENTATION_REQUESTED`, no HUMAN_REQUIRED record, no governance row naming the orphan
+  PR, the dispatch summary reading `succeeded`. The 2026-08-09 run (44 evidence refs rejected)
+  was the production shape of the same seam. (2)
+  `apply_engine.run_apply_gate` at the published branch's tip — the canonical suite and the
+  plan's declared recipes run through the ordinary `run_validation_commands` path with EVERY
+  command CONTAINED (round 3: `run_validation_commands(spawn_wrapper=)` applies
+  `implementation_safety.wrap_validation_in_sandbox` at the one spawn seam — the same bwrap
+  builder the containment probe and the agent's spawn use: the request worktree writable,
+  READONLY_PATHS read-only, the checkout's git dirs in the read-only shape
+  (`derive_git_containment(commit_capable=False)`), the nearest `node_modules` read-only, each
+  command's executable resolved OUTSIDE on the validation environment's PATH and bound
+  read-only as its toolchain prefix, no network, no broker, the sandbox's own `/tmp` and HOME,
+  the store and the code root not mounted; the hash-bound run log records the bwrap argv. The
+  suite is the AGENT's committed code — jest specs, nx/eslint configs, `package.json` scripts —
+  and until round 3 it ran unconfined as the executor's uid with the store, the shared
+  repository, the code root the executor's own kernel resolves from and `$HOME` writable to it),
+  recorded on the validation-runs ledger by the executor from the contained child's output,
+  compared against the staged baseline; the action promoted to `ready_for_pr` with the
+  `validation_gate_ref` the opener demands. A command that hits its ceiling is STOPPED (round
+  4): the wrapper's argv carries `VALIDATION_SANDBOX_CONTAINMENT_FLAGS` (`--unshare-pid
+  --die-with-parent`: the command runs in its own PID namespace behind bwrap's init, which dies
+  with the executor's child handle and takes the namespace with it — and hides every host pid,
+  so `/proc/<host pid>/root` is not a path inside even as uid 0), the bwrap probe exercises
+  the same flags so a host that cannot build them is refused before a claim, and
+  `validation._run_one` runs every command as its own process group and SIGKILLs the GROUP on
+  timeout (which is what stops an UNwrapped command's children too — the cycle's baseline).
+  `subprocess.run(timeout=)` kills exactly the pid it spawned, which with the round-3 wrapper
+  was `bwrap`: measured on this host, the sandboxed command's background sleeper survived the
+  kill, so the gate recorded `timed_out`, moved to the next command at its own 45-minute
+  ceiling, refused the delivery — while the agent's `nx affected` jest workers kept running
+  unbounded on the shared runner, outside the pricing the drain window rests on. The one
+  kernel file a contained command may be spawned WITH — the private unittest-observation child
+  `_validation_unittest_child.py`, composed into the argv when a registered recipe's
+  `input_scope` carries an execution profile — is ro-bound alone
+  (`VALIDATION_OBSERVATION_CHILD`; it imports no kernel module by design); such a recipe used to
+  die inside with `can't open file` and block the gate. THE KEYS DIR IS MASKED IN THE
+  VALIDATION SANDBOX TOO (round 5): `wrap_validation_in_sandbox` mounts an EMPTY `--tmpfs` over
+  `<workspace>/aria-debts/keys` unconditionally (`gh_token_factory.signing_keys_dir` — the one
+  spelling of the path — makes the directory when it is absent, because a mountpoint cannot be
+  created under the read-only `aria-debts/` bind), after every workspace bind. The read-only
+  git shape (`derive_git_containment(commit_capable=False)`) carries no `SandboxSigning`, so
+  until round 5 the validation sandbox bound the workspace with the keys dir INSIDE: the
+  delivery token — written by the mint to `<worktree>/aria-debts/keys/<lease>.token`, 0600,
+  the executor's own uid — and the held PRIVATE signing key were readable by the agent's
+  committed `package.json` script, run by the gate as that uid, and the gate recorded what it
+  read on the validation-runs ledger (reproduced through the real executor child under real
+  bwrap: the recorded run listed `[<cycle>, <cycle>.pub, <lease>.token]` with both readable;
+  the run landed ACCEPTED with the PR). The recorded runs are then scanned with the submit's
+  own scanner (`verify_no_secret_in_envelope` over the `validation_results` the stamp will
+  carry) and a secret-shaped string in the suite's output refuses
+  `apply_gate:gate_output_secret_shaped` before the push — the executor's artifact scrub
+  hides such a string from the SUBMITTED envelope while the ledger's log keeps it raw, so the
+  submit's scan never saw what the ledger carried; (3) the change ledger's commit row;
+  (4) `git push
+  origin refs/heads/<branch>` with the
+  delivery credential's environment (`GH_TOKEN` + the env-only `gh auth git-credential` helper)
+  applied to that ONE git subprocess, intent + receipt keyed on the request
+  (`recovery.record_intent(effect_kind="git_push")`); (3) `pr_manager.open_pr_for_action(dry_run=
+  False, request_id=, command_environment=)` — the `ARIA_PR_BASE` guard, GATE_PRE_PR_OPEN, the
+  breaker producer, the `change_id` anchor, intent + receipt keyed on the request, the credential
+  on that ONE `gh pr create` subprocess, bounded at `GH_PR_CREATE_TIMEOUT_SECONDS`. The change
+  ledger's commit row (round 2; `change_ledger.emit_change_committed`, delivery stage
+  `change_ledger`) — the files the diff `base_sha..tip` actually touched, the agent's declared
+  dispositions for intended files it left untouched
+  (`details.implementation.uncovered_intended_dispositions`, the one delivery fact the agent
+  contributes; `implementation_delivery.agent_dispositions` reads it, strings only), the claim
+  id — is written after the gate; its VERDICT (`verify_change_scope`, the same rule) is decided
+  before it, so an out-of-scope tip never executes. The contract used to tell the AGENT to call
+  `emit_change_committed(...)` — a kernel function it cannot execute — so no executor-lane
+  implementation ever had a `change_committed` row and the merge gate refused every one
+  (`triple_gate_change_committed_missing`). The ledger's own refusals — a file outside the
+  planned scope (`scope_drift_requires_human`), an undeclared shortfall
+  (`implementation_incomplete_undeclared`) — refuse the delivery by name
+  (`implementation_delivery_refused:change_ledger`) BEFORE anything is run, pushed or opened.
+  WHERE THE DELIVERY TOKEN LIVES: with the executor, never in the spawn, never under the
+  workspace — and WHEN (round 6): inside the window it is consumed in. The delivery mints it
+  (`deliver_implementation`, stage `credential`, after the contained gate, through
+  `delivery_credentials.hold_delivery_credentials`) for exactly the push and the `gh pr create`
+  at their bounds (`DELIVERY_CREDENTIAL_CONSUMPTION_SECONDS` = `state_store.GIT_TIMEOUT_SECONDS` +
+  `pr_manager.GH_PR_CREATE_TIMEOUT_SECONDS`, which fits the provider's hour by construction —
+  pinned) and revokes it the moment the PR is open, under the lease's own token
+  (`DELETE /installation/token` revokes the token it is called with; the ambient-auth revoke it
+  replaced revoked nothing of the lease's). Before the spawn the executor only ADMITS the lane
+  (`delivery_credentials.admit_delivery_credentials`, right after the identity: one lease minted
+  through the same hold and revoked at once, `consumer: executor_admission`,
+  `delivery_credential_admitted`), so a lane that cannot mint — no GH App, no PAT, a refused
+  installation — is released harness-class, `implementation_delivery_unavailable`, before a
+  turn is spent. Until round 6 the ONE lease was minted before the spawn and first consumed after
+  the spawn, the publication, the decisions and the contained gate — up to
+  `IMPLEMENTATION_DELIVERY_WORST_CASE_SECONDS` after the mint — while a GitHub App installation
+  token lives exactly one hour whatever the mint asks (the endpoint takes no `expires_in`; the
+  mint sent one and called the local TTL "provider-side"): in Mode A (the mode the runbook
+  requires and `ARIA_REQUIRE_MODE_A` enforces) every implementation whose spawn and suite ran
+  past ~55 minutes pushed with a dead token, `push_failed:rc=128`, escalated as the REQUEST's
+  fault and terminal. The lease now carries the provider's own horizon
+  (`InstallationTokenLease.provider_expiry` = GitHub's `expires_at`, None in PAT and dry-run
+  modes) and `issue_delivery_credentials` refuses by name — revoking what it minted — a lease
+  whose horizon cannot cover the window it is asked to cover (`provider_expiry_short`); the
+  delivery's `credential` refusal is the HOST's (`HOST_STAGES`, released harness-class like the
+  admission). The `delivery_credential_issued` row records `consumer`, `covers_seconds`,
+  `minted_at_utc` (the lease's sub-second instant) and `provider_expiry`, so a ledger reader can
+  put the mint beside the gate's recorded runs and the push's receipt; the mint and the revoke are
+  priced (`DELIVERY_CREDENTIAL_WORST_CASE_SECONDS`) into the delivery's worst case and, once
+  more for the admission, into the implementation child's. Its
+  FILE (round 5) is in a private 0700 directory of the executor's OUTSIDE the workspace
+  (`delivery_credentials.private_token_dir`, `tempfile.mkdtemp` under the process temp dir,
+  which no sandbox binds — both sandboxes mount their own `/tmp`), passed to the mint as
+  `token_dir`, READ INTO MEMORY AND UNLINKED AT ONCE by the hold (the value lives in the
+  `env` the two subprocesses take it from; nothing on disk carries it while the agent's suite
+  runs, and a killed executor leaves an empty directory, never a PAT), the directory removed
+  with the revoke; `mint_installation_token` refuses a directory that
+  is not private — absent, inside the workspace, group/other-readable — by name
+  (`TokenDirectoryUnusable`) before it fetches a token, and a hold whose temp dir resolves into
+  the workspace is refused `delivery_credential_unavailable:token_dir_inside_workspace`, never
+  silently minted into the keys dir. The `delivery_credential_issued` row records
+  `token_file_outside_workspace` (a fact, never the path's contents). THE SIGNING IDENTITY IS
+  RETIRED BEFORE THE DELIVERY (round 5): the executor holds it on its own nested stack and
+  closes that stack right after the quarantine's publication (or its discard), in the spawn's
+  `finally` — the ssh-agent stopped, the private key unlinked, the config restored —
+  recording `implementation_identity_retired` (`retired: after_publication`,
+  `keys_dir_entries`: what the worktree's keys dir still holds, `[]`). The delivery needs no
+  private key: `verify_implementation_commit` reads the registered PUBLIC key, the push and the
+  PR sign nothing. Until round 5 the key stayed under `<worktree>/aria-debts/keys/` through the
+  gate, where the validation sandbox exposed it (above). Pinned end to end: the fixture `gh`
+  lists the keys dir at `pr create` time (`[]`; round 4: `[<cycle>, <cycle>.pub,
+  <lease>.token]`), the contained suite's own listing is `[]`, and
+  `delivery_credential_issued.token_file_outside_workspace` is true. The
+  spawn's environment carries no `GH_TOKEN` and no credential helper (and no lease exists
+  while the agent runs); the command policy
+  (`command_policy.DENY_RULES`, family `kernel_authority`) refuses EVERY `git push` and EVERY
+  `python3 -m aria_kernel …` inside by name (the PreToolUse verdict reads
+  `kernel_authority:kernel_cli` / `kernel_authority:git_push_any`; the Claude projection carries
+  `Bash(git push*)` and `Bash(python3 -m aria_kernel*)` for every profile), the raw `gh pr create`
+  transition row and `ARIA_EXECUTOR_PR_VIA_KERNEL` are gone together, and no allow rule carries an
+  external effect: `external_writes` on the `implementer` profile now means "the executor holds a
+  delivery credential for this agent's request", nothing the sandbox can spend.
+  THE EXECUTOR'S OWN GIT RUNS WITH HOOKS OFF (round 6): the publication's ref writes and the
+  delivery's push run `git -c core.hooksPath=/dev/null …`
+  (`git_containment.KERNEL_GIT_NO_HOOKS_ARGS`).
+  They run in the request worktree, whose hooks resolve through the shared checkout's config; a
+  `core.hooksPath=.husky` a runner install could set (`npm run hooks:install`, an `npm ci`
+  without `--ignore-scripts`) would otherwise run a hook from the AGENT's tree as the executor,
+  with the delivery credential in the push's environment. Argv, not environment: the credential
+  helper rides `GIT_CONFIG_COUNT`, and a local receive-pack keeps its own hooks (git clears the
+  pusher's config variables for it — the fixture remote's receive hook is how the pins observe
+  the push). Pinned: a `pre-push` installed in the checkout never runs for the kernel's push.
+  WHERE THE EXECUTOR'S OWN KERNEL RESOLVES FROM (round 2): the code root, never the agent's
+  tree. Every kernel command the executor runs after the spawn — `agent release`, `agent
+  submit-result`, the drain's `agent next-pending`, the worker lane's `worker list` /
+  `worker-result submit` (the HUMAN_REQUIRED record is in-process since round 3) — inherits the
+  child's cwd, which in the drain's lane is the request worktree the agent just wrote to, and
+  `python -m` put that cwd FIRST on `sys.path`: an `aria_kernel/__main__.py` (or a `json.py`)
+  the agent wrote at its worktree root (one Write call; the hook admits any workspace path
+  outside READONLY_PATHS) ran AS the executor's `human-required record` and `agent release`,
+  outside the sandbox, with the lease token,
+  `GH_TOKEN` and the store binding in its environment (reproduced under real bwrap by the round-1
+  verifier). Every executor now spells a kernel subprocess through ONE helper
+  (`tools/aria-poc/kernel_cli.kernel_cli_argv`: this interpreter, `-P` — `PYTHONSAFEPATH`, the
+  cwd off `sys.path` — then `-m aria_kernel`), so the package resolves from the code root's
+  `PYTHONPATH` and from nowhere else; a literal spelling anywhere in the executors is refused by
+  `tests/test_executor_kernel_cli_argv.py`, and the end-to-end pin has the agent plant the package
+  and a stdlib shadow, commit them with its change, and reach the real submit with the marker
+  empty. The child's OWN import path is the checkout's too (round 4): the workflow exports
+  `PYTHONPATH=aria-kernel` relative to the drain's cwd, and the drain launched the child with the
+  request worktree as cwd, where Python resolved that entry to `<worktree>/aria-kernel` — whose
+  ROOT is agent-writable and sat ahead of the stdlib on the executor's `sys.path` for every
+  lazily imported module (probed with 90 committed stdlib shadows: nothing resolved from it,
+  because the round-3 executor happened to first-import only four kernel modules after the
+  spawn — an import-order accident, not a boundary). `ci_executor_drain.absolute_pythonpath`
+  resolves every entry against the CHECKOUT and drops the empty (cwd) entry before the launch;
+  pinned in `tests/test_executor_request_worktree.py`.
+  WHO MAKES THE BRANCH: the kernel. The contract's `git switch -c <branch> <base_sha>` was never
+  admitted by the command policy (the hook refused it — the first git step of every production
+  implementation was unexecutable). The executor stands the sandbox on the branch before the spawn
+  (`git_containment.stand_on_implementation_branch`: the replica's `HEAD` names
+  `refs/heads/<branch>` and the quarantine's ref file names `base_sha` — two file writes in the
+  replica, nothing in the shared repository), reading `implementation_ids` from the request ROW on
+  the ledger (the claim's fused projection carries only what the sealed prompt renders); the
+  drain adds an implementation request's worktree at `implementation_ids.base_sha`
+  (`ci_executor_drain.request_worktree_target`). Refused by name before any turn:
+  `worktree_not_at_base_sha:<head>` and the containment's other shapes under the HIGH-115 release
+  reason (`implementation_signing_unavailable`, cause `git_containment_refused:<reason>`), and
+  `implementation_branch_exists` — the shared repository already holds this request's branch (an
+  earlier attempt published it; the loose-ref overlay would make it read-only inside and the
+  commit would die on it) — under the request-class `implementation_branch_collision`, escalated
+  to HUMAN_REQUIRED: a retry cannot stand on it, a person decides. A request row whose
+  `implementation_ids` cannot stand a sandbox at all (`implementation_branch_name_invalid`,
+  `base_sha_not_an_object_id` — the row's own facts) is released request-class under
+  `implementation_request_invalid` with a HUMAN_REQUIRED record (round 2: released harness-class,
+  the daemon re-claimed it after every back-off without bound and never spent a turn).
+  THE SEED IS THE KERNEL'S (round 2): `stand_on_implementation_branch` returns the containment
+  with the seed recorded (`GitContainment.seeded_refs`), and `publish_quarantine` DISCARDS a
+  quarantine ref whose content still equals its seed (`branch_unadvanced`, named in the receipt;
+  the worktree's HEAD adopts nothing). A spawn that fails before any commit — a timeout, a
+  provider outage, an operator cancel; the publication runs in the `finally` before every one of
+  those arms — therefore leaves NO `refs/heads/aria-impl-*` in the shared repository, and the
+  harness-class retry the release promises stands on the branch again (before this the seed was
+  published as a real branch and the retry was refused pre-turn as a collision: every harness
+  fault of an implementation spawn ended in a human after one wasted retry). An agent that
+  commits nothing is refused by the delivery as `branch_not_published:…branch_unadvanced`
+  (request-class, as before); a branch reaches the shared repository only when the agent
+  advanced it. Pinned end to end (a CLI that exits 1 after its first reads → no branch, REQUEUED
+  with the budget untouched, the retry delivers) and in `tests/test_git_containment.py`.
+  WHAT HUMAN_REQUIRED MEANS HERE (round 2): terminal from the executor's own release. The
+  executor writes the HUMAN_REQUIRED record BEFORE it releases the claim, and
+  `agent_invocations.release_claim` now derives the claim event `human_required` for a
+  request-class release of a request that carries an OPEN record
+  (`human_required.open_human_required_record`; a resolved record binds nothing) — so a branch
+  collision, a delivery refusal, an invalid request row and the agent's own refusal envelope each
+  derive HUMAN_REQUIRED from that release, `claim_request` refuses the next claim, and the drain
+  never re-claims it. Before this the record was written but the claim event was `requeued`, and
+  the drain burned two more pre-turn refusals on the same request before `DEFAULT_MAX_REQUEUES`
+  escalated it. HOW THE RECORD IS WRITTEN (round 3): in-process, through the kernel's own
+  recorder (`ci_executor._record_human_required` → `human_required.record_human_required`),
+  with the machine ids — the branch, the base sha, the claim, the refusal's detail — in the
+  record's structured `context` under `human_required.EXECUTOR_ESCALATION_KIND` (deliberately
+  not an adjudicable kind: a person decides) and the reason as its code and sentence. Round 2
+  spawned a `human-required record` child whose `--reason` went through the operator CLI's
+  free-text validator (`cli._validate_reason`), whose phone-number shape matches ANY ten
+  consecutive digits: 8% of `aria-impl-*` names and 11% of shas carry such a run, so one
+  escalation in ten was refused at argparse (its cause cut off by the child's 200-character
+  stderr truncation), the record never written, and the release `requeued` — the two-wasted-claims
+  loop this paragraph claims to close. A recorder that does not answer is now an ERROR at the
+  release site (`_release_unescalated`): the claim is released harness-class under
+  `human_required_record_unavailable:<escalation reason>` (a closed-vocabulary code; the store's
+  fault, so the request keeps its budget and the retry escalates again), the whole cause goes
+  on governance (`human_required_record_unavailable`) and stderr as a job error, and the
+  child's summary is a FAILED harness dispatch — never a `refused` exit that reads as if the
+  escalation happened. Pinned in `tests/test_executor_escalation_record.py` and end to end with
+  a plan id whose minted branch carries a ten-digit run.
+  WHO STAMPS: the executor, after the delivery and before the submit
+  (`implementation_delivery.stamp_implementation_delivery`, on the record `implementation_record`
+  reads, beside the HIGH-115 signer stamp): `branch`, `branch_tip_sha` (the published tip),
+  `base_branch_sha` (the staged base), `diff_hash` (over `git diff <base> <tip>`), `pr_url`,
+  `pr_number`, `validation_gate_ref` and `validation_results` (the gate's recorded runs, read back
+  through the ledger's verifier: command, exit code, run id, log hash, bounded output) —
+  `KERNEL_STAMPED_DELIVERY_FIELDS`. The agent contract asks for none of them; a value the agent
+  wrote is replaced and a differing one recorded (`implementation_delivery_overridden`:
+  `agent_supplied`, `kernel`). Governance: `implementation_delivered` on success;
+  `implementation_delivery_refused` (`stage` ∈ `DELIVERY_STAGES` = `branch_publication` /
+  `commit_identity` / `admission` / `change_ledger` / `result_admissible` / `apply_gate` /
+  `credential` / `push` / `pr_open`, in the
+  order they run; `reason`) on a refusal, which is escalated to HUMAN_REQUIRED (terminal from
+  that release, above) and released request-class under
+  `implementation_delivery_refused:<stage>` — a published branch makes a retry collide, so
+  nothing is gained by one; the plan stays where the envelope mint left it. The `admission`
+  and `credential` stages (`HOST_STAGES`) are the exception: the host's window or sandbox
+  (and, round 5, a result decision the kernel's probes could not reach), and (round 6) the
+  lane's credential source at the moment of the push — a lease it cannot mint, or one whose
+  provider horizon cannot cover the push and the PR — released harness-class under
+  `implementation_delivery_unavailable` with no escalation (`DELIVERY_WINDOW_REFUSAL`). AFTER A
+  DELIVERED PR: the envelope was decided BEFORE the delivery (`result_admissible`, above), so
+  the submit's content decision is already made when the PR opens — the only seam left after
+  `implementation_delivered` is on governance is a submit that fails for a HARNESS reason (a
+  submit timeout, a lease the run outlived, a store that does not answer): that leaves a pushed
+  branch and an open PR, the retry then collides (`implementation_branch_exists`) and escalates
+  `implementation_branch_collision` with that live PR for a person to reconcile (R-3c) —
+  fail-toward-human by design, and the reason the claim's lease is the child's whole priced
+  worst case (next paragraph), so a healthy run cannot reach that seam by outliving its lease.
+  Until round 5 this paragraph named the harness seam as the only one and was untrue: a content
+  rejection at the submit — neither harness-class nor retried, terminal — was reachable after
+  the PR through every submit refusal but the commit's identity. THE SUMMARY SAYS WHAT THE SUBMIT
+  DID (round 5): every submit exit that does not land the result — the kernel's rejected result
+  row, a refusal before any row, an undecided verification, a submit past its wall clock —
+  supersedes the CLI's `succeeded` dispatch summary with a `failed` one in the failure's own
+  class (`response_schema_rejected` for the request's, `harness_unavailable` / `timeout`
+  retryable for the host's; `ci_executor._fail_submit_dispatch`, the failure half of
+  `_refuse_dispatch`). The CLI's summary is written the moment the CLI exits 0, and a rejected
+  submit used to leave it standing — the drain counts nothing but a `succeeded` summary as
+  drained, so a rejected result was a drained success in the night's count while its claim
+  ledger read `rejected`. Pinned in `tests/test_ci_executor_live_path_smoke.py`.
+  ONLY THE SEEDED BRANCH IS PUBLISHED (round 3):
+  `publish_quarantine` discards any `aria-impl-*` ref whose name the kernel did not seed
+  (`not_the_seeded_branch`) — a second such ref would land under ANOTHER request's name and make
+  that request collide before its first turn.
+  THE LEASE IS THE CHILD'S OWN WORST CASE (round 3, pinned round 4): the executor claims with
+  `agent claim --lease-seconds <ci_executor._child_worst_case_seconds(…)>` over
+  `implementation_delivery_seconds=_request_delivery_seconds(…)` — the same derivation the
+  drain's start check reads, with
+  the request's staged delivery term for an implementation and 0 for every other role. The
+  kernel's `DEFAULT_LEASE_SECONDS` (1800) equals `MAX_TIMEOUT_SECONDS`, so a CLI run that used
+  its cap outlived the lease and `submit_claim_result` refused the finished work by
+  construction (`lease_expired`); an implementation's post-spawn delivery could not fit under
+  it at all. The trade: `reap_stale_claims` waits that lease before it re-queues the request of
+  an executor killed mid-child (~5.5 h for an implementation child at the canonical shape, 30
+  min under the old default) — priced, not picked. Pinned in the claims ledger row
+  (`lease_seconds`, `tests/test_executor_implementation_identity.py` for the implementation
+  child, `tests/test_ci_executor_live_path_smoke.py` for a read-only role) and in the executor's
+  AST (`tests/test_state_lock_liveness_bound.py`).
+  WHAT `git commit` MAY LOOK LIKE (round 4): `git commit [-a] -m <message> [-m <message>…]` —
+  and nothing else. The round-3 line rule `^git\s+commit(\s+-[a-zA-Z]+)*(\s+-m\s+.+)?$` admitted
+  `-S<key>` in the short cluster and swallowed every trailing flag inside `.+`, so `git commit
+  -m x --gpg-sign=/tmp/its-own-key` (with `gpg.format=ssh` a key the agent wrote under its
+  writable HOME), `--author=…`, `--amend`, `--date=…`, `-C <commit>`, `-n` and a pathspec operand
+  all passed the hook; and a single `-m` holding subject, body and trailer was an allowlist MISS
+  (`.` did not cross the newline), so the contract's "trailer as the last body line" was only
+  writable as three `-m` arguments — which the prompt did not say. The policy now carries ONE
+  token grammar beside its line rules (`command_policy.git_commit_option_refusal`, the DENY
+  rule `commit_identity:git_commit_foreign_option`, `CommandRule.argv_refusal` — a rule the
+  space-joined line cannot express, because the line cannot tell a flag from a word of the
+  message and the argv can): every option that is not `-a`/`-m` is refused BY NAME
+  (`option='--gpg-sign=/tmp/k'`, `operand='path/file.ts'`), and the message is whatever
+  follows `-m` — newlines, bullets and flag-shaped words included. The allow rule's line is
+  `(?s)^git\s+commit(?:\s+-a)?(?:\s+-a?m\s*\S.*)?$`. This rule is the door; the
+  `commit_identity` stage above is the wall — the policy is not the boundary (a unittest module
+  the agent writes can run any subprocess), the executor's verification of the tip is.
+  WHAT THE CONTRACT TELLS THE AGENT TO RUN IS ADMITTED (round 2): every backticked command of
+  the implementer prompt, the shared safety contract and the kernel-rendered implementation
+  prompt is walked through `verify_bash_command_allowed` by
+  `tests/invariants/v9/test_phase_v9_1_aria_implementer_agent.py` — the commands the prose names
+  as the executor's or as refused are declared in one table and must be refused in the shape it
+  says (a deny by name, or an allowlist miss where the prose says "not admitted"); everything
+  else must be admitted. Step 3's `git branch --show-current` (the lane's replacement for the
+  `git switch -c` the HIGH-123 verifier refused for the same reason) and step 8's
+  `git show --format= --patch HEAD` were both allowlist misses — the FIRST command of every
+  production implementation refused by the hook, and the prompt telling the agent any mismatch
+  is `reason_class=evidence` and STOP. The policy now admits exactly `git branch --show-current`
+  (`command_policy` rule `git_branch_show_current`, projection `Bash(git branch --show-current)`;
+  no other `git branch` form) and step 8 scans the whole branch's `git diff <base_sha> HEAD` —
+  the patch the PR carries — through the `git_diff` rule.
+  WHERE THE MCP VIEW IS SERVED: outside. The `aria` registry entry is `kernel_socket`
+  (`mcp_client.KERNEL_SOCKET_TRANSPORT`): the executor serves the read view in its own process for
+  the spawn's life (`mcp_broker.serve_mcp_broker`, one `AriaMcpServer(allow_writes=False)` per
+  connection against the real store — the write tools are unreachable for any agent role by
+  construction; operators run `aria-kernel mcp serve --allow-writes` themselves) on a unix socket
+  bound into the sandbox (`/tmp/aria-mcp-broker.sock`, `ARIA_MCP_BROKER_SOCKET` set by bwrap; an
+  unconfined spawn gets the host path in its environment), and the spawn's `--mcp-config`
+  document names the stdlib RELAY run by path under the workspace's read-only kernel tree
+  (`mcp_relay.py`, `McpRelayContext`; the interpreter by its real path — a symlinked `python3`
+  outside the binds has no interpreter inside — and ISOLATED, `-I`, like the hook client's:
+  the spawn's `PYTHONPATH` names `<workspace>/aria-kernel`, agent-writable everywhere but
+  `aria_kernel/`, so a `json.py` or a `sitecustomize.py` planted there ran inside every hook
+  client and relay and could print the verdict the CLI trusts — round 2, pinned with the
+  planted modules in `tests/test_hook_broker.py` and `tests/test_mcp_broker.py`) with NO `env`
+  of its own, so the relay inherits
+  the socket the sandbox set (a document that spelled the host path would override the bound
+  one; the CLI's stdio server env is its own plus the document's — read in the 2.1.269 binary's
+  stdio transport). A spawn that serves no broker is refused the kernel's server by name
+  (`mcp_kernel_socket_requires_relay`), never handed a server spawned inside; a relay whose
+  broker cannot be reached answers every request with a JSON-RPC error naming the cause
+  (`mcp_broker_unreachable:<why>`), never a hung server. The orchestrator's startup sweep prunes
+  the broker's socket directories with the others (`prune_stale_mcp_brokers`). Served against
+  the real store, the view's `governance_tail` tool turned out to have never answered at all
+  (`read_governance_rows(on_corruption="skip")`, a mode the reader refuses at entry) — it reads
+  through the bounded seek-to-end reader now.
+  Pinned end to end through the REAL executor child under REAL bwrap in
+  `aria-kernel/tests/test_executor_implementation_identity.py` (a fixture bare `origin`, a fixture
+  `gh` answering `pr create` and recording the credential NAMES it saw, fixture `npx`/`npm`
+  recording where the suite ran: the baseline in the checkout at the base, the gate in the request
+  worktree at the published tip; the submitted row's `pr_url` / `branch_tip_sha` are the kernel's,
+  the agent supplied none; a fabricated delivery is overridden and recorded; an agent that commits
+  nothing, a blocked gate, a branch the repository already holds, an UNSIGNED tip and a tip signed
+  with a key of the agent's own (round 4) are each refused by name with no push and no `gh`; the
+  claim's lease is the child's priced worst case; inside the sandbox the broker refuses `apply
+  gate`, `pr create`, the push and every foreign `git commit` option by name, the agent starts on
+  the kernel-made branch with no `GH_TOKEN` in its environment, and the `aria` MCP view answers
+  through the relay with the real store's rows while a write tool is refused), at the policy in
+  `tests/test_executor_pr_via_kernel.py`, at the module seams in
+  `tests/test_implementation_delivery.py`, `tests/test_mcp_broker.py` and
+  `tests/test_git_containment.py`, and in the V12 invariants (`test_phase_v12_b_command_policy`,
+  `test_phase_v12_b_hooks`, `test_phase_v12_d_delivery`, `test_phase_v12_g_mcp`).
 - Original cycle/plan/revision/content identities and public signer provenance retain their
   separate meanings. If the initial hook omits its plan ID, the supplied outer convergence linkage
   can provide it. No plan is inferred from a cycle name. An overlong supplied identity is omitted

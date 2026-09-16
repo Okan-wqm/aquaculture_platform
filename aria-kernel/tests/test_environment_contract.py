@@ -198,6 +198,8 @@ class PreClaimGateTest(unittest.TestCase):
             patch.object(ci_executor, "_MOCK_MODE_AT_ENTRY", False),
             patch.object(ci_executor, "preflight_claude_auth", return_value={"status": "ok"}),
             patch.object(ci_executor, "_sandbox_backend", return_value="bwrap"),
+            # ARIA-HIGH-143 — the egress boundary answers too.
+            patch.object(ci_executor, "_egress_boundary_probe", return_value=None),
         )
 
     def test_broken_auth_is_named_and_the_request_is_never_claimed(self) -> None:
@@ -225,6 +227,23 @@ class PreClaimGateTest(unittest.TestCase):
         self.assertEqual(kind, "sandbox_unavailable")
         self.assertEqual(gov.call_args.args[1], "sandbox_unavailable")
 
+    def test_a_missing_egress_boundary_is_named_before_any_claim(self) -> None:
+        # ARIA-HIGH-143 — the spawn shares the host's network; without the
+        # allowlist proxy a prompt-injected agent has all of it. The gate
+        # names the gap the probe found and the request stays PENDING.
+        with TemporaryDirectory() as tmp:
+            with patch.object(ci_executor, "_MOCK_MODE_AT_ENTRY", False), \
+                 patch.object(ci_executor, "preflight_claude_auth", return_value={"status": "ok"}), \
+                 patch.object(ci_executor, "_sandbox_backend", return_value="bwrap"), \
+                 patch.object(ci_executor, "_egress_boundary_probe",
+                              return_value="HTTPS_PROXY is unset; the spawn would have the host's whole network"), \
+                 patch.object(ci_executor, "_append_tools_governance") as gov:
+                kind = self._gate(Path(tmp))
+
+        self.assertEqual(kind, "egress_boundary_unavailable")
+        self.assertEqual(gov.call_args.args[1], "egress_boundary_unavailable")
+        self.assertIn("HTTPS_PROXY is unset", gov.call_args.args[2]["detail"])
+
     def test_a_healthy_host_passes(self) -> None:
         with TemporaryDirectory() as tmp:
             workspace = Path(tmp)
@@ -233,8 +252,8 @@ class PreClaimGateTest(unittest.TestCase):
             cwd = os.getcwd()
             os.chdir(workspace)
             try:
-                mock_mode, auth, sandbox = self._healthy_probes()
-                with mock_mode, auth, sandbox:
+                mock_mode, auth, sandbox, egress = self._healthy_probes()
+                with mock_mode, auth, sandbox, egress:
                     kind = self._gate(workspace)
             finally:
                 os.chdir(cwd)
@@ -263,7 +282,8 @@ class PreClaimGateTest(unittest.TestCase):
                      patch.object(ci_executor, "preflight_claude_auth",
                                   return_value={"status": "ok"}), \
                      patch.object(ci_executor, "_sandbox_backend",
-                                  return_value="bwrap"):
+                                  return_value="bwrap"), \
+                     patch.object(ci_executor, "_egress_boundary_probe", return_value=None):
                     kind = self._gate(checkout)
             finally:
                 os.chdir(cwd)
@@ -284,8 +304,8 @@ class PreClaimGateTest(unittest.TestCase):
             cwd = os.getcwd()
             os.chdir(workspace)
             try:
-                mock_mode, auth, sandbox = self._healthy_probes()
-                with mock_mode, auth, sandbox, \
+                mock_mode, auth, sandbox, egress = self._healthy_probes()
+                with mock_mode, auth, sandbox, egress, \
                      patch.dict(os.environ, {"GIT_CEILING_DIRECTORIES": str(workspace.parent)}), \
                      patch.object(ci_executor, "_append_tools_governance") as gov:
                     kind = self._gate(workspace)
@@ -310,8 +330,8 @@ class PreClaimGateTest(unittest.TestCase):
                 stalled = GitProbeSession(
                     attempt_timeout_seconds=0.0, attempts=2, backoff_seconds=(0.0,),
                 )
-                mock_mode, auth, sandbox = self._healthy_probes()
-                with mock_mode, auth, sandbox, \
+                mock_mode, auth, sandbox, egress = self._healthy_probes()
+                with mock_mode, auth, sandbox, egress, \
                      patch.object(ci_executor, "_GitProbeSession", return_value=stalled), \
                      patch.object(ci_executor, "_append_tools_governance") as gov:
                     kind = self._gate(workspace)

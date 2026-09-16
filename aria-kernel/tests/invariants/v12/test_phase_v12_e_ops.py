@@ -188,8 +188,12 @@ class ProgressIsSanitized(_Store):
         self.assertNotIn(token, json.dumps(row))
         self.assertIn("github_pat", row["redaction_types"])
         self.assertEqual([t["tool_name"] for t in row["tool_uses"]], ["Bash", "Edit"])
-        self.assertEqual(row["tool_uses"][0]["command_family"], "git_push")
-        self.assertTrue(row["tool_uses"][0]["external_effect"])
+        # ARIA-HIGH-124 — every `git push` is refused BY NAME inside the
+        # sandbox (`command_policy` deny rule `git_push_any`, family
+        # `kernel_authority`); deny rules classify first, so the row names
+        # the hazard, and a refused command carries no external effect.
+        self.assertEqual(row["tool_uses"][0]["command_family"], "kernel_authority")
+        self.assertFalse(row["tool_uses"][0]["external_effect"])
         self.assertEqual(row["tool_uses"][1]["files_touched"], ["/w/apps/x.py"])
         self.assertLessEqual(len(row["text_preview"]), progress.TEXT_PREVIEW_CHARS)
         result = progress.sanitize_stream_event({"type": "result", "subtype": "success", "total_cost_usd": 0.42, "num_turns": 7, "duration_ms": 1200, "result": "long transcript text"})

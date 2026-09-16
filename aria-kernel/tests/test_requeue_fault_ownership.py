@@ -112,10 +112,18 @@ class TheReadingRefusesAnUnrosteredRecordSiteTest(unittest.TestCase):
         # reads, so the scan must refuse the site rather than count it.
         from tests._helpers.release_sites import UnreadableReleaseSite, scan_executor_release_sites
 
+        # Every rostered table must be a module-level literal the reading
+        # sees; the fixture declares each (ARIA-HIGH-124 added the two
+        # delivery refusals to the roster, its round 2 the invalid-request
+        # refusal, its round 3 the delivery's window admission).
         source = (
             "ADMISSION_REFUSALS = {'k': _AdmissionRefusalKind(release_reason='a_reason')}\n"
             "TASK_BINDING_REFUSAL = _AdmissionRefusalKind(release_reason='b_reason')\n"
             "IMPLEMENTATION_IDENTITY_REFUSAL = _AdmissionRefusalKind(release_reason='c_reason')\n"
+            "DELIVERY_CREDENTIAL_REFUSAL = _AdmissionRefusalKind(release_reason='d_reason')\n"
+            "IMPLEMENTATION_BRANCH_COLLISION_REFUSAL = _AdmissionRefusalKind(release_reason='e_reason')\n"
+            "IMPLEMENTATION_REQUEST_INVALID_REFUSAL = _AdmissionRefusalKind(release_reason='f_reason')\n"
+            "DELIVERY_WINDOW_REFUSAL = _AdmissionRefusalKind(release_reason='g_reason')\n"
             "def main(exc):\n"
             "    _release_claim(reason=exc.release_reason)\n"
         )
@@ -123,7 +131,7 @@ class TheReadingRefusesAnUnrosteredRecordSiteTest(unittest.TestCase):
             scan_executor_release_sites(source)
         rostered = source.replace("exc.release_reason", "IMPLEMENTATION_IDENTITY_REFUSAL.release_reason")
         scan = scan_executor_release_sites(rostered)
-        self.assertEqual(scan.literal, {"a_reason", "b_reason", "c_reason"})
+        self.assertEqual(scan.literal, {"a_reason", "b_reason", "c_reason", "d_reason", "e_reason", "f_reason", "g_reason"})
         self.assertEqual(scan.attribute_site_names, {"IMPLEMENTATION_IDENTITY_REFUSAL"})
 
 

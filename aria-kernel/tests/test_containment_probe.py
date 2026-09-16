@@ -40,6 +40,7 @@ from unittest import mock
 from aria_kernel import containment_probe as probe_module
 from aria_kernel import implementation_safety as impl
 from aria_kernel.containment_probe import (
+    EXIT_BRANCH_NOT_STOOD_ON,
     EXIT_CONFIG_WRITABLE,
     EXIT_PRIVATE_KEY_READABLE,
     PROBE_BRANCH,
@@ -112,6 +113,17 @@ class ProbeTests(_NeedsBwrap):
             _real_builder, lambda c: ["--tmpfs", str(c.common_git_dir / "refs" / "heads")],
         )
         self.assertEqual(probe_git_containment(phantom), "sandbox_commit_did_not_reach_repository")
+
+    def test_a_sandbox_not_standing_on_the_kernel_made_branch_is_refused(self) -> None:
+        # ARIA-HIGH-124 — the host's detached HEAD shown over the replica's:
+        # the agent would start off-branch and its commit would advance
+        # nothing the publication adopts.
+        off_branch = _with_flags_before_separator(
+            _real_builder, lambda c: ["--ro-bind", str(c.private_git_dir / "HEAD"), str(c.private_git_dir / "HEAD")],
+        )
+        reason = probe_git_containment(off_branch)
+        self.assertIsNotNone(reason)
+        self.assertTrue(reason.startswith(f"git_in_sandbox_failed:rc={EXIT_BRANCH_NOT_STOOD_ON}"), reason)
 
     def test_a_writable_control_surface_is_refused(self) -> None:
         def writable_config(command, workspace, containment):

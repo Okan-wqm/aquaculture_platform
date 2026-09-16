@@ -405,6 +405,7 @@ def verify_implementation_commit(
     plan_id: str,
     base_dir: str | Path | None,
     workspace_root: str | Path | None,
+    dry_run_skips_git: bool = True,
 ) -> None:
     """The trust boundary between the implementer's claim and the ledger.
 
@@ -427,6 +428,10 @@ def verify_implementation_commit(
     cannot reach a repository carrying the commit) and records
     ``commit_signature_verify_skipped_dry_run`` so the audit trail carries
     the bypass; the registry check is not a git step and always runs.
+    ``dry_run_skips_git=False`` refuses that bypass: the executor's delivery
+    (ARIA-HIGH-124 round 4) holds the checkout that carries the commit and
+    is about to push it under the App's identity, so its verification is
+    the real ``git verify-commit`` whatever the environment says.
     """
     import os as _os
     import tempfile as _tempfile
@@ -455,7 +460,7 @@ def verify_implementation_commit(
             f"under cycle {registered.get('cycle_id')!r}, not this request's cycle "
             f"{cycle_id!r}; the executor holds a key for the request's own cycle only."
         )
-    if _os.environ.get("ARIA_DRY_RUN", "").lower() in ("true", "1", "yes"):
+    if dry_run_skips_git and _os.environ.get("ARIA_DRY_RUN", "").lower() in ("true", "1", "yes"):
         append_tools_governance(
             base_dir, "commit_signature_verify_skipped_dry_run",
             {

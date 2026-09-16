@@ -64,7 +64,7 @@
       "mcp_servers": []
     },
     "implementer": {
-      "description": "Write-capable implementer. Workspace-wide write scope minus READONLY_PATHS; the ONLY profile with external_writes — a scoped, per-spawn GH token (delivery_credentials) for `git push origin aria-impl-*` and the kernel's own `pr create`; every other external write stays denied by CommandPolicy + hooks (Faz 032d).",
+      "description": "Write-capable implementer. Workspace-wide write scope minus READONLY_PATHS; the ONLY profile with external_writes — which means the EXECUTOR holds a scoped delivery credential for this agent's request (delivery_credentials.hold_delivery_credentials) and pushes the published aria-impl-* branch and opens the PR itself after the spawn (ARIA-HIGH-124); inside the sandbox every push and every kernel CLI command is refused by name by CommandPolicy + hooks, and no token is present.",
       "model": "opus",
       "effort": "max",
       "tools": ["Read", "Grep", "Glob", "Edit", "Write", "Bash"],

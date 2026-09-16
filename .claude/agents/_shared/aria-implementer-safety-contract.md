@@ -46,20 +46,22 @@ the sha256 of this file at V9.1 land time, and any drift will fire
 
 ## Network Egress Prohibition
 
-Your Bash invocations run under `bwrap --unshare-net` (or firejail
-`--net=none`). No network egress is possible from the adapter
-sandbox. If you find yourself needing to call `curl`, `wget`, `nc`,
-`ssh`, `scp`, or any network primitive, the task is OUT OF SCOPE —
-refuse with `reason_class=bash_command_denylist_hit`.
+Your process runs under `bwrap` (`implementation_safety.wrap_managed_claude_in_sandbox`)
+sharing the host's network namespace — the Claude CLI must reach its
+provider (`MANAGED_SPAWN_ALLOW_NETWORK`) — so egress is refused by the
+command policy, not by the namespace: `curl`, `wget`, `nc`, `ssh`, `scp`
+and every network primitive are DENY rules the PreToolUse hook enforces.
+If you find yourself needing one, the task is OUT OF SCOPE — refuse with
+`reason_class=bash_command_denylist_hit`.
 
-The single exception is the `gh` CLI for PR operations (`gh pr
-create`, `gh pr checks`, `gh pr view`, `gh pr diff`, `gh pr merge
---squash`). These call GitHub.com via the kernel-provided scoped
-installation token (V9.0-C `gh_token_factory.InstallationTokenLease`),
-NOT through the operator PAT. The token's scope is
-`pull_requests:write + contents:write` on `refs/heads/aria-impl-*`
-ONLY — even if you tried to push to main, the API call would
-401.
+`gh` is admitted for READS only (`gh pr checks`, `gh pr view`, `gh pr
+diff`). `gh pr create` is an allowlist miss and `gh pr merge` a deny:
+the PR is opened by the EXECUTOR after your run (ARIA-HIGH-124,
+`implementation_delivery`), with a scoped installation token
+(`gh_token_factory.InstallationTokenLease`, `pull_requests:write +
+contents:write`) that it holds for the request and never places in your
+environment — there is no token to read inside, and nothing inside
+that could use one.
 
 ## Safety Disable Prohibition
 
@@ -108,9 +110,12 @@ Every canonical entry is admitted by your Bash allowlist by construction:
 executable spelling from the same tuple, so a canonical command the
 envelope names is a command the PreToolUse hook lets you run. A direct run
 is yours to check your work with and records nothing; the run the merge
-gate reads is the apply gate's (`python3 -m aria_kernel apply gate`), which
-executes the whole suite — canonical entries and declared recipes — at the
-branch HEAD and records each command.
+gate reads is the executor's apply gate (`python3 -m aria_kernel apply
+gate`, run OUTSIDE your sandbox after you return, ARIA-HIGH-124), which
+executes the whole suite — canonical entries and declared recipes — at
+your commit and records each command. Inside your sandbox that command is
+refused by name (`kernel_authority`): the durable store it promotes the
+action in is not mounted there.
 
 The canonical suite represents the minimum quality bar — a diff
 that compiles AND lints AND passes affected tests is the floor.
@@ -212,34 +217,51 @@ Refusal envelope shape mirrors the V8.13 contract:
 
 Emit `aria/agent-response/v1` where:
 
-- `details.implementation` carries:
+- `details.implementation` is an object the KERNEL fills. After your run the
+  executor publishes your commit, runs the apply gate at it, pushes the
+  branch and opens the PR (ARIA-HIGH-124, `implementation_delivery`), then
+  stamps what it did — the record the bridge reads
+  (`plan_convergence.record_implementation_outcome`) looks like:
   ```json
   {
     "branch": "aria-impl-<128-bit-hex>",
     "pr_number": 4242,
     "pr_url": "https://github.com/Okan-wqm/aquaculture_platform/pull/4242",
-    "diff_hash": "sha256:...",
-    "branch_tip_sha": "<git rev-parse HEAD>",
-    "base_branch_sha": "<git rev-parse origin/<ARIA_PR_BASE>>",
-    "completed_at": "<ISO-8601 UTC; optional — the kernel stamps acceptance time when omitted>",
+    "diff_hash": "sha256:<over git diff <base_sha> <branch_tip_sha>>",
+    "branch_tip_sha": "<the published branch's tip>",
+    "base_branch_sha": "<implementation_ids.base_sha>",
+    "validation_gate_ref": "<the apply gate's ledger hash>",
     "validation_results": [
-      {
-        "command": "nx affected --target=test",
-        "exit_code": 0,
-        "stdout_head_tail": "<≤ MAX_VALIDATION_RESULT_BYTES summary>",
-        "stderr_head_tail": "<≤ MAX_VALIDATION_RESULT_BYTES summary>"
-      }
-    ]
+      {"command": "npx nx affected --target=test", "exit_code": 0, "timed_out": false,
+       "validation_run_id": "<ledger id>", "log_hash": "sha256:...",
+       "output_head_tail": "<≤ MAX_VALIDATION_RESULT_BYTES of the recorded log>"}
+    ],
+    "signer_key_fp": "SHA256:<the executor-held key>",
+    "completed_at": "<ISO-8601 UTC, stamped by the bridge>"
   }
   ```
+  Every field above is a kernel fact (`implementation_delivery
+  .KERNEL_STAMPED_DELIVERY_FIELDS`, plus the two below): a value you write
+  is replaced and the difference recorded (`implementation_delivery_overridden`).
+  The ONE field of this record that is yours:
+  `uncovered_intended_dispositions` — `{path: "reviewed, no change needed:
+  <why>"}` for every intended file you left untouched (step 5b). The
+  executor writes it on the change ledger's commit row
+  (`change_ledger.emit_change_committed`, `implementation_delivery` stage
+  `change_ledger`) beside the diff's own file list; the ledger refuses an
+  undeclared shortfall (`implementation_incomplete_undeclared`) and a file
+  outside the plan's scope (`scope_drift_requires_human`), and the delivery
+  stops there — nothing is pushed or opened past that refusal.
 - `signer_key_fp` is NOT yours to report: the executor that runs you
   minted the cycle key in this worktree, wired `git commit` to it, and
   stamps the fingerprint on this record itself (ARIA-HIGH-115). A value
   you write there is replaced and the replacement recorded
-  (`implementation_signer_fp_overridden`); the bridge verifies
-  `branch_tip_sha` against the registered cycle key, so a commit made
-  with any other key — or unsigned — is refused
-  `commit_signature_unverified` and the outcome never lands.
+  (`implementation_signer_fp_overridden`); the executor verifies
+  `branch_tip_sha` against the registered cycle key BEFORE it pushes
+  (`implementation_delivery` stage `commit_identity`, the same verifier
+  the bridge runs), so a commit made with any other key — or unsigned —
+  is refused `implementation_delivery_refused:commit_identity`: nothing
+  is pushed, no PR opens, and the outcome never lands.
 - `details.usage` — Claude Code CLI usage block (stream-json `usage` totals)
 - `satisfaction_matrix[]` — one entry per `must_satisfy[]` constraint with
   `verdict` ∈ `satisfied | blocked | contradicted`

@@ -346,19 +346,26 @@ def _fake_child_process(monkeypatched_module):
     repo cannot parse and a dirty worktree. All three checks are git calls, so
     they stay real; only the `npx nx` / `npm run` child — minutes of CI that
     prove nothing about this pipeline — is answered without spawning.
+
+    ARIA-HIGH-124 (round 4) — the substitute is the runner's ONE spawn seam
+    (``validation._run_to_completion``, which leads its own process group so
+    a timeout kills the whole tree) rather than the module's
+    ``subprocess.run``: the seam is what every validation child goes through,
+    and patching it leaves the module's git calls real by construction
+    instead of by an argv test.
     """
     import subprocess as _sp
 
-    real_run = _sp.run
+    real_spawn = monkeypatched_module._run_to_completion
 
-    def _run(argv, *args, **kwargs):
+    def _spawn(argv, **kwargs):
         if argv and str(argv[0]) in ("npx", "npm", "cargo") or (
             argv and str(argv[0]).startswith("python3") and "-m" in argv
         ):
             return _sp.CompletedProcess(argv, 0, "ok\n", "")
-        return real_run(argv, *args, **kwargs)
+        return real_spawn(argv, **kwargs)
 
-    return patch.object(monkeypatched_module.subprocess, "run", _run)
+    return patch.object(monkeypatched_module, "_run_to_completion", _spawn)
 
 
 class StagedConvergedPlanChainTests(unittest.TestCase):

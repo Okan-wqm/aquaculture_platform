@@ -47,10 +47,11 @@ from pathlib import Path
 from collections.abc import Mapping, Sequence
 
 from . import command_policy as _command_policy
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 from .git_containment import GitContainment
 from .hook_broker import HOOK_BROKER_SOCKET_ENV, SANDBOX_HOOK_BROKER_SOCKET
+from .mcp_broker import MCP_BROKER_SOCKET_ENV, SANDBOX_MCP_BROKER_SOCKET
 from .text_safety import contains_bidi_or_control
 from .validation_suite import (
     CANONICAL_VALIDATION_COMMANDS,
@@ -141,21 +142,12 @@ ARIA_IMPL_BRANCH_FRAGMENT: str = _command_policy.ARIA_IMPL_BRANCH_FRAGMENT
 # have one home that also compiles to the Claude permission layer and to
 # the PreToolUse hook, and proves on examples that the enforcers agree.
 ALLOWED_BASH_COMMANDS: frozenset[re.Pattern[str]] = _command_policy.allowed_regexes()
-# Wave 0 §0.7 transition row — the raw `gh pr create` path the kernel CLI
-# replaces. Not in ALLOWED_BASH_COMMANDS any more: it is honoured only
-# while ARIA_EXECUTOR_PR_VIA_KERNEL is unset, so a lane that sets the
-# flag (the scheduled executor lane does) accepts kernel-CLI PR opening
-# ONLY. The flag and this pattern are deleted together after one green
-# scheduled run — the two-step is tracked in
-# docs/plans/2026-08-02-aria-full-autonomy-program/PLAN.md (Wave 0 §0.7).
-LEGACY_GH_PR_CREATE_PATTERN: re.Pattern[str] = re.compile(
-    r"^gh\s+pr\s+create\s+--base\s+main(\s+\S+)*\s*$"
-)
-
-
-def executor_pr_via_kernel() -> bool:
-    """Whether the lane has cut over to kernel-CLI-only PR opening."""
-    return os.environ.get("ARIA_EXECUTOR_PR_VIA_KERNEL") == "1"
+# ARIA-HIGH-124 — the Wave 0 §0.7 transition row (raw `gh pr create`,
+# honoured while `ARIA_EXECUTOR_PR_VIA_KERNEL` was unset) and the flag are
+# gone together: no PR is opened from inside the sandbox by any path. The
+# executor opens it after the spawn (`implementation_delivery`), and
+# `command_policy` refuses `gh pr create` (allowlist miss) and the kernel
+# CLI (`kernel_authority`) inside by name.
 
 
 TRUSTED_PYTHON_SCRIPT_PREFIXES: tuple[str, ...] = (
@@ -333,6 +325,10 @@ def verify_no_secret_in_envelope(envelope: dict[str, Any]) -> None:
 
 
 _GIT_VERIFY_COMMIT_FP_RE = re.compile(r"\bSHA256:[A-Za-z0-9+/]+={0,2}")
+# The wall clock of ONE `git verify-commit` — a local object read plus an
+# ssh-keygen verify. Named (ARIA-HIGH-124 round 4) because the executor's
+# delivery prices its `commit_identity` stage with it.
+COMMIT_SIGNATURE_VERIFY_TIMEOUT_SECONDS = 10
 
 
 def verify_commit_signature(
@@ -367,7 +363,7 @@ def verify_commit_signature(
         args.extend(["-c", f"gpg.ssh.allowedSignersFile={allowed_signers}"])
     args.extend(["verify-commit", "--raw", commit_sha])
     try:
-        proc = subprocess.run(args, capture_output=True, text=True, timeout=10)
+        proc = subprocess.run(args, capture_output=True, text=True, timeout=COMMIT_SIGNATURE_VERIFY_TIMEOUT_SECONDS)
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return False
     if proc.returncode != 0:
@@ -509,21 +505,22 @@ def verify_bash_command_allowed(argv: list[str], *, cwd: str | Path | None = Non
             f"argv0={argv[0]!r}"
         )
     line = " ".join(str(a) for a in argv)
-    for denied in DENIED_BASH_COMMANDS:
-        if denied.search(line):
-            raise BashDenylistHit(
-                f"DENY rule hit: pattern={denied.pattern!r} argv0={argv[0]!r}"
-            )
+    # The rules in policy order, so the refusal NAMES the rule (its family
+    # and name) that refused: a hook verdict reading
+    # `kernel_authority:kernel_cli` tells the agent — and the decision
+    # ledger — that the command is the executor's, not merely that some
+    # pattern matched (ARIA-HIGH-124). The frozenset stays the closed set
+    # every other reader pins; the two are derived from the same rules. A
+    # token rule (round 4: `commit_identity:git_commit_foreign_option`)
+    # reads the argv, which is why the walk is the policy's own.
+    refused = _command_policy.deny_refusal(line, argv)
+    if refused is not None:
+        rule, detail = refused
+        raise BashDenylistHit(f"DENY rule hit: {rule.family}:{rule.name} {detail} argv0={argv[0]!r}")
     _verify_python_script_target(argv, cwd=cwd)
     for allowed in ALLOWED_BASH_COMMANDS:
         if allowed.match(line):
             return
-    # Wave 0 §0.7 — the legacy raw-PR path survives ONLY while the lane
-    # has not cut over; under ARIA_EXECUTOR_PR_VIA_KERNEL=1 it falls
-    # through to the allowlist miss, making kernel-CLI PR opening the
-    # single reachable path in that lane.
-    if not executor_pr_via_kernel() and LEGACY_GH_PR_CREATE_PATTERN.match(line):
-        return
     raise BashAllowlistMiss(
         f"argv0={argv[0]!r} matches no ALLOWED_BASH_COMMANDS pattern; "
         f"see implementation_safety.ALLOWED_BASH_COMMANDS"
@@ -697,6 +694,11 @@ def _interpreter_ro_binds(base_prefix: str | None = None) -> list[str]:
 
 
 def _bwrap_probe_argv() -> list[str]:
+    # The probe mirrors the wrapper, and is as strict as the STRICTEST of
+    # them: the validation sandbox needs its own PID namespace and a
+    # die-with-parent init (`VALIDATION_SANDBOX_CONTAINMENT_FLAGS`), so a
+    # host that cannot build those is refused HERE — before a claim — and
+    # not at the delivery's gate, hours into a child.
     return [
         "bwrap",
         *_system_ro_binds(),
@@ -704,6 +706,8 @@ def _bwrap_probe_argv() -> list[str]:
         "--dev", "/dev",
         "--tmpfs", "/tmp",
         "--unshare-net",
+        *VALIDATION_SANDBOX_CONTAINMENT_FLAGS,
+        *(flag for flag in MANAGED_SPAWN_ISOLATION_FLAGS if flag not in VALIDATION_SANDBOX_CONTAINMENT_FLAGS),
         "--", "/bin/true",
     ]
 
@@ -791,6 +795,58 @@ class SandboxUnavailable(RuntimeError):
     one forgotten check away from spawning an unconfined process. Callers
     that genuinely may proceed unconfined must catch this explicitly.
     """
+
+
+# ARIA-HIGH-143 — the egress boundary the managed spawn is handed. The spawn
+# shares the host's network namespace so the CLI can reach its provider;
+# what keeps a prompt-injected agent from sending `.env` anywhere is the
+# allowlist CONNECT proxy in HTTPS_PROXY (`aria_kernel.egress_proxy`, the
+# host's `aria-egress-proxy.service`). A boundary that is configured but
+# not answering, or answering but admitting everything, is no boundary: the
+# probe asks the proxy for a tunnel to a TEST-NET address (RFC 5737, never
+# routable, never allowlisted) and accepts only a refusal BY NAME.
+EGRESS_PROXY_ENV = "HTTPS_PROXY"
+EGRESS_PROBE_TARGET = "203.0.113.1:443"
+EGRESS_REFUSAL_MARKER = b"egress_refused:target_not_allowlisted"
+_EGRESS_PROBE_TIMEOUT_SECONDS = 5.0
+
+
+def egress_boundary_probe(environ: Mapping[str, str] | None = None) -> str | None:
+    """Why the egress boundary is absent for a spawn built from ``environ``
+    (the executor's environment by default), or ``None`` when the proxy it
+    names refuses an off-allowlist tunnel by name."""
+    import socket
+    from urllib.parse import urlsplit
+
+    env = os.environ if environ is None else environ
+    proxy = env.get(EGRESS_PROXY_ENV) or env.get(EGRESS_PROXY_ENV.lower())
+    if not proxy:
+        return f"{EGRESS_PROXY_ENV} is unset; the spawn would have the host's whole network"
+    parts = urlsplit(proxy if "//" in proxy else f"http://{proxy}")
+    if parts.scheme not in ("http", "") or not parts.hostname or not parts.port:
+        return f"{EGRESS_PROXY_ENV}={proxy!r} is not an http://host:port proxy"
+    try:
+        with socket.create_connection((parts.hostname, parts.port), timeout=_EGRESS_PROBE_TIMEOUT_SECONDS) as sock:
+            sock.settimeout(_EGRESS_PROBE_TIMEOUT_SECONDS)
+            sock.sendall(f"CONNECT {EGRESS_PROBE_TARGET} HTTP/1.1\r\nHost: {EGRESS_PROBE_TARGET}\r\n\r\n".encode())
+            answer = b""
+            while len(answer) < 4096 and EGRESS_REFUSAL_MARKER not in answer:
+                # A tunnel that opens never closes on its own: stop at the
+                # status line. A refusal carries its reason in the body and
+                # closes, so read to the marker or to EOF.
+                if b"\r\n" in answer and answer.startswith(b"HTTP/1.1 200"):
+                    break
+                chunk = sock.recv(1024)
+                if not chunk:
+                    break
+                answer += chunk
+    except OSError as exc:
+        return f"egress proxy {parts.hostname}:{parts.port} did not answer: {exc}"
+    if answer.startswith(b"HTTP/1.1 200"):
+        return f"egress proxy {parts.hostname}:{parts.port} admits {EGRESS_PROBE_TARGET}; it is not an allowlist"
+    if EGRESS_REFUSAL_MARKER not in answer:
+        return f"egress proxy {parts.hostname}:{parts.port} did not refuse by name: {answer[:120]!r}"
+    return None
 
 
 def sandbox_unavailable_detail() -> str:
@@ -886,6 +942,33 @@ def _is_socket(path: Path) -> bool:
         return False
 
 
+def kernel_root_ro_binds(workspace: Path) -> list[str]:
+    """``--ro-bind`` for the running kernel's ``aria-kernel/`` when it lies
+    outside the workspace (ARIA-HIGH-142).
+
+    The in-sandbox clients — the hook client the CLI runs on every event
+    and the MCP relay the ``aria`` server renders as — are served from the
+    kernel that spawned the sandbox (``claude_settings.kernel_code_root``),
+    so that tree has to be visible inside. A workspace that IS the kernel's
+    checkout already carries it under READONLY_PATHS; a workspace that is
+    another checkout (a per-request worktree of a different tree, a trial
+    task source) does not, and a client path that resolves outside every
+    bind is a silent ``execvp`` failure inside. Under a system root the
+    interpreter binds already cover it; otherwise the directory is bound
+    read-only at its own path.
+    """
+    kernel_root = Path(__file__).resolve().parents[1]
+    workspace = Path(workspace).resolve()
+    if kernel_root == workspace or workspace in kernel_root.parents:
+        return []
+    for root in _SANDBOX_SYSTEM_ROOTS:
+        if kernel_root == Path(root) or Path(root) in kernel_root.parents:
+            return []
+    if not kernel_root.is_dir():
+        return []
+    return ["--ro-bind", str(kernel_root), str(kernel_root)]
+
+
 def _dependency_tree_binds(workspace: Path) -> list[str]:
     for ancestor in workspace.parents:
         candidate = ancestor / DEPENDENCY_TREE_DIRNAME
@@ -915,6 +998,7 @@ def wrap_bash_in_sandbox(
     extra_ro_binds: Sequence[str | Path] = (),
     git: GitContainment | None = None,
     hook_broker_socket: str | Path | None = None,
+    mcp_broker_socket: str | Path | None = None,
 ) -> list[str]:
     """Hard-fail check 8c — Bash sandbox wrapper.
 
@@ -929,7 +1013,11 @@ def wrap_bash_in_sandbox(
     bound in at ``SANDBOX_HOOK_BROKER_SOCKET`` with its environment name set
     by bwrap: the hooks inside decide and journal THROUGH it, so the durable
     store is never mounted in the sandbox — not writable (the first cut
-    handed the agent every kernel surface), not at all.
+    handed the agent every kernel surface), not at all. ``mcp_broker_socket``
+    (ARIA-HIGH-124) is the kernel-side MCP broker's socket
+    (``mcp_broker.serve_mcp_broker``), bound in at
+    ``SANDBOX_MCP_BROKER_SOCKET`` the same way: the `aria` MCP view is
+    served outside and relayed in, never spawned inside against the store.
 
     Plan 032 Faz 032b — ``write_scope`` narrows the writable tree: when given,
     the workspace is mounted READ-ONLY and only the scope's directories are
@@ -963,6 +1051,7 @@ def wrap_bash_in_sandbox(
         return _sandbox_argv(
             argv, workspace_root=workspace_root, allow_network=allow_network, write_scope=write_scope,
             extra_ro_binds=extra_ro_binds, git=git, hook_broker_socket=hook_broker_socket,
+            mcp_broker_socket=mcp_broker_socket,
         )
     probe_reason = _LAST_CONTAINMENT_PROBE_REASON[0]
     raise SandboxUnavailable(
@@ -984,6 +1073,7 @@ def _sandbox_argv(
     extra_ro_binds: Sequence[str | Path] = (),
     git: GitContainment | None = None,
     hook_broker_socket: str | Path | None = None,
+    mcp_broker_socket: str | Path | None = None,
 ) -> list[str]:
     """The bwrap argv, built without consulting availability — the one
     builder the wrapper AND the containment probe use, so the probe proves
@@ -1040,6 +1130,13 @@ def _sandbox_argv(
         # file or directory` — git writes the buffer it signs there.
         "--setenv", "TMPDIR", SANDBOX_TMPDIR,
     ]
+    # ARIA-HIGH-142 — the in-sandbox clients (hook client, MCP relay) are the
+    # RUNNING kernel's code; a route that serves them (a broker socket handed
+    # in) needs that tree visible read-only, wherever it lives. A route with
+    # no broker — the validation sandbox, a plain bash spawn — runs no client,
+    # so it never sees the code root (HIGH-124 round 3 keeps it out).
+    if hook_broker_socket is not None or mcp_broker_socket is not None:
+        wrap.extend(kernel_root_ro_binds(workspace))
     if hook_broker_socket is not None:
         # ARIA-HIGH-123 — the hooks' only way out: one socket, at a fixed
         # path under the sandbox's own /tmp, named to the hook client by
@@ -1050,6 +1147,17 @@ def _sandbox_argv(
         wrap.extend([
             "--bind", str(broker), SANDBOX_HOOK_BROKER_SOCKET,
             "--setenv", HOOK_BROKER_SOCKET_ENV, SANDBOX_HOOK_BROKER_SOCKET,
+        ])
+    if mcp_broker_socket is not None:
+        # ARIA-HIGH-124 — the `aria` MCP view's only way in: the relay
+        # inside connects to this one socket; the server behind it runs
+        # outside against the real store, read tools only.
+        mcp_socket = Path(mcp_broker_socket)
+        if not _is_socket(mcp_socket):
+            raise SandboxUnavailable(f"mcp_broker_socket_missing: {mcp_socket} is not a listening socket")
+        wrap.extend([
+            "--bind", str(mcp_socket), SANDBOX_MCP_BROKER_SOCKET,
+            "--setenv", MCP_BROKER_SOCKET_ENV, SANDBOX_MCP_BROKER_SOCKET,
         ])
     # READONLY_PATHS mounted ro-bind on top of the writable
     # workspace — ANY mutation under these paths gets EROFS.
@@ -1119,7 +1227,7 @@ def _wrap_runtime_state_in_sandbox(
         child_environment.extend(["--setenv", name, value])
     # procfs must describe only this runtime's PID namespace. A mount
     # namespace alone still exposes host processes and their root handles.
-    return (command[:separator] + ["--die-with-parent", "--unshare-pid", "--bind", str(runtime), str(runtime),
+    return (command[:separator] + [*MANAGED_SPAWN_ISOLATION_FLAGS, "--bind", str(runtime), str(runtime),
                                   "--ro-bind", str(auth / "auth.json"), str(private_home / "auth.json")]
             + child_environment + command[separator:])
 
@@ -1132,13 +1240,15 @@ def wrap_managed_claude_in_sandbox(
     argv: list[str], *, workspace_root: Path, write_scope: Sequence[str] | None,
     executable: Path, spawn_files: Sequence[Path], managed_login_dir: Path | None,
     git: GitContainment | None = None, hook_broker_socket: str | Path | None = None,
+    mcp_broker_socket: str | Path | None = None,
 ) -> list[str]:
     """Contain a Claude CLI spawn so that what the attempt names is what runs.
 
     ``git`` and ``hook_broker_socket`` are the checkout-derived git binds
-    and the kernel-side hook broker's socket (ARIA-HIGH-123) — handed
-    straight to :func:`wrap_bash_in_sandbox`, so both routes derive one set
-    of binds.
+    and the kernel-side hook broker's socket (ARIA-HIGH-123), and
+    ``mcp_broker_socket`` the kernel-side MCP broker's (ARIA-HIGH-124) —
+    handed straight to :func:`wrap_bash_in_sandbox`, so both routes derive
+    one set of binds.
 
     On top of :func:`wrap_bash_in_sandbox` (system, network, workspace,
     READONLY_PATHS, private /tmp and home) this binds exactly three things
@@ -1172,17 +1282,211 @@ def wrap_managed_claude_in_sandbox(
     command = wrap_bash_in_sandbox(
         [str(binary), *argv[1:]], workspace_root=workspace, allow_network=MANAGED_SPAWN_ALLOW_NETWORK,
         write_scope=write_scope, extra_ro_binds=(binary, *documents), git=git,
-        hook_broker_socket=hook_broker_socket,
+        hook_broker_socket=hook_broker_socket, mcp_broker_socket=mcp_broker_socket,
     )
     separator = command.index("--")
     private_config_dir = f"{SANDBOX_HOME}/.claude"
-    mounts = ["--die-with-parent", "--setenv", "CLAUDE_CONFIG_DIR", private_config_dir]
+    mounts = [*MANAGED_SPAWN_ISOLATION_FLAGS, "--setenv", "CLAUDE_CONFIG_DIR", private_config_dir]
     if managed_login_dir is not None:
         credentials = Path(managed_login_dir) / CLAUDE_LOGIN_CREDENTIALS_FILENAME
         if credentials.is_file():
             mounts.extend(["--ro-bind", str(credentials.resolve(strict=True)),
                            f"{private_config_dir}/{CLAUDE_LOGIN_CREDENTIALS_FILENAME}"])
     return command[:separator] + mounts + command[separator:]
+
+
+# ARIA-HIGH-124 (round 3) — the validation sandbox.
+#
+# The executor's apply gate runs the canonical suite and the plan's recipes
+# at the AGENT's committed tip: `npx nx affected --target=test`, `--target=
+# lint`, `npm run type-check`, `npm run format:check`. Every one of them is
+# repository code — jest specs, the nx/eslint/jest configs, `package.json`
+# scripts — and until round 3 `run_validation_commands` spawned them as a
+# plain subprocess in the request worktree, as the executor's own uid,
+# unconfined: a `package.json` script committed by the agent ran with the
+# store, the shared repository's `.git/refs/heads` and `config`, the CODE
+# ROOT's `aria-kernel/aria_kernel/` (the tree the executor's next
+# `-P` kernel command resolves from), `$HOME` (the runner's gh config) and
+# the kernel-held signing agent's socket dir all writable to it. The lane's
+# headline — the agent produces evidence, the executor exercises authority —
+# was inverted at that one seam.
+#
+# `wrap_validation_in_sandbox` is the containment `deliver_implementation`
+# puts around every command of that gate, built by the SAME argv builder the
+# containment probe and the agent's spawn use (`_sandbox_argv`), so what the
+# probe proved about this host holds for the suite:
+#
+# * the request worktree writable (nx, jest and eslint write their caches
+#   under it), READONLY_PATHS ro-bound on top — the kernel tree, the agent
+#   files, the workflows, `.git/`, `aria-config/`, `aria-debts/`, the
+#   operator tooling — EROFS at the syscall level;
+# * the checkout's git dirs in the READ-ONLY shape
+#   (`git_containment.derive_git_containment(commit_capable=False)`): the
+#   common dir read-only as a whole, sibling worktrees hidden, this
+#   worktree's private git dir read-only — `nx affected` reads its base
+#   ref, nothing under either git dir can be written;
+# * the nearest ancestor `node_modules` read-only (the tree a nested
+#   worktree's suite resolves, as the agent's spawn sees it);
+# * the executables the commands resolve to on the runner's PATH, read-only
+#   — resolved OUTSIDE (`shutil.which` over the validation environment's
+#   PATH, the way the managed Claude spawn resolves its binary), each bound
+#   as its toolchain prefix when it sits in a `bin/` directory (an
+#   `actions/setup-node` install at `<tool-cache>/node/<v>/<arch>/bin/npx`
+#   is a symlink into `../lib/node_modules/npm`, so the `bin/` alone would
+#   not run) and as its own directory otherwise; a resolution that would
+#   bind the store or an ancestor of the workspace is refused by name;
+# * NO network (`--unshare-net`), NO hook broker, NO MCP broker, the
+#   sandbox's own /tmp and an ephemeral HOME — the suite reaches no kernel
+#   surface and no credential;
+# * the workspace's keys dir (`<workspace>/aria-debts/keys/`) masked with an
+#   EMPTY tmpfs, unconditionally (round 5) — the same mask the agent's
+#   commit-capable containment applies, minus the public key it shows.
+#   The read-only git shape carries no `SandboxSigning`, so until round 5
+#   the validation sandbox bound the workspace with that directory inside:
+#   the delivery token (0600, the executor's own uid, written there by the
+#   mint until round 5) and the held private signing key were READABLE by
+#   the agent's committed suite, and the gate recorded what it read on the
+#   validation-runs ledger — reproduced through the real executor child
+#   under real bwrap. The token now lives outside the workspace
+#   (`delivery_credentials.private_token_dir`) and the identity is retired
+#   before the delivery; this mask is the wall that stands whatever the
+#   directory holds;
+# * the durable store, the code root and the runner's home are not mounted
+#   at all.
+#
+# The evidence stays the kernel's: the executor captures stdout/stderr and
+# the exit code from the contained child and records them on the
+# validation-runs ledger itself; the promotion to `ready_for_pr`, the push
+# and the PR stay outside, exactly as before.
+VALIDATION_SANDBOX_ALLOW_NETWORK = False
+# ARIA-HIGH-124 (round 4) — the flags that make a contained validation
+# command STOPPABLE, and its `/proc` its own:
+#
+# * `--unshare-pid` — the command runs in its own PID namespace, with
+#   bwrap's own init as pid 1: when that init dies every process in the
+#   namespace dies with it, and `/proc/<host pid>/root` of a process
+#   outside is not reachable from inside (as uid 0, where bwrap builds no
+#   user namespace, it was — the host root filesystem through a pid the
+#   sandbox could see);
+# * `--die-with-parent` — the init gets SIGKILL when the executor's child
+#   handle goes away, so a killed gate takes the whole tree with it.
+#
+# Measured on this host (bwrap 0.9.0) with a command that backgrounds a
+# sleeper and a one-second timeout: with neither flag, and with
+# `--die-with-parent` alone, the sleeper SURVIVES the kill — the gate
+# recorded `timed_out`, moved to the next command at its own 45-minute
+# ceiling, and the agent's `nx affected` jest workers kept running
+# unbounded on the shared runner; with both, nothing survives.
+# `validation._run_one` kills the process GROUP for the same reason, which
+# is what covers an UNwrapped command (the cycle's baseline at the trusted
+# checkout HEAD).
+VALIDATION_SANDBOX_CONTAINMENT_FLAGS: tuple[str, ...] = ("--unshare-pid", "--die-with-parent")
+# ARIA-HIGH-143 — what the AGENT's own spawn is isolated from, beyond the
+# mount layer: the host's PID namespace (`/proc` inside describes only this
+# spawn — the managed Claude route had `--die-with-parent` alone, so the
+# agent could list the executor, the brokers and the signing agent by PID),
+# System V IPC and the UTS names, and the controlling terminal's session
+# (`--new-session` calls setsid(): no TIOCSTI injection into the executor's
+# terminal, the classic sandbox escape when a tty is inherited). Every flag
+# is free — none of them the CLI or its tools can miss — and the probe
+# mirrors them so a host that cannot build these namespaces is refused
+# before a claim (ORPHAN-MEDIUM-452's rule). The network namespace is NOT
+# here: the CLI reaches its provider through it, and the egress boundary is
+# the allowlist proxy the spawn is handed (`egress_boundary_probe`).
+MANAGED_SPAWN_ISOLATION_FLAGS: tuple[str, ...] = (
+    "--unshare-pid", "--unshare-ipc", "--unshare-uts", "--new-session", "--die-with-parent",
+)
+# ARIA-HIGH-124 (round 4) — the ONE kernel file a contained validation
+# command can be spawned with: the private unittest-observation child
+# (`validation._run_one` composes `[<python>, <this file>, …]` when a
+# registered recipe's `input_scope` carries an execution profile, resolving
+# it as `Path(validation.__file__).with_name(...)` — the CODE root, which
+# the validation sandbox binds nothing of). Without this bind such a recipe
+# dies inside with `can't open file`, the gate blocks and the delivery
+# escalates a HUMAN_REQUIRED for a missing mount. Bound READ-ONLY and
+# alone: it imports no aria_kernel module by design, so the kernel package
+# stays outside.
+VALIDATION_OBSERVATION_CHILD = Path(__file__).with_name("_validation_unittest_child.py")
+# The one directory name under which a toolchain prefix keeps its
+# executables (`<prefix>/bin/<name>`); an executable found elsewhere is
+# bound as its own directory.
+_TOOLCHAIN_BIN_DIRNAME = "bin"
+
+
+def _under_system_root(path: Path) -> bool:
+    return any(path == Path(root) or path.is_relative_to(root) for root in _SANDBOX_SYSTEM_ROOTS)
+
+
+def validation_executable_binds(
+    executable: str, *, environment: Mapping[str, str], workspace: Path, store: Path | None,
+) -> tuple[Path, ...]:
+    """The host paths to ro-bind so ``executable`` runs inside the validation
+    sandbox: the toolchain prefix its PATH entry sits in (``<prefix>/bin``)
+    or that entry itself, plus the real file's own directory when a
+    symlink leads out of the prefix; empty when the system binds already
+    cover it. Raises :class:`SandboxUnavailable` by name when the command
+    does not resolve on the validation environment's PATH, or when a bind
+    would mount the store or an ancestor of the workspace."""
+    found = executable if os.path.isabs(executable) else shutil.which(
+        executable, path=environment.get("PATH", os.defpath),
+    )
+    if found is None:
+        raise SandboxUnavailable(f"validation_executable_unresolvable:{executable}")
+    entry = Path(found).parent
+    resolved = Path(found).resolve()
+    if _under_system_root(entry) and _under_system_root(resolved):
+        # `/usr/bin/npx` (`/usr/local/bin` included): the system binds
+        # carry it and everything it links to; nothing to add.
+        return ()
+    prefix = entry.parent if entry.name == _TOOLCHAIN_BIN_DIRNAME else entry
+    candidates = [prefix] if resolved.is_relative_to(prefix) else [prefix, resolved.parent]
+    binds: list[Path] = []
+    for candidate in candidates:
+        if workspace == candidate or workspace.is_relative_to(candidate):
+            raise SandboxUnavailable(f"validation_toolchain_prefix_contains_workspace:{candidate}")
+        if store is not None and (store == candidate or store.is_relative_to(candidate)):
+            raise SandboxUnavailable(f"validation_toolchain_prefix_contains_store:{candidate}")
+        if not _under_system_root(candidate) and candidate not in binds:
+            binds.append(candidate)
+    return tuple(binds)
+
+
+def wrap_validation_in_sandbox(
+    argv: list[str], *, workspace_root: str | Path, git: GitContainment | None,
+    environment: Mapping[str, str], store: str | Path | None = None,
+) -> list[str]:
+    """Contain ONE validation command of a tree an agent wrote (see above).
+
+    ``git`` is the READ-ONLY containment derived for ``workspace_root``
+    (``derive_git_containment(commit_capable=False)``; None in a main
+    checkout, where the READONLY_PATHS `.git/` bind already makes git
+    reads work and writes EROFS); ``environment`` is the validation
+    child's built environment (``validation_env.build_validation_env``),
+    read for the PATH the command's executable resolves on; ``store`` is
+    the durable store's root, which no bind may reach. The argv carries
+    ``VALIDATION_SANDBOX_CONTAINMENT_FLAGS`` (round 4), so a command that
+    hits its ceiling dies with the sandbox instead of orphaning its workers
+    on the runner, and an empty ``--tmpfs`` over the workspace's keys dir
+    (round 5), so nothing the directory holds is a file inside. Raises
+    :class:`SandboxUnavailable` by name — the caller refuses the gate, it
+    never runs the command unconfined.
+    """
+    from .gh_token_factory import signing_keys_dir
+
+    workspace = Path(workspace_root).resolve()
+    store_root = Path(store).resolve() if store is not None else None
+    binds = validation_executable_binds(argv[0], environment=environment, workspace=workspace, store=store_root)
+    command = wrap_bash_in_sandbox(
+        argv, workspace_root=workspace, allow_network=VALIDATION_SANDBOX_ALLOW_NETWORK,
+        write_scope=None, extra_ro_binds=(*binds, VALIDATION_OBSERVATION_CHILD), git=git,
+    )
+    separator = command.index("--")
+    # (round 5) the keys-dir mask, AFTER every workspace bind (a later mount
+    # shadows an earlier one) and unconditionally: `signing_keys_dir` makes
+    # the directory when it is absent, because bwrap cannot create a
+    # mountpoint under the read-only `aria-debts/` bind.
+    keys_mask = ["--tmpfs", str(signing_keys_dir(workspace))]
+    return command[:separator] + keys_mask + list(VALIDATION_SANDBOX_CONTAINMENT_FLAGS) + command[separator:]
 
 
 class ResourceLimitsUnavailable(RuntimeError):
@@ -2605,6 +2909,9 @@ __all__ = (
     # constants
     "READONLY_PATHS",
     "ALLOWED_BASH_COMMANDS",
+    "COMMIT_SIGNATURE_VERIFY_TIMEOUT_SECONDS",
+    "VALIDATION_OBSERVATION_CHILD",
+    "VALIDATION_SANDBOX_CONTAINMENT_FLAGS",
     "DENIED_BASH_COMMANDS",
     "FORBIDDEN_GH_API_PATHS",
     "MAX_VALIDATION_RESULT_BYTES",

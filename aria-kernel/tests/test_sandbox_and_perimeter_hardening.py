@@ -279,8 +279,14 @@ class ForcePushInBashArgv(unittest.TestCase):
 
         self.assertTrue(denied("git push origin aria-impl-abc123 -f"))
         self.assertTrue(denied("git push origin aria-impl-abc123 -fu"))
+        # The short-form rule itself does not overreach: the plain push
+        # escapes IT (ARIA-HIGH-124 refuses every push by a rule of its own,
+        # `kernel_authority:git_push_any`, which is not this rule).
+        from aria_kernel.command_policy import DENY_RULES
+
+        short_form = next(rule for rule in DENY_RULES if rule.name == "git_push_short_force")
+        self.assertIsNone(short_form.regex.search("git push origin aria-impl-abc123"))
         for safe in (
-            "git push origin aria-impl-abc123",
             "git log -n 5",
             "git diff --unified=0",
             "prettier --write report-f.md",
@@ -351,9 +357,13 @@ class ShellChainingDefeatsEveryBashCheck(unittest.TestCase):
         )
 
     def test_ordinary_allowed_commands_are_untouched(self) -> None:
+        # ARIA-HIGH-124 — the push is no longer an ordinary allowed
+        # command: the executor pushes after the run, and the policy refuses
+        # every `git push` inside by name.
+        with self.assertRaises(BashDenylistHit):
+            verify_bash_command_allowed(["git", "push", "origin", "aria-impl-abc123"], cwd=_REPO_ROOT)
         for argv in (
             ["git", "status"],
-            ["git", "push", "origin", "aria-impl-abc123"],
             ["git", "diff", "--unified=0"],
             ["git", "log", "-n", "5"],
             ["nx", "affected", "--target=test"],

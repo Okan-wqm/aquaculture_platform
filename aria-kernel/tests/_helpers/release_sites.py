@@ -42,6 +42,10 @@ from pathlib import Path
 EXECUTOR_PATH = Path(__file__).resolve().parents[3] / "tools" / "aria-poc" / "ci_executor.py"
 REFUSAL_TABLE_NAMES: frozenset[str] = frozenset({
     "ADMISSION_REFUSALS", "TASK_BINDING_REFUSAL", "IMPLEMENTATION_IDENTITY_REFUSAL",
+    # ARIA-HIGH-124 — the executor's delivery refusals; round 3 added the
+    # delivery's window/sandbox admission.
+    "DELIVERY_CREDENTIAL_REFUSAL", "IMPLEMENTATION_BRANCH_COLLISION_REFUSAL",
+    "IMPLEMENTATION_REQUEST_INVALID_REFUSAL", "DELIVERY_WINDOW_REFUSAL",
 })
 REFUSAL_RECORD_ATTRIBUTE = "release_reason"
 # The locals a release site may read `.release_reason` off besides the tables

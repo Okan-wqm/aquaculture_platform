@@ -116,7 +116,11 @@ class TheLadderStatesTheDecisionAsData(unittest.TestCase):
             with self.subTest(source=source_name):
                 self.assertNotIn("MODEL_FALLBACK_TIER", source)
                 self.assertNotIn("CREDIT_FALLBACK_EFFORT", source)
-                self.assertNotIn("on_refusal", source)
+                # The old ladder's `on_refusal` key, as an identifier — not a
+                # substring of an unrelated name like `delivery_admission_refusal`
+                # (ARIA-HIGH-124's delivery admission, which legitimately reads
+                # here). A word boundary is what "the name is gone" means.
+                self.assertNotRegex(source, r"(?<![A-Za-z0-9_])on_refusal(?![A-Za-z0-9_])")
 
 
 class CreditExhaustionIsTerminalOnEveryTier(unittest.TestCase):

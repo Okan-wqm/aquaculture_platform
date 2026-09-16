@@ -50,10 +50,19 @@ TOOL_MANIFEST: dict[str, dict[str, Any]] = {
 
 
 class AriaMcpServer:
-    def __init__(self, *, base_dir: str | Path | None, workspace_root: str | Path, allow_writes: bool = False) -> None:
+    def __init__(
+        self, *, base_dir: str | Path | None, workspace_root: str | Path, allow_writes: bool = False,
+        request_id: str | None = None,
+    ) -> None:
         self.root = ensure_tools_dir(base_dir)
         self.workspace = Path(workspace_root).resolve()
         self.allow_writes = allow_writes
+        # ARIA-HIGH-124 (round 4) — the request this view is served FOR
+        # (the executor's broker names it): every `mcp/tool-calls.jsonl` row
+        # this server records carries it, so a call can be attributed to
+        # the request whose sandbox made it. None for an operator's own
+        # `mcp serve`.
+        self.request_id = request_id
         self.initialized = False
 
     # ---- tool implementations (read) ----
@@ -82,21 +91,24 @@ class AriaMcpServer:
         return rank_pressure_sources(base_dir=self.root)[: int(args.get("limit") or 20)]
 
     def _governance_tail(self, args: dict[str, Any]) -> Any:
-        from .governance_reader import read_governance_rows
+        # ARIA-HIGH-124 — the bounded seek-to-end reader (V3.1-C-1), with
+        # the kind filter applied before the parse. The previous body asked
+        # `read_governance_rows` for `on_corruption="skip"`, a mode the
+        # reader refuses at entry (`strict` / `tolerant` only), so this
+        # tool answered every call with an error — invisible while the
+        # server ran inside the sandbox against a phantom store, measured
+        # the moment it was served against the real one.
+        from .governance_reader import read_governance_rows_reverse
 
-        path = self.root / "governance.jsonl"
-        if not path.exists():
-            return []
-        rows = read_governance_rows(path, on_corruption="skip", reverse=True, base_dir=self.root)
         kind = args.get("kind")
-        out = []
-        for row in rows:
-            if kind and row.get("kind") != kind:
-                continue
-            out.append({"recorded_at": row.get("recorded_at") or row.get("timestamp"), "kind": row.get("kind"), "details": row.get("details")})
-            if len(out) >= int(args.get("limit") or 50):
-                break
-        return out
+        rows = read_governance_rows_reverse(
+            base_dir=self.root, limit=int(args.get("limit") or 50),
+            kind_filter=(str(kind),) if kind else None,
+        )
+        return [
+            {"recorded_at": row.get("recorded_at") or row.get("timestamp"), "kind": row.get("kind"), "details": row.get("details")}
+            for row in rows
+        ]
 
     def _handoff_read(self, args: dict[str, Any]) -> Any:
         from .handoff_ledger import read_handoff
@@ -162,17 +174,19 @@ class AriaMcpServer:
         args = dict(arguments or {})
         started = time.monotonic()
         if name not in TOOL_MANIFEST or (name in WRITE_TOOLS and not self.allow_writes):
-            record_mcp_call(tool_name=f"{SERVER_NAME}/{name}", ok=False, base_dir=self.root, side="server", error_class="UnknownTool")
+            record_mcp_call(tool_name=f"{SERVER_NAME}/{name}", ok=False, base_dir=self.root, side="server",
+                            request_id=self.request_id, error_class="UnknownTool")
             return {"content": [{"type": "text", "text": f"unknown tool {name!r}"}], "isError": True}
         try:
             result = self._impl(name)(args)
             text = json.dumps(result, sort_keys=True, default=str)
             record_mcp_call(tool_name=f"{SERVER_NAME}/{name}", ok=True, base_dir=self.root, side="server",
-                            duration_ms=int((time.monotonic() - started) * 1000))
+                            request_id=self.request_id, duration_ms=int((time.monotonic() - started) * 1000))
             return {"content": [{"type": "text", "text": text}], "isError": False}
         except Exception as exc:  # noqa: BLE001 — a tool failure is an error result, never a dead server
             record_mcp_call(tool_name=f"{SERVER_NAME}/{name}", ok=False, base_dir=self.root, side="server",
-                            duration_ms=int((time.monotonic() - started) * 1000), error_class=type(exc).__name__)
+                            request_id=self.request_id, duration_ms=int((time.monotonic() - started) * 1000),
+                            error_class=type(exc).__name__)
             return {"content": [{"type": "text", "text": f"{type(exc).__name__}: {str(exc)[:500]}"}], "isError": True}
 
     def handle(self, message: dict[str, Any]) -> dict[str, Any] | None:

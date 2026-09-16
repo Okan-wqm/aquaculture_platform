@@ -2402,6 +2402,10 @@ HARNESS_FAULT_RELEASE_REASONS: frozenset[str] = frozenset({
     # it goes back to PENDING with its budget intact, and the governance
     # row of the same name carries the cause.
     "implementation_signing_unavailable",
+    # ARIA-HIGH-124 — the executor could not mint the delivery credential
+    # it pushes and opens the PR with (no GH App, no PAT): the lane's state,
+    # decided before the spawn; the request said nothing.
+    "implementation_delivery_unavailable",
     # Y1 (ORPHAN-703) — the planner dispatch hook now releases its claim on
     # every failure exit instead of abandoning it to lease expiry. A killed
     # or failed CHILD PROCESS says nothing about the request (the measured
@@ -2425,6 +2429,13 @@ REQUEST_FAULT_RELEASE_REASONS: frozenset[str] = frozenset({
     "request_envelope_missing_expected_output_path",
     "request_envelope_missing_role",
     "submit_rejected",
+    # ARIA-HIGH-124 — the shared repository already holds this request's
+    # implementation branch (an earlier attempt published it); a retry
+    # cannot stand on it, so the request is escalated for a person.
+    "implementation_branch_collision",
+    # (round 2) the request row's implementation_ids cannot stand a
+    # sandbox: the request's own facts, escalated for a person.
+    "implementation_request_invalid",
 })
 
 # Plan 032 Faz 032a — the executor also releases with PARAMETERISED reasons
@@ -2446,19 +2457,29 @@ REQUEST_FAULT_RELEASE_REASONS: frozenset[str] = frozenset({
 #   the request still CLAIMED. A crash in the wrapper says nothing about the
 #   request (seven such leaks on 2026-09-04 were one AttributeError in the
 #   spawn gate's refusal path).
+# * ``human_required_record_unavailable:<escalation reason>`` — the executor
+#   escalated the request and the kernel's HUMAN_REQUIRED recorder did not
+#   land the record (ARIA-HIGH-124 round 3). The store's fault: the request
+#   keeps its budget and is escalated again by the retry once the recorder
+#   answers; the release is loud (a job error, a governance row).
 HARNESS_FAULT_RELEASE_REASON_PREFIXES: tuple[str, ...] = (
     "claude_cli_exit_",
     "submit_timeout_",
     "provider_quota_unavailable:",
     "executor_uncaught_exit:",
+    "human_required_record_unavailable:",
 )
 # * ``plan_content_invalid:<errors>`` — the agent's envelope failed the
 #   role's content contract; retrying the same request usually repeats it.
 # * ``agent_refused:<class>`` — the agent declined the request on the
 #   merits (a refusal envelope), which is a statement about the request.
+# * ``implementation_delivery_refused:<stage>`` — the executor's delivery of
+#   the published branch stopped (the apply gate blocked, the push failed,
+#   the PR opener refused); the branch now exists, so a retry collides.
 REQUEST_FAULT_RELEASE_REASON_PREFIXES: tuple[str, ...] = (
     "plan_content_invalid:",
     "agent_refused:",
+    "implementation_delivery_refused:",
 )
 
 RELEASE_REASON_CLASSES: tuple[str, ...] = ("harness", "request", "unclassified")
@@ -3980,6 +4001,17 @@ def release_claim(
                 if requeue_count <= DEFAULT_MAX_REQUEUES
                 else "human_required"
             )
+            # ARIA-HIGH-124 (round 2) — a request-class release of a request
+            # the releaser has ALREADY escalated (an open HUMAN_REQUIRED
+            # record: the executor writes it before it releases — a branch
+            # collision, a delivery refusal, the agent's own refusal
+            # envelope) is terminal now, not after two more claims each
+            # burned on the same pre-turn refusal: the record and the claim
+            # state say the same thing from the same release.
+            from .human_required import open_human_required_record
+
+            if open_human_required_record(request_id, base_dir=root) is not None:
+                requeue_event_kind = "human_required"
         transaction.append_declared_jsonl(
             claims_path,
             {
@@ -4959,27 +4991,79 @@ def _prepare_submission_transcript_artifact(
     )
 
 
-def _prepare_claim_submission(
+@dataclass(frozen=True)
+class ClaimSubmissionJudgment:
+    """The kernel's decision on ONE result envelope, with nothing written.
+
+    ARIA-HIGH-124 (round 5) — ``judge_claim_submission`` is the decision
+    chain ``submit_claim_result`` applies (the schema and the matrix
+    against the request, separation of duties, the plan contract for the
+    authoring roles, the secret scan, the evidence refs at the verified
+    target, the declared route, the compliance grade), factored out of
+    ``_prepare_claim_submission`` so the executor's implementation delivery
+    can ask it BEFORE it pushes a branch and opens a PR
+    (``implementation_delivery``, stage ``result_admissible``). Until round
+    5 the first time the kernel decided an implementation envelope was
+    inside the submit — after the App's credential had been spent on the
+    push and the ``[ARIA-AUTO]`` PR: an envelope the kernel then rejected
+    (44 evidence refs on 2026-08-09; a ``<file>:<line>`` past the file's
+    end, reproduced through the real executor child) left a live PR nobody
+    owned on a plan that stayed ``IMPLEMENTATION_REQUESTED``.
+
+    ``reasons`` and ``rejection_codes`` are the rejection, one code per
+    reason (empty: admitted); ``revalidation`` is the evidence validator's
+    answer (its ``errors`` feed the out-of-scope capture the submit
+    writes, its ``checked_refs`` the accepted row); ``compliance`` is the
+    prepared grade when the chain admitted the envelope (the compliance
+    rejection is itself in ``reasons`` then), None when an earlier check
+    already rejected it.
+    """
+
+    reasons: tuple[str, ...]
+    rejection_codes: tuple[str, ...]
+    revalidation: dict[str, Any]
+    compliance: dict[str, Any] | None
+
+    @property
+    def admitted(self) -> bool:
+        return not self.reasons
+
+    @property
+    def undecided(self) -> bool:
+        """Every code names the kernel's own gap (its evidence probes did
+        not answer): nothing about the work was decided — the submit
+        journals no row for this shape and the executor releases it as
+        the harness's fault (``_submission_undecided_response``)."""
+        from .evidence_validator import EVIDENCE_VERIFICATION_UNAVAILABLE_CODES
+
+        codes = list(self.rejection_codes)
+        return bool(codes) and all(code in EVIDENCE_VERIFICATION_UNAVAILABLE_CODES for code in codes)
+
+
+def judge_claim_submission(
     *,
     root: Path,
     claim_id: str,
-    request_id: str,
     agent_id: str,
     request: dict[str, Any],
-    envelope: dict[str, Any] | None,
-    envelope_unreadable_error: str | None,
-    submitted_hash: str,
+    envelope: dict[str, Any],
     output: Path,
-    sealed_output: Path,
-    output_content_hash: str,
     workspace_root: str | Path,
-    context_hash: str | None,
-    prompt_hash: str | None,
-    transcript_hash: str | None,
-    transcript_artifact_ref: str | None,
     evidence_target_sha: str | None = None,
-) -> dict[str, Any]:
-    """Validate and construct every write payload before locking/mutating."""
+) -> ClaimSubmissionJudgment:
+    """Decide ``envelope`` the way the submit decides it, writing nothing.
+
+    ``request`` is the request ROW (``find_request``); ``output`` is the
+    envelope's path (the compliance grade's ``output_path_match`` reads it
+    against the request's ``expected_output_path``); ``evidence_target_sha``
+    is the anchor the evidence refs are graded at — ``EVIDENCE_TARGET_AUTO``
+    resolves the workspace's HEAD through the decision's own probe session
+    and proves its descent from the request's base, the reading the
+    executor's submit takes (``--evidence-target-sha auto``). Raises
+    ``GovernanceError`` for a request row the strict view cannot adapt and
+    for an evidence target git answers "no" to (a non-descendant): the
+    request's fault, the same errors the submit raises.
+    """
     from .agent_contract import enforce_separation_of_duties, validate_response
     from .agent_compliance import (
         COMPLIANCE_REJECTION_REASON,
@@ -4990,24 +5074,6 @@ def _prepare_claim_submission(
         AGENT_EVIDENCE_VERIFICATION_UNAVAILABLE_CODE,
         validate_agent_response_evidence,
     )
-    from .runtime_profile import enforce_profile_for_write
-
-    # Every terminal branch emits a governance row. Perform the profile
-    # admission before the encompassing transaction so it cannot fail after
-    # any result/compliance/transcript mutation.
-    enforce_profile_for_write("tool_governance", base_dir=root)
-
-    if envelope_unreadable_error is not None or envelope is None:
-        return _prepared_claim_rejection(
-            claim_id=claim_id,
-            request_id=request_id,
-            agent_id=agent_id,
-            output_path=store_relative_artifact_path(root, sealed_output),
-            output_content_hash=output_content_hash,
-            reasons=[f"envelope_unreadable: {envelope_unreadable_error}"],
-            reason_codes=["envelope_unreadable"],
-            submitted_hash=submitted_hash,
-        )
 
     strict_request = _strict_request_view(request)
     # Every rejection reason is a human line PLUS a machine code, appended
@@ -5110,7 +5176,7 @@ def _prepare_claim_submission(
     # that turn a rejection into a signal instead of a dead end:
     # 1. the agent must have declared its route before the work
     # 2. out-of-scope sightings are CAPTURED for a separate plan, never lost
-    from .scope_discipline import extract_out_of_scope_observations, require_declared_route
+    from .scope_discipline import require_declared_route
     # The route contract is opt-in per request: new requests mint
     # require_declared_route=true; legacy requests without the flag keep
     # the pre-existing validation (no silent breakage of the standing fleet).
@@ -5121,6 +5187,93 @@ def _prepare_claim_submission(
                 str(route_violation["code"]),
                 f"route: {route_violation['code']} — {route_violation['reason']}",
             )
+    if reasons:
+        return ClaimSubmissionJudgment(
+            reasons=tuple(reasons), rejection_codes=tuple(reason_codes),
+            revalidation=revalidation, compliance=None,
+        )
+
+    compliance = _prepare_compliance_grade(
+        claim_id=claim_id,
+        request=request,
+        response=envelope,
+        response_path=output,
+        workspace_root=Path(workspace_root).resolve() if workspace_root else None,
+        base_dir=root,
+    )
+    compliance_row = compliance["row"]
+    if compliance_row.get("rejection"):
+        reject(
+            "compliance",
+            f"compliance: {COMPLIANCE_REJECTION_REASON} "
+            f"(hard_fail={compliance_row.get('hard_fail_count', 0)}, "
+            f"soft_fail={compliance_row.get('soft_fail_count', 0)})",
+        )
+    return ClaimSubmissionJudgment(
+        reasons=tuple(reasons), rejection_codes=tuple(reason_codes),
+        revalidation=revalidation, compliance=compliance,
+    )
+
+
+def find_request(root: Path, request_id: str) -> dict[str, Any]:
+    """The request ROW on the ledger, or ``GovernanceError`` — the one
+    reading the submit and the delivery's pre-push decision share."""
+    return _find_request(root, request_id)
+
+
+def _prepare_claim_submission(
+    *,
+    root: Path,
+    claim_id: str,
+    request_id: str,
+    agent_id: str,
+    request: dict[str, Any],
+    envelope: dict[str, Any] | None,
+    envelope_unreadable_error: str | None,
+    submitted_hash: str,
+    output: Path,
+    sealed_output: Path,
+    output_content_hash: str,
+    workspace_root: str | Path,
+    context_hash: str | None,
+    prompt_hash: str | None,
+    transcript_hash: str | None,
+    transcript_artifact_ref: str | None,
+    evidence_target_sha: str | None = None,
+) -> dict[str, Any]:
+    """Validate and construct every write payload before locking/mutating."""
+    from .runtime_profile import enforce_profile_for_write
+    from .scope_discipline import extract_out_of_scope_observations
+
+    # Every terminal branch emits a governance row. Perform the profile
+    # admission before the encompassing transaction so it cannot fail after
+    # any result/compliance/transcript mutation.
+    enforce_profile_for_write("tool_governance", base_dir=root)
+
+    if envelope_unreadable_error is not None or envelope is None:
+        return _prepared_claim_rejection(
+            claim_id=claim_id,
+            request_id=request_id,
+            agent_id=agent_id,
+            output_path=store_relative_artifact_path(root, sealed_output),
+            output_content_hash=output_content_hash,
+            reasons=[f"envelope_unreadable: {envelope_unreadable_error}"],
+            reason_codes=["envelope_unreadable"],
+            submitted_hash=submitted_hash,
+        )
+
+    # The decision itself is the ONE chain `judge_claim_submission` holds
+    # (ARIA-HIGH-124 round 5): the executor's delivery asks it before the
+    # push, this submit asks it again on the same envelope, and both read
+    # the same answer.
+    judgment = judge_claim_submission(
+        root=root, claim_id=claim_id, agent_id=agent_id, request=request, envelope=envelope,
+        output=output, workspace_root=workspace_root, evidence_target_sha=evidence_target_sha,
+    )
+    revalidation = judgment.revalidation
+    # Scope discipline (operator requirements 2026-08-29) — out-of-scope
+    # sightings are CAPTURED for a separate plan, never lost: the one write
+    # the decision path makes, kept here where the submit writes.
     out_of_scope = extract_out_of_scope_observations(
         rejected_errors=revalidation.get("errors", []),
         response=envelope,
@@ -5138,50 +5291,27 @@ def _prepare_claim_submission(
             },
             expected_surface="pressure_out_of_scope_observations",
         )
-    if reasons:
-        return _prepared_claim_rejection(
-            claim_id=claim_id,
-            request_id=request_id,
-            agent_id=agent_id,
-            output_path=store_relative_artifact_path(root, sealed_output),
+    compliance = judgment.compliance
+    if compliance is not None:
+        _normalize_submission_compliance_paths(
+            compliance,
+            root=root,
+            workspace_root=workspace_root,
             output_content_hash=output_content_hash,
-            reasons=reasons,
-            reason_codes=reason_codes,
-            submitted_hash=submitted_hash,
         )
-
-    compliance = _prepare_compliance_grade(
-        claim_id=claim_id,
-        request=request,
-        response=envelope,
-        response_path=output,
-        workspace_root=Path(workspace_root).resolve() if workspace_root else None,
-        base_dir=root,
-    )
-    _normalize_submission_compliance_paths(
-        compliance,
-        root=root,
-        workspace_root=workspace_root,
-        output_content_hash=output_content_hash,
-    )
-    compliance_row = compliance["row"]
-    if compliance_row.get("rejection"):
-        rejection_reasons = [
-            f"compliance: {COMPLIANCE_REJECTION_REASON} "
-            f"(hard_fail={compliance_row.get('hard_fail_count', 0)}, "
-            f"soft_fail={compliance_row.get('soft_fail_count', 0)})"
-        ]
+    if not judgment.admitted:
         return _prepared_claim_rejection(
             claim_id=claim_id,
             request_id=request_id,
             agent_id=agent_id,
             output_path=store_relative_artifact_path(root, sealed_output),
             output_content_hash=output_content_hash,
-            reasons=rejection_reasons,
-            reason_codes=["compliance"],
+            reasons=list(judgment.reasons),
+            reason_codes=list(judgment.rejection_codes),
             submitted_hash=submitted_hash,
             compliance=compliance,
         )
+    assert compliance is not None
 
     request_context_hash = str(request.get("context_hash") or "")
     request_prompt_hash = str(request.get("prompt_hash") or "")

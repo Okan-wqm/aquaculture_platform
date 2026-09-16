@@ -1061,14 +1061,19 @@ class AutonomyOrchestratorTests(unittest.TestCase):
             # token here again would fail by name (ARIA-HIGH-115).
             raise AssertionError("the orchestrator process mints no installation token")
 
-        real_run = subprocess.run
+        # ARIA-HIGH-124 (round 4) — the substitute is the runner's ONE spawn
+        # seam (`validation._run_to_completion`, which leads its own process
+        # group so a timeout kills the whole tree), not the module's
+        # `subprocess.run`: every validation child goes through it, and the
+        # module's git calls stay real without an argv test.
+        real_spawn = validation._run_to_completion
         # The canonical suite staging runs as baseline, read from its one
         # tuple (ARIA-HIGH-104 (2) grew it) rather than enumerated here.
         from aria_kernel.implementation_safety import CANONICAL_VALIDATION_COMMANDS_EXECUTABLE
 
         validation_children = {tuple(command.split()) for command in CANONICAL_VALIDATION_COMMANDS_EXECUTABLE}
 
-        def child_run(argv, *args, **kwargs):
+        def child_run(argv, **kwargs):
             # Preserve real Git, ssh-keygen, validation records, staging and
             # envelope minting. The expensive validation children are fixtures.
             command = tuple(str(arg) for arg in argv)
@@ -1076,13 +1081,13 @@ class AutonomyOrchestratorTests(unittest.TestCase):
                 return subprocess.CompletedProcess(argv, 0, "fixture validation\n", "")
             if command and command[0] in {"npx", "npm", "cargo", "gh"}:
                 raise AssertionError("unexpected external child in signer handoff fixture")
-            return real_run(argv, *args, **kwargs)
+            return real_spawn(argv, **kwargs)
 
         with ExitStack() as stack:
             stack.enter_context(patch.dict(os.environ, {"GH_TOKEN": "", "GITHUB_TOKEN": ""}))
             stack.enter_context(patch.object(gh_token_factory, "mint_signing_key", side_effect=mint_key))
             stack.enter_context(patch.object(gh_token_factory, "mint_installation_token", side_effect=mint_token))
-            stack.enter_context(patch.object(validation.subprocess, "run", side_effect=child_run))
+            stack.enter_context(patch.object(validation, "_run_to_completion", side_effect=child_run))
             if action_permissions is not None:
                 stack.enter_context(patch("aria_kernel.runtime_profile.ACTION_PERMISSIONS", action_permissions))
             result = self._run(

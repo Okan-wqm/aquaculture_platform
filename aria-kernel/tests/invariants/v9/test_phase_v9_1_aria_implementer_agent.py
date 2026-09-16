@@ -421,6 +421,9 @@ class TestV9ImplementerPromptCommandsAreDecidedByThePolicy(unittest.TestCase):
         # ARIA-HIGH-124 (round 4) — the commit shape the prompt names as
         # refused: a signing key of the agent's own.
         "git commit -m x --gpg-sign=<key>": "commit_identity:git_commit_foreign_option",
+        # ARIA-HIGH-147 — the hand recomputation the prompt and the contract
+        # forbid by name: the authenticity obligation goes to `plan_verify`.
+        "python3 -c": None,
     }
 
     @classmethod

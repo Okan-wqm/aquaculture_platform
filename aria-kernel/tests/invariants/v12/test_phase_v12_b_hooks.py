@@ -105,7 +105,7 @@ class SettingsCarryRulesAndHooks(unittest.TestCase):
         # tests/test_turn_budget_policy.py, the full reader matrix in
         # tests/test_turn_budget.py) — and the spawner hands that number to
         # the broker (`claude_runtime.SpawnSettings.turn_budget`).
-        self.assertEqual(settings["_aria"]["turn_budget"], 60)
+        self.assertEqual(settings["_aria"]["turn_budget"], 120)
         self.assertTrue(settings_hash(settings).startswith("sha256:"))
         self.assertEqual(settings_hash(settings), settings_hash(build_settings(profile_by_id("implementer"), hook_context=ctx)))
         preview = build_settings(profile_by_id("judge_opus"), hook_context=None)

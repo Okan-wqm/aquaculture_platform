@@ -149,7 +149,7 @@ class ClientCommand(_Store):
         self.assertEqual(command, f"/usr/bin/python3 -I {self.workspace / 'aria-kernel' / 'aria_kernel' / 'hook_client.py'} pre-tool")
         for forbidden in ("--tools-dir", str(self.tools), "--request-id", "AIR-1", "--turn-budget", "-m aria_kernel"):
             self.assertNotIn(forbidden, command)
-        self.assertEqual(settings["_aria"]["turn_budget"], 60, "the cap stays in the document for the broker")
+        self.assertEqual(settings["_aria"]["turn_budget"], 120, "the cap stays in the document for the broker")
         self.assertEqual(hook_client_path(_KERNEL_ROOT), _KERNEL_ROOT / "aria_kernel" / "hook_client.py")
         with self.assertRaises(ValueError):
             hook_command(python="python3", kernel_root=_KERNEL_ROOT, verb="reboot")

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import contextlib
 import errno
 import json
 import subprocess
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -3497,6 +3498,70 @@ def _run_phase_stage(
 # The margin mirrors claude_runtime's close-out margin: enough for the
 # reflection/seal work that must still run after the last skipped phase.
 _JOB_DEADLINE_PHASE_MARGIN_SECONDS = 120
+
+# ARIA-HIGH-064 — the name of the cross-process deadline contract, in one place.
+# It is an ENV var rather than a parameter on purpose: the readers are in other
+# PROCESSES (tools/aria-poc/claude_runtime.py clamps a spawn against it,
+# ci_executor_drain.py stops the drain, ci_executor.py reports it, and
+# agent_env.py passes it through to an agent). A parameter cannot cross a fork.
+JOB_DEADLINE_EPOCH_ENV = "ARIA_JOB_DEADLINE_EPOCH"
+
+
+@contextlib.contextmanager
+def job_deadline_epoch(seconds: float | None) -> Iterator[float | None]:
+    """Bind the job deadline for the duration of ONE run, then restore it.
+
+    ARIA-HIGH-064. The deadline must be exported (see JOB_DEADLINE_EPOCH_ENV)
+    but it must not OUTLIVE the run that set it. Pre-fix the autonomy CLI
+    handler assigned the variable with no restore, so in any process that
+    executes more than one command the first autonomy invocation pinned a
+    deadline over everything that followed. The kernel test suite runs 258
+    modules in a single interpreter for ~2 hours: once
+    ``test_cli_autonomy_subcommand`` ran, every later cycle, drain and burn-in
+    eventually saw a deadline in the PAST and raised PhaseDeadlineExceeded
+    before doing any work — 30 burn-in cycles dying in one second each with
+    ``discovery_not_complete``, the drain returning nothing with
+    ``stop=job_deadline_reached``. The failures moved between runs because they
+    depend on elapsed wall-clock rather than on the code under test, which is
+    exactly why they read as flake and survived two CI reds.
+
+    Narrowing is preserved and widening is impossible: an outer deadline (the
+    workflow's job cap) is only ever tightened, never extended. ``seconds`` of
+    None/0 binds nothing at all and leaves any inherited cap untouched.
+    """
+    import os as _os
+
+    inherited = _os.environ.get(JOB_DEADLINE_EPOCH_ENV)
+    if not seconds:
+        yield _parse_deadline_epoch(inherited)
+        return
+    cap = time.time() + float(seconds)
+    inherited_epoch = _parse_deadline_epoch(inherited)
+    if inherited_epoch is not None:
+        cap = min(cap, inherited_epoch)
+    _os.environ[JOB_DEADLINE_EPOCH_ENV] = str(cap)
+    try:
+        yield cap
+    finally:
+        if inherited is None:
+            _os.environ.pop(JOB_DEADLINE_EPOCH_ENV, None)
+        else:
+            _os.environ[JOB_DEADLINE_EPOCH_ENV] = inherited
+
+
+def _parse_deadline_epoch(raw: str | None) -> float | None:
+    """A malformed epoch is NOT a deadline — the same tolerance the readers use.
+
+    ``_remaining_wallclock_seconds`` returns inf on garbage rather than
+    crashing a cycle; the binder must agree, or a typo in the workflow would
+    become a hard failure here and an ignored value there.
+    """
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        return None
 
 
 def _job_deadline_reached() -> bool:

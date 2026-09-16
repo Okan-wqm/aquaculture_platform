@@ -35,6 +35,26 @@ from aria_kernel.ledger import load_jsonl
 from aria_kernel.tool_registry import GovernanceError, ensure_tools_dir
 from tests._helpers.declared_fixtures import sha256_file
 
+# A liveness guard for the race and crash fixtures — the bound after which a
+# peer that never resumes, or a spawned submit child that never reaches its
+# exit boundary, is declared wedged — not a performance budget for a real
+# submit. The threaded fixtures pause one writer before it takes any lock
+# and let the other run the REAL submit_claim_result (evidence checks,
+# ledger hashing, sealing); the crash fixtures spawn a fresh interpreter
+# that imports the kernel and runs that same submit up to an append
+# boundary. A wedge shows as a wait that never ends, and a loaded host shows
+# as a wait of tens of seconds. The pre-push suite of 2026-09-11 (3137
+# tests, five hours, host in IO wait beside two live model runs) saw the
+# real submit exceed a 5 s bound three times, each recorded as a
+# `TimeoutError('submit did not finish')`; the lane battery of 2026-09-13
+# (load 21 on four CPUs beside three other suites) saw the spawned child
+# exceed a 30 s join seven times, each recorded as `submit child hung after
+# artifact seals` — the module green alone in 66 s. No deadlock either
+# time, one busy host. The guard is large enough that only a wedge reaches
+# it, and it is ONE number for every fixture here, so a second budget
+# cannot be typed beside a wait again.
+RACE_LIVENESS_SECONDS = 120
+
 
 def _seed_repo() -> Path:
     """Create a tempdir that looks like a repo root."""
@@ -310,7 +330,7 @@ class SubmitResultE2ETests(unittest.TestCase):
             },
         )
         process.start()
-        process.join(timeout=30)
+        process.join(timeout=RACE_LIVENESS_SECONDS)
         if process.is_alive():
             process.kill()
             process.join(timeout=5)
@@ -775,7 +795,7 @@ class SubmitResultE2ETests(unittest.TestCase):
                     },
                 )
                 process.start()
-                process.join(timeout=30)
+                process.join(timeout=RACE_LIVENESS_SECONDS)
                 if process.is_alive():
                     process.kill()
                     process.join(timeout=5)
@@ -844,7 +864,7 @@ class SubmitResultE2ETests(unittest.TestCase):
             },
         )
         process.start()
-        process.join(timeout=30)
+        process.join(timeout=RACE_LIVENESS_SECONDS)
         if process.is_alive():
             process.kill()
             process.join(timeout=5)
@@ -1783,7 +1803,7 @@ class SubmitResultE2ETests(unittest.TestCase):
                 in {Path(path).resolve() for path in paths}
             ):
                 submit_waiting.set()
-                if not release_finished.wait(timeout=5):
+                if not release_finished.wait(timeout=RACE_LIVENESS_SECONDS):
                     raise TimeoutError("release did not finish")
             with real_state_transaction(paths, **transaction_kwargs) as transaction:
                 yield transaction
@@ -1812,7 +1832,7 @@ class SubmitResultE2ETests(unittest.TestCase):
                 name="submit-before-release-race",
             )
             submit_thread.start()
-            self.assertTrue(submit_waiting.wait(timeout=5))
+            self.assertTrue(submit_waiting.wait(timeout=RACE_LIVENESS_SECONDS))
             release_claim(
                 claim_id=claim["claim_id"],
                 agent_id="judge-worker-001",
@@ -1821,7 +1841,7 @@ class SubmitResultE2ETests(unittest.TestCase):
                 base_dir=self.tools,
             )
             release_finished.set()
-            submit_thread.join(timeout=5)
+            submit_thread.join(timeout=RACE_LIVENESS_SECONDS)
 
         self.assertFalse(submit_thread.is_alive())
         self.assertEqual(len(submit_errors), 1, submit_errors)
@@ -1867,7 +1887,7 @@ class SubmitResultE2ETests(unittest.TestCase):
                 and record.get("event") == target_event
             ):
                 lifecycle_waiting.set()
-                if not submit_finished.wait(timeout=5):
+                if not submit_finished.wait(timeout=RACE_LIVENESS_SECONDS):
                     raise TimeoutError("submit did not finish")
             return real_append(path, record, **append_kwargs)
 
@@ -1879,7 +1899,7 @@ class SubmitResultE2ETests(unittest.TestCase):
                 and {claims_path, results_path}.issubset(resolved)
             ):
                 lifecycle_waiting.set()
-                if not submit_finished.wait(timeout=5):
+                if not submit_finished.wait(timeout=RACE_LIVENESS_SECONDS):
                     raise TimeoutError("submit did not finish")
             with real_state_transaction(paths, **transaction_kwargs) as transaction:
                 yield transaction
@@ -1929,7 +1949,7 @@ class SubmitResultE2ETests(unittest.TestCase):
                 name=f"{operation}-race",
             )
             lifecycle_thread.start()
-            self.assertTrue(lifecycle_waiting.wait(timeout=5))
+            self.assertTrue(lifecycle_waiting.wait(timeout=RACE_LIVENESS_SECONDS))
             submitted = submit_claim_result(
                 claim_id=claim["claim_id"],
                 agent_id="judge-worker-001",
@@ -1940,7 +1960,7 @@ class SubmitResultE2ETests(unittest.TestCase):
                 **kwargs,
             )
             submit_finished.set()
-            lifecycle_thread.join(timeout=5)
+            lifecycle_thread.join(timeout=RACE_LIVENESS_SECONDS)
 
         self.assertFalse(lifecycle_thread.is_alive())
         self.assertEqual(submitted["status"], "accepted")

@@ -1594,3 +1594,51 @@ package.json]` and `removed=['.aria-state-store/tools/plans/events.jsonl']`. The
   `tools/quality/format-scope.json` stale for the PR's `quality-gates` CI, and that manifest is
   outside the agent's `allowed_scope`; a delivery-side regeneration (the kernel's, at
   publication) is the shape, and the PR's CI is where it will show first.
+
+## ARIA-HIGH-149 — the canonical suite's format command failed on `main` itself
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-22
+- **Evidence (run #9, `AIR-aria-implementer-184834167f7f`, 2026-09-16 20:59–22:08Z):** the
+  implementer applied all four key changes across seven files, ran the two projects' suites
+  green (59/59), lint and type-check clean, and committed `bf197ada7c` (signed with the cycle
+  key; 1,306 insertions, 26 new Vitest controls plus resolver and service specs); the
+  executor published the branch (`refs_published=['aria-impl-5687a691…']`, 139 objects,
+  `head_adopted`). The apply gate then ran the canonical suite and recorded
+  `npm run format:check` exit 1 — "Code style issues found in 4957 files" — identical on the
+  baseline run at `base_sha` (`regression_status no_regression`), and refused
+  `candidate_validation_not_green`. `npm run format:check` is prettier over every
+  `**/*.{ts,tsx,js,jsx,json,md}` in the tree; it fails on `main`, and no workflow runs it.
+  The repository's enforced format gate is `node tools/quality/quality.mjs format
+check-changed` (managed files changed since the base; `ci-full.yml`) plus the format-scope
+  drift gate. ARIA-HIGH-104 (2) put the wrong spelling into the one suite every gate reads.
+- **What is now true:** `CANONICAL_VALIDATION_COMMANDS`' format entry is
+  `node tools/quality/quality.mjs format check-changed`; `validation.parse_allowed_command`
+  admits the quality runner for its two read-only verbs only (`ALLOWED_QUALITY_RUNNER_ARGV`:
+  `format check-changed`, `format-scope check`; `write*` and `generate` are refused as
+  mutation); the low-risk impact suite, the shared safety contract, CONTRACTS.md and the pins
+  (SSOT, hygiene battery, perimeter, delivery and PR-manager end-to-end fixtures, which answer
+  `node` like `npx`/`npm`) follow. On a one-commit implementation branch `HEAD^` is the
+  staged base, so the check is exactly the change's managed files.
+- **Named, not closed here:** the same gate run showed the invariants project red inside the
+  sandbox for reasons that are the room's, not the change's — ARIA-HIGH-150.
+
+## ARIA-HIGH-150 — the validation sandbox cannot run the invariants CI runs
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-23
+- **Evidence (the same gate run, `validation/logs/trial-eleven-ring4-mint-000`):**
+  `npx nx affected --target=test` selected `shell`, `notification-service` (59/59 green) and
+  `invariants`; inside the sandbox four invariant suites were red — `backup-ssh-broker-contract`
+  (rustc is not on the sandbox's PATH; `/root/.cargo/bin` is not bound), `deploy-ssot-contract`
+  and `production-host-control-plane-runtime` (the room), and `finding-registry-closure-drift`
+  (the trial's 2026-09-12 registry against `origin/main`'s `Closes:` trailers: red for any
+  worktree behind `main`, by construction). The baseline at `base_sha` failed identically, the
+  comparison said `no_regression`, and `require_worktree_ok` blocked anyway.
+- **What is true:** the gate did what ORPHAN-717 asked — green, not merely no worse — and the
+  room could not give it green. Two honest shapes, the operator's to choose: (a) the validation
+  sandbox carries the toolchains CI has (cargo; a docker socket is not one of them) and an
+  invariant that needs a service refuses by name inside instead of failing; (b) the gate
+  compares per-test failing sets against the baseline and names a red present identically at
+  `base_sha` as baseline debt rather than the change's, keeping `require_worktree_ok` for every
+  command the baseline passed. Until one lands, an implementation branch cut from a base behind
+  `main` cannot reach `ready_for_pr` on this repository; the nightly's branches are cut from
+  `main` and do not carry the closure-drift red, but they do carry the toolchain one.

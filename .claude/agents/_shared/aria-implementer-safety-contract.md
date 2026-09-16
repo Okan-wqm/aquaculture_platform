@@ -98,7 +98,7 @@ validation_commands:
   - cmd: nx affected --target=test    # canonical (required)
   - cmd: nx affected --target=lint    # canonical (required)
   - cmd: npm run type-check           # canonical (required)
-  - cmd: npm run format:check         # canonical (required)
+  - cmd: node tools/quality/quality.mjs format check-changed   # canonical (required)
   - recipe_id: recipe-farm-feeding    # additional (a registered recipe)
 ```
 

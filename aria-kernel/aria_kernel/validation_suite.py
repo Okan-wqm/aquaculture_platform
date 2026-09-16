@@ -47,11 +47,23 @@ from typing import Any
 # ONE list every gate reads; `auto_merge` derives its dimensions from it
 # (`canonical_command_satisfied_by` is the shared matching rule), pinned by
 # tests/test_validation_suite_ssot.py.
+#
+# ARIA-HIGH-149 — the format entry is the repository's ENFORCED format gate,
+# `node tools/quality/quality.mjs format check-changed` (the managed files
+# changed since the base, what `ci-full.yml` runs against the PR base and
+# the pre-commit hook runs as `check-staged`), not `npm run format:check`:
+# that script is prettier over every `**/*.{ts,tsx,js,jsx,json,md}` in the
+# tree, which fails on `main` itself (4,957 unmanaged files on 2026-09-16)
+# and is enforced by no workflow. Under `require_worktree_ok` a canonical
+# command that fails on the base makes every delivery
+# `candidate_validation_not_green`: the first implementation ARIA committed
+# (trial eleven, 2026-09-16 21:57Z, seven files, its own suites green)
+# was refused at the apply gate on that line alone.
 CANONICAL_VALIDATION_COMMANDS: tuple[str, ...] = (
     "nx affected --target=test",
     "nx affected --target=lint",
     "npm run type-check",
-    "npm run format:check",
+    "node tools/quality/quality.mjs format check-changed",
 )
 
 # Runner prefixes under which a canonical command is the same invocation.

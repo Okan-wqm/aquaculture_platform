@@ -603,7 +603,9 @@ class ExecutorImplementationIdentityTests(unittest.TestCase):
         # credential variables it saw, and refuses everything else.
         self.suite_log = self.root / "validation-calls.jsonl"
         self.gh_log = self.root / "gh-calls.jsonl"
-        for name in ("npx", "npm"):
+        # ARIA-HIGH-149 — the canonical format entry runs the repository's
+        # quality runner under `node`; the fixture answers it like the rest.
+        for name in ("npx", "npm", "node"):
             self._install_fixture_executable(name, self._suite_fixture_body(name))
         self._install_fixture_executable("gh", (
             "import json, os, sys, time\n"

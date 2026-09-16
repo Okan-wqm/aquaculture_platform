@@ -359,7 +359,9 @@ def _fake_child_process(monkeypatched_module):
     real_spawn = monkeypatched_module._run_to_completion
 
     def _spawn(argv, **kwargs):
-        if argv and str(argv[0]) in ("npx", "npm", "cargo") or (
+        # ARIA-HIGH-149 — the canonical format entry is the quality runner
+        # under `node`; it is a validation child like npx/npm.
+        if argv and str(argv[0]) in ("npx", "npm", "cargo", "node") or (
             argv and str(argv[0]).startswith("python3") and "-m" in argv
         ):
             return _sp.CompletedProcess(argv, 0, "ok\n", "")
@@ -410,6 +412,10 @@ class StagedConvergedPlanChainTests(unittest.TestCase):
                                                    # ARIA-HIGH-104 (2) — format:check joined the
                                                    # canonical suite; the offline fixture answers it.
                                                    "format:check": "node -e 0"}}),
+                                                   # ARIA-HIGH-149 — the canonical format entry is the repository's
+                                                   # quality runner (`format check-changed`); the offline fixture's
+                                                   # runner answers exit 0 like the other canonical commands.
+                                                   "tools/quality/quality.mjs": "process.exit(0);\n",
             "nx.json": json.dumps({"neverConnectToCloud": True, "plugins": []}),
             "apps/farm-service/project.json": json.dumps({
                 "name": "env-fixture", "root": "apps/farm-service",

@@ -131,9 +131,9 @@ class HygieneBatteryTests(unittest.TestCase):
 
     def test_failed_run_does_not_satisfy(self) -> None:
         result = _hygiene_battery_result([
-            self._run("npm run format:check", status="failed"),
+            self._run("node tools/quality/quality.mjs format check-changed", status="failed"),
         ])
-        self.assertIn("npm run format:check", result["missing"])
+        self.assertIn("node tools/quality/quality.mjs format check-changed", result["missing"])
 
     def test_empty_runs_miss_everything(self) -> None:
         self.assertEqual(

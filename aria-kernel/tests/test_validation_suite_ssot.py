@@ -35,7 +35,10 @@ class OneSuiteTests(unittest.TestCase):
     def test_the_merge_gate_requires_exactly_the_canonical_suite(self) -> None:
         # Derived, not retyped: the hygiene battery IS the canonical tuple.
         self.assertIs(auto_merge._HYGIENE_DIMENSIONS, CANONICAL_VALIDATION_COMMANDS)
-        self.assertIn("npm run format:check", CANONICAL_VALIDATION_COMMANDS)
+        # ARIA-HIGH-149 — the format entry is the enforced gate, not the
+        # repo-wide prettier that fails on main.
+        self.assertIn("node tools/quality/quality.mjs format check-changed", CANONICAL_VALIDATION_COMMANDS)
+        self.assertNotIn("npm run format:check", CANONICAL_VALIDATION_COMMANDS)
 
     def test_every_merge_gate_command_is_one_the_plan_contract_admits(self) -> None:
         # What the merge gate demands evidence for must be declarable by a
@@ -115,7 +118,7 @@ class OneSuiteTests(unittest.TestCase):
 
     def test_the_battery_names_the_missing_command_in_its_own_spelling(self) -> None:
         runs = [{"status": "ok", "cmd": "npx nx affected --target=test", "validation_run_id": "run-1"},
-                {"status": "failed", "cmd": "npm run format:check", "validation_run_id": "run-2"}]
+                {"status": "failed", "cmd": "node tools/quality/quality.mjs format check-changed", "validation_run_id": "run-2"}]
         result = auto_merge._hygiene_battery_result(runs)
         self.assertEqual(result["satisfied"], {"nx affected --target=test": "run-1"})
         self.assertEqual(

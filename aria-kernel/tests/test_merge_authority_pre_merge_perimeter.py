@@ -349,6 +349,10 @@ class NativeImplementationContextTests(unittest.TestCase):
                             # ARIA-HIGH-104 (2) — format:check joined the canonical
                             # suite; the offline fixture answers it like type-check.
                             "format:check": "node -e 0"}}),
+            # ARIA-HIGH-149 — the canonical format entry is the repository's
+            # quality runner (`format check-changed`); the offline fixture's
+            # runner answers exit 0 like the other canonical commands.
+            "tools/quality/quality.mjs": "process.exit(0);\n",
             "nx.json": json.dumps({"neverConnectToCloud": True, "plugins": []}),
             "apps/farm-service/project.json": json.dumps({
                 "name": "native-implementation-fixture", "root": "apps/farm-service",

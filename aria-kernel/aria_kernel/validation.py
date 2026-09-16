@@ -59,6 +59,15 @@ ALLOWED_COMMANDS = (
     ("python3", "-m", "aria_kernel"),
     ("python3", "-m", "unittest"),
     ("cargo",),
+    # ARIA-HIGH-149 — the repository's format gate, exactly as CI runs it.
+    ("node", "tools/quality/quality.mjs"),
+)
+# The quality runner's verbs this lane admits: the two read-only checks CI
+# and the hook run. `format write*` and `format-scope generate` mutate the
+# tree and are not validation.
+ALLOWED_QUALITY_RUNNER_ARGV: tuple[tuple[str, ...], ...] = (
+    ("format", "check-changed"),
+    ("format-scope", "check"),
 )
 
 # E21-b — the Rust lane, opened narrowly.
@@ -942,6 +951,12 @@ def _validate_command_details(parts: list[str]) -> None:
             raise GovernanceError("aria_kernel validation command is limited to integrity verify")
     elif parts[:3] == ["python3", "-m", "unittest"]:
         return
+    elif parts[:2] == ["node", "tools/quality/quality.mjs"]:
+        if tuple(parts[2:]) not in ALLOWED_QUALITY_RUNNER_ARGV:
+            raise GovernanceError(
+                "quality runner validation is limited to its read-only checks: "
+                + ", ".join(" ".join(argv) for argv in ALLOWED_QUALITY_RUNNER_ARGV)
+            )
     elif parts[:1] == ["cargo"]:
         subcommand = parts[1] if len(parts) > 1 else None
         if subcommand not in ALLOWED_CARGO_SUBCOMMANDS:

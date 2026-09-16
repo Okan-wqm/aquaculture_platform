@@ -1462,7 +1462,8 @@ The two rules, in the one wording the refusals use:
 - Every `plan_content.validation_commands[]` entry is either `{cmd}` naming one of the admissible
   commands — the canonical executable suite (`implementation_safety.CANONICAL_VALIDATION_COMMANDS_EXECUTABLE`:
   `npx nx affected --target=test`, `npx nx affected --target=lint`, `npm run type-check`,
-  `npm run format:check`; matched
+  `node tools/quality/quality.mjs format check-changed` (ARIA-HIGH-149: the enforced format
+  gate, not `npm run format:check`, which fails on `main` itself); matched
   after whitespace is collapsed, the bare `nx ...` form read as its `npx nx ...` spelling under
   `implementation_safety.executable_spelling`) or a registered recipe's command — or `{recipe_id}`
   naming a recipe registered with
@@ -1672,7 +1673,8 @@ and no contract stated. What is now true, in one derivation per fact:
   `## Validation commands`; the implementation `must_satisfy` obligation `validation:canonical_suite`
   carries it as data.
 - **One validation suite.** `validation_suite.CANONICAL_VALIDATION_COMMANDS` (re-exported by
-  `implementation_safety` under the names every importer uses) grew `npm run format:check`;
+  `implementation_safety` under the names every importer uses) grew a format entry (`npm run
+  format:check`, since ARIA-HIGH-149 `node tools/quality/quality.mjs format check-changed`);
   `auto_merge._HYGIENE_DIMENSIONS` IS that tuple (one dimension per command, reason
   `triple_gate_hygiene_run_missing:<command>`), and `canonical_command_satisfied_by` is the
   whole-entry matching rule the pre-PR-open `test_gate_canonical_suite` check and the hygiene battery

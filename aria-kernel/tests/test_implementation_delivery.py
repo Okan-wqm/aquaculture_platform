@@ -1038,7 +1038,9 @@ class CredentialIsMintedWhereItIsConsumedTests(unittest.TestCase):
         # called and which credential names it saw.
         self.fixture_bin = self.root / "fixture-bin"
         self.fixture_bin.mkdir()
-        for name in ("npx", "npm"):
+        # ARIA-HIGH-149 — the canonical format entry runs under `node`; the
+        # fixture answers it like npx/npm.
+        for name in ("npx", "npm", "node"):
             self._install_executable(name, "print('ok')\n")
         self.gh_log = self.root / "gh-calls.jsonl"
         self._install_executable("gh", (

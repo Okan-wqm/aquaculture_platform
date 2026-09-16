@@ -40,33 +40,25 @@ export type SupportTicket = ApiSchema<'SupportTicket'>;
 export type TicketCommentAuthorType = 'admin' | 'tenant_user' | 'system';
 
 /**
- * A ticket comment, as `GET /support/tickets/:id/comments` returns it.
+ * A ticket comment, as `GET /support/tickets/:id/comments` returns it
+ * (ADMIN-MEDIUM-114, closed).
  *
- * DELIBERATELY NOT sourced from the contract, and the reason is a defect in the
- * OTHER direction from the rest of ADMIN-MEDIUM-111. `TicketController
- * .getComments` declares no return type, so the swagger plugin inferred the
- * ENTITY, and the contract's `TicketComment` therefore requires a `ticket`
- * property carrying a whole `SupportTicket`. The service's `findAndCount` loads
- * no relations, so that property is never in the response: the contract
- * OVERSTATES what the endpoint sends, and aliasing to it would demand a field
- * that does not arrive.
+ * This was hand-written, and the note here said why: `TicketController
+ * .getComments` declared no return type, so the swagger plugin inferred the
+ * ENTITY and the contract's `TicketComment` required a whole `SupportTicket`
+ * inside every comment — a field `findAndCount` never loads. Aliasing to it
+ * would have demanded data that does not arrive.
  *
- * Fixing it means giving the endpoint an explicit response DTO — a
- * response-shape change with its own review — tracked as ADMIN-MEDIUM-114.
- * Until then this stays hand-written, which is the honest state.
+ * The endpoint has a response DTO now (`TicketCommentPageDto`), so this is
+ * derived. What the hand-written version got wrong while it stood: it declared
+ * a FLAT ARRAY where the route returns a PAGE, so `(data || []).map(...)` ran
+ * `.map` on an object and threw into a `console.error` — every ticket's
+ * comment thread rendered empty, silently (ADMIN-CRITICAL-156).
  */
-export interface TicketComment {
-  id: string;
-  ticketId: string;
-  authorId: string;
-  authorType: TicketCommentAuthorType;
-  authorName?: string;
-  content: string;
-  isInternal: boolean;
-  attachments?: TicketAttachmentInfo[];
-  emailSent?: boolean;
-  createdAt: string;
-}
+export type TicketComment = ApiSchema<'TicketCommentResponseDto'>;
+
+/** One page of a ticket's comments. */
+export type TicketCommentPage = ApiSchema<'TicketCommentPageDto'>;
 
 export interface TicketReply {
   id: string;
@@ -80,23 +72,22 @@ export interface TicketReply {
   createdAt: string;
 }
 
-export interface TicketStats {
-  total: number;
-  open: number;
-  inProgress: number;
-  waitingCustomer?: number;
-  resolved: number;
-  closed?: number;
-  avgFirstResponseMinutes?: number;
-  avgResolutionMinutes?: number;
-  avgResponseTime?: number;
-  avgResolutionTime?: number;
-  slaBreachCount?: number;
-  avgSatisfactionRating?: number;
-  satisfactionScore?: number;
-  byCategory?: Array<{ category: string; count: number }>;
-  byPriority?: Array<{ priority: string; count: number }>;
-}
+/**
+ * The ticket aggregate, from the contract (ADMIN-CRITICAL-156).
+ *
+ * The hand-written version declared TWENTY fields where the endpoint sends
+ * ten: half were optional aliases the server has never sent
+ * (`avgResponseTime`, `avgResolutionTime`, `satisfactionScore`, `byCategory`,
+ * `byPriority` — the last two are separate endpoints), and the four real
+ * averages were marked optional. That is where `TicketsPage`'s `a || b || 0`
+ * chains and its `slaBreachCount ? … : 100` came from: the type said the truth
+ * might be missing, so the page invented a value for when it was.
+ *
+ * The three averages are NULLABLE here because they are null on the wire when
+ * there is nothing to average — no first response yet, nothing resolved,
+ * nobody has rated. A page must render an em dash for those, not a zero.
+ */
+export type TicketStats = ApiSchema<'TicketStatsResponseDto'>;
 
 // ============================================================================
 // Messaging Types

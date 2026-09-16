@@ -834,6 +834,50 @@ in `web/` reaches the logout authority; `@tanstack/react-query` is declared
 wherever it is imported, at the federation-pinned version; the barrel keeps
 exporting the primitives.
 
+## ADMIN-CRITICAL-156 — a comment thread that was always empty, and always silent
+
+**State:** OPEN → closed by W9s · **Wave:** W9s · **Owner:** okan
+**Deadline:** 2026-12-31
+
+Also **closes ADMIN-MEDIUM-114**, which had tracked the missing comments DTO.
+This is what the gap cost while it stood.
+
+1. **Every ticket's comment thread rendered empty, silently.**
+   `GET /support/tickets/:id/comments` returns
+   `createStandardPaginatedResult`; the client declared a **flat array**, so
+   `(data || []).map(...)` called `.map` on the decoded page object, threw a
+   `TypeError`, and `fetchComments`'s `catch` wrote it to `console.error`. On
+   every ticket. An admin opened a ticket, saw no messages, and replied to a
+   customer whose messages were in the database.
+2. **The stats type invented ten fields.** The endpoint sends ten required
+   numbers; the client declared twenty — half optional aliases the server has
+   never sent (`avgResponseTime`, `avgResolutionTime`, `satisfactionScore`,
+   `byCategory`, `byPriority`) and the four real averages marked optional.
+   That is where the page's `a || b || 0` chains came from, and where
+   `slaBreachCount ? … : 100` came from: a fabricated **100% SLA compliance**
+   for when the field was "missing".
+3. **Three cards measured an absence.** `getTicketStats` returned `0` when
+   there was nothing to average, so a platform that had answered no ticket
+   showed _"Avg Response: 0m"_ — instant — and one nobody had rated showed a
+   ★ 0. The three are `null` on the wire now, and an em dash in the page.
+4. **Every queue row's message badge read 0** —
+   `commentCount: 0, // Not provided by API`.
+5. **All four writes failed silently** — assign, status, priority, comment —
+   each into `console.error`, then a refetch showing the unchanged ticket.
+6. **The SLA rate printed its float tail**: three breaches over seven tickets
+   rendered `57.142857142857146%`.
+
+Also fixed: `SupportTicket.comments` and `TicketComment.ticket` are hidden
+from the contract with `@ApiHideProperty` — no read path loads either, yet the
+schema listed `comments` among the **required** fields of every ticket, each
+comment carrying a whole `SupportTicket` back, so a client typed from the
+artifact had to fabricate the field to compile (**that** is what had blocked
+ADMIN-MEDIUM-114); the resolution deadline now prefers the server's own
+`dueAt` and only derives from `createdAt + slaResolutionMinutes` when there is
+none, where the previous order was inverted; the attachment button in the reply
+box had no `onClick` at all and is removed per ADMIN-HIGH-011; and the two
+action selects gained accessible names.
+
 ## ADMIN-CRITICAL-154 — a glossary presented as a tenant's live PLC actuation policy
 
 **State:** OPEN → closed by W9r · **Wave:** W9r · **Owner:** okan

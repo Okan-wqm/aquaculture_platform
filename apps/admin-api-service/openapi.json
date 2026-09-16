@@ -9448,7 +9448,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/TicketStatsResponseDto"
                 }
               }
             }
@@ -10017,7 +10017,14 @@
         ],
         "responses": {
           "200": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketCommentPageDto"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -22915,6 +22922,61 @@
           "userName"
         ]
       },
+      "TicketStatsResponseDto": {
+        "type": "object",
+        "properties": {
+          "total": {
+            "type": "number",
+            "description": "Every ticket row, in any status."
+          },
+          "open": {
+            "type": "number"
+          },
+          "inProgress": {
+            "type": "number"
+          },
+          "waitingCustomer": {
+            "type": "number"
+          },
+          "resolved": {
+            "type": "number"
+          },
+          "closed": {
+            "type": "number"
+          },
+          "avgFirstResponseMinutes": {
+            "type": "number",
+            "nullable": true,
+            "description": "Mean minutes to first response, over tickets that HAVE one. null when no ticket has been responded to — not 0, which reads as instant."
+          },
+          "avgResolutionMinutes": {
+            "type": "number",
+            "nullable": true,
+            "description": "Mean minutes to resolution, over RESOLVED tickets. null when nothing has been resolved."
+          },
+          "slaBreachCount": {
+            "type": "number",
+            "description": "Tickets whose SLA is marked breached."
+          },
+          "avgSatisfactionRating": {
+            "type": "number",
+            "nullable": true,
+            "description": "Mean satisfaction rating over tickets that were RATED. null when none were — not 0, which reads as universal dissatisfaction."
+          }
+        },
+        "required": [
+          "total",
+          "open",
+          "inProgress",
+          "waitingCustomer",
+          "resolved",
+          "closed",
+          "avgFirstResponseMinutes",
+          "avgResolutionMinutes",
+          "slaBreachCount",
+          "avgSatisfactionRating"
+        ]
+      },
       "SupportTicket": {
         "type": "object",
         "properties": {
@@ -23023,12 +23085,6 @@
             "type": "object",
             "additionalProperties": true
           },
-          "comments": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/TicketComment"
-            }
-          },
           "createdAt": {
             "format": "date-time",
             "type": "string"
@@ -23050,67 +23106,8 @@
           "status",
           "slaBreached",
           "satisfactionRating",
-          "comments",
           "createdAt",
           "updatedAt"
-        ]
-      },
-      "TicketComment": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string"
-          },
-          "ticketId": {
-            "type": "string"
-          },
-          "authorId": {
-            "type": "string"
-          },
-          "authorType": {
-            "enum": [
-              "system",
-              "admin",
-              "tenant_user"
-            ],
-            "type": "string"
-          },
-          "authorName": {
-            "type": "string"
-          },
-          "content": {
-            "type": "string"
-          },
-          "isInternal": {
-            "type": "boolean"
-          },
-          "attachments": {
-            "type": "array",
-            "items": {
-              "type": "object"
-            }
-          },
-          "emailSent": {
-            "type": "boolean"
-          },
-          "ticket": {
-            "$ref": "#/components/schemas/SupportTicket"
-          },
-          "createdAt": {
-            "format": "date-time",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "ticketId",
-          "authorId",
-          "authorType",
-          "content",
-          "isInternal",
-          "emailSent",
-          "ticket",
-          "createdAt"
         ]
       },
       "CreateTicketDto": {
@@ -23262,6 +23259,135 @@
           "priority"
         ]
       },
+      "TicketAttachmentResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "fileName": {
+            "type": "string"
+          },
+          "fileSize": {
+            "type": "number"
+          },
+          "mimeType": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "uploadedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "fileName",
+          "fileSize",
+          "mimeType",
+          "url",
+          "uploadedAt"
+        ]
+      },
+      "TicketCommentResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "ticketId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "authorId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "authorType": {
+            "enum": [
+              "admin",
+              "tenant_user",
+              "system"
+            ],
+            "type": "string"
+          },
+          "authorName": {
+            "type": "string",
+            "description": "Display name captured when the comment was written. ABSENT from the payload when unknown — the column is nullable and `JSON.stringify` omits undefined, so a client must treat the key as optional rather than expecting null."
+          },
+          "content": {
+            "type": "string"
+          },
+          "isInternal": {
+            "type": "boolean",
+            "description": "Internal notes are not shown to the tenant."
+          },
+          "attachments": {
+            "description": "Absent when the comment carries no attachments.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TicketAttachmentResponseDto"
+            }
+          },
+          "emailSent": {
+            "type": "boolean",
+            "description": "Whether the comment was emailed to the tenant."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "ticketId",
+          "authorId",
+          "authorType",
+          "content",
+          "isInternal",
+          "emailSent",
+          "createdAt"
+        ]
+      },
+      "TicketCommentPageDto": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TicketCommentResponseDto"
+            }
+          },
+          "total": {
+            "type": "number"
+          },
+          "page": {
+            "type": "number"
+          },
+          "limit": {
+            "type": "number"
+          },
+          "totalPages": {
+            "type": "number"
+          },
+          "hasNextPage": {
+            "type": "boolean"
+          },
+          "hasPreviousPage": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "page",
+          "limit",
+          "totalPages",
+          "hasNextPage",
+          "hasPreviousPage"
+        ]
+      },
       "AddCommentDto": {
         "type": "object",
         "properties": {
@@ -23283,6 +23409,60 @@
         },
         "required": [
           "content"
+        ]
+      },
+      "TicketComment": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "ticketId": {
+            "type": "string"
+          },
+          "authorId": {
+            "type": "string"
+          },
+          "authorType": {
+            "enum": [
+              "system",
+              "admin",
+              "tenant_user"
+            ],
+            "type": "string"
+          },
+          "authorName": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "isInternal": {
+            "type": "boolean"
+          },
+          "attachments": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "emailSent": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "ticketId",
+          "authorId",
+          "authorType",
+          "content",
+          "isInternal",
+          "emailSent",
+          "createdAt"
         ]
       },
       "SatisfactionRatingDto": {

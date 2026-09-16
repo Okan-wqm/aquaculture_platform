@@ -8337,6 +8337,23 @@ export interface components {
             userId: string;
             userName: string;
         };
+        TicketStatsResponseDto: {
+            /** @description Every ticket row, in any status. */
+            total: number;
+            open: number;
+            inProgress: number;
+            waitingCustomer: number;
+            resolved: number;
+            closed: number;
+            /** @description Mean minutes to first response, over tickets that HAVE one. null when no ticket has been responded to — not 0, which reads as instant. */
+            avgFirstResponseMinutes: number | null;
+            /** @description Mean minutes to resolution, over RESOLVED tickets. null when nothing has been resolved. */
+            avgResolutionMinutes: number | null;
+            /** @description Tickets whose SLA is marked breached. */
+            slaBreachCount: number;
+            /** @description Mean satisfaction rating over tickets that were RATED. null when none were — not 0, which reads as universal dissatisfaction. */
+            avgSatisfactionRating: number | null;
+        };
         SupportTicket: {
             id: string;
             ticketNumber: string;
@@ -8372,26 +8389,10 @@ export interface components {
             metadata?: {
                 [key: string]: unknown;
             };
-            comments: components["schemas"]["TicketComment"][];
             /** Format: date-time */
             createdAt: string;
             /** Format: date-time */
             updatedAt: string;
-        };
-        TicketComment: {
-            id: string;
-            ticketId: string;
-            authorId: string;
-            /** @enum {string} */
-            authorType: "system" | "admin" | "tenant_user";
-            authorName?: string;
-            content: string;
-            isInternal: boolean;
-            attachments?: Record<string, never>[];
-            emailSent: boolean;
-            ticket: components["schemas"]["SupportTicket"];
-            /** Format: date-time */
-            createdAt: string;
         };
         CreateTicketDto: {
             /**
@@ -8432,11 +8433,62 @@ export interface components {
             /** @enum {string} */
             priority: "critical" | "high" | "low" | "medium";
         };
+        TicketAttachmentResponseDto: {
+            id: string;
+            fileName: string;
+            fileSize: number;
+            mimeType: string;
+            url: string;
+            uploadedAt: string;
+        };
+        TicketCommentResponseDto: {
+            id: string;
+            /** Format: uuid */
+            ticketId: string;
+            /** Format: uuid */
+            authorId: string;
+            /** @enum {string} */
+            authorType: "admin" | "tenant_user" | "system";
+            /** @description Display name captured when the comment was written. ABSENT from the payload when unknown — the column is nullable and `JSON.stringify` omits undefined, so a client must treat the key as optional rather than expecting null. */
+            authorName?: string;
+            content: string;
+            /** @description Internal notes are not shown to the tenant. */
+            isInternal: boolean;
+            /** @description Absent when the comment carries no attachments. */
+            attachments?: components["schemas"]["TicketAttachmentResponseDto"][];
+            /** @description Whether the comment was emailed to the tenant. */
+            emailSent: boolean;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        TicketCommentPageDto: {
+            items: components["schemas"]["TicketCommentResponseDto"][];
+            total: number;
+            page: number;
+            limit: number;
+            totalPages: number;
+            hasNextPage: boolean;
+            hasPreviousPage: boolean;
+        };
         AddCommentDto: {
             content: string;
             authorName?: string;
             isInternal?: boolean;
             attachments?: Record<string, never>[];
+        };
+        TicketComment: {
+            id: string;
+            ticketId: string;
+            authorId: string;
+            /** @enum {string} */
+            authorType: "system" | "admin" | "tenant_user";
+            authorName?: string;
+            content: string;
+            isInternal: boolean;
+            attachments?: Record<string, never>[];
+            emailSent: boolean;
+            /** Format: date-time */
+            createdAt: string;
         };
         SatisfactionRatingDto: {
             rating: number;
@@ -15830,7 +15882,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["TicketStatsResponseDto"];
                 };
             };
         };
@@ -16142,7 +16194,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["TicketCommentPageDto"];
+                };
             };
         };
     };

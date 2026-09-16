@@ -834,6 +834,65 @@ in `web/` reaches the logout authority; `@tanstack/react-query` is declared
 wherever it is imported, at the federation-pinned version; the barrel keeps
 exporting the primitives.
 
+## ADMIN-CRITICAL-150 — a forensic trail that could not display a correct row in any state
+
+**State:** OPEN → closed by W9n · **Wave:** W9n · **Owner:** okan
+**Deadline:** 2026-12-31
+
+Seven compounding defects on the platform's record of what was done to
+messaging data.
+
+1. **The default state 400'd.** `GET /messaging/audit` declares
+   `@TenantParam('query') tenantId: string`; the page's tenant box was an
+   optional free-text filter defaulting to `''` and sent as `undefined`. So
+   the page as it opens refused at the pipe — and the table then drew _"No
+   audit entries found. Audit entries will appear once messaging activity
+   begins."_ That second sentence explains an absence the page had not
+   established.
+2. **A valid tenant crashed it.** The route answers
+   `{items, hasMore, cursor, totalCount}`; the client declared
+   `PaginatedResult<T>`, an offset page with a `data` array. `result.data` was
+   `undefined`, `entries` became `undefined`, and the next render threw on
+   `entries.length` — a blank screen where the audit log should be.
+3. **The row type was fiction.** `messaging.compliance_audit_logs` holds
+   `{id, tenantId, userId, action, resourceType, resourceId, details,
+ipAddress, userAgent, createdAt}`. The client declared `timestamp` (so
+   `new Date(entry.timestamp)` was `Invalid Date`), `tenantName` and
+   `userName` (absent — two blank columns), `channelId` and `messageId`
+   (absent), and `details` as a **string** when it is `jsonb | null` — so the
+   cell showed `[object Object]` and the CSV export called `.replace` on an
+   object and **threw**.
+4. **`ipAddress` and `userAgent` were never shown** — the two fields that say
+   where an action came from, on a forensic surface.
+5. **The pager sent parameters the route does not have.** It sent `page` and
+   `pageSize`; the route takes `limit` and `cursor`. Every "page" returned the
+   same first rows and Previous/Next moved nothing.
+6. **No action filter could ever match.** The seven values — `send`, `edit`,
+   `delete`, `create_channel`, `join_channel`, `leave_channel`,
+   `upload_file` — are not members of `ComplianceAction`. Every selection
+   returned nothing, permanently; `ACTION_COLORS` keyed on the same seven so
+   every real row rendered grey; and the four an auditor comes for
+   (`message_export`, `data_anonymize`, `retention_set`,
+   `legal_hold_toggle`) were not offered at all.
+7. **The CSV quoted one field.** A comma in any other value silently shifted
+   every column after it, in a file handed on as the record — and it exported
+   one page of 25 under a filename claiming to be the audit log.
+
+W9n retypes the client to the row and the cursor page the route returns,
+requires the tenant id, corrects admin-api's own under-declared `AuditLogRow`,
+moves the page to `useAdminQuery` keyed by the request (cursor included),
+replaces page numbers with a cursor trail so Previous works, renders
+`resourceType` / `resourceId` / `ipAddress` and jsonb `details`, quotes every
+CSV field and writes the scope and page number into the file, and takes the
+action vocabulary from the entity.
+
+**Gate:**
+`tests/invariants/messaging-compliance-action-parity.spec.ts` pins the frontend
+list to `enum ComplianceAction` **in both directions** and requires every
+member to have a label and a badge. That is the highest tier available: the
+enum belongs to messaging-service, reaches admin-api only as a NATS reply, and
+admin-api may not import another service's source.
+
 ## ADMIN-HIGH-149 — 32 routes that refused a parameter their contract never mentioned
 
 **State:** OPEN → closed by W9n · **Wave:** W9n · **Owner:** okan

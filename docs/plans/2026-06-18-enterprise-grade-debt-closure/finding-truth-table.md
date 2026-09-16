@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `db8c3130c3ef6c0e8ef3d40626d0049fbc9210a510be5d5d81b4e3ab26061e2c`
+Registry tip: `c6d6c54164e15a0cd395ddfb029605f10049e22208b79ccfa0d988b6aba71b78`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -247,8 +247,15 @@ Allowed truth buckets:
 | `ADMIN-CRITICAL-087`  | OPEN           | 2026-09-04   | admin-expert               | real-open                 |
 | `DEPLOY-CRITICAL-017` | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
 | `ADMIN-CRITICAL-147`  | OPEN           | 2026-09-10   | admin-expert               | already-fixed-needs-close |
+| `ADMIN-CRITICAL-150`  | OPEN           | 2026-09-10   | admin-expert               | already-fixed-needs-close |
 
 Updated 2026-09-10 (W9m, the SUPER_ADMIN audit's messaging batch): one active CRITICAL added.
+`ADMIN-CRITICAL-150` — `MessagingAuditPage` could not display a correct row in any state: its
+default read 400'd for the same reason and drew "entries will appear once messaging activity
+begins"; a valid tenant crashed the page on an offset-vs-cursor response mismatch; five row fields
+were invented; and none of the seven action filter values is a member of `ComplianceAction`. Same
+bucket, same reason: the branch fixes it and the close ceremony records the commit.
+
 `ADMIN-CRITICAL-147` — `MessagingCompliancePage` sent both of its reads without the tenant id the
 routes require, so every load 400'd and the page rendered a placeholder reporting **Compliance
 Score 100%**, zero messages under legal hold, and a green tick over "No legal holds", on a

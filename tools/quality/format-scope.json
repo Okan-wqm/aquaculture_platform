@@ -46567,6 +46567,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/messaging-compliance-action-parity.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/messaging-e2e-tenant-context.spec.ts",
       "prettier_managed": true
     },
@@ -51265,6 +51271,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/admin-panel/src/pages/InvoicesPage.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/messaging/__tests__/MessagingAuditPage.spec.tsx",
       "prettier_managed": true
     },
     {

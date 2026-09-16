@@ -67,7 +67,8 @@ ten, 2026-09-12) died at staging because no contract had stated either.
   `npx nx ...` spelling) — the canonical executable suite
   (`implementation_safety.CANONICAL_VALIDATION_COMMANDS_EXECUTABLE`:
   `npx nx affected --target=test`, `npx nx affected --target=lint`,
-  `npm run type-check`, `npm run format:check`) plus the recipes registered on this store
+  `npm run type-check`, `node tools/quality/quality.mjs format check-changed` — the
+  repository's enforced format gate, ARIA-HIGH-149) plus the recipes registered on this store
   (`experiment.register_recipe`, listed in the envelope's
   `plan_contract.validation_commands.recipes`) — or `{recipe_id}` naming a
   registered recipe. Any other command is refused: the lane executes it

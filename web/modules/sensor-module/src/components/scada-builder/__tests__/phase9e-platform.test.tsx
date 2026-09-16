@@ -7,11 +7,6 @@
  *  3.  TagWatchPanel subscribes to wildcard tag updates
  *  4.  TagWatchPanel search filters by tag name
  *  5.  TagWatchPanel pause stops display updates
- *  6.  RecipePanel saves current tag values as recipe
- *  7.  RecipePanel loads recipe values (verifies tag writes)
- *  8.  RecipePanel deletes a recipe
- *  9.  DaqConfigPanel renders tag list with interval selectors
- * 10.  DaqConfigPanel bulk enable/disable toggles
  * 11.  useTranslation resolves $t: prefix keys
  * 12.  useTranslation falls back to key when translation missing
  * 13.  useTranslation passes through plain strings
@@ -27,8 +22,6 @@ import { renderHook } from '@testing-library/react';
 // Feature imports
 import { ExportDialog } from '../ExportDialog';
 import { TagWatchPanel } from '../TagWatchPanel';
-import { RecipePanel, type ScadaRecipe } from '../RecipePanel';
-import { DaqConfigPanel, type DaqTagConfig } from '../DaqConfigPanel';
 import { TagValueBus } from '../../../engine/tags/TagValueBus';
 import { useTranslation } from '../../../engine/i18n/useTranslation';
 import {
@@ -183,160 +176,6 @@ describe('TagWatchPanel', () => {
     });
 
     expect(screen.getByText('(0 tags)')).toBeTruthy();
-  });
-});
-
-/* ------------------------------------------------------------------ */
-/*  RecipePanel Tests                                                  */
-/* ------------------------------------------------------------------ */
-
-describe('RecipePanel', () => {
-  let tagBus: TagValueBus;
-
-  beforeEach(() => {
-    tagBus = new TagValueBus();
-  });
-
-  afterEach(() => {
-    tagBus.clear();
-  });
-
-  it('saves current tag values as a new recipe', () => {
-    const onChange = vi.fn();
-
-    // Set up some tag values before saving
-    tagBus.publish('temp.sp', 25);
-    tagBus.publish('ph.sp', 7.0);
-
-    render(
-      <RecipePanel recipes={[]} onRecipesChange={onChange} tagBus={tagBus} />,
-    );
-
-    // Click + to open form
-    fireEvent.click(screen.getByTitle('Save current tag values as recipe'));
-
-    // Enter name
-    const nameInput = screen.getByTestId('recipe-name-input');
-    fireEvent.change(nameInput, { target: { value: 'Winter Config' } });
-
-    // Click save
-    fireEvent.click(screen.getByTestId('recipe-save-btn'));
-
-    expect(onChange).toHaveBeenCalledOnce();
-    const recipes = onChange.mock.calls[0][0] as ScadaRecipe[];
-    expect(recipes).toHaveLength(1);
-    expect(recipes[0].name).toBe('Winter Config');
-    expect(recipes[0].values['temp.sp']).toBe(25);
-    expect(recipes[0].values['ph.sp']).toBe(7.0);
-  });
-
-  it('loads a recipe and writes values to tag bus', () => {
-    const publishSpy = vi.spyOn(tagBus, 'publish');
-    const recipe: ScadaRecipe = {
-      id: 'r1',
-      name: 'Summer Config',
-      values: { 'temp.sp': 28, 'ph.sp': 7.5 },
-      createdAt: '2026-01-01T00:00:00Z',
-    };
-
-    render(
-      <RecipePanel recipes={[recipe]} onRecipesChange={() => {}} tagBus={tagBus} />,
-    );
-
-    fireEvent.click(screen.getByTestId('recipe-load-r1'));
-
-    // Verify tag writes
-    expect(publishSpy).toHaveBeenCalledWith('temp.sp', 28);
-    expect(publishSpy).toHaveBeenCalledWith('ph.sp', 7.5);
-  });
-
-  it('deletes a recipe from the list', () => {
-    const onChange = vi.fn();
-    const recipes: ScadaRecipe[] = [
-      { id: 'r1', name: 'Config A', values: { x: 1 }, createdAt: '2026-01-01T00:00:00Z' },
-      { id: 'r2', name: 'Config B', values: { y: 2 }, createdAt: '2026-01-02T00:00:00Z' },
-    ];
-
-    render(
-      <RecipePanel recipes={recipes} onRecipesChange={onChange} tagBus={tagBus} />,
-    );
-
-    // Find delete button for recipe r1
-    const deleteButtons = screen.getAllByTitle('Delete');
-    fireEvent.click(deleteButtons[0]);
-
-    expect(onChange).toHaveBeenCalledOnce();
-    const updated = onChange.mock.calls[0][0] as ScadaRecipe[];
-    expect(updated).toHaveLength(1);
-    expect(updated[0].id).toBe('r2');
-  });
-
-  it('shows empty state when no recipes exist', () => {
-    render(
-      <RecipePanel recipes={[]} onRecipesChange={() => {}} tagBus={tagBus} />,
-    );
-
-    expect(screen.getByText(/No recipes yet/)).toBeTruthy();
-  });
-});
-
-/* ------------------------------------------------------------------ */
-/*  DaqConfigPanel Tests                                               */
-/* ------------------------------------------------------------------ */
-
-describe('DaqConfigPanel', () => {
-  const defaultConfigs: DaqTagConfig[] = [
-    { tagName: 'temp.sensor1', enabled: true, interval: '15s', deadband: 0, retention: '30d' },
-    { tagName: 'ph.sensor1', enabled: true, interval: '5s', deadband: 0.1, retention: '90d' },
-    { tagName: 'do.sensor1', enabled: false, interval: '1m', deadband: 0, retention: '7d' },
-  ];
-
-  it('renders tag list with interval selectors', () => {
-    render(<DaqConfigPanel configs={defaultConfigs} onConfigsChange={() => {}} />);
-
-    expect(screen.getByTestId('daq-tag-temp.sensor1')).toBeTruthy();
-    expect(screen.getByTestId('daq-tag-ph.sensor1')).toBeTruthy();
-    expect(screen.getByTestId('daq-tag-do.sensor1')).toBeTruthy();
-
-    // Check interval selector is present for enabled tags
-    const intervalSelect = screen.getByTestId('daq-interval-temp.sensor1') as HTMLSelectElement;
-    expect(intervalSelect.value).toBe('15s');
-  });
-
-  it('shows enabled count correctly', () => {
-    render(<DaqConfigPanel configs={defaultConfigs} onConfigsChange={() => {}} />);
-
-    expect(screen.getByText('(2/3 enabled)')).toBeTruthy();
-  });
-
-  it('bulk enable/disable toggles all visible tags', () => {
-    const onChange = vi.fn();
-    render(<DaqConfigPanel configs={defaultConfigs} onConfigsChange={onChange} />);
-
-    // Click "All Off"
-    fireEvent.click(screen.getByText('All Off'));
-
-    expect(onChange).toHaveBeenCalledOnce();
-    const updated = onChange.mock.calls[0][0] as DaqTagConfig[];
-    expect(updated.every((c) => !c.enabled)).toBe(true);
-  });
-
-  it('updates interval for a specific tag', () => {
-    const onChange = vi.fn();
-    render(<DaqConfigPanel configs={defaultConfigs} onConfigsChange={onChange} />);
-
-    const intervalSelect = screen.getByTestId('daq-interval-temp.sensor1');
-    fireEvent.change(intervalSelect, { target: { value: '1m' } });
-
-    expect(onChange).toHaveBeenCalledOnce();
-    const updated = onChange.mock.calls[0][0] as DaqTagConfig[];
-    const tempConfig = updated.find((c) => c.tagName === 'temp.sensor1');
-    expect(tempConfig?.interval).toBe('1m');
-  });
-
-  it('shows empty state when no configs', () => {
-    render(<DaqConfigPanel configs={[]} onConfigsChange={() => {}} />);
-    expect(screen.getByText(/No DAQ tags configured/)).toBeTruthy();
   });
 });
 

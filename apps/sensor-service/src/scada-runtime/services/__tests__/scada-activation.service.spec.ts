@@ -157,6 +157,69 @@ describe('ScadaActivationService — package lifecycle', () => {
   });
 });
 
+describe('ScadaActivationService — server-script cap (M8c)', () => {
+  it('truncates a legacy over-cap server set to the first 50, keeping client scripts', async () => {
+    const { service, mocks } = build(true, false);
+    mockPackageRows = [
+      {
+        package_data: {
+          scripts: [
+            // 55 server scripts (pre-cap legacy row) + 2 client scripts.
+            ...Array.from({ length: 55 }, (_, i) => ({
+              id: `srv-${i}`,
+              name: `s${i}`,
+              code: 'return 1',
+              mode: 'server',
+              enabled: true,
+            })),
+            ...Array.from({ length: 2 }, (_, i) => ({
+              id: `cli-${i}`,
+              name: `c${i}`,
+              code: 'return 2',
+              mode: 'client',
+              enabled: true,
+            })),
+          ],
+        },
+      },
+    ];
+
+    await service.handleOperatorConnected({ tenantId: TENANT });
+
+    const loaded = mocks.scheduler.loadScripts.mock.calls[0]![1] as Array<{
+      id: string;
+      mode: string;
+    }>;
+    const server = loaded.filter((s) => s.mode === 'server');
+    const client = loaded.filter((s) => s.mode === 'client');
+    expect(server).toHaveLength(50);
+    expect(server[0]!.id).toBe('srv-0'); // first 50 kept, in order
+    expect(server[49]!.id).toBe('srv-49');
+    expect(client).toHaveLength(2); // client scripts are never capped
+  });
+
+  it('passes an at-cap server set through untouched', async () => {
+    const { service, mocks } = build(true, false);
+    mockPackageRows = [
+      {
+        package_data: {
+          scripts: Array.from({ length: 50 }, (_, i) => ({
+            id: `srv-${i}`,
+            code: 'return 1',
+            mode: 'server',
+            enabled: true,
+          })),
+        },
+      },
+    ];
+
+    await service.handleOperatorConnected({ tenantId: TENANT });
+
+    const loaded = mocks.scheduler.loadScripts.mock.calls[0]![1] as unknown[];
+    expect(loaded).toHaveLength(50);
+  });
+});
+
 describe('ScadaActivationService — idle eviction', () => {
   it('evicts a tenant whose last operator left beyond the idle window', () => {
     jest.useFakeTimers();

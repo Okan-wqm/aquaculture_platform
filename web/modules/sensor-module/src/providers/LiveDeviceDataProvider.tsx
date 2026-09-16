@@ -118,6 +118,12 @@ export function LiveDeviceDataProviderInner({
     // Ensure the socket is connected.
     socket.connect();
 
+    // T6: claim shared ownership of the singleton connection. The operator
+    // bootstrap also owns it; whichever unmounts first must not tear the
+    // socket down under the other — release() disconnects only when the
+    // LAST owner lets go.
+    socket.acquire();
+
     // --- TAG_VALUES handler ---
     const handleTagValues: ScadaEventPayloadMap[ScadaSocketEvent.TAG_VALUES] extends infer P
       ? (payload: P) => void
@@ -197,7 +203,7 @@ export function LiveDeviceDataProviderInner({
     // expose a generic state-change callback, so we hook the same socket
     // events that the service itself uses internally, mapping them to our
     // local state setter.
-    const rawSocket = (socket as unknown as { socket: { on: (event: string, cb: () => void) => void; off: (event: string, cb: () => void) => void } }).socket;
+    const rawSocket = socket.rawSocket;
     if (rawSocket) {
       rawSocket.on('connect', handleConnect);
       rawSocket.on('disconnect', handleDisconnect);
@@ -243,8 +249,12 @@ export function LiveDeviceDataProviderInner({
 
       // Clear tag cache.
       tagCacheRef.current.clear();
+
+      // T6: drop shared ownership; the socket stays up while other owners
+      // (e.g. the operator bootstrap) still hold it.
+      socket.release();
     };
-   
+
   }, []); // Run once on mount; refs are stable.
 
   // ── Effect: tenant-isolation cache purge ──────────────────────────────────
@@ -328,7 +338,12 @@ export function LiveDeviceDataProviderInner({
   }, []);
 
   const queryHistory = useCallback(
-    (tagIds: string[], from: Date, to: Date): Promise<HistoricalDataResult> => {
+    (
+      tagIds: string[],
+      from: Date,
+      to: Date,
+      aggregation?: DaqQueryPayload['aggregation'],
+    ): Promise<HistoricalDataResult> => {
       return new Promise<HistoricalDataResult>((resolve, reject) => {
         const socket = socketRef.current;
 
@@ -359,6 +374,9 @@ export function LiveDeviceDataProviderInner({
           from: from.getTime(),
           to: to.getTime(),
           chunked: true,
+          // T8: server-side aggregation (min/max/avg/sum per interval) —
+          // passed through from useTrendData when configured.
+          ...(aggregation ? { aggregation } : {}),
         };
 
         socket.emit(ScadaSocketEvent.DAQ_QUERY, payload);

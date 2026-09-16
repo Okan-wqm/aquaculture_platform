@@ -28,6 +28,7 @@ import { ReactFlow,
   type NodeChange,
   type EdgeChange,
   type Connection,
+  type NodeProps,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useShallow } from 'zustand/react/shallow';
@@ -40,6 +41,7 @@ import type { ScreenWidget } from '../../types/scada-package.types';
 import type { ScadaWidgetNodeData, ScadaWidgetType } from '../../types/scada-widget.types';
 import type { ScadaEdge, ScadaEdgeType } from '../../types/scada-edge.types';
 import ScadaWidgetNode from './nodes/ScadaWidgetNode';
+import { processNodeChanges, type NodeChangeLike } from './nodes/dragCommitUtils';
 import { edgeTypes } from './edges';
 import { EdgeStoreContextProvider } from './EdgeStoreContext';
 import { EdgeToolbar } from './EdgeToolbar';
@@ -62,10 +64,36 @@ import {
 } from '../../constants/scada-widget-sizes';
 
 /* ------------------------------------------------------------------ */
+/*  Background image node — rendered INSIDE the ReactFlow viewport     */
+/*  layer so it pans/zooms with the canvas and sits behind all         */
+/*  widgets. Exporting `.react-flow__viewport` therefore includes it.  */
+/* ------------------------------------------------------------------ */
+
+const BackgroundImageNode: React.FC<NodeProps<Node<ScadaWidgetNodeData>>> = ({ data }) => {
+  const url = data.config?.backgroundImage as string | undefined;
+  const opacity = (data.config?.backgroundOpacity as number | undefined) ?? 0.3;
+  if (!url) return null;
+  return (
+    <div
+      style={{
+        width: '100%',
+        height: '100%',
+        backgroundImage: `url(${url})`,
+        backgroundSize: 'contain',
+        backgroundRepeat: 'no-repeat',
+        backgroundPosition: 'center',
+        opacity,
+        pointerEvents: 'none',
+      }}
+    />
+  );
+};
+
+/* ------------------------------------------------------------------ */
 /*  Node type registry                                                 */
 /* ------------------------------------------------------------------ */
 
-const nodeTypes = { scadaWidget: ScadaWidgetNode };
+const nodeTypes = { scadaWidget: ScadaWidgetNode, scadaBackground: BackgroundImageNode };
 
 const EMPTY_WIDGETS: ScreenWidget[] = [];
 const EMPTY_EDGES: ScadaEdge[] = [];
@@ -171,7 +199,9 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
     toggleWidgetSelection,
     addWidget,
     removeWidget,
+    removeWidgets,
     updateWidgetPosition,
+    moveWidgets,
     addEdge: storeAddEdge,
     removeEdge: storeRemoveEdge,
     updateEdgeData: storeUpdateEdgeData,
@@ -190,7 +220,9 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
     toggleWidgetSelection: s.toggleWidgetSelection,
     addWidget: s.addWidget,
     removeWidget: s.removeWidget,
+    removeWidgets: s.removeWidgets,
     updateWidgetPosition: s.updateWidgetPosition,
+    moveWidgets: s.moveWidgets,
     addEdge: s.addEdge,
     removeEdge: s.removeEdge,
     updateEdgeData: s.updateEdgeData,
@@ -235,9 +267,9 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
     },
   }), [storeUpdateEdgeData]);
 
-  // onResize callback for ScadaWidgetNode
+  // onResize commit callback for ScadaWidgetNode
   const handleWidgetResize = useCallback(
-    (widgetId: string, width: number, height: number) => {
+    (widgetId: string, width: number, height: number, originDelta?: { x: number; y: number }) => {
       const state = useScadaPackageStore.getState();
       const currentScreenId = state.activeScreenId;
       if (!currentScreenId) return;
@@ -246,12 +278,11 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
         ?.widgets.find((w) => w.id === widgetId);
       if (!widget) return;
 
-      const newPos = pixelToGrid(
-        widget.position.col * GRID_CELL_W,
-        widget.position.row * GRID_CELL_H,
-        width,
-        height,
-      );
+      // North/west drags shift the origin (SE corner anchored); east/south
+      // drags keep it. The origin delta arrives in flow pixels from the node.
+      const originX = widget.position.col * GRID_CELL_W + (originDelta?.x ?? 0);
+      const originY = widget.position.row * GRID_CELL_H + (originDelta?.y ?? 0);
+      const newPos = pixelToGrid(originX, originY, width, height);
       state.updateWidgetPosition(currentScreenId, widgetId, newPos);
     },
     [],
@@ -296,6 +327,11 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
           liveValue,
           onResize: (_wt: string, newW: number, newH: number) => {
             handleWidgetResize(w.id, newW, newH);
+          },
+          // Full commit channel: size + NW origin shift for N/W-edge drags.
+          // Extra data field (ScadaWidgetNodeData extends Record<string, unknown>).
+          onResizeCommit: (newW: number, newH: number, originDelta: { x: number; y: number }) => {
+            handleWidgetResize(w.id, newW, newH, originDelta);
           },
           isPreview,
           groupId: w.groupId,
@@ -349,6 +385,43 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
   // Local nodes state for smooth dragging (synced from store)
   const [nodes, setNodes] = useState<Node<ScadaWidgetNodeData>[]>(storeNodes);
 
+  /**
+   * Background image as a REAL node inside the transformed viewport layer:
+   * pans/zooms with the canvas, sits behind every widget (zIndex -1), and
+   * is included in `.react-flow__viewport` captures (ExportDialog).
+   */
+  const backgroundNode = useMemo<Node<ScadaWidgetNodeData> | null>(() => {
+    if (!activeScreen?.backgroundImage) return null;
+    const w = (activeScreen.layout?.cols ?? 12) * GRID_CELL_W;
+    const h = (activeScreen.layout?.rows ?? 8) * GRID_CELL_H;
+    return {
+      id: `__background__${activeScreen.id}`,
+      type: 'scadaBackground',
+      position: { x: 0, y: 0 },
+      draggable: false,
+      selectable: false,
+      connectable: false,
+      zIndex: -1,
+      data: {
+        widgetType: 'rasterImage',
+        config: {
+          backgroundImage: activeScreen.backgroundImage,
+          backgroundOpacity: activeScreen.backgroundOpacity ?? 0.3,
+        },
+        screenId: activeScreen.id,
+        width: w,
+        height: h,
+        label: '',
+        isPreview,
+      },
+    };
+  }, [activeScreen, isPreview]);
+
+  const rfNodes = useMemo(
+    () => (backgroundNode ? [backgroundNode, ...nodes] : nodes),
+    [backgroundNode, nodes],
+  );
+
   // Sync store → local nodes when store changes (not during drag)
   // Smart merge: update data/config for existing nodes but preserve local positions,
   // add new nodes from store, remove deleted nodes.
@@ -393,156 +466,58 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
     }
   }, [activeScreenId, rfInstance, saveScreenViewport, getScreenViewport]);
 
-  // Handle node changes (position drag, selection)
+  // Handle node changes (position drag, selection).
+  // The pure pipeline (locked filter, group propagation, drag-end commit
+  // computation) lives in dragCommitUtils — see its unit tests.
   const onNodesChange = useCallback(
     (changes: NodeChange<Node<ScadaWidgetNodeData>>[]) => {
-      // Filter out position changes for locked widgets so they cannot be dragged
       const state = useScadaPackageStore.getState();
       const currentScreenId = state.activeScreenId;
       const currentWidgets = currentScreenId
         ? state.screens.find((s) => s.id === currentScreenId)?.widgets ?? []
         : [];
-      const lockedIds = new Set(
-        currentWidgets.filter((w) => w.locked).map((w) => w.id),
-      );
 
-      const filteredChanges = changes.filter((change) => {
-        if (change.type === 'position' && lockedIds.has(change.id)) {
-          return false; // Skip position changes for locked widgets
-        }
-        return true;
+      const result = processNodeChanges({
+        changes: changes as unknown as NodeChangeLike[],
+        widgets: currentWidgets,
+        localNodes: nodes,
       });
 
-      /**
-       * Group drag propagation: when a grouped widget is dragged, apply the
-       * same position delta to all other group members. This maintains
-       * relative positioning within the group during drag operations.
-       *
-       * Architecture: ReactFlow's onNodesChange fires position changes for
-       * the dragged node. We intercept these changes and generate additional
-       * position updates for sibling group members using the delta.
-       */
-      const groupDragChanges: NodeChange<Node<ScadaWidgetNodeData>>[] = [];
-
-      for (const change of filteredChanges) {
-        if (change.type === 'position' && change.dragging === true && change.position) {
-          const draggedWidget = currentWidgets.find((w) => w.id === change.id);
-          if (draggedWidget?.groupId) {
-            // Find previous position of dragged node from local state
-            const prevNode = nodes.find((n) => n.id === change.id);
-            if (prevNode) {
-              const dx = change.position.x - prevNode.position.x;
-              const dy = change.position.y - prevNode.position.y;
-
-              // Only propagate if there is an actual delta
-              if (dx !== 0 || dy !== 0) {
-                // Find all sibling group members (excluding the dragged node and locked nodes)
-                const siblings = currentWidgets.filter(
-                  (w) => w.groupId === draggedWidget.groupId
-                    && w.id !== change.id
-                    && !lockedIds.has(w.id),
-                );
-
-                for (const sibling of siblings) {
-                  const sibNode = nodes.find((n) => n.id === sibling.id);
-                  if (sibNode) {
-                    groupDragChanges.push({
-                      type: 'position',
-                      id: sibling.id,
-                      dragging: true,
-                      position: {
-                        x: sibNode.position.x + dx,
-                        y: sibNode.position.y + dy,
-                      },
-                    } as NodeChange<Node<ScadaWidgetNodeData>>);
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-
       // Batch all changes (original + group propagation) into a single setNodes call
-      const allChanges = groupDragChanges.length > 0
-        ? [...filteredChanges, ...groupDragChanges]
-        : filteredChanges;
+      const allChanges = (result.groupDragChanges.length > 0
+        ? [...result.filteredChanges, ...result.groupDragChanges]
+        : result.filteredChanges) as NodeChange<Node<ScadaWidgetNodeData>>[];
 
       setNodes((nds) => applyNodeChanges<Node<ScadaWidgetNodeData>>(allChanges, nds));
 
-      for (const change of filteredChanges) {
-        if (change.type === 'position' && change.dragging === true) {
-          // Drag in progress -- mark so store-to-local sync is suppressed
-          isDragging.current = true;
+      if (result.dragStarted) {
+        // Drag in progress -- mark so store-to-local sync is suppressed
+        isDragging.current = true;
+      }
 
-          // Track drag position/size for SmartGuides
-          if (change.position) {
-            const sgWidget = currentWidgets.find((w) => w.id === change.id);
-            setDraggingNodeId(change.id);
-            setDragPosition({ x: change.position.x, y: change.position.y });
-            if (sgWidget) {
-              setDragSize({ w: sgWidget.position.w, h: sgWidget.position.h });
-            }
-          }
+      if (result.guide) {
+        setDraggingNodeId(result.guide.nodeId);
+        setDragPosition({ x: result.guide.position.x, y: result.guide.position.y });
+        setDragSize({ w: result.guide.size.w, h: result.guide.size.h });
+      }
+
+      if (result.dragEnded) {
+        isDragging.current = false;
+        setDraggingNodeId(null);
+        setDragPosition(null);
+        setDragSize(null);
+
+        // Commit ALL moved widgets (dragged node + group siblings) in ONE
+        // batch action → a 5-widget group drag is a single undo step.
+        if (currentScreenId && result.commitUpdates.length > 0) {
+          syncingFromStore.current = true;
+          state.moveWidgets(currentScreenId, result.commitUpdates);
         }
-        if (change.type === 'position' && change.dragging === false) {
-          // Drag ended -- always clear isDragging, even if position is missing
-          isDragging.current = false;
+      }
 
-          // Clear SmartGuides tracking
-          setDraggingNodeId(null);
-          setDragPosition(null);
-          setDragSize(null);
-
-          if (!change.position) continue;
-          const widget = currentWidgets.find((w) => w.id === change.id);
-          if (!widget) continue;
-          const px = gridToPixel(widget.position);
-          const newGrid = pixelToGrid(
-            change.position.x,
-            change.position.y,
-            px.width,
-            px.height,
-          );
-          // Only push to store if grid position actually changed
-          const posChanged =
-            newGrid.col !== widget.position.col ||
-            newGrid.row !== widget.position.row;
-          if (posChanged) {
-            syncingFromStore.current = true;
-            state.updateWidgetPosition(currentScreenId!, change.id, newGrid);
-          }
-
-          // Commit group sibling positions to store on drag end
-          if (widget.groupId) {
-            const siblings = currentWidgets.filter(
-              (w) => w.groupId === widget.groupId
-                && w.id !== change.id
-                && !lockedIds.has(w.id),
-            );
-            for (const sibling of siblings) {
-              const sibNode = nodes.find((n) => n.id === sibling.id);
-              if (!sibNode) continue;
-              const sibPx = gridToPixel(sibling.position);
-              const sibNewGrid = pixelToGrid(
-                sibNode.position.x,
-                sibNode.position.y,
-                sibPx.width,
-                sibPx.height,
-              );
-              const sibPosChanged =
-                sibNewGrid.col !== sibling.position.col ||
-                sibNewGrid.row !== sibling.position.row;
-              if (sibPosChanged) {
-                state.updateWidgetPosition(currentScreenId!, sibling.id, sibNewGrid);
-              }
-            }
-          }
-        }
-        if (change.type === 'select' && change.selected) {
-          setSelectedWidget(change.id);
-          setSelectedEdge(null);
-        }
+      for (const id of result.selectedIds) {
+        setSelectedWidget(id);
+        setSelectedEdge(null);
       }
     },
     [setSelectedWidget, setSelectedEdge, nodes],
@@ -696,6 +671,40 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
     setCurrentZoom(viewport.zoom);
   }, []);
 
+  /**
+   * Reactive viewport getter for SmartGuides. Reads a ref mirroring the
+   * tracked viewport states (updated on every onMove), so consumers always
+   * observe the CURRENT transform without per-widget store subscriptions.
+   */
+  const viewportRef = useRef({ x: 0, y: 0, zoom: 1 });
+  viewportRef.current = { x: viewportX, y: viewportY, zoom: currentZoom };
+  const getViewport = useCallback(
+    (): { x: number; y: number; zoom: number } => viewportRef.current,
+    [],
+  );
+
+  // Zoom-to-selection: AlignmentToolbar dispatches 'scada-zoom-to-bounds'
+  // with flow-space bounds; fitView centres that rect.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as {
+        minX: number; minY: number; maxX: number; maxY: number; padding?: number;
+      } | undefined;
+      if (!detail || !rfInstance) return;
+      rfInstance.fitBounds(
+        {
+          x: detail.minX,
+          y: detail.minY,
+          width: detail.maxX - detail.minX,
+          height: detail.maxY - detail.minY,
+        },
+        { padding: (detail.padding ?? 50) / 100, duration: 250 },
+      );
+    };
+    window.addEventListener('scada-zoom-to-bounds', handler as EventListener);
+    return () => window.removeEventListener('scada-zoom-to-bounds', handler as EventListener);
+  }, [rfInstance]);
+
   // Handle node click for selection (shift+click for multi-select)
   const onNodeClick = useCallback(
     (_event: React.MouseEvent, node: Node) => {
@@ -768,11 +777,10 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
   const onNodesDelete = useCallback(
     (deletedNodes: Node[]) => {
       if (!activeScreenId) return;
-      for (const node of deletedNodes) {
-        removeWidget(activeScreenId, node.id);
-      }
+      // Batch removal → single undo entry for the whole gesture
+      removeWidgets(activeScreenId, deletedNodes.map((n) => n.id));
     },
-    [activeScreenId, removeWidget],
+    [activeScreenId, removeWidgets],
   );
 
   // NOTE: Delete/Backspace is handled by useScadaKeyboardShortcuts hook (supports multi-select).
@@ -880,7 +888,7 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
   if (!activeScreen) {
     return (
       <div className="flex-1 flex items-center justify-center text-gray-500 text-sm">
-        Ekran seçin veya yeni ekran ekleyin
+        Select a screen or add a new one
       </div>
     );
   }
@@ -888,7 +896,7 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
   return (
     <EdgeStoreContextProvider value={edgeStoreValue}>
       <style>{ANIMATED_EDGE_CSS}</style>
-      <div ref={containerRef} className="w-full h-full relative" aria-label="SCADA tasarim alani" onDragOver={isPreview ? undefined : onDragOver} onDrop={isPreview ? undefined : onDrop}>
+      <div ref={containerRef} className="w-full h-full relative" aria-label="SCADA canvas" onDragOver={isPreview ? undefined : onDragOver} onDrop={isPreview ? undefined : onDrop}>
         {/* Edge Toolbar (edit mode only) */}
         {!isPreview && (
           <EdgeToolbar
@@ -904,7 +912,7 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
         {!isPreview && <AlignmentToolbar />}
 
         <ReactFlow
-          nodes={isPreview ? nodes.map((n) => ({ ...n, draggable: false })) : nodes}
+          nodes={isPreview ? rfNodes.map((n) => ({ ...n, draggable: false })) : rfNodes}
           edges={rfEdges}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
@@ -954,6 +962,8 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
             nodeColor={(node: Node) => {
               const data = node.data as ScadaWidgetNodeData | undefined;
               if (!data) return '#06b6d4';
+              // The canvas background image node renders as a neutral swatch
+              if (node.type === 'scadaBackground') return '#e5e7eb';
               const type = data.widgetType;
               // Equipment types get industrial colors
               if (type === 'equipment') return '#f59e0b'; // amber
@@ -977,6 +987,7 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
             draggingWidgetId={draggingNodeId}
             dragPosition={dragPosition}
             dragSize={dragSize}
+            getViewport={getViewport}
           />
         )}
 
@@ -988,23 +999,6 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
             zoom={currentZoom}
             canvasWidth={canvasSize.width}
             canvasHeight={canvasSize.height}
-          />
-        )}
-
-        {/* Background Image Layer */}
-        {activeScreen?.backgroundImage && (
-          <div
-            style={{
-              position: 'absolute',
-              inset: 0,
-              zIndex: 0,
-              backgroundImage: `url(${activeScreen.backgroundImage})`,
-              backgroundSize: 'contain',
-              backgroundRepeat: 'no-repeat',
-              backgroundPosition: 'center',
-              opacity: activeScreen.backgroundOpacity ?? 0.3,
-              pointerEvents: 'none',
-            }}
           />
         )}
 

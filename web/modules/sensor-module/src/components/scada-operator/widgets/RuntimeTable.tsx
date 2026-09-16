@@ -36,13 +36,11 @@ import {
 import type {
   RuntimeWidgetProps,
   TagValueChange,
-  AlarmInstance,
   AlarmSeverity,
   HistoricalDataPoint,
 } from '../../../types/scada-runtime.types';
 import { useDataProvider } from '../../../providers';
-import { useOperatorStore } from '../../../store/scada/operatorStore';
-import { useTagWrite } from '../../../hooks/useTagWrite';
+import { useScadaPackageStore } from '../../../store/scada/createScadaStore';
 
 /* ------------------------------------------------------------------ */
 /*  Local types                                                         */
@@ -451,12 +449,11 @@ HistoryModeTable.displayName = 'HistoryModeTable';
 /* ------------------------------------------------------------------ */
 
 const AlarmsModeTable = memo<{ pageSize: number }>(({ pageSize }) => {
-  const { writeTag } = useTagWrite();
-
-  // Access the alarmRuntimeSlice merged into the operator store
-  const activeAlarms = useOperatorStore(
-    (s) => ((s as unknown as { activeAlarms: AlarmInstance[] }).activeAlarms ?? []),
-  );
+  // T1: active alarms live in alarmRuntimeSlice inside the unified package
+  // store (the standalone operator store is gone, along with the cast read
+  // that always evaluated to undefined).
+  const activeAlarms = useScadaPackageStore((s) => s.activeAlarms);
+  const submitAlarmAck = useScadaPackageStore((s) => s.submitAlarmAck);
 
   const [sortCol, setSortCol] = useState('onTime');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
@@ -492,18 +489,18 @@ const AlarmsModeTable = memo<{ pageSize: number }>(({ pageSize }) => {
   const pageRows = sorted.slice(page * pageSize, (page + 1) * pageSize);
 
   const handleAck = useCallback(
-    async (alarmId: string, tagId: string) => {
+    async (alarmId: string) => {
       setAckingId(alarmId);
       try {
-        // SCADA alarm ACK convention: write 1 to the alarm's tagId
-        await writeTag(tagId, 1);
-      } catch {
-        // Surface via useTagWrite.lastError
+        // T1: ACK goes over the socket (server-authoritative). The old path
+        // wrote `1` to the alarm's ruleId as if it were a tagId — a write to
+        // a non-existent tag that never acknowledged anything.
+        submitAlarmAck(alarmId);
       } finally {
         setAckingId(null);
       }
     },
-    [writeTag],
+    [submitAlarmAck],
   );
 
   const alarmForRow = useCallback(
@@ -603,7 +600,7 @@ const AlarmsModeTable = memo<{ pageSize: number }>(({ pageSize }) => {
                       <button
                         type="button"
                         disabled={ackingId === row.id}
-                        onClick={() => void handleAck(row.id, alarm.ruleId)}
+                        onClick={() => void handleAck(row.id)}
                         aria-label={`Acknowledge alarm ${alarm.ruleName}`}
                         className="flex items-center gap-1 px-2 py-0.5 text-[10px] bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50 transition-colors"
                       >

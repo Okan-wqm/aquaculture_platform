@@ -4,8 +4,12 @@
  * Displays at the bottom of the HMI operator shell:
  *   🔴 Critical: N  🟠 High: N  🟡 Warning: N  ℹ️ Info: N
  *
+ * ISA-18.2 annunciation (T2): chips with UNACKNOWLEDGED alarms FLASH
+ * (scada-alarm-flash); once every alarm of that severity is acknowledged the
+ * chip goes STEADY. Severity is carried by COLOR only, never by the
+ * animation. Shelving is a documented deviation (see AlarmStatusSummary).
+ *
  * Features:
- *  - Blinking red border/glow animation when there are unacknowledged critical alarms
  *  - Click anywhere on the bar to open the AlarmPanel
  *  - Zero count badges are shown as muted to reduce visual noise
  *  - AlarmPanel rendered as a modal overlay
@@ -14,7 +18,7 @@
  * Tailwind CSS + lucide-react icons
  */
 
-import React, { useState, useCallback, useEffect, useRef, memo } from 'react';
+import React, { useState, useCallback, useEffect, memo } from 'react';
 import {
   AlertCircle,
   AlertTriangle,
@@ -22,7 +26,7 @@ import {
   ChevronUp,
 } from 'lucide-react';
 
-import type { AlarmStatusSummary } from '../../types/scada-runtime.types';
+import type { AlarmSeverity, AlarmStatusSummary } from '../../types/scada-runtime.types';
 import { useAlarmRuntime } from '../../hooks/useAlarmRuntime';
 import { AlarmPanel } from './AlarmPanel';
 
@@ -38,6 +42,8 @@ const BLINK_CSS = `
 .alarm-critical-blink {
   animation: alarm-critical-blink 1s ease-in-out infinite;
 }
+@keyframes scada-alarm-flash { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0.25; } }
+.scada-alarm-flash { animation: scada-alarm-flash 0.75s step-end infinite; }
 `;
 
 let styleInjected = false;
@@ -60,15 +66,17 @@ interface SeverityChipProps {
   icon: React.ReactNode;
   activeClass: string;
   mutedClass: string;
+  /** ISA-18.2: flash while unacknowledged alarms of this severity exist. */
+  flashing?: boolean;
 }
 
-const SeverityChip = memo(({ count, label, icon, activeClass, mutedClass }: SeverityChipProps) => {
+const SeverityChip = memo(({ count, label, icon, activeClass, mutedClass, flashing }: SeverityChipProps) => {
   const isActive = count > 0;
   return (
     <div
       className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold transition-colors ${
         isActive ? activeClass : mutedClass
-      }`}
+      } ${flashing ? 'scada-alarm-flash' : ''}`}
     >
       {icon}
       <span>{label}:</span>
@@ -92,34 +100,27 @@ export interface AlarmSummaryBarProps {
 export const AlarmSummaryBar = memo(({ alwaysVisible = true, className = '' }: AlarmSummaryBarProps) => {
   const { summary, activeAlarms } = useAlarmRuntime();
   const [panelOpen, setPanelOpen] = useState(false);
-  const prevCriticalCountRef = useRef(0);
-  const [hasNewCritical, setHasNewCritical] = useState(false);
 
   // Inject blink CSS once on mount
   useEffect(() => {
     injectBlinkStyle();
   }, []);
 
-  // Detect new critical alarms (count increases) and trigger blink
-  useEffect(() => {
-    const currentCritical = summary?.critical ?? 0;
-    if (currentCritical > prevCriticalCountRef.current) {
-      setHasNewCritical(true);
-    } else if (currentCritical === 0) {
-      setHasNewCritical(false);
-    }
-    prevCriticalCountRef.current = currentCritical;
-  }, [summary?.critical]);
+/** Backend-parity unacked definition (A7/Plan 2): active OR cleared-unacked. */
+function isUnacked(a: { status: string; ackTime?: number }): boolean {
+  return a.status === 'active' || (a.status === 'cleared' && a.ackTime == null);
+}
 
-  // Stop blinking once all criticals are acknowledged
-  useEffect(() => {
-    const unackedCritical = activeAlarms.filter(
-      (a) => a.severity === 'critical' && a.status === 'active',
-    ).length;
-    if (unackedCritical === 0) {
-      setHasNewCritical(false);
-    }
-  }, [activeAlarms]);
+  // ISA-18.2: unacknowledged counts per severity. Prefers the server's
+  // additive `summary.unacked`; the local fallback mirrors the backend's
+  // unacked definition via isUnacked (active or cleared without ack).
+  const unacked = summary?.unacked ?? {
+    critical: activeAlarms.filter((a) => a.severity === 'critical' && isUnacked(a)).length,
+    high:     activeAlarms.filter((a) => a.severity === 'high'     && isUnacked(a)).length,
+    warning:  activeAlarms.filter((a) => a.severity === 'warning'  && isUnacked(a)).length,
+    info:     activeAlarms.filter((a) => a.severity === 'info'     && isUnacked(a)).length,
+  };
+  const hasUnacked = unacked.critical + unacked.high + unacked.warning + unacked.info > 0;
 
   const handleBarClick = useCallback(() => {
     setPanelOpen(true);
@@ -136,7 +137,8 @@ export const AlarmSummaryBar = memo(({ alwaysVisible = true, className = '' }: A
   const highCount = summary?.high ?? 0;
   const warningCount = summary?.warning ?? 0;
   const infoCount = summary?.info ?? 0;
-  const totalActive = criticalCount + highCount + warningCount + infoCount;
+  // Server-counted total when present; otherwise the severity sum.
+  const totalActive = summary?.totalActive ?? (criticalCount + highCount + warningCount + infoCount);
 
   return (
     <>
@@ -150,31 +152,32 @@ export const AlarmSummaryBar = memo(({ alwaysVisible = true, className = '' }: A
         className={`
           flex items-center gap-2 px-3 py-1.5 cursor-pointer select-none
           bg-gray-900 dark:bg-gray-950 border-t-2
-          ${hasNewCritical ? 'border-red-600 alarm-critical-blink' : 'border-gray-700'}
+          ${unacked.critical > 0 ? 'border-red-600 alarm-critical-blink' : 'border-gray-700'}
           transition-all duration-300
           ${className}
         `}
       >
-        {/* Alarm icon */}
+        {/* Alarm icon — flashes only while unacknowledged alarms exist */}
         <AlertTriangle
           className={`h-4 w-4 flex-shrink-0 ${
             criticalCount > 0
-              ? 'text-red-500 animate-pulse'
+              ? 'text-red-500'
               : highCount > 0
               ? 'text-orange-400'
               : warningCount > 0
               ? 'text-yellow-400'
               : 'text-gray-500'
-          }`}
+          } ${hasUnacked ? 'scada-alarm-flash' : ''}`}
         />
 
-        {/* Severity chips */}
+        {/* Severity chips — unacked severities flash; severity is color-only */}
         <SeverityChip
           count={criticalCount}
           label="Critical"
           icon={<AlertCircle className="h-3.5 w-3.5" />}
           activeClass="bg-red-700 text-white"
           mutedClass="bg-gray-800 text-gray-500"
+          flashing={unacked.critical > 0}
         />
 
         <SeverityChip
@@ -183,6 +186,7 @@ export const AlarmSummaryBar = memo(({ alwaysVisible = true, className = '' }: A
           icon={<AlertTriangle className="h-3.5 w-3.5" />}
           activeClass="bg-orange-600 text-white"
           mutedClass="bg-gray-800 text-gray-500"
+          flashing={unacked.high > 0}
         />
 
         <SeverityChip
@@ -191,6 +195,7 @@ export const AlarmSummaryBar = memo(({ alwaysVisible = true, className = '' }: A
           icon={<AlertTriangle className="h-3.5 w-3.5" />}
           activeClass="bg-yellow-500 text-gray-900"
           mutedClass="bg-gray-800 text-gray-500"
+          flashing={unacked.warning > 0}
         />
 
         <SeverityChip
@@ -199,6 +204,7 @@ export const AlarmSummaryBar = memo(({ alwaysVisible = true, className = '' }: A
           icon={<Info className="h-3.5 w-3.5" />}
           activeClass="bg-blue-600 text-white"
           mutedClass="bg-gray-800 text-gray-500"
+          flashing={unacked.info > 0}
         />
 
         {/* Total badge (muted when zero) */}

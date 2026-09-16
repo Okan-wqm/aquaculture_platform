@@ -16,9 +16,6 @@ import {
   Loader2,
   GitBranch,
   Layers,
-  List,
-  Settings,
-  Package,
 } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 
@@ -43,6 +40,7 @@ import {
   useCreateScadaPackage,
   useUpdateScadaPackage,
   useDeployScadaPackage,
+  usePublishScadaPackage,
 } from '../../hooks/useScadaPackage';
 import { useEdgeDevices } from '../../hooks/useEdgeDevices';
 import { useScadaKeyboardShortcuts } from '../../hooks/useScadaKeyboardShortcuts';
@@ -50,6 +48,7 @@ import { SimulationSidebar } from '../../components/scada-builder/SimulationSide
 import { StableModeProvider } from '../../components/scada-builder/StableModeProvider';
 import { ExportDialog } from '../../components/scada-builder/ExportDialog';
 import { AQUACULTURE_RAS_DEMO } from '../../store/scada/templates';
+import { decidePackageLoad, shouldAutoAddScreen } from './loadGuard';
 
 const DEFAULT_EMERGENCY_STOP = {
   holdDuration: 3000,
@@ -66,6 +65,9 @@ const ScadaPackageBuilderPage: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [publishMessage, setPublishMessage] = useState<string | null>(null);
+  /** Transient inline notice (e.g. script-test info). Auto-dismisses. */
+  const [infoNotice, setInfoNotice] = useState<string | null>(null);
   const [showDeployDialog, setShowDeployDialog] = useState(false);
   const [mode, setMode] = useState<BuilderMode>('edit');
   const [showCsvDialog, setShowCsvDialog] = useState(false);
@@ -79,13 +81,11 @@ const ScadaPackageBuilderPage: React.FC = () => {
   const leftRailIcons: RailIcon[] = useMemo(() => [
     { id: 'scene', icon: <GitBranch className="w-4 h-4" />, label: 'Scene Tree' },
     { id: 'palette', icon: <Layers className="w-4 h-4" />, label: 'Widget Palette' },
-    { id: 'layers', icon: <List className="w-4 h-4" />, label: 'Layers' },
   ], []);
 
-  const rightRailIcons: RailIcon[] = useMemo(() => [
-    { id: 'properties', icon: <Settings className="w-4 h-4" />, label: 'Properties' },
-    { id: 'package', icon: <Package className="w-4 h-4" />, label: 'Package Settings' },
-  ], []);
+  // Left-panel rail wiring: the collapsed rail icons and the expanded panel
+  // tabs share ONE active-tab state, so icon ↔ tab stay in sync.
+  const [leftPanelTab, setLeftPanelTab] = useState<'scene' | 'palette'>('scene');
 
   // ---------------------------------------------------------------------------
   // Performans: 30+ property'li tek selector yerine amac bazli kucuk selector'lar
@@ -103,6 +103,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
   // Including them in useShallow adds unnecessary comparison overhead.
   const setPackageName = useScadaPackageStore((s) => s.setPackageName);
   const setPackageId = useScadaPackageStore((s) => s.setPackageId);
+  const setPackageVersion = useScadaPackageStore((s) => s.setPackageVersion);
   const setProcessId = useScadaPackageStore((s) => s.setProcessId);
   const loadFromJSON = useScadaPackageStore((s) => s.loadFromJSON);
   const importProcessAsWidget = useScadaPackageStore((s) => s.importProcessAsWidget);
@@ -204,6 +205,7 @@ const ScadaPackageBuilderPage: React.FC = () => {
   const createMutation = useCreateScadaPackage();
   const updateMutation = useUpdateScadaPackage();
   const deployMutation = useDeployScadaPackage();
+  const publishMutation = usePublishScadaPackage();
 
   // Edge devices for target device selector
   const { data: deviceConnection } = useEdgeDevices({ limit: 50 });
@@ -214,16 +216,35 @@ const ScadaPackageBuilderPage: React.FC = () => {
     [devices, targetDeviceId],
   );
 
-  // Load package data when fetched
+  // Load package data when fetched — ID-BASED LOAD GUARD (data-loss fix):
+  //  - same id + dirty store  → never clobber unsaved edits
+  //  - different id (A→B or /new→existing) → reset() first (clears screens,
+  //    history, clipboard), then load the fetched entity
+  //  - the fetch must belong to the current route or it is skipped entirely
   useEffect(() => {
-    if (scadaPackage && routePackageId && routePackageId !== 'new') {
-      setPackageId(scadaPackage.id);
-      setPackageName(scadaPackage.name);
-      if (scadaPackage.packageData) {
-        loadFromJSON(scadaPackage.packageData as unknown as ScadaPackageJSON);
-      }
+    if (!scadaPackage || !routePackageId || routePackageId === 'new') return;
+
+    const decision = decidePackageLoad({
+      routePackageId,
+      fetchedPackageId: scadaPackage.id,
+      storePackageId,
+      isDirty,
+    });
+    if (decision === 'skip') return;
+    if (decision === 'reset-and-load') reset();
+
+    setPackageId(scadaPackage.id);
+    setPackageName(scadaPackage.name);
+    setPackageVersion(scadaPackage.version ?? 1);
+    if (scadaPackage.packageData) {
+      loadFromJSON(scadaPackage.packageData as unknown as ScadaPackageJSON, {
+        version: scadaPackage.version,
+      });
     }
-  }, [scadaPackage, routePackageId, setPackageId, setPackageName, loadFromJSON]);
+  }, [
+    scadaPackage, routePackageId, storePackageId, isDirty,
+    setPackageId, setPackageName, setPackageVersion, loadFromJSON, reset,
+  ]);
 
   // Auto-open deploy dialog when ?deploy=true and package is loaded
   useEffect(() => {
@@ -240,16 +261,37 @@ const ScadaPackageBuilderPage: React.FC = () => {
     }
   }, [routePackageId, processId, setProcessId, importProcessAsWidget]);
 
-  // Ensure there's at least one screen (guard against loading race condition)
+  // Ensure there's at least one screen — but ONLY when the empty store
+  // actually belongs to this route. Otherwise the effect races a pending
+  // package load (loadingPackage just flipped false) and injects a phantom
+  // "Screen 1" into a store that is about to be replaced by fetched data.
   useEffect(() => {
-    if (screens.length === 0 && !loadingPackage) {
-      addScreen('dashboard', 'Screen 1');
+    if (screens.length === 0) {
+      const autoAdd = shouldAutoAddScreen({
+        storePackageId,
+        routePackageId: routePackageId ?? null,
+        isLoading: loadingPackage,
+      });
+      if (autoAdd) addScreen('dashboard', 'Screen 1');
     }
-  }, [screens.length, addScreen, loadingPackage]);
+  }, [screens.length, addScreen, loadingPackage, storePackageId, routePackageId]);
 
   // Save handler
   const handleSave = useCallback(async () => {
-    if (!packageName.trim()) return;
+    // A4/Plan 2: while a package fetch is in flight the store may still hold
+    // the PREVIOUS package's document — saving in that window would write A's
+    // content into B (effectivePackageId already points at the route target).
+    if (loadingPackage) {
+      setSaveError('Package is still loading — save blocked.');
+      setTimeout(() => setSaveError(null), 5000);
+      return false;
+    }
+    // Visible error instead of a silent no-op when the name is empty
+    if (!packageName.trim()) {
+      setSaveError('Package name is required before saving.');
+      setTimeout(() => setSaveError(null), 5000);
+      return false;
+    }
     setIsSaving(true);
     setSaveSuccess(false);
     setSaveError(null);
@@ -280,14 +322,16 @@ const ScadaPackageBuilderPage: React.FC = () => {
       markClean();
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 2000);
+      return true;
     } catch (err) {
       console.error('Save failed:', err);
       setSaveError('Save failed. Please try again.');
       setTimeout(() => setSaveError(null), 5000);
+      return false;
     } finally {
       setIsSaving(false);
     }
-  }, [packageName, effectivePackageId, toScadaPackageJSON, updateMutation, createMutation, processId, setPackageId, navigate, markClean]);
+  }, [loadingPackage, packageName, effectivePackageId, toScadaPackageJSON, updateMutation, createMutation, processId, setPackageId, navigate, markClean]);
 
   // Keyboard shortcuts (Ctrl+Z/Y, Ctrl+C/V/X, Del, Ctrl+S, Esc)
   useScadaKeyboardShortcuts({
@@ -295,13 +339,41 @@ const ScadaPackageBuilderPage: React.FC = () => {
     isPreview: mode !== 'edit',
   });
 
-  // Deploy handler - ensure save first
+  // Deploy handler - ensure save first; block the dialog when the save
+  // could not complete (e.g. empty package name) instead of deploying nothing
   const handleDeployClick = useCallback(async () => {
     if (!effectivePackageId || isDirty) {
-      await handleSave();
+      const saved = await handleSave();
+      if (!saved) return;
     }
     setShowDeployDialog(true);
   }, [effectivePackageId, isDirty, handleSave]);
+
+  // Publish to Cloud — saves first (the publish button is disabled while
+  // dirty, but keep the save here as a safety net), then publishes and
+  // surfaces the returned version.
+  const handlePublishToCloud = useCallback(async () => {
+    if (isDirty) {
+      const saved = await handleSave();
+      if (!saved) return;
+    }
+    if (!effectivePackageId) {
+      setPublishMessage('Save the package before publishing.');
+      return;
+    }
+    try {
+      const result = await publishMutation.mutateAsync({ id: effectivePackageId });
+      setPublishMessage(
+        result.success
+          ? `Published to cloud${result.version != null ? ` (v${result.version})` : ''}${result.message ? ` — ${result.message}` : ''}`
+          : `Publish failed: ${result.message ?? 'unknown error'}`,
+      );
+    } catch (err) {
+      setPublishMessage('Publish failed. Please try again.');
+    } finally {
+      setTimeout(() => setPublishMessage(null), 6000);
+    }
+  }, [isDirty, handleSave, effectivePackageId, publishMutation]);
 
   // Mode change handler — syncs simulation mode with store
   const handleModeChange = useCallback((newMode: BuilderMode) => {
@@ -363,11 +435,14 @@ const ScadaPackageBuilderPage: React.FC = () => {
         onCsvDialogOpen={() => setShowCsvDialog(true)}
         onExportDialogOpen={() => setShowExportDialog(true)}
         onLoadDemo={handleLoadDemo}
+        onPublishToCloud={handlePublishToCloud}
+        isPublishing={publishMutation.isPending}
+        publishMessage={publishMessage}
       />
 
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left Panel — Unified: Scene Tree + Widget Palette + Layers (hidden in preview/simulation) */}
+        {/* Left Panel — Unified: Scene Tree + Widget Palette (hidden in preview/simulation) */}
         {mode === 'edit' && (
           <CollapsiblePanel
             side="left"
@@ -375,15 +450,22 @@ const ScadaPackageBuilderPage: React.FC = () => {
             onToggle={panelCollapse.toggleLeft}
             width={240}
             railIcons={leftRailIcons}
+            activeRailIcon={leftPanelTab}
+            onRailIconClick={(iconId) => {
+              if (iconId === 'scene' || iconId === 'palette') setLeftPanelTab(iconId);
+            }}
           >
-            <UnifiedLeftPanel />
+            <UnifiedLeftPanel
+              activeTab={leftPanelTab}
+              onTabChange={setLeftPanelTab}
+            />
           </CollapsiblePanel>
         )}
 
         {/* Center - Canvas with Screen Tabs */}
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Global Alarm Banner */}
-          <GlobalAlarmBanner />
+          <GlobalAlarmBanner liveDataActive={mode === 'preview'} />
 
           {/* Screen tabs - using ScreenTabBar component */}
           <ScreenTabBar />
@@ -400,13 +482,15 @@ const ScadaPackageBuilderPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Right Panel — Collapsible: SimulationSidebar or PropertiesPanel */}
+        {/* Right Panel — Collapsible: SimulationSidebar or PropertiesPanel.
+            No rail icons (A7/Plan 2): the PropertiesPanel manages its own tab
+            state internally, so rail icons that implied tab switching were a
+            dead affordance — the collapse toggle alone remains. */}
         <CollapsiblePanel
           side="right"
           collapsed={panelCollapse.rightCollapsed}
           onToggle={panelCollapse.toggleRight}
           width={320}
-          railIcons={rightRailIcons}
         >
           {mode === 'simulation' ? (
             <SimulationSidebar />
@@ -436,10 +520,11 @@ const ScadaPackageBuilderPage: React.FC = () => {
               onWidgetAnimationsChange={handleWidgetAnimationsChange}
               scripts={scripts}
               onScriptsChange={setScripts}
-              onTestScript={(scriptId) => {
-                // Phase 5B placeholder: the ScriptExecutor sandbox from Phase 5A
-                // will handle actual execution; this currently logs to console.
-                console.log('[SCADA] Test script:', scriptId);
+              onTestScript={() => {
+                // No client-side execution: scripts run server-side after
+                // publish. Surface an inline notice instead of console.log.
+                setInfoNotice('Script test runs server-side after publish');
+                setTimeout(() => setInfoNotice(null), 5000);
               }}
             />
           )}
@@ -453,12 +538,21 @@ const ScadaPackageBuilderPage: React.FC = () => {
           : 'No widget selected'}
       </div>
 
+      {/* Inline info notice (script test, etc.) */}
+      {infoNotice && (
+        <div className="px-4 py-1.5 bg-cyan-50 border-t border-cyan-100 text-xs text-cyan-800" role="status">
+          {infoNotice}
+        </div>
+      )}
+
       {/* Status Bar */}
       <ScadaBuilderStatusBar
         screens={screenSummaries}
         activeScreenId={activeScreenId}
         mode={mode}
         selectedDeviceName={selectedDevice?.deviceName ?? null}
+        packageStatus={scadaPackage?.status ?? null}
+        packageVersion={scadaPackage?.version ?? null}
       />
 
       {/* Deploy Dialog */}

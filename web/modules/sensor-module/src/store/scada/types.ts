@@ -209,20 +209,60 @@ export interface HistoryCheckpoint {
   snapshot?: string;
 }
 
+/**
+ * Binding fragment snapshotted when a widget removal nulls an automation
+ * variable binding (widgetSlice.removeWidget). Undo restores these verbatim.
+ */
+export interface AffectedAutomationBinding {
+  programId: string;
+  variableId: string;
+  boundWidgetId: string | null;
+  boundTag: string | null;
+}
+
 export type HistoryEntry =
   // Widget
   | { type: 'WIDGET_ADD'; screenId: string; widget: ScreenWidget; timestamp?: number }
-  | { type: 'WIDGET_REMOVE'; screenId: string; widget: ScreenWidget; removedEdges: ScadaEdge[]; timestamp?: number }
+  | {
+      type: 'WIDGET_REMOVE';
+      screenId: string;
+      widget: ScreenWidget;
+      removedEdges: ScadaEdge[];
+      /** Original array index in screen.widgets (undo re-inserts here). */
+      index?: number;
+      /** Automation variable bindings nulled by the removal. */
+      affectedBindings?: AffectedAutomationBinding[];
+      timestamp?: number;
+    }
   | { type: 'WIDGET_UPDATE'; screenId: string; widgetId: string; before: ScreenWidget; after: ScreenWidget; timestamp?: number }
   | { type: 'WIDGET_MOVE'; screenId: string; widgetId: string; from: WidgetPosition; to: WidgetPosition; timestamp?: number }
   // Edge
   | { type: 'EDGE_ADD'; screenId: string; edge: ScadaEdge; timestamp?: number }
   | { type: 'EDGE_REMOVE'; screenId: string; edge: ScadaEdge; timestamp?: number }
-  | { type: 'EDGE_UPDATE'; screenId: string; edgeId: string; before: ScadaEdgeData; after: ScadaEdgeData; timestamp?: number }
+  | {
+      type: 'EDGE_UPDATE';
+      screenId: string;
+      edgeId: string;
+      before: ScadaEdgeData;
+      after: ScadaEdgeData;
+      /** Edge geometry type when the update changed it (updateEdgeType). */
+      beforeType?: ScadaEdge['type'];
+      afterType?: ScadaEdge['type'];
+      timestamp?: number;
+    }
   // Screen
   | { type: 'SCREEN_ADD'; screen: ScreenDef; timestamp?: number }
   | { type: 'SCREEN_REMOVE'; screen: ScreenDef; index: number; wasActive: boolean; timestamp?: number }
   | { type: 'SCREEN_UPDATE'; screenId: string; before: Partial<ScreenDef>; after: Partial<ScreenDef>; timestamp?: number }
+  /** Whole-list screen reorder (tab drag). Restores array order AND sortOrder. */
+  | {
+      type: 'SCREENS_REORDER';
+      beforeOrder: string[];
+      afterOrder: string[];
+      beforeSortOrders: Record<string, number>;
+      afterSortOrders: Record<string, number>;
+      timestamp?: number;
+    }
   // Alarm
   | { type: 'ALARM_ADD'; rule: AlarmRuleDef; timestamp?: number }
   | { type: 'ALARM_REMOVE'; rule: AlarmRuleDef; index: number; timestamp?: number }
@@ -270,6 +310,12 @@ export interface SceneSlice {
   removeScreen: (id: string) => void;
   duplicateScreen: (id: string) => void;
   updateScreen: (id: string, updates: Partial<ScreenDef>) => void;
+  /**
+   * Gesture-level tab reorder: applies sortOrder for every screen in ONE
+   * atomic producer and pushes ONE BATCH history entry. No-op (no isDirty,
+   * no history) when the order already matches the store.
+   */
+  reorderScreens: (orderedIds: string[]) => void;
   setActiveScreen: (id: string) => void;
   setDefaultScreen: (id: string) => void;
   saveScreenViewport: (screenId: string, viewport: ScreenViewport) => void;
@@ -281,8 +327,19 @@ export interface SceneSlice {
 export interface WidgetSlice {
   addWidget: (screenId: string, widget: ScreenWidget) => void;
   removeWidget: (screenId: string, widgetId: string) => void;
+  /**
+   * Gesture-level batch removal: removes all widgets (plus their edges and
+   * automation-binding cleanup) in ONE atomic producer and pushes ONE BATCH
+   * history entry — a multi-select delete is a single undo step.
+   */
+  removeWidgets: (screenId: string, widgetIds: string[]) => void;
   updateWidget: (screenId: string, widgetId: string, updates: Partial<ScreenWidget>) => void;
   updateWidgetPosition: (screenId: string, widgetId: string, position: WidgetPosition) => void;
+  /**
+   * Gesture-level batch move (group drag commit): applies all position
+   * updates in ONE atomic producer and pushes ONE BATCH history entry.
+   */
+  moveWidgets: (screenId: string, updates: Array<{ id: string; position: WidgetPosition }>) => void;
   /**
    * Layer management actions implementing 4-level z-order control.
    * Uses sparse z-index values to avoid O(n) renumbering on every operation.
@@ -325,6 +382,11 @@ export interface SelectionSlice {
    * so users can identify which canvas widget corresponds to a layer row.
    */
   highlightedWidgetId: string | null;
+  /**
+   * Consecutive pastes of the same clipboard cascade their offset
+   * (+1, +2, +3 ... grid cells). Reset whenever clipboard content changes.
+   */
+  pasteCount: number;
 
   setSelectedWidget: (id: string | null) => void;
   setSelectedEdge: (id: string | null) => void;
@@ -347,6 +409,13 @@ export interface HistorySlice {
   redoStack: HistoryEntry[];
   checkpoints: HistoryCheckpoint[];
   lastHistoryTimestamp: number;
+  /**
+   * True while applyUndo/applyRedo mutates the tree inside a producer.
+   * Lives in store state (not module scope) so it is observable in devtools
+   * and testable; appendHistory suppresses both pushes and the redoStack
+   * clear while it is set.
+   */
+  isApplyingHistory: boolean;
 
   undo: () => void;
   redo: () => void;
@@ -387,6 +456,8 @@ export interface GroupSlice {
 
 export interface TemplateSlice {
   widgetTemplates: WidgetTemplate[];
+  /** Load tenant-scoped templates from localStorage (idempotent, no clobber). */
+  hydrateTemplatesFromStorage: () => void;
   saveAsTemplate: (name: string, category: string, widget: ScreenWidget) => string;
   deleteTemplate: (id: string) => void;
   applyTemplate: (screenId: string, templateId: string, position: { col: number; row: number }) => void;
@@ -424,6 +495,13 @@ export interface ViewManagerSlice {
 export interface ProjectSlice {
   packageId: string | null;
   packageName: string;
+  /**
+   * Entity version from the backend (scadaPackage.version). Serialized into
+   * meta.version on save so the document round-trips the package version
+   * instead of always writing 1. Kept in sync by the builder page when a
+   * package is loaded/saved.
+   */
+  packageVersion: number;
   processId: string | null;
   targetDeviceId: string | null;
   automationBindings: AutomationBinding[];
@@ -434,6 +512,7 @@ export interface ProjectSlice {
 
   setPackageId: (id: string | null) => void;
   setPackageName: (name: string) => void;
+  setPackageVersion: (version: number) => void;
   setProcessId: (id: string | null) => void;
   setTargetDeviceId: (id: string | null) => void;
   setRightPanelTab: (tab: ProjectSlice['rightPanelTab']) => void;
@@ -469,7 +548,12 @@ export interface ProjectSlice {
   markClean: () => void;
 
   toScadaPackageJSON: () => ScadaPackageJSON;
-  loadFromJSON: (json: ScadaPackageJSON) => void;
+  /**
+   * Replace store contents from a serialized document.
+   * @param json     the document (upcast to the current contract internally)
+   * @param options  optional entity metadata (backend package version)
+   */
+  loadFromJSON: (json: ScadaPackageJSON, options?: { version?: number }) => void;
   importProcessAsWidget: (process: { id: string; name: string; nodes: unknown[]; edges: unknown[] }) => void;
   reset: () => void;
 }
@@ -561,15 +645,20 @@ export const MAX_UNDO_STACK = 200;
 
 /**
  * Deep clone that safely handles Immer draft proxies.
- * Falls back to unwrapping via immer's `current()` before cloning.
+ *
+ * structuredClone cannot clone a Proxy (DataCloneError), so on failure we
+ * fall back to a JSON round-trip: drafts read like plain data, so
+ * JSON.stringify(draft) materialises the draft's CURRENT state and yields a
+ * plain, mutable copy. There is deliberately no `require('immer')` here —
+ * a CommonJS require crashes under ESM/Vite. History snapshots never use
+ * this helper; they capture `original(draft)` at mutation time instead.
  */
 export function deepClone<T>(value: T): T {
   try {
     return structuredClone(value);
   } catch {
-    // value is an Immer draft proxy — unwrap first
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { current } = require('immer');
-    return structuredClone(current(value)) as T;
+    // value is an Immer draft proxy (or contains non-cloneable data) —
+    // JSON round-trip yields a plain mutable copy of the current state.
+    return JSON.parse(JSON.stringify(value)) as T;
   }
 }

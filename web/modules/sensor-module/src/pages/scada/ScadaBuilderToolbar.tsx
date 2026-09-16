@@ -64,6 +64,12 @@ export interface ScadaBuilderToolbarProps {
   onExportDialogOpen?: () => void;
   /** Callback to load the built-in RAS demo template. */
   onLoadDemo?: () => void;
+  /** Publish the package to the cloud registry (saves first). */
+  onPublishToCloud?: () => void;
+  /** True while the publish mutation is in flight. */
+  isPublishing?: boolean;
+  /** Status message from the last publish attempt (success or failure). */
+  publishMessage?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -88,6 +94,9 @@ export const ScadaBuilderToolbar: React.FC<ScadaBuilderToolbarProps> = ({
   onCsvDialogOpen,
   onExportDialogOpen,
   onLoadDemo,
+  onPublishToCloud,
+  isPublishing = false,
+  publishMessage = null,
 }) => {
   const [showDeviceDropdown, setShowDeviceDropdown] = useState(false);
   const [showDeployMenu, setShowDeployMenu] = useState(false);
@@ -101,6 +110,12 @@ export const ScadaBuilderToolbar: React.FC<ScadaBuilderToolbarProps> = ({
         <Link
           to="/sensor/scada-packages"
           className="flex items-center gap-1.5 text-gray-600 hover:text-gray-900 text-sm"
+          onClick={(e) => {
+            // Guard against losing unsaved work when leaving the builder
+            if (isDirty && !window.confirm('Discard unsaved changes?')) {
+              e.preventDefault();
+            }
+          }}
         >
           <ArrowLeft className="w-4 h-4" />
           <span>Back</span>
@@ -128,6 +143,11 @@ export const ScadaBuilderToolbar: React.FC<ScadaBuilderToolbarProps> = ({
         {saveError && (
           <span className="text-xs text-red-600 bg-red-50 px-2 py-0.5 rounded">
             {saveError}
+          </span>
+        )}
+        {publishMessage && (
+          <span className="text-xs text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded" role="status">
+            {publishMessage}
           </span>
         )}
 
@@ -340,7 +360,7 @@ export const ScadaBuilderToolbar: React.FC<ScadaBuilderToolbarProps> = ({
             aria-label="Simulation mode"
             className={`flex items-center gap-1 px-2.5 py-1 text-xs rounded-md transition-colors ${
               mode === 'simulation'
-                ? 'bg-cyan-600 text-white shadow-sm font-medium'
+                ? 'bg-white text-gray-900 shadow-sm font-medium'
                 : 'text-gray-500 hover:text-gray-700'
             }`}
           >
@@ -374,10 +394,25 @@ export const ScadaBuilderToolbar: React.FC<ScadaBuilderToolbarProps> = ({
                   Deploy to Edge Device
                 </button>
                 <button
-                  className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                  onClick={() => setShowDeployMenu(false)}
+                  className={`w-full text-left px-3 py-2 text-sm ${
+                    !onPublishToCloud || isPublishing || isDirty
+                      ? 'text-gray-400 cursor-not-allowed'
+                      : 'text-gray-700 hover:bg-gray-50'
+                  }`}
+                  disabled={!onPublishToCloud || isPublishing || isDirty}
+                  title={
+                    isDirty
+                      ? 'Save the package before publishing to the cloud'
+                      : isPublishing
+                        ? 'Publishing…'
+                        : 'Publish the saved package version to the cloud registry'
+                  }
+                  onClick={() => {
+                    setShowDeployMenu(false);
+                    onPublishToCloud?.();
+                  }}
                 >
-                  Publish to Cloud
+                  {isPublishing ? 'Publishing…' : 'Publish to Cloud'}
                 </button>
               </div>
             </>

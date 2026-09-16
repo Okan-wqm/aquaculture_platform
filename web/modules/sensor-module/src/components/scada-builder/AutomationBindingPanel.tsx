@@ -8,6 +8,7 @@
 import React, { useState, useMemo } from 'react';
 import { Plus, Trash2, Link, Unlink, Zap, ChevronDown, ChevronRight, Check, AlertTriangle, Search } from 'lucide-react';
 import { useScadaPackageStore } from '../../store/scada';
+import { getWidgetTagBinding } from '../../engine/tags';
 import { useAutomationPrograms, useAutomationProgramVariables } from '../../hooks/useAutomationPrograms';
 import { getStatusColor, getStatusText, ProgramStatus } from '../../utils/automation.utils';
 import type { AutomationBinding, VariableBinding } from '../../types/scada-package.types';
@@ -47,7 +48,8 @@ const WidgetPicker: React.FC<WidgetPickerProps> = ({ variableTag, onSelect, onCl
     const result: { widgetId: string; label: string; tag: string | null; widgetType: string; screenName: string }[] = [];
     for (const screen of screens) {
       for (const w of screen.widgets) {
-        const tag = (w.config.tagName as string | undefined) || (w.config.tag as string | undefined) || null;
+        // Canonical binding accessor (config.tagRef → legacy keys)
+        const tag = getWidgetTagBinding(w.config) ?? null;
         const label = (w.config.label as string | undefined) || w.widgetType;
         result.push({ widgetId: w.id, label, tag, widgetType: w.widgetType, screenName: screen.name });
       }

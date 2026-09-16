@@ -23,6 +23,7 @@ export type {
   // New types
   HistoryEntry,
   HistoryCheckpoint,
+  AffectedAutomationBinding,
   ClipboardData,
   GroupSlice,
   WidgetTemplate,
@@ -53,6 +54,10 @@ export { alignLeft, alignRight, alignTop, alignBottom, alignCenterH, alignCenter
 
 // Template slice
 export { createTemplateSlice } from './templateSlice';
+
+// History helper — append a history entry inside the CURRENT immer producer
+// (slice actions call this so mutation + undo append commit atomically)
+export { appendHistory } from './historySlice';
 
 // View manager slice
 export { createViewManagerSlice } from './viewManagerSlice';

@@ -74,10 +74,17 @@ export function useScadaKeyboardShortcuts(
     // Ctrl+D — Duplicate selected widget(s) in place
     if (mod && key === 'd') {
       e.preventDefault();
-      // Copy then paste (creates duplicates offset by 1 grid cell)
+      // Duplicate WITHOUT overwriting the user's clipboard: snapshot it,
+      // copy+paste (which also drives the cascading paste offset), restore.
       if (s.selectedWidgetIds.length > 0) {
+        const prevClipboard = s.clipboard;
+        const prevPasteCount = s.pasteCount;
         s.copySelectedWidgets();
         s.pasteWidgets();
+        useScadaPackageStore.setState((st) => {
+          st.clipboard = prevClipboard;
+          st.pasteCount = prevPasteCount;
+        });
       }
       return;
     }
@@ -86,10 +93,8 @@ export function useScadaKeyboardShortcuts(
     if (key === 'delete' || key === 'backspace') {
       if (s.selectedWidgetIds.length > 0 && s.activeScreenId) {
         e.preventDefault();
-        // Remove all selected widgets
-        for (const widgetId of [...s.selectedWidgetIds]) {
-          s.removeWidget(s.activeScreenId, widgetId);
-        }
+        // One batch action → ONE undo step for the whole multi-selection
+        s.removeWidgets(s.activeScreenId, [...s.selectedWidgetIds]);
       } else if (s.selectedEdgeId && s.activeScreenId) {
         e.preventDefault();
         s.removeEdge(s.activeScreenId, s.selectedEdgeId);

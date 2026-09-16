@@ -10,6 +10,8 @@ import { X, Activity, Zap, CircleDot } from 'lucide-react';
 import { CONNECTION_POINTS, CONNECTION_POINT_COLORS } from './equipment-symbols/types';
 import type { ConnectionPointKey, EquipmentConnectionPoint } from '../../types/scada-widget.types';
 import { WidgetRenderer } from './WidgetRenderer';
+import { useScadaPackageStore } from '../../store/scada';
+import { getWidgetTagBinding } from '../../engine/tags';
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                              */
@@ -75,6 +77,16 @@ const DIRECTION_LABELS: Record<string, string> = {
 export const PidFaceplate: React.FC<PidFaceplateProps> = ({ widget, onClose }) => {
   const { config, position: pos } = widget;
 
+  const setSelectedWidget = useScadaPackageStore((s) => s.setSelectedWidget);
+
+  // "Properties" footer button: close the faceplate and select the widget —
+  // PropertiesPanel focuses its widget tab on selection change, so no extra
+  // tab write is needed (A7/Plan 2 removed the dead setRightPanelTab write).
+  const handleOpenProperties = () => {
+    setSelectedWidget(widget.id);
+    onClose();
+  };
+
   // Close on Escape key
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -122,7 +134,8 @@ export const PidFaceplate: React.FC<PidFaceplateProps> = ({ widget, onClose }) =
     { label: 'Size', value: `${pos.w}\u00d7${pos.h} cells` },
     {
       label: 'Tag Name',
-      value: (config.tagName as string) || (config.tag as string) || '\u2014',
+      // Canonical accessor (config.tagRef → legacy keys) — no direct reads
+      value: getWidgetTagBinding(widget.config) ?? '\u2014',
     },
     {
       label: 'Label',
@@ -144,7 +157,12 @@ export const PidFaceplate: React.FC<PidFaceplateProps> = ({ widget, onClose }) =
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="bg-white rounded-xl shadow-2xl w-[480px] max-h-[80vh] overflow-hidden flex flex-col">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="pid-faceplate-title"
+        className="bg-white rounded-xl shadow-2xl w-[480px] max-h-[80vh] overflow-hidden flex flex-col"
+      >
         {/* ── Header ──────────────────────────────────────────────── */}
         <div className="bg-gray-800 text-white px-4 py-3 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3 min-w-0">
@@ -155,7 +173,7 @@ export const PidFaceplate: React.FC<PidFaceplateProps> = ({ widget, onClose }) =
               title={getStatusLabel(state)}
             />
             {/* Equipment name */}
-            <span className="font-semibold text-sm truncate">{equipmentLabel}</span>
+            <span id="pid-faceplate-title" className="font-semibold text-sm truncate">{equipmentLabel}</span>
             {/* Type badge */}
             <span className="text-[10px] uppercase tracking-wider bg-gray-600 px-2 py-0.5 rounded font-medium shrink-0">
               {widget.widgetType}
@@ -268,6 +286,7 @@ export const PidFaceplate: React.FC<PidFaceplateProps> = ({ widget, onClose }) =
         {/* ── Footer ──────────────────────────────────────────────── */}
         <div className="px-4 py-3 border-t border-gray-200 flex justify-end gap-2 shrink-0">
           <button
+            onClick={handleOpenProperties}
             className="px-4 py-1.5 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors flex items-center gap-1.5"
           >
             <Zap size={14} />

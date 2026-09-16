@@ -22,6 +22,8 @@ import { PropertiesAlarmTab, type AlarmRule } from './PropertiesAlarmTab';
 import { PropertiesControlTab, type ControlSecurityConfig, type EmergencyStopConfig } from './PropertiesControlTab';
 import { PropertiesTrendsTab, type TrendConfig } from './PropertiesTrendsTab';
 import { CONNECTION_TYPES, type ConnectionType } from '../../config/connectionTypes';
+import { EDGE_TYPE_OPTIONS } from './edgeTypeLabels';
+import { useScadaPackageStore } from '../../store/scada';
 import type { ScadaEdge, ScadaEdgeType, ScadaEdgeData } from '../../types/scada-edge.types';
 import type { WidgetEventDef, ScadaScript } from '../../engine/events/types';
 import type { AnimationRule } from '../../engine/animation/types';
@@ -111,6 +113,20 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   const hasEdgeSelected = !!selectedEdge;
   const hasWidgetSelected = !!selectedWidget;
 
+  // Edge endpoints read as WIDGET NAMES (not raw IDs): fall back to the ID
+  // when the widget was deleted.
+  const screens = useScadaPackageStore((s) => s.screens);
+  const describeEdgeEndpoint = (widgetId: string): string => {
+    for (const screen of screens) {
+      const w = screen.widgets.find((wid) => wid.id === widgetId);
+      if (w) {
+        const name = (w.name ?? w.config?.label) as string | undefined;
+        return name && name.length > 0 ? name : w.widgetType;
+      }
+    }
+    return widgetId;
+  };
+
   // When an edge is selected, auto-switch to widget-scoped group + properties tab
   useEffect(() => {
     if (hasEdgeSelected) {
@@ -195,11 +211,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">Line Type</label>
                   <div className="flex gap-1">
-                    {([
-                      { type: 'orthogonal' as const, label: 'Orthogonal' },
-                      { type: 'multiHandle' as const, label: 'Polyline' },
-                      { type: 'draggable' as const, label: 'Bezier' },
-                    ]).map((opt) => (
+                    {EDGE_TYPE_OPTIONS.map((opt) => (
                       <button
                         key={opt.type}
                         onClick={() => onEdgeTypeChange?.(selectedEdge.id, opt.type)}
@@ -236,10 +248,10 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                 </div>
                 <div className="pt-3 border-t border-gray-200">
                   <p className="text-[11px] text-gray-500">
-                    Source: {selectedEdge.source} ({selectedEdge.sourceHandle})
+                    Source: {describeEdgeEndpoint(selectedEdge.source)} ({selectedEdge.sourceHandle})
                   </p>
                   <p className="text-[11px] text-gray-500">
-                    Target: {selectedEdge.target} ({selectedEdge.targetHandle})
+                    Target: {describeEdgeEndpoint(selectedEdge.target)} ({selectedEdge.targetHandle})
                   </p>
                 </div>
                 <button

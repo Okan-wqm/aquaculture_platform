@@ -3,13 +3,17 @@
  *
  * Responsibilities:
  *  - Renders the full-viewport operator UI shell: header (top), sidenav
- *    (left), content area (center), alarm panel (bottom slide-up).
+ *    (left), content area (center), alarm summary bar + slide-up alarm
+ *    panel (bottom).
  *  - Wraps children in DataProviderRoot so all descendant widgets have
  *    access to the live/simulation data layer.
  *  - Manages kiosk mode (hideNavigation) with F11 keyboard shortcut.
  *  - Injects optional custom CSS from OperatorLayoutConfig at runtime.
- *  - Mounts ViewOverlayManager so dialog/card/iframe overlays can be
+ *  - Mounts ViewOverlayManager so dialog/card/iframe/toast overlays can be
  *    opened from any widget in the tree.
+ *  - Renders a full-width COMMS LOST banner whenever the SCADA socket is
+ *    disconnected / in error (T6) — an operator must never silently stare
+ *    at stale values.
  */
 
 import React, {
@@ -19,15 +23,18 @@ import React, {
   type ReactNode,
 } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import { Bell, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { WifiOff } from 'lucide-react';
 
-import { useOperatorStore } from '../../store/scada/operatorStore';
+import { useScadaPackageStore } from '../../store/scada/createScadaStore';
 import { DataProviderRoot } from '../../providers';
+import { useScadaConnectionState } from '../../hooks/useScadaConnectionState';
 import type { DataProviderType } from '../../types/scada-runtime.types';
 
 import { OperatorHeader } from './OperatorHeader';
 import { OperatorSidenav } from './OperatorSidenav';
 import { ViewOverlayManager } from './ViewOverlayManager';
+import { AlarmSummaryBar } from './AlarmSummaryBar';
+import { AlarmPanel } from './AlarmPanel';
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                               */
@@ -56,73 +63,85 @@ export interface OperatorShellProps {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Alarm severity badge helpers                                        */
+/*  COMMS LOST banner (T6)                                             */
 /* ------------------------------------------------------------------ */
 
-const SEVERITY_COLORS: Record<string, string> = {
-  critical: 'bg-red-600 text-white',
-  high: 'bg-orange-500 text-white',
-  warning: 'bg-yellow-500 text-black',
-  info: 'bg-blue-500 text-white',
-};
+let flashStyleInjected = false;
 
-function AlarmBadgeCount({ count, severity }: { count: number; severity: string }) {
-  if (count === 0) return null;
-  const colorClass = SEVERITY_COLORS[severity] ?? 'bg-gray-500 text-white';
-  return (
-    <span
-      className={`inline-flex items-center justify-center min-w-[18px] h-[18px] rounded-full text-[10px] font-bold px-1 ${colorClass}`}
-      aria-label={`${count} ${severity} alarm${count !== 1 ? 's' : ''}`}
-    >
-      {count > 99 ? '99+' : count}
-    </span>
-  );
+function injectFlashStyle(): void {
+  if (flashStyleInjected || typeof document === 'undefined') return;
+  const style = document.createElement('style');
+  style.textContent = `
+@keyframes scada-alarm-flash { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0.15; } }
+.scada-alarm-flash { animation: scada-alarm-flash 0.75s step-end infinite; }
+`;
+  document.head.appendChild(style);
+  flashStyleInjected = true;
 }
 
+/**
+ * Full-width banner while the /scada socket is not connected. Rendered for
+ * 'disconnected' AND 'error' (heartbeat lapse) — both mean live values have
+ * stopped flowing and everything on screen may be stale.
+ */
+const CommsLostBanner = React.memo(() => {
+  const connectionState = useScadaConnectionState();
+
+  useEffect(() => {
+    injectFlashStyle();
+  }, []);
+
+  if (connectionState === 'connected' || connectionState === 'connecting') {
+    return null;
+  }
+
+  return (
+    <div
+      role="alert"
+      aria-live="assertive"
+      className="flex w-full items-center justify-center gap-2 bg-red-600 px-4 py-1.5 text-white text-xs font-semibold select-none"
+    >
+      <WifiOff size={14} aria-hidden="true" />
+      <span className="uppercase tracking-wide">
+        COMMS LOST — live data unavailable, displayed values may be stale
+      </span>
+      <span aria-hidden="true" className="scada-alarm-flash">
+        ●
+      </span>
+    </div>
+  );
+});
+CommsLostBanner.displayName = 'CommsLostBanner';
+
 /* ------------------------------------------------------------------ */
-/*  AlarmPanel — bottom slide-up tray                                  */
+/*  AlarmPanelTray — bottom slide-up tray hosting the real AlarmPanel   */
 /* ------------------------------------------------------------------ */
 
-const AlarmPanel = React.memo(() => {
-  const { alarmPanelOpen, toggleAlarmPanel } = useOperatorStore(
+/**
+ * T1d: the shell previously embedded a private, read-only inline panel that
+ * read alarms through a cast against a store that never contained them
+ * (always empty). It is replaced by the REAL AlarmPanel (full alarm
+ * management: filters, ACK over the socket, history) plus the AlarmSummaryBar
+ * (previously referenced by nothing).
+ */
+const AlarmPanelTray = React.memo(() => {
+  const { alarmPanelOpen, toggleAlarmPanel } = useScadaPackageStore(
     useShallow((s) => ({
       alarmPanelOpen: s.alarmPanelOpen,
       toggleAlarmPanel: s.toggleAlarmPanel,
     })),
   );
 
-  // Access runtime alarms from the operator store. The alarmRuntimeSlice
-  // is merged into the same store at runtime via createScadaStore / operatorStore.
-  const activeAlarms = useOperatorStore(
-    (s) =>
-      (s as unknown as { activeAlarms: Array<{ id: string; severity: string; message: string; ruleName: string; onTime: number }> })
-        .activeAlarms ?? [],
-  );
-
-  const criticalCount = activeAlarms.filter((a) => a.severity === 'critical').length;
-  const highCount     = activeAlarms.filter((a) => a.severity === 'high').length;
-  const warningCount  = activeAlarms.filter((a) => a.severity === 'warning').length;
-
   if (!alarmPanelOpen) return null;
 
   return (
     <div
-      className="absolute bottom-0 left-0 right-0 bg-gray-900 border-t border-gray-700 shadow-2xl z-40 flex flex-col"
-      style={{ maxHeight: '40vh' }}
+      className="flex flex-col bg-gray-900 border-t border-gray-700 shadow-2xl z-40 p-2 overflow-auto shrink-0"
+      style={{ maxHeight: '60vh' }}
       role="region"
       aria-label="Alarm panel"
     >
-      {/* Panel header row */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-gray-700 shrink-0">
-        <div className="flex items-center gap-3">
-          <Bell size={16} className="text-yellow-400" aria-hidden="true" />
-          <span className="text-sm font-semibold text-gray-100">Active Alarms</span>
-          <div className="flex items-center gap-1">
-            <AlarmBadgeCount count={criticalCount} severity="critical" />
-            <AlarmBadgeCount count={highCount}     severity="high" />
-            <AlarmBadgeCount count={warningCount}  severity="warning" />
-          </div>
-        </div>
+      <div className="flex justify-end">
         <button
           type="button"
           onClick={toggleAlarmPanel}
@@ -132,61 +151,11 @@ const AlarmPanel = React.memo(() => {
           Close
         </button>
       </div>
-
-      {/* Scrollable alarm list */}
-      <div className="flex-1 overflow-y-auto">
-        {activeAlarms.length === 0 ? (
-          <div className="flex items-center justify-center gap-2 py-8 text-gray-400">
-            <CheckCircle2 size={20} aria-hidden="true" />
-            <span className="text-sm">No active alarms</span>
-          </div>
-        ) : (
-          <ul className="divide-y divide-gray-800" role="list">
-            {activeAlarms.map((alarm) => (
-              <li
-                key={alarm.id}
-                className="flex items-center gap-3 px-4 py-2 hover:bg-gray-800 transition-colors"
-              >
-                <AlertTriangle
-                  size={14}
-                  className={
-                    alarm.severity === 'critical'
-                      ? 'text-red-500'
-                      : alarm.severity === 'high'
-                      ? 'text-orange-400'
-                      : alarm.severity === 'warning'
-                      ? 'text-yellow-400'
-                      : 'text-blue-400'
-                  }
-                  aria-hidden="true"
-                />
-                <div className="flex-1 min-w-0">
-                  <span className="text-xs font-medium text-gray-100 truncate block">
-                    {alarm.ruleName}
-                  </span>
-                  <span className="text-xs text-gray-400 truncate block">
-                    {alarm.message}
-                  </span>
-                </div>
-                <span className="text-[10px] text-gray-500 whitespace-nowrap">
-                  {new Date(alarm.onTime).toLocaleTimeString()}
-                </span>
-                <span
-                  className={`text-[10px] px-1.5 py-0.5 rounded uppercase font-semibold shrink-0 ${
-                    SEVERITY_COLORS[alarm.severity] ?? 'bg-gray-600 text-white'
-                  }`}
-                >
-                  {alarm.severity}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+      <AlarmPanel className="w-full border-0 shadow-none" />
     </div>
   );
 });
-AlarmPanel.displayName = 'AlarmPanel';
+AlarmPanelTray.displayName = 'AlarmPanelTray';
 
 /* ------------------------------------------------------------------ */
 /*  Custom CSS injector                                                 */
@@ -228,7 +197,7 @@ export const OperatorShell = React.memo<OperatorShellProps>(
       kioskMode,
       setKioskMode,
       toggleSidenav,
-    } = useOperatorStore(
+    } = useScadaPackageStore(
       useShallow((s) => ({
         operatorLayout: s.operatorLayout,
         sidenavOpen:    s.sidenavOpen,
@@ -282,6 +251,9 @@ export const OperatorShell = React.memo<OperatorShellProps>(
           role="application"
           aria-label="SCADA operator interface"
         >
+          {/* ── COMMS LOST banner (full width, above everything) ── */}
+          <CommsLostBanner />
+
           {/* ── Top header ── */}
           {showHeader && (
             <OperatorHeader
@@ -339,10 +311,11 @@ export const OperatorShell = React.memo<OperatorShellProps>(
             </main>
           </div>
 
-          {/* ── Alarm panel (bottom slide-up) ── */}
-          <AlarmPanel />
+          {/* ── Alarm summary bar + slide-up alarm panel (real AlarmPanel, T1d) ── */}
+          <AlarmSummaryBar />
+          <AlarmPanelTray />
 
-          {/* ── View overlay manager (dialogs, cards, iframes) ── */}
+          {/* ── View overlay manager (dialogs, cards, iframes, toasts) ── */}
           <ViewOverlayManager />
         </div>
       </DataProviderRoot>

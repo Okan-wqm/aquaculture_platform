@@ -113,7 +113,7 @@ const Section: React.FC<{
     <div className="border-b border-gray-700">
       <button
         onClick={() => setOpen(!open)}
-        className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-gray-300 hover:bg-gray-750 transition-colors"
+        className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-gray-300 hover:bg-gray-700 transition-colors"
       >
         {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
         {icon}
@@ -663,7 +663,7 @@ export const SimulationSidebar: React.FC = () => {
               {firedAlarms.map((alarm) => (
                 <div
                   key={alarm.ruleId}
-                  className="p-2 rounded bg-gray-750 border border-gray-600"
+                  className="p-2 rounded bg-gray-700 border border-gray-600"
                 >
                   <div className="flex items-center gap-1.5 mb-1">
                     <span
@@ -727,7 +727,7 @@ export const SimulationSidebar: React.FC = () => {
                 return (
                   <div
                     key={binding.programId}
-                    className="p-2 rounded bg-gray-750 border border-gray-600"
+                    className="p-2 rounded bg-gray-700 border border-gray-600"
                   >
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-[11px] text-gray-200 font-medium truncate">

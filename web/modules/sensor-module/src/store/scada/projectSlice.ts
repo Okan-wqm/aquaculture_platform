@@ -21,12 +21,13 @@ import {
   DEFAULT_TREND_CONFIG,
 } from './types';
 import type { WidgetPosition } from './types';
-import { upcastScadaPackageDoc } from '@platform/sensor-contracts';
+import { upcastScadaPackageDoc, isTagRef } from '@platform/sensor-contracts';
 
 export const createProjectSlice: ScadaSliceCreator<ProjectSlice> = (set, get) => ({
   // State
   packageId: null,
   packageName: '',
+  packageVersion: 1,
   processId: null,
   targetDeviceId: null,
   automationBindings: [],
@@ -47,6 +48,11 @@ export const createProjectSlice: ScadaSliceCreator<ProjectSlice> = (set, get) =>
     set((state) => {
       state.packageName = name;
       state.isDirty = true;
+    }),
+
+  setPackageVersion: (version) =>
+    set((state) => {
+      state.packageVersion = version > 0 ? version : 1;
     }),
 
   setProcessId: (id) =>
@@ -131,10 +137,15 @@ export const createProjectSlice: ScadaSliceCreator<ProjectSlice> = (set, get) =>
 
   bindVariableToWidgetAndSetTag: (programId, variableId, widgetId, tag) =>
     set((state) => {
-      // Set widget's config.tagName across ALL screens (and clean up legacy config.tag)
+      // Migration-safe write: canonical config.tagRef (when the value is a
+      // full TagRef) AND config.tagName (device-local name) across ALL
+      // screens; legacy config.tag is removed.
       for (const screen of state.screens) {
         for (const widget of screen.widgets) {
           if (widget.id === widgetId) {
+            if (isTagRef(tag)) {
+              widget.config.tagRef = tag;
+            }
             widget.config.tagName = tag;
             delete widget.config.tag;
           }
@@ -227,8 +238,9 @@ export const createProjectSlice: ScadaSliceCreator<ProjectSlice> = (set, get) =>
       meta: {
         // Versioned document contract (ScadaPackageDocV2 in
         // @platform/sensor-contracts); loadFromJSON upcasts older docs.
+        // meta.version round-trips the backend entity version.
         schemaVersion: 2,
-        version: 1,
+        version: state.packageVersion,
         packageName: state.packageName,
         processId: state.processId,
         edgeDeviceId: state.targetDeviceId,
@@ -284,7 +296,7 @@ export const createProjectSlice: ScadaSliceCreator<ProjectSlice> = (set, get) =>
   //  Serialization — Import
   // ----------------------------------------------------------------
 
-  loadFromJSON: (rawJson) => {
+  loadFromJSON: (rawJson, options) => {
     // Upcast every incoming document to the current V2 contract (legacy
     // tagName/tag/tagId widget bindings gain a canonical config.tagRef;
     // full refs adopt without device context, device-local names promote
@@ -350,6 +362,7 @@ export const createProjectSlice: ScadaSliceCreator<ProjectSlice> = (set, get) =>
       state.packageName = json.meta?.packageName || '';
       state.processId = json.meta?.processId || null;
       state.targetDeviceId = json.meta?.edgeDeviceId || null;
+      state.packageVersion = options?.version ?? json.meta?.version ?? 1;
       state.screens = screens;
       state.activeScreenId =
         screens.find((s) => s.isDefault)?.id || screens[0]?.id || '';
@@ -371,6 +384,15 @@ export const createProjectSlice: ScadaSliceCreator<ProjectSlice> = (set, get) =>
       state.selectedWidgetId = null;
       state.selectedWidgetIds = [];
       state.selectedEdgeId = null;
+      // A loaded document is a fresh baseline: prior undo history belongs to
+      // whatever package was in the store before. Cleared in the SAME
+      // producer so load+clear commit atomically.
+      state.undoStack = [];
+      state.redoStack = [];
+      state.checkpoints = [];
+      state.lastHistoryTimestamp = 0;
+      state.isApplyingHistory = false;
+      state.pasteCount = 0;
     });
   },
 
@@ -424,6 +446,7 @@ export const createProjectSlice: ScadaSliceCreator<ProjectSlice> = (set, get) =>
     set((state) => {
       state.packageId = null;
       state.packageName = '';
+      state.packageVersion = 1;
       state.processId = null;
       state.targetDeviceId = null;
       state.screens = [];
@@ -450,6 +473,9 @@ export const createProjectSlice: ScadaSliceCreator<ProjectSlice> = (set, get) =>
       state.redoStack = [];
       state.checkpoints = [];
       state.lastHistoryTimestamp = 0;
+      state.isApplyingHistory = false;
       state.clipboard = null;
+      state.pasteCount = 0;
+      state.widgetTemplates = [];
     }),
 });

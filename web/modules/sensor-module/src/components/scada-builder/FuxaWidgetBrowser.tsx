@@ -314,7 +314,7 @@ export const FuxaWidgetBrowser: React.FC<FuxaWidgetBrowserProps> = ({
     }
   }, [open]);
 
-  // Keyboard handler: Escape closes, Arrow keys navigate
+  // Keyboard handler: Escape closes, Tab focus-trap, Arrow keys navigate
   useEffect(() => {
     if (!open) return;
 
@@ -322,6 +322,31 @@ export const FuxaWidgetBrowser: React.FC<FuxaWidgetBrowserProps> = ({
       if (e.key === 'Escape') {
         e.preventDefault();
         onClose();
+        return;
+      }
+
+      // REAL focus trap (WAI-ARIA dialog pattern): Tab / Shift+Tab cycle
+      // within the modal — focus can never escape to the page behind it.
+      if (e.key === 'Tab') {
+        const modal = modalRef.current;
+        if (!modal) return;
+        const focusables = modal.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])',
+        );
+        if (focusables.length === 0) return;
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        const active = document.activeElement;
+
+        if (e.shiftKey) {
+          if (active === first || !modal.contains(active)) {
+            e.preventDefault();
+            last.focus();
+          }
+        } else if (active === last || !modal.contains(active)) {
+          e.preventDefault();
+          first.focus();
+        }
         return;
       }
 

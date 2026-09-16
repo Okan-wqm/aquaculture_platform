@@ -74,7 +74,11 @@ import { SensorTopicCacheService } from './sensor-topic-cache.service';
     SensorLookupResponderService,
   ],
   exports: [
-    SensorMetricWriterService,
+    // Re-export the MODULE, not the service: SensorMetricWriterService is
+    // provided by SensorMetricWriterModule, and Nest rejects exporting a
+    // provider this module does not itself declare (boot-time
+    // validateExportedProvider failure — crash-looped the live container).
+    SensorMetricWriterModule,
     DataIngestionService,
     MqttListenerService,
     DataProcessorService,

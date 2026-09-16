@@ -26,7 +26,7 @@
 
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useDataProvider } from '../providers';
-import { useOperatorStore } from '../store/scada/operatorStore';
+import { useScadaPackageStore } from '../store/scada/createScadaStore';
 import { ScriptExecutor } from '../engine/scripting/ScriptExecutor';
 import type { ScadaScript as EngineScript } from '../engine/scripting/types';
 import { TagValueBus } from '../engine/tags/TagValueBus';
@@ -84,8 +84,8 @@ export function useClientScript(): ClientScriptResult {
   const provider = useDataProvider();
   // $setView/$navigate and $openCard open overlays; $closeDialog closes them.
   // The operator store exposes overlay openers/closers used by the runtime.
-  const openOverlay = useOperatorStore((s) => s.openOverlay);
-  const closeAllOverlays = useOperatorStore((s) => s.closeAllOverlays);
+  const openOverlay = useScadaPackageStore((s) => s.openViewOverlay);
+  const closeAllOverlays = useScadaPackageStore((s) => s.closeAllViewOverlays);
 
   const [isRunning, setIsRunning] = useState(false);
   const [consoleOutput, setConsoleOutput] = useState<string[]>([]);

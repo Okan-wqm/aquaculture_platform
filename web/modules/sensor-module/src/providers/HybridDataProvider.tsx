@@ -175,6 +175,11 @@ export function HybridDataProviderInner({
 
     socket.connect();
 
+    // T6: claim shared ownership of the singleton connection (mirrors
+    // LiveDeviceDataProvider) so unmounting does not tear the socket down
+    // under other owners.
+    socket.acquire();
+
     const handleTagValues = (payload: TagValuesPayload) => {
       const now = Date.now();
       for (const change of payload.values) {
@@ -264,6 +269,9 @@ export function HybridDataProviderInner({
 
       subManager.reset();
       liveTagCacheRef.current.clear();
+
+      // T6: drop shared ownership (refcounted disconnect).
+      socket.release();
     };
    
   }, []);

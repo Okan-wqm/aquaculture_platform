@@ -1,8 +1,9 @@
 import type {
   ScadaSliceCreator, HistorySlice, HistoryEntry, HistoryCheckpoint, ScadaStore,
+  AffectedAutomationBinding,
 } from './types';
 import {
-  MAX_UNDO_STACK, CHECKPOINT_INTERVAL, MERGE_WINDOW_MS, deepClone, generateId,
+  MAX_UNDO_STACK, CHECKPOINT_INTERVAL, MERGE_WINDOW_MS, generateId,
 } from './types';
 
 /* ------------------------------------------------------------------ */
@@ -67,6 +68,61 @@ function mergeEntries(existing: HistoryEntry, incoming: HistoryEntry, ts: number
 }
 
 /* ------------------------------------------------------------------ */
+/*  appendHistory — pure helper shared by pushHistory AND slice actions */
+/*                                                                     */
+/*  Slice actions call this INSIDE their own immer producer so the     */
+/*  mutation and the undo-stack append commit atomically (one set()).  */
+/*  Nested set() calls are forbidden.                                  */
+/* ------------------------------------------------------------------ */
+
+let autoCheckpointCounter = 0;
+
+export function appendHistory(draft: ScadaStore, entry: HistoryEntry): void {
+  // Suppressed while undo/redo itself mutates the tree: applying history
+  // must never push new history nor clear the redo stack.
+  if (draft.isApplyingHistory) return;
+
+  const now = entry.timestamp ?? Date.now();
+  const entryWithTimestamp: HistoryEntry = { ...entry, timestamp: now };
+
+  // --- Merge policy ---
+  const top = draft.undoStack.length > 0
+    ? draft.undoStack[draft.undoStack.length - 1]
+    : null;
+
+  let pushed = false;
+  if (top && canMerge(top, entryWithTimestamp, draft.lastHistoryTimestamp, now)) {
+    draft.undoStack[draft.undoStack.length - 1] = mergeEntries(top, entryWithTimestamp, now);
+  } else {
+    draft.undoStack.push(entryWithTimestamp);
+    pushed = true;
+  }
+
+  // Auto-checkpoint every CHECKPOINT_INTERVAL net pushes
+  if (pushed && draft.undoStack.length % CHECKPOINT_INTERVAL === 0) {
+    autoCheckpointCounter++;
+    const checkpoint: HistoryCheckpoint = {
+      id: generateId(),
+      label: `Auto-checkpoint #${autoCheckpointCounter}`,
+      timestamp: now,
+      stackIndex: draft.undoStack.length,
+    };
+    draft.checkpoints.push(checkpoint);
+  }
+
+  draft.lastHistoryTimestamp = now;
+  draft.redoStack = [];
+
+  // Trim to maximum size
+  if (draft.undoStack.length > MAX_UNDO_STACK) {
+    const excess = draft.undoStack.length - MAX_UNDO_STACK;
+    draft.undoStack.splice(0, excess);
+    for (const cp of draft.checkpoints) cp.stackIndex -= excess;
+    draft.checkpoints = draft.checkpoints.filter((cp) => cp.stackIndex > 0);
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /*  Description Helpers                                                */
 /* ------------------------------------------------------------------ */
 
@@ -82,6 +138,7 @@ function describeEntry(entry: HistoryEntry): string {
     case 'SCREEN_ADD': return `Add screen "${entry.screen.name}"`;
     case 'SCREEN_REMOVE': return `Delete screen "${entry.screen.name}"`;
     case 'SCREEN_UPDATE': return 'Update screen';
+    case 'SCREENS_REORDER': return 'Reorder screens';
     case 'ALARM_ADD': return 'Add alarm rule';
     case 'ALARM_REMOVE': return 'Delete alarm rule';
     case 'ALARM_UPDATE': return 'Update alarm rule';
@@ -90,7 +147,26 @@ function describeEntry(entry: HistoryEntry): string {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Helpers shared by applyUndo/applyRedo                              */
+/* ------------------------------------------------------------------ */
+
+/** Sort the screens array (in place, on the draft) into the given ID order. */
+function sortScreensByIdOrder(state: ScadaStore, order: string[]): void {
+  const index = new Map(order.map((id, i) => [id, i]));
+  state.screens.sort((a, b) => {
+    const ai = index.get(a.id) ?? Number.MAX_SAFE_INTEGER;
+    const bi = index.get(b.id) ?? Number.MAX_SAFE_INTEGER;
+    return ai - bi;
+  });
+}
+
+/* ------------------------------------------------------------------ */
 /*  Apply undo / redo operations on Immer draft state                  */
+/*                                                                     */
+/*  Entries store frozen snapshots captured via immer `original()` at  */
+/*  mutation time (or caller-built plain objects). They are assigned   */
+/*  DIRECTLY into the draft — no re-clone. Immer copy-on-write keeps   */
+/*  the stored snapshot immutable, so this is both correct and cheap.  */
 /* ------------------------------------------------------------------ */
 
 function applyUndo(state: ScadaStore, entry: HistoryEntry): void {
@@ -103,8 +179,13 @@ function applyUndo(state: ScadaStore, entry: HistoryEntry): void {
     case 'WIDGET_REMOVE': {
       const screen = state.screens.find((s) => s.id === entry.screenId);
       if (screen) {
-        screen.widgets.push(deepClone(entry.widget));
-        for (const edge of entry.removedEdges) screen.edges.push(deepClone(edge));
+        const insertIdx = Math.min(entry.index ?? screen.widgets.length, screen.widgets.length);
+        screen.widgets.splice(insertIdx, 0, entry.widget);
+        for (const edge of entry.removedEdges) screen.edges.push(edge);
+      }
+      // Restore automation variable bindings nulled by the removal
+      if (entry.affectedBindings) {
+        restoreBindings(state, entry.affectedBindings);
       }
       break;
     }
@@ -112,7 +193,7 @@ function applyUndo(state: ScadaStore, entry: HistoryEntry): void {
       const screen = state.screens.find((s) => s.id === entry.screenId);
       if (screen) {
         const idx = screen.widgets.findIndex((w) => w.id === entry.widgetId);
-        if (idx !== -1) screen.widgets[idx] = deepClone(entry.before);
+        if (idx !== -1) screen.widgets[idx] = entry.before;
       }
       break;
     }
@@ -120,7 +201,7 @@ function applyUndo(state: ScadaStore, entry: HistoryEntry): void {
       const screen = state.screens.find((s) => s.id === entry.screenId);
       if (screen) {
         const widget = screen.widgets.find((w) => w.id === entry.widgetId);
-        if (widget) widget.position = deepClone(entry.from);
+        if (widget) widget.position = entry.from;
       }
       break;
     }
@@ -131,14 +212,17 @@ function applyUndo(state: ScadaStore, entry: HistoryEntry): void {
     }
     case 'EDGE_REMOVE': {
       const screen = state.screens.find((s) => s.id === entry.screenId);
-      if (screen) screen.edges.push(deepClone(entry.edge));
+      if (screen) screen.edges.push(entry.edge);
       break;
     }
     case 'EDGE_UPDATE': {
       const screen = state.screens.find((s) => s.id === entry.screenId);
       if (screen) {
         const edge = screen.edges.find((e) => e.id === entry.edgeId);
-        if (edge) edge.data = deepClone(entry.before);
+        if (edge) {
+          edge.data = entry.before;
+          if (entry.beforeType) edge.type = entry.beforeType;
+        }
       }
       break;
     }
@@ -154,13 +238,21 @@ function applyUndo(state: ScadaStore, entry: HistoryEntry): void {
     }
     case 'SCREEN_REMOVE': {
       const insertIdx = Math.min(entry.index, state.screens.length);
-      state.screens.splice(insertIdx, 0, deepClone(entry.screen));
+      state.screens.splice(insertIdx, 0, entry.screen);
       if (entry.wasActive) state.activeScreenId = entry.screen.id;
       break;
     }
     case 'SCREEN_UPDATE': {
       const screen = state.screens.find((s) => s.id === entry.screenId);
-      if (screen) Object.assign(screen, deepClone(entry.before));
+      if (screen) Object.assign(screen, entry.before);
+      break;
+    }
+    case 'SCREENS_REORDER': {
+      sortScreensByIdOrder(state, entry.beforeOrder);
+      for (const screen of state.screens) {
+        const order = entry.beforeSortOrders[screen.id];
+        if (order !== undefined) screen.sortOrder = order;
+      }
       break;
     }
     case 'ALARM_ADD': {
@@ -169,12 +261,12 @@ function applyUndo(state: ScadaStore, entry: HistoryEntry): void {
     }
     case 'ALARM_REMOVE': {
       const insertIdx = Math.min(entry.index, state.alarmRules.length);
-      state.alarmRules.splice(insertIdx, 0, deepClone(entry.rule));
+      state.alarmRules.splice(insertIdx, 0, entry.rule);
       break;
     }
     case 'ALARM_UPDATE': {
       const ruleIdx = state.alarmRules.findIndex((r) => r.id === entry.ruleId);
-      if (ruleIdx !== -1) state.alarmRules[ruleIdx] = deepClone(entry.before);
+      if (ruleIdx !== -1) state.alarmRules[ruleIdx] = entry.before;
       break;
     }
     case 'BATCH': {
@@ -189,7 +281,7 @@ function applyRedo(state: ScadaStore, entry: HistoryEntry): void {
   switch (entry.type) {
     case 'WIDGET_ADD': {
       const screen = state.screens.find((s) => s.id === entry.screenId);
-      if (screen) screen.widgets.push(deepClone(entry.widget));
+      if (screen) screen.widgets.push(entry.widget);
       break;
     }
     case 'WIDGET_REMOVE': {
@@ -199,13 +291,25 @@ function applyRedo(state: ScadaStore, entry: HistoryEntry): void {
         const removedEdgeIds = new Set(entry.removedEdges.map((e) => e.id));
         screen.edges = screen.edges.filter((e) => !removedEdgeIds.has(e.id));
       }
+      // Re-apply the automation binding cleanup the original removal did
+      if (entry.affectedBindings) {
+        for (const frag of entry.affectedBindings) {
+          const binding = state.automationBindings.find((b) => b.programId === frag.programId);
+          if (!binding) continue;
+          const variable = binding.variableBindings.find((v) => v.variableId === frag.variableId);
+          if (variable) {
+            variable.boundWidgetId = null;
+            variable.boundTag = null;
+          }
+        }
+      }
       break;
     }
     case 'WIDGET_UPDATE': {
       const screen = state.screens.find((s) => s.id === entry.screenId);
       if (screen) {
         const idx = screen.widgets.findIndex((w) => w.id === entry.widgetId);
-        if (idx !== -1) screen.widgets[idx] = deepClone(entry.after);
+        if (idx !== -1) screen.widgets[idx] = entry.after;
       }
       break;
     }
@@ -213,13 +317,13 @@ function applyRedo(state: ScadaStore, entry: HistoryEntry): void {
       const screen = state.screens.find((s) => s.id === entry.screenId);
       if (screen) {
         const widget = screen.widgets.find((w) => w.id === entry.widgetId);
-        if (widget) widget.position = deepClone(entry.to);
+        if (widget) widget.position = entry.to;
       }
       break;
     }
     case 'EDGE_ADD': {
       const screen = state.screens.find((s) => s.id === entry.screenId);
-      if (screen) screen.edges.push(deepClone(entry.edge));
+      if (screen) screen.edges.push(entry.edge);
       break;
     }
     case 'EDGE_REMOVE': {
@@ -231,12 +335,15 @@ function applyRedo(state: ScadaStore, entry: HistoryEntry): void {
       const screen = state.screens.find((s) => s.id === entry.screenId);
       if (screen) {
         const edge = screen.edges.find((e) => e.id === entry.edgeId);
-        if (edge) edge.data = deepClone(entry.after);
+        if (edge) {
+          edge.data = entry.after;
+          if (entry.afterType) edge.type = entry.afterType;
+        }
       }
       break;
     }
     case 'SCREEN_ADD': {
-      state.screens.push(deepClone(entry.screen));
+      state.screens.push(entry.screen);
       break;
     }
     case 'SCREEN_REMOVE': {
@@ -251,11 +358,19 @@ function applyRedo(state: ScadaStore, entry: HistoryEntry): void {
     }
     case 'SCREEN_UPDATE': {
       const screen = state.screens.find((s) => s.id === entry.screenId);
-      if (screen) Object.assign(screen, deepClone(entry.after));
+      if (screen) Object.assign(screen, entry.after);
+      break;
+    }
+    case 'SCREENS_REORDER': {
+      sortScreensByIdOrder(state, entry.afterOrder);
+      for (const screen of state.screens) {
+        const order = entry.afterSortOrders[screen.id];
+        if (order !== undefined) screen.sortOrder = order;
+      }
       break;
     }
     case 'ALARM_ADD': {
-      state.alarmRules.push(deepClone(entry.rule));
+      state.alarmRules.push(entry.rule);
       break;
     }
     case 'ALARM_REMOVE': {
@@ -264,7 +379,7 @@ function applyRedo(state: ScadaStore, entry: HistoryEntry): void {
     }
     case 'ALARM_UPDATE': {
       const ruleIdx = state.alarmRules.findIndex((r) => r.id === entry.ruleId);
-      if (ruleIdx !== -1) state.alarmRules[ruleIdx] = deepClone(entry.after);
+      if (ruleIdx !== -1) state.alarmRules[ruleIdx] = entry.after;
       break;
     }
     case 'BATCH': {
@@ -275,128 +390,128 @@ function applyRedo(state: ScadaStore, entry: HistoryEntry): void {
   state.isDirty = true;
 }
 
+/** Restore previously snapshotted automation binding fragments. */
+function restoreBindings(state: ScadaStore, fragments: AffectedAutomationBinding[]): void {
+  for (const frag of fragments) {
+    const binding = state.automationBindings.find((b) => b.programId === frag.programId);
+    if (!binding) continue;
+    const variable = binding.variableBindings.find((v) => v.variableId === frag.variableId);
+    if (variable) {
+      variable.boundWidgetId = frag.boundWidgetId;
+      variable.boundTag = frag.boundTag;
+    }
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /*  Slice                                                              */
 /* ------------------------------------------------------------------ */
 
-export const createHistorySlice: ScadaSliceCreator<HistorySlice> = (set, get) => {
-  let pushCounter = 0;
-  let autoCheckpointNumber = 0;
+export const createHistorySlice: ScadaSliceCreator<HistorySlice> = (set, get) => ({
+  undoStack: [],
+  redoStack: [],
+  checkpoints: [],
+  lastHistoryTimestamp: 0,
+  isApplyingHistory: false,
 
-  return {
-    undoStack: [],
-    redoStack: [],
-    checkpoints: [],
-    lastHistoryTimestamp: 0,
+  pushHistory: (entry) =>
+    set((state) => {
+      appendHistory(state, entry);
+    }),
 
-    pushHistory: (entry) =>
-      set((state) => {
-        const now = entry.timestamp ?? Date.now();
-        const entryWithTimestamp: HistoryEntry = { ...entry, timestamp: now };
-
-        // --- Merge policy ---
-        const top = state.undoStack.length > 0
-          ? state.undoStack[state.undoStack.length - 1]
-          : null;
-
-        if (top && canMerge(top, entryWithTimestamp, state.lastHistoryTimestamp, now)) {
-          state.undoStack[state.undoStack.length - 1] = mergeEntries(top, entryWithTimestamp, now);
-        } else {
-          state.undoStack.push(entryWithTimestamp);
-          pushCounter++;
-
-          // Auto-checkpoint every CHECKPOINT_INTERVAL pushes
-          if (pushCounter % CHECKPOINT_INTERVAL === 0) {
-            autoCheckpointNumber++;
-            const checkpoint: HistoryCheckpoint = {
-              id: generateId(),
-              label: `Auto-checkpoint #${autoCheckpointNumber}`,
-              timestamp: now,
-              stackIndex: state.undoStack.length,
-            };
-            state.checkpoints.push(checkpoint);
-          }
-        }
-
-        state.lastHistoryTimestamp = now;
-        state.redoStack = [];
-
-        // Trim to maximum size
-        if (state.undoStack.length > MAX_UNDO_STACK) {
-          const excess = state.undoStack.length - MAX_UNDO_STACK;
-          state.undoStack.splice(0, excess);
-          for (const cp of state.checkpoints) cp.stackIndex -= excess;
-          state.checkpoints = state.checkpoints.filter((cp) => cp.stackIndex > 0);
-        }
-      }),
-
-    undo: () =>
-      set((state) => {
-        if (state.undoStack.length === 0) return;
+  undo: () =>
+    set((state) => {
+      if (state.undoStack.length === 0) return;
+      state.isApplyingHistory = true;
+      try {
         const entry = state.undoStack.pop()!;
         state.redoStack.push(entry);
         applyUndo(state, entry);
-      }),
+      } finally {
+        state.isApplyingHistory = false;
+      }
+    }),
 
-    redo: () =>
-      set((state) => {
-        if (state.redoStack.length === 0) return;
+  redo: () =>
+    set((state) => {
+      if (state.redoStack.length === 0) return;
+      state.isApplyingHistory = true;
+      try {
         const entry = state.redoStack.pop()!;
         state.undoStack.push(entry);
         applyRedo(state, entry);
-      }),
+      } finally {
+        state.isApplyingHistory = false;
+      }
+    }),
 
-    clearHistory: () =>
-      set((state) => {
-        state.undoStack = [];
-        state.redoStack = [];
-        state.checkpoints = [];
-        state.lastHistoryTimestamp = 0;
-        pushCounter = 0;
-        autoCheckpointNumber = 0;
-      }),
+  clearHistory: () =>
+    set((state) => {
+      state.undoStack = [];
+      state.redoStack = [];
+      state.checkpoints = [];
+      state.lastHistoryTimestamp = 0;
+      autoCheckpointCounter = 0;
+    }),
 
-    canUndo: () => get().undoStack.length > 0,
-    canRedo: () => get().redoStack.length > 0,
+  canUndo: () => get().undoStack.length > 0,
+  canRedo: () => get().redoStack.length > 0,
 
-    undoDescription: () => {
-      const { undoStack } = get();
-      if (undoStack.length === 0) return '';
-      return `Undo: ${describeEntry(undoStack[undoStack.length - 1])}`;
-    },
+  undoDescription: () => {
+    const { undoStack } = get();
+    if (undoStack.length === 0) return '';
+    return `Undo: ${describeEntry(undoStack[undoStack.length - 1])}`;
+  },
 
-    redoDescription: () => {
-      const { redoStack } = get();
-      if (redoStack.length === 0) return '';
-      return `Redo: ${describeEntry(redoStack[redoStack.length - 1])}`;
-    },
+  redoDescription: () => {
+    const { redoStack } = get();
+    if (redoStack.length === 0) return '';
+    return `Redo: ${describeEntry(redoStack[redoStack.length - 1])}`;
+  },
 
-    createCheckpoint: (label) =>
-      set((state) => {
-        const checkpoint: HistoryCheckpoint = {
-          id: generateId(),
-          label,
-          timestamp: Date.now(),
-          stackIndex: state.undoStack.length,
-        };
-        state.checkpoints.push(checkpoint);
-      }),
+  createCheckpoint: (label) =>
+    set((state) => {
+      const checkpoint: HistoryCheckpoint = {
+        id: generateId(),
+        label,
+        timestamp: Date.now(),
+        stackIndex: state.undoStack.length,
+      };
+      state.checkpoints.push(checkpoint);
+    }),
 
-    jumpToCheckpoint: (checkpointId) => {
-      const state = get();
+  // ONE producer for the whole jump: pop/push entries in a loop inside a
+  // single immer set() — no intermediate states, no re-entrant set() calls.
+  jumpToCheckpoint: (checkpointId) =>
+    set((state) => {
       const checkpoint = state.checkpoints.find((cp) => cp.id === checkpointId);
       if (!checkpoint) return;
 
       const currentPosition = state.undoStack.length;
       const targetPosition = checkpoint.stackIndex;
+      if (targetPosition === currentPosition) return;
 
-      if (targetPosition < currentPosition) {
-        const steps = currentPosition - targetPosition;
-        for (let i = 0; i < steps; i++) get().undo();
-      } else if (targetPosition > currentPosition) {
-        const steps = targetPosition - currentPosition;
-        for (let i = 0; i < steps; i++) get().redo();
+      state.isApplyingHistory = true;
+      try {
+        if (targetPosition < currentPosition) {
+          const steps = currentPosition - targetPosition;
+          for (let i = 0; i < steps; i++) {
+            const entry = state.undoStack.pop();
+            if (!entry) break;
+            state.redoStack.push(entry);
+            applyUndo(state, entry);
+          }
+        } else {
+          const steps = targetPosition - currentPosition;
+          for (let i = 0; i < steps; i++) {
+            const entry = state.redoStack.pop();
+            if (!entry) break;
+            state.undoStack.push(entry);
+            applyRedo(state, entry);
+          }
+        }
+      } finally {
+        state.isApplyingHistory = false;
       }
-    },
-  };
-};
+    }),
+});

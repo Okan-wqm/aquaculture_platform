@@ -132,7 +132,13 @@ const SensorModule: React.FC = () => {
         <Route path="scada-builder/new" element={<ScadaPackageBuilderPage />} />
         <Route path="scada-builder/:packageId" element={<ScadaPackageBuilderPage />} />
 
-        {/* SCADA Operator Runtime (HMI) */}
+        {/* SCADA Operator Runtime (HMI).
+            STORE INVARIANT (T7g): react-router routes are EXCLUSIVE — mounting
+            this route unmounts ScadaPackageBuilderPage (and vice versa), so the
+            builder's createScadaStore-based design session and the operator
+            runtime backed by the SAME unified useScadaPackageStore singleton are
+            never live simultaneously. Do not nest these routes under a shared
+            always-mounted layout that keeps both mounted. */}
         <Route path="scada/operator/:packageId" element={<ScadaOperatorPage />} />
 
         {/* Unified SCADA Editor */}

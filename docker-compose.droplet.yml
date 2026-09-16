@@ -948,6 +948,8 @@ services:
       SENSOR_SERVICE_PORT: 3000
       NODE_OPTIONS: '--max-old-space-size=256'
       CORS_ORIGINS: ${CORS_ORIGINS:-https://app.suderra.com}
+      # AGENT4-20260916: SCADA HMI WebSocket CORS (engine.io namespace /scada, path /scada-ws/)
+      WS_CORS_ORIGINS: ${SENSOR_WS_CORS_ORIGINS:-https://app.suderra.com,https://89.38.97.90:8443}
       DATABASE_HOST: postgres
       # SSL off — Postgres is on the same Docker bridge (no MITM surface).
       DATABASE_SSL: 'false'

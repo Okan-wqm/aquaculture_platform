@@ -1,5 +1,29 @@
-import type { ScadaSliceCreator, SelectionSlice } from './types';
+import { original } from 'immer';
+import type { ScadaSliceCreator, SelectionSlice, ScadaStore, HistoryEntry, AffectedAutomationBinding } from './types';
 import { generateId, deepClone } from './types';
+import { appendHistory } from './historySlice';
+
+/** Snapshot automation variable bindings pointing at the given widget. */
+function snapshotBindingsForWidget(
+  state: ScadaStore,
+  widgetId: string,
+): AffectedAutomationBinding[] {
+  const prev = original(state) ?? state;
+  const fragments: AffectedAutomationBinding[] = [];
+  for (const binding of prev.automationBindings) {
+    for (const vb of binding.variableBindings) {
+      if (vb.boundWidgetId === widgetId) {
+        fragments.push({
+          programId: binding.programId,
+          variableId: vb.variableId,
+          boundWidgetId: vb.boundWidgetId,
+          boundTag: vb.boundTag,
+        });
+      }
+    }
+  }
+  return fragments;
+}
 
 export const createSelectionSlice: ScadaSliceCreator<SelectionSlice> = (set, get) => ({
   // State
@@ -8,6 +32,7 @@ export const createSelectionSlice: ScadaSliceCreator<SelectionSlice> = (set, get
   selectedEdgeId: null,
   clipboard: null,
   highlightedWidgetId: null,
+  pasteCount: 0,
 
   // --- Selection (mutual exclusion) ---
 
@@ -97,6 +122,8 @@ export const createSelectionSlice: ScadaSliceCreator<SelectionSlice> = (set, get
         edges: matchingEdges.map((e) => deepClone(e)),
         sourceScreenId: activeScreenId,
       };
+      // New clipboard content → restart the cascading paste offset
+      state.pasteCount = 0;
     }),
 
   cutSelectedWidgets: () =>
@@ -106,6 +133,10 @@ export const createSelectionSlice: ScadaSliceCreator<SelectionSlice> = (set, get
 
       const screen = screens.find((s) => s.id === activeScreenId);
       if (!screen) return;
+
+      const prev = original(state) ?? state;
+      const prevScreen = prev.screens.find((s) => s.id === activeScreenId);
+      if (!prevScreen) return;
 
       const selectedSet = new Set(selectedWidgetIds);
       const widgets = screen.widgets.filter((w) => selectedSet.has(w.id));
@@ -121,16 +152,52 @@ export const createSelectionSlice: ScadaSliceCreator<SelectionSlice> = (set, get
         edges: matchingEdges.map((e) => deepClone(e)),
         sourceScreenId: activeScreenId,
       };
+      state.pasteCount = 0;
 
-      // Remove all selected widgets and their edges
-      screen.widgets = screen.widgets.filter((w) => !selectedSet.has(w.id));
-      screen.edges = screen.edges.filter(
-        (e) => !selectedSet.has(e.source) && !selectedSet.has(e.target),
-      );
+      // Remove all selected widgets and their edges — one BATCH history entry
+      const entries: HistoryEntry[] = [];
+      for (const widget of selectedWidgetIds) {
+        const before = prevScreen.widgets.find((w) => w.id === widget);
+        if (!before) continue;
+        const removedEdges = prevScreen.edges.filter(
+          (e) => e.source === widget || e.target === widget,
+        );
+        const index = prevScreen.widgets.findIndex((w) => w.id === widget);
+        const affectedBindings = snapshotBindingsForWidget(state, widget);
+
+        screen.widgets = screen.widgets.filter((w) => w.id !== widget);
+        screen.edges = screen.edges.filter(
+          (e) => e.source !== widget && e.target !== widget,
+        );
+        for (const binding of state.automationBindings) {
+          for (const vb of binding.variableBindings) {
+            if (vb.boundWidgetId === widget) {
+              vb.boundWidgetId = null;
+              vb.boundTag = null;
+            }
+          }
+        }
+
+        entries.push({
+          type: 'WIDGET_REMOVE',
+          screenId: activeScreenId,
+          widget: before,
+          removedEdges,
+          ...(index >= 0 ? { index } : {}),
+          ...(affectedBindings.length > 0 ? { affectedBindings } : {}),
+        });
+      }
 
       state.selectedWidgetId = null;
       state.selectedWidgetIds = [];
       state.isDirty = true;
+      if (entries.length > 0) {
+        appendHistory(state, {
+          type: 'BATCH',
+          label: `Cut ${entries.length} widget${entries.length > 1 ? 's' : ''}`,
+          entries,
+        });
+      }
     }),
 
   pasteWidgets: (targetScreenId) =>
@@ -156,13 +223,21 @@ export const createSelectionSlice: ScadaSliceCreator<SelectionSlice> = (set, get
        */
       const groupIdMap: Record<string, string> = {};
 
+      // Cascading paste offset: consecutive pastes of the same clipboard
+      // offset by +1, +2, +3... grid cells so stacked pastes stay visible.
+      const offset = 1 + state.pasteCount;
+      state.pasteCount += 1;
+
+      const addedWidgets: Array<typeof clipboard.widgets[number]> = [];
+      const addedEdges: Array<typeof clipboard.edges[number]> = [];
+
       // Create new widgets with fresh IDs, remapped groupIds, and offset position
       for (const widget of clipboard.widgets) {
         const newId = idMap.get(widget.id)!;
         const newWidget = deepClone(widget);
         newWidget.id = newId;
-        newWidget.position.col += 1;
-        newWidget.position.row += 1;
+        newWidget.position.col += offset;
+        newWidget.position.row += offset;
 
         // Remap groupId so pasted widgets form independent groups
         if (newWidget.groupId) {
@@ -173,6 +248,7 @@ export const createSelectionSlice: ScadaSliceCreator<SelectionSlice> = (set, get
         }
 
         screen.widgets.push(newWidget);
+        addedWidgets.push(newWidget);
       }
 
       // Remap and add edges
@@ -187,6 +263,7 @@ export const createSelectionSlice: ScadaSliceCreator<SelectionSlice> = (set, get
         newEdge.source = newSource;
         newEdge.target = newTarget;
         screen.edges.push(newEdge);
+        addedEdges.push(newEdge);
       }
 
       // Select all pasted widgets
@@ -196,11 +273,30 @@ export const createSelectionSlice: ScadaSliceCreator<SelectionSlice> = (set, get
       state.selectedEdgeId = null;
 
       state.isDirty = true;
+      if (addedWidgets.length > 0) {
+        appendHistory(state, {
+          type: 'BATCH',
+          label: `Paste ${addedWidgets.length} widget${addedWidgets.length > 1 ? 's' : ''}`,
+          entries: [
+            ...addedWidgets.map((widget): HistoryEntry => ({
+              type: 'WIDGET_ADD',
+              screenId,
+              widget,
+            })),
+            ...addedEdges.map((edge): HistoryEntry => ({
+              type: 'EDGE_ADD',
+              screenId,
+              edge,
+            })),
+          ],
+        });
+      }
     }),
 
   clearClipboard: () =>
     set((state) => {
       state.clipboard = null;
+      state.pasteCount = 0;
     }),
 
   setHighlightedWidget: (id) =>

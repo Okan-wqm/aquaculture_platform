@@ -102,3 +102,38 @@ export const DEPLOY_SCADA_PACKAGE = `
     }
   }
 `;
+
+/**
+ * Operator consumption gate (M4): the deployed/PUBLISHED representation of a
+ * package. The backend refuses non-PUBLISHED packages with the GraphQL error
+ * code FORBIDDEN and message 'Package is not published'. `publishedAt` is
+ * derived server-side from the latest shipped deploy-log row (nullable when
+ * the package never shipped).
+ */
+export const PUBLISHED_SCADA_PACKAGE = `
+  query PublishedScadaPackage($id: ID!) {
+    publishedScadaPackage(id: $id) {
+      id
+      name
+      version
+      status
+      publishedAt
+      packageData
+    }
+  }
+`;
+
+/**
+ * Deploy-less publish (M5): flips the package to PUBLISHED through the same
+ * shared transition the deploy/ack paths use (activation bridge reloads the
+ * tenant runtime) — no edge round-trip, no MQTT, no signing.
+ */
+export const PUBLISH_SCADA_PACKAGE = `
+  mutation PublishScadaPackage($id: ID!) {
+    publishScadaPackage(id: $id) {
+      success
+      message
+      version
+    }
+  }
+`;

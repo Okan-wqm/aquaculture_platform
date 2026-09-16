@@ -50,6 +50,13 @@ import {
   TagSubscriptionDto,
   TagWriteDto,
   PinVerifyDto,
+  DAQ_AGG_MAX_SPAN_MS,
+  DAQ_INTERVAL_MS,
+  DAQ_MAX_TOTAL_POINTS,
+  DAQ_RAW_ASSUMED_SAMPLE_INTERVAL_MS,
+  DAQ_RAW_MAX_SPAN_MS,
+  DAQ_RATE_BURST,
+  DAQ_RATE_REFILL_PER_SEC,
 } from './dto/scada-socket.dto';
 import { TagManagerService } from './services/tag-manager.service';
 import { DaqStorageService } from './services/daq-storage.service';
@@ -125,10 +132,27 @@ interface ConnectedClient {
   role: HmiRole;
   /** PIN elevation (SENSOR-CRITICAL-006): epoch-ms until which pin-protected writes are allowed. */
   pinElevatedUntil?: number;
-  /** Consecutive failed PIN attempts; resets on success. */
-  pinFailCount?: number;
-  /** Brute-force lockout: epoch-ms until which PIN_VERIFY is rejected. */
-  pinLockedUntil?: number;
+}
+
+/**
+ * Server-side PIN lockout state (M3), keyed by `tenantId:packageId` — NOT by
+ * socket.id, so a brute-forcer cannot reset the budget by reconnecting.
+ */
+interface PinLockoutState {
+  /** Consecutive failed attempts since the last success / lockout expiry. */
+  failCount: number;
+  /** Completed lockouts — drives the exponential backoff multiplier. */
+  lockoutNumber: number;
+  /** Epoch-ms until which PIN_VERIFY for this key is refused. */
+  lockedUntil: number;
+  /** Epoch-ms of the last state change (sweep staleness bound). */
+  lastActivityAt: number;
+}
+
+/** Per-socket DAQ_QUERY token bucket (M7). */
+interface DaqRateBucket {
+  tokens: number;
+  lastRefill: number;
 }
 
 /* ------------------------------------------------------------------ */
@@ -165,6 +189,21 @@ export class ScadaRuntimeGateway
   /** Live client registry: socketId → ConnectedClient */
   private readonly clients = new Map<string, ConnectedClient>();
 
+  /**
+   * PIN lockout registry (M3): `tenantId:packageId` → state. In-memory by
+   * design (documented trade-off): a restart clears lockouts, which costs at
+   * most one extra 5-attempt budget per key per process lifetime — far
+   * cheaper than a DB round-trip on the hot PIN_VERIFY path. A periodic
+   * sweep (below) drops expired entries so the map cannot grow unbounded.
+   */
+  private readonly pinLockouts = new Map<string, PinLockoutState>();
+
+  /** Per-socket DAQ token buckets (M7): socketId → bucket. */
+  private readonly daqRateBuckets = new Map<string, DaqRateBucket>();
+
+  /** Periodic sweep that evicts expired PIN-lockout entries. */
+  private pinLockoutSweep: ReturnType<typeof setInterval> | null = null;
+
   private readonly isProduction: boolean;
 
   constructor(
@@ -194,6 +233,19 @@ export class ScadaRuntimeGateway
         'SCADA WebSocket Gateway: WS_CORS_ORIGINS not set in production — connections blocked',
       );
     }
+    // Periodic cleanup (M3): drop PIN-lockout entries that are fully expired
+    // (lockout elapsed AND no residual fail budget) or stale (no activity for
+    // an hour), so the registry cannot grow unbounded across reconnect churn.
+    this.pinLockoutSweep = setInterval(() => {
+      const now = Date.now();
+      for (const [key, state] of this.pinLockouts) {
+        const idleTooLong = now - state.lastActivityAt > 60 * 60 * 1000;
+        if (idleTooLong || (state.lockedUntil <= now && state.failCount === 0)) {
+          this.pinLockouts.delete(key);
+        }
+      }
+    }, 5 * 60 * 1000);
+    this.pinLockoutSweep.unref?.();
     this.logger.log('ScadaRuntimeGateway initialised on namespace /scada');
   }
 
@@ -271,6 +323,10 @@ export class ScadaRuntimeGateway
       const tenantId = this.clients.get(client.id)?.tenantId;
       this.tagManager.removeSocket(client.id);
       this.clients.delete(client.id);
+      // The DAQ token bucket is per-socket (M7) — the socket is gone, so is
+      // its bucket. (PIN lockouts intentionally SURVIVE disconnects: they
+      // are keyed tenant+package, not socket.)
+      this.daqRateBuckets.delete(client.id);
       this.logger.log(`[disconnect] ${client.id}`);
 
       // Last operator for this tenant → signal the activation bridge to start
@@ -530,8 +586,84 @@ export class ScadaRuntimeGateway
   }
 
   /* ---------------------------------------------------------------- */
-  /*  DAQ_QUERY (stub)                                                  */
+  /*  DAQ_QUERY                                                         */
   /* ---------------------------------------------------------------- */
+
+  /**
+   * Token-bucket rate limit for 'scada:daq:query' (M7): 5 req/s sustained,
+   * burst 10, per socket. Returns true when the request is admitted.
+   */
+  private admitDaqQuery(socketId: string): boolean {
+    const now = Date.now();
+    const bucket = this.daqRateBuckets.get(socketId) ?? {
+      tokens: DAQ_RATE_BURST,
+      lastRefill: now,
+    };
+    const elapsedSec = (now - bucket.lastRefill) / 1000;
+    bucket.tokens = Math.min(
+      DAQ_RATE_BURST,
+      bucket.tokens + elapsedSec * DAQ_RATE_REFILL_PER_SEC,
+    );
+    bucket.lastRefill = now;
+    if (bucket.tokens < 1) {
+      this.daqRateBuckets.set(socketId, bucket);
+      return false;
+    }
+    bucket.tokens -= 1;
+    this.daqRateBuckets.set(socketId, bucket);
+    return true;
+  }
+
+  /**
+   * Span + total-points bounds for a DAQ query (M7):
+   *  - raw (no aggregation) spans are capped at DAQ_RAW_MAX_SPAN_MS (7 d);
+   *  - aggregated spans are capped at DAQ_AGG_MAX_SPAN_MS (365 d);
+   *  - the estimated point total (tags × buckets, raw estimated at one
+   *    sample per 10 s per tag) is capped at DAQ_MAX_TOTAL_POINTS.
+   * Returns an error message when the query must be rejected, else null.
+   */
+  private validateDaqQueryBounds(payload: DaqQueryDto): string | null {
+    const from = Number(payload.from);
+    const to = Number(payload.to);
+    if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) {
+      return `'to' must be greater than 'from'`;
+    }
+    const spanMs = to - from;
+    const tagCount = Array.isArray(payload.tagIds) ? payload.tagIds.length : 0;
+
+    if (!payload.aggregation) {
+      if (spanMs > DAQ_RAW_MAX_SPAN_MS) {
+        return (
+          `Raw (unaggregated) DAQ queries are limited to 7 days — the requested span is ` +
+          `${(spanMs / (24 * 60 * 60 * 1000)).toFixed(1)} day(s). Add an aggregation for longer ranges.`
+        );
+      }
+      const estimatedPoints = tagCount * Math.ceil(spanMs / DAQ_RAW_ASSUMED_SAMPLE_INTERVAL_MS);
+      if (estimatedPoints > DAQ_MAX_TOTAL_POINTS) {
+        return (
+          `DAQ query too large: ~${estimatedPoints} data points requested (cap ${DAQ_MAX_TOTAL_POINTS}). ` +
+          `Narrow the time range, reduce the number of tags, or request an aggregation.`
+        );
+      }
+      return null;
+    }
+
+    if (spanMs > DAQ_AGG_MAX_SPAN_MS) {
+      return (
+        `Aggregated DAQ queries are limited to 365 days — the requested span is ` +
+        `${(spanMs / (24 * 60 * 60 * 1000)).toFixed(0)} day(s).`
+      );
+    }
+    const intervalMs = DAQ_INTERVAL_MS[payload.aggregation.interval];
+    const estimatedPoints = tagCount * Math.ceil(spanMs / intervalMs);
+    if (estimatedPoints > DAQ_MAX_TOTAL_POINTS) {
+      return (
+        `DAQ query too large: ~${estimatedPoints} data points requested (cap ${DAQ_MAX_TOTAL_POINTS}). ` +
+        `Widen the aggregation interval, narrow the time range, or reduce the number of tags.`
+      );
+    }
+    return null;
+  }
 
   @SubscribeMessage(ScadaSocketEvent.DAQ_QUERY)
   async handleDaqQuery(
@@ -547,6 +679,25 @@ export class ScadaRuntimeGateway
 
       if (!payload?.queryId || typeof payload.queryId !== 'string') {
         this.emitError(client, ScadaSocketEvent.DAQ_QUERY, SCADA_ERROR_CODES.VALIDATION_ERROR, 'queryId is required');
+        return;
+      }
+
+      // Per-socket token bucket FIRST (M7): a burst client is rejected before
+      // doing any span math or touching the history store.
+      if (!this.admitDaqQuery(client.id)) {
+        this.emitError(
+          client,
+          ScadaSocketEvent.DAQ_QUERY,
+          SCADA_ERROR_CODES.RATE_LIMITED,
+          'DAQ query rate limit exceeded (5/s, burst 10) — slow down',
+        );
+        return;
+      }
+
+      // Span + total-point bounds (M7).
+      const boundsError = this.validateDaqQueryBounds(payload);
+      if (boundsError) {
+        this.emitError(client, ScadaSocketEvent.DAQ_QUERY, SCADA_ERROR_CODES.VALIDATION_ERROR, boundsError);
         return;
       }
 
@@ -663,10 +814,12 @@ export class ScadaRuntimeGateway
 
   /** PIN elevation lifetime after a successful verification. */
   private static readonly PIN_ELEVATION_MS = 5 * 60 * 1000;
-  /** Failed attempts before the socket is locked out. */
+  /** Failed attempts (per tenant+package) before the lockout engages. */
   private static readonly PIN_MAX_ATTEMPTS = 5;
-  /** Lockout duration once the attempt budget is exhausted. */
-  private static readonly PIN_LOCKOUT_MS = 60 * 1000;
+  /** First lockout duration; each subsequent lockout doubles it… */
+  private static readonly PIN_INITIAL_LOCKOUT_MS = 60 * 1000;
+  /** …up to this ceiling. */
+  private static readonly PIN_MAX_LOCKOUT_MS = 15 * 60 * 1000;
   /** Staleness bound for the per-tenant pin-protected tag set. */
   private static readonly PIN_SET_TTL_MS = 60 * 1000;
 
@@ -684,10 +837,14 @@ export class ScadaRuntimeGateway
 
   /**
    * Verify a control-security PIN against the package's stored (hashed) PIN
-   * and elevate this socket for a bounded window. Brute-force is rate-limited
-   * per socket: PIN_MAX_ATTEMPTS consecutive failures lock verification for
-   * PIN_LOCKOUT_MS. The client NEVER sees the stored secret (SENSOR-CRITICAL-006
-   * — the pre-fix flow compared a plaintext pin in the browser).
+   * and elevate this socket for a bounded window (SENSOR-CRITICAL-006 — the
+   * client NEVER sees the stored secret).
+   *
+   * Brute-force defence (M3): lockout state lives SERVER-SIDE, keyed by
+   * (tenantId, packageId) — reconnecting does not reset it. 5 consecutive
+   * failures engage a 60 s lockout; every further lockout DOUBLES the
+   * duration (60 s → 2 m → 4 m → …) up to 15 minutes. Every engagement is
+   * audit-logged. The per-socket elevation window stays per-socket.
    */
   @SubscribeMessage(ScadaSocketEvent.PIN_VERIFY)
   async handlePinVerify(
@@ -701,11 +858,13 @@ export class ScadaRuntimeGateway
         return;
       }
 
+      const lockoutKey = `${clientData.tenantId}:${payload.packageId}`;
       const now = Date.now();
-      if (typeof clientData.pinLockedUntil === 'number' && clientData.pinLockedUntil > now) {
+      const lockout = this.pinLockouts.get(lockoutKey);
+      if (lockout && lockout.lockedUntil > now) {
         client.emit(ScadaSocketEvent.PIN_RESULT, {
           valid: false,
-          lockedUntil: clientData.pinLockedUntil,
+          lockedUntil: lockout.lockedUntil,
         });
         return;
       }
@@ -717,8 +876,8 @@ export class ScadaRuntimeGateway
       );
 
       if (valid) {
-        clientData.pinFailCount = 0;
-        clientData.pinLockedUntil = undefined;
+        // Success clears the budget for this tenant+package.
+        this.pinLockouts.delete(lockoutKey);
         clientData.pinElevatedUntil = now + ScadaRuntimeGateway.PIN_ELEVATION_MS;
         client.emit(ScadaSocketEvent.PIN_RESULT, {
           valid: true,
@@ -727,17 +886,34 @@ export class ScadaRuntimeGateway
         return;
       }
 
-      clientData.pinFailCount = (clientData.pinFailCount ?? 0) + 1;
-      if (clientData.pinFailCount >= ScadaRuntimeGateway.PIN_MAX_ATTEMPTS) {
-        clientData.pinLockedUntil = now + ScadaRuntimeGateway.PIN_LOCKOUT_MS;
-        clientData.pinFailCount = 0;
-        this.logger.warn(
-          `[pin-verify] SECURITY: ${client.id} (tenant=${clientData.tenantId}, userId=${clientData.userId}) ` +
-            `locked out after repeated failed PIN attempts`,
+      const state: PinLockoutState = lockout ?? {
+        failCount: 0,
+        lockoutNumber: 0,
+        lockedUntil: 0,
+        lastActivityAt: now,
+      };
+      state.failCount += 1;
+      state.lastActivityAt = now;
+      if (state.failCount >= ScadaRuntimeGateway.PIN_MAX_ATTEMPTS) {
+        state.lockoutNumber += 1;
+        const backoffMs = Math.min(
+          ScadaRuntimeGateway.PIN_INITIAL_LOCKOUT_MS * 2 ** (state.lockoutNumber - 1),
+          ScadaRuntimeGateway.PIN_MAX_LOCKOUT_MS,
         );
-        client.emit(ScadaSocketEvent.PIN_RESULT, { valid: false, lockedUntil: clientData.pinLockedUntil });
+        state.lockedUntil = now + backoffMs;
+        state.failCount = 0;
+        this.pinLockouts.set(lockoutKey, state);
+        // Audit event (M3): security-relevant, greppable, names the scope.
+        this.logger.warn(
+          `[pin-verify] SECURITY AUDIT: PIN lockout engaged ` +
+            `tenant=${clientData.tenantId} package=${payload.packageId} ` +
+            `userId=${clientData.userId} socket=${client.id} ` +
+            `lockout#${state.lockoutNumber} durationMs=${backoffMs}`,
+        );
+        client.emit(ScadaSocketEvent.PIN_RESULT, { valid: false, lockedUntil: state.lockedUntil });
         return;
       }
+      this.pinLockouts.set(lockoutKey, state);
       client.emit(ScadaSocketEvent.PIN_RESULT, { valid: false });
     } catch (error) {
       this.logger.error(`[pin-verify] ${client.id} error: ${(error as Error).message}`);

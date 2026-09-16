@@ -2,31 +2,25 @@
  * RuntimeWidgetRenderer — Master dispatcher for SCADA HMI operator mode.
  *
  * Responsibilities:
- *   1. Subscribe to tag values via useRealtimeData (rAF-batched)
- *   2. Check widget visibility/interaction permissions via useOperatorPermission
- *   3. Evaluate tag-driven visual actions via useWidgetActions
- *   4. Bind user interaction events via useWidgetEvents
- *   5. Apply action effects (hide, blink, color, rotate, translate) to a
- *      wrapper <div> that hosts every widget type
- *   6. Dispatch to the correct renderer:
- *        • Existing ScadaWidgetTypes → lazy-load from widget-renderers/ with
- *          isOperatorMode=true (passed as isEditing=false, operator props injected)
- *        • Runtime-only types (runtimeGauge, runtimeInput, runtimePipe,
- *          runtimeTable, runtimeVideo, runtimeScheduler) → the new Runtime* components
- *
- * Action effects applied to wrapper div:
- *   - hidden       → display:none
- *   - blink        → CSS @keyframes animation (style injected once per document)
- *   - color        → CSS variable for fill/stroke (passed to child via context
- *                    for SVG widgets, and as a border/bg tint on the wrapper)
- *   - rotate       → CSS transform: rotate()
- *   - translate    → CSS transform: translate()
- *   - (rotate AND translate are combined with CSS transform)
- *
- * Performance:
- *   - React.memo — stable identity; only re-renders when props or data change
- *   - All hooks return memoized results; no derived state is computed inline
- *   - CSS animations run entirely on the compositor thread
+ *   1. Tag values: subscribes via useRealtimeData — OR runs CONTROLLED
+ *      (T7a): when the parent (OperatorView bulk subscription) passes
+ *      `tagValues` and `subscribe={false}`, the internal subscription is
+ *      skipped so N widgets do not create N rAF timers.
+ *   2. Permission check via useOperatorPermission (server-authoritative role)
+ *   3. Tag-driven visual actions via useWidgetActions
+ *   4. Interaction events via useWidgetEvents
+ *   5. Action effects (hide, blink, color, rotate, translate) on the wrapper
+ *   6. COMMAND ROUTER (T5): 'setValue' | 'toggle' | 'emergencyStop' |
+ *      'vfd:start' | 'vfd:stop' | 'vfd:program' → permission-gated
+ *      useTagWrite writes against the CANONICAL tag binding
+ *      (getWidgetTagBinding + config.writeTagRef), with inline confirm UI
+ *      (never window.confirm), server-side PIN elevation, and transient
+ *      TAG_WRITE_ACK feedback.
+ *   7. Per-tag staleness marking (T6): a tag whose newest sample is older
+ *      than the staleness threshold renders with a visible stale indicator.
+ *   8. Dispatch: builder types → WidgetRenderer (isEditing=false), with
+ *      'trendChart' remapped to the uPlot RuntimeChart (T8); Runtime* types
+ *      → the dedicated components.
  */
 
 import React, {
@@ -34,6 +28,9 @@ import React, {
   Suspense,
   useMemo,
   useCallback,
+  useEffect,
+  useRef,
+  useState,
   Component,
   type ErrorInfo,
 } from 'react';
@@ -50,6 +47,12 @@ import { useRealtimeData } from '../../../hooks/useRealtimeData';
 import { useOperatorPermission } from '../../../hooks/useOperatorPermission';
 import { useWidgetActions }      from '../../../hooks/useWidgetActions';
 import { useWidgetEvents }       from '../../../hooks/useWidgetEvents';
+import { useTagWrite }           from '../../../hooks/useTagWrite';
+import { getWidgetTagBinding }   from '../../../engine/tags/widgetBinding';
+
+import { getScadaSocketService } from '../../../services/ScadaSocketService';
+import { ScadaSocketEvent } from '../../../types/scada-runtime.types';
+import { useScadaPackageStore } from '../../../store/scada/createScadaStore';
 
 // Existing editor-mode renderers (delegated with isEditing=false)
 import { WidgetRenderer }        from '../../scada-builder/WidgetRenderer';
@@ -64,7 +67,7 @@ const RuntimeScheduler = React.lazy(() => import('./RuntimeScheduler'));
 const RuntimeChart     = React.lazy(() => import('./RuntimeChart'));
 
 /* ------------------------------------------------------------------ */
-/*  CSS injection (blink keyframes — once per document)                */
+/*  CSS injection (blink + staleness keyframes — once per document)     */
 /* ------------------------------------------------------------------ */
 
 let runtimeStyleInjected = false;
@@ -77,6 +80,7 @@ function injectRuntimeStyles(): void {
   0%, 49% { opacity: 1; }
   50%, 100% { opacity: 0; }
 }
+.scada-tag-stale { outline: 1px dashed rgba(234, 179, 8, 0.9); outline-offset: -1px; }
 `;
   document.head.appendChild(style);
   runtimeStyleInjected = true;
@@ -95,7 +99,9 @@ type RuntimeOnlyWidgetType =
   | 'runtimeScheduler'
   | 'runtimeChart';
 
-type AnyWidgetType = ScadaWidgetType | RuntimeOnlyWidgetType;
+/** All renderable widget types (persisted builder docs use open strings —
+ *  unknown types degrade through the error boundary, never crash). */
+export type AnyWidgetType = ScadaWidgetType | RuntimeOnlyWidgetType;
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                               */
@@ -111,6 +117,24 @@ export interface RuntimeWidgetRendererProps {
   events?: WidgetEventBinding[];
   /** Called when sidenav navigation is triggered by a widget event. */
   onNavigate?: (screenId: string) => void;
+
+  /* ---- Controlled mode (T7a) ---- */
+  /**
+   * Tag values supplied by the parent (OperatorView's single bulk
+   * subscription). When provided together with subscribe={false} the
+   * widget skips its internal useRealtimeData hook entirely.
+   */
+  tagValues?: Record<string, TagValueChange>;
+  /** Set false when the parent supplies tagValues. Default true. */
+  subscribe?: boolean;
+
+  /* ---- Widget layer parity (T7f) — applied to the positioning wrapper ---- */
+  /** Stacking order within the screen (builder stores sparse indices). */
+  zIndex?: number;
+  /** Free-form CSS transform string from builder widget config. */
+  transform?: string;
+  /** DOM id for the wrapper element (builder widget id). */
+  widgetId?: string;
 }
 
 /* ------------------------------------------------------------------ */
@@ -170,7 +194,7 @@ class RuntimeErrorBoundary extends Component<
 /* ------------------------------------------------------------------ */
 
 /**
- * True for widget types that are handled by the new Runtime* components.
+ * True for widget types that are handled by the Runtime* components.
  * Everything else falls through to WidgetRenderer (existing builder renderers).
  */
 function isRuntimeOnlyType(t: AnyWidgetType): t is RuntimeOnlyWidgetType {
@@ -183,6 +207,41 @@ function isRuntimeOnlyType(t: AnyWidgetType): t is RuntimeOnlyWidgetType {
     t === 'runtimeScheduler' ||
     t === 'runtimeChart'
   );
+}
+
+/** Builder 'trendChart' widgets render as the uPlot RuntimeChart at runtime (T8). */
+function isTrendChartType(t: AnyWidgetType): boolean {
+  return t === 'trendChart';
+}
+
+/** Adapt builder trendChart config (tags / pens) to RuntimeChart series. */
+function buildTrendChartConfig(config: Record<string, unknown>): Record<string, unknown> {
+  const pens = (config.pens ?? config.lines ?? config.tags ?? config.trendTags) as
+    | Array<Record<string, unknown>>
+    | string[]
+    | undefined;
+
+  let series: Array<{ tagId: string; label: string; color?: string }> | undefined;
+
+  if (Array.isArray(pens)) {
+    series = pens
+      .map((pen, i) =>
+        typeof pen === 'string'
+          ? { tagId: pen, label: pen }
+          : {
+              tagId: String(pen.tagId ?? pen.tagRef ?? pen.tagName ?? pen.tag ?? ''),
+              label: String(pen.label ?? pen.tagId ?? pen.tagRef ?? pen.tagName ?? pen.tag ?? `Series ${i + 1}`),
+              color: typeof pen.color === 'string' ? pen.color : undefined,
+            },
+      )
+      .filter((s) => s.tagId.length > 0);
+  }
+
+  return {
+    ...config,
+    ...(series ? { series } : {}),
+    title: config.label ?? config.title ?? '',
+  };
 }
 
 /**
@@ -198,6 +257,133 @@ function buildTransform(
   if (rotation !== 0) parts.push(`rotate(${rotation}deg)`);
   return parts.length > 0 ? parts.join(' ') : undefined;
 }
+
+/** Default per-tag staleness threshold (T6). */
+const DEFAULT_STALE_AFTER_MS = 60_000;
+
+/** A tag is stale at sampleInterval × this factor (whichever bound applies). */
+const STALENESS_FACTOR = 3;
+
+/* ------------------------------------------------------------------ */
+/*  Inline confirm dialog (T5 — NOT window.confirm)                    */
+/* ------------------------------------------------------------------ */
+
+interface ConfirmDialogProps {
+  message: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+const InlineConfirmDialog = memo<ConfirmDialogProps>(({ message, onConfirm, onCancel }) => (
+  <div
+    className="absolute inset-0 z-20 flex items-center justify-center bg-black/50 p-2"
+    role="alertdialog"
+    aria-label="Confirm command"
+  >
+    <div className="bg-white rounded-lg shadow-xl p-3 max-w-[90%] flex flex-col gap-2">
+      <p className="text-xs text-gray-800 font-medium">{message}</p>
+      <div className="flex gap-2 justify-end">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="px-2 py-1 text-xs rounded border border-gray-300 text-gray-600 hover:bg-gray-50"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={onConfirm}
+          className="px-2 py-1 text-xs rounded bg-red-600 text-white hover:bg-red-700"
+        >
+          Confirm
+        </button>
+      </div>
+    </div>
+  </div>
+));
+InlineConfirmDialog.displayName = 'InlineConfirmDialog';
+
+/* ------------------------------------------------------------------ */
+/*  PIN dialog (T5 — server-side verification via ScadaSocketService)  */
+/* ------------------------------------------------------------------ */
+
+interface PinDialogProps {
+  onVerified: () => void;
+  onCancel: () => void;
+}
+
+const PinDialog = memo<PinDialogProps>(({ onVerified, onCancel }) => {
+  const packageId = useScadaPackageStore((s) => s.packageId);
+  const [pin, setPin] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [verifying, setVerifying] = useState(false);
+
+  const handleConfirm = useCallback(() => {
+    if (!packageId || verifying) return;
+    setVerifying(true);
+    setError(null);
+    getScadaSocketService()
+      .verifyPin(packageId, pin)
+      .then((result) => {
+        if (result.valid) {
+          onVerified();
+        } else {
+          setPin('');
+          setError(
+            result.lockedUntil
+              ? 'Too many attempts — PIN entry is temporarily locked'
+              : 'Incorrect PIN',
+          );
+        }
+      })
+      .catch(() => setError('PIN verification unavailable — not connected'))
+      .finally(() => setVerifying(false));
+  }, [packageId, pin, verifying, onVerified]);
+
+  return (
+    <div
+      className="absolute inset-0 z-20 flex items-center justify-center bg-black/50 p-2"
+      role="dialog"
+      aria-label="Enter PIN"
+      aria-modal="true"
+    >
+      <div className="bg-white rounded-lg shadow-xl p-3 w-56 flex flex-col gap-2">
+        <h3 className="text-xs font-semibold text-gray-800">PIN required</h3>
+        <input
+          type="password"
+          value={pin}
+          onChange={(e) => setPin(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && handleConfirm()}
+          placeholder="PIN"
+          autoFocus
+          aria-label="PIN"
+          className="px-2 py-1 border border-gray-300 rounded text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-400"
+        />
+        {error && (
+          <p className="text-xs text-red-600" role="alert">{error}</p>
+        )}
+        <div className="flex gap-2 justify-end">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="px-2 py-1 text-xs rounded border border-gray-300 text-gray-600 hover:bg-gray-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleConfirm}
+            disabled={verifying}
+            className="px-2 py-1 text-xs rounded bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50"
+          >
+            {verifying ? 'Verifying…' : 'OK'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+});
+PinDialog.displayName = 'PinDialog';
 
 /* ------------------------------------------------------------------ */
 /*  Inner runtime-only renderer                                         */
@@ -285,6 +471,9 @@ RuntimeOnlyRenderer.displayName = 'RuntimeOnlyRenderer';
 /*  RuntimeWidgetRenderer                                               */
 /* ------------------------------------------------------------------ */
 
+/** Transient write-ack feedback shown on the widget frame (T5). */
+type WriteAckState = 'ok' | 'fail' | null;
+
 export const RuntimeWidgetRenderer = memo<RuntimeWidgetRendererProps>(
   ({
     widgetType,
@@ -295,17 +484,27 @@ export const RuntimeWidgetRenderer = memo<RuntimeWidgetRendererProps>(
     actions,
     events,
     onNavigate,
+    tagValues: controlledTagValues,
+    subscribe = true,
+    zIndex,
+    transform,
+    widgetId,
   }) => {
-    // Inject blink CSS once
+    // Inject blink/staleness CSS once
     React.useEffect(injectRuntimeStyles, []);
 
     const { w, h } = position;
 
-    /* ---- 1. Real-time data subscription ---- */
-    const { values: tagValues } = useRealtimeData(tagIds);
+    /* ---- 1. Real-time data (controlled mode skips the hook, T7a) ---- */
+    const shouldSubscribe = subscribe && !controlledTagValues;
+    const liveResult = useRealtimeData(shouldSubscribe ? tagIds : []);
+    const tagValues = shouldSubscribe
+      ? liveResult.values
+      : (controlledTagValues ?? {});
 
     /* ---- 2. Permission check ---- */
-    const { visible, enabled } = useOperatorPermission(permission);
+    const permissionResult = useOperatorPermission(permission);
+    const { visible, enabled } = permissionResult;
 
     /* ---- 3. Widget actions evaluation ---- */
     const {
@@ -319,24 +518,234 @@ export const RuntimeWidgetRenderer = memo<RuntimeWidgetRendererProps>(
     /* ---- 4. Widget event bindings ---- */
     const { handleEvent } = useWidgetEvents(events, onNavigate);
 
-    /* ---- 5. onCommand callback (stable, used by all widgets) ---- */
-    const handleCommand = useCallback(
-      (_command: string, _value?: unknown) => {
-        // Propagate generic interaction to the event system.
-        // Widget-specific writes (setValue, toggleValue) are handled directly
-        // by Runtime* components via useTagWrite; we fire the click event
-        // here so any navigate/openDialog event bindings on 'click' also run.
-        handleEvent('click');
+    /* ---- 5. Command router (T5) ---- */
+    const { writeTag, toggleTag } = useTagWrite();
+    const controlPermissions = useScadaPackageStore((s) => s.controlPermissions);
+    const packageId = useScadaPackageStore((s) => s.packageId);
+
+    const [pendingConfirm, setPendingConfirm] = useState<{
+      command: string;
+      value?: unknown;
+    } | null>(null);
+    const [pendingPin, setPendingPin] = useState<{ command: string; value?: unknown } | null>(null);
+    const [writeAck, setWriteAck] = useState<WriteAckState>(null);
+    const [eStopLatched, setEStopLatched] = useState(false);
+    const writeAckTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    useEffect(() => {
+      return () => {
+        if (writeAckTimerRef.current) clearTimeout(writeAckTimerRef.current);
+      };
+    }, []);
+
+    /**
+     * Resolve the CANONICAL target tag: config.writeTagRef wins (explicit
+     * write target), then the shared binding accessor (tagRef → legacy keys),
+     * finally the first subscribed tag id.
+     */
+    const resolveTargetTag = useCallback((): string | undefined => {
+      const writeRef = config.writeTagRef;
+      if (typeof writeRef === 'string' && writeRef.trim()) return writeRef.trim();
+      return getWidgetTagBinding(config) ?? tagIds[0];
+    }, [config, tagIds]);
+
+    /** Flash a write-ack outcome on the widget frame for ~2 s. */
+    const flashWriteAck = useCallback((state: Exclude<WriteAckState, null>) => {
+      if (writeAckTimerRef.current) clearTimeout(writeAckTimerRef.current);
+      setWriteAck(state);
+      writeAckTimerRef.current = setTimeout(() => setWriteAck(null), 2_000);
+    }, []);
+
+    // TAG_WRITE_ACK → transient widget state (T5).
+    useEffect(() => {
+      const socket = getScadaSocketService();
+      const targetTag = resolveTargetTag();
+      const handler = (payload: { tagId: string; success: boolean; error?: string }): void => {
+        if (!targetTag || payload.tagId !== targetTag) return;
+        flashWriteAck(payload.success ? 'ok' : 'fail');
+        if (!payload.success) {
+          console.warn(`[RuntimeWidgetRenderer] write to ${payload.tagId} rejected: ${payload.error ?? 'unknown error'}`);
+        }
+      };
+      socket.on(ScadaSocketEvent.TAG_WRITE_ACK, handler);
+      return () => {
+        socket.off(ScadaSocketEvent.TAG_WRITE_ACK, handler);
+      };
+    }, [resolveTargetTag, flashWriteAck]);
+
+    /**
+     * E-STOP runtime side (T3): write every affectedTag to its safe value
+     * (0 / de-energized — ControlPermissionsDef carries no per-tag safe
+     * value, so the de-energized convention applies), latch the state, and
+     * audit the activation.
+     */
+    const executeEmergencyStop = useCallback(async () => {
+      const eStop = controlPermissions?.emergencyStop;
+      const affected = eStop?.affectedTags ?? [];
+      setEStopLatched(true);
+      // Audit entry — TODO(backend): a dedicated scada audit event is not yet
+      // in the socket contract; logged structurally client-side until then.
+      console.warn(
+        `[E-STOP] ACTIVATED ${new Date().toISOString()} package=${packageId ?? '?'} affectedTags=[${affected.join(', ')}]`,
+      );
+      for (const tag of affected) {
+        try {
+          await writeTag(tag, 0); // safe (de-energized) value
+        } catch (err) {
+          console.error(`[E-STOP] failed to write safe value to ${tag}:`, err);
+        }
+      }
+    }, [controlPermissions, packageId, writeTag]);
+
+    /**
+     * E-STOP reset (A3/Plan 2): release the latch. The reset does NOT write
+     * tag values — re-energizing equipment is a deliberate operator action
+     * through the normal controls; this only re-enables them. Audited like
+     * the activation.
+     */
+    const doResetEStop = useCallback(() => {
+      setEStopLatched(false);
+      console.warn(
+        `[E-STOP] RESET ${new Date().toISOString()} package=${packageId ?? '?'}`,
+      );
+    }, [packageId]);
+
+    /**
+     * Reset request routing (A3): when the package demands
+     * `resetRequiresPin`, the latch may only be released after server-side
+     * PIN elevation; otherwise reset directly.
+     */
+    const requestEStopReset = useCallback(() => {
+      if (controlPermissions?.emergencyStop?.resetRequiresPin) {
+        setPendingPin({ command: 'eStopReset' });
+        return;
+      }
+      doResetEStop();
+    }, [controlPermissions, doResetEStop]);
+
+    /** Perform the actual write for a routed command (post confirm/PIN). */
+    const performWrite = useCallback(
+      async (command: string, value?: unknown) => {
+        // E-stop latch release has no tag target — handle before the
+        // binding resolution guard below.
+        if (command === 'eStopReset') {
+          doResetEStop();
+          return;
+        }
+        // E-STOP writes its AFFECTED TAGS (package-level config), not the
+        // widget's own binding — it must fire even on an unbound widget.
+        if (command === 'emergencyStop') {
+          await executeEmergencyStop();
+          return;
+        }
+        const targetTag = resolveTargetTag();
+        if (!targetTag) {
+          console.warn(`[RuntimeWidgetRenderer] command "${command}" has no target tag binding`);
+          return;
+        }
+        try {
+          switch (command) {
+            case 'toggle':
+              await toggleTag(targetTag);
+              break;
+            case 'emergencyStop':
+              await executeEmergencyStop();
+              break;
+            case 'vfd:start':
+              await writeTag(targetTag, value ?? 1);
+              break;
+            case 'vfd:stop':
+              await writeTag(targetTag, value ?? 0);
+              break;
+            case 'vfd:program':
+              await writeTag(targetTag, value);
+              break;
+            case 'setValue':
+            default:
+              await writeTag(targetTag, value);
+              break;
+          }
+        } catch {
+          // useTagWrite surfaces the error; the write-ack handler flashes fail.
+        }
       },
-      [handleEvent],
+      [resolveTargetTag, toggleTag, writeTag, executeEmergencyStop, doResetEStop],
     );
 
-    /* ---- 6. Primary tag value (first tagId drives the main value) ---- */
-    const primaryTagId = tagIds[0] ?? '';
+    /**
+     * Route a widget command. Order of gates:
+     *   enabled → confirm (inline UI) → PIN (server verify) → write.
+     */
+    const handleCommand = useCallback(
+      (command: string, value?: unknown) => {
+        // Propagate generic interaction to the event system first so any
+        // navigate/openDialog event bindings on 'click' also run.
+        handleEvent('click');
+
+        if (!enabled) return;
+
+        const requiresConfirm =
+          command === 'emergencyStop' ||
+          Boolean(config.requiresConfirm) ||
+          permissionResult.requiresConfirm;
+
+        if (requiresConfirm) {
+          setPendingConfirm({ command, value });
+          return;
+        }
+
+        if (permissionResult.requiresPin || config.requiresPin === true) {
+          setPendingPin({ command, value });
+          return;
+        }
+
+        void performWrite(command, value);
+      },
+      [enabled, config.requiresConfirm, config.requiresPin, permissionResult, performWrite, handleEvent],
+    );
+
+    const handleConfirmAccept = useCallback(() => {
+      const pending = pendingConfirm;
+      setPendingConfirm(null);
+      if (!pending) return;
+      if (permissionResult.requiresPin || config.requiresPin === true) {
+        setPendingPin(pending);
+        return;
+      }
+      void performWrite(pending.command, pending.value);
+    }, [pendingConfirm, permissionResult.requiresPin, config.requiresPin, performWrite]);
+
+    /* ---- 6. Primary tag value — CANONICAL binding, not tagIds[0] (T7b) ---- */
+    const primaryTagId = getWidgetTagBinding(config) ?? tagIds[0] ?? '';
     const primaryChange: TagValueChange | undefined = tagValues[primaryTagId];
     const primaryValue    = primaryChange?.value     ?? null;
     const primaryTs       = primaryChange?.timestamp ?? 0;
-    const primaryQuality  = primaryChange?.quality   ?? 'good';
+    // T5: absent data is UNCERTAIN, never 'good' — a missing sample must not
+    // render as healthy telemetry.
+    const primaryQuality  = primaryChange?.quality   ?? 'uncertain';
+
+    /* ---- 6b. Per-tag staleness (T6) ---- */
+    // Threshold precedence: widget config.staleAfterSec → package
+    // trendConfig.sampleIntervalSec × STALENESS_FACTOR → 60 s default.
+    // (trendConfig state lives in the alarm/trend slice of the store.)
+    const trendSampleIntervalSec = useScadaPackageStore((s) => s.trendConfig?.sampleIntervalSec);
+    const staleAfterMs = useMemo(() => {
+      const cfg = Number(config.staleAfterSec);
+      if (Number.isFinite(cfg) && cfg > 0) return cfg * 1000;
+      if (
+        trendSampleIntervalSec != null &&
+        Number.isFinite(trendSampleIntervalSec) &&
+        trendSampleIntervalSec > 0
+      ) {
+        return trendSampleIntervalSec * 1000 * STALENESS_FACTOR;
+      }
+      return DEFAULT_STALE_AFTER_MS;
+    }, [config.staleAfterSec, trendSampleIntervalSec]);
+
+    const isPrimaryStale = useMemo(() => {
+      if (!primaryChange) return false;
+      return Date.now() - primaryChange.timestamp > staleAfterMs;
+    }, [primaryChange, staleAfterMs]);
 
     /* ---- 7. Wrapper styles from action effects ---- */
     const wrapperStyle = useMemo<React.CSSProperties>(() => {
@@ -348,6 +757,11 @@ export const RuntimeWidgetRenderer = memo<RuntimeWidgetRendererProps>(
         height:    h,
         overflow:  'hidden',
       };
+
+      // Stacking order (T7f) — builder stores sparse z indices.
+      if (zIndex !== undefined) {
+        style.zIndex = zIndex;
+      }
 
       // Hide
       if (!visible || isHidden) {
@@ -366,10 +780,14 @@ export const RuntimeWidgetRenderer = memo<RuntimeWidgetRendererProps>(
         style.outline = `2px solid ${currentColor.fill}`;
       }
 
-      // Rotation + translation
-      const transform = buildTransform(rotation, translation);
-      if (transform) {
-        style.transform = transform;
+      // Rotation + translation (+ builder free-form transform, T7f)
+      const actionTransform = buildTransform(rotation, translation);
+      if (actionTransform && transform) {
+        style.transform = `${transform} ${actionTransform}`;
+      } else {
+        style.transform = actionTransform ?? transform;
+      }
+      if (style.transform) {
         style.transformOrigin = 'center center';
       }
 
@@ -378,6 +796,24 @@ export const RuntimeWidgetRenderer = memo<RuntimeWidgetRendererProps>(
         style.opacity = 0.5;
         style.pointerEvents = 'none';
         style.cursor = 'not-allowed';
+      }
+
+      // Stale data marking (T6)
+      if (isPrimaryStale) {
+        style.outline = '1px dashed rgba(234, 179, 8, 0.9)';
+        style.outlineOffset = -1;
+      }
+
+      // Write-ack flash (T5)
+      if (writeAck === 'ok') {
+        style.outline = '2px solid rgb(34, 197, 94)';
+      } else if (writeAck === 'fail') {
+        style.outline = '2px solid rgb(220, 38, 38)';
+      }
+
+      // Latched E-STOP (T3)
+      if (eStopLatched) {
+        style.outline = '3px solid rgb(153, 27, 27)';
       }
 
       return style;
@@ -392,17 +828,26 @@ export const RuntimeWidgetRenderer = memo<RuntimeWidgetRendererProps>(
       rotation,
       translation,
       enabled,
+      isPrimaryStale,
+      writeAck,
+      eStopLatched,
+      zIndex,
+      transform,
     ]);
 
     /* ---- Early-exit: hidden (permission or action) ---- */
     if (!visible) return null;
 
     /* ---- 8. Dispatch to renderer ---- */
-    const content = isRuntimeOnlyType(widgetType) ? (
+    const chartConfig = isTrendChartType(widgetType)
+      ? buildTrendChartConfig(config)
+      : config;
+
+    const content = isRuntimeOnlyType(widgetType) || isTrendChartType(widgetType) ? (
       <Suspense fallback={<RuntimeSkeleton w={w} h={h} />}>
         <RuntimeOnlyRenderer
-          widgetType={widgetType}
-          config={config}
+          widgetType={isTrendChartType(widgetType) ? 'runtimeChart' : widgetType as RuntimeOnlyWidgetType}
+          config={chartConfig}
           tagIds={tagIds}
           tagValues={tagValues}
           primaryValue={primaryValue}
@@ -439,8 +884,10 @@ export const RuntimeWidgetRenderer = memo<RuntimeWidgetRendererProps>(
     return (
       <div
         style={wrapperStyle}
-        aria-hidden={isHidden || !visible}
+        className={isPrimaryStale ? 'scada-tag-stale' : undefined}
         data-widget-type={widgetType}
+        data-widget-id={widgetId}
+        aria-hidden={isHidden || !visible}
         onClick={() => handleEvent('click')}
         onDoubleClick={() => handleEvent('dblclick')}
         onMouseDown={() => handleEvent('mousedown')}
@@ -451,6 +898,52 @@ export const RuntimeWidgetRenderer = memo<RuntimeWidgetRendererProps>(
         <RuntimeErrorBoundary widgetType={widgetType} w={w} h={h}>
           {content}
         </RuntimeErrorBoundary>
+
+        {/* Latched E-STOP reset affordance (A3) — gates on resetRequiresPin */}
+        {eStopLatched && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              requestEStopReset();
+            }}
+            className="absolute top-1 right-1 z-10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide rounded bg-red-900 text-white hover:bg-red-700"
+            title={
+              controlPermissions?.emergencyStop?.resetRequiresPin
+                ? 'Reset E-Stop (PIN required)'
+                : 'Reset E-Stop'
+            }
+          >
+            Reset E-Stop
+          </button>
+        )}
+
+        {/* Inline confirm (T5) — never window.confirm */}
+        {pendingConfirm && (
+          <InlineConfirmDialog
+            message={
+              pendingConfirm.command === 'emergencyStop'
+                ? 'EMERGENCY STOP: all affected tags will be driven to their safe values. Activate?'
+                : `Confirm command "${pendingConfirm.command}"${
+                    pendingConfirm.value !== undefined ? ` (${String(pendingConfirm.value)})` : ''
+                  }?`
+            }
+            onConfirm={handleConfirmAccept}
+            onCancel={() => setPendingConfirm(null)}
+          />
+        )}
+
+        {/* PIN elevation (T5) — server-side verification */}
+        {pendingPin && (
+          <PinDialog
+            onVerified={() => {
+              const pending = pendingPin;
+              setPendingPin(null);
+              if (pending) void performWrite(pending.command, pending.value);
+            }}
+            onCancel={() => setPendingPin(null)}
+          />
+        )}
       </div>
     );
   },

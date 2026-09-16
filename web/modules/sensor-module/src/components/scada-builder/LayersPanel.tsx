@@ -54,6 +54,7 @@ import {
 } from 'lucide-react';
 import type { ScreenWidget } from '../../types/scada-package.types';
 import { useScadaPackageStore } from '../../store/scada';
+import { groupColorFor } from './groupColor';
 
 /* ------------------------------------------------------------------ */
 /*  Widget type icon mapping                                           */
@@ -152,6 +153,17 @@ const LayerRow: React.FC<LayerRowProps> = React.memo(({
   return (
     <div
       data-testid={`layer-row-${widget.id}`}
+      role="button"
+      tabIndex={0}
+      aria-pressed={isSelected}
+      aria-label={`Layer ${displayName}`}
+      onKeyDown={(e) => {
+        // Keyboard selection parity with click
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onSelect(widget.id);
+        }
+      }}
       className={`
         flex items-center gap-1 px-2 py-1.5 text-xs cursor-pointer select-none
         transition-colors group border-b border-gray-50
@@ -260,15 +272,12 @@ export const LayersPanel: React.FC = () => {
   }, []);
 
   /**
-   * Compute a deterministic color for each groupId (same algorithm as ScadaWidgetNode).
+   * Deterministic color per groupId — shared single util with ScadaWidgetNode.
    */
-  const getGroupColor = useCallback((groupId: string): string => {
-    let hash = 0;
-    for (let i = 0; i < groupId.length; i++) {
-      hash = (hash + groupId.charCodeAt(i) * 37) % 360;
-    }
-    return `hsl(${hash}, 70%, 55%)`;
-  }, []);
+  const getGroupColor = useCallback(
+    (groupId: string): string => groupColorFor(groupId) ?? 'hsl(0, 0%, 55%)',
+    [],
+  );
 
   /**
    * Sorted widget list: z-index descending (highest on top, like Figma).

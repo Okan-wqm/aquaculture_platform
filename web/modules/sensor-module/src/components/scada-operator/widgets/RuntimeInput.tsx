@@ -14,6 +14,7 @@ import React, { memo, useState, useCallback, useRef, useEffect } from 'react';
 import { CheckCircle, AlertCircle, Lock, Loader2 } from 'lucide-react';
 import { useTagWrite } from '../../../hooks/useTagWrite';
 import { getScadaSocketService } from '../../../services/ScadaSocketService';
+import { getWidgetTagBinding } from '../../../engine/tags/widgetBinding';
 import { useScadaPackageStore } from '../../../store/scada';
 import type { RuntimeWidgetProps } from '../../../types/scada-runtime.types';
 
@@ -37,7 +38,9 @@ const RuntimeInput: React.FC<RuntimeWidgetProps> = ({
   /* ---- config ---- */
   const label = (config.label ?? 'Input') as string;
   const inputType = (config.inputType ?? 'text') as InputType;
-  const tagId = (config.tagId ?? '') as string;
+  // T5: canonical binding resolution (tagRef → legacy keys) — a bare
+  // config.tagId read missed every widget bound via tagRef/tagName.
+  const tagId = getWidgetTagBinding(config) ?? '';
   const minVal = config.min !== undefined ? Number(config.min) : undefined;
   const maxVal = config.max !== undefined ? Number(config.max) : undefined;
   const decimals = (config.decimals ?? 2) as number;

@@ -3,6 +3,16 @@
  *
  * Manages the HMI operator shell: layout configuration, sidenav,
  * alarm panel visibility, kiosk mode, user role, and view overlays.
+ *
+ * STORE UNIFICATION (T7): this slice lives ONLY inside the unified
+ * useScadaPackageStore — the standalone operatorStore.ts is deleted. The
+ * overlay mutators are named *ViewOverlay (not openOverlay/closeOverlay) so
+ * they do not collide with ViewManagerSlice in the composed ScadaStore type.
+ *
+ * SERVER-AUTHORITATIVE ROLE (T4): currentUserRole is written from the
+ * socket AUTH handshake (`{ authenticated, role, tenantId, userId }`) —
+ * the JWT role is the single source of truth. There is deliberately no
+ * client-side role switching.
  */
 import type { ScadaSliceCreator } from './types';
 import { generateId } from './types';
@@ -52,12 +62,17 @@ export interface OperatorSlice {
   setSidenavOpen: (open: boolean) => void;
   toggleAlarmPanel: () => void;
   setKioskMode: (on: boolean) => void;
+  /**
+   * Set the operator role. Source of truth is the server's AUTH push;
+   * unknown server roles degrade to 'viewer' (least privilege).
+   */
   setCurrentUserRole: (role: HmiRole) => void;
 
-  // Overlay management
-  openOverlay: (overlay: Omit<ViewOverlay, 'id' | 'zIndex'>) => string;
-  closeOverlay: (id: string) => void;
-  closeAllOverlays: () => void;
+  // Overlay management (operator runtime overlay stack — distinct from the
+  // builder's ViewManagerSlice overlays; named *ViewOverlay to compose).
+  openViewOverlay: (overlay: Omit<ViewOverlay, 'id' | 'zIndex'>) => string;
+  closeViewOverlay: (id: string) => void;
+  closeAllViewOverlays: () => void;
   bringOverlayToFront: (id: string) => void;
 }
 
@@ -112,7 +127,7 @@ export const createOperatorSlice: ScadaSliceCreator<OperatorSlice> = (set, get) 
     }),
 
   // Overlay management
-  openOverlay: (overlay) => {
+  openViewOverlay: (overlay) => {
     const id = generateId();
     set((state) => {
       const maxZIndex = state.activeOverlays.reduce(
@@ -124,12 +139,12 @@ export const createOperatorSlice: ScadaSliceCreator<OperatorSlice> = (set, get) 
     return id;
   },
 
-  closeOverlay: (id) =>
+  closeViewOverlay: (id) =>
     set((state) => {
       state.activeOverlays = state.activeOverlays.filter((o) => o.id !== id);
     }),
 
-  closeAllOverlays: () =>
+  closeAllViewOverlays: () =>
     set((state) => {
       state.activeOverlays = [];
     }),

@@ -156,19 +156,26 @@ export function usePropertiesPanelHandlers(
     [activeScreenId, removeEdge],
   );
 
-  // Alarm rules change handler — diff-based
+  // Alarm rules change handler — diff-based fan-out: only touches the store
+  // (and therefore history) for rules that were actually added/removed/changed
   const handleAlarmRulesChange = useCallback(
     (rules: AlarmRuleDef[]) => {
-      const existingIds = new Set(alarmRules.map((r) => r.id));
+      const existingById = new Map(alarmRules.map((r) => [r.id, r]));
       const newIds = new Set(rules.map((r) => r.id));
       for (const r of alarmRules) {
         if (!newIds.has(r.id)) removeAlarmRule(r.id);
       }
       for (const r of rules) {
-        if (!existingIds.has(r.id)) {
+        const existing = existingById.get(r.id);
+        if (!existing) {
           addAlarmRule(r);
         } else {
-          updateAlarmRule(r.id, r);
+          // Shallow diff before write — skip no-op updates so switching tabs
+          // does not spam isDirty/history with identical rules
+          const changed = (Object.keys(r) as Array<keyof AlarmRuleDef>).some(
+            (key) => existing[key] !== r[key],
+          );
+          if (changed) updateAlarmRule(r.id, r);
         }
       }
     },

@@ -18,6 +18,7 @@
 
 import React, { memo, useMemo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+import { getWidgetTagBinding } from '../../../engine/tags';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -65,7 +66,8 @@ const ProgressBarRenderer: React.FC<WidgetRendererProps> = ({
   height,
   isEditing,
 }) => {
-  const tagName = (config.tagName ?? '') as string;
+  // Canonical binding accessor (config.tagRef → legacy keys)
+  const tagName = getWidgetTagBinding(config) ?? '';
   const min = (config.min ?? 0) as number;
   const max = (config.max ?? 100) as number;
   const showLabel = (config.showLabel ?? true) as boolean;

@@ -1,14 +1,32 @@
 /**
  * CsvTagDialog - CSV Import/Export for SCADA widget tag bindings
  *
- * Export tab: generates CSV from current screen's widgets that have tag bindings.
- * Import tab: parses a CSV file and applies tag bindings to matching widgets.
+ * Export tab: generates CSV from current screen's widgets that have tag
+ * bindings (read via getWidgetTagBinding — tagRef included). Formula
+ * prefixes are neutralized per OWASP CSV-injection guidance.
+ *
+ * Import tab: hard caps (2 MB / 5000 rows / 200 chars per field / header
+ * whitelist) are enforced BEFORE parsing — oversized input is REJECTED,
+ * never truncated. The parser is a record-accumulating state machine that
+ * handles quoted newlines, escaped quotes, CRLF and BOM. Tag values that
+ * match the canonical TagRef grammar write config.tagRef; plain names
+ * write config.tagName.
  */
 
 import React, { useState, useCallback, useRef, useMemo } from 'react';
 import { Download, Upload, X, FileSpreadsheet, AlertCircle, CheckCircle } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useScadaPackageStore } from '../../store/scada';
+import { getWidgetTagBinding } from '../../engine/tags';
+import {
+  escapeCsvField,
+  neutralizeFormula,
+  parseCsv,
+  validateImport,
+  validateFileSize,
+  buildTagConfigPatch,
+  stripFormulaNeutralizer,
+} from './csvTagUtils';
 
 interface CsvRow {
   widgetId: string;
@@ -23,48 +41,6 @@ interface CsvTagDialogProps {
 }
 
 const CSV_HEADER = 'widgetId,widgetType,tagName,label';
-
-/** Escape a field for CSV output (wrap in quotes if it contains comma, quote, or newline). */
-function escapeCsvField(value: string): string {
-  if (value.includes(',') || value.includes('"') || value.includes('\n')) {
-    return `"${value.replace(/"/g, '""')}"`;
-  }
-  return value;
-}
-
-/** Parse a single CSV line respecting quoted fields. */
-function parseCsvLine(line: string): string[] {
-  const fields: string[] = [];
-  let current = '';
-  let inQuotes = false;
-
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    if (inQuotes) {
-      if (ch === '"') {
-        if (i + 1 < line.length && line[i + 1] === '"') {
-          current += '"';
-          i++;
-        } else {
-          inQuotes = false;
-        }
-      } else {
-        current += ch;
-      }
-    } else {
-      if (ch === '"') {
-        inQuotes = true;
-      } else if (ch === ',') {
-        fields.push(current.trim());
-        current = '';
-      } else {
-        current += ch;
-      }
-    }
-  }
-  fields.push(current.trim());
-  return fields;
-}
 
 export const CsvTagDialog: React.FC<CsvTagDialogProps> = ({ open, onClose }) => {
   const [tab, setTab] = useState<'export' | 'import'>('export');
@@ -83,27 +59,30 @@ export const CsvTagDialog: React.FC<CsvTagDialogProps> = ({ open, onClose }) => 
 
   const activeScreen = screens.find((s) => s.id === activeScreenId);
 
-  // Build export rows from current screen widgets with tag bindings
+  // Build export rows from current screen widgets with tag bindings.
+  // Canonical accessor (config.tagRef → legacy keys) — tagRef included.
   const exportRows: CsvRow[] = useMemo(() => {
     if (!activeScreen) return [];
     return activeScreen.widgets
-      .filter((w) => {
-        const tag = (w.config.tagName ?? w.config.tag ?? '') as string;
-        return tag.length > 0;
-      })
       .map((w) => ({
         widgetId: w.id,
         widgetType: w.widgetType,
-        tagName: (w.config.tagName ?? w.config.tag ?? '') as string,
+        tagName: getWidgetTagBinding(w.config) ?? '',
         label: (w.config.label ?? '') as string,
-      }));
+      }))
+      .filter((r) => r.tagName.length > 0);
   }, [activeScreen]);
 
-  // Generate CSV string
+  // Generate CSV string (formula prefixes neutralized per OWASP)
   const generateCsv = useCallback((): string => {
     const rows = exportRows.map(
       (r) =>
-        `${escapeCsvField(r.widgetId)},${escapeCsvField(r.widgetType)},${escapeCsvField(r.tagName)},${escapeCsvField(r.label)}`,
+        [
+          escapeCsvField(neutralizeFormula(r.widgetId)),
+          escapeCsvField(neutralizeFormula(r.widgetType)),
+          escapeCsvField(neutralizeFormula(r.tagName)),
+          escapeCsvField(neutralizeFormula(r.label)),
+        ].join(','),
     );
     return [CSV_HEADER, ...rows].join('\n');
   }, [exportRows]);
@@ -120,37 +99,37 @@ export const CsvTagDialog: React.FC<CsvTagDialogProps> = ({ open, onClose }) => 
     URL.revokeObjectURL(url);
   }, [generateCsv, activeScreen]);
 
-  // Parse uploaded CSV file
+  // Parse uploaded CSV file — caps BEFORE parsing, reject (never truncate)
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setImportError(null);
     setApplySuccess(null);
 
+    const sizeError = validateFileSize(file.size);
+    if (sizeError) {
+      setImportError(sizeError);
+      if (fileRef.current) fileRef.current.value = '';
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = () => {
-      try {
-        const text = reader.result as string;
-        const lines = text
-          .trim()
-          .split(/\r?\n/)
-          .map((line) => parseCsvLine(line));
+      const text = reader.result as string;
 
-        if (lines.length < 2) {
-          setImportError('CSV must have a header row and at least one data row.');
-          return;
-        }
-
-        const header = lines[0];
-        if (!header.includes('widgetId') || !header.includes('tagName')) {
-          setImportError('CSV must have "widgetId" and "tagName" columns.');
-          return;
-        }
-
-        setImportData(lines);
-      } catch {
-        setImportError('Failed to parse CSV file.');
+      const parsed = parseCsv(text);
+      if (!parsed.ok) {
+        setImportError(parsed.error);
+        return;
       }
+
+      const validation = validateImport(parsed.records);
+      if (!validation.ok) {
+        setImportError(validation.error ?? 'Invalid CSV.');
+        return;
+      }
+
+      setImportData([validation.header, ...validation.dataRows]);
     };
     reader.onerror = () => {
       setImportError('Failed to read file.');
@@ -180,8 +159,8 @@ export const CsvTagDialog: React.FC<CsvTagDialogProps> = ({ open, onClose }) => 
 
     for (let i = 1; i < importData.length; i++) {
       const row = importData[i];
-      const widgetId = row[idIdx];
-      const tagName = row[tagIdx];
+      const widgetId = stripFormulaNeutralizer(row[idIdx] ?? '');
+      const tagName = stripFormulaNeutralizer(row[tagIdx] ?? '');
 
       if (!widgetId || !tagName) continue;
 
@@ -191,14 +170,11 @@ export const CsvTagDialog: React.FC<CsvTagDialogProps> = ({ open, onClose }) => 
         continue;
       }
 
-      const updates: Record<string, unknown> = { tagName };
-      if (labelIdx !== -1 && row[labelIdx]) {
-        updates.label = row[labelIdx];
-      }
+      // Canonical TagRef values → config.tagRef; plain names → config.tagName
+      const label = labelIdx !== -1 ? stripFormulaNeutralizer(row[labelIdx] ?? '') : undefined;
+      const config = buildTagConfigPatch(widget.config, tagName, label);
 
-      updateWidget(activeScreenId, widgetId, {
-        config: { ...widget.config, ...updates },
-      });
+      updateWidget(activeScreenId, widgetId, { config });
       applied++;
     }
 
@@ -349,6 +325,10 @@ export const CsvTagDialog: React.FC<CsvTagDialogProps> = ({ open, onClose }) => 
                       </tbody>
                     </table>
                   </div>
+                  <p className="text-[11px] text-gray-400">
+                    Formula prefixes (=, +, -, @) are neutralized on export (OWASP CSV guidance).
+                    Limits on import: 2 MB, 5000 rows, 200 chars/field.
+                  </p>
                 </>
               )}
             </div>
@@ -372,7 +352,7 @@ export const CsvTagDialog: React.FC<CsvTagDialogProps> = ({ open, onClose }) => 
 
               {/* Error */}
               {importError && (
-                <div className="p-3 rounded-lg flex items-start gap-2 bg-red-50 text-red-700 border border-red-200">
+                <div className="p-3 rounded-lg flex items-start gap-2 bg-red-50 text-red-700 border border-red-200" role="alert">
                   <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
                   <span className="text-sm">{importError}</span>
                 </div>

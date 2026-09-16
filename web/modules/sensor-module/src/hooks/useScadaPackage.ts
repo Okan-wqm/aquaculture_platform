@@ -10,6 +10,7 @@ import {
   DELETE_SCADA_PACKAGE,
   DEPLOY_SCADA_PACKAGE,
   DEPLOY_SCADA_WITH_AUTOMATION,
+  PUBLISH_SCADA_PACKAGE,
 } from '../graphql/scada-package.queries';
 import type {
   ScadaPackage,
@@ -264,6 +265,26 @@ export function useDeployScadaPackage() {
         };
       }>(DEPLOY_SCADA_PACKAGE, { packageId, deviceId });
       return data.deployScadaPackageToEdge;
+    },
+  });
+}
+
+/** Result of publishing a SCADA package to the cloud registry. */
+export interface PublishScadaPackageResult {
+  success: boolean;
+  message?: string;
+  version?: number;
+}
+
+// Mutation hook for publishing a SCADA package to the cloud
+export function usePublishScadaPackage() {
+  return useMutation({
+    mutationFn: async ({ id }: { id: string }) => {
+      const data = await graphqlFetch<{ publishScadaPackage: PublishScadaPackageResult }>(
+        PUBLISH_SCADA_PACKAGE,
+        { id },
+      );
+      return data.publishScadaPackage;
     },
   });
 }

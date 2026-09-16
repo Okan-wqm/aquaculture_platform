@@ -21,8 +21,6 @@ import React, {
 import { useShallow } from 'zustand/react/shallow';
 import { X, Maximize2, Minimize2, GripVertical } from 'lucide-react';
 
-import { useOperatorStore } from '../../store/scada/operatorStore';
-
 /* ------------------------------------------------------------------ */
 /*  Types                                                               */
 /* ------------------------------------------------------------------ */

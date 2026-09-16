@@ -12,15 +12,36 @@ import type { AnimationState } from '../../engine/animation/types';
 
 /* ------------------------------------------------------------------ */
 /*  Shared severity color palette for alarm widgets                    */
+/*                                                                     */
+/*  Canonical severities: critical / high / warning / info. Legacy     */
+/*  'medium' inputs resolve to 'high' and legacy 'low' to 'warning'    */
+/*  (see resolveSeverity) so every alarm widget uses ONE severity      */
+/*  scale. The deprecated alias keys stay on the palette only so       */
+/*  not-yet-migrated renderers keep compiling during the transition.   */
 /* ------------------------------------------------------------------ */
+
+export type CanonicalSeverity = 'critical' | 'high' | 'warning' | 'info';
 
 export const ALARM_SEVERITY_COLORS = {
   critical: { bg: '#ef4444', text: '#ffffff' },
   high:     { bg: '#f97316', text: '#ffffff' },
-  medium:   { bg: '#eab308', text: '#000000' },
-  low:      { bg: '#3b82f6', text: '#ffffff' },
+  warning:  { bg: '#eab308', text: '#000000' },
   info:     { bg: '#6b7280', text: '#ffffff' },
 } as const;
+
+/** Tolerant severity resolution with legacy medium→high, low→warning. */
+export function resolveSeverity(raw: unknown): CanonicalSeverity {
+  switch (raw) {
+    case 'critical':
+    case 'high':
+    case 'warning':
+    case 'info':
+      return raw;
+    case 'medium': return 'high';
+    case 'low': return 'warning';
+    default: return 'info';
+  }
+}
 
 /* ------------------------------------------------------------------ */
 /*  Common renderer props                                              */
@@ -33,8 +54,6 @@ export interface WidgetRendererProps {
   height: number;
   isEditing: boolean;
   onCommand?: (command: string, value?: unknown) => void;
-  tagName?: string;
-  label?: string;
   animationState?: AnimationState;
 }
 

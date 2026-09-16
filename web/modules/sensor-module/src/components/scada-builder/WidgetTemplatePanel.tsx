@@ -5,21 +5,30 @@
  * active screen at a default position. Also allows deleting templates.
  */
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect } from 'react';
 import { Bookmark, Trash2, Plus } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useScadaPackageStore } from '../../store/scada';
+import { cascadeInsertPosition } from './insertPosition';
 
 export const WidgetTemplatePanel: React.FC = () => {
-  const { widgetTemplates, activeScreenId, deleteTemplate, applyTemplate } =
+  const { widgetTemplates, activeScreenId, screenViewports, screens, hydrateTemplatesFromStorage, deleteTemplate, applyTemplate } =
     useScadaPackageStore(
       useShallow((s) => ({
         widgetTemplates: s.widgetTemplates,
         activeScreenId: s.activeScreenId,
+        screenViewports: s.screenViewports,
+        screens: s.screens,
+        hydrateTemplatesFromStorage: s.hydrateTemplatesFromStorage,
         deleteTemplate: s.deleteTemplate,
         applyTemplate: s.applyTemplate,
       })),
     );
+
+  // Tenant-scoped templates load lazily here (store creation has no tenant ctx)
+  useEffect(() => {
+    hydrateTemplatesFromStorage();
+  }, [hydrateTemplatesFromStorage]);
 
   const grouped = useMemo(() => {
     const map: Record<string, typeof widgetTemplates> = {};
@@ -34,8 +43,15 @@ export const WidgetTemplatePanel: React.FC = () => {
 
   const handleApply = (templateId: string) => {
     if (!activeScreenId) return;
-    // Place at a default position (center-ish)
-    applyTemplate(activeScreenId, templateId, { col: 2, row: 2 });
+    // Viewport-aware cascade: the insert lands in the visible area and
+    // consecutive inserts stack by one cell instead of one fixed spot.
+    const widgetCount =
+      screens.find((s) => s.id === activeScreenId)?.widgets.length ?? 0;
+    const position = cascadeInsertPosition({
+      viewport: screenViewports[activeScreenId],
+      widgetCount,
+    });
+    applyTemplate(activeScreenId, templateId, position);
   };
 
   if (widgetTemplates.length === 0) {

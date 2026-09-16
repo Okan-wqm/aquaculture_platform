@@ -28,7 +28,7 @@ export interface CollapsiblePanelProps {
   collapsed: boolean;
   onToggle: () => void;
   width: number;
-  railIcons: RailIcon[];
+  railIcons?: RailIcon[];
   activeRailIcon?: string;
   onRailIconClick?: (iconId: string) => void;
   children: React.ReactNode;
@@ -223,7 +223,7 @@ export const CollapsiblePanel: React.FC<CollapsiblePanelProps> = ({
       {collapsed && (
         <div className="h-full bg-gray-50">
           <IconRail
-            icons={railIcons}
+            icons={railIcons ?? []}
             side={side}
             activeIconId={activeRailIcon}
             onIconClick={(iconId) => {

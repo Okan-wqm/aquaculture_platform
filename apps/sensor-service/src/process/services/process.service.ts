@@ -402,9 +402,9 @@ export class ProcessService {
       const refs = tagMappings.map((tm) => `${device.deviceCode}/${tm.tagName}`);
       const resolution = await this.tagResolutionService.resolve(tenantId, refs);
       if (resolution.unresolved.length > 0) {
-        const detail = `deploy_process ${processId}: ${resolution.unresolved.length}/${refs.length} tag mapping çözülemedi: ${JSON.stringify(resolution.unresolved)}`;
+        const detail = `deploy_process ${processId}: ${resolution.unresolved.length}/${refs.length} tag mappings could not be resolved: ${JSON.stringify(resolution.unresolved)}`;
         if (this.isDeployTagGateEnforced()) {
-          throw new BadRequestException(`${detail} — deploy engellendi (SCADA_DEPLOY_TAG_GATE=enforce)`);
+          throw new BadRequestException(`${detail} — deploy blocked (SCADA_DEPLOY_TAG_GATE=enforce)`);
         }
         this.logger.warn(detail);
       }

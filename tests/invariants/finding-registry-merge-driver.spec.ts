@@ -237,6 +237,77 @@ describe('INVARIANT: finding registry merge driver', () => {
       expect(serializeRegistryJsonl(result.entries)).toBe(serializeRegistryJsonl(theirs));
     });
 
+    it('stays monotonic across a chain of merges', () => {
+      // The 2026-09-16 shape, and the case the first version of this driver
+      // refused for no reason. Link one merges upstream into a branch:
+      // upstream's new rows land ahead of the branch's own tail row, so that
+      // row moves from index 1 to index 3 while keeping its position AFTER
+      // every base row. Link two, one link down the stack, takes the
+      // PRE-MERGE branch state as its base and the merged branch as its
+      // incoming side — and a positional prefix check reads the moved row as
+      // a reorder. Indices are not the invariant; order is.
+      const shared = ledger(['ADMIN-HIGH-001']);
+      const branch = appendRow(shared, 'ADMIN-HIGH-135'); // the PR's own row
+      const upstream = appendRow(appendRow(shared, 'ARIA-HIGH-064'), 'SUPPLY-HIGH-011');
+
+      const link1 = mergeAppendOnlyRegistry(shared, branch, upstream);
+      expect(link1.ok).toBe(true);
+      if (!link1.ok) return;
+      expect(link1.entries.map((entry) => entry.id)).toEqual([
+        'ADMIN-HIGH-001',
+        'ARIA-HIGH-064',
+        'SUPPLY-HIGH-011',
+        'ADMIN-HIGH-135',
+      ]);
+      // The result extends the INCOMING side positionally — that property is
+      // what makes the next link's order check pass.
+      expect(serializeRegistryJsonl(link1.entries.slice(0, upstream.length))).toBe(
+        serializeRegistryJsonl(upstream),
+      );
+
+      // Link two: the child carries the branch's pre-merge rows plus its own.
+      const child = appendRow(appendRow(branch, 'ADMIN-HIGH-136'), 'ADMIN-HIGH-137');
+      const link2 = mergeAppendOnlyRegistry(branch, child, link1.entries);
+      expect(link2.ok).toBe(true);
+      if (!link2.ok) return;
+      expect(link2.entries.map((entry) => entry.id)).toEqual([
+        'ADMIN-HIGH-001',
+        'ARIA-HIGH-064',
+        'SUPPLY-HIGH-011',
+        'ADMIN-HIGH-135',
+        'ADMIN-HIGH-136',
+        'ADMIN-HIGH-137',
+      ]);
+      expect(verify(link2.entries).ok).toBe(true);
+    });
+
+    it('matches rows by id, not by index, when resolving a shared row', () => {
+      // An upstream row landing ahead of a branch's tail shifts every later
+      // index by one. A merge that paired rows positionally would compare the
+      // branch's row against a different finding entirely.
+      const shared = ledger(['ADMIN-HIGH-001', 'ADMIN-HIGH-002']);
+      const branch = appendRow(shared, 'ADMIN-HIGH-135');
+      const upstream = closeRow(
+        appendRow(shared, 'ARIA-HIGH-064'),
+        'ADMIN-HIGH-002',
+        'abc123456789',
+      );
+
+      const result = mergeAppendOnlyRegistry(shared, branch, upstream);
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      const byId = new Map(result.entries.map((entry) => [entry.id, entry]));
+      expect(byId.get('ADMIN-HIGH-002')?.state).toBe('RESOLVED');
+      expect(byId.get('ADMIN-HIGH-135')?.state).toBe('OPEN');
+      expect(result.entries.map((entry) => entry.id)).toEqual([
+        'ADMIN-HIGH-001',
+        'ADMIN-HIGH-002',
+        'ARIA-HIGH-064',
+        'ADMIN-HIGH-135',
+      ]);
+      expect(verify(result.entries).ok).toBe(true);
+    });
+
     it('refuses a deleted row', () => {
       const base = ledger(['ADMIN-HIGH-001', 'ADMIN-HIGH-002']);
       const ours = [{ ...(base[0] as Finding) }];

@@ -30,22 +30,33 @@
  *
  * It decides only what the append-only invariant makes unambiguous:
  *
- *   * the shared prefix, row by row — whichever side changed a row wins,
- *     because the other side did not touch it;
- *   * the tail — upstream's new rows, then this branch's, so the branch's
- *     additions stay the tail they were authored as;
+ *   * the shared rows, matched BY ID and not by index — whichever side
+ *     changed a row wins, because the other side did not touch it. Identity
+ *     is the only stable key here: the moment an upstream row lands ahead of
+ *     a branch's tail, every later index moves;
+ *   * the order — the incoming side supplies it, and this branch's own rows
+ *     are appended after. The result therefore extends the incoming side
+ *     positionally, which is what keeps a CHAIN of merges monotonic: the next
+ *     link up a stack takes this result as its incoming side and sees no
+ *     reorder. The branch's rows stay the tail its `Closes:` trailers, plan
+ *     snapshots and chain tip all name;
  *   * the chain — recomputed from the merged contents, which is why the
  *     result is verified rather than assumed.
  *
  * It REFUSES, and leaves a conflict for a human, on anything else:
  *
- *   * a row deleted or reordered on either side (not append-only);
+ *   * a row deleted on either side, or the base's rows reached out of their
+ *     base order (not append-only). Order, not position: a base row that
+ *     merely moved later because upstream appended ahead of it has not been
+ *     reordered, and refusing that was this driver's own first bug;
  *   * the SAME row mutated differently on both sides (a genuine concurrent
  *     decision — e.g. one side closes a finding and the other reopens it;
  *     no merge rule can pick the true one);
- *   * a duplicate id between the two sides' additions (two branches minted
- *     the same finding id — the exact failure the allocator's reservation
- *     ledger exists to prevent, and not something a merge may paper over);
+ *   * an id absent from the merge base and present on BOTH sides — two
+ *     branches minted the same finding id. That is the exact failure the
+ *     allocator's reservation ledger exists to prevent, and it is refused
+ *     even when the two rows read alike, because a merge is the last place
+ *     to catch a duplicate allocation and the wrong place to settle one;
  *   * a result whose chain does not verify.
  *
  * A refusal is the point as much as a resolution is. The driver is a
@@ -85,34 +96,55 @@ function refuse(reason: string): RegistryMergeRefusal {
 }
 
 /**
- * Assert the append-only shape of one side against the merge base: the
- * base's rows, in the base's order, are a prefix of the side's rows.
+ * Assert the append-only shape of one side against the merge base: every base
+ * row is still there, and the base's rows appear in the side in the base's
+ * relative order.
  *
- * This is the check that makes every later step safe. Without it, a side
- * that deleted or reordered a row would have its remaining rows silently
- * paired against the wrong base rows, and the merge would report a clean
- * result for a ledger it had quietly rewritten.
+ * This is the check that makes every later step safe. Without it, a side that
+ * deleted or reordered a row would have its remaining rows paired against the
+ * wrong base rows, and the merge would report a clean result for a ledger it
+ * had quietly rewritten.
+ *
+ * The first version of this demanded a POSITIONAL prefix — `side[i].id ===
+ * base[i].id` — and that was wrong in a way only a second merge reveals
+ * (2026-09-16, cascading main up a 20-branch stack). Merge one: upstream's new
+ * rows land ahead of the branch's own tail row, so the branch's row moves from
+ * index 1960 to 1969 while keeping its position AFTER every base row. Merge
+ * two, one link down, takes the pre-merge branch state as its base and sees
+ * index 1960 disagree — and refused a merge in which nothing had been
+ * reordered at all. Indices are not the invariant; ORDER is. A ledger where
+ * two branches append and a merge interleaves the tails preserves every
+ * side's relative order and no side's indices.
  */
 function appendOnlyViolation(
   side: RegistryMergeSide,
   base: readonly Finding[],
   entries: readonly Finding[],
 ): string | null {
-  if (entries.length < base.length) {
+  const present = new Set(entries.map((entry) => entry.id));
+  const missing = base.filter((entry) => !present.has(entry.id)).map((entry) => entry.id);
+  if (missing.length > 0) {
     return (
-      `${side} has ${entries.length} rows but the merge base has ${base.length}: ` +
+      `${side} no longer carries ${missing.length === 1 ? 'row' : 'rows'} ` +
+      `${missing.slice(0, 5).join(', ')}${missing.length > 5 ? ', …' : ''} from the merge base: ` +
       'a row was deleted, which the append-only ledger does not permit'
     );
   }
-  for (let i = 0; i < base.length; i++) {
-    const baseId = base[i]?.id;
-    const sideId = entries[i]?.id;
-    if (baseId !== sideId) {
+  // Order-preserving subsequence: walk the side once, consuming base ids in
+  // base order. A base row reached out of turn is a reorder.
+  let cursor = 0;
+  const baseIndexById = new Map(base.map((entry, index) => [entry.id, index]));
+  for (const entry of entries) {
+    const baseIndex = baseIndexById.get(entry.id);
+    if (baseIndex === undefined) continue;
+    if (baseIndex !== cursor) {
       return (
-        `${side} row ${i} is ${String(sideId)} but the merge base has ${String(baseId)}: ` +
-        'rows were reordered or removed, which the append-only ledger does not permit'
+        `${side} reaches base row ${entry.id} (base index ${baseIndex}) where base index ` +
+        `${cursor} (${String(base[cursor]?.id)}) was due: rows were reordered, which the ` +
+        'append-only ledger does not permit'
       );
     }
+    cursor += 1;
   }
   return null;
 }
@@ -139,21 +171,49 @@ export function mergeAppendOnlyRegistry(
     if (violation) return refuse(violation);
   }
 
-  const ourAdditions = ours.slice(base.length);
-  const theirAdditions = theirs.slice(base.length);
+  const baseById = new Map(base.map((entry) => [entry.id, entry]));
+  const ourById = new Map(ours.map((entry) => [entry.id, entry]));
+  const theirIds = new Set(theirs.map((entry) => entry.id));
 
-  // Upstream's additions first, then this branch's: the branch authored its
-  // rows as the tail and its `Closes:` trailers, plan snapshots and chain
-  // tip all name that tail. Interleaving by timestamp would renumber it.
+  // THEIRS supplies the row ORDER; ours-only rows are appended after it.
+  //
+  // Two properties follow, and the cascade needs both. The result extends
+  // `theirs` positionally, so a chain of merges up a stack stays monotonic —
+  // the next link takes this result as its incoming side and the order check
+  // passes without a reorder. And this branch's own rows stay the tail they
+  // were authored as, which is what its `Closes:` trailers, plan snapshots
+  // and chain tip all name.
+  //
+  // The rows are matched by ID, not by index. Indices move the moment an
+  // upstream row lands ahead of a branch's tail; identity does not.
   const merged: Finding[] = [];
   const sharedRowsFrom: Record<RegistryMergeSide, number> = { ours: 0, theirs: 0 };
+  let theirAdditions = 0;
 
-  for (let i = 0; i < base.length; i++) {
-    const baseEntry = base[i];
-    const ourEntry = ours[i];
-    const theirEntry = theirs[i];
-    if (!baseEntry || !ourEntry || !theirEntry) {
-      return refuse(`row ${i} is missing on one side after the append-only check passed`);
+  for (const theirEntry of theirs) {
+    const baseEntry = baseById.get(theirEntry.id);
+    if (!baseEntry) {
+      // Not in the merge base, so it was added after the fork. If BOTH sides
+      // carry it, both sides allocated it independently: two branches minted
+      // the same finding id. That is the failure the allocator's reservation
+      // ledger exists to prevent, and the one that once made eight commit
+      // trailers resolve to the wrong finding — so it is refused even when
+      // the two rows happen to read alike. A merge is the last place to catch
+      // a duplicate allocation and the wrong place to settle one.
+      if (ourById.has(theirEntry.id)) {
+        return refuse(
+          `duplicate finding id ${theirEntry.id} in the merged ledger — it is absent from the ` +
+            'merge base and present on both sides, so two branches minted it; the allocation ' +
+            'authority, not the merge, has to settle that',
+        );
+      }
+      merged.push({ ...theirEntry });
+      theirAdditions += 1;
+      continue;
+    }
+    const ourEntry = ourById.get(theirEntry.id);
+    if (!ourEntry) {
+      return refuse(`${theirEntry.id} is missing from ours after the append-only check passed`);
     }
     const ourChanged = !sameFindingBody(ourEntry, baseEntry);
     const theirChanged = !sameFindingBody(theirEntry, baseEntry);
@@ -161,7 +221,7 @@ export function mergeAppendOnlyRegistry(
     if (ourChanged && theirChanged) {
       if (!sameFindingBody(ourEntry, theirEntry)) {
         return refuse(
-          `${baseEntry.id} (row ${i}) was changed differently on both sides — ` +
+          `${baseEntry.id} was changed differently on both sides — ` +
             'a concurrent decision on one finding, which no merge rule can resolve',
         );
       }
@@ -182,7 +242,12 @@ export function mergeAppendOnlyRegistry(
     merged.push({ ...baseEntry });
   }
 
-  for (const entry of [...theirAdditions, ...ourAdditions]) merged.push({ ...entry });
+  let ourAdditions = 0;
+  for (const ourEntry of ours) {
+    if (theirIds.has(ourEntry.id)) continue;
+    merged.push({ ...ourEntry });
+    ourAdditions += 1;
+  }
 
   const duplicate = duplicateId(merged);
   if (duplicate) {
@@ -206,7 +271,7 @@ export function mergeAppendOnlyRegistry(
     ok: true,
     entries: merged,
     sharedRowsFrom,
-    addedFrom: { theirs: theirAdditions.length, ours: ourAdditions.length },
+    addedFrom: { theirs: theirAdditions, ours: ourAdditions },
   };
 }
 

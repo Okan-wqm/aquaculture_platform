@@ -13,8 +13,8 @@ from .ledger import (
     append_jsonl as _append_jsonl,
     load_declared_jsonl,
     load_jsonl as _load_jsonl,
+    state_transaction,
 )
-from .file_lock import with_exclusive_lock
 from .implementation_safety import verify_bash_command_allowed
 from .runtime_profile import enforce_profile_for_write
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, update_tools_index, utc_now
@@ -195,16 +195,31 @@ def submit_worker_result(
                 assignment_id=str(request["assignment_id"]), worktree=worktree,
             )
         claims_path = root / "dispatch" / "claims.jsonl"
-        with with_exclusive_lock(claims_path):
+        # The claim ledger is read under the SAME ordered acquisition its
+        # writers use (`worker_dispatch.claim_assignment` / release:
+        # `state_transaction([claims_path])`), so this reader takes the
+        # group, index and file locks in their order and waits the
+        # state-lock liveness bound for a live holder. A raw
+        # `with_exclusive_lock(claims_path)` here took the file lock alone,
+        # outside that order, and inherited the helper's 5 s default — a
+        # reader that could deadlock against a writer holding the group lock
+        # and, on a loaded host, gave up on a healthy holder.
+        # Only the READ is under the transaction. The rejection row is
+        # appended after it is released: `_reject` is itself a state write
+        # through `state_transaction`, and the state-group lock is not
+        # re-entrant across two acquisitions in one thread — a reject
+        # issued inside would wait the whole liveness bound on its own
+        # holder.
+        with state_transaction([claims_path]):
             active_claim_or_reject = _resolve_active_claim_for_submit(
                 root, str(request["assignment_id"]), lease_token=lease_token,
             )
-            if isinstance(active_claim_or_reject, str):
-                return _reject(
-                    root, active_claim_or_reject,
-                    assignment_id=str(request["assignment_id"]), worktree=worktree,
-                )
-            active_claim = active_claim_or_reject
+        if isinstance(active_claim_or_reject, str):
+            return _reject(
+                root, active_claim_or_reject,
+                assignment_id=str(request["assignment_id"]), worktree=worktree,
+            )
+        active_claim = active_claim_or_reject
     base_sha = str(request["base_sha"])
     head_sha = _git(worktree, "rev-parse", "HEAD")
     diff = _git(worktree, "diff", f"{base_sha}...{head_sha}")

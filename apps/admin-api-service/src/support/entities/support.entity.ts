@@ -4,6 +4,7 @@
  * Messaging, announcements, tickets ve onboarding için entity tanımları.
  */
 
+import { ApiHideProperty } from '@nestjs/swagger';
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -184,6 +185,15 @@ export class Announcement {
   @Column({ type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown>;
 
+  /**
+   * ADMIN-HIGH-145: hidden from the contract because no read path loads it.
+   * The relation is declared non-optional for TypeORM, so the generated schema
+   * listed `acknowledgments` among the REQUIRED fields of every announcement
+   * the API returns — a field no response has ever carried. A client typed
+   * from the artifact would have believed the roster arrives with the row.
+   * The roster has its own endpoint: `GET /:id/acknowledgments`.
+   */
+  @ApiHideProperty()
   @OneToMany(() => AnnouncementAcknowledgment, ack => ack.announcement)
   acknowledgments!: AnnouncementAcknowledgment[];
 
@@ -224,6 +234,8 @@ export class AnnouncementAcknowledgment {
   @Column({ type: 'timestamptz', nullable: true })
   acknowledgedAt?: Date;
 
+  /** ADMIN-HIGH-145: hidden from the contract — see `Announcement.acknowledgments`. */
+  @ApiHideProperty()
   @ManyToOne(() => Announcement, announcement => announcement.acknowledgments)
   @JoinColumn({ name: 'announcementId' })
   announcement!: Announcement;

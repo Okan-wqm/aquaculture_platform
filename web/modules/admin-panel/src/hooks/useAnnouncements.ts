@@ -74,8 +74,19 @@ interface GqlAnnouncement {
   updatedAt: string;
 }
 
-/** Announcement statistics */
-export interface AnnouncementStats {
+/**
+ * Announcement statistics as the auth-service GRAPHQL subgraph returns them.
+ *
+ * Renamed for its source (ADMIN-HIGH-145). It shared a name with the REST
+ * aggregate behind `GET /support/announcements/stats`, which is a different
+ * shape from a different service — it carries a `byType` breakdown this one
+ * does not — and `services/types/support.ts` now sources that one from the
+ * contract. Two unrelated shapes under one name in one module is how a REST
+ * response came to be typed as a GraphQL one (ADMIN-HIGH-110), so the
+ * collision is removed rather than allowlisted; the `Gql` prefix matches
+ * `GqlAcknowledgment` below.
+ */
+export interface GqlAnnouncementStats {
   total: number;
   published: number;
   scheduled: number;
@@ -174,7 +185,7 @@ export function useAdminAnnouncement(announcementId: string | null) {
  */
 export function useAnnouncementStats() {
   const result = useGraphQLQuery<
-    { announcementStats: AnnouncementStats }
+    { announcementStats: GqlAnnouncementStats }
   >('AdminAnnouncementStats', ADMIN_GET_ANNOUNCEMENT_STATS, {
     enabled: true,
   });
@@ -361,8 +372,8 @@ export async function fetchAnnouncement(announcementId: string): Promise<GqlAnno
 /**
  * Imperative helper for fetching announcement stats.
  */
-export async function fetchAnnouncementStats(): Promise<AnnouncementStats | null> {
-  const result = await graphqlClient.request<{ announcementStats: AnnouncementStats }>(
+export async function fetchAnnouncementStats(): Promise<GqlAnnouncementStats | null> {
+  const result = await graphqlClient.request<{ announcementStats: GqlAnnouncementStats }>(
     ADMIN_GET_ANNOUNCEMENT_STATS,
   );
   return result?.announcementStats ?? null;

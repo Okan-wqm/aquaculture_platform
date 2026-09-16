@@ -8790,7 +8790,14 @@
         ],
         "responses": {
           "200": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnnouncementPageDto"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -8833,7 +8840,14 @@
         "parameters": [],
         "responses": {
           "200": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnnouncementStatsResponseDto"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -9062,7 +9076,14 @@
         ],
         "responses": {
           "200": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnnouncementAcknowledgmentStatusDto"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -22330,12 +22351,6 @@
             "type": "object",
             "additionalProperties": true
           },
-          "acknowledgments": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/AnnouncementAcknowledgment"
-            }
-          },
           "createdAt": {
             "format": "date-time",
             "type": "string"
@@ -22355,52 +22370,124 @@
           "requiresAcknowledgment",
           "viewCount",
           "acknowledgmentCount",
-          "acknowledgments",
           "createdAt",
           "updatedAt"
         ]
       },
-      "AnnouncementAcknowledgment": {
+      "AnnouncementPageDto": {
         "type": "object",
         "properties": {
-          "id": {
-            "type": "string"
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Announcement"
+            }
           },
-          "announcementId": {
-            "type": "string"
+          "total": {
+            "type": "number"
           },
-          "tenantId": {
-            "type": "string"
+          "page": {
+            "type": "number"
           },
-          "userId": {
-            "type": "string"
+          "limit": {
+            "type": "number"
           },
-          "userName": {
-            "type": "string"
+          "totalPages": {
+            "type": "number"
           },
-          "viewedAt": {
-            "format": "date-time",
-            "type": "string"
+          "hasNextPage": {
+            "type": "boolean"
           },
-          "acknowledgedAt": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "announcement": {
-            "$ref": "#/components/schemas/Announcement"
-          },
-          "createdAt": {
-            "format": "date-time",
-            "type": "string"
+          "hasPreviousPage": {
+            "type": "boolean"
           }
         },
         "required": [
-          "id",
-          "announcementId",
-          "tenantId",
-          "userId",
-          "announcement",
-          "createdAt"
+          "items",
+          "total",
+          "page",
+          "limit",
+          "totalPages",
+          "hasNextPage",
+          "hasPreviousPage"
+        ]
+      },
+      "AnnouncementStatsByTypeDto": {
+        "type": "object",
+        "properties": {
+          "info": {
+            "type": "number",
+            "description": "Announcements of type `info`, in any status."
+          },
+          "warning": {
+            "type": "number",
+            "description": "Announcements of type `warning`, in any status."
+          },
+          "critical": {
+            "type": "number",
+            "description": "Announcements of type `critical`, in any status."
+          },
+          "maintenance": {
+            "type": "number",
+            "description": "Announcements of type `maintenance`, in any status."
+          }
+        },
+        "required": [
+          "info",
+          "warning",
+          "critical",
+          "maintenance"
+        ]
+      },
+      "AnnouncementStatsResponseDto": {
+        "type": "object",
+        "properties": {
+          "total": {
+            "type": "number",
+            "description": "Every announcement row, in any status. Counted over the whole table — not over the page the list endpoint returned, which is capped."
+          },
+          "published": {
+            "type": "number",
+            "description": "Announcements currently published."
+          },
+          "scheduled": {
+            "type": "number",
+            "description": "Announcements with a future publish time."
+          },
+          "draft": {
+            "type": "number",
+            "description": "Announcements never published."
+          },
+          "expired": {
+            "type": "number",
+            "description": "Announcements past their expiry."
+          },
+          "totalViews": {
+            "type": "number",
+            "description": "Sum of `viewCount` over every announcement."
+          },
+          "totalAcknowledgments": {
+            "type": "number",
+            "description": "Sum of `acknowledgmentCount` over every announcement."
+          },
+          "byType": {
+            "description": "One count per announcement type. The four keys are always present.",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AnnouncementStatsByTypeDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "total",
+          "published",
+          "scheduled",
+          "draft",
+          "expired",
+          "totalViews",
+          "totalAcknowledgments",
+          "byType"
         ]
       },
       "CreateAnnouncementDto": {
@@ -22478,6 +22565,70 @@
             "type": "boolean"
           }
         }
+      },
+      "AnnouncementAcknowledgment": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "announcementId": {
+            "type": "string"
+          },
+          "tenantId": {
+            "type": "string"
+          },
+          "userId": {
+            "type": "string"
+          },
+          "userName": {
+            "type": "string"
+          },
+          "viewedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "acknowledgedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "announcementId",
+          "tenantId",
+          "userId",
+          "createdAt"
+        ]
+      },
+      "AnnouncementAcknowledgmentStatusDto": {
+        "type": "object",
+        "properties": {
+          "totalViews": {
+            "type": "number",
+            "description": "The announcement's own view counter."
+          },
+          "totalAcknowledgments": {
+            "type": "number",
+            "description": "The announcement's own acknowledgment counter."
+          },
+          "acknowledgments": {
+            "description": "Every view or acknowledgment recorded against this announcement, newest first. An empty array means nobody has seen it — which is why a failed read must never be rendered as one.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AnnouncementAcknowledgment"
+            }
+          }
+        },
+        "required": [
+          "totalViews",
+          "totalAcknowledgments",
+          "acknowledgments"
+        ]
       },
       "AcknowledgeDto": {
         "type": "object",

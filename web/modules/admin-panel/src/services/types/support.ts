@@ -2,7 +2,7 @@
  * Support domain types (Tickets, Messaging, Announcements, Onboarding)
  */
 
-import type { ApiSchema } from '../contract';
+import type { ApiQuery, ApiSchema } from '../contract';
 
 // ============================================================================
 // Ticket Types
@@ -224,6 +224,54 @@ export type SupportThreadRecord = ApiSchema<'MessageThread'>;
 export type Announcement = ApiSchema<'Announcement'>;
 export type AnnouncementType = Announcement['type'];
 export type AnnouncementStatus = Announcement['status'];
+
+/**
+ * What `POST /support/announcements` accepts (ADMIN-HIGH-145).
+ *
+ * This was previously derived by SUBTRACTION from the read shape —
+ * `Omit<Announcement, 'id' | 'viewCount' | 'acknowledgedCount' | 'createdAt' |
+ * 'updatedAt'>` — and `acknowledgedCount` is not one of its keys; the field is
+ * `acknowledgmentCount`. So the subtraction removed nothing there, and the
+ * create type went on requiring `status`, `acknowledgmentCount` and a full
+ * `acknowledgments` roster, none of which `CreateAnnouncementDto` accepts. The
+ * page compiled only by casting its form output, and the compiler could no
+ * longer tell it which fields the endpoint actually wants.
+ *
+ * A create payload is its own contract, not a read shape minus guesses.
+ */
+export type CreateAnnouncementInput = ApiSchema<'CreateAnnouncementDto'>;
+
+/**
+ * What `PUT /support/announcements/:id` accepts. Every field optional, as the
+ * DTO declares them — `Partial<Announcement>` would have offered `status`,
+ * `viewCount` and `acknowledgmentCount`, which the endpoint ignores, so a
+ * caller could believe it had reset a counter.
+ */
+export type UpdateAnnouncementInput = ApiSchema<'UpdateAnnouncementDto'>;
+
+/**
+ * The aggregate behind the header strip, as `GET /support/announcements/stats`
+ * declares it. `byType` has the four keys the backend enum has — the previous
+ * hand-written copy widened it to `Record<string, number>`.
+ */
+export type AnnouncementStats = ApiSchema<'AnnouncementStatsResponseDto'>;
+
+/** One roster row: a view, and possibly an acknowledgment, by one user. */
+export type AnnouncementAcknowledgment = ApiSchema<'AnnouncementAcknowledgment'>;
+
+/** The roster of an announcement, with its two counters. */
+export type AnnouncementAcknowledgmentStatus =
+  ApiSchema<'AnnouncementAcknowledgmentStatusDto'>;
+
+/**
+ * The query string `GET /support/announcements` accepts, bound to the route.
+ *
+ * The hand-built version declared `isPublished` — a parameter this controller
+ * has never had — and omitted `status`, the only filter the page actually
+ * sends. A query key the server does not know is not an error; it is ignored
+ * (the ADMIN-HIGH-123 class), so the two could never disagree loudly.
+ */
+export type AnnouncementListQuery = ApiQuery<'AnnouncementController_getAllAnnouncements'>;
 
 export interface AnnouncementTarget {
   tenantIds?: string[];

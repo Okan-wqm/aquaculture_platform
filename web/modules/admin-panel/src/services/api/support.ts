@@ -17,6 +17,11 @@ import type {
   SupportThreadRecord,
   SupportMessage,
   Announcement,
+  AnnouncementAcknowledgmentStatus,
+  AnnouncementListQuery,
+  AnnouncementStats,
+  CreateAnnouncementInput,
+  UpdateAnnouncementInput,
   OnboardingStep,
   TenantOnboarding,
 } from '../types';
@@ -100,12 +105,21 @@ export const supportApi = {
   getMessagingStats: () => apiFetch<Record<string, unknown>>('/support/messages/stats'),
 
   // Announcements
-  getAnnouncements: (params?: { type?: string; isPublished?: boolean } & PaginationParams) =>
-    apiFetch<PaginatedResult<Announcement>>(`/support/announcements?${buildQueryString(params || {})}`),
+  //
+  // The filter object is the ROUTE's own query type (ADMIN-HIGH-145). The
+  // hand-written one declared `isPublished`, which this controller has never
+  // accepted, and omitted `status`, the only filter the page sends — a
+  // disagreement the server cannot report, because an unknown query key is
+  // silently ignored.
+  getAnnouncements: (params?: AnnouncementListQuery, signal?: AbortSignal) =>
+    apiFetch<PaginatedResult<Announcement>>(
+      `/support/announcements?${buildQueryString(params || {})}`,
+      { signal },
+    ),
   getAnnouncement: (id: string) => apiFetch<Announcement>(`/support/announcements/${id}`),
-  createAnnouncement: (data: Omit<Announcement, 'id' | 'viewCount' | 'acknowledgedCount' | 'createdAt' | 'updatedAt'>) =>
+  createAnnouncement: (data: CreateAnnouncementInput) =>
     apiFetch<Announcement>('/support/announcements', { method: 'POST', body: JSON.stringify(data) }),
-  updateAnnouncement: (id: string, data: Partial<Announcement>) =>
+  updateAnnouncement: (id: string, data: UpdateAnnouncementInput) =>
     apiFetch<Announcement>(`/support/announcements/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   publishAnnouncement: (id: string) =>
     apiFetch<Announcement>(`/support/announcements/${id}/publish`, { method: 'POST' }),
@@ -114,10 +128,13 @@ export const supportApi = {
     apiFetch<Announcement>(`/support/announcements/${id}/cancel`, { method: 'POST' }),
   deleteAnnouncement: (id: string) =>
     apiFetch<void>(`/support/announcements/${id}`, { method: 'DELETE' }),
-  getAnnouncementStats: () =>
-    apiFetch<{ total: number; published: number; scheduled: number; draft: number; expired: number; totalViews: number; totalAcknowledgments: number; byType: Record<string, number> }>('/support/announcements/stats'),
-  getAnnouncementAcknowledgments: (id: string) =>
-    apiFetch<{ acknowledgments: Array<{ userId: string; userName: string; tenantId: string; viewedAt: string; acknowledgedAt: string | null }> }>(`/support/announcements/${id}/acknowledgments`),
+  getAnnouncementStats: (signal?: AbortSignal) =>
+    apiFetch<AnnouncementStats>('/support/announcements/stats', { signal }),
+  getAnnouncementAcknowledgments: (id: string, signal?: AbortSignal) =>
+    apiFetch<AnnouncementAcknowledgmentStatus>(
+      `/support/announcements/${id}/acknowledgments`,
+      { signal },
+    ),
 
   // Onboarding - Backend: /support/onboarding
   getOnboardingSteps: (signal?: AbortSignal) =>

@@ -11,10 +11,12 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from aria_kernel.ledger import read_jsonl
@@ -31,6 +33,13 @@ _spec.loader.exec_module(git_fixtures)
 
 class MigrateToolsBootstrapTests(unittest.TestCase):
     def setUp(self) -> None:
+        # ARIA-HIGH-065 — this fixture sets ARIA_WORKSPACE_BASE and its
+        # tearDown used to POP it, leaving the rest of the interpreter with
+        # no base at all (every later fixture then wrote under ~/.aria).
+        # Scope the whole environment to the test instead.
+        _environment = patch.dict(os.environ)
+        _environment.start()
+        self.addCleanup(_environment.stop)
         self._tmpdir = tempfile.TemporaryDirectory()
         self.tmp = Path(self._tmpdir.name)
         self.repo = git_fixtures.make_local_git_repo(
@@ -52,13 +61,11 @@ class MigrateToolsBootstrapTests(unittest.TestCase):
         self.tools_dir = self.tmp / "aria-tools"
 
     def tearDown(self) -> None:
-        import os
         os.environ.pop("ARIA_WORKSPACE_BASE", None)
         self._tmpdir.cleanup()
 
     def test_bootstrap_v0_to_v3_chain(self) -> None:
         """Plan ARIA-V2 §3.8 — fresh tree (v0) chains v1→v2 then v2→v3."""
-        import os
         os.environ["ARIA_WORKSPACE_BASE"] = str(self.workspace_base)
         result = migrate_tools_bootstrap(
             tools_dir=self.tools_dir,
@@ -72,7 +79,6 @@ class MigrateToolsBootstrapTests(unittest.TestCase):
 
     def test_bootstrap_is_idempotent(self) -> None:
         """Plan ARIA-V2 I-27 — running migration twice is a no-op second time."""
-        import os
         os.environ["ARIA_WORKSPACE_BASE"] = str(self.workspace_base)
         first = migrate_tools_bootstrap(
             tools_dir=self.tools_dir,
@@ -94,7 +100,6 @@ class MigrateToolsBootstrapTests(unittest.TestCase):
     def test_v2_to_v3_emits_three_audit_events(self) -> None:
         """Plan ARIA-V2 I-30 — v2→v3 emits 3 separate audit events linked
         by ``migration_event_id``."""
-        import os
         os.environ["ARIA_WORKSPACE_BASE"] = str(self.workspace_base)
         migrate_tools_bootstrap(
             tools_dir=self.tools_dir,
@@ -123,7 +128,6 @@ class MigrateToolsBootstrapTests(unittest.TestCase):
         binding survives the file on operator filesystems. The
         committed schema-stamp form lives in git; the runtime fields
         are populated locally."""
-        import os
         os.environ["ARIA_WORKSPACE_BASE"] = str(self.workspace_base)
         migrate_tools_bootstrap(
             tools_dir=self.tools_dir,
@@ -142,6 +146,13 @@ class MigrateToolsBootstrapTests(unittest.TestCase):
 
 class RollbackToolsV3ToV2Tests(unittest.TestCase):
     def setUp(self) -> None:
+        # ARIA-HIGH-065 — this fixture sets ARIA_WORKSPACE_BASE and its
+        # tearDown used to POP it, leaving the rest of the interpreter with
+        # no base at all (every later fixture then wrote under ~/.aria).
+        # Scope the whole environment to the test instead.
+        _environment = patch.dict(os.environ)
+        _environment.start()
+        self.addCleanup(_environment.stop)
         self._tmpdir = tempfile.TemporaryDirectory()
         self.tmp = Path(self._tmpdir.name)
         self.repo = git_fixtures.make_local_git_repo(
@@ -157,7 +168,6 @@ class RollbackToolsV3ToV2Tests(unittest.TestCase):
             reason="test fixture for rollback test",
         )
         self.tools_dir = self.tmp / "aria-tools"
-        import os
         os.environ["ARIA_WORKSPACE_BASE"] = str(self.workspace_base)
         migrate_tools_bootstrap(
             tools_dir=self.tools_dir,
@@ -167,7 +177,6 @@ class RollbackToolsV3ToV2Tests(unittest.TestCase):
         )
 
     def tearDown(self) -> None:
-        import os
         os.environ.pop("ARIA_WORKSPACE_BASE", None)
         self._tmpdir.cleanup()
 

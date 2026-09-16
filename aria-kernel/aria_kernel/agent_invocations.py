@@ -5,10 +5,10 @@ import json
 import os
 import secrets
 import stat
-import subprocess
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .agent_surface import (
     DERIVED_REQUEST_STATES,
@@ -33,6 +33,9 @@ from .tool_registry import (
     utc_now,
 )
 from .workspace import governance_event
+
+if TYPE_CHECKING:  # the probe session is imported lazily where it is used
+    from .evidence_probe import GitProbeSession
 
 
 ROLES = INVOCATION_ROLES
@@ -2024,6 +2027,15 @@ HARNESS_FAULT_RELEASE_REASONS: frozenset[str] = frozenset({
     "claude_cli_auth_failure",
     "claude_spawn_refused",
     "dispatch_budget_refused",
+    # The kernel rejected the submission ONLY because its own evidence
+    # probes could not run — git did not answer inside its bound on a loaded
+    # host (`evidence_validator.EVIDENCE_VERIFICATION_UNAVAILABLE_CODES`).
+    # Nothing was compared, so nothing is known about the work; the same
+    # envelope resubmitted on a quiet host usually verifies. Charging the
+    # request's budget for that is the 2026-08-09 `baseline_unavailable`
+    # class again: the harness's gap billed as the agent's fault. A
+    # rejection with ANY other reason stays `submit_rejected`.
+    "evidence_verification_unavailable",
     # Y5 (ORPHAN-706) — a judge envelope without a readable verdict block is
     # released BEFORE submit instead of sealed as an accepted-but-unfoldable
     # result. The malformed output says nothing about the REQUEST (the same
@@ -2583,44 +2595,105 @@ def _anchor_repo_root(root: Path) -> Path | None:
     return None
 
 
-def _git_ok(repo_root: Path, *args: str) -> tuple[bool, str]:
-    try:
-        completed = subprocess.run(
-            ["git", *args],
-            cwd=str(repo_root),
-            text=True,
-            capture_output=True,
-            check=False,
-            timeout=5,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return False, ""
-    return completed.returncode == 0, completed.stdout.strip()
+@dataclass(frozen=True)
+class _GitAnswer:
+    """One poll-path git probe: git's verdict, or why there is none.
+
+    ``ok`` is ``None`` exactly when git did not answer — a stall past the
+    probe's retries, a spawn failure, a selection whose probe clock ran
+    out — and ``unavailable_reason`` says which. Until 2026-09-12 the poll
+    path ran a 5 s `subprocess.run` and returned ``False`` for a non-answer,
+    which `_anchor_refusal_reason` read as "the commit is not here AND the
+    clone is not shallow" and turned into a TERMINAL `anchor_unreachable`:
+    one stalled git on a loaded runner marked a healthy request stale for
+    good. A non-answer is now its own outcome all the way up.
+    """
+
+    ok: bool | None
+    stdout: str
+    unavailable_reason: str | None
 
 
-def _repo_is_shallow(repo_root: Path) -> bool:
-    """True when this checkout holds only part of the history.
+def _git_probe(repo_root: Path, *args: str, probes: "GitProbeSession") -> _GitAnswer:
+    outcome = probes.run(["git", *args], cwd=repo_root)
+    if not outcome.answered:
+        return _GitAnswer(ok=None, stdout="", unavailable_reason=outcome.unavailable_reason)
+    return _GitAnswer(
+        ok=outcome.returncode == 0,
+        stdout=outcome.stdout.decode("utf-8", errors="replace").strip(),
+        unavailable_reason=None,
+    )
+
+
+def _repo_is_shallow(repo_root: Path, *, probes: "GitProbeSession") -> _GitAnswer:
+    """Whether this checkout holds only part of the history, or no answer.
 
     ``actions/checkout`` defaults to ``fetch-depth: 1`` and neither ARIA lane
-    overrides it, so in production this is normally True.
+    overrides it, so in production the answer is normally "yes".
     """
-    ok, out = _git_ok(repo_root, "rev-parse", "--is-shallow-repository")
-    return ok and out == "true"
+    answer = _git_probe(repo_root, "rev-parse", "--is-shallow-repository", probes=probes)
+    if answer.ok is None:
+        return answer
+    return _GitAnswer(
+        ok=answer.ok and answer.stdout == "true",
+        stdout=answer.stdout,
+        unavailable_reason=None,
+    )
 
 
-def _commit_exists(repo_root: Path, sha: str) -> bool:
-    ok, _ = _git_ok(repo_root, "cat-file", "-e", f"{sha}^{{commit}}")
-    return ok
+def _commit_exists(repo_root: Path, sha: str, *, probes: "GitProbeSession") -> _GitAnswer:
+    return _git_probe(repo_root, "cat-file", "-e", f"{sha}^{{commit}}", probes=probes)
+
+
+@dataclass(frozen=True)
+class AnchorVerdict:
+    """What the anchor gate decided about one candidate.
+
+    Exactly one of the three shapes: current (both fields ``None``), refused
+    (``refusal`` names the terminal reason), or undecided (``undecided``
+    names why git did not answer — the candidate is skipped this poll and
+    stays PENDING; nothing terminal is written for a question nobody could
+    answer).
+    """
+
+    refusal: str | None = None
+    undecided: str | None = None
+
+
+# The governance row one selection writes when git could not answer for
+# some of its candidates: who was skipped and why, once per selection.
+ANCHOR_UNDECIDED_GOVERNANCE_KIND = "agent_request_anchor_undecided"
+ANCHOR_VERIFICATION_UNAVAILABLE_STOP_REASON = "anchor_verification_unavailable"
+
+
+class AnchorVerificationUnavailable(RuntimeError):
+    """A selection found nothing it could claim AND candidates it could not decide.
+
+    Distinct from "nothing pending" on purpose: a caller that read ``None``
+    would conclude the queue is empty and move on to the next role, paying
+    one probe clock per role for the same non-answer. The executor's drain
+    stops on this instead (`ci_executor_drain`), the requests stay
+    PENDING, and the next drain asks again.
+    """
+
+    def __init__(self, *, request_ids: list[str], reasons: dict[str, str]) -> None:
+        self.request_ids = request_ids
+        self.reasons = reasons
+        super().__init__(
+            f"{ANCHOR_VERIFICATION_UNAVAILABLE_STOP_REASON}: git did not answer for "
+            f"{len(request_ids)} candidate(s): {sorted(set(reasons.values()))}"
+        )
 
 
 def _anchor_refusal_reason(
     request: dict[str, Any],
     repo_root: Path,
     *,
+    probes: "GitProbeSession",
     now: datetime | None = None,
     max_age_seconds: int = DEFAULT_ANCHOR_MAX_AGE_SECONDS,
-) -> str | None:
-    """Why this request must not be claimed, or None if it is still current.
+) -> AnchorVerdict:
+    """Why this request must not be claimed, or whether that could be decided.
 
     ORPHAN-MEDIUM-492. ``target_sha`` is the commit the request's evidence and
     plan are grounded at (see ``convergence_drainer._resolve_workspace_head_sha``)
@@ -2642,7 +2715,8 @@ def _anchor_refusal_reason(
     or not they carry a SHA.
     """
     anchor = str(request.get("target_sha") or "")
-    if anchor and not _commit_exists(repo_root, anchor) and not _repo_is_shallow(repo_root):
+    undecided: str | None = None
+    if anchor:
         # Force-push, rebase, or a request minted in a tree this checkout
         # never had. Either way the plan cannot be graded against the repo.
         #
@@ -2657,14 +2731,29 @@ def _anchor_refusal_reason(
         # deferring it. Absence of the object in a partial clone is absence
         # of evidence. Age is checked below and needs no history, so a stale
         # request is still refused on a shallow checkout.
-        return "anchor_unreachable"
+        #
+        # Both probes are tri-state: "unreachable" needs git to have ANSWERED
+        # "not here" and "not shallow". A non-answer to either leaves the
+        # arm undecided — the age check below still runs, and a request that
+        # is stale by age is refused without any git at all.
+        exists = _commit_exists(repo_root, anchor, probes=probes)
+        if exists.ok is None:
+            undecided = exists.unavailable_reason
+        elif not exists.ok:
+            shallow = _repo_is_shallow(repo_root, probes=probes)
+            if shallow.ok is None:
+                undecided = shallow.unavailable_reason
+            elif not shallow.ok:
+                return AnchorVerdict(refusal="anchor_unreachable")
     created = _parse_iso(request.get("created_at"))
     if created is None:
-        return "anchor_undatable"
+        return AnchorVerdict(refusal="anchor_undatable")
     age = ((now or _utc_now_dt()) - created).total_seconds()
     if age > max_age_seconds:
-        return "anchor_expired"
-    return None
+        return AnchorVerdict(refusal="anchor_expired")
+    if undecided is not None:
+        return AnchorVerdict(undecided=undecided)
+    return AnchorVerdict()
 
 
 def _record_anchor_stale(
@@ -2826,6 +2915,8 @@ def next_pending_request(
     the tree it would run against is refused here and marked ANCHOR_STALE,
     because selection is the last point at which the repo is still in scope.
     """
+    from .evidence_probe import GitProbeSession
+
     root = ensure_tools_dir(base_dir)
     repo_root = _anchor_repo_root(root)
     requests = load_declared_jsonl(
@@ -2838,6 +2929,13 @@ def next_pending_request(
     # 29 minutes (12:42 → 13:11) to answer "nothing pending". The batch form
     # is the same fold over one load (ORPHAN-HIGH-794 built it for the sweep).
     states = derive_request_states(base_dir=root)
+    # ONE git-probe session for the whole selection (`evidence_probe`): every
+    # anchor probe is bounded, retried and tri-state, and the selection as a
+    # whole has one clock — so a git that stopped answering costs one clock,
+    # not five seconds times every candidate, and never a terminal verdict.
+    probes = GitProbeSession()
+    undecided: dict[str, str] = {}
+    selected: dict[str, Any] | None = None
     for request in requests:
         if _target_is_shadow(root, str(request.get("target_agent") or "")) and not request.get("shadow_eval"):
             continue
@@ -2855,17 +2953,40 @@ def next_pending_request(
             continue
         if repo_root is not None:
             now = _utc_now_dt()
-            reason = _anchor_refusal_reason(
+            verdict = _anchor_refusal_reason(
                 request,
                 repo_root,
+                probes=probes,
                 now=now,
                 max_age_seconds=_anchor_max_age_seconds(root),
             )
-            if reason is not None:
-                _record_anchor_stale(root, request, reason, now=now)
+            if verdict.refusal is not None:
+                _record_anchor_stale(root, request, verdict.refusal, now=now)
                 continue
-        return request
-    return None
+            if verdict.undecided is not None:
+                # Skipped, not refused: the row stays PENDING and the next
+                # selection asks git again.
+                undecided[str(request.get("request_id") or "")] = verdict.undecided
+                continue
+        selected = request
+        break
+    if undecided:
+        append_tools_governance(
+            root,
+            ANCHOR_UNDECIDED_GOVERNANCE_KIND,
+            {
+                "request_ids": sorted(undecided),
+                "reasons": dict(sorted(undecided.items())),
+                "selected_request_id": (selected or {}).get("request_id"),
+                "probe_stalled_attempts": probes.stalled_attempts,
+                "probes_refused_after_bound": probes.probes_refused_after_bound,
+            },
+        )
+        if selected is None:
+            raise AnchorVerificationUnavailable(
+                request_ids=sorted(undecided), reasons=dict(undecided),
+            )
+    return selected
 
 
 # Every envelope field the fused claim response carries. `repository_map` is
@@ -3356,8 +3477,13 @@ def release_claim(
     root = ensure_tools_dir(base_dir)
     claims_path = _claims_path(root)
     results_path = root / "agent-invocations" / "results.jsonl"
-    now = _utc_now_dt()
     with state_transaction([claims_path, results_path]) as transaction:
+        # The row's event time is its APPEND time, captured under the lock
+        # like `claim_request` and `heartbeat_claim` do. A writer can wait
+        # the whole lock bound behind a healthy replay; a `released_at`
+        # taken before that wait would lag the append by minutes, and the
+        # claim fold (`_latest_claim_row`) orders rows by this timestamp.
+        now = _utc_now_dt()
         claims = transaction.load_declared_jsonl(
             claims_path,
             expected_surface="agent_invocation_claims",
@@ -4273,12 +4399,22 @@ def _prepared_claim_rejection(
     output_path: str,
     output_content_hash: str,
     reasons: list[str],
+    reason_codes: list[str],
     submitted_hash: str,
     compliance: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    # One code per reason, always: the executor decides fault ownership from
+    # the codes, and a reason without a code would let a rejection look
+    # narrower than it is.
+    if len(reason_codes) != len(reasons):
+        raise GovernanceError(
+            "submit_claim_result_rejection_codes_mismatch: "
+            f"reasons={len(reasons)} codes={len(reason_codes)}"
+        )
     return {
         "status": "rejected",
         "reasons": reasons,
+        "rejection_codes": list(reason_codes),
         "row": _build_rejection_row(
             claim_id=claim_id,
             request_id=request_id,
@@ -4286,6 +4422,7 @@ def _prepared_claim_rejection(
             output_path=output_path,
             output_hash=output_content_hash,
             reasons=reasons,
+            reason_codes=reason_codes,
             envelope_evidence_hash=submitted_hash,
         ),
         "governance_event": governance_event(
@@ -4362,7 +4499,11 @@ def _prepare_claim_submission(
         COMPLIANCE_REJECTION_REASON,
         _prepare_compliance_grade,
     )
-    from .evidence_validator import validate_agent_response_evidence
+    from .evidence_probe import GitProbeSession
+    from .evidence_validator import (
+        AGENT_EVIDENCE_VERIFICATION_UNAVAILABLE_CODE,
+        validate_agent_response_evidence,
+    )
     from .runtime_profile import enforce_profile_for_write
 
     # Every terminal branch emits a governance row. Perform the profile
@@ -4378,10 +4519,28 @@ def _prepare_claim_submission(
             output_path=store_relative_artifact_path(root, sealed_output),
             output_content_hash=output_content_hash,
             reasons=[f"envelope_unreadable: {envelope_unreadable_error}"],
+            reason_codes=["envelope_unreadable"],
             submitted_hash=submitted_hash,
         )
 
     strict_request = _strict_request_view(request)
+    # Every rejection reason is a human line PLUS a machine code, appended
+    # together so the two lists can never disagree in length or order. The
+    # text is what the ledger row and the operator read; the code is what
+    # the executor's release seam classifies (`rejection_codes`): a
+    # submission rejected ONLY because the kernel's evidence probes could
+    # not run is the harness's fault, not the request's.
+    reasons: list[str] = []
+    reason_codes: list[str] = []
+
+    def reject(code: str, text: str) -> None:
+        reasons.append(text)
+        reason_codes.append(code)
+
+    # ONE git-probe session for the whole decision: the evidence-target
+    # proof below and every ref's classification share its clock and its
+    # baseline cache (`evidence_probe`).
+    probes = GitProbeSession()
     # ARIA-HIGH-022 — ground the evidence check at the agent's committed
     # HEAD when the submitter provides one. Implementer agents cite the
     # POST-FIX lines of files they changed; against the request's base SHA
@@ -4389,14 +4548,30 @@ def _prepare_claim_submission(
     # rejected (13/13 challenger envelopes died exactly here). The override
     # must DESCEND from the request's base — proven here, fail-closed: a
     # submitter pointing at an unrelated commit is rejected loudly, never
-    # silently downgraded to a weaker anchor.
+    # silently downgraded to a weaker anchor. A proof git could not ANSWER
+    # is neither: the decision is rejected under the harness-class code and
+    # the refs are graded at the same requested anchor through the same
+    # session, so its memory of the non-answer makes every one of them
+    # `verification_unavailable` — never `worktree_candidate` against a
+    # base the submitter did not cite.
     if evidence_target_sha is not None:
-        strict_request["evidence_target_sha"] = _verified_evidence_target_sha(
-            workspace_root=workspace_root,
-            request=strict_request,
-            override=str(evidence_target_sha).strip(),
-        )
-    reasons: list[str] = []
+        try:
+            verified_target = _verified_evidence_target_sha(
+                workspace_root=workspace_root,
+                request=strict_request,
+                override=str(evidence_target_sha).strip(),
+                probes=probes,
+            )
+        except EvidenceTargetUnavailable as unavailable:
+            reject(
+                AGENT_EVIDENCE_VERIFICATION_UNAVAILABLE_CODE,
+                f"evidence_target_sha: {unavailable}",
+            )
+            strict_request["evidence_target_sha"] = unavailable.requested
+        else:
+            if verified_target is not None:
+                strict_request["evidence_target_sha"] = verified_target
+
     try:
         validate_response(
             envelope,
@@ -4404,14 +4579,14 @@ def _prepare_claim_submission(
             lease={"claim_id": claim_id, "agent_id": agent_id},
         )
     except GovernanceError as exc:
-        reasons.append(f"response_schema: {exc}")
+        reject("response_schema", f"response_schema: {exc}")
     try:
         enforce_separation_of_duties(
             request=strict_request,
             submitter_agent_id=agent_id,
         )
     except GovernanceError as exc:
-        reasons.append(f"separation_of_duties: {exc}")
+        reject("separation_of_duties", f"separation_of_duties: {exc}")
     try:
         from .implementation_safety import (
             SecretLeakDetected,
@@ -4420,14 +4595,16 @@ def _prepare_claim_submission(
 
         verify_no_secret_in_envelope(envelope)
     except SecretLeakDetected as exc:
-        reasons.append(f"secret_in_envelope: {exc}")
+        reject("secret_in_envelope", f"secret_in_envelope: {exc}")
     revalidation = validate_agent_response_evidence(
         response=envelope,
         workspace_root=workspace_root,
         request=strict_request,
+        probe_session=probes,
     )
     if not revalidation["valid"]:
-        reasons.extend(f"evidence: {error}" for error in revalidation["errors"])
+        for error in revalidation["errors"]:
+            reject(str(error.get("code") or "evidence"), f"evidence: {error}")
     # Scope discipline (operator requirements 2026-08-29) — the two halves
     # that turn a rejection into a signal instead of a dead end:
     # 1. the agent must have declared its route before the work
@@ -4439,7 +4616,10 @@ def _prepare_claim_submission(
     if strict_request.get("require_declared_route"):
         route_violation = require_declared_route(envelope)
         if route_violation is not None:
-            reasons.append(f"route: {route_violation['code']} — {route_violation['reason']}")
+            reject(
+                str(route_violation["code"]),
+                f"route: {route_violation['code']} — {route_violation['reason']}",
+            )
     out_of_scope = extract_out_of_scope_observations(
         rejected_errors=revalidation.get("errors", []),
         response=envelope,
@@ -4465,6 +4645,7 @@ def _prepare_claim_submission(
             output_path=store_relative_artifact_path(root, sealed_output),
             output_content_hash=output_content_hash,
             reasons=reasons,
+            reason_codes=reason_codes,
             submitted_hash=submitted_hash,
         )
 
@@ -4496,6 +4677,7 @@ def _prepare_claim_submission(
             output_path=store_relative_artifact_path(root, sealed_output),
             output_content_hash=output_content_hash,
             reasons=rejection_reasons,
+            reason_codes=["compliance"],
             submitted_hash=submitted_hash,
             compliance=compliance,
         )
@@ -5216,6 +5398,7 @@ def _build_rejection_row(
     output_path: str,
     output_hash: str,
     reasons: list[str],
+    reason_codes: list[str],
     envelope_evidence_hash: str,
     transcript_hash: str | None = None,
 ) -> dict[str, Any]:
@@ -5241,6 +5424,10 @@ def _build_rejection_row(
         "output_hash": output_hash,
         "content_hash": output_hash,  # §C.2 alias
         "rejection_reasons": reasons,
+        # Machine-readable twin of `rejection_reasons`, one code per line,
+        # so the release seam (and any later metric) classifies the
+        # rejection without parsing prose.
+        "rejection_codes": list(reason_codes),
         "envelope_evidence_hash": envelope_evidence_hash,
         "invocation_id": claim_id,
         "transcript_hash": transcript_hash,
@@ -5254,8 +5441,18 @@ def _rejection_response(
     persisted: dict[str, Any],
     reasons: list[str],
 ) -> dict[str, Any]:
-    """Return a response only after the caller's terminal append succeeds."""
-    return {"status": "rejected", "reasons": reasons, "row": persisted}
+    """Return a response only after the caller's terminal append succeeds.
+
+    ``rejection_codes`` is read back from the persisted row so a resumed
+    operation (journaled before a crash) answers exactly what a fresh one
+    does; the executor's release seam keys on it.
+    """
+    return {
+        "status": "rejected",
+        "reasons": reasons,
+        "rejection_codes": list(persisted.get("rejection_codes") or []),
+        "row": persisted,
+    }
 
 
 def _strict_request_view(legacy_request: dict[str, Any]) -> dict[str, Any]:
@@ -5299,12 +5496,40 @@ def _strict_request_view(legacy_request: dict[str, Any]) -> dict[str, Any]:
     return view
 
 
+# The evidence-target value that means "the agent's committed HEAD in the
+# workspace": the executor passes it so the kernel — not the CLI, not the
+# executor — resolves the anchor, through the decision's own probe session.
+EVIDENCE_TARGET_AUTO = "auto"
+
+
+class EvidenceTargetUnavailable(RuntimeError):
+    """The evidence target could not be verified because git did not answer.
+
+    Deliberately NOT a ``GovernanceError``: a ``GovernanceError`` from the
+    descent proof is the request's fault (an unknown commit, a
+    non-descendant) and the executor's release seam charges the request's
+    requeue budget for it. This is the host's — a stall past the probe's
+    retries, a spawn failure, a decision whose probe clock ran out — and the
+    submit decision that catches it rejects under
+    `evidence_validator.AGENT_EVIDENCE_VERIFICATION_UNAVAILABLE_CODE`, the
+    code the seam releases as a harness fault. ``requested`` is the anchor
+    the probe session was asked about, so the decision can ground its refs
+    at the same name and inherit the session's memory of the non-answer.
+    """
+
+    def __init__(self, *, requested: str, reason: str, detail: str) -> None:
+        self.requested = requested
+        self.reason = reason
+        super().__init__(f"evidence_target_sha_unavailable: {reason} ({detail})")
+
+
 def _verified_evidence_target_sha(
     *,
     workspace_root: str | Path,
     request: dict[str, Any],
     override: str,
-) -> str:
+    probes: "GitProbeSession | None" = None,
+) -> str | None:
     """Prove an evidence-target override descends from the request's base.
 
     ARIA-HIGH-022 — the override exists so implementer evidence can cite
@@ -5314,31 +5539,56 @@ def _verified_evidence_target_sha(
     committed work. Anything else — an unrelated commit, a rewritten
     history, a typo — is a submission trying to grade its evidence against
     a tree the request never knew, and is refused loudly.
+
+    ``EVIDENCE_TARGET_AUTO`` names the workspace's HEAD; when git answers
+    that there is no such commit (an unborn or absent repository) the
+    request's base stays the anchor and ``None`` is returned — the
+    fail-closed degrade the CLI used to make with an unbounded git of its
+    own. Every probe runs on ``probes``, the decision's `GitProbeSession`
+    (bounded, retried, tri-state): git ANSWERING "no" is the request's
+    fault; git NOT answering raises `EvidenceTargetUnavailable`.
     """
-    import subprocess as _sp
+    from .evidence_probe import BASELINE_UNREACHABLE, GitProbeSession
 
     if not override:
         raise GovernanceError("evidence_target_sha_must_be_non_empty")
+    session = probes if probes is not None else GitProbeSession()
+    root = Path(workspace_root)
+    requested = "HEAD" if override == EVIDENCE_TARGET_AUTO else override
+    resolution = session.resolve_baseline(root, requested)
+    if not resolution.readable:
+        if resolution.unavailable_reason != BASELINE_UNREACHABLE:
+            raise EvidenceTargetUnavailable(
+                requested=requested,
+                reason=str(resolution.unavailable_reason),
+                detail=resolution.detail,
+            )
+        if override == EVIDENCE_TARGET_AUTO:
+            return None
+        raise GovernanceError(f"evidence_target_sha_unknown_commit: {override}")
+    verified = resolution.commit_sha
     base = (
         request.get("target_sha")
         or request.get("base_commit_sha")
         or request.get("pinned_commit_sha")
         or ""
     )
-    root = Path(workspace_root)
-    def _git(*args: str) -> bool:
-        proc = _sp.run(
-            ["git", "-C", str(root), *args],
-            capture_output=True, text=True, check=False,
+    if base:
+        descent = session.run(
+            ["git", "merge-base", "--is-ancestor", str(base), verified],
+            cwd=root,
         )
-        return proc.returncode == 0
-    if not _git("cat-file", "-e", f"{override}^{{commit}}"):
-        raise GovernanceError(f"evidence_target_sha_unknown_commit: {override}")
-    if base and not _git("merge-base", "--is-ancestor", str(base), override):
-        raise GovernanceError(
-            f"evidence_target_sha_not_descendant_of_base: base={base} override={override}"
-        )
-    return override
+        if not descent.answered:
+            raise EvidenceTargetUnavailable(
+                requested=verified,
+                reason=str(descent.unavailable_reason),
+                detail=f"git merge-base --is-ancestor did not answer after {descent.attempts} attempt(s)",
+            )
+        if descent.returncode != 0:
+            raise GovernanceError(
+                f"evidence_target_sha_not_descendant_of_base: base={base} override={verified}"
+            )
+    return verified
 
 
 def reap_stale_claims(
@@ -5352,7 +5602,6 @@ def reap_stale_claims(
     when called repeatedly: a claim already marked stale is not reprocessed.
     """
     root = ensure_tools_dir(base_dir)
-    ts = now or _utc_now_dt()
     claims_path = _claims_path(root)
     results_path = root / "agent-invocations" / "results.jsonl"
     claims = load_declared_jsonl(
@@ -5372,6 +5621,13 @@ def reap_stale_claims(
     for cid in candidate_ids:
         governance_details: dict[str, Any] | None = None
         with state_transaction([claims_path, results_path]) as transaction:
+            # The reference clock is read UNDER the lock (an injected `now`
+            # is the caller's clock and stays): the expiry it is compared
+            # against may have been extended by a heartbeat that landed
+            # while this reaper waited, and the `stale_at` / `at` it stamps
+            # must be the append time — `release_claim` and
+            # `heartbeat_claim` follow the same rule.
+            ts = now if now is not None else _utc_now_dt()
             locked_claims = transaction.load_declared_jsonl(
                 claims_path,
                 expected_surface="agent_invocation_claims",

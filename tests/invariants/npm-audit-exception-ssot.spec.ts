@@ -44,7 +44,14 @@ const REGISTRY = join(REPO_ROOT, 'docs', 'reviews', '_registry', 'findings.jsonl
  * next advisory with no safe remediation gets a dated, reviewed entry and the
  * ratchet moves to 1 in the same commit, never silently.
  */
-const MAX_EXCEPTIONS = 0;
+const MAX_EXCEPTIONS = 2;
+
+// 2026-09-16: 0 → 2, in the same commit as the two entries it admits.
+// GHSA-7w5x-hrqm-74c2 (nx toolchain, 15 packages) and GHSA-vwc7-r8mq-g2x9
+// (@nx/react, @nx/module-federation) are dev-only root-full advisories whose
+// only npm remediation is a SemVer-major workspace-wide nx bump — tracked as
+// SUPPLY-HIGH-011/012. The ratchet must return to 0 when that migration lands
+// and these entries expire (2026-10-16).
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const ADVISORY_ID = /^GHSA-[0-9a-z]{4}-[0-9a-z]{4}-[0-9a-z]{4}$/;

@@ -28339,6 +28339,12 @@
       "prettier_managed": true
     },
     {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "ARIA-MIMARI-SEMALARI.md",
+      "prettier_managed": true
+    },
+    {
       "class": "runtime_evidence",
       "content_sha256": "2c535e6f71c643de0fdd6c1e3c6a07d05eb9d092b1bafd49be52e8e64bb0a338",
       "hash_policy": "sha256",
@@ -28524,6 +28530,12 @@
       "reason": "runtime evidence is declared artifact output",
       "review_required": true,
       "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "ARIA-VERIMLILIK-DEGERLENDIRMESI.md",
+      "prettier_managed": true
     },
     {
       "class": "canonical_source",

@@ -23,7 +23,7 @@ SERVER_NAME = "aria"
 SERVER_VERSION = "032g"
 READ_TOOLS: tuple[str, ...] = (
     "aria_status", "missions_list", "findings_query", "pressure_top", "governance_tail", "handoff_read",
-    "daily_report", "search", "delivery_status", "progress_tail",
+    "daily_report", "search", "delivery_status", "progress_tail", "plan_verify",
 )
 WRITE_TOOLS: tuple[str, ...] = ("human_required_resolve", "runtime_signal_ingest")
 MCP_WRITE_TOOL_EVENT = "mcp_write_tool_used"
@@ -44,6 +44,11 @@ TOOL_MANIFEST: dict[str, dict[str, Any]] = {
     "search": {"description": "Full-text search over the derived ledger index.", "inputSchema": _schema({"query": {"type": "string"}, "kinds": {"type": "array", "items": {"type": "string"}}, "limit": {"type": "integer", "minimum": 1, "maximum": 100}}, ["query"])},
     "delivery_status": {"description": "Delivery closure summary (Faz 032d SLO).", "inputSchema": _schema({})},
     "progress_tail": {"description": "Sanitized progress rows of a request.", "inputSchema": _schema({"request_id": {"type": "string"}, "last": {"type": "integer", "minimum": 1, "maximum": 200}}, ["request_id"])},
+    # ARIA-HIGH-147 — the implementer's first obligation (the converged
+    # plan's authenticity) answered by the kernel from its own ledger: the
+    # sandbox's command policy has no interpreter for a hand recomputation,
+    # and two live spawns spent their whole budgets attempting one.
+    "plan_verify": {"description": "Verify a CONVERGED plan's authenticity: the kernel recomputes plan_convergence.content_hash from its own hash-verified ledger body and compares it with the hash the envelope names (must_satisfy authenticity item). Returns verdict verified|mismatch, the revision id and the FULL plan body (the envelope's inline copy may be truncated). Call this instead of recomputing by hand.", "inputSchema": _schema({"plan_id": {"type": "string"}, "content_hash": {"type": "string"}}, ["plan_id", "content_hash"])},
     "human_required_resolve": {"description": "OPERATOR: resolve a HUMAN_REQUIRED request (needs --allow-writes and operator_approval_ref).", "inputSchema": _schema({"request_id": {"type": "string"}, "resolution_note": {"type": "string"}, "verdict": {"type": "string"}, "operator_approval_ref": {"type": "string"}}, ["request_id", "resolution_note", "operator_approval_ref"])},
     "runtime_signal_ingest": {"description": "OPERATOR: record a runtime signal lead (needs --allow-writes and operator_approval_ref).", "inputSchema": _schema({"source": {"type": "string"}, "service": {"type": "string"}, "summary": {"type": "string"}, "code_refs": {"type": "array", "items": {"type": "string"}}, "severity": {"type": "string"}, "operator_approval_ref": {"type": "string"}}, ["source", "service", "summary", "code_refs", "operator_approval_ref"])},
 }
@@ -136,6 +141,23 @@ class AriaMcpServer:
         from .progress import read_progress
 
         return read_progress(str(args["request_id"]), base_dir=self.root, last=int(args.get("last") or 20))
+
+    def _plan_verify(self, args: dict[str, Any]) -> Any:
+        from .plan_convergence import converged_plan_body, fold_plan_state
+
+        plan_id = str(args["plan_id"])
+        claimed = str(args["content_hash"]).strip()
+        state = fold_plan_state(plan_id=plan_id, base_dir=self.root)
+        # The ledger's own hash-verified body (ORPHAN-CRITICAL-728): a body
+        # that does not reproduce the recorded hash is never returned.
+        body = converged_plan_body(plan_id=plan_id, base_dir=self.root)
+        recorded = str(body["content_hash"])
+        return {
+            "plan_id": plan_id, "state": state.get("state"), "revision_id": body["revision_id"],
+            "content_hash": recorded, "claimed_content_hash": claimed,
+            "verdict": "verified" if recorded == claimed else "mismatch",
+            "plan_content": body["plan_content"],
+        }
 
     # ---- tool implementations (write, operator-only) ----
     def _write_gate(self, tool: str, args: dict[str, Any]) -> None:

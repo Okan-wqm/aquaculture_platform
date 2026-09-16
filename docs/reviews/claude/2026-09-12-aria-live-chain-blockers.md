@@ -1520,3 +1520,51 @@ package.json]` and `removed=['.aria-state-store/tools/plans/events.jsonl']`. The
   and the sandbox's "the store is absent inside" property (ARIA-HIGH-124) holds only for that
   shape. A nested store should be masked by the containment, not merely left unwritten; that
   is recorded here and belongs with ARIA-HIGH-133's class.
+
+## ARIA-HIGH-146 — the agent's contract came from the workspace, not the kernel
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-22
+- **Evidence (the two live ring-4 spawns, trial eleven, 2026-09-16 16:38Z and 17:26Z):** the
+  prompt's contract prefix was `task-source/.claude/agents/aria-implementer.md` at `6652139901`
+  (2026-09-12), rendered by `_deliver_agent_contract(target_agent, _REPO_ROOT)`, and the runtime
+  profile was read from the same tree — while the kernel spawning, gating and grading the run
+  (`e838d3736b`) carried the contract the ARIA-HIGH-124 rounds rewrote. §137 named this a
+  deliberate limit of the trial; it is not a trial limit, it is the seam: every request served
+  from a worktree at its `target_sha` runs the contract of that commit, and a contract fix on
+  `main` reaches no request minted before it. ARIA-HIGH-142's class — a kernel-owned artefact
+  served from the tree the agent is changing.
+- **What is now true:** `ci_executor._kernel_checkout_root()` (`kernel_code_root().parent`, the
+  checkout the running kernel is part of) is the root `_deliver_agent_contract` renders from and
+  every `read_agent_runtime_profile` in the executor reads from. The workspace's
+  `.claude/agents/` is data the agent may read, never the contract it runs under. Pinned by
+  `test_kernel_clients_from_code_root.TheContractIsTheKernels`: a workspace carrying a different
+  `aria-implementer.md` (another model, another body) still yields the kernel's contract hash
+  and the kernel's profile, and the three executor readers name the root in source.
+
+## ARIA-HIGH-147 — the contract's first obligation could not be discharged in the sandbox
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-22
+- **Evidence (transcripts of `AIR-aria-implementer-b7a519f5be58` and
+  `AIR-aria-implementer-ff499d2321eb`, 2026-09-16):** step 1 of the contract — "decode the
+  untrusted plan, recompute `plan_convergence.content_hash` over the body and compare" — met a
+  command policy with no `python3 -c`, `base64` or `grep`, a `/tmp` scratch refused
+  `path_escape`, and an inline plan body cut at `[truncated]`. The first spawn read
+  `implementation_safety.py`, `command_policy.py`, `plan_convergence.py` and the store's plan
+  ledger to find an admitted route, reached a working `ts-node` one-liner at minute 26 and
+  was killed at 1,800 s (cli exit 124). The second, with 5,400 s, spent the kernel's own 60-turn
+  Edit/Write/Bash cap the same way and refused honestly
+  (`implementer_turn_budget_exhausted`, no edit, no commit). Neither reached a `key_change`.
+- **What is now true:** the kernel answers the obligation. `mcp_server` gains the READ tool
+  `plan_verify {plan_id, content_hash}`: it recomputes the hash from the ledger's own
+  hash-verified body (`converged_plan_body`, ORPHAN-CRITICAL-728) and returns
+  `verified`/`mismatch`, the revision id and the FULL plan body (the envelope's inline copy may
+  be truncated). The envelope prompt (`_implementation_suggested_prompt`) and the contract's
+  step 1 send the agent to that call and forbid a hand recomputation by name; on `mismatch` the
+  agent refuses as before. Pinned by `test_phase_v12_g_mcp` (verified, mismatch, an unknown
+  plan is an error result), `test_must_satisfy_shape` (the minted prompt names the tool and the
+  prohibition) and `test_kernel_clients_from_code_root` (the kernel's contract carries the new
+  step 1).
+- **Named, not closed here:** the kernel's per-request turn cap (60 Edit/Write/Bash turns) and
+  the lane's `MAX_TIMEOUT_SECONDS=1800` were both measured against an agent that never edited;
+  what a real implementation of two files and five specs needs under this policy is the next
+  live run's measurement, and the caps move on that number, not on a guess.

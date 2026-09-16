@@ -464,6 +464,24 @@ _REPO_ROOT_SOURCE = "env" if os.environ.get("ARIA_WORKSPACE_ROOT") else "module_
 REPO_ROOT_FROM_MODULE_MARKER = "::warning::aria_executor_repo_root_from_module_location"
 
 
+def _kernel_checkout_root() -> Path:
+    """The checkout the RUNNING kernel is part of — where its agent contracts
+    and runtime profiles (`.claude/agents/*.md`) are read from (ARIA-HIGH-146).
+
+    The contract used to be rendered from the workspace (`_REPO_ROOT`): the
+    tree the implementer changes, at the request's `target_sha`. A workspace
+    at an older commit ran the contract of that commit while this executor
+    validated the response against its own; trial eleven's implementer got
+    the 2026-09-12 contract, whose first obligation the sandbox's command
+    policy cannot execute (ARIA-HIGH-147), twice. The contract belongs to
+    the kernel that grades it — the same root ARIA-HIGH-142 serves the
+    in-sandbox clients from.
+    """
+    from aria_kernel.claude_settings import kernel_code_root
+
+    return kernel_code_root().parent
+
+
 def repo_root_provenance_note() -> str | None:
     """The one line a run writes when its repo root was not handed to it,
     or None when ARIA_WORKSPACE_ROOT named the request's tree."""
@@ -1652,7 +1670,7 @@ def _decide_session_and_recovery(
     from aria_kernel.recovery import classify_recovery, gh_remote_reader
     from aria_kernel.session_continuity import decide_session, session_fingerprint
 
-    profile = read_agent_runtime_profile(subagent_type, repo_root=repo)
+    profile = read_agent_runtime_profile(subagent_type, repo_root=_kernel_checkout_root())
     recording = UsageRecording(request_id=request_id, role=str(request_envelope.get("role") or ""),
                                target_agent=subagent_type, base_dir=tools_dir)
     fingerprint = session_fingerprint(
@@ -1691,7 +1709,7 @@ def _rollback_after_blocked_spawn(*, tools_dir: Path, request_id: str, subagent_
         from aria_kernel.checkpoint import list_checkpoints, restore_checkpoint
         from aria_kernel.tool_registry import append_tools_governance, ensure_tools_dir
 
-        profile = read_agent_runtime_profile(subagent_type, repo_root=_REPO_ROOT)
+        profile = read_agent_runtime_profile(subagent_type, repo_root=_kernel_checkout_root())
         if not profile.write_capable or not list_checkpoints(request_id, base_dir=tools_dir):
             return
         result = restore_checkpoint(workspace_root=_REPO_ROOT, request_id=request_id, base_dir=tools_dir)
@@ -2968,11 +2986,13 @@ def _deliver_agent_contract(target_agent: str, repo: Path) -> Any:
 
     Raised, never skipped: a run without its contract is the run that returns
     `plan` for `plan_content` and is refused after spending its tokens.
+    ARIA-HIGH-146 — rendered from the KERNEL's checkout, not the workspace
+    (``repo`` is kept for the call shape; the root is the kernel's).
     """
     from aria_kernel.agent_contract_delivery import AgentContractUnavailable, render_agent_contract
 
     try:
-        return render_agent_contract(target_agent, repo_root=repo)
+        return render_agent_contract(target_agent, repo_root=_kernel_checkout_root())
     except AgentContractUnavailable as exc:
         raise ClaudeCliUnavailable(f"agent_contract_unavailable: {exc}") from exc
 
@@ -3639,7 +3659,7 @@ def _adaptive_pre_claim_admission(
         binding_refusal = _native_task_binding_refusal(repo_root=repo_root, tools_dir=tools_dir, request=request)
         if binding_refusal is not None:
             return _refuse_native_admission(request=request, reason=binding_refusal, kind=TASK_BINDING_REFUSAL)
-    profile = read_agent_runtime_profile(target_agent, repo_root=repo_root)
+    profile = read_agent_runtime_profile(target_agent, repo_root=_kernel_checkout_root())
     environment = dict(os.environ)
     contexts: dict[str, Any] = {}
 

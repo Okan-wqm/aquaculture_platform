@@ -253,6 +253,10 @@ class ImplementationEnvelopeValidatesTests(unittest.TestCase):
         # the tree against.
         self.assertEqual(row["target_sha"], "0" * 40)
         self.assertEqual(row["implementation_ids"]["base_sha"], row["target_sha"])
+        # ARIA-HIGH-147 — the prompt sends the authenticity obligation to the
+        # kernel's plan_verify tool, never to a hand recomputation.
+        self.assertIn("mcp__aria__plan_verify", row["suggested_prompt"])
+        self.assertIn("Do NOT recompute the hash yourself", row["suggested_prompt"])
         kinds = {item["kind"] for item in row["must_satisfy"]}
         self.assertEqual(kinds, {"converged_plan_authenticity", "plan_key_change", "validation_evidence"})
         key_change = next(item for item in row["must_satisfy"] if item["id"] == "key_change:0")

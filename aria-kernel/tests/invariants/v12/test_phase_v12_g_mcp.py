@@ -214,6 +214,37 @@ class ServerSpeaksTheProtocol(_Store):
         self.assertEqual(json.loads(proc.stdout.splitlines()[0])["id"], 1)
 
 
+class PlanVerifyAnswersAuthenticity(_Store):
+    def test_I_V12_MCP_plan_verify_recomputes_from_the_ledger(self) -> None:
+        # ARIA-HIGH-147 — the implementer's first obligation, answered by the
+        # kernel from its own hash-verified ledger body: the sandbox has no
+        # interpreter for a hand recomputation, and two live spawns spent
+        # their whole budgets attempting one.
+        from tests._helpers.git_fixtures import make_repo_with_initial_commit
+        from tests._helpers.production_shaped import production_converged_plan
+
+        repo = make_repo_with_initial_commit(self.root / "src", {"apps/farm-service/src/sample.ts": "export const one = 1;\n"})
+        (repo / ".claude" / "agents").mkdir(parents=True)
+        (repo / ".claude" / "agents" / "farm-expert.md").write_text(
+            "---\nname: farm-expert\ndescription: Fixture reviewer.\n---\n\nOwns `apps/farm-service/**`.\n", encoding="utf-8")
+        plan = production_converged_plan(tools_dir=self.tools, workspace_root=repo, plan_id="plan-147-verify",
+                                         affected_paths=["apps/farm-service/src/sample.ts"])
+        server = AriaMcpServer(base_dir=self.tools, workspace_root=repo)
+        self.assertIn("plan_verify", READ_TOOLS)
+        self.assertIn("plan_verify", [t["name"] for t in server.tools()])
+        ok = server.call_tool("plan_verify", {"plan_id": plan.plan_id, "content_hash": plan.content_hash})
+        self.assertFalse(ok["isError"], ok)
+        answer = json.loads(ok["content"][0]["text"])
+        self.assertEqual((answer["verdict"], answer["revision_id"], answer["content_hash"], answer["state"]),
+                         ("verified", plan.revision_id, plan.content_hash, "CONVERGED"))
+        self.assertEqual(answer["plan_content"]["affected_surfaces"][0]["paths"], ["apps/farm-service/src/sample.ts"])
+        bad = server.call_tool("plan_verify", {"plan_id": plan.plan_id, "content_hash": "sha256:" + "0" * 64})
+        self.assertFalse(bad["isError"], bad)
+        self.assertEqual(json.loads(bad["content"][0]["text"])["verdict"], "mismatch")
+        unknown = server.call_tool("plan_verify", {"plan_id": "plan-nowhere", "content_hash": plan.content_hash})
+        self.assertTrue(unknown["isError"], "an unknown plan is an error result, not a verdict")
+
+
 class FloorAndSurfaces(_Store):
     def test_I_V12_MCP_05_floor_mcp_json_cli(self) -> None:
         from aria_kernel.doctor import CLAUDE_CLI_VERSION_FLOOR

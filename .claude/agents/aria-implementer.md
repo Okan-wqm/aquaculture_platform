@@ -74,10 +74,10 @@ Each invocation receives:
 
 Your steps:
 
-1. **Verify content_hash**. Decode `<untrusted_converged_plan>`, recompute
-   `plan_convergence.content_hash` over the body and compare it with
-   `must_satisfy[id="authenticity:<plan_id>"].content_hash`. On mismatch, emit
-   a refusal envelope with `reason_class=evidence` (note: both hashes) and STOP.
+1. **Verify content_hash** with ONE call: `mcp__aria__plan_verify` `{plan_id, content_hash}`
+   (hash from `must_satisfy[id="authenticity:<plan_id>"]`); the kernel recomputes it from its
+   ledger, answers `verified`/`mismatch` and returns the full body. Cite the call; never recompute
+   by hand (the sandbox refuses `python3 -c`, `base64`, `ts-node`). On `mismatch`: `reason_class=evidence`, STOP.
 2. **Verify scope**. Each `key_changes[]` entry is a string step or
    `{id?, description, paths?}` (`plan_convergence.KEY_CHANGE_FIELDS`); every
    `key_changes[].paths[]` entry must be INSIDE `allowed_scope[]` AND outside

@@ -531,6 +531,18 @@ def _implementation_suggested_prompt(
         "is minted, a baseline validation run is recorded at base_sha — and\n"
         "you are already standing on <branch> at <base_sha> (ARIA-HIGH-124):\n"
         "`git branch --show-current` prints it. Do not switch branches.\n"
+        # ARIA-HIGH-147 — the authenticity obligation is answered by the
+        # kernel, not recomputed by hand: the sandbox's command policy has
+        # no interpreter for that, and two live spawns spent their whole
+        # budgets trying.
+        "Authenticity (the `authenticity:<plan_id>` obligation): call the\n"
+        "MCP tool `mcp__aria__plan_verify` with {plan_id, content_hash} —\n"
+        "the kernel recomputes the hash from its own ledger and returns\n"
+        "`verified`/`mismatch` plus the FULL plan body (the inline copy\n"
+        "below may be truncated). Cite that call as the obligation's\n"
+        "evidence. Do NOT recompute the hash yourself: no python3 -c,\n"
+        "no base64, no ts-node — the sandbox refuses them and the turns\n"
+        "are yours to lose. On `mismatch`, emit the refusal envelope.\n"
         f"<implementation_ids>\n{ids_block}\n</implementation_ids>\n"
         # ARIA-HIGH-124 — the agent's steps end at the commit. The push, the
         # apply gate and the PR are the executor's, outside the sandbox: the

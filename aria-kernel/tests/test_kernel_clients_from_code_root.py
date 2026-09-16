@@ -167,5 +167,42 @@ class TheExecutorSaysWhereItsRootCameFrom(unittest.TestCase):
             self.assertIsNone(executor.repo_root_provenance_note())
 
 
+class TheContractIsTheKernels(unittest.TestCase):
+    """ARIA-HIGH-146 — the agent contract and runtime profile the executor
+    hands the model come from the kernel's own checkout, whatever tree the
+    request stands in: a workspace at an older commit (trial eleven's task
+    source, 2026-09-12) ran that commit's contract while this executor
+    graded the response against its own."""
+
+    def test_the_contract_renders_from_the_kernel_root_for_a_workspace_without_one(self) -> None:
+        from aria_kernel.agent_contract_delivery import render_agent_contract
+
+        with tempfile.TemporaryDirectory(prefix="aria-146-ws-") as tmp:
+            workspace = Path(tmp).resolve()
+            # A workspace whose `.claude/agents` names ANOTHER contract for
+            # the same agent: the kernel's is what the model receives.
+            (workspace / ".claude" / "agents").mkdir(parents=True)
+            (workspace / ".claude" / "agents" / "aria-implementer.md").write_text(
+                "---\nname: aria-implementer\nruntime_profile: implementer\nmodel: haiku\n---\n\nThe workspace's own contract.\n",
+                encoding="utf-8")
+            with mock.patch.dict(os.environ, {"ARIA_WORKSPACE_ROOT": str(workspace)}):
+                executor = load_ci_executor("ci_executor_146_contract_root")
+            self.assertEqual(executor._REPO_ROOT, workspace)
+            self.assertEqual(executor._kernel_checkout_root(), kernel_code_root().parent)
+            delivered = executor._deliver_agent_contract("aria-implementer", workspace)
+            kernels = render_agent_contract("aria-implementer", repo_root=kernel_code_root().parent)
+            self.assertEqual(delivered.contract_hash, kernels.contract_hash)
+            self.assertNotIn("The workspace's own contract.", delivered.text)
+            self.assertIn("mcp__aria__plan_verify", delivered.text, "the kernel's step 1 (ARIA-HIGH-147)")
+            from aria_kernel.agent_runtime_profile import read_agent_runtime_profile
+
+            profile = read_agent_runtime_profile("aria-implementer", repo_root=executor._kernel_checkout_root())
+            self.assertNotEqual(profile.model, "haiku", "the profile is the kernel's too")
+            import inspect
+
+            for name in ("_deliver_agent_contract", "_rollback_after_blocked_spawn", "_decide_session_and_recovery"):
+                self.assertIn("_kernel_checkout_root()", inspect.getsource(getattr(executor, name)), name)
+
+
 if __name__ == "__main__":
     unittest.main()

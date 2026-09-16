@@ -2,9 +2,18 @@
  * Subscription Management Page
  *
  * Admin panel for managing subscriptions, plans, and billing.
+ *
+ * The three lifecycle writes — cancel, extend trial, reactivate — do NOT carry
+ * an actor. They used to pass a literal `'admin'` under a
+ * `// TODO: get from auth context` comment, but the client functions take that
+ * argument as `_cancelledBy` and never put it on the wire: the server derives
+ * the actor from the authenticated request and refuses without one
+ * (ADMIN-CRITICAL-008). The comment described a gap that was already closed,
+ * and inviting someone to "fix" it by sending a client-supplied actor would
+ * have opened the real hole. The dead arguments are gone.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Card, Button, Badge, Input } from '@aquaculture/shared-ui';
 import {
   billingApi,
@@ -15,18 +24,14 @@ import {
   PlanTier,
 } from '../services/adminApi';
 import { expectedTotalPages } from '@platform/pagination-contracts';
+import { adminKeys, useAdminQuery } from '../hooks';
+import { QueryFailureNotice } from '../components/QueryFailureNotice';
 
 // ============================================================================
 // Subscription Management Page
 // ============================================================================
 
 const SubscriptionManagementPage: React.FC = () => {
-  const [subscriptions, setSubscriptions] = useState<SubscriptionOverview[]>([]);
-  const [stats, setStats] = useState<SubscriptionStats | null>(null);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
   // Filters
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<SubscriptionStatus | ''>('');
@@ -40,76 +45,91 @@ const SubscriptionManagementPage: React.FC = () => {
   const [showExtendTrialModal, setShowExtendTrialModal] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
   const [trialDays, setTrialDays] = useState(7);
+  /**
+   * Why the last cancel/extend/reactivate did not go through. Kept apart from
+   * the reads' errors: a failed write is a message about an action, not a
+   * reason to replace the list the operator is looking at.
+   */
+  const [writeError, setWriteError] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadData();
-  }, [search, statusFilter, planFilter, page]);
-
-  const loadData = async () => {
-    setLoading(true);
-    try {
-      const [subsResult, statsResult] = await Promise.all([
-        billingApi.getSubscriptions({
+  /**
+   * The page, filtered. Every discriminator is in the key, so page 2 of a
+   * filtered list cannot overwrite page 1 of the unfiltered one.
+   *
+   * This replaces a `loadData()` that never cleared its own error: the render
+   * returned a full-page error whenever `error` was set, `loadData` only ever
+   * assigned it in a catch, and nothing assigned `null` on success — so after
+   * one transient failure the Retry button fetched successfully and the page
+   * went on showing the error forever. A query's error is derived from its
+   * last outcome, so a successful refetch clears it by construction.
+   */
+  const listQuery = useAdminQuery<{ subscriptions: SubscriptionOverview[]; total: number }>(
+    adminKeys.billing.subscriptions({ search, statusFilter, planFilter, page, limit }),
+    ({ signal }) =>
+      billingApi.getSubscriptions(
+        {
           search: search || undefined,
           status: statusFilter ? [statusFilter] : undefined,
           planTier: planFilter ? [planFilter] : undefined,
           limit,
           offset: (page - 1) * limit,
-        }),
-        billingApi.getSubscriptionStats(),
-      ]);
-      setSubscriptions(subsResult.subscriptions);
-      setTotal(subsResult.total);
-      setStats(statsResult);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  };
+        },
+        signal,
+      ),
+  );
+
+  const statsQuery = useAdminQuery<SubscriptionStats>(
+    adminKeys.billing.subscriptionStats(),
+    ({ signal }) => billingApi.getSubscriptionStats(signal),
+  );
+
+  const subscriptions: SubscriptionOverview[] = listQuery.data?.subscriptions ?? [];
+  const total = listQuery.data?.total ?? 0;
+  const stats = statsQuery.data;
+  const loading = listQuery.isPending;
+
+  const reload = useCallback((): void => {
+    void listQuery.refetch();
+    void statsQuery.refetch();
+  }, [listQuery, statsQuery]);
 
   const handleCancelSubscription = async () => {
+    setWriteError(null);
     if (!selectedSubscription || !cancelReason) return;
 
     try {
-      await billingApi.cancelSubscription(
-        selectedSubscription.tenantId,
-        cancelReason,
-        'admin', // TODO: get from auth context
-      );
+      await billingApi.cancelSubscription(selectedSubscription.tenantId, cancelReason);
       setShowCancelModal(false);
       setSelectedSubscription(null);
       setCancelReason('');
-      loadData();
+      reload();
     } catch (err) {
-      setError((err as Error).message);
+      setWriteError((err as Error).message);
     }
   };
 
   const handleExtendTrial = async () => {
+    setWriteError(null);
     if (!selectedSubscription || trialDays <= 0) return;
 
     try {
-      await billingApi.extendTrial(
-        selectedSubscription.tenantId,
-        trialDays,
-        'admin', // TODO: get from auth context
-      );
+      await billingApi.extendTrial(selectedSubscription.tenantId, trialDays);
       setShowExtendTrialModal(false);
       setSelectedSubscription(null);
       setTrialDays(7);
-      loadData();
+      reload();
     } catch (err) {
-      setError((err as Error).message);
+      setWriteError((err as Error).message);
     }
   };
 
   const handleReactivate = async (tenantId: string) => {
+    setWriteError(null);
     try {
-      await billingApi.reactivateSubscription(tenantId, 'admin');
-      loadData();
+      await billingApi.reactivateSubscription(tenantId);
+      reload();
     } catch (err) {
-      setError((err as Error).message);
+      setWriteError((err as Error).message);
     }
   };
 
@@ -142,19 +162,18 @@ const SubscriptionManagementPage: React.FC = () => {
 
   const totalPages = expectedTotalPages(total, limit);
 
-  if (error) {
-    return (
-      <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700">
-        {error}
-        <Button onClick={loadData} className="ml-4">
-          Retry
-        </Button>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6">
+      <QueryFailureNotice
+        errors={[listQuery.error, statsQuery.error]}
+        hasContent={subscriptions.length > 0}
+        onRetry={reload}
+      />
+      {writeError && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700" role="alert">
+          {writeError}
+        </div>
+      )}
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
         <div>

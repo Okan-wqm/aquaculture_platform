@@ -834,6 +834,42 @@ in `web/` reaches the logout authority; `@tanstack/react-query` is declared
 wherever it is imported, at the federation-pinned version; the barrel keeps
 exporting the primitives.
 
+## ADMIN-HIGH-139 — a Retry that could never leave the state it retried
+
+**State:** OPEN → closed by W9d · **Wave:** W9d · **Owner:** okan
+**Deadline:** 2026-12-31
+
+The render returned a full-page error whenever `error` was set. `loadData`
+assigned it in its catch, and **nothing anywhere assigned `null` again** —
+`grep -c "setError(null)"` returned **0**. So after one transient failure the
+Retry button fetched successfully and the page went on showing the error,
+permanently, until the operator reloaded the browser.
+
+Moving both reads to `useAdminQuery` fixes this by construction: a query's
+error is derived from its last outcome, so a successful refetch clears it. The
+four `loadData()` call sites were also floating promises, which CLAUDE.md bans.
+
+**A second item, and a correction to the obvious reading of it.** The three
+lifecycle writes — cancel, extend trial, reactivate — passed a literal
+`'admin'` as an actor under `// TODO: get from auth context`. That looks like a
+forged audit trail, and it is not. The client functions took the argument as
+`_cancelledBy` / `_reactivatedBy` / `_extendedBy` and **never put it on the
+wire**; the server derives the actor from the authenticated request via
+`getAuthUserId(req)`, refuses with 401 when it is absent, and the routes carry
+`@AuditedOperation` and `@RequiresCapability('billing-ops')`. The ledger was
+right all along.
+
+The comment was still a defect, of the opposite kind: it asserted a gap that
+ADMIN-CRITICAL-008 had already closed, and invited a future contributor to
+"fix" it by sending a client-supplied actor — which is what would have opened a
+real accountability hole. The dead arguments and the comment are gone.
+
+Write failures now have their own state, kept apart from the reads', so a
+failed cancel no longer blanks the list the operator is working on.
+
+**What this page already got right is left alone.** Unlike its siblings in this
+batch, its stat cards are guarded by `{stats && …}` — it never invented a zero.
+
 ## ADMIN-HIGH-138 — "Net Revenue", computed from the 50 rows on screen
 
 **State:** OPEN → closed by W9c · **Wave:** W9c · **Owner:** okan

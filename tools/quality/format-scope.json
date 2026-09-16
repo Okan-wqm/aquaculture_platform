@@ -18625,7 +18625,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "61383f3b5a86a6a08810627832f4d3216739be8b969eb440d8c259e05ca94115",
+      "content_sha256": "6b181ea292e6da8d72c82490bd6b88776712795d600b7db45c420b69193d7954",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "apps/gateway-api/src/config/federated-subgraphs.generated.ts",
@@ -38343,7 +38343,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "e5b878f4af03d8ba36f355b47b7a127c56612a5502f356b365bfe1ceb8d526af",
+      "content_sha256": "3aced715410324c6b57277107df21ad1fbb9efb94aebde935c54c1963584c9a0",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "infrastructure/apollo-router/codegen-schema.generated.json",
@@ -43771,7 +43771,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "75715e988ac4f0e9279ba765c2751bd51daff832fdd65e9d353f43672d821a7b",
+      "content_sha256": "eb770c61143111b60d27bacf9b257f3100fd1a91569a37318e9af1c558005730",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",

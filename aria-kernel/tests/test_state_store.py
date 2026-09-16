@@ -2666,7 +2666,9 @@ class ForceIsNotReachable(unittest.TestCase):
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
                 continue
-            if node.func.id not in {"_git", "_git_succeeds", "_run_git"}:
+            # `_run_git_step` / `_git_step` are the runners for the registered
+            # lifecycle steps (state_store_lifecycle_arcs); the push is one.
+            if node.func.id not in {"_git", "_git_succeeds", "_run_git", "_run_git_step", "_git_step"}:
                 continue
             literals = [a.value for a in node.args if isinstance(a, ast.Constant) and isinstance(a.value, str)]
             # `_run_git` takes its argv as a tuple; unpack that shape too.

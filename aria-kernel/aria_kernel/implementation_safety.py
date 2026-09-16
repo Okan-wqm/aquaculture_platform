@@ -2839,7 +2839,7 @@ HARD_FAIL_CHECKS: tuple[HardFailCheck, ...] = (
     # per-cycle cap is WALL CLOCK (the run-scoped job deadline,
     # cycle.job_deadline_epoch, read at the turn boundary by the hook), the
     # per-implementer cap is the policy's implementer_turn_budget.budgeted_turns
-    # Edit+Write+Bash turns (kernel default 60, operator decision 2026-09-12;
+    # Edit+Write+Bash turns (kernel default 120, operator decision 2026-09-16;
     # turn_budget_policy owns the block, counted and refused inside the
     # hook_decisions transaction), and dollars are telemetry under the
     # managed-subscription policy — cost_budget keeps them as admission under
@@ -2851,7 +2851,7 @@ HARD_FAIL_CHECKS: tuple[HardFailCheck, ...] = (
             "hooks.admit_budgeted_turn admits each Edit/Write/Bash turn against "
             "the job deadline (ARIA_JOB_DEADLINE_EPOCH) and the policy's "
             "implementer_turn_budget.budgeted_turns for the store's bound "
-            "workspace (turn_budget_policy, default 60); pre-merge reads the "
+            "workspace (turn_budget_policy, default 120); pre-merge reads the "
             "request's hook_decisions rows and fails on any "
             "cycle_budget_exhausted / implementer_turn_budget_exhausted "
             "refusal, on more admitted turns than the cap, on a recorded cap "

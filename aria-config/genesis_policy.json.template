@@ -7,7 +7,7 @@
   "materialization_requires_acknowledge": true,
   "fitness_staleness_threshold_days": 7,
   "implementer_turn_budget": {
-    "_comment": "Budgeted Edit/Write/Bash/MultiEdit/NotebookEdit turns one implementer request may be admitted (cycle_and_turn_budget_cap). Kernel default 60; whole number in [1, 400] (2 x plan_convergence.MAX_AFFECTED_PATHS) or the kernel refuses the spawn and names the bound; any key other than budgeted_turns (keys starting with _ are annotations) is refused by name. Read for the workspace the tools store is bound to.",
-    "budgeted_turns": 60
+    "_comment": "Budgeted Edit/Write/Bash/MultiEdit/NotebookEdit turns one implementer request may be admitted (cycle_and_turn_budget_cap). Kernel default 120 (2026-09-16; the first live implementation spent 60 to the turn before its commit); whole number in [1, 400] (2 x plan_convergence.MAX_AFFECTED_PATHS) or the kernel refuses the spawn and names the bound; any key other than budgeted_turns (keys starting with _ are annotations) is refused by name. Read for the workspace the tools store is bound to.",
+    "budgeted_turns": 120
   }
 }

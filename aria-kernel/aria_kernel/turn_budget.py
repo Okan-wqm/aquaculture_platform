@@ -29,7 +29,7 @@ WHAT this module owns — the two caps that DO bind, and their vocabulary:
   phase loop and the hook cannot disagree on the margin.
 
 * the TURN cap is the policy's ``implementer_turn_budget.budgeted_turns``
-  (kernel default 60; ``turn_budget_policy`` owns the block, its ceiling and
+  (kernel default 120; ``turn_budget_policy`` owns the block, its ceiling and
   its validation) Edit+Write+Bash turns per implementer request. The
   profile's write scope is what marks a spawn as budgeted and the store the
   spawn is bound to is whose policy the cap is read from

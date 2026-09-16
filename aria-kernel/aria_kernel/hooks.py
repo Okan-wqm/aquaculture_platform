@@ -25,7 +25,7 @@ cycle_and_turn_budget_cap (policy §14): a budgeted spawn — one whose profile
 has a write scope, so the kernel compiled a turn cap into its settings
 document (``_aria.turn_budget``), N being the
 ``implementer_turn_budget.budgeted_turns`` of the policy the spawn's store is
-bound to (:mod:`turn_budget_policy`, kernel default 60) — has every
+bound to (:mod:`turn_budget_policy`, kernel default 120) — has every
 Edit/Write/Bash turn admitted against the job deadline and that turn cap
 INSIDE the state transaction that appends its verdict, so the count and the
 row are one atomic step. The refusal owner and the evidence reader are

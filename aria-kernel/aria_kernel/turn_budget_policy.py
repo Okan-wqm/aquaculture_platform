@@ -62,11 +62,15 @@ POLICY_BLOCK: str = "implementer_turn_budget"
 # not read them; every other key must be one this module knows.
 ANNOTATION_KEY_PREFIX: str = "_"
 IMPLEMENTER_TURN_BUDGET_DEFAULTS: dict[str, Any] = {
-    # 60: the operator decision of 2026-09-12. A root-cause implementation
-    # spends 20–40 turns (one Edit per change, one Bash per test run, a few
-    # for git); 60 leaves headroom for a wide plan while a loop that re-edits
-    # and re-runs the same test is still stopped between turns.
-    "budgeted_turns": 60,
+    # 120: the operator decision of 2026-09-16, superseding 2026-09-12's 60.
+    # The first live implementation (trial eleven, ARIA-HIGH-137: two
+    # source files, four new specs, two projects' suites) measured 60
+    # budgeted turns spent — every key_change applied, validated and staged
+    # — and needed the 61st for `git commit`; 60 was a wall for a plan of
+    # ordinary width, not a cap on a runaway loop. 120 keeps the cap well
+    # inside the ceiling below while a loop that re-edits and re-runs the
+    # same test is still stopped between turns.
+    "budgeted_turns": 120,
 }
 # The ceiling keeps the cap a CAP: a policy cannot switch it off by writing a
 # number no run could reach. It is derived from the widest plan the kernel

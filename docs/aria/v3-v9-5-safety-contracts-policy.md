@@ -132,9 +132,11 @@ V9.6 (auto_merge runner) consumes the registry via a sequential loop pre-merge. 
   OR the implementer request has already been admitted the policy's
   `implementer_turn_budget.budgeted_turns` budgeted turns (Edit + Write + Bash + MultiEdit +
   NotebookEdit combined, `BUDGETED_TOOL_NAMES`). The cap is a POLICY value, not a literal (operator
-  decision 2026-09-12): the kernel default is 60 (`aria_kernel/data/genesis_policy_default.json`;
-  each Edit is one turn and each test run one Bash turn, so a root-cause implementation spends 20–40
-  and the former literal 10 was a wall, not a cap), `<workspace>/aria-config/genesis_policy.json`
+  decision 2026-09-12, revised 2026-09-16): the kernel default is 120
+  (`aria_kernel/data/genesis_policy_default.json`; each Edit is one turn and each test run one Bash
+  turn; the first live implementation — two files, four specs, two suites — spent 60 to the turn
+  before its commit, so 60 was a wall, as the former literal 10 had been),
+  `<workspace>/aria-config/genesis_policy.json`
   overrides it, and `turn_budget_policy.implementer_turn_budget_policy` REFUSES, naming the
   offender, values below 1 (a cap of zero refuses the first turn — that switches implementers off,
   it does not budget them), values above 2 × `plan_convergence.MAX_AFFECTED_PATHS` = 400 (one Edit

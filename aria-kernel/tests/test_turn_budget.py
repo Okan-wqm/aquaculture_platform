@@ -7,11 +7,11 @@ clock and ARIA-HIGH-074/079 made notional dollars telemetry under the
 managed-subscription policy, so the cap that binds is (a) the run-scoped job
 deadline at every turn boundary and (b) N admitted turns per implementer
 request, where N is the policy's ``implementer_turn_budget.budgeted_turns``
-(kernel default 60, operator decision 2026-09-12; the block itself is pinned
+(kernel default 120, operator decision 2026-09-16 — 2026-09-12's 60 was spent to the turn before the first live commit; the block itself is pinned
 in ``tests/test_turn_budget_policy.py``). These tests pin:
 
-* the hook counter: sixty budgeted turns are admitted under the default cap,
-  the sixty-first is refused with ``implementer_turn_budget_exhausted`` at
+* the hook counter: the cap's worth of budgeted turns are admitted under the default cap,
+  the next one is refused with ``implementer_turn_budget_exhausted`` at
   the boundary (exit 2, the CLI's deny JSON), every budgeted verdict carries
   its observation, a policy-denied turn never counts, and an unbudgeted
   spawn is never refused;
@@ -83,7 +83,7 @@ def _rows(tools: Path) -> list[dict]:
 
 class OwnerVocabulary(unittest.TestCase):
     def test_the_budgeted_set_is_the_policed_set_is_edit_write_bash(self) -> None:
-        self.assertEqual(_CAP, 60)
+        self.assertEqual(_CAP, 120)
         self.assertFalse(hasattr(turn_budget, "IMPLEMENTER_TURN_BUDGET"), "the cap is policy, not a literal")
         self.assertEqual(set(_PRE_TOOL_MATCHER.split("|")), set(turn_budget.BUDGETED_TOOL_NAMES))
         self.assertEqual(set(turn_budget.BUDGETED_TOOL_NAMES), hooks.WRITE_TOOL_NAMES | {"Bash"})
@@ -147,7 +147,7 @@ class OwnerVocabulary(unittest.TestCase):
             "native_turn_budget_observation_unavailable",
         )
         # The policy the CALLER resolved for the merged store decides, not a
-        # literal: rows admitted under 3 are a mismatch against 60 and are
+        # literal: rows admitted under 3 are a mismatch against the default and are
         # respected against a policy that says 3.
         other_cap = [dict(bare[0], turn_budget={"cap": 3, "used_before": 0})]
         self.assertEqual(
@@ -207,21 +207,21 @@ class HookCounterRefusesTheTurnPastTheCap(unittest.TestCase):
         return hooks.run_hook("pre-tool", payload, base_dir=self.tools, workspace_root=self.root,
                               request_id=request_id, turn_budget=turn_budget)
 
-    def test_sixty_admitted_the_sixty_first_refused_by_name_at_the_boundary(self) -> None:
-        self.assertEqual(_CAP, 60)
+    def test_the_cap_admitted_the_next_turn_refused_by_name_at_the_boundary(self) -> None:
+        self.assertEqual(_CAP, 120)
         for turn in range(_CAP):
             tool = ("Bash", {"command": "git status --porcelain"}) if turn % 2 else \
                    ("Edit", {"file_path": str(self.root / "apps" / f"f{turn}.ts")})
             code, out = self._pre_tool(_payload(tool[0], f"toolu_{turn}", **tool[1]))
             self.assertEqual(code, hooks.EXIT_ALLOW, (turn, out))
-        code, out = self._pre_tool(_payload("Write", "toolu_61", file_path=str(self.root / "apps" / "late.ts")))
+        code, out = self._pre_tool(_payload("Write", f"toolu_{_CAP + 1}", file_path=str(self.root / "apps" / "late.ts")))
         self.assertEqual(code, hooks.EXIT_BLOCK)
         decision = json.loads(out)["hookSpecificOutput"]
         self.assertEqual(decision["permissionDecision"], "deny")
         self.assertEqual(decision["permissionDecisionReason"],
                          f"implementer_turn_budget_exhausted:used={_CAP}:cap={_CAP}")
-        # A sixty-second attempt is refused too: nothing was consumed by the refusal.
-        code, out = self._pre_tool(_payload("Bash", "toolu_62", command="git status"))
+        # One more attempt is refused too: nothing was consumed by the refusal.
+        code, out = self._pre_tool(_payload("Bash", f"toolu_{_CAP + 2}", command="git status"))
         self.assertEqual(code, hooks.EXIT_BLOCK)
         self.assertIn("implementer_turn_budget_exhausted", out)
         rows = _rows(self.tools)
@@ -256,7 +256,7 @@ class HookCounterRefusesTheTurnPastTheCap(unittest.TestCase):
 
     def test_the_count_is_per_request_and_an_unbudgeted_spawn_is_never_refused(self) -> None:
         # The counter is cap-agnostic (it admits against the number on its
-        # argv, see the sixty-turn test above); a small compiled cap keeps
+        # argv, see the cap-boundary test above); a small compiled cap keeps
         # this isolation proof to a handful of ledger transactions.
         cap = 3
         for turn in range(cap):
@@ -320,7 +320,7 @@ class HookCounterRefusesTheTurnPastTheCap(unittest.TestCase):
         # file there is not evidence. The number is the policy's because
         # build_settings compiled it (SettingsCompileTheCap); the CLI verb
         # threads whatever it was given. An override in this workspace that
-        # says 60 does not widen a hook compiled at 3.
+        # says the default does not widen a hook compiled at 3.
         write_override(self.root, {"budgeted_turns": _CAP})
         compiled = 3
         argv = ["hook", "pre-tool", "--tools-dir", str(self.tools), "--workspace-root", str(self.root),
@@ -431,7 +431,7 @@ class PredicateReadsCapturedEvidence(unittest.TestCase):
 
     def test_fails_by_name_when_the_recorded_cap_is_not_the_policys(self) -> None:
         # The spawn ran under 10 (the former literal, or another workspace's
-        # policy) and the merged store's policy says 60: refused by name,
+        # policy) and the merged store's policy says the default: refused by name,
         # even though 3 admitted turns respect both numbers.
         verdict = self._verdict(_bound_evidence(
             turn_budget_cap=10, turn_budget_policy_cap=_CAP, turn_budget_used=3,

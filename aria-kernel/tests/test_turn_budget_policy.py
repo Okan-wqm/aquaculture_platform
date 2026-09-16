@@ -2,12 +2,12 @@
 
 Operator decision 2026-09-12: the cap the seventh pre-merge predicate
 (``cycle_and_turn_budget_cap``, policy §14) admits an implementer's
-Edit/Write/Bash turns against is a POLICY value with a kernel default of 60,
+Edit/Write/Bash turns against is a POLICY value with a kernel default of 120,
 not the literal 10 ``turn_budget.IMPLEMENTER_TURN_BUDGET`` carried. These
 tests pin the policy half; the readers (settings, hook, evidence, predicate)
 are pinned in ``tests/test_turn_budget.py``:
 
-* the block ships in the default file with ``budgeted_turns`` = 60, joins
+* the block ships in the default file with ``budgeted_turns`` = 120, joins
   ``POLICY_KEYS`` (so an override merges instead of being dropped), and the
   typed accessor returns the int;
 * an operator override under ``<workspace>/aria-config/genesis_policy.json``
@@ -61,19 +61,19 @@ def write_override(workspace_root: Path, block: object) -> Path:
 class PolicyBlockAndDefault(unittest.TestCase):
     def test_the_kernel_default_is_sixty_and_ships_in_the_default_file(self) -> None:
         self.assertEqual(POLICY_BLOCK, "implementer_turn_budget")
-        self.assertEqual(IMPLEMENTER_TURN_BUDGET_DEFAULTS, {"budgeted_turns": 60})
+        self.assertEqual(IMPLEMENTER_TURN_BUDGET_DEFAULTS, {"budgeted_turns": 120})
         # The default file is the operator-visible authority: a key absent
         # there is a value the operator cannot see.
         shipped = json.loads(
             (Path(__file__).resolve().parents[1] / "aria_kernel" / "data" / DEFAULT_FILENAME).read_text(encoding="utf-8")
         )
-        self.assertEqual(shipped[POLICY_BLOCK]["budgeted_turns"], 60)
+        self.assertEqual(shipped[POLICY_BLOCK]["budgeted_turns"], 120)
         self.assertIn(POLICY_BLOCK, POLICY_KEYS, "a key outside POLICY_KEYS is dropped by the merge")
         block = implementer_turn_budget_policy()
-        self.assertEqual(block, {"budgeted_turns": 60})
+        self.assertEqual(block, {"budgeted_turns": 120})
         self.assertIs(type(block["budgeted_turns"]), int)
         with tempfile.TemporaryDirectory() as tmp:
-            self.assertEqual(implementer_turn_budget_policy(tmp), {"budgeted_turns": 60})
+            self.assertEqual(implementer_turn_budget_policy(tmp), {"budgeted_turns": 120})
 
     def test_the_ceiling_is_two_turns_per_affected_path_of_the_widest_plan(self) -> None:
         # One Edit and one validating Bash turn per affected path of the
@@ -94,7 +94,7 @@ class OverrideAndValidation(unittest.TestCase):
             write_override(Path(tmp), {"budgeted_turns": 1})
             self.assertEqual(implementer_turn_budget_policy(tmp)["budgeted_turns"], 1)
             write_override(Path(tmp), {})
-            self.assertEqual(implementer_turn_budget_policy(tmp), {"budgeted_turns": 60})
+            self.assertEqual(implementer_turn_budget_policy(tmp), {"budgeted_turns": 120})
             # The operator template ships the block with a ``_comment`` next
             # to the number; an operator who copies it must not be refused.
             # The shipped default carries ``_doc`` the same way (pinned by
@@ -172,7 +172,7 @@ class WhichWorkspacesPolicyBindsAStore(unittest.TestCase):
     def test_a_legacy_store_reads_its_parent_workspace(self) -> None:
         workspace = self.root / "legacy"
         tools = ensure_tools_dir(workspace / "aria-tools")
-        self.assertEqual(implementer_turn_budget_for_store(tools), 60)
+        self.assertEqual(implementer_turn_budget_for_store(tools), 120)
         write_override(workspace, {"budgeted_turns": 33})
         self.assertEqual(implementer_turn_budget_for_store(tools), 33)
         write_override(workspace, {"budgeted_turns": 0})
@@ -217,7 +217,7 @@ class WhichWorkspacesPolicyBindsAStore(unittest.TestCase):
         write_override(store_parent, {"budgeted_turns": 7})
         self.assertEqual(implementer_turn_budget_for_store(tools), 7, "unbound: the parent is the workspace")
         ensure_tools_binding(tools, workspace_root=repo)
-        self.assertEqual(implementer_turn_budget_for_store(tools), 60, "bound: the parent's policy no longer binds")
+        self.assertEqual(implementer_turn_budget_for_store(tools), 120, "bound: the parent's policy no longer binds")
         write_override(repo, {"budgeted_turns": 44})
         self.assertEqual(implementer_turn_budget_for_store(tools), 44)
 

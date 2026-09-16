@@ -56,19 +56,36 @@ class TestV8RefusalTerminal(unittest.TestCase):
         self.assertIn('schema', self.src)
 
     def test_i_v8_13_ref_02_dispatches_human_required_record(self):
-        """The refusal handler MUST dispatch `aria_kernel
-        human-required record` so the operator-visible triage row is
-        persisted + the kernel state machine marks the request
+        """The refusal handler MUST persist the HUMAN_REQUIRED record
+        through the kernel's own recorder so the operator-visible triage
+        row is persisted + the kernel state machine marks the request
         terminal (existing line 596 of agent_invocations.py
-        recognizes the human_required event as HUMAN_REQUIRED)."""
+        recognizes the human_required event as HUMAN_REQUIRED).
+
+        ARIA-HIGH-124 (round 3): the record was a `human-required record`
+        CLI child whose `--reason` went through the operator CLI's
+        free-text PII validator, which refused one kernel-minted id in
+        ten; the executor now calls `human_required.record_human_required`
+        in-process (the same recorder the CLI's `record` subcommand uses),
+        so this pin follows the recorder, not the child argv."""
         self.assertIn(
-            '"human-required"', self.src,
-            "ci_executor refusal path MUST invoke the `human-required` CLI",
+            "from aria_kernel.human_required import EXECUTOR_ESCALATION_KIND, record_human_required",
+            self.src,
+            "ci_executor refusal path MUST record through the kernel's own "
+            "`human_required.record_human_required` (not a CLI child)",
         )
         self.assertIn(
-            '"record"', self.src,
-            "ci_executor refusal path MUST use `human-required record` "
-            "(not list/sweep/resolve)",
+            "return record_human_required(", self.src,
+            "ci_executor's in-process recorder MUST delegate to "
+            "`record_human_required` (the `human-required record` writer)",
+        )
+        # The refusal site itself goes through the in-process wrapper.
+        refusal_idx = self.src.find("agent_refusal_detected")
+        self.assertNotEqual(refusal_idx, -1)
+        self.assertIn(
+            "_record_human_required(", self.src[refusal_idx:],
+            "the refusal handler MUST call the in-process recorder after "
+            "detecting the refusal envelope",
         )
         # Reason field carries the agent's reason_class for forensic
         # operator visibility.

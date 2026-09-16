@@ -21,6 +21,7 @@ import {
   MessagingMonitoringStatsDto,
   MessagingTenantsOverviewDto,
   TenantDataExportResultDto,
+  AiPersonaDto,
 } from './dto/messaging-monitoring-response.dto';
 import { Destructive, RequiresCapability, TenantParam } from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
@@ -123,13 +124,6 @@ interface AuditLogResponse {
   hasMore: boolean;
   cursor: string | null;
   totalCount: number;
-}
-
-interface PersonaResponse {
-  id: string;
-  name: string;
-  description: string;
-  isActive: boolean;
 }
 
 // ── Controller ──────────────────────────────────────────────────────────
@@ -391,8 +385,8 @@ export class MessagingAdminController {
   @ApiOperation({ summary: 'Get AI personas configuration' })
   async getPersonas(
     @TenantParam('query') tenantId: string,
-  ): Promise<PersonaResponse[]> {
-    return this.sendNatsRequest<PersonaResponse[]>(
+  ): Promise<AiPersonaDto[]> {
+    return this.sendNatsRequest<AiPersonaDto[]>(
       'request.messaging.admin.getPersonas',
       { tenantId },
     );

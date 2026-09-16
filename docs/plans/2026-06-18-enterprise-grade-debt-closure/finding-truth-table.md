@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `644c04a1683431705331da96359bb6c435324fae50af58d1fd9a84e4dcbf5116`
+Registry tip: `c8b12b2721a720db73ffaa446e1ee330e5fceba9e1226264d8f75357a9980a4e`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -249,8 +249,15 @@ Allowed truth buckets:
 | `ADMIN-CRITICAL-147`  | OPEN           | 2026-09-10   | admin-expert               | already-fixed-needs-close |
 | `ADMIN-CRITICAL-150`  | OPEN           | 2026-09-10   | admin-expert               | already-fixed-needs-close |
 | `ADMIN-CRITICAL-151`  | OPEN           | 2026-09-10   | admin-expert               | already-fixed-needs-close |
+| `ADMIN-CRITICAL-154`  | OPEN           | 2026-09-10   | admin-expert               | already-fixed-needs-close |
 
 Updated 2026-09-10 (W9m, the SUPER_ADMIN audit's messaging batch): one active CRITICAL added.
+`ADMIN-CRITICAL-154` — `MessagingAiPersonasPage` told operators that a hardcoded glossary was the
+tenant's live PLC actuation policy, on the LIFE-SAFETY surface that governs autonomous control of
+physical equipment; admin-api has no route, no NATS call and no reference to `TenantAgentConfig`.
+The claim is removed and the gap stated on the page; BUILDING the read path is `ADMIN-HIGH-155`,
+deliberately not bundled into a page migration because it crosses into ai-service.
+
 `ADMIN-CRITICAL-151` — `MessagingRetentionPage`'s "+ Override" discarded its arguments and closed
 the modal, reporting success for a data-deletion window it never wrote; its Edit could never save
 and its list could never load. Same bucket, same reason.

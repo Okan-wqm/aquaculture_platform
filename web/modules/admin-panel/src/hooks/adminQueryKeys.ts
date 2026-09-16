@@ -59,7 +59,10 @@ export const adminKeys = {
     audit: (request?: Record<string, unknown>) =>
       [...adminKeys.messaging.all(), 'audit', request] as const,
     tenants: () => [...adminKeys.messaging.all(), 'tenants'] as const,
-    personas: () => [...adminKeys.messaging.all(), 'personas'] as const,
+    // Per tenant: the personas route requires a tenant id and the registry
+    // answers per tenant (ADMIN-CRITICAL-154).
+    personas: (tenantId: string) =>
+      [...adminKeys.messaging.all(), 'personas', tenantId] as const,
   },
 
   // ── Tenants ──

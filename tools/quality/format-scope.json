@@ -55222,6 +55222,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/sensor-module/src/components/charts/__tests__/MultiParameterTrendCard.test.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/sensor-module/src/components/charts/BarChart.tsx",
       "prettier_managed": true
     },
@@ -55241,6 +55247,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/sensor-module/src/components/charts/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/sensor-module/src/components/charts/MultiParameterTrendCard.tsx",
       "prettier_managed": true
     },
     {
@@ -58006,6 +58018,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/sensor-module/src/graphql/aggregatedReadings.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/sensor-module/src/graphql/alertRule.operations.ts",
       "prettier_managed": true
     },
@@ -58078,6 +58096,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/sensor-module/src/hooks/__tests__/useAggregatedMultiSeries.test.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/sensor-module/src/hooks/__tests__/useRealtimeData.subscription-id.test.tsx",
       "prettier_managed": true
     },
@@ -58097,6 +58121,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/sensor-module/src/hooks/socketFactory.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/sensor-module/src/hooks/useAggregatedMultiSeries.ts",
       "prettier_managed": true
     },
     {

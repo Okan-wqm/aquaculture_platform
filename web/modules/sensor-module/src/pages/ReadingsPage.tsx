@@ -28,6 +28,7 @@ import {
   TrendingDown,
   Minus,
 } from 'lucide-react';
+import { MultiParameterTrendCard } from '../components/charts/MultiParameterTrendCard';
 import { useSensorList, RegisteredSensor } from '../hooks/useSensorList';
 
 // ============================================================================
@@ -257,6 +258,17 @@ const DeviceGroupCard: React.FC<{
 
       {/* Data Channels Table */}
       {isExpanded && children.length > 0 && (
+        <>
+        <div className="border-t border-gray-100 p-4">
+          <MultiParameterTrendCard
+            sensorId={parent.id}
+            channels={children.map((child) => ({
+              channelKey: child.dataPath || child.name,
+              displayLabel: child.name,
+              unit: child.unit || TYPE_UNITS[child.type?.toLowerCase() || ''] || undefined,
+            }))}
+          />
+        </div>
         <div className="border-t border-gray-100">
           <table className="w-full">
             <thead className="bg-gray-50">
@@ -316,6 +328,7 @@ const DeviceGroupCard: React.FC<{
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       {/* Empty Children State */}
@@ -423,7 +436,7 @@ const ReadingsPage: React.FC = () => {
     return { groups: filtered, orphans: filteredOrphans };
   }, [groupedDevices, selectedType]);
 
-  // Generate mock readings for demo
+    // Generate mock readings for demo
   useEffect(() => {
     const updateReadings = () => {
       const newReadings = new Map<string, SensorReading>();

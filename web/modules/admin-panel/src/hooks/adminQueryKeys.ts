@@ -135,6 +135,9 @@ export const adminKeys = {
       [...adminKeys.billing.all(), 'usage-trends', period, numPeriods] as const,
     usageTopTenants: (meterType: string, period: string) =>
       [...adminKeys.billing.all(), 'usage-top-tenants', meterType, period] as const,
+    /** The custom-plan approval queue, per filter and page. */
+    customPlans: (filters?: Record<string, unknown>) =>
+      [...adminKeys.billing.all(), 'custom-plans', filters] as const,
     /** Discount codes, per listing filter. */
     discountCodes: (filters?: Record<string, unknown>) =>
       [...adminKeys.billing.all(), 'discount-codes', filters] as const,

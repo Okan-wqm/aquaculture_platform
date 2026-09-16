@@ -17,8 +17,11 @@ one property per test:
 * derivation: a linked worktree yields the replica (the sandbox's private
   git dir, a copy of the host's) with its quarantine (`objects/` with an
   alternates pointer at the shared store, `refs/heads/`, `logs/refs/heads/`)
-  and the binds in mount order — the shared common dir read-only as a
-  whole, the quarantine's ref dirs bound AT the common paths, existing
+  and the binds in mount order — a tmpfs AT the shared common dir with
+  every shared entry bound back read-only one by one (ARIA-HIGH-141: a
+  lock sibling git creates beside `packed-refs` lands in the tmpfs; the
+  main checkout's in-progress state and `*.lock` files are not bound),
+  the quarantine's ref dirs bound AT the common paths, existing
   loose refs read-only on top (bounded), the replica bound AT the private
   dir with its control files overlaid, `GIT_OBJECT_DIRECTORY` at the
   quarantine; a main checkout asked for commit capability is refused by
@@ -37,9 +40,11 @@ one property per test:
   snapshots, `packed-refs`, every existing loose ref, the shared packs
   (`rm`, `git repack` writes only into the quarantine),
   `objects/info/alternates`, `objects/maintenance.lock`; a planted
-  `refs/heads/main.lock` and a `locked` file land in the quarantine and
-  the replica, never on the host; the sibling worktree's tree and git dir
-  and the main checkout's working tree are absent;
+  `refs/heads/main.lock`, a `packed-refs.lock` and a `locked` file land in
+  the quarantine, the tmpfs and the replica, never on the host; the
+  sibling worktree's tree and git dir and the main checkout's working
+  tree are absent; a commit on a branch beside a PACKED `main` writes no
+  `Read-only file system` line under the host's git;
 * under bwrap, the state store is NOT in the sandbox: absent inside, a
   write there never reaches the host — while a hook journal row written
   inside through the hook client reaches the store outside, via the
@@ -121,6 +126,10 @@ class _Checkout(unittest.TestCase):
         _git(["remote", "add", "origin", str(self.remote)], cwd=self.repo)
         # The shared store carries a pack (the runner checkout's shape).
         _git(["repack", "-a", "-d", "-q"], cwd=self.repo)
+        # `packed-refs` exists (a packed tag; `main` stays loose), as on
+        # every real checkout — the entry ARIA-HIGH-141 is about.
+        _git(["tag", "v0-fixture"], cwd=self.repo)
+        _git(["pack-refs"], cwd=self.repo)
         self.base = _git(["rev-parse", "HEAD"], cwd=self.repo).stdout.strip()
         self.worktree = self.repo / "aria-worktrees" / "req-1"
         self.sibling = self.repo / "aria-worktrees" / "req-sibling"
@@ -131,6 +140,11 @@ class _Checkout(unittest.TestCase):
         self.private = self.common / "worktrees" / "req-1"
         self.replica = self.private / SANDBOX_GIT_DIR_NAME
         self.packs_before = sorted(path.name for path in (self.common / "objects" / "pack").iterdir())
+        self.assertTrue((self.common / "packed-refs").is_file())
+        self.assertTrue((self.common / "refs" / "heads" / "main").is_file(), "main stays loose")
+        # The main checkout's in-progress state: not a shared entry, not
+        # bound (ARIA-HIGH-141).
+        (self.common / "ORIG_HEAD").write_text(self.base + "\n", encoding="utf-8")
 
     def _argv(self, script: str, containment, *, hook_broker_socket: Path | None = None,
               wrap=None, extra_flags: list[str] = ()) -> list[str]:
@@ -155,6 +169,11 @@ class _Checkout(unittest.TestCase):
 
 class DerivationTests(_Checkout):
     def test_a_linked_worktree_yields_the_replica_and_the_binds_in_mount_order(self) -> None:
+        # A stale lock on the host (an interrupted operation of the main
+        # checkout) is not a shared entry either: not bound, so it cannot
+        # wedge the agent's git inside.
+        (self.common / "index.lock").write_bytes(b"")
+        self.addCleanup(lambda: (self.common / "index.lock").unlink(missing_ok=True))
         containment = derive_git_containment(self.worktree, commit_capable=True)
         assert containment is not None
         self.assertEqual((containment.private_git_dir, containment.common_git_dir), (self.private, self.common))
@@ -172,10 +191,23 @@ class DerivationTests(_Checkout):
         flags = containment.bwrap_flags()
         mounts = _mounts(flags)
         binds = _pairs(flags)
-        # The common dir read-only first; the quarantine's ref dirs bound at
-        # the common paths; the loose `main` overlaid; siblings masked; the
-        # replica AT the private dir; its control files overlaid last.
-        self.assertEqual(mounts[0], ("--ro-bind", str(self.common)))
+        # A tmpfs at the common dir first, every shared entry bound back
+        # read-only one by one (ARIA-HIGH-141); the quarantine's ref dirs
+        # bound at the common paths; the loose `main` overlaid; siblings
+        # masked; the replica AT the private dir; its control files
+        # overlaid last.
+        self.assertEqual(mounts[0], ("--tmpfs", str(self.common)))
+        self.assertNotIn(("--ro-bind", str(self.common)), mounts, "the common dir is no longer bound as a whole")
+        shared = [source for flag, source, target in binds if flag == "--ro-bind" and source == target
+                  and Path(source).parent in (self.common, self.common / "refs", self.common / "logs", self.common / "logs" / "refs")]
+        for name in ("config", "hooks", "info", "objects", "packed-refs", "HEAD", "refs/tags", "logs/HEAD"):
+            self.assertIn(str(self.common / name), shared, name)
+        self.assertEqual(tuple(Path(source) for source in shared), containment.common_entries)
+        for absent in ("refs/heads", "logs/refs/heads", "worktrees", "ORIG_HEAD", "index.lock", "refs", "logs"):
+            self.assertNotIn(str(self.common / absent), shared, f"{absent} is not a shared entry bound as such")
+        self.assertLess(max(mounts.index(("--ro-bind", source)) for source in shared),
+                        mounts.index(("--bind", str(self.replica / "refs" / "heads"))),
+                        "the quarantine binds come after the shared entries")
         self.assertIn(("--bind", str(self.replica / "refs" / "heads"), str(self.common / "refs" / "heads")), binds)
         self.assertIn(("--bind", str(self.replica / "logs" / "refs" / "heads"), str(self.common / "logs" / "refs" / "heads")), binds)
         self.assertIn(("--ro-bind", str(self.common / "refs" / "heads" / "main")), mounts)
@@ -213,6 +245,9 @@ class DerivationTests(_Checkout):
         flags = containment.bwrap_flags()
         self.assertNotIn("--bind", flags)
         self.assertNotIn("--setenv", flags)
+        self.assertEqual(_mounts(flags)[0], ("--tmpfs", str(self.common)))
+        self.assertIn(self.common / "refs" / "heads", containment.common_entries,
+                      "without a quarantine the shared heads are a read-only entry like any other")
         self.assertIsNone(containment.hooks_dir)
         self.assertIsNone(containment.sandbox_git_dir)
         self.assertIn(str(self.private), flags)
@@ -316,10 +351,11 @@ class _HeldIdentity(_Checkout):
         agent_cm = hold_signing_agent(key.private_key_path, expected_fingerprint=key.fingerprint)
         self.agent = agent_cm.__enter__()
         self.addCleanup(agent_cm.__exit__, None, None, None)
-        self.containment = derive_git_containment(self.worktree, commit_capable=True, signing=SandboxSigning(
+        self.signing = SandboxSigning(
             keys_dir=key.private_key_path.parent, public_key_path=key.public_key_path,
             agent_socket=self.agent.socket_path,
-        ))
+        )
+        self.containment = derive_git_containment(self.worktree, commit_capable=True, signing=self.signing)
         self.host_head_before = (self.private / "HEAD").read_text(encoding="utf-8")
         self.objects_before = self._shared_objects()
 
@@ -445,12 +481,19 @@ class UnderRealBwrapTests(_HeldIdentity):
             "sibling_git_dir": f"ls {self.common}/worktrees/req-sibling",
             "main_working_tree": f"ls {self.repo}/apps",
             "main_index": f"echo x >> {self.common}/index",
+            "orig_head_absent": f"test -e {self.common}/ORIG_HEAD",
+            # ARIA-HIGH-141: the lock a current git takes beside
+            # `packed-refs` on a ref update CAN be created — in the tmpfs.
+            "packed_refs_lock_sibling": f"touch {self.common}/packed-refs.lock",
         }
         outcomes = {}
         for name, command in probes.items():
             done = self._run(f"{command} 2>/dev/null && echo ALLOWED || echo REFUSED", self.containment)
             outcomes[name] = done.stdout.strip()
-        self.assertEqual(outcomes, {name: "REFUSED" for name in probes})
+        expected = {name: "REFUSED" for name in probes}
+        expected["packed_refs_lock_sibling"] = "ALLOWED"
+        self.assertEqual(outcomes, expected)
+        self.assertFalse((self.common / "packed-refs.lock").exists(), "the lock sibling died with the sandbox")
         # And nothing changed outside.
         self.assertEqual(_git(["config", "--worktree", "user.signingkey"], cwd=self.worktree).stdout.strip(),
                          str(self.key.private_key_path))
@@ -501,6 +544,42 @@ class UnderRealBwrapTests(_HeldIdentity):
         self.assertEqual(sorted(path.name for path in (self.common / "objects" / "pack").iterdir()), self.packs_before)
         self.assertEqual(_git(["fsck", "--no-dangling"], cwd=self.repo, check=False).returncode, 0)
         self.assertEqual(_git(["worktree", "remove", "--force", str(self.worktree)], cwd=self.repo, check=False).returncode, 0)
+
+    def test_a_commit_beside_a_packed_main_leaves_no_lock_and_no_erofs_line(self) -> None:
+        """ARIA-HIGH-141 — the production shape: every ref packed. A current
+        git takes `packed-refs.lock` on the loose-ref update the commit makes;
+        under the whole-dir read-only bind that was an `error: ... Read-only
+        file system` line on every branch creation (hosted 22.04, git 2.55).
+        The property is pinned under the host's git, whatever it is: the
+        commit lands in the quarantine, stderr carries no EROFS line, no lock
+        reaches the repository, and the publication publishes the branch."""
+        _git(["pack-refs", "--all"], cwd=self.repo)
+        self.assertFalse((self.common / "refs" / "heads" / "main").exists())
+        containment = derive_git_containment(self.worktree, commit_capable=True, signing=self.signing)
+        assert containment is not None
+        self.assertEqual(containment.loose_refs, ())
+        containment = gc.stand_on_implementation_branch(containment, branch=BRANCH, base_sha=self.base)
+        done = self._run(
+            "git commit -q --allow-empty -m packed-probe && git rev-parse HEAD "
+            f"&& git rev-parse --verify -q refs/heads/main && ( : > {self.common}/packed-refs ) 2>/dev/null; echo RC=$?",
+            containment,
+        )
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertNotIn("Read-only file system", done.stderr, done.stderr)
+        self.assertNotIn("packed-refs.lock", done.stderr, done.stderr)
+        head_inside, main_inside, rc = done.stdout.split()
+        self.assertNotEqual(head_inside, self.base)
+        self.assertEqual(main_inside, self.base, "the packed main reads through packed-refs")
+        self.assertNotEqual(rc, "RC=0", "packed-refs itself stays EROFS")
+        self.assertFalse((self.common / "packed-refs.lock").exists())
+        self.assertEqual(_git(["rev-parse", "--verify", "-q", f"refs/heads/{BRANCH}"], cwd=self.repo, check=False).returncode, 1,
+                         "nothing reached the repository before publication")
+        publication = publish_quarantine(containment)
+        self.assertIsNone(publication.refusal)
+        self.assertEqual(publication.refs_published, (BRANCH,))
+        self.assertEqual(_git(["rev-parse", f"refs/heads/{BRANCH}"], cwd=self.repo).stdout.strip(), head_inside)
+        self.assertEqual(_git(["rev-parse", "main"], cwd=self.repo).stdout.strip(), self.base)
+        self.assertEqual(_git(["fsck", "--no-dangling"], cwd=self.repo, check=False).returncode, 0)
 
     def test_a_missing_hooks_dir_cannot_be_created_by_the_agent(self) -> None:
         shutil.rmtree(self.worktree / ".husky")

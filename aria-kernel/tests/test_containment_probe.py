@@ -27,6 +27,13 @@ One property per test:
   (a planted lock reaches the host) are each refused by name;
 * a publication that publishes nothing is refused: the probe proves the
   executor's own publication step, not only that git ran;
+* ARIA-HIGH-141: the probe repository is packed before the derivation and
+  the script pins the tmpfs property under the host's git — a builder that
+  binds the common dir read-only as a whole (the pre-141 shape) is refused
+  by name as the lock sibling it cannot create, a builder that makes
+  `packed-refs` writable is refused by name, a `packed-refs.lock` that
+  reaches the repository is refused, and a git below the proven floor is
+  named before any repository is made;
 * `_bwrap_available()` is False and the wrapper's refusal carries the
   reason when the git probe refuses; the real probe builds through the
   wrapper's own builder with the managed route's network setting.
@@ -42,7 +49,10 @@ from aria_kernel import implementation_safety as impl
 from aria_kernel.containment_probe import (
     EXIT_BRANCH_NOT_STOOD_ON,
     EXIT_CONFIG_WRITABLE,
+    EXIT_PACKED_REFS_LOCK_REFUSED,
+    EXIT_PACKED_REFS_WRITABLE,
     EXIT_PRIVATE_KEY_READABLE,
+    GIT_PROVEN_FLOOR,
     PROBE_BRANCH,
     probe_git_containment,
 )
@@ -64,6 +74,15 @@ def _builder(*, allow_network: bool, drop_ro_binds: tuple[str, ...] = ()):
 
 
 _real_builder = _builder(allow_network=impl.MANAGED_SPAWN_ALLOW_NETWORK)
+
+
+def _tmpfs_index(argv: list[str], common: str) -> int:
+    """The index of the `--tmpfs <common>` the containment stands at the
+    common dir (ARIA-HIGH-141)."""
+    index = argv.index("--tmpfs")
+    while argv[index + 1] != common:
+        index = argv.index("--tmpfs", index + 1)
+    return index
 
 
 def _with_flags_before_separator(build, flags_for):
@@ -127,18 +146,76 @@ class ProbeTests(_NeedsBwrap):
 
     def test_a_writable_control_surface_is_refused(self) -> None:
         def writable_config(command, workspace, containment):
-            # The common dir writable right after its read-only bind, with
-            # the quarantine and replica mounts still on top: `config` (and
-            # its lock) are then writable inside.
+            # The common dir bound WRITABLE where the tmpfs stands
+            # (ARIA-HIGH-141), the entry binds, the quarantine and the
+            # replica mounts still on top: `config` and its lock are then
+            # writable inside (a writable `config` FILE alone is not
+            # enough — git renames `config.lock` over it, and a mountpoint
+            # refuses the rename).
             argv = _real_builder(command, workspace, containment)
             common = str(containment.common_git_dir)
-            index = argv.index(common)
-            assert argv[index - 1] == "--ro-bind" and argv[index + 1] == common
-            return argv[:index + 2] + ["--bind", common, common] + argv[index + 2:]
+            index = _tmpfs_index(argv, common)
+            argv = argv[:index] + ["--bind", common, common] + argv[index + 2:]
+            config = str(containment.common_git_dir / "config")
+            index = argv.index(config)
+            assert argv[index - 1] == "--ro-bind" and argv[index + 1] == config
+            return argv[:index - 1] + argv[index + 2:]
 
         reason = probe_git_containment(writable_config)
         self.assertIsNotNone(reason)
         self.assertTrue(reason.startswith(f"git_in_sandbox_failed:rc={EXIT_CONFIG_WRITABLE}"), reason)
+
+    def test_the_pre_141_whole_dir_bind_is_refused_as_the_lock_it_cannot_create(self) -> None:
+        # ARIA-HIGH-141: the common dir bound read-only as a whole (the
+        # pre-change shape) instead of the tmpfs — `packed-refs.lock` is
+        # then EROFS inside, which a current git hits on every ref update.
+        def whole_dir_read_only(command, workspace, containment):
+            argv = _real_builder(command, workspace, containment)
+            common = str(containment.common_git_dir)
+            index = _tmpfs_index(argv, common)
+            return argv[:index] + ["--ro-bind", common, common] + argv[index + 2:]
+
+        reason = probe_git_containment(whole_dir_read_only)
+        self.assertIsNotNone(reason)
+        self.assertTrue(reason.startswith(f"git_in_sandbox_failed:rc={EXIT_PACKED_REFS_LOCK_REFUSED}"), reason)
+
+    def test_a_writable_packed_refs_is_refused(self) -> None:
+        writable_packed = _with_flags_before_separator(
+            _real_builder,
+            lambda c: ["--bind", str(c.common_git_dir / "packed-refs"), str(c.common_git_dir / "packed-refs")],
+        )
+        reason = probe_git_containment(writable_packed)
+        self.assertIsNotNone(reason)
+        self.assertTrue(reason.startswith(f"git_in_sandbox_failed:rc={EXIT_PACKED_REFS_WRITABLE}"), reason)
+
+    def test_a_packed_refs_lock_that_reaches_the_repository_is_refused(self) -> None:
+        # The common dir bound WRITABLE where the tmpfs stands, with `config`
+        # and `hooks` re-overlaid read-only so the script gets past those
+        # checks: the lock sibling it creates then lands in the repository.
+        def writable_common(command, workspace, containment):
+            argv = _real_builder(command, workspace, containment)
+            common = containment.common_git_dir
+            index = _tmpfs_index(argv, str(common))
+            argv = argv[:index] + ["--bind", str(common), str(common)] + argv[index + 2:]
+            separator = argv.index("--")
+            overlays = ["--ro-bind", str(common / "config"), str(common / "config"),
+                        "--ro-bind", str(common / "hooks"), str(common / "hooks")]
+            return argv[:separator] + overlays + argv[separator:]
+
+        self.assertEqual(probe_git_containment(writable_common), "sandbox_lock_reached_repository")
+
+    def test_a_git_below_the_proven_floor_is_named_before_any_repository_is_made(self) -> None:
+        self.assertEqual(GIT_PROVEN_FLOOR, (2, 43))
+        import subprocess
+        below = subprocess.CompletedProcess(["git", "--version"], 0, stdout="git version 2.34.1\n", stderr="")
+        with mock.patch.object(probe_module.subprocess, "run", return_value=below) as run:
+            self.assertEqual(probe_git_containment(_real_builder), "git_below_proven_floor:2.34.1")
+            self.assertEqual(run.call_count, 1, "nothing after the version check")
+        unreadable = subprocess.CompletedProcess(["git", "--version"], 0, stdout="git version unknown\n", stderr="")
+        with mock.patch.object(probe_module.subprocess, "run", return_value=unreadable):
+            self.assertEqual(probe_git_containment(_real_builder), "git_version_unreadable:git version unknown")
+        self.assertIsNone(probe_module._git_version_below_floor(probe_module.probe_git_environment()),
+                          "this host's git meets the floor")
 
     def test_a_readable_private_key_is_refused(self) -> None:
         def key_visible(command, workspace, containment):

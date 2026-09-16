@@ -676,9 +676,10 @@ class ExecutorImplementationIdentityTests(unittest.TestCase):
     def _install_bwrap_without_the_quarantine_refs_bind(self) -> None:
         """ARIA-HIGH-123 — a runner whose containment cannot host a commit:
         the real bwrap, minus the one bind that stands the quarantine in for
-        the shared `refs/heads` (the pre-change shape, where nothing under
-        the common git dir was writable: `git switch -c` dies EROFS). Every
-        other argv reaches bwrap unchanged."""
+        the shared `refs/heads`, and with the common dir bound read-only as
+        a whole where ARIA-HIGH-141's tmpfs stands (the pre-change shape,
+        where nothing under the common git dir was writable: the commit's
+        ref update dies EROFS). Every other argv reaches bwrap unchanged."""
         import shutil
 
         real = shutil.which("bwrap")
@@ -691,6 +692,10 @@ class ExecutorImplementationIdentityTests(unittest.TestCase):
             "for index in range(len(argv) - 2):\n"
             "    if argv[index] == '--bind' and argv[index + 2].endswith('/.git/refs/heads'):\n"
             "        argv = argv[:index] + argv[index + 3:]\n"
+            "        break\n"
+            "for index in range(len(argv) - 1):\n"
+            "    if argv[index] == '--tmpfs' and argv[index + 1].endswith('/.git'):\n"
+            "        argv = argv[:index] + ['--ro-bind', argv[index + 1], argv[index + 1]] + argv[index + 2:]\n"
             "        break\n"
             f"os.execv({real!r}, [{real!r}, *argv])\n",
             encoding="utf-8",

@@ -171,7 +171,12 @@ class TheBaseSandboxIsKept(_Fixture):
         replica = containment.sandbox_git_dir
         self.assertIn((str(replica / "refs" / "heads"), str(common / "refs" / "heads")), _pairs(managed, "--bind"))
         self.assertNotIn((str(common / "objects"), str(common / "objects")), _pairs(managed, "--bind"))
-        self.assertIn((str(common), str(common)), _pairs(managed, "--ro-bind"))
+        # ARIA-HIGH-141: the common dir is a tmpfs with its shared entries
+        # bound back read-only one by one, never bound as a whole.
+        self.assertNotIn((str(common), str(common)), _pairs(managed, "--ro-bind"))
+        self.assertIn(str(common), [managed[i + 1] for i, tok in enumerate(managed) if tok == "--tmpfs"])
+        self.assertIn((str(common / "objects"), str(common / "objects")), _pairs(managed, "--ro-bind"))
+        self.assertIn((str(common / "config"), str(common / "config")), _pairs(managed, "--ro-bind"))
         self.assertNotIn("tools_dir", wrap_managed_claude_in_sandbox.__code__.co_varnames)
 
 

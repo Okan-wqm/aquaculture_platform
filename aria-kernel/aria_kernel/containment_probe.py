@@ -47,6 +47,18 @@ must not have reached the repository. The argv builder is a parameter so
 this module imports nothing from ``implementation_safety`` (which imports
 it) and the probe is testable with a deliberately broken builder.
 
+ARIA-HIGH-141 — the probe repository is PACKED (``git pack-refs --all``,
+the shape of every real checkout) before the containment is derived, and
+the script pins the property the fix is made of under the host's own git:
+a lock sibling beside ``packed-refs`` CAN be created inside (a current git
+takes it on every loose-ref update; ``EXIT_PACKED_REFS_LOCK_REFUSED`` when
+it cannot), ``packed-refs`` itself is still refused
+(``EXIT_PACKED_REFS_WRITABLE``), and from outside the lock must not have
+reached the repository. The host's git is named against the floor the
+containment was proven on (``GIT_PROVEN_FLOOR``): an older git is refused
+by name (``git_below_proven_floor:<version>``) rather than admitted on a
+shape nobody measured.
+
 The result is a reason string, or ``None`` when the sandbox can host the
 contract. ``sandbox_backend()`` folds a reason into "no backend", which is
 what the pre-claim environment gate reads (``ci_executor``: the request
@@ -91,6 +103,14 @@ EXIT_PRIVATE_KEY_READABLE = 43
 # The sandbox did not start on the branch the kernel stood it on
 # (ARIA-HIGH-124): the replica's HEAD is not what the sandbox sees.
 EXIT_BRANCH_NOT_STOOD_ON = 44
+# ARIA-HIGH-141: the lock sibling a current git takes beside `packed-refs`
+# could not be created inside (the common dir is not the tmpfs the
+# containment promises), or `packed-refs` itself turned out writable.
+EXIT_PACKED_REFS_LOCK_REFUSED = 45
+EXIT_PACKED_REFS_WRITABLE = 46
+# The oldest git the containment was measured on (2.43 on the droplet;
+# 2.55 on the hosted 22.04 lane). Older gits are refused by name.
+GIT_PROVEN_FLOOR: tuple[int, int] = (2, 43)
 
 ArgvBuilder = Callable[[list[str], Path, GitContainment], list[str]]
 """``(command, workspace_root, containment) -> full sandbox argv``."""
@@ -123,10 +143,13 @@ def _git(args: Sequence[str], *, cwd: Path, env: dict[str, str]) -> subprocess.C
 def probe_script(containment: GitContainment, *, private_key_path: Path) -> str:
     """The shell the probe runs inside the sandbox. Every line is one
     property of the contract: the three commands the implementer runs must
-    succeed (the commit signed through the agent), and the control writes —
-    and a read of the private key — must be refused. A ref lock planted
-    under ``refs/heads`` is checked from outside."""
+    succeed (the commit signed through the agent), the control writes —
+    and a read of the private key — must be refused, a lock sibling beside
+    ``packed-refs`` must be creatable while ``packed-refs`` is not
+    (ARIA-HIGH-141). The ref lock planted under ``refs/heads`` and the
+    ``packed-refs`` lock are checked from outside."""
     hooks = containment.hooks_dir if containment.hooks_dir is not None else containment.common_git_dir / "hooks"
+    common = containment.common_git_dir
     return "\n".join([
         "set -e",
         "git status --short >/dev/null",
@@ -135,8 +158,31 @@ def probe_script(containment: GitContainment, *, private_key_path: Path) -> str:
         f"if git config --local aria.containmentProbe 1 2>/dev/null; then exit {EXIT_CONFIG_WRITABLE}; fi",
         f"if sh -c 'echo probe > \"{hooks}/aria-containment-probe\"' 2>/dev/null; then exit {EXIT_HOOKS_WRITABLE}; fi",
         f"if cat \"{private_key_path}\" >/dev/null 2>&1; then exit {EXIT_PRIVATE_KEY_READABLE}; fi",
-        f"touch \"{containment.common_git_dir}/refs/heads/main.lock\" 2>/dev/null || true",
+        f"if ! touch \"{common}/packed-refs.lock\" 2>/dev/null; then exit {EXIT_PACKED_REFS_LOCK_REFUSED}; fi",
+        f"if sh -c ': >> \"{common}/packed-refs\"' 2>/dev/null; then exit {EXIT_PACKED_REFS_WRITABLE}; fi",
+        f"touch \"{common}/refs/heads/main.lock\" 2>/dev/null || true",
     ])
+
+
+def _git_version_below_floor(env: dict[str, str]) -> str | None:
+    """``git_below_proven_floor:<version>`` when the host's git is older
+    than :data:`GIT_PROVEN_FLOOR`; ``git_version_unreadable:<text>`` when
+    the version line does not parse; ``None`` when the floor is met."""
+    try:
+        done = subprocess.run(["git", "--version"], env=env, capture_output=True, text=True, check=False,
+                              timeout=_PROBE_GIT_TIMEOUT_SECONDS)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return f"git_version_unreadable:{type(exc).__name__}"
+    words = done.stdout.strip().split()
+    version = words[2] if len(words) >= 3 and words[:2] == ["git", "version"] else ""
+    parts = version.split(".")
+    try:
+        major, minor = int(parts[0]), int(parts[1])
+    except (IndexError, ValueError):
+        return f"git_version_unreadable:{done.stdout.strip()[:40] or f'rc={done.returncode}'}"
+    if (major, minor) < GIT_PROVEN_FLOOR:
+        return f"git_below_proven_floor:{version}"
+    return None
 
 
 def _failure_detail(inside: subprocess.CompletedProcess[str]) -> str:
@@ -157,6 +203,9 @@ def probe_git_containment(build_argv: ArgvBuilder) -> str | None:
     from .gh_token_factory import mint_signing_key, revoke_signing_key
 
     env = probe_git_environment()
+    below_floor = _git_version_below_floor(env)
+    if below_floor is not None:
+        return below_floor
     root = Path(tempfile.mkdtemp(prefix="aria-containment-probe-"))
     try:
         checkout = root / "checkout"
@@ -170,6 +219,12 @@ def probe_git_containment(build_argv: ArgvBuilder) -> str | None:
         added = _git(["worktree", "add", "--detach", "-q", str(worktree), "HEAD"], cwd=checkout, env=env)
         if added.returncode != 0:
             return f"probe_worktree_unavailable:rc={added.returncode}"
+        # The production shape (ARIA-HIGH-141): every ref packed, so the
+        # commit inside is the loose-ref update beside `packed-refs` that a
+        # current git locks.
+        packed = _git(["pack-refs", "--all"], cwd=checkout, env=env)
+        if packed.returncode != 0 or not (checkout / ".git" / "packed-refs").is_file():
+            return f"probe_pack_refs_unavailable:rc={packed.returncode}"
         # The worktree scope the identity mint requires (ARIA-HIGH-114).
         _git(["config", "--local", "extensions.worktreeConfig", "true"], cwd=checkout, env=env)
         # The identity's own mint: the key under the worktree, the
@@ -218,9 +273,11 @@ def probe_git_containment(build_argv: ArgvBuilder) -> str | None:
             if inside.returncode != 0:
                 return f"git_in_sandbox_failed:rc={inside.returncode}:{_failure_detail(inside)}"
             # A lock planted under the shared refs must have stayed in the
-            # quarantine; on the host git never cleans a stale ref lock.
-            if (checkout / ".git" / "refs" / "heads" / "main.lock").exists():
-                return "sandbox_lock_reached_repository"
+            # quarantine, and the `packed-refs` lock in the tmpfs; on the
+            # host git never cleans a stale lock.
+            for planted in ("refs/heads/main.lock", "packed-refs.lock"):
+                if (checkout / ".git" / planted).exists():
+                    return "sandbox_lock_reached_repository"
             # The executor's own publication, from outside: objects verified
             # and moved, the branch published — then the commit must verify
             # against the minted key through the real common dir.
@@ -255,7 +312,10 @@ __all__ = [
     "EXIT_BRANCH_NOT_STOOD_ON",
     "EXIT_CONFIG_WRITABLE",
     "EXIT_HOOKS_WRITABLE",
+    "EXIT_PACKED_REFS_LOCK_REFUSED",
+    "EXIT_PACKED_REFS_WRITABLE",
     "EXIT_PRIVATE_KEY_READABLE",
+    "GIT_PROVEN_FLOOR",
     "PROBE_BRANCH",
     "PROBE_CYCLE_ID",
     "probe_git_containment",

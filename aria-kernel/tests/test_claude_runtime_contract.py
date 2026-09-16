@@ -496,7 +496,14 @@ class WriteContainmentTests(unittest.TestCase):
                 )
             common = (repo / ".git").resolve()
             pairs = [(wrapped[i], wrapped[i + 1]) for i, tok in enumerate(wrapped) if tok in ("--bind", "--ro-bind", "--tmpfs")]
-            self.assertIn(("--ro-bind", str(common)), pairs)
+            # ARIA-HIGH-141: a tmpfs at the common dir, its shared entries
+            # read-only one by one — the dir itself never bound as a whole.
+            self.assertNotIn(("--ro-bind", str(common)), pairs)
+            self.assertIn(("--tmpfs", str(common)), pairs)
+            self.assertIn(("--ro-bind", str(common / "objects")), pairs)
+            self.assertIn(("--ro-bind", str(common / "config")), pairs)
+            self.assertIn(("--ro-bind", str(common / "refs" / "heads")), pairs,
+                          "a read-only spawn sees the shared heads read-only like any other entry")
             self.assertIn(("--ro-bind", str(common / "worktrees" / "req-1")), pairs)
             self.assertIn(("--tmpfs", str(common / "worktrees")), pairs)
             self.assertEqual([source for flag, source in pairs if flag == "--bind"], [str(worktree), str(broker_socket)])

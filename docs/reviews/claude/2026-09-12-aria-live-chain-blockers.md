@@ -1352,6 +1352,35 @@ system`) — the agent's `git commit` the identity contract relies on cannot
   loose `refs/heads` only (a branch git packs inside is unadvanced and discarded); the
   containment probe pins the property under the host's git and names a git below the proven
   floor. Until it lands the hosted kernel lane carries these three failures by name.
+- **What is now true (2026-09-16):** `GitContainment.bwrap_flags` opens with `--tmpfs <common>`
+  and binds back, read-only and one by one, the entries `_shared_common_dir_entries` enumerates
+  at derivation (`GitContainment.common_entries`): every existing entry of the common dir that
+  is repository content, with `refs` and `logs` descended one level so `refs/heads` and
+  `logs/refs/heads` are left to the quarantine on a commit-capable spawn (a read-only spawn
+  sees them read-only like any other entry) and `refs/tags`, `refs/remotes`, `logs/HEAD` are
+  bound on their own. Not bound: `worktrees` (a tmpfs of its own, as before), every `*.lock`
+  and the main checkout's in-progress state (`COMMON_DIR_UNSHARED_ENTRIES`: `ORIG_HEAD`,
+  `MERGE_HEAD`, `COMMIT_EDITMSG`, a rebase or sequencer directory) — absent inside, so a stale
+  host lock never wedges the agent's git and its `git status` reports no operation in
+  progress. A lock sibling lands in the tmpfs and dies with the sandbox; the entry it guards is
+  still EROFS, and a `packed-refs` git rewrites inside (`pack-refs`) fails at the rename over
+  the mountpoint. The probe repository is packed (`git pack-refs --all`) before the derivation,
+  the production shape; the script pins the property under the host's git — the lock sibling
+  must be creatable (`EXIT_PACKED_REFS_LOCK_REFUSED`, 45) and `packed-refs` must not be
+  writable (`EXIT_PACKED_REFS_WRITABLE`, 46) — and a `packed-refs.lock` on the host after the
+  run is `sandbox_lock_reached_repository`; a git older than `GIT_PROVEN_FLOOR` (2.43) is
+  `git_below_proven_floor:<version>` before any repository is made.
+  Pinned by `test_git_containment` (the tmpfs first and the entries after it, `refs/heads`,
+  `worktrees`, `ORIG_HEAD` and `index.lock` not among them; under bwrap the lock sibling is the
+  one ALLOWED write of the control-surface probe and never reaches the host; a commit beside a
+  PACKED `main` writes no `Read-only file system` line, `main` reads through `packed-refs`,
+  `packed-refs` stays EROFS, nothing reaches the repository before publication and the branch
+  publishes) and `test_containment_probe` (the pre-141 whole-dir read-only bind is refused as
+  the lock it cannot create, a writable `packed-refs` is refused by name, a writable common dir
+  is refused as the lock that reached the repository, a git below the floor is named before
+  any repository is made). The derivation pins and the lock-sibling probe are red on the tree
+  before the fix under git 2.43; the hosted lane's git 2.55 is where the EROFS line itself
+  appeared, and that lane going from one failure to none is this finding's closing evidence.
 
 ## ARIA-HIGH-142 — the in-sandbox kernel clients were served from the workspace, not the kernel
 

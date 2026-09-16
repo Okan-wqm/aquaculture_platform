@@ -49,11 +49,25 @@ names the shared store for READS), new refs and reflogs go to the replica's
 ``<common>/refs/heads`` and ``<common>/logs/refs/heads`` — so a plain
 ``git add`` + ``git commit`` on the branch the kernel stood the sandbox on
 (``stand_on_implementation_branch``, ARIA-HIGH-124; the push is the
-executor's, after the run) works unchanged inside, while the shared common
-dir is bound READ-ONLY as a whole (``config``, ``hooks/``, ``info/``, ``objects/`` with
-its packs, ``objects/info/alternates`` and ``maintenance.lock``,
-``packed-refs``, ``refs/tags``, ``refs/remotes``, the main checkout's
-``HEAD``/``index``/``logs/HEAD``): a write there is EROFS at the syscall.
+executor's, after the run) works unchanged inside, while every SHARED entry
+of the common dir is bound READ-ONLY one by one (``config``, ``hooks/``,
+``info/``, ``objects/`` with its packs, ``objects/info/alternates`` and
+``maintenance.lock``, ``packed-refs``, ``refs/tags``, ``refs/remotes``, the
+main checkout's ``HEAD``/``index``/``logs/HEAD``): a write to any of them is
+EROFS at the syscall. The common dir ITSELF is a tmpfs at its own path
+(ARIA-HIGH-141): a current git (2.55 on the hosted lane) takes
+``packed-refs.lock`` beside ``packed-refs`` on every loose-ref update, and
+under a read-only bind of the whole dir that lock was ``Read-only file
+system`` on every branch creation — an ``error:`` line the ref update
+survives, but one that fills the first lines of stderr and masks a refusal
+by name. A lock sibling now lands in the tmpfs and dies with the sandbox;
+the entry it guards stays EROFS, and a ``packed-refs`` git rewrites inside
+(``pack-refs``) is refused at the rename over the mountpoint (EBUSY), so a
+branch git packs inside is unadvanced and discarded at publication. The
+main checkout's in-progress state (``ORIG_HEAD``, ``MERGE_HEAD``,
+``COMMIT_EDITMSG``, a rebase or sequencer dir) and every ``*.lock`` are not
+shared entries and are not bound: absent inside, never wedging the agent's
+git on a stale host lock.
 Existing loose refs under ``refs/heads/`` are bound read-only on top of the
 quarantine so the agent SEES ``main`` when it is loose (a packed one it sees
 through ``packed-refs``) and cannot rewrite it (a mountpoint cannot be
@@ -189,6 +203,23 @@ PRIVATE_GIT_DIR_CONTROL_ENTRIES: tuple[str, ...] = (
 COMMON_DIR_QUARANTINED_REF_DIRS: tuple[str, ...] = ("refs/heads", "logs/refs/heads")
 COMMON_DIR_OBJECTS = "objects"
 COMMON_DIR_WORKTREES = "worktrees"
+# ARIA-HIGH-141 — the common dir's entries that are the MAIN checkout's
+# in-progress operation state, not the shared repository: not bound into
+# the sandbox (git treats their absence as "no operation in progress").
+# The two ref directories the quarantine stands in for and ``worktrees``
+# (a tmpfs of its own) are handled by name; ``*.lock`` files are skipped
+# by suffix.
+COMMON_DIR_UNSHARED_ENTRIES: frozenset[str] = frozenset({
+    "ORIG_HEAD", "FETCH_HEAD", "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "REBASE_HEAD",
+    "AUTO_MERGE", "BISECT_LOG", "BISECT_START", "BISECT_EXPECTED_REV", "BISECT_ANCESTORS_OK",
+    "BISECT_NAMES", "BISECT_TERMS", "BISECT_RUN", "COMMIT_EDITMSG", "MERGE_MSG", "MERGE_RR",
+    "MERGE_MODE", "SQUASH_MSG", "TAG_EDITMSG", "rebase-merge", "rebase-apply", "sequencer",
+    "gc.log", "gc.pid", SANDBOX_GIT_DIR_NAME,
+})
+# The entries descended one level so the quarantined subdirectory can be
+# left out and its siblings (`refs/tags`, `refs/remotes`, `logs/HEAD`)
+# bound on their own.
+_COMMON_DIR_DESCENDED_ENTRIES: tuple[str, ...] = ("refs", "logs", "logs/refs")
 # Existing loose refs are overlaid one by one (a mount each); a checkout
 # carrying more than this many has not been packed in a long while and is
 # refused by name rather than blowing bwrap's argv limit.
@@ -288,6 +319,10 @@ class GitContainment:
     signing: SandboxSigning | None = None
     sandbox_git_dir: Path | None = None
     loose_refs: tuple[Path, ...] = ()
+    # ARIA-HIGH-141 — the shared entries of the common dir, enumerated at
+    # derivation (the spawn follows at once) and bound back read-only one
+    # by one into the tmpfs that stands at the common path.
+    common_entries: tuple[Path, ...] = ()
     # ARIA-HIGH-124 (round 2) — the branches the KERNEL seeded in the
     # quarantine (`stand_on_implementation_branch`) and the object id each
     # was seeded at: a quarantine ref still equal to its seed is the
@@ -316,7 +351,12 @@ class GitContainment:
         they narrow."""
         common = self.common_git_dir
         private = self.private_git_dir
-        flags: list[str] = ["--ro-bind", str(common), str(common)]
+        # ARIA-HIGH-141: a tmpfs AT the common path, each shared entry bound
+        # back read-only on top — a lock sibling git creates beside an
+        # entry lands in the tmpfs; the entry itself stays EROFS.
+        flags: list[str] = ["--tmpfs", str(common)]
+        for entry in self.common_entries:
+            flags.extend(["--ro-bind", str(entry), str(entry)])
         if self.commit_capable:
             replica = self.sandbox_git_dir
             assert replica is not None
@@ -419,6 +459,38 @@ def _effective_hooks_dir(workspace: Path) -> Path:
     return Path(done.stdout.strip()).resolve()
 
 
+def _shared_common_dir_entries(common: Path, *, commit_capable: bool) -> tuple[Path, ...]:
+    """The common dir's entries the sandbox sees (ARIA-HIGH-141), in mount
+    order: every existing entry that is repository content — not the main
+    checkout's in-progress state, not a ``*.lock``, not ``worktrees`` (a
+    tmpfs of its own with this worktree's replica bound back in) — with
+    ``refs`` and ``logs`` descended so the two directories the quarantine
+    stands in for are left out of a commit-capable spawn and their siblings
+    are bound on their own. A read-only spawn has no quarantine: it sees
+    ``refs/heads`` and ``logs/refs/heads`` read-only like every other entry."""
+    quarantined = {common / relative for relative in COMMON_DIR_QUARANTINED_REF_DIRS} if commit_capable else set()
+    descended = {common / relative for relative in _COMMON_DIR_DESCENDED_ENTRIES}
+    entries: list[Path] = []
+
+    def walk(directory: Path) -> None:
+        try:
+            children = sorted(directory.iterdir())
+        except OSError:
+            return
+        for child in children:
+            if child.name.endswith(".lock") or child.name in COMMON_DIR_UNSHARED_ENTRIES:
+                continue
+            if child == common / COMMON_DIR_WORKTREES or child in quarantined:
+                continue
+            if child in descended and child.is_dir():
+                walk(child)
+                continue
+            entries.append(child)
+
+    walk(common)
+    return tuple(entries)
+
+
 def _existing_loose_refs(common: Path) -> tuple[Path, ...]:
     heads = common / "refs" / "heads"
     if not heads.is_dir():
@@ -512,6 +584,7 @@ def derive_git_containment(
         if len(loose_refs) > LOOSE_REF_OVERLAY_BOUND:
             raise GitContainmentRefusal(f"loose_refs_exceed_overlay_bound:{len(loose_refs)}")
         replica = _prepare_sandbox_git_dir(private, common)
+    common_entries = _shared_common_dir_entries(common, commit_capable=commit_capable)
     if signing is not None:
         keys_dir = signing.keys_dir.resolve()
         public_key = signing.public_key_path.resolve()
@@ -526,7 +599,7 @@ def derive_git_containment(
     return GitContainment(
         workspace_root=workspace, private_git_dir=private, common_git_dir=common,
         commit_capable=commit_capable, hooks_dir=hooks_dir, signing=signing,
-        sandbox_git_dir=replica, loose_refs=loose_refs,
+        sandbox_git_dir=replica, loose_refs=loose_refs, common_entries=common_entries,
     )
 
 
@@ -789,6 +862,7 @@ __all__ = [
     "KERNEL_GIT_NO_HOOKS_ARGS",
     "QUARANTINE_PUBLICATION_WORST_CASE_SECONDS",
     "COMMON_DIR_QUARANTINED_REF_DIRS",
+    "COMMON_DIR_UNSHARED_ENTRIES",
     "COMMON_DIR_WORKTREES",
     "GIT_OBJECT_DIRECTORY_ENV",
     "GitContainment",

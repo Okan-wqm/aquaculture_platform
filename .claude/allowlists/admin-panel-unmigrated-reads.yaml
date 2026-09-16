@@ -48,17 +48,12 @@
 # SecurityDashboardPage; W8d CompliancePage, which finishes the SECURITY batch
 # and is the first page to use the write primitive; W8e ModulesPage: 38 remain.
 # Batches at W8e: tenant 6, billing 11, system 12, messaging 9. The SYSTEM
-# batch is finished at W8q; tenant 6, billing 11 and messaging 9 remain.
+# batch is finished at W8q; the TENANT batch is finished at W8v, whose
+# CreateTenantPage was the last of its six; billing 11 and messaging 9 remain.
 # The ceiling drops with each batch and this file is deleted at 0.
 version: 1
-ceiling: 21
+ceiling: 20
 entries:
-  - site: web/modules/admin-panel/src/pages/CreateTenantPage.tsx
-    batch: tenant
-    owner: okan
-    expiry: 2026-12-31
-    findingId: ADMIN-HIGH-121
-    reason: tenant and identity batch — reads move to useAdminQuery with an adminKeys.tenants/users key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/BillingDashboardPage.tsx
     batch: billing
     owner: okan

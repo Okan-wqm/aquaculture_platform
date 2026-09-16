@@ -12,14 +12,12 @@ import { useNavigate } from 'react-router-dom';
 import { Card, Button, Badge, Input, Select, Alert, RadioGroup } from '@aquaculture/shared-ui';
 import {
   tenantsApi,
-  modulesApi,
   billingApi,
   PricingMetricType,
   TenantTier,
   TenantProvisioningState,
   PlanTier,
   BillingCycle,
-  type SystemModule,
   type CreateTenantDto,
   type CreateTenantAcceptedResponse,
   type ModulePricingWithModule,
@@ -28,6 +26,8 @@ import {
   type PricingCalculation,
   type QuoteRequest,
 } from '../services/adminApi';
+import { adminKeys, useAdminQuery } from '../hooks';
+import { QueryFailureNotice } from '../components/QueryFailureNotice';
 import { formatDecimalAmount as formatMoney } from '../utils/money';
 
 // ============================================================================
@@ -424,10 +424,8 @@ const CreateTenantPage: React.FC = () => {
   // State
   const [currentStep, setCurrentStep] = useState(0);
   const [formData, setFormData] = useState<TenantFormData>(initialFormData);
-  const [modulePricings, setModulePricings] = useState<ModulePricingWithModule[]>([]);
   const [priceCalculation, setPriceCalculation] = useState<PricingCalculation | null>(null);
   const [loading, setLoading] = useState(false);
-  const [dataLoading, setDataLoading] = useState(true);
   const [calculatingPrice, setCalculatingPrice] = useState(false);
   /** Why the server could not price the selection — shown instead of a number. */
   const [quoteError, setQuoteError] = useState<string | null>(null);
@@ -448,82 +446,89 @@ const CreateTenantPage: React.FC = () => {
     { label: 'Confirmation', description: 'Final review' },
   ];
 
-  // Load module pricings
+  // ==========================================================================
+  // The price sheet (ADMIN-HIGH-121)
+  // ==========================================================================
+
+  /**
+   * The module price sheet, and the only source of the module list.
+   *
+   * This used to be a `useEffect` with a silent double fallback: if
+   * `getModulePricingWithModules()` failed it wrote `console.warn` and fetched
+   * `modulesApi.list()` instead — a module list carrying NO pricing metrics —
+   * then seeded every quantity from a hard-coded
+   * `{users: 1, farms: 1, storageGb: 1}` rather than each metric's
+   * `includedQuantity`. If that failed too, another `console.warn` and an empty
+   * list. Nothing on screen ever said the sheet had not loaded, so an operator
+   * could walk the whole wizard and provision a tenant whose module quantities
+   * came from a guess, on a billing path, believing they came from the sheet.
+   *
+   * The fallback is gone. This page already states the principle one step
+   * later, for the quote (ADR-0013): the number comes from billing, or the page
+   * says it could not price the selection. Offering modules that cannot be
+   * priced, on a step called "Modules & Pricing", is the same defect one step
+   * earlier.
+   */
+  const pricingQuery = useAdminQuery<ModulePricingWithModule[]>(
+    adminKeys.billing.modulePricing(),
+    ({ signal }) => billingApi.getModulePricingWithModules(signal),
+  );
+
+  const modulePricings: ModulePricingWithModule[] = pricingQuery.data ?? [];
+  const dataLoading = pricingQuery.isPending;
+
+  /**
+   * Seed each module's quantities from what its price sheet already includes,
+   * preserving any selection the operator has already made on this step.
+   */
   useEffect(() => {
-    const loadData = async () => {
-      try {
-        // Get module pricings with module details
-        const pricings = await billingApi.getModulePricingWithModules();
-        const safePricings = Array.isArray(pricings) ? pricings : [];
-        setModulePricings(safePricings);
+    if (pricingQuery.data === undefined) return;
 
-        // Initialize module configs from pricings with includedQuantity as defaults
-        const configs: ModuleConfig[] = safePricings.map((p) => {
-          // Extract includedQuantity from pricing metrics as default values
-          const defaultQuantities: ModuleQuantities = {
-            users: 1,
-            farms: 1,
-            ponds: 0,
-            sensors: 0,
-            devices: 0,
-            storageGb: 1,
-            apiCalls: 0,
-            alerts: 0,
-            reports: 0,
-            integrations: 0,
-          };
+    setFormData((prev) => {
+      const existing = new Map(prev.moduleConfigs.map((config) => [config.moduleId, config]));
 
-          // ADR-0013: the sheet's metrics are rows, typed by the contract —
-          // the JSON.parse fallback existed because they used to arrive as a
-          // jsonb blob the API sometimes handed back as a string.
-          const metrics = p.metrics;
+      const configs: ModuleConfig[] = pricingQuery.data.map((sheet) => {
+        const already = existing.get(sheet.moduleId);
+        if (already) return already;
 
-          // Start each quantity at what the sheet already includes.
-          if (metrics.length > 0) {
-            metrics.forEach((metric) => {
-              const field = getQuantityField(metric.metricType);
-              if (field && metric.includedQuantity && metric.includedQuantity > 0) {
-                defaultQuantities[field] = metric.includedQuantity;
-              }
-            });
+        // The base below is only ever the starting point for a dimension this
+        // module's sheet does not price at all; every metric the sheet DOES
+        // carry overwrites its field from `includedQuantity` just below.
+        const quantities: ModuleQuantities = {
+          users: 1,
+          farms: 1,
+          ponds: 0,
+          sensors: 0,
+          devices: 0,
+          storageGb: 1,
+          apiCalls: 0,
+          alerts: 0,
+          reports: 0,
+          integrations: 0,
+        };
+
+        // ADR-0013: the sheet's metrics are rows, typed by the contract — the
+        // JSON.parse fallback existed because they used to arrive as a jsonb
+        // blob the API sometimes handed back as a string.
+        sheet.metrics.forEach((metric) => {
+          const field = getQuantityField(metric.metricType);
+          if (field && metric.includedQuantity && metric.includedQuantity > 0) {
+            quantities[field] = metric.includedQuantity;
           }
-
-          return {
-            moduleId: p.moduleId,
-            moduleCode: p.moduleCode,
-            moduleName: p.moduleName || p.moduleCode,
-            enabled: false,
-            quantities: defaultQuantities,
-          };
         });
 
-        setFormData((prev) => ({ ...prev, moduleConfigs: configs }));
-      } catch (err) {
-        console.warn('Failed to load module pricings:', err);
-        // Try to load basic modules as fallback
-        try {
-          const result = await modulesApi.list({ isActive: true, limit: 50 });
-          const configs: ModuleConfig[] = result.data.map((m: SystemModule) => ({
-            moduleId: m.id,
-            moduleCode: m.code,
-            moduleName: m.name,
-            enabled: false,
-            quantities: {
-              users: 1,
-              farms: 1,
-              storageGb: 1,
-            },
-          }));
-          setFormData((prev) => ({ ...prev, moduleConfigs: configs }));
-        } catch (fallbackErr) {
-          console.warn('Failed to load modules:', fallbackErr);
-        }
-      } finally {
-        setDataLoading(false);
-      }
-    };
-    loadData();
-  }, []);
+        return {
+          moduleId: sheet.moduleId,
+          moduleCode: sheet.moduleCode,
+          moduleName: sheet.moduleName || sheet.moduleCode,
+          enabled: false,
+          quantities,
+        };
+      });
+
+      return { ...prev, moduleConfigs: configs };
+    });
+  }, [pricingQuery.data]);
 
   /**
    * Ask the server what the selection costs.
@@ -1194,6 +1199,15 @@ const CreateTenantPage: React.FC = () => {
                     );
                   })}
                 </div>
+              ) : pricingQuery.error ? (
+                /* A failed read is not an empty catalogue. This branch used to
+                   tell the operator to go and define modules, which is the
+                   wrong instruction for a request that did not return. */
+                <QueryFailureNotice
+                  errors={[pricingQuery.error]}
+                  hasContent={false}
+                  onRetry={() => void pricingQuery.refetch()}
+                />
               ) : (
                 <div className="text-center py-12">
                   <p className="text-gray-500">No modules found</p>

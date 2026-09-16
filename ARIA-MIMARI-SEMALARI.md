@@ -138,9 +138,10 @@ flowchart TD
 ```
 
 Önemli mekanikler:
+
 - ** Faz atlamaları asla sessiz değildir** — her atlama nedeni kayda geçer: `precondition_unmet:<ad>`, `mode_not_included`, `upstream_failure:<faz>`, `job_deadline_reached`.
 - **Zaman disiplini**: `ARIA_JOB_DEADLINE_EPOCH` ortam değişkeni; fazlar arası kontrol + faz içi `SIGALRM` ile `PhaseDeadlineExceeded` (120 s kapanış payı).
-- **burn_in modu**: "gözlem provası" şeridi — eylem taşıyan fazlar tabloda `burn_in` modunu taşımadığı için *yapısal olarak* hiç koşmaz; çıktısı otonomi merdiveninin kabul kanıtıdır.
+- **burn_in modu**: "gözlem provası" şeridi — eylem taşıyan fazlar tabloda `burn_in` modunu taşımadığı için _yapısal olarak_ hiç koşmaz; çıktısı otonomi merdiveninin kabul kanıtıdır.
 
 ---
 
@@ -336,20 +337,20 @@ flowchart LR
 
 ## Depolama Haritası (özet)
 
-| Yüzey | İçerik |
-|---|---|
-| `cycles.jsonl` | döngü yaşam döngüsü (started/completed/failed/stopped/aborted), şema v3 |
-| `runs.jsonl` | adaptör koşuları, artefact_ref + kanıt doğrulaması |
-| `findings.jsonl` / `raw-findings.jsonl` | dedup edilmiş / ham bulgular |
-| `governance.jsonl` | tüm yönetişim olayları (aria/governance-event/v2) |
-| `memory/*.jsonl` | 6 bellek defteri + inanç tepmesi |
-| `dispatch/*.jsonl` | istek / lease / işçi sonucu / doğrulama sonucu |
-| `agent-invocations/*.jsonl` | zarflar, claim'ler, sonuçlar |
-| `missions/`, `plans/`, `queues/` | mission olayları, plan olayları, next_cycle kuyruğu |
-| `enterprise/acceptance-events.jsonl` | otonomi merdiveni kabul kanıtları |
-| `human-required/` | istek başına tek JSON |
-| `quarantine.jsonl`, `breakers/` | karantina ve kesici durumu |
-| git dalı `aria/state` | yayınlanan kalıcı durum (CAS + FF-only) |
+| Yüzey                                   | İçerik                                                                  |
+| --------------------------------------- | ----------------------------------------------------------------------- |
+| `cycles.jsonl`                          | döngü yaşam döngüsü (started/completed/failed/stopped/aborted), şema v3 |
+| `runs.jsonl`                            | adaptör koşuları, artefact_ref + kanıt doğrulaması                      |
+| `findings.jsonl` / `raw-findings.jsonl` | dedup edilmiş / ham bulgular                                            |
+| `governance.jsonl`                      | tüm yönetişim olayları (aria/governance-event/v2)                       |
+| `memory/*.jsonl`                        | 6 bellek defteri + inanç tepmesi                                        |
+| `dispatch/*.jsonl`                      | istek / lease / işçi sonucu / doğrulama sonucu                          |
+| `agent-invocations/*.jsonl`             | zarflar, claim'ler, sonuçlar                                            |
+| `missions/`, `plans/`, `queues/`        | mission olayları, plan olayları, next_cycle kuyruğu                     |
+| `enterprise/acceptance-events.jsonl`    | otonomi merdiveni kabul kanıtları                                       |
+| `human-required/`                       | istek başına tek JSON                                                   |
+| `quarantine.jsonl`, `breakers/`         | karantina ve kesici durumu                                              |
+| git dalı `aria/state`                   | yayınlanan kalıcı durum (CAS + FF-only)                                 |
 
 ## Katmanlar Arası Anahtar Değişmezler
 
@@ -363,7 +364,7 @@ flowchart LR
 
 # BÖLÜM II — DERİN KATMAN ŞEMALARI
 
-*(12 paralel ajanla kodun tamamı okunarak üretildi; her şema kod satırı referanslıdır.)*
+_(12 paralel ajanla kodun tamamı okunarak üretildi; her şema kod satırı referanslıdır.)_
 
 ## Şema 9 — Algılama Döngüsü: Keşif → Baskı → Triyaj → Yansıma
 
@@ -724,29 +725,29 @@ flowchart TD
 
 ## Kapsam Tablosu — hangi şema hangi modülleri kapsıyor
 
-| Şema | Ana modüller |
-|---|---|
-| 0-2 | cycle.py, autonomy_orchestrator, cycle_rhythm, next_cycle_queue, autonomy_state/ladder/unlock |
-| 3 | plan_convergence, plan_round_controller, convergence_drainer, promotion_controller, cross_review_bridge |
-| 4 | worker_dispatch, autonomous_*_dispatcher/scheduler, mission*, workspace, worktree |
-| 5 | llm_bridge, claude/codex runtime, agent_invocations/contract, agent_genesis, model_fleet, twin |
-| 6 | ledger, file_lock, integrity, state_store/snapshot/compact/manifest, memory, semantic_memory |
-| 7 | runtime_profile, autonomy_unlock, merge_authority, auto_merge, watchdog, circuit_breaker, quarantine, human_required, evidence_* |
-| 8 | cli, daemons, gateway, GitHub workflow'ları |
-| 9 | discovery, pressure, triage, reflection, learning, funnel_health, debt, observation_coverage |
-| 10 | tool_registry/runner/health, registry_compiler, tools/aria-poc adaptörleri, feedback_store, rule_health |
-| 11 | judgment_bridge, judge_fanout/calibration, calibrated_intelligence, goldset, fixture_runner, agent_eval, independence_check |
-| 12 | experiment*, finding*, change_outcome, belief_escalation, reverify |
-| 13 | skill_genesis*, convergent_skill_authoring, capability_gap/resolver, agent_network/routing/priors, dispatcher_factory |
-| 14 | impact, impact_graph, recursive_impact, architecture*, knowledge_graph, service_*, lane_classifier, snapshot |
-| 15 | cost_budget, budget, usage_ledger, runtime_profile, observability, telemetry, runtime_artifacts, handoff_ledger, autonomous_host_lease, performance |
-| 16 | tüm katmanların birleşimi (uçtan uca) |
-| 17 | change_ledger, apply_engine, implementation_reconciler, expert_review_gate, policy_approval, proposal, review_record, pr_manager |
-| 18 | self_modification, implementation_safety (READONLY/DENIED), instinct_candidate, agent_runtime_profile, memory_gap, decision_questioning, research |
-| 19 | closure/control/surface_reachability, literal_provenance, surface_manifest_validator, contract_digest, upcasters, migration, _backfill, docs_ssot, plan_coverage, plan_016_metrics, plan_candidate_source, cycle_diff/progress/guard, workflow_contracts*, preflight |
-| 20 | habitat, task, ack_ledger, incident_ledger, batch_containment, bridge_*, runtime_signal_bridge, shadow_eval_bridge, external_outage_reaper, genesis_superiority, agent_question, trust, canonical_path, ledger_inline/refs, contention_replay, db_snapshot (şema anlık görüntüsü) |
-| 21 | tools/aria-adapters (2. adaptör filosu), tools/gates (TS kapı kütüphanesi), tools/aria-acceptance, tools/supervisor, tools/watchdog, 12 workflow'un tamamı, scripts/aria/provision_runner.sh, aria-debts/, .claude/ operatör yüzeyleri, agent-workspace |
-| 22 | context_budget_gate, cycle_phases Protocol kancaları, agent_compliance, pedagogy_lint + narrative_prompt_validator, execution_spine kimlik omurgası, secret_scrub + draft_pii_filter + artifact_safety + gh_token_factory (PII/güvenlik sınırı) |
+| Şema | Ana modüller                                                                                                                                                                                                                                                                       |
+| ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0-2  | cycle.py, autonomy_orchestrator, cycle_rhythm, next_cycle_queue, autonomy_state/ladder/unlock                                                                                                                                                                                      |
+| 3    | plan_convergence, plan_round_controller, convergence_drainer, promotion_controller, cross_review_bridge                                                                                                                                                                            |
+| 4    | worker*dispatch, autonomous*_\_dispatcher/scheduler, mission_, workspace, worktree                                                                                                                                                                                                 |
+| 5    | llm_bridge, claude/codex runtime, agent_invocations/contract, agent_genesis, model_fleet, twin                                                                                                                                                                                     |
+| 6    | ledger, file_lock, integrity, state_store/snapshot/compact/manifest, memory, semantic_memory                                                                                                                                                                                       |
+| 7    | runtime*profile, autonomy_unlock, merge_authority, auto_merge, watchdog, circuit_breaker, quarantine, human_required, evidence*\*                                                                                                                                                  |
+| 8    | cli, daemons, gateway, GitHub workflow'ları                                                                                                                                                                                                                                        |
+| 9    | discovery, pressure, triage, reflection, learning, funnel_health, debt, observation_coverage                                                                                                                                                                                       |
+| 10   | tool_registry/runner/health, registry_compiler, tools/aria-poc adaptörleri, feedback_store, rule_health                                                                                                                                                                            |
+| 11   | judgment_bridge, judge_fanout/calibration, calibrated_intelligence, goldset, fixture_runner, agent_eval, independence_check                                                                                                                                                        |
+| 12   | experiment*, finding*, change_outcome, belief_escalation, reverify                                                                                                                                                                                                                 |
+| 13   | skill_genesis\*, convergent_skill_authoring, capability_gap/resolver, agent_network/routing/priors, dispatcher_factory                                                                                                                                                             |
+| 14   | impact, impact*graph, recursive_impact, architecture\*, knowledge_graph, service*\*, lane_classifier, snapshot                                                                                                                                                                     |
+| 15   | cost_budget, budget, usage_ledger, runtime_profile, observability, telemetry, runtime_artifacts, handoff_ledger, autonomous_host_lease, performance                                                                                                                                |
+| 16   | tüm katmanların birleşimi (uçtan uca)                                                                                                                                                                                                                                              |
+| 17   | change_ledger, apply_engine, implementation_reconciler, expert_review_gate, policy_approval, proposal, review_record, pr_manager                                                                                                                                                   |
+| 18   | self_modification, implementation_safety (READONLY/DENIED), instinct_candidate, agent_runtime_profile, memory_gap, decision_questioning, research                                                                                                                                  |
+| 19   | closure/control/surface_reachability, literal_provenance, surface_manifest_validator, contract_digest, upcasters, migration, \_backfill, docs_ssot, plan_coverage, plan_016_metrics, plan_candidate_source, cycle_diff/progress/guard, workflow_contracts\*, preflight             |
+| 20   | habitat, task, ack*ledger, incident_ledger, batch_containment, bridge*\*, runtime_signal_bridge, shadow_eval_bridge, external_outage_reaper, genesis_superiority, agent_question, trust, canonical_path, ledger_inline/refs, contention_replay, db_snapshot (şema anlık görüntüsü) |
+| 21   | tools/aria-adapters (2. adaptör filosu), tools/gates (TS kapı kütüphanesi), tools/aria-acceptance, tools/supervisor, tools/watchdog, 12 workflow'un tamamı, scripts/aria/provision_runner.sh, aria-debts/, .claude/ operatör yüzeyleri, agent-workspace                            |
+| 22   | context_budget_gate, cycle_phases Protocol kancaları, agent_compliance, pedagogy_lint + narrative_prompt_validator, execution_spine kimlik omurgası, secret_scrub + draft_pii_filter + artifact_safety + gh_token_factory (PII/güvenlik sınırı)                                    |
 
 ---
 
@@ -828,17 +829,17 @@ flowchart TD
 
 ## Canlı Durum Denetimi — makine fiilen çalışıyor mu?
 
-*(16 Eylül 2026 itibarıyla, `aria-tools/` defterlerinin içerik zaman damgalarından)*
+_(16 Eylül 2026 itibarıyla, `aria-tools/` defterlerinin içerik zaman damgalarından)_
 
-| Alt sistem | Son gerçek yazma | Durum |
-|---|---|---|
-| Otonomi çekirdeği (`autonomy_state.jsonl`) | 27 Mayıs — `max_cycles_reached` | **ÖLÜ** |
-| Son döngü girişimi (`train-20260805-0731`) | 5 Ağustos — `failed` | DORMANT |
-| Gateway daemon | 8 Eylül — kendini durdurdu ("interrupted") | DORMANT |
-| `findings.jsonl` (nihai bulgular) | hiç satır yok | **HİÇ KOŞMADI** |
-| `agent-invocations/` | 0 bayt kilit dışında hiçbir şey | **HİÇ KOŞMADI** |
-| `dispatch/`, `skill-genesis/`, `enterprise/`, `knowledge-graph/`, `judgment-pipeline/` | dizinler yok | **HİÇ KOŞMADI** |
-| `aria/state` git dalı | mevcut değil (yalnız `fix/aria-state-*` konu dalları) | yayımlanmamış |
-| Çekirdek test paketi (CI) | bugün bile koşuyor | **CANLİ** (kod bakımı) |
+| Alt sistem                                                                             | Son gerçek yazma                                      | Durum                  |
+| -------------------------------------------------------------------------------------- | ----------------------------------------------------- | ---------------------- |
+| Otonomi çekirdeği (`autonomy_state.jsonl`)                                             | 27 Mayıs — `max_cycles_reached`                       | **ÖLÜ**                |
+| Son döngü girişimi (`train-20260805-0731`)                                             | 5 Ağustos — `failed`                                  | DORMANT                |
+| Gateway daemon                                                                         | 8 Eylül — kendini durdurdu ("interrupted")            | DORMANT                |
+| `findings.jsonl` (nihai bulgular)                                                      | hiç satır yok                                         | **HİÇ KOŞMADI**        |
+| `agent-invocations/`                                                                   | 0 bayt kilit dışında hiçbir şey                       | **HİÇ KOŞMADI**        |
+| `dispatch/`, `skill-genesis/`, `enterprise/`, `knowledge-graph/`, `judgment-pipeline/` | dizinler yok                                          | **HİÇ KOŞMADI**        |
+| `aria/state` git dalı                                                                  | mevcut değil (yalnız `fix/aria-state-*` konu dalları) | yayımlanmamış          |
+| Çekirdek test paketi (CI)                                                              | bugün bile koşuyor                                    | **CANLİ** (kod bakımı) |
 
-**Sonuç:** Bu checkout'ta tarif edilen özerk makine **fiilen çalışmıyor** — kod canlı ve aktif bakımda, ancak otonom döngü Mayıs'ta durdu, Ağustos'taki tek "train" döngüsü başarısız oldu ve dağıtım/yargı/terfi/birleştirme yüzeyleri hiç çalışmadı. Mimari gerçek; çalışma durumu teorik. (Not: `.worktrees/` altında çok sayıda aria-* konu şeridi ve `aria-lane-124`'te gateway kodu mevcut — geliştirme sürüyor, üretime geçiş tamamlanmamış.)
+**Sonuç:** Bu checkout'ta tarif edilen özerk makine **fiilen çalışmıyor** — kod canlı ve aktif bakımda, ancak otonom döngü Mayıs'ta durdu, Ağustos'taki tek "train" döngüsü başarısız oldu ve dağıtım/yargı/terfi/birleştirme yüzeyleri hiç çalışmadı. Mimari gerçek; çalışma durumu teorik. (Not: `.worktrees/` altında çok sayıda aria-\* konu şeridi ve `aria-lane-124`'te gateway kodu mevcut — geliştirme sürüyor, üretime geçiş tamamlanmamış.)

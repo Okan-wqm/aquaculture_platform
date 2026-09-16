@@ -281,8 +281,8 @@ export const billingApi = {
   getModulePricings: () => apiFetch<ModulePricing[]>('/billing/module-pricing'),
   getModulePricingByCode: (moduleCode: string) =>
     apiFetch<ModulePricing | null>(`/billing/module-pricing/code/${moduleCode}`),
-  getModulePricingWithModules: () =>
-    apiFetch<ModulePricingWithModule[]>('/billing/module-pricing/with-modules'),
+  getModulePricingWithModules: (signal?: AbortSignal) =>
+    apiFetch<ModulePricingWithModule[]>('/billing/module-pricing/with-modules', { signal }),
   getModulePricingHistory: (moduleId: string, options?: { page?: number; limit?: number }) =>
     apiFetch<ModulePricingPage>(
       `/billing/module-pricing/${moduleId}/history?${buildQueryString(options || {})}`,

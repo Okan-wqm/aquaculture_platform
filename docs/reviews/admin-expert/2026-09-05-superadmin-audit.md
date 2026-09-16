@@ -823,8 +823,8 @@ gate had ever read a spec in this package, and the compiler's first pass found a
 pre-existing spec asserting against a `Tenant` shape with two fields the
 contract lacks and one required field missing.
 
-**Remaining:** 21 pages, in three domain batches (tenant 1, billing 11,
-messaging 9 — the system batch is finished), governed by
+**Remaining:** 20 pages, in two domain batches (billing 11, messaging 9 — the
+system and tenant batches are finished), governed by
 `.claude/allowlists/admin-panel-unmigrated-reads.yaml`. The `AdminTable`
 contract for server-side pagination, sort and dataset-scoped aggregates follows
 the migration. **Gate:** `tests/invariants/admin-panel-data-layer.spec.ts` — a
@@ -833,6 +833,42 @@ expiry and reason under a ceiling that only decreases; every module-scoped cache
 in `web/` reaches the logout authority; `@tanstack/react-query` is declared
 wherever it is imported, at the federation-pinned version; the barrel keeps
 exporting the primitives.
+
+## ADMIN-HIGH-135 — a price sheet that failed, offered anyway at a guessed price
+
+**State:** OPEN → closed by W8v · **Wave:** W8v · **Owner:** okan
+**Deadline:** 2026-12-31
+
+The tenant-creation wizard loaded its module catalogue in a `useEffect` with a
+silent double fallback. `getModulePricingWithModules()` failing wrote
+`console.warn` and fell through to `modulesApi.list()` — a module list that
+carries no pricing metrics at all — so every module was offered with a
+hard-coded seed of `{users: 1, farms: 1, storageGb: 1}` instead of each metric's
+`includedQuantity`. An operator could walk the whole wizard and provision a
+tenant whose subscribed quantities were a constant nobody chose.
+
+A second failure wrote another `console.warn` and left the list empty, which the
+page rendered as _"No modules found — Please define modules in Billing > Module
+Pricing page first"_: an instruction to create data that very likely already
+exists, for a request that did not return. Nothing on screen ever said the price
+sheet had not loaded.
+
+The page already states the correct principle one step later, for the quote
+(ADR-0013): the number comes from billing, or the page says it could not price
+the selection. Offering modules that cannot be priced is that same defect one
+step earlier.
+
+W8v moves the read to `useAdminQuery` on `adminKeys.billing.modulePricing()`
+with the abort signal threaded through `billingApi.getModulePricingWithModules`,
+deletes the `modulesApi.list` fallback and its hard-coded quantities, seeds each
+quantity from the sheet's `includedQuantity`, and renders `QueryFailureNotice`
+with the failed read named and a Retry in place of the empty-catalogue copy.
+CreateTenantPage is the last of the tenant batch's six pages; the ratchet drops
+to 20.
+
+The provisioning submit is deliberately untouched: it is the best-built write
+path in this batch — an idempotency key, a real provisioning operation, polling
+under an `AbortController`, and `success` gated on `SUCCEEDED`.
 
 ## ADMIN-HIGH-134 — a card counting a field the endpoint never returns
 

@@ -834,6 +834,35 @@ in `web/` reaches the logout authority; `@tanstack/react-query` is declared
 wherever it is imported, at the federation-pinned version; the barrel keeps
 exporting the primitives.
 
+## ADMIN-HIGH-149 — 32 routes that refused a parameter their contract never mentioned
+
+**State:** OPEN → closed by W9n · **Wave:** W9n · **Owner:** okan
+**Deadline:** 2026-12-31
+
+`TenantParam` was only a parameter decorator, and the `@nestjs/swagger` plugin
+reads `@Query()` and nothing else. So all **32** query-sourced call sites in
+admin-api documented **no tenant parameter** in `openapi.json` — while
+`VerifiedTenantPipe` refused any request that omitted it with
+`BadRequestException('tenantId is required')`. The artifact described endpoints
+that could never be called successfully from it.
+
+Two pages in this audit are the consequence, not a coincidence:
+ADMIN-CRITICAL-147 and ADMIN-CRITICAL-150 each shipped a call that could only
+ever 400, and each rendered a placeholder in place of the answer.
+
+W9n fixes it at **Tier 2**, at the decorator: `@TenantParam('query')` now
+applies `ApiQuery` to its owning method, so the parameter appears with its
+name, its required flag, `format: uuid` and a description stating whether the
+request is refused without it — for all 32 call sites and every route added
+after this. `'param'` contributes nothing (the route template already declares
+it), `'body'` nothing (`TenantIdCarrier` declares it on the DTO).
+
+**Gate:** `libs/backend-common/src/decorators/__tests__/tenant-param-openapi.spec.ts`
+reads the same metadata key the swagger module reads, over all three sources,
+the custom-key form, the optional form, and two ids on one handler — so a
+refactor back to a bare `createParamDecorator` fails the build. The artifact
+now documents 32 `tenantId` query parameters where it documented none.
+
 ## ADMIN-CRITICAL-147 — a litigation-hold dashboard reporting 100% from requests that always failed
 
 **State:** OPEN → closed by W9m · **Wave:** W9m · **Owner:** okan

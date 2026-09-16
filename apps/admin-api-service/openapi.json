@@ -925,6 +925,16 @@
                 "DESC"
               ]
             }
+          },
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants.",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -1061,6 +1071,16 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants.",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -1100,6 +1120,16 @@
             "required": false,
             "in": "query",
             "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants.",
+            "schema": {
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -1573,6 +1603,16 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants.",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -1701,6 +1741,16 @@
             "required": false,
             "in": "query",
             "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants.",
+            "schema": {
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -2491,7 +2541,18 @@
     "/settings/email-templates": {
       "get": {
         "operationId": "EmailTemplateController_getAllTemplates",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants.",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "",
@@ -2552,6 +2613,16 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants.",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -2607,6 +2678,16 @@
             "required": true,
             "in": "path",
             "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants.",
+            "schema": {
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -4383,6 +4464,16 @@
                 "DESC"
               ]
             }
+          },
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants.",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -4793,6 +4884,16 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants.",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -5094,6 +5195,16 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants.",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -5352,6 +5463,16 @@
             "required": false,
             "in": "query",
             "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants.",
+            "schema": {
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -6689,6 +6810,16 @@
             "required": false,
             "in": "query",
             "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants.",
+            "schema": {
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -9256,6 +9387,16 @@
                 "DESC"
               ]
             }
+          },
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants.",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -11147,6 +11288,16 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants.",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -11497,6 +11648,16 @@
             "required": false,
             "in": "query",
             "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants.",
+            "schema": {
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -12888,6 +13049,16 @@
             "schema": {
               "type": "number"
             }
+          },
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants.",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -12925,6 +13096,16 @@
             "required": false,
             "in": "query",
             "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants.",
+            "schema": {
+              "format": "uuid",
               "type": "string"
             }
           }
@@ -14403,6 +14584,16 @@
             "schema": {
               "type": "number"
             }
+          },
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants.",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -14918,6 +15109,16 @@
             "schema": {
               "type": "number"
             }
+          },
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; omit to act across tenants.",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -15272,7 +15473,18 @@
     "/messaging/compliance/stats": {
       "get": {
         "operationId": "MessagingAdminController_getComplianceStats",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; the request is refused without it.",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "",
@@ -15294,7 +15506,18 @@
     "/messaging/compliance/legal-holds": {
       "get": {
         "operationId": "MessagingAdminController_getLegalHolds",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; the request is refused without it.",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "",
@@ -15357,6 +15580,16 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; the request is refused without it.",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -15380,7 +15613,18 @@
     "/messaging/retention/policies": {
       "get": {
         "operationId": "MessagingAdminController_getRetentionPolicies",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; the request is refused without it.",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "",
@@ -15515,6 +15759,16 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; the request is refused without it.",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -15592,7 +15846,18 @@
     "/messaging/personas": {
       "get": {
         "operationId": "MessagingAdminController_getPersonas",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": true,
+            "in": "query",
+            "description": "Tenant id. Resolved and verified against `auth.tenants` before the handler runs; the request is refused without it.",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "",

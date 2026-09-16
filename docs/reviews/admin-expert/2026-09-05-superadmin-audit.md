@@ -834,6 +834,42 @@ in `web/` reaches the logout authority; `@tanstack/react-query` is declared
 wherever it is imported, at the federation-pinned version; the barrel keeps
 exporting the primitives.
 
+## ADMIN-MEDIUM-152 — the one page in the batch that was already honest
+
+**State:** OPEN → closed by W9p · **Wave:** W9p · **Owner:** okan
+**Deadline:** 2026-12-31
+
+Registered as MEDIUM, and the reason is on the record: `MessagingMonitoringPage`
+was **not** lying. Every KPI already rendered an em dash until the aggregate
+arrived, the outbox panel rendered only when it had one,
+`oldestPendingAgeSeconds === null` already showed a dash rather than "0s", the
+error banner already carried the server's own message with a retry, and the
+freshness note already said the numbers were the aggregation's rather than the
+request's. ADMIN-HIGH-009 wrote both sides of this contract together and they
+still agree field for field. Registering a HIGH here would inflate the ledger
+this audit exists to keep honest.
+
+What is real, and now fixed:
+
+- **Both aggregates carried no schema.** `GET /messaging/monitoring/stats` and
+  `GET /messaging/tenants` were typed by **interfaces** inside the controller,
+  and the swagger plugin describes classes only — so both were
+  `{"type": "object"}` in the artifact and the panel had nothing to derive
+  from. It hand-wrote five shapes. They are DTO classes now and the frontend
+  aliases them through `ApiSchema`, which closes the drift **before** it
+  happened rather than after — every other page in this audit that hand-wrote a
+  response type had already drifted from it (ADMIN-HIGH-110,
+  ADMIN-MEDIUM-111, ADMIN-CRITICAL-150, ADMIN-CRITICAL-151).
+- **One sentence did assert something.** The tenant chart's empty state read
+  _"No tenant messaging activity recorded yet."_ on a FAILED read as well as an
+  empty one.
+- **The read sat in a second cache with no abort signal**, so leaving the page
+  could not cancel it. It is on `useAdminQuery` now, with `staleTime` matching
+  messaging-service's own 60-second cache, so the page does not re-request a
+  number that cannot have changed.
+- **`ErrorBanner` was a fourth local copy** of `QueryFailureNotice`, and is
+  gone.
+
 ## ADMIN-CRITICAL-151 — a deletion window the page said it had set, and had not
 
 **State:** OPEN → closed by W9o · **Wave:** W9o · **Owner:** okan

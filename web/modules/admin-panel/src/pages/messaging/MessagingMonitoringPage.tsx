@@ -1,20 +1,42 @@
 /**
- * Messaging Monitoring Page
+ * Messaging Monitoring Page — cross-tenant volume, channel activity and outbox
+ * health (ADMIN-HIGH-009 / ADMIN-MEDIUM-152).
  *
- * Enterprise monitoring dashboard for SUPER_ADMIN. Backed by
- * GET /messaging/monitoring/stats, which proxies messaging-service's
- * cross-tenant aggregates (message volume, active channels, per-tenant
- * breakdown, transactional-outbox health). The backend caches the aggregate
- * for 60 seconds.
+ * Recorded deliberately: this page was NOT lying. Every KPI renders an em dash
+ * until the aggregate arrives, the outbox panel renders only when it has one,
+ * `oldestPendingAgeSeconds === null` shows a dash rather than "0s", the error
+ * banner carries the server's own message with a retry, and the freshness note
+ * says the numbers are the aggregation's, not the request's. ADMIN-HIGH-009
+ * wrote both sides of the contract together and they still agree field for
+ * field.
  *
- * @see ADMIN-HIGH-009
+ * So this migration closes no fabricated number. What it removes is narrower
+ * and still real:
+ *
+ *  - the read sat in a second, module-scoped cache with no abort signal, so
+ *    leaving the page could not cancel it and `logoutCleanup()` had one more
+ *    store to remember (ADMIN-HIGH-121);
+ *  - the tenant chart's empty state read "No tenant messaging activity
+ *    recorded yet." on a FAILED read as well as an empty one — the one
+ *    sentence on the page that asserted something it had not established;
+ *  - `ErrorBanner` was a fourth local copy of what `QueryFailureNotice`
+ *    exists to be;
+ *  - and the five response shapes were hand-written, because both routes were
+ *    typed by interfaces the swagger plugin cannot describe. They are DTO
+ *    classes now, and the frontend derives its types from them — closing the
+ *    drift before it happened rather than after, which is the only time it is
+ *    cheap.
+ *
+ * The backend caches the aggregate for 60 seconds; `staleTime` matches, so the
+ * page does not re-request a number that cannot have changed.
  */
 
-import React, { useCallback } from 'react';
-import { Card, Button, Badge, KpiCard, BarChart } from '@aquaculture/shared-ui';
-import { useAsyncData } from '../../hooks/useAsyncData';
+import React from 'react';
+import { Card, Badge, KpiCard, BarChart, Button } from '@aquaculture/shared-ui';
 import { messagingApi } from '../../services/api/messaging';
 import type { MessagingMonitoringStats } from '../../services/types/messaging';
+import { adminKeys, useAdminQuery } from '../../hooks';
+import { QueryFailureNotice } from '../../components/QueryFailureNotice';
 
 // ============================================================================
 // Helpers
@@ -22,6 +44,9 @@ import type { MessagingMonitoringStats } from '../../services/types/messaging';
 
 /** Number of tenants shown in the top-tenants bar chart. */
 const TOP_TENANTS_LIMIT = 10;
+
+/** messaging-service caches the aggregate for this long, so re-reading is waste. */
+const AGGREGATE_CACHE_MS = 60_000;
 
 /** Shorten a tenant UUID for axis labels (first block is unique enough visually). */
 const shortTenantId = (tenantId: string): string => tenantId.split('-')[0] ?? tenantId;
@@ -38,21 +63,6 @@ const formatAge = (seconds: number): string => {
 // ============================================================================
 // Sub-components
 // ============================================================================
-
-const ErrorBanner: React.FC<{ message: string; onRetry: () => void; canRetry: boolean }> = ({
-  message,
-  onRetry,
-  canRetry,
-}) => (
-  <div className="p-4 bg-red-50 border border-red-200 rounded-lg flex items-center justify-between gap-4">
-    <p className="text-sm text-red-700">{message}</p>
-    {canRetry && (
-      <Button onClick={onRetry} variant="secondary" size="sm">
-        Retry
-      </Button>
-    )}
-  </div>
-);
 
 const OutboxHealthPanel: React.FC<{ stats: MessagingMonitoringStats }> = ({ stats }) => {
   const { outbox } = stats;
@@ -118,18 +128,14 @@ const OutboxHealthPanel: React.FC<{ stats: MessagingMonitoringStats }> = ({ stat
 // ============================================================================
 
 const MessagingMonitoringPage: React.FC = () => {
-  const statsQuery = useAsyncData<MessagingMonitoringStats>(
-    () => messagingApi.getMonitoringStats(),
-    { cacheKey: 'messaging-monitoring-stats', cacheTTL: 15_000 },
+  const statsQuery = useAdminQuery<MessagingMonitoringStats>(
+    adminKeys.messaging.monitoring(),
+    ({ signal }) => messagingApi.getMonitoringStats(signal),
+    { staleTime: AGGREGATE_CACHE_MS },
   );
 
-  const handleRefresh = useCallback(async (): Promise<void> => {
-    await statsQuery.refresh();
-  }, [statsQuery]);
-
   const stats = statsQuery.data;
-  const loading = statsQuery.loading;
-
+  const loading = statsQuery.isPending;
   const topTenants = (stats?.perTenant ?? []).slice(0, TOP_TENANTS_LIMIT);
 
   return (
@@ -143,23 +149,20 @@ const MessagingMonitoringPage: React.FC = () => {
           </p>
         </div>
         <Button
-          onClick={() => void handleRefresh()}
-          disabled={loading}
+          onClick={() => void statsQuery.refetch()}
+          disabled={statsQuery.isFetching}
           variant="secondary"
           size="sm"
         >
-          {loading ? 'Refreshing...' : 'Refresh'}
+          {statsQuery.isFetching ? 'Refreshing...' : 'Refresh'}
         </Button>
       </div>
 
-      {/* Error state */}
-      {statsQuery.error && (
-        <ErrorBanner
-          message={statsQuery.error}
-          onRetry={() => void handleRefresh()}
-          canRetry={statsQuery.canRetry}
-        />
-      )}
+      <QueryFailureNotice
+        errors={[statsQuery.error]}
+        hasContent={stats !== undefined}
+        onRetry={() => void statsQuery.refetch()}
+      />
 
       {/* KPI grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
@@ -211,7 +214,13 @@ const MessagingMonitoringPage: React.FC = () => {
             Highest-volume tenants over the last 24 hours (tenant IDs shortened)
           </p>
 
-          {topTenants.length > 0 ? (
+          {statsQuery.isError ? (
+            // The banner above carries the reason. Nothing is said here: the
+            // previous copy — "No tenant messaging activity recorded yet." —
+            // was the one sentence on this page that asserted an absence it
+            // had not established.
+            null
+          ) : topTenants.length > 0 ? (
             <div className="overflow-x-auto">
               <BarChart
                 labels={topTenants.map((t) => shortTenantId(t.tenantId))}
@@ -227,7 +236,9 @@ const MessagingMonitoringPage: React.FC = () => {
             </div>
           ) : (
             <p className="text-sm text-gray-500 py-8 text-center">
-              {loading ? 'Loading tenant activity...' : 'No tenant messaging activity recorded yet.'}
+              {loading
+                ? 'Loading tenant activity...'
+                : 'No tenant messaging activity recorded yet.'}
             </p>
           )}
         </div>

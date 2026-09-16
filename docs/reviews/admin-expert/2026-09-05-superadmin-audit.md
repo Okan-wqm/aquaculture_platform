@@ -834,6 +834,39 @@ in `web/` reaches the logout authority; `@tanstack/react-query` is declared
 wherever it is imported, at the federation-pinned version; the barrel keeps
 exporting the primitives.
 
+## ADMIN-HIGH-141 — "Please try again", in place of the reason to try differently
+
+**State:** OPEN → closed by W9f · **Wave:** W9f · **Owner:** okan
+**Deadline:** 2026-12-31
+
+Both the read and the save caught their error, wrote `console.error` (banned),
+and set a fixed string: _"Failed to load module pricings. Please try again."_
+and _"Failed to save pricing. Please try again."_ The server's own message went
+nowhere.
+
+On the save that is the worse of the two, because **the server does not fail
+vaguely.** The contract takes an exact decimal tier multiplier in `(0, 10]` and
+refuses anything outside it _with a reason_ rather than coercing — a rule this
+very page already records, in a comment on `handleTierMultiplierChange` left by
+an earlier wave. Replacing that refusal with "Please try again" means the
+operator retries the same rejected value, gets the same generic sentence, and
+never learns which field is wrong. The one piece of information that could end
+the loop is the one thing thrown away.
+
+The read had the same shape: a capability refusal and a network outage rendered
+identically.
+
+W9f moves the read to `useAdminQuery` on `adminKeys.billing.modulePricing()`
+with an abort signal, the save to `useAdminMutation` invalidating that key
+instead of hand-reloading, and surfaces both errors verbatim through
+`QueryFailureNotice`.
+
+**Fixed alongside:** `parseInt(value) || 0` on the included-quantity field,
+which silently turned `"1OO"` into `1` and `"abc"` into `0` on a field that
+decides what a tenant is charged for. An unparseable entry now leaves the
+quantity alone — the same reasoning the earlier wave applied to the multiplier
+one function below, and had not applied here.
+
 ## ADMIN-HIGH-140 — "No usage data", on the surface invoices are built from
 
 **State:** OPEN → closed by W9e · **Wave:** W9e · **Owner:** okan

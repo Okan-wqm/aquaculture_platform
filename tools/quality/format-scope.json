@@ -25416,6 +25416,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/database/migrations/__tests__/backfill-parent-channels.migration.postgres.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/database/migrations/__tests__/encrypt-lora-app-keys.migration.spec.ts",
       "prettier_managed": true
     },
@@ -25834,6 +25840,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/database/migrations/1818000000000-EnforceSingleActiveVfdChangeSet.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/database/migrations/1819000000000-BackfillParentChannelsFromChildren.ts",
       "prettier_managed": true
     },
     {
@@ -27088,6 +27100,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/registration/__tests__/data-channel.dto.validation.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/registration/__tests__/register-parent-channels.spec.ts",
       "prettier_managed": true
     },
     {

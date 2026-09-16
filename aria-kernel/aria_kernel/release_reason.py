@@ -22,6 +22,7 @@ from dataclasses import dataclass
 # Closed vocabulary. Adding a code is a one-way door (ledger-anchored).
 RELEASE_REASON_CODES: tuple[str, ...] = (
     "CLAUDE_CLI_AUTH_FAILURE", "CLAUDE_SPAWN_REFUSED", "CLAUDE_CLI_EXIT", "DISPATCH_BUDGET_REFUSED",
+    "EVIDENCE_VERIFICATION_UNAVAILABLE",
     "JUDGE_VERDICT_CONTRACT_VIOLATION", "KERNEL_PROMPT_RENDERER_UNAVAILABLE",
     "PLANNER_DISPATCH_EXECUTOR_TIMEOUT", "PLANNER_DISPATCH_EXECUTOR_EXIT_NONZERO",
     "PROMPT_HASH_BINDING_MISMATCH", "SUBMIT_TIMEOUT",
@@ -36,6 +37,9 @@ _LITERALS: dict[str, tuple[str, str]] = {
     "claude_cli_auth_failure": ("CLAUDE_CLI_AUTH_FAILURE", "harness"),
     "claude_spawn_refused": ("CLAUDE_SPAWN_REFUSED", "harness"),
     "dispatch_budget_refused": ("DISPATCH_BUDGET_REFUSED", "harness"),
+    # The kernel's own evidence probes could not run (git did not answer
+    # inside its bound); nothing is known about the work — harness.
+    "evidence_verification_unavailable": ("EVIDENCE_VERIFICATION_UNAVAILABLE", "harness"),
     "judge_verdict_contract_violation": ("JUDGE_VERDICT_CONTRACT_VIOLATION", "harness"),
     "kernel_prompt_renderer_unavailable": ("KERNEL_PROMPT_RENDERER_UNAVAILABLE", "harness"),
     "planner_dispatch_executor_timeout": ("PLANNER_DISPATCH_EXECUTOR_TIMEOUT", "harness"),

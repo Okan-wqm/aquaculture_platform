@@ -19,6 +19,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from aria_kernel.ledger import append_jsonl, read_jsonl, verify_jsonl
@@ -43,6 +44,13 @@ class WorkspaceBindHonoursAriaWorkspaceBaseTests(unittest.TestCase):
     """
 
     def setUp(self) -> None:
+        # ARIA-HIGH-065 — this fixture sets ARIA_WORKSPACE_BASE and its
+        # tearDown used to POP it, leaving the rest of the interpreter with
+        # no base at all (every later fixture then wrote under ~/.aria).
+        # Scope the whole environment to the test instead.
+        _environment = patch.dict(os.environ)
+        _environment.start()
+        self.addCleanup(_environment.stop)
         self._tmpdir = tempfile.TemporaryDirectory()
         self.tmp = Path(self._tmpdir.name)
         self.repo = git_fixtures.make_local_git_repo(
@@ -76,6 +84,13 @@ class V2ToV3MigrationPreservesWorkspaceLedgersTests(unittest.TestCase):
     """Plan ARIA-V2 I-29 — pre-seeded workspace ledgers survive v2→v3 migration."""
 
     def setUp(self) -> None:
+        # ARIA-HIGH-065 — this fixture sets ARIA_WORKSPACE_BASE and its
+        # tearDown used to POP it, leaving the rest of the interpreter with
+        # no base at all (every later fixture then wrote under ~/.aria).
+        # Scope the whole environment to the test instead.
+        _environment = patch.dict(os.environ)
+        _environment.start()
+        self.addCleanup(_environment.stop)
         self._tmpdir = tempfile.TemporaryDirectory()
         self.tmp = Path(self._tmpdir.name)
         self.repo = git_fixtures.make_local_git_repo(
@@ -126,6 +141,13 @@ class FreshCloneFullCycleE2ETests(unittest.TestCase):
     """Plan ARIA-V2 I-33 — fresh clone → migrate → discovery e2e success."""
 
     def setUp(self) -> None:
+        # ARIA-HIGH-065 — this fixture sets ARIA_WORKSPACE_BASE and its
+        # tearDown used to POP it, leaving the rest of the interpreter with
+        # no base at all (every later fixture then wrote under ~/.aria).
+        # Scope the whole environment to the test instead.
+        _environment = patch.dict(os.environ)
+        _environment.start()
+        self.addCleanup(_environment.stop)
         self._tmpdir = tempfile.TemporaryDirectory()
         self.tmp = Path(self._tmpdir.name)
         # Simulate a fresh clone: a repo with a configured remote URL,
@@ -179,6 +201,13 @@ class MigrateToolsBlockedInFrozenProfileTests(unittest.TestCase):
     """
 
     def setUp(self) -> None:
+        # ARIA-HIGH-065 — this fixture sets ARIA_WORKSPACE_BASE and its
+        # tearDown used to POP it, leaving the rest of the interpreter with
+        # no base at all (every later fixture then wrote under ~/.aria).
+        # Scope the whole environment to the test instead.
+        _environment = patch.dict(os.environ)
+        _environment.start()
+        self.addCleanup(_environment.stop)
         self._tmpdir = tempfile.TemporaryDirectory()
         self.tmp = Path(self._tmpdir.name)
         self.repo = git_fixtures.make_local_git_repo(

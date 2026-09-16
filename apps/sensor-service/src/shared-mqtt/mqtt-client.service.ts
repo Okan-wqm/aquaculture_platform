@@ -5,6 +5,7 @@ import { MqttClient } from 'mqtt';
 import client from 'prom-client';
 
 import { ServiceMetricsService } from '@aquaculture/backend-common/metrics';
+import { emitBootInvariantSignal } from '@aquaculture/backend-common/constants';
 
 /**
  * MQTT subscription callback type
@@ -479,10 +480,11 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
     } else {
       // SENSOR-MEDIUM-123: canonical boot signal — the deploy gate watches
       // this line so a connected-but-unsubscribed listener can never deploy
-      // green again (pattern lives in BOOT_INVARIANT_SIGNALS).
-      this.logger.log(
-        `MQTT boot signal: subscribed to ${topicList.length} topic filter(s) (no broker denial)`,
-      );
+      // green again. Emitted through the structured helper so the signal
+      // library, the emitter source and required-signals.yaml stay in lockstep.
+      emitBootInvariantSignal(this.logger, 'mqtt_subscribed_topics', {
+        filterCount: topicList.length,
+      });
     }
   }
 

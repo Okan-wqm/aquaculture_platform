@@ -6,7 +6,7 @@ path. Every item below was reproduced against the running stack (broker logs,
 SQL against the tenant schema, GraphQL through the gateway) before being fixed
 in this branch.
 
-## F1 — wizard/parent registration never creates ingestible channels
+## F1 (SENSOR-HIGH-117) — wizard/parent registration never creates ingestible channels
 
 `registerParentWithChildren` persists each child's `dataPath` on the child
 `sensors` row only; the MQTT listener resolves the topic to the PARENT sensor
@@ -16,7 +16,7 @@ class in `data-channel.dto.ts` lacked class-validator decorators, so the global
 `whitelist + forbidNonWhitelisted` pipe rejected `dataChannels` payloads and
 the `createDataChannel` / `saveDiscoveredChannels` mutations at the boundary.
 
-## F3 — one denied subscription filter kills the whole listener batch
+## F3 (SENSOR-HIGH-118) — one denied subscription filter kills the whole listener batch
 
 The listener subscribes in a single SUBSCRIBE packet including
 `+/+/+/temperature-array`, which matches no `sensor_service` ACL rule; the
@@ -26,7 +26,7 @@ with acc=4 (MOSQ_ACL_SUBSCRIBE) while the `tenants/+/devices/+/*` grants only
 allowed acc 1|3. Verified live: broker showed no aqua-sensor-service
 subscriptions at all after boot.
 
-## F4 — RLS deny-by-default blinds the tenant-agnostic topic cache
+## F4 (SENSOR-HIGH-119) — RLS deny-by-default blinds the tenant-agnostic topic cache
 
 `RlsConnectionBootstrapService` SETs `app.bypass_rls='off'` on every pooled
 connection outside a request context, while tenant schemas carry FORCE RLS.
@@ -36,19 +36,19 @@ correct. Verified live via `current_setting('app.bypass_rls')` probe returning
 'off' inside the service while the same query as the same role in psql
 returned the sensor.
 
-## F5 — warm-up row-mapping alias bug
+## F5 (SENSOR-MEDIUM-120) — warm-up row-mapping alias bug
 
 `warmUpCache` selected `protocol_configuration` (snake_case) but read
 `sensor.protocolConfiguration`; every topic read as undefined and the log said
 "Cache warmed up: 0 sensors" forever.
 
-## F7 — NULL channel bounds mark every reading BAD
+## F7 (SENSOR-MEDIUM-121) — NULL channel bounds mark every reading BAD
 
 TypeORM hydrates nullable numeric bounds as `null`; the `!== undefined` guards
 made `value > null` (coerced 0) fail, so any positive reading on a channel
 without explicit physical bounds got quality_code 0 (BAD) + 0x20.
 
-## F6 — hand-written frontend queries drift from the backend schema
+## F6 (SENSOR-MEDIUM-122) — hand-written frontend queries drift from the backend schema
 
 `DeviceDetailPage` selected object-typed `connectionStatus` bare; the same
 class of drift exists in `useSensorRegistration` / `sensorRegistrationApi`
@@ -56,7 +56,7 @@ class of drift exists in `useSensorRegistration` / `sensorRegistrationApi`
 (`alertThresholds` not served on `RegisteredSensorType`). All verified against
 the live gateway. Contract tests + canlı-SDL fixture close the class.
 
-## F8 — dead listener deploys green
+## F8 (SENSOR-MEDIUM-123) — dead listener deploys green
 
 No MQTT state in `/health/ready`, no required boot signal for subscriptions,
 and the Grafana MQTT panels query metric names that are registered nowhere.

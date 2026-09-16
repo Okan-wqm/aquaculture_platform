@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `443b63d3784e539261afb0fd256bc05aabf54bfbf8549ee3208b722b3792de1a`
+Registry tip: `471e3423a2b419ceb6338e22bab0d245fa29716a1f68e898515a43e0ab8f74af`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -246,6 +246,15 @@ Allowed truth buckets:
 | `INFRA-CRITICAL-100`  | IN-PROGRESS    | 2026-07-19   | security-reviewer          | real-open                 |
 | `ADMIN-CRITICAL-087`  | OPEN           | 2026-09-04   | admin-expert               | real-open                 |
 | `DEPLOY-CRITICAL-017` | OPEN           | 2026-09-05   | infra-expert               | real-open                 |
+| `ADMIN-CRITICAL-147`  | OPEN           | 2026-09-10   | admin-expert               | already-fixed-needs-close |
+
+Updated 2026-09-10 (W9m, the SUPER_ADMIN audit's messaging batch): one active CRITICAL added.
+`ADMIN-CRITICAL-147` — `MessagingCompliancePage` sent both of its reads without the tenant id the
+routes require, so every load 400'd and the page rendered a placeholder reporting **Compliance
+Score 100%**, zero messages under legal hold, and a green tick over "No legal holds", on a
+litigation-hold surface. It is `already-fixed-needs-close`: the branch fixes it at Tier 1 (the
+client methods now require a tenant id, so the call the page made cannot be written) and deletes
+the placeholder, and the post-merge close ceremony records the main-reachable commit.
 
 ## Mutation Rules
 

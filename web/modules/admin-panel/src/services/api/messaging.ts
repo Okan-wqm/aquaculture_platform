@@ -176,23 +176,36 @@ export const messagingApi = {
   // ── Compliance Stats ──
 
   /**
-   * Fetch compliance statistics.
-   * @param tenantId - Optional tenant filter. Omit for platform-wide stats.
+   * Fetch compliance statistics for ONE tenant.
+   *
+   * `tenantId` is REQUIRED (ADMIN-CRITICAL-147). It used to be optional, and
+   * the docblock promised that omitting it returned platform-wide stats — a
+   * mode `MessagingAdminController.getComplianceStats` has never had. Its
+   * parameter is `@TenantParam('query') tenantId: string` with the default
+   * `optional: false`, so `VerifiedTenantPipe` answers a request without one
+   * with `BadRequestException('tenantId is required')`. Every call the panel
+   * made therefore 400'd, and the compliance page rendered its
+   * `complianceScore: 100` placeholder instead. Requiring the argument makes
+   * that call impossible to write.
    */
-  getComplianceStats: (tenantId?: string): Promise<ComplianceStats> =>
+  getComplianceStats: (tenantId: string, signal?: AbortSignal): Promise<ComplianceStats> =>
     apiFetch<ComplianceStats>(
-      `/messaging/compliance/stats${tenantId ? `?${buildQueryString({ tenantId })}` : ''}`,
+      `/messaging/compliance/stats?${buildQueryString({ tenantId })}`,
+      { signal },
     ),
 
   // ── Legal Holds ──
 
   /**
-   * Fetch legal holds list.
-   * @param tenantId - Optional tenant filter. Omit for all tenants.
+   * Fetch the legal holds of ONE tenant.
+   *
+   * `tenantId` is REQUIRED, for the same reason as the stats read above: the
+   * route rejects a request without one, and legal holds are held per tenant.
    */
-  getLegalHolds: (tenantId?: string): Promise<LegalHold[]> =>
+  getLegalHolds: (tenantId: string, signal?: AbortSignal): Promise<LegalHold[]> =>
     apiFetch<LegalHold[]>(
-      `/messaging/compliance/legal-holds${tenantId ? `?${buildQueryString({ tenantId })}` : ''}`,
+      `/messaging/compliance/legal-holds?${buildQueryString({ tenantId })}`,
+      { signal },
     ),
 
   /** Create a new legal hold on messaging data. */

@@ -834,6 +834,76 @@ in `web/` reaches the logout authority; `@tanstack/react-query` is declared
 wherever it is imported, at the federation-pinned version; the barrel keeps
 exporting the primitives.
 
+## ADMIN-CRITICAL-147 — a litigation-hold dashboard reporting 100% from requests that always failed
+
+**State:** OPEN → closed by W9m · **Wave:** W9m · **Owner:** okan
+**Deadline:** 2026-12-31
+
+Both of this page's reads went out **without a tenant id**. The client's own
+docblocks promised that omitting it returned _"platform-wide stats"_ and
+_"all tenants"_ — a mode neither route has ever had:
+`MessagingAdminController.getComplianceStats` and `.getLegalHolds` each declare
+`@TenantParam('query') tenantId: string` with the decorator's default
+`optional: false`, and `VerifiedTenantPipe` answers a request without one with
+`BadRequestException('tenantId is required')`
+(`verified-tenant.pipe.ts:79-81`).
+
+So every load of the page 400'd on both reads, and
+`stats = statsQuery.data ?? EMPTY_STATS` rendered the placeholder:
+
+- **Compliance Score 100%**, in green;
+- **Under Legal Hold: 0** messages, Active Holds **0**, Pending Cleanup **0**,
+  Retention Policies **0**, Active Exports **0**;
+- a legal-holds table showing a **green tick** over **"No legal holds"**.
+
+An error banner sat above it, but six cards and a table stated numbers — and on
+a litigation-hold surface those numbers asserted that a platform under a
+preservation order had none, and that its compliance was perfect. It is the
+`getHealthScore()`-returns-100-from-an-empty-table pattern (correction **C2**)
+on a regulatory surface, which is why it is CRITICAL and not HIGH.
+
+W9m fixes it at **Tier 1 first**: `getComplianceStats` and `getLegalHolds`
+require a tenant id, so the call the page made cannot be written, and
+`adminKeys.messaging.complianceStats` / `.legalHolds` take it too — a key
+without it would have served one tenant's legal holds under another tenant's
+view. `EMPTY_STATS` is **deleted**: a placeholder object is indistinguishable
+from an answer once it reaches a stat card. Every card renders an em dash for a
+figure the page does not have, in a neutral colour so an unknown score cannot
+be graded green. The page asks which tenant it reports on and reads nothing
+until it knows. Releasing a hold — which makes held messages eligible for
+retention cleanup again, the one thing a hold exists to prevent — now confirms
+first and goes through `useAdminMutation`.
+
+**Note for W10:** `TenantSelect` and `useTenants` were on the kill list as
+fully dead. This page is now a real consumer, so that verdict changes for those
+two entries; `useActiveTenants` and `useTenantSearch` moved off `useAsyncData`
+onto `useAdminQuery` in the same commit.
+
+## ADMIN-HIGH-148 — three compliance sections with no producing endpoint
+
+**State:** OPEN · **Wave:** unscheduled · **Owner:** okan
+**Deadline:** 2026-12-31
+
+The tracked half of ADMIN-CRITICAL-147. The page built three empty arrays in
+the browser — `exports: []`, four zero-count retention buckets, and
+`dailyAudit: []` — behind a `// WHY:` comment saying no endpoint served them.
+The comment was honest; the UI was not. It rendered _"No export jobs found."_,
+_"No retention data available"_ and _"No audit data available"_, so a GDPR
+auditor reading the page concluded the platform had no export jobs and no audit
+activity.
+
+W9m removes those arrays and their renderers and states the gap on screen,
+naming this finding. What must still be **built**, in messaging-service with an
+admin-api route in front of it:
+
+1. **A listing of the export jobs** `POST /messaging/tenants/:id/export`
+   creates. The endpoint creates them and nothing can enumerate them, so a
+   completed GDPR Art 20 export cannot be found again or downloaded. Build this
+   first: an export a regulator asked for that the operator cannot locate is
+   the same failure class as a report nobody produces.
+2. A retention-bucket aggregation counting tenants per retention window.
+3. A per-day audit-operation count for the last 14 days.
+
 ## ADMIN-HIGH-146 — money stated in a currency the sum did not have
 
 **State:** OPEN → closed by W9l · **Wave:** W9l · **Owner:** okan

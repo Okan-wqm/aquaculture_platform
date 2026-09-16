@@ -25338,6 +25338,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/database/__tests__/sensor-data-channel.bounds.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/database/data-source.ts",
       "prettier_managed": true
     },
@@ -26307,6 +26313,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/ingestion/__tests__/sensor-topic-cache.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/ingestion/data-ingestion.service.ts",
       "prettier_managed": true
     },
@@ -27070,6 +27082,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/sensor-service/src/protocol/services/protocol-validator.service.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/sensor-service/src/registration/__tests__/data-channel.dto.validation.spec.ts",
       "prettier_managed": true
     },
     {

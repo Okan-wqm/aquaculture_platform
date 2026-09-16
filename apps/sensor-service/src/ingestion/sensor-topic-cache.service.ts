@@ -243,9 +243,12 @@ export class SensorTopicCacheService implements OnModuleInit {
           if (tableCheck.length === 0) continue;
 
           // Get all sensors with MQTT topics
-          // Schema name is validated above, safe to interpolate with quoting
+          // Schema name is validated above, safe to interpolate with quoting.
+          // protocol_configuration is aliased to camelCase to match the row
+          // mapping below — pg returns unaliased columns in snake_case, and the
+          // previous missing alias made warm-up silently cache 0 sensors.
           const sensors: Sensor[] = await this.dataSource.query(`
-            SELECT id, name, type, tenant_id AS "tenantId", protocol_configuration, metadata
+            SELECT id, name, type, tenant_id AS "tenantId", protocol_configuration AS "protocolConfiguration", metadata
             FROM ${quoteIdentifier(schema_name)}.sensors
             WHERE protocol_configuration->>'topic' IS NOT NULL
           `);

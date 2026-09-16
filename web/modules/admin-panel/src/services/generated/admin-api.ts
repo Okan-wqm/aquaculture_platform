@@ -6351,7 +6351,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Trigger tenant data export */
+        /** Export a tenant's messaging data */
         post: operations["MessagingAdminController_triggerExport"];
         delete?: never;
         options?: never;
@@ -9576,6 +9576,24 @@ export interface components {
             tenantId?: string;
             /** @enum {string} */
             format?: "csv" | "json";
+        };
+        TenantDataExportResultDto: {
+            /**
+             * Format: uuid
+             * @description Identifies this export in the audit log.
+             */
+            jobId: string;
+            /** @description Always 'completed': the export is performed synchronously, inside the request. */
+            status: string;
+            /** @enum {string} */
+            format: "csv" | "json";
+            /** @description Rows in the export. */
+            recordCount: number;
+            /** @description The export itself, serialised as JSON or CSV. This is the file — there is no second endpoint to fetch it from, and nothing stores it server-side. */
+            data: string;
+            /** @description Whether the tenant is under an effective legal hold. The export still runs; the flag records that the data is preserved for a matter. */
+            isUnderLegalHold: boolean;
+            exportedAt: string;
         };
         ForgotPasswordDto: {
             /** Format: email */
@@ -19481,12 +19499,12 @@ export interface operations {
             };
         };
         responses: {
-            202: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["TenantDataExportResultDto"];
                 };
             };
         };

@@ -104,3 +104,50 @@ export class MessagingTenantsOverviewDto {
   @ApiProperty({ description: 'When messaging-service computed the aggregate.' })
   generatedAt!: string;
 }
+
+/**
+ * What `POST /messaging/tenants/:id/export` returns (ADMIN-HIGH-153).
+ *
+ * The controller declared `{ exportId: string; status: string }`. The reply has
+ * neither `exportId` — the field is `jobId` — nor five of its other fields,
+ * and the one it omitted hardest is **`data`**: the export payload itself,
+ * already serialised to JSON or CSV by
+ * `DataExportService.exportTenant`. admin-api forwarded it, the admin panel's
+ * hand-written type did not mention it, and the page threw it away — so a GDPR
+ * Art 20 export ran, crossed the wire in full, and left the operator with a
+ * record count and no file.
+ *
+ * `status` is the literal `'completed'`: the service exports synchronously, in
+ * the request. The route answered `202 Accepted` for work that was already
+ * done, which is why the page's own copy said the job "runs asynchronously".
+ */
+export class TenantDataExportResultDto {
+  @ApiProperty({ format: 'uuid', description: 'Identifies this export in the audit log.' })
+  jobId!: string;
+
+  @ApiProperty({
+    description: "Always 'completed': the export is performed synchronously, inside the request.",
+  })
+  status!: string;
+
+  @ApiProperty({ enum: ['csv', 'json'] })
+  format!: string;
+
+  @ApiProperty({ description: 'Rows in the export.' })
+  recordCount!: number;
+
+  @ApiProperty({
+    description:
+      'The export itself, serialised as JSON or CSV. This is the file — there is no second endpoint to fetch it from, and nothing stores it server-side.',
+  })
+  data!: string;
+
+  @ApiProperty({
+    description:
+      'Whether the tenant is under an effective legal hold. The export still runs; the flag records that the data is preserved for a matter.',
+  })
+  isUnderLegalHold!: boolean;
+
+  @ApiProperty()
+  exportedAt!: string;
+}

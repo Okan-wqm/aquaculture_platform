@@ -17,6 +17,7 @@
  */
 
 import { apiFetch, buildQueryString } from '../http-client';
+import type { ApiSchema } from '../contract';
 
 import type { MessagingMonitoringStats, MessagingTenantsOverview } from '../types/messaging';
 
@@ -231,15 +232,17 @@ export interface DailyAuditData {
 // Types -- Data Export
 // ============================================================================
 
-/** Result returned by POST /messaging/tenants/:id/export */
-export interface ExportTriggerResult {
-  jobId: string;
-  status: string;
-  format: string;
-  recordCount: number;
-  isUnderLegalHold: boolean;
-  exportedAt: string;
-}
+/**
+ * What `POST /messaging/tenants/:id/export` returns (ADMIN-HIGH-153).
+ *
+ * `data` is THE EXPORT — the rows already serialised as JSON or CSV. Nothing
+ * stores it server-side and there is no second endpoint to fetch it from, so
+ * the response is the only copy that will ever exist. The previous type did
+ * not mention the field, and `MessagingTenantsPage` discarded it: a GDPR
+ * Art 20 export ran, crossed the wire in full, and left the operator with a
+ * record count and no file.
+ */
+export type ExportTriggerResult = ApiSchema<'TenantDataExportResultDto'>;
 
 // ============================================================================
 // Types -- AI Personas

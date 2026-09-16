@@ -25,13 +25,13 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from .agent_genesis import BANNED_PHRASES
 from .diagnostics import emit_ledger_corruption_diagnostic
+from .evidence_probe import GitProbeSession
 from .evidence_trust import classify_evidence_ref
 from .ledger import append_declared_jsonl, load_declared_jsonl
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_binding
@@ -251,17 +251,20 @@ def _validate_inputs(
             _check_banned_phrases(text, field="interpretations[].text")
 
 
-def _target_sha(repo_root: Path) -> str:
-    completed = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=repo_root,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    if completed.returncode != 0 or not completed.stdout.strip():
-        raise GovernanceError("finding_evidence_target_sha_unavailable")
-    return completed.stdout.strip()
+def _target_sha(repo_root: Path, probe_session: GitProbeSession) -> str:
+    """The commit this decision's evidence is verified against: HEAD,
+    resolved through the decision's probe session so the resolution is
+    bounded (attempt bound, retry, the decision's clock) and cached — the
+    refs graded next against the id it returns ask git nothing more for it.
+    An unbounded `git rev-parse` here was the one probe of a finding that
+    could hang a cycle on a stalled host."""
+    baseline = probe_session.resolve_baseline(repo_root, "HEAD")
+    if not baseline.readable:
+        raise GovernanceError(
+            "finding_evidence_target_sha_unavailable: "
+            f"{baseline.unavailable_reason}: {baseline.detail}"
+        )
+    return baseline.commit_sha
 
 
 def _normalize_evidences(
@@ -269,7 +272,11 @@ def _normalize_evidences(
     evidences: list[dict[str, Any]],
     *,
     target_sha: str,
+    probe_session: GitProbeSession,
 ) -> list[dict[str, Any]]:
+    """Grade every evidence ref of ONE finding through ONE probe session
+    (evidence_probe): the baseline is resolved once, and every git probe of
+    the decision shares one liveness clock."""
     normalized: list[dict[str, Any]] = []
     for ev in evidences:
         row = dict(ev)
@@ -279,6 +286,7 @@ def _normalize_evidences(
             source_hint="repo_source",
             context="finding",
             target_sha=target_sha,
+            probe_session=probe_session,
         )
         if envelope.self_output_class == "aria_self_output":
             raise GovernanceError(
@@ -403,8 +411,13 @@ def emit_finding(
         interpretations=interpretations,
     )
 
-    target_sha = _target_sha(repo_path)
-    evidences = _normalize_evidences(repo_path, evidences, target_sha=target_sha)
+    # One probe session for this emission: the baseline resolution below
+    # and every evidence grade after it.
+    probe_session = GitProbeSession()
+    target_sha = _target_sha(repo_path, probe_session)
+    evidences = _normalize_evidences(
+        repo_path, evidences, target_sha=target_sha, probe_session=probe_session,
+    )
     # E15-a — mint-time service dimension + specialist ownership. The
     # dimension comes from the paths the finding cites; the reviewing
     # agents come from the Lane-A touch-map SSoT (imported, not copied)
@@ -675,7 +688,7 @@ def record_finding_reproduction(
         "validation_run_id": validation_run_id,
         "observation_ledger_hash": observation.get("ledger_hash"),
         "run_status": run_status,
-        "target_sha": _target_sha(repo_path),
+        "target_sha": _target_sha(repo_path, GitProbeSession()),
         "recorded_at": _utc_now(),
     }
     return _append_finding_event(
@@ -754,7 +767,7 @@ def record_finding_fix_verification(
         "validation_run_id": validation_run_id,
         "observation_ledger_hash": observation.get("ledger_hash"),
         "commit_sha": observation.get("commit_sha"),
-        "target_sha": _target_sha(repo_path),
+        "target_sha": _target_sha(repo_path, GitProbeSession()),
         "recorded_at": _utc_now(),
     }
     return _append_finding_event(

@@ -26,9 +26,20 @@ from pathlib import Path
 from typing import Any
 
 from .agent_invocations import _request_event_count, derive_request_state
-from .ledger import load_declared_jsonl
+from .ledger import STATE_LOCK_LIVENESS_SECONDS, load_declared_jsonl
+from .notify import NOTIFY_WORST_CASE_SECONDS, notify_best_effort
 from .strict_jsonl_reader import read_strict_jsonl
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
+
+# The longest `record_human_required` can legitimately wait: its governance
+# append (one state transaction behind a live holder) and the notification
+# it sends (`notify.NOTIFY_WORST_CASE_SECONDS`: every channel at its wall
+# clock, then one transaction for the outbox rows). The executor runs this
+# function as a kernel child on its refusal exits and derives that child's
+# wall clock from this number (`tools/aria-poc/ci_executor.py`), so it
+# cannot kill a healthy record while the kernel is still inside its own
+# bounds — the 30 s-versus-600 s disagreement of 2026-09-12, on this path.
+HUMAN_REQUIRED_RECORD_WAIT_SECONDS: float = STATE_LOCK_LIVENESS_SECONDS + NOTIFY_WORST_CASE_SECONDS
 
 
 # Plan 016 SLA windows per severity. CRITICAL/HIGH share the 72h window;
@@ -120,8 +131,6 @@ def record_human_required(
         },
     )
     # Plan 032 Faz 032e — a person is needed; say so on the configured channels.
-    from .notify import notify_best_effort
-
     notify_best_effort(
         kind="human_required_opened", key=request_id, base_dir=root,
         title=f"ARIA HUMAN_REQUIRED [{sev}] {request_id}",

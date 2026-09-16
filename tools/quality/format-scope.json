@@ -28369,6 +28369,12 @@
       "prettier_managed": true
     },
     {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "ARIA-MIMARI-SEMALARI.md",
+      "prettier_managed": true
+    },
+    {
       "class": "runtime_evidence",
       "content_sha256": "2c535e6f71c643de0fdd6c1e3c6a07d05eb9d092b1bafd49be52e8e64bb0a338",
       "hash_policy": "sha256",
@@ -28554,6 +28560,12 @@
       "reason": "runtime evidence is declared artifact output",
       "review_required": true,
       "source_of_truth": "committed_hash"
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "ARIA-VERIMLILIK-DEGERLENDIRMESI.md",
+      "prettier_managed": true
     },
     {
       "class": "canonical_source",
@@ -35175,6 +35187,24 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/claude/2026-09-02-aria-runner-oom-ledger-row-cap.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-09-04-aria-job-deadline-scope.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-09-11-aria-suite-env-hermeticity.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-09-16-nx-toolchain-ghsa-exceptions.md",
       "prettier_managed": true
     },
     {
@@ -46280,6 +46310,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/finding-id-aliases.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/finding-registry-allocation-scale.spec.ts",
       "prettier_managed": true
     },
     {

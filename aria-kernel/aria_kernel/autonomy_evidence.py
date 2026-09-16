@@ -909,6 +909,10 @@ CAPABILITY_SPECS: Mapping[str, CapabilitySpec] = MappingProxyType({
             f"{_KERNEL}implementation_safety.py",
             f"{_KERNEL}agent_genesis.py",
             f"{_KERNEL}evidence_trust.py",
+            # The probe bounds, retry and once-per-decision baseline every
+            # acceptance-time evidence grade runs through: a change here
+            # changes what the executor accepts.
+            f"{_KERNEL}evidence_probe.py",
             f"{_KERNEL}canonical_path.py",
             f"{_KERNEL}tool_health.py",
             f"{_KERNEL}ledger_refs.py",

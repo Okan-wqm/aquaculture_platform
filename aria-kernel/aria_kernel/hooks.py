@@ -332,13 +332,29 @@ def journal_rows_for(request_id: str, *, base_dir: str | Path | None) -> list[di
 
 
 
-def _take_pre_write_checkpoint(*, base_dir, workspace_root, request_id: str, session_id: str, tool_use_id: str) -> None:
+def _take_pre_write_checkpoint(*, base_dir, workspace_root, request_id: str, session_id: str, tool_use_id: str,
+                               target: str | None = None) -> None:
     try:
         from .checkpoint import take_checkpoint
 
+        from .checkpoint import latest_checkpoint_holds
+
         touched = [p for row in journal_rows_for(request_id, base_dir=base_dir) for p in (row.get("files_touched") or [])]
+        # ARIA-HIGH-145 — the file this write is about to change joins the
+        # checkpoint BEFORE the write: an untracked file the agent overwrites
+        # on its first touch is otherwise held by no checkpoint, and the
+        # rollback could only remove it. Such a write is never folded into
+        # the previous checkpoint's interval — that checkpoint does not hold
+        # the file, so folding would lose its only pre-write copy.
+        interval: dict[str, int] = {}
+        if target:
+            touched.append(target)
+            if Path(target).is_file() and not latest_checkpoint_holds(
+                workspace_root=workspace_root, request_id=request_id, path=target, base_dir=base_dir,
+            ):
+                interval["min_interval_seconds"] = 0
         take_checkpoint(workspace_root=workspace_root, request_id=request_id, reason="pre_write",
-                        base_dir=base_dir, journal_files=touched)
+                        base_dir=base_dir, journal_files=touched, **interval)
     except Exception as exc:  # noqa: BLE001
         try:
             record_decision(HookVerdict("allow", f"checkpoint_skipped:{type(exc).__name__}", "checkpoint", EXIT_ALLOW),
@@ -402,7 +418,7 @@ def run_hook(
             # a checkpoint that cannot be taken must not turn an allowed edit
             # into a denied one; it is named on the decision ledger instead.
             _take_pre_write_checkpoint(base_dir=base_dir, workspace_root=workspace_root, request_id=request_id,
-                                       session_id=session_id, tool_use_id=tool_use_id)
+                                       session_id=session_id, tool_use_id=tool_use_id, target=_write_target(payload))
         return verdict.exit_code, verdict.to_stdout()
     if verb == "post-tool":
         try:

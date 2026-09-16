@@ -1488,3 +1488,35 @@ system`) — the agent's `git commit` the identity contract relies on cannot
   block, so its 106 tests exercise the legacy admission path; a production-shaped variant of
   that fixture (the B8 block, `managed_subscription`) is the pin that would have caught this a
   week earlier and is the next thing that suite should carry.
+
+## ARIA-HIGH-145 — the rollback deleted a file the agent had only read
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-22
+- **Evidence (the first live ring-4 spawn, trial eleven, 2026-09-16 16:38–17:08Z):** the
+  implementer ran its 1,800 s (cli exit 124) without a workspace write — its one `Write`
+  (`/tmp/aria-impl-scratch/.keep`) was refused `path_escape` — and the executor's rollback
+  (`_rollback_after_blocked_spawn` → `checkpoint.restore_checkpoint`, `why=cli_exit_124`)
+  recorded `restored=[implementation_safety.py, command_policy.py, plan_convergence.py,
+package.json]` and `removed=['.aria-state-store/tools/plans/events.jsonl']`. The work journal
+  holds only `Read` rows for all five (`command_family: file_read`). The restore took every
+  `files_touched` as an edit; the four tracked files were put back to bytes they already had,
+  and the one untracked file — the trial store's plan-events ledger, readable because the trial
+  nests its store in the workspace — was unlinked, since no checkpoint holds an untracked file
+  the agent never wrote. The CONVERGED plan's event history (`flow-083f26574cade7dee7fc`) went
+  with it; the 2026-09-15 capture holds the rows up to that day and the kernel re-mints the
+  rest.
+- **What is now true:** `restore_checkpoint(preserve_hand_edits=True)` follows the journal's
+  `file_write` rows only (`JOURNAL_WRITE_FAMILY`); a read restores nothing and removes nothing.
+  The pre-write hook adds the write's own target to the checkpoint it takes before the write,
+  and never folds that checkpoint into the previous one's interval when the latest checkpoint
+  does not hold the target (`latest_checkpoint_holds`), so an untracked file the agent
+  overwrites on its first touch is restored, not removed. Pinned by
+  `tests/invariants/v12/test_phase_v12_c_checkpoint.py` (I-V12-CKPT-03b: reads leave an
+  untracked file where it was and restore nothing; I-V12-CKPT-05: an untracked first-touch
+  write comes back as it was), both red on the tree before the fix.
+- **Named, not closed here:** the trial's layout — the state store nested inside the workspace
+  the sandbox binds — is what put a ledger within the agent's reach at all; production's
+  store lives outside the checkout (`restore-aria-state` exports `ARIA_TOOLS_DIR` absolute),
+  and the sandbox's "the store is absent inside" property (ARIA-HIGH-124) holds only for that
+  shape. A nested store should be masked by the containment, not merely left unwritten; that
+  is recorded here and belongs with ARIA-HIGH-133's class.

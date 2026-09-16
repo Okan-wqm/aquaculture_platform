@@ -91,7 +91,7 @@ interface SensorReading {
 // API Functions (C1: use shared graphqlFetch)
 // ============================================================================
 
-const GET_SENSOR_QUERY = `
+export const GET_SENSOR_QUERY = `
   query GetSensor($id: ID!) {
     sensor(id: $id) {
       id
@@ -104,7 +104,12 @@ const GET_SENSOR_QUERY = `
       description
       siteId
       departmentId
-      connectionStatus
+      connectionStatus {
+        isConnected
+        lastTestedAt
+        lastError
+        latency
+      }
       protocolConfiguration
       firmwareVersion
       lastCalibratedAt
@@ -116,7 +121,7 @@ const GET_SENSOR_QUERY = `
 
 // C2: Use GraphQL variables for startTime/endTime instead of string interpolation.
 // startTime/endTime are DateTime! on the backend `readings` resolver.
-const GET_LATEST_READINGS_QUERY = `
+export const GET_LATEST_READINGS_QUERY = `
   query GetLatestReadings($sensorId: ID!, $startTime: DateTime!, $endTime: DateTime!, $limit: Int) {
     readings(sensorId: $sensorId, startTime: $startTime, endTime: $endTime, limit: $limit) {
       timestamp

@@ -55030,6 +55030,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/sensor-module/src/__tests__/graphql-contract.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/sensor-module/src/__tests__/modbus-function-codes.test.ts",
       "prettier_managed": true
     },
@@ -55702,6 +55708,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/sensor-module/src/components/registration/__tests__/ChildSensorFormModal.create-mode.test.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/sensor-module/src/components/registration/__tests__/ChildSensorFormModal.typeDefinition.test.tsx",
       "prettier_managed": true
     },
@@ -55727,6 +55739,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/sensor-module/src/components/registration/SensorRegistrationWizard.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/sensor-module/src/components/registration/steps/__tests__/ChildSensorsStep.manual-add.test.tsx",
       "prettier_managed": true
     },
     {

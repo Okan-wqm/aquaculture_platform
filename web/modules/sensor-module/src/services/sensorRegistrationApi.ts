@@ -115,9 +115,13 @@ export const GET_SENSOR = gql`
       id
       name
       type
-      protocolId
       protocolConfiguration
-      connectionStatus
+      connectionStatus {
+        isConnected
+        lastTestedAt
+        lastError
+        latency
+      }
       registrationStatus
       manufacturer
       model

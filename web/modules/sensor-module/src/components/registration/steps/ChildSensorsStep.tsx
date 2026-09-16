@@ -5,6 +5,13 @@ interface ChildSensorsStepProps {
   childSensors: ChildSensorConfig[];
   onChange: (sensors: ChildSensorConfig[]) => void;
   onEditSensor: (sensor: ChildSensorConfig) => void;
+  /**
+   * SENSOR-HIGH-117: open the create-mode parameter modal. The discovery
+   * path (connection-test sample data) is unavailable whenever the test
+   * cannot pass — e.g. an internal broker behind the SSRF guard — so manual
+   * parameter entry is the only way the wizard can complete.
+   */
+  onAddSensor: () => void;
   parentName?: string;
 }
 
@@ -30,6 +37,7 @@ export function ChildSensorsStep({
   childSensors,
   onChange,
   onEditSensor,
+  onAddSensor,
   parentName,
 }: ChildSensorsStepProps) {
   const selectedCount = childSensors.filter((s) => s.selected).length;
@@ -64,10 +72,18 @@ export function ChildSensorsStep({
       {/* Info header */}
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
         <h3 className="text-lg font-medium text-blue-900">Configure Individual Sensors</h3>
-        <p className="text-sm text-blue-700 mt-1">
-          The connection test found {childSensors.length} data value{childSensors.length !== 1 ? 's' : ''}.
-          Select which values to register as separate sensors and configure each one.
-        </p>
+        {childSensors.length > 0 ? (
+          <p className="text-sm text-blue-700 mt-1">
+            The connection test found {childSensors.length} data value{childSensors.length !== 1 ? 's' : ''}.
+            Select which values to register as separate sensors and configure each one.
+          </p>
+        ) : (
+          <p className="text-sm text-blue-700 mt-1">
+            No data values were discovered (the connection test may not have passed for this
+            broker). Add the parameters your device publishes manually — each becomes a sensor
+            reading channel keyed by its data path.
+          </p>
+        )}
       </div>
 
       {/* Summary stats */}
@@ -86,12 +102,22 @@ export function ChildSensorsStep({
             <div className="text-xs text-gray-500">Total Found</div>
           </div>
         </div>
-        <button
-          onClick={handleSelectAll}
-          className="text-sm text-blue-600 hover:text-blue-800"
-        >
-          {childSensors.every((s) => s.selected) ? 'Deselect All' : 'Select All'}
-        </button>
+        <div className="flex items-center space-x-4">
+          <button
+            onClick={onAddSensor}
+            className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700"
+          >
+            + Add Parameter
+          </button>
+          {childSensors.length > 0 && (
+            <button
+              onClick={handleSelectAll}
+              className="text-sm text-blue-600 hover:text-blue-800"
+            >
+              {childSensors.every((s) => s.selected) ? 'Deselect All' : 'Select All'}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Sensor list */}

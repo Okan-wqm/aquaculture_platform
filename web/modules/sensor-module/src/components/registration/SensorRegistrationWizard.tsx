@@ -186,6 +186,14 @@ export function SensorRegistrationWizard({
     setIsChildModalOpen(true);
   };
 
+  // SENSOR-HIGH-117: create-mode handler — opens the modal blank so the
+  // operator can enter parameters manually when the connection test could
+  // not run (e.g. internal broker behind the SSRF guard).
+  const handleAddChild = () => {
+    setEditingChild(null);
+    setIsChildModalOpen(true);
+  };
+
   // Save child handler
   const handleSaveChild = (child: ChildSensorConfig) => {
     setChildSensors((prev) => {
@@ -402,6 +410,7 @@ export function SensorRegistrationWizard({
                 childSensors={childSensors}
                 onChange={handleChildSensorsChange}
                 onEditSensor={handleEditChild}
+                onAddSensor={handleAddChild}
                 parentName={parentDeviceInfo.name}
               />
             )}
@@ -420,6 +429,7 @@ export function SensorRegistrationWizard({
           {/* Child Sensor Form Modal */}
           <ChildSensorFormModal
             sensor={editingChild || undefined}
+            existingDataPaths={childSensors.map((c) => c.dataPath)}
             isOpen={isChildModalOpen}
             onClose={() => {
               setIsChildModalOpen(false);

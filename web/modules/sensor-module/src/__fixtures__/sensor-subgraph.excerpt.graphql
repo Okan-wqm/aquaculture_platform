@@ -1,0 +1,164 @@
+# SENSOR-MEDIUM-122 fixture: the sensor subgraph types referenced by the
+# module's hand-written GraphQL documents, pinned to the backend DTOs
+# (apps/sensor-service/src/registration/dto/*.ts — RegisteredSensorType,
+# SensorConnectionStatusType, DataChannelType, AlertThresholdsType) and to
+# the readings types of the live gateway (verified 2026-09-16 by posting the
+# documents to the gateway and reading GRAPHQL_VALIDATION_FAILED output —
+# introspection is disabled in production).
+#
+# When sensor-service DTOs change, refresh this excerpt from those classes
+# (or a freshly composed subgraph SDL) — the contract spec below is only as
+# honest as this fixture.
+type SensorConnectionStatusType {
+  isConnected: Boolean!
+  lastTestedAt: DateTime
+  lastError: String
+  latency: Float
+}
+
+type AlertThresholdValueType {
+  low: Float
+  high: Float
+}
+
+type AlertThresholdsType {
+  warning: AlertThresholdValueType
+  critical: AlertThresholdValueType
+  hysteresis: Float
+}
+
+type ChannelSensorInfoType {
+  id: ID!
+  name: String!
+  type: String
+}
+
+type DataChannelType {
+  id: ID!
+  sensorId: ID!
+  sensor: ChannelSensorInfoType
+  tenantId: ID!
+  channelKey: String!
+  displayLabel: String!
+  description: String
+  dataType: ChannelDataType!
+  unit: String
+  dataPath: String
+  minValue: Float
+  maxValue: Float
+  calibrationEnabled: Boolean!
+  calibrationMultiplier: Float!
+  calibrationOffset: Float!
+  lastCalibratedAt: DateTime
+  nextCalibrationDue: DateTime
+  calibrationIntervalDays: Int
+  alertThresholds: AlertThresholdsType
+  displaySettings: ChannelDisplaySettingsType
+  discoveredAt: DateTime
+  discoverySource: DiscoverySource
+  sampleValue: JSON
+  isEnabled: Boolean!
+  displayOrder: Int!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+enum ChannelDataType {
+  number
+  boolean
+  string
+  enum
+}
+
+enum DiscoverySource {
+  auto
+  manual
+  template
+}
+
+type ChannelDisplaySettingsType {
+  color: String
+  icon: String
+  widgetType: String
+  precision: Int
+  showOnDashboard: Boolean
+  chartConfig: JSON
+}
+
+enum SensorType {
+  temperature
+  ph
+  dissolved_oxygen
+  salinity
+  ammonia
+  nitrite
+  nitrate
+  turbidity
+  water_level
+  flow_rate
+  pressure
+  humidity
+  air_temperature
+  light_intensity
+  co2
+  orp
+  conductivity
+  multi_parameter
+  custom
+}
+
+enum SensorRegistrationStatus {
+  draft
+  pending_test
+  testing
+  test_failed
+  active
+  suspended
+}
+
+enum SensorRole {
+  parent
+  child
+}
+
+type RegisteredSensorType {
+  id: ID!
+  name: String!
+  type: SensorType!
+  typeDefinitionId: ID
+  protocolCode: String!
+  protocolConfiguration: JSON
+  connectionStatus: SensorConnectionStatusType
+  registrationStatus: SensorRegistrationStatus!
+  manufacturer: String
+  model: String
+  serialNumber: String
+  description: String
+  farmId: ID
+  pondId: ID
+  tankId: ID
+  siteId: ID
+  departmentId: ID
+  systemId: ID
+  equipmentId: ID
+  location: String
+  metadata: JSON
+  tenantId: ID
+  parentId: ID
+  isParentDevice: Boolean!
+  dataPath: String
+  unit: String
+  sensorRole: SensorRole
+  firmwareVersion: String
+  lastCalibratedAt: DateTime
+  dataChannels: [DataChannelType!]
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+type Query {
+  sensor(id: ID!): RegisteredSensorType
+}
+
+scalar DateTime
+scalar JSON

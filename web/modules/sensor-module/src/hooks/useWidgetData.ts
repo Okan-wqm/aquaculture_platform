@@ -12,7 +12,7 @@ import { graphqlFetch } from '../config/api';
 import { onTenantChange, registerLogoutCleanup } from '@aquaculture/shared-ui';
 
 // PERF-011: module-scope cache shared across all useWidgetData instances
-const sharedSensorInfoCache = new Map<string, { name: string; type: string; thresholds?: Record<string, unknown> }>();
+const sharedSensorInfoCache = new Map<string, { name: string; type: string; thresholds?: Record<string, unknown>; dataChannels?: unknown[] }>();
 
 // SECURITY (ADMIN-HIGH-105's gate, same class as the sensor stores below/above):
 // this cache is module-scoped, so it outlives every component that reads it and
@@ -197,13 +197,31 @@ const GET_AGGREGATED_READINGS_QUERY = `
   }
 `;
 
-const GET_SENSOR_INFO_QUERY = `
+// SENSOR-MEDIUM-122: `alertThresholds` is not a field of RegisteredSensorType —
+// thresholds live on the sensor's data channels. Querying the nonexistent
+// field failed the whole operation with GRAPHQL_VALIDATION_FAILED.
+export const GET_SENSOR_INFO_QUERY = `
   query GetSensorInfo($id: ID!) {
     sensor(id: $id) {
       id
       name
       type
-      alertThresholds
+      dataChannels {
+        id
+        channelKey
+        unit
+        alertThresholds {
+          warning {
+            low
+            high
+          }
+          critical {
+            low
+            high
+          }
+          hysteresis
+        }
+      }
     }
   }
 `;
@@ -566,13 +584,29 @@ export function useWidgetData(config: WidgetConfig): WidgetDataResult {
 
     try {
       const result = await graphqlFetch<{
-        sensor: { id: string; name: string; type: string; alertThresholds?: Record<string, unknown> };
+        sensor: {
+          id: string;
+          name: string;
+          type: string;
+          dataChannels?: Array<{
+            channelKey: string;
+            alertThresholds?: Record<string, unknown>;
+          }>;
+        };
       }>(GET_SENSOR_INFO_QUERY, { id: sensorId });
 
       const info = {
         name: result.sensor.name,
         type: result.sensor.type,
-        thresholds: result.sensor.alertThresholds,
+        thresholds: (result.sensor.dataChannels ?? []).reduce<Record<string, unknown>>(
+          (acc, channel) => {
+            if (channel.channelKey && channel.alertThresholds) {
+              acc[channel.channelKey] = channel.alertThresholds;
+            }
+            return acc;
+          },
+          {},
+        ),
       };
       sharedSensorInfoCache.set(sensorId, info);
       return info;

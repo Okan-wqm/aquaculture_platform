@@ -1415,3 +1415,47 @@ system`) — the agent's `git commit` the identity contract relies on cannot
 - **Rejected as over-engineering (Fable concurred):** a seccomp profile, gVisor / a microVM, a
   separate worker VM (ARIA-MEDIUM-139 already records that path), and hiding `.env` behind
   `/dev/null` (the wrong layer). The boundary belongs at egress, enforced by the host.
+
+## ARIA-HIGH-144 — the executor refused every implementation request as unanchored
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-22
+- **Evidence (the first live ring-4 run, trial eleven, 2026-09-16 13:02Z):** the kernel's own
+  mint (`request_implementation.py` → `AutonomousV9ImplementationRunner.run` →
+  `stage_converged_plan_for_pr` + `issue_implementation_envelope`) staged the CONVERGED plan and
+  wrote `AIR-aria-implementer-b7a519f5be58` (`implementation_dispatched`, branch
+  `aria-impl-7bd7852c24dc…`, baseline recorded). The targeted executor
+  (`ci_executor.py <request_id> aria-implementer`, the trial workspace at `6652139901`) wrote one
+  governance row and left the request PENDING: `runtime_task_binding_unavailable`
+  `reason=target_revision_unavailable target_sha=null observed_head_sha=6652139901…`.
+  `issue_implementation_envelope` was one of the eleven mint paths that never passed
+  `target_sha` (ORPHAN-CRITICAL-495 counted them), and `_native_task_binding_refusal` — which
+  runs for every request once the operator's adaptive runtime policy is declared (B8,
+  2026-09-12; the trial store carries it, `aria/state` carries it) — read `target_sha` alone.
+  The drain had already learned the implementation request's tree: `request_worktree_target`
+  adds the worktree at `implementation_ids.base_sha` (ARIA-HIGH-124), so in the scheduled lane
+  the child would have stood in a tree at the staged base and refused it by the same name. The
+  identity suite (`test_executor_implementation_identity`) runs its implementation requests
+  under a fixture policy without the adaptive block, which is why 106 green tests never met
+  the binding. ARIA-HIGH-133's class again: a seam that had never seen a live implementation
+  request.
+- **What is now true:** `agent_invocations.request_anchor_sha(request)` is the one derivation
+  of the commit a request is about — `target_sha`, else the staged
+  `implementation_ids.base_sha` (the baseline's commit, the branch's cut point), else `None`
+  (a read-only role minted without an anchor; absence is not grounds for refusal,
+  ORPHAN-CRITICAL-495). The executor's native task binding compares the tree's HEAD against
+  it and names the anchor's source on its governance row (`anchor_source`); the drain's
+  `request_worktree_target` and the anchor gate read the same function; and
+  `issue_implementation_envelope` passes `target_sha=base_sha`, so a row minted from here on
+  is self-describing to every reader that only knows `target_sha`. The request the trial
+  minted before the fix is admitted through the fallback, unchanged (the ledger is
+  hash-chained; the row is the fact). Pinned by `test_ci_executor_live_path_smoke` (a row
+  minted by the kernel's own mint with `target_sha` withheld, under the B8 policy with
+  `managed_subscription`, is bound at its staged base — no binding row, the fleet refuses next
+  by its own name — red on the executor before the fix; the same row on a tree that moved past
+  the base is `target_revision_mismatch` naming `implementation_ids.base_sha` as the source),
+  `test_agent_request_anchor` (the derivation, edge by edge) and `test_must_satisfy_shape` (the
+  minted envelope carries `target_sha == implementation_ids.base_sha`).
+- **Named, not closed here:** the identity suite's fixture policy still lacks the adaptive
+  block, so its 106 tests exercise the legacy admission path; a production-shaped variant of
+  that fixture (the B8 block, `managed_subscription`) is the pin that would have caught this a
+  week earlier and is the next thing that suite should carry.

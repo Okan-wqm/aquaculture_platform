@@ -105,7 +105,7 @@ class TheSandboxBindsTheKernelsRoot(unittest.TestCase):
         import socket
 
         path = str(self.root / "hook.sock")
-        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)  # allowlist-external-network: AF_UNIX listener on a temp path, no network
         server.bind(path)
         server.listen(1)
         self.addCleanup(server.close)

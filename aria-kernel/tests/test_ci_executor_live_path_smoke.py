@@ -536,7 +536,7 @@ class NativeAdaptiveAdmissionTests(unittest.TestCase):
             "max_attempts_per_dispatch": 2, "scarcity_judgment_mode": "independent_sessions",
         }}}) + "\n", encoding="utf-8")
 
-    def _run_native_entry(self, *, cwd: Path | None = None) -> int:
+    def _run_native_entry(self, *, cwd: Path | None = None, target_agent: str = "aria-evidence-judge") -> int:
         from contextlib import chdir
 
         # The caller and kernel are the reviewed source checkout; the bound
@@ -551,7 +551,7 @@ class NativeAdaptiveAdmissionTests(unittest.TestCase):
         environment = {"PATH": str(self.binary_dir), "RUNNER_TEMP": str(self.runner_temp),
                        "GITHUB_OUTPUT": str(self.github_output), "ARIA_WORKSPACE_ROOT": str(workspace)}
         with patch.dict(os.environ, environment), chdir(workspace):
-            return ci_executor.main([self.request["request_id"], "aria-evidence-judge"])
+            return ci_executor.main([self.request["request_id"], target_agent])
 
     def _assert_refused_summary(self, detail_code: str, *, failure_class: str = "policy_violation",
                                 retryable: bool = False) -> dict:
@@ -895,6 +895,112 @@ class NativeAdaptiveAdmissionTests(unittest.TestCase):
         self.assertEqual(decisions[0]["details"]["reason"], "no_eligible_provider")
         self.assertEqual(exit_code, 0)
         self._assert_refused_summary("no_eligible_provider")
+
+    def _mint_legacy_implementation_request(self) -> str:
+        """ARIA-HIGH-144 — an implementation envelope minted the way every
+        one before the finding was: by the kernel's own mint, with the
+        `target_sha` the mint now passes withheld (the pre-144 mint passed
+        none). Returns the staged base — the checkout's HEAD at the mint."""
+        from tests._helpers.git_fixtures import _git
+        from aria_kernel import cross_review_bridge
+        from aria_kernel.cross_review_bridge import issue_implementation_envelope
+        from tests._helpers.production_shaped import production_converged_plan
+
+        for name in ("aria-implementer.md", "farm-expert.md"):
+            source = _REPO_ROOT / ".claude/agents" / name
+            if not source.is_file():
+                (self.repo / ".claude/agents" / name).write_text(
+                    f"---\nname: {name[:-3]}\ndescription: Fixture agent.\n---\n\nOwns `apps/farm-service/**`.\n",
+                    encoding="utf-8")
+            else:
+                (self.repo / ".claude/agents" / name).write_bytes(source.read_bytes())
+        _git(["add", ".claude/agents"], cwd=self.repo)
+        _git(["commit", "-q", "-m", "test: the implementer and reviewer profiles"], cwd=self.repo)
+        base_sha = _git(["rev-parse", "HEAD"], cwd=self.repo).stdout.strip()
+        plan = production_converged_plan(
+            tools_dir=self.tools, workspace_root=self.repo, plan_id="plan-144-anchor",
+            affected_paths=["src/model_fleet.py"], evidence_refs=["src/model_fleet.py:1"],
+        )
+        original = cross_review_bridge.create_agent_invocation_request
+
+        def without_target_sha(**kwargs):
+            self.assertEqual(kwargs.get("target_sha"), base_sha, "the mint now names the staged base")
+            return original(**{**kwargs, "target_sha": None})
+
+        with patch.object(cross_review_bridge, "create_agent_invocation_request", side_effect=without_target_sha):
+            self.request = issue_implementation_envelope(
+                plan_id=plan.plan_id, cross_review_revision_id=plan.revision_id, cross_review_summary_text="{}",
+                proposal_id="proposal-144", change_id="chg-144", branch="aria-impl-0144014401440144",
+                base_sha=base_sha, cycle_id="s4-native-admission", base_dir=self.tools,
+            )
+        self.assertIsNone(self.request.get("target_sha"))
+        self.assertEqual(self.request["implementation_ids"]["base_sha"], base_sha)
+        self.native_bytes = {
+            name: (self.tools / "agent-invocations" / name).read_bytes()
+            for name in ("requests.jsonl", "contexts.jsonl", "prompts.jsonl")
+        }
+        self.governance_before = (self.tools / "governance.jsonl").read_bytes()
+        return base_sha
+
+    def test_an_implementation_request_without_a_target_sha_is_bound_at_its_staged_base(self) -> None:
+        """ARIA-HIGH-144 — the first live implementation request (trial
+        eleven, 2026-09-16) was refused `target_revision_unavailable` by the
+        native task binding: the envelope mint never passed `target_sha`,
+        the binding read nothing else, and the drain had already added the
+        worktree at `implementation_ids.base_sha` (ARIA-HIGH-124). The
+        binding now reads the kernel's `request_anchor_sha`: a tree at the
+        staged base IS the bound task root, and what refuses instead is the
+        fleet, by its own name."""
+        import shutil
+
+        self._enable_adaptive_policy()
+        policy_path = self.repo / "aria-config/genesis_policy.json"
+        configured = json.loads(policy_path.read_text())
+        configured["executor"]["adaptive_runtime"]["monetary_admission"] = "managed_subscription"
+        policy_path.write_text(json.dumps(configured) + "\n")
+        git_binary = shutil.which("git")
+        self.assertIsNotNone(git_binary)
+        (self.binary_dir / "git").symlink_to(git_binary)
+        self._mint_legacy_implementation_request()
+        exit_code = self._run_native_entry(target_agent="aria-implementer")
+        rows = self._assert_native_request_untouched()
+        self.assertFalse(any(row["kind"] == "runtime_task_binding_unavailable" for row in rows),
+                         "the checkout at the staged base is the bound task root")
+        decisions = [row for row in rows if row["kind"] == "runtime_admission_unavailable"]
+        self.assertEqual(len(decisions), 1, [row["kind"] for row in rows])
+        self.assertEqual(decisions[0]["details"]["reason"], "no_eligible_provider")
+        self.assertEqual(exit_code, 0)
+
+    def test_an_implementation_request_whose_staged_base_moved_is_a_revision_mismatch(self) -> None:
+        # ARIA-HIGH-144 — the same row on a tree that moved past the staged
+        # base: `target_revision_mismatch`, the governance row naming the
+        # anchor and where it came from.
+        import shutil
+        from tests._helpers.git_fixtures import _git
+
+        self._enable_adaptive_policy()
+        policy_path = self.repo / "aria-config/genesis_policy.json"
+        configured = json.loads(policy_path.read_text())
+        configured["executor"]["adaptive_runtime"]["monetary_admission"] = "managed_subscription"
+        policy_path.write_text(json.dumps(configured) + "\n")
+        git_binary = shutil.which("git")
+        self.assertIsNotNone(git_binary)
+        (self.binary_dir / "git").symlink_to(git_binary)
+        base_sha = self._mint_legacy_implementation_request()
+        source = self.repo / "src/model_fleet.py"
+        source.write_text(source.read_text() + "\n# the tree moved past the staged base\n")
+        _git(["add", "src/model_fleet.py"], cwd=self.repo)
+        _git(["commit", "-q", "-m", "test: move the task source after the mint"], cwd=self.repo)
+        moved = _git(["rev-parse", "HEAD"], cwd=self.repo).stdout.strip()
+        self.assertNotEqual(moved, base_sha)
+        exit_code = self._run_native_entry(target_agent="aria-implementer")
+        rows = self._assert_native_request_untouched()
+        refused = [row["details"] for row in rows if row["kind"] == "runtime_task_binding_unavailable"]
+        self.assertEqual(len(refused), 1)
+        self.assertEqual(refused[0]["reason"], "target_revision_mismatch")
+        self.assertEqual((refused[0]["target_sha"], refused[0]["anchor_source"], refused[0]["observed_head_sha"]),
+                         (base_sha, "implementation_ids.base_sha", moved))
+        self.assertEqual(exit_code, 0)
 
     def test_adaptive_zero_eligible_keeps_native_request_pending(self) -> None:
         self._enable_adaptive_policy()

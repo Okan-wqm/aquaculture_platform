@@ -495,7 +495,7 @@ class ExecutorImplementationIdentityTests(unittest.TestCase):
         import socket
         import subprocess as _sp
 
-        sock = socket.socket()
+        sock = socket.socket()  # allowlist-external-network: binds 127.0.0.1:0 only to learn a free local port for the in-test egress proxy; nothing is sent anywhere
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
         sock.close()

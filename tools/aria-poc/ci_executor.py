@@ -3385,15 +3385,23 @@ def _accepted_native_runtime_result(
 def _native_task_binding_refusal(*, repo_root: Path, tools_dir: Path, request: dict[str, Any]) -> str | None:
     """Observe the actual checkout through existing binding and Git owners.
 
-    None when the checkout IS the request's task root at its ``target_sha``;
+    None when the checkout IS the request's task root at its anchor;
     otherwise the named reason (``task_root_binding_unavailable`` /
     ``target_revision_unavailable`` / ``target_revision_mismatch``), recorded
     as a governance row and carried into the child's summary by the caller.
     A worktree of the bound repository passes the identity check (the
     binding compares git common directories), which is what lets the drain
-    serve each request in a worktree at its own ``target_sha``.
+    serve each request in a worktree at its own anchor.
+
+    ARIA-HIGH-144 — the anchor is the kernel's ``request_anchor_sha``:
+    ``target_sha``, or the staged ``implementation_ids.base_sha`` for an
+    implementation envelope, which carried no ``target_sha``. This binding
+    read ``target_sha`` alone, so under the operator's adaptive policy (B8)
+    every implementation request was ``target_revision_unavailable`` — the
+    drain had already added its worktree at ``base_sha`` (ARIA-HIGH-124)
+    and the child refused the tree it was standing in.
     """
-    from aria_kernel.agent_invocations import _git_probe
+    from aria_kernel.agent_invocations import _git_probe, request_anchor_sha
     from aria_kernel.evidence_probe import GitProbeSession
     from aria_kernel.state_store import _valid_host_identity
     from aria_kernel.tool_registry import append_tools_governance
@@ -3401,6 +3409,7 @@ def _native_task_binding_refusal(*, repo_root: Path, tools_dir: Path, request: d
 
     reason = None
     observed_head = None
+    anchor = request_anchor_sha(request)
     if not _valid_host_identity(tools_dir, canonical_identity(repo_root), repo_root):
         reason = "task_root_binding_unavailable"
     else:
@@ -3411,15 +3420,17 @@ def _native_task_binding_refusal(*, repo_root: Path, tools_dir: Path, request: d
         observed_head = head.stdout or None
         if head.ok is None:
             reason = f"target_revision_unavailable:{head.unavailable_reason}"
-        elif not head.ok or not request.get("target_sha"):
+        elif not head.ok or not anchor:
             reason = "target_revision_unavailable"
-        elif observed_head != request["target_sha"]:
+        elif observed_head != anchor:
             reason = "target_revision_mismatch"
     if reason is None:
         return None
     append_tools_governance(tools_dir, "runtime_task_binding_unavailable", {
         "schema_version": 1, "request_id": request["request_id"],
-        "request_ledger_hash": request["ledger_hash"], "target_sha": request.get("target_sha"),
+        "request_ledger_hash": request["ledger_hash"], "target_sha": anchor,
+        "anchor_source": ("target_sha" if request.get("target_sha") else
+                          "implementation_ids.base_sha" if anchor else None),
         "observed_head_sha": observed_head, "reason": reason,
     })
     return reason

@@ -175,6 +175,23 @@ class AnchorGateTests(unittest.TestCase):
 
                 self.assertIsNone(_anchor_repo_root(tools))
 
+    def test_the_request_anchor_is_the_target_sha_or_the_staged_base(self) -> None:
+        # ARIA-HIGH-144 — one derivation for "which commit is this request
+        # about": `target_sha` when the row carries it; the staged
+        # `implementation_ids.base_sha` for an implementation envelope
+        # minted without one; None for a row that names neither.
+        from aria_kernel.agent_invocations import request_anchor_sha
+
+        self.assertEqual(request_anchor_sha({"target_sha": "a" * 40}), "a" * 40)
+        self.assertEqual(request_anchor_sha({"implementation_ids": {"base_sha": "b" * 40}}), "b" * 40)
+        self.assertEqual(request_anchor_sha({"target_sha": "a" * 40, "implementation_ids": {"base_sha": "b" * 40}}),
+                         "a" * 40)
+        self.assertEqual(request_anchor_sha({"target_sha": " ", "implementation_ids": {"base_sha": " c "}}), "c")
+        self.assertIsNone(request_anchor_sha({"implementation_ids": {"base_sha": ""}}))
+        self.assertIsNone(request_anchor_sha({"implementation_ids": None}))
+        self.assertIsNone(request_anchor_sha({"target_sha": None}))
+        self.assertIsNone(request_anchor_sha({}))
+
     def test_current_anchor_is_still_returned(self) -> None:
         # The acceptance direction. A gate that refused everything would
         # "fix" the stale queue by making ARIA unable to run at all.

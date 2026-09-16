@@ -461,17 +461,18 @@ def _request_worktree_path(repo_root: Path, request_id: str) -> Path:
 
 
 def request_worktree_target(request: Mapping[str, Any]) -> str | None:
-    """The commit a request's worktree is added at: its ``target_sha``, or —
-    ARIA-HIGH-124 — for an implementation request, which carries none, the
-    staged ``implementation_ids.base_sha``: the commit the baseline was
-    measured at and the branch the kernel stands the sandbox on is cut
-    from. None means the checkout's HEAD (the read-only roles)."""
-    target = str(request.get("target_sha") or "").strip()
-    if target:
-        return target
-    ids = request.get("implementation_ids")
-    base_sha = str(ids.get("base_sha") or "").strip() if isinstance(ids, Mapping) else ""
-    return base_sha or None
+    """The commit a request's worktree is added at: the request's anchor —
+    its ``target_sha``, or (ARIA-HIGH-124) for an implementation request,
+    which carried none, the staged ``implementation_ids.base_sha``: the
+    commit the baseline was measured at and the branch the kernel stands
+    the sandbox on is cut from. ARIA-HIGH-144 made that derivation the
+    kernel's (``agent_invocations.request_anchor_sha``), read here and by
+    the executor's native task binding alike, so the tree the drain adds is
+    the tree the child admits. None means the checkout's HEAD (the read-only
+    roles)."""
+    from aria_kernel.agent_invocations import request_anchor_sha
+
+    return request_anchor_sha(request)
 
 
 def _add_request_worktree(repo_root: Path, request_id: str, target_sha: object) -> _RequestWorktree:

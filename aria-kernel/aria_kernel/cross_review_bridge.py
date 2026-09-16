@@ -869,6 +869,13 @@ def issue_implementation_envelope(
         cycle_id=cycle_id,
         forbidden_scope=list(READONLY_PATHS),
         commit_contract=commit_contract,
+        # ARIA-HIGH-144 — the row names the commit it is grounded at, the way
+        # every other anchored mint does: the staged base (the baseline's
+        # commit, the branch's cut point). Readers that only know
+        # `target_sha` (the anchor gate, the drain's worktree, the native
+        # task binding) then agree with `request_anchor_sha` without the
+        # fallback.
+        target_sha=implementation_ids["base_sha"],
     )
     # E2/F1 — the mint IS the state transition. This function's own error
     # message above says "exactly one escape from CONVERGED — into

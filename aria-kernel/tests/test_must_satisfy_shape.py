@@ -247,6 +247,12 @@ class ImplementationEnvelopeValidatesTests(unittest.TestCase):
             cycle_id="cyc-104",
         )
         validate_request(row, base_dir=self.tools)
+        # ARIA-HIGH-144 — the envelope names the commit it is grounded at:
+        # the staged base, which every anchor reader (the anchor gate, the
+        # drain's worktree, the executor's native task binding) compares
+        # the tree against.
+        self.assertEqual(row["target_sha"], "0" * 40)
+        self.assertEqual(row["implementation_ids"]["base_sha"], row["target_sha"])
         kinds = {item["kind"] for item in row["must_satisfy"]}
         self.assertEqual(kinds, {"converged_plan_authenticity", "plan_key_change", "validation_evidence"})
         key_change = next(item for item in row["must_satisfy"] if item["id"] == "key_change:0")

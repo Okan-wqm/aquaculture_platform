@@ -8,7 +8,7 @@ import stat
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Mapping
 
 from .agent_contract import CONTRACT_ENFORCED_ROLES, REQUEST_SCHEMA, validate_request
 from .agent_surface import (
@@ -3009,6 +3009,31 @@ class AnchorVerificationUnavailable(RuntimeError):
 ANCHOR_HISTORY_UNAVAILABLE = "anchor_history_unavailable_shallow"
 
 
+def request_anchor_sha(request: Mapping[str, Any]) -> str | None:
+    """The commit a request is grounded at — the ONE derivation every reader
+    of "which tree is this request about" uses (ARIA-HIGH-144).
+
+    ``target_sha`` when the row carries it. An implementation envelope minted
+    before this finding carries none (``issue_implementation_envelope`` was
+    one of the mint paths that never passed it), yet it is anchored more
+    exactly than any other row: the staged ``implementation_ids.base_sha``
+    is the commit the baseline was measured at and the branch the kernel
+    stands the sandbox on is cut from. The drain already added the request
+    worktree there (ARIA-HIGH-124) while the executor's native task binding
+    read ``target_sha`` alone and refused every implementation request as
+    ``target_revision_unavailable`` — the first live implementation request
+    (trial eleven, 2026-09-16) never reached a claim. ``None`` when the row
+    names neither (the read-only roles minted without an anchor: absence is
+    not grounds for refusal, ORPHAN-CRITICAL-495).
+    """
+    target = str(request.get("target_sha") or "").strip()
+    if target:
+        return target
+    ids = request.get("implementation_ids")
+    base_sha = str(ids.get("base_sha") or "").strip() if isinstance(ids, Mapping) else ""
+    return base_sha or None
+
+
 def _anchor_refusal_reason(
     request: dict[str, Any],
     repo_root: Path,
@@ -3046,7 +3071,7 @@ def _anchor_refusal_reason(
     refuses to answer instead — before anything is recorded — and the
     executor fails loudly by name.
     """
-    anchor = str(request.get("target_sha") or "")
+    anchor = request_anchor_sha(request) or ""
     undecided: str | None = None
     if anchor:
         # Force-push, rebase, or a request minted in a tree this checkout never

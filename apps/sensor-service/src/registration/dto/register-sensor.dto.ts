@@ -3,7 +3,12 @@ import { Type } from 'class-transformer';
 import { IsOptional, IsInt, IsString, IsEnum, IsUUID, IsBoolean, IsNumber, IsNotEmpty, IsObject, IsArray, ValidateNested, Min, Max } from 'class-validator';
 import { GraphQLJSON } from 'graphql-scalars';
 
-import { SensorType, SensorRegistrationStatus, SensorRole } from '../../database/entities/sensor.entity';
+import {
+  SensorType,
+  SensorRegistrationStatus,
+  SensorRole,
+  SensorConnectionStatusType,
+} from '../../database/entities/sensor.entity';
 import { StandardPaginationInput, StandardPaginatedResponse } from '@aquaculture/backend-common/pagination';
 
 import { CreateDataChannelInput, DataChannelType } from './data-channel.dto';
@@ -198,20 +203,11 @@ export class UpdateSensorInfoInput {
 }
 
 // Output Types
-@ObjectType()
-export class SensorConnectionStatusType {
-  @Field()
-  isConnected!: boolean;
-
-  @Field({ nullable: true })
-  lastTestedAt?: Date;
-
-  @Field({ nullable: true })
-  lastError?: string;
-
-  @Field({ nullable: true })
-  latency?: number;
-}
+// SENSOR-MEDIUM-122: the canonical SensorConnectionStatusType now lives on the
+// Sensor entity (single GraphQL shape across the entity and this DTO — the
+// composed supergraph used to flip between JSON and object depending on which
+// same-named `sensor` query won composition). Re-exported for compatibility.
+export { SensorConnectionStatusType } from '../../database/entities/sensor.entity';
 
 @ObjectType()
 export class RegisteredSensorType {

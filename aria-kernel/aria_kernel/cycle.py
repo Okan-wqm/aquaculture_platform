@@ -483,6 +483,10 @@ class CyclePhase:
     # newly added phase can never leak into the burn-in lane by omission —
     # joining burn_in is an explicit declaration reviewed on this table.
     modes: frozenset[str] = frozenset({"standard"})
+    # ARIA-HIGH-140 — a close-out phase runs even when the job deadline has
+    # been reached and never under the alarm: it seals the cycle rather
+    # than doing the cycle's work, and it is cheap by contract.
+    closeout: bool = False
 
 
 def build_phase_context(
@@ -1924,11 +1928,21 @@ def _phase_fixture_refresh(context: PhaseContext) -> dict[str, Any]:
 
     refreshed: list[dict[str, Any]] = []
     skipped_no_fixture_set: list[str] = []
+    # ARIA-HIGH-140 — each suite is a subprocess run over the real
+    # checkout (minutes each under load: 3.5 min per adapter on 2026-09-15,
+    # ten adapters), so the remaining wall-clock is asked BETWEEN suites.
+    # A suite that would start inside the close-out margin is recorded as
+    # skipped rather than begun and cut, which is how two trial-eleven
+    # cycles died inside this phase with the store never sealed.
+    skipped_deadline: list[str] = []
     for tool in list_tools(base_dir=context.base_dir):
         tool_id = str(tool.get("tool_id") or "")
         if not tool_id or not tool.get("fixture_set"):
             if tool_id:
                 skipped_no_fixture_set.append(tool_id)
+            continue
+        if _job_deadline_reached():
+            skipped_deadline.append(tool_id)
             continue
         try:
             result = refresh_fixture_suite(
@@ -1963,11 +1977,18 @@ def _phase_fixture_refresh(context: PhaseContext) -> dict[str, Any]:
                 "skipped_no_fixture_set": skipped_no_fixture_set,
             },
         )
+    if skipped_deadline:
+        append_tools_governance(
+            context.base_dir,
+            "fixture_refresh_deadline_skipped",
+            {"cycle_id": context.cycle_id, "skipped": skipped_deadline, "refreshed": len(refreshed)},
+        )
     return {
         "status": "completed",
         "tools": refreshed,
         "blocked_count": len(blocked),
         "skipped_no_fixture_set": skipped_no_fixture_set,
+        "skipped_deadline": skipped_deadline,
     }
 
 
@@ -3378,7 +3399,7 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
     ),
     CyclePhase(
         "artifact_integrity", "post_tool", _phase_artifact_integrity,
-        on_error="propagate", state_key="artifact_integrity",
+        on_error="propagate", state_key="artifact_integrity", closeout=True,
         # In burn_in too: `_runtime_status` reads this phase's verdict, and
         # a per-cycle integrity read is a strengthening the observe lane
         # was missing — verification is read-only, so the no-action
@@ -3388,7 +3409,7 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
     CyclePhase(
         "metrics", "post_tool", _phase_metrics,
         on_error="record_and_continue", state_key="cycle_metrics",
-        error_payload=_observability_error_payload,
+        error_payload=_observability_error_payload, closeout=True,
     ),
     CyclePhase(
         "observability_dashboard", "post_tool", _phase_observability_dashboard,
@@ -3546,7 +3567,7 @@ def _run_phase_stage(
         # wall-clock is inside the close-out margin, the remaining phases
         # are SKIPPED (recorded, not silent) so the cycle seals, the store
         # verifies, and the night PUBLISHES.
-        if _job_deadline_reached():
+        if _job_deadline_reached() and not phase.closeout:
             _record_skip(context, phase, "job_deadline_reached")
             continue
         if context.mode not in phase.modes:
@@ -3567,14 +3588,14 @@ def _run_phase_stage(
             # the way out so the store stays verifiable and publishable
             # instead of being quarantined whole. See _seal_cycle_on_escape.
             try:
-                context.results[phase.name] = _run_phase_with_deadline(phase.runner, context)
+                context.results[phase.name] = _run_phase(phase, context)
             except BaseException as exc:
                 _seal_cycle_on_escape(context, phase=phase.name, exc=exc)
                 raise
             context.outcomes[phase.name] = {"outcome": "ran"}
             continue
         try:
-            context.results[phase.name] = _run_phase_with_deadline(phase.runner, context)
+            context.results[phase.name] = _run_phase(phase, context)
         except PhaseDeadlineExceeded as exc:
             context.results[phase.name] = phase.absent()
             context.outcomes[phase.name] = {
@@ -3709,6 +3730,19 @@ def _deadline_alarm(signum: Any, frame: Any) -> None:
     )
 
 
+def _run_phase(phase: "CyclePhase", context: "PhaseContext") -> Any:
+    """A work phase runs under the deadline alarm; a CLOSE-OUT phase runs
+    without it (ARIA-HIGH-140). The close-out phases are the ones that seal
+    the cycle — the artifact-integrity verdict and the metrics row — and
+    they are exactly what the deadline exists to protect time for: a cycle
+    cut inside a work phase still verifies its store and records itself,
+    instead of reporting the store it never checked as untrustworthy.
+    """
+    if phase.closeout:
+        return phase.runner(context)
+    return _run_phase_with_deadline(phase.runner, context)
+
+
 def _run_phase_with_deadline(
     runner: Any,
     context: "PhaseContext",
@@ -3810,11 +3844,24 @@ def _runtime_status(context: PhaseContext) -> str:
     untrustworthy store and the orchestrator failed the night closed.
     """
     integrity = context.result("artifact_integrity") or {}
+    integrity_outcome = context.outcomes.get("artifact_integrity", {}).get("outcome")
+    # ARIA-HIGH-140 — "not verified" is not "failed verification": the
+    # phase's verdict counts only when the phase ran.
+    integrity_valid = bool(integrity.get("valid")) if integrity_outcome == "ran" else None
     return runtime_status(
         phase_failed=_first_phase_failure(context) is not None,
-        integrity_valid=bool(integrity.get("valid")),
+        integrity_valid=integrity_valid,
         non_ok=_non_ok_runs(context),
+        phase_interrupted=_first_interrupted_phase(context) is not None,
     )
+
+
+def _first_interrupted_phase(context: PhaseContext) -> str | None:
+    """The first phase the deadline alarm cut short, or None."""
+    for name, outcome in context.outcomes.items():
+        if outcome.get("outcome") == "interrupted":
+            return name
+    return None
 
 
 def _cycle_lifecycle_snapshot(root: Path) -> dict[str, Any]:

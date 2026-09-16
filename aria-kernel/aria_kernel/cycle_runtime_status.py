@@ -79,13 +79,28 @@ def non_ok_runs(run_summary: list[Mapping[str, Any]] | None) -> list[dict[str, A
 def runtime_status(
     *,
     phase_failed: bool,
-    integrity_valid: bool,
+    integrity_valid: bool | None,
     non_ok: list[Mapping[str, Any]],
+    phase_interrupted: bool = False,
 ) -> str:
-    """The cycle's runtime verdict from its three facts."""
-    if phase_failed:
+    """The cycle's runtime verdict from its facts.
+
+    ``integrity_valid`` is TRI-STATE (ARIA-HIGH-140): ``True``/``False`` is
+    the artifact-integrity phase's own verdict; ``None`` means that phase
+    never ran — a mode that excludes it, or an upstream phase that raised
+    before it. A store nobody verified is not a store that failed
+    verification: on 2026-09-15 two trial-eleven cycles were cut by their
+    deadline inside ``fixture_refresh``, every later phase was skipped,
+    and the empty integrity result read as ``integrity_failed`` — the one
+    verdict the orchestrator fails closed on — over a store whose index
+    verified 9/9. A deadline interruption is a phase that did not finish
+    (``phase_interrupted``): the cycle is ``failed`` and says which phase,
+    the store is still verified by the close-out phases, and the night can
+    publish.
+    """
+    if phase_failed or phase_interrupted:
         return RUNTIME_FAILED
-    if not integrity_valid or any(is_integrity_class(run) for run in non_ok):
+    if integrity_valid is False or any(is_integrity_class(run) for run in non_ok):
         return RUNTIME_INTEGRITY_FAILED
     if non_ok:
         return RUNTIME_DEGRADED

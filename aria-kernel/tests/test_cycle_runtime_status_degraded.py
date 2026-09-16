@@ -7,6 +7,10 @@ and ``agent-harness-security-adapter``'s ``evidence_error`` made
 closed, and the funnel, knowledge signer, memory hook and V9 implementation
 never ran. These tests pin the rule that replaces it, at every layer that
 reads a cycle's verdict.
+
+ARIA-HIGH-140 sharpened the third fact: ``integrity_valid`` is tri-state, and
+``None`` (the phase never ran) is decided by the tools alone — a filtered or
+deadline-skipped artifact_integrity now reads OK/DEGRADED, not integrity_failed.
 """
 from __future__ import annotations
 
@@ -76,6 +80,35 @@ class RuleTests(unittest.TestCase):
                 )
         self.assertEqual(runtime_status(phase_failed=True, integrity_valid=True, non_ok=[]), RUNTIME_FAILED)
         self.assertEqual(runtime_status(phase_failed=False, integrity_valid=True, non_ok=[]), RUNTIME_OK)
+
+    def test_an_unverified_store_is_not_a_failed_store(self) -> None:
+        # ARIA-HIGH-140 — trial eleven, 2026-09-15: two cycles cut by their
+        # deadline inside fixture_refresh never reached artifact_integrity,
+        # and the EMPTY verdict read as integrity_failed over a store whose
+        # index verified 9/9. ``None`` is "nobody looked", and it is decided
+        # by the tools alone.
+        self.assertEqual(runtime_status(phase_failed=False, integrity_valid=None, non_ok=[]), RUNTIME_OK)
+        self.assertEqual(
+            runtime_status(phase_failed=False, integrity_valid=None, non_ok=[EVIDENCE_ERROR_RUN]),
+            RUNTIME_DEGRADED,
+        )
+        # A verdict that was actually reached still fails closed.
+        self.assertEqual(runtime_status(phase_failed=False, integrity_valid=False, non_ok=[]), RUNTIME_INTEGRITY_FAILED)
+
+    def test_a_deadline_cut_is_a_failed_cycle_never_an_untrustworthy_store(self) -> None:
+        # The phase the alarm interrupted did not finish: the cycle is
+        # ``failed`` (and names the phase elsewhere), whatever the store's
+        # verdict — the one thing it must never say is integrity_failed,
+        # because that is the verdict the orchestrator fails closed on.
+        for integrity_valid in (True, None):
+            self.assertEqual(
+                runtime_status(phase_failed=False, integrity_valid=integrity_valid, non_ok=[], phase_interrupted=True),
+                RUNTIME_FAILED,
+            )
+        self.assertEqual(
+            runtime_status(phase_failed=False, integrity_valid=None, non_ok=[EVIDENCE_ERROR_RUN], phase_interrupted=True),
+            RUNTIME_FAILED,
+        )
 
     def test_degraded_records_name_the_tool_and_its_class(self) -> None:
         records = degraded_tool_records([EVIDENCE_ERROR_RUN, ARTIFACT_LOST_RUN])

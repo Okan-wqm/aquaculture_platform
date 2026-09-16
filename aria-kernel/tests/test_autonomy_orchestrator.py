@@ -1976,6 +1976,28 @@ class BoundedCycleSummaryCarriesWhatThePublisherReads(unittest.TestCase):
             msg="cycle_lifecycle_unreadable still cannot fire on a real summary",
         )
 
+    def test_the_phase_outcome_ledger_survives_the_summary(self) -> None:
+        # ARIA-HIGH-140 — on 2026-09-15 two deadline-cut cycles left no
+        # ledger naming the phase the alarm interrupted: the outcomes lived
+        # only in the cycle's in-memory state and this literal dropped them.
+        from aria_kernel.autonomy_orchestrator import _bounded_cycle_summary
+
+        phases = {
+            "discovery": {"outcome": "ran"},
+            "fixture_refresh": {"outcome": "interrupted", "reason": "phase_deadline_exceeded"},
+            "judgment_pipeline": {"outcome": "skipped", "reason": "job_deadline_reached"},
+            "artifact_integrity": {"outcome": "ran"},
+        }
+        summary = _bounded_cycle_summary({"cycle_id": "c1", "status": "failed", "phases": phases})
+        self.assertEqual(summary["phases"], phases)
+        # A cycle dict without the ledger (or with a malformed one) still
+        # summarises: the key is present and empty, never absent.
+        self.assertEqual(_bounded_cycle_summary({"cycle_id": "c1", "status": "completed"})["phases"], {})
+        self.assertEqual(
+            _bounded_cycle_summary({"cycle_id": "c1", "status": "completed", "phases": ["not", "a", "dict"]})["phases"],
+            {},
+        )
+
     def test_cycle_level_markers_survive(self) -> None:
         from aria_kernel.autonomy_orchestrator import _bounded_cycle_summary
         from aria_kernel.runtime_artifacts import _marker_total, _SUPPRESSED_MARKER_KEYS

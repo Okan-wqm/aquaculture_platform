@@ -1229,3 +1229,66 @@ system`) — the agent's `git commit` the identity contract relies on cannot
   `workflow_contract_registry.AUDITED_WORKFLOW_EXCLUSIONS`, the V3 B3
   amendment pin, `aria-doc-runtime-ssot.spec.ts` (one budget, 75), the
   runner's consumer list, CONTRACTS §12.18.
+
+## ARIA-HIGH-140 — a cycle cut by its deadline reported the store it never verified as broken
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-22
+- **Evidence (ring 3 reruns on trial eleven, 2026-09-15):** `cyc-20260914T231106Z-auto`
+  (5400 s) and `cyc-20260915T004952Z-auto` (10800 s) both ended at their deadline to the
+  second, `runtime_status: integrity_failed`, `exit_reason: cycle_failed`. Under the host's
+  load (the runner's nightly beside two lanes) the tool phase took 64 and 150 minutes — three
+  to four adapters at their budgets, which ARIA-HIGH-098 already prices as `degraded` — and
+  `fixture_refresh` then ran every adapter's fixture suite at ~3.5 minutes each until the
+  alarm fired inside it. Every later phase was skipped by `job_deadline_reached`, including
+  `artifact_integrity`; its empty result read as `integrity_valid=False`; the verdict became
+  the one the orchestrator fails closed on, over a store whose index verified 9/9. No ledger
+  carried which phase was cut: the `phases` outcome dict lived only in the cycle's memory.
+- **What is now true:** `CyclePhase.closeout` — `artifact_integrity` and `metrics` run when
+  the deadline has been reached and never under the alarm: they seal the cycle, which is what
+  the deadline protects time for. `runtime_status` takes a tri-state integrity verdict
+  (`None` when the phase did not run — not verified is not failed) and a `phase_interrupted`
+  fact (the cycle is `failed` and names the phase). The orchestrator's bounded summary carries
+  the phase ledger to `autonomy_state`. `fixture_refresh` asks the remaining wall-clock between
+  suites and records the suites it did not start (`fixture_refresh_deadline_skipped`).
+  Pinned, each red without the fix: `test_night_closes_at_deadline.CloseOutPhasesTests`
+  (the close-out set is exactly `{artifact_integrity, metrics}`; past the deadline a work
+  phase is `skipped:job_deadline_reached`, the close-out phase `ran` and the alarm was never
+  armed for it; `_first_interrupted_phase`; an unverified store reads OK, a cut cycle reads
+  `failed`, a store that failed verification still reads `integrity_failed`);
+  `test_cycle_runtime_status_degraded.RuleTests` (the tri-state verdict and
+  `phase_interrupted` at the rule); `test_judgment_pipeline_phases.FixtureRefreshPhaseTest`
+  (the clock is asked between suites, the skip reaches governance, a night with time to
+  spare grows no row); `test_autonomy_orchestrator.BoundedCycleSummary…` (`phases`
+  survives the closed summary literal, and is `{}` — never absent — without one).
+- **Named, not closed here:** the wall-clock itself. A cycle that needs 3+ hours on a host
+  shared with production and two lanes is ARIA-HIGH-136's and ARIA-MEDIUM-139's subject; the
+  next ring-3 run waits for a quiet host.
+
+## ARIA-HIGH-141 — under a current git the replica containment cannot lock packed-refs
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-22
+- **Evidence (hosted 22.04 lane, run 34910051620, git 2.55.0):**
+  `test_git_containment.UnderRealBwrapTests` and `test_containment_probe` fail
+  `Unable to create '<checkout>/.git/packed-refs.lock': Read-only file system` — a ref update
+  inside the sandbox creates the lock beside `packed-refs`, in the shared common dir the
+  containment binds read-only as a whole. The droplet's git 2.43 never takes that lock on a
+  loose-ref update, so the design (ARIA-HIGH-123) was proven against one git and is refused by
+  a newer one.
+- **Correction (read from the same run, 2026-09-15):** the lock refusal is an `error:` line,
+  not a `fatal:` one — the ref update goes on through the loose ref, and the signed commit
+  LANDS — `UnderRealBwrapTests.test_the_implementers_git_operations_succeed_inside_and_land_only_when_the_kernel_publishes`
+  and `ProbeTests.test_a_host_that_can_sign_a_commit_inside_the_sandbox_passes` passed on
+  that git. The two reds are narrower than "cannot land a signed commit": the negative-path
+  asserted OpenSSH 9.x's wording where 8.9 says `Load key …: No such file or directory`
+  (ARIA-MEDIUM-134's E class, now a regex in both trees), and the probe's refusal detail is
+  the first lines of stderr, which the lock errors fill, so the refusal-by-name
+  (`No user exists for uid`) is masked rather than absent. What remains of this finding is
+  the noise itself — an EROFS error on every branch creation under a current git, which a
+  refusal-by-name check cannot see past — and its fix shape stands.
+- **Fix shape (tier 1, after ARIA-HIGH-124 — same module):** the common dir becomes a tmpfs
+  at its own path with every shared entry bound back read-only one by one (`config`, `hooks`,
+  `info`, `objects`, `refs/tags`, `refs/remotes`, `packed-refs`, `worktrees`), so a lock
+  sibling can exist while every entry stays EROFS; publication keeps reading the quarantine's
+  loose `refs/heads` only (a branch git packs inside is unadvanced and discarded); the
+  containment probe pins the property under the host's git and names a git below the proven
+  floor. Until it lands the hosted kernel lane carries these three failures by name.

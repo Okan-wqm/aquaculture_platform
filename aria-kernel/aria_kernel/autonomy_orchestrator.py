@@ -501,6 +501,11 @@ def _bounded_cycle_summary(cycle_result: dict[str, Any]) -> dict[str, Any]:
         "degraded_tools": cycle_result.get("degraded_tools", []),
         "failed_phases": failed_phases,
         "incomplete_lifecycle_count": cycle_result.get("incomplete_lifecycle_count", 0),
+        # ARIA-HIGH-140 — the phase outcome ledger (ran / skipped / failed /
+        # interrupted, with the reason) reaches the store: before this it
+        # lived only in the cycle's in-memory state, and an operator could
+        # not tell from any ledger which phase a deadline cut.
+        "phases": cycle_result.get("phases") if isinstance(cycle_result.get("phases"), dict) else {},
     }
     # ORPHAN-HIGH-456 — this literal is CLOSED, so any key it does not name
     # is deleted on the way to the publisher. Two consumers were reading

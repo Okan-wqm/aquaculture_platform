@@ -158,6 +158,7 @@ type RegisteredSensorType {
 
 type Query {
   sensor(id: ID!): RegisteredSensorType
+  dataChannelsBySensor(sensorId: ID!): [DataChannelType!]!
 }
 
 scalar DateTime

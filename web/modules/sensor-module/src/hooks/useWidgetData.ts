@@ -155,30 +155,30 @@ const GET_READINGS_HISTORY_QUERY = `
  */
 
 
-// SENSOR-MEDIUM-122: `alertThresholds` is not a field of RegisteredSensorType —
-// thresholds live on the sensor's data channels. Querying the nonexistent
-// field failed the whole operation with GRAPHQL_VALIDATION_FAILED.
+// SENSOR-MEDIUM-122: thresholds live on the sensor's data channels, which the
+// composed supergraph exposes via the dataChannelsBySensor root (the `sensor`
+// query returns the federated Sensor entity, not the registration DTO shape).
 export const GET_SENSOR_INFO_QUERY = `
   query GetSensorInfo($id: ID!) {
     sensor(id: $id) {
       id
       name
       type
-      dataChannels {
-        id
-        channelKey
-        unit
-        alertThresholds {
-          warning {
-            low
-            high
-          }
-          critical {
-            low
-            high
-          }
-          hysteresis
+    }
+    dataChannelsBySensor(sensorId: $id) {
+      id
+      channelKey
+      unit
+      alertThresholds {
+        warning {
+          low
+          high
         }
+        critical {
+          low
+          high
+        }
+        hysteresis
       }
     }
   }
@@ -510,21 +510,17 @@ export function useWidgetData(config: WidgetConfig): WidgetDataResult {
 
     try {
       const result = await graphqlFetch<{
-        sensor: {
-          id: string;
-          name: string;
-          type: string;
-          dataChannels?: Array<{
-            channelKey: string;
-            alertThresholds?: Record<string, unknown>;
-          }>;
-        };
+        sensor: { id: string; name: string; type: string };
+        dataChannelsBySensor?: Array<{
+          channelKey: string;
+          alertThresholds?: Record<string, unknown>;
+        }>;
       }>(GET_SENSOR_INFO_QUERY, { id: sensorId });
 
       const info = {
         name: result.sensor.name,
         type: result.sensor.type,
-        thresholds: (result.sensor.dataChannels ?? []).reduce<Record<string, unknown>>(
+        thresholds: (result.dataChannelsBySensor ?? []).reduce<Record<string, unknown>>(
           (acc, channel) => {
             if (channel.channelKey && channel.alertThresholds) {
               acc[channel.channelKey] = channel.alertThresholds;

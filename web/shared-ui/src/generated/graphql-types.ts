@@ -19600,7 +19600,7 @@ export type Sensor = {
   calibrationOffset?: Maybe<Scalars['Float']['output']>;
   childSensors?: Maybe<Array<Sensor>>;
   configuration?: Maybe<Scalars['JSON']['output']>;
-  connectionStatus?: Maybe<Scalars['JSON']['output']>;
+  connectionStatus?: Maybe<SensorConnectionStatusType>;
   createdAt: Scalars['DateTime']['output'];
   createdBy?: Maybe<Scalars['String']['output']>;
   dataPath?: Maybe<Scalars['String']['output']>;

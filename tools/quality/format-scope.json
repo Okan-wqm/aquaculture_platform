@@ -60423,7 +60423,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "5d1b42598af9e1ef3950571b814754cf061dc94d760450e12ce87863b7e4d3a1",
+      "content_sha256": "e5ee02cf640eb40691e3bab0a5f08e321aef8ed6d20b7f45b16debe986ae9736",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/shared-ui/src/generated/graphql-types.ts",

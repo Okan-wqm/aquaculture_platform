@@ -834,6 +834,45 @@ in `web/` reaches the logout authority; `@tanstack/react-query` is declared
 wherever it is imported, at the federation-pinned version; the barrel keeps
 exporting the primitives.
 
+## ADMIN-HIGH-146 — money stated in a currency the sum did not have
+
+**State:** OPEN → closed by W9l · **Wave:** W9l · **Owner:** okan
+**Deadline:** 2026-12-31
+
+The last page of the billing batch, and the plainest instance of the class this
+audit keeps finding: a value printed with an attribute its source does not
+carry.
+
+- **Every money card was stamped `$`.** The page's own `formatCurrency`
+  hardcoded `currency: 'USD'`, and `InvoiceStats.totalAmount` / `totalPaid` /
+  `totalPending` / `totalOverdue` are each
+  `COALESCE(SUM(total), 0) FROM billing.invoices` with **no `GROUP BY
+currency`** (`invoice-management.service.ts:308`). The same response carries
+  a `byCurrency` breakdown built by `GROUP BY currency` — the endpoint saying
+  outright that the table is multi-currency. So on any platform holding one
+  EUR invoice, four cards and an exported CSV read `$1,234,567.89` for a figure
+  that is not an amount of dollars, or of anything else. The page now derives
+  the currency from `byCurrency`: with exactly one it formats in **that**
+  currency; with more than one the cross-currency sums are an em dash and the
+  real per-currency figures are listed, which are the numbers an operator can
+  act on.
+- **"Payments With Refunds" was a 100-row subtotal beside a true total.** It
+  fetched `getPayments({ status: 'succeeded', limit: 100 })` and counted the
+  rows carrying a refund — sitting next to "Successful Payments", which was
+  the endpoint's `total`. The `succeeded` filter also excluded every **fully**
+  refunded payment, whose status is `refunded`, so the card counted partial
+  refunds and called them refunds. Both numbers have been exact on the server
+  since ADMIN-HIGH-138 (`PaymentStats.refunded`, `.succeeded`), so the read
+  moves to `/billing/payments/stats` and the hundred-row fetch is gone.
+- **Five `?? 0` fallbacks on required fields.** Dead defensive code; had one
+  ever been absent it would have printed a fabricated zero into a billing
+  report.
+- **The CSV named no currency and no scope.** Both are columns now, with a
+  per-currency row per code, and the header states the totals are all-time.
+
+**Billing batch closed.** Ratchet 9 → 8; only the messaging batch's eight
+pages remain.
+
 ## ADMIN-HIGH-145 — a broadcast to every tenant that could not say it had failed
 
 **State:** OPEN → closed by W9k · **Wave:** W9k · **Owner:** okan

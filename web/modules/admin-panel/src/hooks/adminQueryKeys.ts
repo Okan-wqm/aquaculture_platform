@@ -49,7 +49,13 @@ export const adminKeys = {
       [...adminKeys.messaging.all(), 'threads', filters] as const,
     thread: (id: string) =>
       [...adminKeys.messaging.all(), 'thread', id] as const,
-    messages: (threadId: string) =>
+    // Keyed by PAGE as well as thread: the route is paginated and defaults to
+    // 50, so two pages of one thread are different reads and must not share a
+    // cache entry (ADMIN-CRITICAL-157).
+    messages: (threadId: string, page: number) =>
+      [...adminKeys.messaging.all(), 'messages', threadId, page] as const,
+    /** Every page of one thread, for invalidating after a reply. */
+    threadMessages: (threadId: string) =>
       [...adminKeys.messaging.all(), 'messages', threadId] as const,
     stats: () => [...adminKeys.messaging.all(), 'stats'] as const,
     // Per tenant: the retention route refuses a request without a tenant id,

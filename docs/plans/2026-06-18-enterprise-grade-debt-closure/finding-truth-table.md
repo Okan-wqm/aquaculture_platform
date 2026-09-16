@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `dd926515f8f7674b1cc5717f7c51216a3ccd70bbafb680d7df088ed30b43e0f1`
+Registry tip: `671d8b0b5243d45db1d66248601e2befbe090c46659021b0783633ff5bcdbe0a`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -251,6 +251,16 @@ Allowed truth buckets:
 | `ADMIN-CRITICAL-151`  | OPEN           | 2026-09-10   | admin-expert               | already-fixed-needs-close |
 | `ADMIN-CRITICAL-154`  | OPEN           | 2026-09-10   | admin-expert               | already-fixed-needs-close |
 | `ADMIN-CRITICAL-156`  | OPEN           | 2026-09-10   | admin-expert               | already-fixed-needs-close |
+| `ADMIN-CRITICAL-157`  | OPEN           | 2026-09-10   | admin-expert               | already-fixed-needs-close |
+
+Updated 2026-09-10 (W9t, the SUPER_ADMIN audit's last unmigrated page): one active CRITICAL added.
+`ADMIN-CRITICAL-157` — `MessagingPage`'s Internal Note toggle set local state, styled the draft, and
+never put `isInternal` on the wire, so every note an admin wrote ABOUT a customer was delivered INTO
+that customer's own support thread. In the same page, the Bulk Message dialog previewed "all active
+tenants" and sent no audience at all — the one body the route refuses — so no broadcast this platform
+ever attempted was delivered, and the 400 went to `console.error`; and the page keyed alignment,
+colour and the read receipt on a `senderType` this service has never written, so its own replies drew
+as the tenant's. Same bucket, same reason: a control that reports something other than what it did.
 
 Updated 2026-09-10 (W9m, the SUPER_ADMIN audit's messaging batch): one active CRITICAL added.
 `ADMIN-CRITICAL-156` — every support ticket's comment thread rendered empty and silent: the client

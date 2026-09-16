@@ -13,10 +13,11 @@
  *      platform's single logout authority and `registerLogoutCleanup` is how a
  *      module joins it; a module-scoped cache that joins neither is the bug.
  *
- *   2. **A migration that stalls silently.** The reads still on `useAsyncData`
- *      cannot be invalidated by a write, so their lists go stale after a
- *      mutation. The remaining call sites are a governed ratchet, not a TODO:
- *      each names its page, its count, an owner, an expiry and the finding.
+ *   2. **A migration that stalls silently.** A read outside the shell's
+ *      QueryClient cannot be invalidated by a write, so its list goes stale
+ *      after a mutation. That migration ran as a governed ratchet — 44 pages,
+ *      each departure carrying its own finding — and is now complete: the
+ *      allowlist is deleted and an unmigrated page fails the build.
  *
  *   3. **A phantom dependency.** admin-panel imported `@tanstack/react-query`
  *      without declaring it, resolving only through the Module Federation
@@ -26,13 +27,10 @@
  *      must declare it at the version `federationSharedConfig` pins.
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import * as yaml from 'js-yaml';
-
 const REPO_ROOT = resolve(__dirname, '../..');
-const ALLOWLIST = '.claude/allowlists/admin-panel-unmigrated-reads.yaml';
 const ADMIN_PANEL = 'web/modules/admin-panel';
 const FEDERATION_CONFIG = 'web/shared-ui/src/federation/federationSharedConfig.ts';
 const REACT_QUERY = '@tanstack/react-query';
@@ -41,15 +39,6 @@ const REACT_QUERY = '@tanstack/react-query';
 const IMPORTS_API_CLIENT = /from\s+'[^']*(?:services\/adminApi|services\/api\/)[^']*'/;
 /** Naming either primitive means the page reaches the network through the data layer. */
 const USES_DATA_LAYER = /\buseAdmin(?:Query|Mutation|GraphQLQuery|GraphQLMutation)\b/;
-
-interface AllowlistEntry {
-  site: string;
-  batch: string;
-  owner: string;
-  expiry: string | Date;
-  findingId: string;
-  reason: string;
-}
 
 /**
  * Tracked files under `roots`, filtered by extension in JS.
@@ -82,10 +71,6 @@ function stripComments(source: string): string {
     .join('\n');
 }
 
-function expiryIso(value: string | Date): string {
-  return value instanceof Date ? value.toISOString().slice(0, 10) : String(value);
-}
-
 /**
  * A page is unmigrated when it imports an admin API client directly and names
  * neither primitive — the one criterion that covers `useAsyncData(fetcher)` and
@@ -106,15 +91,7 @@ describe('INVARIANT (ADMIN-HIGH-121): the admin-panel data layer', () => {
   const pageFiles = gitFiles([`${ADMIN_PANEL}/src/pages`], ['.tsx']).filter(
     (file) => !/__tests__/.test(file) && !/\.(spec|test)\.tsx$/.test(file),
   );
-  const unmigrated = new Set(pageFiles.filter((file) => isUnmigrated(read(file))));
-
-  const doc = yaml.load(read(ALLOWLIST)) as {
-    ceiling?: number;
-    entries?: AllowlistEntry[];
-  };
-  const ceiling = doc.ceiling ?? 0;
-  const entries = doc.entries ?? [];
-  const today = new Date().toISOString().slice(0, 10);
+  const unmigrated = pageFiles.filter((file) => isUnmigrated(read(file))).sort();
 
   it('sees the admin-panel pages', () => {
     // A path typo or a moved directory would otherwise make every assertion
@@ -122,27 +99,18 @@ describe('INVARIANT (ADMIN-HIGH-121): the admin-panel data layer', () => {
     expect(pageFiles.length).toBeGreaterThan(30);
   });
 
-  it('ratchets every unmigrated page — governed, live, and only shrinking', () => {
-    const listed = new Set(entries.map((entry) => entry.site));
-
-    // Every unmigrated page is listed: a new page cannot ship outside the data
-    // layer without saying so.
-    expect([...unmigrated].filter((file) => !listed.has(file)).sort()).toEqual([]);
-
-    // Every listed page is still unmigrated: a finished page cannot be left on
-    // the list to hold the ceiling up while the number looks like progress.
-    expect([...listed].filter((file) => !unmigrated.has(file)).sort()).toEqual([]);
-
-    for (const entry of entries) {
-      expect(entry.owner).toBeTruthy();
-      expect(entry.batch).toMatch(/^(tenant|billing|security|system|messaging)$/);
-      expect(entry.findingId).toMatch(/^[A-Z]+-[A-Z]+-\d+$/);
-      expect(entry.reason.length).toBeGreaterThan(20);
-      expect(expiryIso(entry.expiry) > today).toBe(true);
-    }
-
-    expect(unmigrated.size).toBeLessThanOrEqual(ceiling);
-    expect(entries.length).toBeLessThanOrEqual(ceiling);
+  it('has no page outside the data layer', () => {
+    // The ratchet is spent. `.claude/allowlists/admin-panel-unmigrated-reads.yaml`
+    // governed 44 pages down to 0 across W8b–W9m, each departure carrying its
+    // own finding, and the file was deleted with the last entry
+    // (MessagingPage, ADMIN-CRITICAL-157) rather than left behind at
+    // `ceiling: 0` — an empty allowlist is an invitation to add a row.
+    //
+    // There is no exception mechanism any more, deliberately. A page that
+    // reaches the network outside the shell's QueryClient cannot invalidate
+    // the reads its writes affect, and its data sits in a second cache; that
+    // is now a build failure, not a listing.
+    expect(unmigrated).toEqual([]);
   });
 
   it('clears every module-scoped cache in the web tree through the logout authority', () => {
@@ -218,6 +186,5 @@ describe('INVARIANT (ADMIN-HIGH-121): the admin-panel data layer', () => {
     for (const symbol of ['useAdminQuery', 'useAdminMutation', 'adminKeys']) {
       expect(barrel).toMatch(new RegExp(`export\\s*\\{[^}]*\\b${symbol}\\b`));
     }
-    expect(existsSync(resolve(REPO_ROOT, ALLOWLIST))).toBe(true);
   });
 });

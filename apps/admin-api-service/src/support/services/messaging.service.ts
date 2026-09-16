@@ -264,7 +264,13 @@ export class MessagingService {
   }
 
   /**
-   * Get messages for thread
+   * One page of a thread's messages.
+   *
+   * A PAGE, not a bare array (ADMIN-CRITICAL-157). This took `page` and
+   * `limit`, defaulted the limit to 50 and returned only the rows: the total
+   * never left the server, so a caller could not tell a 50-message thread from
+   * the first 50 of 128. The panel drew the 50 under a header that printed the
+   * thread's real `messageCount`, and the rest were unreachable.
    */
   async getMessages(
     threadId: string,
@@ -273,18 +279,20 @@ export class MessagingService {
       page?: number;
       limit?: number;
     } = {},
-  ): Promise<Message[]> {
+  ): Promise<PaginationResultV1<Message>> {
     const { includeInternal = true, page = 1, limit = 50 } = options;
 
     const where: Record<string, unknown> = { threadId };
     if (!includeInternal) where.isInternal = false;
 
-    return this.messageRepository.find({
+    const [data, total] = await this.messageRepository.findAndCount({
       where,
       order: { createdAt: 'ASC' },
       skip: (page - 1) * limit,
       take: limit,
     });
+
+    return createStandardPaginatedResult<Message>(data, total, page, limit);
   }
 
   /**
@@ -420,7 +428,7 @@ export class MessagingService {
     closedThreads: number;
     totalMessages: number;
     unreadMessages: number;
-    avgResponseTimeMinutes: number;
+    avgResponseTimeMinutes: number | null;
   }> {
     const [threads, totalMessages] = await Promise.all([
       this.threadRepository.find({ where: { isArchived: false } }),
@@ -445,9 +453,16 @@ export class MessagingService {
   }
 
   /**
-   * Calculate average response time from message pairs
+   * Mean minutes between a tenant message and the admin reply that followed
+   * it, over the pairs that exist.
+   *
+   * `null`, not 0, when there are none (ADMIN-CRITICAL-157). `AVG` over an
+   * empty set is SQL NULL, and `Math.round(null || 0)` turned that into a
+   * measurement: a platform that had never answered a tenant reported an
+   * average response time of 0 minutes — an instant reply — on the dashboard
+   * card operators read to see whether support is keeping up.
    */
-  private async calculateAvgResponseTime(): Promise<number> {
+  private async calculateAvgResponseTime(): Promise<number | null> {
     // Get messages with their thread info to calculate response times
     const result = await this.messageRepository
       .createQueryBuilder('msg')
@@ -460,8 +475,12 @@ export class MessagingService {
       .where('msg.senderType = :adminType', { adminType: 'admin' })
       .getRawOne();
 
-    // Return calculated average or default of 0 if no data
-    return Math.round(result?.avgMinutes || 0);
+    const avgMinutes: unknown = result?.avgMinutes;
+    if (avgMinutes === null || avgMinutes === undefined) return null;
+
+    // `AVG` comes back as a numeric string from the driver.
+    const parsed = Number(avgMinutes);
+    return Number.isFinite(parsed) ? Math.round(parsed) : null;
   }
 
   /**

@@ -8206,20 +8206,125 @@ export interface components {
             tenantId?: string;
             subject: string;
             content: string;
+        };
+        CreatedMessageThreadDto: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            tenantId: string;
+            subject: string;
+            /** Format: uuid */
+            lastMessageId?: string;
+            messageCount: number;
+            unreadAdminCount: number;
+            unreadTenantCount: number;
+            isArchived: boolean;
+            isClosed: boolean;
+            /** Format: date-time */
+            lastMessageAt?: string;
+            metadata?: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        MessageAttachmentResponseDto: {
+            id: string;
+            fileName: string;
+            /** @description Size in bytes. */
+            fileSize: number;
+            mimeType: string;
+            url: string;
+            uploadedAt: string;
+        };
+        SupportMessageResponseDto: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            threadId: string;
+            /** Format: uuid */
+            senderId: string;
+            /**
+             * @description The platform side is 'admin'. There is no 'super_admin' — the panel's union invented it, and every test against it was false.
+             * @enum {string}
+             */
+            senderType: "admin" | "tenant_admin" | "system";
+            /** @description Display name captured when the message was written, derived from the authenticated sender. ABSENT when unknown — the column is nullable and `JSON.stringify` omits undefined. */
             senderName?: string;
+            content: string;
+            /**
+             * @description 'failed' is a real state; a client that omits it draws a failure as an unread send.
+             * @enum {string}
+             */
+            status: "sent" | "delivered" | "read" | "failed";
+            /** @description Internal notes are not shown to the tenant. */
+            isInternal: boolean;
+            /** @description Absent when the message carries no attachments. */
+            attachments?: components["schemas"]["MessageAttachmentResponseDto"][];
+            /** @description Whether the message was emailed to the tenant. */
+            emailSent: boolean;
+            /**
+             * Format: date-time
+             * @description When the counterparty read it. Absent while unread.
+             */
+            readAt?: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        SupportMessagePageDto: {
+            items: components["schemas"]["SupportMessageResponseDto"][];
+            total: number;
+            page: number;
+            limit: number;
+            totalPages: number;
+            hasNextPage: boolean;
+            hasPreviousPage: boolean;
         };
         AddMessageDto: {
             content: string;
-            senderName?: string;
             isInternal?: boolean;
             attachments?: Record<string, never>[];
         };
+        BulkMessageAudienceDto: {
+            /** @description Send only to these tenants. Omit for every tenant matching the other clauses. */
+            tenantIds?: string[];
+            excludeTenantIds?: string[];
+            /** @description Narrow to these plan codes. */
+            plans?: string[];
+            regions?: string[];
+            /** @description Suspended and trial-expired tenants are excluded unless this is true. */
+            includeInactive?: boolean;
+        };
         BulkMessageDto: {
+            targetCriteria: components["schemas"]["BulkMessageAudienceDto"];
             subject: string;
             content: string;
-            targetCriteria?: Record<string, never>;
-            tenantIds?: string[];
             sendEmail?: boolean;
+        };
+        BulkMessageResultDto: {
+            /** @description Tenants whose thread was created. */
+            sent: number;
+            /** @description Tenants whose thread FAILED. A non-zero value is a partial send. */
+            failed: number;
+            /** @description The threads that were created. */
+            threadIds: string[];
+        };
+        MessagingStatsResponseDto: {
+            /** @description Threads that are not archived. */
+            totalThreads: number;
+            activeThreads: number;
+            closedThreads: number;
+            /** @description Every message row, archived threads included. */
+            totalMessages: number;
+            /** @description Messages awaiting an admin, summed over unarchived threads. */
+            unreadMessages: number;
+            /** @description Mean minutes between a tenant message and the admin reply that followed it, over the pairs that EXIST. null when no admin has ever answered — not 0, which reads as an instant reply. */
+            avgResponseTimeMinutes: number | null;
+        };
+        UnreadCountResponseDto: {
+            unreadCount: number;
         };
         Announcement: {
             id: string;
@@ -15300,7 +15405,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MessageThread"];
+                    "application/json": components["schemas"]["CreatedMessageThreadDto"];
                 };
             };
         };
@@ -15428,7 +15533,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Message"][];
+                    "application/json": components["schemas"]["SupportMessagePageDto"];
                 };
             };
         };
@@ -15494,7 +15599,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["BulkMessageResultDto"];
+                };
             };
         };
     };
@@ -15511,7 +15618,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["MessagingStatsResponseDto"];
+                };
             };
         };
     };
@@ -15528,7 +15637,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["UnreadCountResponseDto"];
+                };
             };
         };
     };

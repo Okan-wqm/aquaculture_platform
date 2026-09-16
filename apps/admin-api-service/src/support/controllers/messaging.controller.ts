@@ -5,6 +5,13 @@
  */
 
 import {
+  BulkMessageResultDto,
+  CreatedMessageThreadDto,
+  MessagingStatsResponseDto,
+  SupportMessagePageDto,
+  UnreadCountResponseDto,
+} from './dto/messaging-response.dto';
+import {
   AddMessageDto,
   BulkMessageDto,
   CreateThreadDto,
@@ -95,18 +102,20 @@ export class MessagingController {
     @TenantParam('body') tenantId: string,
     @Body() dto: CreateThreadDto,
     @CurrentUser() user: CurrentUserData,
-  ) {
+  ): Promise<CreatedMessageThreadDto> {
     if (!tenantId || !dto.subject || !dto.content) {
       throw new BadRequestException('tenantId, subject, and content are required');
     }
 
+    // ADMIN-CRITICAL-157: the sender is the verified platform admin, not a
+    // name the request body offers.
     return this.messagingService.createThread(
       tenantId,
       dto.subject,
       dto.content,
       user.id,
       'admin',
-      dto.senderName || user.email,
+      user.email,
     );
   }
 
@@ -136,6 +145,9 @@ export class MessagingController {
   // Messages
   // ============================================================================
 
+  // The explicit return type is what puts the message shape and its envelope
+  // into openapi.json, and the envelope is what carries the total the bare
+  // array never did (ADMIN-CRITICAL-157).
   @Get('threads/:threadId/messages')
   @PlatformAdminOnly()
   async getMessages(
@@ -143,7 +155,7 @@ export class MessagingController {
     @Query('includeInternal') includeInternal?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
-  ) {
+  ): Promise<SupportMessagePageDto> {
     return this.messagingService.getMessages(threadId, {
       includeInternal: includeInternal !== 'false',
       page: page ? parseInt(page, 10) : undefined,
@@ -165,10 +177,12 @@ export class MessagingController {
       throw new BadRequestException('content is required');
     }
 
+    // ADMIN-CRITICAL-157: the sender is the verified platform admin, not a
+    // name the request body offers.
     return this.messagingService.addMessage(threadId, {
       senderId: user.id,
       senderType: 'admin',
-      senderName: dto.senderName || user.email,
+      senderName: user.email,
       content: dto.content,
       isInternal: dto.isInternal,
       attachments: dto.attachments,
@@ -195,20 +209,18 @@ export class MessagingController {
   async sendBulkMessage(
     @Body() dto: BulkMessageDto,
     @CurrentUser() user: CurrentUserData,
-  ) {
+  ): Promise<BulkMessageResultDto> {
     if (!dto.subject || !dto.content) {
       throw new BadRequestException('subject and content are required');
     }
 
-    // Get target tenant IDs
-    let tenantIds = dto.tenantIds || [];
-
-    if (dto.targetCriteria && !dto.tenantIds?.length) {
-      tenantIds = await this.messagingService.getTargetTenants(dto.targetCriteria);
-    }
+    // One audience field, always present (ADMIN-CRITICAL-157). The dual
+    // `tenantIds` / `targetCriteria` path this replaced had a fall-through
+    // state — neither supplied — that the panel hit on every broadcast.
+    const tenantIds = await this.messagingService.getTargetTenants(dto.targetCriteria);
 
     if (tenantIds.length === 0) {
-      throw new BadRequestException('No target tenants specified');
+      throw new BadRequestException('The audience matched no tenants');
     }
 
     return this.messagingService.sendBulkMessage(
@@ -229,12 +241,12 @@ export class MessagingController {
   // ============================================================================
 
   @Get('stats')
-  async getStats() {
+  async getStats(): Promise<MessagingStatsResponseDto> {
     return this.messagingService.getMessagingStats();
   }
 
   @Get('unread-count')
-  async getUnreadCount() {
+  async getUnreadCount(): Promise<UnreadCountResponseDto> {
     const count = await this.messagingService.getUnreadCount();
     return { unreadCount: count };
   }

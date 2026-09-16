@@ -8557,7 +8557,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MessageThread"
+                  "$ref": "#/components/schemas/CreatedMessageThreadDto"
                 }
               }
             }
@@ -8755,10 +8755,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/Message"
-                  }
+                  "$ref": "#/components/schemas/SupportMessagePageDto"
                 }
               }
             }
@@ -8846,7 +8843,14 @@
         },
         "responses": {
           "200": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkMessageResultDto"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -8860,7 +8864,14 @@
         "parameters": [],
         "responses": {
           "200": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessagingStatsResponseDto"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -8874,7 +8885,14 @@
         "parameters": [],
         "responses": {
           "200": {
-            "description": ""
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnreadCountResponseDto"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -22499,9 +22517,6 @@
           },
           "content": {
             "type": "string"
-          },
-          "senderName": {
-            "type": "string"
           }
         },
         "required": [
@@ -22509,13 +22524,221 @@
           "content"
         ]
       },
+      "CreatedMessageThreadDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "lastMessageId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "messageCount": {
+            "type": "number"
+          },
+          "unreadAdminCount": {
+            "type": "number"
+          },
+          "unreadTenantCount": {
+            "type": "number"
+          },
+          "isArchived": {
+            "type": "boolean"
+          },
+          "isClosed": {
+            "type": "boolean"
+          },
+          "lastMessageAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "tenantId",
+          "subject",
+          "messageCount",
+          "unreadAdminCount",
+          "unreadTenantCount",
+          "isArchived",
+          "isClosed",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "MessageAttachmentResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "fileName": {
+            "type": "string"
+          },
+          "fileSize": {
+            "type": "number",
+            "description": "Size in bytes."
+          },
+          "mimeType": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "uploadedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "fileName",
+          "fileSize",
+          "mimeType",
+          "url",
+          "uploadedAt"
+        ]
+      },
+      "SupportMessageResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "threadId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "senderId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "senderType": {
+            "enum": [
+              "admin",
+              "tenant_admin",
+              "system"
+            ],
+            "type": "string",
+            "description": "The platform side is 'admin'. There is no 'super_admin' — the panel's union invented it, and every test against it was false."
+          },
+          "senderName": {
+            "type": "string",
+            "description": "Display name captured when the message was written, derived from the authenticated sender. ABSENT when unknown — the column is nullable and `JSON.stringify` omits undefined."
+          },
+          "content": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "sent",
+              "delivered",
+              "read",
+              "failed"
+            ],
+            "type": "string",
+            "description": "'failed' is a real state; a client that omits it draws a failure as an unread send."
+          },
+          "isInternal": {
+            "type": "boolean",
+            "description": "Internal notes are not shown to the tenant."
+          },
+          "attachments": {
+            "description": "Absent when the message carries no attachments.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MessageAttachmentResponseDto"
+            }
+          },
+          "emailSent": {
+            "type": "boolean",
+            "description": "Whether the message was emailed to the tenant."
+          },
+          "readAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the counterparty read it. Absent while unread."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "threadId",
+          "senderId",
+          "senderType",
+          "content",
+          "status",
+          "isInternal",
+          "emailSent",
+          "createdAt"
+        ]
+      },
+      "SupportMessagePageDto": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SupportMessageResponseDto"
+            }
+          },
+          "total": {
+            "type": "number"
+          },
+          "page": {
+            "type": "number"
+          },
+          "limit": {
+            "type": "number"
+          },
+          "totalPages": {
+            "type": "number"
+          },
+          "hasNextPage": {
+            "type": "boolean"
+          },
+          "hasPreviousPage": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "page",
+          "limit",
+          "totalPages",
+          "hasNextPage",
+          "hasPreviousPage"
+        ]
+      },
       "AddMessageDto": {
         "type": "object",
         "properties": {
           "content": {
-            "type": "string"
-          },
-          "senderName": {
             "type": "string"
           },
           "isInternal": {
@@ -22532,31 +22755,135 @@
           "content"
         ]
       },
+      "BulkMessageAudienceDto": {
+        "type": "object",
+        "properties": {
+          "tenantIds": {
+            "description": "Send only to these tenants. Omit for every tenant matching the other clauses.",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "excludeTenantIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "plans": {
+            "description": "Narrow to these plan codes.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "regions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "includeInactive": {
+            "type": "boolean",
+            "description": "Suspended and trial-expired tenants are excluded unless this is true."
+          }
+        }
+      },
       "BulkMessageDto": {
         "type": "object",
         "properties": {
+          "targetCriteria": {
+            "$ref": "#/components/schemas/BulkMessageAudienceDto"
+          },
           "subject": {
             "type": "string"
           },
           "content": {
             "type": "string"
           },
-          "targetCriteria": {
-            "type": "object"
-          },
-          "tenantIds": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
           "sendEmail": {
             "type": "boolean"
           }
         },
         "required": [
+          "targetCriteria",
           "subject",
           "content"
+        ]
+      },
+      "BulkMessageResultDto": {
+        "type": "object",
+        "properties": {
+          "sent": {
+            "type": "number",
+            "description": "Tenants whose thread was created."
+          },
+          "failed": {
+            "type": "number",
+            "description": "Tenants whose thread FAILED. A non-zero value is a partial send."
+          },
+          "threadIds": {
+            "description": "The threads that were created.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "sent",
+          "failed",
+          "threadIds"
+        ]
+      },
+      "MessagingStatsResponseDto": {
+        "type": "object",
+        "properties": {
+          "totalThreads": {
+            "type": "number",
+            "description": "Threads that are not archived."
+          },
+          "activeThreads": {
+            "type": "number"
+          },
+          "closedThreads": {
+            "type": "number"
+          },
+          "totalMessages": {
+            "type": "number",
+            "description": "Every message row, archived threads included."
+          },
+          "unreadMessages": {
+            "type": "number",
+            "description": "Messages awaiting an admin, summed over unarchived threads."
+          },
+          "avgResponseTimeMinutes": {
+            "type": "number",
+            "nullable": true,
+            "description": "Mean minutes between a tenant message and the admin reply that followed it, over the pairs that EXIST. null when no admin has ever answered — not 0, which reads as an instant reply."
+          }
+        },
+        "required": [
+          "totalThreads",
+          "activeThreads",
+          "closedThreads",
+          "totalMessages",
+          "unreadMessages",
+          "avgResponseTimeMinutes"
+        ]
+      },
+      "UnreadCountResponseDto": {
+        "type": "object",
+        "properties": {
+          "unreadCount": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "unreadCount"
         ]
       },
       "Announcement": {

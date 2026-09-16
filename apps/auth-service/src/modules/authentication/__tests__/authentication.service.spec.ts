@@ -468,6 +468,51 @@ describe('AuthenticationService', () => {
       expect(mockUserRepository.save).toHaveBeenCalled();
     });
 
+    it('ORPHAN-CRITICAL-808: mints against the verified hash and runs the legacy-hash migration only AFTER issuance', async () => {
+      // WHY: the re-hash is a credential write, so the database advances
+      // `credentialVersion` on it. Saving it before generateTokens would move
+      // the row past the anchor the issuance fence compares and refuse the
+      // login that just verified the password. Bookkeeping (lastLoginAt) is
+      // not a credential write and stays before the mint.
+      const legacyHash = '$2a$12$legacy-unpeppered-hash';
+      const user = createMockUser({
+        password: legacyHash,
+        verifyPasswordAndSignalMigration: () =>
+          Promise.resolve({ matched: true, shouldMigrate: true }),
+      });
+      mockUserRepository.findOne.mockResolvedValue(user);
+      mockTenantRepository.findOne.mockResolvedValue(createMockTenant());
+      mockUserRepository.save.mockResolvedValue(user);
+      const passwordAtSave: (string | undefined)[] = [];
+      mockUserRepository.save.mockImplementation((saved: User) => {
+        passwordAtSave.push(saved.password);
+        return Promise.resolve(saved);
+      });
+      let passwordAtMint: string | undefined;
+      mockTokenService.generateTokens.mockImplementationOnce((minted: User) => {
+        passwordAtMint = minted.password;
+        return Promise.resolve({
+          accessToken: 'mock-access-token',
+          refreshToken: 'mock-refresh-token',
+          user: minted,
+          expiresIn: 900,
+          tokenType: 'Bearer',
+          redirectUrl: '/dashboard',
+        });
+      });
+
+      await service.login(validInput, '127.0.0.1', 'test-agent');
+
+      // Save #1 is bookkeeping (hash untouched); the mint sees that same hash;
+      // save #2 carries the plaintext for the @BeforeUpdate re-hash.
+      expect(passwordAtSave).toEqual([legacyHash, validInput.password]);
+      expect(passwordAtMint).toBe(legacyHash);
+      const mintOrder = mockTokenService.generateTokens.mock.invocationCallOrder[0];
+      const [bookkeepingOrder, migrationOrder] = mockUserRepository.save.mock.invocationCallOrder;
+      expect(bookkeepingOrder).toBeLessThan(mintOrder);
+      expect(mintOrder).toBeLessThan(migrationOrder);
+    });
+
     it('throws UnauthorizedException and performs dummy hash check when user not found', async () => {
       // SECURITY: prevents timing-based user enumeration
       mockUserRepository.findOne.mockResolvedValue(null);

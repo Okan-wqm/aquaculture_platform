@@ -335,11 +335,35 @@ function loadReservationLedger(reservationPath: string): FindingIdReservationLed
   return candidate as FindingIdReservationLedger;
 }
 
-function idsFromActiveRegistries(authority: FindingAllocationAuthority): string[] {
+/**
+ * Append every element of `source` to `target` without spreading it into a
+ * call: `target.push(...source)` passes each element as an argument and V8
+ * refuses past ~100k of them (RangeError: Maximum call stack size exceeded).
+ * The active-registry sweep below concatenates every worktree's registry —
+ * 98 worktrees × ~1,600 rows on 2026-09-13 — and failed every registry
+ * mutation closed under the authority's own catch. A loop has no such bound.
+ */
+function appendAll(target: string[], source: ReadonlyArray<string>): void {
+  for (const value of source) target.push(value);
+}
+
+/** How the sweep reads one registry's ids; the default reads the file, a test injects the ids. */
+export interface ActiveRegistryReader {
+  readIds: (registryPath: string) => ReadonlyArray<string>;
+}
+
+const FILE_REGISTRY_READER: ActiveRegistryReader = {
+  readIds: (registryPath) =>
+    existsSync(registryPath) ? loadRegistry(registryPath).map((entry) => entry.id) : [],
+};
+
+function idsFromActiveRegistries(
+  authority: FindingAllocationAuthority,
+  reader: ActiveRegistryReader = FILE_REGISTRY_READER,
+): string[] {
   const ids: string[] = [];
   for (const registryPath of authority.activeRegistryPaths()) {
-    if (!existsSync(registryPath)) continue;
-    ids.push(...loadRegistry(registryPath).map((entry) => entry.id));
+    appendAll(ids, reader.readIds(registryPath));
   }
   return ids;
 }
@@ -609,11 +633,12 @@ export function claimedIdsForDomain(
   domain: string,
   entries: ReadonlyArray<{ id: string }>,
   authority?: FindingAllocationAuthority,
+  reader: ActiveRegistryReader = FILE_REGISTRY_READER,
 ): string[] {
   const claimed = entries.map((entry) => entry.id);
-  if (authority) claimed.push(...idsFromActiveRegistries(authority));
+  if (authority) appendAll(claimed, idsFromActiveRegistries(authority, reader));
   if (domain === 'ORPHAN') {
-    claimed.push(...orphanMarkdownReservedIds(ORPHAN_FINDINGS_MD_PATH));
+    appendAll(claimed, orphanMarkdownReservedIds(ORPHAN_FINDINGS_MD_PATH));
   }
   return claimed;
 }
@@ -783,7 +808,7 @@ export function appendNarrativeFinding(
 
   const entries = loadRegistry(paths.registryPath);
   const structuredIds = entries.map((entry) => entry.id);
-  if (authority) structuredIds.push(...idsFromActiveRegistries(authority));
+  if (authority) appendAll(structuredIds, idsFromActiveRegistries(authority));
   if (claimedSequences('ORPHAN', structuredIds).has(Number.parseInt(idParts[2], 10))) {
     process.stderr.write(
       `Duplicate id: ${stub.id} — sequence ${idParts[2]} is already claimed by the registry or a sibling worktree registry.\n`,

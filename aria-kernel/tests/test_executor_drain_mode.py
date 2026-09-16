@@ -249,7 +249,9 @@ class DrainBudgetWorstCaseTests(unittest.TestCase):
     that child could legally run 1800s more, sailed past the job reaper, and
     the run was cancelled before the state publish — two submitted results
     died with the runner. The loop now starts a child only when
-    elapsed + MAX_TIMEOUT_SECONDS still fits inside the budget.
+    elapsed + the child's WHOLE worst case (`ci_executor.child_worst_case_seconds`:
+    claim, pre-claim probe, CLI run at MAX_TIMEOUT_SECONDS, submit, release)
+    still fits inside the budget.
     """
 
     def setUp(self) -> None:
@@ -283,14 +285,61 @@ class DrainBudgetWorstCaseTests(unittest.TestCase):
             {"request_id": "AIR-1", "target_agent": "aria-evidence-judge"},
             None,
         ]
+        # A window that holds one whole child at its worst case, with room
+        # for the loop's own setup — derived, so a retune of any bound the
+        # worst case is built from cannot silently turn this into the
+        # overflow case above.
+        window = ci_executor.child_worst_case_seconds(1800) + 600
         rc, calls, _ = _drain(
             queue,
             {"AIR-1": (0, True)},
             env={
-                "ARIA_DRAIN_BUDGET_SECONDS": "3600",
+                "ARIA_DRAIN_BUDGET_SECONDS": str(window),
                 "MAX_TIMEOUT_SECONDS": "1800",
             },
             tmp=self._tmp.name,
         )
         self.assertEqual(rc, 0)
         self.assertEqual(len(calls["dispatch"]), 1)
+
+    def test_the_default_window_holds_one_child_at_its_worst_case(self) -> None:
+        # The env-less default (a local drain, these tests) is derived from
+        # the engine's own bounds, so it cannot again fall below one child's
+        # worst case and dispatch nothing.
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("MAX_TIMEOUT_SECONDS", None)
+            os.environ.pop("ARIA_DRAIN_BUDGET_SECONDS", None)
+            self.assertGreaterEqual(
+                ci_executor_drain._drain_budget_seconds(),
+                ci_executor._child_worst_case_seconds() + ci_executor_drain.DRAIN_WINDOW_MARGIN_SECONDS,
+            )
+
+    def test_the_worst_case_is_the_whole_child(self) -> None:
+        # A child's legal worst case is the claim child and its pre-claim
+        # probe, the Claude CLI at MAX_TIMEOUT_SECONDS, the kernel submit at
+        # SUBMIT_RESULT_TIMEOUT_SECONDS and the release child — the ONE
+        # derivation `ci_executor.child_worst_case_seconds`. Pricing the CLI
+        # cap alone let a submit that waited its full lock bound run past
+        # the drain window into the publish reserve; pricing the CLI cap and
+        # the submit alone left two lock waits and the probe to do the same.
+        # One second short of the sum: nothing starts; the sum plus the
+        # loop's own setup time (well under a minute): the child starts.
+        worst_case = ci_executor.child_worst_case_seconds(1800)
+        self.assertGreater(worst_case, 1800 + ci_executor.SUBMIT_RESULT_TIMEOUT_SECONDS)
+        for budget, dispatched in ((worst_case - 1, 0), (worst_case + 60, 1)):
+            with self.subTest(budget=budget):
+                queue = [
+                    {"request_id": "AIR-1", "target_agent": "aria-evidence-judge"},
+                    None,
+                ]
+                rc, calls, _ = _drain(
+                    queue,
+                    {"AIR-1": (0, True)},
+                    env={
+                        "ARIA_DRAIN_BUDGET_SECONDS": str(budget),
+                        "MAX_TIMEOUT_SECONDS": "1800",
+                    },
+                    tmp=self._tmp.name,
+                )
+                self.assertEqual(rc, 0)
+                self.assertEqual(len(calls["dispatch"]), dispatched)

@@ -15,9 +15,33 @@ git status, and the exact surface whose writer could not be attributed on
 by default (Tier 2: isolation is the zero-effort default); a run that
 DELIBERATELY targets the real mirror sets ARIA_TEST_ALLOW_REAL_TOOLS_DIR=1
 and says why next to that line.
+
+ARIA-HIGH-065 — importing this package also unbinds an inherited
+ARIA_REPO_STATE_ROOT and defaults ARIA_WORKSPACE_BASE. The state root
+redirects aria-findings/ and aria-debts/ for EVERY fixture repository into
+ONE directory, so a finding one test emits becomes history the next test
+replays: on 2026-09-11 a publication push that exported a fixed root for the
+pre-push gate produced 41 errors of the shape "finding event ... references
+'F-901' before its finding_emitted row" on code that was green in CI, and the
+symptom was then patched in two fixtures out of the hundreds that emit
+findings. With the variable unset each fixture's repo root IS its state root
+(workspace.repo_state_root), which is the only configuration under which
+fixtures cannot see each other; a fixture that needs the redirect binds it
+itself, scoped to its own lifetime (test_experiment_night). Unbinding rather
+than refusing, because the inherited value is not always aimed at the suite:
+the restore-aria-state action exports the durable store's binding into the
+whole job, and an in-cycle self-validation that runs this suite inherits it
+through validation.py — refusing would fail every kernel self-change, and
+honouring it would write fixture findings INTO the durable store. Not
+silently: one stderr line names the value that was unbound and why.
+The workspace base is the same ORPHAN-MEDIUM-767 class one level up: with it
+unset, workspace_paths falls back to ~/.aria/workspaces/<repo-hash>, and 4,927
+such directories — every one recording a /tmp fixture as its repo_root — had
+accumulated under the operator's home by 2026-09-11.
 """
 
 import os
+import sys
 import tempfile
 from pathlib import Path
 
@@ -42,3 +66,18 @@ if _tools_env:
         )
 else:
     os.environ["ARIA_TOOLS_DIR"] = tempfile.mkdtemp(prefix="aria-test-tools-")
+
+REPO_STATE_ROOT_ENV = "ARIA_REPO_STATE_ROOT"
+WORKSPACE_BASE_ENV = "ARIA_WORKSPACE_BASE"
+
+_state_root_env = os.environ.pop(REPO_STATE_ROOT_ENV, None)
+if _state_root_env:
+    sys.stderr.write(
+        f"tests: {REPO_STATE_ROOT_ENV}={_state_root_env} was inherited and has been "
+        "unbound for the kernel test suite. A shared state root replays one "
+        "fixture's findings as the next fixture's history (F-901 'references ... "
+        "before its finding_emitted row'; 41 false errors on 2026-09-11, "
+        "ARIA-HIGH-065). Each fixture's repo root is its own state root.\n"
+    )
+if not os.environ.get(WORKSPACE_BASE_ENV):
+    os.environ[WORKSPACE_BASE_ENV] = tempfile.mkdtemp(prefix="aria-test-workspaces-")

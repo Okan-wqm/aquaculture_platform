@@ -1,0 +1,88 @@
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-001","title":"P0 — Scheduled compactor kanonik defteri bozabiliyor","disposition":"P0 panel: confirmed"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-002","title":"P0 — Kanonik compaction arşiv sınırında veri kaybediyor","disposition":"P0 panel: confirmed"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-003","title":"P1 — Yerel governance okumaları zincir doğrulamasını atlıyor","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-004","title":"P1 — Günlük rapor yalnızca tail hash ile bütünlük varsayıyor","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-005","title":"P1 — Pressure ağırlık override'ları sessizce modeli bozuyor","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-006","title":"P1 — Report ingestion exactly-once garantisi süreç içi cache'e bağlı","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-007","title":"P1 — Bozulma tanısı güvenli append yolunu atlıyor","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-008","title":"P1 — Evidence collector mutable çalışma ağacını commit kanıtı gibi etiketliyor","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-009","title":"P1 — Eksik veya bozuk girdiler temiz boş döngüye dönüşebiliyor","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-010","title":"P1 — State yazımlarında check-then-append yarışları var","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-011","title":"P0 — Worktree prune persisted path üzerinden keyfi dizin silebiliyor","disposition":"P0 panel: confirmed"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-012","title":"P0 — Panel approval token'ı yalnızca varlık kontrolüyle kabul ediliyor","disposition":"P0 panel: confirmed"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-013","title":"P0 — Auto-promote HMAC anahtarı halka açık path'ten türetiliyor","disposition":"P0 panel: confirmed"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-014","title":"P0 — Snapshot imzası çağıranın sunduğu public key'e güveniyor","disposition":"P0 panel: confirmed"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-015","title":"P0 — Operatör onayı ve imzalar typed, merkezi doğrulanmış yetki değil","disposition":"P0 panel: partially confirmed: beş sitenin üçü yalnız string/presence kontrol eder; `implementation_safety` fail-closed stub'dır; `finding_promotion` hiçbir approval uygulamaz."}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-016","title":"P0 — Runner attestasyonu self-asserted varsayılanlardan oluşuyor","disposition":"P0 panel: confirmed"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-017","title":"P0 — GitHub token lease TTL ve revoke yalnızca yerel iddia","disposition":"P0 panel: partially confirmed: Mode A short-lived installation token mint eder; Mode B operator PAT kullanır ve yalnız beş dakikalık TTL/revoke modeller."}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-018","title":"P1 — Asenkron implementation imza kimliğini executor bitmeden iptal ediyor","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-019","title":"P1 — Linked worktree'de commit signing sessizce atlanıyor","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-020","title":"P1 — Custom merge adapter authority protokolünü atlayabiliyor","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-021","title":"P0 — Maliyet hard-cap dış çağrıdan sonra hesaplanıyor ve fail-open","disposition":"P0 panel: confirmed"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-022","title":"P0 — DLP kanıtı çağıranın seçtiği/yeniden etiketlediği path'lere güveniyor","disposition":"P0 panel: confirmed"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-023","title":"P0 — Research fetch SSRF'ye açık","disposition":"P0 panel: confirmed"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-024","title":"P0 — Executor semantik `satisfied` kararını kendisi üretebiliyor","disposition":"P0 panel: confirmed"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-025","title":"P0 — Acceptance harness başarısız döngüyü kabul edebiliyor","disposition":"P0 panel: confirmed"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-026","title":"P0 — Operational-proof workflow başarısız verdict ile yeşil kalıyor","disposition":"P0 panel: refuted; workflow `set -euo pipefail` kullanır ve CLI verdict passed değilse nonzero çıkar. False allegation legacy için sürdürülmez."}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-027","title":"P0 — Watchdog FP Gate-B eksik kanıtta fail-open","disposition":"P0 panel: confirmed"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-028","title":"P1 — Dataflow watchdog altyapı hatası workflow'u kırmıyor","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-029","title":"P1 — Kritik watchdog sinyali ephemeral kalıyor","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-030","title":"P1 — Dependency setup lock değiştiğinde stale `node_modules` kullanıyor","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-031","title":"P1 — Pre-push seçici nested invariant testlerini kaçırıyor","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-032","title":"P1 — Authority hash ve hook kapsamı etkin yüzeyleri eksik bırakıyor","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-033","title":"P0 — Banned-phrase adapter child exit 127'yi temiz sonuç yapıyor","disposition":"P0 panel: confirmed"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-034","title":"P0 — Outbox adapter okunamayan path'i görünmez yapıyor","disposition":"P0 panel: confirmed"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-035","title":"P1 — Skill genesis artifact oluşmadan başarı verebiliyor","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-036","title":"P2 — Yedi pre-merge kapısı uygulanmamışken kapasite tamamlanmış gösteriliyor","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-037","title":"P0 — PR gerçeği ve readiness kanıtı ayrışıyor","disposition":"P0 panel: confirmed"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-038","title":"P1 — Causal bağlar ve merge sayıları güvenilir değil","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-039","title":"P2 — Legacy worker'ın `merged` durumu erişilemez","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-040","title":"P1 — Yaşa dayalı reaper aktif işi reddedebiliyor","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-041","title":"P1 — External outage reaper üretim akışına bağlı değil","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-042","title":"P2 — Agent-question protokolünde teslim/yanıt/devam mekanizması yok","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-043","title":"P1 — Model filosu beyanı gerçek executor kapasitesiyle uyuşmuyor","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-044","title":"P0 — NaN ve boolean confidence kontrolleri aşabiliyor","disposition":"P0 panel: partially confirmed: dört sitenin üçü NaN/bool kabul eder; `confidence.py` doğru finite-number ve bool guard'ına zaten sahiptir."}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-045","title":"P1 — İki-judge precision settlement aynı modeli iki bağımsız rol sayıyor","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-046","title":"P1 — Phase-filter CLI kontrolü üretim döngüsüne bağlanmamış","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-047","title":"P1 — Mission closure çoğunlukla observe/logging, gerçek gate değil","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-048","title":"P1 — `implementation_ids` fused kimlik ve envelope dışında","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-049","title":"P1 — Architecture spine ve surface manifest farklı repository kökü buluyor","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-050","title":"P1 — Custom state remote desteklenirken repository identity `origin`'e sabit","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-051","title":"P1 — Workspace kimliği aynı repo için bölünebilir, forklar için çakışabilir","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-052","title":"P1 — Promotion malformed/yanlış CWD validation ref'ini sıfır teste düşürüyor","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-053","title":"P2 — Autonomy status kanıtı foreign ambient CWD'ye bağlı","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-054","title":"P1 — Recursive-impact “known” sonucu heuristic ve stale cache'ten çıkıyor","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-055","title":"P0 — Glob kanıtında yalnız ilk beş dosya doğrulanıyor","disposition":"P0 panel: confirmed"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-056","title":"P0 — Plan coverage witness ilgisiz dosyalarla sözleşmeyi kapalı gösteriyor","disposition":"P0 panel: confirmed"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-057","title":"P2 — Plan dokümanı invariant'ı `022` numarasında donmuş","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-058","title":"P1 — Readiness v2 üreticisi ile v3 tüketicisi kapanış boşluğu yaratıyor","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-059","title":"P1 — Günlük rapor credential provenance'ı GitHub App diye hard-code ediyor","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-060","title":"P1 — İzlenen repository identity host `/tmp` yolunu sızdırıyor","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-061","title":"P2 — Executor auth preflight declared perimeter dışında hard-coded `/tmp` yazıyor","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-062","title":"P2 — Projection'lar tam ledger tarıyor, izlenen dashboard'lar stale","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-063","title":"P2 — `--challenger-timeout-seconds` CLI bayrağı ölü","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-064","title":"P1 — Retention kaynağı eksikken sessizce kısmi başarı veriyor","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-065","title":"P1 — Approval şemaları bilinmeyen alanları kabul ediyor","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-066","title":"P2 — Agent surface durum sözlüğü drift etmiş","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-067","title":"P2 — ARIA debt kayıtları stale ve kapanış gerçeğini yansıtmıyor","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-068","title":"P2 — Kaynak metni invariant'ları davranış yerine ifadeyi green-pinliyor","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-069","title":"P3 — Nx/TypeScript/Rust varsayımları çekirdeğe gömülü","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-070","title":"P3 — Mock agent eval yalnız harness sağlığını ölçüyor","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-071","title":"P2 — Watchdog emission cap kritik kayıtları düşürebiliyor","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-072","title":"P3 — Mevcut state biçimi taşınabilir servis deposu değil","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-073","title":"P3 — Ürün API'si, canlı sonuç kanalı ve web arayüzü yok","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-074","title":"P3 — Soru defteri konuşma sistemi değil","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-075","title":"P2 — Acceptance alt sistemi authority manifestinde eksik","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-076","title":"P1 — Authority preflight gerçek yetkiyi kanıtlamıyor","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-077","title":"P2 — JSONL full-scan okuma modeli web sorguları için deterministik değil","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-078","title":"P1 — Production memory hook eksik argümanla her converged cycle'da düşüyor","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-079","title":"P0 — Adversarial review kabul edilmiş herhangi bir sonucu koşulsuz `no_gaps` yapıyor","disposition":"P0 panel: confirmed"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-080","title":"P1 — Change outcome ve learning aggregate crash-atomic değil","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-081","title":"P1 — Critical-observation görüntüsü corruption ve yarışta fail-open","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-082","title":"P1 — Operator dashboard corruption'ı boş/temiz bölüme çeviriyor","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-083","title":"P2 — Validation ledger host dosya yoluna bağlı","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-084","title":"P1 — Runtime-signal store corruption ve crash altında güvenli değil","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-085","title":"P0 — Artifact credential scrubber env-assignment secret'larını sızdırıyor","disposition":"P0 panel: confirmed"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-086","title":"P1 — Feedback batch sample'ı tamamlamıyor ve atomik değil","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-087","title":"P1 — Test-gap alias keşfi bozuk/JSONC tsconfig'i `alias yok` sayıyor","disposition":"Source report: verified; separate P0 panel uygulanmadı"}
+{"schema_version":"1.0.0","id":"ARIA-AUDIT-088","title":"P2 — Commit validator ref ve trailer path sınırını güvenli kurmuyor","disposition":"Source report: verified; separate P0 panel uygulanmadı"}

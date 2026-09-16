@@ -1,0 +1,206 @@
+# Verification, Evidence, Hash ve Freshness Sözleşmesi
+
+[Authority index](INDEX.md) · Owners: S01, every phase gate, S37-S40, S53, S70-S72.
+
+## Immutable append model
+
+Evidence manifest once referenced immutable'dır. Reviewer/admission/freshness sonucu aynı URI'de
+update edilmez; predecessor evidence digest, reviewed SHA ve prior event tail taşıyan yeni versioned
+manifest eklenir, sonra yalnız bu yeni digest'e referans veren event append edilir. Event kendi hash
+veya onu referanslayan evidence digest'ini manifest içine koymaz; graph acyclic kalır.
+
+Historical `progress/evidence/D0-plan-materialization.json` raw digest'i
+`0dfd4363797a067ce7ccdfa0a7efbe28b2ee69b2daf2cdcfe2cf2321a3df8558` ve ilk dört event raw bytes'ı
+değişmez. Eski document digest'leri current path bytes yerine exact historical source commit
+`c6065d6dac97306f147de67ef58a96e3a67524ac` üzerinden `git show <sha>:<path>` ile doğrulanır.
+Correction/review yeni authority byte'larını ayrı manifestte hash'ler.
+
+## Event canonicalization `aria-event-cjson-v1`
+
+Her JSONL satırı tek JSON object ve newline'dır. Hash input'u:
+
+1. JSON duplicate key, non-object root, float, negative zero, unsafe integer, non-finite veya invalid
+   Unicode scalar içerirse reddet.
+2. Top-level `event_hash` alanını çıkar; diğer bütün alanlar, özellikle `previous_hash`, dahildir.
+3. Object key'lerini recursive olarak Unicode code-point lexicographic sırala; array sırası korunur.
+4. String'leri JSON escaping ile, booleans/null'u lower-case literal, integer'ı canonical base-10
+   olarak yaz; insignificant whitespace yoktur.
+5. Canonical string'i UTF-8 encode et; SHA-256 lower-case hex digest `event_hash` olur.
+
+Genesis `previous_hash` 64 zero; diğer satır exact önceki `event_hash`'i taşır. Event ID monotonik,
+from/to transition legal ve D0 tail `VERIFYING` olmalıdır. Key insertion order aynı hash'i;
+key/string/tamper değişimi farklı hash'i üretir. Unicode normalization otomatik yapılmaz: exact code
+points authority'dir; NFC/NFD substitution tamper'dır.
+
+## Evidence record provenance
+
+Her proof record closed/versioned schema ile en az şunları bağlar:
+
+- evidence ID/version, immutable predecessor digest, claim/type, program/sprint/state;
+- target repository/workspace, base/head/deployed SHA ve canonical reachability ref;
+- authority/input/report/tool/verifier/artifact paths + raw SHA-256 ve ordered bundle algorithm;
+- producer workload/human principal, independent reviewer ve conflicts;
+- exact argv array (placeholder/metavariable yok), CWD contract, tool/runtime version+digest;
+- started/ended trusted UTC, exit/result/verdict, stdout artifact digest;
+- negative-control IDs/results, linked findings/acceptance ve unresolved risk;
+- freshness type, observed/valid-until, invalidation keys/epochs;
+- admission `accepted`, admission reason ve appellate identity.
+
+Command fields redacted argv/env-name contract'ına uyar; secret-bearing raw output proof olamaz.
+Workflow evidence exact provider run ID/attempt/repository/SHA/artifact digest taşır. Producer kendi
+artifact/evidence/admission'ını approve edemez. Transport success semantic verdict veya `no_gaps`
+mint edemez.
+
+## Executable D0 verifier
+
+Fresh clone canonical argv:
+
+```text
+env ARIA_D0_AUTHORITY_ROOT=../operator-input ARIA_D0_TARGET_CONTEXT=../operator-input/target-context.json ARIA_D0_TRUST_ROOT=../operator-input/trust-root.json node docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/verify-d0.mjs --repo-root . --mode full
+env ARIA_D0_AUTHORITY_ROOT=../operator-input ARIA_D0_TARGET_CONTEXT=../operator-input/target-context.json ARIA_D0_TRUST_ROOT=../operator-input/trust-root.json node docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/test-negative-controls.mjs --repo-root .
+node docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/render-projections.mjs --repo-root . --check
+```
+
+İlk komut repo dışındaki operator mount'ından Ed25519 imzalı target context ve bağımsız trust root
+ister; operator ayrıca exact raw trust-root digest'ini `ARIA_D0_TRUST_ROOT_SHA256` ile out-of-band
+sağlar. İmza, signer principal/capability'sini, canonical
+[`target-manifest.json`](../verification/target-manifest.json) raw digest'ini, kapalı manifest'i ve
+exact base/head/tree/diff/design/format facts'leri, Git/Node executable version ve SHA-256
+gözlemleri ile package-lock ve kapalı `graphql`/`prettier`/`typescript` version+tree digest roster'ını
+bağlar; manifest tek başına trust anchor değildir. Her CI/droplet kendi dış imzalı target payload'ını
+üretir. Git logical adı PATH'in ilk executable adayına resolve edilir, realpath'teki byte digest
+imzalı digest ile eşleşir ve digest'i tekrar doğrulanmış özel çalıştırılabilir kopyadan; scrubbed
+env/config; explicit git-dir/work-tree ile çalıştırılır. Böylece sabit host path'i taşınabilirliği
+bozmaz ve doğrulama-sonrası path değişimi oturumu etkileyemez. Manifest exact `origin/main`
+base SHA/tree'sini, clone'da bulunan
+`refs/remotes/origin/...` reviewed ref'ini ve exact-checkout head politikasını sabitler. Caller
+argümanları yalnız bu dış otoriteyle birebir eşleşirse kabul edilir; imzalı context bile `base=head`
+boş-range seçimini yetkilendiremez.
+
+Minimum runtime Node `20.11.0`; dış imzalı target payload exact observed Node version/executable
+digest'i ile runtime dependency roster'ını taşır. Committed provenance aynı package-lock digest'i ve
+dependency roster'ını ayrıca bağlar; uyuşmazlık fail-closed'dur. Bootstrap yalnız built-in modüllerle
+target/provenance/runtime bağını doğrular, Node'u ve üç package tree'sini özel snapshot'a kopyalayıp
+digest'leri yeniden doğrular; GraphQL/TypeScript/Prettier kullanan semantic worker ancak sonra bu
+snapshot'tan başlar. Verifier input manifest'i frozen audit snapshot, PLAN/cards/program map, finding
+authority/projections, phase-gate/readability policy, reports, evidence ve events'i exact digest'lerle
+enumerate eder. Relative link, protected legacy diff ve D0 allowed-scope kontrolü aynı command
+içindedir. Bu ölçüm compromised host'a karşı hardware trust sağlamaz; D0 güvencesi dış imza,
+committed dual binding ve private executable/package snapshot'ıdır. Verifier runtime service veya
+promotion authority değildir.
+
+`program-map.jsonl` tek machine relation authority'sidir: `finding_ids` kartın explicit prevention
+coverage'ını, `finding_scope` phase/program aggregate challenge'ını, `owned_finding_ids` ise canonical
+matrix'in exact reverse owner relation'ını taşır. Bu üç ilişki birbirine dönüştürülmez; verifier her
+birini kendi PLAN/card/matrix projection'ına bidirectional ve missing/extra olmadan bağlar.
+
+Negative suite missing/duplicate finding/sprint/role, title/disposition drift, owner/acceptance/card/
+OP mismatch, report/script/document/evidence/event tamper, key order, Unicode/numeric invalid input,
+stale proof, projection drift, forbidden product/legacy path ve false `DONE` mutantlarını in-memory/
+temporary copies üzerinde kırmızı görür. Real authority full command green olmadan evidence üretmez.
+
+### Canonical D0 delivery readback
+
+Operator dört external trust digest'ini exact 64-hex değer olarak
+`ARIA_D0_READBACK_TRUST_ROOT_SHA256`, `ARIA_D0_REVIEW_TRUST_ROOT_SHA256`,
+`ARIA_D0_REVIEWER_AUTHORITY_BUNDLE_SHA256` ve `ARIA_D0_TARGET_TRUST_ROOT_SHA256` ortam
+değişkenlerinde out-of-band sağlar. GitHub credential yalnız `GITHUB_TOKEN` ortam değişkeninden
+okunur; argv'ye secret girmez. Fresh clone'da canonical invocation şudur:
+
+<!-- d0-delivery-readback-command -->
+
+```sh
+node docs/plans/2026-09-01-new-aria-autonomous-engineering/verification/verify-delivery-readback.mjs \
+  --repository-root . \
+  --readback-authority-root ../operator-input/delivery \
+  --readback-context-envelope ../operator-input/delivery/readback.json \
+  --readback-trust-root ../operator-input/delivery/trust-root.json \
+  --readback-trust-root-sha256 "$ARIA_D0_READBACK_TRUST_ROOT_SHA256" \
+  --review-artifact-root ../operator-input/review-artifacts \
+  --review-dossier dossier.json \
+  --review-context-envelope ../operator-input/review-admission/context.json \
+  --review-trust-root ../operator-input/review-admission/trust-root.json \
+  --review-authority-root ../operator-input/review-admission \
+  --review-trust-root-sha256 "$ARIA_D0_REVIEW_TRUST_ROOT_SHA256" \
+  --reviewer-authority-root ../operator-input/reviewers \
+  --reviewer-authority-bundle ../operator-input/reviewers/review-authority.json \
+  --reviewer-authority-bundle-sha256 "$ARIA_D0_REVIEWER_AUTHORITY_BUNDLE_SHA256" \
+  --target-authority-root ../operator-input/target \
+  --target-context-envelope ../operator-input/target/target-context.json \
+  --target-trust-root ../operator-input/target/trust-root.json \
+  --target-trust-root-sha256 "$ARIA_D0_TARGET_TRUST_ROOT_SHA256"
+```
+
+CLI yalnız repository ve external authority/artifact location'ları ile out-of-band digest
+pin'lerini kabul eder. Program/work/successor, PR `#1393`, repository, `main`, base/head,
+final-note, dossier, admission ve readback ID caller expectation'ı değildir; verifier bunları live
+GitHub ve cryptographic admission sonucundan türetir. Signed `observed_at`, live `merged_at + 1000ms`
+veya sonrasında olmalıdır. Current GitHub rules/protection yalnız mevcut enforceable control
+kanıtıdır; tarihsel `bypass_used=false` GitHub-live iddiası değildir, `operator_attested` external
+operator beyanıdır. Merge exact `gh pr merge --merge --match-head-commit` ile yapılır; `--admin`
+yasaktır. Command yalnız D0 readback admission'ını doğrular; executor dispatch, cycle dispatch veya
+bunların sırasını başlatmaz ve yetkilendirmez.
+
+## Type-specific freshness
+
+Trusted clock operator UTC'dir; max skew 30 saniye, monotonic observation ID gerekir. Earlier of
+`valid_until` ve event-driven invalidation geçerlidir:
+
+| Proof type                           |                      Maximum age | Mandatory invalidators                                                    |
+| ------------------------------------ | -------------------------------: | ------------------------------------------------------------------------- |
+| source/code/oracle                   |                           30 gün | source/head, authority, verifier, toolchain/dependency/policy digest      |
+| identity/key/issuer                  |                          24 saat | cert/key/subject/UID/attestation/credential epoch, revoke/rotation        |
+| provider capability/quota            |                         5 dakika | account/subscription, model/CLI, quota epoch/limit, outage                |
+| GitHub permission/rules/check/review | 5 dakika; dispatch öncesi reread | App/installation/repo/token/ruleset/bypass/base/head/review/check         |
+| host/capacity/headroom               |                          24 saat | topology/image/config/workload/competing load/queue/limit/incident        |
+| backup/restore/recovery cut          |                           30 gün | timeline/LSN, object generation, key, region/account, recovery epoch      |
+| burn-in/outcome                      |                            7 gün | deployed SHA, cohort/sample policy, provider/host topology, stop incident |
+| compromise/outage/rollback drill     |                           30 gün | credential/policy/image/topology/provider/recovery epoch                  |
+| operator attestation                 |                           90 gün | owner/role/key/policy/prerequisite change veya revoke                     |
+
+Unknown timestamp/clock, missing invalidation key veya material change gate'i `VERIFYING`/`BLOCKED`
+yapar. Unrelated display metadata gereksiz invalidation üretmez. OP-07 sample manifest population,
+denominator, strata, duration, exclusions, minimum success/failure/incident bounds, workload digest,
+safety factor, SLO/headroom ve max age taşır; cherry-pick/changed quota/topology invalid olur.
+
+## Twelve-role phase gate
+
+Required immutable role set:
+
+```text
+integrity, identity, authorization, execution-containment,
+supply-chain, data-privacy, cost-capacity, reliability-dr,
+github-delivery, api-ui, portability-readability, appellate
+```
+
+P01-P09'un **her** promotion gate'i tam on iki ayrı report/principal, role capability match,
+conflict-of-interest graph, deterministic oracle result, dissent ve appellate disposition, exact
+reviewed head/deployment/authority digest ve sıfır unresolved load-bearing finding ister. Model
+çeşitliliği güvenlik şartı değildir; aynı model ayrı adversarial agent execution'larında kullanılabilir.
+Duplicate principal/session/agent-execution oy sayılmaz; bir role/report/oracle/dissent/appellate
+çıkarılırsa gate deny.
+
+D0 bootstrap admission'ında bu kimlikler caller string'leri değildir. Exact on iki role credential'ı
+ile ayrı conflict/oracle Ed25519 credential'ları repository dışındaki, SHA-256 değeri out-of-band
+sabitlenmiş kapalı authority bundle'dan gelir. Her report envelope'ı role, principal, session,
+operator-attested agent-execution kimliği, verdict, exact target ve reviewer-authority digest'ine
+bağlı unique canonical semantic evidence manifestini imzalar. Manifest inspected source/blob
+digest'leri, role control sonuçları, yürütülen negative control sonuçları ve finding disposition'larını
+taşır; boş, opaque veya roller arasında paylaşılan manifest admission olamaz. Admission
+oracle input'unu kabul edilmiş canonical report payload'ları ve signed conflict payload'ından yeniden
+hesaplar. Producer artifact committed `verifier-inputs.jsonl` byte'larının, authority artifact ise
+verified signed target-context byte'larının exact kopyası olmak zorundadır. Producer, target operator,
+admission operator, reviewer, appellate, oracle ve conflict principal/session alias'ları fail-closed
+reddedilir.
+
+S33 öncesinde runtime rol roster'ı henüz yoktur; P01-P04 gates operator-authorized
+`external-adversarial-review-v1` mechanism'iyle aynı identity/report sözleşmesini uygular. D0'da
+execution bağımsızlığı kriptografik diye iddia edilmez: ayrı agent execution'larının gerçekten
+çalıştırılması operasyonel zorunluluktur ve assurance açıkça `OPERATOR_ATTESTED` yazılır.
+S33 sonrası productized reviewer orchestration kullanılabilir fakat protected external appellate
+identity ve deterministic oracle sınırı korunur. P05-P09 aynı exact role setini tekrar çalıştırır.
+[`phase-gates.json`](../verification/phase-gates.json) dokuz gate'in machine authority'sidir.
+
+Bu round'daki [review package](../reviews/INDEX.md) `c6065d6d...` için `CHANGES_REQUIRED`
+non-admission evidence'dır. Corrective head ancak farklı immutable evidence/event ile fresh on iki-
+role review `ACCEPTED` verdiğinde admission adayı olabilir; D0 merge edilene kadar yine `VERIFYING`.

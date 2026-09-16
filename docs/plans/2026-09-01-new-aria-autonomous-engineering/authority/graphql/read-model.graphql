@@ -1,0 +1,178 @@
+enum AriaSectionStatus {
+  OK
+  EMPTY
+  MISSING
+  CORRUPT
+  UNAVAILABLE
+}
+
+enum AriaFreshness {
+  CURRENT
+  STALE
+}
+
+enum AriaMissionState {
+  DRAFT
+  SUBMITTED
+  PLANNED
+  EXECUTING
+  VERIFYING
+  COMPLETED
+  FAILED
+  CANCELLED
+  UNKNOWN
+}
+
+enum AriaRiskClass {
+  LOW
+  MEDIUM
+  HIGH
+  PROHIBITED
+  UNKNOWN
+}
+
+input MissionFilter {
+  state: AriaMissionState
+  riskClass: AriaRiskClass
+  repositoryId: ID
+}
+
+type AriaPageInfo {
+  hasNextPage: Boolean!
+  endCursor: Cursor
+}
+
+type AriaMission {
+  id: ID!
+  workspaceId: ID!
+  title: String!
+  state: AriaMissionState!
+  riskClass: AriaRiskClass!
+  aggregateVersion: Long!
+  snapshotSha: String!
+}
+
+type AriaMissionEdge {
+  cursor: Cursor!
+  node: AriaMission!
+}
+
+type AriaMissionConnection {
+  edges: [AriaMissionEdge!]!
+  pageInfo: AriaPageInfo!
+}
+
+type AriaTimelineEvent {
+  id: ID!
+  missionId: ID
+  sequence: Long!
+  eventType: String!
+  occurredAt: DateTime!
+  payloadDigest: String!
+}
+
+type AriaTimelineEdge {
+  cursor: Cursor!
+  node: AriaTimelineEvent!
+}
+
+type AriaTimelineConnection {
+  edges: [AriaTimelineEdge!]!
+  pageInfo: AriaPageInfo!
+}
+
+type AriaOverviewData {
+  activeMissionCount: Int!
+  unresolvedIncidentCount: Int!
+  autonomyFrozen: Boolean!
+}
+
+type AriaProviderStatusData {
+  providerId: ID!
+  available: Boolean!
+  observedAt: DateTime!
+  capabilityDigest: String!
+}
+
+type AriaPolicyStatusData {
+  policyVersion: String!
+  policyDigest: String!
+  autonomyFrozen: Boolean!
+}
+
+type AriaProgramProgressData {
+  d0State: String!
+  plannedSprints: Int!
+  completedSprints: Int!
+  eventTailHash: String!
+}
+
+type AriaOverviewResult {
+  status: AriaSectionStatus!
+  freshness: AriaFreshness!
+  asOf: DateTime!
+  authorityVersion: String!
+  reasonCode: String
+  retryable: Boolean!
+  data: AriaOverviewData
+}
+
+type AriaMissionConnectionResult {
+  status: AriaSectionStatus!
+  freshness: AriaFreshness!
+  asOf: DateTime!
+  authorityVersion: String!
+  reasonCode: String
+  retryable: Boolean!
+  data: AriaMissionConnection
+}
+
+type AriaMissionResult {
+  status: AriaSectionStatus!
+  freshness: AriaFreshness!
+  asOf: DateTime!
+  authorityVersion: String!
+  reasonCode: String
+  retryable: Boolean!
+  data: AriaMission
+}
+
+type AriaTimelineConnectionResult {
+  status: AriaSectionStatus!
+  freshness: AriaFreshness!
+  asOf: DateTime!
+  authorityVersion: String!
+  reasonCode: String
+  retryable: Boolean!
+  data: AriaTimelineConnection
+}
+
+type AriaProviderStatusResult {
+  status: AriaSectionStatus!
+  freshness: AriaFreshness!
+  asOf: DateTime!
+  authorityVersion: String!
+  reasonCode: String
+  retryable: Boolean!
+  data: [AriaProviderStatusData!]
+}
+
+type AriaPolicyStatusResult {
+  status: AriaSectionStatus!
+  freshness: AriaFreshness!
+  asOf: DateTime!
+  authorityVersion: String!
+  reasonCode: String
+  retryable: Boolean!
+  data: AriaPolicyStatusData
+}
+
+type AriaProgramProgressResult {
+  status: AriaSectionStatus!
+  freshness: AriaFreshness!
+  asOf: DateTime!
+  authorityVersion: String!
+  reasonCode: String
+  retryable: Boolean!
+  data: AriaProgramProgressData
+}

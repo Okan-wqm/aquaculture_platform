@@ -666,7 +666,34 @@ def _system_ro_binds() -> list[str]:
     for root in _SANDBOX_SYSTEM_ROOTS:
         if Path(root).exists():
             flags.extend(["--ro-bind", root, root])
+    flags.extend(_interpreter_ro_binds())
     return flags
+
+
+def _interpreter_ro_binds(base_prefix: str | None = None) -> list[str]:
+    """``--ro-bind`` for the kernel's OWN interpreter when it lives outside
+    the system roots.
+
+    ARIA-MEDIUM-134 (measured on the hosted lane, run 34910051620): the
+    executor's Python was ``/opt/hostedtoolcache/Python/3.12.14/x64`` —
+    setup-python's toolcache, not ``/usr`` — so every program the sandbox
+    runs by that interpreter (the hook client, the MCP relay, a fixture CLI
+    whose shebang names ``sys.executable``) died ``execvp: No such file or
+    directory`` inside, and the lane reported thirteen unrelated failures.
+    A venv, pyenv or uv-managed interpreter on a production host has the
+    same shape. The prefix is bound read-only as itself; ``/usr`` and the
+    other roots already cover the distribution's interpreter, so this adds
+    nothing there.
+    """
+    import sys
+
+    prefix = Path(base_prefix or sys.base_prefix).resolve()
+    for root in _SANDBOX_SYSTEM_ROOTS:
+        if prefix == Path(root) or Path(root) in prefix.parents:
+            return []
+    if not prefix.is_dir():
+        return []
+    return ["--ro-bind", str(prefix), str(prefix)]
 
 
 def _bwrap_probe_argv() -> list[str]:

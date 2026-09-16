@@ -32,6 +32,7 @@ commands gets worked around, which is a slower way of having no denylist.
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 import unittest.mock
 from pathlib import Path
@@ -160,6 +161,27 @@ class ProbeMirrorsWrapper(unittest.TestCase):
                     Path(_system_ro_binds()[i + 1]).exists(),
                     msg=f"{_system_ro_binds()[i + 1]} does not exist on this host",
                 )
+
+    def test_the_kernels_own_interpreter_is_bound_when_it_lives_outside_the_system_roots(self) -> None:
+        """ARIA-MEDIUM-134 — a toolcache / venv / pyenv interpreter is not
+        under /usr, and every program the sandbox runs by it (hook client,
+        MCP relay, a fixture CLI's shebang) dies `execvp` inside unless its
+        prefix is bound. The distribution's interpreter adds nothing."""
+        with tempfile.TemporaryDirectory(prefix="aria-toolcache-") as prefix:
+            self.assertEqual(
+                impl._interpreter_ro_binds(prefix),
+                ["--ro-bind", str(Path(prefix).resolve()), str(Path(prefix).resolve())],
+            )
+        self.assertEqual(impl._interpreter_ro_binds("/usr"), [])
+        self.assertEqual(impl._interpreter_ro_binds("/usr/local"), [])
+        self.assertEqual(impl._interpreter_ro_binds("/nonexistent-prefix"), [])
+        # The wrapper and the probe read the same list, so the bind reaches both.
+        import sys
+
+        expected = impl._interpreter_ro_binds(sys.base_prefix)
+        for token in expected:
+            self.assertIn(token, _system_ro_binds())
+            self.assertIn(token, _bwrap_probe_argv())
 
     def test_a_missing_system_root_drops_out_of_both_sides_together(self) -> None:
         with unittest.mock.patch.object(

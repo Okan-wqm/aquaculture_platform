@@ -18,6 +18,8 @@ take a slot from a self-change row beside it.
 """
 from __future__ import annotations
 
+import dataclasses
+
 import json
 import subprocess
 import tempfile
@@ -62,6 +64,22 @@ class _Store(unittest.TestCase):
     def self_improvement_missions(self) -> list[dict]:
         return [m for m in list_open_missions(base_dir=self.tools) if m["source_kind"] == si.SELF_IMPROVEMENT_SOURCE_KIND]
 
+    def doctor_scoped_to(self, *organs: str):
+        """The real doctor over the fixture store, reporting only the organs
+        these tests reason about. The others (`claude_cli`, `providers`, …)
+        read the HOST — a runner without the managed CLI fails them, and
+        their `doctor_fail` signals outrank the routing claim under test
+        (ARIA-MEDIUM-134's class: green on one machine only)."""
+        from aria_kernel import doctor as doctor_module
+
+        real = doctor_module.run_doctor
+
+        def scoped(**kwargs):
+            report = real(**kwargs)
+            return dataclasses.replace(report, checks=tuple(check for check in report.checks if check.name in organs))
+
+        return mock.patch.object(doctor_module, "run_doctor", scoped)
+
 
 class RemedyVocabulary(unittest.TestCase):
     def test_every_kind_owns_exactly_one_closed_remedy(self) -> None:
@@ -87,7 +105,7 @@ class RemedyVocabulary(unittest.TestCase):
 class OpenerRouting(_Store):
     def test_lapsed_registry_rows_do_not_starve_a_quarantined_server(self) -> None:
         self.lapsed_registry(5)
-        with mock.patch.object(mcp_client, "quarantined_servers", return_value=frozenset({"context7"})):
+        with mock.patch.object(mcp_client, "quarantined_servers", return_value=frozenset({"context7"})), self.doctor_scoped_to("deadlines"):
             signals = si.scan_signals(base_dir=self.tools, workspace_root=self.ws)
             self.assertEqual(sum(1 for s in signals if s.kind == "deadline_due"), 5, "the rows are still announced by the scan")
             opened = si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=3)
@@ -97,11 +115,12 @@ class OpenerRouting(_Store):
     def test_a_deadline_due_signal_never_becomes_a_propose_self_change_mission(self) -> None:
         self.lapsed_registry(2)
         record_human_required(request_id="AIR-late", severity="HIGH", reason="late", base_dir=self.tools, now=self.now - timedelta(days=5))
-        signals = si.scan_signals(base_dir=self.tools, workspace_root=self.ws)
-        keys = {s.key for s in signals if s.kind == "deadline_due"}
-        self.assertEqual(keys, {"registry_finding:X-MEDIUM-000", "registry_finding:X-MEDIUM-001", "human_required_sla:AIR-late"})
-        for _night in range(3):
-            si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=3)
+        with self.doctor_scoped_to("deadlines"):
+            signals = si.scan_signals(base_dir=self.tools, workspace_root=self.ws)
+            keys = {s.key for s in signals if s.kind == "deadline_due"}
+            self.assertEqual(keys, {"registry_finding:X-MEDIUM-000", "registry_finding:X-MEDIUM-001", "human_required_sla:AIR-late"})
+            for _night in range(3):
+                si.open_self_improvement_missions(base_dir=self.tools, workspace_root=self.ws, max_new=3)
         for mission in self.self_improvement_missions():
             self.assertFalse(str(mission["source_id"]).startswith("deadline_due:"), mission)
             self.assertNotIn(mission["source_id"], {f"deadline_due:{key}" for key in keys})

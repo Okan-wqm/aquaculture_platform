@@ -401,7 +401,11 @@ class UnderRealBwrapTests(_HeldIdentity):
             self.containment,
         )
         self.assertNotEqual(without_agent.returncode, 0)
-        self.assertIn("No private key found", without_agent.stderr)
+        # The refusal's wording is OpenSSH's, and it moved between releases
+        # (9.x: `No private key found`; 8.9 on Ubuntu 22.04: `Load key
+        # "...": No such file or directory`). The property is the same: with
+        # no agent, the commit is refused rather than going unsigned.
+        self.assertRegex(without_agent.stderr, r"No private key found|No such file or directory")
         # `git switch -c` made the ref at its base; the refused commit never
         # existed, so the published branch never moved past the base.
         publication = publish_quarantine(self.containment)

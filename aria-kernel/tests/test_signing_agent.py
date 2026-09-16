@@ -251,7 +251,12 @@ class SigningAgentTests(unittest.TestCase):
                 capture_output=True, text=True, env={**os.environ, "SSH_AUTH_SOCK": str(self.root / "nowhere")},
             )
         self.assertNotEqual(unsigned.returncode, 0)
-        self.assertIn("No private key found", unsigned.stderr)
+        # The refusal's wording is OpenSSH's, and it moved between releases
+        # (9.x: `No private key found`; 8.9 on Ubuntu 22.04: `Load key
+        # "...": No such file or directory`). The property is the same: with
+        # no agent and no private file, no signature exists.
+        self.assertFalse(payload.with_suffix(".sig").exists(), unsigned.stderr)
+        self.assertRegex(unsigned.stderr, r"No private key found|No such file or directory")
 
     @staticmethod
     def _live_agent_dirs() -> set[Path]:

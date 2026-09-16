@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from aria_kernel.ledger import read_jsonl
@@ -53,6 +54,13 @@ class FatesIntegrityOnSnapshotBytesTests(unittest.TestCase):
     """
 
     def setUp(self) -> None:
+        # ARIA-HIGH-065 — this fixture sets ARIA_WORKSPACE_BASE and its
+        # tearDown used to POP it, leaving the rest of the interpreter with
+        # no base at all (every later fixture then wrote under ~/.aria).
+        # Scope the whole environment to the test instead.
+        _environment = patch.dict(os.environ)
+        _environment.start()
+        self.addCleanup(_environment.stop)
         self._tmpdir = tempfile.TemporaryDirectory()
         self.tmp = Path(self._tmpdir.name)
         self.repo = git_fixtures.make_repo_with_initial_commit(
@@ -83,6 +91,13 @@ class FatesIntegrityRaisesOnSnapshotTamperTests(unittest.TestCase):
     """
 
     def setUp(self) -> None:
+        # ARIA-HIGH-065 — this fixture sets ARIA_WORKSPACE_BASE and its
+        # tearDown used to POP it, leaving the rest of the interpreter with
+        # no base at all (every later fixture then wrote under ~/.aria).
+        # Scope the whole environment to the test instead.
+        _environment = patch.dict(os.environ)
+        _environment.start()
+        self.addCleanup(_environment.stop)
         self._tmpdir = tempfile.TemporaryDirectory()
         self.tmp = Path(self._tmpdir.name)
         self.repo = git_fixtures.make_repo_with_initial_commit(
@@ -112,6 +127,13 @@ class DirtyWorkingTreeCommittedModeSucceedsTests(unittest.TestCase):
     """
 
     def setUp(self) -> None:
+        # ARIA-HIGH-065 — this fixture sets ARIA_WORKSPACE_BASE and its
+        # tearDown used to POP it, leaving the rest of the interpreter with
+        # no base at all (every later fixture then wrote under ~/.aria).
+        # Scope the whole environment to the test instead.
+        _environment = patch.dict(os.environ)
+        _environment.start()
+        self.addCleanup(_environment.stop)
         self._tmpdir = tempfile.TemporaryDirectory()
         self.tmp = Path(self._tmpdir.name)
         self.repo = git_fixtures.make_repo_with_initial_commit(
@@ -139,6 +161,13 @@ class WorkingTreeModeDriftEventTests(unittest.TestCase):
     """Plan ARIA-V2 working_tree mode emits drift governance event."""
 
     def setUp(self) -> None:
+        # ARIA-HIGH-065 — this fixture sets ARIA_WORKSPACE_BASE and its
+        # tearDown used to POP it, leaving the rest of the interpreter with
+        # no base at all (every later fixture then wrote under ~/.aria).
+        # Scope the whole environment to the test instead.
+        _environment = patch.dict(os.environ)
+        _environment.start()
+        self.addCleanup(_environment.stop)
         self._tmpdir = tempfile.TemporaryDirectory()
         self.tmp = Path(self._tmpdir.name)
         self.repo = git_fixtures.make_repo_with_initial_commit(
@@ -178,6 +207,13 @@ class RebuildFatesCliTests(unittest.TestCase):
     """Plan ARIA-V2 I-11 — rebuild_fates rewrites FATES.json + emits audit row."""
 
     def setUp(self) -> None:
+        # ARIA-HIGH-065 — this fixture sets ARIA_WORKSPACE_BASE and its
+        # tearDown used to POP it, leaving the rest of the interpreter with
+        # no base at all (every later fixture then wrote under ~/.aria).
+        # Scope the whole environment to the test instead.
+        _environment = patch.dict(os.environ)
+        _environment.start()
+        self.addCleanup(_environment.stop)
         self._tmpdir = tempfile.TemporaryDirectory()
         self.tmp = Path(self._tmpdir.name)
         self.repo = git_fixtures.make_repo_with_initial_commit(
@@ -248,6 +284,13 @@ class ResetMemoryRequiresBackupTests(unittest.TestCase):
     """Plan ARIA-V2 I-12 + I-35 + I-36 — reset_memory full discipline."""
 
     def setUp(self) -> None:
+        # ARIA-HIGH-065 — this fixture sets ARIA_WORKSPACE_BASE and its
+        # tearDown used to POP it, leaving the rest of the interpreter with
+        # no base at all (every later fixture then wrote under ~/.aria).
+        # Scope the whole environment to the test instead.
+        _environment = patch.dict(os.environ)
+        _environment.start()
+        self.addCleanup(_environment.stop)
         self._tmpdir = tempfile.TemporaryDirectory()
         self.tmp = Path(self._tmpdir.name)
         self.repo = git_fixtures.make_repo_with_initial_commit(
@@ -340,6 +383,13 @@ class RebuildBlockedInFrozenProfileTests(unittest.TestCase):
     """Plan ARIA-V2 I-13 — frozen profile rejects rebuild-fates."""
 
     def setUp(self) -> None:
+        # ARIA-HIGH-065 — this fixture sets ARIA_WORKSPACE_BASE and its
+        # tearDown used to POP it, leaving the rest of the interpreter with
+        # no base at all (every later fixture then wrote under ~/.aria).
+        # Scope the whole environment to the test instead.
+        _environment = patch.dict(os.environ)
+        _environment.start()
+        self.addCleanup(_environment.stop)
         self._tmpdir = tempfile.TemporaryDirectory()
         self.tmp = Path(self._tmpdir.name)
         self.repo = git_fixtures.make_repo_with_initial_commit(

@@ -42,6 +42,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from .evidence_probe import GitProbeSession
 from .evidence_trust import classify_evidence_ref
 from .feedback_store import CONSENSUS_MIN_CONFIDENCE
 from .human_required import record_human_required
@@ -152,6 +153,11 @@ def evaluate_expert_consensus(
     # Anti-hallucination: re-verify every reviewer's evidence_refs against the
     # git blob at the fix's base SHA. A ref that does not resolve is a fabricated
     # citation — the approval is not trustworthy.
+    #
+    # ONE panel, ONE probe session (evidence_probe): the base SHA is resolved
+    # once for every reviewer's refs and every probe of the panel shares one
+    # liveness clock, as the acceptance validator does per submission.
+    probe_session = GitProbeSession()
     unverifiable: list[dict[str, str]] = []
     for v in verdicts:
         for ref in v.get("evidence_refs", []) or []:
@@ -160,6 +166,7 @@ def evaluate_expert_consensus(
                 workspace_root=workspace_root,
                 context="expert_consensus_evidence_gate",
                 target_sha=base_sha,
+                probe_session=probe_session,
             )
             if envelope.trust_grade in _UNVERIFIABLE_GRADES:
                 unverifiable.append({

@@ -194,13 +194,21 @@ class DrainParallelism(_Repo):
         _git(self.ws, "add", "-A")
         _git(self.ws, "commit", "-q", "-m", "init")
         sha = _git(self.ws, "rev-parse", "HEAD")
-        path = d._add_request_worktree(self.ws, "AIR-1/x", sha)
+        # The add answers a tri-state (`_RequestWorktree`): a tree, git's
+        # refusal (the shared checkout is used), or no answer inside the
+        # store's git cap (the harness's condition; pinned in
+        # test_executor_worktree_bracket_bound).
+        added = d._add_request_worktree(self.ws, "AIR-1/x", sha)
+        path = added.path
         assert path is not None
+        self.assertIsNone(added.unanswered_reason)
         self.assertTrue((path / ".claude" / "skills" / "s.md").exists())
         self.assertEqual(_git(path, "rev-parse", "HEAD"), sha)
-        d._remove_request_worktree(self.ws, path)
+        self.assertIsNone(d._remove_request_worktree(self.ws, path))
         self.assertFalse(path.exists())
-        self.assertIsNone(d._add_request_worktree(self.ws, "AIR-2", "0" * 40), "an unknown sha falls back to the shared checkout")
+        refused = d._add_request_worktree(self.ws, "AIR-2", "0" * 40)
+        self.assertIsNone(refused.path, "an unknown sha falls back to the shared checkout")
+        self.assertIsNone(refused.unanswered_reason, "git answered; this is not a non-answer")
 
 
 class ParityTable(unittest.TestCase):

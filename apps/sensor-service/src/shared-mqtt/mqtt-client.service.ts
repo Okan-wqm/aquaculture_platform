@@ -338,6 +338,14 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * Whether a topic filter is currently subscribed (broker-acknowledged).
+   * Denied filters (SUBACK 0x80) are never tracked — see subscribe().
+   */
+  isSubscribed(topic: string): boolean {
+    return this.subscribedTopics.has(topic);
+  }
+
+  /**
    * Get the underlying MQTT client (for advanced use cases)
    */
   getClient(): MqttClient | null {
@@ -345,9 +353,18 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Subscribe to topics.
-   * LOW-003: Sends a single SUBSCRIBE packet for all topics using the object form
-   * of mqtt.Client.subscribe(), instead of N sequential SUBSCRIBE packets.
+   * Subscribe to topics — one SUBSCRIBE packet PER TOPIC.
+   *
+   * SENSOR-HIGH-118: the previous single-packet object form made the whole
+   * call fail when the broker denied ANY filter (SUBACK 0x80 — e.g. one ACL
+   * miss on a wildcard filter), leaving the listener connected but subscribed
+   * to NOTHING while the error surfaced only as a warning. Per-topic packets
+   * isolate the denial: a rejected filter logs an error (visible + alertable)
+   * while every other filter still subscribes.
+   *
+   * LOW-003 (single packet for N topics) is deliberately traded away: the
+   * filter set is ~17 entries at boot and on reconnect — the extra packets
+   * are negligible next to a silently dead ingestion pipeline.
    */
   async subscribe(topics: string | string[], qos: 0 | 1 | 2 = 1): Promise<void> {
     if (!this.client || !this.isConnectedToBroker()) {
@@ -358,26 +375,36 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
 
     if (topicList.length === 0) return;
 
-    // Build topic → QoS map for a single SUBSCRIBE packet
-    const topicsMap: Record<string, { qos: 0 | 1 | 2 }> = {};
+    let denied = 0;
     for (const topic of topicList) {
-      topicsMap[topic] = { qos };
-    }
-
-    await new Promise<void>((resolve, reject) => {
-      this.client!.subscribe(topicsMap, (err) => {
-        if (err) {
-          this.logger.error(`Failed to subscribe to topics: ${err.message}`);
-          reject(err);
-        } else {
-          for (const topic of topicList) {
+      await new Promise<void>((resolve) => {
+        this.client!.subscribe(topic, { qos }, (err, granted) => {
+          // mqtt.js invokes the callback with an error when ANY granted QoS
+          // is 0x80 ("Unspecified error"); the per-topic packet means this
+          // failure is isolated to THIS filter.
+          const qosGranted = granted?.[0]?.qos ?? 0;
+          if (err || qosGranted === 128) {
+            denied++;
+            this.logger.error(
+              `MQTT SUBSCRIBE denied for filter "${topic}" (broker SUBACK 0x80 / ${err?.message ?? 'no error object'}) — ` +
+                'this filter will NOT receive messages; check the sensor_service ACL grants ' +
+                '(SENSOR_SERVICE_SUBSCRIPTION_FILTERS is the SSoT).',
+            );
+          } else {
             this.subscribedTopics.add(topic);
           }
-          this.logger.log(`Subscribed to ${topicList.length} topic(s) in single SUBSCRIBE packet`);
           resolve();
-        }
+        });
       });
-    });
+    }
+
+    if (denied > 0) {
+      this.logger.error(
+        `Subscribed to ${topicList.length - denied}/${topicList.length} topic filters; ${denied} DENIED by broker`,
+      );
+    } else {
+      this.logger.log(`Subscribed to ${topicList.length} topic filter(s)`);
+    }
   }
 
   /**

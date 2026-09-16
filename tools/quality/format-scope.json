@@ -25947,6 +25947,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/edge-device/__tests__/mqtt-acl.mosquitto.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/edge-device/__tests__/mqtt-auth-file-mode.spec.ts",
       "prettier_managed": true
     },
@@ -42396,6 +42402,42 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/migration-harness/tsconfig.spec.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/mqtt-test-harness/package.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/mqtt-test-harness/project.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/mqtt-test-harness/src/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/mqtt-test-harness/src/setup.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/mqtt-test-harness/tsconfig.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/mqtt-test-harness/tsconfig.lib.json",
       "prettier_managed": true
     },
     {

@@ -150,7 +150,11 @@ class ReadonlyPathsExtensionTests(unittest.TestCase):
             # The READONLY_PATHS loop binds the pointer FILE and aria-debts;
             # the derived git binds follow it.
             self.assertIn(("--ro-bind", str(worktree / ".git")), binds)
-            self.assertLess(binds.index(("--ro-bind", str(worktree / ".git"))), binds.index(("--ro-bind", str(common))))
+            # ARIA-HIGH-141: the common dir is a tmpfs with its shared
+            # entries bound back read-only one by one, never bound whole.
+            self.assertNotIn(("--ro-bind", str(common)), binds)
+            self.assertLess(binds.index(("--ro-bind", str(worktree / ".git"))), binds.index(("--tmpfs", str(common))))
+            self.assertLess(binds.index(("--tmpfs", str(common))), binds.index(("--ro-bind", str(common / "objects"))))
             # Nothing of the shared repository is writable inside — not the
             # common dir, not `objects/`, not `refs/heads/`, not the host's
             # private git dir.

@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+from dataclasses import dataclass
 from typing import Any
 import sys
 import time
@@ -170,7 +171,56 @@ def build_drain_governance_payload(
 # ORPHAN-CRITICAL-484 class). A child is now started only if its WORST
 # CASE still fits inside the budget, and the workflow sizes the budget so
 # publish always has its reserve.
-DEFAULT_DRAIN_BUDGET_SECONDS = 2100
+#
+# The default (no ARIA_DRAIN_BUDGET_SECONDS in the environment: a local
+# operator drain, the tests) is DERIVED from one child's whole worst case
+# (`ci_executor.child_worst_case_seconds`: claim, pre-claim probe, CLI run,
+# submit, release — the engine's one derivation) at the engine's default
+# CLI cap, plus the five-minute margin the old literal (2100 = 1800 + 300)
+# carried over the old worst case. A literal here went stale the moment the
+# submit wall clock grew: a budget below one child's worst case dispatches
+# nothing, and a default that gates everything is worse than no default.
+DRAIN_WINDOW_MARGIN_SECONDS = 300
+DEFAULT_DRAIN_BUDGET_SECONDS = (
+    _engine.child_worst_case_seconds(
+        _engine.DEFAULT_TIMEOUT_SECONDS,
+        # The env-less window must hold the child in EVERY policy shape:
+        # the per-request worktree bracket is priced in whether or not the
+        # repo's policy turns it on.
+        worktree_per_request=True,
+    )
+    + DRAIN_WINDOW_MARGIN_SECONDS
+)
+
+# What the executor JOB needs OUTSIDE the drain window, priced from the
+# bounds of the steps that run there, so the workflow's job timeout can be
+# checked against the window it declares (`tests/test_state_lock_liveness_bound.py`
+# reads both from the YAML):
+#
+# * the state restore before the loop — `checkout_state_store`'s whole
+#   arc at the git cap (`state_store.STATE_STORE_CHECKOUT_ARC_SECONDS`:
+#   the remote probes, the fetch, the pending-recovery replay, the old
+#   store's removal, the new worktree's materialisation — the registered
+#   steps of `state_store_lifecycle_arcs.CHECKOUT_RESTORE_ARC`, not a
+#   count typed here);
+# * the publish after it — the lifecycle holder's longest arc
+#   (`state_store.STATE_STORE_LIFECYCLE_LIVENESS_SECONDS`: the pending
+#   recovery, then every attempt's push, probe, fetches and tree move);
+# * the steps around them that carry no kernel bound — checkout of main,
+#   node dependencies (a cold `npm ci` measured 2m50s), the attestation
+#   probe, integrity verification, the handoff snapshot, artifact uploads —
+#   under one allowance.
+#
+# Until the child's claim and release waits were priced into the child, the
+# reserve arithmetic spent two state-lock bounds of this on them; now the
+# window charges the child, and the reserve is the job's own.
+STATE_RESTORE_WORST_CASE_SECONDS = _engine._STATE_STORE_CHECKOUT_ARC_SECONDS
+JOB_STEPS_ALLOWANCE_SECONDS = 900
+JOB_RESERVE_SECONDS = int(
+    STATE_RESTORE_WORST_CASE_SECONDS
+    + _engine._STATE_STORE_LIFECYCLE_LIVENESS_SECONDS
+    + JOB_STEPS_ALLOWANCE_SECONDS
+)
 
 
 # E3/D10b + Y4 (ORPHAN-705) — the full arc order, planning lane first.
@@ -240,6 +290,20 @@ def _next_pending_for_role(
         env={**os.environ, "PYTHONPATH": str(repo_root / "aria-kernel")},
     )
     if pending_proc.returncode != 0:
+        # The kernel names its own stop when it can (`anchor_verification_
+        # unavailable`: candidates exist and git did not answer for them);
+        # anything else is the generic selection failure.
+        try:
+            named = json.loads(pending_proc.stdout or "")
+        except json.JSONDecodeError:
+            named = None
+        stop_reason = named.get("stop_reason") if isinstance(named, dict) else None
+        if isinstance(stop_reason, str) and stop_reason:
+            _engine._stage(
+                f"drain_next_pending_stopped reason={stop_reason} "
+                f"undecided={len(named.get('undecided_request_ids') or [])}"
+            )
+            return None, stop_reason
         _engine._stage(f"drain_next_pending_failed rc={pending_proc.returncode}")
         sys.stderr.write(pending_proc.stderr[-1000:] + "\n")
         return None, "next_pending_failed"
@@ -274,23 +338,84 @@ def _executor_policy(repo_root: Path) -> dict:
         return {"max_concurrent": 1, "worktree_per_request": False}
 
 
-def _add_request_worktree(repo_root: Path, request_id: str, target_sha: object) -> Path | None:
-    """`git worktree add --detach aria-worktrees/req-<id> <target_sha|HEAD>`; None = fall back to the shared checkout."""
+# Plan 032 Faz 032h — the per-request worktree bracket. Each of its two git
+# calls materialises or deletes a whole tree, so each gets the store's own
+# git cap (`state_store.GIT_TIMEOUT_SECONDS`, via the engine's kernel
+# mirror) and both are priced into the child
+# (`ci_executor.REQUEST_WORKTREE_WORST_CASE_SECONDS`). They ran with no
+# bound at all until 2026-09-12: a git that stopped answering held the
+# drain loop outside every window the loop checks.
+REQUEST_WORKTREE_GIT_TIMEOUT_SECONDS = _engine._GIT_TIMEOUT_SECONDS
+# The breaker kind a worktree call that does not answer is recorded under —
+# the taxonomy's own name for a bounded subprocess that hit its bound.
+WORKTREE_UNANSWERED_BREAKER_KIND = "subprocess_timeout"
+WORKTREE_UNAVAILABLE_STOP_REASON = "worktree_unavailable"
+
+
+@dataclass(frozen=True)
+class _RequestWorktree:
+    """What `git worktree add` came back with: a tree, a refusal, or no answer.
+
+    ``path`` is the worktree when git created it; ``None`` with no
+    ``unanswered_reason`` means git ANSWERED that it could not (the shared
+    checkout is used instead, as before); ``unanswered_reason`` names why
+    git did not answer inside its bound — the harness's condition, on which
+    the child is not started and the request stays PENDING.
+    """
+
+    path: Path | None
+    unanswered_reason: str | None = None
+
+
+def _run_worktree_git(argv: list[str], *, cwd: Path) -> tuple[subprocess.CompletedProcess[str] | None, str | None]:
+    """One bounded worktree call: (answer, None) or (None, why it did not answer)."""
+    try:
+        done = subprocess.run(
+            argv, cwd=str(cwd), capture_output=True, text=True, check=False,
+            timeout=REQUEST_WORKTREE_GIT_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        return None, "timeout"
+    except OSError as exc:
+        return None, f"spawn_failed:{type(exc).__name__}"
+    return done, None
+
+
+def _add_request_worktree(repo_root: Path, request_id: str, target_sha: object) -> _RequestWorktree:
+    """`git worktree add --detach aria-worktrees/req-<id> <target_sha|HEAD>`, bounded."""
     safe = "".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in str(request_id))[:64]
     path = Path(repo_root) / "aria-worktrees" / f"req-{safe}"
     ref = str(target_sha or "").strip() or "HEAD"
     path.parent.mkdir(parents=True, exist_ok=True)
-    done = subprocess.run(["git", "worktree", "add", "--detach", str(path), ref], cwd=str(repo_root), capture_output=True, text=True, check=False)
+    done, unanswered = _run_worktree_git(
+        ["git", "worktree", "add", "--detach", str(path), ref], cwd=Path(repo_root),
+    )
+    if done is None:
+        _engine._stage(
+            f"drain_worktree_add_unanswered request_id={request_id} reason={unanswered} "
+            f"bound={REQUEST_WORKTREE_GIT_TIMEOUT_SECONDS}s"
+        )
+        return _RequestWorktree(path=None, unanswered_reason=unanswered)
     if done.returncode != 0:
         _engine._stage(f"drain_worktree_add_failed request_id={request_id} rc={done.returncode} {(done.stderr or '').strip()[:120]}")
-        return None
-    return path
+        return _RequestWorktree(path=None)
+    return _RequestWorktree(path=path)
 
 
-def _remove_request_worktree(repo_root: Path, path: Path) -> None:
-    done = subprocess.run(["git", "worktree", "remove", "--force", str(path)], cwd=str(repo_root), capture_output=True, text=True, check=False)
+def _remove_request_worktree(repo_root: Path, path: Path) -> str | None:
+    """`git worktree remove --force <path>`, bounded; returns why git did not answer, if it did not."""
+    done, unanswered = _run_worktree_git(
+        ["git", "worktree", "remove", "--force", str(path)], cwd=Path(repo_root),
+    )
+    if done is None:
+        _engine._stage(
+            f"drain_worktree_remove_unanswered path={path} reason={unanswered} "
+            f"bound={REQUEST_WORKTREE_GIT_TIMEOUT_SECONDS}s"
+        )
+        return unanswered
     if done.returncode != 0:
         _engine._stage(f"drain_worktree_remove_failed path={path} rc={done.returncode}")
+    return None
 
 
 def _operator_paused(tools_dir: Path) -> bool:
@@ -381,8 +506,8 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
     worktree_per_request = bool(executor_cfg["worktree_per_request"])
     inflight: list[dict] = []
 
-    def _launch(request: dict, request_id: str, target_agent: str) -> None:
-        """Start one child (Plan 032 Faz 032h: optionally in its own worktree)."""
+    def _launch(request: dict, request_id: str, target_agent: str, worktree: Path | None) -> None:
+        """Start one child (Plan 032 Faz 032h: in its own worktree when one was added)."""
         child_argv = ["python3", str(_POC_DIR / "ci_executor.py"), request_id]
         if target_agent:
             child_argv.append(target_agent)
@@ -392,12 +517,9 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
         )
         child_env = {**os.environ, "GITHUB_OUTPUT": str(child_output)}
         cwd = repo_root
-        worktree = None
-        if worktree_per_request:
-            worktree = _add_request_worktree(repo_root, request_id, request.get("target_sha"))
-            if worktree is not None:
-                cwd = worktree
-                child_env["ARIA_WORKSPACE_ROOT"] = str(worktree)
+        if worktree is not None:
+            cwd = worktree
+            child_env["ARIA_WORKSPACE_ROOT"] = str(worktree)
         _engine._stage(
             f"drain_dispatch request_id={request_id} target={target_agent or '-'} "
             f"concurrency={len(inflight) + 1}/{max_concurrent} worktree={'yes' if worktree else 'no'}"
@@ -422,7 +544,21 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
             child.wait()
         finally:
             if entry["worktree"] is not None:
-                _remove_request_worktree(repo_root, entry["worktree"])
+                unanswered = _remove_request_worktree(repo_root, entry["worktree"])
+                if unanswered is not None:
+                    # The tree lingers and git is not answering on this
+                    # runner: the breaker's evidence, not the request's.
+                    _record_breaker_failure(
+                        tools_dir,
+                        kind=WORKTREE_UNANSWERED_BREAKER_KIND,
+                        materialize_event_id=f"drain:{run_ref}:{request_id}:worktree-remove",
+                        extra={
+                            "stage": "worktree_remove",
+                            "reason": unanswered,
+                            "request_id": request_id,
+                            "run_id": run_ref,
+                        },
+                    )
         summary: dict | None = None
         if child_output.exists():
             for line in child_output.read_text(encoding="utf-8").splitlines():
@@ -504,12 +640,22 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
         if len(attempted) >= _engine._max_requests():
             stop_reason = "max_requests_reached"
             break
-        # A child may legally run MAX_TIMEOUT_SECONDS; start it only if that
-        # worst case still fits inside the budget. Elapsed-only accounting
-        # let the first live night start a request at t=1987s of a 2100s
-        # budget and get the whole run reaped mid-child (run 31542485896).
+        # A child may legally run its whole worst case — the claim (its
+        # lock wait and the pre-claim git probe), the Claude CLI at
+        # MAX_TIMEOUT_SECONDS, the kernel submit at its wall clock and the
+        # release (`_engine._child_worst_case_seconds`, the one derivation);
+        # start it only if that still fits inside the budget. Elapsed-only
+        # accounting let the first live night start a request at t=1987s of
+        # a 2100s budget and get the whole run reaped mid-child (run
+        # 31542485896); pricing the CLI cap alone let a submit that waited
+        # its full lock bound run past the window into the publish reserve;
+        # pricing the CLI cap and the submit alone left two lock waits and a
+        # probe to spill the same way.
         elapsed = time.monotonic() - started
-        if elapsed + _engine._max_timeout_seconds() > _drain_budget_seconds():
+        if (
+            elapsed + _engine._child_worst_case_seconds(worktree_per_request=worktree_per_request)
+            > _drain_budget_seconds()
+        ):
             stop_reason = "budget_exhausted"
             break
         # Smoke-run 31653106474 — the JOB deadline is a drain-level stop,
@@ -589,11 +735,35 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
                 f"route={route.provider}/{route.model}"
             )
             continue
+        worktree = None
+        if worktree_per_request:
+            added = _add_request_worktree(repo_root, request_id, request.get("target_sha"))
+            if added.unanswered_reason is not None:
+                # Git did not answer inside the store's own cap. The child is
+                # NOT started — it would claim a request on a runner whose
+                # git is not answering — so the request stays PENDING for the
+                # next drain, and the drain stops: the next request's add
+                # would cost the same bound for the same answer.
+                _record_breaker_failure(
+                    tools_dir,
+                    kind=WORKTREE_UNANSWERED_BREAKER_KIND,
+                    materialize_event_id=f"drain:{run_ref}:{request_id}:worktree-add",
+                    extra={
+                        "stage": "worktree_add",
+                        "reason": added.unanswered_reason,
+                        "request_id": request_id,
+                        "run_id": run_ref,
+                    },
+                )
+                stop_reason = WORKTREE_UNAVAILABLE_STOP_REASON
+                failed += 1
+                break
+            worktree = added.path
         attempted.add(request_id)
         dispatched_target_shas.add(str(request.get("target_sha") or ""))
 
         target_agent = str(request.get("target_agent") or "").strip()
-        _launch(request, request_id, target_agent)
+        _launch(request, request_id, target_agent, worktree)
         if len(inflight) >= max_concurrent:
             _settle(inflight.pop(0))
 

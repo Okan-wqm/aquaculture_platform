@@ -52,7 +52,7 @@
 # CreateTenantPage was the last of its six; billing 11 and messaging 9 remain.
 # The ceiling drops with each batch and this file is deleted at 0.
 version: 1
-ceiling: 13
+ceiling: 12
 entries:
   - site: web/modules/admin-panel/src/pages/BillingReportsPage.tsx
     batch: billing
@@ -67,12 +67,6 @@ entries:
     findingId: ADMIN-HIGH-121
     reason: billing batch — reads move to useAdminQuery with an adminKeys.billing key, writes to useAdminMutation with invalidateKeys
   - site: web/modules/admin-panel/src/pages/CustomPlansListPage.tsx
-    batch: billing
-    owner: okan
-    expiry: 2026-12-31
-    findingId: ADMIN-HIGH-121
-    reason: billing batch — reads move to useAdminQuery with an adminKeys.billing key, writes to useAdminMutation with invalidateKeys
-  - site: web/modules/admin-panel/src/pages/DiscountCodePage.tsx
     batch: billing
     owner: okan
     expiry: 2026-12-31

@@ -834,6 +834,47 @@ in `web/` reaches the logout authority; `@tanstack/react-query` is declared
 wherever it is imported, at the federation-pinned version; the barrel keeps
 exporting the primitives.
 
+## ADMIN-HIGH-143 — a redemption cap that a typo, or a zero, silently removed
+
+**State:** OPEN → closed by W9h · **Wave:** W9h · **Owner:** okan
+**Deadline:** 2026-12-31
+
+`discount-rules.ts:104-106` (and `112-114`) enforce a redemption cap **only
+when it is neither null nor undefined** — so `undefined` means _unlimited_.
+
+The create form built both caps with `parseInt(e.target.value, 10) ||
+undefined`, which yields `undefined` from three different operator inputs:
+
+| typed                             | result                                                               |
+| --------------------------------- | -------------------------------------------------------------------- |
+| `abc`, or a stray letter in `1OO` | `NaN \|\| undefined` → **unlimited**                                 |
+| _(empty)_                         | `undefined` → unlimited — correct, and what the placeholder promises |
+| **`0`**                           | `0 \|\| undefined` → **unlimited**                                   |
+
+The last is the sharpest. `0` is the clearest way an operator can say _"this
+code may not be redeemed"_, and it produced a code with **no cap at all** — on
+a field whose only purpose is to bound how much revenue a discount can give
+away.
+
+The display carried the same defect in reverse:
+`value={newCode.maxRedemptions || ''}` blanked a stored `0`, so the box could
+not show the value it held.
+
+W9h replaces both with a `parseRedemptionCap` helper: empty still means
+unlimited, a real number is kept **including 0**, and an unparseable entry
+leaves the previous value alone rather than silently removing the limit.
+Display uses `?? ''`.
+
+**Fixed alongside:** `isActive: showActive || undefined` sent **no filter at
+all** when the Active box was unticked, so clearing it widened the listing to
+every code rather than narrowing it to the inactive ones the label implies.
+
+Both reads move to `useAdminQuery` on `adminKeys.billing.discountCodes(filters)`
+and `discountStats()` with abort signals. The three write handlers — whose
+error surfacing was already honest, showing the server's own message — keep
+their own error block and now refresh through the cache instead of a floating
+`loadData()`.
+
 ## ADMIN-MEDIUM-142 — two standards of honesty on one page
 
 **State:** OPEN → closed by W9g · **Wave:** W9g · **Owner:** okan

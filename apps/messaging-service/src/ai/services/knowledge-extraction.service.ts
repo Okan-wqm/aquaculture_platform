@@ -19,7 +19,7 @@
  *
  * @see ADR-012 section 12.3 (Knowledge Extraction)
  */
-import { Injectable, Logger, Inject } from '@nestjs/common';
+import { Injectable, Logger, Inject, OnModuleInit } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, QueryRunner } from 'typeorm';
@@ -36,6 +36,10 @@ import {
   KnowledgeCategory,
 } from '../entities/knowledge-entry.entity';
 import { AiPrivacyService } from './ai-privacy.service';
+import {
+  MESSAGING_AI_KNOWLEDGE_CRON_ENABLED_ENV,
+  messagingAiFlagEnabled,
+} from '../ai-trigger.config';
 
 /** NATS request timeout in milliseconds (30 seconds). */
 const NATS_TIMEOUT_MS = 30_000;
@@ -90,9 +94,18 @@ interface ProcessableMessage {
 }
 
 @Injectable()
-export class KnowledgeExtractionService {
+export class KnowledgeExtractionService implements OnModuleInit {
   private readonly logger = new Logger(KnowledgeExtractionService.name);
   private isProcessing = false;
+
+  /**
+   * MSGFIX-FAZ0 (2026-09-16): cron ceasefire. This sweep has been processing
+   * message content in production without an explicit opt-in — that is a
+   * UX/compliance problem. Until the Faz 2 consent-gated trigger lands, the
+   * hourly batch must NOT run unless explicitly enabled. Default: OFF.
+   * The pipeline code is kept (removal is Faz 2.1) — only the gate is new.
+   */
+  private readonly cronEnabled = messagingAiFlagEnabled(MESSAGING_AI_KNOWLEDGE_CRON_ENABLED_ENV);
 
   constructor(
     @InjectRepository(MessageEntityReference)
@@ -105,6 +118,16 @@ export class KnowledgeExtractionService {
     private readonly privacyService: AiPrivacyService,
   ) {}
 
+  onModuleInit(): void {
+    if (!this.cronEnabled) {
+      // Single startup line — silence afterwards; every hourly tick exits
+      // before touching the database.
+      this.logger.log(
+        `Knowledge extraction cron disabled by config (set ${MESSAGING_AI_KNOWLEDGE_CRON_ENABLED_ENV}='true' to re-enable).`,
+      );
+    }
+  }
+
   /**
    * Cron job: every hour, process messages from the last hour for knowledge extraction.
    *
@@ -114,6 +137,10 @@ export class KnowledgeExtractionService {
    */
   @Cron('0 * * * *')
   async processHourlyBatch(): Promise<void> {
+    // MSGFIX-FAZ0 ceasefire gate — must be the FIRST statement so a disabled
+    // tick does not even reset/inspect processing state.
+    if (!this.cronEnabled) return;
+
     if (this.isProcessing) {
       this.logger.debug('Knowledge extraction already in progress, skipping');
       return;

@@ -7,16 +7,22 @@ import { AiPrivacyService } from '../ai-privacy.service';
 import { KnowledgeEntry } from '../../entities/knowledge-entry.entity';
 import { KnowledgeExtractionService } from '../knowledge-extraction.service';
 import { MessageEntityReference } from '../../entities/message-entity-reference.entity';
+import { MESSAGING_AI_KNOWLEDGE_CRON_ENABLED_ENV } from '../../ai-trigger.config';
 
 /**
  * ORPHAN-MEDIUM-336 — the knowledge-extraction sweep must call the farm
  * getTankRegistry responder with the CANONICAL tenant UUID (recovered from the
  * tenant's own message rows), not the lossy tenant_<16hex> schema name the
  * responder rejects as a non-UUID. This pins the request payload shape.
+ *
+ * The pipeline specs run with the MSGFIX-FAZ0 ceasefire flag OPEN; the
+ * default-OFF behaviour has its own describe at the bottom.
  */
 describe('KnowledgeExtractionService — tank-registry request payload (ORPHAN-MEDIUM-336)', () => {
   const TENANT_ID = '7f6b08ab-90e2-46d3-a260-cb985f1fd897';
   const TENANT_SCHEMA = 'tenant_7f6b08ab90e246d3';
+  /** Saved so the suite leaves the process env exactly as it found it. */
+  const savedCronEnv = process.env[MESSAGING_AI_KNOWLEDGE_CRON_ENABLED_ENV];
 
   const send = jest.fn().mockReturnValue(of([]));
 
@@ -64,6 +70,8 @@ describe('KnowledgeExtractionService — tank-registry request payload (ORPHAN-M
   beforeEach(async () => {
     jest.clearAllMocks();
     send.mockReturnValue(of([]));
+    // MSGFIX-FAZ0: pipeline behaviour is tested with the gate OPEN.
+    process.env[MESSAGING_AI_KNOWLEDGE_CRON_ENABLED_ENV] = 'true';
     const moduleRef = await Test.createTestingModule({
       providers: [
         KnowledgeExtractionService,
@@ -77,6 +85,11 @@ describe('KnowledgeExtractionService — tank-registry request payload (ORPHAN-M
     service = moduleRef.get(KnowledgeExtractionService);
   });
 
+  afterEach(() => {
+    if (savedCronEnv === undefined) delete process.env[MESSAGING_AI_KNOWLEDGE_CRON_ENABLED_ENV];
+    else process.env[MESSAGING_AI_KNOWLEDGE_CRON_ENABLED_ENV] = savedCronEnv;
+  });
+
   it('requests the tank registry with the canonical {tenantId}, not the schema name', async () => {
     await service.processHourlyBatch();
 
@@ -87,5 +100,63 @@ describe('KnowledgeExtractionService — tank-registry request payload (ORPHAN-M
     expect(send).not.toHaveBeenCalledWith('request.farm.getTankRegistry', {
       tenantSchema: TENANT_SCHEMA,
     });
+  });
+});
+
+describe('KnowledgeExtractionService — MSGFIX-FAZ0 cron ceasefire (default OFF)', () => {
+  const savedCronEnv = process.env[MESSAGING_AI_KNOWLEDGE_CRON_ENABLED_ENV];
+  const send = jest.fn().mockReturnValue(of([]));
+
+  const buildService = async (dataSource: object) => {
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        KnowledgeExtractionService,
+        { provide: getRepositoryToken(MessageEntityReference), useValue: {} },
+        { provide: getRepositoryToken(KnowledgeEntry), useValue: {} },
+        { provide: DataSource, useValue: dataSource },
+        { provide: 'NATS_SERVICE', useValue: { send } },
+        { provide: AiPrivacyService, useValue: {} },
+      ],
+    }).compile();
+    return moduleRef.get(KnowledgeExtractionService);
+  };
+
+  afterEach(() => {
+    jest.clearAllMocks();
+    if (savedCronEnv === undefined) delete process.env[MESSAGING_AI_KNOWLEDGE_CRON_ENABLED_ENV];
+    else process.env[MESSAGING_AI_KNOWLEDGE_CRON_ENABLED_ENV] = savedCronEnv;
+  });
+
+  it('a tick with the flag unset never touches the database nor NATS', async () => {
+    delete process.env[MESSAGING_AI_KNOWLEDGE_CRON_ENABLED_ENV];
+    const dataSource = { query: jest.fn(), createQueryRunner: jest.fn() };
+    const service = await buildService(dataSource);
+
+    await service.processHourlyBatch();
+
+    expect(dataSource.query).not.toHaveBeenCalled();
+    expect(dataSource.createQueryRunner).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('a non-true flag value also keeps the sweep parked (fails closed)', async () => {
+    process.env[MESSAGING_AI_KNOWLEDGE_CRON_ENABLED_ENV] = 'yes';
+    const dataSource = { query: jest.fn(), createQueryRunner: jest.fn() };
+    const service = await buildService(dataSource);
+
+    await service.processHourlyBatch();
+
+    expect(dataSource.query).not.toHaveBeenCalled();
+  });
+
+  it('logs one INFO line at startup explaining how to re-enable', async () => {
+    delete process.env[MESSAGING_AI_KNOWLEDGE_CRON_ENABLED_ENV];
+    const service = await buildService({ query: jest.fn(), createQueryRunner: jest.fn() });
+
+    const logSpy = jest.spyOn(service['logger'], 'log').mockImplementation(() => undefined);
+    service.onModuleInit();
+    expect(logSpy).toHaveBeenCalledTimes(1);
+    expect(String(logSpy.mock.calls[0]?.[0])).toContain('disabled by config');
+    logSpy.mockRestore();
   });
 });

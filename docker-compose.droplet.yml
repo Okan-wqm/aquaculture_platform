@@ -2044,6 +2044,25 @@ services:
         limits:
           memory: 128M
 
+  nats-exporter:
+    logging: *default-logging
+    image: nats-io/prometheus-nats-exporter:0.20.2
+    container_name: aqua-nats-exporter
+    restart: unless-stopped
+    # MSGFIX-FAZ0 (2026-09-16): '-js=server' is NOT a valid flag in v0.20.2
+    # ("flag provided but not defined: -js" → crash-loop Exited(2) → the
+    # Prometheus nats-exporter job went blind and a 16h NATS outage went
+    # unnoticed). '-jsz=all' is the correct JetStream filter for this version
+    # and renames jetstream_* metrics to nats_server_jetstream_* via -prefix,
+    # which is the naming the alert rules and Grafana dashboards expect.
+    command: ['-varz', '-jsz=all', '-prefix', 'nats', 'http://nats:8222']
+    networks:
+      - aqua-internal
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+
   alertmanager:
     logging: *default-logging
     image: prom/alertmanager:v0.27.0

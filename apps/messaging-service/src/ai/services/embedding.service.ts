@@ -10,7 +10,7 @@
  *
  * @see ADR-012 section 12.1 (Embedding Pipeline)
  */
-import { Injectable, Logger, Inject, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, Inject, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { ClientProxy } from '@nestjs/microservices';
 import { DataSource, QueryRunner } from 'typeorm';
@@ -18,6 +18,10 @@ import { DataSource, QueryRunner } from 'typeorm';
 import { pinTenantSchemaTransactionSearchPath } from '@aquaculture/backend-common/database';
 import { firstValueFrom, timeout, catchError, of } from 'rxjs';
 import { AiEgressGateService } from './ai-egress-gate.service';
+import {
+  MESSAGING_AI_EMBEDDING_CRON_ENABLED_ENV,
+  messagingAiFlagEnabled,
+} from '../ai-trigger.config';
 
 /** Batch size for embedding generation. */
 const BATCH_SIZE = 100;
@@ -45,9 +49,18 @@ interface UnembeddedMessage {
 }
 
 @Injectable()
-export class EmbeddingService implements OnModuleDestroy {
+export class EmbeddingService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(EmbeddingService.name);
   private isProcessing = false;
+
+  /**
+   * MSGFIX-FAZ0 (2026-09-16): cron ceasefire. The embedding sweep sends
+   * message content to ai-service; until the Faz 2 consent-gated trigger
+   * lands it must NOT run unless explicitly enabled. Default: OFF.
+   * The pipeline code is kept intact (removal is Faz 2.1) — only the gate
+   * is new.
+   */
+  private readonly cronEnabled = messagingAiFlagEnabled(MESSAGING_AI_EMBEDDING_CRON_ENABLED_ENV);
 
   constructor(
     private readonly dataSource: DataSource,
@@ -55,6 +68,16 @@ export class EmbeddingService implements OnModuleDestroy {
     private readonly natsClient: ClientProxy,
     private readonly egressGate: AiEgressGateService,
   ) {}
+
+  onModuleInit(): void {
+    if (!this.cronEnabled) {
+      // Single startup line — silence afterwards; every 5-minute tick exits
+      // before touching the database.
+      this.logger.log(
+        `Embedding cron disabled by config (set ${MESSAGING_AI_EMBEDDING_CRON_ENABLED_ENV}='true' to re-enable).`,
+      );
+    }
+  }
 
   onModuleDestroy(): void {
     this.isProcessing = false;
@@ -67,6 +90,10 @@ export class EmbeddingService implements OnModuleDestroy {
    */
   @Cron('*/5 * * * *')
   async processUnembeddedMessages(): Promise<void> {
+    // MSGFIX-FAZ0 ceasefire gate — must be the FIRST statement so a disabled
+    // tick does not even reset/inspect processing state.
+    if (!this.cronEnabled) return;
+
     if (this.isProcessing) {
       this.logger.debug('Embedding batch already in progress, skipping');
       return;

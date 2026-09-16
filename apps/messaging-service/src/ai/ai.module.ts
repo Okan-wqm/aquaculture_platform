@@ -39,6 +39,9 @@ import { SentimentAnalysisService } from './services/sentiment-analysis.service'
 import { KnowledgeExtractionService } from './services/knowledge-extraction.service';
 import { AiChatBridgeService } from './services/ai-chat-bridge.service';
 import { AiPersonasRegistryService } from './services/ai-personas-registry.service';
+// MSGFIX-FAZ0: env-driven AI kill-switch (MESSAGING_AI_TRIGGER_ENABLED, default OFF).
+// The Faz 2 trigger will inject this before enqueuing any AI analysis.
+import { AiTriggerConfig } from './ai-trigger.config';
 
 // AI Safety — SSRF / input filter / output PII scanner now come from the
 // shared core module (libs/backend-common/src/ai-safety) extracted under
@@ -117,8 +120,11 @@ const services = [
     ...commandHandlers,
     ...queryHandlers,
     ...services,
+    // MSGFIX-FAZ0: AI trigger kill-switch config (reads env once at boot,
+    // logs one line when disabled). Exported for the Faz 2 trigger.
+    AiTriggerConfig,
     AiResolver,
   ],
-  exports: [AiPrivacyService, AiEgressGateService, AiPersonasRegistryService],
+  exports: [AiPrivacyService, AiEgressGateService, AiPersonasRegistryService, AiTriggerConfig],
 })
 export class AiModule {}

@@ -16,7 +16,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { ClientsModule } from '@nestjs/microservices';
 import { EventBusModule, buildEventBusConfig } from '@platform/event-bus';
 import { NatsV3Client } from '@aquaculture/backend-common/nats';
-import { APP_GUARD, Reflector } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD, Reflector } from '@nestjs/core';
 import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
 import { DocumentNode, GraphQLError, GraphQLSchema } from 'graphql';
 import depthLimit from 'graphql-depth-limit';
@@ -122,6 +122,8 @@ import { EventHandlersModule } from './event-handlers/event-handlers.module';
 import { AiModule } from './ai/ai.module';
 import { MessagingNotificationModule } from './notification/notification.module';
 import { MetricsModule } from './metrics/metrics.module';
+// MSGFIX-FAZ0: GraphQL error-code contract — see filters/global-exception.filter.ts
+import { GlobalExceptionFilter } from './filters/global-exception.filter';
 
 // Per-process complexity cache keyed by document hash
 const complexityCache = new Map<string, number>();
@@ -362,6 +364,12 @@ type QueryComplexityOperationContext = {
     SchemaDriftModule.forRoot({ serviceName: 'messaging' }),
   ],
   providers: [
+    // MSGFIX-FAZ0 (2026-09-16): register the GraphQL error-code contract
+    // filter (NotFoundException → NOT_FOUND, 401 → UNAUTHENTICATED, ...).
+    // Only APP_FILTER in this module; if others are ever appended, note Nest
+    // invokes APP_FILTERs in REVERSE registration order (see farm-service
+    // app.module.ts for the same caveat).
+    { provide: APP_FILTER, useClass: GlobalExceptionFilter },
     // WHY: useFactory bypasses reflect-metadata resolution which fails in Docker Alpine.
     {
       provide: APP_GUARD,

@@ -21,6 +21,9 @@ import { of } from 'rxjs';
 
 import { EmbeddingService } from '../embedding.service';
 import { AiEgressGateService } from '../ai-egress-gate.service';
+import {
+  MESSAGING_AI_EMBEDDING_CRON_ENABLED_ENV,
+} from '../../ai-trigger.config';
 import { createMockNatsClient, fakeUuid, resetUuidCounter, MockNatsClient } from '../../../__tests__/test-helpers';
 
 const SCHEMA_A = 'tenant_aaaaaaaaaaaaaaaa';
@@ -97,11 +100,21 @@ function message(senderId: string, tenantId: string) {
 
 describe('EmbeddingService — per-tenant schema binding', () => {
   let natsClient: MockNatsClient;
+  /** Saved so the suite leaves the process env exactly as it found it. */
+  const savedCronEnv = process.env[MESSAGING_AI_EMBEDDING_CRON_ENABLED_ENV];
 
   beforeEach(() => {
+    // MSGFIX-FAZ0: the pipeline itself is tested with the gate OPEN; the
+    // default-OFF ceasefire behaviour has its own describe below.
+    process.env[MESSAGING_AI_EMBEDDING_CRON_ENABLED_ENV] = 'true';
     resetUuidCounter();
     natsClient = createMockNatsClient();
     natsClient.send.mockReturnValue(of({ embeddings: [[0.1, 0.2, 0.3]] }));
+  });
+
+  afterEach(() => {
+    if (savedCronEnv === undefined) delete process.env[MESSAGING_AI_EMBEDDING_CRON_ENABLED_ENV];
+    else process.env[MESSAGING_AI_EMBEDDING_CRON_ENABLED_ENV] = savedCronEnv;
   });
 
   it('pins each tenant schema before reading messages', async () => {
@@ -210,5 +223,55 @@ describe('EmbeddingService — per-tenant schema binding', () => {
 
     expect(runner.rollbackTransaction).toHaveBeenCalled();
     expect(recorded.some((q) => String(q.params?.[0]).includes(SCHEMA_B))).toBe(true);
+  });
+});
+
+describe('EmbeddingService — MSGFIX-FAZ0 cron ceasefire (default OFF)', () => {
+  const savedCronEnv = process.env[MESSAGING_AI_EMBEDDING_CRON_ENABLED_ENV];
+
+  afterEach(() => {
+    if (savedCronEnv === undefined) delete process.env[MESSAGING_AI_EMBEDDING_CRON_ENABLED_ENV];
+    else process.env[MESSAGING_AI_EMBEDDING_CRON_ENABLED_ENV] = savedCronEnv;
+  });
+
+  it('a tick with the flag unset never touches the database', async () => {
+    delete process.env[MESSAGING_AI_EMBEDDING_CRON_ENABLED_ENV];
+    const natsClient = createMockNatsClient();
+    const dataSource = {
+      query: jest.fn(),
+      createQueryRunner: jest.fn(),
+    };
+    const { service } = await buildService(dataSource, natsClient);
+
+    await service.processUnembeddedMessages();
+
+    expect(dataSource.query).not.toHaveBeenCalled();
+    expect(dataSource.createQueryRunner).not.toHaveBeenCalled();
+    expect(natsClient.send).not.toHaveBeenCalled();
+  });
+
+  it('a non-true flag value also keeps the pipeline parked (fails closed)', async () => {
+    process.env[MESSAGING_AI_EMBEDDING_CRON_ENABLED_ENV] = '1';
+    const natsClient = createMockNatsClient();
+    const dataSource = { query: jest.fn(), createQueryRunner: jest.fn() };
+    const { service } = await buildService(dataSource, natsClient);
+
+    await service.processUnembeddedMessages();
+
+    expect(dataSource.query).not.toHaveBeenCalled();
+  });
+
+  it('logs one INFO line at startup explaining how to re-enable', () => {
+    delete process.env[MESSAGING_AI_EMBEDDING_CRON_ENABLED_ENV];
+    const natsClient = createMockNatsClient();
+    const dataSource = { query: jest.fn(), createQueryRunner: jest.fn() };
+
+    return buildService(dataSource, natsClient).then(({ service }) => {
+      const logSpy = jest.spyOn(service['logger'], 'log').mockImplementation(() => undefined);
+      service.onModuleInit();
+      expect(logSpy).toHaveBeenCalledTimes(1);
+      expect(String(logSpy.mock.calls[0]?.[0])).toContain('disabled by config');
+      logSpy.mockRestore();
+    });
   });
 });

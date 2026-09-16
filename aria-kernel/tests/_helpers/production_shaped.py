@@ -294,13 +294,22 @@ def production_implementation_request(
     A fixture that hand-minted the row was testing an input production never
     produces, so this helper drives a plan to CONVERGED through
     :func:`production_converged_plan` (scoped to ``allowed_path``) and mints
-    through the real bridge. The staged ids are fixture literals: the mint
-    names them, it does not resolve them.
+    through the real bridge. The staged proposal/change/branch ids are
+    fixture literals (the mint names them, it does not resolve them); the
+    staged base is the workspace's HEAD, as production's staging measures
+    it — ARIA-HIGH-144 made the envelope carry that base as its
+    ``target_sha``, which the submission's evidence-target check resolves
+    against the tree, so a zero base is no longer a row production mints.
     """
     import hashlib
+    import subprocess
 
     from aria_kernel.cross_review_bridge import issue_implementation_envelope
 
+    if base_sha is None:
+        head = subprocess.run(["git", "-C", str(workspace_root), "rev-parse", "HEAD"],
+                              capture_output=True, text=True, check=False)
+        base_sha = head.stdout.strip() if head.returncode == 0 and head.stdout.strip() else "0" * 40
     plan = production_converged_plan(
         tools_dir=tools_dir, workspace_root=workspace_root, plan_id=plan_id,
         affected_paths=[allowed_path],
@@ -312,7 +321,7 @@ def production_implementation_request(
         proposal_id=f"proposal-{plan_id}",
         change_id=f"chg-{plan_id}",
         branch="aria-impl-" + hashlib.sha256(plan_id.encode("utf-8")).hexdigest()[:16],
-        base_sha=base_sha or "0" * 40,
+        base_sha=base_sha,
         base_dir=tools_dir,
         cycle_id=cycle_id,
     )

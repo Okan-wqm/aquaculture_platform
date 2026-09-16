@@ -834,6 +834,33 @@ in `web/` reaches the logout authority; `@tanstack/react-query` is declared
 wherever it is imported, at the federation-pinned version; the barrel keeps
 exporting the primitives.
 
+## ADMIN-MEDIUM-142 — two standards of honesty on one page
+
+**State:** OPEN → closed by W9g · **Wave:** W9g · **Owner:** okan
+**Deadline:** 2026-12-31
+
+`loadPlans` caught its error, wrote `console.error` (banned), and set the fixed
+string _"Failed to load plans. Please try again."_, which the render showed as a
+full-page takeover with a Retry.
+
+**One function below**, `handleDeprecatePlan` set `(err as Error).message` —
+the server's actual reason. The same page told an operator precisely what was
+wrong when a write failed and nothing whatsoever when a read did; the read's
+failure could not be told apart from a capability refusal, an outage, or a bad
+gateway.
+
+MEDIUM rather than HIGH because, unlike its siblings in this batch, this page
+never rendered a fabricated number. It failed loudly — just uninformatively.
+
+W9g moves the read to `useAdminQuery` on `adminKeys.billing.plans(true)` with
+an abort signal, the deprecate write to `useAdminMutation` invalidating that key
+rather than calling `loadPlans()` as a floating promise, and surfaces both
+errors verbatim through `QueryFailureNotice` — inline, because a refused
+deprecate is a message about that action, not a reason to remove the catalogue
+the operator is reading. The `plans` key now carries `includeInactive` as a
+discriminator, so an inactive-inclusive listing cannot overwrite a public one in
+one cache entry.
+
 ## ADMIN-HIGH-141 — "Please try again", in place of the reason to try differently
 
 **State:** OPEN → closed by W9f · **Wave:** W9f · **Owner:** okan

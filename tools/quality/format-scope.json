@@ -26325,6 +26325,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/sensor-service/src/ingestion/__tests__/sensor-topic-cache.rls.postgres.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/sensor-service/src/ingestion/__tests__/sensor-topic-cache.service.spec.ts",
       "prettier_managed": true
     },

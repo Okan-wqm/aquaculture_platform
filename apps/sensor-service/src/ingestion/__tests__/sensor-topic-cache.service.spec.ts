@@ -1,22 +1,39 @@
 /**
- * SensorTopicCacheService warm-up tests
+ * SensorTopicCacheService warm-up + lookup tests
  *
- * Regression cover for the warm-up row-mapping bug: the warm-up SQL used to
- * select `protocol_configuration` (pg returns it snake_case, unaliased) while
- * the mapping read `sensor.protocolConfiguration` — every topic read as
- * undefined and the service logged "Cache warmed up: 0 sensors" forever.
+ * Covers two regressions in one place:
+ * - F5/SENSOR-MEDIUM-120: the warm-up SQL used to select `protocol_configuration`
+ *   (pg returns it snake_case, unaliased) while the mapping read
+ *   `sensor.protocolConfiguration` — warm-up silently cached 0 sensors.
+ * - F4/SENSOR-HIGH-119: warm-up and topic lookup now iterate ACTIVE TENANT
+ *   IDENTITIES and read each schema through runInTenantRead (tenant GUC pinned
+ *   per transaction) instead of a bare cross-schema SELECT that FORCE RLS
+ *   denies on the deny-by-default pool.
  *
- * The stub rows below mirror EXACTLY what the (fixed) aliased query returns
- * from pg — camelCase keys — so reverting the alias breaks these tests.
+ * platform helpers are partial-mocked: runInTenantRead hands the callback a
+ * fake query runner, so the specs assert the SQL/rows contract without PG.
  */
 
 import { DataSource } from 'typeorm';
 import { RedisService } from '@aquaculture/backend-common/redis';
+import {
+  listActiveTenantSchemaIdentities,
+  runInTenantRead,
+} from '@aquaculture/backend-common/database';
 
 import { SensorTopicCacheService } from '../sensor-topic-cache.service';
 
-const TENANT_A = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
-const TENANT_B = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+const TENANT_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const TENANT_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+
+jest.mock('@aquaculture/backend-common/database', () => {
+  const actual = jest.requireActual('@aquaculture/backend-common/database');
+  return {
+    ...actual,
+    listActiveTenantSchemaIdentities: jest.fn(),
+    runInTenantRead: jest.fn(),
+  };
+});
 
 interface Row {
   id: string;
@@ -38,29 +55,34 @@ function makeRow(id: string, tenantId: string, topic: string): Row {
   };
 }
 
-describe('SensorTopicCacheService warmUpCache', () => {
+describe('SensorTopicCacheService tenant-scoped reads', () => {
   let service: SensorTopicCacheService;
   let setJson: jest.Mock;
   let getJson: jest.Mock;
-  let query: jest.Mock;
   let redisService: RedisService;
   let dataSource: DataSource;
-  let rowsBySchema: Map<string, Row[]>;
+  let rowsByTenant: Map<string, Row[]>;
+  let queryLog: string[];
+  let currentWarmRows: Row[];
 
   beforeEach(() => {
-    rowsBySchema = new Map<string, Row[]>([
+    jest.clearAllMocks();
+
+    rowsByTenant = new Map<string, Row[]>([
       [
-        'tenant_aaaa000000000000',
+        TENANT_A,
         [makeRow('11111111-1111-4111-8111-111111111111', TENANT_A, 'sensors/site-a/water-temp')],
       ],
       [
-        'tenant_bbbb000000000000',
+        TENANT_B,
         [
           makeRow('22222222-2222-4222-8222-222222222222', TENANT_B, 'sensors/site-b/water-temp'),
           makeRow('33333333-3333-4333-8333-333333333333', TENANT_B, 'sensors/site-b/ph'),
         ],
       ],
     ]);
+    queryLog = [];
+    currentWarmRows = [];
 
     getJson = jest.fn().mockResolvedValue(null);
     setJson = jest.fn().mockResolvedValue(undefined);
@@ -71,30 +93,50 @@ describe('SensorTopicCacheService warmUpCache', () => {
       keys: jest.fn().mockResolvedValue([]),
     } as Partial<RedisService> as RedisService;
 
-    query = jest.fn().mockImplementation(async (sql: string, params?: unknown[]) => {
-      if (sql.includes('information_schema.schemata')) {
-        return [...rowsBySchema.keys()].map((schema_name) => ({ schema_name }));
-      }
-      if (sql.includes('information_schema.tables')) {
-        const schema = String(params?.[0]);
-        return rowsBySchema.has(schema) ? [{ '?column?': 1 }] : [];
-      }
-      if (sql.includes('protocol_configuration')) {
-        const schemaMatch = sql.match(/FROM "(tenant_[a-f0-9]+)"/);
-        const schema = schemaMatch?.[1] ?? '';
-        return rowsBySchema.get(schema) ?? [];
-      }
-      return [];
-    });
-    dataSource = { query } as Partial<DataSource> as DataSource;
+    const qr = {
+      query: jest.fn().mockImplementation(async (sql: string, params?: unknown[]) => {
+        queryLog.push(sql);
+        if (sql.includes("->>'topic' = $1")) {
+          const topic = String(params?.[0]);
+          for (const rows of rowsByTenant.values()) {
+            const hit = rows.find((r) => r.protocolConfiguration.topic === topic);
+            if (hit) return [hit];
+          }
+          return [];
+        }
+        if (sql.includes("LIKE '%#%'")) {
+          return [...(rowsByTenant.get(TENANT_B) ?? [])];
+        }
+        if (sql.includes('IS NOT NULL')) {
+          return currentWarmRows;
+        }
+        return [];
+      }),
+    };
 
+    (listActiveTenantSchemaIdentities as jest.Mock).mockResolvedValue([
+      { schemaName: 'tenant_aaaa000000000000', tenantId: TENANT_A },
+      { schemaName: 'tenant_bbbb000000000000', tenantId: TENANT_B },
+    ]);
+    (runInTenantRead as jest.Mock).mockImplementation(
+      async (
+        _ds: unknown,
+        _schema: string,
+        tenantId: string,
+        fn: (runner: unknown) => Promise<unknown>,
+      ) => {
+        currentWarmRows = rowsByTenant.get(tenantId) ?? [];
+        return fn(qr);
+      },
+    );
+
+    dataSource = { query: jest.fn() } as Partial<DataSource> as DataSource;
     service = new SensorTopicCacheService(redisService, dataSource);
   });
 
-  it('warms the cache from every tenant schema (regression: was silently 0)', async () => {
+  it('warms the cache from every active tenant (regression: was silently 0)', async () => {
     await service.onModuleInit();
 
-    // 3 sensors across 2 schemas must produce 3 tenant-scoped cache writes
     const sensorEntryWrites = setJson.mock.calls.filter(
       ([key]) => typeof key === 'string' && key.startsWith('sensor:tenant:'),
     );
@@ -112,67 +154,87 @@ describe('SensorTopicCacheService warmUpCache', () => {
     );
   });
 
-  it('resolves warmed topics without any further database query', async () => {
+  it('reads each tenant through runInTenantRead (no bare cross-schema SELECT)', async () => {
     await service.onModuleInit();
 
-    const dbCallsBefore = query.mock.calls.length;
+    expect(listActiveTenantSchemaIdentities).toHaveBeenCalledWith(dataSource);
+    const tenantsRead = (runInTenantRead as jest.Mock).mock.calls.map((call) => call[2]);
+    expect(tenantsRead).toEqual(expect.arrayContaining([TENANT_A, TENANT_B]));
+    // The bare dataSource.query (the RLS-blind path) is never used for sensors
+    expect((dataSource.query as jest.Mock).mock.calls).toHaveLength(0);
+  });
+
+  it('resolves warmed topics without any further tenant read', async () => {
+    await service.onModuleInit();
+
+    const readsBefore = (runInTenantRead as jest.Mock).mock.calls.length;
     const cached = await service.getSensorByTopic('sensors/site-b/ph');
 
     expect(cached).not.toBeNull();
     expect(cached?.id).toBe('33333333-3333-4333-8333-333333333333');
     expect(cached?.schemaName).toBe('tenant_bbbb000000000000');
-    expect(query.mock.calls.length).toBe(dbCallsBefore);
+    expect((runInTenantRead as jest.Mock).mock.calls.length).toBe(readsBefore);
   });
 
-  it('caches nothing when a schema has no sensors with topics', async () => {
-    rowsBySchema.set('tenant_cccc000000000000', []);
+  it('falls back to the database through runInTenantRead on cache miss and caches the hit', async () => {
+    const sensor = await service.getSensorByTopic('sensors/site-a/water-temp');
 
+    expect(sensor).not.toBeNull();
+    expect(sensor?.id).toBe('11111111-1111-4111-8111-111111111111');
+    expect(
+      setJson.mock.calls.some(
+        ([key]) => typeof key === 'string' && key.includes(TENANT_A) && key.includes('site-a'),
+      ),
+    ).toBe(true);
+  });
+
+  it('guards the camelCase alias in every sensors query (F5 regression pin)', async () => {
     await service.onModuleInit();
+    await service.getSensorByTopic('sensors/site-a/water-temp');
 
-    const keys = setJson.mock.calls.map(([key]) => key).filter((k) => typeof k === 'string');
-    // 3 writes per sensor (tenant entry + topic index + reverse lookup) — none from the empty schema
-    expect(keys).toHaveLength(9);
-    expect(keys.every((k) => !k.includes('tenant_cccc'))).toBe(true);
+    for (const sql of queryLog.filter((s) => s.includes('protocol_configuration'))) {
+      expect(sql).toContain('protocol_configuration AS "protocolConfiguration"');
+    }
   });
 
-  it('sends the aliased protocolConfiguration column to the mapping (guards the SQL alias)', async () => {
-    await service.onModuleInit();
-
-    const warmUpSql = query.mock.calls
-      .map(([sql]) => String(sql))
-      .find((sql) => sql.includes('protocol_configuration'));
-    expect(warmUpSql).toBeDefined();
-    // The alias is the fix itself — pg must return camelCase for the row mapping.
-    expect(warmUpSql).toContain('protocol_configuration AS "protocolConfiguration"');
-  });
-
-  it('does not blow up when a schema query fails (per-schema isolation)', async () => {
-    const failingQuery = jest.fn().mockImplementation(async (sql: string, params?: unknown[]) => {
-      if (
-        sql.includes('information_schema.tables') &&
-        String(params?.[0]) === 'tenant_bbbb000000000000'
-      ) {
-        throw new Error('relation does not exist');
-      }
-      if (sql.includes('information_schema.schemata')) {
-        return [...rowsBySchema.keys()].map((schema_name) => ({ schema_name }));
-      }
-      if (sql.includes('information_schema.tables')) {
-        return [{ '?column?': 1 }];
-      }
-      if (sql.includes('protocol_configuration')) {
-        const schemaMatch = sql.match(/FROM "(tenant_[a-f0-9]+)"/);
-        return rowsBySchema.get(schemaMatch?.[1] ?? '') ?? [];
-      }
-      return [];
-    });
-    query.mockImplementation(failingQuery);
+  it('does not blow up when one tenant read fails (per-tenant isolation)', async () => {
+    (runInTenantRead as jest.Mock).mockImplementation(
+      async (
+        _ds: unknown,
+        _schema: string,
+        tenantId: string,
+        fn: (runner: unknown) => Promise<unknown>,
+      ) => {
+        if (tenantId === TENANT_B) throw new Error('relation does not exist');
+        currentWarmRows = rowsByTenant.get(tenantId) ?? [];
+        return fn(qrFactory());
+      },
+    );
 
     await expect(service.onModuleInit()).resolves.toBeUndefined();
-
     const sensorEntryWrites = setJson.mock.calls.filter(
       ([key]) => typeof key === 'string' && key.startsWith('sensor:tenant:'),
     );
-    expect(sensorEntryWrites).toHaveLength(1); // tenant A survived, tenant B failed silently per-schema
+    expect(sensorEntryWrites).toHaveLength(1); // tenant A survived
   });
+
+  function qrFactory() {
+    return {
+      query: jest.fn().mockImplementation(async (sql: string, params?: unknown[]) => {
+        queryLog.push(sql);
+        if (sql.includes("->>'topic' = $1")) {
+          const topic = String(params?.[0]);
+          for (const rows of rowsByTenant.values()) {
+            const hit = rows.find((r) => r.protocolConfiguration.topic === topic);
+            if (hit) return [hit];
+          }
+          return [];
+        }
+        if (sql.includes('IS NOT NULL')) {
+          return currentWarmRows;
+        }
+        return [];
+      }),
+    };
+  }
 });

@@ -1,7 +1,10 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as mqtt from 'mqtt';
 import { MqttClient } from 'mqtt';
+import client from 'prom-client';
+
+import { ServiceMetricsService } from '@aquaculture/backend-common/metrics';
 
 /**
  * MQTT subscription callback type
@@ -55,7 +58,52 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
   /** Per-message settle budget before the ack gate force-reconnects. */
   private static readonly HANDLER_SETTLE_DEADLINE_MS = 10_000;
 
-  constructor(private readonly configService: ConfigService) {}
+  /**
+   * SENSOR-MEDIUM-123: the Grafana MQTT panels historically queried metric
+   * names that were registered nowhere. These counters make the ingestion
+   * pipeline observable: connection state, per-filter subscription health,
+   * and received-message volume.
+   */
+  private readonly mqttRegistry = new client.Registry();
+  private readonly messagesReceived = new client.Counter({
+    name: 'sensor_mqtt_messages_received_total',
+    help: 'MQTT messages received by the sensor-service listener',
+    registers: [this.mqttRegistry],
+  });
+  private readonly subscriptionsGranted = new client.Gauge({
+    name: 'sensor_mqtt_subscriptions_granted',
+    help: 'Topic filters currently broker-acknowledged (denied filters are not counted)',
+    registers: [this.mqttRegistry],
+  });
+  private readonly subscriptionsDenied = new client.Gauge({
+    name: 'sensor_mqtt_subscriptions_denied',
+    help: 'Topic filters the broker denied (SUBACK 0x80) on the last subscribe',
+    registers: [this.mqttRegistry],
+  });
+  private readonly connected = new client.Gauge({
+    name: 'sensor_mqtt_connected',
+    help: '1 when the MQTT broker connection is established, 0 otherwise',
+    registers: [this.mqttRegistry],
+  });
+  private readonly messagesProcessed = new client.Counter({
+    name: 'sensor_mqtt_messages_processed_total',
+    help: 'MQTT messages the listener finished handling (regardless of match outcome)',
+    registers: [this.mqttRegistry],
+  });
+  private readonly messagesFailed = new client.Counter({
+    name: 'sensor_mqtt_messages_failed_total',
+    help: 'MQTT message handling attempts that threw',
+    registers: [this.mqttRegistry],
+  });
+
+  constructor(
+    private readonly configService: ConfigService,
+    @Optional() private readonly serviceMetrics?: ServiceMetricsService,
+  ) {
+    if (this.serviceMetrics) {
+      this.serviceMetrics.registerContributor('sensor-mqtt', this.mqttRegistry);
+    }
+  }
 
   async onModuleInit(): Promise<void> {
     const mqttEnabled = this.configService.get('MQTT_ENABLED', 'true') === 'true';
@@ -200,6 +248,7 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
       this.client.on('close', () => {
         const wasConnected = this.connectionState === MqttConnectionState.CONNECTED;
         this.connectionState = MqttConnectionState.DISCONNECTED;
+        this.recordDisconnected();
         this.logger.warn('MQTT connection closed');
 
         // Trigger reconnection for any unexpected close (not just after successful connection)
@@ -348,6 +397,29 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
   /**
    * Get the underlying MQTT client (for advanced use cases)
    */
+  /**
+   * Increment the received-message counter — called by the listener for
+   * every broker message (SENSOR-MEDIUM-123).
+   */
+  recordMessageReceived(): void {
+    this.messagesReceived.inc();
+  }
+
+  /** SENSOR-MEDIUM-123: handler finished without throwing. */
+  recordMessageProcessed(): void {
+    this.messagesProcessed.inc();
+  }
+
+  /** SENSOR-MEDIUM-123: handler threw — surfaced on the Failed panel. */
+  recordMessageFailed(): void {
+    this.messagesFailed.inc();
+  }
+
+  /** Connected gauge reset — call on connection loss. */
+  recordDisconnected(): void {
+    this.connected.set(0);
+  }
+
   getClient(): MqttClient | null {
     return this.client;
   }
@@ -398,12 +470,19 @@ export class MqttClientService implements OnModuleInit, OnModuleDestroy {
       });
     }
 
+    this.subscriptionsGranted.set(topicList.length - denied);
+    this.subscriptionsDenied.set(denied);
     if (denied > 0) {
       this.logger.error(
         `Subscribed to ${topicList.length - denied}/${topicList.length} topic filters; ${denied} DENIED by broker`,
       );
     } else {
-      this.logger.log(`Subscribed to ${topicList.length} topic filter(s)`);
+      // SENSOR-MEDIUM-123: canonical boot signal — the deploy gate watches
+      // this line so a connected-but-unsubscribed listener can never deploy
+      // green again (pattern lives in BOOT_INVARIANT_SIGNALS).
+      this.logger.log(
+        `MQTT boot signal: subscribed to ${topicList.length} topic filter(s) (no broker denial)`,
+      );
     }
   }
 

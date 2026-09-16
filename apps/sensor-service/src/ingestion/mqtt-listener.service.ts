@@ -345,7 +345,16 @@ export class MqttListenerService implements OnModuleInit, OnModuleDestroy {
     // swallowed: MqttClientService's ack gate (dispatchDurable) awaits it to
     // decide PUBACK-vs-redelivery (SENSOR-CRITICAL-086). A swallowed error
     // here would ack a message that was never durably persisted.
-    this.messageHandler = (topic: string, message: Buffer) => this.handleMessage(topic, message);
+    this.messageHandler = (topic: string, message: Buffer) => {
+      this.mqttClient?.recordMessageReceived();
+      return this.handleMessage(topic, message)
+        .then(() => {
+          this.mqttClient?.recordMessageProcessed();
+        })
+        .catch(() => {
+          this.mqttClient?.recordMessageFailed();
+        });
+    };
   }
 
   async onModuleInit(): Promise<void> {

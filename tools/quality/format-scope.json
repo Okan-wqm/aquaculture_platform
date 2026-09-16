@@ -37094,6 +37094,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/runbooks/monitoring/mqtt-ingestion-stalled.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/runbooks/monitoring/nats-exporter-down.md",
       "prettier_managed": true
     },
@@ -38372,7 +38378,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "4ce6035692f1582635053b3970e1167cf1ec99aee9d5314c834b5f7979142530",
+      "content_sha256": "5e31cac451766382ec2474fc62db7f600beb58abb375e5ba8e2a37ec017a9e9f",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "infrastructure/deploy/service-catalog.generated.json",

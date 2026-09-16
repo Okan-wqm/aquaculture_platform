@@ -51,7 +51,7 @@ class TheMintSendsTheCallersPermissions(unittest.TestCase):
         self.posted: list[dict] = []
 
         def urlopen(request, timeout):  # noqa: ANN001 — urlopen's shape
-            self.posted.append({"url": request.full_url, "body": json.loads(request.data.decode("utf-8"))})
+            self.posted.append({"url": request.full_url, "body": json.loads(request.data.decode("utf-8")), "timeout": timeout})
             return _Response({"token": "ghs_fixture", "expires_at": "2026-09-12T00:05:00Z"})
 
         jwt_patch = patch.dict("sys.modules", {"jwt": _FakeJwt()})
@@ -85,6 +85,69 @@ class TheMintSendsTheCallersPermissions(unittest.TestCase):
             tf.RUNNER_STATUS_PERMISSIONS["contents"] = "write"  # type: ignore[index]
         with self.assertRaises(TypeError):
             tf.DEFAULT_INSTALLATION_TOKEN_PERMISSIONS["administration"] = "write"  # type: ignore[index]
+
+    def test_the_body_carries_no_expires_in_and_the_lease_carries_the_providers_expiry(self) -> None:
+        # ARIA-HIGH-124 (round 6) — `POST /app/installations/{id}/access_tokens`
+        # takes `repositories`, `repository_ids` and `permissions`; the
+        # `expires_in` the mint used to send was not a field of it, GitHub
+        # ignored it, and the token lived the provider's hour whatever the
+        # local TTL claimed. The horizon the provider enforces comes back
+        # as `expires_at` and is carried on the lease — until round 6 the
+        # mint validated it and then dropped it (`provider_expiry` was None
+        # in every mode). The call is bounded by the mint's own timeout,
+        # never by the TTL (an hour of hanging for a token meant to live
+        # an hour).
+        lease = self._mint(ttl_seconds=1800)
+        body = self.posted[0]["body"]
+        self.assertEqual(sorted(body), ["permissions"])
+        self.assertNotIn("expires_in", json.dumps(body))
+        self.assertEqual(lease.provider_expiry, "2026-09-12T00:05:00Z")
+        self.assertEqual(lease.ttl_seconds, 1800)
+        self.assertEqual(self.posted[0]["timeout"], tf.INSTALLATION_TOKEN_MINT_TIMEOUT_SECONDS)
+        self.assertLess(tf.INSTALLATION_TOKEN_MINT_TIMEOUT_SECONDS, 1800)
+        self.assertEqual(tf.PROVIDER_INSTALLATION_TOKEN_LIFETIME_SECONDS, 3600)
+
+    def test_the_revoke_runs_under_the_leases_own_token(self) -> None:
+        # ARIA-HIGH-124 (round 6) — `DELETE /installation/token` revokes the
+        # token it is CALLED WITH. The revoke used to run with the runner's
+        # ambient auth (a PAT is not an installation token: nothing of the
+        # lease's was revoked). It now runs with the lease's own value —
+        # from the holder's environment when the file was consumed at the
+        # mint, else from the file — bounded by its own timeout, and says
+        # what happened by name; without a token it does not run at all.
+        import subprocess
+
+        lease = self._mint()
+        calls: list[dict] = []
+
+        def run(argv, **kwargs):  # noqa: ANN001 — subprocess.run's shape
+            calls.append({"argv": argv, "env_token": kwargs["env"].get("GH_TOKEN"), "timeout": kwargs["timeout"]})
+            return subprocess.CompletedProcess(argv, 0, "", "")
+
+        with patch.object(subprocess, "run", run), patch("shutil.which", return_value="/usr/bin/gh"):
+            outcome = tf.revoke_installation_token(lease=lease, environment={"GH_TOKEN": "ghs_in_memory"})
+        self.assertEqual(outcome, "revoked")
+        self.assertEqual(calls[0]["argv"], ["gh", "api", "-X", "DELETE", "/installation/token"])
+        self.assertEqual(calls[0]["env_token"], "ghs_in_memory")
+        self.assertEqual(calls[0]["timeout"], tf.INSTALLATION_TOKEN_REVOKE_TIMEOUT_SECONDS)
+        self.assertFalse(lease.token_file.exists())
+        # The file's value when the holder passes none (the workflows' leases).
+        lease = self._mint()
+        with patch.object(subprocess, "run", run), patch("shutil.which", return_value="/usr/bin/gh"):
+            self.assertEqual(tf.revoke_installation_token(lease=lease), "revoked")
+        self.assertEqual(calls[1]["env_token"], "ghs_fixture")
+        # No token anywhere: not attempted — the ambient credential is not this lease's.
+        lease = self._mint()
+        lease.token_file.unlink()
+        with patch.object(subprocess, "run", run):
+            self.assertEqual(tf.revoke_installation_token(lease=lease), "revoke_not_attempted:token_not_held")
+        self.assertEqual(len(calls), 2)
+        # A refused DELETE is named, never raised.
+        lease = self._mint()
+        with patch.object(subprocess, "run", lambda argv, **kw: subprocess.CompletedProcess(argv, 1, "", "")), \
+                patch("shutil.which", return_value="/usr/bin/gh"):
+            self.assertEqual(tf.revoke_installation_token(lease=lease, environment={"GH_TOKEN": "x"}), "revoke_failed:rc=1")
+        self.assertFalse(lease.token_file.exists())
 
     def test_an_empty_or_malformed_permission_set_is_refused_before_any_request(self) -> None:
         for bad in ({}, {"contents": "admin"}, {"": "read"}):

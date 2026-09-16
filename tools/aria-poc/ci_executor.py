@@ -53,6 +53,13 @@ _KERNEL_PYTHONPATH = os.pathsep.join((str(_CODE_ROOT), str(_CODE_ROOT / "aria-ke
 if str(_THIS_DIR) not in sys.path:
     sys.path.insert(0, str(_THIS_DIR))
 
+# ARIA-HIGH-124 (round 2) — the ONE spelling of a kernel CLI subprocess
+# (`kernel_cli`): this interpreter, `-P` (the cwd — the request worktree the
+# agent just wrote to — OFF sys.path), `-m aria_kernel`. Every kernel
+# command below is spelled through it; a literal spelling anywhere in the
+# executors is refused by `tests/test_executor_kernel_cli_argv.py`.
+from kernel_cli import KERNEL_CLI_INTERPRETER_FLAGS, kernel_cli_argv as _kernel_cli_argv
+
 from claude_runtime import (
     spawn_settings_hash,
     CLAUDE_MOCK_ENV_VAR,
@@ -108,6 +115,7 @@ try:
     from aria_kernel.tool_registry import append_tools_governance as _append_tools_governance
     from aria_kernel.implementation_safety import sandbox_backend as _sandbox_backend
     from aria_kernel.implementation_safety import sandbox_unavailable_detail as _sandbox_unavailable_detail
+    from aria_kernel.implementation_safety import egress_boundary_probe as _egress_boundary_probe
     # The rejection codes that mean "the kernel could not verify" — owned by
     # the validator that mints them; the release seam below classifies a
     # rejected submit against this set and nothing else.
@@ -146,6 +154,17 @@ try:
     # that child's wall clock from this number, never from a guess.
     from aria_kernel.human_required import (
         HUMAN_REQUIRED_RECORD_WAIT_SECONDS as _HUMAN_REQUIRED_RECORD_WAIT_SECONDS,
+    )
+    # ARIA-HIGH-124 (round 3) — what the executor runs AFTER an
+    # implementation spawn (the quarantine's publication, the contained
+    # gate at up to the canonical ceiling per command, the push, the PR),
+    # in the canonical shape: the term `child_worst_case_seconds` adds for
+    # an implementation child, so the drain's window and the workflow pin
+    # hold the whole child. A request's own bound is read off its staged
+    # action (`staged_delivery_worst_case_seconds`) where the executor and
+    # the drain know the request.
+    from aria_kernel.implementation_delivery import (
+        IMPLEMENTATION_DELIVERY_WORST_CASE_SECONDS as _IMPLEMENTATION_DELIVERY_WORST_CASE_SECONDS,
     )
 except Exception as _kernel_import_error:  # pragma: no cover - fallback keeps standalone contract importable
     # Say so. This block used to fail silently, and a single missing kernel
@@ -190,6 +209,7 @@ except Exception as _kernel_import_error:  # pragma: no cover - fallback keeps s
     _append_tools_governance = None
     _sandbox_backend = None
     _sandbox_unavailable_detail = None
+    _egress_boundary_probe = None
     # Without the kernel nothing can be classified as the kernel's own gap:
     # every rejected submit stays the request's fault (fail toward the
     # human). An empty set cannot drift from the kernel's.
@@ -208,6 +228,16 @@ except Exception as _kernel_import_error:  # pragma: no cover - fallback keeps s
     _STATE_STORE_CHECKOUT_ARC_SECONDS = 2700.0
     _STATE_STORE_LIFECYCLE_LIVENESS_SECONDS = 5400.0
     _HUMAN_REQUIRED_RECORD_WAIT_SECONDS = 2280.0
+    # 4 canonical commands x 2700 s + 4 git calls x 300 s + 10 s commit
+    # verification + 300 s result decision (the evidence probe clock) +
+    # 40 s credential mint + revoke (round 6: minted after the gate) +
+    # gh 300 s + 120 s work + 600 s publication + 40 s pre-spawn credential
+    # admission (`implementation_delivery`).
+    # `tests/test_executor_kernel_import_fallback.py` pins this equal to
+    # the kernel's derivation: round 4 moved the kernel's sum (the commit
+    # verification) without this mirror, and the kernel-less child was
+    # priced 10 s short of the worst case it can legitimately run.
+    _IMPLEMENTATION_DELIVERY_WORST_CASE_SECONDS = 13410
     _GitProbeSession = None
     # Standalone-mode fallback: identical value/order to the kernel SSoT.
     # Intentional duplication for kernel-less importability; WS2 adds a
@@ -263,24 +293,31 @@ SUBMIT_RESULT_TIMEOUT_SECONDS = int(
     + _STATE_LOCK_LIVENESS_SECONDS
     + KERNEL_CHILD_WORK_SECONDS
 )
-# The wall clock of the `human-required record` child the refusal exits run
-# instead of the submit (a model refusal, an agent refusal envelope). It
-# used to be 30 s against a kernel path that waits one state transaction
-# for its governance row and then notifies — the same class as the submit's
+# How long the HUMAN_REQUIRED record the refusal exits write instead of the
+# submit (a model refusal, an agent refusal envelope, a branch collision, a
+# delivery refusal) may legitimately take. It was a `human-required record`
+# CHILD at 30 s against a kernel path that waits one state transaction for
+# its governance row and then notifies — the same class as the submit's
 # 120 s against 600 s: a healthy record killed by its own executor, the
-# operator never told. DERIVED from the kernel's own worst case for that
-# path (`human_required.HUMAN_REQUIRED_RECORD_WAIT_SECONDS`) plus the work
-# allowance every kernel child is priced with.
-HUMAN_REQUIRED_RECORD_TIMEOUT_SECONDS = int(
+# operator never told. Since ARIA-HIGH-124 round 3 the record is written IN
+# THIS PROCESS through the kernel's own recorder (`_record_human_required`)
+# — the operator CLI's free-text `--reason` validator, which the child
+# passed the reason through, refused any reason carrying a kernel-minted
+# id with ten consecutive digits (an `aria-impl-*` name, a sha) as a phone
+# number, and the escalation was silently lost — so the bound is the
+# kernel's own for that path (`human_required.HUMAN_REQUIRED_RECORD_WAIT_SECONDS`,
+# enforced by the state lock's liveness bound and the notifier's wall
+# clocks) plus the work allowance every kernel step is priced with.
+HUMAN_REQUIRED_RECORD_WORST_CASE_SECONDS = int(
     _HUMAN_REQUIRED_RECORD_WAIT_SECONDS + KERNEL_CHILD_WORK_SECONDS
 )
-# The child that ends a run after the CLI is ONE of two: the submit, or on
-# a refusal exit the human-required record. The worst case prices the slot
-# at the longer of the two, so neither branch can run past what the drain
-# loop checked — whichever bound grows.
+# The step that ends a run after the CLI is ONE of two: the submit child, or
+# on a refusal exit the in-process human-required record. The worst case
+# prices the slot at the longer of the two, so neither branch can run past
+# what the drain loop checked — whichever bound grows.
 TERMINAL_WRITER_TIMEOUT_SECONDS = max(
     SUBMIT_RESULT_TIMEOUT_SECONDS,
-    HUMAN_REQUIRED_RECORD_TIMEOUT_SECONDS,
+    HUMAN_REQUIRED_RECORD_WORST_CASE_SECONDS,
 )
 
 
@@ -298,6 +335,7 @@ def child_worst_case_seconds(
     max_timeout_seconds: int,
     *,
     worktree_per_request: bool = False,
+    implementation_delivery_seconds: int = 0,
 ) -> int:
     """How long ONE executor child may legally run, end to end.
 
@@ -318,14 +356,28 @@ def child_worst_case_seconds(
        first and is priced with it (GIT_PROBE_WORST_CASE_SECONDS: every
        attempt at its bound, every backoff).
     2. The Claude CLI — `max_timeout_seconds`, the lane's MAX_TIMEOUT_SECONDS.
-    3. The terminal writer — TERMINAL_WRITER_TIMEOUT_SECONDS: `agent
+    3. (implementation requests only, ARIA-HIGH-124 round 3) the
+       delivery — ``implementation_delivery_seconds``: the quarantine's
+       publication, the contained apply gate (every staged command at the
+       staged ceiling — four canonical commands at 45 minutes each), the
+       push and the `gh pr create` at their bounds, the delivery's work
+       (`implementation_delivery.delivery_worst_case_seconds`, the one
+       derivation). The drain and the executor price a request off its
+       STAGED action (`staged_delivery_worst_case_seconds`: a plan's
+       recipes make it larger); the workflow pin and the env-less default
+       window hold the canonical shape
+       (`IMPLEMENTATION_DELIVERY_WORST_CASE_SECONDS`). Until round 3 this
+       whole phase was unpriced: a child admitted at the window's edge
+       could legally run three hours past it, into and beyond the job's
+       reserve.
+    4. The terminal writer — TERMINAL_WRITER_TIMEOUT_SECONDS: `agent
        submit-result` at SUBMIT_RESULT_TIMEOUT_SECONDS (the evidence
        probes' clock, one state-transaction wait, its work), or on a
-       refusal exit the `human-required record` child at
-       HUMAN_REQUIRED_RECORD_TIMEOUT_SECONDS (its governance transaction,
-       the notification's channels and outbox transaction, its work);
-       the slot is priced at the longer of the two.
-    4. `agent release` — the same shape as the claim; every exit of the
+       refusal exit the in-process human-required record at
+       HUMAN_REQUIRED_RECORD_WORST_CASE_SECONDS (its governance
+       transaction, the notification's channels and outbox transaction,
+       its work); the slot is priced at the longer of the two.
+    5. `agent release` — the same shape as the claim; every exit of the
        child that does not seal a result releases, including a submit that
        timed out, so the release is charged after the terminal writer's
        full bound.
@@ -334,15 +386,29 @@ def child_worst_case_seconds(
     request's `git worktree add` and `git worktree remove`
     (REQUEST_WORKTREE_WORST_CASE_SECONDS); the workflow pin prices the lane
     with them on, so turning the policy on cannot outgrow the window.
+
+    The same number is the lease the executor claims with
+    (`agent claim --lease-seconds`): a lease shorter than the child it
+    covers expires under a healthy run, and the submit refuses an expired
+    lease by construction (`lease_expired`).
     """
     return int(
         STATE_WRITE_CHILD_WORST_CASE_SECONDS
         + _GIT_PROBE_WORST_CASE_SECONDS
         + max_timeout_seconds
+        + implementation_delivery_seconds
         + TERMINAL_WRITER_TIMEOUT_SECONDS
         + STATE_WRITE_CHILD_WORST_CASE_SECONDS
         + (REQUEST_WORKTREE_WORST_CASE_SECONDS if worktree_per_request else 0)
     )
+
+
+# ARIA-HIGH-124 (round 3) — the canonical implementation term, for the
+# consumers that price a child before they know its request: the env-less
+# drain window (`ci_executor_drain.DEFAULT_DRAIN_BUDGET_SECONDS`) and the
+# workflow pin. A known request is priced off its staged action instead
+# (`_request_delivery_seconds`).
+IMPLEMENTATION_DELIVERY_WORST_CASE_SECONDS = int(_IMPLEMENTATION_DELIVERY_WORST_CASE_SECONDS)
 
 # Plan ARIA-V8.1 Phase 3 — fail-fast canonical plan_content / cross_review
 # validation BEFORE submit subprocess. Mirrors the kernel-side gate at
@@ -389,6 +455,24 @@ _PRE_SPAWN_CHECKPOINT_REASON = "pre_spawn"
 # Plan 032 Faz 032h — a drain child may run inside its own worktree; the
 # drain exports ARIA_WORKSPACE_ROOT and every workspace-bound path follows.
 _REPO_ROOT = Path(os.environ.get("ARIA_WORKSPACE_ROOT") or Path(__file__).resolve().parents[2]).resolve()
+# ARIA-HIGH-142 — where that root came from. Without the env the executor
+# publishes into the tree its own file lives in, which is the kernel's
+# checkout and not necessarily the request's; a live run must say so in
+# its log (``REPO_ROOT_FROM_MODULE_MARKER``, emitted by ``_main``) rather
+# than let the two trees be confused a second time.
+_REPO_ROOT_SOURCE = "env" if os.environ.get("ARIA_WORKSPACE_ROOT") else "module_location"
+REPO_ROOT_FROM_MODULE_MARKER = "::warning::aria_executor_repo_root_from_module_location"
+
+
+def repo_root_provenance_note() -> str | None:
+    """The one line a run writes when its repo root was not handed to it,
+    or None when ARIA_WORKSPACE_ROOT named the request's tree."""
+    if _REPO_ROOT_SOURCE == "env":
+        return None
+    return (
+        f"{REPO_ROOT_FROM_MODULE_MARKER} ARIA_WORKSPACE_ROOT is unset; the executor's repo root "
+        f"is this module's own checkout ({_REPO_ROOT}) — set it when the request's tree is another"
+    )
 
 
 def _operator_policy_root(tools_dir: Path) -> Path:
@@ -496,6 +580,155 @@ def _refuse_dispatch(
         exit_code=REFUSAL_EXIT_CODE,
     )
     return REFUSAL_EXIT_CODE
+
+
+def _fail_submit_dispatch(
+    *, request: dict[str, Any], request_id: str, target_agent: str, failure_class: str, retryable: bool,
+    detail_code: str,
+) -> int:
+    """A submit that did not land the result, NAMED in the child's summary
+    (ARIA-HIGH-124 round 5).
+
+    WHY: `invoke_claude_cli` writes `outcome: succeeded` the moment the CLI
+    exits 0, and the four submit exits below (`return 1`: the kernel's
+    rejected result row, a rejection before any row, an undecided
+    verification, a submit that hung past its wall clock) left that summary
+    standing — the drain counts nothing but a `succeeded` summary as
+    drained, so a rejected implementation result was a drained success in
+    the night's count while its claim ledger read `rejected`. The refusal
+    exits already supersede the CLI's summary (`_refuse_dispatch`); this is
+    the failure half.
+
+    WHAT: outcome `failed`, phase `submit`, the failure's own class from
+    the closed vocabulary (`response_schema_rejected` for a rejection the
+    kernel recorded or refused before a row — the request's; `harness_unavailable`
+    for a verification the kernel could not decide; `timeout` for a hung
+    submit — the host's, retryable), and the detail code the release reason
+    carries. Returns the exit code a failed submit carries.
+    """
+    _write_dispatch_summary(
+        route=_dispatch_route_for(request, target_agent=target_agent),
+        request_id=request_id, outcome="failed",
+        failure=DispatchFailure(
+            failure_class=failure_class, retryable=retryable, detail_code=detail_code,
+            phase="submit", exit_code=1,
+        ),
+        exit_code=1,
+    )
+    return 1
+
+
+def _staged_implementation_ids(*, tools_dir: Path, request_id: str) -> dict[str, Any]:
+    """ARIA-HIGH-124 — the staged ids of an implementation request
+    (`{proposal_id, change_id, branch, base_sha}`), read from the REQUEST
+    ROW on the ledger: the claim's fused projection carries only what the
+    sealed prompt renders, and these are the kernel's facts for the branch
+    it stands the sandbox on and the delivery it runs — never the prompt's
+    to restate. Empty when the row carries none (the branch step then
+    refuses by name)."""
+    from aria_kernel.agent_invocations import _find_request_by_id
+    from aria_kernel.tool_registry import ensure_tools_dir
+
+    row = _find_request_by_id(ensure_tools_dir(tools_dir), request_id) or {}
+    ids = row.get("implementation_ids")
+    return dict(ids) if isinstance(ids, dict) else {}
+
+
+class HumanRequiredRecordUnavailable(RuntimeError):
+    """The kernel's HUMAN_REQUIRED recorder did not land the record: the
+    escalation the release rests on does not exist, and the release site
+    must say so (`_release_unescalated`), never release as if it did."""
+
+
+def _record_human_required(
+    *, tools_dir: Path, request_id: str, severity: str, reason: str, context: dict[str, Any],
+) -> dict[str, Any]:
+    """Persist the HUMAN_REQUIRED record IN THIS PROCESS through the kernel's
+    own recorder (`human_required.record_human_required`), the way every
+    kernel producer of an escalation does; the state machine then marks the
+    request terminal from the release that follows.
+
+    ARIA-HIGH-124 (round 3) — this was a `human-required record` CHILD,
+    whose `--reason` went through the operator CLI's free-text validator
+    (`cli._validate_reason`): a PII heuristic whose phone-number shape
+    matches ANY ten consecutive digits. Every kernel-minted id embeds hex,
+    and 8% of `aria-impl-*` names (11% of shas) carry such a run, so one
+    escalation in ten — a branch collision, an invalid request row, a
+    delivery refusal naming its branch — was refused at argparse, the
+    record never written, the release then `requeued` instead of
+    `human_required`, and the drain re-claimed the request into the same
+    refusal until the requeue threshold caught it: the two-wasted-claims
+    loop the round-2 contract claims to close. The executor holds the store
+    as its own fact; the machine ids go in ``context`` (the record's
+    structured field, read by the adjudication classifier under the
+    unadmitted kind ``EXECUTOR_ESCALATION_KIND``, which keeps the record
+    with the operator), and ``reason`` is the code and its sentence — no
+    free-text validator sees either. A recorder that does not answer
+    raises :class:`HumanRequiredRecordUnavailable` (an ImportError of the
+    kernel, a refused governance write, a dying disk) with the whole cause,
+    never a truncated stderr line.
+    """
+    try:
+        from aria_kernel.human_required import EXECUTOR_ESCALATION_KIND, record_human_required
+        from aria_kernel.tool_registry import GovernanceError
+    except ImportError as exc:
+        raise HumanRequiredRecordUnavailable(f"kernel_unimportable:{type(exc).__name__}: {exc}") from exc
+    try:
+        return record_human_required(
+            request_id=request_id, severity=severity, reason=reason,
+            context={"kind": EXECUTOR_ESCALATION_KIND, "request_id": request_id, **context},
+            base_dir=tools_dir,
+        )
+    except (GovernanceError, OSError, ValueError) as exc:
+        raise HumanRequiredRecordUnavailable(f"{type(exc).__name__}: {exc}") from exc
+
+
+def _release_unescalated(
+    *, tools_dir: Path, repo: Path, request: dict[str, Any], request_id: str, target_agent: str,
+    claim_id: str, agent_id: str, lease_token: str, escalation_reason: str, phase: str,
+    error: HumanRequiredRecordUnavailable,
+) -> int:
+    """The release site's ERROR for an escalation whose record did not land.
+
+    The claim is still released — a leaked lease is the worse outcome —
+    but under a reason that names the recorder's failure
+    (`human_required_record_unavailable:<escalation reason>`, harness-class:
+    the STORE's recorder failed, not the request, so the budget stands and
+    the retry escalates again once the recorder answers), with the cause on
+    governance and on stderr as a job error, and the child's summary a
+    FAILED harness dispatch (exit 1) — never a `refused` by-design exit that
+    reads as if the escalation happened.
+    """
+    from aria_kernel.tool_registry import append_tools_governance
+
+    cause = str(error)
+    sys.stderr.write(
+        f"::error::aria executor could not record HUMAN_REQUIRED for request {request_id} "
+        f"({escalation_reason}): {cause}. The claim is released harness-class under "
+        f"human_required_record_unavailable and the request stays queued.\n"
+    )
+    try:
+        append_tools_governance(tools_dir, "human_required_record_unavailable", {
+            "request_id": request_id, "claim_id": claim_id, "escalation_reason": escalation_reason,
+            "error": cause[:1000],
+        })
+    except Exception as governance_exc:  # the store's governance may be what failed
+        sys.stderr.write(f"human_required_record_unavailable governance row not written: {governance_exc}\n")
+    _release_claim(
+        tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+        agent_id=agent_id, lease_token=lease_token,
+        reason=f"human_required_record_unavailable:{escalation_reason}",
+    )
+    _write_dispatch_summary(
+        route=_dispatch_route_for(request, target_agent=target_agent),
+        request_id=request_id, outcome="failed",
+        failure=DispatchFailure(
+            failure_class="harness_unavailable", retryable=True,
+            detail_code="human_required_record_unavailable", phase=phase, exit_code=1,
+        ),
+        exit_code=1,
+    )
+    return 1
 
 
 def _publish_artifact_paths(envelope_path: Path, transcript_path: Path) -> None:
@@ -1013,13 +1246,13 @@ def claim_and_dispatch_one(
 
     # Find next pending request for this role.
     list_proc = subprocess.run(
-        [
-            "python3", "-m", "aria_kernel", "agent-invocations", "list",
+        _kernel_cli_argv(
+            "agent-invocations", "list",
             "--role", role,
             "--pending-only",
             "--limit", "1",
             "--tools-dir", str(tools_dir),
-        ],
+        ),
         capture_output=True,
         text=True,
         env={**os.environ, "PYTHONPATH": _KERNEL_PYTHONPATH},
@@ -1091,12 +1324,38 @@ def _max_timeout_seconds() -> int:
     return int(os.environ.get("MAX_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS))
 
 
-def _child_worst_case_seconds(*, worktree_per_request: bool = False) -> int:
+def _child_worst_case_seconds(*, worktree_per_request: bool = False, implementation_delivery_seconds: int = 0) -> int:
     """`child_worst_case_seconds` at this run's MAX_TIMEOUT_SECONDS — the
-    number the drain loop checks before starting a child."""
+    number the drain loop checks before starting a child, and the lease the
+    executor claims with. ``implementation_delivery_seconds`` is the
+    request's delivery term (`_request_delivery_seconds`), 0 for every
+    other role."""
     return child_worst_case_seconds(
         _max_timeout_seconds(), worktree_per_request=worktree_per_request,
+        implementation_delivery_seconds=implementation_delivery_seconds,
     )
+
+
+def _request_delivery_seconds(*, tools_dir: Path, request_id: str) -> int:
+    """ARIA-HIGH-124 (round 3) — the post-spawn delivery term of ONE request:
+    0 for every role but `implementation`; for an implementation request the
+    bound priced off its STAGED action's suite and ceiling
+    (`implementation_delivery.staged_delivery_worst_case_seconds`), read
+    from the request ROW on the ledger — the drain reads it before it
+    starts the child, the executor before it claims (the lease) and before
+    it spawns (the window). A row that carries no `implementation_ids` is
+    priced at the canonical shape; the branch step then refuses it by
+    name."""
+    from aria_kernel.agent_invocations import _find_request_by_id
+    from aria_kernel.implementation_delivery import staged_delivery_worst_case_seconds
+    from aria_kernel.tool_registry import ensure_tools_dir
+
+    row = _find_request_by_id(ensure_tools_dir(tools_dir), request_id) or {}
+    if row.get("role") != "implementation":
+        return 0
+    ids = row.get("implementation_ids")
+    proposal_id = str(ids.get("proposal_id") or "") if isinstance(ids, dict) else ""
+    return staged_delivery_worst_case_seconds(proposal_id=proposal_id, base_dir=tools_dir)
 
 # ORPHAN-HIGH-472 — `_max_budget_usd` and `_max_budget_usd_per_cycle` lived
 # here and are gone. Their own docstring already conceded the point ("Default
@@ -1446,6 +1705,15 @@ def _rollback_after_blocked_spawn(*, tools_dir: Path, request_id: str, subagent_
 # quarantine lands on: what moved into the shared repository, what was
 # refused by name.
 IMPLEMENTATION_QUARANTINE_PUBLISHED_EVENT = "implementation_quarantine_published"
+# (round 3) the quarantine was NOT published: the job's window could not hold
+# the delivery after the spawn, so the agent's commit is discarded rather
+# than published as a branch the retry would collide with.
+IMPLEMENTATION_QUARANTINE_DISCARDED_EVENT = "implementation_quarantine_discarded"
+# ARIA-HIGH-124 (round 5) — the executor retired the request's signing
+# identity (agent stopped, private key unlinked, config restored) right
+# after the quarantine's publication, before the delivery; `keys_dir_entries`
+# is what the workspace keys dir still holds at that moment.
+IMPLEMENTATION_IDENTITY_RETIRED_EVENT = "implementation_identity_retired"
 
 
 def _publish_sandbox_commits(*, tools_dir: Path, request_id: str, claim_id: str, containment: Any) -> Any:
@@ -1690,38 +1958,20 @@ def invoke_claude_cli(
             route=_dispatch_route, request_id=request_id, outcome=outcome,
             failure=failure, exit_code=exit_code,
         )
-    # Plan 032 Faz 032d — scoped delivery credential for external-write
-    # profiles (today: the implementer). Minted here, exported ONLY into this
-    # spawn's env, revoked in `finally`. Every other profile gets no GitHub
-    # credential at all. ARIA_REQUEST_ID / ARIA_CLAIM_ID ride along so the
-    # kernel CLI the agent runs keys its intent/receipt rows on the request.
-    from aria_kernel.delivery_credentials import (
-        DeliveryCredentialError,
-        issue_delivery_credentials,
-        revoke_delivery_credentials,
-    )
-
-    delivery_credential = None
+    # ARIA-HIGH-124 — NO delivery credential enters the spawn. The scoped
+    # GitHub token (`delivery_credentials`) used to be minted here and
+    # exported into this spawn's environment so the agent could push and
+    # open its PR from inside the sandbox; the push, the apply gate and the
+    # PR are the EXECUTOR's now, after the spawn, outside the sandbox, and
+    # the token is minted there too (round 6: `implementation_delivery`
+    # enters `hold_delivery_credentials` after the gate, for the push and
+    # the PR alone), so it has no reader inside, rides nothing the agent
+    # can see, and does not exist while the agent runs.
+    # ARIA_REQUEST_ID / ARIA_CLAIM_ID still ride along: the hooks and the
+    # MCP relay name the request by them.
     spawn_extra_env: dict[str, str] = {"ARIA_REQUEST_ID": str(request_id)}
     if claim_id:
         spawn_extra_env["ARIA_CLAIM_ID"] = str(claim_id)
-    if bool(getattr(agent_profile, "external_writes", False)):
-        try:
-            _deadline = os.environ.get("ARIA_JOB_DEADLINE_EPOCH")
-            delivery_credential = issue_delivery_credentials(
-                profile=agent_profile,
-                request_id=request_id,
-                cycle_id=(request_envelope or {}).get("cycle_id"),
-                workspace_root=_REPO_ROOT,
-                base_dir=tools_dir,
-                deadline_epoch=float(_deadline) if _deadline else None,
-            )
-        except DeliveryCredentialError as exc:
-            _stage(f"delivery_credential_refused request_id={request_id} {exc}")
-            _emit_dispatch_summary(outcome="failed", failure=None, exit_code=DELIVERY_CREDENTIAL_EXIT)
-            return DELIVERY_CREDENTIAL_EXIT
-        if delivery_credential is not None:
-            spawn_extra_env.update(delivery_credential.env)
     try:
         # Model dispatch through the claude_runtime SSoT helper: a credit
         # exhaustion is terminal for the attempt (ClaudeCreditExhausted,
@@ -1902,29 +2152,25 @@ def invoke_claude_cli(
                     _ru_gov(_ru_ens(tools_dir), "model_refusal_unresolved", _unresolved_payload)
                 except Exception:
                     pass
+                # One recorder (round 3): in-process, the category in the
+                # record's context. The caller's arm releases this spawn
+                # harness-class (`claude_spawn_refused`) whatever happens
+                # here; a recorder that does not answer is a job error
+                # with its whole cause, so the operator learns the
+                # escalation did not land.
+                _hr_category = str(completed.refusal.get("category") or "uncategorized")
                 try:
-                    _hr_refusal = subprocess.run(
-                        [
-                            "python3", "-m", "aria_kernel", "human-required", "record",
-                            "--request-id", request_id,
-                            "--severity", "HIGH",
-                            "--reason", (
-                                "model_safety_refusal:"
-                                f"{completed.refusal.get('category') or 'uncategorized'}"
-                            ),
-                            "--tools-dir", str(tools_dir),
-                        ],
-                        capture_output=True,
-                        text=True,
-                        env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[2] / "aria-kernel")},
-                        timeout=HUMAN_REQUIRED_RECORD_TIMEOUT_SECONDS,
+                    _record_human_required(
+                        tools_dir=tools_dir, request_id=request_id, severity="HIGH",
+                        reason=f"model_safety_refusal:{_hr_category}: the model refused the request",
+                        context={"code": f"model_safety_refusal:{_hr_category}", "stage": "model_refusal",
+                                 "claim_id": claim_id, "category": _hr_category, "model": agent_profile.model},
                     )
-                    if _hr_refusal.returncode != 0:
-                        sys.stderr.write(
-                            f"human-required record (refusal) exit={_hr_refusal.returncode}\n"
-                        )
-                except (subprocess.TimeoutExpired, OSError) as _hr_exc:
-                    sys.stderr.write(f"human-required record (refusal) failed: {_hr_exc}\n")
+                except HumanRequiredRecordUnavailable as _hr_exc:
+                    sys.stderr.write(
+                        f"::error::aria executor could not record HUMAN_REQUIRED for request {request_id} "
+                        f"(model_safety_refusal:{_hr_category}): {_hr_exc}\n"
+                    )
             # ARIA-HIGH-002 — a model refusal is not a build failure: the
             # summary says "refused", the escalation path stays as-is.
             _emit_dispatch_summary(
@@ -1961,11 +2207,6 @@ def invoke_claude_cli(
             contract = "tools/aria-poc/ci_executor_contract_proven.md"
             raise ClaudeCliUnavailable(f"{exc}; see {contract}") from exc
         raise
-    finally:
-        # Plan 032 Faz 032d — the scoped credential dies with the spawn, on
-        # every path out of it.
-        if delivery_credential is not None:
-            revoke_delivery_credentials(delivery_credential, request_id=request_id, base_dir=tools_dir)
     # Plan ARIA-V7 §2g v2 + V7.10 envelope-extraction fix.
     #
     # WHY: claude -p stream-json emits JSONL events
@@ -2439,14 +2680,14 @@ def _release_claim(
     registration in §B.1's cli.py change.
     """
     released = subprocess.run(
-        [
-            "python3", "-m", "aria_kernel", "agent", "release",
+        _kernel_cli_argv(
+            "agent", "release",
             "--claim-id", claim_id,
             "--agent-id", agent_id,
             "--lease-token-from-env", LEASE_TOKEN_ENV_VAR,
             "--reason", reason,
             "--tools-dir", str(tools_dir),
-        ],
+        ),
         env={
             **os.environ,
             "PYTHONPATH": _KERNEL_PYTHONPATH,
@@ -3251,6 +3492,57 @@ IMPLEMENTATION_IDENTITY_REFUSAL = _AdmissionRefusalKind(
     release_reason="implementation_signing_unavailable",
     failure_class="harness_unavailable", retryable=True,
 )
+# ARIA-HIGH-124 — the executor delivers the implementation itself (gate,
+# push, PR) after the spawn; three refusals belong to that, each spelled
+# by the kernel's `release_reason` (pinned equal in
+# `tests/test_implementation_delivery.py`) and read from this module's AST
+# by the release-site invariant like the tables above:
+# * the delivery credential could not be minted — the lane's state (no GH
+#   App, no PAT, a refused installation), harness-class, retried after a
+#   back-off: decided before the spawn by the credential ADMISSION (one
+#   lease minted and revoked, no turn spent) and again where the lease is
+#   consumed (round 6: the delivery's `credential` stage, after the gate);
+# * the shared repository already holds this request's `aria-impl-*`
+#   branch (an earlier attempt published it) — refused before a turn,
+#   request-class: a retry cannot stand on it, a person decides;
+# * the delivery refused (the gate blocked, the push failed, the PR
+#   opener refused) — request-class; the published branch makes a retry
+#   collide, so the request is escalated;
+# * (round 2) the request row carries no usable `implementation_ids` — no
+#   `aria-impl-*` branch name, no object id for `base_sha` — the REQUEST's
+#   facts, request-class: released harness-class it was re-claimed after
+#   every back-off without bound and never spent a turn or escalated.
+DELIVERY_CREDENTIAL_REFUSAL = _AdmissionRefusalKind(
+    release_reason="implementation_delivery_unavailable",
+    failure_class="harness_unavailable", retryable=True,
+)
+# (round 3) the same harness-class release for the delivery's ADMISSION:
+# the job's remaining window (`ARIA_JOB_DEADLINE_EPOCH`) cannot hold the
+# delivery's worst case, or the validation sandbox cannot be built for the
+# staged suite on this host (`implementation_delivery.delivery_admission_refusal`).
+# Decided before the spawn (no turn spent) and again before the quarantine
+# is published (the agent's commit is discarded rather than published as
+# a branch its retry would collide with); the request keeps its budget and
+# the governance row of the release's name carries the cause.
+DELIVERY_WINDOW_REFUSAL = _AdmissionRefusalKind(
+    release_reason="implementation_delivery_unavailable",
+    failure_class="harness_unavailable", retryable=True,
+)
+IMPLEMENTATION_BRANCH_COLLISION_REFUSAL = _AdmissionRefusalKind(
+    release_reason="implementation_branch_collision",
+    failure_class="policy_violation", retryable=False,
+)
+IMPLEMENTATION_REQUEST_INVALID_REFUSAL = _AdmissionRefusalKind(
+    release_reason="implementation_request_invalid",
+    failure_class="policy_violation", retryable=False,
+)
+# The `stand_on_implementation_branch` refusals that are the REQUEST's facts
+# (the row's branch name / base sha), read by the branch step below to pick
+# `IMPLEMENTATION_REQUEST_INVALID_REFUSAL`; every other refusal of that step
+# but the collision is the containment's shape (harness-class).
+IMPLEMENTATION_REQUEST_INVALID_CONTAINMENT_REASONS: frozenset[str] = frozenset({
+    "implementation_branch_name_invalid", "base_sha_not_an_object_id",
+})
 
 
 @_dataclass(frozen=True)
@@ -3552,7 +3844,8 @@ def _pre_claim_environment_gate(*, tools_dir: Path) -> str | None:
 
     Returns None when the dispatch can proceed, else the governance kind
     recorded (`claude_auth_unavailable` / `sandbox_unavailable` /
-    `git_unavailable` / `env_deps_missing`). On refusal the request is NEVER claimed: it stays
+    `egress_boundary_unavailable` / `git_unavailable` / `env_deps_missing`). On refusal the
+    request is NEVER claimed: it stays
     PENDING for a healthy host instead of consuming a lease + requeue here.
     Mock mode skips the gate — a mock dispatch needs none of the surfaces.
     """
@@ -3573,6 +3866,14 @@ def _pre_claim_environment_gate(*, tools_dir: Path) -> str | None:
         kind, detail = "sandbox_unavailable", (
             f"sandbox_backend() returned None ({why}); write-capable spawns would be refused"
         )
+    if kind is None and _egress_boundary_probe is not None:
+        # ARIA-HIGH-143 — the spawn shares the host's network; its boundary
+        # is the allowlist proxy it is handed. No proxy, a silent one or a
+        # permissive one means a prompt-injected agent has the whole
+        # network, so the request stays PENDING until the host has one.
+        egress_gap = _egress_boundary_probe()
+        if egress_gap is not None:
+            kind, detail = "egress_boundary_unavailable", egress_gap
     if kind is None and _GitProbeSession is not None:
         # The kernel verifies every evidence ref of the result with git
         # probes in this workspace. A git that cannot answer `rev-parse
@@ -3633,6 +3934,14 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
             Path(env_tools).resolve() if env_tools else repo_root / "aria-tools"
         )
         return drain_pending(tools_dir=drain_tools_dir, repo_root=repo_root)
+
+    # ARIA-HIGH-142 — a targeted run (`ci_executor.py <request_id>`) that was
+    # not handed ARIA_WORKSPACE_ROOT publishes into the kernel's own checkout.
+    # The drain always exports it; an operator invocation may not, and the
+    # log must say which tree the run is about to treat as the request's.
+    root_note = repo_root_provenance_note()
+    if root_note is not None:
+        sys.stderr.write(root_note + "\n")
 
     # Plan ARIA-V3.1-D2 — frozen mock-mode sentinel at main() entry
     # (closes ai-safety HIGH-007). Pre-V3.1-D2 every cost-attribution
@@ -3751,14 +4060,26 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
         gate_kind = _pre_claim_environment_gate(tools_dir=tools_dir) if native_runtime is None else None
         if gate_kind is not None:
             return 1
-        # Step 1 — claim the request through the kernel CLI.
+        # Step 1 — claim the request through the kernel CLI. The lease is
+        # this child's own priced worst case (ARIA-HIGH-124 round 3): the
+        # kernel's 30-minute default did not cover a CLI at its cap plus
+        # the submit, and could not cover an implementation's delivery at
+        # all — `submit_claim_result` refuses an expired lease by
+        # construction (`lease_expired`), so a healthy run that outlived
+        # its lease was refused after the work was done.
+        # (The drain's worktree bracket runs outside the claim; the lease
+        # covers the claim to the release.)
+        _lease_seconds = _child_worst_case_seconds(
+            implementation_delivery_seconds=_request_delivery_seconds(tools_dir=tools_dir, request_id=request_id),
+        )
         claim_proc = subprocess.run(
-            [
-                "python3", "-m", "aria_kernel", "agent", "claim",
+            _kernel_cli_argv(
+                "agent", "claim",
                 "--request-id", request_id,
                 "--agent-id", agent_id,
+                "--lease-seconds", str(_lease_seconds),
                 "--tools-dir", str(tools_dir),
-            ],
+            ),
             capture_output=True,
             text=True,
             env={**os.environ, "PYTHONPATH": _KERNEL_PYTHONPATH},
@@ -3983,7 +4304,22 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
     # `IMPLEMENTATION_IDENTITY_REFUSAL` (harness-class release, retryable
     # `harness_unavailable` summary); the request stays PENDING.
     implementation_identity = None
+    _delivery_profile = None
+    # ARIA-HIGH-124 (round 5) — the identity's OWN stack, nested on the
+    # runtime stack: the private key and the kernel-held ssh-agent serve
+    # exactly the agent's commit, so the executor retires them
+    # (`_identity_stack.close()`: the agent stopped, the key unlinked, the
+    # config restored) right after the quarantine's publication and BEFORE
+    # the delivery — the verification reads the registered PUBLIC key
+    # (`plan_convergence_bridge.verify_implementation_commit`), the push
+    # and the PR need no key at all. Until round 5 the private key stayed
+    # under `<worktree>/aria-debts/keys/` through the delivery, where the
+    # validation sandbox (no keys mask then) exposed it to the agent's
+    # committed suite. The runtime stack's own exit still closes an
+    # identity a pre-spawn refusal left held.
+    _identity_stack = _runtime_stack.enter_context(_ExitStack())
     if request_envelope["role"] == "implementation":
+        from aria_kernel.gh_token_factory import signing_keys_dir as _signing_keys_dir
         from aria_kernel.implementation_identity import (
             ImplementationIdentityRefusal,
             hold_implementation_identity,
@@ -3992,7 +4328,7 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
 
         _identity_cycle_id = str(request_envelope.get("cycle_id") or "")
         try:
-            implementation_identity = _runtime_stack.enter_context(hold_implementation_identity(
+            implementation_identity = _identity_stack.enter_context(hold_implementation_identity(
                 cycle_id=_identity_cycle_id, workspace_root=_REPO_ROOT, base_dir=tools_dir,
             ))
         except ImplementationIdentityRefusal as exc:
@@ -4015,12 +4351,184 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
                 retryable=IMPLEMENTATION_IDENTITY_REFUSAL.retryable,
             )
         _stage(f"implementation_identity_held cycle_id={_identity_cycle_id} scope={implementation_identity.scope}")
+        # ARIA-HIGH-124 (round 6) — the DELIVERY credential is minted WHERE
+        # IT IS CONSUMED: by the delivery, after the contained gate, for
+        # exactly the push and the PR (`implementation_delivery`, stage
+        # `credential`). Here, before any turn is spent, the lane's ability
+        # to mint is ADMITTED — one lease minted and revoked at once,
+        # recorded as such (`consumer: executor_admission`) — so a lane that
+        # cannot mint is released harness-class, like the identity. Until
+        # round 6 the ONE lease was minted here and first consumed after the
+        # spawn, the publication, the decisions and the contained gate —
+        # up to `IMPLEMENTATION_DELIVERY_WORST_CASE_SECONDS` later — while a
+        # GitHub App installation token lives one hour: in Mode A every
+        # implementation whose spawn and suite ran past ~55 minutes pushed
+        # with a dead token and was escalated as the request's fault.
+        from aria_kernel.agent_runtime_profile import read_agent_runtime_profile as _read_profile
+        from aria_kernel.delivery_credentials import DeliveryCredentialError, admit_delivery_credentials
+
+        _delivery_profile = _read_profile(subagent_type)
+        _deadline_epoch = os.environ.get("ARIA_JOB_DEADLINE_EPOCH")
+        try:
+            _credential_admission = admit_delivery_credentials(
+                profile=_delivery_profile, request_id=request_id,
+                cycle_id=request_envelope.get("cycle_id"), workspace_root=_REPO_ROOT, base_dir=tools_dir,
+                deadline_epoch=float(_deadline_epoch) if _deadline_epoch else None,
+            )
+        except DeliveryCredentialError as exc:
+            sys.stderr.write(f"{DELIVERY_CREDENTIAL_REFUSAL.release_reason}: {exc}\n")
+            _release_claim(
+                tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+                agent_id=agent_id, lease_token=lease_token,
+                reason=DELIVERY_CREDENTIAL_REFUSAL.release_reason,
+            )
+            return _refuse_dispatch(
+                request=request_envelope, request_id=request_id, target_agent=subagent_type,
+                reason=DELIVERY_CREDENTIAL_REFUSAL.release_reason,
+                failure_class=DELIVERY_CREDENTIAL_REFUSAL.failure_class,
+                retryable=DELIVERY_CREDENTIAL_REFUSAL.retryable,
+            )
+        _stage(
+            "delivery_credential_admitted mode="
+            + (str(_credential_admission.mode) if _credential_admission is not None else "none")
+        )
+        # ARIA-HIGH-124 — the implementation branch is the kernel's to
+        # make: the sandbox starts ON `implementation_ids.branch` at
+        # `base_sha`, in the replica only (`stand_on_implementation_branch`)
+        # — the agent's `git switch -c` was never admitted by the command
+        # policy. A branch the shared repository already holds (an earlier
+        # attempt published it) is a collision a retry cannot resolve:
+        # refused before a turn, escalated for a person. A row whose ids
+        # cannot stand a sandbox at all (no `aria-impl-*` name, no object
+        # id) is the REQUEST's fault: escalated the same way (round 2 — a
+        # harness-class release had it re-claimed without bound). Any other
+        # refusal is the containment's shape, released like the identity.
+        from aria_kernel.git_containment import GitContainmentRefusal, stand_on_implementation_branch
+
+        _implementation_ids = _staged_implementation_ids(tools_dir=tools_dir, request_id=request_id)
+        try:
+            # The seeded containment (round 2): the publication after the
+            # spawn discards the seed unless the agent advanced it, so a
+            # failed spawn leaves no branch and its retry stands here again.
+            _seeded_containment = stand_on_implementation_branch(
+                implementation_identity.containment,
+                branch=str(_implementation_ids.get("branch") or ""),
+                base_sha=str(_implementation_ids.get("base_sha") or ""),
+            )
+        except GitContainmentRefusal as exc:
+            # The three kinds are spelled at the release site itself (a
+            # conditional over the refusal tables), the shape the
+            # release-site invariant reads.
+            _collision = exc.reason == "implementation_branch_exists"
+            _request_invalid = exc.reason in IMPLEMENTATION_REQUEST_INVALID_CONTAINMENT_REASONS
+            _branch_refusal_reason = (
+                IMPLEMENTATION_BRANCH_COLLISION_REFUSAL.release_reason if _collision
+                else IMPLEMENTATION_REQUEST_INVALID_REFUSAL.release_reason if _request_invalid
+                else IMPLEMENTATION_IDENTITY_REFUSAL.release_reason
+            )
+            _identity_governance(
+                tools_dir, _branch_refusal_reason,
+                {
+                    "request_id": request_id, "claim_id": claim_id, "cycle_id": _identity_cycle_id,
+                    "workspace_root": str(_REPO_ROOT), "reason": f"git_containment_refused:{exc.reason}",
+                    "branch": _implementation_ids.get("branch"), "base_sha": _implementation_ids.get("base_sha"),
+                },
+            )
+            sys.stderr.write(f"{_branch_refusal_reason}: git_containment_refused:{exc.reason}\n")
+            if _collision or _request_invalid:
+                # The ids (the branch name, the sha) travel in the record's
+                # structured context, never in the reason's prose (round 3).
+                try:
+                    _record_human_required(
+                        tools_dir=tools_dir, request_id=request_id, severity="HIGH",
+                        reason=(
+                            f"{IMPLEMENTATION_BRANCH_COLLISION_REFUSAL.release_reason}: the shared repository "
+                            "already holds this request's implementation branch (an earlier attempt published "
+                            "it); deliver or delete it, then requeue"
+                            if _collision else
+                            f"{IMPLEMENTATION_REQUEST_INVALID_REFUSAL.release_reason}: the request row's "
+                            "implementation_ids cannot stand a sandbox; re-stage the plan, then requeue"
+                        ),
+                        context={
+                            "code": _branch_refusal_reason, "stage": "branch_preparation",
+                            "containment_refusal": exc.reason, "claim_id": claim_id, "cycle_id": _identity_cycle_id,
+                            "branch": _implementation_ids.get("branch"), "base_sha": _implementation_ids.get("base_sha"),
+                        },
+                    )
+                except HumanRequiredRecordUnavailable as record_error:
+                    return _release_unescalated(
+                        tools_dir=tools_dir, repo=repo, request=request_envelope, request_id=request_id,
+                        target_agent=subagent_type, claim_id=claim_id, agent_id=agent_id, lease_token=lease_token,
+                        escalation_reason=_branch_refusal_reason, phase="preflight", error=record_error,
+                    )
+            _release_claim(
+                tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+                agent_id=agent_id, lease_token=lease_token,
+                reason=(IMPLEMENTATION_BRANCH_COLLISION_REFUSAL.release_reason if _collision
+                        else IMPLEMENTATION_REQUEST_INVALID_REFUSAL.release_reason if _request_invalid
+                        else IMPLEMENTATION_IDENTITY_REFUSAL.release_reason),
+            )
+            return _refuse_dispatch(
+                request=request_envelope, request_id=request_id, target_agent=subagent_type,
+                reason=_branch_refusal_reason,
+                failure_class=(IMPLEMENTATION_BRANCH_COLLISION_REFUSAL.failure_class if _collision
+                               else IMPLEMENTATION_REQUEST_INVALID_REFUSAL.failure_class if _request_invalid
+                               else IMPLEMENTATION_IDENTITY_REFUSAL.failure_class),
+                retryable=(IMPLEMENTATION_BRANCH_COLLISION_REFUSAL.retryable if _collision
+                           else IMPLEMENTATION_REQUEST_INVALID_REFUSAL.retryable if _request_invalid
+                           else IMPLEMENTATION_IDENTITY_REFUSAL.retryable),
+            )
+        _stage(f"implementation_branch_prepared branch={_implementation_ids.get('branch')} base_sha={_implementation_ids.get('base_sha')}")
+        # ARIA-HIGH-124 (round 3) — the window: the job's remaining wall
+        # clock must hold the CLI at its cap AND everything this child runs
+        # after it (the publication, the contained gate at up to the staged
+        # ceiling per command, the push, the PR, the terminal writer, the
+        # release). Decided BEFORE the spawn, so a delivery that could not
+        # finish is never started — a job reaped mid-delivery left a
+        # published branch with no PR, a lease to expire, and a retry that
+        # collided into HUMAN_REQUIRED. The sandbox the gate needs is
+        # proven buildable for every staged command at the same time.
+        # Harness-class: the window and the host say nothing about the
+        # request, which stays queued with its budget intact.
+        from aria_kernel.git_containment import QUARANTINE_PUBLICATION_WORST_CASE_SECONDS
+        from aria_kernel.implementation_delivery import delivery_admission_refusal
+
+        _delivery_seconds = _request_delivery_seconds(tools_dir=tools_dir, request_id=request_id)
+        # What this child runs after the delivery — and, before the spawn,
+        # the CLI at its cap and the publication in between.
+        _after_delivery_seconds = TERMINAL_WRITER_TIMEOUT_SECONDS + STATE_WRITE_CHILD_WORST_CASE_SECONDS
+        _window_refusal = delivery_admission_refusal(
+            workspace_root=_REPO_ROOT, base_dir=tools_dir, proposal_id=str(_implementation_ids.get("proposal_id") or ""),
+            job_deadline_epoch=float(_deadline_epoch) if _deadline_epoch else None,
+            extra_seconds=timeout + QUARANTINE_PUBLICATION_WORST_CASE_SECONDS + _after_delivery_seconds,
+        )
+        if _window_refusal is not None:
+            _identity_governance(
+                tools_dir, DELIVERY_WINDOW_REFUSAL.release_reason,
+                {
+                    "request_id": request_id, "claim_id": claim_id, "cycle_id": _identity_cycle_id,
+                    "workspace_root": str(_REPO_ROOT), "reason": _window_refusal, "decided": "before_spawn",
+                    "delivery_worst_case_seconds": _delivery_seconds,
+                },
+            )
+            sys.stderr.write(f"{DELIVERY_WINDOW_REFUSAL.release_reason}: {_window_refusal} (before the spawn)\n")
+            _release_claim(
+                tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+                agent_id=agent_id, lease_token=lease_token,
+                reason=DELIVERY_WINDOW_REFUSAL.release_reason,
+            )
+            return _refuse_dispatch(
+                request=request_envelope, request_id=request_id, target_agent=subagent_type,
+                reason=DELIVERY_WINDOW_REFUSAL.release_reason,
+                failure_class=DELIVERY_WINDOW_REFUSAL.failure_class,
+                retryable=DELIVERY_WINDOW_REFUSAL.retryable,
+            )
     _signer_key_fp = implementation_identity.fingerprint if implementation_identity is not None else None
     # ARIA-HIGH-123 — the same holder's sandbox shape: the request worktree's
     # git dirs bound the way a commit needs, the key masked, the agent socket
     # bound. Only the Claude route can carry it (the native Codex and Z.ai
     # routes prepare read-only runtimes and never host an implementation).
-    _git_containment = implementation_identity.containment if implementation_identity is not None else None
+    _git_containment = _seeded_containment if implementation_identity is not None else None
     _spawn_control = SpawnControl(
         should_cancel=lambda: is_cancelled(request_id, tools_dir),
         on_event=ProgressWriter(request_id, base_dir=tools_dir, claim_id=claim_id).write,
@@ -4087,10 +4595,52 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
                 git_containment=_git_containment,
             )
         finally:
+            _quarantine_publication = None
+            _publication_window_refusal = None
             if _git_containment is not None:
-                _publish_sandbox_commits(
-                    tools_dir=tools_dir, request_id=request_id, claim_id=claim_id, containment=_git_containment,
+                # ARIA-HIGH-124 (round 3) — the window again, now that the
+                # CLI has spent what it spent: what remains must hold the
+                # delivery, the terminal writer and the release. A window
+                # that cannot is refused BEFORE the quarantine is
+                # published, so nothing becomes a branch the retry would
+                # collide with; the agent's commit is discarded by name.
+                _publication_window_refusal = delivery_admission_refusal(
+                    workspace_root=_REPO_ROOT, base_dir=tools_dir,
+                    proposal_id=str(_implementation_ids.get("proposal_id") or ""),
+                    job_deadline_epoch=float(_deadline_epoch) if _deadline_epoch else None,
+                    extra_seconds=QUARANTINE_PUBLICATION_WORST_CASE_SECONDS + _after_delivery_seconds,
                 )
+                if _publication_window_refusal is None:
+                    _quarantine_publication = _publish_sandbox_commits(
+                        tools_dir=tools_dir, request_id=request_id, claim_id=claim_id, containment=_git_containment,
+                    )
+                else:
+                    _identity_governance(
+                        tools_dir, IMPLEMENTATION_QUARANTINE_DISCARDED_EVENT,
+                        {
+                            "request_id": request_id, "claim_id": claim_id, "workspace_root": str(_REPO_ROOT),
+                            "reason": _publication_window_refusal, "decided": "before_publication",
+                        },
+                    )
+                    _stage(f"implementation_quarantine_discarded reason={_publication_window_refusal}")
+                # ARIA-HIGH-124 (round 5) — the agent's commit is over and
+                # the quarantine is published (or discarded): the private
+                # key and the signing agent have nothing left to sign.
+                # Retired HERE, before the result is read and before the
+                # delivery, on every exit of the spawn; the keys dir holds
+                # only the directory from now on.
+                _identity_stack.close()
+                _identity_governance(
+                    tools_dir, IMPLEMENTATION_IDENTITY_RETIRED_EVENT,
+                    {
+                        "request_id": request_id, "claim_id": claim_id, "workspace_root": str(_REPO_ROOT),
+                        "cycle_id": _identity_cycle_id, "retired": "after_publication",
+                        "keys_dir_entries": sorted(
+                            path.name for path in _signing_keys_dir(_REPO_ROOT).iterdir()
+                        ),
+                    },
+                )
+                _stage("implementation_identity_retired after_publication")
         if cli_exit != 0:
             # Plan 032 Faz 032c — a write-capable spawn that ended non-zero has
             # its LOCAL edits put back from the pre-spawn checkpoint (hand
@@ -4202,6 +4752,22 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
         return 1
 
     _stage(f"claude_returned_exit={cli_exit} request_id={request_id} role={request_envelope.get('role')}")
+    if _publication_window_refusal is not None:
+        # (round 3) the quarantine was discarded above: no branch exists,
+        # the retry stands on it again. Released harness-class, the
+        # summary says the host's window refused, no result is read.
+        sys.stderr.write(f"{DELIVERY_WINDOW_REFUSAL.release_reason}: {_publication_window_refusal} (before the publication)\n")
+        _release_claim(
+            tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+            agent_id=agent_id, lease_token=lease_token,
+            reason=DELIVERY_WINDOW_REFUSAL.release_reason,
+        )
+        return _refuse_dispatch(
+            request=request_envelope, request_id=request_id, target_agent=subagent_type,
+            reason=DELIVERY_WINDOW_REFUSAL.release_reason,
+            failure_class=DELIVERY_WINDOW_REFUSAL.failure_class,
+            retryable=DELIVERY_WINDOW_REFUSAL.retryable,
+        )
 
     # Plan ARIA-V8.13 — agent refusal as first-class terminal outcome.
     # When the agent emits `aria/agent-refusal/v1` (legitimate refusal
@@ -4244,30 +4810,27 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
                 or "agent refused without summary"
             )[:500]
             _stage(f"agent_refusal_detected class={_reason_class!r} request_id={request_id}")
-            # Persist HUMAN_REQUIRED via kernel CLI so the operator
-            # sees the structured triage row + the state machine
-            # marks the request terminal.
+            # Persist HUMAN_REQUIRED through the kernel's recorder (one
+            # recorder, shared with the delivery refusals — ARIA-HIGH-124)
+            # so the operator sees the structured triage row and the state
+            # machine marks the request terminal from the release below.
+            # The agent's own summary is free text of the agent's: it rides
+            # the record's structured context, never the reason the
+            # notification channels carry (data minimisation, the CLI
+            # validator's purpose, kept without the validator).
             try:
-                _hr_proc = subprocess.run(
-                    [
-                        "python3", "-m", "aria_kernel", "human-required", "record",
-                        "--request-id", request_id,
-                        "--severity", "MEDIUM",
-                        "--reason", f"agent_refused:{_reason_class}: {_reason_summary}",
-                        "--tools-dir", str(tools_dir),
-                    ],
-                    capture_output=True,
-                    text=True,
-                        env={**os.environ, "PYTHONPATH": _KERNEL_PYTHONPATH},
-                        timeout=HUMAN_REQUIRED_RECORD_TIMEOUT_SECONDS,
+                _record_human_required(
+                    tools_dir=tools_dir, request_id=request_id, severity="MEDIUM",
+                    reason=f"agent_refused:{_reason_class}: the agent refused the request; its summary is on the record",
+                    context={"code": f"agent_refused:{_reason_class}", "stage": "agent_refusal",
+                             "claim_id": claim_id, "reason_class": _reason_class, "reason_summary": _reason_summary},
                 )
-                if _hr_proc.returncode != 0:
-                    sys.stderr.write(
-                        f"human-required record exit={_hr_proc.returncode} "
-                        f"stderr={_hr_proc.stderr[:200]!r}\n"
-                    )
-            except (subprocess.TimeoutExpired, OSError) as _hr_exc:
-                sys.stderr.write(f"human-required record dispatch failed: {_hr_exc}\n")
+            except HumanRequiredRecordUnavailable as record_error:
+                return _release_unescalated(
+                    tools_dir=tools_dir, repo=repo, request=request_envelope, request_id=request_id,
+                    target_agent=subagent_type, claim_id=claim_id, agent_id=agent_id, lease_token=lease_token,
+                    escalation_reason=f"agent_refused:{_reason_class}", phase="submit", error=record_error,
+                )
             # Release the claim so downstream observers see the
             # explicit `agent_refused:<class>` reason rather than the
             # generic `plan_content_invalid` rejection that pre-V8.13
@@ -4323,11 +4886,126 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
                 _envelope_for_validation, fingerprint=implementation_identity.fingerprint,
                 request_id=request_id, claim_id=claim_id, base_dir=tools_dir,
             )
-        if _mutated or _mutated_cr or _mutated_sm or _mutated_signer:
+        # ARIA-HIGH-124 — the implementation is DELIVERED here, by this
+        # process, outside the sandbox: the apply gate at the published
+        # branch's HEAD in the request worktree, the push with the held
+        # credential, the PR through the one sanctioned opener — and the
+        # kernel's facts (pr_url, pr_number, branch_tip_sha, base_branch_sha,
+        # diff_hash, the gate ref, the recorded runs) stamped on the record
+        # the bridge reads; a value the agent wrote is replaced and a
+        # differing one recorded. A refusal at any stage is by name,
+        # escalated for a person and released request-class: the published
+        # branch makes a retry collide, so nothing is gained by one.
+        _mutated_delivery = False
+        if implementation_identity is not None:
+            from aria_kernel.implementation_delivery import (
+                HOST_STAGES,
+                IMPLEMENTATION_DELIVERED_EVENT,
+                IMPLEMENTATION_DELIVERY_REFUSED_EVENT,
+                ImplementationDeliveryRefusal,
+                deliver_implementation,
+                stamp_implementation_delivery,
+            )
+            from aria_kernel.tool_registry import append_tools_governance as _delivery_governance
+
+            try:
+                _delivery = deliver_implementation(
+                    request_id=request_id, claim_id=claim_id, agent_id=agent_id,
+                    cycle_id=str(request_envelope.get("cycle_id") or ""),
+                    # ARIA-HIGH-124 (round 4) — the identity this process
+                    # HOLDS for the request: the delivery verifies the
+                    # published tip against it before it pushes anything,
+                    # with the same verifier the submit's bridge runs. The
+                    # push and the PR used to happen first and the bridge
+                    # refuse the same commit afterwards, leaving a live PR
+                    # on a plan that stayed IMPLEMENTATION_REQUESTED.
+                    signer_key_fp=implementation_identity.fingerprint,
+                    implementation_ids=_staged_implementation_ids(tools_dir=tools_dir, request_id=request_id),
+                    workspace_root=_REPO_ROOT, base_dir=tools_dir, publication=_quarantine_publication,
+                    # (round 6) the profile whose grant the delivery mints
+                    # its credential under — INSIDE the delivery, after
+                    # the gate, for the push and the PR alone; this
+                    # process holds no lease across the spawn.
+                    profile=_delivery_profile,
+                    # (round 5) the envelope this process will SUBMIT, as
+                    # it stands — canonicalized, the signer stamped — and
+                    # its path: the delivery decides it the way the submit
+                    # will BEFORE it spends the credential, and reads the
+                    # one delivery fact the agent contributes (its
+                    # dispositions for intended files it left untouched)
+                    # off the same record.
+                    envelope=_envelope_for_validation, output_path=expected_output_path,
+                    # (round 3) the delivery's own admission reads the job
+                    # window; the executor decided it before the publication.
+                    job_deadline_epoch=float(_deadline_epoch) if _deadline_epoch else None,
+                )
+            except ImplementationDeliveryRefusal as exc:
+                _delivery_governance(tools_dir, IMPLEMENTATION_DELIVERY_REFUSED_EVENT, {
+                    "request_id": request_id, "claim_id": claim_id, "stage": exc.stage, "reason": exc.reason[:500],
+                    "workspace_root": str(_REPO_ROOT),
+                })
+                _stage(f"implementation_delivery_refused stage={exc.stage} reason={exc.reason[:200]!r}")
+                if exc.stage in HOST_STAGES:
+                    # (round 3) the host's window or sandbox, decided after
+                    # the publication, and (round 6) the lane's credential
+                    # source at the moment of the push: harness-class, no
+                    # escalation — the request keeps its budget; the
+                    # published branch makes the retry collide, which IS
+                    # escalated, by name.
+                    _release_claim(
+                        tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+                        agent_id=agent_id, lease_token=lease_token,
+                        reason=DELIVERY_WINDOW_REFUSAL.release_reason,
+                    )
+                    return _refuse_dispatch(
+                        request=request_envelope, request_id=request_id, target_agent=subagent_type,
+                        reason=DELIVERY_WINDOW_REFUSAL.release_reason,
+                        failure_class=DELIVERY_WINDOW_REFUSAL.failure_class,
+                        retryable=DELIVERY_WINDOW_REFUSAL.retryable,
+                    )
+                try:
+                    _record_human_required(
+                        tools_dir=tools_dir, request_id=request_id, severity="HIGH",
+                        reason=f"implementation_delivery_refused:{exc.stage}: {exc.reason[:400]}",
+                        context={
+                            "code": f"implementation_delivery_refused:{exc.stage}", "stage": exc.stage,
+                            "detail": exc.reason[:1000], "claim_id": claim_id,
+                            "branch": _staged_implementation_ids(tools_dir=tools_dir, request_id=request_id).get("branch"),
+                            "base_sha": _staged_implementation_ids(tools_dir=tools_dir, request_id=request_id).get("base_sha"),
+                        },
+                    )
+                except HumanRequiredRecordUnavailable as record_error:
+                    return _release_unescalated(
+                        tools_dir=tools_dir, repo=repo, request=request_envelope, request_id=request_id,
+                        target_agent=subagent_type, claim_id=claim_id, agent_id=agent_id, lease_token=lease_token,
+                        escalation_reason=f"implementation_delivery_refused:{exc.stage}", phase="submit", error=record_error,
+                    )
+                _release_claim(
+                    tools_dir=tools_dir, repo=repo, claim_id=claim_id,
+                    agent_id=agent_id, lease_token=lease_token,
+                    reason=f"implementation_delivery_refused:{exc.stage}",
+                )
+                return _refuse_dispatch(
+                    request=request_envelope, request_id=request_id, target_agent=subagent_type,
+                    reason="implementation_delivery_refused",
+                )
+            _mutated_delivery = stamp_implementation_delivery(
+                _envelope_for_validation, delivery=_delivery, request_id=request_id, claim_id=claim_id,
+                base_dir=tools_dir,
+            )
+            _delivery_governance(tools_dir, IMPLEMENTATION_DELIVERED_EVENT, {
+                "request_id": request_id, "claim_id": claim_id, "branch": _delivery.branch,
+                "branch_tip_sha": _delivery.branch_tip_sha, "base_branch_sha": _delivery.base_branch_sha,
+                "pr_number": _delivery.pr_number, "pr_url": _delivery.pr_url,
+                "validation_gate_ref": _delivery.validation_gate_ref,
+                "validation_runs": len(_delivery.validation_results),
+            })
+            _stage(f"implementation_delivered branch={_delivery.branch} pr={_delivery.pr_number} tip={_delivery.branch_tip_sha}")
+        if _mutated or _mutated_cr or _mutated_sm or _mutated_signer or _mutated_delivery:
             _stage(
                 f"canonicalize auto-filled plan_content={_mutated} "
                 f"cross_review={_mutated_cr} satisfaction_matrix={_mutated_sm} "
-                f"implementation_signer={_mutated_signer}"
+                f"implementation_signer={_mutated_signer} implementation_delivery={_mutated_delivery}"
             )
             try:
                 _write_sanitized_envelope(expected_output_path, _envelope_for_validation)
@@ -4413,8 +5091,8 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
     # was worktree_candidate and the submit died. Ground the evidence check
     # at this worktree's committed HEAD when it has moved past the request
     # base — submit_claim_result proves the descent fail-closed.
-    submit_argv = [
-        "python3", "-m", "aria_kernel", "agent", "submit-result",
+    submit_argv = _kernel_cli_argv(
+        "agent", "submit-result",
         "--claim-id", claim_id,
         "--agent-id", agent_id,
         "--lease-token-from-env", LEASE_TOKEN_ENV_VAR,
@@ -4425,7 +5103,7 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
         "--prompt-hash", str(request_envelope.get("prompt_hash") or ""),
         "--transcript-hash", _transcript_hash,
         "--transcript-artifact-ref", transcript_output_path.resolve().as_posix(),
-    ]
+    )
     # "auto": the kernel CLI resolves the workspace HEAD and grounds the
     # evidence check there when it has moved past the request base — one
     # flag, no extra subprocess on this side (the fused-envelope smoke
@@ -4455,7 +5133,10 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
             agent_id=agent_id, lease_token=lease_token,
             reason=f"submit_timeout_{SUBMIT_RESULT_TIMEOUT_SECONDS}s",
         )
-        return 1
+        return _fail_submit_dispatch(
+            request=request_envelope, request_id=request_id, target_agent=subagent_type,
+            failure_class="timeout", retryable=True, detail_code="submit_timeout",
+        )
     _stage(f"submit_step_done rc={submit_proc.returncode}")
     if submit_proc.returncode != 0:
         # STDOUT as well as stderr, and this is the whole point: the kernel CLI
@@ -4499,17 +5180,27 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
                 agent_id=agent_id, lease_token=lease_token,
                 reason="evidence_verification_unavailable",
             )
-            return 1
+            return _fail_submit_dispatch(
+                request=request_envelope, request_id=request_id, target_agent=subagent_type,
+                failure_class="harness_unavailable", retryable=True, detail_code="evidence_verification_unavailable",
+            )
         if _rejected_result_recorded(submit_proc.stdout):
             _stage("submit_rejected_recorded: the kernel appended the rejected result row; "
                    "the claim is terminal and the request derives REJECTED")
+            return _fail_submit_dispatch(
+                request=request_envelope, request_id=request_id, target_agent=subagent_type,
+                failure_class="response_schema_rejected", retryable=False, detail_code="agent_result_rejected",
+            )
         else:
             _release_claim(
                 tools_dir=tools_dir, repo=repo, claim_id=claim_id,
                 agent_id=agent_id, lease_token=lease_token,
                 reason="submit_rejected",
             )
-        return 1
+            return _fail_submit_dispatch(
+                request=request_envelope, request_id=request_id, target_agent=subagent_type,
+                failure_class="response_schema_rejected", retryable=False, detail_code="submit_rejected",
+            )
     if native_runtime is not None:
         from aria_kernel.tool_registry import GovernanceError, append_tools_governance
 

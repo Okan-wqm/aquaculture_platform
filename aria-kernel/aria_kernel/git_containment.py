@@ -47,9 +47,10 @@ shape (``tmp_objdir``): new objects go to ``GIT_OBJECT_DIRECTORY =
 names the shared store for READS), new refs and reflogs go to the replica's
 ``refs/heads/`` and ``logs/refs/heads/``, which the sandbox binds AT
 ``<common>/refs/heads`` and ``<common>/logs/refs/heads`` — so a plain
-``git switch -c aria-impl-…`` + ``git commit`` + ``git push origin
-aria-impl-…`` works unchanged inside, while the shared common dir is bound
-READ-ONLY as a whole (``config``, ``hooks/``, ``info/``, ``objects/`` with
+``git add`` + ``git commit`` on the branch the kernel stood the sandbox on
+(``stand_on_implementation_branch``, ARIA-HIGH-124; the push is the
+executor's, after the run) works unchanged inside, while the shared common
+dir is bound READ-ONLY as a whole (``config``, ``hooks/``, ``info/``, ``objects/`` with
 its packs, ``objects/info/alternates`` and ``maintenance.lock``,
 ``packed-refs``, ``refs/tags``, ``refs/remotes``, the main checkout's
 ``HEAD``/``index``/``logs/HEAD``): a write there is EROFS at the syscall.
@@ -90,8 +91,8 @@ now holds is published with ``git update-ref`` (a real reflog row, the
 kernel's); everything else in the quarantine — a planted ``main.lock``, a
 shadow ``main``, a branch of the agent's own naming — is discarded and
 named in the receipt; the worktree's HEAD is then pointed at the published
-branch the replica's HEAD names (the agent's ``git switch -c``, done by the
-kernel on the host), so the executor's evidence check grades the agent's
+branch the replica's HEAD names (the branch the kernel stood the sandbox
+on, adopted by the kernel on the host), so the executor's evidence check grades the agent's
 files against the agent's commit. A crashed executor publishes nothing: the
 quarantine dies with its worktree, and the shared repository never carried
 a byte of it.
@@ -103,6 +104,42 @@ shares. That shape is REFUSED by name (``GitContainmentRefusal``,
 ``implementation_identity`` refuses it with, one reading:
 ``signing_checkout``), never bound writable; read-only git in a main
 checkout keeps the READONLY_PATHS ro-bind of ``.git/`` as before.
+
+ARIA-HIGH-124 — the implementation branch is the KERNEL's to make. The
+contract used to have the agent run ``git switch -c <branch> <base_sha>``
+inside — a command the command policy never admitted (the PreToolUse hook
+refused it), so the first git step of every production implementation was
+unexecutable. The executor now stands the sandbox on the branch before the
+spawn (``stand_on_implementation_branch``): the replica's ``HEAD`` names
+``refs/heads/<branch>`` and the quarantine's ref file names ``base_sha`` —
+two file writes in the replica, nothing in the shared repository, so the
+agent's plain ``git commit`` advances a branch that exists only in the
+quarantine until the kernel publishes it. Refused by name when the worktree
+is not at ``base_sha`` (``worktree_not_at_base_sha:<head>`` — the drain adds
+an implementation request's worktree at the staged base, and a lane that
+hands another tree is not silently re-pointed), when the branch name is not
+an ARIA implementation branch (``implementation_branch_name_invalid``, the
+publication would discard it), or when the shared repository already holds
+``refs/heads/<branch>`` (``implementation_branch_exists`` — an earlier
+attempt of the same request published it; the loose-ref overlay would make
+it read-only inside and the agent's commit would die on it, so it is
+refused before a turn is spent and an operator decides).
+
+The seed is the kernel's, not the agent's (round 2). ``stand_on_
+implementation_branch`` returns the containment with the seed recorded
+(``seeded_refs``: the branch and the object id it was seeded at), and the
+publication DISCARDS a quarantine ref whose content still equals its seed
+(``branch_unadvanced``, named in the receipt; the worktree's HEAD adopts
+nothing). Before this, a spawn that failed before any commit — a timeout, a
+provider outage, an operator cancel; the publication runs in the ``finally``
+before every one of those arms — published the seed as a real
+``refs/heads/aria-impl-*`` in the shared repository, and the harness-class
+retry the design promises was then refused pre-turn as
+``implementation_branch_exists``: every harness fault of an implementation
+spawn ended in a human after one wasted retry. A branch reaches the shared
+repository only when the agent advanced it; an agent that commits nothing is
+refused by the delivery (``branch_not_published:…branch_unadvanced``) and a
+failed spawn leaves no branch, so its retry stands on the branch again.
 """
 from __future__ import annotations
 
@@ -112,7 +149,7 @@ import re
 import shutil
 import subprocess
 import zlib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from .command_policy import ARIA_IMPL_BRANCH_FRAGMENT
@@ -158,6 +195,30 @@ COMMON_DIR_WORKTREES = "worktrees"
 LOOSE_REF_OVERLAY_BOUND = 512
 _GIT_PATH_TIMEOUT_SECONDS = 10
 _GIT_PUBLISH_TIMEOUT_SECONDS = 120
+# ARIA-HIGH-124 (round 3) — how long `publish_quarantine` may legitimately
+# run, priced into the implementation child by the executor
+# (`implementation_delivery.IMPLEMENTATION_DELIVERY_WORST_CASE_SECONDS`).
+# The git calls it makes, each at `_GIT_PUBLISH_TIMEOUT_SECONDS`: the object
+# format probe, ONE `update-ref` (only the kernel-seeded branch is
+# published; every other ref is discarded by name without git), the HEAD
+# adoption's `symbolic-ref` and `reset`, and one `unpack-objects` — the
+# agent has no admitted `repack`/`gc`, so a pack in the quarantine can only
+# be git's own auto-gc of a commit, one per run. The loose-object migration
+# is renames on one filesystem, charged to the same allowance.
+QUARANTINE_PUBLICATION_GIT_CALLS = 5
+QUARANTINE_PUBLICATION_WORST_CASE_SECONDS = QUARANTINE_PUBLICATION_GIT_CALLS * _GIT_PUBLISH_TIMEOUT_SECONDS
+# ARIA-HIGH-124 (round 6) — the kernel's OWN git subprocesses (the
+# publication's ref writes here, the delivery's push in
+# `implementation_delivery`) run with git's hooks off: `core.hooksPath`
+# pointed at a path no hook can live under. They run in the request
+# worktree, whose hooks resolve through the shared checkout's config; a
+# `core.hooksPath=.husky` a runner install could set (`npm run
+# hooks:install`, an `npm ci` without `--ignore-scripts`) would otherwise
+# run a hook from the AGENT's tree as the executor — with the delivery
+# credential in the push's environment. Argv, not environment: the
+# credential helper rides `GIT_CONFIG_COUNT`, and git's `-c` is exported
+# to the git subprocess alone.
+KERNEL_GIT_NO_HOOKS_ARGS: tuple[str, ...] = ("-c", f"core.hooksPath={os.devnull}")
 _ARIA_IMPL_BRANCH_RE = re.compile(rf"^{ARIA_IMPL_BRANCH_FRAGMENT}$")
 _OBJECT_ID_RE = re.compile(r"^[0-9a-f]{40}([0-9a-f]{24})?$")
 _LOOSE_OBJECT_DIR_RE = re.compile(r"^[0-9a-f]{2}$")
@@ -179,7 +240,12 @@ class GitContainmentRefusal(Exception):
     ``git_dir_unwritable:<ErrorClass>``, ``loose_refs_exceed_overlay_bound:<n>``,
     ``signing_public_key_outside_keys_dir``,
     ``signing_keys_dir_outside_workspace``, ``signing_agent_socket_missing``,
-    ``signing_without_commit_capability``.
+    ``signing_without_commit_capability``; and for
+    ``stand_on_implementation_branch`` (ARIA-HIGH-124):
+    ``branch_without_commit_capability``, ``implementation_branch_name_invalid``,
+    ``base_sha_not_an_object_id``, ``worktree_head_unresolvable:<why>``,
+    ``worktree_not_at_base_sha:<head>``, ``implementation_branch_exists``,
+    ``replica_unwritable:<ErrorClass>``.
     """
 
     def __init__(self, reason: str) -> None:
@@ -222,6 +288,12 @@ class GitContainment:
     signing: SandboxSigning | None = None
     sandbox_git_dir: Path | None = None
     loose_refs: tuple[Path, ...] = ()
+    # ARIA-HIGH-124 (round 2) — the branches the KERNEL seeded in the
+    # quarantine (`stand_on_implementation_branch`) and the object id each
+    # was seeded at: a quarantine ref still equal to its seed is the
+    # kernel's own write, never the agent's commit, and the publication
+    # discards it (`branch_unadvanced`) instead of adopting it as a branch.
+    seeded_refs: tuple[tuple[str, str], ...] = ()
 
     @property
     def quarantine_objects_dir(self) -> Path | None:
@@ -313,7 +385,7 @@ class QuarantinePublication:
     refs_discarded: tuple[tuple[str, str], ...]
     refusal: str | None = None
     # The published branch the worktree's HEAD now names — the agent's
-    # `git switch -c` in the replica, adopted on the host so the executor's
+    # branch the kernel stood the sandbox on in the replica, adopted on the host so the executor's
     # evidence check (`--evidence-target-sha auto`, the worktree's HEAD)
     # grades the agent's files against the agent's commit; None when the
     # replica's HEAD named nothing that was published.
@@ -465,6 +537,55 @@ def _is_socket(path: Path) -> bool:
         return False
 
 
+def stand_on_implementation_branch(containment: GitContainment, *, branch: str, base_sha: str) -> GitContainment:
+    """Put the sandbox on ``refs/heads/<branch>`` at ``base_sha`` — in the replica only.
+
+    ARIA-HIGH-124 — what the contract's ``git switch -c <branch> <base_sha>``
+    was meant to do, done by the kernel before the spawn, in the replica the
+    sandbox sees as its private git dir: ``HEAD`` becomes the symbolic ref
+    and the quarantine's ``refs/heads/<branch>`` names ``base_sha``. The
+    shared repository is not touched, the host worktree's HEAD stays as the
+    drain left it (detached at ``base_sha``), and the agent inside starts on
+    the branch with a working tree and index already at that commit. Every
+    refusal is by name (``GitContainmentRefusal``) and writes nothing.
+
+    Returns the containment WITH the seed recorded (``seeded_refs``): the
+    caller publishes with that one, so a ref the agent never advanced past
+    the seed is discarded rather than published (round 2).
+    """
+    replica = containment.sandbox_git_dir
+    if not containment.commit_capable or replica is None:
+        raise GitContainmentRefusal("branch_without_commit_capability")
+    if not _ARIA_IMPL_BRANCH_RE.match(branch):
+        raise GitContainmentRefusal("implementation_branch_name_invalid")
+    if not _OBJECT_ID_RE.match(base_sha):
+        raise GitContainmentRefusal("base_sha_not_an_object_id")
+    env = _publish_environment()
+    workspace = containment.workspace_root
+    try:
+        head = _git(["rev-parse", "--verify", "HEAD^{commit}"], cwd=workspace, env=env)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise GitContainmentRefusal(f"worktree_head_unresolvable:{type(exc).__name__}") from exc
+    if head.returncode != 0:
+        raise GitContainmentRefusal("worktree_head_unresolvable:rc=" + str(head.returncode))
+    if head.stdout.strip() != base_sha:
+        # The tree the agent edits must be the tree the baseline was
+        # measured on; re-pointing it here would hide a lane that provisions
+        # the wrong one.
+        raise GitContainmentRefusal(f"worktree_not_at_base_sha:{head.stdout.strip()}")
+    existing = _git(["show-ref", "--verify", "--quiet", f"refs/heads/{branch}"], cwd=workspace, env=env)
+    if existing.returncode == 0:
+        raise GitContainmentRefusal("implementation_branch_exists")
+    try:
+        ref_file = replica / "refs" / "heads" / branch
+        ref_file.parent.mkdir(parents=True, exist_ok=True)
+        ref_file.write_text(base_sha + "\n", encoding="utf-8")
+        (replica / "HEAD").write_text(f"ref: refs/heads/{branch}\n", encoding="utf-8")
+    except OSError as exc:
+        raise GitContainmentRefusal(f"replica_unwritable:{type(exc).__name__}") from exc
+    return replace(containment, seeded_refs=(*containment.seeded_refs, (branch, base_sha)))
+
+
 def _publish_environment() -> dict[str, str]:
     env = {name: value for name, value in os.environ.items()
            if name not in (GIT_OBJECT_DIRECTORY_ENV, "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_DIR",
@@ -475,8 +596,8 @@ def _publish_environment() -> dict[str, str]:
 
 def _git(args: list[str], *, cwd: Path, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        ["git", *args], cwd=str(cwd), env=env, capture_output=True, text=True, check=False,
-        timeout=_GIT_PUBLISH_TIMEOUT_SECONDS,
+        ["git", *KERNEL_GIT_NO_HOOKS_ARGS, *args], cwd=str(cwd), env=env, capture_output=True, text=True,
+        check=False, timeout=_GIT_PUBLISH_TIMEOUT_SECONDS,
     )
 
 
@@ -560,8 +681,10 @@ def _ref_name_refusal(name: str, content: str) -> str | None:
 def publish_quarantine(containment: GitContainment) -> QuarantinePublication:
     """Move what the agent committed inside the sandbox into the shared
     repository — outside the sandbox, with the kernel's authority and git's
-    own checks — and publish its implementation branch. Idempotent: a
-    quarantine already published (or never used) publishes nothing.
+    own checks — and publish its implementation branch: the ONE branch the
+    kernel seeded (``seeded_refs``), when the agent advanced it. Every other
+    quarantine ref is discarded by name. Idempotent: a quarantine already
+    published (or never used) publishes nothing.
     """
     replica = containment.sandbox_git_dir
     if not containment.commit_capable or replica is None or not replica.is_dir():
@@ -593,6 +716,7 @@ def publish_quarantine(containment: GitContainment) -> QuarantinePublication:
     # The mountpoints bwrap made in the quarantine for the read-only overlays
     # of existing loose refs: empty files under those names, not the agent's.
     placeholders = {loose.relative_to(shared_heads).as_posix() for loose in containment.loose_refs}
+    seeded_names = {name for name, _seed in containment.seeded_refs}
     ref_files = sorted(path for path in heads.rglob("*") if path.is_file()) if heads.is_dir() else []
     try:
         for ref_file in ref_files:
@@ -602,6 +726,19 @@ def publish_quarantine(containment: GitContainment) -> QuarantinePublication:
                 ref_file.unlink()
                 continue
             refusal = _ref_name_refusal(name, content)
+            if refusal is None and name not in seeded_names:
+                # (round 3) only a branch the KERNEL seeded is published: the
+                # agent has no admitted way to make another (`git branch
+                # <name>`, `git switch -c`, `update-ref` are all refused),
+                # and a second `aria-impl-*` ref would land in the shared
+                # repository under ANOTHER request's name and make that
+                # request collide before its first turn.
+                refusal = "not_the_seeded_branch"
+            if refusal is None and (name, content) in containment.seeded_refs:
+                # The kernel's own seed (`stand_on_implementation_branch`),
+                # never advanced by a commit inside: publishing it would
+                # turn a failed spawn into a branch the retry collides with.
+                refusal = "branch_unadvanced"
             if refusal is None:
                 # git refuses a ref to an object the store does not hold —
                 # a refused object cannot be published by naming it — and
@@ -627,8 +764,8 @@ def publish_quarantine(containment: GitContainment) -> QuarantinePublication:
 def _adopt_head(containment: GitContainment, replica: Path, published: list[str], *, env: dict[str, str]) -> str | None:
     """Point the host worktree's HEAD at the branch the agent switched to in
     the replica, when that branch was published, and bring the index to it
-    (the working tree already carries the agent's files): what the agent's
-    own `git switch -c` did inside, done by the kernel outside."""
+    (the working tree already carries the agent's files): the kernel-made
+    branch the agent committed on inside (ARIA-HIGH-124), adopted outside."""
     try:
         head = (replica / "HEAD").read_text(encoding="utf-8").strip()
     except OSError:
@@ -649,6 +786,8 @@ def _adopt_head(containment: GitContainment, replica: Path, published: list[str]
 
 __all__ = [
     "COMMON_DIR_OBJECTS",
+    "KERNEL_GIT_NO_HOOKS_ARGS",
+    "QUARANTINE_PUBLICATION_WORST_CASE_SECONDS",
     "COMMON_DIR_QUARANTINED_REF_DIRS",
     "COMMON_DIR_WORKTREES",
     "GIT_OBJECT_DIRECTORY_ENV",
@@ -663,4 +802,5 @@ __all__ = [
     "SandboxSigning",
     "derive_git_containment",
     "publish_quarantine",
+    "stand_on_implementation_branch",
 ]

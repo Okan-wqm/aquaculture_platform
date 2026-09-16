@@ -43,12 +43,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-import shlex
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
-from .command_policy import classify_command
+from .command_policy import argv_of, classify_command
 from .implementation_safety import (
     READONLY_PATHS,
     BashAllowlistMiss,
@@ -106,13 +105,13 @@ def _tool_name(payload: Mapping[str, Any]) -> str:
 
 
 def _bash_argv(payload: Mapping[str, Any]) -> list[str]:
-    command = str((payload.get("tool_input") or {}).get("command") or "")
-    try:
-        return shlex.split(command)
-    except ValueError:
-        # An unlexable command is refused by verify_bash_command_allowed's
-        # operator detector; hand it the raw token so the refusal is named.
-        return [command]
+    # The policy's own lexer (ARIA-HIGH-124 round 4): its token rules — the
+    # `git commit` option grammar — are written against the argv a shell
+    # would produce, and its examples are verified through the same
+    # function, so the hook and the policy cannot disagree about where a
+    # command's tokens are. An unlexable command comes back as one token and
+    # is refused by `verify_bash_command_allowed`'s operator detector.
+    return argv_of(str((payload.get("tool_input") or {}).get("command") or ""))
 
 
 def _write_target(payload: Mapping[str, Any]) -> str:

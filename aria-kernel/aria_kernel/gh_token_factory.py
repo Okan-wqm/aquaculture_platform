@@ -206,12 +206,33 @@ class InstallationTokenLease:
     in this mode so the audit trail captures shim activations.
 
     The Tier-1 invariant the orchestrator depends on: this dataclass
-    is the ONLY way aria-implementer receives a token. Plan 032 Faz 032d
-    (`delivery_credentials`) is its sole consumer: the token rides ONE
-    spawn's built environment as ``GH_TOKEN`` for a profile that declares
-    ``external_writes`` — never argv, never a file the agent can read —
-    and is revoked when that spawn ends. The earlier "credentials file the
-    sandbox reads on demand" design had no reader and is superseded.
+    is the ONLY way an implementation's delivery receives a token. Plan
+    032 Faz 032d (`delivery_credentials`) is its sole consumer, and since
+    ARIA-HIGH-124 the token never reaches the implementer at all: the
+    EXECUTOR mints it WHERE IT IS CONSUMED (round 6 —
+    ``implementation_delivery.deliver_implementation``, stage ``credential``,
+    after the contained gate, through ``hold_delivery_credentials``) for
+    exactly the ONE ``git push`` and the ONE ``gh pr create`` it runs itself,
+    outside the sandbox, and revokes it the moment the PR is open; before
+    the spawn it only ADMITS the lane — one lease minted and revoked at once
+    (``admit_delivery_credentials``) so a lane that cannot mint is refused
+    before a turn is spent. The token is never the spawn's environment,
+    never argv, never a file the agent can read: ``token_file`` is written
+    to a private 0700 directory of the executor's OUTSIDE the workspace
+    (round 5 — ``token_dir``), which no sandbox binds, and consumed into
+    memory by the hold the moment it is minted; the workspace's keys dir is
+    masked in both the agent's spawn and the validation sandbox. The earlier
+    "credentials file the sandbox reads on demand" design had no reader and
+    is superseded; the "rides one spawn's environment" design that followed
+    it is superseded the same way; the round-4 file under the workspace keys
+    dir was readable by the agent's committed suite through the validation
+    sandbox and is superseded by the private directory; the round-5 lease
+    minted BEFORE the spawn and first consumed after the spawn, the
+    publication, the decisions and the contained gate — up to
+    ``IMPLEMENTATION_DELIVERY_WORST_CASE_SECONDS`` later, against a provider
+    horizon of one hour (``PROVIDER_INSTALLATION_TOKEN_LIFETIME_SECONDS``) —
+    pushed with a dead token on every long suite in Mode A and is superseded
+    by the mint at consumption.
     """
 
     cycle_id: str
@@ -221,14 +242,40 @@ class InstallationTokenLease:
     fallback_active: bool
     minted_at_utc: str
     # ARIA-AUDIT-017: TTL honesty. provider_expiry is GitHub's own
-    # expires_at for Mode A installation tokens (None in Mode B, where
-    # the operator PAT has no provider-side lifetime and revocation is
-    # local-file deletion only). Consumers that need a provider-enforced
-    # horizon must refuse leases where this is None.
+    # ``expires_at`` for Mode A installation tokens — the ONE horizon the
+    # provider enforces (one hour after the mint; the endpoint takes no
+    # ``expires_in``, so ``ttl_seconds`` above is the HOLDER's local life,
+    # never the provider's) — and None in Mode B and dry-run mode, where
+    # the operator PAT / the sentinel has no provider-side lifetime and
+    # revocation is local-file deletion only. Until ARIA-HIGH-124 round 6
+    # the mint validated ``expires_at`` and then dropped it: the field was
+    # None in every mode and no consumer could read the provider's horizon.
+    # A consumer that must hold the token through a window asks the hold to
+    # cover it (``delivery_credentials.issue_delivery_credentials``,
+    # ``covers_seconds``) and is refused by name when this horizon is
+    # shorter.
     provider_expiry: str | None = None
 
 
 _CYCLE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{6,64}$")
+
+# ARIA-HIGH-124 (round 6) — the provider's own lifetime of an installation
+# access token: GitHub expires one exactly one hour after
+# ``POST /app/installations/{id}/access_tokens`` answers, whatever the
+# caller wants (the endpoint has no ``expires_in``; the mint used to send
+# one and call the local TTL "provider-side" — fiction the delivery paid for
+# when it consumed a lease minted hours earlier). Every local TTL is bounded
+# by this, and a consumer that needs the token alive for a window mints it
+# INSIDE that window (`delivery_credentials.DELIVERY_CREDENTIAL_CONSUMPTION_SECONDS`
+# fits it by construction; pinned).
+PROVIDER_INSTALLATION_TOKEN_LIFETIME_SECONDS = 3600
+# The mint's own wall clock: ONE HTTPS call to the provider. It used to be
+# bounded by the lease's TTL — an hour of hanging for a token meant to live
+# an hour — which made the mint unpriceable; the delivery prices this bound
+# (`delivery_credentials.DELIVERY_CREDENTIAL_WORST_CASE_SECONDS`).
+INSTALLATION_TOKEN_MINT_TIMEOUT_SECONDS = 30
+# The revoke's: one bounded `gh api` DELETE, best-effort.
+INSTALLATION_TOKEN_REVOKE_TIMEOUT_SECONDS = 10
 
 # The permission set a Mode A installation token is minted with when the
 # caller names none: the implementer's delivery scope (pull_requests:write +
@@ -291,12 +338,56 @@ def _resolve_workspace_root(workspace_root: str | Path) -> Path:
     return Path(workspace_root).resolve()
 
 
-def _keys_dir(workspace_root: str | Path) -> Path:
-    """Returns the per-workspace keys directory, creating it with mode
-    0700 if absent. Resolves through ``_resolve_workspace_root``."""
-    d = _resolve_workspace_root(workspace_root) / "aria-debts" / "keys"
+# The per-workspace keys directory, relative to the workspace root: where
+# the signing keys live while an identity is held, and the ONE path every
+# sandbox masks (`git_containment.GitContainment.bwrap_flags` for the
+# agent's spawn, `implementation_safety.wrap_validation_in_sandbox` for the
+# executor's gate — ARIA-HIGH-124 round 5). Spelled once so a mask and a
+# mint can never name two different directories.
+SIGNING_KEYS_RELATIVE_PATH: tuple[str, ...] = ("aria-debts", "keys")
+
+
+def signing_keys_dir(workspace_root: str | Path) -> Path:
+    """The per-workspace keys directory, created with mode 0700 when absent.
+    Resolves through ``_resolve_workspace_root``. The masks (above) call it
+    too, so the directory a sandbox hides exists on the host before bwrap
+    mounts a tmpfs over it — under the read-only `aria-debts/` bind a
+    mountpoint that does not exist cannot be made."""
+    d = _resolve_workspace_root(workspace_root).joinpath(*SIGNING_KEYS_RELATIVE_PATH)
     d.mkdir(parents=True, exist_ok=True, mode=0o700)
     return d
+
+
+def _keys_dir(workspace_root: str | Path) -> Path:
+    return signing_keys_dir(workspace_root)
+
+
+class TokenDirectoryUnusable(RuntimeError):
+    """The directory the caller asked the token to be written under is not
+    a private directory of this process: it does not exist, it is not a
+    directory, it is inside the workspace, or its mode admits group/other.
+    Raised by ``mint_installation_token`` BEFORE any token is fetched or
+    written, so a caller that named a readable place never gets a lease."""
+
+
+def _verify_private_token_dir(token_dir: Path, *, workspace_root: Path) -> Path:
+    """ARIA-HIGH-124 (round 5) — the ONLY directory a delivery token may be
+    written to is one nothing but this process reads: outside the workspace
+    the agent's sandbox and the executor's validation sandbox bind, mode
+    0700, a real directory. The workspace's keys dir was where the token
+    used to land; the validation sandbox (read-only git shape, no keys mask
+    until round 5) exposed it to the agent's committed suite as a readable
+    0600 file of the executor's own uid, and the gate recorded its bytes on
+    the validation-runs ledger."""
+    resolved = token_dir.resolve()
+    if not resolved.is_dir():
+        raise TokenDirectoryUnusable(f"token_dir_not_a_directory:{resolved}")
+    if resolved == workspace_root or resolved.is_relative_to(workspace_root):
+        raise TokenDirectoryUnusable(f"token_dir_inside_workspace:{resolved}")
+    mode = resolved.stat().st_mode & 0o777
+    if mode & 0o077:
+        raise TokenDirectoryUnusable(f"token_dir_mode_not_private:{oct(mode)}")
+    return resolved
 
 
 def _ssh_keygen_available() -> bool:
@@ -548,7 +639,7 @@ def _inherit_crashed_cycle_snapshot(
     if not installed:
         return None
     installed_path = Path(installed)
-    if installed_path.parent != workspace_root / "aria-debts" / "keys" or installed_path.name == cycle_id:
+    if installed_path.parent != workspace_root.joinpath(*SIGNING_KEYS_RELATIVE_PATH) or installed_path.name == cycle_id:
         return None
     try:
         inherited = json.loads(
@@ -826,6 +917,7 @@ def mint_installation_token(
     workspace_root: str | Path,
     ttl_seconds: int = 300,
     permissions: Mapping[str, str] = DEFAULT_INSTALLATION_TOKEN_PERMISSIONS,
+    token_dir: str | Path | None = None,
 ) -> InstallationTokenLease:
     """Plan ARIA-V9.0-C code-only — installation-token factory.
 
@@ -838,8 +930,19 @@ def mint_installation_token(
         ``permissions`` (``DEFAULT_INSTALLATION_TOKEN_PERMISSIONS`` unless
         the caller narrows it — the hosted runner preflight passes
         ``RUNNER_STATUS_PERMISSIONS`` so a GitHub-hosted job never holds a
-        write scope). Token written to ``aria-debts/keys/<cycle_id>.token``
+        write scope). Token written to ``<token_dir>/<cycle_id>.token``
         mode 0600.
+
+    ``token_dir`` (ARIA-HIGH-124 round 5) is where the token file lives:
+    the executor's delivery hold passes a private 0700 directory OUTSIDE
+    the workspace (``delivery_credentials.hold_delivery_credentials``),
+    because every sandbox binds the workspace and the validation sandbox
+    exposed ``aria-debts/keys/<lease>.token`` to the agent's committed
+    suite. A directory that is not private — absent, inside the workspace,
+    readable by group or other — is refused by name
+    (:class:`TokenDirectoryUnusable`) before any token is fetched. Without
+    ``token_dir`` the file lands in the workspace keys dir, the shape the
+    hosted runner preflight (no sandbox, no agent) still uses.
 
     Mode B (operator-PAT fallback, V9.0-C SHIM):
         ``$ARIA_GH_APP_INSTALLATION_ID`` absent → copies the operator
@@ -857,7 +960,11 @@ def mint_installation_token(
     """
     _validate_cycle_id(cycle_id)
     requested_permissions = _validate_permissions(permissions)
-    keys_dir = _keys_dir(_resolve_workspace_root(workspace_root))
+    resolved_workspace = _resolve_workspace_root(workspace_root)
+    if token_dir is None:
+        keys_dir = signing_keys_dir(resolved_workspace)
+    else:
+        keys_dir = _verify_private_token_dir(Path(token_dir), workspace_root=resolved_workspace)
     token_path = keys_dir / f"{cycle_id}.token"
 
     # Plan ARIA-V3.1-F-2 — ARIA_DRY_RUN system-wide gate (closes C-8).
@@ -943,20 +1050,20 @@ def mint_installation_token(
                 "Content-Type": "application/json",
             },
             data=_json.dumps({
-                # ARIA-AUDIT-017: the lease TTL must be a PROVIDER-side
-                # property, not local fiction. expires_in makes GitHub
-                # itself expire the installation token at the same horizon
-                # the local lease claims; without it the default 1h token
-                # outlives (or undershoots) the lease metadata.
-                "expires_in": max(60, int(ttl_seconds)),
                 # Exactly what the caller asked for (see the constants at the
                 # top of this module for the two named sets and why each
-                # permission is there).
+                # permission is there). Nothing else: the endpoint takes
+                # `repositories`, `repository_ids` and `permissions` — the
+                # `expires_in` the mint sent until ARIA-HIGH-124 round 6
+                # was not a field of it, GitHub ignored it, and the token
+                # lived the provider's hour whatever the local TTL said;
+                # the horizon the provider enforces comes back as
+                # `expires_at` and is carried on the lease (`provider_expiry`).
                 "permissions": requested_permissions,
             }).encode("utf-8"),
         )
         try:
-            with _urllib_request.urlopen(req, timeout=ttl_seconds) as resp:
+            with _urllib_request.urlopen(req, timeout=INSTALLATION_TOKEN_MINT_TIMEOUT_SECONDS) as resp:
                 data = _json.loads(resp.read())
         except _urllib_error.HTTPError as exc:
             body = exc.read().decode("utf-8", errors="replace")[:300]
@@ -978,6 +1085,7 @@ def mint_installation_token(
         token_path.write_text(token)
         token_path.chmod(0o600)
         fallback_active = False
+        provider_expiry: str | None = expires_at.strip()
     else:
         # Plan ARIA-V10.3-B prereq — ARIA_REQUIRE_MODE_A hard-fail gate
         # (closes audit SEC-CRIT-003). When the operator has declared
@@ -1003,6 +1111,7 @@ def mint_installation_token(
         token_path.write_text(pat)
         token_path.chmod(0o600)
         fallback_active = True
+        provider_expiry = None
 
     from datetime import datetime, timezone
     minted_at = datetime.now(timezone.utc).isoformat()
@@ -1014,6 +1123,7 @@ def mint_installation_token(
         gh_app_installation_id=installation_id,
         fallback_active=fallback_active,
         minted_at_utc=minted_at,
+        provider_expiry=provider_expiry,
     )
 
 
@@ -1145,7 +1255,7 @@ def prune_stale_signing_keys(
     ``git_signing_config_restore_undecided:<ErrorClass>``.
     """
     workspace_root = _resolve_workspace_root(workspace_root)
-    keys_dir = workspace_root / "aria-debts" / "keys"
+    keys_dir = workspace_root.joinpath(*SIGNING_KEYS_RELATIVE_PATH)
     import time as _time
     now = _time.time()
     pruned: list[str] = []
@@ -1209,30 +1319,60 @@ def prune_stale_signing_keys(
     }
 
 
-def revoke_installation_token(*, lease: InstallationTokenLease) -> None:
+def revoke_installation_token(
+    *, lease: InstallationTokenLease, environment: Mapping[str, str] | None = None,
+) -> str:
     """Best-effort revocation of a per-cycle installation token.
 
-    Mode A (GH App): the 5-min TTL expires the token automatically;
-    explicit revoke is best-effort via ``gh api /installation/token``
-    DELETE. Failure logged but not raised — kernel cleanup happens
-    via file deletion below.
+    Mode A (GH App): ``DELETE /installation/token`` revokes the token it is
+    CALLED WITH — so the call runs with the lease's own token as
+    ``GH_TOKEN``: from ``environment`` when the holder still has it in
+    memory (``delivery_credentials`` consumes the file at the mint), else
+    from ``lease.token_file`` when the file is still there (the workflows'
+    leases). Until ARIA-HIGH-124 round 6 the DELETE ran with the runner's
+    ambient auth, which revoked nothing of the lease's (a PAT is not an
+    installation token) and would have revoked the ambient installation
+    token had there been one. Without a token to call with, the DELETE is
+    not attempted: it could only touch a credential that is not this
+    lease's. Failure is named in the returned outcome, never raised —
+    the provider expires the token at ``provider_expiry`` regardless, and
+    the file removal below is the load-bearing local step.
 
     Mode B (fallback): nothing to revoke (operator PAT is long-lived);
     only the per-cycle file is removed.
 
-    Always removes the token file.
+    Always removes the token file. Returns the outcome by name:
+    ``revoked``, ``revoke_not_attempted:<why>``, ``revoke_failed:<why>`` or
+    ``not_applicable`` (Mode B / dry run).
     """
-    if lease.gh_app_installation_id and shutil.which("gh"):
-        # Best-effort GH App token revoke; ignore failures (file
-        # cleanup is the load-bearing step).
-        subprocess.run(
-            ["gh", "api", "-X", "DELETE", "/installation/token"],
-            capture_output=True, timeout=10,
-        )
+    outcome = "not_applicable"
+    if lease.gh_app_installation_id:
+        token = str((environment or {}).get("GH_TOKEN") or "").strip()
+        if not token:
+            try:
+                token = lease.token_file.read_text(encoding="utf-8").strip()
+            except OSError:
+                token = ""
+        if not token:
+            outcome = "revoke_not_attempted:token_not_held"
+        elif not shutil.which("gh"):
+            outcome = "revoke_not_attempted:gh_unavailable"
+        else:
+            try:
+                completed = subprocess.run(
+                    ["gh", "api", "-X", "DELETE", "/installation/token"],
+                    capture_output=True, text=True, check=False,
+                    env={**os.environ, "GH_TOKEN": token},
+                    timeout=INSTALLATION_TOKEN_REVOKE_TIMEOUT_SECONDS,
+                )
+                outcome = "revoked" if completed.returncode == 0 else f"revoke_failed:rc={completed.returncode}"
+            except (OSError, subprocess.SubprocessError) as exc:
+                outcome = f"revoke_failed:{type(exc).__name__}"
     try:
         lease.token_file.unlink()
     except FileNotFoundError:
         pass
+    return outcome
 
 
 __all__ = (
@@ -1241,11 +1381,17 @@ __all__ = (
     "GitSigningWiring",
     "SigningCheckout",
     "SigningKey",
+    "SIGNING_KEYS_RELATIVE_PATH",
+    "INSTALLATION_TOKEN_MINT_TIMEOUT_SECONDS",
+    "INSTALLATION_TOKEN_REVOKE_TIMEOUT_SECONDS",
+    "PROVIDER_INSTALLATION_TOKEN_LIFETIME_SECONDS",
     "InstallationTokenLease",
+    "TokenDirectoryUnusable",
     "mint_signing_key",
     "mint_installation_token",
     "prune_stale_signing_keys",
     "revoke_installation_token",
     "revoke_signing_key",
     "signing_checkout",
+    "signing_keys_dir",
 )

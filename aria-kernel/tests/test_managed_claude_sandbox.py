@@ -84,7 +84,14 @@ class TheExecutableIsTheOneResolved(_Fixture):
         real = str((self.install / "2.1.269").resolve())
         self.assertEqual(command[command.index("--") + 1:], [real, "-p", "--model", "opus"])
         self.assertIn((real, real), _pairs(command, "--ro-bind"))
-        self.assertIn("--die-with-parent", command[:command.index("--")])
+        # ARIA-HIGH-143 — the spawn is isolated from the host's PID, IPC and
+        # UTS namespaces and its controlling session, not just reaped with
+        # its parent. The network namespace is deliberately NOT unshared:
+        # the CLI reaches its provider through the egress proxy.
+        prefix = command[:command.index("--")]
+        for flag in ("--unshare-pid", "--unshare-ipc", "--unshare-uts", "--new-session", "--die-with-parent"):
+            self.assertIn(flag, prefix, flag)
+        self.assertNotIn("--unshare-net", prefix)
 
 
 class TheSpawnDocumentsAreVisible(_Fixture):

@@ -21,6 +21,7 @@ what the child in it needs:
 """
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 import sys
@@ -102,6 +103,101 @@ class TheWorktreeIsProvisionedWhereTheChildNeedsIt(unittest.TestCase):
         self.assertEqual(drain._add_request_worktree(self.repo, "AIR-2", "0" * 40),
                          drain._RequestWorktree(path=None, unanswered_reason=None))
         self.assertFalse((self.repo / drain.REQUEST_WORKTREES_DIR / "req-AIR-2").exists())
+
+
+class TheChildsImportPathIsTheCheckoutsNotItsCwds(unittest.TestCase):
+    """ARIA-HIGH-124 (round 4) — the executor child in a request worktree
+    resolves its imports from THIS checkout.
+
+    The workflow exports ``PYTHONPATH=aria-kernel`` (relative to the drain's
+    cwd) and the drain launches the child with the request worktree as its
+    cwd, so Python resolved that entry to ``<worktree>/aria-kernel`` — whose
+    ROOT is agent-writable (only ``aria_kernel/`` and ``tests/invariants/``
+    are READONLY_PATHS) and sits ahead of the stdlib on the child's
+    ``sys.path``. Probed with 90 stdlib shadows committed there: nothing
+    resolved from the worktree in the round-3 executor, because it
+    first-imports only four kernel modules after the spawn — a property of
+    today's import order, not a boundary. This makes it one."""
+
+    def test_every_entry_is_absolute_against_the_checkout_and_the_cwd_entry_is_dropped(self) -> None:
+        import os
+
+        repo = Path("/srv/checkout")
+        self.assertEqual(drain.absolute_pythonpath("aria-kernel", repo_root=repo), "/srv/checkout/aria-kernel")
+        self.assertEqual(drain.absolute_pythonpath("", repo_root=repo), "")
+        self.assertEqual(drain.absolute_pythonpath(None, repo_root=repo), "")
+        # An empty entry IS the cwd — the same door, unnamed.
+        self.assertEqual(drain.absolute_pythonpath(f"{os.pathsep}aria-kernel{os.pathsep}", repo_root=repo),
+                         "/srv/checkout/aria-kernel")
+        # An operator's absolute entry is kept; duplicates collapse.
+        self.assertEqual(
+            drain.absolute_pythonpath(os.pathsep.join(["/opt/extra", "aria-kernel", "/opt/extra"]), repo_root=repo),
+            os.pathsep.join(["/opt/extra", "/srv/checkout/aria-kernel"]),
+        )
+
+    def test_the_child_is_launched_with_that_path_not_the_inherited_one(self) -> None:
+        import os
+        from unittest.mock import patch
+
+        captured: dict[str, dict[str, str]] = {}
+
+        class _Finished:
+            returncode = 0
+
+        real_run = subprocess.run
+
+        def fake_run(argv, **kwargs):
+            # The executor child (and only it): everything else — git's own
+            # worktree calls — runs for real.
+            if "ci_executor.py" in " ".join(str(token) for token in argv):
+                captured["env"] = dict(kwargs["env"])
+                captured["cwd"] = kwargs["cwd"]
+                return _Finished()
+            return real_run(argv, **kwargs)
+
+        scratch = tempfile.TemporaryDirectory(prefix="aria-child-pythonpath-")
+        self.addCleanup(scratch.cleanup)
+        root = Path(scratch.name)
+        repo = make_repo_with_initial_commit(root, {"README.md": "one\n", ".gitignore": "aria-worktrees/\n"})
+        target = _git(["rev-parse", "HEAD"], cwd=repo).stdout.strip()
+        queue = [{"request_id": "AIR-1", "target_agent": "aria-implementer", "role": "implementation",
+                  "target_sha": target}]
+
+        def next_pending(argv, **kwargs):
+            if "next-pending" in argv:
+                return subprocess.CompletedProcess(argv, 0, json.dumps(queue.pop(0)) if queue else "null", "")
+            return fake_run(argv, **kwargs)
+
+        with patch.dict(os.environ, {"PYTHONPATH": "aria-kernel", "RUNNER_TEMP": str(root),
+                                     "GITHUB_OUTPUT": str(root / "out.txt"), "ARIA_DRAIN_BUDGET_SECONDS": "100000"}), \
+                patch.object(drain.subprocess, "run", side_effect=next_pending), \
+                patch.object(drain, "_executor_policy",
+                             return_value={"max_concurrent": 1, "worktree_per_request": True}):
+            drain.drain_pending(tools_dir=root / "aria-tools", repo_root=repo)
+        self.assertTrue(captured, "the drain never launched a child")
+        # The child stands in the worktree and imports from the CHECKOUT.
+        self.assertNotEqual(Path(captured["cwd"]).resolve(), repo.resolve())
+        self.assertEqual(captured["env"]["PYTHONPATH"], str((repo / "aria-kernel").resolve()))
+        self.assertNotIn(str(Path(captured["cwd"]).resolve()), captured["env"]["PYTHONPATH"])
+
+
+class TheWorktreeTargetIsTheStagedBase(unittest.TestCase):
+    """ARIA-HIGH-124 — an implementation request carries no ``target_sha``;
+    its worktree is added at the staged ``implementation_ids.base_sha`` (the
+    commit the baseline was measured at and the kernel-made branch is cut
+    from), so the executor's branch step finds the tree where it must be.
+    The read-only roles keep their ``target_sha`` (or the checkout's HEAD)."""
+
+    def test_the_staged_base_is_the_target_when_no_target_sha_is_carried(self) -> None:
+        self.assertEqual(drain.request_worktree_target({"target_sha": "a" * 40}), "a" * 40)
+        self.assertEqual(drain.request_worktree_target({"implementation_ids": {"base_sha": "b" * 40}}), "b" * 40)
+        self.assertEqual(drain.request_worktree_target({"target_sha": "a" * 40, "implementation_ids": {"base_sha": "b" * 40}}),
+                         "a" * 40, "a request that names its target keeps it")
+        self.assertIsNone(drain.request_worktree_target({"implementation_ids": {"base_sha": ""}}))
+        self.assertIsNone(drain.request_worktree_target({"implementation_ids": None}))
+        self.assertIsNone(drain.request_worktree_target({}))
+        source = Path(drain.__file__).read_text(encoding="utf-8")
+        self.assertIn("_add_request_worktree(repo_root, request_id, request_worktree_target(request))", source)
 
 
 class TheRepositoryIgnoresTheWorktreeDirectory(unittest.TestCase):

@@ -42,6 +42,20 @@ from .tool_registry import GovernanceError, append_tools_governance, ensure_tool
 HUMAN_REQUIRED_RECORD_WAIT_SECONDS: float = STATE_LOCK_LIVENESS_SECONDS + NOTIFY_WORST_CASE_SECONDS
 
 
+# ARIA-HIGH-124 (round 3) — the context kind of every escalation the
+# EXECUTOR records for a request it holds (`tools/aria-poc/ci_executor.py`
+# `_record_human_required`): a branch collision, an invalid request row, a
+# delivery refusal, the agent's own refusal envelope, a model refusal. The
+# machine ids (`branch`, `base_sha`, `claim_id`, the refusal's detail) ride
+# the record's `context` under this kind, never the reason's prose — the
+# operator CLI's free-text `--reason` validator refused ids carrying ten
+# consecutive digits as phone numbers, and the executor no longer goes
+# through it. Deliberately NOT in
+# `human_required_adjudication.ADJUDICABLE_CONTEXT_KINDS`: an unadmitted
+# kind is irreducible by construction, and each of these is a person's
+# decision (deliver or delete a branch, re-stage a plan, read a refusal).
+EXECUTOR_ESCALATION_KIND: str = "executor_escalation"
+
 # Plan 016 SLA windows per severity. CRITICAL/HIGH share the 72h window;
 # MEDIUM gets 7 days; everything else falls back to 14 days.
 SLA_WINDOWS = {
@@ -60,6 +74,25 @@ def _human_required_dir(tools_root: Path) -> Path:
 
 def _human_required_path(tools_root: Path, request_id: str) -> Path:
     return _human_required_dir(tools_root) / f"{request_id}.json"
+
+
+def open_human_required_record(request_id: str, *, base_dir: str | Path | None = None) -> dict[str, Any] | None:
+    """The request's HUMAN_REQUIRED record while it is OPEN (no
+    ``resolved_at``), else None. ARIA-HIGH-124 (round 2) — the claim
+    release reads it: a request an executor escalated (the record is
+    written before the release) derives HUMAN_REQUIRED from that release,
+    not after two more wasted claims. A resolved record is a closed
+    episode and binds nothing."""
+    path = _human_required_path(ensure_tools_dir(base_dir), request_id)
+    if not path.exists():
+        return None
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(record, dict) or record.get("resolved_at"):
+        return None
+    return record
 
 
 def _resolve_severity(severity: str | None) -> str:

@@ -55,11 +55,36 @@ _ENV_READ_DENIES: tuple[str, ...] = ("Read(./.env)", "Read(./.env.*)", "Read(**/
 
 
 HOOK_CLIENT_RELPATH = ("aria_kernel", "hook_client.py")
+# The flags the in-sandbox stdlib clients (the hook client here, the MCP
+# relay in `mcp_client`) run their interpreter with: isolated mode, so the
+# agent-writable tree named by the spawn's PYTHONPATH cannot shadow the
+# standard library or plant a `sitecustomize` in a process whose output
+# the CLI trusts (ARIA-HIGH-124, round 2).
+ISOLATED_INTERPRETER_FLAGS: tuple[str, ...] = ("-I",)
+
+
+def kernel_code_root() -> Path:
+    """The ``aria-kernel/`` directory of the kernel that is RUNNING — the
+    one root the in-sandbox clients (the hook client, the MCP relay) are
+    served from (ARIA-HIGH-142).
+
+    Until this, ``kernel_root`` was ``<workspace>/aria-kernel``: the tree
+    the implementer is changing, not the tree the executor runs. A trial
+    workspace checked out at an older commit (trial eleven's task source,
+    ``6652139901``) carried no ``hook_client.py`` and no ``mcp_relay.py``
+    at all, so every hook and the MCP relay died inside the sandbox by
+    path, silently, while the kernel that spawned them had both. The
+    clients belong to the kernel, so their root is the kernel's own —
+    and the sandbox binds it read-only when it lies outside the workspace
+    (``implementation_safety.kernel_root_ro_binds``).
+    """
+    return Path(__file__).resolve().parent.parent
 
 
 def hook_client_path(kernel_root: str | Path) -> Path:
-    """The in-sandbox hook client under ``kernel_root`` (the workspace's
-    ``aria-kernel/``, which READONLY_PATHS keeps read-only)."""
+    """The in-sandbox hook client under ``kernel_root`` — the running
+    kernel's ``aria-kernel/`` (:func:`kernel_code_root`), read-only inside
+    the sandbox whether it lies in the workspace or beside it."""
     return Path(kernel_root).joinpath(*HOOK_CLIENT_RELPATH)
 
 
@@ -75,12 +100,20 @@ def hook_command(
     nothing from the kernel package, so no kernel code runs inside the
     sandbox for a hook, and the line carries nothing but the verb — the
     store, the request id and the cap are the broker's.
+
+    ARIA-HIGH-124 (round 2) — the interpreter runs ISOLATED (``-I``: no
+    ``PYTHONPATH``, no user site, no script directory on ``sys.path``). The
+    spawn's ``PYTHONPATH`` names ``<workspace>/aria-kernel`` for the agent's
+    own test runs, and everything under it but ``aria_kernel/`` is
+    agent-writable: a ``json.py`` or a ``sitecustomize.py`` written there
+    ran inside every hook client and could print the ``allow`` verdict the
+    CLI trusts. The client needs nothing but the standard library.
     """
     import shlex
 
     if verb not in HOOK_CLIENT_VERBS:
         raise ValueError(f"unknown hook verb {verb!r}")
-    return " ".join([shlex.quote(python), shlex.quote(str(hook_client_path(kernel_root))), verb])
+    return " ".join([shlex.quote(python), *ISOLATED_INTERPRETER_FLAGS, shlex.quote(str(hook_client_path(kernel_root))), verb])
 
 
 def build_settings(
@@ -166,11 +199,13 @@ def write_settings_file(settings: Mapping[str, Any], *, directory: str | Path, r
 
 __all__ = [
     "HOOK_CLIENT_RELPATH",
+    "kernel_code_root",
     "HOOK_EVENTS",
     "HOOK_TIMEOUT_SECONDS",
     "SETTINGS_SCHEMA_NOTE",
     "build_settings",
     "hook_client_path",
+    "ISOLATED_INTERPRETER_FLAGS",
     "hook_command",
     "settings_hash",
     "write_settings_file",

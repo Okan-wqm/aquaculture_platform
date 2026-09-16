@@ -55,6 +55,37 @@ RELEASE_REASON_CODES: tuple[str, ...] = (
     # state, never the request's; the governance row of the same name
     # carries the cause. Harness-class.
     "IMPLEMENTATION_SIGNING_UNAVAILABLE",
+    # ARIA-HIGH-124 — the executor delivers the implementation (gate, push,
+    # PR) after the spawn, outside the sandbox. Three ways that stops:
+    # * the delivery credential could not be minted (no GH App, no PAT, a
+    #   refused installation) — the lane's state, harness-class: decided
+    #   before the spawn by the credential admission (no turn spent) and
+    #   again where the lease is consumed (round 6: the delivery's
+    #   `credential` stage, after the gate);
+    # * the shared repository already holds this request's `aria-impl-*`
+    #   branch (an earlier attempt published it) — refused before a turn,
+    #   request-class: a retry cannot stand on it, a person decides;
+    # * the delivery itself refused (gate blocked, push failed, PR opener
+    #   refused) — request-class, detail names the stage; the published
+    #   branch makes a retry collide, so the request is escalated.
+    "IMPLEMENTATION_DELIVERY_UNAVAILABLE",
+    "IMPLEMENTATION_BRANCH_COLLISION",
+    "IMPLEMENTATION_DELIVERY_REFUSED",
+    # (round 2) the request row's `implementation_ids` cannot stand a
+    # sandbox (no `aria-impl-*` branch name, no object id for base_sha):
+    # the REQUEST's facts, request-class — a harness-class release had the
+    # daemon re-claim it after every back-off without bound.
+    "IMPLEMENTATION_REQUEST_INVALID",
+    # (round 3) the executor escalated a request — a branch collision, an
+    # invalid row, a delivery refusal, the agent's refusal — and the
+    # kernel's HUMAN_REQUIRED recorder did not land the record (a refused
+    # governance write, a dying disk, an unimportable kernel). The STORE's
+    # fault, never the request's: released harness-class under this name
+    # with the escalation's own reason as the detail, so the request keeps
+    # its budget and escalates again once the recorder answers; the
+    # executor's summary is a failed harness dispatch, never a by-design
+    # refusal that reads as if the escalation happened.
+    "HUMAN_REQUIRED_RECORD_UNAVAILABLE",
     "UNCLASSIFIED",
 )
 FAULT_DOMAINS: tuple[str, ...] = ("harness", "request", "operator", "unclassified")
@@ -66,6 +97,13 @@ NATIVE_RUNTIME_CONTROL_UNAVAILABLE = "native_runtime_control_unavailable"
 # The one spelling of the executor's identity refusal, read by
 # `implementation_identity` (its release reason) and the executor.
 IMPLEMENTATION_SIGNING_UNAVAILABLE = "implementation_signing_unavailable"
+# The one spelling of each ARIA-HIGH-124 delivery release, read by the
+# executor's refusal table and `implementation_delivery`.
+IMPLEMENTATION_DELIVERY_UNAVAILABLE = "implementation_delivery_unavailable"
+IMPLEMENTATION_BRANCH_COLLISION = "implementation_branch_collision"
+IMPLEMENTATION_REQUEST_INVALID = "implementation_request_invalid"
+IMPLEMENTATION_DELIVERY_REFUSED_PREFIX = "implementation_delivery_refused:"
+HUMAN_REQUIRED_RECORD_UNAVAILABLE_PREFIX = "human_required_record_unavailable:"
 
 _LITERALS: dict[str, tuple[str, str]] = {
     "native_runtime_admission_unavailable": ("NATIVE_RUNTIME_ADMISSION_UNAVAILABLE", "harness"),
@@ -86,6 +124,9 @@ _LITERALS: dict[str, tuple[str, str]] = {
     "planner_dispatch_executor_exit_nonzero": ("PLANNER_DISPATCH_EXECUTOR_EXIT_NONZERO", "harness"),
     "prompt_hash_binding_mismatch": ("PROMPT_HASH_BINDING_MISMATCH", "harness"),
     IMPLEMENTATION_SIGNING_UNAVAILABLE: ("IMPLEMENTATION_SIGNING_UNAVAILABLE", "harness"),
+    IMPLEMENTATION_DELIVERY_UNAVAILABLE: ("IMPLEMENTATION_DELIVERY_UNAVAILABLE", "harness"),
+    IMPLEMENTATION_BRANCH_COLLISION: ("IMPLEMENTATION_BRANCH_COLLISION", "request"),
+    IMPLEMENTATION_REQUEST_INVALID: ("IMPLEMENTATION_REQUEST_INVALID", "request"),
     "lease_expired": ("LEASE_EXPIRED", "request"),
     "request_envelope_missing_expected_output_path": ("REQUEST_ENVELOPE_MISSING_EXPECTED_OUTPUT_PATH", "request"),
     "request_envelope_missing_role": ("REQUEST_ENVELOPE_MISSING_ROLE", "request"),
@@ -101,6 +142,10 @@ _PREFIXES: tuple[tuple[str, str, str], ...] = (
     ("executor_uncaught_exit:", "EXECUTOR_UNCAUGHT_EXIT", "harness"),
     ("plan_content_invalid:", "PLAN_CONTENT_INVALID", "request"),
     ("agent_refused:", "AGENT_REFUSED", "request"),
+    # The detail is the delivery stage (`implementation_delivery.DELIVERY_STAGES`).
+    (IMPLEMENTATION_DELIVERY_REFUSED_PREFIX, "IMPLEMENTATION_DELIVERY_REFUSED", "request"),
+    # The detail is the escalation's own reason (round 3).
+    (HUMAN_REQUIRED_RECORD_UNAVAILABLE_PREFIX, "HUMAN_REQUIRED_RECORD_UNAVAILABLE", "harness"),
 )
 
 

@@ -29,8 +29,12 @@ worktree by ``gh_token_factory.mint_signing_key`` (which wires the
 worktree's git config the way the identity does); an ssh-agent held by
 ``signing_agent.hold_signing_agent``; a commit-capable containment derived
 with that signing exposure by ``git_containment.derive_git_containment``;
-and — inside the real sandbox argv the wrapper builds, with the managed
-route's network setting — ``git status``, ``git switch -c``, ``git commit
+the sandbox stood on the probe's ``aria-impl-*`` branch by the kernel the
+way the executor stands the implementer's
+(``git_containment.stand_on_implementation_branch``, ARIA-HIGH-124); and —
+inside the real sandbox argv the wrapper builds, with the managed route's
+network setting — ``git status``, the branch check (the sandbox MUST start
+on the kernel-made branch; ``git switch`` is not the agent's), ``git commit
 --allow-empty`` (signed through the agent, the private key masked) and the
 writes that must be REFUSED (``git config --local``, a file under the
 effective hooks directory, the private key readable). Then, from OUTSIDE,
@@ -64,6 +68,7 @@ from .git_containment import (
     SandboxSigning,
     derive_git_containment,
     publish_quarantine,
+    stand_on_implementation_branch,
 )
 from .signing_agent import SigningAgentUnavailable, hold_signing_agent
 
@@ -83,6 +88,9 @@ _GIT_LOCATION_VARS: tuple[str, ...] = (
 EXIT_CONFIG_WRITABLE = 41
 EXIT_HOOKS_WRITABLE = 42
 EXIT_PRIVATE_KEY_READABLE = 43
+# The sandbox did not start on the branch the kernel stood it on
+# (ARIA-HIGH-124): the replica's HEAD is not what the sandbox sees.
+EXIT_BRANCH_NOT_STOOD_ON = 44
 
 ArgvBuilder = Callable[[list[str], Path, GitContainment], list[str]]
 """``(command, workspace_root, containment) -> full sandbox argv``."""
@@ -122,7 +130,7 @@ def probe_script(containment: GitContainment, *, private_key_path: Path) -> str:
     return "\n".join([
         "set -e",
         "git status --short >/dev/null",
-        f"git switch -q -c {PROBE_BRANCH} HEAD",
+        f"if [ \"$(git branch --show-current)\" != \"{PROBE_BRANCH}\" ]; then exit {EXIT_BRANCH_NOT_STOOD_ON}; fi",
         "git commit -q --allow-empty -m aria-containment-probe",
         f"if git config --local aria.containmentProbe 1 2>/dev/null; then exit {EXIT_CONFIG_WRITABLE}; fi",
         f"if sh -c 'echo probe > \"{hooks}/aria-containment-probe\"' 2>/dev/null; then exit {EXIT_HOOKS_WRITABLE}; fi",
@@ -184,6 +192,18 @@ def probe_git_containment(build_argv: ArgvBuilder) -> str | None:
                     except GitContainmentRefusal as exc:
                         return f"probe_containment_refused:{exc.reason}"
                     assert containment is not None
+                    # The executor's own branch step (ARIA-HIGH-124): the
+                    # sandbox starts on the probe branch at the worktree's
+                    # HEAD, in the replica only.
+                    base = _git(["rev-parse", "HEAD"], cwd=worktree, env=env)
+                    if base.returncode != 0:
+                        return f"probe_base_unresolvable:rc={base.returncode}"
+                    try:
+                        containment = stand_on_implementation_branch(
+                            containment, branch=PROBE_BRANCH, base_sha=base.stdout.strip(),
+                        )
+                    except GitContainmentRefusal as exc:
+                        return f"probe_branch_refused:{exc.reason}"
                     script = probe_script(containment, private_key_path=key.private_key_path)
                     argv = build_argv(["sh", "-c", script], worktree, containment)
                     try:
@@ -207,10 +227,15 @@ def probe_git_containment(build_argv: ArgvBuilder) -> str | None:
             publication = publish_quarantine(containment)
             if publication.refusal is not None:
                 return f"sandbox_publication_refused:{publication.refusal}"
+            # The branch the kernel stood the sandbox on names the base
+            # until the commit inside advances it: the publication discards
+            # an unadvanced seed by name (`branch_unadvanced`, ARIA-HIGH-124
+            # round 2), so a commit that went into a phantom is a branch
+            # that was never published.
             if PROBE_BRANCH not in publication.refs_published:
                 return "sandbox_commit_did_not_reach_repository"
             landed = _git(["rev-parse", "--verify", f"refs/heads/{PROBE_BRANCH}^{{commit}}"], cwd=checkout, env=env)
-            if landed.returncode != 0:
+            if landed.returncode != 0 or landed.stdout.strip() == base.stdout.strip():
                 return "sandbox_commit_did_not_reach_repository"
             signers = containment.private_git_dir / "aria-allowed-signers"
             verified = _git(["-c", f"gpg.ssh.allowedSignersFile={signers}", "verify-commit", "--raw",
@@ -227,6 +252,7 @@ def probe_git_containment(build_argv: ArgvBuilder) -> str | None:
 
 
 __all__ = [
+    "EXIT_BRANCH_NOT_STOOD_ON",
     "EXIT_CONFIG_WRITABLE",
     "EXIT_HOOKS_WRITABLE",
     "EXIT_PRIVATE_KEY_READABLE",

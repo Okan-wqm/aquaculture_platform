@@ -23,10 +23,11 @@ import json as _json
 import math as _math
 import secrets
 import shlex
+import signal
 import subprocess
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Mapping
 
 from .ledger import (
     append_declared_jsonl,
@@ -42,6 +43,14 @@ from .validation_runs_ledger import (
 from .snapshot import _capture_scoped_files, _read_scoped_working_file, _scoped_input_path, _scoped_input_digest, _sha256 as _input_digest
 from .workspace import _canonical_identity_observation
 
+
+# ARIA-HIGH-124 (round 3) — what a caller may put around the argv of every
+# command this module spawns: a function from (the argv about to execute,
+# the environment it is spawned with) to the argv that executes instead (a
+# bwrap prefix, the way `implementation_safety.wrap_validation_in_sandbox`
+# shapes one; the environment is read for the PATH the executable resolves
+# on, never copied — the child still gets the built environment).
+SpawnWrapper = Callable[[list[str], Mapping[str, str]], list[str]]
 
 ALLOWED_COMMANDS = (
     ("npm", "run"),
@@ -134,8 +143,22 @@ def run_validation_commands(
     timeout_ms: int = 120_000,
     require_clean_worktree: bool = True,
     input_scope: dict[str, Any] | None = None,
+    spawn_wrapper: SpawnWrapper | None = None,
 ) -> dict[str, Any]:
     """Execute allowlisted commands and record each through the ledger.
+
+    ``spawn_wrapper`` (ARIA-HIGH-124, round 3) is the containment the
+    caller puts around EVERY command's argv — the bwrap builder of
+    ``implementation_safety.wrap_validation_in_sandbox`` when the commands
+    are the suite of a tree an AGENT wrote (the executor's apply gate at
+    the implementer's tip): the suite is repository code — jest specs, the
+    nx/eslint configs, ``package.json`` scripts — and running it unconfined
+    hands that code the executor's uid, the durable store, the shared
+    repository and the code root the executor's own kernel resolves from.
+    None runs the argv as given (the cycle job's baseline at the trusted
+    checkout HEAD). The wrapper is applied at the ONE spawn seam
+    (``_run_one``), after the observation child is composed and before the
+    process starts, so no command can run around it.
 
     ``change_id``, ``commit_sha`` and ``runner_identity`` are REQUIRED and
     resolved, not merely non-empty: the change must exist in the change
@@ -187,6 +210,7 @@ def run_validation_commands(
                 scoped_files=scoped_files,
                 admitted_commit=admitted_commit,
                 execution_profile=execution_profile,
+                spawn_wrapper=spawn_wrapper,
             ),
         )
     payload = {
@@ -370,6 +394,63 @@ def _regression_status(baseline: dict[str, Any], worktree: dict[str, Any]) -> st
     return "changed"
 
 
+# How long a killed validation tree has to die before it is SIGKILLed: the
+# group gets SIGKILL immediately (a validation command that hit its ceiling
+# has had its whole window), and this is the wait for the reaped processes
+# to leave — bounded so a wedged uninterruptible child cannot hold the
+# delivery open.
+VALIDATION_KILL_GRACE_SECONDS = 5
+
+
+def _run_to_completion(
+    argv: list[str],
+    *,
+    cwd: Path,
+    env: Mapping[str, str],
+    timeout_seconds: float,
+    spawn_options: dict[str, Any],
+) -> subprocess.CompletedProcess[str]:
+    """``subprocess.run`` for ONE validation command, with the whole process
+    TREE bound to the timeout (ARIA-HIGH-124 round 4).
+
+    The child leads its own session, so a timeout signals the GROUP: with
+    ``bwrap`` as the direct child (the contained gate) killing one pid left
+    the sandboxed command running — bwrap without ``--unshare-pid`` does
+    not take its children down, and `subprocess.run`'s own timeout path
+    kills exactly the pid it spawned. Raises ``subprocess.TimeoutExpired``
+    with whatever the streams carried, the way ``subprocess.run`` does, so
+    the caller's recording is unchanged.
+    """
+    with subprocess.Popen(
+        argv, cwd=str(cwd), env=dict(env), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, shell=False, start_new_session=True, **spawn_options,
+    ) as process:
+        try:
+            stdout, stderr = process.communicate(timeout=timeout_seconds)
+        except subprocess.TimeoutExpired:
+            _kill_process_group(process)
+            stdout, stderr = process.communicate()
+            raise subprocess.TimeoutExpired(argv, timeout_seconds, output=stdout, stderr=stderr) from None
+        except BaseException:
+            _kill_process_group(process)
+            raise
+    return subprocess.CompletedProcess(argv, process.returncode, stdout, stderr)
+
+
+def _kill_process_group(process: "subprocess.Popen[str]") -> None:
+    """SIGKILL the child's whole process group, then the child itself if the
+    group is already gone (a child that changed its own group), and reap
+    within the grace."""
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, OSError):
+        process.kill()
+    try:
+        process.wait(timeout=VALIDATION_KILL_GRACE_SECONDS)
+    except subprocess.TimeoutExpired:
+        process.kill()
+
+
 def _run_one(
     *,
     command: str,
@@ -386,6 +467,7 @@ def _run_one(
     scoped_files: dict[str, list[str]] | None = None,
     admitted_commit: str | None = None,
     execution_profile: dict[str, Any] | None = None,
+    spawn_wrapper: SpawnWrapper | None = None,
 ) -> dict[str, Any]:
     argv, env_updates = parse_allowed_command(command)
     # ARIA-MEDIUM-066 — the child's environment is BUILT from the runner's,
@@ -452,16 +534,28 @@ def _run_one(
                 receipt_read = receipt_write = None
                 spawned_argv = argv
                 spawn_options = {}
-        completed = subprocess.run(
+        if spawn_wrapper is not None:
+            # ARIA-HIGH-124 (round 3) — the containment goes around the
+            # argv that is about to execute (the observation child
+            # included), at the one seam every command passes through.
+            # The wrapped vector is what the hash-bound log records as
+            # `argv`, so the evidence says the run was contained.
+            spawned_argv = spawn_wrapper(list(spawned_argv), spawn_env.env)
+        # ARIA-HIGH-124 (round 4) — the command is its own PROCESS GROUP
+        # (`start_new_session`), so the timeout below kills the whole tree
+        # and not just the direct child. `subprocess.run`'s timeout path
+        # SIGKILLs one pid: with a wrapper that pid is `bwrap`, and the
+        # sandboxed command — `npx nx affected --target=test`, whose jest
+        # workers are the cost — kept running as an orphan on the shared
+        # runner while the gate recorded `timed_out` and moved on to the
+        # next command at its own 45-minute ceiling. Unwrapped (the cycle's
+        # baseline) the same shape orphaned the suite's grandchildren.
+        completed = _run_to_completion(
             spawned_argv,
             cwd=workspace_root,
             env=spawn_env.env,
-            capture_output=True,
-            text=True,
-            timeout=timeout_ms / 1000,
-            check=False,
-            shell=False,
-            **spawn_options,
+            timeout_seconds=timeout_ms / 1000,
+            spawn_options=spawn_options,
         )
         stdout = completed.stdout or ""
         stderr = completed.stderr or ""

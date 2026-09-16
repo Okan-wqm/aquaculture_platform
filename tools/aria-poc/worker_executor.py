@@ -57,6 +57,10 @@ from dispatch_failure import (
     emit_dispatch_result_summary,
     resolve_dispatch_route,
 )
+# ARIA-HIGH-124 (round 2) — the one spelling of a kernel CLI subprocess
+# (`-P`: the cwd off sys.path; this executor's cwd is a worktree's parent
+# or the worktree itself, never a place the kernel may resolve from).
+from kernel_cli import kernel_cli_argv
 
 
 LEASE_TOKEN_ENV_VAR = "ARIA_LEASE_TOKEN"
@@ -78,11 +82,11 @@ def _resolve_assignment(
 ) -> dict[str, Any] | None:
     """Look up a dispatch assignment row by id via the kernel CLI."""
     list_proc = subprocess.run(
-        [
-            "python3", "-m", "aria_kernel", "worker", "list",
+        kernel_cli_argv(
+            "worker", "list",
             "--state", "picked_up", "--json",
             "--tools-dir", str(tools_dir),
-        ],
+        ),
         capture_output=True, text=True,
         env={**os.environ, "PYTHONPATH": str(repo / "aria-kernel")},
     )
@@ -163,13 +167,13 @@ def _submit_worker_result(
     if not lease_token:
         sys.stderr.write("missing_lease_token_env: ARIA_LEASE_TOKEN\n")
         return 1
-    cmd = [
-        "python3", "-m", "aria_kernel", "worker-result", "submit",
+    cmd = kernel_cli_argv(
+        "worker-result", "submit",
         "--from-worktree", str(worktree_path),
         "--assignment-id", assignment_id,
         "--tools-dir", str(tools_dir),
         "--lease-token-from-env", LEASE_TOKEN_ENV_VAR,
-    ]
+    )
     for vc in required_tests:
         cmd.extend(["--validation-command", vc])
     submit = subprocess.run(

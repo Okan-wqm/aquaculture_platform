@@ -318,6 +318,69 @@ def production_implementation_request(
     )
 
 
+def production_staged_implementation_request(
+    *,
+    tools_dir: Path,
+    workspace_root: Path,
+    plan_id: str,
+    allowed_path: str,
+    cycle_id: str = "cycle-implementation-fixture",
+    operator_approval_ref: str = "test:staged-implementation-request",
+    extra_allowed_paths: tuple[str, ...] = (),
+) -> dict[str, Any]:
+    """An implementation envelope minted by production's one producer, STAGED.
+
+    ``extra_allowed_paths`` are further paths the plan intends (its
+    ``affected_surfaces``): the change ledger's commit row admits a diff
+    that touches only intended files, so a fixture agent that commits more
+    than ``allowed_path`` names them here (ARIA-HIGH-124, round 2).
+
+    ARIA-HIGH-124 — :func:`production_implementation_request` names fixture
+    literal ids (a proposal, a change and a branch nobody staged); an
+    executor that gates, pushes and opens the PR itself needs the rows the
+    ids resolve to. This helper drives the plan to CONVERGED, then runs
+    ``cycle_phases.implementer.AutonomousV9ImplementationRunner`` — the
+    producer the nightly cycle runs — under the ``strict`` profile it
+    requires: ``apply_engine.stage_converged_plan_for_pr`` records the
+    proposal (machine-approved), opens the change chain, mints the
+    ``aria-impl-*`` branch and runs the BASELINE validation at the
+    workspace HEAD (so the caller's checkout must be clean and the suite's
+    executables resolvable on PATH), and the envelope is minted with the
+    staged ids. Returns the request row the executor lane claims.
+    """
+    from aria_kernel.cycle_phases.implementer import AutonomousV9ImplementationRunner
+    from aria_kernel.ledger import load_declared_jsonl
+    from aria_kernel.runtime_profile import set_profile
+
+    set_profile(
+        "strict", operator_approval_ref=operator_approval_ref, base_dir=tools_dir,
+        set_by="operator", scheduler_ceiling="strict",
+    )
+    plan = production_converged_plan(
+        tools_dir=tools_dir, workspace_root=workspace_root, plan_id=plan_id,
+        affected_paths=[allowed_path, *extra_allowed_paths], evidence_refs=[f"{allowed_path}:1"],
+    )
+    result = AutonomousV9ImplementationRunner().run(
+        cycle_id=cycle_id, plan_id=plan.plan_id, workspace_root=workspace_root, base_dir=tools_dir,
+        cross_review_summary={"revision_id": plan.revision_id, "verdict": "converged"}, profile="strict",
+    )
+    if result.terminal_state != "IMPLEMENTATION_DISPATCHED":
+        raise AssertionError(f"fixture plan was not dispatched: {result}")
+    requests = load_declared_jsonl(
+        ensure_tools_dir(tools_dir) / "agent-invocations" / "requests.jsonl",
+        expected_surface="agent_invocation_requests",
+    )
+    row = next(
+        (row for row in reversed(requests)
+         if row.get("row_type") == "request" and row.get("role") == "implementation"
+         and row.get("convergence_id") == plan.plan_id),
+        None,
+    )
+    if row is None:
+        raise AssertionError("the runner dispatched no implementation request")
+    return row
+
+
 def production_request_without_anchor(
     *,
     target_agent: str = "aria-evidence-judge",

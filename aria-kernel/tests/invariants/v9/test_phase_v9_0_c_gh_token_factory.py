@@ -265,6 +265,20 @@ class TestV9TokenFactoryPublicApi(unittest.TestCase):
         identity seam consults BEFORE minting so a shared-scope workspace
         is refused without a config write) and the two scope constants
         it answers with, ``CONFIG_SCOPE_LOCAL`` / ``CONFIG_SCOPE_WORKTREE``.
+
+        ARIA-HIGH-124 (round 5) extends it by 3 — ``signing_keys_dir`` and
+        ``SIGNING_KEYS_RELATIVE_PATH`` (the ONE spelling of the workspace
+        keys dir, which the validation sandbox's mask and the mint share)
+        and ``TokenDirectoryUnusable`` (the mint's refusal of a token
+        directory that is not private: the delivery hold mints the token
+        outside the workspace).
+
+        ARIA-HIGH-124 (round 6) extends it by 3 — the provider's own
+        installation-token lifetime (``PROVIDER_INSTALLATION_TOKEN_LIFETIME_SECONDS``,
+        the horizon every local TTL is bounded by) and the mint's and the
+        revoke's own bounds (``INSTALLATION_TOKEN_MINT_TIMEOUT_SECONDS``,
+        ``INSTALLATION_TOKEN_REVOKE_TIMEOUT_SECONDS``), which the delivery
+        prices now that it mints the lease where it consumes it.
         """
         self.assertEqual(
             set(_tf.__all__),
@@ -272,7 +286,13 @@ class TestV9TokenFactoryPublicApi(unittest.TestCase):
                 "CONFIG_SCOPE_LOCAL",
                 "CONFIG_SCOPE_WORKTREE",
                 "GitSigningWiring",
+                "INSTALLATION_TOKEN_MINT_TIMEOUT_SECONDS",
+                "INSTALLATION_TOKEN_REVOKE_TIMEOUT_SECONDS",
+                "PROVIDER_INSTALLATION_TOKEN_LIFETIME_SECONDS",
+                "SIGNING_KEYS_RELATIVE_PATH",
                 "SigningCheckout",
+                "TokenDirectoryUnusable",
+                "signing_keys_dir",
                 "SigningKey",
                 "InstallationTokenLease",
                 "mint_signing_key",

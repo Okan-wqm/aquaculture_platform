@@ -316,8 +316,6 @@ class TestV9BashAllowlist(unittest.TestCase):
             ["git", "status"],
             ["git", "diff", "HEAD~1..HEAD"],
             ["git", "rev-parse", "HEAD"],
-            ["git", "push", "origin", "aria-impl-abc123def456"],
-            ["gh", "pr", "create", "--base", "main", "--head", "aria-impl-abc"],
             ["gh", "pr", "checks", "42"],
             ["nx", "affected", "--target=test"],
             ["pytest", "tests/"],
@@ -327,6 +325,17 @@ class TestV9BashAllowlist(unittest.TestCase):
                 _is.verify_bash_command_allowed(argv)
             except (_is.BashAllowlistMiss, _is.BashDenylistHit) as exc:
                 self.fail(f"canonical argv {argv!r} unexpectedly rejected: {exc}")
+
+    def test_i_v9_bash_01_the_delivery_is_the_executors(self):
+        """ARIA-HIGH-124 — the push and the PR are not the agent's commands:
+        the executor pushes the published branch and opens the PR after the
+        run; inside the sandbox the push is refused by name and the raw `gh
+        pr create` is an allowlist miss."""
+        with self.assertRaises(_is.BashDenylistHit) as refused:
+            _is.verify_bash_command_allowed(["git", "push", "origin", "aria-impl-abc123def456"])
+        self.assertIn("kernel_authority:git_push_any", str(refused.exception))
+        with self.assertRaises(_is.BashAllowlistMiss):
+            _is.verify_bash_command_allowed(["gh", "pr", "create", "--base", "main", "--head", "aria-impl-abc"])
 
     def test_i_v9_bash_01_direct_gh_merge_denied(self):
         with self.assertRaises(_is.BashDenylistHit):
@@ -543,23 +552,31 @@ class TestPhaseAPrePrOpenChecks(unittest.TestCase):
         self.assertFalse(result.passed)
         self.assertIn("ref_deletion", result.reason)
 
-    def test_no_force_push_branch_grammar_shared_with_argv_allowlist(self):
-        """The refspec check and the argv allowlist must agree.
+    def test_no_force_push_branch_grammar_shared_with_the_publication(self):
+        """The refspec check and the publication must agree on what an ARIA
+        branch is.
 
-        Two encodings of "valid ARIA branch" would eventually disagree,
-        and the looser one would be the real perimeter.
+        Two encodings of "valid ARIA branch" would eventually disagree, and
+        the looser one would be the real perimeter. ARIA-HIGH-124 moved the
+        push from the agent's argv to the executor: the grammar's other
+        reader is now the quarantine publication (`git_containment`), which
+        publishes only refs of this shape, and the argv push is refused for
+        EVERY branch — by the kernel-authority rule, never by the grammar.
         """
+        from aria_kernel.git_containment import _ARIA_IMPL_BRANCH_RE
+
         branch = "aria-impl-abc123def456"
         refspec_ok = _is._check_no_force_push(
             self._ctx(push_refspecs=(branch,))
         ).passed
-        argv_ok = True
-        try:
-            _is.verify_bash_command_allowed(["git", "push", "origin", branch])
-        except Exception:
-            argv_ok = False
-        self.assertEqual(refspec_ok, argv_ok)
         self.assertTrue(refspec_ok)
+        self.assertIsNotNone(_ARIA_IMPL_BRANCH_RE.match(branch))
+        self.assertIsNone(_ARIA_IMPL_BRANCH_RE.match("feature/mine"))
+        self.assertFalse(_is._check_no_force_push(self._ctx(push_refspecs=("feature/mine",))).passed)
+        for name in (branch, "feature/mine"):
+            with self.assertRaises(_is.BashDenylistHit) as refused:
+                _is.verify_bash_command_allowed(["git", "push", "origin", name])
+            self.assertIn("kernel_authority:git_push_any", str(refused.exception))
 
     # --- no_no_verify ------------------------------------------------
     def test_no_no_verify_clean_commit_passes(self):
@@ -1075,6 +1092,27 @@ class TestV9PublicApi(unittest.TestCase):
             # ARIA-HIGH-104 (2) — the one whole-entry matching rule the
             # pre-PR-open suite check and the merge gate's hygiene battery share.
             "canonical_command_satisfied_by",
+            # ARIA-HIGH-124 (round 4) — three additions, each a review event
+            # (this pin exists to make one).
+            #
+            # `COMMIT_SIGNATURE_VERIFY_TIMEOUT_SECONDS` is the wall clock of
+            # one `git verify-commit`: the executor's delivery verifies the
+            # published tip before it pushes and PRICES that stage with this
+            # number, so the bound and the subprocess that spends it are one
+            # fact rather than a literal on each side.
+            #
+            # `VALIDATION_SANDBOX_CONTAINMENT_FLAGS` are the bwrap flags that
+            # make a contained validation command stoppable (`--unshare-pid
+            # --die-with-parent`); the bwrap PROBE builds with them too, so a
+            # host that cannot is refused before a claim — one tuple, both
+            # sides. `VALIDATION_OBSERVATION_CHILD` is the ONE kernel file
+            # such a command may be spawned with (the private unittest
+            # observation child the runner composes into the argv), ro-bound
+            # by the wrapper and named by the pin that proves it readable
+            # inside.
+            "COMMIT_SIGNATURE_VERIFY_TIMEOUT_SECONDS",
+            "VALIDATION_SANDBOX_CONTAINMENT_FLAGS",
+            "VALIDATION_OBSERVATION_CHILD",
         }
         self.assertEqual(
             set(_is.__all__), canonical,

@@ -357,6 +357,64 @@ class DrainBudgetWorstCaseTests(unittest.TestCase):
                 ci_executor._child_worst_case_seconds() + ci_executor_drain.DRAIN_WINDOW_MARGIN_SECONDS,
             )
 
+    def test_a_request_whose_own_worst_case_exceeds_the_window_is_skipped_without_a_claim(self) -> None:
+        # ARIA-HIGH-124 (round 3) — an implementation child runs its
+        # delivery (the publication, the contained gate at the staged
+        # ceiling per command, the push, the PR) after the CLI, priced off
+        # the request's STAGED action once the request is known. A window
+        # that holds a judge child but not this implementation's own worst
+        # case skips the implementation by name — no claim, PENDING for a
+        # drain with the room, a governance row — and keeps draining the
+        # roles that fit; before this the delivery term was unpriced, and
+        # the implementation was started into the window's edge.
+        from aria_kernel.ledger import load_declared_jsonl
+
+        judge_child = ci_executor.child_worst_case_seconds(1800)
+        implementation_delivery = 4 * 2700
+        queue = [
+            {"request_id": "AIR-IMPL", "target_agent": "aria-implementer", "role": "implementation"},
+            {"request_id": "AIR-JUDGE", "target_agent": "aria-evidence-judge", "role": "evidence_judgment"},
+            None,
+        ]
+        with patch.object(
+            ci_executor, "_request_delivery_seconds",
+            side_effect=lambda *, tools_dir, request_id: implementation_delivery if request_id == "AIR-IMPL" else 0,
+        ):
+            rc, calls, output = _drain(
+                queue,
+                {"AIR-IMPL": (0, True), "AIR-JUDGE": (0, True)},
+                env={
+                    # Holds the judge child with room, not the implementation's.
+                    "ARIA_DRAIN_BUDGET_SECONDS": str(judge_child + implementation_delivery - 1),
+                    "MAX_TIMEOUT_SECONDS": "1800",
+                },
+                tmp=self._tmp.name,
+            )
+        self.assertEqual(rc, 0)
+        self.assertEqual(calls["dispatch"], [("AIR-JUDGE", "aria-evidence-judge")])
+        self.assertIn("drained=1\n", output)
+        rows = [row for row in load_declared_jsonl(Path(self._tmp.name) / "aria-tools" / "governance.jsonl",
+                                                    expected_surface="tools_governance")
+                if row.get("kind") == "executor_drain_window_skip"]
+        self.assertEqual([row["details"]["request_id"] for row in rows], ["AIR-IMPL"])
+        self.assertEqual(rows[0]["details"]["worst_case_seconds"], judge_child + implementation_delivery)
+        # With the room, the implementation is started first (the quota
+        # round's first role) and priced at its whole worst case.
+        queue = [
+            {"request_id": "AIR-IMPL", "target_agent": "aria-implementer", "role": "implementation"},
+            None,
+        ]
+        with patch.object(
+            ci_executor, "_request_delivery_seconds",
+            side_effect=lambda *, tools_dir, request_id: implementation_delivery,
+        ):
+            rc, calls, _ = _drain(
+                queue, {"AIR-IMPL": (0, True)},
+                env={"ARIA_DRAIN_BUDGET_SECONDS": str(judge_child + implementation_delivery + 60), "MAX_TIMEOUT_SECONDS": "1800"},
+                tmp=self._tmp.name,
+            )
+        self.assertEqual((rc, calls["dispatch"]), (0, [("AIR-IMPL", "aria-implementer")]))
+
     def test_the_worst_case_is_the_whole_child(self) -> None:
         # A child's legal worst case is the claim child and its pre-claim
         # probe, the Claude CLI at MAX_TIMEOUT_SECONDS, the kernel submit at

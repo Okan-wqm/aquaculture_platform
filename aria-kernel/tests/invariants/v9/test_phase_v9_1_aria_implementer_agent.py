@@ -112,9 +112,20 @@ class TestV9ImplementerAgentFile(unittest.TestCase):
         self.assertIn("aria-kernel/aria_kernel/", self.contract_body)
 
     def test_i_v9_impl_01_network_egress_prohibition_present(self):
+        # ARIA-HIGH-124 — the contract states the sandbox's REAL network
+        # setting (the managed route shares the host's namespace so the
+        # CLI reaches its provider; egress is the command policy's to
+        # refuse), not the `--unshare-net` the safety contract used to
+        # claim; and the PR is the executor's, so no push is the agent's.
+        from aria_kernel.implementation_safety import MANAGED_SPAWN_ALLOW_NETWORK
+
+        self.assertTrue(MANAGED_SPAWN_ALLOW_NETWORK)
         self.assertIn("## Network Egress Prohibition", self.contract_body)
-        self.assertIn("--unshare-net", self.contract_body)
-        self.assertIn("aria-impl-", self.contract_body)
+        self.assertNotIn("--unshare-net", self.contract_body)
+        self.assertNotIn("firejail", self.contract_body)
+        self.assertIn("MANAGED_SPAWN_ALLOW_NETWORK", self.contract_body)
+        self.assertIn("opened by the EXECUTOR", self.contract_body)
+        self.assertNotIn("`gh pr merge\n--squash`", self.contract_body)
 
     def test_i_v9_impl_01_safety_disable_prohibition_present(self):
         self.assertIn("## Safety Disable Prohibition", self.contract_body)
@@ -148,7 +159,12 @@ class TestV9ImplementerAgentFile(unittest.TestCase):
         self.assertIn("Refusal Patterns", self.contract_body)
 
     def test_i_v9_impl_01_pr_title_prefix_documented(self):
-        self.assertIn("[ARIA-AUTO]", self.body)
+        # ARIA-HIGH-124 — the title convention is the PR opener's
+        # (`pr_manager.build_pr_body` / the staged proposal), applied by the
+        # executor; the agent file names the opener, and the convention is
+        # pinned where it is produced (tests/test_pr_manager_e2e.py).
+        self.assertIn("pr_manager.open_pr_for_action", self.body)
+        self.assertIn("implementation_delivery", self.body)
 
     def test_i_v9_impl_01_v9_0_module_anchors_present(self):
         """Knowledge anchors point at V9.0 modules."""
@@ -165,25 +181,26 @@ class TestV9ImplementerAgentFile(unittest.TestCase):
             )
 
     def test_i_v9_impl_01_implementer_output_envelope_shape(self):
-        """details.implementation field set documented — the AGENT's fields.
+        """details.implementation field set documented — the KERNEL's fields.
 
-        ``signer_key_fp`` is not among them (ARIA-HIGH-115): the executor
-        that holds the key stamps it, and the contract says so by name
-        instead of asking the agent for a value it cannot know.
+        ARIA-HIGH-115 stamped ``signer_key_fp``; ARIA-HIGH-124 stamps the
+        rest: the executor delivers the branch and writes every delivery
+        field, and the contract documents the record as the kernel fills
+        it, telling the agent by name that a value it writes is replaced.
         """
-        for field in (
-            "branch", "pr_number", "diff_hash", "branch_tip_sha",
-            "base_branch_sha", "validation_results",
-        ):
+        from aria_kernel.implementation_delivery import KERNEL_STAMPED_DELIVERY_FIELDS
+
+        for field in (*KERNEL_STAMPED_DELIVERY_FIELDS, "signer_key_fp", "completed_at"):
             self.assertIn(
                 f'"{field}"',
                 self.contract_body,
                 f"output envelope missing {field}",
             )
-        self.assertNotIn('"signer_key_fp"', self.contract_body,
-                         "the agent is not asked for the executor's fingerprint")
+        self.assertIn("KERNEL_STAMPED_DELIVERY_FIELDS", self.contract_body)
+        self.assertIn("implementation_delivery_overridden", self.contract_body)
         self.assertIn("`signer_key_fp` is NOT yours to report", self.contract_body)
         self.assertIn("implementation_signer_fp_overridden", self.contract_body)
+        self.assertIn("EMPTY of delivery", self.body)
 
 
 class TestV9ImplementerPromptReadsTheDataModel(unittest.TestCase):
@@ -361,6 +378,163 @@ class TestV9ImplementerPromptCitesRealKernelCommands(unittest.TestCase):
         self.assertEqual(self._unresolved(current, groups), [])
         # An invented subcommand of a real group is caught too.
         self.assertEqual(self._unresolved("run `apply record` first", groups), ["apply record (no such subcommand of apply)"])
+
+
+class TestV9ImplementerPromptCommandsAreDecidedByThePolicy(unittest.TestCase):
+    """ARIA-HIGH-124 (round 2) — every command the implementer is TOLD TO RUN
+    is admitted by the command policy the PreToolUse hook enforces.
+
+    The lane's step 3 (`git branch --show-current`, the replacement for the
+    `git switch -c` the previous verifier refused for exactly this reason)
+    and the pre-existing step 8 (`git show --format= --patch HEAD`) were both
+    BashAllowlistMiss: the first command of every production implementation
+    was refused by the hook, and the prompt told the agent any mismatch is
+    `reason_class=evidence` and STOP. Nothing caught it because the
+    end-to-end pins' scripted agent runs git directly, never through the
+    hook. This pin walks every backticked command of the agent prompt, the
+    shared safety contract and the kernel-rendered implementation prompt
+    through `verify_bash_command_allowed`. The commands the prompt names as
+    NOT the agent's are declared in one table, verified both ways: each is
+    named by some surface (a stale entry is red) and each is refused in the
+    shape the table says (a deny by name, or an allowlist miss where the
+    prose says "not admitted"); everything else is admitted.
+    """
+
+    _COMMAND_WORDS = ("git", "gh", "python3", "python", "npx", "npm", "nx", "pytest", "node", "cargo", "eslint", "prettier")
+    _FENCE = re.compile(r"```.*?```", re.S)
+    _SPAN = re.compile(r"`([^`]+)`")
+    _NESTED = re.compile(r"\((" + "|".join(_COMMAND_WORDS) + r")\s([^()]*)\)")
+    _PLACEHOLDER = re.compile(r"<[^<>]+>")
+    # The commands the prompts name as the EXECUTOR's or as refused — never
+    # the agent's to run — and the refusal the policy must answer with:
+    # `family:rule` of the deny rule that names it, or None for an
+    # allowlist miss (the prose says "not admitted" / "allowlist miss").
+    _NOT_THE_AGENTS: dict[str, str | None] = {
+        "git push": "kernel_authority:git_push_any",
+        "python3 -m aria_kernel": "kernel_authority:kernel_cli",
+        "python3 -m aria_kernel apply gate": "kernel_authority:kernel_cli",
+        "gh pr merge": "gh_merge:gh_pr_merge",
+        "gh pr create": None,
+        "git switch": None,
+        # The hazard `gh_api_scope_violation` names, not a command to run.
+        "gh api": None,
+        # ARIA-HIGH-124 (round 4) — the commit shape the prompt names as
+        # refused: a signing key of the agent's own.
+        "git commit -m x --gpg-sign=<key>": "commit_identity:git_commit_foreign_option",
+    }
+
+    @classmethod
+    def _commands_named(cls, text: str) -> list[str]:
+        """Every backticked command line (a command word plus at least one
+        argument) in ``text``, fenced code blocks excluded, a command nested
+        in a call such as `verify_no_secret_in_diff(git diff --staged)`
+        included, a trailing ellipsis (a prefix spelled as such) dropped."""
+        found: list[str] = []
+        for span in cls._SPAN.findall(cls._FENCE.sub(" ", text)):
+            flat = " ".join(span.split())
+            for candidate in (flat, *(f"{word} {rest}" for word, rest in cls._NESTED.findall(flat))):
+                tokens = candidate.split()
+                while tokens and tokens[-1] in ("…", "..."):
+                    tokens.pop()
+                if len(tokens) >= 2 and tokens[0] in cls._COMMAND_WORDS:
+                    found.append(" ".join(tokens))
+        return list(dict.fromkeys(found))
+
+    @classmethod
+    def _verdict(cls, command: str) -> tuple[str, str]:
+        """(kind, detail): ``allowed``, ``denied`` + `family:rule`, or ``miss``.
+        A `<placeholder>` is a value the agent fills in."""
+        from aria_kernel.implementation_safety import BashAllowlistMiss, BashDenylistHit, verify_bash_command_allowed
+
+        argv = cls._PLACEHOLDER.sub("x", command).split()
+        try:
+            verify_bash_command_allowed(argv)
+        except BashDenylistHit as refused:
+            named = re.search(r"DENY rule hit: ([a-z_]+:[a-z_]+)", str(refused))
+            return "denied", named.group(1) if named else str(refused)
+        except BashAllowlistMiss:
+            return "miss", ""
+        return "allowed", ""
+
+    @staticmethod
+    def _rendered_prompt() -> str:
+        from aria_kernel.cross_review_bridge import _implementation_suggested_prompt
+
+        return _implementation_suggested_prompt(
+            converged_plan_revision_id="rev-1", converged_plan_text="{}", cross_review_revision_id="cr-1",
+            cross_review_summary_text="{}",
+            implementation_ids={"proposal_id": "p-1", "change_id": "c-1", "branch": "aria-impl-0123abcd", "base_sha": "0" * 40},
+        )
+
+    def _surfaces(self) -> dict[str, str]:
+        return {
+            _AGENT_FILE.name: _AGENT_FILE.read_text(encoding="utf-8"),
+            _SHARED_CONTRACT_FILE.name: _SHARED_CONTRACT_FILE.read_text(encoding="utf-8"),
+            "cross_review_bridge._implementation_suggested_prompt": self._rendered_prompt(),
+        }
+
+    def test_every_command_the_agent_is_told_to_run_is_admitted(self) -> None:
+        named_anywhere: set[str] = set()
+        for surface, text in self._surfaces().items():
+            for command in self._commands_named(text):
+                named_anywhere.add(command)
+                kind, detail = self._verdict(command)
+                with self.subTest(surface=surface, command=command):
+                    if command in self._NOT_THE_AGENTS:
+                        expected = self._NOT_THE_AGENTS[command]
+                        if expected is None:
+                            self.assertEqual(kind, "miss", f"the prose says {command!r} is not admitted; the policy says {kind} {detail}")
+                        else:
+                            self.assertEqual((kind, detail), ("denied", expected))
+                    else:
+                        self.assertEqual((kind, detail), ("allowed", ""),
+                                         f"the prompt tells the agent to run {command!r}; the hook would answer {kind} {detail}")
+        # The table cannot go stale: every entry is named by some surface,
+        # and the agent's own steps name at least these.
+        self.assertEqual(set(self._NOT_THE_AGENTS) - named_anywhere, set())
+        self.assertTrue({"git branch --show-current", "git rev-parse HEAD", "git commit -m <subject> -m <body> -m <trailer>",
+                         "git diff --staged"} <= named_anywhere, named_anywhere)
+        # (round 4) the contract's own commit spelling is admitted with its
+        # placeholders filled (the one-`-m` spelling that carries the trailer
+        # as the last body line is pinned through the hook's own lexer in
+        # `test_phase_v12_b_command_policy`).
+        self.assertEqual(self._verdict("git commit -m <subject> -m <body> -m <trailer>"), ("allowed", ""))
+
+    def test_the_prompt_names_no_kernel_function_as_a_command_of_the_agents(self) -> None:
+        # ARIA-HIGH-124 (round 6) — the round-5 prompt told the agent to run
+        # `implementation_safety.verify_no_secret_in_diff(...)`: a Python
+        # function of the kernel the sandbox cannot execute, the same shape
+        # as the `emit_change_committed(...)` the round-2 contract named.
+        # The agent READS its diff; the executor's delivery runs the scan
+        # over the branch's whole patch and refuses a hit by name.
+        text = _AGENT_FILE.read_text(encoding="utf-8")
+        self.assertNotIn("verify_no_secret_in_diff(", text)
+        self.assertNotIn("emit_change_committed(", text)
+        self.assertIn("implementation_delivery_refused:result_admissible", text)
+        named = self._commands_named(text)
+        self.assertIn("git diff --staged", named)
+        self.assertIn("git diff <implementation_ids.base_sha> HEAD", named)
+        self.assertEqual(self._verdict("git diff <implementation_ids.base_sha> HEAD"), ("allowed", ""))
+
+    def test_the_scan_sees_the_commands_that_were_refused(self) -> None:
+        # The two lines as the round-1 prompt spelled them: a nested call
+        # and a plain span, across a line break.
+        step_three = "3. **Confirm you stand on the kernel-made branch before edits**:\n   `git branch --show-current` prints `<implementation_ids.branch>` and\n   `git rev-parse HEAD` prints `<implementation_ids.base_sha>`"
+        step_eight = "8. **Secret-scan committed patch** using\n   `implementation_safety.verify_no_secret_in_diff(git show --format= --patch HEAD)`"
+        self.assertEqual(self._commands_named(step_three), ["git branch --show-current", "git rev-parse HEAD"])
+        self.assertEqual(self._commands_named(step_eight), ["git show --format= --patch HEAD"])
+        # Step 8's old spelling is still an allowlist miss: the pin was red
+        # on it, and the prompt now scans the whole branch's `git diff`.
+        self.assertEqual(self._verdict("git show --format= --patch HEAD"), ("miss", ""))
+        # A fenced code block is not a command the agent is told to run, a
+        # bare program name is not a command line, an ellipsis is a prefix.
+        self.assertEqual(self._commands_named("```python\nverify_bash_command_allowed([\"curl\"])\n```"), [])
+        self.assertEqual(self._commands_named("`gh` is admitted for READS only"), [])
+        self.assertEqual(self._commands_named("every `python3 -m aria_kernel …` is refused"), ["python3 -m aria_kernel"])
+        # The bounded `git branch` read admits exactly the step's spelling.
+        self.assertEqual(self._verdict("git branch --show-current"), ("allowed", ""))
+        self.assertEqual(self._verdict("git branch -D main"), ("miss", ""))
+        self.assertEqual(self._verdict("git branch aria-impl-0123abcd"), ("miss", ""))
 
 
 class TestV9ImplementerRunnerSelectionIsDerived(unittest.TestCase):

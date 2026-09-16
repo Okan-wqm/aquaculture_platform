@@ -79,9 +79,13 @@ class SettingsCarryRulesAndHooks(unittest.TestCase):
         self.assertIn("Bash(curl*)", settings["permissions"]["deny"])
         self.assertIn("Read(./.env)", settings["permissions"]["deny"])
         self.assertIn("WebFetch", settings["permissions"]["deny"])
-        # Faz 032d: the implementer holds the external-write grant, so its ONE allowed
-        # push is projected; a closed-grant write profile (worker) never gets it.
-        self.assertIn("Bash(git push origin aria-impl-*)", settings["permissions"]["allow"])
+        # ARIA-HIGH-124 — the implementer's external-write grant is the
+        # EXECUTOR's delivery credential, not a push of the agent's: no
+        # push is projected for any profile, and every profile's document
+        # denies `git push` and the kernel CLI by name.
+        self.assertNotIn("Bash(git push origin aria-impl-*)", settings["permissions"]["allow"])
+        self.assertIn("Bash(git push*)", settings["permissions"]["deny"])
+        self.assertIn("Bash(python3 -m aria_kernel*)", settings["permissions"]["deny"])
         closed = build_settings(profile_by_id("worker"), hook_context=ctx)
         self.assertNotIn("Bash(git push origin aria-impl-*)", closed["permissions"]["allow"])
         self.assertIn("Bash(git push*)", closed["permissions"]["deny"])
@@ -91,7 +95,7 @@ class SettingsCarryRulesAndHooks(unittest.TestCase):
         # but the verb: the store, the request id and the turn cap are the
         # kernel-side broker's facts (`hook_broker`), never argv the
         # sandboxed agent can read, and the store is not mounted inside.
-        self.assertEqual(command, f"python3 {workspace / 'aria-kernel' / 'aria_kernel' / 'hook_client.py'} pre-tool")
+        self.assertEqual(command, f"python3 -I {workspace / 'aria-kernel' / 'aria_kernel' / 'hook_client.py'} pre-tool")
         for forbidden in ("-m aria_kernel", "--tools-dir", str(tools), "--request-id", "AIR-1", "--turn-budget"):
             self.assertNotIn(forbidden, command)
         # cycle_and_turn_budget_cap: a write-scope profile's document records
@@ -201,8 +205,10 @@ class LedgersAreWritten(unittest.TestCase):
         rows = hooks.journal_rows_for("AIR-1", base_dir=self.tools)
         self.assertEqual(len(rows), 1)
         row = rows[0]
-        self.assertEqual(row["command_family"], "git_push")
-        self.assertTrue(row["external_effect"])
+        # ARIA-HIGH-124 — a push is journaled under the hazard that refuses
+        # it inside; the sandbox has no external effect to record.
+        self.assertEqual(row["command_family"], "kernel_authority")
+        self.assertFalse(row["external_effect"])
         self.assertTrue(row["command_hash"].startswith("sha256:"))
         self.assertNotIn(secret, json.dumps(row))
         self.assertTrue({"github_pat", "github_token_family", "github_token"} & set(row["redaction_types"]), row["redaction_types"])

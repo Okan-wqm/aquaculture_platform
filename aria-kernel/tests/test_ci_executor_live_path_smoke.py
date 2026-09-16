@@ -167,6 +167,91 @@ class LivePathFetchTests(unittest.TestCase):
         self.assertEqual(envelope["role"], "evidence_judgment")
         self.assertEqual(envelope["agent_id"], "ci-executor:gha-test-run-1")
 
+    def _run_main_with_summary(self, fake_run) -> tuple[int, dict]:
+        """The live path with RUNNER_TEMP set, so the child's dispatch summary
+        — what the drain classifies — is written and read back."""
+        runner_temp = self.tmp / "runner-temp"
+        runner_temp.mkdir(exist_ok=True)
+        env_patch = {ci_executor.MOCK_MODE_ENV_VAR: "1", "GITHUB_RUN_ID": "test-run-1", "RUNNER_TEMP": str(runner_temp)}
+        with patch.dict(os.environ, env_patch):
+            with patch("ci_executor.subprocess.run", fake_run):
+                exit_code = ci_executor.main([self.request_id, "aria-evidence-judge"])
+        summary_path = runner_temp / f"dispatch-result-{self.request_id}.json"
+        self.assertTrue(summary_path.is_file(), "the child must write its dispatch summary")
+        return exit_code, json.loads(summary_path.read_text(encoding="utf-8"))
+
+    def test_a_submit_the_kernel_rejects_supersedes_the_clis_succeeded_summary(self) -> None:
+        # ARIA-HIGH-124 (round 5) — `invoke_claude_cli` writes `outcome:
+        # succeeded` when the CLI exits 0; a submit that the kernel then
+        # REJECTS (a recorded rejected result row: the claim is terminal, the
+        # request derives REJECTED) used to leave that summary standing, and
+        # the drain — which counts nothing but a `succeeded` summary as
+        # drained — counted the rejected result as a drained success. The
+        # submit's failure now supersedes the summary, in the failure's own
+        # class and phase, the way a refusal already superseded it.
+        rejected = MagicMock(returncode=1, stderr="", stdout=json.dumps({
+            "status": "rejected", "reasons": ["evidence: line missing"], "rejection_codes": ["agent_evidence_line_missing"],
+            "row": {"row_type": "result", "status": "rejected", "claim_id": self.claim_id},
+        }))
+        exit_code, summary = self._run_main_with_summary(_make_fake_run_sequence(self.claim_response, rejected))
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(summary["outcome"], "failed")
+        self.assertEqual((summary["failure_class"], summary["retryable"]), ("response_schema_rejected", False))
+        self.assertEqual(summary["failure_detail_code"], "agent_result_rejected")
+        self.assertEqual(summary["exit_code"], 1)
+
+    def test_a_submit_the_kernel_could_not_decide_is_a_harness_failure_in_the_summary(self) -> None:
+        # The undecided shape: every code a verification-unavailable one, no
+        # row, the claim released harness-class — and the summary says so
+        # (retryable), never `succeeded`.
+        from aria_kernel.evidence_validator import AGENT_EVIDENCE_VERIFICATION_UNAVAILABLE_CODE
+
+        undecided = MagicMock(returncode=1, stderr="", stdout=json.dumps({
+            "status": "rejected", "undecided": True, "reasons": ["evidence: probe did not answer"],
+            "rejection_codes": [AGENT_EVIDENCE_VERIFICATION_UNAVAILABLE_CODE], "row": None,
+        }))
+        exit_code, summary = self._run_main_with_summary(
+            _make_fake_run_sequence(self.claim_response, undecided, self.release_response_ok),
+        )
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(summary["outcome"], "failed")
+        self.assertEqual((summary["failure_class"], summary["retryable"]), ("harness_unavailable", True))
+        self.assertEqual(summary["failure_detail_code"], "evidence_verification_unavailable")
+
+    def test_the_claim_lease_is_this_childs_own_worst_case(self) -> None:
+        """ARIA-HIGH-124 (round 4) — the lease the executor claims with is
+        the bound it prices its own child at, and for a READ-ONLY role that
+        bound carries no delivery term.
+
+        The kernel's 30-minute default (``agent_invocations
+        .DEFAULT_LEASE_SECONDS``) is exactly ``MAX_TIMEOUT_SECONDS``, so a
+        CLI run that used its whole cap outlived its lease and
+        ``submit_claim_result`` refused the finished work by construction
+        (``lease_expired``); an implementation child, whose delivery runs
+        after the spawn, could not fit under it at all. Nothing pinned the
+        flag, so removing it silently restored the default — and the same
+        number is what ``reap_stale_claims`` waits before it re-queues a
+        killed child's request, which is the trade this pin makes visible.
+        """
+        fake_run = _make_fake_run_sequence(self.claim_response, self.submit_response_ok)
+        self._run_main(fake_run)
+        claim_argv = next(argv for argv in fake_run.captured
+                          if "claim" in argv and "submit-result" not in argv)
+        self.assertIn("--lease-seconds", claim_argv)
+        lease = int(claim_argv[claim_argv.index("--lease-seconds") + 1])
+        with patch.dict(os.environ, {ci_executor.MOCK_MODE_ENV_VAR: "1", "GITHUB_RUN_ID": "test-run-1"}):
+            self.assertEqual(lease, ci_executor._child_worst_case_seconds())
+        # A read-only role carries no delivery term, and the lease is above
+        # the kernel default the executor replaced.
+        self.assertEqual(lease, ci_executor.child_worst_case_seconds(ci_executor._max_timeout_seconds()))
+        self.assertEqual(
+            ci_executor._request_delivery_seconds(tools_dir=self.tmp / "aria-tools", request_id=self.request_id), 0,
+        )
+        from aria_kernel.agent_invocations import DEFAULT_LEASE_SECONDS
+
+        self.assertGreater(lease, DEFAULT_LEASE_SECONDS)
+        self.assertGreater(lease, ci_executor._max_timeout_seconds())
+
     def test_no_argv_contains_legacy_agent_list_requests_form(self) -> None:
         # Plan 025 §B Tier-3 invariant preserved: no captured argv
         # contains the legacy broken ``agent list-requests`` form.

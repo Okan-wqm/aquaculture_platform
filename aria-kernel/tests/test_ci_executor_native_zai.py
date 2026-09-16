@@ -189,8 +189,11 @@ class NativeZaiLane(unittest.TestCase):
         # ARIA-HIGH-073 — the contract the model is told to obey travels as the
         # system turn: the agent body (no frontmatter) with its cited knowledge
         # files inlined, and its hash rides the sealed envelope.
+        # ARIA-HIGH-146 — rendered from the KERNEL's checkout (the cited
+        # knowledge files inlined from there), not from the request's tree.
         from aria_kernel.agent_contract_delivery import render_agent_contract
-        contract = render_agent_contract("aria-evidence-judge", repo_root=self.repo)
+        from aria_kernel.claude_settings import kernel_code_root
+        contract = render_agent_contract("aria-evidence-judge", repo_root=kernel_code_root().parent)
         self.assertIn("# Agent contract: aria-evidence-judge", run["messages"][0]["content"])
         self.assertIn(contract.text, run["messages"][0]["content"])
         self.assertNotIn("\nmodel: ", run["messages"][0]["content"])

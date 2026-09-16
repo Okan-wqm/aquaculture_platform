@@ -70,6 +70,22 @@ export interface PaymentStatsWindow {
    */
   successRate: number;
   totalAmount: number;
+  /**
+   * Money that actually captured, and money actually given back.
+   *
+   * The payments page used to sum these in the browser from the ONE PAGE of
+   * rows it had loaded — 50 at most, and narrowed further by whatever status
+   * filter was active — then label the difference "Net Revenue". Filtering to
+   * `failed` made net revenue $0. A platform total cannot be a subtotal of
+   * what happens to be on screen, so the aggregate is computed here, over
+   * every row, in the same GROUP BY that already produced the counts.
+   *
+   * `refundedAmount` sums `refunded_amount`, NOT the amount of rows whose
+   * status is refunded: a partially refunded payment gave back part of itself,
+   * and its full amount is not the sum returned.
+   */
+  succeededAmount: number;
+  refundedAmount: number;
 }
 
 /** All-time payment statistics plus the trailing-30-day window. */
@@ -113,15 +129,21 @@ interface PaymentStatusCountRow {
   status: string;
   count: DbNumeric;
   total: DbNumeric;
+  refundedTotal: DbNumeric;
 }
 
 /** Fold per-status GROUP BY rows into one dashboard window. */
 function summarizePaymentStatusCounts(rows: PaymentStatusCountRow[]): PaymentStatsWindow {
-  const byStatus = new Map<string, { count: number; total: number }>();
+  const byStatus = new Map<string, { count: number; total: number; refundedTotal: number }>();
   for (const row of rows) {
-    byStatus.set(row.status, { count: dbNumber(row.count), total: dbNumber(row.total) });
+    byStatus.set(row.status, {
+      count: dbNumber(row.count),
+      total: dbNumber(row.total),
+      refundedTotal: dbNumber(row.refundedTotal),
+    });
   }
   const count = (status: string): number => byStatus.get(status)?.count ?? 0;
+  const amount = (status: string): number => byStatus.get(status)?.total ?? 0;
 
   const succeeded = count('succeeded');
   const failed = count('failed');
@@ -139,6 +161,10 @@ function summarizePaymentStatusCounts(rows: PaymentStatusCountRow[]): PaymentSta
     pending,
     successRate: terminalAttempts > 0 ? (succeeded + refunded) / terminalAttempts : 0,
     totalAmount,
+    // A partially refunded payment still captured its full amount, so it counts
+    // toward what succeeded; only the part handed back is a refund.
+    succeededAmount: amount('succeeded') + amount('partially_refunded'),
+    refundedAmount: [...byStatus.values()].reduce((sum, entry) => sum + entry.refundedTotal, 0),
   };
 }
 
@@ -257,12 +283,18 @@ export class PaymentManagementService {
   async getPaymentStats(): Promise<PaymentStats> {
     const [allTimeRows, last30Rows] = await Promise.all([
       this.dataSource.query<PaymentStatusCountRow[]>(
-        `SELECT p.status, COUNT(*) AS count, COALESCE(SUM(p.amount), 0) AS total
+        `SELECT p.status,
+                COUNT(*) AS count,
+                COALESCE(SUM(p.amount), 0) AS total,
+                COALESCE(SUM(p.refunded_amount), 0) AS "refundedTotal"
          FROM billing.payments p
          GROUP BY p.status`,
       ),
       this.dataSource.query<PaymentStatusCountRow[]>(
-        `SELECT p.status, COUNT(*) AS count, COALESCE(SUM(p.amount), 0) AS total
+        `SELECT p.status,
+                COUNT(*) AS count,
+                COALESCE(SUM(p.amount), 0) AS total,
+                COALESCE(SUM(p.refunded_amount), 0) AS "refundedTotal"
          FROM billing.payments p
          WHERE p.payment_date >= NOW() - INTERVAL '30 days'
          GROUP BY p.status`,

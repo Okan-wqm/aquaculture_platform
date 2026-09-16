@@ -39,8 +39,8 @@ export const analyticsApi = {
     ),
 
   // Revenue Analytics
-  getRevenueAnalytics: (params?: DateRangeParams) =>
-    apiFetch<RevenueAnalytics>(`/analytics/revenue?${buildQueryString(params || {})}`),
+  getRevenueAnalytics: (signal?: AbortSignal, params?: DateRangeParams) =>
+    apiFetch<RevenueAnalytics>(`/analytics/revenue?${buildQueryString(params || {})}`, { signal }),
   getRevenueByPlan: (params?: DateRangeParams) =>
     apiFetch<Array<{ plan: string; revenue: number; tenantCount: number }>>(`/analytics/revenue/by-plan?${buildQueryString(params || {})}`),
   getRevenueTrend: (

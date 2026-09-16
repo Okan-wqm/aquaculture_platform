@@ -3,13 +3,16 @@
  * View, record, and refund payments across all tenants
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   billingApi,
   PaymentOverview,
   PaymentStatus,
   PaymentMethod,
 } from '../services/adminApi';
+import type { PaymentStats } from '../services/types/billing';
+import { adminKeys, useAdminQuery } from '../hooks';
+import { QueryFailureNotice } from '../components/QueryFailureNotice';
 
 // ============================================================================
 // Helpers
@@ -79,10 +82,6 @@ const methodLabels: Record<string, string> = {
 
 const PaymentsPage: React.FC = () => {
   // Data state
-  const [payments, setPayments] = useState<PaymentOverview[]>([]);
-  const [totalPayments, setTotalPayments] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   // Filters
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -123,36 +122,53 @@ const PaymentsPage: React.FC = () => {
   // Data Fetching
   // ============================================================================
 
-  const fetchPayments = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
+  const paymentsQuery = useAdminQuery<{ payments: PaymentOverview[]; total: number }>(
+    adminKeys.billing.payments({ status: statusFilter, invoiceId: invoiceIdFilter }),
+    async ({ signal }) => {
+      const data = await billingApi.getPayments(
+        {
+          status: statusFilter !== 'all' ? statusFilter : undefined,
+          invoiceId: invoiceIdFilter || undefined,
+          limit: 50,
+        },
+        signal,
+      );
+      return {
+        payments: (data.payments ?? []).map((p: PaymentOverview) => ({
+          ...p,
+          // `typeof` already narrows this to string; the `as unknown as string`
+          // that used to sit here type-checked nothing, and CLAUDE.md bans it.
+          amount: typeof p.amount === 'string' ? parseFloat(p.amount) : p.amount,
+          refundedAmount:
+            typeof p.refundedAmount === 'string'
+              ? parseFloat(p.refundedAmount)
+              : (p.refundedAmount ?? 0),
+        })),
+        total: data.total,
+      };
+    },
+  );
+  const payments: PaymentOverview[] = paymentsQuery.data?.payments ?? [];
 
-      const data = await billingApi.getPayments({
-        status: statusFilter !== 'all' ? statusFilter : undefined,
-        invoiceId: invoiceIdFilter || undefined,
-        limit: 50,
-      });
+  /**
+   * The platform's payment aggregate.
+   *
+   * The three money cards used to be summed IN THE BROWSER from `payments` —
+   * one page of at most 50 rows, narrowed further by whatever status filter was
+   * active — and the difference was labelled "Net Revenue". Filtering to
+   * `failed` therefore showed a net revenue of $0, and any platform with more
+   * than 50 payments saw a subtotal presented as a total. The aggregate is the
+   * server's now, computed over every row.
+   */
+  const statsQuery = useAdminQuery<PaymentStats>(adminKeys.billing.paymentStats(), ({ signal }) =>
+    billingApi.getPaymentStats(signal),
+  );
+  const stats = statsQuery.data;
 
-      const mapped = (data.payments || []).map((p: PaymentOverview) => ({
-        ...p,
-        amount: typeof p.amount === 'string' ? parseFloat(p.amount as unknown as string) : p.amount,
-        refundedAmount: typeof p.refundedAmount === 'string' ? parseFloat(p.refundedAmount as unknown as string) : (p.refundedAmount || 0),
-      }));
-
-      setPayments(mapped);
-      setTotalPayments(data.total || 0);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load payments');
-      setPayments([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [statusFilter, invoiceIdFilter]);
-
-  useEffect(() => {
-    fetchPayments();
-  }, [fetchPayments]);
+  const reload = useCallback((): void => {
+    void paymentsQuery.refetch();
+    void statsQuery.refetch();
+  }, [paymentsQuery, statsQuery]);
 
   // ============================================================================
   // Record Payment
@@ -187,7 +203,7 @@ const PaymentsPage: React.FC = () => {
         paymentDate: new Date().toISOString().split('T')[0],
         notes: '',
       });
-      fetchPayments();
+      reload();
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Failed to record payment', 'error');
     } finally {
@@ -237,7 +253,7 @@ const PaymentsPage: React.FC = () => {
       setShowRefundModal(false);
       setRefundPayment(null);
       setRefundForm({ amount: '', reason: '' });
-      fetchPayments();
+      reload();
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Failed to process refund', 'error');
     } finally {
@@ -257,8 +273,6 @@ const PaymentsPage: React.FC = () => {
   // ============================================================================
 
   const succeededPayments = payments.filter(p => p.status === PaymentStatus.SUCCEEDED || p.status === PaymentStatus.PARTIALLY_REFUNDED);
-  const totalSucceeded = succeededPayments.reduce((sum, p) => sum + p.amount, 0);
-  const totalRefunded = payments.reduce((sum, p) => sum + (p.refundedAmount || 0), 0);
 
   // ============================================================================
   // Render
@@ -297,34 +311,36 @@ const PaymentsPage: React.FC = () => {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
           <p className="text-sm text-gray-500">Total Payments</p>
-          <p className="text-2xl font-bold text-gray-900 mt-1">{totalPayments}</p>
+          <p className="text-2xl font-bold text-gray-900 mt-1">
+            {stats ? stats.totalPayments.toLocaleString() : '—'}
+          </p>
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
           <p className="text-sm text-gray-500">Succeeded Amount</p>
-          <p className="text-2xl font-bold text-green-600 mt-1">{formatCurrency(totalSucceeded)}</p>
+          <p className="text-2xl font-bold text-green-600 mt-1">
+            {stats ? formatCurrency(stats.succeededAmount) : '—'}
+          </p>
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
           <p className="text-sm text-gray-500">Refunded</p>
-          <p className="text-2xl font-bold text-purple-600 mt-1">{formatCurrency(totalRefunded)}</p>
+          <p className="text-2xl font-bold text-purple-600 mt-1">
+            {stats ? formatCurrency(stats.refundedAmount) : '—'}
+          </p>
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
           <p className="text-sm text-gray-500">Net Revenue</p>
-          <p className="text-2xl font-bold text-gray-900 mt-1">{formatCurrency(totalSucceeded - totalRefunded)}</p>
+          <p className="text-2xl font-bold text-gray-900 mt-1">
+            {stats ? formatCurrency(stats.succeededAmount - stats.refundedAmount) : '—'}
+          </p>
         </div>
       </div>
 
-      {/* Error */}
-      {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-          <p className="text-red-700">{error}</p>
-          <button
-            onClick={fetchPayments}
-            className="mt-2 text-red-600 hover:text-red-800 text-sm font-medium"
-          >
-            Retry
-          </button>
-        </div>
-      )}
+      {/* Whichever of the two reads failed, named. */}
+      <QueryFailureNotice
+        errors={[paymentsQuery.error, statsQuery.error]}
+        hasContent={payments.length > 0}
+        onRetry={reload}
+      />
 
       {/* Filters */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
@@ -368,7 +384,7 @@ const PaymentsPage: React.FC = () => {
 
       {/* Payment Table */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        {loading ? (
+        {paymentsQuery.isPending ? (
           <div className="p-8 animate-pulse">
             {[1, 2, 3, 4, 5].map((i) => (
               <div key={i} className="flex items-center gap-4 py-4 border-b border-gray-100">

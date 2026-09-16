@@ -7867,6 +7867,48 @@ export interface components {
         VoidInvoiceDto: {
             reason: string;
         };
+        PaymentStatsWindowDto: {
+            /** @description Every payment row in the window, whatever its status. */
+            totalPayments: number;
+            /** @description Payments that captured. */
+            succeeded: number;
+            /** @description Payments that attempted capture and did not get it. */
+            failed: number;
+            /** @description Payments fully or partially refunded. */
+            refunded: number;
+            /** @description In flight: pending plus processing. */
+            pending: number;
+            /** @description succeeded + refund states over TERMINAL attempts; 0 when there were none. A refunded payment still captured, so it belongs in the numerator; pending and processing are in flight and cancelled never attempted capture, so neither may sit in the denominator and drag the rate down. */
+            successRate: number;
+            /** @description Sum of every row amount in the window. */
+            totalAmount: number;
+            /** @description Money that actually captured, over EVERY row — a partially refunded payment still captured in full, so it counts here. The admin-panel used to sum this in the browser from one page of at most 50 rows, narrowed by the active status filter, and label the difference "Net Revenue". */
+            succeededAmount: number;
+            /** @description Money handed back, summed from refunded_amount — NOT the amount of rows whose status is refunded, because a partially refunded payment returned only part of itself. */
+            refundedAmount: number;
+        };
+        PaymentStatsResponseDto: {
+            /** @description Every payment row in the window, whatever its status. */
+            totalPayments: number;
+            /** @description Payments that captured. */
+            succeeded: number;
+            /** @description Payments that attempted capture and did not get it. */
+            failed: number;
+            /** @description Payments fully or partially refunded. */
+            refunded: number;
+            /** @description In flight: pending plus processing. */
+            pending: number;
+            /** @description succeeded + refund states over TERMINAL attempts; 0 when there were none. A refunded payment still captured, so it belongs in the numerator; pending and processing are in flight and cancelled never attempted capture, so neither may sit in the denominator and drag the rate down. */
+            successRate: number;
+            /** @description Sum of every row amount in the window. */
+            totalAmount: number;
+            /** @description Money that actually captured, over EVERY row — a partially refunded payment still captured in full, so it counts here. The admin-panel used to sum this in the browser from one page of at most 50 rows, narrowed by the active status filter, and label the difference "Net Revenue". */
+            succeededAmount: number;
+            /** @description Money handed back, summed from refunded_amount — NOT the amount of rows whose status is refunded, because a partially refunded payment returned only part of itself. */
+            refundedAmount: number;
+            /** @description The trailing 30 days. The dashboard shows this window: an all-time rate on a long-lived tenant is dominated by history and stops moving when something breaks today. */
+            last30Days: components["schemas"]["PaymentStatsWindowDto"];
+        };
         RecordPaymentDto: {
             /** Format: uuid */
             invoiceId: string;
@@ -12770,7 +12812,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": components["schemas"]["PaymentStatsResponseDto"];
                 };
             };
         };

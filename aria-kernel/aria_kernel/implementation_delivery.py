@@ -453,6 +453,66 @@ def agent_dispositions(envelope: Mapping[str, Any]) -> dict[str, str]:
             if isinstance(path, str) and isinstance(sentence, str)}
 
 
+# ARIA-HIGH-150 — what the room probe asks, one fact per line, each tool
+# answering `absent` when it is not there (the admission already refused a
+# DECLARED toolchain that does not resolve; this records what the suite
+# actually saw). Read-only: versions, modes, presence, names of the rust
+# homes — never their contents.
+ROOM_PROBE_SCRIPT = (
+    "echo tmp_mode=$(stat -c %a /tmp 2>/dev/null || echo absent); "
+    "for d in /opt /var/log; do if [ -d \"$d\" ]; then echo dir=$d=present; else echo dir=$d=absent; fi; done; "
+    "for t in node npm npx git cargo rustc python3; do "
+    "v=$($t --version 2>/dev/null | head -n 1); echo tool=$t=${v:-absent}; done; "
+    "for n in RUSTUP_HOME CARGO_HOME RUSTUP_TOOLCHAIN HOME; do eval \"v=\\$$n\"; echo env=$n=${v:-unset}; done; "
+    "echo kernel=$(uname -r 2>/dev/null || echo unknown)"
+)
+ROOM_PROBE_TIMEOUT_SECONDS = 60
+
+
+def probe_validation_room(
+    spawn_wrapper: SpawnWrapper, *, workspace_root: str | Path, environment: Mapping[str, str],
+) -> dict[str, Any]:
+    """The validation room as the suite will see it: `/tmp`'s mode, the host
+    roots present, each toolchain's version (or `absent`), the rust homes
+    named, the kernel — observed by a probe run through the SAME wrapper
+    and environment the commands get, recorded on the plan row by
+    ``run_validation_commands(room=…)`` (ARIA-HIGH-150). A probe that cannot
+    run is recorded as such (`probe_exit`, `error`), never guessed."""
+    from .tool_registry import utc_now
+
+    room: dict[str, Any] = {
+        "schema_version": 1, "probed_at": utc_now(), "tmp_mode": None, "dirs": {}, "tools": {}, "env": {},
+        "kernel": None, "probe_exit": None, "wrapped_argv_sha256": None,
+    }
+    try:
+        argv = spawn_wrapper(["sh", "-c", ROOM_PROBE_SCRIPT], environment)
+        room["wrapped_argv_sha256"] = "sha256:" + hashlib.sha256("\0".join(argv).encode("utf-8")).hexdigest()
+        done = subprocess.run(argv, cwd=str(workspace_root), env=dict(environment), capture_output=True, text=True,
+                              timeout=ROOM_PROBE_TIMEOUT_SECONDS, check=False)
+    except (OSError, subprocess.SubprocessError, GovernanceErrorType, SandboxUnavailable) as exc:
+        room["error"] = f"{type(exc).__name__}: {str(exc)[:200]}"
+        return room
+    room["probe_exit"] = done.returncode
+    for line in done.stdout.splitlines():
+        key, _, rest = line.strip().partition("=")
+        if key == "tmp_mode":
+            room["tmp_mode"] = rest
+        elif key == "dir":
+            name, _, state = rest.partition("=")
+            room["dirs"][name] = state == "present"
+        elif key == "tool":
+            name, _, version = rest.partition("=")
+            room["tools"][name] = version[:80]
+        elif key == "env":
+            name, _, value = rest.partition("=")
+            room["env"][name] = value[:200]
+        elif key == "kernel":
+            room["kernel"] = rest[:80]
+    if done.returncode != 0:
+        room["error"] = (done.stderr.strip().splitlines() or ["probe_failed"])[-1][:200]
+    return room
+
+
 def validation_sandbox_for(workspace: Path, *, store: str | Path | None) -> SpawnWrapper:
     """The containment the gate puts around every command of the AGENT's
     suite in ``workspace`` (a request worktree): the read-only git shape

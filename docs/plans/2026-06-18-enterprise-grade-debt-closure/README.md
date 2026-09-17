@@ -243,3 +243,4 @@ These are not optional work items. They block normal domain execution:
   The stale raw partition creation query builders were removed, and
   `tests/invariants/single-partition-creator.spec.ts` is active in the registry
   invariant shard.
+- retrigger

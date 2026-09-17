@@ -116,6 +116,7 @@ function withOptimisticMessage(
     contentType: 'TEXT',
     isDeleted: false,
     isAiGenerated: false,
+    metadata: null,
     createdAt: new Date().toISOString(),
     editedAt: null,
     sender: null,

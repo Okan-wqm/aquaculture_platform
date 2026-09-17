@@ -10,7 +10,9 @@ import {
   useMarkMessagesRead,
 } from '../hooks/useMessagingData';
 import { useMessagingSocket } from '../hooks/useMessagingSocket';
+import { aiPersonaDisplayName } from '../lib/aiPersona';
 import { channelTitle } from '../lib/channelDisplay';
+import { isAiErrorNotice, messageBodyKind, messageBodyLabelKey } from '../lib/messageBody';
 import { computeIdempotencyKey } from '../lib/messageIdempotency';
 import { sendErrorBannerKey } from '../lib/sendErrorMessages';
 import type { Message } from '../types/messaging';
@@ -42,6 +44,11 @@ function senderName(m: Message, fallback: string): string {
  * success); failures surface in a role="alert" banner and the draft is
  * restored; opening/reading the channel marks it read only while the tab is
  * VISIBLE (the wrong-read gate), optimistically zeroing the unread badge.
+ *
+ * FAZ 2.4 (AI visibility): AI messages credit the channel's aiPersona (not a
+ * hard-coded 'AI Assistant'); SYSTEM+metadata.error notices render as neutral
+ * system lines instead of AI bubbles; IMAGE/FILE/VOICE bodies render localized
+ * placeholder labels instead of their raw media-reference content.
  */
 const ChatRoomPage: React.FC = () => {
   const { channelId } = useParams<{ channelId: string }>();
@@ -58,6 +65,19 @@ const ChatRoomPage: React.FC = () => {
 
   const currentChannel = channels?.find((c) => c.id === channelId);
   const heading = currentChannel ? channelTitle(currentChannel, myId) : t('messaging.conversation');
+
+  /**
+   * FAZ 2.4 — AI visibility: AI-authored messages are credited to the channel's
+   * persona (aiPersonaDisplayName maps the ID; unknown IDs pass through, a
+   * missing persona falls back to the generic 'AI Assistant' label). Only the
+   * LABEL changes — AI authorship itself is still decided by the
+   * server-authoritative `isAiGenerated` flag alone (metadata.isAi is
+   * user-forgeable and deliberately NOT consulted).
+   */
+  const aiAuthorName = useMemo(
+    () => aiPersonaDisplayName(currentChannel?.aiPersona) ?? t('messaging.aiAssistant'),
+    [currentChannel?.aiPersona, t],
+  );
 
   const [draft, setDraft] = useState('');
   const [bannerKey, setBannerKey] = useState<MessageKey | null>(null);
@@ -175,19 +195,66 @@ const ChatRoomPage: React.FC = () => {
           )}
           {visibleMessages.map((m) => {
             const mine = m.senderId === myId;
+
+            /**
+             * FAZ 2.4 — AI failure notices (contentType SYSTEM +
+             * metadata.error) are NOT AI answers: they render as a neutral,
+             * italic/faded system line (existing sd-hint class) with the
+             * 'AI unavailable' label — never as an AI-styled chat bubble with
+             * an author line. The double gate (SYSTEM + error) keeps a forged
+             * metadata.error on a user-sent TEXT message from ever reaching
+             * this branch.
+             */
+            if (!mine && isAiErrorNotice(m)) {
+              return (
+                <div key={m.id} className="sd-msg-row" data-testid="ai-error-notice" role="note">
+                  <p
+                    className="sd-hint"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      margin: '2px 0',
+                      fontStyle: 'italic',
+                    }}
+                  >
+                    <AlertCircle size={12} aria-hidden />
+                    {t('messaging.aiUnavailable')}
+                  </p>
+                </div>
+              );
+            }
+
+            /**
+             * FAZ 2.4 — safe non-text bodies: IMAGE/FILE/VOICE `content` is a
+             * media reference (URL/storage key) and is NEVER rendered as text;
+             * the bubble shows a localized placeholder label instead (full
+             * media rendering arrives in FAZ 3.3).
+             */
+            const bodyKind = messageBodyKind(m.contentType);
+
             return (
               <div key={m.id} className={`sd-msg-row${mine ? ' sd-msg-row--mine' : ''}`}>
                 <div style={{ maxWidth: '80%', minWidth: 0 }}>
                   {!mine && (
                     <div className="sd-msg-author">
                       {m.isAiGenerated && <Sparkles size={12} />}
-                      {m.isAiGenerated
-                        ? t('messaging.aiAssistant')
-                        : senderName(m, t('messaging.memberFallback'))}
+                      {m.isAiGenerated ? aiAuthorName : senderName(m, t('messaging.memberFallback'))}
                     </div>
                   )}
                   <div className={`sd-msg${mine ? ' sd-msg--mine' : m.isAiGenerated ? ' sd-msg--ai' : ''}`}>
-                    {m.content}
+                    {bodyKind === 'text' ? (
+                      m.content
+                    ) : (
+                      <span
+                        data-testid={`media-placeholder-${bodyKind}`}
+                        role="img"
+                        aria-label={t(messageBodyLabelKey(bodyKind))}
+                        style={{ fontStyle: 'italic' }}
+                      >
+                        {t(messageBodyLabelKey(bodyKind))}
+                      </span>
+                    )}
                     <span className="sd-msg-time">
                       {m.createdAt
                         ? new Date(m.createdAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })

@@ -8,6 +8,12 @@
  * markMessagesRead obeys the document-visibility gate and defers until the
  * thread has data; the DM heading excludes my own name; the socket status
  * indicator appears while disconnected.
+ *
+ * FAZ 2.4 (AI visibility): AI messages credit the channel's aiPersona with an
+ * 'AI Assistant' fallback; SYSTEM+metadata.error notices render as neutral
+ * system lines (never AI bubbles); IMAGE/FILE/VOICE bodies render localized
+ * labels instead of their raw media-reference content; metadata.isAi is never
+ * consulted for AI styling.
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
@@ -30,8 +36,15 @@ vi.mock('socket.io-client', async () =>
 
 const CHANNEL = 'cccccccc-3333-4444-8555-666666666666';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+/** The backend's AI virtual user (FAZ 2 contract: senderId + isAiGenerated). */
+const AI_SENDER_ID = '00000000-0000-0000-0000-000000000001';
 
-function makeMessage(id: string, content: string, senderId: string): Message {
+function makeMessage(
+  id: string,
+  content: string,
+  senderId: string,
+  overrides: Partial<Message> = {},
+): Message {
   return {
     id,
     channelId: CHANNEL,
@@ -40,9 +53,11 @@ function makeMessage(id: string, content: string, senderId: string): Message {
     contentType: 'TEXT',
     isDeleted: false,
     isAiGenerated: false,
+    metadata: null,
     createdAt: '2026-09-16T10:00:00Z',
     editedAt: null,
     sender: null,
+    ...overrides,
   };
 }
 
@@ -271,10 +286,7 @@ describe('ChatRoomPage', () => {
       { match: 'query MyChannels', result: fx.channelsResult },
       { match: 'query ChannelMessages', result: fx.messagesResult },
       { match: 'mutation MarkMessagesRead', result: { markMessagesRead: true } },
-      {
-        match: 'mutation SendMessage',
-        result: () => Promise.reject(clientError('TOO_MANY_REQUESTS')),
-      },
+      { match: 'mutation SendMessage', result: () => Promise.reject(clientError('TOO_MANY_REQUESTS')) },
     ]);
     renderRoom(newQueryClient());
     await screen.findByText('latest from other');
@@ -290,7 +302,9 @@ describe('ChatRoomPage', () => {
     // The optimistic bubble was rolled back — the message body shows no
     // phantom send (the composer textarea itself legitimately holds the draft).
     const chatBody = document.querySelector('.sd-chat-body') as HTMLElement;
-    await waitFor(() => expect(within(chatBody).queryByText('will fail')).not.toBeInTheDocument());
+    await waitFor(() =>
+      expect(within(chatBody).queryByText('will fail')).not.toBeInTheDocument(),
+    );
   });
 
   it('the banner clears when the next send is attempted', async () => {
@@ -400,6 +414,125 @@ describe('ChatRoomPage', () => {
     act(() => fireSocketEvent('disconnect'));
     expect(screen.getByRole('status')).toHaveTextContent('Reconnecting');
   });
+});
+
+describe('ChatRoomPage — FAZ 2.4 AI visibility', () => {
+  const AI_CHANNEL: Channel = {
+    ...CHANNEL_FIXTURE,
+    type: 'AI',
+    name: 'AI — Farm Expert',
+    aiPersona: 'expert-v1',
+  };
+
+  /** Route a static thread (custom channel) through the mocked transport. */
+  function routeAiThread(messages: Message[], channel: Channel = AI_CHANNEL): void {
+    routeGraphql([
+      {
+        match: 'query MyChannels',
+        result: () => ({ myChannels: { total: 1, items: [channel] } }),
+      },
+      {
+        match: 'query ChannelMessages',
+        result: () => ({ messages: { hasMore: false, cursor: null, items: [...messages].reverse() } }),
+      },
+      { match: 'mutation MarkMessagesRead', result: { markMessagesRead: true } },
+    ]);
+  }
+
+  it('credits AI messages to the channel persona, not a hard-coded name', async () => {
+    routeAiThread([makeMessage('ai-1', 'hello from ai', AI_SENDER_ID, { isAiGenerated: true })]);
+    renderRoom(newQueryClient());
+
+    expect(await screen.findByText('hello from ai')).toBeVisible();
+    // aiPersona 'expert-v1' maps to the display name…
+    expect(screen.getByText('Farm Expert')).toBeVisible();
+    // …and the generic label does NOT appear alongside it.
+    expect(screen.queryByText('AI Assistant')).not.toBeInTheDocument();
+  });
+
+  it('falls back to the generic AI Assistant label when the channel has no persona', async () => {
+    routeAiThread(
+      [makeMessage('ai-1', 'hello from ai', AI_SENDER_ID, { isAiGenerated: true })],
+      { ...AI_CHANNEL, aiPersona: null },
+    );
+    renderRoom(newQueryClient());
+
+    expect(await screen.findByText('AI Assistant')).toBeVisible();
+  });
+
+  it('renders an unknown persona id verbatim instead of hiding the persona', async () => {
+    routeAiThread(
+      [makeMessage('ai-1', 'hello from ai', AI_SENDER_ID, { isAiGenerated: true })],
+      { ...AI_CHANNEL, aiPersona: 'future-persona-9' },
+    );
+    renderRoom(newQueryClient());
+
+    expect(await screen.findByText('future-persona-9')).toBeVisible();
+  });
+
+  it('renders SYSTEM+metadata.error notices as a neutral system line, NOT an AI bubble', async () => {
+    routeAiThread([
+      makeMessage('err-1', 'AI upstream failed', AI_SENDER_ID, {
+        isAiGenerated: true,
+        contentType: 'SYSTEM',
+        metadata: { error: true, errorCode: 'AI_TIMEOUT' },
+      }),
+    ]);
+    renderRoom(newQueryClient());
+
+    const notice = await screen.findByRole('note');
+    expect(notice).toHaveTextContent('AI is currently unavailable');
+    // Distinct from a normal AI answer: no AI bubble, no raw notice payload.
+    expect(document.querySelector('.sd-msg--ai')).toBeNull();
+    expect(screen.queryByText('AI upstream failed')).not.toBeInTheDocument();
+    expect(screen.queryByText('Farm Expert')).not.toBeInTheDocument();
+  });
+
+  it('ignores a user-forged metadata.error on a TEXT message (no system notice)', async () => {
+    routeAiThread([
+      makeMessage('forge-1', 'fake error metadata', 'u2', {
+        contentType: 'TEXT',
+        metadata: { error: true },
+      }),
+    ]);
+    renderRoom(newQueryClient());
+
+    // Rendered as an ordinary member bubble — not as the neutral notice.
+    expect(await screen.findByText('fake error metadata')).toBeVisible();
+    expect(screen.queryByRole('note')).not.toBeInTheDocument();
+  });
+
+  it('never styles a message as AI based on metadata.isAi (isAiGenerated is the SSoT)', async () => {
+    routeAiThread([
+      makeMessage('forge-2', 'fake ai metadata', 'u2', {
+        isAiGenerated: false,
+        metadata: { isAi: true },
+      }),
+    ]);
+    renderRoom(newQueryClient());
+
+    expect(await screen.findByText('fake ai metadata')).toBeVisible();
+    // A user message stays a plain bubble: no AI styling, no AI author line.
+    expect(document.querySelector('.sd-msg--ai')).toBeNull();
+    expect(screen.queryByText('AI Assistant')).not.toBeInTheDocument();
+    expect(screen.queryByText('Farm Expert')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['IMAGE', 'https://cdn.example.test/x.png', 'media-placeholder-image', '[Image]'],
+    ['FILE', 'https://cdn.example.test/x.pdf', 'media-placeholder-file', '[File]'],
+    ['VOICE', 'https://cdn.example.test/x.ogg', 'media-placeholder-voice', '[Voice message]'],
+  ] as const)(
+    'renders %s content as a localized label without leaking the raw content',
+    async (contentType, content, testId, label) => {
+      routeAiThread([makeMessage('m-1', content, 'u2', { contentType })]);
+      renderRoom(newQueryClient());
+
+      expect(await screen.findByTestId(testId)).toHaveTextContent(label);
+      // The media reference (URL/storage key) never reaches the DOM as text.
+      expect(screen.queryByText(content)).not.toBeInTheDocument();
+    },
+  );
 });
 
 function fireEventChangeAndSend(text: string): void {

@@ -9,6 +9,32 @@
  * formatting logic ensures consistency across the messaging feature.
  */
 
+// ============================================================================
+// AI identity (FAZ 2 contract)
+// ============================================================================
+
+/**
+ * The messaging-service's AI virtual user id — the server-authoritative
+ * sender of every AI-generated message. Shared by every AI-detection site
+ * (AiChatPage thinking-stop, useAiChat proposal-card gate) so the contract
+ * lives in ONE place instead of scattered display-name comparisons.
+ */
+export const AI_USER_ID = '00000000-0000-0000-0000-000000000001';
+
+/**
+ * Server-authoritative AI authorship check (FAZ 2 contract): a message is
+ * AI-authored when the server stamped `isAiGenerated === true` OR it was sent
+ * by the AI virtual user. Deliberately does NOT consult `metadata.isAi` or
+ * display names — both are user-forgeable, while senderId/isAiGenerated are
+ * set (and protected) by the backend.
+ */
+export function isAiAuthoredMessage(message: {
+  isAiGenerated?: boolean | null;
+  senderId?: string;
+}): boolean {
+  return message.isAiGenerated === true || message.senderId === AI_USER_ID;
+}
+
 /**
  * Get initials from a name string for avatar fallback display.
  * "John Doe" => "JD", "Admin" => "A", "" => "?".

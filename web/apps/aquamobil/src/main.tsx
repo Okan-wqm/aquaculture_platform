@@ -103,7 +103,7 @@ ReactDOM.createRoot(rootElement).render(
       <ErrorBoundary>
         {/* P-28: mobil i18n — dil tarayıcıdan sezilir (varsayılan tr).
             Router/Auth ÜSTÜNDE: hata kartları dahil her yüzey t() erişir. */}
-        <I18nProvider>
+        <I18nProvider locale="en">
           <BrowserRouter basename="/mobile">
             <AuthProvider>
               <IdentityBoundary>

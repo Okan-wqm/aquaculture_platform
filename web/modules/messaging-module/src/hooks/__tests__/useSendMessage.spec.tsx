@@ -112,23 +112,24 @@ describe('useSendMessage', () => {
 
   it('optimistically appends a temp row (sender = me) and replaces it with the server row on success', async () => {
     const pending = deferred<Record<string, unknown>>();
-    routeGraphql([{ match: 'mutation SendMessage', result: () => pending.promise }]);
+    routeGraphql([
+      { match: 'mutation SendMessage', result: () => pending.promise },
+    ]);
     const queryClient = newQueryClient();
     queryClient.setQueryData(makeThreadCacheKey(), [makeMessage('srv-0', 'earlier')]);
 
     const { result } = renderHook(() => useSendMessage(CHANNEL), {
       wrapper: makeWrapper(queryClient),
     });
-    const sent = result.current.mutateAsync({
-      content: 'optimistic!',
-      idempotencyKey: IDEMPOTENCY_KEY,
-    });
+    const sent = result.current.mutateAsync({ content: 'optimistic!', idempotencyKey: IDEMPOTENCY_KEY });
 
     // Before the server answers: the temp row is already in the thread.
     await waitFor(() => {
       expect(threadData(queryClient)).toHaveLength(2);
     });
-    const tempRow = threadData(queryClient).find((m) => m.id === `temp-${IDEMPOTENCY_KEY}`);
+    const tempRow = threadData(queryClient).find(
+      (m) => m.id === `temp-${IDEMPOTENCY_KEY}`,
+    );
     expect(tempRow).toMatchObject({
       channelId: CHANNEL,
       senderId: TEST_USER_ID,
@@ -153,10 +154,7 @@ describe('useSendMessage', () => {
     const { result } = renderHook(() => useSendMessage(CHANNEL), {
       wrapper: makeWrapper(queryClient),
     });
-    const sent = result.current.mutateAsync({
-      content: 'will fail',
-      idempotencyKey: IDEMPOTENCY_KEY,
-    });
+    const sent = result.current.mutateAsync({ content: 'will fail', idempotencyKey: IDEMPOTENCY_KEY });
     await waitFor(() => {
       expect(threadData(queryClient)).toHaveLength(2);
     });
@@ -180,10 +178,7 @@ describe('useSendMessage', () => {
     const { result } = renderHook(() => useSendMessage(CHANNEL), {
       wrapper: makeWrapper(queryClient),
     });
-    await result.current.mutateAsync({
-      content: 'earlier',
-      idempotencyKey: 'eeeeeeee-5555-4666-8777-888888888888',
-    });
+    await result.current.mutateAsync({ content: 'earlier', idempotencyKey: 'eeeeeeee-5555-4666-8777-888888888888' });
 
     const thread = threadData(queryClient);
     expect(thread.filter((m) => m.id === 'srv-0')).toHaveLength(1);
@@ -223,10 +218,10 @@ describe('useSendMessage', () => {
         result: () => {
           refetchCount += 1;
           // Newest-first from the subgraph; the queryFn reverses to oldest-first.
-          const items =
-            refetchCount === 1
-              ? [makeMessage('srv-0', 'earlier')]
-              : [makeMessage('srv-1', 'fresh', TEST_USER_ID), makeMessage('srv-0', 'earlier')];
+          const items = refetchCount === 1 ? [makeMessage('srv-0', 'earlier')] : [
+            makeMessage('srv-1', 'fresh', TEST_USER_ID),
+            makeMessage('srv-0', 'earlier'),
+          ];
           return { messages: { hasMore: false, cursor: null, items } };
         },
       },
@@ -238,18 +233,14 @@ describe('useSendMessage', () => {
       () => ({ send: useSendMessage(CHANNEL), thread: useChannelMessages(CHANNEL) }),
       { wrapper: makeWrapper(queryClient) },
     );
-    await waitFor(() =>
-      expect(result.current.thread.data).toEqual([makeMessage('srv-0', 'earlier')]),
-    );
+    await waitFor(() => expect(result.current.thread.data).toEqual([makeMessage('srv-0', 'earlier')]));
 
     const sent = result.current.send.mutateAsync({
       content: 'fresh',
       idempotencyKey: IDEMPOTENCY_KEY,
     });
     await waitFor(() =>
-      expect(result.current.thread.data?.some((m) => m.id === `temp-${IDEMPOTENCY_KEY}`)).toBe(
-        true,
-      ),
+      expect(result.current.thread.data?.some((m) => m.id === `temp-${IDEMPOTENCY_KEY}`)).toBe(true),
     );
     sendDeferred.resolve({ sendMessage: makeMessage('srv-1', 'fresh', TEST_USER_ID) });
     await sent;
@@ -281,7 +272,10 @@ describe('useSendMessage', () => {
           const items =
             refetchCount === 1
               ? [makeMessage('srv-0', 'earlier')]
-              : [makeMessage('srv-9', 'from someone else'), makeMessage('srv-0', 'earlier')];
+              : [
+                  makeMessage('srv-9', 'from someone else'),
+                  makeMessage('srv-0', 'earlier'),
+                ];
           return { messages: { hasMore: false, cursor: null, items } };
         },
       },
@@ -293,18 +287,14 @@ describe('useSendMessage', () => {
       () => ({ send: useSendMessage(CHANNEL), thread: useChannelMessages(CHANNEL) }),
       { wrapper: makeWrapper(queryClient) },
     );
-    await waitFor(() =>
-      expect(result.current.thread.data).toEqual([makeMessage('srv-0', 'earlier')]),
-    );
+    await waitFor(() => expect(result.current.thread.data).toEqual([makeMessage('srv-0', 'earlier')]));
 
     const sent = result.current.send.mutateAsync({
       content: 'will fail',
       idempotencyKey: IDEMPOTENCY_KEY,
     });
     await waitFor(() =>
-      expect(result.current.thread.data?.some((m) => m.id === `temp-${IDEMPOTENCY_KEY}`)).toBe(
-        true,
-      ),
+      expect(result.current.thread.data?.some((m) => m.id === `temp-${IDEMPOTENCY_KEY}`)).toBe(true),
     );
 
     // The socket-driven refetch lands mid-flight (active observer refresh).

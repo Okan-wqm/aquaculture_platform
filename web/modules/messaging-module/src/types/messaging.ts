@@ -20,6 +20,16 @@ export interface Message {
   isAiGenerated: boolean;
   createdAt: string;
   editedAt: string | null;
+  /**
+   * Server-filtered metadata envelope (FAZ 2 contract). The backend strips
+   * server-protected keys (status/isAi/actionId) before the read path, so the
+   * UI only ever sees client-relevant flags here — chiefly `error: true` (+
+   * `errorCode`) on AI failure notices. Client code must treat it as advisory
+   * only: AI authorship is decided by `senderId`/`isAiGenerated`, NEVER by
+   * metadata (a user-sent message cannot forge those server-stamped fields,
+   * but its metadata is its own).
+   */
+  metadata: Record<string, unknown> | null;
   sender: MessagingUser | null;
 }
 

@@ -22,6 +22,7 @@ const MESSAGE_FIELDS = `
   contentType
   isDeleted
   isAiGenerated
+  metadata
   createdAt
   editedAt
   sender { ${USER_FIELDS} }

@@ -25,12 +25,14 @@ export interface GraphqlRoute {
  * data that renders as an empty page.
  */
 export function routeGraphql(routes: GraphqlRoute[]): void {
-  requestMock.mockImplementation(async (query: string, variables?: Record<string, unknown>) => {
-    for (const route of routes) {
-      if (query.includes(route.match)) {
-        return typeof route.result === 'function' ? route.result(variables) : route.result;
+  requestMock.mockImplementation(
+    async (query: string, variables?: Record<string, unknown>) => {
+      for (const route of routes) {
+        if (query.includes(route.match)) {
+          return typeof route.result === 'function' ? route.result(variables) : route.result;
+        }
       }
-    }
-    throw new Error(`Unrouted GraphQL operation: ${query.trim().slice(0, 140)}`);
-  });
+      throw new Error(`Unrouted GraphQL operation: ${query.trim().slice(0, 140)}`);
+    },
+  );
 }

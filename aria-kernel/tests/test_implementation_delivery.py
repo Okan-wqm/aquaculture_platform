@@ -541,6 +541,118 @@ class AdmissionTests(_DeliveredBranch):
         # A system executable needs no bind of its own.
         self.assertEqual(validation_executable_binds("sh", environment={"PATH": "/bin:/usr/bin"}, workspace=self.repo, store=self.tools), ())
 
+    def test_the_validation_room_is_the_one_ci_validates_in(self) -> None:
+        """ARIA-HIGH-150 — the apply gate on the first implementation ARIA
+        committed read four reds that were the room's, not the change's: a
+        0755 `/tmp` (the invariants require the canonical sticky boundary),
+        no `/opt` (a suite enumerates it), no `cargo` (a rustup proxy under
+        the real home, unbound and pathless inside). The room now carries
+        the sticky `/tmp`, the host roots CI carries, and every toolchain
+        the tree declares — bound by name, with the rustup homes named —
+        or the room is refused by name at admission, never a red that reads
+        as the change's."""
+        import os
+
+        from aria_kernel.implementation_safety import (
+            SANDBOX_TMP_MOUNT,
+            SandboxUnavailable,
+            validation_toolchains_for,
+            wrap_validation_in_sandbox,
+        )
+        from aria_kernel.validation_env import build_validation_env
+
+        node = self.root / "toolchain" / "node" / "bin"
+        node.mkdir(parents=True)
+        (node / "npx").write_text("#!/bin/sh\necho npx\n", encoding="utf-8")
+        (node / "npx").chmod(0o755)
+        self.assertEqual(SANDBOX_TMP_MOUNT, ("--perms", "1777", "--tmpfs", "/tmp"))
+        # No Cargo.toml: no toolchain declared, nothing rust-shaped in the argv.
+        self.assertEqual(validation_toolchains_for(self.repo), ())
+        environment = build_validation_env({**os.environ, "PATH": f"{node}:{os.defpath}"}).env
+        argv = wrap_validation_in_sandbox(["npx", "nx", "affected", "--target=test"], workspace_root=self.repo,
+                                          git=None, environment=environment, store=self.tools)
+        tmp_at = argv.index("--perms")
+        self.assertEqual(argv[tmp_at:tmp_at + 4], list(SANDBOX_TMP_MOUNT))
+        self.assertNotIn("RUSTUP_HOME", argv)
+        if Path("/opt").is_dir():
+            self.assertIn(("--ro-bind", "/opt"), [(argv[i], argv[i + 1]) for i, t in enumerate(argv) if t == "--ro-bind"])
+        # A tree that declares rust: cargo and rustc resolved on the validation
+        # PATH, their prefix and the rustup homes bound read-only and named.
+        (self.repo / "Cargo.toml").write_text("[workspace]\nmembers = []\n", encoding="utf-8")
+        self.assertEqual(validation_toolchains_for(self.repo), ("cargo", "rustc"))
+        home = self.root / "home"
+        cargo_bin = home / ".cargo" / "bin"
+        cargo_bin.mkdir(parents=True)
+        (home / ".rustup" / "toolchains").mkdir(parents=True)
+        for name in ("cargo", "rustc"):
+            (cargo_bin / name).write_text("#!/bin/sh\necho " + name + "\n", encoding="utf-8")
+            (cargo_bin / name).chmod(0o755)
+        with_rust = build_validation_env({**os.environ, "HOME": str(home), "PATH": f"{node}:{cargo_bin}:{os.defpath}"}).env
+        argv = wrap_validation_in_sandbox(["npx", "nx", "affected", "--target=test"], workspace_root=self.repo,
+                                          git=None, environment=with_rust, store=self.tools)
+        ro = [argv[i + 1] for i, t in enumerate(argv) if t == "--ro-bind"]
+        self.assertIn(str(home / ".cargo"), ro)
+        self.assertIn(str(home / ".rustup"), ro)
+        self.assertEqual(argv[argv.index("RUSTUP_HOME") + 1], str(home / ".rustup"))
+        self.assertEqual(argv[argv.index("CARGO_HOME") + 1], str(home / ".cargo"))
+        self.assertNotIn(str(self.tools), ro)
+        # The host's shape the suites walk (`/var/log`): an empty directory
+        # inside, never the host's logs.
+        self.assertIn(("--dir", "/var/log"), [(argv[i], argv[i + 1]) for i, t in enumerate(argv) if t == "--dir"])
+        self.assertNotIn("/var/log", ro)
+        # No toolchain installed under the rustup home: nothing pinned, the
+        # proxies alone (the room records what they answer).
+        self.assertNotIn("RUSTUP_TOOLCHAIN", argv)
+        # The tree pins a channel and it is installed: THAT toolchain's own
+        # binaries lead the PATH inside and RUSTUP_TOOLCHAIN names it, so no
+        # proxy syncs a channel from a network the room does not have.
+        (self.repo / "rust-toolchain.toml").write_text('[toolchain]\nchannel = "1.88.0"\n', encoding="utf-8")
+        toolchain_bin = home / ".rustup" / "toolchains" / "1.88.0-x86_64-unknown-linux-gnu" / "bin"
+        toolchain_bin.mkdir(parents=True)
+        argv = wrap_validation_in_sandbox(["npx", "nx", "affected", "--target=test"], workspace_root=self.repo,
+                                          git=None, environment=with_rust, store=self.tools)
+        self.assertEqual(argv[argv.index("RUSTUP_TOOLCHAIN") + 1], "1.88.0-x86_64-unknown-linux-gnu")
+        self.assertTrue(argv[argv.index("PATH") + 1].startswith(str(toolchain_bin) + ":"), argv[argv.index("PATH") + 1])
+        # A pinned channel the rustup home does not carry: the room, refused by name.
+        (self.repo / "rust-toolchain.toml").write_text('[toolchain]\nchannel = "1.99.0"\n', encoding="utf-8")
+        with self.assertRaisesRegex(SandboxUnavailable, "validation_toolchain_unresolvable:rust-toolchain:1.99.0"):
+            wrap_validation_in_sandbox(["npx", "nx", "affected", "--target=test"], workspace_root=self.repo,
+                                       git=None, environment=with_rust, store=self.tools)
+        (self.repo / "rust-toolchain.toml").unlink()
+        # The declared toolchain absent from the PATH: the room, refused by name.
+        without = build_validation_env({**os.environ, "HOME": str(home), "PATH": f"{node}:{os.defpath}"}).env
+        with self.assertRaisesRegex(SandboxUnavailable, "validation_toolchain_unresolvable:cargo"):
+            wrap_validation_in_sandbox(["npx", "nx", "affected", "--target=test"], workspace_root=self.repo,
+                                       git=None, environment=without, store=self.tools)
+
+    def test_the_plan_row_records_the_room_the_suite_saw(self) -> None:
+        # ARIA-HIGH-150 — "validated in the room CI validates in" is a row:
+        # the probe runs through the SAME wrapper as the commands, before
+        # them, and the plan row carries what it saw (tmp mode, host roots,
+        # every toolchain's version or `absent`, the rust homes, the kernel).
+        from aria_kernel.implementation_delivery import probe_validation_room
+
+        seen: list[list[str]] = []
+
+        def wrapper(argv, environment):
+            seen.append(list(argv))
+            return ["sh", "-c", "echo tmp_mode=1777; echo dir=/opt=present; echo dir=/var/log=absent; "
+                    "echo tool=node=v22.0.0; echo tool=cargo=absent; echo env=RUSTUP_HOME=unset; echo kernel=6.8.0"]
+
+        room = probe_validation_room(wrapper, workspace_root=self.repo, environment={"PATH": "/bin:/usr/bin"})
+        self.assertEqual(seen[0][:2], ["sh", "-c"])
+        self.assertIn("stat -c %a /tmp", seen[0][2])
+        self.assertEqual((room["tmp_mode"], room["dirs"], room["tools"]["node"], room["tools"]["cargo"], room["kernel"], room["probe_exit"]),
+                         ("1777", {"/opt": True, "/var/log": False}, "v22.0.0", "absent", "6.8.0", 0))
+        self.assertEqual(room["env"]["RUSTUP_HOME"], "unset")
+        self.assertTrue(room["wrapped_argv_sha256"].startswith("sha256:"))
+        self.assertNotIn("error", room)
+        # A probe that cannot run is recorded as such, never guessed.
+        broken = probe_validation_room(lambda argv, environment: ["/nonexistent/probe"], workspace_root=self.repo,
+                                       environment={"PATH": "/bin:/usr/bin"})
+        self.assertIsNone(broken["probe_exit"])
+        self.assertTrue(broken["error"].startswith("FileNotFoundError"))
+
     def test_run_validation_commands_spawns_every_command_through_the_wrapper(self) -> None:
         # The seam: `run_validation_commands` hands every command's argv
         # (and the environment it spawns with) to the wrapper and executes
@@ -575,6 +687,21 @@ class AdmissionTests(_DeliveredBranch):
         self.assertEqual([argv for argv, _path in seen], [["npm", "run", "type-check"], ["npx", "nx", "affected", "--target=lint"]])
         self.assertTrue(all(path for _argv, path in seen))
         self.assertEqual(group["status"], "ok")
+        # ARIA-HIGH-150 — the runner records the room the caller observed on
+        # the plan row; the apply gate observes it through the same wrapper
+        # (`probe_validation_room`) before the suite.
+        self.assertNotIn("room", group)
+        with_room = run_validation_commands(
+            commands=["npm run type-check"], workspace_root=self.repo,
+            change_id=change_id, commit_sha=head, runner_identity="test", base_dir=self.tools,
+            timeout_ms=60_000, spawn_wrapper=wrap, room={"schema_version": 1, "tmp_mode": "1777", "probe_exit": 0},
+        )
+        self.assertEqual(with_room["room"]["tmp_mode"], "1777")
+        import inspect
+
+        from aria_kernel import apply_engine
+
+        self.assertIn("probe_validation_room(", inspect.getsource(apply_engine.run_apply_gate))
         for run_id, command in zip(group["validation_run_ids"], ["npm run type-check", "npx nx affected --target=lint"]):
             row = verify_validation_run(run_id, base_dir=self.tools)
             log = Path(_validation_log_path(row, base_dir=self.tools)).read_text(encoding="utf-8")

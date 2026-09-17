@@ -84,12 +84,32 @@ describe('FarmStockProjectionListener', () => {
     it('subscribes the listener to every stock-mutation event', async () => {
       const { listener, eventBus } = makeHarness();
       await listener.onModuleInit();
-      // 7 stock-mutation events (BatchCreated, BatchAllocatedToTank,
+      // 8 stock-mutation events (BatchCreated, BatchAllocatedToTank,
       // BatchTransferred, MortalityRecorded, CullRecorded,
-      // CleanerFishMortalityRecorded, FeedingRecorded).
-      expect(eventBus.subscribeWildcard).toHaveBeenCalledTimes(7);
+      // CleanerFishMortalityRecorded, FeedingRecorded, GrowthSampleRecorded).
+      expect(eventBus.subscribeWildcard).toHaveBeenCalledTimes(8);
       expect(eventBus.subscribeWildcard).toHaveBeenCalledWith('BatchCreated', listener);
       expect(eventBus.subscribeWildcard).toHaveBeenCalledWith('BatchTransferred', listener);
+    });
+
+    it('subscribes to GrowthSampleRecorded — the event had NO consumer before (0.7)', async () => {
+      const { listener, eventBus } = makeHarness();
+      await listener.onModuleInit();
+      // A weighing re-bases the unit's avgWeightG / totalBiomassKg, both of
+      // which the batch snapshot carries. Without this subscription the mobile
+      // read model would keep serving the projected weight the operator just
+      // disproved.
+      expect(eventBus.subscribeWildcard).toHaveBeenCalledWith('GrowthSampleRecorded', listener);
+    });
+
+    it('refreshes the weighed container when a growth sample lands', async () => {
+      const { listener, refreshContainers } = makeHarness();
+      await listener.handle(
+        baseEvent({ eventType: 'GrowthSampleRecorded', tankId: 'tank-weighed' }),
+      );
+      expect(refreshContainers).toHaveBeenCalledWith(expect.anything(), TENANT, [
+        'tank-weighed',
+      ]);
     });
   });
 

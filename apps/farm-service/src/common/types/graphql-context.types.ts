@@ -6,6 +6,8 @@
  */
 import DataLoader from 'dataloader';
 
+import type { BandWeightG } from '../../feeding-protocol/services/protocol-rate.service';
+
 export interface TankBatchRow {
   id: string;
   tankId: string;
@@ -50,10 +52,14 @@ export interface FeedSelectionRow {
 
 /** DataLoader extended with a setContext method for batch-level feed selection context */
 export interface FeedSelectionDataLoader extends DataLoader<string, FeedSelectionRow | null> {
-  /** `unitId` (Equipment.id) v2 protokol atamasının çözüm anahtarıdır (C-5). */
+  /**
+   * `unitId` (Equipment.id) v2 protokol atamasının çözüm anahtarıdır (C-5).
+   * `avgWeightG` ÜNİTE-otoriteli olmak zorundadır — batch ağırlığı geçirmek
+   * derleme hatasıdır (bkz. `BandWeightG`).
+   */
   setContext: (
     batchId: string,
-    avgWeightG: number,
+    avgWeightG: BandWeightG,
     biomassKg: number,
     waterTempC?: number,
     unitId?: string,

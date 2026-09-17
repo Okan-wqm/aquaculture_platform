@@ -17,17 +17,20 @@
  */
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between } from 'typeorm';
+import { Repository, Between, EntityManager } from 'typeorm';
 import { TenantContextError } from '@aquaculture/backend-common/database';
 import { FeedingRecord } from '../../feeding/entities/feeding-record.entity';
 import { FeedingProgram, FeedingProgramStatus } from '../../feeding/entities/feeding-program.entity';
 import { FeedingProgramTank } from '../../feeding/entities/feeding-program-tank.entity';
 import { BatchLocation } from '../../batch/entities/batch-location.entity';
 import { GrowthMeasurement, FCRAnalysis } from '../entities/growth-measurement.entity';
-import { Batch } from '../../batch/entities/batch.entity';
+import { Batch, OPERATIONAL_BATCH_STATUSES } from '../../batch/entities/batch.entity';
 import { TankOperation, OperationType } from '../../batch/entities/tank-operation.entity';
 import { Species } from '../../species/entities/species.entity';
-import { ProtocolRateService } from '../../feeding-protocol/services/protocol-rate.service';
+import {
+  ProtocolRateService,
+  tankBandWeightG,
+} from '../../feeding-protocol/services/protocol-rate.service';
 import {
   FcrMatrix,
   ProtocolBand,
@@ -35,6 +38,100 @@ import {
   ProtocolSettings,
 } from '../../feeding-protocol/entities/feeding-protocol-v2.entity';
 import { AssignmentOverrides } from '../../feeding-protocol/entities/protocol-assignment.entity';
+
+// ============================================================================
+// RUNNING FCR — SCOPE + PROJECTION SQL (exported so tests run the REAL text)
+// ============================================================================
+
+/**
+ * The set of batches that HAVE a running FCR: every live batch in an
+ * operational (feedable) status.
+ *
+ * WHY this exists as an exported constant and why it looks the way it does:
+ * the 18:00 FCR sweep used to select its own work with
+ *
+ *     WHERE "isActive" = true
+ *       AND status IN ('ACTIVE','GROWING')
+ *       AND (fcr->>'actual')::numeric > 0
+ *
+ * and that predicate was UNSATISFIABLE. `fcr.actual` had exactly one writer —
+ * CloseBatchHandler — which sets it in the same block that sets
+ * `status = CLOSED` and `isActive = false`. So a live batch always had
+ * `fcr.actual = 0` (its create-time value) and failed the third clause, while a
+ * batch with a nonzero `fcr.actual` was by construction closed and failed the
+ * first two. Zero FCRAlert events were ever emitted, for months, while the
+ * consumer (alert-engine FcrAlertEventHandler) sat there waiting.
+ *
+ * The root cause is NOT the third clause on its own — it is that a scheduled
+ * job gated itself on a column that nothing in its own pipeline maintained. So
+ * the scope query is now derived ONLY from batch LIFECYCLE state, which every
+ * batch lifecycle test already exercises, and the FCR value itself is computed
+ * in-process from the single authority (`calculateCumulativeFCR`). The sweep
+ * can no longer be silenced by a stale column, because it no longer reads one.
+ *
+ * The status list is a bound parameter fed from OPERATIONAL_BATCH_STATUSES —
+ * the SAME constant behind `BatchDomainService.assertFeedable`, so the batches
+ * that can be fed and the batches whose FCR is watched are one set by
+ * construction. `$2::text[]` (rather than a literal IN list) is what makes that
+ * possible: the enum column is cast to text so the array binds cleanly.
+ *
+ * Params: $1 tenantId (uuid), $2 operational statuses (text[]).
+ */
+export const LIVE_BATCH_FCR_SCOPE_SQL = `
+  SELECT b."id" AS "batchId"
+    FROM "batches_v2" b
+   WHERE b."tenantId" = $1::uuid
+     AND b."isActive" = true
+     AND b."status"::text = ANY($2::text[])
+   ORDER BY b."id"`;
+
+/**
+ * Write the freshly computed running FCR back onto the live batch rows.
+ *
+ * WHY persist a value the authority can recompute: `batches_v2.fcr.actual` is
+ * read directly by the UI (farm-module BatchOverviewTab renders "target /
+ * actual", UpdateBatchModal shows it, FeedingSummaryTab derives an advisory
+ * from it). With no writer for live batches those surfaces showed 0.00 for
+ * every batch in production, and FeedingSummaryTab's `actual <= target` branch
+ * told operators their FCR was on target when it had simply never been
+ * computed. This projection makes `fcr.actual` mean what its name says while
+ * `calculateCumulativeFCR` stays the sole authority — nothing DECIDES anything
+ * from the persisted copy; `fcr.lastUpdatedAt` states how fresh it is.
+ *
+ * WHY one bulk statement instead of a save() per batch: the sweep runs inside
+ * one tenant transaction, and every row this touches stays write-locked until
+ * that transaction commits. Folding all batches into a single UPDATE that runs
+ * as the LAST statement of the sweep keeps that lock window at milliseconds
+ * instead of the whole tenant pass, so an 18:00 mobile feeding write is not
+ * blocked behind the alert loop.
+ *
+ * `jsonb_set` touches only the two keys it owns, so a concurrent domain write
+ * to another key of the same document is not clobbered. `updatedAt` is
+ * deliberately NOT bumped: this is a derived refresh, not a domain edit, and
+ * moving the audit timestamp of every live batch once a day would make
+ * `updatedAt` useless as a signal of real change.
+ *
+ * Params: $1 tenantId (uuid), $2 batch ids (uuid[]), $3 running FCRs
+ * (numeric[], positionally aligned with $2), $4 computed-at ISO-8601 (text).
+ */
+export const RUNNING_FCR_PROJECTION_SQL = `
+  UPDATE "batches_v2" b
+     SET "fcr" = jsonb_set(
+                   jsonb_set(b."fcr", '{actual}', to_jsonb(v."actual")),
+                   '{lastUpdatedAt}', to_jsonb($4::text)
+                 )
+    FROM unnest($2::uuid[], $3::numeric[]) AS v("batchId", "actual")
+   WHERE b."id" = v."batchId"
+     AND b."tenantId" = $1::uuid`;
+
+/** One live batch's running FCR, as computed by the single FCR authority. */
+export interface RunningFcr {
+  readonly batchId: string;
+  /** Cumulative, ledger-corrected FCR. 0 means "no realized growth yet". */
+  readonly fcr: number;
+  readonly totalFeed: number;
+  readonly totalGrowth: number;
+}
 
 // ============================================================================
 // INTERFACES
@@ -354,6 +451,73 @@ export class FCRCalculationService {
     const fcr = totalGrowth > 0 ? totalFeed / totalGrowth : 0;
 
     return { fcr, totalFeed, totalGrowth, removedBiomassKg };
+  }
+
+  /**
+   * Recompute the running FCR of every live batch of a tenant, hand each one to
+   * `onBatch`, then persist all of them as ONE projection write.
+   *
+   * WHY the callback shape instead of two public methods (`compute…` then
+   * `persist…`): the ordering is load-bearing and a caller must not be able to
+   * get it wrong. The projection UPDATE write-locks every live batch row until
+   * the surrounding tenant transaction commits, so it has to be the last thing
+   * the sweep does — but the alert decisions need the values before that. A
+   * compute/persist pair would let a caller write first and then hold locks
+   * through a slow per-batch alert loop (target resolution + trend analysis are
+   * several queries each). Owning the order here makes the safe sequence the
+   * only reachable one, and makes "computed but never persisted" unreachable
+   * too.
+   *
+   * WHY `onBatch` runs BEFORE anything is persisted: if it throws, the whole
+   * tenant transaction rolls back and neither the alerts nor a half-written
+   * projection survive. The next sweep recomputes from the ledger, so nothing
+   * is lost by failing loudly.
+   *
+   * @param manager  the tenant-transaction EntityManager (search_path pinned)
+   * @param tenantId tenant whose live batches are swept
+   * @param computedAt stamp written to `fcr.lastUpdatedAt`; passed in so the
+   *                   caller can pin it and every batch of one sweep agrees
+   * @param onBatch  invoked once per live batch, in id order
+   * @returns every live batch's running FCR (including the zero ones)
+   */
+  async refreshRunningFcrForTenant(
+    manager: EntityManager,
+    tenantId: string,
+    computedAt: Date,
+    onBatch: (running: RunningFcr) => Promise<void>,
+  ): Promise<RunningFcr[]> {
+    const scope: Array<{ batchId: string }> = await manager.query(LIVE_BATCH_FCR_SCOPE_SQL, [
+      tenantId,
+      // Spread: the constant is readonly, the driver parameter list is not.
+      [...OPERATIONAL_BATCH_STATUSES],
+    ]);
+
+    const running: RunningFcr[] = [];
+    for (const { batchId } of scope) {
+      // The SINGLE FCR authority — ledger-corrected realized growth over
+      // recorded feed. Reading it here rather than from a column is exactly
+      // what stops this sweep from ever being gated on an unmaintained value.
+      const cumulative = await this.calculateCumulativeFCR(batchId, tenantId);
+      const entry: RunningFcr = {
+        batchId,
+        fcr: cumulative.fcr,
+        totalFeed: cumulative.totalFeed,
+        totalGrowth: cumulative.totalGrowth,
+      };
+      running.push(entry);
+      await onBatch(entry);
+    }
+
+    if (running.length > 0) {
+      await manager.query(RUNNING_FCR_PROJECTION_SQL, [
+        tenantId,
+        running.map((entry) => entry.batchId),
+        running.map((entry) => entry.fcr),
+        computedAt.toISOString(),
+      ]);
+    }
+
+    return running;
   }
 
   /**
@@ -693,6 +857,15 @@ export class FCRCalculationService {
    * Sıcaklık null geçilir: hedef FCR gün-bağımsız bir referanstır; matris
    * kaynaklarında interpolasyon ağırlık eksenine iner (ProtocolRateService
    * kuralı — uydurma default sıcaklık üretilmez, P-20).
+   *
+   * AĞIRLIK KAYNAĞI (0.3 kök çözümü): band, atamayı sağlayan AYNI SATIRIN
+   * ünite aggregate'inden çözülür — `batch.getCurrentAvgWeight()` DEĞİL.
+   * Eskiden ağırlık batch'ten okunuyordu; `getCurrentAvgWeight()` önce
+   * `weight.actual`'ı tercih ettiği için, tartım tank aggregate'lerine indiği
+   * anda hedef FCR ile yem oranı KALICI olarak farklı bantlardan gelirdi.
+   * Alan kuralı gereği tank otoritedir; `bandFor` artık nominal
+   * {@link BandWeightG} istediğinden bu satır kazayla geri alınamaz — batch
+   * ağırlığı geçirmek derleme hatasıdır.
    */
   private async getTargetFCRFromProtocolV2(batch: Batch): Promise<number | null> {
     const rows: Array<{
@@ -700,11 +873,17 @@ export class FCRCalculationService {
       bands: ProtocolBand[] | null;
       settings: ProtocolSettings | null;
       fcrMatrix: FcrMatrix | null;
+      unitAvgWeightG: string | number | null;
+      unitTotalQuantity: string | number | null;
+      unitTotalBiomassKg: string | number | null;
     }> = await this.batchRepository.manager.query(
       `SELECT pa."overrides" AS overrides,
               p."bands" AS bands,
               p."settings" AS settings,
-              p."fcrMatrix" AS "fcrMatrix"
+              p."fcrMatrix" AS "fcrMatrix",
+              tb."avgWeightG" AS "unitAvgWeightG",
+              tb."totalQuantity" AS "unitTotalQuantity",
+              tb."totalBiomassKg" AS "unitTotalBiomassKg"
          FROM "tank_batches" tb
          JOIN "feeding_protocol_assignments" pa
            ON pa."tenantId" = tb."tenantId"
@@ -734,7 +913,11 @@ export class FCRCalculationService {
       return null;
     }
 
-    const avgWeightG = batch.getCurrentAvgWeight();
+    const avgWeightG = tankBandWeightG({
+      avgWeightG: row.unitAvgWeightG,
+      totalQuantity: row.unitTotalQuantity,
+      totalBiomassKg: row.unitTotalBiomassKg,
+    });
     if (avgWeightG <= 0) {
       return null;
     }

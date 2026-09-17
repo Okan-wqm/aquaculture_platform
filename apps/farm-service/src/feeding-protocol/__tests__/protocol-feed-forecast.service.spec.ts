@@ -14,7 +14,7 @@
  *   gerekli kapsama 12+3=15 > 14 → TRANSITION_COVERAGE_GAP days=1.
  */
 import { ProtocolFcrSource } from '../entities/feeding-protocol-v2.entity';
-import { ProtocolRateService } from '../services/protocol-rate.service';
+import { ProtocolRateService, derivedBandWeightG } from '../services/protocol-rate.service';
 import {
   dailySurvivalRateFromCyclePercent,
   ForecastFeedInput,
@@ -79,7 +79,7 @@ function unitFixture(overrides: Partial<ForecastUnitInput> = {}): ForecastUnitIn
     unitName: 'Tank 1',
     unitCode: 'T1',
     scopeKey: SITE_1,
-    avgWeightG: 80,
+    avgWeightG: derivedBandWeightG(800, 10000),
     fishCount: 10000,
     biomassKg: 800,
     temperatureC: null,

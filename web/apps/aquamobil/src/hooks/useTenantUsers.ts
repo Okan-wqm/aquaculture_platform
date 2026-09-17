@@ -20,7 +20,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { gql } from 'graphql-tag';
 
-
 import { useAuth } from './useAuth';
 
 import { graphqlRequest } from '@/services/authenticated-fetch';

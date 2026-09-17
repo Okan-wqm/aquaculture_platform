@@ -1,3 +1,12 @@
+/**
+ * RecordMortalityPage — a thin consumer of the shared record scaffold.
+ *
+ * ORPHAN-MEDIUM-578: this path is superseded by the log sheet and scheduled for
+ * retirement, but it is still routed and still writes real records, so it is
+ * converted rather than left looking broken. Deleting a live record path means
+ * exercising the sheet against a running backend first — a separate, deliberate
+ * step, not a side effect of a restyle.
+ */
 import { ChevronRight, Skull } from 'lucide-react';
 import { type JSX, useCallback, useState } from 'react';
 import { useParams } from 'react-router-dom';
@@ -36,18 +45,29 @@ const MORTALITY_REASONS: ReadonlyArray<{ value: MortalityReason; label: string; 
   { value: 'OTHER', label: 'Other', emoji: '📝' },
 ];
 
+/**
+ * v4: the red→red gradient chrome is gone. Red on this screen was page
+ * IDENTITY, not an alarm — a mortality entry is a routine daily log — and
+ * spending the alarm colour on a whole header leaves the token layer nothing
+ * louder for an actual alarm to say. The identity the screen keeps is the
+ * mortality hue from the per-log-type token set (icon bubble, summary heading,
+ * the headline count), which is the one place v4 lets colour be decorative,
+ * because a worker reads an entry's type from its hue before reading a word.
+ * The CTA and the selected reason take the accent: in v4 teal carries every
+ * action and every active state, on every screen.
+ */
 const MORTALITY_THEME: RecordEntityTheme = {
-  headerGradient: 'bg-gradient-to-r from-red-600 to-red-500',
-  accentText: 'text-mortality',
-  summaryHeaderBg: 'bg-red-50 dark:bg-red-900/20 border-red-100 dark:border-red-800/50',
-  summaryHeaderText: 'text-red-700 dark:text-red-300',
-  iconBubbleBg: 'bg-red-50 dark:bg-red-900/20',
-  surfaceSoftBg: 'bg-red-50 dark:bg-red-900/20',
-  surfaceBorder: 'border-red-100 dark:border-red-800',
-  ctaGradient: 'bg-gradient-to-r from-red-600 to-red-500',
-  ctaShadow: 'shadow-red-500/25',
-  selectionBorder: 'border-mortality',
-  selectionGlow: 'shadow-glow-red',
+  headerGradient: 'bg-surface-1 text-ink-1 border-b border-line',
+  accentText: 'text-type-mortality',
+  summaryHeaderBg: 'bg-type-mortality-dim border-line',
+  summaryHeaderText: 'text-type-mortality',
+  iconBubbleBg: 'bg-type-mortality-dim',
+  surfaceSoftBg: 'bg-type-mortality-dim',
+  surfaceBorder: 'border-line',
+  ctaGradient: 'bg-acc text-acc-on',
+  ctaShadow: 'shadow-acc',
+  selectionBorder: 'border-acc',
+  selectionGlow: 'shadow-acc',
 };
 
 export function RecordMortalityPage(): JSX.Element {
@@ -123,10 +143,13 @@ export function RecordMortalityPage(): JSX.Element {
           <SummaryRow label="Tank" value={selectedTank?.name} />
           <SummaryRow label="Batch" value={metrics?.batchNumber ?? '--'} />
           <SummaryDivider />
+          {/* The count is the record's headline figure and a machine value, so
+              it is set in mono and carries the mortality hue — the same hue the
+              icon bubble and the summary heading wear. */}
           <SummaryRow
             label="Dead Fish"
             value={quantity}
-            valueClass="text-2xl font-bold text-red-600"
+            valueClass="text-head font-mono font-bold tabular-nums text-type-mortality"
           />
           <SummaryRow
             label="Reason"

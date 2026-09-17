@@ -125,6 +125,11 @@ services:
       - 'events.*.MealUnderfed'
       - 'events.*.MealMissed'
       - 'events.*.FeedTypeTransitioned'
+      # Feeder assignment + drive attestation (Faz 1/2 yemleme zinciri).
+      # Grant yoksa broker Permissions Violation ile reddeder ve olay sessizce
+      # kaybolur (ORPHAN-HIGH-317) — sözleşme ve altyapı aynı commit'te gider.
+      - 'events.*.UnitFeederAssignmentsChanged'
+      - 'events.*.VfdDriveBindingAttested'
       - 'events.*.UnfedUnitDetected'
       - 'events.*.FeedingDailySummary'
       # C-1: FCRAlert ilk kez durable (18:00 cron outbox'a yazar).
@@ -208,6 +213,10 @@ services:
     application: sensor-service
     description: Sensor/edge devices, VFD readings, LoRa, automation, ST Language runtime
     publish:
+      # Drive-binding attestation: sensor-service asks, farm-service (the owner of
+      # equipment identity) answers. Without the grant the broker refuses the
+      # publish and the drive stays unattested forever (ORPHAN-HIGH-317).
+      - 'events.*.VfdDriveBindingAttestationRequested'
       - 'events.*.AutomationFBDefinitionsChanged'
       - 'events.*.AutomationProgramDeployed'
       - 'events.*.AutomationProgramSaved'

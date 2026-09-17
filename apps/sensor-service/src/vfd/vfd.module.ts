@@ -3,6 +3,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { VfdCommandAuditLog } from './entities/vfd-command-audit-log.entity';
 import { VfdDevice } from './entities/vfd-device.entity';
+import { VfdDriveBinding } from './entities/vfd-drive-binding.entity';
+import { VfdDriveBindingUnit } from './entities/vfd-drive-binding-unit.entity';
 import { VfdReading } from './entities/vfd-reading.entity';
 import { VfdRegisterMapping } from './entities/vfd-register-mapping.entity';
 import { VfdDeviceResolver, VfdReadingResolver, VfdCommandResolver } from './resolvers';
@@ -10,6 +12,8 @@ import { VfdCommandService } from './services/vfd-command.service';
 import { VfdConnectionTesterService } from './services/vfd-connection-tester.service';
 import { VfdDataReaderService } from './services/vfd-data-reader.service';
 import { VfdDeviceService } from './services/vfd-device.service';
+import { VfdDriveBindingListener } from './services/vfd-drive-binding.listener';
+import { VfdDriveBindingService } from './services/vfd-drive-binding.service';
 import { VfdEdgeProvisioningService } from './services/vfd-edge-provisioning.service';
 import { VfdEdgeReadService } from './services/vfd-edge-read.service';
 import { VfdEdgeWriteService } from './services/vfd-edge-write.service';
@@ -29,7 +33,14 @@ import { VfdRegisterMappingService } from './services/vfd-register-mapping.servi
  */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([VfdDevice, VfdRegisterMapping, VfdReading, VfdCommandAuditLog]),
+    TypeOrmModule.forFeature([
+      VfdDevice,
+      VfdRegisterMapping,
+      VfdReading,
+      VfdCommandAuditLog,
+      VfdDriveBinding,
+      VfdDriveBindingUnit,
+    ]),
   ],
   providers: [
     // Resolvers
@@ -39,6 +50,8 @@ import { VfdRegisterMappingService } from './services/vfd-register-mapping.servi
 
     // Services
     VfdDeviceService,
+    VfdDriveBindingService,
+    VfdDriveBindingListener,
     VfdRegisterMappingService,
     VfdDataReaderService,
     VfdCommandService,
@@ -50,6 +63,7 @@ import { VfdRegisterMappingService } from './services/vfd-register-mapping.servi
   exports: [
     // Export services for use in other modules
     VfdDeviceService,
+    VfdDriveBindingService,
     VfdRegisterMappingService,
     VfdDataReaderService,
     VfdCommandService,

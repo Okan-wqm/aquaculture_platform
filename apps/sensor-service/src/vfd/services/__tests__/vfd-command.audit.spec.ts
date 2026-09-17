@@ -40,8 +40,13 @@ function makeService(repo: Repo, writeRegister?: jest.Mock<Promise<WriteResult>>
       writeRegister ??
       jest.fn().mockResolvedValue({ success: true, commandId: 'cmd-1', latencyMs: 5 }),
   };
+  // The drive is attested, so the actuation gate passes and these tests can go
+  // on being about audit records. The gate itself is proven in
+  // vfd-command.service.spec.ts and vfd-drive-binding.service.spec.ts.
+  const driveBinding = { assertActuable: jest.fn().mockResolvedValue(undefined) };
   const service = new VfdCommandService(
     deviceService as never,
+    driveBinding as never,
     registerMapping as never,
     edgeWriteService as never,
     repo as never,

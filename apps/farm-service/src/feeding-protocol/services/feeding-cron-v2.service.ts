@@ -10,8 +10,10 @@
  * |       | imkânsız)                                                         |
  * | 15dk  | MealWindowUpcoming — (tenant, tick) başına TOPLU (K-2, 500 cap +  |
  * |       | devam event'leri); `windowNotifiedAt` idempotent                  |
- * | 18:00 | FCR alert süpürmesi — İLK durable FCRAlert emisyonu (C-1); hedef  |
- * |       | P-14 zincirinden, eşikler legacy analyzeFCR ile birebir           |
+ * | 18:00 | Canlı batch'lerin YÜRÜYEN FCR'ı yeniden hesaplanır (tek otorite:  |
+ * |       | calculateCumulativeFCR), batches_v2.fcr.actual'a projekte edilir |
+ * |       | ve eşiği aşanlar için FCRAlert yayılır (C-1); hedef P-14         |
+ * |       | zincirinden, eşikler legacy analyzeFCR ile birebir                |
  * | 20:00 | FeedingDailySummary (durable) + gün-seviyesi kronik az-atım       |
  * |       | süpürmesi — MealUnderfed(scope=day) (D-16)                        |
  * | Aylık | Retention: day plan + öğün 24 ay (K-16), mobil komut makbuzları  |
@@ -76,6 +78,7 @@ import {
   type EffectiveTemperature,
 } from '../../water-quality/services/water-temperature.service';
 import { FCRCalculationService } from '../../growth/services/fcr-calculation.service';
+import { tankBandWeightG } from './protocol-rate.service';
 import { calendarDayIn } from './meal-schedule.util';
 import { collectFeedSourceFeedIds, buildFeedFcrMatrixMap } from './feed-fcr-source.util';
 import { ProtocolFeedForecastService } from './protocol-feed-forecast.service';
@@ -331,7 +334,7 @@ export class FeedingCronV2Service {
       stock: {
         fishCount: ctx.tankBatch.totalQuantity,
         biomassKg: Number(ctx.tankBatch.totalBiomassKg || 0),
-        avgWeightG: Number(ctx.tankBatch.avgWeightG || 0),
+        avgWeightG: tankBandWeightG(ctx.tankBatch),
         ...mixedTankStats(ctx.tankBatch.batchDetails),
       },
       temperature: ctx.temperature,
@@ -787,6 +790,11 @@ export class FeedingCronV2Service {
    * birebir; HEDEF ise artık P-14 zincirinden gelir (kullanıcı override →
    * v2 protokol → legacy program → species → endüstri → 1.5), yani alert
    * motorun fiilen beslediği hedefe karşı ölçülür.
+   *
+   * DÜZELTME: "outbox'a yazar" ifadesi bugüne dek KAĞIT ÜZERİNDEDİR — keşif
+   * sorgusunun yüklemi sağlanamazdı (bkz. sweepFcrForTenant), bu yüzden
+   * prodüksiyonda tek bir FCRAlert bile üretilmedi. İlk gerçek emisyon bu
+   * düzeltmeyle mümkün olur.
    */
   /**
    * 07:00 — stok kapsama değerlendirmesi (plan §5): her tenant'ın forecast
@@ -831,48 +839,73 @@ export class FeedingCronV2Service {
     });
   }
 
+  /**
+   * Bir tenant'ın CANLI batch'lerini süpürür.
+   *
+   * WHY the batch list and the FCR value no longer come from the same SELECT:
+   * this sweep used to select its own work with
+   * `AND (b.fcr->>'actual')::numeric > 0` on top of `isActive = true AND status
+   * IN ('ACTIVE','GROWING')`. `fcr.actual` is written by exactly one place —
+   * CloseBatchHandler — in the same block that flips `status` to CLOSED and
+   * `isActive` to false, so no row could ever satisfy all three clauses at once.
+   * The sweep matched nothing in production from the day it shipped.
+   *
+   * WHAT replaces it: FCRCalculationService.refreshRunningFcrForTenant selects
+   * on LIFECYCLE alone (live + operational — see LIVE_BATCH_FCR_SCOPE_SQL) and
+   * computes each batch's running FCR from the single authority
+   * (calculateCumulativeFCR) before handing it here. The alert decision is made
+   * against a value this pass just computed, never against a stored column, so
+   * an unmaintained field can never silence the sweep again. The same values
+   * are then projected back onto `batches_v2.fcr.actual` by that method, which
+   * is what finally gives the UI a running FCR to display.
+   */
   async sweepFcrForTenant(tenantId: string): Promise<void> {
     await runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
       const manager = queryRunner.manager;
-      const rows: Array<{ id: string; actual: string | number | null }> = await manager.query(
-        `SELECT b.id, (b.fcr->>'actual')::numeric AS actual
-           FROM "batches_v2" b
-          WHERE b."tenantId" = $1
-            AND b."isActive" = true
-            AND b.status IN ('ACTIVE', 'GROWING')
-            AND (b.fcr->>'actual')::numeric > 0`,
-        [tenantId],
+      // Tek zaman damgası: bir süpürmenin tüm batch'leri aynı `lastUpdatedAt`
+      // ile işaretlenir, böylece projeksiyonun tazeliği tek bir koşuma bakarak
+      // okunabilir.
+      const computedAt = new Date();
+
+      await this.fcrCalculation.refreshRunningFcrForTenant(
+        manager,
+        tenantId,
+        computedAt,
+        async ({ batchId, fcr: currentFCR }) => {
+          // Gerçekleşmiş büyüme yoksa FCR 0'dır — bu "mükemmel dönüşüm" değil,
+          // "henüz ölçülecek bir şey yok" demektir. Eski sorgunun `> 0` şartı
+          // MEŞRU olan tek parçasıydı; artık ölü bir kolona değil, bu turda
+          // hesaplanan değere uygulanıyor.
+          if (currentFCR <= 0) return;
+
+          // Hedef + trend okumaları withTenantContext ALS çerçevesi içinde
+          // koşar (runInTenantTransaction sarmalar) — repo checkout'ları tenant
+          // şemasına yönlenir. Trend yalnız eşiği aşan batch'ler için sorgulanır.
+          const targetFCR = await this.fcrCalculation.getTargetFCRForBatch(batchId);
+          if (!targetFCR || targetFCR <= 0) return;
+
+          const variancePercent = ((currentFCR - targetFCR) / targetFCR) * 100;
+          if (variancePercent <= FCR_WARNING_VARIANCE_PERCENT) return;
+
+          const alertLevel: FCRAlertEvent['alertLevel'] =
+            variancePercent > FCR_CRITICAL_VARIANCE_PERCENT ? 'critical' : 'warning';
+          const { trend } = await this.fcrCalculation.analyzeFCRTrend(batchId, tenantId);
+
+          const event: FCRAlertEvent = {
+            ...createBaseEvent<FCRAlertEvent>('FCRAlert', tenantId, {
+              aggregateId: batchId,
+              aggregateType: 'Batch',
+            }),
+            batchId,
+            currentFCR: round3(currentFCR),
+            targetFCR: round3(targetFCR),
+            variancePercent: round3(variancePercent),
+            trend,
+            alertLevel,
+          };
+          await this.outboxPublisher.enqueue(event, manager);
+        },
       );
-
-      for (const row of rows) {
-        const currentFCR = Number(row.actual);
-        // Hedef + trend okumaları withTenantContext ALS çerçevesi içinde koşar
-        // (runInTenantTransaction sarmalar) — repo checkout'ları tenant
-        // şemasına yönlenir. Trend yalnız eşiği aşan batch'ler için sorgulanır.
-        const targetFCR = await this.fcrCalculation.getTargetFCRForBatch(row.id);
-        if (!targetFCR || targetFCR <= 0) continue;
-
-        const variancePercent = ((currentFCR - targetFCR) / targetFCR) * 100;
-        if (variancePercent <= FCR_WARNING_VARIANCE_PERCENT) continue;
-
-        const alertLevel: FCRAlertEvent['alertLevel'] =
-          variancePercent > FCR_CRITICAL_VARIANCE_PERCENT ? 'critical' : 'warning';
-        const { trend } = await this.fcrCalculation.analyzeFCRTrend(row.id, tenantId);
-
-        const event: FCRAlertEvent = {
-          ...createBaseEvent<FCRAlertEvent>('FCRAlert', tenantId, {
-            aggregateId: row.id,
-            aggregateType: 'Batch',
-          }),
-          batchId: row.id,
-          currentFCR: round3(currentFCR),
-          targetFCR: round3(targetFCR),
-          variancePercent: round3(variancePercent),
-          trend,
-          alertLevel,
-        };
-        await this.outboxPublisher.enqueue(event, manager);
-      }
     });
   }
 

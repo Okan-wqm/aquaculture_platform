@@ -56,15 +56,20 @@ import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { Batch } from '../../batch/entities/batch.entity';
 import { Tank } from '../../tank/entities/tank.entity';
 import { Feed } from '../../feed/entities/feed.entity';
-import { FeedingProtocolRateService } from '../../feed/services/feeding-protocol-rate.service';
-import { GrowthStageProtocol, TemperatureRange } from '../../feed/entities/feeding-protocol.entity';
-import { getTenantSchemaName, runInTenantTransaction } from '@aquaculture/backend-common/database';
+import { runInTenantTransaction } from '@aquaculture/backend-common/database';
+import { UnitProtocolResolverService } from '../../feeding-protocol/services/unit-protocol-resolver.service';
+import {
+  tankBandWeightG,
+  type BandWeightG,
+} from '../../feeding-protocol/services/protocol-rate.service';
 
 // Services
 import { BilinearInterpolationService } from './bilinear-interpolation.service';
 import { WaterTemperatureService } from '../../water-quality/services/water-temperature.service';
 import { BatchDomainService } from '../../batch/services/batch-domain.service';
 import { FeedingLedgerService } from './feeding-ledger.service';
+// TEK büyüme yazarı — bu servis artık kendi mutlak-değer yazarını taşımaz.
+import { BiomassGrowthApplierService } from '../../feeding-protocol/services/biomass-growth-applier.service';
 
 // Constants
 import { SYSTEM_USER_ID } from '../constants';
@@ -90,7 +95,12 @@ export interface TankCurrentState {
   tankId: string;
   tankName: string;
   tankCode: string;
-  avgWeightG: number;
+  /**
+   * UNIT-authoritative average weight — the tank aggregate, never a batch's own
+   * weight. Branded so the band resolution below cannot be fed the wrong
+   * source; see `BandWeightG` in protocol-rate.service.
+   */
+  avgWeightG: BandWeightG;
   fishCount: number;
   biomassKg: number;
   waterTempC: number;
@@ -128,32 +138,9 @@ export interface FeedingRecordResult {
 // SERVICE
 // ============================================================================
 
-/**
- * Normalize a JSONB band column read via a raw query — pg returns jsonb already
- * parsed, but a text-typed legacy row may arrive as a JSON string.
- */
-function asBandArray<T>(value: T[] | string | null | undefined): T[] {
-  if (Array.isArray(value)) {
-    return value;
-  }
-  if (typeof value === 'string') {
-    try {
-      const parsed: unknown = JSON.parse(value);
-      return Array.isArray(parsed) ? (parsed as T[]) : [];
-    } catch {
-      return [];
-    }
-  }
-  return [];
-}
-
 @Injectable()
 export class DailyFeedingExecutionService {
   private readonly logger = new Logger(DailyFeedingExecutionService.name);
-
-  // Stateless rate SSoT — the same calculator the tanks-page DataLoader uses, so
-  // the daily plan and the tanks page agree on the protocol-driven feed rate.
-  private readonly protocolRate = new FeedingProtocolRateService();
 
   constructor(
     @InjectRepository(DailyFeedingExecution)
@@ -177,12 +164,20 @@ export class DailyFeedingExecutionService {
     // P-05/K-4: drain penceresi boyunca legacy kayıt da TEK yem yazma yolundan
     // (FeedingLedgerService) geçer — storage düşümü artık burada yaşamaz.
     private readonly feedingLedger: FeedingLedgerService,
+    // 0.5: the ONE writer of a unit's growth state (lock order + proportional
+    // batchDetails distribution + tagged provenance). This service used to keep
+    // a rival absolute-value writer; that duplicate is deleted.
+    private readonly growthApplier: BiomassGrowthApplierService,
     private readonly mobileCommandReceipts: MobileCommandReceiptService,
     // SEC-HIGH-051: object-level site authorization SSoT, enforced AT THE SINK so
     // every feeding-write caller (recordDailyFeeding, recordBulkFeeding, any
     // future caller) is gated identically and the resolver can never again be
     // the sole, forgettable enforcement point.
     private readonly siteAuth: SiteAuthorizationService,
+    // Protocol lookup + rate SSoT (unit-keyed). Shared with the tanks-page
+    // DataLoader and the 06:00 day-plan generator so this legacy engine cannot
+    // compute a different rate for the same tank.
+    private readonly unitProtocol: UnitProtocolResolverService,
     @Optional()
     @Inject('EVENT_BUS')
     private readonly eventBus?: NatsEventBus,
@@ -385,17 +380,18 @@ export class DailyFeedingExecutionService {
       }
     }
 
-    // 3b. Protocol precedence (rate SSoT). If the tank's primary batch carries a
-    // feeding protocol, its feedPercent(weight) × tempMultiplier drives the rate —
-    // the SAME calculator the tanks-page DataLoader uses, so the daily plan and the
-    // tanks page agree. FCR stays feed/program-derived (the protocol has no FCR model).
+    // 3b. Protocol precedence (rate SSoT). If the TANK carries an active
+    // protocol assignment, its band rate × tempMultiplier × unit override
+    // drives the rate — the SAME resolver the tanks-page DataLoader and the
+    // 06:00 day-plan generator use, so all three agree by construction. FCR
+    // stays feed/program-derived (this legacy path has no protocol FCR model).
     // A DEFAULTED temperature must not scale the protocol rate: the tanks page
     // passes undefined when no reading exists (multiplier 1.0), and the daily
     // plan must agree — the 15 °C fallback stays confined to the matrix/curve
     // interpolation above, which needs SOME temperature to interpolate at all.
     const protocolRatePercent = await this.resolveProtocolRatePercent(
       tenantId,
-      tankState.batchId,
+      tankState.tankId,
       avgWeightG,
       usingDefaultTemperature ? undefined : waterTempC,
     );
@@ -602,14 +598,21 @@ export class DailyFeedingExecutionService {
       // plan generation and recording could still have feed logged against
       // it, inflating totalFeedConsumed with no biomass and corrupting FCR
       // (the exact failure assertFeedable guards in CreateFeedingRecordHandler).
-      // WHAT: resolve the tank's primary batch, re-read it under
-      // pessimistic_write (so a concurrent CloseBatch / final harvest cannot
-      // race), and reject the recording if it is empty or non-feedable BEFORE
-      // any state is mutated.
-      const tankBatchForGuard = await queryRunner.manager.findOne(TankBatch, {
-        where: { tankId: execution.equipmentId, tenantId },
-      });
-      if (!tankBatchForGuard?.primaryBatchId) {
+      // WHAT: acquire the unit in the K-1 canonical order (the unit's batches by
+      // batchId ASC under pessimistic_write, then the TankBatch row) through the
+      // shared primitive, take the primary batch FROM that locked set, and
+      // reject the recording if it is empty or non-feedable BEFORE any state is
+      // mutated — a concurrent CloseBatch / final harvest cannot race it.
+      // The old shape read TankBatch unlocked, locked the primary batch, and
+      // only then locked TankBatch again deep inside
+      // updateTankBiomassWithManager — the reverse of the order every other
+      // writer on this tank uses (AB-BA).
+      const locked = await this.growthApplier.lockUnitForGrowth(
+        queryRunner.manager,
+        tenantId,
+        execution.equipmentId,
+      );
+      if (!locked?.tankBatch.primaryBatchId) {
         // K-4 fail-closed: tek yem yazma yolu (FeedingLedgerService) yem
         // kaydını batch'siz yazamaz — batch'i olmayan tanka yem kaydı, hiçbir
         // biomass'a atfedilemeyen tüketim demektir (assertFeedable'ın koruduğu
@@ -619,13 +622,16 @@ export class DailyFeedingExecutionService {
             `recorded without a batch to attribute the feed to.`,
         );
       }
-      const lockedBatch = await queryRunner.manager.findOne(Batch, {
-        where: { id: tankBatchForGuard.primaryBatchId, tenantId },
-        lock: { mode: 'pessimistic_write' },
-      });
+      const primaryBatchId = locked.tankBatch.primaryBatchId;
+      const lockedBatch = locked.batches.get(primaryBatchId);
       if (!lockedBatch) {
+        // primaryBatchId is derived FROM batchDetails by the single stock
+        // writer (TankBatchService.applyBatchDelta), so a primary batch that is
+        // not in the unit's locked set means the row is internally
+        // inconsistent. Feeding it would attribute feed to a batch outside the
+        // locked cohort; refuse instead of locking it out of order.
         throw new NotFoundException(
-          `Primary batch ${tankBatchForGuard.primaryBatchId} not found for tank ${execution.equipmentId}.`,
+          `Primary batch ${primaryBatchId} not found in the locked batch set of tank ${execution.equipmentId}.`,
         );
       }
       this.batchDomainService.assertFeedable(lockedBatch);
@@ -662,8 +668,6 @@ export class DailyFeedingExecutionService {
         );
       }
 
-      const newBiomassKg = biomassKg + growthKg;
-
       // Sanity check: growth should not exceed biological limits
       // Max daily growth is typically 5% of body weight
       const maxDailyGrowthKg = biomassKg * 0.05;
@@ -674,7 +678,12 @@ export class DailyFeedingExecutionService {
         );
       }
 
-      const newAvgWeightG = (newBiomassKg / fishCount) * 1000;
+      // Projected figures from the execution's plan snapshot. When the growth is
+      // actually applied below these are REPLACED by the unit's re-derived
+      // aggregates: the snapshot is a plan-time forecast, while the tank row is
+      // the live truth (it may have absorbed a mortality or a weighing since).
+      let newBiomassKg = biomassKg + growthKg;
+      let newAvgWeightG = (newBiomassKg / fishCount) * 1000;
 
       // Store previous state for audit
       const previousState = {
@@ -691,7 +700,28 @@ export class DailyFeedingExecutionService {
         execution.growthAppliedAt = new Date();
       }
 
-      // 6. Yem gecisi kontrolu — PER_FEEDING only; DAILY re-evaluates transitions
+      // 6. Buyumeyi TEK yazardan uygula — PER_FEEDING only. DAILY holds this
+      // back to applyPendingDailyGrowth (growthAppliedAt stays null until then).
+      //
+      // WHY the single writer: updateTankBiomassWithManager used to set
+      // tankBatch.avgWeightG / totalBiomassKg / currentBiomassKg to ABSOLUTE
+      // values derived from a plan-time snapshot, without touching
+      // batchDetails[] — blowing away the per-batch SSoT that every other
+      // writer maintains, so a mixed tank's breakdown silently drifted from its
+      // own aggregate. Routing the DELTA through applyGrowth distributes it
+      // proportionally across batchDetails[] and re-derives the aggregates FROM
+      // that SSoT, which is the only shape that cannot drift. It also projects
+      // Tank.currentBiomass and stamps FCR provenance in one place.
+      if (applyGrowthNow) {
+        await this.growthApplier.applyGrowth(queryRunner.manager, tenantId, locked, growthKg, fcr);
+        // Re-derived by the writer from batchDetails[] — the authoritative
+        // post-growth weight, and therefore the right input to the feed
+        // transition check below (which used to run on the snapshot forecast).
+        newBiomassKg = Number(locked.tankBatch.totalBiomassKg);
+        newAvgWeightG = Number(locked.tankBatch.avgWeightG);
+      }
+
+      // 7. Yem gecisi kontrolu — PER_FEEDING only; DAILY re-evaluates transitions
       // when the roll-up applies the aggregate growth.
       let feedTransitioned = false;
       let newFeedId: string | undefined;
@@ -712,21 +742,8 @@ export class DailyFeedingExecutionService {
         }
       }
 
-      // 7. Kaydet execution within transaction
+      // 8. Kaydet execution within transaction
       await queryRunner.manager.save(execution);
-
-      // 8. Tank ve Batch'i guncelle within same transaction — PER_FEEDING only.
-      // DAILY holds back this to applyPendingDailyGrowth, which rolls the whole day's
-      // feed into a single weight update (growthAppliedAt stays null until then).
-      if (applyGrowthNow) {
-        await this.updateTankBiomassWithManager(
-          queryRunner.manager,
-          execution.equipmentId,
-          newBiomassKg,
-          newAvgWeightG,
-          tenantId,
-        );
-      }
 
       // 9. TEK yem yazma yolu (P-05/K-4): drain penceresi boyunca legacy
       // execution kaydı da FeedingLedgerService'ten geçer — FeedingRecord
@@ -937,14 +954,17 @@ export class DailyFeedingExecutionService {
       // path skipped for DAILY can be evaluated against the rolled-up weight.
       const byTank = new Map<
         string,
-        { growthKg: number; ids: string[]; latest?: DailyFeedingExecution }
+        { growthKg: number; fedKg: number; ids: string[]; latest?: DailyFeedingExecution }
       >();
       for (const exec of pending) {
-        const entry = byTank.get(exec.equipmentId) ?? { growthKg: 0, ids: [] };
+        const entry = byTank.get(exec.equipmentId) ?? { growthKg: 0, fedKg: 0, ids: [] };
         const actualKg = exec.actualFeedKg;
         if (actualKg && actualKg > 0) {
           const fcr = Math.max(0.5, Math.min(5.0, exec.calculations.expectedFCR));
           entry.growthKg += this.calculateGrowthFromFeeding(actualKg, fcr);
+          // Carried so the roll-up can state the EFFECTIVE FCR of the whole day
+          // (Σfed / Σgrowth) as provenance instead of one execution's rate.
+          entry.fedKg += actualKg;
         }
         entry.ids.push(exec.id);
         if (
@@ -958,34 +978,28 @@ export class DailyFeedingExecutionService {
 
       const now = new Date();
       let tanksUpdated = 0;
-      for (const [equipmentId, { growthKg, latest }] of byTank) {
+      for (const [equipmentId, { growthKg, fedKg, latest }] of byTank) {
         if (growthKg <= 0) {
           continue;
         }
-        // The tank biomass is still the morning value — DAILY held back every update.
-        const tankBatch = await manager.findOne(TankBatch, {
-          where: { tankId: equipmentId, tenantId },
-        });
-        if (!tankBatch) {
-          continue;
-        }
+        // The tank biomass is still the morning value — DAILY held back every
+        // update. Locked in the canonical order by the shared primitive.
+        const locked = await this.growthApplier.lockUnitForGrowth(manager, tenantId, equipmentId);
         // COUNT SSoT read (DB-FARMPROD-HIGH-001): fish count is the batchDetails-
-        // derived totalQuantity, not the redundant currentQuantity mirror. Biomass
-        // keeps the currentBiomassKg-first read (growth-tracked live value).
-        const fishCount = tankBatch.totalQuantity;
-        const currentBiomassKg = Number(tankBatch.currentBiomassKg ?? tankBatch.totalBiomassKg);
-        if (fishCount <= 0) {
+        // derived totalQuantity, not the redundant currentQuantity mirror.
+        if (!locked || locked.tankBatch.totalQuantity <= 0) {
           continue;
         }
-        const newBiomassKg = currentBiomassKg + growthKg;
-        const newAvgWeightG = (newBiomassKg / fishCount) * 1000;
-        await this.updateTankBiomassWithManager(
-          manager,
-          equipmentId,
-          newBiomassKg,
-          newAvgWeightG,
-          tenantId,
-        );
+        // PROVENANCE FIX: the old writer stamped `basedOnFCR = batch.fcr?.actual ?? 1.0`.
+        // `fcr.actual` is 0 for every live batch and `??` does NOT coalesce 0, so
+        // it stamped basedOnFCR = 0 — a division-by-zero-shaped provenance that
+        // claimed the growth came from an impossible feed conversion. The day's
+        // EFFECTIVE FCR (Σfed / Σgrowth) is the only honest answer here, because
+        // the roll-up sums executions that each used their own expected FCR.
+        const basedOnFcr = fedKg / growthKg;
+        await this.growthApplier.applyGrowth(manager, tenantId, locked, growthKg, basedOnFcr);
+        // Re-derived from batchDetails[] by the single writer.
+        const newAvgWeightG = Number(locked.tankBatch.avgWeightG);
         // DAILY held the feed-transition check back at recording time; evaluate
         // it here against the rolled-up weight so transitions (programTank
         // update + stats + audit) fire exactly once per day for DAILY programs.
@@ -1013,121 +1027,20 @@ export class DailyFeedingExecutionService {
     });
   }
 
-  /**
-   * Tank ve Batch biomass/agirlik bilgilerini gunceller.
-   * Creates its own transaction - use updateTankBiomassWithManager for existing transactions.
-   *
-   * @param tankId Tank ID
-   * @param newBiomassKg Yeni toplam biomass (kg)
-   * @param newAvgWeightG Yeni ortalama agirlik (g)
-   * @param tenantId Tenant ID
-   */
-  async updateTankBiomass(
-    tankId: string,
-    newBiomassKg: number,
-    newAvgWeightG: number,
-    tenantId: string,
-  ): Promise<void> {
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
-    try {
-      await this.updateTankBiomassWithManager(
-        queryRunner.manager,
-        tankId,
-        newBiomassKg,
-        newAvgWeightG,
-        tenantId,
-      );
-
-      await queryRunner.commitTransaction();
-
-      this.logger.debug(
-        `Updated tank ${tankId} biomass: ${newBiomassKg.toFixed(2)}kg, avgWeight: ${newAvgWeightG.toFixed(1)}g`,
-      );
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      this.logger.error(
-        `Failed to update tank biomass for ${tankId}: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        error instanceof Error ? error.stack : undefined,
-      );
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
-  }
-
-  /**
-   * Tank ve Batch biomass/agirlik bilgilerini gunceller (uses provided EntityManager).
-   * Use this when you already have an active transaction.
-   *
-   * @param manager EntityManager from existing transaction
-   * @param tankId Tank ID
-   * @param newBiomassKg Yeni toplam biomass (kg)
-   * @param newAvgWeightG Yeni ortalama agirlik (g)
-   * @param tenantId Tenant ID
-   */
-  private async updateTankBiomassWithManager(
-    manager: import('typeorm').EntityManager,
-    tankId: string,
-    newBiomassKg: number,
-    newAvgWeightG: number,
-    tenantId: string,
-  ): Promise<void> {
-    // 1. TankBatch'i guncelle with pessimistic lock
-    const tankBatch = await manager.findOne(TankBatch, {
-      where: { tankId, tenantId },
-      lock: { mode: 'pessimistic_write' },
-    });
-
-    if (tankBatch) {
-      tankBatch.avgWeightG = newAvgWeightG;
-      tankBatch.totalBiomassKg = newBiomassKg;
-      tankBatch.currentBiomassKg = newBiomassKg;
-      await manager.save(tankBatch);
-
-      // 2. Primary batch'i guncelle (varsa)
-      if (tankBatch.primaryBatchId) {
-        const batch = await manager.findOne(Batch, {
-          where: { id: tankBatch.primaryBatchId, tenantId },
-          lock: { mode: 'pessimistic_write' },
-        });
-
-        if (batch) {
-          // Theoretical weight'i guncelle
-          if (batch.weight?.theoretical) {
-            batch.weight.theoretical.avgWeight = newAvgWeightG;
-            batch.weight.theoretical.totalBiomass = newBiomassKg;
-            batch.weight.theoretical.lastCalculatedAt = new Date();
-            batch.weight.theoretical.basedOnFCR = batch.fcr?.actual ?? 1.0;
-          }
-          await manager.save(batch);
-        } else {
-          this.logger.warn(
-            `Primary batch ${tankBatch.primaryBatchId} not found for tank ${tankId}. Batch biomass will not be updated.`,
-          );
-        }
-      }
-    } else {
-      this.logger.warn(
-        `TankBatch not found for tank ${tankId}. Tank may be empty or not properly configured.`,
-      );
-    }
-
-    // 3. Tank currentBiomass'i guncelle with pessimistic lock
-    const tank = await manager.findOne(Tank, {
-      where: { id: tankId, tenantId },
-      lock: { mode: 'pessimistic_write' },
-    });
-
-    if (tank) {
-      tank.currentBiomass = newBiomassKg;
-      await manager.save(tank);
-    } else {
-      this.logger.warn(`Tank ${tankId} not found for tenant ${tenantId}`);
-    }
-  }
+  // updateTankBiomass / updateTankBiomassWithManager are GONE (0.5).
+  //
+  // They were a SECOND writer of a unit's growth state and every difference
+  // from the real one was a defect:
+  //   - they set tankBatch.avgWeightG / totalBiomassKg / currentBiomassKg to
+  //     ABSOLUTE values without touching batchDetails[], erasing the per-batch
+  //     SSoT that BiomassGrowthApplierService.applyGrowth maintains;
+  //   - they overwrote the PRIMARY batch's theoretical weight with ONE tank's
+  //     figure, corrupting a batch that spans several units (the D-1 bug);
+  //   - they stamped `basedOnFCR = batch.fcr?.actual ?? 1.0`, and because
+  //     `fcr.actual` is 0 for every live batch and `??` does not coalesce 0,
+  //     the persisted provenance was 0.
+  // Both call sites now go through BiomassGrowthApplierService, so there is
+  // exactly ONE writer of a tank's growth and its provenance is always tagged.
 
   // ==========================================================================
   // 4. YEM GECIS KONTROLU
@@ -1332,7 +1245,10 @@ export class DailyFeedingExecutionService {
       tankId,
       tankName: tankBatch.tankName ?? tank?.name ?? 'Unknown',
       tankCode: tankBatch.tankCode ?? tank?.code ?? 'UNK',
-      avgWeightG: Number(tankBatch.avgWeightG) || 0,
+      // Derived from the unit aggregate (the same constructor the 06:00 cron and
+      // the day-plan admin use) so this legacy engine reads the identical weight
+      // the v2 engine bands on.
+      avgWeightG: tankBandWeightG(tankBatch),
       fishCount: tankBatch.totalQuantity || 0,
       biomassKg: Number(tankBatch.totalBiomassKg) || 0,
       waterTempC: temperatureResult.value,
@@ -1342,53 +1258,37 @@ export class DailyFeedingExecutionService {
   }
 
   /**
-   * The tank's primary-batch feeding-rate percent from its assigned protocol, or
-   * null when the batch carries no protocol or the protocol has no usable weight
-   * bands (caller then keeps the feed matrix/curve rate). Schema-qualified so it
-   * is safe from the daily-feeding cron (no request search_path).
+   * The TANK's feeding-rate percent from the protocol assigned to it, or null
+   * when the unit has no active assignment / the protocol has no band for this
+   * weight (caller then keeps the feed matrix/curve rate).
+   *
+   * WHY the unit and not the batch: this used to read `batches_v2.protocolId`,
+   * a v1 column with no writer in the entire repo. It therefore returned null
+   * on every call — the "protocol precedence" this method promises never once
+   * happened in production, and the daily plan quietly fed the matrix rate
+   * while the 06:00 v2 engine fed the same tank from its assignment band. The
+   * authority is `feeding_protocol_assignments.unitId`, one active row per unit
+   * by partial unique index, which also matches the domain rule that the TANK
+   * (not the batch) owns weight, band, feed type and rate. A consequence worth
+   * naming: a tank with fish but no primary batch now resolves its protocol
+   * too, where the batch-keyed version could not.
    */
   private async resolveProtocolRatePercent(
     tenantId: string,
-    batchId: string | undefined,
-    avgWeightG: number,
+    unitId: string,
+    avgWeightG: BandWeightG,
     waterTempC: number | undefined,
   ): Promise<number | null> {
-    if (!batchId) {
-      return null;
-    }
-    const schema = getTenantSchemaName(tenantId);
-    const batchRows: Array<{ protocolId: string | null }> = await this.dataSource.query(
-      `SELECT "protocolId" FROM "${schema}".batches_v2
-        WHERE "id" = $1 AND "tenantId" = $2 AND "protocolId" IS NOT NULL
-        LIMIT 1`,
-      [batchId, tenantId],
-    );
-    const protocolId = batchRows[0]?.protocolId;
-    if (!protocolId) {
-      return null;
-    }
-    const protocolRows: Array<{
-      growthStageProtocols: GrowthStageProtocol[] | string | null;
-      temperatureRanges: TemperatureRange[] | string | null;
-    }> = await this.dataSource.query(
-      `SELECT "growthStageProtocols", "temperatureRanges" FROM "${schema}".feeding_protocols
-        WHERE "id" = $1 AND "tenantId" = $2 AND "isActive" = true AND "isDeleted" = false
-        LIMIT 1`,
-      [protocolId, tenantId],
-    );
-    const protocol = protocolRows[0];
-    if (!protocol) {
-      return null;
-    }
-    const rate = this.protocolRate.calculateRate(
-      {
-        growthStageProtocols: asBandArray<GrowthStageProtocol>(protocol.growthStageProtocols),
-        temperatureRanges: asBandArray<TemperatureRange>(protocol.temperatureRanges),
-      },
+    const resolved = await this.unitProtocol.resolveForUnit(
+      this.dataSource,
+      tenantId,
+      unitId,
       avgWeightG,
-      waterTempC,
+      // A DEFAULTED temperature must not scale the protocol rate — the caller
+      // passes undefined in that case and it becomes an explicit "no reading".
+      waterTempC ?? null,
     );
-    return rate ? rate.feedingRatePercent : null;
+    return resolved ? resolved.effectiveRatePercent : null;
   }
 
   /**

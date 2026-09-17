@@ -48,7 +48,16 @@ export class RecordDailyFeedingInput extends MobileCommandEnvelopeInput {
   @MaxLength(1000)
   notes?: string;
 
-  @Field(() => ID, { nullable: true, description: 'SubEquipment feeder ID (for automatic feeders)' })
+  /**
+   * WHAT: the Equipment id (category FEEDING) of the feeder that delivered this
+   * feeding. It must be a feeder currently ASSIGNED to the execution's unit —
+   * the resolver rejects anything else, so a record cannot name a feeder that
+   * belongs to another tank or a sub-equipment part.
+   */
+  @Field(() => ID, {
+    nullable: true,
+    description: "Equipment id of a feeder assigned to this execution's unit",
+  })
   @IsOptional()
   @IsUUID()
   feederEquipmentId?: string;

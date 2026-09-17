@@ -50,10 +50,7 @@ export function useCreateChannel(): UseCreateChannelReturn {
 
   const dmMutation = useMutation({
     mutationFn: async (userId: string) => {
-      const result = await graphqlRequest<{ directChannel: Channel }>(
-        DIRECT_CHANNEL,
-        { userId },
-      );
+      const result = await graphqlRequest<{ directChannel: Channel }>(DIRECT_CHANNEL, { userId });
       if (!result.directChannel?.id) {
         throw new Error('Failed to create or retrieve DM channel');
       }
@@ -61,7 +58,9 @@ export function useCreateChannel(): UseCreateChannelReturn {
     },
     onSuccess: () => {
       // WHY void: invalidation is fire-and-forget (React Query owns the refetch).
-      void queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
+      void queryClient.invalidateQueries({
+        queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels'),
+      });
       setError(null);
     },
     onError: (err: Error) => {
@@ -76,17 +75,16 @@ export function useCreateChannel(): UseCreateChannelReturn {
         name: params.name,
         memberIds: params.memberIds,
       };
-      const result = await graphqlRequest<{ createChannel: Channel }>(
-        CREATE_CHANNEL,
-        { input },
-      );
+      const result = await graphqlRequest<{ createChannel: Channel }>(CREATE_CHANNEL, { input });
       if (!result.createChannel?.id) {
         throw new Error('Failed to create group channel');
       }
       return result.createChannel;
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
+      void queryClient.invalidateQueries({
+        queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels'),
+      });
       setError(null);
     },
     onError: (err: Error) => {
@@ -102,17 +100,16 @@ export function useCreateChannel(): UseCreateChannelReturn {
         memberIds: [], // Creator auto-added on backend
         aiPersona: params.aiPersona,
       };
-      const result = await graphqlRequest<{ createChannel: Channel }>(
-        CREATE_CHANNEL,
-        { input },
-      );
+      const result = await graphqlRequest<{ createChannel: Channel }>(CREATE_CHANNEL, { input });
       if (!result.createChannel?.id) {
         throw new Error('Failed to create AI channel');
       }
       return result.createChannel;
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
+      void queryClient.invalidateQueries({
+        queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels'),
+      });
       setError(null);
     },
     onError: (err: Error) => {

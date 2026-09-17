@@ -318,11 +318,21 @@ export const EquipmentTab: React.FC = () => {
     return selectedEquipmentType.specificationSchema;
   }, [selectedEquipmentType]);
 
-  // Check if current type is a feeder (for calibration section)
-  const isFeederType = useMemo(() => {
-    if (!selectedEquipmentType?.code) return false;
-    return selectedEquipmentType.code.startsWith('feeder-');
-  }, [selectedEquipmentType]);
+  // Check if current type is a feeder (for calibration section).
+  //
+  // WHAT: the check reads the catalogue's own classification (category FEEDING),
+  // not the shape of the type code.
+  //
+  // WHY: `code.startsWith('feeder-')` is a heuristic ABOUT the catalogue. It
+  // silently disagreed with the catalogue for any feeder whose code did not
+  // start with that prefix, and it would have shown the calibration editor for
+  // any non-feeder that did. The backend sink now refuses calibration on
+  // non-FEEDING equipment, so gating the UI on the same category keeps the two
+  // sides answering "is this a feeder" the same way.
+  const isFeederType = useMemo(
+    () => normalizeCategory(selectedEquipmentType?.category) === 'FEEDING',
+    [selectedEquipmentType],
+  );
 
   // Get equipment list from API or empty array. Memoized so the
   // filtered-list useMemo below keeps a stable dependency instead of a

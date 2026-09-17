@@ -44,14 +44,20 @@ describe('VfdDevice Entity', () => {
 
     it('should set optional location properties', () => {
       device.farmId = 'farm-123';
-      device.tankId = 'tank-456';
       device.location = 'Building A, Room 101';
       device.description = 'Main pump VFD';
 
       expect(device.farmId).toBe('farm-123');
-      expect(device.tankId).toBe('tank-456');
       expect(device.location).toBe('Building A, Room 101');
       expect(device.description).toBe('Main pump VFD');
+    });
+
+    it('has nowhere left to store a unit — the drive cannot claim a tank on its own', () => {
+      // `tank_id` and `pump_id` were bare uuids an operator typed and nothing
+      // checked. The unit a drive serves is now derived through VfdDriveBinding,
+      // so the entity must expose no property that could hold a guess.
+      expect(Object.prototype.hasOwnProperty.call(device, 'tankId')).toBe(false);
+      expect(Object.prototype.hasOwnProperty.call(device, 'pumpId')).toBe(false);
     });
   });
 
@@ -216,33 +222,14 @@ describe('VfdDevice Entity', () => {
     });
   });
 
-  describe('custom register mappings', () => {
-    it('should set custom register mappings', () => {
-      const customMappings = [
-        {
-          parameterName: 'custom_param',
-          registerAddress: 1000,
-          registerCount: 1,
-          functionCode: 3,
-          dataType: 'uint16',
-          scalingFactor: 0.1,
-          offset: 0,
-          unit: 'Hz',
-          byteOrder: 'big',
-          wordOrder: 'big',
-        },
-      ];
-
-      device.customRegisterMappings = customMappings;
-
-      expect(device.customRegisterMappings).toHaveLength(1);
-      // strictNullChecks: array index returns `T | undefined`; the
-      // toHaveLength assertion above narrows logically. `!` is safe
-      // because the length expectation guarantees the index.
-      expect(device.customRegisterMappings![0]!.parameterName).toBe('custom_param');
-      expect(device.customRegisterMappings![0]!.registerAddress).toBe(1000);
-    });
-  });
+  // A `custom register mappings` block stood here and asserted only that a
+  // property bag accepted an assignment. Nothing ever wrote that field in
+  // production, yet edge provisioning READ it and turned any entry whose
+  // function code was 5/6/16 into write authority on the drive. The field is
+  // gone (the entity records why), and what replaced this test is a real
+  // guarantee rather than a round-trip: vfd-edge-provisioning.service.spec.ts
+  // pins `allowed_write_ranges`, per brand, to the catalogue's writable
+  // telemetry registers alone.
 
   describe('metadata', () => {
     it('should set metadata', () => {

@@ -38,6 +38,7 @@ import { Feed } from '../feed/entities/feed.entity';
 import { Tank } from '../tank/entities/tank.entity';
 import { Site } from '../site/entities/site.entity';
 import { Equipment } from '../equipment/entities/equipment.entity';
+import { FeederAssignment } from '../feeding-protocol/entities/feeder-assignment.entity';
 
 // Services
 import { FeedSelectorService } from './services/feed-selector.service';
@@ -51,6 +52,10 @@ import { WaterTemperatureService } from '../water-quality/services/water-tempera
 // D-7 (plan-dışı yem bağlama): stateless motor yardımcıları doğrudan provider —
 // FeedingProtocolModule import'u modül döngüsü yaratırdı (BatchModule emsali).
 import { ProtocolRateService } from '../feeding-protocol/services/protocol-rate.service';
+// Unit-keyed protocol lookup + rate SSoT — FeedSelectorService and the legacy
+// daily-plan engine both resolve "which protocol feeds this tank" through it.
+import { UnitProtocolResolverService } from '../feeding-protocol/services/unit-protocol-resolver.service';
+import { FeedTypeTransitionService } from '../feeding-protocol/services/feed-transition.service';
 import { DayPlanRecalcService } from '../feeding-protocol/services/day-plan-recalc.service';
 import { BiomassGrowthApplierService } from '../feeding-protocol/services/biomass-growth-applier.service';
 
@@ -98,6 +103,10 @@ import { FinanceModule } from '../finance/finance.module';
       Site,
       Equipment,
       FarmMobileCommandReceipt,
+      // Yemleme kaydı hangi yemleyicinin yaptığını yazarken üniteye ATANMIŞ
+      // yemleyiciyi doğrular (feeding-program.resolver): kayıt yalnız ünitenin
+      // gerçekten sahip olduğu bir yemleyiciyi adlandırabilir.
+      FeederAssignment,
     ]),
     BackdatePolicyModule,
     RestoreModule,
@@ -119,6 +128,8 @@ import { FinanceModule } from '../finance/finance.module';
     FeedingLedgerService,
     // D-7: CreateFeedingRecordHandler plan-dışı yemi aktif gün planına bağlar.
     ProtocolRateService,
+    UnitProtocolResolverService,
+    FeedTypeTransitionService,
     DayPlanRecalcService,
     BiomassGrowthApplierService,
     MobileCommandReceiptService,

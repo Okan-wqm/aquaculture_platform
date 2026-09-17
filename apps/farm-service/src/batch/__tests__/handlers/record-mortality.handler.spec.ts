@@ -20,6 +20,7 @@ import { FarmStockProjectionService } from '../../../farm-stock/farm-stock-proje
 import { AuditLogService } from '../../../database/services/audit-log.service';
 import { MortalityCullPolicyService } from '../../services/mortality-cull-policy.service';
 import { RemovalQuantityPolicyService } from '../../services/removal-quantity-policy.service';
+import { createStockChangeDouble } from '../support/stock-change-double';
 import { RecordMortalityHandler } from '../../handlers/record-mortality.handler';
 import { RecordMortalityCommand, MortalityReason } from '../../commands/record-mortality.command';
 import { Batch, BatchStatus } from '../../entities/batch.entity';
@@ -198,6 +199,7 @@ describe('RecordMortalityHandler', () => {
     const farmStockProjection = {
       refreshContainers: jest.fn().mockResolvedValue(undefined),
     } as Partial<FarmStockProjectionService> as FarmStockProjectionService;
+    const stockChange = createStockChangeDouble();
 
     const handler = new RecordMortalityHandler(
       dataSource,
@@ -209,23 +211,21 @@ describe('RecordMortalityHandler', () => {
       {} as Repository<Tank>,
       {} as Repository<EquipmentType>,
       outboxPublisher,
-      // P-31 recalc — mocked (day-plan-recalc.service.spec kapsıyor).
-      { recalcForUnit: jest.fn().mockResolvedValue(null) } as never,
       // D-3 miktar çözümü — GERÇEK stateless politika (üretim davranışı).
       new RemovalQuantityPolicyService(),
       backdatePolicy as any,
       auditLogService,
       // SEC-HIGH-051: the real SSoT — fail-closed object-level site authz.
       new SiteAuthorizationService(),
-      // TankBatchService SSoT writer — mocked here (its derivation is covered by
-      // tank-batch.service.spec); the handler does not consume its return.
-      { applyBatchDelta: jest.fn().mockResolvedValue({}) } as never,
+      // TankBatchService stock scope — mocked here (its derivation and its
+      // per-unit ration settlement are covered by tank-batch.service.spec).
+      stockChange.tankBatchService,
       new MortalityCullPolicyService(),
       farmStockProjection,
       mobileCommandReceipts,
     );
 
-    return { handler, manager, queryRunner, outboxPublisher, auditLogService };
+    return { handler, manager, queryRunner, outboxPublisher, auditLogService, stockChange };
   }
 
   describe('validation', () => {

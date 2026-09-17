@@ -14,6 +14,7 @@ export const en = {
   'common.cancel': 'Cancel',
   'common.close': 'Close',
   'common.optional': 'Optional',
+  'common.retry': 'Try again',
 
   // ── Feeding (meal cutover) ──
   'feeding.title': 'Record Feeding',
@@ -26,6 +27,11 @@ export const en = {
   'feeding.noPlansToday': 'No feeding plans for today',
   'feeding.noPlansTodayHint':
     'Day plans are generated each morning for units with an active protocol assignment.',
+  // "Could not load" is a different claim from "nothing planned" — a worker who
+  // reads the second when the first happened walks past a unit that is due.
+  'feeding.plansError': 'Could not load feeding plans',
+  'feeding.plansErrorHint':
+    "Today's plans are unavailable, not empty. Anything you record is still queued on this device.",
   'feeding.progress': '{done}/{total} meals',
   'feeding.plannedTotal': 'Planned total',
   'feeding.feed': 'Feed',

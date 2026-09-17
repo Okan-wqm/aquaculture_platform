@@ -13,10 +13,12 @@ import { Repository } from 'typeorm';
 import { VfdDevice } from '../../entities/vfd-device.entity';
 import { VfdBrand, VfdProtocol, VfdDeviceStatus } from '../../entities/vfd.enums';
 import { VfdDeviceService, CreateVfdDeviceInput, UpdateVfdDeviceInput } from '../vfd-device.service';
+import { VfdDriveBindingService } from '../vfd-drive-binding.service';
 
 describe('VfdDeviceService', () => {
   let service: VfdDeviceService;
   let repository: jest.Mocked<Repository<VfdDevice>>;
+  let driveBindingService: jest.Mocked<VfdDriveBindingService>;
 
   const tenantId = 'tenant-123';
 
@@ -51,14 +53,25 @@ describe('VfdDeviceService', () => {
     addSelect: jest.fn().mockReturnThis(),
     groupBy: jest.fn().mockReturnThis(),
     getRawMany: jest.fn().mockResolvedValue([{ status: VfdDeviceStatus.ACTIVE, count: '5' }]),
+    // findByTank resolves through the binding join, so it terminates in getMany.
+    getMany: jest.fn().mockResolvedValue([mockDevice]),
   });
 
+  let mockQueryBuilder: ReturnType<typeof createMockQueryBuilder>;
+
   beforeEach(async () => {
-    const mockQueryBuilder = createMockQueryBuilder();
+    mockQueryBuilder = createMockQueryBuilder();
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         VfdDeviceService,
+        {
+          provide: VfdDriveBindingService,
+          useValue: {
+            bind: jest.fn().mockResolvedValue(undefined),
+            unbind: jest.fn().mockResolvedValue(true),
+          },
+        },
         {
           provide: getRepositoryToken(VfdDevice),
           useValue: {
@@ -75,6 +88,7 @@ describe('VfdDeviceService', () => {
 
     service = module.get<VfdDeviceService>(VfdDeviceService);
     repository = module.get(getRepositoryToken(VfdDevice));
+    driveBindingService = module.get(VfdDriveBindingService);
   });
 
   describe('create', () => {
@@ -401,16 +415,57 @@ describe('VfdDeviceService', () => {
   });
 
   describe('findByTank', () => {
-    it('should return devices for a tank', async () => {
-      repository.find.mockResolvedValue([mockDevice as VfdDevice]);
-
+    it('resolves through the attested binding, not through a column on the drive', async () => {
+      // The old form read `vfd_devices.tank_id` — a uuid an operator typed. That
+      // column is gone, so a drive can only be found by a unit its DRIVEN
+      // EQUIPMENT is attested to serve.
       const result = await service.findByTank('tank-456', tenantId);
 
-      expect(repository.find).toHaveBeenCalledWith({
-        where: { tankId: 'tank-456', tenantId },
-        order: { name: 'ASC' },
-      });
+      expect(repository.find).not.toHaveBeenCalled();
+      const predicate = mockQueryBuilder.andWhere.mock.calls[0]![0] as string;
+      expect(predicate).toContain('vfd_drive_binding_units');
+      expect(predicate).toContain('u.unit_id = :tankId');
       expect(result).toHaveLength(1);
+    });
+  });
+
+  describe('registration binding', () => {
+    it('opens a binding for the equipment the drive turns, instead of storing a uuid on the row', async () => {
+      const input: CreateVfdDeviceInput = {
+        name: 'Feeder drive',
+        brand: VfdBrand.DANFOSS,
+        protocol: VfdProtocol.MODBUS_TCP,
+        protocolConfiguration: {
+          host: '192.168.1.100',
+          port: 502,
+          unitId: 1,
+          connectionTimeout: 3000,
+          responseTimeout: 1000,
+        },
+        drivenEquipmentId: 'equipment-789',
+      };
+
+      await service.create(input, tenantId);
+
+      expect(driveBindingService.bind).toHaveBeenCalledWith(
+        'device-123',
+        tenantId,
+        'equipment-789',
+      );
+      // And it never reached the device row: the saved entity carries no
+      // equipment/unit id of its own.
+      const saved = (repository.save as jest.Mock).mock.calls[0]![0] as Record<string, unknown>;
+      expect(saved['drivenEquipmentId']).toBeUndefined();
+      expect(saved['tankId']).toBeUndefined();
+      expect(saved['pumpId']).toBeUndefined();
+    });
+
+    it('closes the binding when the drive is deleted', async () => {
+      repository.findOne.mockResolvedValue(mockDevice as VfdDevice);
+
+      await service.delete('device-123', tenantId);
+
+      expect(driveBindingService.unbind).toHaveBeenCalledWith('device-123', tenantId);
     });
   });
 });

@@ -31,6 +31,7 @@ import {
 } from './dto/equipment.response';
 import { TankBatch } from '../batch/entities/tank-batch.entity';
 import { FeedSelectorService } from '../feeding/services/feed-selector.service';
+import { tankBandWeightG } from '../feeding-protocol/services/protocol-rate.service';
 import { WaterTemperatureService } from '../water-quality/services/water-temperature.service';
 import { EquipmentDeletePreviewResponse } from './dto/equipment-delete-preview.response';
 import { CreateEquipmentInput } from './dto/create-equipment.input';
@@ -48,7 +49,7 @@ import { DepartmentResponse } from '../department/dto/department.response';
 import { GetDepartmentQuery } from '../department/queries/get-department.query';
 import { Equipment } from './entities/equipment.entity';
 import { EquipmentSystem } from './entities/equipment-system.entity';
-import { FeederCalibrationResponse } from './dto/feeder-calibration.response';
+import { FeederCalibrationResponse, FeederSetupResponse } from './dto/feeder-calibration.response';
 import { SaveFeederCalibrationsInput } from './dto/feeder-calibration.input';
 import { SaveFeederCalibrationsCommand } from './commands/save-feeder-calibrations.command';
 import { ListFeederCalibrationsQuery } from './queries/list-feeder-calibrations.query';
@@ -392,7 +393,9 @@ export class EquipmentResolver {
       dailyFeedKg?: number;
     } = {};
 
-    const avgWeightG = Number(tankBatch.avgWeightG);
+    // Band/oran çözümü ÜNİTE aggregate'inden — batch ağırlığı geçirmek derleme
+    // hatasıdır (BandWeightG); tanks-page ile plan motoru aynı sayıyı okur.
+    const avgWeightG = tankBandWeightG(tankBatch);
     const biomassKg = Number(tankBatch.currentBiomassKg ?? tankBatch.totalBiomassKg);
 
     if (tankBatch.primaryBatchId && avgWeightG > 0 && biomassKg > 0) {
@@ -425,6 +428,10 @@ export class EquipmentResolver {
             tenantId,
             schemaName,
             tankBatch.primaryBatchId,
+            // The unit whose protocol assignment governs this tank — the same
+            // `equipment.id` handed to the DataLoader path above, so both
+            // branches of this if/else resolve the identical protocol.
+            equipment.id,
             avgWeightG,
             biomassKg,
             waterTempC,
@@ -481,14 +488,18 @@ export class EquipmentResolver {
   // =========================================================================
 
   /**
-   * List feeder calibrations for an equipment
+   * A feeder's dosing physics and its per-feed calibrations, read together.
+   *
+   * One query rather than two because neither half is interpretable alone: a
+   * flow rate needs the speed band it holds on, and the band lives on the
+   * capability row (stated once per machine, never once per feed).
    */
   @Roles(Role.TENANT_ADMIN, Role.MODULE_MANAGER, Role.MODULE_USER)
-  @Query(() => [FeederCalibrationResponse])
-  async feederCalibrations(
+  @Query(() => FeederSetupResponse)
+  async feederSetup(
     @Args('equipmentId', { type: () => ID }) equipmentId: string,
     @CurrentTenant() tenantId: string,
-  ): Promise<FeederCalibrationResponse[]> {
+  ): Promise<FeederSetupResponse> {
     const query = new ListFeederCalibrationsQuery(equipmentId, tenantId);
     return this.queryBus.execute(query);
   }

@@ -10,8 +10,7 @@
     "build:quick": "vite build",
     "preview": "vite preview",
     "lint": "eslint src",
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.sw.json",
-    "postinstall": "node scripts/patch-konsta.cjs"
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.sw.json"
   },
   "dependencies": {
     "@tanstack/react-query": "5.90.10",
@@ -21,7 +20,6 @@
     "graphql": "^16.12.0",
     "graphql-tag": "2.12.6",
     "idb-keyval": "^6.2.1",
-    "konsta": "^3.1.4",
     "lucide-react": "0.469.0",
     "react": "19.2.7",
     "react-dom": "19.2.7",

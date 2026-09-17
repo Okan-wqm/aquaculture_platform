@@ -60,6 +60,8 @@ import {
   FeedingCompletedListener,
   FarmStockProjectionListener,
   SensorTemperatureProjectionListener,
+  SensorMassProjectionListener,
+  VfdDriveBindingAttestationListener,
 } from './listeners';
 
 /**
@@ -74,6 +76,13 @@ const EventListeners = [
   FeedingCompletedListener,
   FarmStockProjectionListener,
   SensorTemperatureProjectionListener,
+  // Proves a weight-based feeder's load cell is actually reporting. Without
+  // this projection `dispenseControl = weight_based` would be an unbacked
+  // claim and the dose planner would have nothing to fail closed on.
+  SensorMassProjectionListener,
+  // Answers sensor-service's "what is the equipment this drive turns?" — the
+  // only place that question can be answered, since equipment identity is here.
+  VfdDriveBindingAttestationListener,
 ];
 
 @Module({

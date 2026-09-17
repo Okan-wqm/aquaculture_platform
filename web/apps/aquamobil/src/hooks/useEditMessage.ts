@@ -94,7 +94,10 @@ export function useEditMessage(channelId: string | undefined): UseEditMessageRes
         try {
           await addToQueue('editMessage', { id: messageId, content: trimmed });
         } catch (error) {
-          logger.error('[useEditMessage] failed to queue message edit after online attempt failed', error);
+          logger.error(
+            '[useEditMessage] failed to queue message edit after online attempt failed',
+            error,
+          );
         }
       }
     },

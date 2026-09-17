@@ -21,6 +21,8 @@ import { EquipmentSystem } from './entities/equipment-system.entity';
 import { EquipmentType } from './entities/equipment-type.entity';
 import { Equipment } from './entities/equipment.entity';
 import { FeederCalibration } from './entities/feeder-calibration.entity';
+import { FeederCapability } from './entities/feeder-capability.entity';
+import { FeederSiloMassLatest } from './entities/feeder-silo-mass-latest.entity';
 import { SubEquipmentType } from './entities/sub-equipment-type.entity';
 import { SubEquipment } from './entities/sub-equipment.entity';
 import { EquipmentResolver } from './equipment.resolver';
@@ -75,6 +77,8 @@ const QueryHandlers = [
       SubEquipment,
       SubEquipmentType,
       FeederCalibration,
+      FeederCapability,
+      FeederSiloMassLatest,
       Department,
       System,
       SubSystem,

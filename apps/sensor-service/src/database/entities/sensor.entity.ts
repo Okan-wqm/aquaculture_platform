@@ -43,6 +43,13 @@ export enum SensorType {
   ORP = 'orp',
   CHLORINE = 'chlorine',
   CO2 = 'co2',
+  /**
+   * Mass in kilograms — a load cell. Added because the platform could not
+   * express a weight anywhere, which left "this feeder dispenses by measured
+   * weight" (farm-service `FeederDispenseControl.WEIGHT_BASED`) with no
+   * measurement behind it. A feeder's silo sits on these.
+   */
+  MASS = 'mass',
 }
 
 registerEnumType(SensorType, {

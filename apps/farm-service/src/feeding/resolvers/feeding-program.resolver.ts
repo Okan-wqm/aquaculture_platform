@@ -21,8 +21,10 @@ import {
   registerEnumType,
 } from '@nestjs/graphql';
 import {
+  BadRequestException,
   UseGuards,
   Logger,
+  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { GraphQLError } from 'graphql';
@@ -36,7 +38,10 @@ import { RolesGuard, MobileFeatureGuard } from '@aquaculture/backend-common/guar
 import { StandardPaginatedResponse } from '@aquaculture/backend-common/pagination';
 import { TenantContextError, TenantScopedRepository } from '@aquaculture/backend-common/database';
 import { Feed } from '../../feed/entities/feed.entity';
-import { SubEquipment } from '../../equipment/entities/sub-equipment.entity';
+import {
+  FeederAssignment,
+  FeederAssignmentStatus,
+} from '../../feeding-protocol/entities/feeder-assignment.entity';
 
 // DTOs - Import from proper DTO directory
 import {
@@ -1119,34 +1124,60 @@ export class FeedingProgramResolver {
         mobileCommandEnvelopeFromInput(input),
       );
 
-      // Save feeder info if provided
+      // Save feeder info if provided.
+      //
+      // WHAT changed: the feeder is resolved from the unit's ACTIVE feeder
+      // assignment, not from `sub_equipment`.
+      //
+      // WHY: this column used to be documented as a "SubEquipment feeder ID"
+      // while `feeder_calibrations` keyed calibration by `equipment_id`, so the
+      // two tables described different objects and no join between them meant
+      // anything. A feeder is an Equipment row of category FEEDING — that is
+      // where the silo, the calibration and now the dose share live. Resolving
+      // through `feeder_assignments` enforces more than the type: the feeder
+      // named on a record must be one the unit actually has, so a real feeder
+      // belonging to a DIFFERENT tank can no longer be recorded here either. A
+      // database foreign key onto `equipment` backs the same decision for any
+      // writer that never passes through this resolver.
+      //
+      // The previous code swallowed a failed lookup and wrote the id anyway,
+      // which is how an unresolvable feeder id would have entered the ledger
+      // silently; an unknown feeder is now a rejected request.
       if (input.feedingMethod || input.feederEquipmentId) {
         const feederUpdate: Record<string, unknown> = {};
         if (input.feedingMethod) {
           feederUpdate.feedingMethod = input.feedingMethod;
         }
         if (input.feederEquipmentId) {
-          feederUpdate.feederEquipmentId = input.feederEquipmentId;
-          // Lookup feeder name from SubEquipment for denormalization
-          try {
-            // tenantId auto-injected by TenantScopedRepository.create; the
-            // entity class gives us full type safety vs. the prior string
-            // lookup which returned Repository<ObjectLiteral>.
-            const subEquipmentRepo = TenantScopedRepository.create(
-              this.dataSource,
-              SubEquipment,
-              tenantId,
-            );
-            const feeder = await subEquipmentRepo.findOne({
-              where: { id: input.feederEquipmentId },
-              select: ['id', 'name'],
-            });
-            if (feeder) {
-              feederUpdate.feederName = feeder.name;
-            }
-          } catch {
-            // SubEquipment lookup failed - continue without feederName
+          const execution = await this.dailyFeedingExecutionRepository.findOne({
+            where: { id: input.executionId, tenantId },
+            select: ['id', 'equipmentId'],
+          });
+          if (!execution) {
+            throw new NotFoundException(`Feeding execution not found: ${input.executionId}`);
           }
+
+          const feederAssignmentRepo = TenantScopedRepository.create(
+            this.dataSource,
+            FeederAssignment,
+            tenantId,
+          );
+          const assignment = await feederAssignmentRepo.findOne({
+            where: {
+              unitId: execution.equipmentId,
+              feederEquipmentId: input.feederEquipmentId,
+              status: FeederAssignmentStatus.ACTIVE,
+            },
+          });
+          if (!assignment) {
+            throw new BadRequestException(
+              `Feeder ${input.feederEquipmentId} is not an active feeder of this unit. ` +
+                `Assign it to the unit first (setUnitFeeders) — a feeding record may only name a feeder the unit has.`,
+            );
+          }
+
+          feederUpdate.feederEquipmentId = assignment.feederEquipmentId;
+          feederUpdate.feederName = assignment.feederName;
         }
         // SECURITY: Include tenantId in WHERE clause to prevent cross-tenant writes
         await this.dailyFeedingExecutionRepository.update(

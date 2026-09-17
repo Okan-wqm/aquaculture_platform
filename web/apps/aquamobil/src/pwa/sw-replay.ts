@@ -179,9 +179,10 @@ export interface QueueDrainLockManager {
 
 export interface BackgroundSyncScope {
   clients: {
-    matchAll(options: { type: 'window'; includeUncontrolled: boolean }): Promise<
-      ReadonlyArray<{ postMessage(message: unknown): void }>
-    >;
+    matchAll(options: {
+      type: 'window';
+      includeUncontrolled: boolean;
+    }): Promise<ReadonlyArray<{ postMessage(message: unknown): void }>>;
   };
   navigator: { locks?: QueueDrainLockManager };
 }

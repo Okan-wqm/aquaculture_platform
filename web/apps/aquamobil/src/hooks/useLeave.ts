@@ -29,10 +29,9 @@ const CACHE_TTL_LEAVE_TYPES = 1000 * 60 * 60 * 24; // 24 hours
 // ---------------------------------------------------------------------------
 
 async function fetchLeaveBalances(year: number): Promise<LeaveBalance[]> {
-  const result = await graphqlRequest<{ myLeaveBalances: LeaveBalance[] }>(
-    GET_MY_LEAVE_BALANCES,
-    { year },
-  );
+  const result = await graphqlRequest<{ myLeaveBalances: LeaveBalance[] }>(GET_MY_LEAVE_BALANCES, {
+    year,
+  });
   return result.myLeaveBalances;
 }
 
@@ -40,17 +39,15 @@ async function fetchLeaveRequests(
   status: string | undefined,
   limit: number,
 ): Promise<LeaveRequest[]> {
-  const result = await graphqlRequest<{ myLeaveRequests: LeaveRequest[] }>(
-    GET_MY_LEAVE_REQUESTS,
-    { status, limit },
-  );
+  const result = await graphqlRequest<{ myLeaveRequests: LeaveRequest[] }>(GET_MY_LEAVE_REQUESTS, {
+    status,
+    limit,
+  });
   return result.myLeaveRequests;
 }
 
 async function fetchLeaveTypes(): Promise<LeaveType[]> {
-  const result = await graphqlRequest<{ leaveTypes: LeaveType[] }>(
-    GET_LEAVE_TYPES,
-  );
+  const result = await graphqlRequest<{ leaveTypes: LeaveType[] }>(GET_LEAVE_TYPES);
   return result.leaveTypes;
 }
 
@@ -225,7 +222,10 @@ export function useLeaveTypes(): UseQueryResult<LeaveType[], Error> {
  * and leaveBalances (pendingDays increases) so the readback page shows the
  * new state immediately without waiting for staleTime to expire.
  */
-export function useSubmitLeaveRequest(): { submit: (id: string) => Promise<void>; loading: boolean } {
+export function useSubmitLeaveRequest(): {
+  submit: (id: string) => Promise<void>;
+  loading: boolean;
+} {
   const queryClient = useQueryClient();
   const { tenantId } = useAuth();
 
@@ -237,8 +237,12 @@ export function useSubmitLeaveRequest(): { submit: (id: string) => Promise<void>
       // WHY: prefix-only invalidation matches all variants of these queries
       // (any status filter, limit, tenantId, year combination) so every
       // mounted consumer gets fresh data after a state-changing mutation.
-      void queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'leaveRequests') });
-      void queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'leaveBalances') });
+      void queryClient.invalidateQueries({
+        queryKey: createTenantQueryKey(tenantId, 'leaveRequests'),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: createTenantQueryKey(tenantId, 'leaveBalances'),
+      });
     },
   });
 
@@ -259,7 +263,10 @@ export function useSubmitLeaveRequest(): { submit: (id: string) => Promise<void>
  * leaveBalances (pendingDays decreases, remainingDays increases) so the
  * readback reflects the cancellation without stale cache lag.
  */
-export function useCancelLeaveRequest(): { cancel: (id: string) => Promise<void>; loading: boolean } {
+export function useCancelLeaveRequest(): {
+  cancel: (id: string) => Promise<void>;
+  loading: boolean;
+} {
   const queryClient = useQueryClient();
   const { tenantId } = useAuth();
 
@@ -270,8 +277,12 @@ export function useCancelLeaveRequest(): { cancel: (id: string) => Promise<void>
     onSuccess: () => {
       // WHY: same prefix-only invalidation pattern as useSubmitLeaveRequest
       // to ensure all mounted leave query variants refetch.
-      void queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'leaveRequests') });
-      void queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'leaveBalances') });
+      void queryClient.invalidateQueries({
+        queryKey: createTenantQueryKey(tenantId, 'leaveRequests'),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: createTenantQueryKey(tenantId, 'leaveBalances'),
+      });
     },
   });
 

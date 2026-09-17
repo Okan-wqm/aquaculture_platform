@@ -14,6 +14,7 @@ import { VfdBrand, VfdProtocol, VfdDeviceStatus } from '../../entities/vfd.enums
 import { VfdConnectionTesterService } from '../../services/vfd-connection-tester.service';
 import { VfdDataReaderService } from '../../services/vfd-data-reader.service';
 import { VfdDeviceService } from '../../services/vfd-device.service';
+import { VfdDriveBindingService } from '../../services/vfd-drive-binding.service';
 import { VfdDeviceResolver } from '../vfd-device.resolver';
 import {
   VfdDeviceFilterDto,
@@ -84,6 +85,16 @@ describe('VfdDeviceResolver', () => {
             delete: jest.fn().mockResolvedValue(true),
             activate: jest.fn().mockResolvedValue(mockDevice),
             deactivate: jest.fn().mockResolvedValue(mockDevice),
+          },
+        },
+        {
+          provide: VfdDriveBindingService,
+          useValue: {
+            bind: jest.fn(),
+            unbind: jest.fn().mockResolvedValue(true),
+            findBinding: jest.fn().mockResolvedValue(null),
+            findUnits: jest.fn().mockResolvedValue([]),
+            resolveDrivenUnit: jest.fn().mockResolvedValue({ kind: 'unbound' }),
           },
         },
         {

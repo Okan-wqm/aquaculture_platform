@@ -21,6 +21,7 @@ import { TankBatch } from '../../entities/tank-batch.entity';
 import { RecordCullHandler } from '../../handlers/record-cull.handler';
 import { MortalityCullPolicyService } from '../../services/mortality-cull-policy.service';
 import { RemovalQuantityPolicyService } from '../../services/removal-quantity-policy.service';
+import { createStockChangeDouble, type StockChangeDouble } from '../support/stock-change-double';
 
 const ENVELOPE = { clientCommandId: 'cmd-1', payloadHash: 'hash-1' };
 
@@ -38,9 +39,11 @@ describe('RecordCullHandler', () => {
   const { mockDataSource, mockQueryRunner, mockManager } = createMockDataSource();
   const mockOutboxPublisher = mockOutbox();
   const mockAuditLogService = mockAudit();
+  let stockChange: StockChangeDouble;
 
   beforeEach(() => {
     jest.clearAllMocks();
+    stockChange = createStockChangeDouble();
     // The shared mock EntityManager has no query() wired —
     // MobileCommandReceiptService calls manager.query for begin()/complete().
     // EntityManager.query exists on the type; default it to the "started"
@@ -53,16 +56,16 @@ describe('RecordCullHandler', () => {
       createMockRepository(),
       createMockRepository(),
       mockOutboxPublisher,
-      // P-31 recalc — mocked (day-plan-recalc.service.spec kapsıyor).
-      { recalcForUnit: jest.fn().mockResolvedValue(null) } as never,
       // D-3 miktar çözümü — GERÇEK stateless politika (üretim davranışı).
       new RemovalQuantityPolicyService(),
       mockAuditLogService,
       // SEC-HIGH-051: the real fail-closed SSoT; commands below default to
       // MODULE_MANAGER so site authz bypasses for these domain-logic tests.
       new SiteAuthorizationService(),
-      // TankBatchService SSoT writer — mocked (covered by tank-batch.service.spec).
-      { applyBatchDelta: jest.fn().mockResolvedValue({}) } as never,
+      // TankBatchService stock scope — mocked (covered by tank-batch.service.spec).
+      // The recalculation the scope performs is its own guarantee, not the
+      // handler's: the handler cannot write stock without entering the scope.
+      stockChange.tankBatchService,
       new MortalityCullPolicyService(),
       mockProjection(),
       new MobileCommandReceiptService(),

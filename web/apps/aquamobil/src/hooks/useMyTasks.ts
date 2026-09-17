@@ -10,7 +10,6 @@ import type { Task } from '@/types';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 import { userScopedCacheKey } from '@/utils/user-scoped-cache-key';
 
-
 type Segment = 'today' | 'upcoming' | 'overdue';
 
 /** Return shape of {@link useMyTasks}. */
@@ -32,15 +31,25 @@ function filterBySegment(tasks: Task[], segment: Segment): Task[] {
   switch (segment) {
     case 'today':
       return tasks.filter(
-        (t) => t.dueDate?.split('T')[0] === todayStr && t.status !== 'COMPLETED' && t.status !== 'CANCELLED',
+        (t) =>
+          t.dueDate?.split('T')[0] === todayStr &&
+          t.status !== 'COMPLETED' &&
+          t.status !== 'CANCELLED',
       );
     case 'upcoming':
       return tasks.filter(
-        (t) => t.dueDate?.split('T')[0] > todayStr && t.status !== 'COMPLETED' && t.status !== 'CANCELLED',
+        (t) =>
+          t.dueDate?.split('T')[0] > todayStr &&
+          t.status !== 'COMPLETED' &&
+          t.status !== 'CANCELLED',
       );
     case 'overdue':
       return tasks.filter(
-        (t) => t.status === 'OVERDUE' || (t.dueDate?.split('T')[0] < todayStr && t.status !== 'COMPLETED' && t.status !== 'CANCELLED'),
+        (t) =>
+          t.status === 'OVERDUE' ||
+          (t.dueDate?.split('T')[0] < todayStr &&
+            t.status !== 'COMPLETED' &&
+            t.status !== 'CANCELLED'),
       );
     default:
       return tasks;
@@ -64,10 +73,9 @@ export function useMyTasks(segment: Segment = 'today'): UseMyTasksReturn {
       // SECURITY (MT-CRITICAL-051): per-user offline cache namespace.
       const cacheKey = userScopedCacheKey(user.id, 'myTasks');
       try {
-        const result = await graphqlRequest<{ myTasks: Task[] }>(
-          GET_MY_TASKS,
-          { status: ['PENDING', 'IN_PROGRESS', 'OVERDUE'] },
-        );
+        const result = await graphqlRequest<{ myTasks: Task[] }>(GET_MY_TASKS, {
+          status: ['PENDING', 'IN_PROGRESS', 'OVERDUE'],
+        });
 
         const tasks = result.myTasks || [];
         await cacheUserData(tenantId, cacheKey, tasks, 1000 * 60 * 30); // 30 min TTL
@@ -86,10 +94,7 @@ export function useMyTasks(segment: Segment = 'today'): UseMyTasksReturn {
     gcTime: 1000 * 60 * 30,
   });
 
-  const tasks = useMemo(
-    () => filterBySegment(query.data ?? [], segment),
-    [query.data, segment],
-  );
+  const tasks = useMemo(() => filterBySegment(query.data ?? [], segment), [query.data, segment]);
 
   return {
     tasks,

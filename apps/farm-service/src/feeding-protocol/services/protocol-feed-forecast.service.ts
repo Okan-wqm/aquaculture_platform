@@ -51,7 +51,12 @@ import {
   ForecastUnitTransition,
 } from '../entities/feeding-forecast-snapshot.entity';
 import { collectFeedSourceFeedIds } from './feed-fcr-source.util';
-import { ProtocolRateService } from './protocol-rate.service';
+import {
+  ProtocolRateService,
+  derivedBandWeightG,
+  tankBandWeightG,
+  type BandWeightG,
+} from './protocol-rate.service';
 
 // ============================================================================
 // SABİTLER
@@ -99,7 +104,8 @@ export interface ForecastUnitInput {
   unitCode: string;
   /** D-9 kapsam anahtarı: site UUID'si ya da 'tenant' (fallback). */
   scopeKey: string;
-  avgWeightG: number;
+  /** Ünite-otoriteli ortalama ağırlık ({@link BandWeightG} kurucuları). */
+  avgWeightG: BandWeightG;
   fishCount: number;
   biomassKg: number;
   temperatureC: number | null;
@@ -232,7 +238,7 @@ export class ProtocolFeedForecastService {
           fcrOverrides: unit.fcrOverrides,
         }).value;
         biomassKg += dailyKg / fcr;
-        avgWeightG = (biomassKg * 1000) / count;
+        avgWeightG = derivedBandWeightG(biomassKg, count);
       }
 
       mapGet(perUnitByScope, unit.scopeKey, () => [] as ForecastPerUnit[]).push({
@@ -428,7 +434,7 @@ export class ProtocolFeedForecastService {
           scopeKey: sitesWithStorage.has(assignment.siteId)
             ? assignment.siteId
             : TENANT_SCOPE_KEY,
-          avgWeightG: Number(tankBatch.avgWeightG || 0),
+          avgWeightG: tankBandWeightG(tankBatch),
           fishCount,
           biomassKg,
           temperatureC: temperatures.get(assignment.unitId)?.celsius ?? null,

@@ -19,13 +19,18 @@ export class GetSubEquipmentTypesHandler implements IQueryHandler<GetSubEquipmen
 
     const queryBuilder = this.subEquipmentTypeRepository.createQueryBuilder('subEquipmentType');
 
-    // Filter by compatibility with equipment type
+    // WHAT: exact element containment against the `text[]` column.
+    // WHY: this filter used `LIKE '%<code>%'` against the comma-joined
+    // simple-array serialisation, so a code that is a SUBSTRING of another code
+    // matched wrongly — asking for the sub-types of 'valve' also returned every
+    // sub-type compatible with 'inlet-valve', 'outlet-valve' and
+    // 'backwash-valve'. The column is now a real array (see
+    // SubEquipmentType.compatibleEquipmentTypes), and `@>` compares whole
+    // elements, so the wrong answer is no longer expressible.
     if (filter?.compatibleWithEquipmentType) {
-      // compatibleEquipmentTypes is stored as a simple-array (comma-separated string)
-      queryBuilder.andWhere(
-        "subEquipmentType.compatibleEquipmentTypes LIKE :compatible",
-        { compatible: `%${filter.compatibleWithEquipmentType}%` }
-      );
+      queryBuilder.andWhere('subEquipmentType.compatibleEquipmentTypes @> :compatible', {
+        compatible: [filter.compatibleWithEquipmentType],
+      });
     }
 
     if (filter?.isActive !== undefined) {

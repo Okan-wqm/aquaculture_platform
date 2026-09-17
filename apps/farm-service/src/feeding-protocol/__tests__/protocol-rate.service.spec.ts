@@ -7,7 +7,7 @@
  * settings min/max clamp'i; beklenen-FCR çözüm sırası OVERRIDE → BAND|MATRIX|FEED
  * (§3) ve provenans etiketi (fcrResolvedSource — K-15).
  */
-import { ProtocolRateService } from '../services/protocol-rate.service';
+import { ProtocolRateService, derivedBandWeightG } from '../services/protocol-rate.service';
 import {
   FcrResolvedSource,
   ProtocolBand,
@@ -38,26 +38,35 @@ const bands: ProtocolBand[] = [
   },
 ];
 
+/**
+ * Band resolution takes a nominal BandWeightG, not a bare number, so that a
+ * BATCH-scoped weight can never be handed to it by accident (the 0.3 defect:
+ * FCRCalculationService resolved its band from `batch.getCurrentAvgWeight()`
+ * while every plan path used the tank aggregate). These pure-math cases build
+ * the value the same way production does: from a unit's biomass and count.
+ */
+const unitWeight = (grams: number) => derivedBandWeightG(grams, 1000);
+
 describe('ProtocolRateService', () => {
   const service = new ProtocolRateService();
 
   describe('bandFor — half-open bands with edge clamping', () => {
     it('resolves the band whose [min,max) range contains the weight', () => {
-      expect(service.bandFor(bands, 50)?.index).toBe(0);
-      expect(service.bandFor(bands, 250)?.index).toBe(1);
+      expect(service.bandFor(bands, unitWeight(50))?.index).toBe(0);
+      expect(service.bandFor(bands, unitWeight(250))?.index).toBe(1);
     });
 
     it('treats the upper bound as exclusive (100g belongs to the next band)', () => {
-      expect(service.bandFor(bands, 100)?.index).toBe(1);
+      expect(service.bandFor(bands, unitWeight(100))?.index).toBe(1);
     });
 
     it('clamps below the first band and at/above the last band edge', () => {
-      expect(service.bandFor(bands, -5)?.index).toBe(0);
-      expect(service.bandFor(bands, 9999)?.index).toBe(1);
+      expect(service.bandFor(bands, unitWeight(-5))?.index).toBe(0);
+      expect(service.bandFor(bands, unitWeight(9999))?.index).toBe(1);
     });
 
     it('returns null for an empty band list', () => {
-      expect(service.bandFor([], 50)).toBeNull();
+      expect(service.bandFor([], unitWeight(50))).toBeNull();
     });
   });
 
@@ -113,7 +122,7 @@ describe('ProtocolRateService', () => {
         fcrSource: ProtocolFcrSource.MATRIX,
         protocolFcrMatrix: { temperatures: [10], weights: [200], fcrValues: [[2.2]] },
         fcrOverrides: [{ feedId: FEED_B, expectedFcr: 1.05 }],
-        avgWeightG: 200,
+        avgWeightG: unitWeight(200),
         temperatureC: 10,
       });
       expect(result).toEqual({ value: 1.05, source: FcrResolvedSource.OVERRIDE });
@@ -123,7 +132,7 @@ describe('ProtocolRateService', () => {
       const result = service.resolveExpectedFcr({
         band,
         fcrSource: ProtocolFcrSource.BAND,
-        avgWeightG: 200,
+        avgWeightG: unitWeight(200),
         temperatureC: 10,
       });
       expect(result).toEqual({ value: 1.3, source: FcrResolvedSource.BAND });
@@ -141,7 +150,7 @@ describe('ProtocolRateService', () => {
             [1.4, 1.6],
           ],
         },
-        avgWeightG: 200,
+        avgWeightG: unitWeight(200),
         temperatureC: 15,
       });
       expect(result.source).toBe(FcrResolvedSource.MATRIX);
@@ -152,7 +161,7 @@ describe('ProtocolRateService', () => {
       const result = service.resolveExpectedFcr({
         band,
         fcrSource: ProtocolFcrSource.MATRIX,
-        avgWeightG: 200,
+        avgWeightG: unitWeight(200),
         temperatureC: 15,
       });
       expect(result).toEqual({ value: 1.3, source: FcrResolvedSource.BAND });
@@ -167,7 +176,7 @@ describe('ProtocolRateService', () => {
           weights: [200],
           fcrValues: [[1.45]],
         },
-        avgWeightG: 200,
+        avgWeightG: unitWeight(200),
         temperatureC: 15,
       });
       expect(result.source).toBe(FcrResolvedSource.FEED);
@@ -179,7 +188,7 @@ describe('ProtocolRateService', () => {
         band,
         fcrSource: ProtocolFcrSource.BAND,
         fcrOverrides: [{ feedId: FEED_B, expectedFcr: 9 }],
-        avgWeightG: 200,
+        avgWeightG: unitWeight(200),
         temperatureC: 10,
       });
       expect(result.value).toBe(5);

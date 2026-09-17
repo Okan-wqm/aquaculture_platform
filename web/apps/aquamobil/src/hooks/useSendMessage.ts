@@ -25,7 +25,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useCallback } from 'react';
 
-
 import { useAuth } from './useAuth';
 import { useNetworkStatus } from './useNetworkStatus';
 import { useOfflineQueue } from './useOfflineQueue';
@@ -93,10 +92,7 @@ export function useSendMessage(channelId: string | undefined): UseSendMessageRet
         metadata: sendParams.metadata ?? null,
       };
 
-      const result = await graphqlRequest<{ sendMessage: Message }>(
-        SEND_MESSAGE,
-        { input },
-      );
+      const result = await graphqlRequest<{ sendMessage: Message }>(SEND_MESSAGE, { input });
 
       return result.sendMessage;
     },

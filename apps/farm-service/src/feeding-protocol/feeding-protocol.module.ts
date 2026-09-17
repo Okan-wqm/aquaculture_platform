@@ -12,6 +12,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { FeedingProtocolV2 } from './entities/feeding-protocol-v2.entity';
 import { ProtocolAssignment } from './entities/protocol-assignment.entity';
+import { FeederAssignment } from './entities/feeder-assignment.entity';
+import { FeederAssignmentUnitTotal } from './entities/feeder-assignment-unit-total.entity';
 import { FeedingDayPlan } from './entities/feeding-day-plan.entity';
 import { FeedingMeal } from './entities/feeding-meal.entity';
 import { FeedingForecastSnapshot } from './entities/feeding-forecast-snapshot.entity';
@@ -19,11 +21,13 @@ import { Feed } from '../feed/entities/feed.entity';
 import { Species } from '../species/entities/species.entity';
 import { ProtocolValidationService } from './services/protocol-validation.service';
 import { ProtocolRateService } from './services/protocol-rate.service';
+import { UnitProtocolResolverService } from './services/unit-protocol-resolver.service';
 import { ProtocolFeedForecastService } from './services/protocol-feed-forecast.service';
 import { FeedForecastResolver } from './resolvers/feed-forecast.resolver';
 import { ForecastRefreshListener } from './listeners/forecast-refresh.listener';
 import { MealPlanGeneratorService } from './services/meal-plan-generator.service';
 import { BiomassGrowthApplierService } from './services/biomass-growth-applier.service';
+import { FeedTypeTransitionService } from './services/feed-transition.service';
 import { DayPlanRecalcService } from './services/day-plan-recalc.service';
 import { MealExecutionService } from './services/meal-execution.service';
 import { DayPlanAdminService } from './services/day-plan-admin.service';
@@ -54,6 +58,14 @@ import {
 } from './query-handlers/feeding-protocol-v2.query-handlers';
 import { FeedingProtocolV2Resolver } from './resolvers/feeding-protocol-v2.resolver';
 import { MealExecutionResolver } from './resolvers/meal-execution.resolver';
+import { SetUnitFeedersHandler } from './handlers/feeder-assignment.handlers';
+import { GetUnitFeederAssignmentsHandler } from './query-handlers/feeder-assignment.query-handlers';
+import { FeederAssignmentResolver } from './resolvers/feeder-assignment.resolver';
+import { FeederDoseSplitService } from './services/feeder-dose-split.service';
+import { FeederDoseDirectiveService } from './services/feeder-dose-directive.service';
+import { FeederCapability } from '../equipment/entities/feeder-capability.entity';
+import { FeederCalibration } from '../equipment/entities/feeder-calibration.entity';
+import { FeederSiloMassLatest } from '../equipment/entities/feeder-silo-mass-latest.entity';
 
 @Module({
   imports: [
@@ -68,18 +80,27 @@ import { MealExecutionResolver } from './resolvers/meal-execution.resolver';
     TypeOrmModule.forFeature([
       FeedingProtocolV2,
       ProtocolAssignment,
+      FeederAssignment,
+      FeederAssignmentUnitTotal,
       FeedingDayPlan,
       FeedingMeal,
       FeedingForecastSnapshot,
       Feed,
       Species,
+      // Kalibrasyon SSoT'si equipment domain'inde yaşar; buradaki kayıt
+      // yalnızca doz→hız/süre türetmesinin okuma yoludur (yazma yolu değil).
+      FeederCapability,
+      FeederCalibration,
+      FeederSiloMassLatest,
     ]),
   ],
   providers: [
     ProtocolValidationService,
     ProtocolRateService,
+    UnitProtocolResolverService,
     MealPlanGeneratorService,
     BiomassGrowthApplierService,
+    FeedTypeTransitionService,
     DayPlanRecalcService,
     MealExecutionService,
     DayPlanAdminService,
@@ -103,18 +124,29 @@ import { MealExecutionResolver } from './resolvers/meal-execution.resolver';
     ListFeedingProtocolsV2Handler,
     GetFeedingProtocolV2Handler,
     ListProtocolAssignmentsHandler,
+    SetUnitFeedersHandler,
+    GetUnitFeederAssignmentsHandler,
+    FeederDoseSplitService,
+    FeederDoseDirectiveService,
     FeedingProtocolV2Resolver,
     MealExecutionResolver,
     FeedForecastResolver,
+    FeederAssignmentResolver,
   ],
   exports: [
     ProtocolValidationService,
     ProtocolRateService,
+    UnitProtocolResolverService,
     MealPlanGeneratorService,
     BiomassGrowthApplierService,
+    FeedTypeTransitionService,
     DayPlanRecalcService,
     MealExecutionService,
     ProtocolFeedForecastService,
+    // Doz bölme SSoT'si — öğün üretimi ve mobil pano aynı gövdeyi okur.
+    FeederDoseSplitService,
+    // Doz → sürücü hızı + motor çalışma süresi türetmesinin TEK gövdesi.
+    FeederDoseDirectiveService,
   ],
 })
 export class FeedingProtocolModule {}

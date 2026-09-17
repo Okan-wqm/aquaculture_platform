@@ -52,6 +52,47 @@ export interface BatchDetail {
 }
 
 /**
+ * Provenance of the tank's CURRENT `avgWeightG` / `totalBiomassKg`.
+ *
+ * WHY: until this column existed, a tank weight that the FCR model PROJECTED
+ * (`biomass += fedKg / assumedFCR`) and a tank weight that somebody actually
+ * WEIGHED were byte-identical in the database. Nothing downstream could tell
+ * an invented number from a measured one, so nobody could compute how wrong
+ * the projection was — the model drifted forever with no feedback signal.
+ *
+ * WHAT: a discriminated union stamped by the single TankBatch growth writer
+ * (`BiomassGrowthApplierService`). The `measurement` arm additionally carries
+ * the projected value it superseded and the resulting projection error, so
+ * "how far off was the model since the last weighing?" is a stored fact, not
+ * a derivation nobody can perform.
+ *
+ * The union tag is required by the writer's parameter type, so an untagged
+ * (provenance-less) growth write cannot be expressed.
+ */
+export type TankWeightProvenance =
+  | {
+      source: 'fcr_projection';
+      /** ISO timestamp of the write that produced the current aggregates. */
+      at: string;
+      /** FCR the growth was divided by (`growthKg = fedKg / basedOnFcr`). */
+      basedOnFcr: number;
+    }
+  | {
+      source: 'measurement';
+      /** ISO timestamp of the write that produced the current aggregates. */
+      at: string;
+      measurementId: string;
+      sampleSize: number;
+      confidencePercent: number;
+      /** Tank average weight (g) asserted by the weighing. */
+      measuredAvgWeightG: number;
+      /** Tank average weight (g) the FCR projection had reached just before this weighing re-based it. */
+      supersededProjectedAvgWeightG: number;
+      /** (measured − projected) / projected × 100. Positive = fish heavier than the model believed. */
+      projectionErrorPercent: number;
+    };
+
+/**
  * Cleaner fish detayları - Aynı tankta birden fazla cleaner fish batch olabilir
  */
 export interface CleanerFishDetail {
@@ -171,6 +212,23 @@ export class TankBatch {
   @Field(() => GraphQLJSON, { nullable: true })
   @Column({ type: 'jsonb', nullable: true })
   batchDetails?: BatchDetail[];              // Mixed batch durumunda detaylar
+
+  // -------------------------------------------------------------------------
+  // AĞIRLIK PROVENANSI
+  // -------------------------------------------------------------------------
+
+  /**
+   * Where the current `avgWeightG` / `totalBiomassKg` came from — projected by
+   * the FCR model or asserted by a weighing. Written ONLY by
+   * `BiomassGrowthApplierService` (the single growth writer); nullable because
+   * rows written before this column existed carry no provenance and must not be
+   * retro-labelled with a source nobody recorded.
+   *
+   * @see TankWeightProvenance
+   */
+  @Field(() => GraphQLJSON, { nullable: true })
+  @Column({ type: 'jsonb', nullable: true })
+  weightProvenance?: TankWeightProvenance;
 
   // -------------------------------------------------------------------------
   // CLEANER FISH TAKİBİ

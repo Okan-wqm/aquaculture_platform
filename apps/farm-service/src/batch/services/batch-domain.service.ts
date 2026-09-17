@@ -1,6 +1,11 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 
-import { Batch, BatchStatus, BatchType } from '../entities/batch.entity';
+import {
+  Batch,
+  BatchStatus,
+  BatchType,
+  OPERATIONAL_BATCH_STATUSES,
+} from '../entities/batch.entity';
 
 import { BatchLifecyclePolicyService } from './batch-lifecycle-policy.service';
 
@@ -141,14 +146,17 @@ export class BatchDomainService {
     return this.lifecyclePolicy.canTransitionStatus(batch.status, newStatus);
   }
 
-  /** Is the batch in an active production state? */
+  /**
+   * Is the batch in an active production state?
+   *
+   * WHY the status set comes from OPERATIONAL_BATCH_STATUSES rather than an
+   * inline literal: `assertFeedable` below and the running-FCR sweep scope
+   * (LIVE_BATCH_FCR_SCOPE_SQL) must agree with this method exactly. The SQL copy
+   * drifted to ('ACTIVE','GROWING') and left PRE_HARVEST/HARVESTING batches
+   * feedable-but-unwatched. One constant removes the drift surface.
+   */
   isOperational(batch: Batch): boolean {
-    return [
-      BatchStatus.ACTIVE,
-      BatchStatus.GROWING,
-      BatchStatus.PRE_HARVEST,
-      BatchStatus.HARVESTING,
-    ].includes(batch.status);
+    return OPERATIONAL_BATCH_STATUSES.includes(batch.status);
   }
 
   isCleanerFishBatch(batch: Batch): boolean {

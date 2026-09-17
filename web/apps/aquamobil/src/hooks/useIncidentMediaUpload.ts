@@ -41,11 +41,7 @@ export type IncidentMediaType = 'ESCAPE' | 'WELFARE' | 'LICE';
  * server's presign handler remains the enforcing boundary. `image/svg+xml` is
  * deliberately absent (stored-XSS vector).
  */
-export const INCIDENT_MEDIA_MIME_ALLOWLIST = [
-  'image/jpeg',
-  'image/png',
-  'image/webp',
-] as const;
+export const INCIDENT_MEDIA_MIME_ALLOWLIST = ['image/jpeg', 'image/png', 'image/webp'] as const;
 
 const ALLOWED_MIME_TYPES = new Set<string>(INCIDENT_MEDIA_MIME_ALLOWLIST);
 

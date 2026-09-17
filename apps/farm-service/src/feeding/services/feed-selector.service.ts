@@ -18,7 +18,8 @@ import {
 } from '../../batch/entities/batch-feed-assignment.entity';
 import { Feed, FeedingCurvePoint, FeedingMatrix2D } from '../../feed/entities/feed.entity';
 import { BilinearInterpolationService } from './bilinear-interpolation.service';
-import { FeedingProtocolRateService } from '../../feed/services/feeding-protocol-rate.service';
+import { UnitProtocolResolverService } from '../../feeding-protocol/services/unit-protocol-resolver.service';
+import type { BandWeightG } from '../../feeding-protocol/services/protocol-rate.service';
 
 export interface FeedSelectionResult {
   feedId: string;
@@ -56,15 +57,11 @@ export class FeedSelectorService {
     @InjectRepository(Feed)
     private readonly feedRepo: Repository<Feed>,
     private readonly bilinearService: BilinearInterpolationService,
+    // Protocol lookup + rate SSoT (unit-keyed). The same instance the tanks-page
+    // DataLoader and the legacy daily-plan engine use, so "current feed" on a
+    // tank cannot disagree with the plan generated for it.
+    private readonly unitProtocol: UnitProtocolResolverService,
   ) {}
-
-  /**
-   * Pure, dependency-free rate calculator — the single source of truth for
-   * protocol-driven feed rates. Instantiated directly (not DI) because it holds
-   * no state and no injected collaborators; the rate math still lives in exactly
-   * one class, shared with the bulk DataLoader path.
-   */
-  private readonly protocolRate = new FeedingProtocolRateService();
 
   /**
    * Preload all feed assignment and feed data for a batch into memory cache.
@@ -190,8 +187,14 @@ export class FeedSelectorService {
    *
    * @param tenantId Tenant ID
    * @param schemaName Tenant schema name
-   * @param batchId Batch ID
-   * @param avgWeightG Current average fish weight in grams
+   * @param batchId Batch ID — keys the batch_feed_assignments fallback only
+   * @param unitId `Equipment.id` of the tank/pond/cage holding the fish, or
+   *   null when the caller genuinely has no unit (a hypothetical projection).
+   *   REQUIRED, not optional: protocol authority is unit-scoped, and an
+   *   optional parameter would let a caller silently lose its protocol by
+   *   forgetting an argument. The compiler now makes that omission impossible.
+   * @param avgWeightG UNIT-authoritative average weight in grams — see
+   *   `BandWeightG`; a batch-scoped weight is a compile error.
    * @param biomassKg Current total biomass in kg
    * @param waterTemperature Optional water temperature in °C for 2D interpolation
    */
@@ -199,23 +202,25 @@ export class FeedSelectorService {
     tenantId: string,
     schemaName: string,
     batchId: string,
-    avgWeightG: number,
+    unitId: string | null,
+    avgWeightG: BandWeightG,
     biomassKg: number,
     waterTemperature?: number,
   ): Promise<FeedSelectionResult | null> {
     try {
-      // Protocol takes precedence: a batch assigned a feeding protocol drives its
-      // rate from the protocol (feedPercent band × temperature multiplier), not
-      // from the BatchFeedAssignment + Feed matrix. Falls through when the batch
-      // has no protocol / an inactive protocol / a protocol without weight bands.
-      const protocolResult = await this.selectFeedFromProtocol(
-        tenantId,
-        schemaName,
-        batchId,
-        avgWeightG,
-        biomassKg,
-        waterTemperature,
-      );
+      // Protocol takes precedence: a unit with an active protocol assignment
+      // drives its rate from the protocol band × temperature multiplier × unit
+      // override, not from the BatchFeedAssignment + Feed matrix. Falls through
+      // when the unit has no assignment or the protocol has no matching band.
+      const protocolResult = unitId
+        ? await this.selectFeedFromProtocol(
+            tenantId,
+            unitId,
+            avgWeightG,
+            biomassKg,
+            waterTemperature,
+          )
+        : null;
       if (protocolResult) {
         return protocolResult;
       }
@@ -340,87 +345,53 @@ export class FeedSelectorService {
   }
 
   /**
-   * Resolve the feed rate for a batch from its assigned FeedingProtocol.
-   * Returns null (caller falls through to the assignment path) when the batch
-   * has no protocolId, the protocol is missing/inactive, or the protocol has no
-   * usable weight bands. The feed PRODUCT (code/name) comes from the protocol's
-   * optional `feedId`; the RATE always comes from the shared rate SSoT.
+   * Resolve the feed + rate for a UNIT from its active protocol assignment.
+   * Returns null (caller falls through to the batch_feed_assignments path) when
+   * the unit has no active assignment or the protocol carries no band for this
+   * weight.
+   *
+   * WHY unit-keyed: the previous implementation read `batches_v2.protocolId`
+   * and joined the v1 `feeding_protocols` table. That column had no writer
+   * anywhere in the repo, so this branch could only ever return null — the feed
+   * product and rate shown next to a tank came from the feed matrix while the
+   * v2 engine planned that same tank from its assignment band. Authority is
+   * `feeding_protocol_assignments.unitId` (one active row per unit, enforced by
+   * a partial unique index), which is also the domain truth: the tank owns the
+   * band, the batch is traceability.
+   *
+   * WHY no `fcr`: the band carries an `expectedFcr`, but the honest FCR answer
+   * is `ProtocolRateService.resolveExpectedFcr` (override → matrix → band),
+   * which needs the protocol and feed FCR matrices this caller does not load.
+   * Reporting the band scalar as "the FCR" would be a quieter lie than leaving
+   * it undefined, which is exactly what the v1 path did.
    */
   private async selectFeedFromProtocol(
     tenantId: string,
-    schemaName: string,
-    batchId: string,
-    avgWeightG: number,
+    unitId: string,
+    avgWeightG: BandWeightG,
     biomassKg: number,
     waterTemperature?: number,
   ): Promise<FeedSelectionResult | null> {
-    const batchRows = await this.assignmentRepo.query(
-      `SELECT "protocolId" FROM "${schemaName}".batches_v2
-        WHERE "id" = $1 AND "tenantId" = $2 LIMIT 1`,
-      [batchId, tenantId],
-    );
-    const protocolId: string | null = batchRows?.[0]?.protocolId ?? null;
-    if (!protocolId) {
-      return null;
-    }
-
-    const protocolRows = await this.assignmentRepo.query(
-      `SELECT "id", "name", "feedId", "growthStageProtocols", "temperatureRanges"
-         FROM "${schemaName}".feeding_protocols
-        WHERE "id" = $1 AND "tenantId" = $2 AND "isActive" = true AND "isDeleted" = false
-        LIMIT 1`,
-      [protocolId, tenantId],
-    );
-    const protocol = protocolRows?.[0];
-    if (!protocol) {
-      return null;
-    }
-
-    const growthStageProtocols =
-      typeof protocol.growthStageProtocols === 'string'
-        ? JSON.parse(protocol.growthStageProtocols)
-        : protocol.growthStageProtocols;
-    const temperatureRanges =
-      typeof protocol.temperatureRanges === 'string'
-        ? JSON.parse(protocol.temperatureRanges)
-        : protocol.temperatureRanges;
-
-    const rate = this.protocolRate.calculateRate(
-      { growthStageProtocols, temperatureRanges },
+    const resolved = await this.unitProtocol.resolveForUnit(
+      this.assignmentRepo,
+      tenantId,
+      unitId,
       avgWeightG,
-      waterTemperature,
+      // No reading → null; a fabricated temperature must never scale the rate.
+      waterTemperature ?? null,
     );
-    if (!rate) {
+    if (!resolved) {
       return null;
-    }
-
-    const dailyFeedKg = this.calculateDailyFeed(biomassKg, rate.feedingRatePercent);
-
-    // Feed product: the protocol's recommended feed when it names one; otherwise
-    // the protocol itself is the label (rate-only protocol).
-    let feedId = '';
-    let feedCode = '';
-    let feedName: string = protocol.name ?? 'Protocol';
-    if (protocol.feedId) {
-      const feedRows = await this.feedRepo.query(
-        `SELECT "id", "code", "name" FROM "${schemaName}".feeds
-          WHERE "id" = $1 AND "tenantId" = $2 AND "isDeleted" = false LIMIT 1`,
-        [protocol.feedId, tenantId],
-      );
-      const feed = feedRows?.[0];
-      if (feed) {
-        feedId = feed.id;
-        feedCode = feed.code;
-        feedName = feed.name;
-      }
     }
 
     return {
-      feedId,
-      feedCode,
-      feedName,
-      feedingRatePercent: rate.feedingRatePercent,
-      dailyFeedKg,
+      // The feed product is denormalized onto the band, so there is no second
+      // `feeds` lookup and no way for the label to disagree with the plan.
+      feedId: resolved.feedId,
+      feedCode: resolved.feedCode,
+      feedName: resolved.feedName,
+      feedingRatePercent: resolved.effectiveRatePercent,
+      dailyFeedKg: this.calculateDailyFeed(biomassKg, resolved.effectiveRatePercent),
       usedMatrix2D: false,
     };
   }

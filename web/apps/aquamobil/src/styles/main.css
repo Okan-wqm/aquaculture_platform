@@ -1,4 +1,9 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap');
+/* v4 design tokens + self-hosted Geist. MUST precede the Tailwind layers so the
+   custom properties exist before any utility resolves `var(--…)`.
+   WHY not a Google Fonts @import (which this replaces): AquaMobil is an
+   offline-first PWA — a CDN font drops out exactly when the worker is in the
+   field with no signal, which is the case the app exists for. */
+@import './tokens.css';
 
 @tailwind base;
 @tailwind components;
@@ -35,22 +40,43 @@ html {
   overscroll-behavior-y: contain;
 }
 
-/* WHY: System font stack with DM Sans primary — provides consistent typography across
-   iOS (SF Pro fallback) and Android (Roboto fallback) while maintaining brand identity. */
+/* WHY: the v4 motion layer (spring page transitions, the springing sheet, the
+   blipping status dots) is decorative. A worker who has asked their OS for
+   reduced motion gets the same information with none of the movement — the
+   `both` fill on the entrance animations means content still ends up visible. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* WHY `background` (not `background-color`): the `colour` theme's --bg is a
+   gradient. `background-attachment: fixed` keeps it anchored so scrolling a long
+   list doesn't drag the gradient with it. Surfaces stay solid so one
+   `bg-surface-N` utility works in every theme. */
 body {
-  @apply bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-white;
-  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg);
+  background-attachment: fixed;
+  color: var(--ink1);
+  font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   /* WHY: Touch-action manipulation prevents 300ms tap delay on mobile browsers */
   touch-action: manipulation;
 }
 
-/* WHY: Konsta UI overrides align the component library's primary color with our ocean-blue brand */
+/* WHY: Konsta UI reads its accent from these variables. Pointing them at the v4
+   accent token means Konsta-based form pages retheme with the rest of the app
+   instead of staying ocean-blue in a teal UI. */
 :root {
-  --k-color-primary: #0073e6;
-  --k-color-primary-tint: #3080ff;
-  --k-color-primary-shade: #0f5bcc;
+  --k-color-primary: var(--acc);
+  --k-color-primary-tint: var(--acc);
+  --k-color-primary-shade: var(--acc);
 }
 
 /* WHY: Thin scrollbar — on mobile WebViews, visible scrollbars compete with content.
@@ -65,7 +91,8 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  @apply bg-gray-300 dark:bg-gray-700 rounded-full;
+  background: var(--line2);
+  border-radius: 9999px;
 }
 
 /* WHY: Shimmer animation provides a loading skeleton effect that signals content is arriving.
@@ -76,13 +103,12 @@ body {
 }
 
 .skeleton {
-  background: linear-gradient(
-    90deg,
-    rgba(0, 115, 230, 0.04) 25%,
-    rgba(0, 115, 230, 0.08) 50%,
-    rgba(0, 115, 230, 0.04) 75%
-  );
-  background-size: 200% 100%;
+  background:
+    linear-gradient(90deg, transparent 25%, var(--acc-dim) 50%, transparent 75%),
+    var(--s2);
+  background-size:
+    200% 100%,
+    auto;
   animation: shimmer 1.5s infinite;
 }
 
@@ -99,24 +125,22 @@ body {
 
 /* WHY: Gradient text utility for hero sections — used sparingly for visual emphasis */
 .text-gradient-ocean {
-  background: linear-gradient(135deg, #0073e6, #3080ff);
+  background: linear-gradient(135deg, var(--acc), var(--type-water));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
 
-/* WHY: Glass morphism effect for floating elements (modals, toasts) — provides visual depth
-   while maintaining readability of content behind the overlay. */
+/* WHY: Glass morphism for floating elements (sign-in card, toasts) — visual depth
+   without losing readability of what sits behind.
+   WHAT changed in v4: the two hardcoded light/dark variants collapsed into the
+   surface tokens, so glass follows the active theme instead of only knowing
+   light and dark. */
 .glass {
-  background: rgba(255, 255, 255, 0.7);
+  background: color-mix(in srgb, var(--s1) 78%, transparent);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-}
-
-.dark .glass {
-  background: rgba(30, 41, 59, 0.7);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--line2);
 }
 
 /* WHY: Slide up animation for install prompts and bottom sheets — follows Material Design
@@ -160,13 +184,13 @@ body {
 /* WHY: Selection color matches brand — when users long-press to select text,
    the highlight color should be consistent with the app's color scheme. */
 ::selection {
-  background: rgba(0, 115, 230, 0.2);
+  background: var(--acc-dim);
 }
 
-/* WHY: Input focus styles override browser defaults with our brand color —
+/* WHY: Input focus styles override browser defaults with our accent token —
    consistent focus indicators improve accessibility and brand cohesion. */
 input:focus, textarea:focus, select:focus {
   outline: none;
-  border-color: #0073e6 !important;
-  box-shadow: 0 0 0 3px rgba(0, 115, 230, 0.1) !important;
+  border-color: var(--acc) !important;
+  box-shadow: 0 0 0 3px var(--acc-dim) !important;
 }

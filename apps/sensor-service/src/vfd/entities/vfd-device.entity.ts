@@ -154,9 +154,15 @@ export class VfdDevice {
   @Column({ type: 'uuid', name: 'farm_id', nullable: true })
   farmId?: string;
 
-  @Field({ nullable: true })
-  @Column({ type: 'uuid', name: 'tank_id', nullable: true })
-  tankId?: string;
+  // The unit a drive serves is NOT a column here any more. It used to be a bare
+  // `tank_id` an operator typed, checked by nothing on either side of the service
+  // boundary — a typo pointed a feeder drive at the wrong container, overfeeding
+  // one and starving another, with no surface anywhere that would have said so.
+  // The unit is now DERIVED: VfdDriveBinding names the equipment this drive turns,
+  // and when that equipment is a feeder its units come from farm-service's
+  // FeederAssignment. `VfdDriveBindingService.resolveDrivenUnit` is the only way
+  // to ask, and it answers with a closed set of outcomes rather than a nullable
+  // uuid. There is deliberately nowhere left to store a wrong one.
 
   @Field({ nullable: true })
   @Column({ type: 'varchar', length: 255, nullable: true })
@@ -167,15 +173,16 @@ export class VfdDevice {
   description?: string;
 
   // SENSOR-HIGH-026: the registration wizard collects these but they had no
-  // backing columns, so model series / pump linkage / tags were silently
-  // dropped. (The wizard's free-text "notes" maps into `description` above.)
+  // backing columns, so model series / tags were silently dropped. (The wizard's
+  // free-text "notes" maps into `description` above.)
+  //
+  // `pump_id` was part of that set and is gone: it asked "what does this drive
+  // turn?" but could only ever answer "a pump", while a VFD equally drives a
+  // feeder or a blower. VfdDriveBinding asks the same question generically and
+  // gets the answer attested by the service that owns the equipment.
   @Field({ nullable: true })
   @Column({ type: 'varchar', length: 100, name: 'model_series', nullable: true })
   modelSeries?: string;
-
-  @Field({ nullable: true })
-  @Column({ type: 'uuid', name: 'pump_id', nullable: true })
-  pumpId?: string;
 
   // SENSOR-CRITICAL-007: edge-delegated write binding. The production write path
   // is the edge Rust gateway — the cloud publishes a signed `write_modbus`
@@ -200,20 +207,17 @@ export class VfdDevice {
   @Column({ type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown>;
 
-  @Field(() => GraphQLJSON, { nullable: true })
-  @Column({ type: 'jsonb', nullable: true })
-  customRegisterMappings?: Array<{
-    parameterName: string;
-    registerAddress: number;
-    registerCount: number;
-    functionCode: number;
-    dataType: string;
-    scalingFactor: number;
-    offset: number;
-    unit: string;
-    byteOrder: string;
-    wordOrder: string;
-  }>;
+  // `customRegisterMappings` was a per-device jsonb register override. Nothing
+  // ever wrote it — the registration wizard sent `undefined` — but edge
+  // provisioning READ it, folding any entry whose functionCode was 5/6/16 into
+  // the drive's `allowed_write_ranges`. An unvalidated blob on a row could
+  // therefore grant write authority on an actuator that moves feed into a tank,
+  // with no risk level, no motor-stop interlock and no maker-checker approval.
+  // A per-brand/per-model override already exists as first-class rows in
+  // `vfd_register_mappings` (VfdRegisterMappingService.createCustomMapping),
+  // which `getMappingsForBrand` prefers over the built-in catalogue, so the
+  // column was a second, weaker model of the same idea. Removed rather than
+  // wired: the escalation path is now structurally absent, not merely unused.
 
   @Field()
   @Column({ type: 'int', name: 'poll_interval_ms', default: 1000 })

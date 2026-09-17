@@ -239,18 +239,28 @@ export class AllocateToTankHandler implements ICommandHandler<AllocateToTankComm
       // mortality and cull all mutate a tank's stock identically — and the
       // per-batch detail is ALWAYS persisted (it was discarded for single-batch
       // tanks, which hid the just-stocked batch from the snapshot read model).
-      const savedTankBatch = await this.tankBatchService.applyBatchDelta(
+      //
+      // The stock-change scope also settles the day's feeding: stocking raises
+      // the unit's biomass, so today's REMAINING meals are repriced in this same
+      // transaction. Before this, allocation was the one stock path that skipped
+      // the recalculation entirely — the fish arrived and were fed the previous,
+      // smaller tank's ration for the rest of their first day.
+      const savedTankBatch = await this.tankBatchService.applyStockChange(
         queryRunner.manager,
         tenantId,
-        payload.tankId,
-        {
-          batchId,
-          batchNumber: batch.batchNumber,
-          quantityDelta: payload.quantity,
-          biomassDelta: biomassKg,
-          avgWeightG: payload.avgWeightG,
-        },
-        { code: equipment.code, name: equipment.name, volumeM3: Number(effectiveVolume) || 0 },
+        'allocation',
+        (stock) =>
+          stock.applyDelta(
+            payload.tankId,
+            {
+              batchId,
+              batchNumber: batch.batchNumber,
+              quantityDelta: payload.quantity,
+              biomassDelta: biomassKg,
+              avgWeightG: payload.avgWeightG,
+            },
+            { code: equipment.code, name: equipment.name, volumeM3: Number(effectiveVolume) || 0 },
+          ),
       );
 
       // Capacity flags are allocate-specific (from TankCapacityService.enforce);

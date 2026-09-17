@@ -159,7 +159,7 @@ const INVALIDATION_MAP = {
   subEquipmentUpdated: [['equipment'], ['subEquipment']],
   subEquipmentDeleted: [['equipment'], ['subEquipment']],
   supplierApprovedSitesChanged: [['suppliers'], ['sites']],
-  feederCalibrationsSaved: [['feederCalibrations'], ['equipment']],
+  feederCalibrationsSaved: [['feederSetup'], ['equipment']],
   // Öğün motoru v2 (C-2): MealBoard + atama görünümleri canlı tazelenir.
   mealFed: [['feeding-day-plans'], ['tanks', 'list']],
   mealSkipped: [['feeding-day-plans']],

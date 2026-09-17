@@ -1,6 +1,16 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { del } from 'idb-keyval';
-import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, type ReactElement, type ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  useRef,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
 
 import { clearBiometricData } from '@/hooks/useWebAuthn';
 import { clearAllOperations, clearCache } from '@/pwa/offline-queue';
@@ -21,14 +31,17 @@ interface AuthContextValue extends AuthState {
    * Complete login with pre-obtained token (e.g., from WebAuthn biometric flow).
    * Sets auth state directly without calling the login GraphQL mutation.
    */
-  loginWithToken: (accessToken: string, user: {
-    id: string;
-    email: string;
-    firstName?: string;
-    lastName?: string;
-    role: string;
-    tenantId: string | null;
-  }) => Promise<void>;
+  loginWithToken: (
+    accessToken: string,
+    user: {
+      id: string;
+      email: string;
+      firstName?: string;
+      lastName?: string;
+      role: string;
+      tenantId: string | null;
+    },
+  ) => Promise<void>;
   logout: () => Promise<void>;
   refreshAuth: () => Promise<void>;
   /**
@@ -272,7 +285,8 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
           setIsLoading(false);
           return;
         }
-        const displayName = `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email.split('@')[0];
+        const displayName =
+          `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email.split('@')[0];
 
         // SECURITY: Fail-closed — reject PANEL_ONLY users and verify mobile access
         // before restoring an authenticated session on the mobile app.
@@ -350,18 +364,23 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
       // entirely, regardless of mobile_user_settings. This is a hard block.
       if (user.accessType === 'PANEL_ONLY') {
         setIsMobileDisabled(true);
-        throw new Error('Mobile access is not enabled for your account. Please contact your administrator.');
+        throw new Error(
+          'Mobile access is not enabled for your account. Please contact your administrator.',
+        );
       }
 
       // Check if user has mobile access enabled (mobile_user_settings granular check)
       const mobileEnabled = await checkMobileEnabled(accessToken);
       if (!mobileEnabled) {
         setIsMobileDisabled(true);
-        throw new Error('Mobile access is not enabled for your account. Please contact your administrator.');
+        throw new Error(
+          'Mobile access is not enabled for your account. Please contact your administrator.',
+        );
       }
 
       // Build display name from firstName + lastName
-      const displayName = `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email.split('@')[0];
+      const displayName =
+        `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email.split('@')[0];
 
       setState({
         user: {
@@ -380,41 +399,54 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
     }
   }, []);
 
-  const loginWithToken = useCallback(async (
-    accessToken: string,
-    user: { id: string; email: string; firstName?: string; lastName?: string; role: string; tenantId: string | null },
-  ) => {
-    setIsLoading(true);
-    setIsMobileDisabled(false);
-    try {
-      // Check if user has mobile access enabled
-      const mobileEnabled = await checkMobileEnabled(accessToken);
-      if (!mobileEnabled) {
-        setIsMobileDisabled(true);
-        throw new Error('Mobile access is not enabled for your account. Please contact your administrator.');
-      }
+  const loginWithToken = useCallback(
+    async (
+      accessToken: string,
+      user: {
+        id: string;
+        email: string;
+        firstName?: string;
+        lastName?: string;
+        role: string;
+        tenantId: string | null;
+      },
+    ) => {
+      setIsLoading(true);
+      setIsMobileDisabled(false);
+      try {
+        // Check if user has mobile access enabled
+        const mobileEnabled = await checkMobileEnabled(accessToken);
+        if (!mobileEnabled) {
+          setIsMobileDisabled(true);
+          throw new Error(
+            'Mobile access is not enabled for your account. Please contact your administrator.',
+          );
+        }
 
-      const displayName = `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email.split('@')[0];
+        const displayName =
+          `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email.split('@')[0];
 
-      setState({
-        user: {
-          id: user.id,
-          email: user.email,
-          name: displayName,
-          // FE-MEDIUM-051: validate the inbound role against the canonical
-          // backend `Role` (fail-closed) — no cast to a drifted union.
-          role: normalizeRole(user.role),
+        setState({
+          user: {
+            id: user.id,
+            email: user.email,
+            name: displayName,
+            // FE-MEDIUM-051: validate the inbound role against the canonical
+            // backend `Role` (fail-closed) — no cast to a drifted union.
+            role: normalizeRole(user.role),
+            tenantId: user.tenantId,
+          },
+          accessToken,
+          refreshToken: null,
           tenantId: user.tenantId,
-        },
-        accessToken,
-        refreshToken: null,
-        tenantId: user.tenantId,
-        isAuthenticated: true,
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+          isAuthenticated: true,
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [],
+  );
 
   // MT-CRITICAL-050 / MT-MEDIUM-050: logout is ASYNC and AWAITS a full local
   // data wipe BEFORE the auth state is reset, so no window exists in which the
@@ -549,10 +581,11 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
         // in sync with the fresh JWT claims. If the server returns user data,
         // merge it; otherwise preserve existing state (defensive).
         if (refreshedUser) {
-          const displayName = `${refreshedUser.firstName || ''} ${refreshedUser.lastName || ''}`.trim()
-            || refreshedUser.email?.split('@')[0]
-            || prev.user?.name
-            || '';
+          const displayName =
+            `${refreshedUser.firstName || ''} ${refreshedUser.lastName || ''}`.trim() ||
+            refreshedUser.email?.split('@')[0] ||
+            prev.user?.name ||
+            '';
           return {
             ...prev,
             accessToken,
@@ -561,7 +594,12 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
             // `Role` (fail-closed); fall back to the prior role if the refresh
             // response omitted it so a partial response never strips privilege.
             user: prev.user
-              ? { ...prev.user, ...refreshedUser, name: displayName, role: normalizeRole(refreshedUser.role ?? prev.user.role) }
+              ? {
+                  ...prev.user,
+                  ...refreshedUser,
+                  name: displayName,
+                  role: normalizeRole(refreshedUser.role ?? prev.user.role),
+                }
               : prev.user,
           };
         }
@@ -611,10 +649,11 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
       // Update React state with fresh token and tenantId
       setState((prev) => {
         if (refreshedUser) {
-          const displayName = `${refreshedUser.firstName || ''} ${refreshedUser.lastName || ''}`.trim()
-            || refreshedUser.email?.split('@')[0]
-            || prev.user?.name
-            || '';
+          const displayName =
+            `${refreshedUser.firstName || ''} ${refreshedUser.lastName || ''}`.trim() ||
+            refreshedUser.email?.split('@')[0] ||
+            prev.user?.name ||
+            '';
           return {
             ...prev,
             accessToken: newToken,
@@ -622,7 +661,12 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
             // FE-MEDIUM-051: normalize the refreshed role to the canonical
             // `Role` (fail-closed); preserve the prior role on a partial response.
             user: prev.user
-              ? { ...prev.user, ...refreshedUser, name: displayName, role: normalizeRole(refreshedUser.role ?? prev.user.role) }
+              ? {
+                  ...prev.user,
+                  ...refreshedUser,
+                  name: displayName,
+                  role: normalizeRole(refreshedUser.role ?? prev.user.role),
+                }
               : prev.user,
           };
         }
@@ -637,7 +681,6 @@ export function AuthProvider({ children }: { children: ReactNode }): ReactElemen
     } catch {
       return false;
     }
-   
   }, [state.tenantId]);
 
   useEffect(() => {

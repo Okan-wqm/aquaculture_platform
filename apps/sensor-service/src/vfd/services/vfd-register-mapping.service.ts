@@ -8,9 +8,11 @@ import {
   getCriticalParameters,
   getParametersByCategory,
   getWritableParameters,
+  getVfdConfigRegisters,
 } from '../brand-configs';
 import { VfdRegisterMapping, VfdRegisterMappingInput } from '../entities/vfd-register-mapping.entity';
 import { VfdBrand, VfdParameterCategory, VfdDataType, ByteOrder } from '../entities/vfd.enums';
+import { VfdConfigRegisterInput } from '../entities/vfd.types';
 
 /**
  * VFD Register Mapping Service
@@ -49,9 +51,63 @@ export class VfdRegisterMappingService {
   }
 
   /**
+   * Every register the EDGE gateway must be able to READ for a drive of this
+   * brand: the telemetry catalogue (`VFD_BRAND_REGISTERS`, live process values)
+   * UNION the configuration catalogue (`VFD_BRAND_CONFIG_REGISTERS`, the
+   * programmable parameters).
+   *
+   * WHY this union exists as one method instead of two calls at the callsite:
+   * the edge's `read_modbus` answers with exactly the registers the drive was
+   * PROVISIONED with, and every cloud-side read extracts its target BY ADDRESS
+   * out of that answer (`VfdEdgeReadService.extractRegister`). An address that
+   * was never provisioned is therefore unreadable in production and comes back
+   * `found:false` — which is precisely why every configuration parameter was
+   * unreadable while provisioning drew its register map from the telemetry
+   * catalogue alone. Assembling the union anywhere but here would let the two
+   * halves drift apart again.
+   *
+   * WHAT it does: telemetry mappings first (so DB overrides resolved by
+   * `getMappingsForBrand` keep precedence), then every configuration register
+   * whose address is not already claimed — by the telemetry half OR by a
+   * configuration register already taken. Telemetry wins a cross-catalogue
+   * collision because the telemetry decoder (`buildVfdReadResult`) is written
+   * against that entry's name, scaling and data type; Delta (1537) and
+   * Mitsubishi (1, 2) genuinely publish the same address in both catalogues, and
+   * Mitsubishi's configuration catalogue claims 9 twice on its own. Provisioning
+   * one address twice would make the edge read that register twice per cycle and
+   * answer with two entries for it.
+   *
+   * The telemetry half is passed through UNTOUCHED, including Siemens' own
+   * duplicate at address 25 — collapsing it here would change what telemetry
+   * decodes today, and that catalogue defect is not this method's to decide.
+   *
+   * READABILITY ONLY. Write authority is a separate decision carried by
+   * `getWritableMappings` into the edge's `allowed_write_ranges`; membership in
+   * this set grants nothing on the write path. The edge's `ModbusRegisterConfig`
+   * has no writability field at all, and `ModbusClient::validate_write_address`
+   * gates every write on the ranges alone.
+   */
+  async getEdgeReadableMappings(
+    brand: VfdBrand,
+    modelSeries?: string,
+  ): Promise<VfdRegisterMapping[]> {
+    const telemetry = await this.getMappingsForBrand(brand, modelSeries);
+    const claimedAddresses = new Set(telemetry.map((m) => m.registerAddress));
+    const configOnly: VfdConfigRegisterInput[] = [];
+    for (const register of getVfdConfigRegisters(brand)) {
+      if (claimedAddresses.has(register.registerAddress)) {
+        continue;
+      }
+      claimedAddresses.add(register.registerAddress);
+      configOnly.push(register);
+    }
+    return [...telemetry, ...this.convertToEntities(configOnly)];
+  }
+
+  /**
    * Get critical parameters for real-time monitoring
    */
-   
+
   async getCriticalMappings(brand: VfdBrand): Promise<VfdRegisterMapping[]> {
     const criticalInputs = getCriticalParameters(brand);
     return this.convertToEntities(criticalInputs);

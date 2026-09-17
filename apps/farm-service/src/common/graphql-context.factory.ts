@@ -17,19 +17,24 @@ import { EquipmentDataLoaders } from './types/graphql-context.types';
 import { createTankBatchLoader } from '../equipment/dataloaders/tank-batch.dataloader';
 import { createBatchSpeciesLoader } from '../equipment/dataloaders/batch-species.dataloader';
 import { createFeedSelectionLoader } from '../equipment/dataloaders/feed-selection.dataloader';
+import { UnitProtocolResolverService } from '../feeding-protocol/services/unit-protocol-resolver.service';
 
 @Injectable()
 export class GraphQLContextFactory {
   constructor(
     @InjectRepository(TankBatch)
     private readonly tankBatchRepository: Repository<TankBatch>,
+    // Protocol lookup + rate SSoT. Injected rather than constructed inside the
+    // loader factory so the tanks page shares ONE resolver with the feeding
+    // engine — there is no second instance that could grow a second formula.
+    private readonly unitProtocol: UnitProtocolResolverService,
   ) {}
 
   createLoaders(): EquipmentDataLoaders {
     return {
       tankBatchLoader: createTankBatchLoader(this.tankBatchRepository),
       batchSpeciesLoader: createBatchSpeciesLoader(this.tankBatchRepository),
-      feedSelectionLoader: createFeedSelectionLoader(this.tankBatchRepository),
+      feedSelectionLoader: createFeedSelectionLoader(this.tankBatchRepository, this.unitProtocol),
     };
   }
 }

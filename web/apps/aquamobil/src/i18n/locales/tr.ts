@@ -12,6 +12,7 @@ export const tr: Record<MessageKey, string> = {
   'common.cancel': 'İptal',
   'common.close': 'Kapat',
   'common.optional': 'İsteğe bağlı',
+  'common.retry': 'Tekrar dene',
 
   // ── Yemleme (öğün cutover'ı) ──
   'feeding.title': 'Yemleme Kaydı',
@@ -24,6 +25,9 @@ export const tr: Record<MessageKey, string> = {
   'feeding.noPlansToday': 'Bugün için yemleme planı yok',
   'feeding.noPlansTodayHint':
     'Gün planları, aktif protokol ataması olan üniteler için her sabah üretilir.',
+  'feeding.plansError': 'Yemleme planları yüklenemedi',
+  'feeding.plansErrorHint':
+    'Bugünün planları okunamadı — boş değil, bilinmiyor. Kaydettikleriniz yine bu cihazda kuyruğa alınır.',
   'feeding.progress': '{done}/{total} öğün',
   'feeding.plannedTotal': 'Planlanan toplam',
   'feeding.feed': 'Yem',

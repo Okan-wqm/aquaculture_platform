@@ -48,6 +48,33 @@ void test('allows a quoted search_path configuration clause on CREATE PROCEDURE'
   `);
 });
 
+void test('allows ALTER FUNCTION pinning a routine to its own schema', () => {
+  // The CREATE spelling needs the schema as a literal, so a migration that fans
+  // out across tenant schemas can only pin its trigger functions afterwards,
+  // with the schema resolved at run time. That is a routine attribute, not a
+  // session mutation.
+  expectR4Pass(`
+    DO $mig$
+    DECLARE
+      v_schema text := current_schema();
+    BEGIN
+      EXECUTE format(
+        'ALTER FUNCTION %I.reconcile_unit_total(uuid, uuid) SET search_path TO %I, pg_temp',
+        v_schema, v_schema);
+      EXECUTE format(
+        'ALTER PROCEDURE %I.some_procedure() SET "search_path" = %I, pg_temp',
+        v_schema, v_schema);
+    END $mig$;
+  `);
+});
+
+void test('still rejects a standalone SET that follows an ALTER FUNCTION statement', () => {
+  expectR4Failure(`
+    ALTER FUNCTION hardened() SET search_path TO config, pg_temp;
+    SET search_path TO tenant_one, public;
+  `);
+});
+
 void test('rejects standalone and explicitly session-scoped search_path changes', () => {
   expectR4Failure(
     `

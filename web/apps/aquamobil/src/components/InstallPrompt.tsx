@@ -1,6 +1,24 @@
-import { Download, X, Smartphone } from 'lucide-react';
+/**
+ * InstallPrompt — the "add AquaMobil to your home screen" invitation.
+ *
+ * WHY it is the kit's <Sheet> and not a hand-rolled banner (ORPHAN-MEDIUM-573):
+ * this was one of three overlays the app rolled by hand, and none of them
+ * trapped focus or returned it to the opener — a keyboard or screen-reader user
+ * met a dialog they could tab straight out of and then had to hunt for their
+ * place again. <Sheet> owns that whole contract in one place: Escape closes,
+ * focus enters on open and returns on close, Tab wraps inside the panel, the
+ * page behind stops scrolling, and the scrim is a real, keyboard-operable
+ * button. Adopting it deletes the bespoke overlay rather than re-fixing it here.
+ *
+ * Dismissal semantics are unchanged in substance and now cover every exit: the
+ * sheet's Close, its scrim and Escape all run `handleDismiss`, so the 24-hour
+ * suppression is recorded however the worker gets out — previously only the X
+ * recorded it.
+ */
+import { Download, Smartphone } from 'lucide-react';
 import { useState, useEffect, type ReactElement } from 'react';
 
+import { Button, Sheet } from '@/components/ui';
 import { runAsyncAction } from '@/utils/async-action';
 
 interface BeforeInstallPromptEvent extends Event {
@@ -33,8 +51,7 @@ export function InstallPrompt(): ReactElement | null {
   useEffect(() => {
     // Check if already running as installed PWA
     const standalone =
-      window.matchMedia('(display-mode: standalone)').matches ||
-      isIosStandalone(window.navigator);
+      window.matchMedia('(display-mode: standalone)').matches || isIosStandalone(window.navigator);
     setIsStandalone(standalone);
 
     if (standalone) return;
@@ -95,44 +112,61 @@ export function InstallPrompt(): ReactElement | null {
   if (!showBanner || isStandalone) return null;
 
   return (
-    <div className="fixed bottom-20 left-4 right-4 z-50 animate-slide-up">
-      <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-elevated border border-gray-100 dark:border-gray-800 p-4">
-        <div className="flex items-start gap-3">
-          <div className="w-12 h-12 bg-ocean-50 dark:bg-ocean-900/20 rounded-xl flex items-center justify-center flex-shrink-0">
-            <Smartphone size={24} className="text-ocean-600" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <h3 className="font-bold text-gray-900 dark:text-white text-sm">Install AquaMobil</h3>
-            {isIOS ? (
-              <p className="text-xs text-gray-500 mt-1 leading-relaxed">
-                Tap the <span className="inline-flex items-center"><svg className="w-4 h-4 inline text-ocean-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg></span> share button, then <strong>&quot;Add to Home Screen&quot;</strong>
-              </p>
-            ) : (
-              <p className="text-xs text-gray-500 mt-1">
-                Add to your home screen for quick access and offline support
-              </p>
-            )}
-          </div>
-          <button
-            onClick={handleDismiss}
-            className="p-1 text-gray-400 hover:text-gray-600 flex-shrink-0"
-          >
-            <X size={18} />
-          </button>
-        </div>
-
-        {!isIOS && deferredPrompt && (
-          <button
+    // `open` is a literal because the guard above already decided visibility —
+    // keeping it means Sheet's scroll lock and focus trap are only ever mounted
+    // while the prompt is actually on screen.
+    <Sheet
+      open
+      onClose={handleDismiss}
+      title="Install AquaMobil"
+      footer={
+        !isIOS && deferredPrompt ? (
+          <Button
+            variant="primary"
+            block
             onClick={() => {
               runAsyncAction(handleInstall, 'pwa-install-prompt');
             }}
-            className="w-full mt-3 py-2.5 bg-ocean-600 hover:bg-ocean-700 text-white font-semibold rounded-xl text-sm flex items-center justify-center gap-2 touch-feedback transition-colors"
           >
-            <Download size={16} />
+            <Download size={16} aria-hidden />
             Install App
-          </button>
+          </Button>
+        ) : undefined
+      }
+    >
+      <div className="px-5 pb-5 flex items-start gap-3">
+        <div className="w-12 h-12 bg-acc-dim rounded-xl flex items-center justify-center shrink-0">
+          <Smartphone size={24} className="text-acc" aria-hidden />
+        </div>
+        {isIOS ? (
+          <p className="text-body text-ink-2 leading-relaxed">
+            Tap the{' '}
+            <span className="inline-flex items-center">
+              {/* aria-hidden: the sentence already names the share button, so the
+                  glyph is a picture of the word beside it and nothing more. */}
+              <svg
+                className="w-4 h-4 inline text-acc"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                aria-hidden="true"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
+                />
+              </svg>
+            </span>{' '}
+            share button, then <strong>&quot;Add to Home Screen&quot;</strong>
+          </p>
+        ) : (
+          <p className="text-body text-ink-2 leading-relaxed">
+            Add to your home screen for quick access and offline support
+          </p>
         )}
       </div>
-    </div>
+    </Sheet>
   );
 }

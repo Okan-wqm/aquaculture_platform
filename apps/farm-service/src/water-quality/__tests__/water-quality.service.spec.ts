@@ -314,13 +314,10 @@ describe('WaterQualityService — single-ingress validation', () => {
       );
       // Persist artık transaction manager'ından geçer (kayıt + recalc atomik).
       expect(mockManager.save).toHaveBeenCalledTimes(1);
-      expect(recalcForUnitMock).toHaveBeenCalledWith(
-        expect.anything(),
-        TENANT,
-        'tank-1',
-        'temperature',
-        { newTemperatureC: 12.5 },
-      );
+      expect(recalcForUnitMock).toHaveBeenCalledWith(expect.anything(), TENANT, 'tank-1', {
+        reason: 'temperature',
+        newTemperatureC: 12.5,
+      });
     });
 
     it('rejects an out-of-range temperature without saving', async () => {

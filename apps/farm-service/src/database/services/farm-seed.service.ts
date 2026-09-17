@@ -42,7 +42,10 @@ import { DataSource, QueryRunner } from 'typeorm';
 import { randomUUID } from 'crypto';
 import { BypassRlsService } from '@aquaculture/backend-common/database';
 import { GLOBAL_TENANT_UUID } from '@aquaculture/backend-common/tenant';
-import { EQUIPMENT_TYPES_SEED } from '../../equipment/seeds/equipment-types.seed';
+import {
+  EQUIPMENT_TYPES_SEED,
+  SUB_EQUIPMENT_TYPES_SEED,
+} from '../../equipment/seeds/equipment-types.seed';
 import { CHEMICAL_TYPES_SEED } from '../../chemical/seeds/chemical-types.seed';
 import { SUPPLIER_TYPES_SEED } from '../../supplier/seeds/supplier-types.seed';
 
@@ -123,6 +126,16 @@ export class FarmSeedService implements OnApplicationBootstrap {
 
     try {
       await this.seedEquipmentTypes(queryRunner);
+      // WHY here and not elsewhere: `sub_equipment_types` is declared a farm
+      // reference table (MODULE_SCHEMAS.referenceDataTables) and is copied into
+      // every tenant schema by copyReferenceData(), but NOTHING ever wrote a row
+      // into the source table — SUB_EQUIPMENT_TYPES_SEED was imported by no file
+      // in the repository and no SQL seed existed, so the whole sub-equipment
+      // tier shipped empty and was unreachable on a fresh tenant. Seeding it
+      // immediately after the equipment types matters: the compatibility index
+      // is derived from EQUIPMENT_TYPES_SEED, so the two catalogues land in one
+      // transaction and can never be half-applied.
+      await this.seedSubEquipmentTypes(queryRunner);
       await this.seedChemicalTypes(queryRunner);
       await this.seedSupplierTypes(queryRunner);
       await this.seedGlobalCleanerFishSpecies(queryRunner);
@@ -378,6 +391,66 @@ export class FarmSeedService implements OnApplicationBootstrap {
     }
 
     this.logger.log(`  Seeded ${EQUIPMENT_TYPES_SEED.length} equipment types`);
+  }
+
+  /**
+   * Sub-equipment types seed — mirrors seedEquipmentTypes' upsert-by-code shape.
+   *
+   * WHAT: writes SUB_EQUIPMENT_TYPES_SEED into `sub_equipment_types`, whose
+   * `compatibleEquipmentTypes` values are derived from the equipment catalogue
+   * seeded immediately above (never hand-listed, so the two cannot disagree).
+   *
+   * WHY the UPDATE rewrites compatibleEquipmentTypes on every run: when an
+   * equipment type gains or loses a slot in `allowedSubEquipmentTypes`, the
+   * derived inverse index changes, and a seed that only INSERTed would leave
+   * existing rows describing a relation the catalogue no longer declares.
+   */
+  private async seedSubEquipmentTypes(queryRunner: QueryRunner): Promise<void> {
+    this.logger.log('  Seeding sub-equipment types...');
+
+    for (const st of SUB_EQUIPMENT_TYPES_SEED) {
+      const exists = await queryRunner.query(`SELECT id FROM sub_equipment_types WHERE code = $1`, [
+        st.code,
+      ]);
+
+      if (exists.length > 0) {
+        await queryRunner.query(
+          `UPDATE sub_equipment_types
+             SET name = $1,
+                 description = $2,
+                 "compatibleEquipmentTypes" = $3,
+                 "specificationSchema" = $4,
+                 "sortOrder" = $5,
+                 "updatedAt" = NOW()
+           WHERE code = $6`,
+          [
+            st.name,
+            st.description,
+            st.compatibleEquipmentTypes,
+            JSON.stringify(st.specificationSchema),
+            st.sortOrder,
+            st.code,
+          ],
+        );
+      } else {
+        await queryRunner.query(
+          `INSERT INTO sub_equipment_types
+             (id, name, code, description, "compatibleEquipmentTypes", "specificationSchema",
+              "isActive", "isSystem", "sortOrder", "createdAt", "updatedAt")
+           VALUES (uuid_generate_v4(), $1, $2, $3, $4, $5, true, true, $6, NOW(), NOW())`,
+          [
+            st.name,
+            st.code,
+            st.description,
+            st.compatibleEquipmentTypes,
+            JSON.stringify(st.specificationSchema),
+            st.sortOrder,
+          ],
+        );
+      }
+    }
+
+    this.logger.log(`  Seeded ${SUB_EQUIPMENT_TYPES_SEED.length} sub-equipment types`);
   }
 
   /**

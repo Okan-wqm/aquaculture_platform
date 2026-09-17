@@ -33,6 +33,19 @@ export class SensorReadings {
 
   @Field(() => Float, { nullable: true })
   waterLevel?: number;
+
+  /**
+   * Mass in KILOGRAMS (`SensorType.MASS` — load cells).
+   *
+   * Added with the mass parameter itself: the platform previously had no way to
+   * express a weight, so a `SensorReadingParameter` of `'mass'` would have had
+   * no field here to index and the projection would have silently produced
+   * nothing. The consumer is farm-service's feeder silo-mass read model, which
+   * is what makes "this feeder dispenses by measured weight" a checkable claim
+   * rather than a configuration flag.
+   */
+  @Field(() => Float, { nullable: true })
+  mass?: number;
 }
 
 /**

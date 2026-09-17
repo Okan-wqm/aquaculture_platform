@@ -3,9 +3,19 @@
  * @description Reusable confirmation modal for destructive actions (leave channel,
  * delete channel, delete message). Follows iOS/Android alert dialog conventions
  * with backdrop dismiss and 48dp minimum touch targets.
+ *
+ * WHY this stayed a centred alert instead of becoming the kit's <Sheet>: Sheet is
+ * a bottom sheet with its own open/close contract, focus trap, Escape handler and
+ * scroll lock, and it springs from the dock. Swapping it in would change the
+ * component's modality, its prop shape (this one is mounted conditionally by the
+ * parent and has no `open`) and where the destructive choice appears on screen —
+ * none of which is a restyle. The SURFACE is now the kit's <Card> and the actions
+ * are the kit's <Button>, so the parts that could be adopted mechanically were.
  */
 
 import type { ReactElement } from 'react';
+
+import { Button, Card } from '@/components/ui';
 
 interface ConfirmDialogProps {
   /** Dialog title. */
@@ -14,7 +24,11 @@ interface ConfirmDialogProps {
   message: string;
   /** Text for the confirm button. */
   confirmLabel: string;
-  /** Tailwind background class for the confirm button. Defaults to bg-red-600. */
+  /**
+   * Tailwind background class for the confirm button. Defaults to the `danger`
+   * variant's own alarm fill, so callers only pass this to say something other
+   * than "destructive".
+   */
   confirmColor?: string;
   /** Called when the user confirms the action. */
   onConfirm: () => void;
@@ -34,7 +48,12 @@ export function ConfirmDialog({
   onCancel,
 }: ConfirmDialogProps): ReactElement {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center px-6" role="dialog" aria-modal="true" aria-label={title}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center px-6"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+    >
       {/* WHY a native <button> backdrop: a clickable dismiss target must be
           keyboard-operable and focusable. A native button supplies Enter/Space
           activation, focus, and the correct role with no extra handlers. */}
@@ -44,28 +63,20 @@ export function ConfirmDialog({
         onClick={onCancel}
         aria-label="Dismiss dialog"
       />
-      <div className="relative bg-white dark:bg-gray-900 rounded-2xl shadow-xl max-w-sm w-full p-6">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
-          {title}
-        </h3>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
-          {message}
-        </p>
+      <Card className="relative max-w-sm w-full p-6">
+        <h3 className="text-head font-semibold text-ink-1 mb-2">{title}</h3>
+        <p className="text-body text-ink-2 mb-6">{message}</p>
         <div className="flex gap-3">
-          <button
-            onClick={onCancel}
-            className="flex-1 min-h-[48px] py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 font-medium text-sm transition-colors"
-          >
+          <Button variant="secondary" block onClick={onCancel}>
             Cancel
-          </button>
-          <button
-            onClick={onConfirm}
-            className={`flex-1 min-h-[48px] py-2.5 rounded-xl ${confirmColor ?? 'bg-red-600'} text-white font-medium text-sm transition-colors`}
-          >
+          </Button>
+          {/* `danger` already fills with the alarm token; confirmColor overrides
+              it via twMerge for the rare non-destructive confirmation. */}
+          <Button variant="danger" block className={confirmColor} onClick={onConfirm}>
             {confirmLabel}
-          </button>
+          </Button>
         </div>
-      </div>
+      </Card>
     </div>
   );
 }

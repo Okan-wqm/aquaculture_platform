@@ -15,19 +15,39 @@
  * corresponding domain write was lost, and the domain never commits
  * a measurement whose event failed to enqueue.
  *
+ * # Why a weighing reaches the TANK, not just the batch
+ *
+ * This handler used to save the measurement, stamp `Batch.weight.actual`,
+ * and stop. Every plan / band / rate path in the platform reads
+ * `TankBatch.avgWeightG` — the meal-plan generator, the day-plan recalc,
+ * the feed forecast and the tanks-page feed selector — so the measurement
+ * never reached the feeding plan. Biomass evolved forever as
+ * `biomass += fedKg / assumedFCR`: weighing 200 fish and finding them 40%
+ * off changed NOTHING about how much feed the tank got the next morning.
+ *
+ * The fix routes the sample through the SAME primitive the FCR path uses
+ * (`BiomassGrowthApplierService`) — same canonical lock order, same
+ * proportional distribution across `batchDetails[]`, DIFFERENT provenance —
+ * and then reprices the unit's live day plan. A weighing is now the
+ * authoritative input to the feeding plan, which is the whole point.
+ *
+ * A weighing asserts an average WEIGHT, never a population: the fish count
+ * stays owned by `TankBatchService.applyBatchDelta`. See
+ * `BiomassGrowthApplierService.reconcileMeasuredWeight`.
+ *
  * # Why we take a pessimistic lock on the batch
  *
- * The batch row is re-read INSIDE the transaction with
- * pessimistic_write (mirroring record-mortality). Under derive-on-read
- * biomass, the only fields a growth sample may mutate on the batch are
- * the weight.actual provenance fields (avgWeight, totalBiomass,
- * lastMeasuredAt, sampleSize, confidencePercent). We write ONLY those
- * onto the freshly-locked in-tx row instead of saving a stale,
- * externally-loaded snapshot of the whole entity — otherwise a sample
- * that loaded the batch before a concurrent mortality/cull committed
- * would, on save, revert that handler's currentQuantity / feed
- * decrements (lost-update). Locking + a field-scoped write makes the
- * lost-update structurally impossible.
+ * The unit is locked in the canonical order (all of the unit's batches by
+ * batchId ASC, then the TankBatch row) via `lockUnitForGrowth`, and the
+ * sampled batch is taken FROM that locked set — acquiring the batch lock
+ * first and the unit lock second would invert the order two concurrent
+ * writers on the same tank rely on (AB-BA deadlock). We then mutate ONLY
+ * the weight provenance fields on the freshly-locked in-tx rows instead of
+ * saving a stale, externally-loaded snapshot of the whole entity —
+ * otherwise a sample that loaded the batch before a concurrent
+ * mortality/cull committed would, on save, revert that handler's
+ * currentQuantity / feed decrements (lost-update). Locking + a
+ * field-scoped write makes the lost-update structurally impossible.
  *
  * @module Growth/Handlers
  */
@@ -46,6 +66,12 @@ import { GrowthMeasurement, MeasurementType, MeasurementMethod, StatisticalSumma
 import { Batch } from '../../batch/entities/batch.entity';
 import { FCRCalculationService } from '../services/fcr-calculation.service';
 import { BackdatePolicyService } from '../../common/services/backdate-policy.service';
+import {
+  BiomassGrowthApplierService,
+  type MeasurementProvenance,
+} from '../../feeding-protocol/services/biomass-growth-applier.service';
+import { DayPlanRecalcService } from '../../feeding-protocol/services/day-plan-recalc.service';
+import { resolveUnitHoldingBatch } from '../../batch/utils/unit-for-batch.util';
 
 // Growth statistics (StatisticalSummary.weight.confidenceInterval) are computed
 // at a 95% confidence interval, so a recorded sample stamps the batch weight
@@ -64,6 +90,14 @@ export class RecordGrowthSampleHandler implements ICommandHandler<RecordGrowthSa
     private readonly fcrService: FCRCalculationService,
     private readonly backdatePolicy: BackdatePolicyService,
     private readonly outboxPublisher: OutboxPublisher,
+    // The SAME primitive the FCR path writes through — one writer of a unit's
+    // weight, two provenances. A parallel measurement writer would re-open the
+    // divergence this phase closes.
+    private readonly growthApplier: BiomassGrowthApplierService,
+    // A weighing that does not reprice the live day plan is a weighing the
+    // operator cannot act on today; the next 06:00 plan already reads the
+    // re-based TankBatch aggregates.
+    private readonly recalcService: DayPlanRecalcService,
   ) {}
 
   async execute(command: RecordGrowthSampleCommand): Promise<GrowthMeasurement> {
@@ -206,38 +240,90 @@ export class RecordGrowthSampleHandler implements ICommandHandler<RecordGrowthSa
     // per pinTenantTransactionSearchPath), so the locked read + per-tenant
     // writes (batches_v2, growth_measurements) land in the correct schema.
     return runInTenantTransaction(this.dataSource, 'farm', tenantId, async (queryRunner) => {
-      const saved = await queryRunner.manager.save(GrowthMeasurement, measurement);
+      const manager = queryRunner.manager;
+      const saved = await manager.save(GrowthMeasurement, measurement);
+
+      // The unit this sample sizes. Fail-closed when the batch spans several
+      // tanks and the operator did not name one (see resolveUnitHoldingBatch).
+      const unitId = await resolveUnitHoldingBatch(
+        manager,
+        tenantId,
+        payload.batchId,
+        payload.tankId,
+      );
 
       if (saved.updateBatchWeight) {
-        // Re-read the batch under pessimistic_write INSIDE the tx so the write
-        // targets the live row, not the stale snapshot loaded above. We mutate
-        // ONLY the weight.actual provenance fields — never the whole entity —
-        // so a concurrent mortality/cull/harvest that decremented
-        // currentQuantity/feed cannot be reverted by this sample (lost-update).
-        const lockedBatch = await queryRunner.manager.findOne(Batch, {
-          where: { id: payload.batchId, tenantId },
-          lock: { mode: 'pessimistic_write' },
-        });
-        if (!lockedBatch) {
-          throw new NotFoundException(`Batch ${payload.batchId} bulunamadı`);
+        // Statistics are computed at a 95% confidence interval
+        // (StatisticalSummary.weight.confidenceInterval), so the provenance
+        // confidence level for this sample is 95%.
+        const provenance: MeasurementProvenance = {
+          source: 'measurement',
+          measurementId: saved.id,
+          measuredAt: saved.measurementDate,
+          sampleSize: saved.sampleSize,
+          confidencePercent: WEIGHT_SAMPLE_CONFIDENCE_PERCENT,
+        };
+
+        // K-1 canonical lock order: ALL of the unit's batches (batchId ASC)
+        // then the TankBatch row. Locking the sampled batch first and the unit
+        // second would invert the order every other writer on this tank uses.
+        const locked = unitId
+          ? await this.growthApplier.lockUnitForGrowth(manager, tenantId, unitId)
+          : null;
+
+        if (locked) {
+          if (!locked.batches.has(payload.batchId)) {
+            // A weighing filed against a tank that does not hold this batch
+            // would move a DIFFERENT cohort's weight. Reject rather than
+            // silently re-base the wrong fish.
+            throw new BadRequestException(
+              `Batch ${payload.batchId} is not stocked in unit ${unitId} — ` +
+                'a growth sample must name the tank the fish were taken from.',
+            );
+          }
+          // THE severed link, restored: the measured average weight moves the
+          // unit's avgWeightG / totalBiomassKg / batchDetails onto the MEASURED
+          // track (and stamps lastSamplingAt). The count is untouched.
+          await this.growthApplier.reconcileMeasuredWeight(
+            manager,
+            tenantId,
+            locked,
+            saved.averageWeight,
+            provenance,
+          );
+        } else {
+          // The batch is in no unit (pond-held or not yet allocated): there is
+          // no tank stock to re-base, but the batch's measured-weight
+          // provenance is still a fact worth recording. Same single writer, so
+          // the persisted block has the same shape either way.
+          const lockedBatch = await manager.findOne(Batch, {
+            where: { id: payload.batchId, tenantId },
+            lock: { mode: 'pessimistic_write' },
+          });
+          if (!lockedBatch) {
+            throw new NotFoundException(`Batch ${payload.batchId} bulunamadı`);
+          }
+          this.growthApplier.stampBatchWeight(
+            lockedBatch,
+            { biomassKg: saved.estimatedBiomass, quantity: saved.populationSize },
+            provenance,
+          );
+          await manager.save(Batch, lockedBatch);
         }
-        if (lockedBatch.weight?.actual) {
-          lockedBatch.weight.actual.avgWeight = saved.averageWeight;
-          // totalBiomass is the at-sample snapshot of the JSONB provenance
-          // block; current biomass is derived on read from the live count ×
-          // avgWeight, so this stored figure is provenance, not authority.
-          lockedBatch.weight.actual.totalBiomass = saved.estimatedBiomass;
-          lockedBatch.weight.actual.lastMeasuredAt = saved.measurementDate;
-          lockedBatch.weight.actual.sampleSize = saved.sampleSize;
-          // Statistics are computed at a 95% confidence interval
-          // (StatisticalSummary.weight.confidenceInterval), so the provenance
-          // confidence level for this sample is 95%.
-          lockedBatch.weight.actual.confidencePercent = WEIGHT_SAMPLE_CONFIDENCE_PERCENT;
-        }
-        await queryRunner.manager.save(Batch, lockedBatch);
 
         saved.isProcessed = true;
-        await queryRunner.manager.save(GrowthMeasurement, saved);
+        await manager.save(GrowthMeasurement, saved);
+
+        if (unitId && locked) {
+          // Reprice the unit's live day plan from the MEASURED biomass: the
+          // remaining meals of today are re-costed and a band transition is
+          // evaluated against the weight that was actually observed. Runs in
+          // this transaction, so the plan can never reflect a measurement that
+          // rolled back.
+          await this.recalcService.recalcForUnit(manager, tenantId, unitId, {
+            reason: 'growth_sample',
+          });
+        }
       }
 
       const event: GrowthSampleRecordedEvent = {
@@ -252,6 +338,9 @@ export class RecordGrowthSampleHandler implements ICommandHandler<RecordGrowthSa
         weightCV: saved.weightCV,
         measurementDate: toEventIso(saved.measurementDate),
         performance: saved.performance,
+        // Carries the re-based unit so the farm-stock read model (mobile) can
+        // refresh the container whose weight this sample just changed.
+        ...(unitId ? { tankId: unitId } : {}),
       };
       await this.outboxPublisher.enqueue(event, queryRunner.manager);
 

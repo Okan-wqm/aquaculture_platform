@@ -27,7 +27,6 @@ import type { BatchTransferredEvent } from '@platform/event-contracts';
 import { toEventIso } from '@platform/event-contracts';
 import { createBaseEvent } from '@platform/event-contracts';
 import { OutboxPublisher } from '@platform/outbox';
-import { DayPlanRecalcService } from '../../feeding-protocol/services/day-plan-recalc.service';
 import { RemovalQuantityPolicyService } from '../services/removal-quantity-policy.service';
 import { Repository, DataSource } from 'typeorm';
 
@@ -78,7 +77,6 @@ export class TransferBatchHandler implements ICommandHandler<TransferBatchComman
     @InjectRepository(EquipmentType)
     private readonly equipmentTypeRepository: Repository<EquipmentType>,
     private readonly outboxPublisher: OutboxPublisher,
-    private readonly dayPlanRecalc: DayPlanRecalcService,
     private readonly removalQuantityPolicy: RemovalQuantityPolicyService,
     private readonly tankCapacityService: TankCapacityService,
     // SEC-HIGH-051: object-level site authorization SSoT (beneath the role gate).
@@ -349,57 +347,69 @@ export class TransferBatchHandler implements ICommandHandler<TransferBatchComman
       // of truth for capacity — instead of the prior hand-rolled density formula
       // (hardcoded 30 kg/m³, maxBiomass ignored) that lived in the now-deleted
       // private updateTankBatchWithManager.
-      const savedSourceTankBatch = await this.tankBatchService.applyBatchDelta(
-        queryRunner.manager,
-        tenantId,
-        payload.sourceTankId,
-        {
-          batchId,
-          batchNumber: batch.batchNumber,
-          quantityDelta: -payload.quantity,
-          biomassDelta: -biomassKg,
-        },
-        { volumeM3: Number(sourceTank.volume) || 0 },
-      );
-      const sourceCapacity = this.tankCapacityService.calculate({
-        equipment: sourceTank,
-        existing: {
-          salmonBiomassKg: Number(savedSourceTankBatch.totalBiomassKg),
-          cleanerBiomassKg: Number(savedSourceTankBatch.cleanerFishBiomassKg || 0),
-        },
-        incomingBiomassKg: 0,
-      });
-      savedSourceTankBatch.isOverCapacity = sourceCapacity.isOverCapacity;
-      savedSourceTankBatch.capacityUsedPercent = sourceCapacity.utilizationPercent;
-      await queryRunner.manager.save(savedSourceTankBatch);
+      // P-31: transfer İKİ üniteyi de değiştirir — kaynak küçüldü, hedef büyüdü.
+      // İkisi de TEK stok kapsamında yazılır; kapsam kapanırken her ünitenin
+      // bugünkü beslenmemiş öğünleri TAM BİR KEZ (unitId artan sırada, aynı tx)
+      // yeniden fiyatlanır. Ayrı ayrı hatırlanan iki recalc çağrısı yerine
+      // yazma yolunun kendisi garanti eder. (Grading bu komutu compose ettiği
+      // için otomatik kapsanır — tier-2.)
+      const { savedSourceTankBatch, savedDestTankBatch } =
+        await this.tankBatchService.applyStockChange(
+          queryRunner.manager,
+          tenantId,
+          'transfer',
+          async (stock) => {
+            const source = await stock.applyDelta(
+              payload.sourceTankId,
+              {
+                batchId,
+                batchNumber: batch.batchNumber,
+                quantityDelta: -payload.quantity,
+                biomassDelta: -biomassKg,
+              },
+              { volumeM3: Number(sourceTank.volume) || 0 },
+            );
+            const sourceCapacity = this.tankCapacityService.calculate({
+              equipment: sourceTank,
+              existing: {
+                salmonBiomassKg: Number(source.totalBiomassKg),
+                cleanerBiomassKg: Number(source.cleanerFishBiomassKg || 0),
+              },
+              incomingBiomassKg: 0,
+            });
+            source.isOverCapacity = sourceCapacity.isOverCapacity;
+            source.capacityUsedPercent = sourceCapacity.utilizationPercent;
+            await queryRunner.manager.save(source);
 
-      const savedDestTankBatch = await this.tankBatchService.applyBatchDelta(
-        queryRunner.manager,
-        tenantId,
-        payload.destinationTankId,
-        {
-          batchId,
-          batchNumber: batch.batchNumber,
-          quantityDelta: payload.quantity,
-          biomassDelta: biomassKg,
-        },
-        {
-          code: destinationTank.code,
-          name: destinationTank.name,
-          volumeM3: Number(destinationTank.volume) || 0,
-        },
-      );
-      const destCapacity = this.tankCapacityService.calculate({
-        equipment: destinationTank,
-        existing: {
-          salmonBiomassKg: Number(savedDestTankBatch.totalBiomassKg),
-          cleanerBiomassKg: Number(savedDestTankBatch.cleanerFishBiomassKg || 0),
-        },
-        incomingBiomassKg: 0,
-      });
-      savedDestTankBatch.isOverCapacity = destCapacity.isOverCapacity;
-      savedDestTankBatch.capacityUsedPercent = destCapacity.utilizationPercent;
-      await queryRunner.manager.save(savedDestTankBatch);
+            const destination = await stock.applyDelta(
+              payload.destinationTankId,
+              {
+                batchId,
+                batchNumber: batch.batchNumber,
+                quantityDelta: payload.quantity,
+                biomassDelta: biomassKg,
+              },
+              {
+                code: destinationTank.code,
+                name: destinationTank.name,
+                volumeM3: Number(destinationTank.volume) || 0,
+              },
+            );
+            const destCapacity = this.tankCapacityService.calculate({
+              equipment: destinationTank,
+              existing: {
+                salmonBiomassKg: Number(destination.totalBiomassKg),
+                cleanerBiomassKg: Number(destination.cleanerFishBiomassKg || 0),
+              },
+              incomingBiomassKg: 0,
+            });
+            destination.isOverCapacity = destCapacity.isOverCapacity;
+            destination.capacityUsedPercent = destCapacity.utilizationPercent;
+            await queryRunner.manager.save(destination);
+
+            return { savedSourceTankBatch: source, savedDestTankBatch: destination };
+          },
+        );
 
       // 6. Tank/Equipment biomass güncellemeleri (Math.max to prevent negatives).
       // currentCount for BOTH legs is derived + written by
@@ -480,22 +490,6 @@ export class TransferBatchHandler implements ICommandHandler<TransferBatchComman
         queryRunner.manager,
         tenantId,
         [payload.sourceTankId, payload.destinationTankId],
-      );
-
-      // P-31: transfer İKİ üniteyi de değiştirir — kaynak küçüldü, hedef büyüdü;
-      // her ikisinin bugünkü beslenmemiş öğünleri aynı tx'te yeniden fiyatlanır.
-      // (Grading bu komutu compose ettiği için otomatik kapsanır — tier-2.)
-      await this.dayPlanRecalc.recalcForUnit(
-        queryRunner.manager,
-        tenantId,
-        payload.sourceTankId,
-        'transfer',
-      );
-      await this.dayPlanRecalc.recalcForUnit(
-        queryRunner.manager,
-        tenantId,
-        payload.destinationTankId,
-        'transfer',
       );
 
       // Enqueue BatchTransferredEvent into the transactional outbox BEFORE commit.

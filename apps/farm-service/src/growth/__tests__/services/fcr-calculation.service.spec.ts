@@ -626,12 +626,22 @@ describe('FCRCalculationService', () => {
     const tenantId = 'tenant-123';
     const batchId = 'batch-456';
 
-    // makeBatch 120g ortalama üretir (1200kg / 10000 adet) — band [0, 1e6) kapsar.
+    // The band is resolved from the UNIT aggregate the assignment row belongs to
+    // (0.3): the same SELECT that yields the protocol now also yields the tank's
+    // weight columns. makeBatch produces a 120 g BATCH average; the unit fixture
+    // defaults to the same 120 g so the pre-existing expectations still describe
+    // the same fish, and the test below drives them APART on purpose.
     const v2Row = (params?: {
       overrides?: Record<string, unknown>;
       fcrSource?: string;
       fcrMatrix?: { temperatures: number[]; weights: number[]; fcrValues: number[][] } | null;
+      unitTotalQuantity?: number;
+      unitTotalBiomassKg?: number;
     }): Record<string, unknown> => ({
+      unitTotalQuantity: params?.unitTotalQuantity ?? 10000,
+      unitTotalBiomassKg: params?.unitTotalBiomassKg ?? 1200,
+      unitAvgWeightG:
+        ((params?.unitTotalBiomassKg ?? 1200) * 1000) / (params?.unitTotalQuantity ?? 10000),
       overrides: params?.overrides ?? {},
       bands: [
         {
@@ -705,6 +715,35 @@ describe('FCRCalculationService', () => {
       expect(result.targetFCR).toBeCloseTo(1.08, 10);
       expect(mockManagerQuery).toHaveBeenCalledTimes(2);
       expect(String(mockManagerQuery.mock.calls[1]?.[0])).toContain('feedingMatrix2D');
+    });
+
+    it('resolves the band from the TANK, not the batch, when the two disagree (0.3)', async () => {
+      // The batch snapshot still says 120 g (makeBatch), but the unit that
+      // carries the protocol assignment has been re-based to 180 g — which is
+      // exactly what happens the moment a weighing lands. Before this fix the
+      // band came from `batch.getCurrentAvgWeight()`, so the target FCR and the
+      // feed rate resolved from two different weights forever after.
+      mockManagerQuery
+        .mockResolvedValueOnce([
+          v2Row({ fcrSource: 'feed', unitTotalQuantity: 10000, unitTotalBiomassKg: 1800 }),
+        ])
+        .mockResolvedValueOnce([
+          {
+            matrix: {
+              temperatures: [10],
+              weights: [100, 200],
+              rates: [[2.5, 2.0]],
+              fcrMatrix: [[1.0, 1.4]],
+            },
+          },
+        ]);
+
+      const result = await service.compareFCR(batchId, tenantId);
+
+      // 180 g: wFrac = (180−100)/(200−100) = 0.8 → 1.0 + 0.4×0.8 = 1.32.
+      // The batch-sourced 120 g would have produced 1.08.
+      expect(result.targetFCR).toBeCloseTo(1.32, 10);
+      expect(result.targetFCR).not.toBeCloseTo(1.08, 2);
     });
 
     it('v2 ataması yokken zincir species targetFCR dalına düşer', async () => {

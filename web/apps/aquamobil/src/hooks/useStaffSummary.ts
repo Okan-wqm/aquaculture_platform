@@ -20,28 +20,16 @@ export function useStaffSummary(): {
   isLoading: boolean;
 } {
   // --- Source 1: Clock-in status ---
-  const {
-    data: todaysAttendance,
-    isLoading: attendanceLoading,
-  } = useTodaysAttendance();
+  const { data: todaysAttendance, isLoading: attendanceLoading } = useTodaysAttendance();
 
   // --- Source 2: Leave balance ---
   const currentYear = new Date().getFullYear();
-  const {
-    data: leaveBalances,
-    isLoading: leaveLoading,
-  } = useMyLeaveBalances(currentYear);
+  const { data: leaveBalances, isLoading: leaveLoading } = useMyLeaveBalances(currentYear);
 
   // --- Source 3: Schedule (current week + next week for preview) ---
-  const {
-    data: currentWeekPlan,
-    isLoading: scheduleLoading,
-  } = useMySchedule(0);
+  const { data: currentWeekPlan, isLoading: scheduleLoading } = useMySchedule(0);
 
-  const {
-    data: nextWeekPlan,
-    isLoading: nextWeekLoading,
-  } = useMySchedule(1);
+  const { data: nextWeekPlan, isLoading: nextWeekLoading } = useMySchedule(1);
 
   const summary = useMemo<StaffSummary>(() => {
     // WHY find active clock-in: same logic as useDailyOpsStats. A record
@@ -50,19 +38,14 @@ export function useStaffSummary(): {
 
     // WHY sum all remainingDays: the staff hub shows a single "total leave
     // remaining" number across all leave types (annual, sick, etc.).
-    const totalLeaveRemaining = leaveBalances?.reduce(
-      (sum, balance) => sum + (balance.remainingDays ?? 0),
-      0,
-    ) ?? 0;
+    const totalLeaveRemaining =
+      leaveBalances?.reduce((sum, balance) => sum + (balance.remainingDays ?? 0), 0) ?? 0;
 
     // WHY search both weeks: if today is Friday and the next work entry is
     // Monday, it lives in next week's plan. Searching only the current week
     // would show null for the "next shift" on weekends.
     const todayStr = new Date().toISOString().split('T')[0];
-    const allEntries = [
-      ...(currentWeekPlan?.entries ?? []),
-      ...(nextWeekPlan?.entries ?? []),
-    ];
+    const allEntries = [...(currentWeekPlan?.entries ?? []), ...(nextWeekPlan?.entries ?? [])];
 
     // WHY filter future work entries: off days, leave days, and past dates
     // are irrelevant for the "next shift" preview.

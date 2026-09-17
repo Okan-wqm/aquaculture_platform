@@ -188,10 +188,7 @@ function runSingleFlightRefresh(): Promise<boolean> {
  * Callers that need to override headers (e.g. `credentials: 'include'`) can
  * pass them via `options` — they will be merged on top of the defaults.
  */
-export async function authenticatedFetch(
-  url: string,
-  options?: RequestInit,
-): Promise<Response> {
+export async function authenticatedFetch(url: string, options?: RequestInit): Promise<Response> {
   // LIFECYCLE BARRIER: wait for AuthProvider to complete restoreSession.
   // WHY: On page load, the token arrives async via syncAuthStore(). Without
   // this barrier, requests fire before the token is in memory → 401.

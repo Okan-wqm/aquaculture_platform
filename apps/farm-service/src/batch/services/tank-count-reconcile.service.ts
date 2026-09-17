@@ -40,7 +40,7 @@ import { Field, ID, Int, ObjectType } from '@nestjs/graphql';
 import { DataSource, EntityManager } from 'typeorm';
 
 import { TankBatch } from '../entities/tank-batch.entity';
-import { TankBatchService } from './tank-batch.service';
+import { StockChange, TankBatchService } from './tank-batch.service';
 
 @ObjectType()
 export class TankCountReconcileRow {
@@ -139,6 +139,49 @@ export class TankCountReconcileService {
       const ledger: LedgerRow[] = await manager.query(LEDGER_SQL, [tenantId]);
       const rows: TankCountReconcileRow[] = [];
 
+      // ONE stock scope for the whole sweep: a mixed tank can carry several
+      // drifted batches, and its day plan must be repriced ONCE from the summed
+      // correction — not once per batch. A dry run writes nothing, so it touches
+      // no unit and reprices nothing. Reconciliation used to correct counts and
+      // leave today's meals feeding the wrong number; it no longer can.
+      return this.tankBatchService.applyStockChange(
+        manager,
+        tenantId,
+        'count_reconcile',
+        async (stock) => {
+          await this.scanLedger(manager, tenantId, ledger, rows, { dryRun, tankFilter, stock });
+
+          const drifted = rows.filter((r) => r.delta !== 0);
+          const incomplete = rows.filter((r) => !r.ledgerComplete);
+          this.logger.log(
+            `[TankCountReconcile] tenant=${tenantId.substring(0, 8)} dryRun=${dryRun} ` +
+              `scanned=${rows.length} drifted=${drifted.length} incomplete=${incomplete.length} ` +
+              `applied=${rows.filter((r) => r.applied).length} healed=${rows.filter((r) => r.healed).length}`,
+          );
+          return rows;
+        },
+      );
+    });
+  }
+
+  /**
+   * Walk the ledger and (in apply mode) route every correction through the
+   * caller's stock scope. Split out of `reconcile` so the scope owns the writes
+   * while the reporting shape stays exactly as before.
+   */
+  private async scanLedger(
+    manager: EntityManager,
+    tenantId: string,
+    ledger: LedgerRow[],
+    rows: TankCountReconcileRow[],
+    context: {
+      dryRun: boolean;
+      tankFilter: Set<string> | null;
+      stock: StockChange;
+    },
+  ): Promise<void> {
+    const { dryRun, tankFilter, stock } = context;
+    {
       for (const entry of ledger) {
         if (tankFilter && !tankFilter.has(entry.tankId)) {
           continue;
@@ -170,7 +213,7 @@ export class TankCountReconcileService {
         let healed = false;
         if (!dryRun && ledgerComplete && tankBatch) {
           if (delta !== 0) {
-            await this.applyCorrection(manager, tenantId, entry.tankId, {
+            await this.applyCorrection(stock, entry.tankId, {
               batchId: entry.batchId,
               batchNumber: detail?.batchNumber ?? tankBatch.primaryBatchNumber ?? '',
               delta,
@@ -180,7 +223,7 @@ export class TankCountReconcileService {
           } else if (needsHeal) {
             // Zero-delta write through the single writer: seeds batchDetails from
             // the (correct) totals and re-derives the aggregates + currentCount.
-            await this.tankBatchService.applyBatchDelta(manager, tenantId, entry.tankId, {
+            await stock.applyDelta(entry.tankId, {
               batchId: entry.batchId,
               batchNumber: detail?.batchNumber ?? tankBatch.primaryBatchNumber ?? '',
               quantityDelta: 0,
@@ -202,32 +245,23 @@ export class TankCountReconcileService {
           healed,
         });
       }
-
-      const drifted = rows.filter((r) => r.delta !== 0);
-      const incomplete = rows.filter((r) => !r.ledgerComplete);
-      this.logger.log(
-        `[TankCountReconcile] tenant=${tenantId.substring(0, 8)} dryRun=${dryRun} ` +
-          `scanned=${rows.length} drifted=${drifted.length} incomplete=${incomplete.length} ` +
-          `applied=${rows.filter((r) => r.applied).length} healed=${rows.filter((r) => r.healed).length}`,
-      );
-      return rows;
-    });
+    }
   }
 
   /**
-   * Route one tank-batch's count correction through applyBatchDelta (the single
+   * Route one tank-batch's count correction through the stock scope (the single
    * writer) so batchDetails[] + totalQuantity + currentCount all land on the
-   * ledger truth. Biomass moves proportionally to the count so density stays
+   * ledger truth — and today's remaining meals follow the corrected count when
+   * the scope closes. Biomass moves proportionally to the count so density stays
    * sane; the biomass SSoT itself is unified separately (growth model).
    */
   private async applyCorrection(
-    manager: EntityManager,
-    tenantId: string,
+    stock: StockChange,
     tankId: string,
     correction: { batchId: string; batchNumber: string; delta: number; avgWeightG: number },
   ): Promise<void> {
     const biomassDelta = (correction.delta * correction.avgWeightG) / 1000;
-    await this.tankBatchService.applyBatchDelta(manager, tenantId, tankId, {
+    await stock.applyDelta(tankId, {
       batchId: correction.batchId,
       batchNumber: correction.batchNumber,
       quantityDelta: correction.delta,

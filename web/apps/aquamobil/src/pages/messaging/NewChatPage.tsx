@@ -14,7 +14,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import {
-  ArrowLeft,
   Search,
   Users,
   Check,
@@ -32,6 +31,8 @@ import {
 import { useState, useCallback, useMemo, type JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { AppHeader } from '@/components/AppHeader';
+import { Button, Card, Chip, EmptyState, IconButton, Skeleton } from '@/components/ui';
 import { AVAILABLE_AI_PERSONAS } from '@/graphql/messaging-operations';
 import { useAuth } from '@/hooks/useAuth';
 import { useCreateChannel } from '@/hooks/useCreateChannel';
@@ -55,13 +56,28 @@ const PERSONA_ICONS: Record<string, typeof Bot> = {
   cpu: Cpu,
 };
 
-/** Map persona color name to Tailwind gradient classes. */
+/**
+ * Map the persona's server-side colour name onto the v4 decorative hues.
+ *
+ * WHY these five and not the Tailwind ramps they replace: the token layer
+ * offers exactly five hues that are NOT already spoken for by an alarm meaning
+ * (coral is excluded on purpose — it means "something is wrong" everywhere else
+ * in the app), and each resolves per theme, which the fixed light/dark Tailwind
+ * ramp pairs they replace could not. The colour NAMES stay the server's
+ * vocabulary because they are part of the persona contract; only what they
+ * resolve to changes. The same five back ChannelAvatar and MessageBubble, so a
+ * persona keeps its hue wherever it appears.
+ */
 const PERSONA_COLORS: Record<string, { border: string; bg: string; text: string }> = {
-  purple: { border: 'border-purple-400', bg: 'bg-purple-50 dark:bg-purple-900/30', text: 'text-purple-600 dark:text-purple-400' },
-  cyan: { border: 'border-cyan-400', bg: 'bg-cyan-50 dark:bg-cyan-900/30', text: 'text-cyan-600 dark:text-cyan-400' },
-  blue: { border: 'border-blue-400', bg: 'bg-blue-50 dark:bg-blue-900/30', text: 'text-blue-600 dark:text-blue-400' },
-  green: { border: 'border-green-400', bg: 'bg-green-50 dark:bg-green-900/30', text: 'text-green-600 dark:text-green-400' },
-  orange: { border: 'border-orange-400', bg: 'bg-orange-50 dark:bg-orange-900/30', text: 'text-orange-600 dark:text-orange-400' },
+  purple: {
+    border: 'border-type-transfer',
+    bg: 'bg-type-transfer-dim',
+    text: 'text-type-transfer',
+  },
+  cyan: { border: 'border-acc', bg: 'bg-acc-dim', text: 'text-acc' },
+  blue: { border: 'border-type-water', bg: 'bg-type-water-dim', text: 'text-type-water' },
+  green: { border: 'border-type-harvest', bg: 'bg-type-harvest-dim', text: 'text-type-harvest' },
+  orange: { border: 'border-type-cull', bg: 'bg-type-cull-dim', text: 'text-type-cull' },
 };
 
 /** A single AI persona card for the persona picker grid. */
@@ -82,7 +98,7 @@ function AiPersonaCard({
       onClick={onPress}
       disabled={disabled}
       className={clsx(
-        'flex flex-col items-start gap-2 p-3 rounded-xl border-2 bg-white dark:bg-gray-900 transition-all touch-feedback',
+        'flex flex-col items-start gap-2 p-3 min-h-touch rounded-2xl border-2 bg-surface-1 shadow-token transition-all touch-feedback',
         'active:scale-[0.97] disabled:opacity-50',
         colors.border,
       )}
@@ -91,10 +107,10 @@ function AiPersonaCard({
         <IconComponent size={18} className={colors.text} />
       </div>
       <div className="text-left">
-        <h4 className="text-xs font-bold text-gray-900 dark:text-white leading-tight">
-          {persona.name}
-        </h4>
-        <p className="text-[10px] text-gray-400 dark:text-gray-500 leading-tight mt-0.5 line-clamp-2">
+        <h4 className="text-body font-bold text-ink-1 leading-tight">{persona.name}</h4>
+        {/* text-meta is 12px, the sunlight floor — it replaces a 10px arbitrary
+            size, so it LOWERS the tiny-text ratchet. */}
+        <p className="text-meta text-ink-3 leading-tight mt-0.5 line-clamp-2">
           {persona.description}
         </p>
       </div>
@@ -105,19 +121,6 @@ function AiPersonaCard({
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
-
-/** Skeleton loader for user list items. */
-function UserSkeleton(): JSX.Element {
-  return (
-    <div className="flex items-center gap-3 px-4 py-3">
-      <div className="w-11 h-11 rounded-full skeleton flex-shrink-0" />
-      <div className="flex-1 space-y-2">
-        <div className="h-4 w-32 rounded skeleton" />
-        <div className="h-3 w-44 rounded skeleton" />
-      </div>
-    </div>
-  );
-}
 
 /** A single user row for the contact list. */
 function UserRow({
@@ -134,9 +137,11 @@ function UserRow({
   return (
     <button
       onClick={onPress}
-      className="w-full flex items-center gap-3 px-4 py-3 touch-feedback transition-all active:bg-gray-50 dark:active:bg-gray-800/50"
+      className="w-full flex items-center gap-3 px-4 py-3 min-h-touch touch-feedback transition-all active:bg-surface-2"
     >
-      {/* Avatar */}
+      {/* Avatar. The brand gradient becomes a flat accent: the token layer has
+          one accent value per theme and no gradient pair, so a two-stop gradient
+          built from the same variable would just BE the flat colour. */}
       <div className="relative flex-shrink-0">
         {user.avatarUrl ? (
           <img
@@ -145,36 +150,32 @@ function UserRow({
             className="w-11 h-11 rounded-full object-cover"
           />
         ) : (
-          <div className="w-11 h-11 rounded-full bg-gradient-to-br from-ocean-400 to-ocean-600 flex items-center justify-center text-sm font-bold text-white">
+          <div className="w-11 h-11 rounded-full bg-acc flex items-center justify-center text-body font-bold text-acc-on">
             {getInitials(user.name)}
           </div>
         )}
+        {/* `ok` is the confirm token; the ring takes the surface the avatar sits
+            on rather than a fixed white — same treatment as ChannelAvatar. */}
         {user.isOnline && (
-          <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white dark:border-gray-900 rounded-full" />
+          <div className="absolute bottom-0 right-0 w-3 h-3 bg-ok border-2 border-surface-1 rounded-full" />
         )}
       </div>
 
       {/* User info */}
       <div className="flex-1 min-w-0 text-left">
-        <h3 className="text-sm font-semibold text-gray-900 dark:text-white truncate">
-          {user.name}
-        </h3>
-        <p className="text-xs text-gray-400 dark:text-gray-500 truncate">
-          {user.email}
-        </p>
+        <h3 className="text-body font-semibold text-ink-1 truncate">{user.name}</h3>
+        <p className="text-meta text-ink-3 truncate">{user.email}</p>
       </div>
 
-      {/* Selection indicator */}
+      {/* Selection indicator — the accent is how v4 says "selected". */}
       {showCheckbox && (
         <div
           className={clsx(
             'w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-all',
-            isSelected
-              ? 'bg-ocean-500 border-ocean-500'
-              : 'border-gray-300 dark:border-gray-600',
+            isSelected ? 'bg-acc border-acc' : 'border-line-strong',
           )}
         >
-          {isSelected && <Check size={14} className="text-white" />}
+          {isSelected && <Check size={14} className="text-acc-on" />}
         </div>
       )}
     </button>
@@ -226,9 +227,7 @@ export function NewChatPage(): JSX.Element {
     if (!canUseAi) return [];
     const tierOf = (id: string | null | undefined): string => {
       const prefix = (id ?? '').split('-')[0];
-      return ['operator', 'manager', 'expert', 'supervisor'].includes(prefix)
-        ? prefix
-        : 'operator';
+      return ['operator', 'manager', 'expert', 'supervisor'].includes(prefix) ? prefix : 'operator';
     };
     return aiPersonas.filter((p) => hasPermission(`ai_personas:${tierOf(p.id)}`));
   }, [aiPersonas, canUseAi, hasPermission]);
@@ -247,9 +246,7 @@ export function NewChatPage(): JSX.Element {
 
     const query = searchQuery.toLowerCase();
     return available.filter(
-      (u) =>
-        u.name.toLowerCase().includes(query) ||
-        u.email.toLowerCase().includes(query),
+      (u) => u.name.toLowerCase().includes(query) || u.email.toLowerCase().includes(query),
     );
   }, [users, searchQuery, currentUser?.id]);
 
@@ -316,10 +313,7 @@ export function NewChatPage(): JSX.Element {
   const handleAiPersonaPress = useCallback(
     async (persona: AiPersona) => {
       try {
-        const channelId = await createAiChannel(
-          persona.id ?? undefined,
-          persona.name,
-        );
+        const channelId = await createAiChannel(persona.id ?? undefined, persona.name);
         if (channelId) {
           navigate(`/messages/ai/${channelId}`, { replace: true });
         }
@@ -331,48 +325,42 @@ export function NewChatPage(): JSX.Element {
   );
 
   const selectedUserNames = useMemo(() => {
-    return users
-      .filter((u) => selectedUserIds.has(u.id))
-      .map((u) => u.name);
+    return users.filter((u) => selectedUserIds.has(u.id)).map((u) => u.name);
   }, [users, selectedUserIds]);
 
   const loading = usersLoading;
   const errorMsg = usersError
-    ? (usersError instanceof Error ? usersError.message : 'Failed to load users')
+    ? usersError instanceof Error
+      ? usersError.message
+      : 'Failed to load users'
     : null;
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-      {/* Header */}
-      <div className="bg-gradient-to-r from-ocean-600 to-ocean-500 text-white">
-        <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-          <button
-            onClick={() => navigate('/messages')}
-            className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback"
-          >
-            <ArrowLeft size={22} />
-          </button>
-          <h1 className="text-lg font-bold flex-1">
-            {showGroupNameInput ? 'Name Your Group' : 'New Message'}
-          </h1>
-          {isGroupMode && !showGroupNameInput && (
-            <button
-              onClick={handleToggleGroupMode}
-              className="text-sm font-medium bg-white/20 px-3 py-1.5 rounded-lg touch-feedback"
-            >
+    // The page ground comes from <body>, so no background is set here.
+    <div className="min-h-screen">
+      {/* The shared header replaces this screen's own ocean-gradient banner.
+          showAvatar={false}: this is a sub-screen reached from the dock, and the
+          account route already hangs off the destination it came from. */}
+      <AppHeader
+        title={showGroupNameInput ? 'Name Your Group' : 'New Message'}
+        onBack={() => navigate('/messages')}
+        showAvatar={false}
+        actions={
+          isGroupMode && !showGroupNameInput ? (
+            <Button variant="secondary" onClick={handleToggleGroupMode} className="text-body px-3">
               Cancel
-            </button>
-          )}
-        </div>
-      </div>
+            </Button>
+          ) : undefined
+        }
+      />
 
       {/* Group name input panel */}
       {showGroupNameInput ? (
-        <div className="px-4 pt-4 space-y-4">
-          <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card border border-gray-100 dark:border-gray-800 p-4">
+        <div className="px-4 pt-1 space-y-4">
+          <Card className="p-4">
             <label
               htmlFor="new-group-name"
-              className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block"
+              className="text-meta font-semibold text-ink-3 uppercase tracking-wider mb-2 block"
             >
               Group Name
             </label>
@@ -383,72 +371,82 @@ export function NewChatPage(): JSX.Element {
               onChange={(e) => setGroupName(e.target.value)}
               placeholder="Enter group name..."
               maxLength={100}
-              className="w-full border border-gray-200 dark:border-gray-700 rounded-xl px-4 py-3 text-sm bg-transparent text-gray-900 dark:text-white placeholder-gray-400 outline-none focus:border-ocean-500 focus:ring-2 focus:ring-ocean-500/20 transition-all"
+              // The field is a recessed well inside the card, matching the
+              // composer's textarea rather than drawing its own outline.
+              className="w-full border border-line rounded-xl px-4 py-3 text-body bg-surface-2 text-ink-1 placeholder-ink-3 outline-none focus:border-acc focus:ring-2 focus:ring-acc transition-all"
             />
 
             <div className="mt-3">
-              <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+              <p className="text-meta text-ink-3 mb-2">
                 {selectedUserNames.length} members selected
               </p>
               <div className="flex flex-wrap gap-1.5">
                 {selectedUserNames.map((name) => (
-                  <span
-                    key={name}
-                    className="text-xs bg-ocean-50 dark:bg-ocean-900/30 text-ocean-700 dark:text-ocean-300 px-2.5 py-1 rounded-full font-medium"
-                  >
+                  <Chip key={name} tone="accent">
                     {name}
-                  </span>
+                  </Chip>
                 ))}
               </div>
             </div>
-          </div>
+          </Card>
 
           <div className="flex gap-3">
-            <button
+            <Button
+              variant="secondary"
+              size="save"
+              block
               onClick={() => setShowGroupNameInput(false)}
-              className="flex-1 py-3.5 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 font-semibold rounded-2xl touch-feedback transition-all text-sm"
             >
               Back
-            </button>
-            <button
-              onClick={() => { void handleCreateGroup(); }}
+            </Button>
+            <Button
+              variant="primary"
+              size="save"
+              block
+              onClick={() => {
+                void handleCreateGroup();
+              }}
               disabled={!groupName.trim() || isCreating}
-              className="flex-1 py-3.5 bg-gradient-to-r from-ocean-600 to-ocean-500 text-white font-semibold rounded-2xl shadow-lg shadow-ocean-500/25 disabled:opacity-50 touch-feedback transition-all text-sm flex items-center justify-center gap-2"
             >
               {isCreating ? (
-                <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
+                <span className="animate-spin rounded-full h-5 w-5 border-2 border-acc-on border-t-transparent" />
               ) : (
                 <>
                   <UserPlus size={18} />
                   Create Group
                 </>
               )}
-            </button>
+            </Button>
           </div>
         </div>
       ) : (
         <>
           {/* Search bar */}
-          <div className="px-4 pt-4">
+          <div className="px-4 pt-1">
             <div className="relative">
               <Search
                 size={18}
-                className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400"
+                className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-3"
+                aria-hidden
               />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search by name or email..."
-                className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl pl-10 pr-4 py-3 text-sm text-gray-900 dark:text-white placeholder-gray-400 outline-none focus:border-ocean-500 focus:ring-2 focus:ring-ocean-500/20 transition-all"
+                aria-label="Search by name or email"
+                className="w-full bg-surface-1 border border-line rounded-2xl pl-10 pr-14 py-3 text-body text-ink-1 placeholder-ink-3 outline-none focus:border-acc focus:ring-2 focus:ring-acc transition-all"
               />
               {searchQuery && (
-                <button
+                // IconButton bakes in the 44px floor the hand-rolled `p-1`
+                // clear button never reached, plus the missing accessible name.
+                <IconButton
                   onClick={() => setSearchQuery('')}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1"
+                  className="absolute right-1 top-1/2 -translate-y-1/2"
+                  aria-label="Clear search"
                 >
-                  <X size={16} className="text-gray-400" />
-                </button>
+                  <X size={16} className="text-ink-3" />
+                </IconButton>
               )}
             </div>
           </div>
@@ -456,7 +454,7 @@ export function NewChatPage(): JSX.Element {
           {/* AI Assistants section — gated on ai_assistant:use + per-persona ai_personas:<tier> */}
           {!isGroupMode && visibleAiPersonas.length > 0 && (
             <div className="px-4 pt-3">
-              <h2 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-1 mb-2 flex items-center gap-1.5">
+              <h2 className="text-meta font-semibold text-ink-3 uppercase tracking-wider px-1 mb-2 flex items-center gap-1.5">
                 <Sparkles size={12} />
                 AI Assistants
               </h2>
@@ -465,7 +463,9 @@ export function NewChatPage(): JSX.Element {
                   <AiPersonaCard
                     key={persona.id ?? 'general'}
                     persona={persona}
-                    onPress={() => { void handleAiPersonaPress(persona); }}
+                    onPress={() => {
+                      void handleAiPersonaPress(persona);
+                    }}
                     disabled={isCreating}
                   />
                 ))}
@@ -478,18 +478,16 @@ export function NewChatPage(): JSX.Element {
             <div className="px-4 pt-3">
               <button
                 onClick={handleToggleGroupMode}
-                className="w-full flex items-center gap-3 bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4 touch-feedback transition-all"
+                className="w-full flex items-center gap-3 bg-surface-1 rounded-2xl border border-line shadow-token p-4 min-h-touch touch-feedback transition-all"
               >
-                <div className="w-11 h-11 rounded-full bg-gradient-to-br from-purple-400 to-purple-600 flex items-center justify-center">
-                  <Users size={20} className="text-white" />
+                {/* Teal, not the old violet: v4 gives the accent EVERY action,
+                    and starting a group is an action rather than an identity. */}
+                <div className="w-11 h-11 rounded-full bg-acc flex items-center justify-center">
+                  <Users size={20} className="text-acc-on" />
                 </div>
                 <div className="text-left">
-                  <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
-                    New Group
-                  </h3>
-                  <p className="text-xs text-gray-400 dark:text-gray-500">
-                    Create a group conversation
-                  </p>
+                  <h3 className="text-body font-semibold text-ink-1">New Group</h3>
+                  <p className="text-meta text-ink-3">Create a group conversation</p>
                 </div>
               </button>
             </div>
@@ -498,69 +496,63 @@ export function NewChatPage(): JSX.Element {
           {/* Group mode: selected count + next button */}
           {isGroupMode && selectedUserIds.size > 0 && (
             <div className="px-4 pt-3">
-              <div className="bg-ocean-50 dark:bg-ocean-900/20 rounded-xl p-3 flex items-center justify-between border border-ocean-200 dark:border-ocean-800">
+              {/* The accent's own dim wash is how v4 marks an active selection. */}
+              <div className="bg-acc-dim rounded-2xl p-3 flex items-center justify-between border border-acc">
                 <div className="flex items-center gap-2">
-                  <Users size={16} className="text-ocean-600" />
-                  <span className="text-sm font-medium text-ocean-700 dark:text-ocean-300">
+                  <Users size={16} className="text-acc" />
+                  <span className="text-body font-medium text-acc">
                     {selectedUserIds.size} selected
                   </span>
                 </div>
-                <button
+                <Button
+                  variant="primary"
                   onClick={handleProceedToGroupName}
                   disabled={selectedUserIds.size < 2}
-                  className="flex items-center gap-1 px-3 py-1.5 bg-ocean-500 text-white rounded-lg text-sm font-semibold touch-feedback disabled:opacity-50"
+                  className="text-body px-3"
                 >
                   Next
                   <Plus size={14} />
-                </button>
+                </Button>
               </div>
             </div>
           )}
 
           {/* User list */}
           <div className="pt-3">
-            <h2 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider px-5 mb-2">
+            <h2 className="text-meta font-semibold text-ink-3 uppercase tracking-wider px-5 mb-2">
               {isGroupMode ? 'Select Members' : 'Contacts'}
             </h2>
 
             {loading ? (
-              <div className="space-y-1">
-                {[1, 2, 3, 4].map((i) => (
-                  <UserSkeleton key={i} />
-                ))}
+              <div className="px-4">
+                <Skeleton variant="row" count={4} />
               </div>
             ) : errorMsg ? (
-              <div className="text-center py-12 px-4">
-                <AlertCircle
-                  size={40}
-                  className="mx-auto mb-3 text-gray-300 opacity-60"
-                />
-                <p className="text-sm text-gray-500">{errorMsg}</p>
-              </div>
+              // tone="error" keeps "we could not fetch the directory" visually
+              // distinct from "this tenant has no other members".
+              <EmptyState
+                tone="error"
+                icon={<AlertCircle size={22} />}
+                title="Could not load contacts"
+                description={errorMsg}
+              />
             ) : filteredUsers.length === 0 ? (
-              <div className="text-center py-12 px-4">
-                <Search
-                  size={40}
-                  className="mx-auto mb-3 text-gray-300 dark:text-gray-600 opacity-30"
-                />
-                <p className="font-medium text-gray-500 dark:text-gray-400">
-                  {searchQuery ? 'No users found' : 'No contacts available'}
-                </p>
-                {searchQuery && (
-                  <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">
-                    Try a different search term
-                  </p>
-                )}
-              </div>
+              <EmptyState
+                icon={<Search size={22} />}
+                title={searchQuery ? 'No users found' : 'No contacts available'}
+                description={searchQuery ? 'Try a different search term' : undefined}
+              />
             ) : (
-              <div className="divide-y divide-gray-100 dark:divide-gray-800/50">
+              <div className="divide-y divide-line">
                 {filteredUsers.map((u) => (
                   <UserRow
                     key={u.id}
                     user={u}
                     isSelected={selectedUserIds.has(u.id)}
                     showCheckbox={isGroupMode}
-                    onPress={() => { void handleUserPress(u.id); }}
+                    onPress={() => {
+                      void handleUserPress(u.id);
+                    }}
                   />
                 ))}
               </div>
@@ -572,12 +564,10 @@ export function NewChatPage(): JSX.Element {
       {/* Loading overlay for channel creation */}
       {isCreating && !showGroupNameInput && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-          <div className="bg-white dark:bg-gray-900 rounded-2xl p-6 flex flex-col items-center gap-3 shadow-xl">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-ocean-500" />
-            <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
-              Creating conversation...
-            </p>
-          </div>
+          <Card className="p-6 flex flex-col items-center gap-3">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-acc" />
+            <p className="text-body font-medium text-ink-2">Creating conversation...</p>
+          </Card>
         </div>
       )}
 

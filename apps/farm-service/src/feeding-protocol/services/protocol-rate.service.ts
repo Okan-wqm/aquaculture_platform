@@ -29,6 +29,61 @@ import {
 } from '../entities/feeding-protocol-v2.entity';
 import { FcrOverride } from '../entities/protocol-assignment.entity';
 
+// ============================================================================
+// BAND AĞIRLIĞI — KAYNAK TİPLE SABİTLENİR
+// ============================================================================
+
+/**
+ * Bant/oran/FCR çözümünde kullanılabilecek ortalama ağırlık (g).
+ *
+ * WHY: bu sayının kaynağı iki farklı yerdi. Plan üretimi, gün-içi recalc,
+ * forecast ve tanks-page DataLoader'ı `TankBatch.avgWeightG` okurken
+ * `FCRCalculationService` `batch.getCurrentAvgWeight()` okuyordu.
+ * `getCurrentAvgWeight()` önce `weight.actual`'ı tercih ettiği için, bir tartım
+ * tank aggregate'lerine indiği anda iki kaynak KALICI olarak ayrışırdı: aynı
+ * balık için hedef FCR bir banttan, yem oranı başka banttan gelirdi.
+ *
+ * ALAN KURALI: ağırlık, bant, yem tipi ve oran için TANK OTORİTEDİR — batch
+ * kimliği yalnız izlenebilirliktir. Bu yüzden `bandFor` / `resolveExpectedFcr`
+ * çıplak `number` KABUL ETMEZ: yalnız aşağıdaki iki kurucudan (ünite
+ * aggregate'i, ya da ünite biyokütlesi/adedinden türev) üretilen nominal tip
+ * geçer. `batch.getCurrentAvgWeight()` düz `number` döndürdüğü için band
+ * çözümüne KAZAYLA verilemez — derleme hatasıdır.
+ */
+export type BandWeightG = number & { readonly __brand: 'BandWeightG' };
+
+/**
+ * Ünitenin aggregate satırından band ağırlığı.
+ *
+ * Adet > 0 iken toplamlardan yeniden türetilir: `avgWeightG` kolonu ile
+ * `totalBiomassKg / totalQuantity` yapısal olarak aynı değeri taşır (her iki
+ * yazar da onu toplamlardan türetir), fakat türetmek bayat bir kolonun
+ * sessizce yalan söylemesini imkânsız kılar.
+ */
+export function tankBandWeightG(unit: {
+  avgWeightG: number | string | null | undefined;
+  totalQuantity: number | string | null | undefined;
+  totalBiomassKg: number | string | null | undefined;
+}): BandWeightG {
+  const quantity = Number(unit.totalQuantity ?? 0);
+  const biomassKg = Number(unit.totalBiomassKg ?? 0);
+  if (quantity > 0 && biomassKg > 0) {
+    return ((biomassKg * 1000) / quantity) as BandWeightG;
+  }
+  return Number(unit.avgWeightG ?? 0) as BandWeightG;
+}
+
+/**
+ * Ünite biyokütlesi + adedinden türetilmiş band ağırlığı — forecast'in gün-gün
+ * ilerlettiği projeksiyon ve tanks-page DataLoader'ının taşıdığı ünite bağlamı
+ * bu kurucuyu kullanır. Girdiler ÜNİTE ölçekli olmalıdır; batch ölçekli
+ * değerler geçirmek alan kuralını çiğner.
+ */
+export function derivedBandWeightG(biomassKg: number, fishCount: number): BandWeightG {
+  if (!(fishCount > 0)) return 0 as BandWeightG;
+  return ((biomassKg * 1000) / fishCount) as BandWeightG;
+}
+
 export interface ResolvedBand {
   band: ProtocolBand;
   index: number;
@@ -46,7 +101,8 @@ export interface EffectiveRateInput {
 export interface ExpectedFcrInput {
   band: ProtocolBand;
   fcrSource: ProtocolFcrSource;
-  avgWeightG: number;
+  /** Ünite-otoriteli ağırlık; kurucular için {@link BandWeightG}. */
+  avgWeightG: BandWeightG;
   /** null = okuma yok (matris interpolasyonu ağırlık-eksenine iner). */
   temperatureC: number | null;
   protocolFcrMatrix?: FcrMatrix;
@@ -62,8 +118,13 @@ export interface ExpectedFcrResult {
 
 @Injectable()
 export class ProtocolRateService {
-  /** Yarı-açık [min,max) çözüm; kenarlarda clamp; boş liste → null. */
-  bandFor(bands: ProtocolBand[], avgWeightG: number): ResolvedBand | null {
+  /**
+   * Yarı-açık [min,max) çözüm; kenarlarda clamp; boş liste → null.
+   *
+   * `avgWeightG` ÜNİTE-otoriteli olmak zorundadır ({@link BandWeightG}) —
+   * batch ağırlığından band çözmek derleme hatasıdır.
+   */
+  bandFor(bands: ProtocolBand[], avgWeightG: BandWeightG): ResolvedBand | null {
     if (!bands.length) return null;
     const sorted = [...bands]
       .map((band, index) => ({ band, index }))

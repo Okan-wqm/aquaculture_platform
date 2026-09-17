@@ -22,6 +22,7 @@ import { Batch } from '../../batch/entities/batch.entity';
 import { Feed } from '../../feed/entities/feed.entity';
 import { TankBatch } from '../../batch/entities/tank-batch.entity';
 import { FeedSelectorService } from './feed-selector.service';
+import { derivedBandWeightG } from '../../feeding-protocol/services/protocol-rate.service';
 
 export interface GrowthProjection {
   day: number;
@@ -192,7 +193,15 @@ export class GrowthSimulatorService {
           tenantId,
           schemaName,
           effectiveBatchId,
-          weight,
+          // A tank-based simulation follows the tank's protocol; a pure
+          // batch/manual projection has no unit and therefore no protocol
+          // authority, so it stays on the feed-matrix path. `null` states that
+          // explicitly instead of letting an omitted argument decide it.
+          tankId ?? null,
+          // The projected weight IS a unit aggregate (biomass ÷ count for the
+          // whole tank), rebuilt through the constructor so the band sees the
+          // same derivation the live engines use rather than a bare number.
+          derivedBandWeightG(biomassKg, count),
           biomassKg,
           temperature,
         );

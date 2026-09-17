@@ -15,6 +15,10 @@
 .claude/test-agents/             @Okan-wqm
 .claude/knowledge/               @Okan-wqm
 .claude/skills/                  @Okan-wqm
+.claude/settings.json            @Okan-wqm
+.claude/settings.local.json      @Okan-wqm   # if it ever reappears in a diff, review is mandatory
+.gitleaks.toml                   @Okan-wqm
+.gitleaksignore                  @Okan-wqm
 
 # ── ARIA autonomy control plane ───────────────────────────────────────
 # Kernel/runtime contracts, live ARIA docs, and Codex executor surfaces

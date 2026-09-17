@@ -45,6 +45,7 @@ _SECRET_PATTERNS: Final[tuple[tuple[str, re.Pattern[str]], ...]] = (
         r"(?:OPENAI_API_KEY|CODEX_API_KEY|CLAUDE_CODE_OAUTH_TOKEN"
         r"|ANTHROPIC_API_KEY|ARIA_LEASE_TOKEN)=\S+"
     )),
+    ("jwt_token", re.compile(r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}")),  # three-segment JWS; the settings.local.json incident class
     ("bearer_token", re.compile(r"Bearer\s+[A-Za-z0-9._\-]{20,}")),
     ("basic_auth_password", re.compile(r"password\s*=\s*['\"][^'\"]{4,}['\"]")),
     ("token_assignment", re.compile(r"token\s*=\s*['\"][^'\"]{8,}['\"]")),

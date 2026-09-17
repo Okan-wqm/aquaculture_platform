@@ -306,3 +306,7 @@ aria-worktrees/
 aria-tools/agent-questions.jsonl
 aria-tools/agent-questions.jsonl.lock
 .aria-acceptance-poc-tmp/
+
+# Claude Code local settings carry live bearer JWTs in permission allow-lists;
+# tracked once (SEC incident 2026-09-16) — never again. Invariant: settings-deny-anchoring.spec.ts
+.claude/settings.local.json

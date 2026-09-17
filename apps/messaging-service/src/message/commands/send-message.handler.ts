@@ -72,6 +72,19 @@ export class SendMessageHandler implements ICommandHandler<SendMessageCommand, M
       metadata,
     } = command;
 
+    // MSGFIX-FAZ2 2.3: SYSTEM contentType is RESERVED for AI/platform-authored
+    // rows (the AI bridge persists its replies as contentType SYSTEM under
+    // AI_USER_ID). Every SendMessageCommand execution is a USER send (the
+    // bridge writes directly, never through this command), so a user sending
+    // contentType SYSTEM here is forging assistant/platform output. Blocked
+    // at the single write-side enforcement point — covers the GraphQL
+    // resolver and every mobile offline-queue replay alike.
+    if (contentType === MessageContentType.SYSTEM) {
+      throw new BadRequestException(
+        'contentType SYSTEM is reserved for system messages and cannot be sent by users.',
+      );
+    }
+
     // ── 1. Atomic idempotency check via SET NX ─────────────────────────
     // MSGFIX-FAZ1: the cache key is scoped to (tenant, sender, channel)
     // so two users inside one tenant who pick the same client-side key —

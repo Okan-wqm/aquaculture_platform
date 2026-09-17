@@ -715,4 +715,44 @@ export class TokenService {
         return '/';
     }
   }
+
+  /**
+   * MSGFIX-FAZ2 2.3: resolve a tenant user's authorization capabilities for a
+   * NON-HTTP caller (messaging's AI bridge runs from a JetStream consumer and
+   * holds no JWT). Returns exactly the authorization slice a fresh token mint
+   * would carry — `roles: [user.role]` and the effective resourcePermissions
+   * from the SAME private read path (`getUserResourcePermissions` + entitled
+   * capability intersection) — and nothing else (no PII).
+   *
+   * The lookup is tenant-scoped (`where: { id, tenantId }`): a userId that
+   * exists under another tenant is reported as `found: false`, identical to a
+   * nonexistent one, so the surface cannot become a cross-tenant probe.
+   * Deactivated users resolve `found: true, active: false` — callers must
+   * fail closed on BOTH flags.
+   */
+  async resolveCallerCapabilities(
+    tenantId: string,
+    userId: string,
+  ): Promise<{ found: boolean; active: boolean; roles: string[]; resourcePermissions: string[] }> {
+    const user = await this.userRepository.findOne({
+      select: ['id', 'role', 'tenantId', 'isActive'],
+      where: { id: userId, tenantId },
+    });
+
+    if (!user) {
+      return { found: false, active: false, roles: [], resourcePermissions: [] };
+    }
+
+    // PERF-HIGH-001 (a) applies here too: a permission-read failure THROWS
+    // (fail loud) — the caller surfaces it as an authorization failure, never
+    // as "no permissions granted" pretending to be a definitive answer.
+    const resourcePermissions = await this.getUserResourcePermissions(user);
+
+    return {
+      found: true,
+      active: user.isActive === true,
+      roles: [user.role],
+      resourcePermissions,
+    };
+  }
 }

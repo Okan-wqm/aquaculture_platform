@@ -6,12 +6,12 @@ Tarih: 2026-09-16/17 · Worktree: `/var/aqua-messaging-fix` (dal `messaging-fix-
 
 ## 0. Özet
 
-| Görev | Sonuç |
-|---|---|
-| 1 — Redis idempotency fast-path kapsamı | Anahtar `msg:{tenantId}:{senderId}:{channelId}:{key}`'e kapsamlandı + fast-path dönüşünde sender/kanal doğrulaması + anahtar loglandı (SHA-256 fingerprint). |
-| 2 — markMessagesRead rate-limit | `markRead: { limit: 60, windowSeconds: 60, failMode: 'fail-open' }` kuralı + resolver'a `@MessagingRateLimit('markRead')`; 429 → `extensions.code=TOO_MANY_REQUESTS` (FAZ 0 filter sözleşmesi). |
-| 3a — Canlı NATS teşhisi | **Karar ağacı sonucu: (i) consumer bağlı + pool normal → KOD YOLU HATASI.** Kök neden ispatlandı: NATS handler'ları `app.current_tenant` RLS GUC'u set etmiyor → tüm request-reply handler'lar sessizce 0 satır okuyor. |
-| 3b — verifyMembership tenantId predicate | Predicate eklendi **+ kök neden düzeltmesi**: `withTenantQueryRunner`'a `bindTenantRlsContext` (backend-common kanonik deseni). Canlıda kanıtlanmış yanlış-redler ve hidrasyon null'ları bu tek satırla açılır. |
+| Görev                                    | Sonuç                                                                                                                                                                                                                   |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1 — Redis idempotency fast-path kapsamı  | Anahtar `msg:{tenantId}:{senderId}:{channelId}:{key}`'e kapsamlandı + fast-path dönüşünde sender/kanal doğrulaması + anahtar loglandı (SHA-256 fingerprint).                                                            |
+| 2 — markMessagesRead rate-limit          | `markRead: { limit: 60, windowSeconds: 60, failMode: 'fail-open' }` kuralı + resolver'a `@MessagingRateLimit('markRead')`; 429 → `extensions.code=TOO_MANY_REQUESTS` (FAZ 0 filter sözleşmesi).                         |
+| 3a — Canlı NATS teşhisi                  | **Karar ağacı sonucu: (i) consumer bağlı + pool normal → KOD YOLU HATASI.** Kök neden ispatlandı: NATS handler'ları `app.current_tenant` RLS GUC'u set etmiyor → tüm request-reply handler'lar sessizce 0 satır okuyor. |
+| 3b — verifyMembership tenantId predicate | Predicate eklendi **+ kök neden düzeltmesi**: `withTenantQueryRunner`'a `bindTenantRlsContext` (backend-common kanonik deseni). Canlıda kanıtlanmış yanlış-redler ve hidrasyon null'ları bu tek satırla açılır.         |
 
 Test: **baseline 318 passed + 1 skipped → 330 passed + 1 skipped (+12 yeni, 0 regresyon)**. Build ✔, lint ✔, banned-construct ✔, prettier (değişen dosyalar) ✔.
 
@@ -62,6 +62,7 @@ Teşhis saati: 2026-09-16 ~22:15-22:20 UTC. FAZ 0 deploy'unun CANLIDA olduğu g�
 ### 3.1 Toplanan kanıtlar
 
 **(a) Metrikler** — `docker exec aqua-messaging curl -s localhost:3000/metrics`:
+
 ```
 messaging_nats_connection_status 2      # connected
 messaging_nats_reconnects_total 0       # boot (22:12) sonrası sıfır kesinti
@@ -69,14 +70,17 @@ messaging_outbox_pending 0              # backlog yok
 ```
 
 **(b) NATS bağlantı/subSCRIPTION'lar** — `http://nats:8222/connz?subs=true` (aqua-saas_aqua-internal ağından):
+
 - Bağlantı `messaging-service` (cid 449): `request.messaging.verifyMembership`, `request.messaging.getMessageForBroadcast`, `request.messaging.getChannelMembers`, `request.messaging.resolveNotificationRef`, `request.messaging.getMessageBatch`, `request.messaging.admin.*` (×10), `events.*.UserDeleted`, `events.*.TenantProvisioned` → **microservices transport bağlı, tüm sub'lar yerinde.**
 - Bağlantı `gateway-api-messaging-bridge` (cid 305, uptime 17h52m): `events.*.MessageSent/MessageRead/MessageUpdated/MessageDeleted/MessageForwarded/ChannelCreated/ChannelMemberAdded/ChannelMemberRemoved` → köprü bağlı; ancak `out_msgs=12` (~18 saatte!) ve `idle=1h48m53s`.
 
 **(c) JetStream** — `http://nats:8222/jsz?...consumer_detail=true` (account_details altında):
+
 - Tek stream `AQUACULTURE_EVENTS`, **son mesaj `2026-09-16T20:27:35Z`** (teşhis anından ~2 saat önce — o tarihten beri olay akışı yok).
 - messaging'in durable pull consumer'ları (`...-events---MessageSent`, `...-TenantErasureRequested`, `...-TenantProvisioned`): `waiting=1` (aktif çekim bekliyor), `ack_pending=0`.
 
 **(d) Gateway logları** — `docker logs aqua-gateway --since 6h`:
+
 ```
 17:45:38  Client mMMuxpShJrqwCcCRAACa connected — user 8025339a-e6c7-46df-b65a-dcf4f010b861, tenant 7f6b08ab-90e2-46d3-a260-cb985f1fd897
 17:45:38  denied join — not a member of channel ddf8e5ca-e0d8-4006-861d-f4e13aeb8cf7
@@ -86,6 +90,7 @@ messaging_outbox_pending 0              # backlog yok
 ```
 
 **(e) DB gerçekleri** (salt-okunur SELECT'ler, `docker exec aqua-postgres psql -U aquaculture -d aquaculture`):
+
 ```
 tenant_7f6b08ab90e246d3.channel_members:
   channelId=ddf8e5ca-e0d8-4006-861d-f4e13aeb8cf7, userId=8025339a-e6c7-46df-b65a-dcf4f010b861,
@@ -96,6 +101,7 @@ hidrasyon-fail 4 mesajı: YALNIZ tenant şemasında mevcut; hepsi isDeleted=t (�
 ```
 
 **(f) RLS katmanı**:
+
 ```
 tenant_7f6b08ab90e246d3.{channel_members,messages,channels}: rls=true, force=true (owner=messaging_schema_owner)
 policy tenant_isolation_policy:
@@ -105,6 +111,7 @@ rol messaging_service: rolsuper=f, rolbypassrls=f   ← RLS'e TABİ
 ```
 
 **(g) KONTROLLÜ DENEY** (BEGIN; SET LOCAL ROLE messaging_service; … ROLLBACK — salt-okunur):
+
 ```
 SET LOCAL search_path = tenant_7f6b08ab90e246d3, messaging, public;   ← withTenantQueryRunner'ın yaptığı TEK şey
   → üyelik sorgusu: 0 satır  (RLS satırı gizliyor)
@@ -115,11 +122,11 @@ yanlış tenantId predicate'i ile: 0 satır
 
 ### 3.2 Karar ağacı sonucu
 
-| Dal | Kanıt | Sonuç |
-|---|---|---|
+| Dal                                                    | Kanıt                                                                                                                                                   | Sonuç                        |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
 | (i) consumer bağlı + pool normal → **kod yolu hatası** | sub'lar yerinde (b); reconnect=0, outbox=0 (a); loglarda pool timeout/exhaustion YOK; olaylar köprüye ULAŞIYOR (hidrasyon denemesi = teslim kanıtı) (d) | **SEÇİLEN DAL — doğrulandı** |
-| (ii) DB pool yorgun → FAZ 3.5 | Pool metrikleri expose edilmiyor (grep boş); ama yükleme ilişkili hiçbir timeout/exhaustion belirtisi yok, outbox 0, sorgular anında dönüyor | REDDEDİLDİ |
-| (iii) core-NATS kayıp → JetStream durable FAZ 3.4 | Bağlantı up, sub'lar bağlı, olaylar teslim edilmiş (hidrasyon tetiklenmiş) | REDDEDİLDİ (ama bkz. not) |
+| (ii) DB pool yorgun → FAZ 3.5                          | Pool metrikleri expose edilmiyor (grep boş); ama yükleme ilişkili hiçbir timeout/exhaustion belirtisi yok, outbox 0, sorgular anında dönüyor            | REDDEDİLDİ                   |
+| (iii) core-NATS kayıp → JetStream durable FAZ 3.4      | Bağlantı up, sub'lar bağlı, olaylar teslim edilmiş (hidrasyon tetiklenmiş)                                                                              | REDDEDİLDİ (ama bkz. not)    |
 
 **Kök neden (ispatlı):** `withTenantQueryRunner` (messaging-nats.handler.ts) yalnızca `search_path` set ediyor; `app.current_tenant` RLS GUC'u HİÇ set edilmiyor. FORCE RLS + `tenant_isolation_policy` altında servis kullanıcısı (`messaging_service`, bypass YOK) tüm satırları göremez → **NATS request-reply handler'larının hepsi (verifyMembership, getChannelMembers, getMessageForBroadcast, resolveNotificationRef) sessizce 0 satır okuyor.** Bu: aktif kanal sahibinin WS join'lerinin "not a member" ile reddi (3 kez, kanıt e-d) + taze gönderilmiş mesajın hidrasyonunun null dönüp "sync hint" üretmesi (kanıt d-e; isDeleted filtresi ayrıca silinmiş mesajlarda da null üretir ama 20:15:55 örneği mesaj henüz silinmemişken RLS kaynaklıdır) + bridge'in 18 saatte yalnız 12 mesaj görmesi. **Bu, "panelden gönderilen mesaj canlı yayınlanmıyor" sendromunun backend ayağıdır.**
 
@@ -137,6 +144,7 @@ yanlış tenantId predicate'i ile: 0 satır
 ### 3.4 Spec'ler (YENİ dosya, +5)
 
 `apps/messaging-service/src/event-handlers/messaging-nats.handler.verify-membership.spec.ts`:
+
 1. Aktif üye → `true` + where `{tenantId, channelId, userId}` predicate'i çağrılıyor.
 2. **Yanlış tenant aynı kanal id → üye DEĞİL** (`false`; where'de istenen tenant'ın id'si).
 3. Satır yok → `false`.
@@ -148,24 +156,29 @@ yanlış tenantId predicate'i ile: 0 satır
 ## 4. Doğrulama çıktıları
 
 ### npx nx run messaging-service:test --skip-nx-cache
+
 ```
 Test Suites: 1 skipped, 48 passed, 48 of 49 total
 Tests:       1 skipped, 330 passed, 331 total
 ```
+
 Baseline (aynı worktree'de `git stash -u` ile ölçüldü): `318 passed + 1 skipped / 319` → **+12 yeni test, 0 regresyon.**
 (+12 = send-message.spec +2, rate-limit.interceptor.spec +5, verify-membership.spec +5 [yeni suite]. Not: FAZ 0 raporunda yazan 317 rakamı yerine worktree HEAD'in gerçek baseline'ı 318'dir.)
 
 ### npx nx run messaging-service:build --skip-nx-cache
+
 ```
 NX   Successfully ran target build for project messaging-service and 1 task it depends on
 ```
 
 ### npx nx run messaging-service:lint --skip-nx-cache
+
 ```
 NX   Successfully ran target lint for project messaging-service   ✔
 ```
 
 ### Kapılar
+
 - `tools/gates/banned-construct.ts --mode=file <8 değişen dosya>` → **"No banned constructs detected."**
 - `tools/quality/quality.mjs format check-changed` → değiştirdiğim 8 dosya prettier-temiz (repo `printWidth: 100`). İki uyarı notu:
   - Değiştirdiğim 4 üretim dosyasında (send-message.handler, message.resolver, messaging-nats.handler, interceptor) **tabanda var olan** prettier borcu vardı (ör. 108 karakterlik satırlar) — `--write` tüm dosyayı normelleştirdi, diff'te benim düzenlemem dışındaki yeniden girintilenmeler bu yüzdendir (stdin-filepath ile taban DRIFT doğrulandı).
@@ -198,6 +211,7 @@ cd /var/lib/aqua/deploy/checkout && \
 TAG=local-msg-fix-1 docker compose -p aqua-saas -f docker-compose.droplet.yml \
   up -d --no-deps messaging-service
 ```
+
 Rollback: aynı komutta `TAG=local-msg-fix-0`.
 
 ### 5.3 Post-deploy doğrulama
@@ -225,9 +239,11 @@ Beklenen davranış değişimleri (özet): (1) NATS yolundaki tüm üyelik/hidra
 ## 6. Değişiklik envanteri (dosya:satır)
 
 **Yeni dosya (1):**
+
 - `apps/messaging-service/src/event-handlers/messaging-nats.handler.verify-membership.spec.ts` (5 test)
 
 **Değişen dosyalar (8 + 1 araç-durum dosyası):**
+
 - `apps/messaging-service/src/message/commands/send-message.handler.ts` — kapsamlı idem anahtarı, fast-path sender/kanal doğrulaması, fingerprint() log helper'ı (+prettier norm.)
 - `apps/messaging-service/src/message/commands/__tests__/send-message.handler.spec.ts` — +2 test, 1 test güçlendirildi
 - `apps/messaging-service/src/message/resolvers/message.resolver.ts` — markMessagesRead'a @MessagingRateLimit('markRead') (+prettier norm.)

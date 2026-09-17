@@ -8,6 +8,7 @@ import {
   Check,
 } from 'typeorm';
 import { ObjectType, Field, ID, registerEnumType } from '@nestjs/graphql';
+import GraphQLJSON from 'graphql-type-json';
 import { MessageAttachment } from './message-attachment.entity';
 import { MessageReceipt } from './message-receipt.entity';
 import { MessageReaction } from './message-reaction.entity';
@@ -115,6 +116,13 @@ export class Message {
   @Column({ type: 'boolean', default: false })
   isAiGenerated!: boolean;
 
+  /**
+   * MSGFIX-FAZ2 2.4: exposed (additive, nullable) so the panel can render AI
+   * error notices (metadata.error/errorCode) and keep forwarding context.
+   * Server-reserved keys (isAi/status/actionId) are already stripped at the
+   * write side — this field is read-only attribution data.
+   */
+  @Field(() => GraphQLJSON, { nullable: true })
   @Column({ type: 'jsonb', nullable: true })
   metadata!: Record<string, unknown> | null;
 

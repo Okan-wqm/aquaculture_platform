@@ -43,14 +43,24 @@ const ChannelListPage: React.FC = () => {
       </div>
 
       {isLoading && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#5c7783', fontSize: 13.5 }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            color: '#5c7783',
+            fontSize: 13.5,
+          }}
+        >
           <RefreshCw size={15} className="animate-spin" /> {t('messaging.loadingChannels')}
         </div>
       )}
       {isError && (
         <div className="sd-banner sd-banner--error" role="alert">
           <AlertCircle size={17} style={{ color: '#b04a28' }} />
-          <span style={{ fontSize: 13.5, fontWeight: 600, color: '#8e3a1e' }}>{t('messaging.errorChannels')}</span>
+          <span style={{ fontSize: 13.5, fontWeight: 600, color: '#8e3a1e' }}>
+            {t('messaging.errorChannels')}
+          </span>
         </div>
       )}
 
@@ -63,7 +73,15 @@ const ChannelListPage: React.FC = () => {
       {(channels?.length ?? 0) > 0 && (
         <div className="sd-card sd-card--flush">
           <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(10,31,43,.09)' }}>
-            <span style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: '#0b4f60' }}>
+            <span
+              style={{
+                fontSize: 11.5,
+                fontWeight: 700,
+                letterSpacing: '0.09em',
+                textTransform: 'uppercase',
+                color: '#0b4f60',
+              }}
+            >
               {t('messaging.channelsLabel')}
             </span>
           </div>
@@ -79,7 +97,14 @@ const ChannelListPage: React.FC = () => {
                   <ChannelIcon channel={channel} />
                 </span>
                 <span style={{ flex: 1, minWidth: 0 }}>
-                  <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                  <span
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 8,
+                    }}
+                  >
                     <span className="sd-chan-title">{channelTitle(channel, myId)}</span>
                     {!!channel.unreadCount && channel.unreadCount > 0 && (
                       <span className="sd-unread">{channel.unreadCount}</span>

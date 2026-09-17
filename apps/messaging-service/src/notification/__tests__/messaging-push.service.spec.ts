@@ -252,6 +252,56 @@ describe('MessagingPushService', () => {
     expect(emittedPayload.templateVariables).not.toHaveProperty('messageId');
   });
 
+  // -------------------------------------------------------------------------
+  // MSGFIX-FAZ2 2.3: AI messages never push — contract flag first, AI sender
+  // identity second (legacy publishers omitting isAiResponse are covered).
+  // -------------------------------------------------------------------------
+  it('MSGFIX-FAZ2: skips push for AI replies (isAiResponse contract flag)', async () => {
+    mockMemberRepo.find.mockResolvedValue([
+      { userId: 'user-a', notificationPreference: NotificationPreference.ALL },
+    ]);
+    mockPresenceService.getOnlineUsers.mockResolvedValue(new Map([['user-a', false]]));
+
+    await service.handleMessageSent({
+      ...basePayload,
+      isAiResponse: true,
+    });
+
+    expect(mockMemberRepo.find).not.toHaveBeenCalled();
+    expect(mockNatsClient.send).not.toHaveBeenCalled();
+  });
+
+  it('MSGFIX-FAZ2: skips push for the virtual AI sender even without the flag', async () => {
+    await service.handleMessageSent({
+      ...basePayload,
+      senderId: '00000000-0000-0000-0000-000000000001',
+    });
+
+    expect(mockMemberRepo.find).not.toHaveBeenCalled();
+    expect(mockNatsClient.send).not.toHaveBeenCalled();
+  });
+
+  // -------------------------------------------------------------------------
+  // MSGFIX-FAZ2 V1 MAJOR-2: AI ERROR notices are EXEMPT from the AI push
+  // filter — a backgrounded user must learn the AI turn failed.
+  // -------------------------------------------------------------------------
+  it('MSGFIX-FAZ2: pushes for AI ERROR notices despite isAiResponse', async () => {
+    mockMemberRepo.find.mockResolvedValue([
+      { userId: 'user-a', notificationPreference: NotificationPreference.ALL },
+    ]);
+    mockPresenceService.getOnlineUsers.mockResolvedValue(new Map([['user-a', false]]));
+
+    await service.handleMessageSent({
+      ...basePayload,
+      senderId: '00000000-0000-0000-0000-000000000001',
+      isAiResponse: true,
+      isAiErrorNotice: true,
+    });
+
+    expect(mockMemberRepo.find).toHaveBeenCalled();
+    expect(mockNatsClient.send).toHaveBeenCalled();
+  });
+
   it('rolls back failed recipient refs without stopping other recipients', async () => {
     mockMemberRepo.find.mockResolvedValue([
       { userId: 'user-sender', notificationPreference: NotificationPreference.ALL },

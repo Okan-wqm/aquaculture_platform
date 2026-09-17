@@ -271,7 +271,10 @@ describe('ChatRoomPage', () => {
       { match: 'query MyChannels', result: fx.channelsResult },
       { match: 'query ChannelMessages', result: fx.messagesResult },
       { match: 'mutation MarkMessagesRead', result: { markMessagesRead: true } },
-      { match: 'mutation SendMessage', result: () => Promise.reject(clientError('TOO_MANY_REQUESTS')) },
+      {
+        match: 'mutation SendMessage',
+        result: () => Promise.reject(clientError('TOO_MANY_REQUESTS')),
+      },
     ]);
     renderRoom(newQueryClient());
     await screen.findByText('latest from other');
@@ -287,9 +290,7 @@ describe('ChatRoomPage', () => {
     // The optimistic bubble was rolled back — the message body shows no
     // phantom send (the composer textarea itself legitimately holds the draft).
     const chatBody = document.querySelector('.sd-chat-body') as HTMLElement;
-    await waitFor(() =>
-      expect(within(chatBody).queryByText('will fail')).not.toBeInTheDocument(),
-    );
+    await waitFor(() => expect(within(chatBody).queryByText('will fail')).not.toBeInTheDocument());
   });
 
   it('the banner clears when the next send is attempted', async () => {

@@ -5,6 +5,7 @@ import { AuditModule } from '../../audit/audit.module';
 import { Tenant } from '../tenant/entities/tenant.entity';
 import { TenantModule } from '../tenant/tenant.module';
 
+import { AuthCallerCapabilitiesNatsHandler } from './controllers/auth-caller-capabilities-nats.handler';
 import { AuthCredentialNatsHandler } from './controllers/auth-credential-nats.handler';
 import { AuthPublicNatsHandler } from './controllers/auth-public-nats.handler';
 import { InternalAuthController } from './controllers/internal-auth.controller';
@@ -45,7 +46,14 @@ import { WebAuthnService } from './services/webauthn.service';
     // mobile-feature read path) so TokenService can fold it into the JWT mint.
     TenantModule,
   ],
-  controllers: [InternalAuthController, AuthPublicNatsHandler, AuthCredentialNatsHandler],
+  controllers: [
+    InternalAuthController,
+    AuthPublicNatsHandler,
+    AuthCredentialNatsHandler,
+    // MSGFIX-FAZ2 2.3: request.auth.user.resolveCallerCapabilities — roles +
+    // effective resourcePermissions for non-HTTP callers (messaging AI bridge).
+    AuthCallerCapabilitiesNatsHandler,
+  ],
   providers: [
     AccountService,
     TokenService,
@@ -60,7 +68,15 @@ import { WebAuthnService } from './services/webauthn.service';
     PublicUserProfileFederationResolver,
     JwtAuthGuard,
   ],
-  exports: [AccountService, AuthenticationService, TokenService, MfaService, WebAuthnService, JwtAuthGuard, TypeOrmModule],
+  exports: [
+    AccountService,
+    AuthenticationService,
+    TokenService,
+    MfaService,
+    WebAuthnService,
+    JwtAuthGuard,
+    TypeOrmModule,
+  ],
 })
 export class AuthenticationModule {
   private readonly moduleClass = AuthenticationModule.name;

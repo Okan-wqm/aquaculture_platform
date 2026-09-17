@@ -193,6 +193,20 @@ describe('SendMessageHandler', () => {
   }
 
   // -----------------------------------------------------------------------
+  // MSGFIX-FAZ2 2.3: SYSTEM contentType is reserved for AI/platform rows.
+  // -----------------------------------------------------------------------
+  it('rejects user-sent contentType SYSTEM with BadRequestException', async () => {
+    redisClient.get.mockResolvedValue(null);
+
+    await expect(
+      handler.execute(makeCmd({ contentType: MessageContentType.SYSTEM })),
+    ).rejects.toThrow(BadRequestException);
+
+    // Nothing was written: no ledger claim, no message insert, no outbox.
+    expect(queryRunner.manager.save).not.toHaveBeenCalled();
+  });
+
+  // -----------------------------------------------------------------------
   // Happy path
   // -----------------------------------------------------------------------
   it('sends text message successfully', async () => {

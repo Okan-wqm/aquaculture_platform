@@ -22262,6 +22262,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/messaging-service/src/event-handlers/messaging-nats.handler.verify-membership.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/messaging-service/src/filters/__tests__/global-exception.filter.spec.ts",
       "prettier_managed": true
     },
@@ -27688,6 +27694,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "DEPLOY-FAZ0.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "DEPLOY-FAZ1.md",
       "prettier_managed": true
     },
     {
@@ -51807,6 +51819,24 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/messaging-module/src/hooks/__tests__/useMarkMessagesRead.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/hooks/__tests__/useMessagingSocket.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/hooks/__tests__/useSendMessage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/messaging-module/src/hooks/useMessagingData.ts",
       "prettier_managed": true
     },
@@ -51831,6 +51861,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/messaging-module/src/lib/__tests__/messageIdempotency.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/lib/__tests__/sendErrorMessages.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/messaging-module/src/lib/channelDisplay.ts",
       "prettier_managed": true
     },
@@ -51838,6 +51880,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/messaging-module/src/lib/graphqlErrors.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/lib/messageIdempotency.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/lib/sendErrorMessages.ts",
       "prettier_managed": true
     },
     {
@@ -51855,6 +51909,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/messaging-module/src/pages/__tests__/ChatRoomPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/messaging-module/src/pages/ChannelListPage.tsx",
       "prettier_managed": true
     },
@@ -51862,6 +51922,30 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/messaging-module/src/pages/ChatRoomPage.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/test-setup.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/test-utils/mockGraphqlClient.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/test-utils/mockSocketIo.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/test-utils/sharedUiMock.ts",
       "prettier_managed": true
     },
     {

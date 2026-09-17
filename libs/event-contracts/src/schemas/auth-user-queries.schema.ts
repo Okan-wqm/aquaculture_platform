@@ -47,6 +47,45 @@ const VALIDATE_TENANT_MEMBERSHIP_RESULT_SCHEMA = {
   },
 } as const;
 
+/**
+ * MSGFIX-FAZ2 2.3: trust-boundary schema for the caller-capabilities query
+ * (request.auth.user.resolveCallerCapabilities). Same posture as the
+ * membership queries — additionalProperties:false on both sides; the Result
+ * whitelists ONLY role codes + resource permission codes (no PII), and the
+ * Query stops extra keys at the trust boundary.
+ */
+const RESOLVE_CALLER_CAPABILITIES_QUERY_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['tenantId', 'userId'],
+  properties: {
+    tenantId: UUID_SCHEMA,
+    userId: UUID_SCHEMA,
+    correlationId: UUID_SCHEMA,
+  },
+} as const;
+
+const RESOLVE_CALLER_CAPABILITIES_RESULT_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['success', 'found', 'active', 'roles', 'resourcePermissions'],
+  properties: {
+    success: { type: 'boolean' },
+    found: { type: 'boolean' },
+    active: { type: 'boolean' },
+    roles: {
+      type: 'array',
+      items: { type: 'string', maxLength: 64 },
+    },
+    resourcePermissions: {
+      type: 'array',
+      items: { type: 'string', maxLength: 128 },
+    },
+    errorCode: { type: 'string', enum: ['VALIDATION_ERROR', 'INTERNAL_ERROR'] },
+    error: { type: 'string', maxLength: 500 },
+  },
+} as const;
+
 // Compile once at module load (same amortisation rationale as
 // validator.ts — the admission path runs on every channel mutation).
 const ajv = new Ajv({ strict: false, allErrors: true });
@@ -57,4 +96,12 @@ export const validateTenantMembershipQuerySchema: ValidateFunction = ajv.compile
 
 export const validateTenantMembershipResultSchema: ValidateFunction = ajv.compile(
   VALIDATE_TENANT_MEMBERSHIP_RESULT_SCHEMA,
+);
+
+export const validateResolveCallerCapabilitiesQuerySchema: ValidateFunction = ajv.compile(
+  RESOLVE_CALLER_CAPABILITIES_QUERY_SCHEMA,
+);
+
+export const validateResolveCallerCapabilitiesResultSchema: ValidateFunction = ajv.compile(
+  RESOLVE_CALLER_CAPABILITIES_RESULT_SCHEMA,
 );

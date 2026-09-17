@@ -17,6 +17,14 @@
  * to the tenant's schema for every batch query. The tank registry fetch also
  * sends the tenantId so farm-service can return the correct tenant's registry.
  *
+ * MSGFIX-FAZ2 (2026-09-16) DELIBERATE DECISION — this cron stays env-gated
+ * OFF (MESSAGING_AI_KNOWLEDGE_CRON_ENABLED, default 'false') and the service
+ * is KEPT (unlike the sentiment writer / embedding cron, which Faz 2.1
+ * deleted): gdpr.service.ts §6 erases knowledge_entries rows by
+ * sourceMessageId, so the table + writer must stay in lockstep; re-enabling
+ * the cron later is a pure env flip with no code change once its consent
+ * gating is reviewed.
+ *
  * @see ADR-012 section 12.3 (Knowledge Extraction)
  */
 import { Injectable, Logger, Inject, OnModuleInit } from '@nestjs/common';
@@ -31,10 +39,7 @@ import {
   MessageEntityReference,
   DomainEntityType,
 } from '../entities/message-entity-reference.entity';
-import {
-  KnowledgeEntry,
-  KnowledgeCategory,
-} from '../entities/knowledge-entry.entity';
+import { KnowledgeEntry, KnowledgeCategory } from '../entities/knowledge-entry.entity';
 import { AiPrivacyService } from './ai-privacy.service';
 import {
   MESSAGING_AI_KNOWLEDGE_CRON_ENABLED_ENV,
@@ -51,19 +56,32 @@ const NATS_TIMEOUT_MS = 30_000;
 const TENANT_SCHEMA_REGEX = /^tenant_[a-f0-9]{16}$/;
 
 /** Regex patterns for extracting tank code references from messages. */
-const TANK_CODE_PATTERNS: RegExp[] = [
-  /\bTank[-\s]?([A-Z]\d{1,3})\b/gi,
-  /\b([A-Z]\d{1,2})\b/g,
-];
+const TANK_CODE_PATTERNS: RegExp[] = [/\bTank[-\s]?([A-Z]\d{1,3})\b/gi, /\b([A-Z]\d{1,2})\b/g];
 
 /** Keywords indicating feeding-related knowledge. */
 const FEEDING_KEYWORDS = ['fed', 'feeding', 'feed rate', 'kg/m2', 'fcr', 'pellet'];
 
 /** Keywords indicating water quality-related knowledge. */
-const WQ_KEYWORDS = ['ph', 'dissolved oxygen', 'do level', 'ammonia', 'nitrite', 'temperature', 'salinity'];
+const WQ_KEYWORDS = [
+  'ph',
+  'dissolved oxygen',
+  'do level',
+  'ammonia',
+  'nitrite',
+  'temperature',
+  'salinity',
+];
 
 /** Keywords indicating incident reports. */
-const INCIDENT_KEYWORDS = ['mortality', 'died', 'disease', 'infection', 'leak', 'alarm', 'emergency'];
+const INCIDENT_KEYWORDS = [
+  'mortality',
+  'died',
+  'disease',
+  'infection',
+  'leak',
+  'alarm',
+  'emergency',
+];
 
 /**
  * Tank registry entry from farm-service.
@@ -177,18 +195,14 @@ export class KnowledgeExtractionService implements OnModuleInit {
       return;
     }
 
-    this.logger.debug(
-      `Knowledge extraction: processing ${tenantSchemas.length} tenant schemas`,
-    );
+    this.logger.debug(`Knowledge extraction: processing ${tenantSchemas.length} tenant schemas`);
 
     for (const schema of tenantSchemas) {
       try {
         await this.runBatchForTenantSchema(schema);
       } catch (err: unknown) {
         const errMessage = err instanceof Error ? err.message : String(err);
-        this.logger.error(
-          `Knowledge extraction failed for schema ${schema}: ${errMessage}`,
-        );
+        this.logger.error(`Knowledge extraction failed for schema ${schema}: ${errMessage}`);
       }
     }
   }
@@ -232,9 +246,7 @@ export class KnowledgeExtractionService implements OnModuleInit {
         return;
       }
 
-      this.logger.debug(
-        `Processing ${messages.length} messages for schema ${tenantSchema}`,
-      );
+      this.logger.debug(`Processing ${messages.length} messages for schema ${tenantSchema}`);
 
       // Fetch tank registry for this tenant from farm-service. All rows in this
       // pinned tenant schema share one tenantId (ORPHAN-MEDIUM-336) — pass that
@@ -337,9 +349,7 @@ export class KnowledgeExtractionService implements OnModuleInit {
       });
       await queryRunner.manager.save(KnowledgeEntry, entry);
 
-      this.logger.debug(
-        `Knowledge entry created: ${category} for message ${msg.id}`,
-      );
+      this.logger.debug(`Knowledge entry created: ${category} for message ${msg.id}`);
     }
   }
 
@@ -364,9 +374,7 @@ export class KnowledgeExtractionService implements OnModuleInit {
     }
 
     // Match against tank registry for validation
-    return tankRegistry.filter((tank) =>
-      foundCodes.has(tank.code.toUpperCase()),
-    );
+    return tankRegistry.filter((tank) => foundCodes.has(tank.code.toUpperCase()));
   }
 
   /**
@@ -408,9 +416,7 @@ export class KnowledgeExtractionService implements OnModuleInit {
           timeout(NATS_TIMEOUT_MS),
           catchError((err: unknown) => {
             const errMsg = err instanceof Error ? err.message : String(err);
-            this.logger.warn(
-              `Failed to fetch tank registry for tenant ${tenantId}: ${errMsg}`,
-            );
+            this.logger.warn(`Failed to fetch tank registry for tenant ${tenantId}: ${errMsg}`);
             return of([]);
           }),
         ),
@@ -431,8 +437,6 @@ export class KnowledgeExtractionService implements OnModuleInit {
        WHERE schema_name ~ '^tenant_[a-f0-9]{16}$'
        ORDER BY schema_name`,
     );
-    return rows
-      .map((r) => r.schema_name)
-      .filter((name) => TENANT_SCHEMA_REGEX.test(name));
+    return rows.map((r) => r.schema_name).filter((name) => TENANT_SCHEMA_REGEX.test(name));
   }
 }

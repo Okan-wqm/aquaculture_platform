@@ -9,12 +9,7 @@
  */
 import type { MessageKey } from '@aquaculture/shared-ui';
 
-import {
-  isForbidden,
-  isNotFound,
-  isRateLimited,
-  isUnauthenticated,
-} from './graphqlErrors';
+import { isForbidden, isNotFound, isRateLimited, isUnauthenticated } from './graphqlErrors';
 
 /** The banner copy for a failed sendMessage, chosen by the contractual code. */
 export function sendErrorBannerKey(error: unknown): MessageKey {

@@ -24,6 +24,7 @@ import { ChannelMember, NotificationPreference } from '../channel/entities/chann
 import { MessageService } from '../message/services/message.service';
 import { PresenceService } from '../presence/presence.service';
 import { REDIS_CLIENT } from '../shared/redis.provider';
+import { AI_USER_ID } from '../shared/ai-user';
 
 /** Deduplication window: max 1 push per user per channel within this period (seconds). */
 const DEDUP_TTL_SECONDS = 30;
@@ -47,6 +48,10 @@ export interface MessageSentPayload {
   createdAt: string;
   mentionedUserIds?: string[];
   senderDisplayName?: string;
+  /** MSGFIX-FAZ2 2.0: true when the message is the persisted AI assistant reply. */
+  isAiResponse?: boolean;
+  /** MSGFIX-FAZ2 (V1 MAJOR-2): AI error/status notice — push is NOT suppressed. */
+  isAiErrorNotice?: boolean;
 }
 
 /**
@@ -80,6 +85,25 @@ export class MessagingPushService {
    */
   async handleMessageSent(payload: MessageSentPayload): Promise<void> {
     const { tenantId, channelId, messageId, senderId, mentionedUserIds } = payload;
+
+    // MSGFIX-FAZ2 2.3: AI assistant messages never push. Offline members
+    // should not get a "Someone: …" notification for an AI reply — they will
+    // see it when they open the channel, and AI replies can arrive in bursts
+    // (a chatty channel would double-notify everyone). Contract flag first
+    // (2.0), sender identity second so legacy publishers are covered too.
+    // MSGFIX-FAZ2 (V1 MAJOR-2): ERROR/STATUS notices are EXEMPT — a user who
+    // messaged the AI and backgrounded the app must learn the turn failed,
+    // otherwise "no reply + no push" reads as silence. Notices are throttled
+    // upstream (1/hour/channel, 1/day for the daily ceiling) so this cannot
+    // burst.
+    if (
+      (payload.isAiResponse === true || senderId === AI_USER_ID) &&
+      payload.isAiErrorNotice !== true
+    ) {
+      this.logger.debug(`Skipping push for AI message ${messageId} in channel ${channelId}`);
+      return;
+    }
+
     const mentionedSet = new Set(mentionedUserIds ?? []);
 
     try {

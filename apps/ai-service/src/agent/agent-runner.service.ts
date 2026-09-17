@@ -51,6 +51,17 @@ export interface ChatRequest {
   resourcePermissions: string[];
   schemaName: string;
   correlationId: string;
+  /**
+   * MSGFIX-FAZ2 2.3: externally-supplied conversation history (the messaging
+   * AI-channel bridge's consent-filtered channel context). Used INSTEAD of
+   * stored conversation rows when the caller sends no conversationId:
+   * channel-derived conversations would collide with ConversationService's
+   * per-user ownership model in multi-user channels and with GDPR
+   * eraseForUser (third-party contributions are not erasable there).
+   * Mapped by the responder — rızalı other users → 'user', the AI's own
+   * prior replies → 'assistant'.
+   */
+  priorMessages?: Array<{ role: 'user' | 'assistant'; content: string }>;
 }
 
 /**
@@ -131,10 +142,7 @@ export class AgentRunnerService {
     // FAZ1-BYOK: the process-global Anthropic client is gone. Each request runs
     // against the tenant's own decrypted key, resolved below and passed to the
     // provider per call — no platform key, no shared client.
-    this.maxToolLoops = this.configService.get<number>(
-      'AI_MAX_TOOL_LOOPS',
-      10,
-    );
+    this.maxToolLoops = this.configService.get<number>('AI_MAX_TOOL_LOOPS', 10);
   }
 
   async chat(request: ChatRequest): Promise<ChatResponse> {
@@ -163,9 +171,7 @@ export class AgentRunnerService {
       config.hourlyRequestLimit,
     );
     if (!rateLimitCheck.allowed) {
-      throw new Error(
-        `Rate limit exceeded. Resets at ${rateLimitCheck.resetAt.toISOString()}`,
-      );
+      throw new Error(`Rate limit exceeded. Resets at ${rateLimitCheck.resetAt.toISOString()}`);
     }
 
     // 3. Check token budget
@@ -182,11 +188,10 @@ export class AgentRunnerService {
     // 4. Resolve agent profile (persona tier authorized against the caller's
     // tenant-RBAC capabilities — roles feed the admin bypass, resourcePermissions
     // the ai_personas:<tier> grant).
-    const profile = await this.profileService.resolveProfile(
-      request.tenantId,
-      request.persona,
-      { roles: request.userRoles, resourcePermissions: request.resourcePermissions },
-    );
+    const profile = await this.profileService.resolveProfile(request.tenantId, request.persona, {
+      roles: request.userRoles,
+      resourcePermissions: request.resourcePermissions,
+    });
 
     // 5. Get or create conversation
     let conversationId = request.conversationId;
@@ -205,11 +210,7 @@ export class AgentRunnerService {
     // returns null, preventing cross-tenant conversation hydration and
     // prompt-injection via foreign conversation history (CRITICAL-001).
     const existingConversation = conversationId
-      ? await this.conversationService.getById(
-          conversationId,
-          request.tenantId,
-          request.userId,
-        )
+      ? await this.conversationService.getById(conversationId, request.tenantId, request.userId)
       : null;
 
     const messages: LlmMessage[] = [];
@@ -226,24 +227,26 @@ export class AgentRunnerService {
       }
     }
 
+    // MSGFIX-FAZ2 2.3: externally-supplied history (messaging AI-channel
+    // context). Only consulted when there is no stored conversation — the
+    // bridge deliberately sends no conversationId (per-user ownership +
+    // GDPR eraseForUser would both break on a shared channel conversation).
+    if (!existingConversation && request.priorMessages?.length) {
+      for (const prior of request.priorMessages) {
+        pushAlternating(messages, prior.role, prior.content);
+      }
+    }
+
     // Add new user message
-    messages.push({
-      role: 'user',
-      content: [{ type: 'text', text: request.message }],
-    });
+    pushAlternating(messages, 'user', request.message);
 
     // Save user message to conversation
     // SECURITY: addMessage now requires tenantId + userId ownership check
-    await this.conversationService.addMessage(
-      conversationId,
-      request.tenantId,
-      request.userId,
-      {
-        role: 'user',
-        content: request.message,
-        timestamp: new Date().toISOString(),
-      },
-    );
+    await this.conversationService.addMessage(conversationId, request.tenantId, request.userId, {
+      role: 'user',
+      content: request.message,
+      timestamp: new Date().toISOString(),
+    });
 
     // 7. SECURITY: Pre-process input through AI safety pipeline (jailbreak filter + prompt hardening)
     const safetyResult = this.aiSafety.preProcess(
@@ -257,9 +260,7 @@ export class AgentRunnerService {
       this.logger.warn(
         `AI safety rejected input for tenant ${request.tenantId}: ${safetyResult.rejectionReason}`,
       );
-      throw new Error(
-        'Your message was flagged by our safety system and cannot be processed.',
-      );
+      throw new Error('Your message was flagged by our safety system and cannot be processed.');
     }
 
     // Use hardened system prompt if instruction hierarchy is active
@@ -388,8 +389,7 @@ export class AgentRunnerService {
       for (const toolUse of toolUseBlocks) {
         // SECURITY: Validate tool call through safety pipeline before execution.
         const toolMeta = this.toolRegistry.getClaudeToolDefinitions([toolUse.name]);
-        const toolSchema: Record<string, unknown> =
-          toolMeta[0]?.input_schema ?? {};
+        const toolSchema: Record<string, unknown> = toolMeta[0]?.input_schema ?? {};
         const urls = Object.values(toolUse.input).filter(
           (v): v is string => typeof v === 'string' && /^https?:\/\//i.test(v),
         );
@@ -468,9 +468,7 @@ export class AgentRunnerService {
         toolResults.push({
           type: 'tool_result',
           toolUseId: toolUse.id,
-          content: result.success
-            ? JSON.stringify(result.data)
-            : `Error: ${result.error}`,
+          content: result.success ? JSON.stringify(result.data) : `Error: ${result.error}`,
           isError: !result.success,
         });
       }
@@ -488,9 +486,7 @@ export class AgentRunnerService {
     finalMessage = postResult.outputText;
 
     if (postResult.piiRedacted) {
-      this.logger.warn(
-        `AI safety redacted PII from output for tenant ${request.tenantId}`,
-      );
+      this.logger.warn(`AI safety redacted PII from output for tenant ${request.tenantId}`);
     }
 
     // 11. Durable per-turn cost ledger (ORPHAN-MEDIUM-380): append one
@@ -503,9 +499,7 @@ export class AgentRunnerService {
     // break the chat path. Redis (step 13) remains the fast enforcement
     // cache; this row is the durable SSoT.
     const flaggedCategories: string[] = [
-      ...(safetyResult.inputFilter?.flaggedPatterns ?? []).map(
-        (pattern) => `input:${pattern}`,
-      ),
+      ...(safetyResult.inputFilter?.flaggedPatterns ?? []).map((pattern) => `input:${pattern}`),
       ...(postResult.piiRedacted ? ['output:pii_redacted'] : []),
     ];
     await this.turnLedger.recordTurn({
@@ -524,17 +518,12 @@ export class AgentRunnerService {
 
     // 12. Save assistant response to conversation
     // SECURITY: addMessage requires tenantId + userId ownership check
-    await this.conversationService.addMessage(
-      conversationId,
-      request.tenantId,
-      request.userId,
-      {
-        role: 'assistant',
-        content: finalMessage,
-        toolUse: toolCalls,
-        timestamp: new Date().toISOString(),
-      },
-    );
+    await this.conversationService.addMessage(conversationId, request.tenantId, request.userId, {
+      role: 'assistant',
+      content: finalMessage,
+      toolUse: toolCalls,
+      timestamp: new Date().toISOString(),
+    });
 
     // 13. Update token usage (total = input + output + cacheCreation — see
     // the TokenUsageBreakdown docblock for the budget semantics)
@@ -566,4 +555,29 @@ export class AgentRunnerService {
     }
     return `Run ${toolName}`;
   }
+}
+
+/**
+ * MSGFIX-FAZ2 2.3: alternation-safe append onto an LlmMessage[] list.
+ *
+ * Channel-derived history (multiple consenting users in a row, several AI
+ * replies back-to-back after skipped turns) does NOT naturally alternate,
+ * but the Messages API contract requires user/assistant roles to alternate.
+ * When the incoming role equals the tail's role, the content is folded into
+ * the tail with a blank-line separator instead of erroring the whole turn.
+ */
+function pushAlternating(messages: LlmMessage[], role: 'user' | 'assistant', text: string): void {
+  const last = messages[messages.length - 1];
+  if (last && last.role === role) {
+    const existingText = last.content
+      .filter((block): block is Extract<LlmContentBlock, { type: 'text' }> => block.type === 'text')
+      .map((block) => block.text)
+      .join('\n\n');
+    last.content = [{ type: 'text', text: existingText ? `${existingText}\n\n${text}` : text }];
+    return;
+  }
+  messages.push({
+    role,
+    content: [{ type: 'text', text }],
+  });
 }

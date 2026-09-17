@@ -88,10 +88,12 @@ import { LegalHold } from './compliance/entities/legal-hold.entity';
 import { ComplianceAuditLog } from './compliance/entities/compliance-audit-log.entity';
 
 // AI entities (ADR-012 section 12)
+// MSGFIX-FAZ2: EmbeddingsMetadata removed — it was the registration for a
+// platform-wide model registry nothing ever wrote to (the embedding cron is
+// deleted in Faz 2.1; the dormant table stays, owned by db-migrate DDL).
 import { MessageAnalysis } from './ai/entities/message-analysis.entity';
 import { MessageEntityReference } from './ai/entities/message-entity-reference.entity';
 import { KnowledgeEntry } from './ai/entities/knowledge-entry.entity';
-import { EmbeddingsMetadata } from './ai/entities/embeddings-metadata.entity';
 import { UserAiConsent } from './ai/entities/user-ai-consent.entity';
 
 // Migrations — imported as class references so webpack bundles them into main.js.
@@ -109,6 +111,10 @@ import { CreateMessageReceiptLedger1800800000000 } from './migrations/1800800000
 import { EnsureMessagingTenantErasureProofLedger1801000000000 } from './migrations/1801000000000-EnsureMessagingTenantErasureProofLedger';
 import { DropChannelAiServiceUrl1802000000000 } from './migrations/1802000000000-DropChannelAiServiceUrl';
 import { DropTenantAiSettings1802100000000 } from './migrations/1802100000000-DropTenantAiSettings';
+// MSGFIX-FAZ2 2.1b: backfill messages.embedding (nullable + HNSW index) into
+// every provisioned tenant schema — the column only ever landed in the
+// messaging source schema, so similarMessages 500'd on live tenants.
+import { EnsureMessagesEmbeddingColumnTenantFanout1802200000000 } from './migrations/1802200000000-EnsureMessagesEmbeddingColumnTenantFanout';
 // Feature modules
 import { HealthModule } from './health/health.module';
 import { ChannelModule } from './channel/channel.module';
@@ -185,7 +191,6 @@ type QueryComplexityOperationContext = {
             MessageAnalysis,
             MessageEntityReference,
             KnowledgeEntry,
-            EmbeddingsMetadata,
             UserAiConsent,
           ],
           // Class references (NOT glob paths) — webpack bundles all into main.js,
@@ -202,6 +207,7 @@ type QueryComplexityOperationContext = {
             EnsureMessagingTenantErasureProofLedger1801000000000,
             DropChannelAiServiceUrl1802000000000,
             DropTenantAiSettings1802100000000,
+            EnsureMessagesEmbeddingColumnTenantFanout1802200000000,
           ],
         }),
     }),

@@ -1,11 +1,7 @@
 import { Controller, Logger } from '@nestjs/common';
 import { MessagePattern, Payload } from '@nestjs/microservices';
 import { randomUUID } from 'crypto';
-import {
-  AgentRunnerService,
-  AiKeyMissingError,
-  ChatRequest,
-} from '../agent/agent-runner.service';
+import { AgentRunnerService, AiKeyMissingError, ChatRequest } from '../agent/agent-runner.service';
 
 /**
  * Unified `request.ai.chat` NATS request-reply contract — the SINGLE AI chat
@@ -38,12 +34,48 @@ export interface AiChatNatsRequest {
   // ── messaging-bridge-only context (ignored by the assistant path) ──
   channelId?: string;
   messageId?: string;
+  /**
+   * MSGFIX-FAZ2 2.3: consent-filtered channel history (the bridge already
+   * dropped non-consenting senders' messages and applied a character
+   * budget). Mapped to LlmMessage history below — the responder previously
+   * received this field and silently DISCARDED it, so the assistant had no
+   * channel memory at all.
+   */
   contextMessages?: Array<{
     senderId: string;
     content: string;
     createdAt: string;
     isAi: boolean;
   }>;
+}
+
+/** Defensive caps on caller-supplied history (NATS is a trust boundary). */
+const MAX_CONTEXT_MESSAGES = 30;
+const MAX_CONTEXT_MESSAGE_CHARS = 8_000;
+
+/**
+ * Map the bridge's channel context onto provider-neutral chat history.
+ *
+ * Role mapping: the AI's own prior replies (`isAi`) become 'assistant';
+ * every other consented author becomes 'user' (their identity is NOT
+ * forwarded — content only). Alternation is enforced downstream
+ * (agent-runner's pushAlternating folds consecutive same-role turns), so
+ * this stays a pure 1:1 projection.
+ */
+function mapContextToPriorMessages(
+  payload: AiChatNatsRequest,
+): Array<{ role: 'user' | 'assistant'; content: string }> | undefined {
+  if (!Array.isArray(payload.contextMessages) || payload.contextMessages.length === 0) {
+    return undefined;
+  }
+  const prior: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+  for (const ctx of payload.contextMessages.slice(0, MAX_CONTEXT_MESSAGES)) {
+    if (typeof ctx?.content !== 'string') continue;
+    const text = ctx.content.slice(0, MAX_CONTEXT_MESSAGE_CHARS).trim();
+    if (!text) continue;
+    prior.push({ role: ctx.isAi === true ? 'assistant' : 'user', content: text });
+  }
+  return prior.length > 0 ? prior : undefined;
 }
 
 export interface AiChatNatsResponse {
@@ -89,6 +121,10 @@ export class AiChatResponder {
       resourcePermissions: payload.resourcePermissions ?? [],
       schemaName: `tenant_${cleanId}`,
       correlationId: payload.correlationId ?? randomUUID(),
+      // MSGFIX-FAZ2 2.3: the bridge's consent-filtered channel context —
+      // becomes the model's prior turns (previously ignored, so AI channels
+      // had zero memory). Only used when no conversationId rides the request.
+      priorMessages: payload.conversationId ? undefined : mapContextToPriorMessages(payload),
     };
 
     try {

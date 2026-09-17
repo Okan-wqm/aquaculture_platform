@@ -11,6 +11,7 @@ import { OPERATOR_PERSONA } from './personas/operator';
 import { MANAGER_PERSONA } from './personas/manager';
 import { EXPERT_PERSONA } from './personas/expert';
 import { SUPERVISOR_PERSONA } from './personas/supervisor';
+import { ZAI_DEFAULT_MODEL } from './providers/zai.provider';
 
 /** Thrown when a user requests a persona above their tenant-RBAC entitlement. */
 export class PersonaNotPermittedError extends ForbiddenException {
@@ -120,10 +121,12 @@ export class AgentProfileService {
     //   3. basePersona.model      — the platform default for the persona tier.
     // Spread copy below — PERSONAS entries are shared module singletons and must
     // never be mutated per request.
+    const personaDefault =
+      config.provider === 'zai' ? ZAI_DEFAULT_MODEL : basePersona.model;
     const model =
       this.configService.get<string>('AI_CHAT_MODEL_OVERRIDE') ??
       (config.chatModel?.trim() || null) ??
-      basePersona.model;
+      personaDefault;
 
     return {
       persona: { ...basePersona, model },

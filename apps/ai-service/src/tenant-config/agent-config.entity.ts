@@ -12,7 +12,7 @@ export type AgentRole = 'operator' | 'manager' | 'expert' | 'supervisor';
 export type ActuationPolicy = 'blocked' | 'confirm_required' | 'allowed';
 
 /** Selectable LLM providers for BYOK. Kept in sync with LlmProviderId. */
-export type LlmProviderId = 'anthropic' | 'openai';
+export type LlmProviderId = 'anthropic' | 'openai' | 'zai';
 
 /**
  * Env var holding the AES-256 key that encrypts tenant AI API keys at rest.
@@ -53,6 +53,15 @@ export class TenantAgentConfig {
     transformer: createEncryptedColumnTransformer(AI_SECRET_KEY_ENV),
   })
   openaiApiKey?: string | null;
+
+  // Z.ai (Zhipu GLM) BYOK key — same encryption-at-rest discipline. The relay
+  // is OpenAI-compatible; see ZaiProvider.
+  @Column({
+    type: 'text',
+    nullable: true,
+    transformer: createEncryptedColumnTransformer(AI_SECRET_KEY_ENV),
+  })
+  zaiApiKey?: string | null;
 
   // Optional per-tenant chat model override. Null → the persona default
   // (resolved in AgentProfileService). Not the embedding model — that is a

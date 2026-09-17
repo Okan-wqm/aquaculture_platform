@@ -7,6 +7,7 @@ import type {
 } from 'openai/resources/chat/completions';
 import {
   LlmAuthError,
+  LlmProviderId,
   LlmChatParams,
   LlmChatResult,
   LlmContentBlock,
@@ -32,8 +33,10 @@ const MAX_CACHED_CLIENTS = 256;
 
 @Injectable()
 export class OpenAiProvider implements LlmProvider {
-  readonly id = 'openai' as const;
-  private readonly logger = new Logger(OpenAiProvider.name);
+  readonly id: LlmProviderId = 'openai';
+  // protected: OpenAI-compatible relays (ZaiProvider) subclass this class
+  // and log through the same channel.
+  protected readonly logger = new Logger(OpenAiProvider.name);
   private readonly clients = new Map<string, OpenAI>();
 
   private clientFor(apiKey: string): OpenAI {
@@ -52,9 +55,18 @@ export class OpenAiProvider implements LlmProvider {
       }
     }
 
-    const client = new OpenAI({ apiKey });
+    const client = this.newClient(apiKey);
     this.clients.set(cacheKey, client);
     return client;
+  }
+
+  /**
+   * Client construction hook — OpenAI-compatible relays (Z.ai's GLM API)
+   * override ONLY this with a different baseURL; every message-translation
+   * and validation behavior is inherited unchanged.
+   */
+  protected newClient(apiKey: string): OpenAI {
+    return new OpenAI({ apiKey });
   }
 
   async chat(

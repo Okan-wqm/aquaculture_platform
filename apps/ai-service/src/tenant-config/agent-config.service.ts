@@ -21,6 +21,7 @@ const DEFAULT_CONFIG: Partial<TenantAgentConfig> = {
   provider: 'anthropic',
   anthropicApiKey: null,
   openaiApiKey: null,
+  zaiApiKey: null,
   chatModel: null,
 };
 
@@ -123,7 +124,11 @@ export class AgentConfigService {
     provider: LlmProviderId,
   ): string | null {
     const raw =
-      provider === 'openai' ? config.openaiApiKey : config.anthropicApiKey;
+      provider === 'openai'
+        ? config.openaiApiKey
+        : provider === 'zai'
+          ? config.zaiApiKey
+          : config.anthropicApiKey;
     const trimmed = raw?.trim();
     return trimmed ? trimmed : null;
   }

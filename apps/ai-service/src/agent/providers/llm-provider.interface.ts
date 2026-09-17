@@ -13,7 +13,7 @@
  */
 
 /** Selectable providers. Extend the union AND LlmProviderFactory together. */
-export type LlmProviderId = 'anthropic' | 'openai';
+export type LlmProviderId = 'anthropic' | 'openai' | 'zai';
 
 /** A tool the model may call — provider-neutral (Anthropic `input_schema`,
  *  OpenAI `parameters` are both projected from `inputSchema`). */

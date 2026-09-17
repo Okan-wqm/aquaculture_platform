@@ -3293,6 +3293,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/src/chat/__tests__/ai-chat.responder.context.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/src/chat/ai-chat.responder.ts",
       "prettier_managed": true
     },
@@ -4636,6 +4642,18 @@
       "prettier_managed": true
     },
     {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/migrations/__tests__/1808500000000-AddUserCredentialVersion.postgres.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/migrations/__tests__/1808500000000-AddUserCredentialVersion.spec.ts",
+      "prettier_managed": true
+    },
+    {
       "class": "archive_immutable",
       "content_sha256": "d12870b3c9f9f2506ce5aea97515ed521ae0a2397bc990fea847f7e57bc2be5f",
       "hash_policy": "sha256",
@@ -4919,6 +4937,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/migrations/1808500000000-AddUserCredentialVersion.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/migrations/support/concurrent-index.spec.ts",
       "prettier_managed": true
     },
@@ -5057,6 +5081,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/auth-service/src/modules/authentication/controllers/__tests__/auth-caller-capabilities-nats.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/auth-service/src/modules/authentication/controllers/__tests__/auth-credential-nats.handler.spec.ts",
       "prettier_managed": true
     },
@@ -5070,6 +5100,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/auth-service/src/modules/authentication/controllers/access-token-invalidation.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/auth-service/src/modules/authentication/controllers/auth-caller-capabilities-nats.handler.ts",
       "prettier_managed": true
     },
     {
@@ -21644,7 +21680,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/messaging-service/src/ai/__tests__/ai-trigger-nats.handler.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/messaging-service/src/ai/__tests__/ai-trigger.config.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/messaging-service/src/ai/ai-trigger-nats.handler.ts",
       "prettier_managed": true
     },
     {
@@ -21674,18 +21722,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/messaging-service/src/ai/commands/extract-knowledge.command.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/messaging-service/src/ai/commands/extract-knowledge.handler.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/messaging-service/src/ai/dto/ai-channel.input.ts",
       "prettier_managed": true
     },
@@ -21693,12 +21729,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/messaging-service/src/ai/dto/ai-consent.input.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/messaging-service/src/ai/entities/embeddings-metadata.entity.ts",
       "prettier_managed": true
     },
     {
@@ -21758,13 +21788,7 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/messaging-service/src/ai/safety/instruction-hierarchy.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/messaging-service/src/ai/safety/tool-schema-validator.service.ts",
+      "path": "apps/messaging-service/src/ai/services/__tests__/ai-caller-capabilities.service.spec.ts",
       "prettier_managed": true
     },
     {
@@ -21788,19 +21812,13 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/messaging-service/src/ai/services/__tests__/embedding.service.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/messaging-service/src/ai/services/__tests__/knowledge-extraction.tank-registry.spec.ts",
       "prettier_managed": true
     },
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/messaging-service/src/ai/services/__tests__/sentiment-analysis.service.spec.ts",
+      "path": "apps/messaging-service/src/ai/services/ai-caller-capabilities.service.ts",
       "prettier_managed": true
     },
     {
@@ -21830,19 +21848,7 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "apps/messaging-service/src/ai/services/embedding.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "apps/messaging-service/src/ai/services/knowledge-extraction.service.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "apps/messaging-service/src/ai/services/sentiment-analysis.service.ts",
       "prettier_managed": true
     },
     {
@@ -22965,6 +22971,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/messaging-service/src/migrations/1802200000000-EnsureMessagesEmbeddingColumnTenantFanout.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/messaging-service/src/nats/nats-subject.builder.ts",
       "prettier_managed": true
     },
@@ -23062,6 +23074,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/messaging-service/src/shared/__tests__/enum-wire.util.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/messaging-service/src/shared/ai-ledger-keys.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/messaging-service/src/shared/ai-user.ts",
       "prettier_managed": true
     },
     {
@@ -27700,6 +27724,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "DEPLOY-FAZ1.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "DEPLOY-FAZ2.md",
       "prettier_managed": true
     },
     {
@@ -39904,6 +39934,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/event-contracts/src/schemas/__tests__/messaging-events.schema.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/event-contracts/src/schemas/__tests__/sensor-events.schema.spec.ts",
       "prettier_managed": true
     },
@@ -46785,7 +46821,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "7e466c7bd3d1e34786fb8e3bb0c9d33c8cb67909dca568b1c6c02f9ffca90229",
+      "content_sha256": "74001ae648853193d6ec1ae9d85dd7b042f4df697a56e25b2b638b1bf3090d05",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/apps/aquamobil/src/generated/graphql.ts",
@@ -47716,6 +47752,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/types/react-router-declarative.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/utils/__tests__/ai-identity.spec.ts",
       "prettier_managed": true
     },
     {
@@ -51849,6 +51891,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/messaging-module/src/lib/__tests__/aiPersona.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/messaging-module/src/lib/__tests__/channelDisplay.spec.ts",
       "prettier_managed": true
     },
@@ -51856,6 +51904,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/messaging-module/src/lib/__tests__/graphqlErrors.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/lib/__tests__/messageBody.spec.ts",
       "prettier_managed": true
     },
     {
@@ -51873,6 +51927,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/messaging-module/src/lib/aiPersona.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/messaging-module/src/lib/channelDisplay.ts",
       "prettier_managed": true
     },
@@ -51880,6 +51940,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/messaging-module/src/lib/graphqlErrors.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/lib/messageBody.ts",
       "prettier_managed": true
     },
     {

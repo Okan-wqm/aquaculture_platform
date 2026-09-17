@@ -33,7 +33,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, QueryRunner } from 'typeorm';
 import { ClientProxy } from '@nestjs/microservices';
 import { firstValueFrom, timeout, catchError, of } from 'rxjs';
-import { pinTenantSchemaTransactionSearchPath } from '@aquaculture/backend-common/database';
+import {
+  bindTenantRlsContext,
+  listActiveTenantSchemaIdentities,
+  pinTenantSchemaTransactionSearchPath,
+} from '@aquaculture/backend-common/database';
 
 import {
   MessageEntityReference,
@@ -48,12 +52,6 @@ import {
 
 /** NATS request timeout in milliseconds (30 seconds). */
 const NATS_TIMEOUT_MS = 30_000;
-
-/**
- * Regex to validate tenant schema names (tenant_<16 hex chars>).
- * Used to prevent SQL injection when routing tenant schema work.
- */
-const TENANT_SCHEMA_REGEX = /^tenant_[a-f0-9]{16}$/;
 
 /** Regex patterns for extracting tank code references from messages. */
 const TANK_CODE_PATTERNS: RegExp[] = [/\bTank[-\s]?([A-Z]\d{1,3})\b/gi, /\b([A-Z]\d{1,2})\b/g];
@@ -102,11 +100,10 @@ interface ProcessableMessage {
   content: string;
   createdAt: Date;
   /**
-   * ORPHAN-MEDIUM-336: the authoritative tenant UUID, carried on every
-   * message row (Message entity `tenantId`, MSG-HIGH-010). All rows in a
-   * given tenant_<uuid> schema share it — it is the canonical tenant key the
-   * farm getTankRegistry responder requires, recovered here WITHOUT the lossy
-   * schema-name (tenant_<16hex> truncates the UUID and cannot be reversed).
+   * ORPHAN-MEDIUM-336: the authoritative tenant UUID carried on every message
+   * row. The batch now sources its identity from the schema-mapping LEDGER
+   * (listActiveTenantSchemaIdentities) before any read runs; the column is
+   * kept in the SELECT for row-level observability only.
    */
   tenantId: string;
 }
@@ -180,7 +177,13 @@ export class KnowledgeExtractionService implements OnModuleInit {
    *
    * SECURITY (C-07): This method iterates over each provisioned tenant schema
    * and processes messages within that schema's scope. Each tenant's queries
-   * use an explicit transaction-local search_path pin to the tenant schema, ensuring:
+   * use an explicit transaction-local search_path pin to the tenant schema AND
+   * the RLS tenant GUC (`bindTenantRlsContext` — MSGFIX-FAZ3 3.6/V1 RLS
+   * completion for batch jobs: the search_path pin alone routes the queries,
+   * but leaves the RLS policy GUC unset, so any query that touches an
+   * RLS-protected table inside this transaction would be denied every row by
+   * the policy. Binding the GUC keeps the batch on the sanctioned tenant
+   * identity end-to-end), ensuring:
    *   - No cross-tenant data leakage between batches
    *   - Knowledge entries and entity references are written to the correct
    *     tenant schema
@@ -188,21 +191,26 @@ export class KnowledgeExtractionService implements OnModuleInit {
    *   - Failures in one tenant's batch do not affect other tenants
    */
   private async runBatch(): Promise<void> {
-    const tenantSchemas = await this.listTenantSchemas();
+    // Schema→tenant UUID pairs from the db-migrate commit ledger — the schema
+    // name alone (tenant_<16hex>) cannot be reversed into the UUID that the
+    // RLS GUC and the farm registry responder require.
+    const identities = await listActiveTenantSchemaIdentities(this.dataSource);
 
-    if (tenantSchemas.length === 0) {
+    if (identities.length === 0) {
       this.logger.debug('No tenant schemas found, skipping knowledge extraction');
       return;
     }
 
-    this.logger.debug(`Knowledge extraction: processing ${tenantSchemas.length} tenant schemas`);
+    this.logger.debug(`Knowledge extraction: processing ${identities.length} tenant schemas`);
 
-    for (const schema of tenantSchemas) {
+    for (const identity of identities) {
       try {
-        await this.runBatchForTenantSchema(schema);
+        await this.runBatchForTenantSchema(identity.schemaName, identity.tenantId);
       } catch (err: unknown) {
         const errMessage = err instanceof Error ? err.message : String(err);
-        this.logger.error(`Knowledge extraction failed for schema ${schema}: ${errMessage}`);
+        this.logger.error(
+          `Knowledge extraction failed for schema ${identity.schemaName}: ${errMessage}`,
+        );
       }
     }
   }
@@ -211,12 +219,18 @@ export class KnowledgeExtractionService implements OnModuleInit {
    * Process a single tenant schema's messages for knowledge extraction.
    *
    * SECURITY (C-07): All database operations within this method use a dedicated
-   * QueryRunner with search_path pinned to the tenant's schema. This
-   * guarantees tenant isolation even though we're running outside HTTP context.
+   * QueryRunner with search_path pinned to the tenant's schema AND the RLS
+   * tenant context bound (app.current_tenant set + verified read-back,
+   * app.bypass_rls forced off). This guarantees tenant isolation even though
+   * we're running outside HTTP context.
    *
    * @param tenantSchema - Validated tenant schema name (e.g. "tenant_4b529829ea7948da")
+   * @param tenantId - Canonical tenant UUID resolved from the schema-mapping
+   *   ledger (ORPHAN-MEDIUM-336 — authoritative identity for the RLS GUC and
+   *   the farm tank-registry request; previously recovered from message rows
+   *   AFTER the un-GUC'd read had already run).
    */
-  private async runBatchForTenantSchema(tenantSchema: string): Promise<void> {
+  private async runBatchForTenantSchema(tenantSchema: string, tenantId: string): Promise<void> {
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
 
     const queryRunner = this.dataSource.createQueryRunner();
@@ -226,6 +240,9 @@ export class KnowledgeExtractionService implements OnModuleInit {
     try {
       // Pin search_path to the specific tenant schema for all subsequent queries
       await pinTenantSchemaTransactionSearchPath(queryRunner, 'messaging', tenantSchema);
+      // MSGFIX-FAZ3 3.6: complete the tenant boundary with the RLS GUC —
+      // search_path-only routing left every RLS-protected table read-denied.
+      await bindTenantRlsContext(queryRunner, tenantId, 'messaging');
 
       const messages: ProcessableMessage[] = await queryRunner.query(
         `SELECT m."id", m."channelId", m."senderId", m."content", m."createdAt", m."tenantId"
@@ -248,22 +265,10 @@ export class KnowledgeExtractionService implements OnModuleInit {
 
       this.logger.debug(`Processing ${messages.length} messages for schema ${tenantSchema}`);
 
-      // Fetch tank registry for this tenant from farm-service. All rows in this
-      // pinned tenant schema share one tenantId (ORPHAN-MEDIUM-336) — pass that
-      // canonical UUID so the responder's fail-closed, GUC-asserted
-      // runInTenantRead path returns the real registry (a tenant_<16hex> schema
-      // name cannot be mapped back to the UUID the responder requires).
-      const tenantId = messages[0]?.tenantId;
-      if (!tenantId) {
-        // messages.length > 0 is guaranteed above; a missing tenantId would mean
-        // a data-integrity break (Message.tenantId is NOT NULL). Fail safe:
-        // extraction without a tank registry rather than a bad NATS request.
-        this.logger.warn(
-          `Schema ${tenantSchema}: ${messages.length} message(s) but no tenantId — skipping tank-registry fetch`,
-        );
-        await queryRunner.commitTransaction();
-        return;
-      }
+      // Fetch tank registry for this tenant from farm-service using the
+      // canonical tenant UUID from the schema-mapping ledger (the fail-closed,
+      // GUC-asserted responder key — no longer recovered from message rows,
+      // which required reading BEFORE the boundary was fully established).
       const tankRegistry = await this.fetchTankRegistry(tenantId);
 
       for (const msg of messages) {
@@ -423,20 +428,5 @@ export class KnowledgeExtractionService implements OnModuleInit {
     );
 
     return response ?? [];
-  }
-
-  /**
-   * List all provisioned tenant schemas from the database.
-   *
-   * SECURITY: Only returns schemas matching the strict tenant_<16 hex> pattern.
-   * This prevents processing non-tenant schemas even if they match a looser pattern.
-   */
-  private async listTenantSchemas(): Promise<string[]> {
-    const rows: { schema_name: string }[] = await this.dataSource.query(
-      `SELECT schema_name FROM information_schema.schemata
-       WHERE schema_name ~ '^tenant_[a-f0-9]{16}$'
-       ORDER BY schema_name`,
-    );
-    return rows.map((r) => r.schema_name).filter((name) => TENANT_SCHEMA_REGEX.test(name));
   }
 }

@@ -4,7 +4,7 @@ import { DataSource, IsNull } from 'typeorm';
 import { createHash, randomUUID as uuidv4 } from 'crypto';
 import Redis from 'ioredis';
 
-import { runInTenantTransaction } from '@aquaculture/backend-common/database';
+import { runInTenantRead, runInTenantTransaction } from '@aquaculture/backend-common/database';
 import { OutboxPublisher } from '@platform/outbox';
 import { createBaseEvent } from '@platform/event-contracts';
 import { SendMessageCommand } from './send-message.command';
@@ -27,6 +27,22 @@ import type { MentionableMember } from '../dto/mention.types';
 const IDEMPOTENCY_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 /**
+ * MSGFIX-FAZ3 3.5: TTL for the in-memory channel-member userId cache used by
+ * the mention scan. The member list previously was SELECTed INSIDE the write
+ * transaction for every send with content — a full-membership scan holding
+ * the message-insert transaction open. The list changes rarely; a 30s TTL
+ * bounds staleness to a window no user can perceive (a just-added member is
+ * not mentionable for ≤30s; a just-removed member may match for ≤30s, which
+ * only affects mention METADATA — push/preference filtering re-reads live
+ * membership in messaging-push.service). Invalidation via membership-change
+ * events is DELIBERATELY not wired (extra plumbing + a consumer for a
+ * cache this small); TTL expiry is the whole invalidation story.
+ */
+const MEMBER_CACHE_TTL_MS = 30_000;
+/** Blind size guard: pathological tenant/channel cardinality must not grow the cache unbounded. */
+const MEMBER_CACHE_MAX_ENTRIES = 1000;
+
+/**
  * Handler for SendMessageCommand — the most critical handler in the system.
  *
  * Flow:
@@ -47,6 +63,9 @@ const IDEMPOTENCY_TTL_SECONDS = 7 * 24 * 60 * 60;
 @CommandHandler(SendMessageCommand)
 export class SendMessageHandler implements ICommandHandler<SendMessageCommand, Message> {
   private readonly logger = new Logger(SendMessageHandler.name);
+
+  /** Cached channel-member userId lists (MSGFIX-FAZ3 3.5 — see MEMBER_CACHE_TTL_MS). */
+  private readonly memberUserIdsCache = new Map<string, { userIds: string[]; expiresAt: number }>();
 
   constructor(
     private readonly dataSource: DataSource,
@@ -184,6 +203,16 @@ export class SendMessageHandler implements ICommandHandler<SendMessageCommand, M
       );
     }
 
+    // ── 3b. Mention scan prep (PRE-transaction, cached — MSGFIX-FAZ3 3.5) ─
+    // The member userId list is fetched OUTSIDE the write transaction via a
+    // 30s in-memory cache: the scan used to run a full-membership SELECT
+    // inside every content-bearing send's transaction. Only loads when there
+    // is content to scan (media-only sends skip it entirely).
+    let cachedMemberUserIds: string[] | null = null;
+    if (sanitizedContent) {
+      cachedMemberUserIds = await this.getChannelMemberUserIds(tenantId, channelId);
+    }
+
     // ── 4. Transactional insert: message + outbox ──────────────────────
     const messageId = uuidv4();
     const now = new Date();
@@ -255,20 +284,18 @@ export class SendMessageHandler implements ICommandHandler<SendMessageCommand, M
 
         let mentionedUserIds: string[] = [];
 
-        if (sanitizedContent) {
-          const members = await manager.find(ChannelMember, {
-            where: { tenantId, channelId, leftAt: IsNull() },
-            select: ['userId'],
-          });
-
+        if (sanitizedContent && cachedMemberUserIds) {
           // Build mentionable member list (userId + displayName).
           // 2026-05-02: Keep userId as the deterministic display identifier until
           // auth-service exposes a federated profile lookup owned by the messaging
           // read model. WHY: mention parsing must not call an ad-hoc remote lookup
           // from the write transaction path.
-          const mentionableMembers: MentionableMember[] = members.map((m) => ({
-            userId: m.userId,
-            displayName: m.userId, // Placeholder until user resolution
+          // MSGFIX-FAZ3 3.5: the list comes from the PRE-transaction cached
+          // fetch (30s TTL) — the transaction below now contains ZERO
+          // membership scans; parseMentions is pure CPU over the cached ids.
+          const mentionableMembers: MentionableMember[] = cachedMemberUserIds.map((userId) => ({
+            userId,
+            displayName: userId, // Placeholder until user resolution
           }));
 
           const mentionResult = this.mentionService.parseMentions(
@@ -371,6 +398,48 @@ export class SendMessageHandler implements ICommandHandler<SendMessageCommand, M
     );
 
     return createdMessage;
+  }
+
+  /**
+   * Channel-member userId list for the mention scan, with a 30s in-memory
+   * TTL cache (MSGFIX-FAZ3 3.5). Loaded OUTSIDE the write transaction on the
+   * read-only tenant path (`runInTenantRead` — same fail-closed tenant
+   * boundary, READ ONLY so it cannot contend with the insert tx).
+   *
+   * Staleness contract: see MEMBER_CACHE_TTL_MS. No event-driven
+   * invalidation by design — membership churn inside the 30s window only
+   * affects which @mentions are recognized, never delivery (push filtering
+   * re-reads live membership in messaging-push.service).
+   */
+  private async getChannelMemberUserIds(tenantId: string, channelId: string): Promise<string[]> {
+    const cacheKey = `${tenantId}:${channelId}`;
+    const cached = this.memberUserIdsCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.userIds;
+    }
+
+    const members = await runInTenantRead(
+      this.dataSource,
+      'messaging',
+      tenantId,
+      async (queryRunner) =>
+        queryRunner.manager.find(ChannelMember, {
+          where: { tenantId, channelId, leftAt: IsNull() },
+          select: ['userId'],
+        }),
+    );
+    const userIds = members.map((m) => m.userId);
+
+    if (this.memberUserIdsCache.size >= MEMBER_CACHE_MAX_ENTRIES) {
+      // Cheap reset over LRU: the cache is a 30s-window optimization, not a
+      // durable structure; a cold miss costs one indexed read.
+      this.memberUserIdsCache.clear();
+    }
+    this.memberUserIdsCache.set(cacheKey, {
+      userIds,
+      expiresAt: Date.now() + MEMBER_CACHE_TTL_MS,
+    });
+    return userIds;
   }
 
   /**

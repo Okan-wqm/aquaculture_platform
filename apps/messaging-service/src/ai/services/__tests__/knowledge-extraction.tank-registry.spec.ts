@@ -11,9 +11,15 @@ import { MESSAGING_AI_KNOWLEDGE_CRON_ENABLED_ENV } from '../../ai-trigger.config
 
 /**
  * ORPHAN-MEDIUM-336 — the knowledge-extraction sweep must call the farm
- * getTankRegistry responder with the CANONICAL tenant UUID (recovered from the
- * tenant's own message rows), not the lossy tenant_<16hex> schema name the
- * responder rejects as a non-UUID. This pins the request payload shape.
+ * getTankRegistry responder with the CANONICAL tenant UUID, not the lossy
+ * tenant_<16hex> schema name the responder rejects as a non-UUID. This pins
+ * the request payload shape.
+ *
+ * MSGFIX-FAZ3 3.6: the identity now comes from the schema-mapping LEDGER
+ * (`listActiveTenantSchemaIdentities`) BEFORE any tenant read runs — the
+ * DataSource mock below answers the platform mapping function call — and the
+ * batch additionally binds the RLS tenant GUC per tenant transaction
+ * (bindTenantRlsContext). The tank-registry payload assertion is unchanged.
  *
  * The pipeline specs run with the MSGFIX-FAZ0 ceasefire flag OPEN; the
  * default-OFF behaviour has its own describe at the bottom.
@@ -54,14 +60,21 @@ describe('KnowledgeExtractionService — tank-registry request payload (ORPHAN-M
           },
         ]);
       }
-      // search_path pin + any other statement.
+      // search_path pin + RLS GUC bind/read-back + any other statement.
       return Promise.resolve([]);
     }),
   });
 
   const dataSource = {
-    // listTenantSchemas()
-    query: jest.fn().mockResolvedValue([{ schema_name: TENANT_SCHEMA }]),
+    // listActiveTenantSchemaIdentities() — platform ledger mapping rows.
+    query: jest.fn().mockResolvedValue([
+      {
+        schema_name: TENANT_SCHEMA,
+        tenant_id: TENANT_ID,
+        schema_exists: true,
+        committed_proof: true,
+      },
+    ]),
     createQueryRunner: jest.fn(() => makeQueryRunner()),
   };
 

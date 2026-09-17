@@ -115,6 +115,10 @@ import { DropTenantAiSettings1802100000000 } from './migrations/1802100000000-Dr
 // every provisioned tenant schema — the column only ever landed in the
 // messaging source schema, so similarMessages 500'd on live tenants.
 import { EnsureMessagesEmbeddingColumnTenantFanout1802200000000 } from './migrations/1802200000000-EnsureMessagesEmbeddingColumnTenantFanout';
+// MSGFIX-FAZ3 3.4: GIN expression index for to_tsvector('english', content) —
+// partition-aware (per-partition CONCURRENTLY + ON ONLY parent + ATTACH),
+// transaction=false (CONCURRENTLY cannot run inside a tx; db-migrate honors it).
+import { AddMessagesContentSearchGinIndex1802300000000 } from './migrations/1802300000000-AddMessagesContentSearchGinIndex';
 // Feature modules
 import { HealthModule } from './health/health.module';
 import { ChannelModule } from './channel/channel.module';
@@ -208,6 +212,7 @@ type QueryComplexityOperationContext = {
             DropChannelAiServiceUrl1802000000000,
             DropTenantAiSettings1802100000000,
             EnsureMessagesEmbeddingColumnTenantFanout1802200000000,
+            AddMessagesContentSearchGinIndex1802300000000,
           ],
         }),
     }),

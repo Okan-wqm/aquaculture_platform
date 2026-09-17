@@ -40,6 +40,27 @@ interface TokenPayload {
   [key: string]: unknown;
 }
 
+/**
+ * Minimal Redis capability the gateway's presence tracking needs. Kept as a
+ * structural type (not the full ioredis surface) so tests mock three calls.
+ *
+ * MSGFIX-FAZ3 3.4 NOTE: the `REDIS_SERVICE` token is currently NOT provided
+ * by any module in gateway-api — `@Optional()` means presence writes are
+ * INERT in production until an owner wires a client. The multi-device
+ * connection counter below is nevertheless implemented correctly against
+ * this interface so the ghost-presence bug is structurally fixed the moment
+ * the client is provided. See DEPLOY-FAZ3.md §presence for the full
+ * diagnosis (missing provider + `gateway:` key prefix + REDIS_DB 0 vs 3
+ * mismatch vs messaging-service's PresenceService keyspace).
+ */
+interface PresenceRedisClient {
+  set(key: string, value: string, mode: string, ttl: number): Promise<string>;
+  del(key: string): Promise<number>;
+  incr(key: string): Promise<number>;
+  decr(key: string): Promise<number>;
+  expire(key: string, ttlSeconds: number): Promise<number>;
+}
+
 interface ConnectedClient {
   socket: Socket;
   userId: string;
@@ -49,10 +70,19 @@ interface ConnectedClient {
   lastTyping: Map<string, number>;
 }
 
-interface JoinChannelPayload { channelId: string }
-interface LeaveChannelPayload { channelId: string }
-interface TypingPayload { channelId: string; isTyping?: boolean }
-interface ResolveNotificationRefPayload { notificationRef: string }
+interface JoinChannelPayload {
+  channelId: string;
+}
+interface LeaveChannelPayload {
+  channelId: string;
+}
+interface TypingPayload {
+  channelId: string;
+  isTyping?: boolean;
+}
+interface ResolveNotificationRefPayload {
+  notificationRef: string;
+}
 interface ResolveNotificationRefResult {
   channelId: string;
   messageId: string;
@@ -60,13 +90,19 @@ interface ResolveNotificationRefResult {
 }
 
 const PRESENCE_TTL_SECONDS = 300;
+/**
+ * TTL guard for the per-user connection counter (MSGFIX-FAZ3 3.4). Refreshed
+ * by every socket heartbeat (30s) — a pod killed without disconnect events
+ * leaks its INCRs for at most this long before the key expires and the next
+ * connect re-detects a clean 0→1 transition.
+ */
+const PRESENCE_CONNS_TTL_SECONDS = 300;
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const REAUTH_INTERVAL_MS = 5 * 60_000;
 const MAX_REAUTH_FAILURES = 3;
 const TYPING_THROTTLE_MS = 3_000;
 const CLUSTER_CHANNEL_MEMBER_REMOVED_EVENT = 'messaging:channelMemberRemoved';
-const UUID_REGEX =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /**
  * WebSocket Gateway for real-time messaging
@@ -83,9 +119,7 @@ const UUID_REGEX =
   namespace: '/messaging',
   transports: ['websocket', 'polling'],
 })
-export class MessagingGateway
-  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
-{
+export class MessagingGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server!: Server;
 
@@ -116,13 +150,12 @@ export class MessagingGateway
     private readonly configService: ConfigService,
     @Optional()
     @Inject('REDIS_SERVICE')
-    private readonly redisService?: { getClient(): { set(key: string, value: string, mode: string, ttl: number): Promise<string>; del(key: string): Promise<number> } },
+    private readonly redisService?: { getClient(): PresenceRedisClient },
     @Optional()
     @Inject('NATS_SERVICE')
     private readonly natsClient?: ClientProxy,
   ) {
-    this.isProduction =
-      this.configService.get<string>('NODE_ENV') === 'production';
+    this.isProduction = this.configService.get<string>('NODE_ENV') === 'production';
   }
 
   /**
@@ -140,18 +173,15 @@ export class MessagingGateway
     const clusterAwareServer = _server as Server & {
       on(event: string, listener: (...args: unknown[]) => void): Server;
     };
-    clusterAwareServer.on(
-      CLUSTER_CHANNEL_MEMBER_REMOVED_EVENT,
-      (tenantId, channelId, userId) => {
-        if (
-          typeof tenantId === 'string' &&
-          typeof channelId === 'string' &&
-          typeof userId === 'string'
-        ) {
-          this.evictUserFromChannelLocal(tenantId, channelId, userId);
-        }
-      },
-    );
+    clusterAwareServer.on(CLUSTER_CHANNEL_MEMBER_REMOVED_EVENT, (tenantId, channelId, userId) => {
+      if (
+        typeof tenantId === 'string' &&
+        typeof channelId === 'string' &&
+        typeof userId === 'string'
+      ) {
+        this.evictUserFromChannelLocal(tenantId, channelId, userId);
+      }
+    });
     this.logger.log('Messaging WebSocket Gateway initialized');
   }
 
@@ -192,12 +222,26 @@ export class MessagingGateway
         lastTyping: new Map(),
       });
 
-      // Join tenant room for presence broadcasts
-      void client.join(`tenant:${tenantId}`);
+      // Join the per-user room (used by evictUserFromChannel / channelMemberRemoved
+      // delivery). MSGFIX-FAZ3 3.4: the `tenant:{tenantId}` room join is REMOVED —
+      // its only consumer was the N×N `presence` broadcast below, which is also
+      // removed (see the comment at the former broadcast site).
       void client.join(`user:${tenantId}:${userId}`);
 
-      // Update presence in Redis
-      await this.setPresence(tenantId, userId, 'online');
+      // MSGFIX-FAZ3 3.4 (ghost presence, multi-device): the user's presence is
+      // now gated by a per-USER connection counter, not by this socket. INCR on
+      // connect; only the 0→1 transition (first live socket) marks the user
+      // online. Previously ANY connect wrote `online` and ANY disconnect
+      // cleared it — the second device going away flipped a still-connected
+      // user offline ("ghost offline"), and a reconnect flipped them back,
+      // flapping presence on every device switch. The counter lives in Redis,
+      // so it is correct across multiple gateway pods; a 5-minute TTL guard
+      // (refreshed by every heartbeat) leaks at most one stale counter entry
+      // when a pod dies without firing disconnects.
+      const becameOnline = await this.incrementPresenceConnections(tenantId, userId);
+      if (becameOnline) {
+        await this.setPresence(tenantId, userId, 'online');
+      }
 
       // Start heartbeat timer
       const heartbeatTimer = setInterval(() => {
@@ -211,9 +255,7 @@ export class MessagingGateway
       }, REAUTH_INTERVAL_MS);
       this.reAuthTimers.set(client.id, reAuthTimer);
 
-      this.logger.log(
-        `Client ${client.id} connected — user ${userId}, tenant ${tenantId}`,
-      );
+      this.logger.log(`Client ${client.id} connected — user ${userId}, tenant ${tenantId}`);
 
       client.emit('connected', {
         message: 'Connected to messaging',
@@ -221,12 +263,16 @@ export class MessagingGateway
         tenantId,
       });
 
-      // Broadcast presence to tenant (PresenceEnvelope: isOnline, not status)
-      this.server.to(`tenant:${tenantId}`).emit('presence', {
-        userId,
-        isOnline: true,
-        lastSeenAt: null,
-      });
+      // MSGFIX-FAZ3 3.4: the previous `server.to(`tenant:${tenantId}`)
+      // .emit('presence', { userId, isOnline: true, ... })` broadcast is
+      // REMOVED. No client consumes the `presence` socket event (the web
+      // panel does not subscribe; presence is read through the GraphQL
+      // pipeline — messaging-service `userPresence` query backed by
+      // PresenceService). Emitting it to every socket of every user in the
+      // tenant made each connect/disconnect an N×N fan-out for zero readers.
+      // If a socket-consumed presence stream is ever needed, it must be
+      // opt-in per subscribing client (a dedicated room), never a tenant-wide
+      // broadcast.
     } catch (error) {
       this.logger.error(`Connection error: ${(error as Error).message}`);
       client.disconnect();
@@ -236,15 +282,18 @@ export class MessagingGateway
   async handleDisconnect(client: Socket): Promise<void> {
     const clientData = this.clients.get(client.id);
     if (clientData) {
-      // Clear presence
-      await this.clearPresence(clientData.tenantId, clientData.userId);
-
-      // Broadcast offline (PresenceEnvelope: isOnline, not status)
-      this.server.to(`tenant:${clientData.tenantId}`).emit('presence', {
-        userId: clientData.userId,
-        isOnline: false,
-        lastSeenAt: new Date().toISOString(),
-      });
+      // MSGFIX-FAZ3 3.4: DECR the per-user connection counter; only the
+      // 1→0 transition (last live socket for that user) clears presence.
+      // A user's OTHER device disconnecting no longer marks them offline.
+      // The former `tenant:`-wide offline broadcast is removed with its
+      // online twin (see handleConnection).
+      const becameOffline = await this.decrementPresenceConnections(
+        clientData.tenantId,
+        clientData.userId,
+      );
+      if (becameOffline) {
+        await this.clearPresence(clientData.tenantId, clientData.userId);
+      }
     }
 
     // Clear timers
@@ -294,17 +343,12 @@ export class MessagingGateway
     clientData.channels.add(payload.channelId);
     void client.join(room);
 
-    this.logger.debug(
-      `Client ${client.id} joined channel ${payload.channelId}`,
-    );
+    this.logger.debug(`Client ${client.id} joined channel ${payload.channelId}`);
     return { success: true };
   }
 
   @SubscribeMessage('leaveChannel')
-  handleLeaveChannel(
-    client: Socket,
-    payload: LeaveChannelPayload,
-  ): { success: boolean } {
+  handleLeaveChannel(client: Socket, payload: LeaveChannelPayload): { success: boolean } {
     const clientData = this.clients.get(client.id);
     if (!clientData) {
       return { success: false };
@@ -318,17 +362,12 @@ export class MessagingGateway
     clientData.channels.delete(payload.channelId);
     void client.leave(room);
 
-    this.logger.debug(
-      `Client ${client.id} left channel ${payload.channelId}`,
-    );
+    this.logger.debug(`Client ${client.id} left channel ${payload.channelId}`);
     return { success: true };
   }
 
   @SubscribeMessage('typing')
-  handleTyping(
-    client: Socket,
-    payload: TypingPayload,
-  ): { success: boolean; reason?: string } {
+  handleTyping(client: Socket, payload: TypingPayload): { success: boolean; reason?: string } {
     const clientData = this.clients.get(client.id);
     if (!clientData) {
       return { success: false, reason: 'Not authenticated' };
@@ -402,14 +441,11 @@ export class MessagingGateway
     try {
       const result = await firstValueFrom(
         this.natsClient
-          .send<ResolveNotificationRefResult | null>(
-            'request.messaging.resolveNotificationRef',
-            {
-              notificationRef: payload.notificationRef,
-              tenantId: clientData.tenantId,
-              userId: clientData.userId,
-            },
-          )
+          .send<ResolveNotificationRefResult | null>('request.messaging.resolveNotificationRef', {
+            notificationRef: payload.notificationRef,
+            tenantId: clientData.tenantId,
+            userId: clientData.userId,
+          })
           .pipe(timeout(MessagingGateway.NATS_VERIFY_TIMEOUT_MS)),
       );
 
@@ -492,19 +528,17 @@ export class MessagingGateway
     eventName: 'newMessage' | 'messageUpdated',
   ): Promise<void> {
     if (!this.natsClient) {
-      this.logger.warn(
-        `Cannot hydrate ${eventName} for ${messageId}: NATS client unavailable`,
-      );
+      this.logger.warn(`Cannot hydrate ${eventName} for ${messageId}: NATS client unavailable`);
       return;
     }
     try {
       const request: GetMessageForBroadcastRequest = { tenantId, channelId, messageId };
       const response = await firstValueFrom(
         this.natsClient
-          .send<GetMessageForBroadcastResponse, GetMessageForBroadcastRequest>(
-            GET_MESSAGE_FOR_BROADCAST_SUBJECT,
-            request,
-          )
+          .send<
+            GetMessageForBroadcastResponse,
+            GetMessageForBroadcastRequest
+          >(GET_MESSAGE_FOR_BROADCAST_SUBJECT, request)
           .pipe(timeout(MessagingGateway.NATS_VERIFY_TIMEOUT_MS)),
       );
       if (!response?.message) {
@@ -550,9 +584,7 @@ export class MessagingGateway
     channelId: string,
     data: { eventType: string; userId?: string },
   ): void {
-    this.server
-      .to(`channel:${tenantId}:${channelId}`)
-      .emit('channelEvent', { channelId, ...data });
+    this.server.to(`channel:${tenantId}:${channelId}`).emit('channelEvent', { channelId, ...data });
   }
 
   evictUserFromChannel(tenantId: string, channelId: string, userId: string): void {
@@ -575,9 +607,7 @@ export class MessagingGateway
       userId,
     );
 
-    this.server
-      .in(`user:${tenantId}:${userId}`)
-      .socketsLeave(`channel:${tenantId}:${channelId}`);
+    this.server.in(`user:${tenantId}:${userId}`).socketsLeave(`channel:${tenantId}:${channelId}`);
     this.server.to(`user:${tenantId}:${userId}`).emit('channelMemberRemoved', {
       tenantId,
       channelId,
@@ -590,11 +620,7 @@ export class MessagingGateway
     return this.clients.size;
   }
 
-  private evictUserFromChannelLocal(
-    tenantId: string,
-    channelId: string,
-    userId: string,
-  ): void {
+  private evictUserFromChannelLocal(tenantId: string, channelId: string, userId: string): void {
     const channelRoom = `channel:${tenantId}:${channelId}`;
     for (const clientData of this.clients.values()) {
       if (clientData.tenantId !== tenantId || clientData.userId !== userId) {
@@ -620,9 +646,7 @@ export class MessagingGateway
     if (!clientData) return;
 
     if (clientData.reAuthFailures >= MAX_REAUTH_FAILURES) {
-      this.logger.warn(
-        `Client ${clientId} exceeded max re-auth failures, disconnecting`,
-      );
+      this.logger.warn(`Client ${clientId} exceeded max re-auth failures, disconnecting`);
       clientData.socket.emit('error', { code: 4401, message: 'Re-authentication failed' });
       clientData.socket.disconnect();
     }
@@ -632,7 +656,74 @@ export class MessagingGateway
     const clientData = this.clients.get(clientId);
     if (!clientData) return;
 
+    // Keep the user's presence key alive while ANY socket heartbeats, and
+    // keep the per-user connection counter's TTL guard fresh (a counter whose
+    // whole owning pod died without disconnects must not outlive the guard).
     await this.setPresence(clientData.tenantId, clientData.userId, 'online');
+    await this.refreshPresenceCounterTtl(clientData.tenantId, clientData.userId);
+  }
+
+  /** Per-user connection counter key (one per tenant+user, shared across pods). */
+  private presenceConnsKey(tenantId: string, userId: string): string {
+    return `msg:${tenantId}:presence:conns:${userId}`;
+  }
+
+  /**
+   * INCR the per-user connection counter. Returns true only on the 0→1
+   * transition (the user just came online on their first live socket).
+   * Refreshes the TTL guard on every connect so a rebuilt key cannot inherit
+   * a stale expiry.
+   */
+  private async incrementPresenceConnections(tenantId: string, userId: string): Promise<boolean> {
+    const redisClient = this.redisService?.getClient();
+    if (!redisClient) return false;
+    try {
+      const key = this.presenceConnsKey(tenantId, userId);
+      const count = await redisClient.incr(key);
+      await redisClient.expire(key, PRESENCE_CONNS_TTL_SECONDS);
+      return count === 1;
+    } catch (error) {
+      // Fail-open: presence is a graceful-degrade feature; a Redis blip must
+      // not drop the socket connection. Without the counter, setPresence is
+      // skipped and the (Redis-read) presence pipeline simply stays as-is.
+      this.logger.warn(`Presence INCR failed: ${(error as Error).message}`);
+      return false;
+    }
+  }
+
+  /**
+   * DECR the per-user connection counter. Returns true only when the count
+   * dropped to <= 0 (the user's LAST live socket went away) — the caller then
+   * clears presence. The key is DELeted at zero (and on negative drift, e.g.
+   * a DECR racing an expired key) so Redis's create-on-DECR-at--1 cannot
+   * poison later 0→1 detection.
+   */
+  private async decrementPresenceConnections(tenantId: string, userId: string): Promise<boolean> {
+    const redisClient = this.redisService?.getClient();
+    if (!redisClient) return false;
+    try {
+      const key = this.presenceConnsKey(tenantId, userId);
+      const count = await redisClient.decr(key);
+      if (count <= 0) {
+        await redisClient.del(key);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      this.logger.warn(`Presence DECR failed: ${(error as Error).message}`);
+      return false;
+    }
+  }
+
+  /** Refresh the counter's TTL guard (heartbeats keep it alive while sockets live). */
+  private async refreshPresenceCounterTtl(tenantId: string, userId: string): Promise<void> {
+    const redisClient = this.redisService?.getClient();
+    if (!redisClient) return;
+    try {
+      await redisClient.expire(this.presenceConnsKey(tenantId, userId), PRESENCE_CONNS_TTL_SECONDS);
+    } catch {
+      // Heartbeat-scope best effort — never log-spam on a Redis blip.
+    }
   }
 
   private async setPresence(tenantId: string, userId: string, status: string): Promise<void> {

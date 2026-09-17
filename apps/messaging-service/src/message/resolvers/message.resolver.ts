@@ -190,6 +190,11 @@ export class ReactionSummary {
 // RESOLVER
 // ============================================================================
 
+/** Max userIds per userPresence query (MSGFIX-FAZ3 3.5 — unbounded arg guard). */
+const USER_PRESENCE_MAX_IDS = 50;
+/** Any-version UUID — matches auth-issued subject ids. */
+const USER_PRESENCE_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 @Resolver(() => Message)
 @UseGuards(TenantGuard)
 @UseInterceptors(MessagingRateLimitInterceptor)
@@ -398,12 +403,34 @@ export class MessageResolver {
 
   /**
    * Get presence info for a list of users.
+   *
+   * MSGFIX-FAZ3 3.5: the `userIds` argument is validated here (≤50 entries,
+   * each a UUID) — a GraphQL `ID` scalar only coerces to string, so without
+   * this check an authenticated caller could fan the presence lookup out to
+   * unbounded, arbitrary key shapes (one Redis MGET batch + up to N
+   * getLastSeen calls per request). class-validator's @ArrayMaxSize/@IsUUID
+   * decorators cannot reach a bare @Args array (no DTO instance is created
+   * without a ValidationPipe bound to this argument), so the check is
+   * explicit. 50 matches the largest realistic channel roster lookup.
    */
   @Query(() => [PublicUserProfile], { name: 'userPresence' })
   async getUserPresence(
     @Args('userIds', { type: () => [ID] }) userIds: string[],
     @Tenant() tenantId: string,
   ): Promise<PublicUserProfile[]> {
+    if (!Array.isArray(userIds) || userIds.length === 0) {
+      return [];
+    }
+    if (userIds.length > USER_PRESENCE_MAX_IDS) {
+      throw new BadRequestException(
+        `userPresence accepts at most ${USER_PRESENCE_MAX_IDS} userIds per request.`,
+      );
+    }
+    const invalid = userIds.find((id) => !USER_PRESENCE_UUID_RE.test(id));
+    if (invalid !== undefined) {
+      throw new BadRequestException('Every userId must be a UUID.');
+    }
+
     const onlineMap = await this.presenceService.getOnlineUsers(tenantId, userIds);
     const results: PublicUserProfile[] = [];
     for (const id of userIds) {

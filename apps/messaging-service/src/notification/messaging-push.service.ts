@@ -31,6 +31,13 @@ const DEDUP_TTL_SECONDS = 30;
 /** Notification refs are short-lived, one-time pointers resolved after app auth. */
 const NOTIFICATION_REF_TTL_SECONDS = 10 * 60;
 const NOTIFICATION_COMMAND_TIMEOUT_MS = 10_000;
+/**
+ * MSGFIX-FAZ3 3.4: fan-out concurrency cap. Recipients are dispatched in
+ * chunks of this size via Promise.allSettled — at most PUSH_CONCURRENCY
+ * in-flight NATS dispatches / Redis ref writes, and one batched unread-badge
+ * query per chunk instead of a global COUNT per member.
+ */
+const PUSH_CONCURRENCY = 10;
 
 /**
  * MessageSent fan-out payload consumed by the push handler. Mirrors the
@@ -142,86 +149,45 @@ export class MessagingPushService {
 
       if (offlineUsers.length === 0) return;
 
-      // 5. Dedup + dispatch
+      // 5. Dedup + dispatch (MSGFIX-FAZ3 3.4: bounded concurrency, batched badge)
+      //
+      // Previously this was a SERIAL per-member loop, and each member paid a
+      // GLOBAL unread COUNT (getUnreadCount) before its NATS send — N members
+      // ⇒ N scans + N×10s worst-case serial waits. Now:
+      //   - recipients are processed in chunks of PUSH_CONCURRENCY via
+      //     Promise.allSettled (per-recipient failures stay isolated);
+      //   - each chunk resolves ALL its badge values in ONE batched query
+      //     (getUnreadCountsForUsers — same global-per-user semantics the
+      //     badge contract expects);
+      //   - the NATS calls are the notification-service's SINGLE-recipient
+      //     command API — there is no batch subject, so dispatching the
+      //     per-recipient requests in parallel is the available lever.
+      //     Adding a batch API to notification-service is explicitly OUT OF
+      //     SCOPE here (cross-service contract change — separate sprint).
       const senderName = payload.senderDisplayName ?? 'Someone';
       let dispatchedCount = 0;
 
-      for (const member of offlineUsers) {
-        const dedupKey = `msg:push:dedup:${tenantId}:${channelId}:${member.userId}`;
-        let notificationRefKey: string | undefined;
-        try {
-          const dedupClaimed = await this.safeRedisSetNx(dedupKey, DEDUP_TTL_SECONDS, messageId);
-          if (!dedupClaimed) {
-            this.logger.debug(
-              `Dedup: skipping push for user ${member.userId} in channel ${channelId}`,
-            );
-            continue;
-          }
+      for (let i = 0; i < offlineUsers.length; i += PUSH_CONCURRENCY) {
+        const chunk = offlineUsers.slice(i, i + PUSH_CONCURRENCY);
+        const badgeByUser = await this.messageService.getUnreadCountsForUsers(
+          tenantId,
+          chunk.map((m) => m.userId),
+        );
 
-          // Get unread count for badge
-          const unreadCount = await this.messageService.getUnreadCount(member.userId, tenantId);
-          const notificationRef = randomUUID();
-          notificationRefKey = this.notificationRefKey(tenantId, member.userId, notificationRef);
-          await this.safeRedisSetEx(
-            notificationRefKey,
-            NOTIFICATION_REF_TTL_SECONDS,
-            JSON.stringify({
+        const results = await Promise.allSettled(
+          chunk.map((member) =>
+            this.dispatchToMember({
+              member,
               tenantId,
-              userId: member.userId,
               channelId,
               messageId,
-              messageCreatedAt: payload.createdAt,
-            }),
-          );
-
-          // SECURITY: NEVER include message content or direct channel/message IDs
-          // in push payload. The app resolves notificationRef after auth.
-          const requestReference = `messaging:${tenantId}:${messageId}:push:${member.userId}`;
-          const pushPayload: NotificationSendPushCommand = {
-            deliveryId: requestReference,
-            requestReference,
-            tenantId,
-            source: 'messaging-service',
-            recipientRef: {
-              kind: 'userId',
-              ref: member.userId,
-            },
-            templateId: 'messaging.chat.message.push',
-            templateVersion: '1',
-            templateVariables: {
+              createdAt: payload.createdAt,
               senderName,
-              badge: unreadCount,
-              type: 'CHAT_MESSAGE',
-              notificationRef,
-            },
-            metadata: {
-              type: 'CHAT_MESSAGE',
-              notificationRef,
-            },
-          };
-
-          const result = await firstValueFrom(
-            this.natsClient
-              .send<
-                NotificationSendResult,
-                NotificationSendPushCommand
-              >(NOTIFICATION_COMMAND_SUBJECTS.SEND_PUSH, pushPayload)
-              .pipe(timeout(NOTIFICATION_COMMAND_TIMEOUT_MS)),
-          );
-          if (!result.success) {
-            throw new Error(result.error ?? 'Notification command failed');
-          }
-          dispatchedCount += 1;
-        } catch (recipientError) {
-          await this.safeRedisDel(dedupKey);
-          if (notificationRefKey) {
-            await this.safeRedisDel(notificationRefKey);
-          }
-          this.logger.error(
-            `Failed to dispatch push notification for user ${member.userId}: ` +
-              `${recipientError instanceof Error ? recipientError.message : String(recipientError)}`,
-          );
-        }
+              badge: badgeByUser.get(member.userId) ?? 0,
+            }),
+          ),
+        );
+        dispatchedCount += results.filter((r) => r.status === 'fulfilled' && r.value).length;
       }
 
       this.logger.debug(
@@ -232,6 +198,96 @@ export class MessagingPushService {
       this.logger.error(
         `Failed to dispatch push notifications for message ${messageId}: ${errMsg}`,
       );
+    }
+  }
+
+  /**
+   * Dedup + ref-write + NATS dispatch for ONE recipient. Returns true when a
+   * push was actually dispatched (false for a dedup skip). Throws on failure
+   * after rolling back its own Redis keys; the caller's allSettled keeps the
+   * failure isolated to this recipient.
+   */
+  private async dispatchToMember(args: {
+    member: { userId: string };
+    tenantId: string;
+    channelId: string;
+    messageId: string;
+    createdAt: string;
+    senderName: string;
+    badge: number;
+  }): Promise<boolean> {
+    const { member, tenantId, channelId, messageId, senderName, badge } = args;
+    const dedupKey = `msg:push:dedup:${tenantId}:${channelId}:${member.userId}`;
+    let notificationRefKey: string | undefined;
+    try {
+      const dedupClaimed = await this.safeRedisSetNx(dedupKey, DEDUP_TTL_SECONDS, messageId);
+      if (!dedupClaimed) {
+        this.logger.debug(`Dedup: skipping push for user ${member.userId} in channel ${channelId}`);
+        return false;
+      }
+
+      const notificationRef = randomUUID();
+      notificationRefKey = this.notificationRefKey(tenantId, member.userId, notificationRef);
+      await this.safeRedisSetEx(
+        notificationRefKey,
+        NOTIFICATION_REF_TTL_SECONDS,
+        JSON.stringify({
+          tenantId,
+          userId: member.userId,
+          channelId,
+          messageId,
+          messageCreatedAt: args.createdAt,
+        }),
+      );
+
+      // SECURITY: NEVER include message content or direct channel/message IDs
+      // in push payload. The app resolves notificationRef after auth.
+      const requestReference = `messaging:${tenantId}:${messageId}:push:${member.userId}`;
+      const pushPayload: NotificationSendPushCommand = {
+        deliveryId: requestReference,
+        requestReference,
+        tenantId,
+        source: 'messaging-service',
+        recipientRef: {
+          kind: 'userId',
+          ref: member.userId,
+        },
+        templateId: 'messaging.chat.message.push',
+        templateVersion: '1',
+        templateVariables: {
+          senderName,
+          badge,
+          type: 'CHAT_MESSAGE',
+          notificationRef,
+        },
+        metadata: {
+          type: 'CHAT_MESSAGE',
+          notificationRef,
+        },
+      };
+
+      const result = await firstValueFrom(
+        this.natsClient
+          .send<
+            NotificationSendResult,
+            NotificationSendPushCommand
+          >(NOTIFICATION_COMMAND_SUBJECTS.SEND_PUSH, pushPayload)
+          .pipe(timeout(NOTIFICATION_COMMAND_TIMEOUT_MS)),
+      );
+      if (!result.success) {
+        throw new Error(result.error ?? 'Notification command failed');
+      }
+      return true;
+    } catch (recipientError) {
+      await this.safeRedisDel(dedupKey);
+      if (notificationRefKey) {
+        await this.safeRedisDel(notificationRefKey);
+      }
+      this.logger.error(
+        `Failed to dispatch push notification for user ${member.userId}: ` +
+          `${recipientError instanceof Error ? recipientError.message : String(recipientError)}`,
+      );
+      throw recipientError;
     }
   }
 

@@ -2442,7 +2442,19 @@ def _record_claude_cli_usage(
             signer_key_fp=signer_key_fp,
             base_dir=tools_dir,
         )
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 — loud degradation, never a silent zero
+        # The cost_attribution_missing sentinel reports the SYMPTOM (no row in
+        # the shard); this note reports the CAUSE at the moment it happens.
+        # A silently swallowed write failure is how the caps went blind for a
+        # month (V10.3-B: real dollars spent, zero rows recorded).
+        sys.stderr.write(json.dumps({
+            "event": "cost_attribution_record_failed",
+            "request_id": request_id,
+            "role": role,
+            "model": model,
+            "tools_dir": str(tools_dir),
+            "error": f"{type(exc).__name__}: {exc}",
+        }, sort_keys=True) + "\n")
         return
 
 

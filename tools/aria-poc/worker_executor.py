@@ -77,6 +77,29 @@ def _is_mock_mode() -> bool:
     return os.environ.get(MOCK_MODE_ENV_VAR, "0").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _resolve_tools_dir(repo: Path) -> Path:
+    """Resolve the ARIA tools root for the worker lane.
+
+    ARIA_TOOLS_DIR wins when set: on the runner the durable store lives at
+    .aria-state-store/tools and ONLY the env var points there — the checkout
+    tree carries a stale tracked aria-tools/ that dies with the job. The old
+    `repo / "aria-tools"` hardcode sent worker usage rows, cost rows and
+    dispatch results to that ephemeral tree (the cost_attribution_missing
+    sentinel's silent sibling). Local dev keeps the checkout default.
+    """
+    env_tools = os.environ.get("ARIA_TOOLS_DIR")
+    if env_tools:
+        resolved = Path(env_tools).resolve()
+        sys.stderr.write(
+            json.dumps({"event": "worker_tools_dir_from_env", "tools_dir": str(resolved)}, sort_keys=True) + "\n"
+        )
+        return resolved
+    sys.stderr.write(
+        json.dumps({"event": "worker_tools_dir_env_missing", "fallback": str(repo / "aria-tools")}, sort_keys=True) + "\n"
+    )
+    return repo / "aria-tools"
+
+
 def _resolve_assignment(
     assignment_id: str, tools_dir: Path, repo: Path,
 ) -> dict[str, Any] | None:
@@ -207,7 +230,7 @@ def main(argv: list[str] | None = None) -> int:
 
     assignment_id = parsed.assignment_id
     repo = Path.cwd().resolve()
-    tools_dir = repo / "aria-tools"
+    tools_dir = _resolve_tools_dir(repo)
     lease_token = os.environ.get(LEASE_TOKEN_ENV_VAR)
 
     assignment = _resolve_assignment(assignment_id, tools_dir, repo)

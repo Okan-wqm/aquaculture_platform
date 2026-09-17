@@ -67,8 +67,28 @@ export const CHANNEL_MESSAGES_QUERY = `
   }
 `;
 
+/**
+ * sendMessage — idempotencyKey is REQUIRED (ID!) on the backend
+ * (SendMessageInput.idempotencyKey, worktree dto/send-message.input.ts) and is
+ * the at-most-once send key: a replay returns the previously created message.
+ * The panel computes it ONCE per logical send (lib/messageIdempotency.ts) and
+ * carries it in the mutation variables so retries reuse the same key.
+ */
 export const SEND_MESSAGE_MUTATION = `
   mutation SendMessage($input: SendMessageInput!) {
     sendMessage(input: $input) { ${MESSAGE_FIELDS} }
+  }
+`;
+
+/**
+ * markMessagesRead — advances the caller's lastReadAt cursor up to and
+ * including `messageId` (backend message.resolver.ts markMessagesRead; input
+ * MarkReadInput { channelId: ID!, messageId: ID! }). Returns Boolean and is a
+ * no-op-safe monotonic update, so a redundant repeat (e.g. visibilitychange
+ * re-fire) costs one cheap mutation, never a wrong unread state.
+ */
+export const MARK_MESSAGES_READ_MUTATION = `
+  mutation MarkMessagesRead($input: MarkReadInput!) {
+    markMessagesRead(input: $input)
   }
 `;

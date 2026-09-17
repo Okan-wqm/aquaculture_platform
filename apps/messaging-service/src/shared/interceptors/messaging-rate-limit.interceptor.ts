@@ -85,13 +85,13 @@ const DEFAULT_RULES: Record<string, RateLimitRule> = {
   // condition: "escalates to HIGH if any of these mutations turn
   // out to be billable" — pre-emptively fail-closed so the
   // metering rollout doesn't surprise.
-  sendMessage:    { limit: 30, windowSeconds: 60,   failMode: 'fail-closed' },
+  sendMessage: { limit: 30, windowSeconds: 60, failMode: 'fail-closed' },
   // uploadMedia — costs storage + bandwidth; quota'd at 10/min
   // to prevent abuse. fail-closed.
-  uploadMedia:    { limit: 10, windowSeconds: 60,   failMode: 'fail-closed' },
+  uploadMedia: { limit: 10, windowSeconds: 60, failMode: 'fail-closed' },
   // createChannel — abuse-amplification (5/hour). Letting
   // through during a Redis outage = unbounded channel creation.
-  createChannel:  { limit: 5,  windowSeconds: 3600, failMode: 'fail-closed' },
+  createChannel: { limit: 5, windowSeconds: 3600, failMode: 'fail-closed' },
   // anonymizeMyData — GDPR-Art-17 surface. Burst protection
   // matters more than UX availability.
   anonymizeMyData: { limit: 3, windowSeconds: 3600, failMode: 'fail-closed' },
@@ -99,14 +99,20 @@ const DEFAULT_RULES: Record<string, RateLimitRule> = {
   // The remaining mutations are UX-protective (preventing
   // accidental burst from a misbehaving client) and have no
   // billable / abuse-amplification character.
-  editMessage:    { limit: 20, windowSeconds: 60,   failMode: 'fail-open' },
-  deleteMessage:  { limit: 10, windowSeconds: 60,   failMode: 'fail-open' },
-  forwardMessage: { limit: 15, windowSeconds: 60,   failMode: 'fail-open' },
-  addMember:      { limit: 20, windowSeconds: 60,   failMode: 'fail-open' },
-  pinMessage:     { limit: 10, windowSeconds: 60,   failMode: 'fail-open' },
-  unpinMessage:   { limit: 10, windowSeconds: 60,   failMode: 'fail-open' },
-  addReaction:    { limit: 30, windowSeconds: 60,   failMode: 'fail-open' },
-  removeReaction: { limit: 30, windowSeconds: 60,   failMode: 'fail-open' },
+  editMessage: { limit: 20, windowSeconds: 60, failMode: 'fail-open' },
+  deleteMessage: { limit: 10, windowSeconds: 60, failMode: 'fail-open' },
+  forwardMessage: { limit: 15, windowSeconds: 60, failMode: 'fail-open' },
+  addMember: { limit: 20, windowSeconds: 60, failMode: 'fail-open' },
+  pinMessage: { limit: 10, windowSeconds: 60, failMode: 'fail-open' },
+  unpinMessage: { limit: 10, windowSeconds: 60, failMode: 'fail-open' },
+  addReaction: { limit: 30, windowSeconds: 60, failMode: 'fail-open' },
+  removeReaction: { limit: 30, windowSeconds: 60, failMode: 'fail-open' },
+  // MSGFIX-FAZ1: markMessagesRead — the FAZ 1.2 UI marks each visible
+  // message as read, so the limit must absorb legitimate
+  // visibility-driven call volume (60/min ≈ one mark per second) while
+  // capping a tight self-DoS loop (every call is a transactional DB
+  // write). Read-receipts are UX-protective, not billable → fail-open.
+  markRead: { limit: 60, windowSeconds: 60, failMode: 'fail-open' },
 };
 
 export const RATE_LIMIT_ACTION_KEY = 'messaging_rate_limit_action';
@@ -145,14 +151,11 @@ export class MessagingRateLimitInterceptor implements NestInterceptor {
     private readonly metricsService: MessagingMetricsService,
   ) {}
 
-  async intercept(
-    context: ExecutionContext,
-    next: CallHandler,
-  ): Promise<Observable<unknown>> {
-    const action = this.reflector.getAllAndOverride<string | undefined>(
-      RATE_LIMIT_ACTION_KEY,
-      [context.getHandler(), context.getClass()],
-    );
+  async intercept(context: ExecutionContext, next: CallHandler): Promise<Observable<unknown>> {
+    const action = this.reflector.getAllAndOverride<string | undefined>(RATE_LIMIT_ACTION_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
 
     if (!action) {
       return next.handle();

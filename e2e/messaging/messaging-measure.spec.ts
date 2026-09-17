@@ -85,10 +85,7 @@ test.describe('Messaging FAZ measurements @messaging-measure', () => {
       return send();
     });
 
-    saveMeasurementEvidence(
-      `send-to-visible-${Date.now()}.json`,
-      JSON.stringify(summary, null, 2),
-    );
+    saveMeasurementEvidence(`send-to-visible-${Date.now()}.json`, JSON.stringify(summary, null, 2));
     assertP95WithinBudget(summary, 1500);
   });
 

@@ -1,5 +1,12 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { CallHandler, ExecutionContext, HttpException } from '@nestjs/common';
+import {
+  ArgumentsHost,
+  CallHandler,
+  ContextType,
+  ExecutionContext,
+  HttpException,
+} from '@nestjs/common';
+import { GraphQLError } from 'graphql';
 import { Reflector } from '@nestjs/core';
 import { GqlExecutionContext } from '@nestjs/graphql';
 import { of } from 'rxjs';
@@ -99,10 +106,10 @@ describe('MessagingRateLimitInterceptor', () => {
 
     // Sorted set pipeline: [removeOld, count=5, add, expire]
     const pipelineExec = jest.fn().mockResolvedValue([
-      [null, 0],     // ZREMRANGEBYSCORE
-      [null, 5],     // ZCARD: 5 < 30
-      [null, 1],     // ZADD
-      [null, 1],     // EXPIRE
+      [null, 0], // ZREMRANGEBYSCORE
+      [null, 5], // ZCARD: 5 < 30
+      [null, 1], // ZADD
+      [null, 1], // EXPIRE
     ]);
     redisClient.multi.mockReturnValue({
       zremrangebyscore: jest.fn().mockReturnThis(),
@@ -126,10 +133,10 @@ describe('MessagingRateLimitInterceptor', () => {
 
     // Count = 30, which is >= limit of 30
     const pipelineExec = jest.fn().mockResolvedValue([
-      [null, 0],     // ZREMRANGEBYSCORE
-      [null, 30],    // ZCARD: 30 >= 30
-      [null, 1],     // ZADD
-      [null, 1],     // EXPIRE
+      [null, 0], // ZREMRANGEBYSCORE
+      [null, 30], // ZCARD: 30 >= 30
+      [null, 1], // ZADD
+      [null, 1], // EXPIRE
     ]);
     redisClient.multi.mockReturnValue({
       zremrangebyscore: jest.fn().mockReturnThis(),
@@ -216,9 +223,7 @@ describe('MessagingRateLimitInterceptor', () => {
      * Helper that primes a Redis-down failure scenario.
      */
     const primeRedisOutage = (): void => {
-      const pipelineExec = jest
-        .fn()
-        .mockRejectedValue(new Error('ECONNREFUSED'));
+      const pipelineExec = jest.fn().mockRejectedValue(new Error('ECONNREFUSED'));
       redisClient.multi.mockReturnValue({
         zremrangebyscore: jest.fn().mockReturnThis(),
         zcard: jest.fn().mockReturnThis(),
@@ -233,9 +238,7 @@ describe('MessagingRateLimitInterceptor', () => {
       primeRedisOutage();
       const ctx = createMockContext();
 
-      await expect(
-        interceptor.intercept(ctx, mockCallHandler),
-      ).rejects.toThrow();
+      await expect(interceptor.intercept(ctx, mockCallHandler)).rejects.toThrow();
 
       // Inspect the thrown HttpException — must be 503.
       try {
@@ -253,9 +256,7 @@ describe('MessagingRateLimitInterceptor', () => {
       primeRedisOutage();
       const ctx = createMockContext();
 
-      await expect(
-        interceptor.intercept(ctx, mockCallHandler),
-      ).rejects.toThrow();
+      await expect(interceptor.intercept(ctx, mockCallHandler)).rejects.toThrow();
       expect(mockCallHandler.handle).not.toHaveBeenCalled();
     });
 
@@ -264,9 +265,7 @@ describe('MessagingRateLimitInterceptor', () => {
       primeRedisOutage();
       const ctx = createMockContext();
 
-      await expect(
-        interceptor.intercept(ctx, mockCallHandler),
-      ).rejects.toThrow();
+      await expect(interceptor.intercept(ctx, mockCallHandler)).rejects.toThrow();
       expect(mockCallHandler.handle).not.toHaveBeenCalled();
     });
 
@@ -286,6 +285,139 @@ describe('MessagingRateLimitInterceptor', () => {
 
       await interceptor.intercept(ctx, mockCallHandler);
       expect(mockCallHandler.handle).toHaveBeenCalled();
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // MSGFIX-FAZ1 — markMessagesRead binding (markRead rule)
+  // -----------------------------------------------------------------------
+  describe('MSGFIX-FAZ1 — markRead rule (markMessagesRead)', () => {
+    /** Wire a sliding-window result: ZCARD returns `count`. */
+    const primeZcardCount = (count: number): void => {
+      const pipelineExec = jest.fn().mockResolvedValue([
+        [null, 0],
+        [null, count],
+        [null, 1],
+        [null, 1],
+      ]);
+      redisClient.multi.mockReturnValue({
+        zremrangebyscore: jest.fn().mockReturnThis(),
+        zcard: jest.fn().mockReturnThis(),
+        zadd: jest.fn().mockReturnThis(),
+        expire: jest.fn().mockReturnThis(),
+        exec: pipelineExec,
+      });
+    };
+
+    it('allows a visibility-driven markRead burst that stays under 60/min', async () => {
+      reflector.getAllAndOverride.mockReturnValue('markRead');
+      // 59 in-window receipts: the FAZ 1.2 UI marking each visible message
+      // as read must not trip the limit.
+      primeZcardCount(59);
+
+      await interceptor.intercept(createMockContext(), mockCallHandler);
+
+      expect(mockCallHandler.handle).toHaveBeenCalled();
+    });
+
+    it('blocks the 61st markRead in a window with HTTP 429', async () => {
+      reflector.getAllAndOverride.mockReturnValue('markRead');
+      primeZcardCount(60); // 60 >= limit of 60
+
+      try {
+        await interceptor.intercept(createMockContext(), mockCallHandler);
+        fail('Expected HttpException');
+      } catch (e) {
+        const httpError = e as HttpException;
+        expect(httpError.getStatus()).toBe(429);
+        const response = httpError.getResponse() as Record<string, unknown>;
+        expect(response['retryAfter']).toBe(60);
+      }
+      expect(mockCallHandler.handle).not.toHaveBeenCalled();
+    });
+
+    it('is fail-OPEN on a Redis outage (read receipts must not brick chat during degradation)', async () => {
+      reflector.getAllAndOverride.mockReturnValue('markRead');
+      const pipelineExec = jest.fn().mockRejectedValue(new Error('ECONNREFUSED'));
+      redisClient.multi.mockReturnValue({
+        zremrangebyscore: jest.fn().mockReturnThis(),
+        zcard: jest.fn().mockReturnThis(),
+        zadd: jest.fn().mockReturnThis(),
+        expire: jest.fn().mockReturnThis(),
+        exec: pipelineExec,
+      });
+
+      await interceptor.intercept(createMockContext(), mockCallHandler);
+
+      expect(mockCallHandler.handle).toHaveBeenCalled();
+    });
+
+    it('carries @MessagingRateLimit("markRead") on the markMessagesRead resolver mutation', async () => {
+      // Static side of the binding: without the decorator on the resolver
+      // the rule is dead config — the interceptor only sees handlers that
+      // carry the action metadata.
+      const { MessageResolver } = await import('../../../message/resolvers/message.resolver');
+
+      const action = Reflect.getMetadata(
+        RATE_LIMIT_ACTION_KEY,
+        MessageResolver.prototype.markMessagesRead,
+      );
+
+      expect(action).toBe('markRead');
+    });
+
+    it('surfaces as extensions.code=TOO_MANY_REQUESTS through the FAZ 0 filter contract', async () => {
+      // The 429 the interceptor throws must land on the GraphQL wire with
+      // the error-code the FAZ 0 global filter promises — clients (and the
+      // FAZ 1.2 UI) branch on extensions.code, not on the HTTP envelope.
+      reflector.getAllAndOverride.mockReturnValue('markRead');
+      primeZcardCount(60);
+
+      let thrown: unknown;
+      try {
+        await interceptor.intercept(createMockContext(), mockCallHandler);
+        fail('Expected HttpException');
+      } catch (e) {
+        thrown = e;
+      }
+
+      const { GlobalExceptionFilter } = await import('../../../filters/global-exception.filter');
+      // Class-based ArgumentsHost stand-in (same shape as the FAZ 0 filter
+      // spec: the interface's generic signatures reject object literals,
+      // and the repo gate bans `as unknown as`).
+      class FakeGqlHost implements ArgumentsHost {
+        getType<TContext extends string = ContextType>(): TContext {
+          return 'graphql' as TContext;
+        }
+        getArgs<T extends Array<unknown>>(): T {
+          return [{}, {}, { req: { url: '/graphql', headers: {} } }, {}] as T;
+        }
+        getArgByIndex<T = unknown>(index: number): T {
+          return this.getArgs()[index] as T;
+        }
+        getClass<T = unknown>(): T {
+          return Object as T;
+        }
+        getHandler<T = unknown>(): T {
+          return (() => undefined) as T;
+        }
+        switchToHttp<T = unknown>(): T {
+          throw new Error('graphql host must not switch to http');
+        }
+        switchToRpc<T = unknown>(): T {
+          throw new Error('unexpected rpc');
+        }
+        switchToWs<T = unknown>(): T {
+          throw new Error('unexpected ws');
+        }
+      }
+
+      const filter = new GlobalExceptionFilter();
+      const gqlError = filter.catch(thrown, new FakeGqlHost()) as GraphQLError;
+
+      expect(gqlError).toBeInstanceOf(GraphQLError);
+      expect(gqlError.extensions['code']).toBe('TOO_MANY_REQUESTS');
+      expect(gqlError.extensions['statusCode']).toBe(429);
     });
   });
 });

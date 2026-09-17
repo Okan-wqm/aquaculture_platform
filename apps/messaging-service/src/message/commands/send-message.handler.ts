@@ -1,7 +1,7 @@
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { Logger, BadRequestException, ConflictException, Inject } from '@nestjs/common';
 import { DataSource, IsNull } from 'typeorm';
-import { randomUUID as uuidv4 } from 'crypto';
+import { createHash, randomUUID as uuidv4 } from 'crypto';
 import Redis from 'ioredis';
 
 import { runInTenantTransaction } from '@aquaculture/backend-common/database';
@@ -30,8 +30,10 @@ const IDEMPOTENCY_TTL_SECONDS = 7 * 24 * 60 * 60;
  * Handler for SendMessageCommand — the most critical handler in the system.
  *
  * Flow:
- * 1. Check Redis idempotency key (fast-path CACHE only); if it resolves
- *    to an existing message, return it without touching the DB
+ * 1. Check Redis idempotency key (fast-path CACHE only; the key is scoped
+ *    to tenant+sender+channel). If it resolves to an existing message that
+ *    belongs to THIS sender and channel, return it without touching the DB;
+ *    a mismatched entry is a cache miss — the DB ledger is the authority
  * 2. Sanitize content (strip HTML, validate URL schemes)
  * 3. Inside a single DB transaction: claim the partition-free
  *    message_send_idempotency ledger row via INSERT ... ON CONFLICT DO
@@ -71,24 +73,43 @@ export class SendMessageHandler implements ICommandHandler<SendMessageCommand, M
     } = command;
 
     // ── 1. Atomic idempotency check via SET NX ─────────────────────────
-    const idemKey = `msg:${tenantId}:idem:${idempotencyKey}`;
+    // MSGFIX-FAZ1: the cache key is scoped to (tenant, sender, channel)
+    // so two users inside one tenant who pick the same client-side key —
+    // or one user reusing a key across channels — cannot collide. The
+    // cache key now mirrors the DB ledger PK (tenantId, channelId,
+    // senderId, idempotencyKey); TTL unchanged (7 days).
+    const idemKey = `msg:${tenantId}:${senderId}:${channelId}:${idempotencyKey}`;
 
     const wasSet = await this.safeRedisSetNx(idemKey, 'pending', IDEMPOTENCY_TTL_SECONDS);
     if (!wasSet) {
-      this.logger.debug(`Idempotent hit for key=${idempotencyKey}, returning existing message`);
       const existingMessageId = await this.safeRedisGet(idemKey);
       if (existingMessageId && existingMessageId !== 'pending') {
         const existing = await runInTenantTransaction(
           this.dataSource,
           'messaging',
           tenantId,
-          async (queryRunner) => queryRunner.manager.findOne(Message, {
-            where: { tenantId, id: existingMessageId },
-            relations: ['attachments'],
-          }),
+          async (queryRunner) =>
+            queryRunner.manager.findOne(Message, {
+              where: { tenantId, id: existingMessageId },
+              relations: ['attachments'],
+            }),
         );
-        if (existing) {
+        // MSGFIX-FAZ1: a cache hit is honored ONLY when the stored message
+        // belongs to this sender AND channel. A misfiled/stale entry (e.g.
+        // written by the pre-scoring key format) counts as a cache MISS —
+        // the transactional ledger claim below stays the authority and
+        // either returns the true original or inserts a fresh message;
+        // step 5 then overwrites the misfiled entry (self-healing).
+        if (existing && existing.senderId === senderId && existing.channelId === channelId) {
+          this.logger.debug(
+            `Idempotent cache hit (key fingerprint ${this.fingerprint(idemKey)}), returning existing message`,
+          );
           return existing;
+        }
+        if (existing) {
+          this.logger.warn(
+            `Idempotency cache entry does not match sender/channel (key fingerprint ${this.fingerprint(idemKey)}), deferring to the DB ledger`,
+          );
         }
       }
       this.logger.warn(`Idempotent key exists but message not found, proceeding`);
@@ -156,164 +177,172 @@ export class SendMessageHandler implements ICommandHandler<SendMessageCommand, M
 
     let reusedExisting = false;
 
-    const createdMessage = await runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
-      const { manager } = queryRunner;
+    const createdMessage = await runInTenantTransaction(
+      this.dataSource,
+      'messaging',
+      tenantId,
+      async (queryRunner) => {
+        const { manager } = queryRunner;
 
-      // ── 4a-0. Authoritative idempotency claim (cluster-8 DİLİM-1) ──
-      // The ledger row is claimed in the SAME transaction as the message
-      // insert: if this transaction commits, claim+message are atomic; if
-      // a concurrent send holds the claim, our INSERT waits on the unique
-      // index until that transaction commits, then conflicts — so the
-      // read below always sees the committed original. Redis above is
-      // only a fast-path cache (fail-open by design); this is the
-      // authority that makes duplicates structurally impossible.
-      const claim = await manager
-        .createQueryBuilder()
-        .insert()
-        .into(MessageSendIdempotency)
-        .values({
+        // ── 4a-0. Authoritative idempotency claim (cluster-8 DİLİM-1) ──
+        // The ledger row is claimed in the SAME transaction as the message
+        // insert: if this transaction commits, claim+message are atomic; if
+        // a concurrent send holds the claim, our INSERT waits on the unique
+        // index until that transaction commits, then conflicts — so the
+        // read below always sees the committed original. Redis above is
+        // only a fast-path cache (fail-open by design); this is the
+        // authority that makes duplicates structurally impossible.
+        const claim = await manager
+          .createQueryBuilder()
+          .insert()
+          .into(MessageSendIdempotency)
+          .values({
+            tenantId,
+            channelId,
+            senderId,
+            idempotencyKey,
+            messageId,
+            messageCreatedAt: now,
+          })
+          .orIgnore()
+          .returning('"messageId"')
+          .execute();
+
+        // WHY raw, not identifiers: for a non-generated composite PK
+        // TypeORM fabricates InsertResult.identifiers from the VALUES
+        // passed in — they are non-empty even when ON CONFLICT DO NOTHING
+        // skipped the row. The RETURNING set (raw) is the only truthful
+        // conflict signal: empty ⇔ the claim was skipped. Proven by the
+        // real-DB e2e (a duplicate slipped through the identifiers check).
+        const claimedRows: unknown = claim.raw;
+        const claimCount = Array.isArray(claimedRows) ? claimedRows.length : 0;
+        if (claimCount === 0) {
+          const prior = await manager.findOne(MessageSendIdempotency, {
+            where: { tenantId, channelId, senderId, idempotencyKey },
+          });
+          if (!prior) {
+            throw new ConflictException(
+              'Idempotency claim conflicted but the ledger row is unreadable.',
+            );
+          }
+          const existing = await manager.findOne(Message, {
+            // messageCreatedAt narrows the partition scan to the original
+            // message's partition (createdAt is the partition key).
+            where: { tenantId, id: prior.messageId, createdAt: prior.messageCreatedAt },
+            relations: ['attachments'],
+          });
+          if (!existing) {
+            throw new ConflictException(
+              'Idempotency ledger references a message that no longer exists.',
+            );
+          }
+          reusedExisting = true;
+          return existing;
+        }
+
+        let mentionedUserIds: string[] = [];
+
+        if (sanitizedContent) {
+          const members = await manager.find(ChannelMember, {
+            where: { tenantId, channelId, leftAt: IsNull() },
+            select: ['userId'],
+          });
+
+          // Build mentionable member list (userId + displayName).
+          // 2026-05-02: Keep userId as the deterministic display identifier until
+          // auth-service exposes a federated profile lookup owned by the messaging
+          // read model. WHY: mention parsing must not call an ad-hoc remote lookup
+          // from the write transaction path.
+          const mentionableMembers: MentionableMember[] = members.map((m) => ({
+            userId: m.userId,
+            displayName: m.userId, // Placeholder until user resolution
+          }));
+
+          const mentionResult = this.mentionService.parseMentions(
+            sanitizedContent,
+            mentionableMembers,
+          );
+          sanitizedContent = mentionResult.processedContent;
+          mentionedUserIds = mentionResult.mentionedUserIds;
+        }
+
+        // 4a. INSERT message
+        // Build enriched metadata with mentions.
+        // MSG-HIGH-055: voice-note duration is NO LONGER stuffed into message
+        // metadata under a server-only `voiceDurationSeconds` key the UI never
+        // reads. It is persisted onto the audio attachment's typed
+        // `durationSeconds` column (the column the GraphQL fragment + UI actually
+        // consume), wired through the finalization result below.
+        const enrichedMetadata: Record<string, unknown> = { ...(metadata ?? {}) };
+        if (mentionedUserIds.length > 0) {
+          enrichedMetadata['mentions'] = mentionedUserIds;
+        }
+
+        // SECURITY: tenantId MUST be set on every message row for RLS and event routing.
+        const message = manager.create(Message, {
+          id: messageId,
           tenantId,
           channelId,
           senderId,
+          content: sanitizedContent,
+          contentType,
+          parentId: parentId ?? null,
+          forwardedFrom: null,
           idempotencyKey,
-          messageId,
-          messageCreatedAt: now,
-        })
-        .orIgnore()
-        .returning('"messageId"')
-        .execute();
-
-      // WHY raw, not identifiers: for a non-generated composite PK
-      // TypeORM fabricates InsertResult.identifiers from the VALUES
-      // passed in — they are non-empty even when ON CONFLICT DO NOTHING
-      // skipped the row. The RETURNING set (raw) is the only truthful
-      // conflict signal: empty ⇔ the claim was skipped. Proven by the
-      // real-DB e2e (a duplicate slipped through the identifiers check).
-      const claimedRows: unknown = claim.raw;
-      const claimCount = Array.isArray(claimedRows) ? claimedRows.length : 0;
-      if (claimCount === 0) {
-        const prior = await manager.findOne(MessageSendIdempotency, {
-          where: { tenantId, channelId, senderId, idempotencyKey },
+          isDeleted: false,
+          createdAt: now,
+          editedAt: null,
+          metadata: Object.keys(enrichedMetadata).length > 0 ? enrichedMetadata : null,
         });
-        if (!prior) {
-          throw new ConflictException(
-            'Idempotency claim conflicted but the ledger row is unreadable.',
-          );
-        }
-        const existing = await manager.findOne(Message, {
-          // messageCreatedAt narrows the partition scan to the original
-          // message's partition (createdAt is the partition key).
-          where: { tenantId, id: prior.messageId, createdAt: prior.messageCreatedAt },
-          relations: ['attachments'],
-        });
-        if (!existing) {
-          throw new ConflictException(
-            'Idempotency ledger references a message that no longer exists.',
-          );
-        }
-        reusedExisting = true;
-        return existing;
-      }
+        const savedMessage = await manager.save(Message, message);
 
-      let mentionedUserIds: string[] = [];
-
-      if (sanitizedContent) {
-        const members = await manager.find(ChannelMember, {
-          where: { tenantId, channelId, leftAt: IsNull() },
-          select: ['userId'],
-        });
-
-        // Build mentionable member list (userId + displayName).
-        // 2026-05-02: Keep userId as the deterministic display identifier until
-        // auth-service exposes a federated profile lookup owned by the messaging
-        // read model. WHY: mention parsing must not call an ad-hoc remote lookup
-        // from the write transaction path.
-        const mentionableMembers: MentionableMember[] = members.map((m) => ({
-          userId: m.userId,
-          displayName: m.userId, // Placeholder until user resolution
-        }));
-
-        const mentionResult = this.mentionService.parseMentions(
-          sanitizedContent,
-          mentionableMembers,
-        );
-        sanitizedContent = mentionResult.processedContent;
-        mentionedUserIds = mentionResult.mentionedUserIds;
-      }
-
-      // 4a. INSERT message
-      // Build enriched metadata with mentions.
-      // MSG-HIGH-055: voice-note duration is NO LONGER stuffed into message
-      // metadata under a server-only `voiceDurationSeconds` key the UI never
-      // reads. It is persisted onto the audio attachment's typed
-      // `durationSeconds` column (the column the GraphQL fragment + UI actually
-      // consume), wired through the finalization result below.
-      const enrichedMetadata: Record<string, unknown> = { ...(metadata ?? {}) };
-      if (mentionedUserIds.length > 0) {
-        enrichedMetadata['mentions'] = mentionedUserIds;
-      }
-
-      // SECURITY: tenantId MUST be set on every message row for RLS and event routing.
-      const message = manager.create(Message, {
-        id: messageId,
-        tenantId,
-        channelId,
-        senderId,
-        content: sanitizedContent,
-        contentType,
-        parentId: parentId ?? null,
-        forwardedFrom: null,
-        idempotencyKey,
-        isDeleted: false,
-        createdAt: now,
-        editedAt: null,
-        metadata: Object.keys(enrichedMetadata).length > 0 ? enrichedMetadata : null,
-      });
-      const savedMessage = await manager.save(Message, message);
-
-      // 4b. INSERT attachment records (if any)
-      // MSG-HIGH-056: persist the finalized media columns (width/height/
-      // durationSeconds/thumbnailKey) computed in the pre-transaction
-      // finalization pass. These columns + resolver + GraphQL fragment already
-      // existed and were dead only because nothing populated them.
-      if (attachmentKeys.length > 0) {
-        const attachments = attachmentKeys.map((storageKey) => {
-          const meta = attachmentMeta.get(storageKey);
-          const finalized = attachmentFinalization.get(storageKey);
-          return manager.create(MessageAttachment, {
-            tenantId,
-            messageId: savedMessage.id,
-            messageCreatedAt: savedMessage.createdAt,
-            storageKey,
-            originalFilename: storageKey.split('/').pop() ?? 'unknown',
-            mimeType: meta?.contentType ?? 'application/octet-stream',
-            fileSize: meta?.contentLength ?? 0,
-            width: finalized?.width ?? null,
-            height: finalized?.height ?? null,
-            durationSeconds: finalized?.durationSeconds ?? null,
-            thumbnailKey: finalized?.thumbnailKey ?? null,
+        // 4b. INSERT attachment records (if any)
+        // MSG-HIGH-056: persist the finalized media columns (width/height/
+        // durationSeconds/thumbnailKey) computed in the pre-transaction
+        // finalization pass. These columns + resolver + GraphQL fragment already
+        // existed and were dead only because nothing populated them.
+        if (attachmentKeys.length > 0) {
+          const attachments = attachmentKeys.map((storageKey) => {
+            const meta = attachmentMeta.get(storageKey);
+            const finalized = attachmentFinalization.get(storageKey);
+            return manager.create(MessageAttachment, {
+              tenantId,
+              messageId: savedMessage.id,
+              messageCreatedAt: savedMessage.createdAt,
+              storageKey,
+              originalFilename: storageKey.split('/').pop() ?? 'unknown',
+              mimeType: meta?.contentType ?? 'application/octet-stream',
+              fileSize: meta?.contentLength ?? 0,
+              width: finalized?.width ?? null,
+              height: finalized?.height ?? null,
+              durationSeconds: finalized?.durationSeconds ?? null,
+              thumbnailKey: finalized?.thumbnailKey ?? null,
+            });
           });
-        });
-        await manager.save(MessageAttachment, attachments);
-        savedMessage.attachments = attachments;
-      }
+          await manager.save(MessageAttachment, attachments);
+          savedMessage.attachments = attachments;
+        }
 
-      // 4c. INSERT outbox event
-      // SECURITY: tenantId MUST be set at the entity level (not just inside payload)
-      // for per-tenant NATS subject routing in the outbox worker.
-      await this.outboxPublisher.enqueue({
-        ...createBaseEvent('MessageSent', tenantId),
-        channelId,
-        messageId: savedMessage.id,
-        senderId,
-        contentType,
-        hasAttachments: attachmentKeys.length > 0,
-        mentionedUserIds: mentionedUserIds.length > 0 ? mentionedUserIds : undefined,
-        createdAt: now.toISOString(),
-      },  manager);
+        // 4c. INSERT outbox event
+        // SECURITY: tenantId MUST be set at the entity level (not just inside payload)
+        // for per-tenant NATS subject routing in the outbox worker.
+        await this.outboxPublisher.enqueue(
+          {
+            ...createBaseEvent('MessageSent', tenantId),
+            channelId,
+            messageId: savedMessage.id,
+            senderId,
+            contentType,
+            hasAttachments: attachmentKeys.length > 0,
+            mentionedUserIds: mentionedUserIds.length > 0 ? mentionedUserIds : undefined,
+            createdAt: now.toISOString(),
+          },
+          manager,
+        );
 
-      return savedMessage;
-    });
+        return savedMessage;
+      },
+    );
 
     // ── 5. Set idempotency key in Redis (after successful transaction) ─
     await this.safeRedisSetEx(idemKey, IDEMPOTENCY_TTL_SECONDS, createdMessage.id);
@@ -367,5 +396,15 @@ export class SendMessageHandler implements ICommandHandler<SendMessageCommand, M
       this.logger.warn(`Redis SET NX failed (proceeding without idempotency): ${message}`);
       return true;
     }
+  }
+
+  /**
+   * MSGFIX-FAZ1: one-way fingerprint for log correlation of idempotency
+   * keys. The raw key is client-supplied free text — logging it verbatim
+   * is a leak surface (it can carry user content); the truncated SHA-256
+   * keeps two logs joinable without ever exposing the key itself.
+   */
+  private fingerprint(key: string): string {
+    return createHash('sha256').update(key).digest('hex').slice(0, 16);
   }
 }

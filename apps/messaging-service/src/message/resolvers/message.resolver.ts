@@ -12,13 +12,24 @@ import {
   Directive,
   Context,
 } from '@nestjs/graphql';
-import { Logger, UseGuards, UseInterceptors, ForbiddenException, NotFoundException, BadRequestException, Inject } from '@nestjs/common';
+import {
+  Logger,
+  UseGuards,
+  UseInterceptors,
+  ForbiddenException,
+  NotFoundException,
+  BadRequestException,
+  Inject,
+} from '@nestjs/common';
 import { CommandBus, QueryBus } from '@nestjs/cqrs';
 import { ClientProxy } from '@nestjs/microservices';
 import { firstValueFrom, timeout } from 'rxjs';
 import DataLoader from 'dataloader';
 import GraphQLJSON from 'graphql-type-json';
-import { MessagingRateLimit, MessagingRateLimitInterceptor } from '../../shared/interceptors/messaging-rate-limit.interceptor';
+import {
+  MessagingRateLimit,
+  MessagingRateLimitInterceptor,
+} from '../../shared/interceptors/messaging-rate-limit.interceptor';
 import { CurrentUser, CurrentUserPayload, Tenant } from '@aquaculture/backend-common/decorators';
 import { TenantGuard } from '@aquaculture/backend-common/guards';
 
@@ -209,7 +220,8 @@ export class MessageResolver {
   @Query(() => MessagePageType, { name: 'messages' })
   async getMessages(
     @Args('channelId', { type: () => ID }) channelId: string,
-    @Args('filter', { type: () => MessageFilterInput, nullable: true }) filter: MessageFilterInput | undefined,
+    @Args('filter', { type: () => MessageFilterInput, nullable: true })
+    filter: MessageFilterInput | undefined,
     @CurrentUser() user: CurrentUserPayload,
     @Tenant() tenantId: string,
   ): Promise<MessagePageType> {
@@ -238,9 +250,7 @@ export class MessageResolver {
     @CurrentUser() user: CurrentUserPayload,
     @Tenant() tenantId: string,
   ): Promise<Message[]> {
-    return this.queryBus.execute(
-      new GetMessagesSinceQuery(tenantId, user.sub, channelId, since),
-    );
+    return this.queryBus.execute(new GetMessagesSinceQuery(tenantId, user.sub, channelId, since));
   }
 
   /**
@@ -257,7 +267,9 @@ export class MessageResolver {
     return runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
       const memberships = await queryRunner.manager
         .createQueryBuilder(ChannelMember, 'cm')
-        .innerJoin('channels', 'c', 'c."tenantId" = :tenantId AND c."id" = cm."channelId"', { tenantId })
+        .innerJoin('channels', 'c', 'c."tenantId" = :tenantId AND c."id" = cm."channelId"', {
+          tenantId,
+        })
         .where('cm."tenantId" = :tenantId', { tenantId })
         .andWhere('cm."userId" = :userId', { userId: user.sub })
         .andWhere('cm."leftAt" IS NULL')
@@ -275,9 +287,10 @@ export class MessageResolver {
       let cursorId: string | null = null;
       if (syncToken) {
         try {
-          const decoded = JSON.parse(
-            Buffer.from(syncToken, 'base64url').toString('utf-8'),
-          ) as { createdAt: string; id: string };
+          const decoded = JSON.parse(Buffer.from(syncToken, 'base64url').toString('utf-8')) as {
+            createdAt: string;
+            id: string;
+          };
           cursorDate = new Date(decoded.createdAt);
           cursorId = decoded.id;
         } catch {
@@ -419,10 +432,10 @@ export class MessageResolver {
     try {
       result = await firstValueFrom(
         this.natsClient
-          .send<ListTenantUserIdsResult, ListTenantUserIdsQuery>(
-            AUTH_USER_QUERY_SUBJECTS.LIST_TENANT_USER_IDS,
-            { tenantId },
-          )
+          .send<
+            ListTenantUserIdsResult,
+            ListTenantUserIdsQuery
+          >(AUTH_USER_QUERY_SUBJECTS.LIST_TENANT_USER_IDS, { tenantId })
           .pipe(timeout(5000)),
       );
     } catch (error) {
@@ -521,12 +534,7 @@ export class MessageResolver {
     );
 
     return this.commandBus.execute(
-      new DeleteMessageCommand(
-        tenantId,
-        user.sub,
-        messageId,
-        membership?.role ?? null,
-      ),
+      new DeleteMessageCommand(tenantId, user.sub, messageId, membership?.role ?? null),
     );
   }
 
@@ -534,6 +542,11 @@ export class MessageResolver {
    * Mark messages as read up to a specific message.
    */
   @Mutation(() => Boolean, { name: 'markMessagesRead' })
+  // MSGFIX-FAZ1: read-marking is a transactional DB write per call and the
+  // FAZ 1.2 UI will call it for every visible message — without a bound a
+  // single misbehaving view self-DoSes the service (the gap the send/edit/
+  // delete mutations never had).
+  @MessagingRateLimit('markRead')
   async markMessagesRead(
     @Args('input') input: MarkReadInput,
     @CurrentUser() user: CurrentUserPayload,
@@ -623,12 +636,15 @@ export class MessageResolver {
       });
       const savedPin = await manager.save(PinnedMessage, pinned);
 
-      await this.outboxPublisher.enqueue({
-        ...createBaseEvent('MessagePinned', tenantId),
-        channelId,
-        messageId,
-        pinnedBy: user.sub,
-      },  manager);
+      await this.outboxPublisher.enqueue(
+        {
+          ...createBaseEvent('MessagePinned', tenantId),
+          channelId,
+          messageId,
+          pinnedBy: user.sub,
+        },
+        manager,
+      );
 
       return savedPin;
     });
@@ -657,12 +673,15 @@ export class MessageResolver {
       const { manager } = queryRunner;
       const result = await manager.delete(PinnedMessage, { tenantId, channelId, messageId });
       if ((result.affected ?? 0) > 0) {
-        await this.outboxPublisher.enqueue({
-          ...createBaseEvent('MessageUnpinned', tenantId),
-          channelId,
-          messageId,
-          unpinnedBy: user.sub,
-        },  manager);
+        await this.outboxPublisher.enqueue(
+          {
+            ...createBaseEvent('MessageUnpinned', tenantId),
+            channelId,
+            messageId,
+            unpinnedBy: user.sub,
+          },
+          manager,
+        );
       }
       return (result.affected ?? 0) > 0;
     });
@@ -715,13 +734,16 @@ export class MessageResolver {
       });
       await manager.save(MessageReaction, reaction);
 
-      await this.outboxPublisher.enqueue({
-        ...createBaseEvent('ReactionAdded', tenantId),
-        channelId: message.channelId,
-        messageId,
-        userId: user.sub,
-        emoji,
-      },  manager);
+      await this.outboxPublisher.enqueue(
+        {
+          ...createBaseEvent('ReactionAdded', tenantId),
+          channelId: message.channelId,
+          messageId,
+          userId: user.sub,
+          emoji,
+        },
+        manager,
+      );
 
       return true;
     });
@@ -761,12 +783,15 @@ export class MessageResolver {
         emoji,
       });
       if ((result.affected ?? 0) > 0) {
-        await this.outboxPublisher.enqueue({
-          ...createBaseEvent('ReactionRemoved', tenantId),
-          messageId,
-          userId: user.sub,
-          emoji,
-        },  manager);
+        await this.outboxPublisher.enqueue(
+          {
+            ...createBaseEvent('ReactionRemoved', tenantId),
+            messageId,
+            userId: user.sub,
+            emoji,
+          },
+          manager,
+        );
       }
       return (result.affected ?? 0) > 0;
     });
@@ -888,7 +913,11 @@ export class MessageResolver {
    * Resolve read receipts for a message.
    * Returns delivery/read tracking data for each recipient.
    */
-  @ResolveField(() => [MessageReceipt], { name: 'receipts', nullable: true, description: 'Read/delivery receipts for this message' })
+  @ResolveField(() => [MessageReceipt], {
+    name: 'receipts',
+    nullable: true,
+    description: 'Read/delivery receipts for this message',
+  })
   async resolveReceipts(
     @Parent() message: Message,
     @Tenant() tenantId: string,
@@ -914,16 +943,24 @@ export class MessageResolver {
    * Groups reactions by emoji, counts unique users, and checks if the
    * requesting user has reacted with each emoji.
    */
-  @ResolveField(() => [ReactionSummary], { name: 'reactionSummary', nullable: true, description: 'Aggregated emoji reaction counts' })
+  @ResolveField(() => [ReactionSummary], {
+    name: 'reactionSummary',
+    nullable: true,
+    description: 'Aggregated emoji reaction counts',
+  })
   async resolveReactionSummary(
     @Parent() message: Message,
     @CurrentUser() user: CurrentUserPayload,
     @Tenant() tenantId: string,
   ): Promise<ReactionSummary[]> {
-    const reactions = await runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) =>
-      queryRunner.manager.find(MessageReaction, {
-        where: { tenantId, messageId: message.id },
-      }),
+    const reactions = await runInTenantTransaction(
+      this.dataSource,
+      'messaging',
+      tenantId,
+      async (queryRunner) =>
+        queryRunner.manager.find(MessageReaction, {
+          where: { tenantId, messageId: message.id },
+        }),
     );
 
     if (reactions.length === 0) return [];
@@ -966,9 +1003,10 @@ export class MessageResolver {
       this.dataSource,
       'messaging',
       tenantId,
-      async (queryRunner) => queryRunner.manager.findOne(ChannelMember, {
-        where: { tenantId, channelId, userId },
-      }),
+      async (queryRunner) =>
+        queryRunner.manager.findOne(ChannelMember, {
+          where: { tenantId, channelId, userId },
+        }),
     );
     if (!membership || membership.leftAt !== null) {
       throw new ForbiddenException('You are not a member of this channel.');
@@ -986,9 +1024,7 @@ export class MessageResolver {
     return Promise.all(
       userIds.map(async (id) => {
         const isOnline = onlineMap.get(id) ?? false;
-        const lastSeenAt = isOnline
-          ? null
-          : await this.presenceService.getLastSeen(tenantId, id);
+        const lastSeenAt = isOnline ? null : await this.presenceService.getLastSeen(tenantId, id);
         return { id, isOnline, lastSeenAt };
       }),
     );

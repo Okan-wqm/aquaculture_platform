@@ -317,6 +317,29 @@ export const en = {
   'validation.email': 'Please enter a valid email address',
   'validation.minLength': 'Must be at least {min} characters',
   'validation.passwordMismatch': 'Passwords do not match',
+  // ── Messaging panel (FAZ 1) ──
+  'messaging.overview': 'Overview',
+  'messaging.title': 'Messages',
+  'messaging.subtitle': 'Direct, group and AI channels for the tenant',
+  'messaging.loadingChannels': 'Loading channels…',
+  'messaging.errorChannels': 'Could not load channels.',
+  'messaging.noChannels': 'No channels yet.',
+  'messaging.channelsLabel': 'Channels',
+  'messaging.noMessagesPreview': 'No messages yet',
+  'messaging.conversation': 'Conversation',
+  'messaging.loadingMessages': 'Loading…',
+  'messaging.noMessages': 'No messages yet',
+  'messaging.composerPlaceholder': 'Type a message…',
+  'messaging.composerHint': 'Enter sends · Shift + Enter adds a newline',
+  'messaging.reconnecting': 'Reconnecting…',
+  'messaging.aiAssistant': 'AI Assistant',
+  'messaging.memberFallback': 'Member',
+  'messaging.error.sendFailed': 'Message could not be sent.',
+  'messaging.error.rateLimited': 'You are sending too fast — wait a moment and try again.',
+  'messaging.error.forbidden': 'You do not have access to this channel.',
+  'messaging.error.notFound': 'This channel no longer exists.',
+  'messaging.error.unauthenticated': 'Your session has expired — please sign in again.',
+
 } as const;
 
 export type MessageKey = keyof typeof en;

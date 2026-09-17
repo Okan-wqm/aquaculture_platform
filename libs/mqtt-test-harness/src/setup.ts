@@ -129,7 +129,7 @@ export async function bootMosquittoContainer(options: MqttHarnessOptions): Promi
 
     const logs: string[] = [];
     container.withLogConsumer((stream) => {
-      stream.on('data', (line) => logs.push(line.trim()));
+      stream.on('data', (line: Buffer | string) => logs.push(String(line).trim()));
     });
 
     const started = await container.start();

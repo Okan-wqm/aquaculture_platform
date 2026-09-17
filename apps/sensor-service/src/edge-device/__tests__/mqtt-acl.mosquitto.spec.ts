@@ -75,8 +75,6 @@ function startAuthBackend(service: MqttAuthService): Promise<{ server: Server; p
     req.on('data', (chunk: Buffer) => chunks.push(chunk));
     req.on('end', async () => {
       const body = Object.fromEntries(new URLSearchParams(Buffer.concat(chunks).toString('utf8')));
-      if (process.env['MQTT_ACL_E2E_DEBUG']) {
-      }
       const allowed = (ok: boolean) => {
         res.writeHead(ok ? 200 : 403);
         res.end(ok ? 'ok' : 'Denied');

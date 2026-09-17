@@ -42,7 +42,7 @@ function openCreate(props: Record<string, unknown> = {}) {
 }
 
 // The label and its input are siblings inside a wrapper div.
-function getNamedInput(labelText: RegExp): HTMLInputElement {
+function getNamedInput(labelText: string | RegExp): HTMLInputElement {
   const label = screen.getByText(labelText);
   const wrapper = label.parentElement;
   const input = wrapper?.querySelector('input');

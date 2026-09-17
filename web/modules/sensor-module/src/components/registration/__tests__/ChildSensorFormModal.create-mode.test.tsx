@@ -22,6 +22,9 @@ const EXISTING_ROW = {
   type: SensorType.TEMPERATURE,
   selected: true,
   isConfigured: true,
+  calibrationEnabled: false,
+  calibrationMultiplier: 1,
+  calibrationOffset: 0,
 };
 
 function openCreate(props: Record<string, unknown> = {}) {

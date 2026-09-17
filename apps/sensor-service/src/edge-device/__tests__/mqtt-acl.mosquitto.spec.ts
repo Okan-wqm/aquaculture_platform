@@ -114,6 +114,8 @@ function startAuthBackend(service: MqttAuthService): Promise<{ server: Server; p
           res.end();
         }
       } catch {
+        // Auth backend failures are denials by contract (go-auth treats
+        // non-200 as deny) — same shape as MqttAuthController's exception map.
         res.writeHead(403);
         res.end('Denied');
       }

@@ -16,6 +16,9 @@ const DISCOVERED_ROW = {
   type: SensorType.TEMPERATURE,
   selected: true,
   isConfigured: true,
+  calibrationEnabled: false,
+  calibrationMultiplier: 1,
+  calibrationOffset: 0,
 };
 
 describe('ChildSensorsStep manual add (SENSOR-HIGH-117)', () => {

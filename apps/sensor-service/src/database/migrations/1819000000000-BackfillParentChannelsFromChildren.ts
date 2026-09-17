@@ -52,7 +52,7 @@ export class BackfillParentChannelsFromChildren1819000000000 implements Migratio
     // Only the per-tenant-schema passes do work; the source `sensor` schema
     // pass has no parent/child rows and would fail the guard anyway.
     const isTenantSchema: Array<{ is_tenant: boolean }> = await queryRunner.query(
-      `SELECT current_schema() LIKE 'tenant\_%' AS is_tenant`,
+      `SELECT current_schema() LIKE 'tenant[_]%' AS is_tenant`,
     );
     if (isTenantSchema[0]?.is_tenant !== true) {
       return;

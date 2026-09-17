@@ -1,6 +1,6 @@
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { GenericContainer, type StartedTestContainer, Wait } from 'testcontainers';
 
@@ -144,6 +144,6 @@ export async function bootMosquittoContainer(options: MqttHarnessOptions): Promi
       },
     };
   } finally {
-    rmSync(join(confFile, '..'), { recursive: true, force: true });
+    rmSync(dirname(confFile), { recursive: true, force: true });
   }
 }

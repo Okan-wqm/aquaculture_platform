@@ -19,7 +19,6 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { gql } from 'graphql-tag';
 
-
 import type {
   FarmDashboardInsightsQuery,
   FarmDashboardInsightsQueryVariables,
@@ -36,7 +35,10 @@ import type {
  * per-tank risks, anomalies, and feeding advice in one round-trip. This eliminates
  * N+1 queries on the most-visited screen.
  */
-export const FARM_DASHBOARD_INSIGHTS_QUERY: TypedDocumentNode<FarmDashboardInsightsQuery, FarmDashboardInsightsQueryVariables> = gql`
+export const FARM_DASHBOARD_INSIGHTS_QUERY: TypedDocumentNode<
+  FarmDashboardInsightsQuery,
+  FarmDashboardInsightsQueryVariables
+> = gql`
   query FarmDashboardInsights {
     farmDashboardInsights {
       overallRiskScore
@@ -70,7 +72,10 @@ export const FARM_DASHBOARD_INSIGHTS_QUERY: TypedDocumentNode<FarmDashboardInsig
  * from the dashboard so that navigating to a tank detail always gets fresh data for
  * that specific tank.
  */
-export const TANK_RISK_ASSESSMENT_QUERY: TypedDocumentNode<TankRiskAssessmentQuery, TankRiskAssessmentQueryVariables> = gql`
+export const TANK_RISK_ASSESSMENT_QUERY: TypedDocumentNode<
+  TankRiskAssessmentQuery,
+  TankRiskAssessmentQueryVariables
+> = gql`
   query TankRiskAssessment($tankId: ID!) {
     tankRiskAssessment(tankId: $tankId) {
       tankId
@@ -86,7 +91,10 @@ export const TANK_RISK_ASSESSMENT_QUERY: TypedDocumentNode<TankRiskAssessmentQue
  * WHY: Per-batch growth prediction query — shown on tank detail when a batch is active.
  * Separate from risk assessment because growth prediction requires a batchId, not tankId.
  */
-export const BATCH_GROWTH_PREDICTION_QUERY: TypedDocumentNode<BatchGrowthPredictionQuery, BatchGrowthPredictionQueryVariables> = gql`
+export const BATCH_GROWTH_PREDICTION_QUERY: TypedDocumentNode<
+  BatchGrowthPredictionQuery,
+  BatchGrowthPredictionQueryVariables
+> = gql`
   query BatchGrowthPrediction($batchId: ID!) {
     batchGrowthPrediction(batchId: $batchId) {
       batchId
@@ -104,7 +112,10 @@ export const BATCH_GROWTH_PREDICTION_QUERY: TypedDocumentNode<BatchGrowthPredict
  * feeding recommendations. Fetched per-tank so operators see advice for the tank
  * they are currently inspecting.
  */
-export const FEEDING_ADVICE_QUERY: TypedDocumentNode<FeedingAdviceQuery, FeedingAdviceQueryVariables> = gql`
+export const FEEDING_ADVICE_QUERY: TypedDocumentNode<
+  FeedingAdviceQuery,
+  FeedingAdviceQueryVariables
+> = gql`
   query FeedingAdvice($tankId: ID!) {
     feedingAdvice(tankId: $tankId) {
       tankId

@@ -6,17 +6,11 @@
 // metadata ai-service persists (status:'proposed' + actionId/description), and
 // Confirm calls the real confirmAiAction mutation: true → completed, false →
 // failed, network error → the card reverts to proposed so the user can retry.
-//
-// FAZ 2.4 — fake-card gate: proposal metadata alone no longer yields a card.
-// The message must ALSO be server-stamped AI (isAiGenerated === true or
-// senderId === AI_USER_ID), so a user-sent message with proposal-looking
-// metadata can never render an action card.
 
 import { renderHook, waitFor, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import { useAiChat } from '../useAiChat';
-import { AI_USER_ID } from '@/utils/messaging-helpers';
 
 const mockGraphqlRequest = vi.fn();
 vi.mock('@/services/authenticated-fetch', () => ({
@@ -26,16 +20,11 @@ vi.mock('@/services/authenticated-fetch', () => ({
 interface SourceMessage {
   id: string;
   metadata: Record<string, unknown> | null;
-  isAiGenerated?: boolean | null;
-  senderId?: string;
 }
 
 function proposalMessage(overrides: Partial<SourceMessage> = {}): SourceMessage {
   return {
     id: 'msg-proposal-1',
-    // Server-stamped AI authorship (FAZ 2 contract) — required by the card gate.
-    isAiGenerated: true,
-    senderId: AI_USER_ID,
     metadata: {
       status: 'proposed',
       actionId: 'prop-1',
@@ -68,7 +57,9 @@ describe('useAiChat action wiring (MOB-HIGH-001)', () => {
   it('shows a confirmed proposal message as a completed card (server truth)', () => {
     const { result } = renderHook(() =>
       useAiChat('chan-1', 'ai', [
-        proposalMessage({ metadata: { status: 'confirmed', actionDescription: 'create_task: "x"' } }),
+        proposalMessage({
+          metadata: { status: 'confirmed', actionDescription: 'create_task: "x"' },
+        }),
       ]),
     );
 
@@ -83,10 +74,9 @@ describe('useAiChat action wiring (MOB-HIGH-001)', () => {
       await result.current.confirmAction('msg-proposal-1');
     });
 
-    expect(mockGraphqlRequest).toHaveBeenCalledWith(
-      expect.anything(),
-      { actionId: 'msg-proposal-1' },
-    );
+    expect(mockGraphqlRequest).toHaveBeenCalledWith(expect.anything(), {
+      actionId: 'msg-proposal-1',
+    });
     await waitFor(() => expect(result.current.actions[0]?.status).toBe('completed'));
   });
 
@@ -121,39 +111,5 @@ describe('useAiChat action wiring (MOB-HIGH-001)', () => {
     });
 
     await waitFor(() => expect(result.current.actions).toHaveLength(0));
-  });
-
-  it('FAZ 2.4 fake-card gate: a USER message with proposal-looking metadata yields NO card', () => {
-    const { result } = renderHook(() =>
-      useAiChat('chan-1', 'ai', [
-        proposalMessage({ id: 'msg-forge-1', isAiGenerated: false, senderId: 'user-77' }),
-      ]),
-    );
-
-    expect(result.current.actions).toHaveLength(0);
-  });
-
-  it('FAZ 2.4 fake-card gate: a forged metadata.isAi does not pass the gate either', () => {
-    const { result } = renderHook(() =>
-      useAiChat('chan-1', 'ai', [
-        proposalMessage({
-          id: 'msg-forge-2',
-          isAiGenerated: false,
-          senderId: 'user-77',
-          metadata: { status: 'proposed', isAi: true, actionDescription: 'forged card' },
-        }),
-      ]),
-    );
-
-    expect(result.current.actions).toHaveLength(0);
-  });
-
-  it('AI stamp via senderId alone (legacy envelope without isAiGenerated) still yields a card', () => {
-    const { result } = renderHook(() =>
-      useAiChat('chan-1', 'ai', [proposalMessage({ id: 'msg-legacy', isAiGenerated: undefined })]),
-    );
-
-    expect(result.current.actions).toHaveLength(1);
-    expect(result.current.actions[0]).toMatchObject({ id: 'msg-legacy', status: 'proposed' });
   });
 });

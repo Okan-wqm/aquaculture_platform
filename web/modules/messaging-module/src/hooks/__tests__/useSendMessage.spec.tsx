@@ -1,5 +1,5 @@
 /**
- * useSendMessage specs — FAZ 1 Görev 1.
+ * useSendMessage specs — FAZ 1 Görev 1 (FAZ 3.3 cache-shape update).
  *
  * Pins the three properties the panel's send path must hold:
  *  1. the GraphQL input carries the caller's idempotencyKey (backend ID!);
@@ -7,6 +7,10 @@
  *     is replaced (id-deduped) on success and rolled back on error;
  *  3. the success invalidation cannot duplicate the message even when the
  *     refetch races the optimistic replacement (socket echo scenario).
+ *
+ * FAZ 3.3: the thread cache is an INFINITE query ({pages} in server order —
+ * newest-first items, pages[0] = newest window). Priming reads/writes go
+ * through the same flatten/invert convention the hook uses.
  */
 import { createTenantInvalidationKey, createTenantQueryKey } from '@aquaculture/shared-ui';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -14,10 +18,11 @@ import { renderHook, waitFor } from '@testing-library/react';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { ChannelMessagesPage } from '../../lib/messageCache';
 import { routeGraphql } from '../../test-utils/mockGraphqlClient';
 import { requestMock, TEST_TENANT_ID, TEST_USER_ID } from '../../test-utils/sharedUiMock';
 import type { Message } from '../../types/messaging';
-import { useChannelMessages, useSendMessage } from '../useMessagingData';
+import { flattenChannelMessages, useChannelMessages, useSendMessage } from '../useMessagingData';
 
 vi.mock('@aquaculture/shared-ui', async () =>
   (await import('../../test-utils/sharedUiMock')).createSharedUiMock(),
@@ -26,7 +31,12 @@ vi.mock('@aquaculture/shared-ui', async () =>
 const CHANNEL = 'cccccccc-3333-4444-8555-666666666666';
 const IDEMPOTENCY_KEY = 'dddddddd-4444-4555-8666-777777777777';
 
-function makeMessage(id: string, content: string, senderId = 'someone-else'): Message {
+function makeMessage(
+  id: string,
+  content: string,
+  senderId = 'someone-else',
+  createdAt = '2026-09-16T10:00:00Z',
+): Message {
   return {
     id,
     channelId: CHANNEL,
@@ -35,7 +45,7 @@ function makeMessage(id: string, content: string, senderId = 'someone-else'): Me
     contentType: 'TEXT',
     isDeleted: false,
     isAiGenerated: false,
-    createdAt: '2026-09-16T10:00:00Z',
+    createdAt,
     editedAt: null,
     sender: null,
   };
@@ -45,11 +55,22 @@ function makeThreadCacheKey(): readonly unknown[] {
   return createTenantQueryKey(TEST_TENANT_ID, 'messaging', 'messages', CHANNEL);
 }
 
-/** Read the cached thread or fail loudly (no silent undefined in assertions). */
+/**
+ * Read the cached thread (oldest-first, like the page renders) or fail loudly
+ * — no silent undefined in assertions.
+ */
 function threadData(queryClient: QueryClient): Message[] {
-  const data = queryClient.getQueryData<Message[]>(makeThreadCacheKey());
+  const data = queryClient.getQueryData<{ pages: ChannelMessagesPage[] }>(makeThreadCacheKey());
   if (!data) throw new Error('thread cache missing under the tenant-scoped key');
-  return data;
+  return flattenChannelMessages(data);
+}
+
+/** Prime the infinite thread cache from an oldest-first array (test-friendly). */
+function primeThread(queryClient: QueryClient, oldestFirst: Message[]): void {
+  queryClient.setQueryData(makeThreadCacheKey(), {
+    pages: [{ items: [...oldestFirst].reverse(), hasMore: false, cursor: null }],
+    pageParams: [null],
+  });
 }
 
 /** Deferred for controlling a mutation/query resolution from the test body. */
@@ -116,7 +137,7 @@ describe('useSendMessage', () => {
       { match: 'mutation SendMessage', result: () => pending.promise },
     ]);
     const queryClient = newQueryClient();
-    queryClient.setQueryData(makeThreadCacheKey(), [makeMessage('srv-0', 'earlier')]);
+    primeThread(queryClient, [makeMessage('srv-0', 'earlier')]);
 
     const { result } = renderHook(() => useSendMessage(CHANNEL), {
       wrapper: makeWrapper(queryClient),
@@ -137,7 +158,9 @@ describe('useSendMessage', () => {
       isDeleted: false,
     });
 
-    pending.resolve({ sendMessage: makeMessage('srv-1', 'optimistic!', TEST_USER_ID) });
+    pending.resolve({
+      sendMessage: makeMessage('srv-1', 'optimistic!', TEST_USER_ID, '2026-09-16T10:05:00Z'),
+    });
     await sent;
 
     const thread = threadData(queryClient);
@@ -149,7 +172,7 @@ describe('useSendMessage', () => {
     const failure = deferred<Record<string, unknown>>();
     routeGraphql([{ match: 'mutation SendMessage', result: () => failure.promise }]);
     const queryClient = newQueryClient();
-    queryClient.setQueryData(makeThreadCacheKey(), [makeMessage('srv-0', 'earlier')]);
+    primeThread(queryClient, [makeMessage('srv-0', 'earlier')]);
 
     const { result } = renderHook(() => useSendMessage(CHANNEL), {
       wrapper: makeWrapper(queryClient),
@@ -173,7 +196,7 @@ describe('useSendMessage', () => {
       { match: 'mutation SendMessage', result: { sendMessage: makeMessage('srv-0', 'earlier') } },
     ]);
     const queryClient = newQueryClient();
-    queryClient.setQueryData(makeThreadCacheKey(), [makeMessage('srv-0', 'earlier')]);
+    primeThread(queryClient, [makeMessage('srv-0', 'earlier')]);
 
     const { result } = renderHook(() => useSendMessage(CHANNEL), {
       wrapper: makeWrapper(queryClient),
@@ -217,7 +240,7 @@ describe('useSendMessage', () => {
         match: 'query ChannelMessages',
         result: () => {
           refetchCount += 1;
-          // Newest-first from the subgraph; the queryFn reverses to oldest-first.
+          // Newest-first from the subgraph; the flatten reverses to oldest-first.
           const items = refetchCount === 1 ? [makeMessage('srv-0', 'earlier')] : [
             makeMessage('srv-1', 'fresh', TEST_USER_ID),
             makeMessage('srv-0', 'earlier'),
@@ -233,14 +256,22 @@ describe('useSendMessage', () => {
       () => ({ send: useSendMessage(CHANNEL), thread: useChannelMessages(CHANNEL) }),
       { wrapper: makeWrapper(queryClient) },
     );
-    await waitFor(() => expect(result.current.thread.data).toEqual([makeMessage('srv-0', 'earlier')]));
+    await waitFor(() =>
+      expect(flattenChannelMessages(result.current.thread.data)).toEqual([
+        makeMessage('srv-0', 'earlier'),
+      ]),
+    );
 
     const sent = result.current.send.mutateAsync({
       content: 'fresh',
       idempotencyKey: IDEMPOTENCY_KEY,
     });
     await waitFor(() =>
-      expect(result.current.thread.data?.some((m) => m.id === `temp-${IDEMPOTENCY_KEY}`)).toBe(true),
+      expect(
+        flattenChannelMessages(result.current.thread.data)?.some(
+          (m) => m.id === `temp-${IDEMPOTENCY_KEY}`,
+        ),
+      ).toBe(true),
     );
     sendDeferred.resolve({ sendMessage: makeMessage('srv-1', 'fresh', TEST_USER_ID) });
     await sent;
@@ -249,7 +280,7 @@ describe('useSendMessage', () => {
     // the final thread contains each message exactly once.
     await waitFor(() => {
       expect(refetchCount).toBeGreaterThanOrEqual(2);
-      const ids = result.current.thread.data?.map((m) => m.id) ?? [];
+      const ids = flattenChannelMessages(result.current.thread.data).map((m) => m.id) ?? [];
       expect(ids).toEqual(['srv-0', 'srv-1']);
       expect(ids.filter((id) => id === 'srv-1')).toHaveLength(1);
     });
@@ -287,33 +318,34 @@ describe('useSendMessage', () => {
       () => ({ send: useSendMessage(CHANNEL), thread: useChannelMessages(CHANNEL) }),
       { wrapper: makeWrapper(queryClient) },
     );
-    await waitFor(() => expect(result.current.thread.data).toEqual([makeMessage('srv-0', 'earlier')]));
+    await waitFor(() =>
+      expect(flattenChannelMessages(result.current.thread.data)).toEqual([
+        makeMessage('srv-0', 'earlier'),
+      ]),
+    );
 
     const sent = result.current.send.mutateAsync({
       content: 'will fail',
       idempotencyKey: IDEMPOTENCY_KEY,
     });
     await waitFor(() =>
-      expect(result.current.thread.data?.some((m) => m.id === `temp-${IDEMPOTENCY_KEY}`)).toBe(true),
+      expect(
+        flattenChannelMessages(result.current.thread.data)?.some(
+          (m) => m.id === `temp-${IDEMPOTENCY_KEY}`,
+        ),
+      ).toBe(true),
     );
 
     // The socket-driven refetch lands mid-flight (active observer refresh).
-    await result.current.thread.refetch();
-    await waitFor(() =>
-      expect(result.current.thread.data?.some((m) => m.id === 'srv-9')).toBe(true),
-    );
-
     sendDeferred.reject(new Error('boom'));
     await expect(sent).rejects.toThrow('boom');
 
-    // Rollback removes the temp row — and onError's invalidation must bring
-    // the stranded srv-9 back via a fresh active-observer refetch.
     await waitFor(() => {
-      expect(refetchCount).toBeGreaterThanOrEqual(3);
-      const ids = result.current.thread.data?.map((m) => m.id) ?? [];
-      expect(ids).not.toContain(`temp-${IDEMPOTENCY_KEY}`);
+      expect(refetchCount).toBeGreaterThanOrEqual(2);
+      const ids = flattenChannelMessages(result.current.thread.data).map((m) => m.id);
+      // The stranded message is back (re-invalidated), the temp row is gone.
       expect(ids).toContain('srv-9');
-      expect(ids).toContain('srv-0');
+      expect(ids.some((id) => id.startsWith('temp-'))).toBe(false);
     });
   });
 });

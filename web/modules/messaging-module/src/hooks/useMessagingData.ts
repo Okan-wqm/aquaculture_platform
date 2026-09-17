@@ -10,6 +10,16 @@
  * so react-query retries stay at-most-once. markMessagesRead optimistically
  * zeroes the active channel's unread badge and snaps to server truth on
  * success.
+ *
+ * FAZ 3.2 (channel-room decision): the socket joins ALL myChannels at
+ * (re)connect, so the channel list is live through WS cache mutations — the
+ * 60s refetchInterval backstop is REMOVED (no poll amplification).
+ *
+ * FAZ 3.3: useChannelMessages is an INFINITE query. Pages keep the server's
+ * native order (newest-first items, pages[0] = newest window); the render
+ * order (oldest-first) is established ONLY in flattenChannelMessagesPages
+ * (single reversal point). No placeholderData: switching channels must not
+ * render one pixel of the previous thread (bleed gate).
  */
 import {
   useTenantQuery,
@@ -17,9 +27,16 @@ import {
   graphqlClient,
   useAuth,
   createTenantInvalidationKey,
+  createTenantQueryKey,
 } from '@aquaculture/shared-ui';
-import type { UseQueryResult, UseMutationResult } from '@tanstack/react-query';
-import { useQueryClient } from '@tanstack/react-query';
+import {
+  useInfiniteQuery,
+  useQueryClient,
+  type InfiniteData,
+  type UseInfiniteQueryResult,
+  type UseMutationResult,
+  type UseQueryResult,
+} from '@tanstack/react-query';
 
 import {
   MY_CHANNELS_QUERY,
@@ -27,6 +44,12 @@ import {
   SEND_MESSAGE_MUTATION,
   MARK_MESSAGES_READ_MUTATION,
 } from '../graphql/messaging-operations';
+import {
+  insertMessageIntoPage,
+  capPageItems,
+  flattenChannelMessagesPages,
+  type ChannelMessagesPage,
+} from '../lib/messageCache';
 import { releaseIdempotencyKey } from '../lib/messageIdempotency';
 import type { Channel, Message } from '../types/messaging';
 
@@ -44,13 +67,12 @@ interface MarkMessagesReadResult {
 }
 
 /**
- * Channel-list polling: a lightweight liveness backstop while the socket only
- * joins the ACTIVE channel (FAZ 3.2 decides the list-level socket story).
- * 60s, foreground-only — cheap enough not to matter, fresh enough to move
- * last-message previews and unread badges of non-open channels.
+ * FAZ 3.2: NO refetchInterval. Liveness of the list (unread badges,
+ * last-message previews, new channels) comes from the socket — connect joins
+ * every cached channel (ack-confirmed), newMessage bumps unreadCount/
+ * lastMessage locally, channelEvent invalidates. A 60s poll would put a floor
+ * under the request amplification the FAZ 3 acceptance caps.
  */
-const CHANNELS_REFETCH_INTERVAL_MS = 60_000;
-
 export function useChannels(): UseQueryResult<Channel[], Error> {
   return useTenantQuery<Channel[]>(
     ['messaging', 'channels'],
@@ -60,28 +82,62 @@ export function useChannels(): UseQueryResult<Channel[], Error> {
       });
       return data.myChannels.items;
     },
-    {
-      refetchInterval: CHANNELS_REFETCH_INTERVAL_MS,
-      refetchIntervalInBackground: false,
-    },
   );
 }
 
+/** Messages page size for the initial window and each older-page fetch. */
+const MESSAGES_PAGE_SIZE = 50;
+
+/**
+ * Cursor-paginated thread. `getNextPageParam` rides the server cursor while
+ * hasMore; the flatten helper is the ONLY place page order is reversed.
+ * enable gate mirrors useTenantQuery's authenticated-tenant rule.
+ */
 export function useChannelMessages(
   channelId: string | undefined,
-): UseQueryResult<Message[], Error> {
-  return useTenantQuery<Message[]>(
-    ['messaging', 'messages', channelId ?? ''],
-    async () => {
+): UseInfiniteQueryResult<InfiniteData<ChannelMessagesPage, string | null>, Error> {
+  const { token, tenantId } = useAuth();
+  return useInfiniteQuery<
+    ChannelMessagesPage,
+    Error,
+    InfiniteData<ChannelMessagesPage, string | null>,
+    readonly unknown[],
+    string | null
+  >({
+    // Inline factory call: the repo's no-bare-tenant-query-key lint gate
+    // requires queryKey values statically traceable to the factory.
+    queryKey: createTenantQueryKey(tenantId, 'messaging', 'messages', channelId ?? ''),
+    queryFn: async ({ pageParam }) => {
       const data = await graphqlClient.request<ChannelMessagesResult>(
         CHANNEL_MESSAGES_QUERY,
-        { channelId, filter: { limit: 50 } },
+        {
+          channelId,
+          filter: pageParam
+            ? { limit: MESSAGES_PAGE_SIZE, cursor: pageParam }
+            : { limit: MESSAGES_PAGE_SIZE },
+        },
       );
-      // The subgraph returns newest-first; render oldest-first.
-      return [...data.messages.items].reverse();
+      // Items stay in SERVER order (newest-first); reversal happens once, in
+      // flattenChannelMessagesPages.
+      return {
+        items: [...data.messages.items],
+        hasMore: data.messages.hasMore,
+        cursor: data.messages.cursor,
+      };
     },
-    { enabled: !!channelId },
-  );
+    initialPageParam: null,
+    getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.cursor : undefined),
+    enabled: !!token && !!tenantId && !!channelId,
+    // FAZ 3.3 bleed gate: NO placeholderData — a channel switch renders the
+    // loading state, never the previous channel's rows.
+  });
+}
+
+/** Flatten the infinite pages into the oldest-first render array (single reversal point). */
+export function flattenChannelMessages(
+  data: InfiniteData<ChannelMessagesPage, string | null> | undefined,
+): Message[] {
+  return flattenChannelMessagesPages(data?.pages);
 }
 
 /** One logical send: the content plus the at-most-once idempotency key. */
@@ -92,22 +148,22 @@ export interface SendMessageVariables {
 
 /** Per-mutation cache context for rollback / temp-row replacement. */
 interface SendMutationContext {
-  previousThreads: Array<[readonly unknown[], Message[] | undefined]>;
+  previousThreads: Array<[readonly unknown[], InfiniteData<ChannelMessagesPage> | undefined]>;
   tempId: string;
 }
 
 /**
- * Append the optimistic row to a thread snapshot. The thread renders
- * oldest-first, so the pending message goes LAST; `senderId: myId` is what the
- * row's "mine" styling keys on (sender sub-object is only read for others).
+ * Append the optimistic row to the thread snapshot. Page 0 is newest-first, so
+ * the pending message lands at its createdAt position (in practice: the front).
+ * `senderId: myId` is what the row's "mine" styling keys on.
  */
 function withOptimisticMessage(
-  thread: Message[],
+  data: InfiniteData<ChannelMessagesPage>,
   channelId: string,
   variables: SendMessageVariables,
   myId: string | undefined,
   tempId: string,
-): Message[] {
+): InfiniteData<ChannelMessagesPage> {
   const optimistic: Message = {
     id: tempId,
     channelId,
@@ -121,17 +177,43 @@ function withOptimisticMessage(
     editedAt: null,
     sender: null,
   };
-  return [...thread, optimistic];
+  return {
+    ...data,
+    pages: data.pages.map((page, index) =>
+      index === 0
+        ? { ...page, items: capPageItems(insertMessageIntoPage(page.items, optimistic)) }
+        : page,
+    ),
+  };
 }
 
 /**
  * Replace the temp row with the server's message, deduping by id: an
  * idempotent REPLAY returns the previously created message, which may already
- * be in the thread (socket echo / prior send) — filtering both ids before the
- * append guarantees it appears exactly once.
+ * be in the thread (socket echo / prior send) — filtering both ids on every
+ * page before the page-0 insert guarantees it appears exactly once.
  */
-function withServerMessage(thread: Message[], tempId: string, real: Message): Message[] {
-  return [...thread.filter((m) => m.id !== tempId && m.id !== real.id), real];
+function withServerMessage(
+  data: InfiniteData<ChannelMessagesPage>,
+  tempId: string,
+  real: Message,
+): InfiniteData<ChannelMessagesPage> {
+  return {
+    ...data,
+    pages: data.pages.map((page, index) =>
+      index === 0
+        ? {
+            ...page,
+            items: capPageItems(
+              insertMessageIntoPage(
+                page.items.filter((m) => m.id !== tempId && m.id !== real.id),
+                real,
+              ),
+            ),
+          }
+        : { ...page, items: page.items.filter((m) => m.id !== tempId && m.id !== real.id) },
+    ),
+  };
 }
 
 export function useSendMessage(
@@ -167,12 +249,15 @@ export function useSendMessage(
         const tempId = `temp-${variables.idempotencyKey}`;
         // Snapshot BEFORE writing: setQueriesData returns the UPDATED values,
         // not the previous ones — the rollback source must be getQueriesData.
-        const previousThreads = queryClient.getQueriesData<Message[] | undefined>({
+        const previousThreads = queryClient.getQueriesData<InfiniteData<ChannelMessagesPage> | undefined>({
           queryKey: createTenantInvalidationKey(tenantId, 'messaging', 'messages', channelId ?? ''),
         });
-        queryClient.setQueriesData<Message[] | undefined>(
+        queryClient.setQueriesData<InfiniteData<ChannelMessagesPage> | undefined>(
           { queryKey: createTenantInvalidationKey(tenantId, 'messaging', 'messages', channelId ?? '') },
-          (old) => (old ? withOptimisticMessage(old, channelId ?? '', variables, myId, tempId) : old),
+          (old) =>
+            old && old.pages.length > 0
+              ? withOptimisticMessage(old, channelId ?? '', variables, myId, tempId)
+              : old,
         );
         return { previousThreads, tempId } satisfies SendMutationContext;
       },
@@ -205,9 +290,9 @@ export function useSendMessage(
         releaseIdempotencyKey(channelId ?? '', variables.content);
         const ctx = context as SendMutationContext | undefined;
         if (!ctx) return;
-        queryClient.setQueriesData<Message[] | undefined>(
+        queryClient.setQueriesData<InfiniteData<ChannelMessagesPage> | undefined>(
           { queryKey: createTenantInvalidationKey(tenantId, 'messaging', 'messages', channelId ?? '') },
-          (old) => (old ? withServerMessage(old, ctx.tempId, realMessage) : old),
+          (old) => (old && old.pages.length > 0 ? withServerMessage(old, ctx.tempId, realMessage) : old),
         );
       },
     },

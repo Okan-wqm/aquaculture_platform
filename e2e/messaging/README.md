@@ -7,12 +7,12 @@ kriterleri burada tanımlanan prosedürle ölçülür ve kanıtlar
 
 Dosyalar:
 
-| Dosya                               | Rol                                                                                |
-| ----------------------------------- | ---------------------------------------------------------------------------------- |
-| `measurements.ts`                   | Ölçüm yardımcı kütüphanesi (latency, GraphQL sayaç, bleed, hata kodu sözleşmesi)   |
-| `messaging-measure.spec.ts`         | Örnek ölçüm senaryosu — **iskelet**, fazlar doldurur (`@messaging-measure` tag'li) |
-| `results/`                          | Kanıt arşivi (git-ignore'lu; runtime'da oluşur)                                    |
-| `../playwright.messaging.config.ts` | Lane konfigürasyonu (yalnızca `--config` ile seçildiğinde çalışır)                 |
+| Dosya | Rol |
+| --- | --- |
+| `measurements.ts` | Ölçüm yardımcı kütüphanesi (latency, GraphQL sayaç, bleed, hata kodu sözleşmesi) |
+| `messaging-measure.spec.ts` | Örnek ölçüm senaryosu — **iskelet**, fazlar doldurur (`@messaging-measure` tag'li) |
+| `results/` | Kanıt arşivi (git-ignore'lu; runtime'da oluşur) |
+| `../playwright.messaging.config.ts` | Lane konfigürasyonu (yalnızca `--config` ile seçildiğinde çalışır) |
 
 > Bu spec mevcut hiçbir playwright config'inin `testDir`'i içinde DEĞİLDİR
 > (`e2e/tests/` dışında yaşar) ve `MESSAGING_E2E_BASE_URL` env'i yoksa
@@ -22,12 +22,12 @@ Dosyalar:
 
 ## Kabul kriterleri (faz çıkış kapıları)
 
-| #   | Kriter                                                   | Ölçüm                                                                        | Başlangıç eşiği                                                                                                          |
-| --- | -------------------------------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| K1  | Mesaj gönderim → DOM'da görünme gecikmesi                | `measureSendToVisibleSeries` (20 tekrar, tarayıcı `performance.now()` saati) | **p95 ≤ 1500 ms**                                                                                                        |
-| K2  | Kanal geçişi başına GraphQL istek sayısı (amplifikasyon) | `countGraphqlRequests` snapshot deltası                                      | geçiş başına **≤ 2 messaging operasyonu**; `unparsed = 0` (FAZ-2'de netleşir)                                            |
-| K3  | Kanal geçişinde bleed                                    | `assertNoBleed` (önceki kanal metni 0 eşleşme + screenshot kanıtı)           | **0 piksel** — önceki kanalın hiçbir mesajı/metni kalmaz                                                                 |
-| K4  | Negatif yol hata kodu sözleşmesi                         | `expectGraphqlErrorCode`                                                     | `NOT_FOUND` / `UNAUTHENTICATED` / `FORBIDDEN` / `TOO_MANY_REQUESTS` — kod seti gateway `global-exception.filter` SSoT'su |
+| # | Kriter | Ölçüm | Başlangıç eşiği |
+| --- | --- | --- | --- |
+| K1 | Mesaj gönderim → DOM'da görünme gecikmesi | `measureSendToVisibleSeries` (20 tekrar, tarayıcı `performance.now()` saati) | **p95 ≤ 1500 ms** |
+| K2 | Kanal geçişi başına GraphQL istek sayısı (amplifikasyon) | `countGraphqlRequests` snapshot deltası | geçiş başına **≤ 2 messaging operasyonu**; `unparsed = 0` (FAZ-2'de netleşir) |
+| K3 | Kanal geçişinde bleed | `assertNoBleed` (önceki kanal metni 0 eşleşme + screenshot kanıtı) | **0 piksel** — önceki kanalın hiçbir mesajı/metni kalmaz |
+| K4 | Negatif yol hata kodu sözleşmesi | `expectGraphqlErrorCode` | `NOT_FOUND` / `UNAUTHENTICATED` / `FORBIDDEN` / `TOO_MANY_REQUESTS` — kod seti gateway `global-exception.filter` SSoT'su |
 
 Eşikler koddaki varsayılanlarla (`assertP95WithinBudget(summary, 1500)` vb.)
 uyumlu olmalı; bir faz eşiği sıkılaştırırsa önce bu tabloyu, sonra koddaki
@@ -51,10 +51,10 @@ sonraki 15 dakika tüm ekipleri bloklar. Bu yüzden:
 
 ### 1) Ortam değişkenleri
 
-| Env                           | Anlam                                                                                      | Örnek                              |
-| ----------------------------- | ------------------------------------------------------------------------------------------ | ---------------------------------- |
-| `MESSAGING_E2E_BASE_URL`      | Panelin canlı kök URL'si. **Boşsa tüm spec skip eder.**                                    | `https://localhost:8443/messaging` |
-| `MESSAGING_E2E_STORAGE_STATE` | Paylaşılan oturum dosyası (auth.setup çıktısı). Base URL varken bu boşsa yine skip edilir. | `../tmp/messaging-e2e-state.json`  |
+| Env | Anlam | Örnek |
+| --- | --- | --- |
+| `MESSAGING_E2E_BASE_URL` | Panelin canlı kök URL'si. **Boşsa tüm spec skip eder.** | `https://localhost:8443/messaging` |
+| `MESSAGING_E2E_STORAGE_STATE` | Paylaşılan oturum dosyası (auth.setup çıktısı). Base URL varken bu boşsa yine skip edilir. | `../tmp/messaging-e2e-state.json` |
 
 ### 2) 8443 self-signed sertifikası
 
@@ -144,7 +144,7 @@ npx playwright test --config playwright.messaging.config.ts --grep @messaging-me
   `unparsed`. Amplifikasyon deseni: sayaç başlat → TEK kullanıcı aksiyonu →
   snapshot farkı.
 - **`assertNoBleed(page, channelTitle, { previousMessageText, headerLocator,
-evidenceName })`** — önceki kanalın örnek mesaj metninin sayfada 0 eşleşme
+  evidenceName })`** — önceki kanalın örnek mesaj metninin sayfada 0 eşleşme
   olduğunu assert eder, room header'ında eski başlık kalmadığını kontrol
   eder ve tam sayfa screenshot kanıtı bırakır.
 - **`expectGraphqlErrorCode(result, code)`** — `errors[0].extensions.code`

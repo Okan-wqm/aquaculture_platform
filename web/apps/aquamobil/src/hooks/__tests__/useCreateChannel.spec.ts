@@ -45,7 +45,7 @@ vi.mock('../useAuth', () => ({
 
 vi.mock('@tanstack/react-query', () => ({
   useQueryClient: () => ({ invalidateQueries: mockInvalidateQueries }),
-  useMutation: <TArgs,>(config: MutationConfig<TArgs>) => ({
+  useMutation: <TArgs>(config: MutationConfig<TArgs>) => ({
     mutateAsync: vi.fn().mockImplementation(async (args: TArgs) => {
       try {
         const result = await config.mutationFn(args);
@@ -70,9 +70,17 @@ vi.mock('@/services/authenticated-fetch', () => ({
 import { useCreateChannel } from '../useCreateChannel';
 
 /** Extract the `input` variable from the most recent graphqlRequest call. */
-function lastCreateInput(): { type: string; name?: string; memberIds: string[]; aiPersona?: string } {
+function lastCreateInput(): {
+  type: string;
+  name?: string;
+  memberIds: string[];
+  aiPersona?: string;
+} {
   const calls = mockGraphqlRequest.mock.calls;
-  const [, variables] = calls[calls.length - 1] as [unknown, { input: { type: string; name?: string; memberIds: string[]; aiPersona?: string } }];
+  const [, variables] = calls[calls.length - 1] as [
+    unknown,
+    { input: { type: string; name?: string; memberIds: string[]; aiPersona?: string } },
+  ];
   return variables.input;
 }
 

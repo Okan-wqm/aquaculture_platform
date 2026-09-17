@@ -30,6 +30,12 @@ export interface Message {
    * but its metadata is its own).
    */
   metadata: Record<string, unknown> | null;
+  /**
+   * FAZ 3.2 — the send idempotency key echoed on live WS envelopes of my own
+   * messages. Purely a client dedupe aid (matches the `temp-<key>` optimistic
+   * row id); never rendered, absent on GraphQL-fetched rows.
+   */
+  idempotencyKey?: string | null;
   sender: MessagingUser | null;
 }
 

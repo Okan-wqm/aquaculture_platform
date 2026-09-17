@@ -260,7 +260,9 @@ export class GraphqlRequestCounter {
  * `operationName` member first, then the first named operation in the query
  * document. Returns undefined when neither is parseable.
  */
-export function parseGraphqlOperationName(postData: string | null | undefined): string | undefined {
+export function parseGraphqlOperationName(
+  postData: string | null | undefined,
+): string | undefined {
   if (typeof postData !== 'string' || postData.length === 0) {
     return undefined;
   }

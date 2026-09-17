@@ -97,7 +97,10 @@ export function useMarkRead(channelId: string | undefined): UseMarkReadResult {
         try {
           await addToQueue('markMessagesRead', { channelId, messageId });
         } catch (error) {
-          logger.error('[useMarkRead] failed to queue read-cursor advance after online attempt failed', error);
+          logger.error(
+            '[useMarkRead] failed to queue read-cursor advance after online attempt failed',
+            error,
+          );
         }
       }
     },

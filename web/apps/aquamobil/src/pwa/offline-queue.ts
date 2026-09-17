@@ -32,9 +32,7 @@ export const MAX_PENDING_BLOB_BYTES = 26_214_400;
 interface BackgroundSyncRegistration extends ServiceWorkerRegistration {
   readonly sync: { register(tag: string): Promise<void> };
 }
-function hasBackgroundSync(
-  reg: ServiceWorkerRegistration,
-): reg is BackgroundSyncRegistration {
+function hasBackgroundSync(reg: ServiceWorkerRegistration): reg is BackgroundSyncRegistration {
   return 'sync' in reg;
 }
 
@@ -134,7 +132,9 @@ async function attachCommandEnvelope(
   } as OperationPayload;
 }
 
-async function encryptPayload(payload: OperationPayload): Promise<{ iv: string; ciphertext: string }> {
+async function encryptPayload(
+  payload: OperationPayload,
+): Promise<{ iv: string; ciphertext: string }> {
   const key = await getSessionKey();
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const encoded = new TextEncoder().encode(JSON.stringify(payload));
@@ -359,8 +359,11 @@ export async function queueOperation(
 
         // ADR-012: Register messaging-specific sync tag for priority processing.
         // Messaging operations are synced via 'sync-messages' before general ops.
-        const isMessagingOp = type === 'sendMessage' || type === 'editMessage' ||
-          type === 'deleteMessage' || type === 'markMessagesRead';
+        const isMessagingOp =
+          type === 'sendMessage' ||
+          type === 'editMessage' ||
+          type === 'deleteMessage' ||
+          type === 'markMessagesRead';
         if (isMessagingOp) {
           await registration.sync.register('sync-messages');
         }
@@ -400,16 +403,15 @@ export async function getPendingOperations(tenantId?: string): Promise<QueuedOpe
   // Use dedicated queue store -- no need to filter by prefix across mixed entries (PERF-08)
   const allEntries = await entries<string, StoredOperation>(queueStore);
   // SECURITY (C11): Filter by tenant-scoped key prefix when tenantId is provided
-  const prefix = tenantId
-    ? `${QUEUE_PREFIX}${tenantId}_`
-    : QUEUE_PREFIX;
+  const prefix = tenantId ? `${QUEUE_PREFIX}${tenantId}_` : QUEUE_PREFIX;
   const decrypted = await Promise.all(
     allEntries
       .filter(([key]) => String(key).startsWith(prefix))
       .map(([, value]) => decryptOperation(value)),
   );
-  return (decrypted.filter(Boolean) as QueuedOperation[])
-    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  return (decrypted.filter(Boolean) as QueuedOperation[]).sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+  );
 }
 
 /**
@@ -421,17 +423,13 @@ export async function getPendingOperations(tenantId?: string): Promise<QueuedOpe
  */
 export async function getPendingCount(tenantId?: string): Promise<number> {
   const allKeys = await keys(queueStore);
-  const prefix = tenantId
-    ? `${QUEUE_PREFIX}${tenantId}_`
-    : QUEUE_PREFIX;
+  const prefix = tenantId ? `${QUEUE_PREFIX}${tenantId}_` : QUEUE_PREFIX;
   // WHY the `k is string` guard, not `String(k)`: idb-keyval types keys as
   // IDBValidKey (string | number | Date | BufferSource | IDBValidKey[]), so
   // String(k) would stringify a non-string key to "[object Object]" and mis-count.
   // Our queue keys are ALWAYS the `${QUEUE_PREFIX}…` strings we wrote, so narrowing
   // to string is both correct and avoids the base-to-string hazard.
-  return allKeys.filter(
-    (k): k is string => typeof k === 'string' && k.startsWith(prefix),
-  ).length;
+  return allKeys.filter((k): k is string => typeof k === 'string' && k.startsWith(prefix)).length;
 }
 
 /**
@@ -443,7 +441,10 @@ export async function getPendingCount(tenantId?: string): Promise<number> {
  * @param tenantId - Tenant UUID that owns this operation
  * @param id - Operation UUID
  */
-export async function getOperation(tenantId: string, id: string): Promise<QueuedOperation | undefined> {
+export async function getOperation(
+  tenantId: string,
+  id: string,
+): Promise<QueuedOperation | undefined> {
   const stored = await get<StoredOperation>(`${QUEUE_PREFIX}${tenantId}_${id}`, queueStore);
   if (!stored) return undefined;
   const op = await decryptOperation(stored);
@@ -459,7 +460,11 @@ export async function getOperation(tenantId: string, id: string): Promise<Queued
  * @param id - Operation UUID
  * @param updates - Partial fields to merge into the stored operation
  */
-export async function updateOperation(tenantId: string, id: string, updates: Partial<QueuedOperation>): Promise<void> {
+export async function updateOperation(
+  tenantId: string,
+  id: string,
+  updates: Partial<QueuedOperation>,
+): Promise<void> {
   const storeKey = `${QUEUE_PREFIX}${tenantId}_${id}`;
   const existingStored = await get<StoredOperation>(storeKey, queueStore);
   if (!existingStored) return;
@@ -469,11 +474,7 @@ export async function updateOperation(tenantId: string, id: string, updates: Par
   const { payload: newPayload, ...nonPayloadUpdates } = updates;
   const newEnc = newPayload ? await encryptPayload(newPayload) : existingStored._enc;
 
-  await set(
-    storeKey,
-    { ...existingStored, ...nonPayloadUpdates, _enc: newEnc },
-    queueStore,
-  );
+  await set(storeKey, { ...existingStored, ...nonPayloadUpdates, _enc: newEnc }, queueStore);
 }
 
 /**
@@ -499,9 +500,7 @@ export async function removeOperation(tenantId: string, id: string): Promise<voi
  */
 export async function clearAllOperations(tenantId?: string): Promise<void> {
   const allKeys = await keys(queueStore);
-  const prefix = tenantId
-    ? `${QUEUE_PREFIX}${tenantId}_`
-    : QUEUE_PREFIX;
+  const prefix = tenantId ? `${QUEUE_PREFIX}${tenantId}_` : QUEUE_PREFIX;
   // Queue keys are always the `${QUEUE_PREFIX}…` strings we wrote, so narrow to
   // string (avoids the base-to-string hazard on idb-keyval's IDBValidKey union).
   const queueKeys = allKeys.filter(
@@ -512,9 +511,7 @@ export async function clearAllOperations(tenantId?: string): Promise<void> {
   // also resets its re-arm counter — scoped clears drop just this tenant's
   // token, the full logout clear drops every tenant's token. The tokens live in
   // the durable KEY store, so they are scanned/deleted there, not in queueStore.
-  const versionPrefix = tenantId
-    ? `${QUEUE_VERSION_PREFIX}${tenantId}`
-    : QUEUE_VERSION_PREFIX;
+  const versionPrefix = tenantId ? `${QUEUE_VERSION_PREFIX}${tenantId}` : QUEUE_VERSION_PREFIX;
   const allKeyStoreKeys = await keys(keyStore);
   // Version tokens are always the `${QUEUE_VERSION_PREFIX}…` strings we wrote,
   // so narrow to string (avoids the base-to-string hazard on IDBValidKey).
@@ -563,7 +560,12 @@ interface EncryptedCacheEntry {
  * @param data - Data to cache (will be AES-GCM encrypted)
  * @param ttlMs - Time-to-live in milliseconds (default: 1 hour)
  */
-export async function cacheData<T>(tenantId: string, key: string, data: T, ttlMs: number = 1000 * 60 * 60): Promise<void> {
+export async function cacheData<T>(
+  tenantId: string,
+  key: string,
+  data: T,
+  ttlMs: number = 1000 * 60 * 60,
+): Promise<void> {
   if (!tenantId) {
     throw new Error('cacheData: tenantId is required for tenant-isolated caching');
   }
@@ -681,9 +683,7 @@ export async function getCachedUserData<T>(
  */
 export async function clearCache(tenantId?: string): Promise<void> {
   const allKeys = await keys(cacheStore);
-  const prefix = tenantId
-    ? `${CACHE_PREFIX}${tenantId}:`
-    : CACHE_PREFIX;
+  const prefix = tenantId ? `${CACHE_PREFIX}${tenantId}:` : CACHE_PREFIX;
   // Cache keys are always the `${CACHE_PREFIX}…` strings we wrote, so narrow to
   // string (avoids the base-to-string hazard on idb-keyval's IDBValidKey union).
   const cacheKeys = allKeys.filter(
@@ -807,14 +807,11 @@ export async function clearPendingBlobs(tenantId?: string): Promise<void> {
 // Sync Logic
 // ============================================================================
 
-type GraphQLExecutor = (
-  type: OperationType,
-  payload: OperationPayload
-) => Promise<unknown>;
+type GraphQLExecutor = (type: OperationType, payload: OperationPayload) => Promise<unknown>;
 
 export async function syncOperation(
   operation: QueuedOperation,
-  executeGraphQL: GraphQLExecutor
+  executeGraphQL: GraphQLExecutor,
 ): Promise<boolean> {
   try {
     await updateOperation(operation.tenantId, operation.id, { status: 'syncing' });
@@ -822,9 +819,10 @@ export async function syncOperation(
     await removeOperation(operation.tenantId, operation.id);
     return true;
   } catch (error) {
-    const errorMessage = error instanceof Error
-      ? error.message.slice(0, 200) // SEC-07: truncate error messages
-      : 'Unknown error';
+    const errorMessage =
+      error instanceof Error
+        ? error.message.slice(0, 200) // SEC-07: truncate error messages
+        : 'Unknown error';
     await updateOperation(operation.tenantId, operation.id, {
       status: 'failed',
       retryCount: operation.retryCount + 1,
@@ -921,16 +919,21 @@ export async function syncAllOperations(
   // before processing. This prevents operations from being permanently stuck in 'syncing'.
   const allOps = await getPendingOperations(tenantId);
   const staleSync = allOps.filter((op) => op.status === 'syncing');
-  await Promise.all(staleSync.map((op) => updateOperation(op.tenantId, op.id, { status: 'pending' })));
+  await Promise.all(
+    staleSync.map((op) => updateOperation(op.tenantId, op.id, { status: 'pending' })),
+  );
 
   // BUG-17: Promote retryable 'failed' operations back to 'pending' so they
   // are included in this sync pass. Previously, failed items were skipped
   // permanently -- they never transitioned back to 'pending', leaving the user
   // with a dead queue that only manual deletion could resolve.
   const retryableFailed = allOps.filter(
-    (op) => op.status === 'failed' && op.retryCount < MAX_RETRY_COUNT && isRetryableError(op.lastError),
+    (op) =>
+      op.status === 'failed' && op.retryCount < MAX_RETRY_COUNT && isRetryableError(op.lastError),
   );
-  await Promise.all(retryableFailed.map((op) => updateOperation(op.tenantId, op.id, { status: 'pending' })));
+  await Promise.all(
+    retryableFailed.map((op) => updateOperation(op.tenantId, op.id, { status: 'pending' })),
+  );
 
   const pendingOps = await getPendingOperations(tenantId);
   // FARM-HIGH-214 priority drain: escape incidents are legally time-critical

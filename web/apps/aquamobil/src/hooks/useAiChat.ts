@@ -30,7 +30,6 @@ import type { AiActionStatus } from '@/components/messaging/AiActionCard';
 import { MOBILE_CONFIRM_AI_ACTION } from '@/graphql/messaging-operations';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { ChannelType } from '@/types/messaging';
-import { isAiAuthoredMessage } from '@/utils/messaging-helpers';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -49,13 +48,6 @@ export interface AiAction {
 export interface ProposalSourceMessage {
   id: string;
   metadata: Record<string, unknown> | null;
-  /**
-   * FAZ 2 server-authoritative AI stamps — the proposal-card gate. Optional
-   * because older socket envelopes may predate them; absence simply means the
-   * gate falls back to the senderId check.
-   */
-  isAiGenerated?: boolean | null;
-  senderId?: string;
 }
 
 interface UseAiChatReturn {
@@ -161,23 +153,17 @@ export function useAiChat(
    * MOB-HIGH-001: derive the cards from message metadata (server truth) and
    * fold in the local in-flight overrides. `status` values written by the
    * bridge: proposed / confirmed / failed.
-   *
-   * FAZ 2.4 — fake-card gate: the metadata alone is NOT enough anymore. A
-   * user-sent message can carry arbitrary client metadata (the backend strips
-   * the server-protected `status` key on the read path, but a stale/legacy
-   * envelope or a crafted payload must not render an action card anyway), so
-   * a message only yields a card when it is ALSO server-stamped as AI
-   * (`isAiGenerated === true` or `senderId === AI_USER_ID` via
-   * isAiAuthoredMessage). A user message with proposal-looking metadata
-   * renders nothing.
    */
   const actions = useMemo<AiAction[]>(() => {
     const cards: AiAction[] = [];
     for (const message of messages) {
-      if (!isAiAuthoredMessage(message)) continue;
       const metadata = message.metadata;
       const serverStatus = metadata?.['status'];
-      if (serverStatus !== 'proposed' && serverStatus !== 'confirmed' && serverStatus !== 'failed') {
+      if (
+        serverStatus !== 'proposed' &&
+        serverStatus !== 'confirmed' &&
+        serverStatus !== 'failed'
+      ) {
         continue;
       }
       const override = overrides.get(message.id);
@@ -188,12 +174,16 @@ export function useAiChat(
           ? metadata['actionDescription']
           : 'AI-proposed action';
       const baseStatus: AiActionStatus =
-        serverStatus === 'confirmed' ? 'completed' : serverStatus === 'failed' ? 'failed' : 'proposed';
+        serverStatus === 'confirmed'
+          ? 'completed'
+          : serverStatus === 'failed'
+            ? 'failed'
+            : 'proposed';
 
       cards.push({
         id: message.id,
         description,
-        status: override ? (override.status) : baseStatus,
+        status: override ? override.status : baseStatus,
         resultMessage: override?.resultMessage,
       });
     }

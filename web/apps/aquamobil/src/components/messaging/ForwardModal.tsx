@@ -17,6 +17,7 @@ import type { LucideIcon } from 'lucide-react';
 import { X, Search, Forward, Hash, Users, MessageCircle } from 'lucide-react';
 import { useState, useCallback, useMemo, type ReactElement } from 'react';
 
+import { EmptyState, IconButton, Skeleton } from '@/components/ui';
 import { FORWARD_MESSAGE } from '@/graphql/messaging-operations';
 import { useAuth } from '@/hooks/useAuth';
 import { useChannels } from '@/hooks/useChannels';
@@ -107,14 +108,11 @@ export function ForwardModal({
   // Forward mutation
   const forwardMutation = useMutation({
     mutationFn: async (targetChannelId: string) => {
-      const result = await graphqlRequest<{ forwardMessage: Message }>(
-        FORWARD_MESSAGE,
-        {
-          sourceMessageId: message.id,
-          sourceMessageCreatedAt: message.createdAt,
-          targetChannelId,
-        },
-      );
+      const result = await graphqlRequest<{ forwardMessage: Message }>(FORWARD_MESSAGE, {
+        sourceMessageId: message.id,
+        sourceMessageCreatedAt: message.createdAt,
+        targetChannelId,
+      });
       return result.forwardMessage;
     },
     onSuccess: () => {
@@ -122,7 +120,9 @@ export function ForwardModal({
       // returns a Promise; we intentionally fire-and-forget the refetch here, so
       // mark it void to satisfy no-floating-promises without blocking onClose.
       void queryClient.invalidateQueries({ queryKey: messagesFamilyKey(tenantId) });
-      void queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels') });
+      void queryClient.invalidateQueries({
+        queryKey: createTenantQueryKey(tenantId, 'messaging', 'channels'),
+      });
       onClose();
     },
   });
@@ -152,64 +152,55 @@ export function ForwardModal({
         : 'File';
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-white dark:bg-gray-900">
-      {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-100 dark:border-gray-800">
-        <button
+    // bg-surface-0 (the ground, solid) rather than surface-1: this covers the
+    // whole viewport, so it stands in for the page background, not for a card.
+    <div className="fixed inset-0 z-50 flex flex-col bg-surface-0">
+      {/* Header. IconButton supplies the disabled fade the hand-rolled
+          `opacity-50 cursor-not-allowed` pair used to spell out. */}
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-line">
+        <IconButton
+          size="lg"
           onClick={onClose}
           disabled={isForwarding}
-          className="min-w-[48px] min-h-[48px] flex items-center justify-center rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 touch-feedback"
+          className="hover:bg-surface-2"
           aria-label="Close"
         >
-          <X size={22} className="text-gray-600 dark:text-gray-300" />
-        </button>
+          <X size={22} className="text-ink-2" />
+        </IconButton>
         <div className="flex-1">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-            Forward Message
-          </h2>
+          <h2 className="text-head font-semibold text-ink-1">Forward Message</h2>
         </div>
-        <button
+        <IconButton
+          size="lg"
           onClick={handleForward}
           disabled={!selectedChannelId || isForwarding}
-          className={clsx(
-            'min-w-[48px] min-h-[48px] flex items-center justify-center rounded-full transition-all touch-feedback',
-            selectedChannelId && !isForwarding
-              ? 'bg-ocean-600 hover:bg-ocean-700'
-              : 'bg-ocean-600/50 opacity-50 cursor-not-allowed',
-          )}
+          className="bg-acc transition-all"
           aria-label="Forward"
         >
-          <Forward size={20} className="text-white" />
-        </button>
+          <Forward size={20} className="text-acc-on" />
+        </IconButton>
       </div>
 
       {/* Message preview */}
-      <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800/50 border-b border-gray-100 dark:border-gray-800">
-        <p className="text-xs text-gray-400 dark:text-gray-500 mb-1">
-          Forwarding:
-        </p>
-        <p className="text-sm text-gray-700 dark:text-gray-300 truncate">
-          {preview}
-        </p>
+      <div className="px-4 py-3 bg-surface-1 border-b border-line">
+        <p className="text-meta text-ink-3 mb-1">Forwarding:</p>
+        <p className="text-body text-ink-2 truncate">{preview}</p>
       </div>
 
       {/* Search */}
       <div className="px-4 py-2">
         <div className="relative">
-          <Search
-            size={18}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
-          />
+          <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-3" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search channels..."
             className={clsx(
-              'w-full pl-10 pr-4 py-2.5 rounded-xl text-sm',
-              'bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700',
-              'text-gray-900 dark:text-gray-100 placeholder-gray-400',
-              'focus:outline-none focus:ring-2 focus:ring-ocean-500/40 focus:border-ocean-500',
+              'w-full pl-10 pr-4 py-2.5 rounded-xl text-body',
+              'bg-surface-1 border border-line',
+              'text-ink-1 placeholder-ink-3',
+              'focus:outline-none focus:ring-2 focus:ring-acc focus:border-acc',
             )}
           />
         </div>
@@ -218,13 +209,21 @@ export function ForwardModal({
       {/* Channel list */}
       <div className="flex-1 overflow-y-auto">
         {channelsLoading ? (
-          <div className="flex items-center justify-center py-12">
-            <div className="w-6 h-6 border-2 border-ocean-600 border-t-transparent rounded-full animate-spin" />
+          // Row-shaped skeletons instead of a spinner: the list does not jump
+          // when the channels land, and the placeholder says what is coming.
+          <div className="px-4 py-3">
+            <Skeleton variant="row" count={5} />
           </div>
         ) : filteredChannels.length === 0 ? (
-          <div className="flex items-center justify-center py-12">
-            <p className="text-sm text-gray-400">No channels found</p>
-          </div>
+          <EmptyState
+            icon={<Search size={22} />}
+            title="No channels found"
+            description={
+              searchQuery
+                ? 'No channel matches that search.'
+                : 'There is no other channel to forward this message to.'
+            }
+          />
         ) : (
           filteredChannels.map((channel) => {
             const Icon = getChannelIcon(channel.type);
@@ -238,45 +237,32 @@ export function ForwardModal({
                 className={clsx(
                   'flex items-center gap-3 w-full px-4 py-3 min-h-[56px] text-left touch-feedback transition-colors',
                   isSelected
-                    ? 'bg-ocean-50 dark:bg-ocean-900/20 border-l-2 border-ocean-500'
-                    : 'hover:bg-gray-50 dark:hover:bg-gray-800 border-l-2 border-transparent',
+                    ? 'bg-acc-dim border-l-2 border-acc'
+                    : 'hover:bg-surface-1 border-l-2 border-transparent',
                 )}
               >
                 <div
                   className={clsx(
                     'w-10 h-10 rounded-full flex items-center justify-center shrink-0',
-                    isSelected
-                      ? 'bg-ocean-100 dark:bg-ocean-900/40'
-                      : 'bg-gray-100 dark:bg-gray-800',
+                    isSelected ? 'bg-acc-dim' : 'bg-surface-2',
                   )}
                 >
-                  <Icon
-                    size={18}
-                    className={
-                      isSelected
-                        ? 'text-ocean-600 dark:text-ocean-400'
-                        : 'text-gray-500 dark:text-gray-400'
-                    }
-                  />
+                  <Icon size={18} className={isSelected ? 'text-acc' : 'text-ink-2'} />
                 </div>
                 <div className="flex-1 min-w-0">
                   <p
                     className={clsx(
-                      'text-sm font-medium truncate',
-                      isSelected
-                        ? 'text-ocean-700 dark:text-ocean-300'
-                        : 'text-gray-900 dark:text-gray-100',
+                      'text-body font-medium truncate',
+                      isSelected ? 'text-acc' : 'text-ink-1',
                     )}
                   >
                     {getChannelDisplayName(channel)}
                   </p>
-                  <p className="text-[10px] text-gray-400 dark:text-gray-500">
-                    {channel.memberCount ?? 0} members
-                  </p>
+                  <p className="text-meta text-ink-3">{channel.memberCount ?? 0} members</p>
                 </div>
                 {isSelected && (
-                  <div className="w-5 h-5 rounded-full bg-ocean-600 flex items-center justify-center shrink-0">
-                    <div className="w-2 h-2 rounded-full bg-white" />
+                  <div className="w-5 h-5 rounded-full bg-acc flex items-center justify-center shrink-0">
+                    <div className="w-2 h-2 rounded-full bg-acc-on" />
                   </div>
                 )}
               </button>
@@ -285,10 +271,11 @@ export function ForwardModal({
         )}
       </div>
 
-      {/* Error display */}
+      {/* Error display — a failed forward is an alarm, so it takes the crit
+          token rather than the ink ramp. */}
       {forwardMutation.error && (
-        <div className="px-4 py-2 bg-red-50 dark:bg-red-900/20 border-t border-red-100 dark:border-red-800">
-          <p className="text-xs text-red-600 dark:text-red-400">
+        <div className="px-4 py-2 bg-crit-dim border-t border-crit">
+          <p className="text-meta text-crit">
             {forwardMutation.error instanceof Error
               ? forwardMutation.error.message
               : 'Failed to forward message'}

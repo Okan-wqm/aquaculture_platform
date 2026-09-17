@@ -12,7 +12,6 @@
 import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { gql } from 'graphql-tag';
 
-
 import type {
   FeedingDayPlansQuery,
   FeedingDayPlansQueryVariables,
@@ -88,7 +87,10 @@ import type {
 // P-23 kuralı: kuyruklu mutation dokümanları YALNIZ pwa/operation-registry.ts
 // içinde yaşar — bu dosyada feeding mutation dokümanı YOKTUR
 // (pwa/__tests__/queued-mutation-ssot.spec.ts).
-export const GET_FEEDING_DAY_PLANS: TypedDocumentNode<FeedingDayPlansQuery, FeedingDayPlansQueryVariables> = gql`
+export const GET_FEEDING_DAY_PLANS: TypedDocumentNode<
+  FeedingDayPlansQuery,
+  FeedingDayPlansQueryVariables
+> = gql`
   query FeedingDayPlans($planDate: String!, $siteId: ID) {
     feedingDayPlans(planDate: $planDate, siteId: $siteId) {
       id
@@ -131,7 +133,10 @@ export const GET_FEEDING_DAY_PLANS: TypedDocumentNode<FeedingDayPlansQuery, Feed
 `;
 
 // Attendance queries and mutations
-export const GET_MY_ATTENDANCE_RECORDS: TypedDocumentNode<MyAttendanceRecordsQuery, MyAttendanceRecordsQueryVariables> = gql`
+export const GET_MY_ATTENDANCE_RECORDS: TypedDocumentNode<
+  MyAttendanceRecordsQuery,
+  MyAttendanceRecordsQueryVariables
+> = gql`
   query MyAttendanceRecords($startDate: String, $endDate: String, $limit: Int) {
     myAttendanceRecords(startDate: $startDate, endDate: $endDate, limit: $limit) {
       id
@@ -152,7 +157,10 @@ export const GET_MY_ATTENDANCE_RECORDS: TypedDocumentNode<MyAttendanceRecordsQue
   }
 `;
 
-export const GET_MY_ATTENDANCE_SUMMARY: TypedDocumentNode<MyAttendanceSummaryQuery, MyAttendanceSummaryQueryVariables> = gql`
+export const GET_MY_ATTENDANCE_SUMMARY: TypedDocumentNode<
+  MyAttendanceSummaryQuery,
+  MyAttendanceSummaryQueryVariables
+> = gql`
   query MyAttendanceSummary($month: Int!, $year: Int!) {
     myAttendanceSummary(month: $month, year: $year) {
       totalWorkingDays: totalWorkDays
@@ -167,7 +175,10 @@ export const GET_MY_ATTENDANCE_SUMMARY: TypedDocumentNode<MyAttendanceSummaryQue
   }
 `;
 
-export const GET_TODAYS_ATTENDANCE: TypedDocumentNode<MyTodaysAttendanceQuery, MyTodaysAttendanceQueryVariables> = gql`
+export const GET_TODAYS_ATTENDANCE: TypedDocumentNode<
+  MyTodaysAttendanceQuery,
+  MyTodaysAttendanceQueryVariables
+> = gql`
   query MyTodaysAttendance {
     myTodaysAttendance {
       id
@@ -185,7 +196,10 @@ export const GET_TODAYS_ATTENDANCE: TypedDocumentNode<MyTodaysAttendanceQuery, M
 
 // Leave queries and mutations
 // Backend accepts "page" not "offset" — fix parameter name to match resolver signature
-export const GET_MY_LEAVE_REQUESTS: TypedDocumentNode<MyLeaveRequestsQuery, MyLeaveRequestsQueryVariables> = gql`
+export const GET_MY_LEAVE_REQUESTS: TypedDocumentNode<
+  MyLeaveRequestsQuery,
+  MyLeaveRequestsQueryVariables
+> = gql`
   query MyLeaveRequests($status: LeaveRequestStatus, $limit: Int, $page: Int) {
     myLeaveRequests(status: $status, limit: $limit, page: $page) {
       id
@@ -218,7 +232,10 @@ export const GET_MY_LEAVE_REQUESTS: TypedDocumentNode<MyLeaveRequestsQuery, MyLe
 // type by joining `leaveTypeId` against the separately-fetched `leaveTypes`
 // list; MyLeavesPage already falls back to a generic label when the join is
 // absent. (Enrichment gap tracked as orphan finding S1-ORPHAN-LEAVE-TYPE.)
-export const GET_MY_LEAVE_BALANCES: TypedDocumentNode<MyLeaveBalancesQuery, MyLeaveBalancesQueryVariables> = gql`
+export const GET_MY_LEAVE_BALANCES: TypedDocumentNode<
+  MyLeaveBalancesQuery,
+  MyLeaveBalancesQueryVariables
+> = gql`
   query MyLeaveBalances($year: Int!) {
     myLeaveBalances(year: $year) {
       id
@@ -246,7 +263,10 @@ export const GET_LEAVE_TYPES: TypedDocumentNode<LeaveTypesQuery, LeaveTypesQuery
   }
 `;
 
-export const SUBMIT_LEAVE_REQUEST: TypedDocumentNode<SubmitLeaveRequestMutation, SubmitLeaveRequestMutationVariables> = gql`
+export const SUBMIT_LEAVE_REQUEST: TypedDocumentNode<
+  SubmitLeaveRequestMutation,
+  SubmitLeaveRequestMutationVariables
+> = gql`
   mutation SubmitLeaveRequest($id: ID!) {
     submitLeaveRequest(id: $id) {
       id
@@ -255,7 +275,10 @@ export const SUBMIT_LEAVE_REQUEST: TypedDocumentNode<SubmitLeaveRequestMutation,
   }
 `;
 
-export const CANCEL_LEAVE_REQUEST: TypedDocumentNode<CancelLeaveRequestMutation, CancelLeaveRequestMutationVariables> = gql`
+export const CANCEL_LEAVE_REQUEST: TypedDocumentNode<
+  CancelLeaveRequestMutation,
+  CancelLeaveRequestMutationVariables
+> = gql`
   mutation CancelLeaveRequest($id: ID!) {
     cancelLeaveRequest(id: $id) {
       id
@@ -294,7 +317,10 @@ export const GET_MY_TASKS: TypedDocumentNode<GetMyTasksQuery, GetMyTasksQueryVar
   }
 `;
 
-export const GET_TODAYS_TASKS: TypedDocumentNode<GetTodaysTasksQuery, GetTodaysTasksQueryVariables> = gql`
+export const GET_TODAYS_TASKS: TypedDocumentNode<
+  GetTodaysTasksQuery,
+  GetTodaysTasksQueryVariables
+> = gql`
   query GetTodaysTasks {
     todaysTasks {
       id
@@ -309,34 +335,35 @@ export const GET_TODAYS_TASKS: TypedDocumentNode<GetTodaysTasksQuery, GetTodaysT
   }
 `;
 
-export const GET_TASK_DETAIL: TypedDocumentNode<GetTaskDetailQuery, GetTaskDetailQueryVariables> = gql`
-  query GetTaskDetail($id: ID!) {
-    task(id: $id) {
-      id
-      title
-      description
-      category
-      priority
-      status
-      assignedTo
-      assignedToName
-      dueDate
-      dueTime
-      location
-      estimatedMinutes
-      checklistItems
-      notes
-      tags
-      isRecurring
-      recurringTemplateId
-      isAutoGenerated
-      completedAt
-      completedBy
-      createdAt
-      updatedAt
+export const GET_TASK_DETAIL: TypedDocumentNode<GetTaskDetailQuery, GetTaskDetailQueryVariables> =
+  gql`
+    query GetTaskDetail($id: ID!) {
+      task(id: $id) {
+        id
+        title
+        description
+        category
+        priority
+        status
+        assignedTo
+        assignedToName
+        dueDate
+        dueTime
+        location
+        estimatedMinutes
+        checklistItems
+        notes
+        tags
+        isRecurring
+        recurringTemplateId
+        isAutoGenerated
+        completedAt
+        completedBy
+        createdAt
+        updatedAt
+      }
     }
-  }
-`;
+  `;
 
 export const GET_TASK_STATS: TypedDocumentNode<GetTaskStatsQuery, GetTaskStatsQueryVariables> = gql`
   query GetTaskStats {
@@ -356,16 +383,17 @@ export const GET_TASK_STATS: TypedDocumentNode<GetTaskStatsQuery, GetTaskStatsQu
 // envelope (clientCommandId + payloadHash). The server REJECTS an envelope-less
 // call for these three task mutations, so the envelope is mandatory on EVERY
 // call — online and offline — not only offline-queued replays.
-export const COMPLETE_TASK: TypedDocumentNode<CompleteTaskMutation, CompleteTaskMutationVariables> = gql`
-  mutation CompleteTask($input: TaskLifecycleInput!) {
-    completeTask(input: $input) {
-      id
-      status
-      completedAt
-      completedBy
+export const COMPLETE_TASK: TypedDocumentNode<CompleteTaskMutation, CompleteTaskMutationVariables> =
+  gql`
+    mutation CompleteTask($input: TaskLifecycleInput!) {
+      completeTask(input: $input) {
+        id
+        status
+        completedAt
+        completedBy
+      }
     }
-  }
-`;
+  `;
 
 export const START_TASK: TypedDocumentNode<StartTaskMutation, StartTaskMutationVariables> = gql`
   mutation StartTask($input: TaskLifecycleInput!) {
@@ -381,7 +409,10 @@ export const START_TASK: TypedDocumentNode<StartTaskMutation, StartTaskMutationV
 // carries the ABSOLUTE target `isCompleted` plus the command envelope. SET (not
 // flip) means any number of replays converge to the same state instead of
 // ping-ponging the item.
-export const SET_CHECKLIST_ITEM: TypedDocumentNode<SetChecklistItemMutation, SetChecklistItemMutationVariables> = gql`
+export const SET_CHECKLIST_ITEM: TypedDocumentNode<
+  SetChecklistItemMutation,
+  SetChecklistItemMutationVariables
+> = gql`
   mutation SetChecklistItem($input: SetChecklistItemInput!) {
     setChecklistItem(input: $input) {
       id
@@ -390,20 +421,24 @@ export const SET_CHECKLIST_ITEM: TypedDocumentNode<SetChecklistItemMutation, Set
   }
 `;
 
-export const ADD_TASK_NOTE: TypedDocumentNode<AddTaskNoteMutation, AddTaskNoteMutationVariables> = gql`
-  mutation AddTaskNote($taskId: ID!, $text: String!) {
-    addTaskNote(taskId: $taskId, text: $text) {
-      id
-      notes
+export const ADD_TASK_NOTE: TypedDocumentNode<AddTaskNoteMutation, AddTaskNoteMutationVariables> =
+  gql`
+    mutation AddTaskNote($taskId: ID!, $text: String!) {
+      addTaskNote(taskId: $taskId, text: $text) {
+        id
+        notes
+      }
     }
-  }
-`;
+  `;
 
 // ============================================================================
 // Notification queries and mutations
 // ============================================================================
 
-export const GET_MY_NOTIFICATIONS: TypedDocumentNode<GetMyNotificationsQuery, GetMyNotificationsQueryVariables> = gql`
+export const GET_MY_NOTIFICATIONS: TypedDocumentNode<
+  GetMyNotificationsQuery,
+  GetMyNotificationsQueryVariables
+> = gql`
   query GetMyNotifications($unreadOnly: Boolean, $limit: Int) {
     myNotifications(unreadOnly: $unreadOnly, limit: $limit) {
       id
@@ -417,25 +452,37 @@ export const GET_MY_NOTIFICATIONS: TypedDocumentNode<GetMyNotificationsQuery, Ge
   }
 `;
 
-export const GET_UNREAD_COUNT: TypedDocumentNode<GetUnreadNotificationCountQuery, GetUnreadNotificationCountQueryVariables> = gql`
+export const GET_UNREAD_COUNT: TypedDocumentNode<
+  GetUnreadNotificationCountQuery,
+  GetUnreadNotificationCountQueryVariables
+> = gql`
   query GetUnreadNotificationCount {
     unreadNotificationCount
   }
 `;
 
-export const MARK_NOTIFICATION_READ: TypedDocumentNode<MarkNotificationAsReadMutation, MarkNotificationAsReadMutationVariables> = gql`
+export const MARK_NOTIFICATION_READ: TypedDocumentNode<
+  MarkNotificationAsReadMutation,
+  MarkNotificationAsReadMutationVariables
+> = gql`
   mutation MarkNotificationAsRead($id: ID!) {
     markNotificationAsRead(id: $id)
   }
 `;
 
-export const MARK_ALL_READ: TypedDocumentNode<MarkAllNotificationsAsReadMutation, MarkAllNotificationsAsReadMutationVariables> = gql`
+export const MARK_ALL_READ: TypedDocumentNode<
+  MarkAllNotificationsAsReadMutation,
+  MarkAllNotificationsAsReadMutationVariables
+> = gql`
   mutation MarkAllNotificationsAsRead {
     markAllNotificationsAsRead
   }
 `;
 
-export const REGISTER_DEVICE_TOKEN: TypedDocumentNode<RegisterDeviceTokenMutation, RegisterDeviceTokenMutationVariables> = gql`
+export const REGISTER_DEVICE_TOKEN: TypedDocumentNode<
+  RegisterDeviceTokenMutation,
+  RegisterDeviceTokenMutationVariables
+> = gql`
   mutation RegisterDeviceToken($token: String!, $platform: String!) {
     registerDeviceToken(token: $token, platform: $platform)
   }
@@ -460,7 +507,10 @@ export const REGISTER_DEVICE_TOKEN: TypedDocumentNode<RegisterDeviceTokenMutatio
 // FARM-MEDIUM-056: $clientDate threads the device-local calendar day
 // (YYYY-MM-DD) to the backend so the dashboard counts and the phone agree on one
 // named "today". Optional — when omitted the server uses FARM_DASHBOARD_TIME_ZONE.
-export const GET_TODAYS_DAILY_OPS_COUNTS: TypedDocumentNode<GetTodaysDailyOpsCountsQuery, GetTodaysDailyOpsCountsQueryVariables> = gql`
+export const GET_TODAYS_DAILY_OPS_COUNTS: TypedDocumentNode<
+  GetTodaysDailyOpsCountsQuery,
+  GetTodaysDailyOpsCountsQueryVariables
+> = gql`
   query GetTodaysDailyOpsCounts($clientDate: String) {
     todaysDailyOpsCounts(clientDate: $clientDate) {
       mortalityCount
@@ -471,7 +521,10 @@ export const GET_TODAYS_DAILY_OPS_COUNTS: TypedDocumentNode<GetTodaysDailyOpsCou
   }
 `;
 
-export const GET_STOCK_EVENTS_SUMMARY: TypedDocumentNode<GetStockEventsSummaryQuery, GetStockEventsSummaryQueryVariables> = gql`
+export const GET_STOCK_EVENTS_SUMMARY: TypedDocumentNode<
+  GetStockEventsSummaryQuery,
+  GetStockEventsSummaryQueryVariables
+> = gql`
   query GetStockEventsSummary($daysBack: Int) {
     stockEventsSummary(daysBack: $daysBack) {
       thisWeekEventsCount
@@ -496,7 +549,10 @@ export const GET_STOCK_EVENTS_SUMMARY: TypedDocumentNode<GetStockEventsSummaryQu
 // document set stays disjoint from farm-module's identically-named desktop
 // operations at the codegen layer.
 
-export const MOBILE_REPORT_DEADLINES: TypedDocumentNode<MobileReportDeadlinesQuery, MobileReportDeadlinesQueryVariables> = gql`
+export const MOBILE_REPORT_DEADLINES: TypedDocumentNode<
+  MobileReportDeadlinesQuery,
+  MobileReportDeadlinesQueryVariables
+> = gql`
   query MobileReportDeadlines {
     reportDeadlines {
       id
@@ -513,7 +569,10 @@ export const MOBILE_REPORT_DEADLINES: TypedDocumentNode<MobileReportDeadlinesQue
   }
 `;
 
-export const MOBILE_REPORT_DRAFTS: TypedDocumentNode<MobileReportDraftsQuery, MobileReportDraftsQueryVariables> = gql`
+export const MOBILE_REPORT_DRAFTS: TypedDocumentNode<
+  MobileReportDraftsQuery,
+  MobileReportDraftsQueryVariables
+> = gql`
   query MobileReportDrafts($filter: ReportDraftFilterInput) {
     reportDrafts(filter: $filter) {
       id
@@ -532,7 +591,10 @@ export const MOBILE_REPORT_DRAFTS: TypedDocumentNode<MobileReportDraftsQuery, Mo
   }
 `;
 
-export const MOBILE_APPROVE_AND_SUBMIT_REPORT_DRAFT: TypedDocumentNode<MobileApproveAndSubmitReportDraftMutation, MobileApproveAndSubmitReportDraftMutationVariables> = gql`
+export const MOBILE_APPROVE_AND_SUBMIT_REPORT_DRAFT: TypedDocumentNode<
+  MobileApproveAndSubmitReportDraftMutation,
+  MobileApproveAndSubmitReportDraftMutationVariables
+> = gql`
   mutation MobileApproveAndSubmitReportDraft($draftId: ID!) {
     approveAndSubmitReportDraft(draftId: $draftId) {
       success
@@ -548,7 +610,10 @@ export const MOBILE_APPROVE_AND_SUBMIT_REPORT_DRAFT: TypedDocumentNode<MobileApp
   }
 `;
 
-export const GET_WAREHOUSE_SUMMARY: TypedDocumentNode<GetWarehouseSummaryQuery, GetWarehouseSummaryQueryVariables> = gql`
+export const GET_WAREHOUSE_SUMMARY: TypedDocumentNode<
+  GetWarehouseSummaryQuery,
+  GetWarehouseSummaryQueryVariables
+> = gql`
   query GetWarehouseSummary {
     warehouseSummary {
       totalItems

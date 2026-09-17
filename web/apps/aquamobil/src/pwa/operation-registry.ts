@@ -16,7 +16,30 @@
  * SW sub-build (tsconfig.sw.json: ES2020 + WebWorker libs, no DOM, no React).
  */
 
+import type { ActuationCommandRootField } from './actuation-commands';
+
 import type { OperationPayload, OperationType } from '@/types';
+
+/**
+ * Compile-time proof that the queue and the drive-actuation commands are
+ * disjoint sets — Tier 1, "make it impossible".
+ *
+ * WHAT: `MustBeNever` accepts only `never`, so the alias below type-checks only
+ * while `OperationType` shares no member with ACTUATION_COMMAND_ROOT_FIELDS
+ * (src/pwa/actuation-commands.ts). Add `'startVfd'` to the op union and this
+ * line stops compiling with `Type 'startVfd' does not satisfy the constraint
+ * 'never'` — the build fails before a queued command can be written, let alone
+ * replayed.
+ *
+ * WHY it lives HERE rather than beside the union: this file is the queue's
+ * contract — the drain lanes execute what it declares — so the guard belongs on
+ * the contract it guards. `import type` keeps this module's zero-runtime-import
+ * property intact for the service-worker sub-build.
+ */
+type MustBeNever<T extends never> = T;
+export type QueueExcludesActuationCommands = MustBeNever<
+  Extract<OperationType, ActuationCommandRootField>
+>;
 
 /**
  * GraphQL mutations for sync — tenantId/userId are extracted from the JWT by

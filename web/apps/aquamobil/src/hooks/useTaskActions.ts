@@ -4,12 +4,7 @@ import { useCallback } from 'react';
 import { useAuth } from './useAuth';
 import { useOfflineQueue } from './useOfflineQueue';
 
-import {
-  COMPLETE_TASK,
-  START_TASK,
-  SET_CHECKLIST_ITEM,
-  ADD_TASK_NOTE,
-} from '@/graphql/operations';
+import { COMPLETE_TASK, START_TASK, SET_CHECKLIST_ITEM, ADD_TASK_NOTE } from '@/graphql/operations';
 import { computePayloadHash } from '@/pwa/offline-queue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { ChecklistItemSetInput } from '@/types';
@@ -43,7 +38,11 @@ type TaskLifecyclePayload = { id: string };
 export function useTaskActions(): {
   completeTask: (taskId: string) => Promise<TaskActionResult>;
   startTask: (taskId: string) => Promise<TaskActionResult>;
-  setChecklistItem: (taskId: string, itemId: string, isCompleted: boolean) => Promise<TaskActionResult>;
+  setChecklistItem: (
+    taskId: string,
+    itemId: string,
+    isCompleted: boolean,
+  ) => Promise<TaskActionResult>;
   addNote: (taskId: string, text: string) => Promise<TaskActionResult>;
 } {
   const { addToQueue, isOnline } = useOfflineQueue();
@@ -76,7 +75,9 @@ export function useTaskActions(): {
       // feedback instead of a false "Task completed!".
       if (isOnline) {
         try {
-          await graphqlRequest(COMPLETE_TASK, { input: { id: taskId, clientCommandId, payloadHash } });
+          await graphqlRequest(COMPLETE_TASK, {
+            input: { id: taskId, clientCommandId, payloadHash },
+          });
           if (tenantId) {
             await invalidateSyncedOperationQueries(queryClient, tenantId, ['completeTask']);
           }

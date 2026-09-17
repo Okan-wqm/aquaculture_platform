@@ -25,6 +25,20 @@ export const TEST_USER_ID = 'bbbbbbbb-2222-4333-8444-555555555555';
 /** The single GraphQL transport seam — route it per spec via routeGraphql(). */
 export const requestMock = vi.fn();
 
+/**
+ * FAZ 3.1: getAccessToken seam — the socket hook reads the FRESH access token
+ * through shared-ui's storage-backed getter after refreshAuth(); pinning it
+ * here keeps specs deterministic (set the next token before firing reAuth).
+ */
+export const getAccessTokenMock = vi.fn<() => string | null>(() => null);
+
+/**
+ * FAZ 3.1: refreshAuth seam — ONE shared mock across useAuth() renders so
+ * specs can assert/steer the session-recovery path (the inline vi.fn() per
+ * render was unassertable).
+ */
+export const refreshAuthMock = vi.fn((): Promise<void> => Promise.resolve());
+
 type TenantQueryOptions = {
   enabled?: boolean;
   staleTime?: number;
@@ -52,7 +66,7 @@ export async function createSharedUiMock(): Promise<Record<string, unknown>> {
     token: 'jwt',
     login: vi.fn(),
     logout: vi.fn(),
-    refreshAuth: vi.fn(),
+    refreshAuth: refreshAuthMock,
     hasRole: () => true,
     hasAnyRole: () => true,
     hasAllRoles: () => true,
@@ -117,6 +131,8 @@ export async function createSharedUiMock(): Promise<Record<string, unknown>> {
     // The socket hook derives invalidation keys from the session tenant —
     // pin the storage-reading helper to the stub tenant too.
     getTenantId: () => TEST_TENANT_ID,
+    // FAZ 3.1: fresh-token reads after refreshAuth() go through this seam.
+    getAccessToken: getAccessTokenMock,
     graphqlClient: { request: requestMock },
     useTenantQuery,
     useTenantMutation,

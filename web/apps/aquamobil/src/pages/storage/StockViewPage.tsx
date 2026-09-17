@@ -14,24 +14,18 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import { gql } from 'graphql-tag';
-import {
-  ArrowLeft,
-  Package,
-  AlertCircle,
-  Loader2,
-  RefreshCw,
-  MapPin,
-} from 'lucide-react';
+import { Package, AlertCircle, Loader2, RefreshCw, MapPin, WifiOff } from 'lucide-react';
 import { useState, useCallback, useMemo, useRef } from 'react';
 import type { JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { AppHeader } from '@/components/AppHeader';
+import { Card, Chip, EmptyState, IconButton } from '@/components/ui';
 import { useAuth } from '@/hooks/useAuth';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { cacheData, getCachedData } from '@/pwa/offline-queue';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import { createTenantQueryKey } from '@/utils/tenant-query-keys';
-
 
 // ============================================================================
 // TYPES
@@ -67,7 +61,11 @@ interface StockItem {
 const STORAGE_LOCATIONS_QUERY = gql`
   query StorageLocations {
     storageLocations {
-      items { id name code }
+      items {
+        id
+        name
+        code
+      }
     }
   }
 `;
@@ -141,7 +139,14 @@ export function StockViewPage(): JSX.Element {
 
   // ---- Data fetching -------------------------------------------------------
 
-  const { data: locationsData, isLoading: locationsLoading } = useQuery<StorageLocation[]>({
+  const {
+    data: locationsData,
+    isLoading: locationsLoading,
+    // Read (not added): a failed location fetch used to render as an empty
+    // scroller, i.e. "this tenant has no storage locations". It is not the
+    // same claim, so the two now look different.
+    isError: locationsError,
+  } = useQuery<StorageLocation[]>({
     queryKey: createTenantQueryKey(tenantId, 'storage-locations', tenantId),
     queryFn: async () => {
       const result = await graphqlRequest<{ storageLocations: { items: StorageLocation[] } }>(
@@ -160,7 +165,12 @@ export function StockViewPage(): JSX.Element {
   // every render. Memoizing on `locationsData` keeps the reference stable.
   const locations = useMemo(() => locationsData ?? [], [locationsData]);
 
-  const { data: stockData, isLoading: stockLoading, refetch: refetchStock } = useQuery<StockItem[]>({
+  const {
+    data: stockData,
+    isLoading: stockLoading,
+    isError: stockError,
+    refetch: refetchStock,
+  } = useQuery<StockItem[]>({
     queryKey: createTenantQueryKey(tenantId, 'stock-at-location', selectedLocationId, tenantId),
     queryFn: async () => {
       // WHY guard tenantId here: `enabled` below already gates this query on
@@ -206,7 +216,9 @@ export function StockViewPage(): JSX.Element {
     try {
       await refetchStock();
       // Also invalidate the query client cache to force fresh data
-      await queryClient.invalidateQueries({ queryKey: createTenantQueryKey(tenantId, 'stock-at-location', selectedLocationId) });
+      await queryClient.invalidateQueries({
+        queryKey: createTenantQueryKey(tenantId, 'stock-at-location', selectedLocationId),
+      });
     } finally {
       setIsRefreshing(false);
     }
@@ -216,50 +228,50 @@ export function StockViewPage(): JSX.Element {
     touchStartY.current = e.touches[0].clientY;
   }, []);
 
-  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
-    const deltaY = e.changedTouches[0].clientY - touchStartY.current;
-    const scrollTop = scrollContainerRef.current?.scrollTop ?? 0;
-    // Trigger refresh if user pulls down from top of list
-    if (deltaY > 80 && scrollTop <= 0) {
-      // Fire-and-forget: pull-to-refresh is a UI gesture; errors surface via the
-      // refetch's own error state, so the promise is intentionally not awaited.
-      void handleRefresh();
-    }
-  }, [handleRefresh]);
+  const handleTouchEnd = useCallback(
+    (e: React.TouchEvent) => {
+      const deltaY = e.changedTouches[0].clientY - touchStartY.current;
+      const scrollTop = scrollContainerRef.current?.scrollTop ?? 0;
+      // Trigger refresh if user pulls down from top of list
+      if (deltaY > 80 && scrollTop <= 0) {
+        // Fire-and-forget: pull-to-refresh is a UI gesture; errors surface via the
+        // refetch's own error state, so the promise is intentionally not awaited.
+        void handleRefresh();
+      }
+    },
+    [handleRefresh],
+  );
 
   // ---- Render --------------------------------------------------------------
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex flex-col">
-      {/* Gradient Header */}
-      <div className="bg-gradient-to-r from-cyan-600 to-cyan-500 text-white">
-        <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-          <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
-            <ArrowLeft size={22} />
-          </button>
-          <div className="flex items-center gap-2.5 flex-1">
-            <Package size={22} />
-            <div>
-              <h1 className="text-lg font-bold">View Stock</h1>
-              <p className="text-xs text-white/80">
-                {selectedLocation ? selectedLocation.name : 'Select a location'}
-              </p>
-            </div>
-          </div>
-          {selectedLocationId && isOnline && (
-            <button
-              onClick={() => { void handleRefresh(); }}
+    <div className="min-h-screen flex flex-col">
+      {/* v4: the cyan gradient bar becomes the app's one header. The location
+          name it carried is the subtitle, and the refresh control is now a
+          named, floor-compliant IconButton — it was an unlabelled 34px target. */}
+      <AppHeader
+        title="View Stock"
+        subtitle={selectedLocation ? selectedLocation.name : 'Select a location'}
+        onBack={() => navigate(-1)}
+        showAvatar={false}
+        actions={
+          selectedLocationId && isOnline ? (
+            <IconButton
+              aria-label="Refresh stock"
+              onClick={() => {
+                void handleRefresh();
+              }}
               disabled={isRefreshing}
-              className="p-2 rounded-xl hover:bg-white/10 touch-feedback"
+              className="bg-surface-2 rounded-xl"
             >
-              <RefreshCw size={18} className={isRefreshing ? 'animate-spin' : ''} />
-            </button>
-          )}
-        </div>
-      </div>
+              <RefreshCw size={18} className={clsx('text-ink-2', isRefreshing && 'animate-spin')} />
+            </IconButton>
+          ) : undefined
+        }
+      />
 
       {/* Location Selector */}
-      <div className="px-4 pt-4">
+      <div className="px-4">
         {/* WHY a group caption, not a <label>: this control is a single-select
             group of location buttons, not one labelable input. A <label> with
             no for-target trips jsx-a11y/label-has-associated-control. The correct
@@ -268,15 +280,23 @@ export function StockViewPage(): JSX.Element {
             group's purpose. */}
         <p
           id="stock-location-selector-label"
-          className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2"
+          className="block text-meta font-bold text-ink-3 uppercase tracking-wider mb-2"
         >
           Storage Location
         </p>
         {locationsLoading ? (
           <div className="flex items-center gap-2 py-3">
-            <Loader2 size={16} className="animate-spin text-cyan-600" />
-            <span className="text-sm text-gray-500">Loading locations...</span>
+            <Loader2 size={16} className="animate-spin text-acc" />
+            <span className="text-body text-ink-2">Loading locations...</span>
           </div>
+        ) : locationsError ? (
+          <EmptyState
+            tone="error"
+            icon={<WifiOff size={22} />}
+            title="Could not load locations"
+            description="The location list could not be fetched, so there is nothing to pick from yet."
+            className="py-6"
+          />
         ) : (
           <div
             role="group"
@@ -284,19 +304,15 @@ export function StockViewPage(): JSX.Element {
             className="flex gap-2 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-hide"
           >
             {locations.map((loc) => (
-              <button
+              <Chip
                 key={loc.id}
+                selected={selectedLocationId === loc.id}
                 onClick={() => setSelectedLocationId(loc.id)}
-                className={clsx(
-                  'flex-shrink-0 px-4 py-2.5 rounded-xl border-2 transition-all touch-feedback text-sm font-semibold whitespace-nowrap',
-                  selectedLocationId === loc.id
-                    ? 'border-cyan-500 bg-cyan-50 dark:bg-cyan-900/20 text-cyan-700 dark:text-cyan-300'
-                    : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400',
-                )}
+                className="shrink-0"
               >
-                <MapPin size={14} className="inline mr-1.5" />
+                <MapPin size={14} aria-hidden />
                 {loc.name}
-              </button>
+              </Chip>
             ))}
           </div>
         )}
@@ -310,28 +326,38 @@ export function StockViewPage(): JSX.Element {
         onTouchEnd={handleTouchEnd}
       >
         {!selectedLocationId && (
-          <div className="text-center py-16 text-gray-400">
-            <MapPin size={48} className="mx-auto mb-3 opacity-30" />
-            <p className="font-medium">Select a location</p>
-            <p className="text-sm mt-1">Choose a storage location above to view stock</p>
-          </div>
+          <EmptyState
+            icon={<MapPin size={22} />}
+            title="Select a location"
+            description="Choose a storage location above to view stock"
+          />
         )}
 
         {selectedLocationId && stockLoading && (
           <div className="flex items-center justify-center py-12">
-            <Loader2 size={28} className="animate-spin text-cyan-600" />
-            <span className="ml-2 text-gray-500 text-sm">Loading stock...</span>
+            <Loader2 size={28} className="animate-spin text-acc" />
+            <span className="ml-2 text-ink-2 text-body">Loading stock...</span>
           </div>
         )}
 
-        {selectedLocationId && !stockLoading && stock.length === 0 && (
-          <div className="text-center py-16 text-gray-400">
-            <Package size={48} className="mx-auto mb-3 opacity-30" />
-            <p className="font-medium">No stock at this location</p>
-            {!isOnline && (
-              <p className="text-sm mt-1">You are offline -- showing cached data</p>
-            )}
-          </div>
+        {/* "Nothing is stored here" and "we could not read the shelf" are
+            different facts — a worker deciding whether to dispense must not be
+            shown the first when the second happened. */}
+        {selectedLocationId && !stockLoading && stockError && (
+          <EmptyState
+            tone="error"
+            icon={<WifiOff size={22} />}
+            title="Could not load stock"
+            description="This location's stock could not be fetched. It is unknown, not empty."
+          />
+        )}
+
+        {selectedLocationId && !stockLoading && !stockError && stock.length === 0 && (
+          <EmptyState
+            icon={<Package size={22} />}
+            title="No stock at this location"
+            description={isOnline ? undefined : 'You are offline -- showing cached data'}
+          />
         )}
 
         {selectedLocationId && !stockLoading && stock.length > 0 && (
@@ -339,67 +365,68 @@ export function StockViewPage(): JSX.Element {
             {/* Pull-to-refresh indicator */}
             {isRefreshing && (
               <div className="flex items-center justify-center py-2 mb-2">
-                <Loader2 size={16} className="animate-spin text-cyan-600" />
-                <span className="ml-2 text-xs text-gray-500">Refreshing...</span>
+                <Loader2 size={16} className="animate-spin text-acc" />
+                <span className="ml-2 text-meta text-ink-2">Refreshing...</span>
               </div>
             )}
 
             {/* Offline data age indicator */}
             {!isOnline && (
-              <div className="mb-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl p-2.5 flex items-center gap-2 border border-amber-200 dark:border-amber-800">
-                <AlertCircle size={14} className="text-amber-500 flex-shrink-0" />
-                <span className="text-amber-600 dark:text-amber-300 text-xs">
+              <Card className="mb-3 p-2.5 flex items-center gap-2 border-warn">
+                <AlertCircle size={14} className="text-warn flex-shrink-0" />
+                <span className="text-warn text-meta">
                   Showing cached data. Pull down to refresh when online.
                 </span>
-              </div>
+              </Card>
             )}
 
             <div className="space-y-2.5 pb-6">
               {stock.map((item) => {
                 const expiryStatus = getExpiryStatus(item.expiryDate);
                 return (
-                  <div
-                    key={item.id}
-                    className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-800 p-4 shadow-sm"
-                  >
+                  // Not a <ListRow>: the lot and expiry badges are a second row
+                  // the primitive has no slot for, and the expiry badge is the
+                  // whole point of this screen.
+                  <Card key={item.id} className="p-4">
                     <div className="flex items-start justify-between">
                       <div className="flex-1 min-w-0">
-                        <h3 className="text-sm font-bold text-gray-900 dark:text-white truncate">
+                        <h3 className="text-body font-bold text-ink-1 truncate">
                           {item.itemName ?? item.itemType}
                         </h3>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                          {item.itemType}
-                        </p>
+                        <p className="text-meta text-ink-3 mt-0.5">{item.itemType}</p>
                       </div>
                       <div className="text-right ml-3">
-                        <span className="text-lg font-bold text-gray-900 dark:text-white tabular-nums">
+                        <span className="text-head font-mono font-bold text-ink-1 tabular-nums">
                           {item.quantity}
                         </span>
-                        <span className="text-xs text-gray-500 ml-1">{item.unit}</span>
+                        <span className="text-meta text-ink-3 ml-1">{item.unit}</span>
                       </div>
                     </div>
 
-                    {/* Lot + Expiry row */}
+                    {/* Lot + Expiry row. Coral is the alarm (already expired),
+                        amber the watch (inside 30 days), green the confirm. */}
                     <div className="flex items-center gap-3 mt-2.5">
                       {item.lotNumber && (
-                        <span className="text-xs text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded-md">
+                        <span className="text-meta text-ink-2 bg-surface-2 px-2 py-0.5 rounded-md">
                           Lot: {item.lotNumber}
                         </span>
                       )}
                       {item.expiryDate && (
                         <span
                           className={clsx(
-                            'text-xs px-2 py-0.5 rounded-md font-medium',
-                            expiryStatus === 'expired' && 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300',
-                            expiryStatus === 'warning' && 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300',
-                            expiryStatus === 'ok' && 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300',
+                            'text-meta px-2 py-0.5 rounded-md font-medium',
+                            expiryStatus === 'expired' && 'bg-crit-dim text-crit',
+                            expiryStatus === 'warning' && 'bg-warn-dim text-warn',
+                            expiryStatus === 'ok' && 'bg-surface-2 text-ok',
                           )}
                         >
-                          {expiryStatus === 'expired' ? 'EXPIRED' : `Exp: ${formatExpiryDate(item.expiryDate)}`}
+                          {expiryStatus === 'expired'
+                            ? 'EXPIRED'
+                            : `Exp: ${formatExpiryDate(item.expiryDate)}`}
                         </span>
                       )}
                     </div>
-                  </div>
+                  </Card>
                 );
               })}
             </div>

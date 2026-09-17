@@ -23,7 +23,9 @@ vi.mock('../useAuth', () => ({
   useAuth: (): { tenantId: string } => ({ tenantId: 'tenant-1' }),
 }));
 
-function row(overrides: Partial<{ weekStart: string; avgScore: number; messageCount: number; trend: string }>): {
+function row(
+  overrides: Partial<{ weekStart: string; avgScore: number; messageCount: number; trend: string }>,
+): {
   channelId: string;
   weekStart: string;
   avgScore: number;
@@ -116,7 +118,10 @@ describe('useSentimentTrends (MOB-MEDIUM-003)', () => {
     const { result } = renderHook(() => useSentimentTrends('chan-1', true), { wrapper });
     await waitFor(() => expect(result.current.latest).not.toBeNull());
 
-    const keys = queryClient.getQueryCache().getAll().map((q) => q.queryKey);
+    const keys = queryClient
+      .getQueryCache()
+      .getAll()
+      .map((q) => q.queryKey);
     expect(keys).toHaveLength(1);
     expect(keys[0]?.slice(0, 2)).toEqual(['tenant', 'tenant-1']);
   });

@@ -14,7 +14,15 @@
  * system lines (never AI bubbles); IMAGE/FILE/VOICE bodies render localized
  * labels instead of their raw media-reference content; metadata.isAi is never
  * consulted for AI styling.
+ *
+ * FAZ 3 (resilience & UX): live WS messages render through cache mutation
+ * (ZERO extra GraphQL — the amplification gate), enriched from channel
+ * members (never 'Member'); a load error surfaces a role="alert" banner; the
+ * message body is a polite aria-live log; the composer is focused on open;
+ * the new-messages pill appears when scrolled up; older pages load on
+ * top-scroll via the cursor and media labels survive pagination.
  */
+import type { WsMessage } from '@aquaculture/shared-ui';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import React from 'react';
@@ -539,3 +547,230 @@ function fireEventChangeAndSend(text: string): void {
   fireEvent.change(composer(), { target: { value: text } });
   fireEvent.click(sendButton());
 }
+
+// ============================================================================
+// FAZ 3 — resilience & UX pack
+// ============================================================================
+
+describe('ChatRoomPage — FAZ 3 live cache mutation + UX', () => {
+  /** A wire-shape WS message (sender id-only — the no-PII live path). */
+  function makeWsMessage(overrides: Partial<WsMessage> = {}): WsMessage {
+    return {
+      id: 'ws-1',
+      channelId: CHANNEL,
+      senderId: 'u2',
+      content: 'live from socket',
+      contentType: 'TEXT',
+      parentId: null,
+      forwardedFrom: null,
+      isDeleted: false,
+      createdAt: '2026-09-16T11:00:00Z',
+      editedAt: null,
+      metadata: null,
+      sender: { id: 'u2' },
+      ...overrides,
+    };
+  }
+
+  function routeBase(): void {
+    routeGraphql([
+      {
+        match: 'query MyChannels',
+        result: () => ({ myChannels: { total: 1, items: [CHANNEL_FIXTURE] } }),
+      },
+      {
+        match: 'query ChannelMessages',
+        result: () => ({
+          messages: {
+            hasMore: false,
+            cursor: null,
+            items: [
+              makeMessage('srv-1', 'latest from other', 'u2', { createdAt: '2026-09-16T10:01:00Z' }),
+              makeMessage('srv-0', 'earlier', 'u2', { createdAt: '2026-09-16T10:00:00Z' }),
+            ],
+          },
+        }),
+      },
+      { match: 'mutation MarkMessagesRead', result: { markMessagesRead: true } },
+    ]);
+  }
+
+  it('renders a live WS message with the enriched member name and ZERO extra GraphQL (amplification gate)', async () => {
+    routeBase();
+    renderRoom(newQueryClient());
+    await screen.findByText('latest from other');
+    await waitFor(() => expect(markReadInputs().length).toBeGreaterThanOrEqual(1));
+    requestMock.mockClear();
+
+    act(() =>
+      fireSocketEvent('newMessage', { channelId: CHANNEL, message: makeWsMessage() }),
+    );
+
+    // The message renders immediately, credited to the MEMBER (channels-cache
+    // enrichment), never the generic 'Member' fallback. The GraphQL-fetched
+    // rows carry sender:null in this fixture ('Member' by design); the LIVE
+    // row is the last one and must show the enriched member name.
+    expect(await screen.findByText('live from socket')).toBeVisible();
+    const authorLines = document.querySelectorAll('.sd-msg-author');
+    expect(authorLines.length).toBeGreaterThanOrEqual(3);
+    expect(authorLines[authorLines.length - 1]?.textContent).toBe('Mehmet Demir');
+
+    // No READ-side amplification followed the event: the new message may
+    // legitimately trigger the mark-read MUTATION (whose success invalidation
+    // refetches the channel list — the FAZ 1 unread-truth snap), but ZERO
+    // ChannelMessages queries may fire — the cache mutation carried the thread.
+    await new Promise((resolve) => setImmediate(resolve));
+    const threadQueries = requestMock.mock.calls.filter(([q]) =>
+      String(q).includes('query ChannelMessages'),
+    );
+    expect(threadQueries).toHaveLength(0);
+  });
+
+  it('removes a WS-deleted message from the room without a refetch', async () => {
+    routeBase();
+    renderRoom(newQueryClient());
+    await screen.findByText('latest from other');
+    requestMock.mockClear();
+
+    act(() => fireSocketEvent('messageDeleted', { channelId: CHANNEL, messageId: 'srv-1' }));
+
+    await waitFor(() => expect(screen.queryByText('latest from other')).not.toBeInTheDocument());
+    expect(screen.getByText('earlier')).toBeVisible();
+    // No READ-side amplification: the new last visible message legitimately
+    // triggers the mark-read MUTATION, but no ChannelMessages QUERY may
+    // follow the delete event (thread converged by cache mutation).
+    await new Promise((resolve) => setImmediate(resolve));
+    const threadQueries = requestMock.mock.calls.filter(([q]) =>
+      String(q).includes('query ChannelMessages'),
+    );
+    expect(threadQueries).toHaveLength(0);
+  });
+
+  it('surfaces a load error in a role="alert" banner (ChannelListPage pattern)', async () => {
+    routeGraphql([
+      {
+        match: 'query MyChannels',
+        result: () => ({ myChannels: { total: 1, items: [CHANNEL_FIXTURE] } }),
+      },
+      {
+        match: 'query ChannelMessages',
+        result: () => {
+          throw new Error('upstream refused');
+        },
+      },
+      { match: 'mutation MarkMessagesRead', result: { markMessagesRead: true } },
+    ]);
+    renderRoom(newQueryClient());
+
+    const banner = await screen.findByTestId('messages-error-banner');
+    expect(banner).toHaveAttribute('role', 'alert');
+    expect(banner).toHaveTextContent('Could not load messages.');
+  });
+
+  it('the message body is a polite aria-live log and the composer is focused on open', async () => {
+    routeBase();
+    renderRoom(newQueryClient());
+    await screen.findByText('latest from other');
+
+    const body = document.querySelector('.sd-chat-body') as HTMLElement;
+    expect(body).toHaveAttribute('role', 'log');
+    expect(body).toHaveAttribute('aria-live', 'polite');
+    expect(composer()).toHaveFocus();
+  });
+
+  it('shows the new-messages pill when a WS message arrives while scrolled UP; clicking it jumps down', async () => {
+    routeBase();
+    renderRoom(newQueryClient());
+    await screen.findByText('latest from other');
+
+    // Simulate reading history: real scroll metrics + a scroll event (jsdom
+    // reports 0×0 boxes, which would always count as at-bottom).
+    const body = document.querySelector('.sd-chat-body') as HTMLElement;
+    Object.defineProperty(body, 'scrollHeight', { configurable: true, value: 1000 });
+    Object.defineProperty(body, 'clientHeight', { configurable: true, value: 100 });
+    Object.defineProperty(body, 'scrollTop', { configurable: true, writable: true, value: 0 });
+    fireEvent.scroll(body);
+
+    act(() =>
+      fireSocketEvent('newMessage', {
+        channelId: CHANNEL,
+        message: makeWsMessage({ id: 'ws-2', content: 'while you are up there', createdAt: '2026-09-16T11:01:00Z' }),
+      }),
+    );
+
+    const pill = await screen.findByTestId('new-messages-pill');
+    expect(pill).toHaveTextContent('1 new messages');
+
+    const scrollToSpy = vi.fn();
+    body.scrollTo = scrollToSpy;
+    fireEvent.click(pill);
+    await waitFor(() => expect(screen.queryByTestId('new-messages-pill')).not.toBeInTheDocument());
+    expect(scrollToSpy).toHaveBeenCalled();
+  });
+
+  it('loads the older page on top-scroll via the cursor; media labels survive pagination', async () => {
+    let fetchCount = 0;
+    routeGraphql([
+      {
+        match: 'query MyChannels',
+        result: () => ({ myChannels: { total: 1, items: [CHANNEL_FIXTURE] } }),
+      },
+      {
+        match: 'query ChannelMessages',
+        result: (variables) => {
+          fetchCount += 1;
+          const filter = (variables as { filter?: { cursor?: string } }).filter;
+          if (!filter?.cursor) {
+            return {
+              messages: {
+                hasMore: true,
+                cursor: 'older-window-cursor',
+                items: [
+                  makeMessage('new-1', 'recent text', 'u2', { createdAt: '2026-09-16T10:01:00Z' }),
+                  makeMessage('new-0', 'recent older text', 'u2', { createdAt: '2026-09-16T10:00:00Z' }),
+                ],
+              },
+            };
+          }
+          expect(filter.cursor).toBe('older-window-cursor');
+          return {
+            messages: {
+              hasMore: false,
+              cursor: null,
+              items: [
+                makeMessage('old-1', 'https://cdn.example.test/old.png', 'u2', {
+                  contentType: 'IMAGE',
+                  createdAt: '2026-09-15T09:00:00Z',
+                }),
+                makeMessage('old-0', 'ancient', 'u2', { createdAt: '2026-09-15T08:00:00Z' }),
+              ],
+            },
+          };
+        },
+      },
+      { match: 'mutation MarkMessagesRead', result: { markMessagesRead: true } },
+    ]);
+    renderRoom(newQueryClient());
+    await screen.findByText('recent text');
+    expect(fetchCount).toBe(1);
+
+    // Scroll to the top edge with real metrics → fetchNextPage(cursor).
+    const body = document.querySelector('.sd-chat-body') as HTMLElement;
+    Object.defineProperty(body, 'scrollHeight', { configurable: true, value: 2000 });
+    Object.defineProperty(body, 'clientHeight', { configurable: true, value: 300 });
+    Object.defineProperty(body, 'scrollTop', { configurable: true, writable: true, value: 0 });
+    fireEvent.scroll(body);
+
+    // The older page renders ABOVE the newest window, in order, and the IMAGE
+    // row stays the localized label (no URL leak) across pagination.
+    expect(await screen.findByText('ancient')).toBeVisible();
+    expect(screen.getByText('recent text')).toBeVisible();
+    expect(fetchCount).toBe(2);
+    expect(screen.getByTestId('media-placeholder-image')).toHaveTextContent('[Image]');
+    expect(screen.queryByText('https://cdn.example.test/old.png')).not.toBeInTheDocument();
+
+    // DOM order: ancient (oldest) before recent text (newest window).
+    const bodyText = body.textContent ?? '';
+    expect(bodyText.indexOf('ancient')).toBeLessThan(bodyText.indexOf('recent text'));
+  });
+});

@@ -27,19 +27,25 @@ import { PhotoCaptureField } from '@/components/PhotoCaptureField';
 import { useTanks } from '@/hooks/useTanks';
 import type { WelfareAssessmentInput } from '@/types';
 
+/**
+ * v4: the emerald gradient is gone. Green is the token layer's "confirms" colour
+ * and this screen records severity from Healthy to Severe — dressing the whole
+ * page in green while the operator scores a 3 was the wrong signal. The accent
+ * now carries selection (that is all the emerald ever meant here) and the score
+ * itself is stated in words, never by hue alone.
+ */
 const WELFARE_THEME: RecordEntityTheme = {
-  headerGradient: 'bg-gradient-to-r from-emerald-600 to-emerald-500',
-  accentText: 'text-emerald-600',
-  summaryHeaderBg:
-    'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-100 dark:border-emerald-800/50',
-  summaryHeaderText: 'text-emerald-700 dark:text-emerald-300',
-  iconBubbleBg: 'bg-emerald-50 dark:bg-emerald-900/20',
-  surfaceSoftBg: 'bg-emerald-50 dark:bg-emerald-900/20',
-  surfaceBorder: 'border-emerald-100 dark:border-emerald-800',
-  ctaGradient: 'bg-gradient-to-r from-emerald-600 to-emerald-500',
-  ctaShadow: 'shadow-emerald-500/25',
-  selectionBorder: 'border-emerald-500',
-  selectionGlow: 'shadow-glow-green',
+  headerGradient: 'bg-surface-1 text-ink-1 border-b border-line',
+  accentText: 'text-acc',
+  summaryHeaderBg: 'bg-acc-dim border-line',
+  summaryHeaderText: 'text-acc',
+  iconBubbleBg: 'bg-acc-dim',
+  surfaceSoftBg: 'bg-acc-dim',
+  surfaceBorder: 'border-line',
+  ctaGradient: 'bg-acc text-acc-on',
+  ctaShadow: 'shadow-acc',
+  selectionBorder: 'border-acc',
+  selectionGlow: 'shadow-acc',
 };
 
 const SCORE_LABELS = ['0 · Healthy', '1 · Mild', '2 · Moderate', '3 · Severe'] as const;
@@ -56,7 +62,7 @@ function ScoreDial(props: {
   const { label, value, onChange } = props;
   return (
     <div className="px-4 mt-4">
-      <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">{label}</h3>
+      <h3 className="text-meta font-bold text-ink-3 uppercase tracking-wider mb-2">{label}</h3>
       <div className="grid grid-cols-4 gap-2">
         {SCORE_LABELS.map((scoreLabel, score) => {
           const selected = value === score;
@@ -65,11 +71,12 @@ function ScoreDial(props: {
               key={scoreLabel}
               type="button"
               onClick={() => onChange(score)}
+              aria-pressed={selected}
               className={clsx(
-                'py-3 rounded-2xl border-2 text-sm font-bold transition-all touch-feedback bg-white dark:bg-gray-900',
-                selected
-                  ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 scale-[1.02]'
-                  : 'border-gray-100 dark:border-gray-800 text-gray-500',
+                // min-h-touch: py-3 around one 13px line lands at ~42px, under
+                // the gloved-use floor this component's own docblock claims.
+                'py-3 min-h-touch rounded-2xl border-2 text-body font-bold transition-all touch-feedback bg-surface-1',
+                selected ? 'border-acc bg-acc-dim text-acc scale-[1.02]' : 'border-line text-ink-2',
               )}
             >
               {scoreLabel}

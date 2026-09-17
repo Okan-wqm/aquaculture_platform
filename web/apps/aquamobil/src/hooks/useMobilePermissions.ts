@@ -1,12 +1,38 @@
 import { get, set } from 'idb-keyval';
-import { createElement, useState, useEffect, useCallback, useRef, createContext, useContext, type ReactElement, type ReactNode } from 'react';
+import {
+  createElement,
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  createContext,
+  useContext,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
 
 import { useAuth } from './useAuth';
 
 import { authenticatedFetch } from '@/services/authenticated-fetch';
 import { readGraphQLResponse } from '@/utils/graphql-response';
 
-export type MobileFeature = 'mortality' | 'cull' | 'harvest' | 'feeding' | 'waterQuality' | 'tankView' | 'schedule' | 'attendance' | 'leave' | 'tasks' | 'transfer' | 'storage' | 'liceCount' | 'welfare' | 'escape' | 'reports';
+export type MobileFeature =
+  | 'mortality'
+  | 'cull'
+  | 'harvest'
+  | 'feeding'
+  | 'waterQuality'
+  | 'tankView'
+  | 'schedule'
+  | 'attendance'
+  | 'leave'
+  | 'tasks'
+  | 'transfer'
+  | 'storage'
+  | 'liceCount'
+  | 'welfare'
+  | 'escape'
+  | 'reports';
 
 interface MobileAllowedFeatures {
   mortality: boolean;
@@ -190,7 +216,10 @@ export function MobilePermissionsProvider({ children }: { children: ReactNode })
         setPermissionsDegraded(false);
         // SEC-04: Cache under tenant+user key with 8-hour TTL (one work shift)
         try {
-          await set(cacheKey, { settings: newSettings, expiresAt: Date.now() + 8 * 60 * 60 * 1000 });
+          await set(cacheKey, {
+            settings: newSettings,
+            expiresAt: Date.now() + 8 * 60 * 60 * 1000,
+          });
         } catch {
           // Cache write failed — settings are still applied in memory via setSettings above.
         }

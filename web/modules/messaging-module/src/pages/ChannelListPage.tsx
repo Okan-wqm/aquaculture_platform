@@ -1,10 +1,12 @@
-import { useAuth, useI18n } from '@aquaculture/shared-ui';
+import { useAuth, useI18n, type MessageKey } from '@aquaculture/shared-ui';
 import { MessageSquare, Sparkles, Users, RefreshCw, AlertCircle } from 'lucide-react';
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 
 import { useChannels } from '../hooks/useMessagingData';
+import { useMessagingSocket } from '../hooks/useMessagingSocket';
 import { channelTitle } from '../lib/channelDisplay';
+import { messageBodyKind, messageBodyLabelKey } from '../lib/messageBody';
 import type { Channel } from '../types/messaging';
 
 function ChannelIcon({ channel }: { channel: Channel }): React.ReactElement {
@@ -14,17 +16,33 @@ function ChannelIcon({ channel }: { channel: Channel }): React.ReactElement {
 }
 
 /**
+ * Last-message preview: media references never leak into the list (URLs /
+ * storage keys render as the localized label — FAZ 2.4 parity), deleted rows
+ * fall back to the neutral empty-preview copy.
+ */
+function lastMessagePreview(channel: Channel, t: (key: MessageKey) => string): string {
+  const last = channel.lastMessage;
+  if (!last || last.isDeleted || last.content == null) {
+    return t('messaging.noMessagesPreview');
+  }
+  const kind = messageBodyKind(last.contentType);
+  return kind === 'text' ? last.content : t(messageBodyLabelKey(kind));
+}
+
+/**
  * Channel list — SUDERRA Tenant Console design (mockup "Messages" left card).
  * The selected channel highlights with the mint edge + tint exactly like the
  * mockup; selection is derived from the route so deep links highlight too.
  *
  * DATA SOURCE: 100% real — messaging-service `myChannels`. unreadCount is
- * computed per-user server-side (Redis-cached); lastMessage rides the same
+ * computed per-user server-side (DB-authoritative); lastMessage rides the same
  * query. No mocked data on this page.
  *
- * FAZ 1: a 60s foreground refetchInterval (in useChannels) keeps previews +
- * unread badges alive while the socket joins only the active channel; DM
- * titles exclude the current user's own membership.
+ * FAZ 3.2 (channel-room decision): the socket is mounted HERE too — it joins
+ * every myChannels room and keeps the list live through local cache mutations
+ * (unread badge +1, last-message preview) with NO refetch, so the FAZ 1 60s
+ * poll was removed. Previews of media messages show localized labels, never
+ * the raw media reference; DM titles exclude the current user's own membership.
  */
 const ChannelListPage: React.FC = () => {
   const navigate = useNavigate();
@@ -33,6 +51,7 @@ const ChannelListPage: React.FC = () => {
   const myId = user?.id;
   const { t } = useI18n();
   const { data: channels, isLoading, isError } = useChannels();
+  useMessagingSocket();
 
   return (
     <div className="sd-page" style={{ maxWidth: 520 }}>
@@ -86,7 +105,7 @@ const ChannelListPage: React.FC = () => {
                     )}
                   </span>
                   <span className="sd-chan-preview" style={{ display: 'block', marginTop: 2 }}>
-                    {channel.lastMessage?.content ?? t('messaging.noMessagesPreview')}
+                    {lastMessagePreview(channel, t)}
                   </span>
                 </span>
               </button>

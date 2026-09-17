@@ -2,7 +2,7 @@
 
 Created: 2026-06-18
 
-Registry tip: `8d62d87cbdf96999c098a0e044a91a52c48b7c2f69aa6b56119a160d67d8bd67`
+Registry tip: `385df244b5a7831bd1177e3150a6aa619edee080d9f9d0a3fb815d9a5fd6e3e8`
 
 This is the Wave 0 truth table for active CRITICAL findings. The initial rule is
 conservative: every non-RESOLVED CRITICAL registry entry is treated as
@@ -230,7 +230,6 @@ Allowed truth buckets:
 | `ORPHAN-CRITICAL-513` | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
 | `ORPHAN-CRITICAL-516` | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
 | `ORPHAN-CRITICAL-517` | OPEN           | 2026-08-14   | aria-acceptance-gap-fixer  | real-open                 |
-| `ARIA-CRITICAL-007`   | OPEN           | Task 10      | platform-autonomy          | real-open                 |
 | `ARIA-CRITICAL-009`   | OPEN           | Task 12      | platform-autonomy          | real-open                 |
 | `ARIA-CRITICAL-015`   | OPEN           | Task 19      | platform-autonomy          | real-open                 |
 | `SENSOR-CRITICAL-108` | OPEN           | 2026-09-03   | zcode                      | real-open                 |
@@ -833,4 +832,7 @@ tests/invariants/all-services-env-aware-migrations.spec.ts --runInBand`,
   Left the active table from bucket `already-fixed-needs-close`.
 - `SENSOR-CRITICAL-111`: registry state is `RESOLVED` with closing commit
   `339dc644e`, derived by `finding-registry reconcile` against `origin/main`.
+  Left the active table from bucket `real-open`.
+- `ARIA-CRITICAL-007`: registry state is `RESOLVED` with closing commit
+  `be7eb53e4`, derived by `finding-registry reconcile` against `origin/main`.
   Left the active table from bucket `real-open`.

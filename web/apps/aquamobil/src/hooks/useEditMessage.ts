@@ -33,6 +33,7 @@ import { useOfflineQueue } from './useOfflineQueue';
 
 import { EDIT_MESSAGE } from '@/graphql/messaging-operations';
 import { graphqlRequest } from '@/services/authenticated-fetch';
+import type { Message } from '@/types/messaging';
 import { logger } from '@/utils/logger';
 import { invalidateSyncedOperationQueries } from '@/utils/offline-sync-invalidation';
 
@@ -80,7 +81,7 @@ export function useEditMessage(channelId: string | undefined): UseEditMessageRes
       }
 
       try {
-        await graphqlRequest(EDIT_MESSAGE, {
+        await graphqlRequest<{ editMessage: Message }>(EDIT_MESSAGE, {
           id: messageId,
           input: { content: trimmed },
         });

@@ -14,8 +14,8 @@ interface DiseaseOutbreakModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (report: Partial<DiseaseOutbreakReport>) => Promise<void>;
-  siteId: string;
-  siteName: string;
+  siteId?: string;
+  siteName?: string;
   siteCode?: string;
   gpsCoordinates?: { lat: number; lng: number };
   showHealthEventLink?: boolean;
@@ -334,8 +334,10 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
           tanks: affectedTankNames,
         },
         facility: {
-          siteId,
-          siteName,
+          // Draft-level placeholders: empty strings are falsy, so the tab's
+          // `data.siteId || effectiveSiteId` resolution still applies.
+          siteId: siteId ?? '',
+          siteName: siteName ?? '',
           siteCode: siteCode || '',
           gpsCoordinates,
         },

@@ -34,7 +34,7 @@ const STATUS_TONES: Record<string, string> = {
   WORK_FROM_HOME: 'bg-surface-2 text-ink-2',
 };
 
-function formatTime(isoString: string | null | undefined): string {
+function formatTime(isoString?: string): string {
   if (!isoString) return '--:--';
   return new Date(isoString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }

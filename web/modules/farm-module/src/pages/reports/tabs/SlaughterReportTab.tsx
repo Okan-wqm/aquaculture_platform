@@ -1607,12 +1607,8 @@ export const SlaughterReportTab: React.FC<SlaughterReportTabProps> = ({ siteId }
             },
           ],
         };
+        // The mutation throws on failure; reaching here means acceptance.
         await submitPlannedMutation.mutateAsync(plannedInput);
-        if (!result.success) {
-          setError(result.feilmelding || 'Planned slaughter submission failed');
-          setIsSubmitting(false);
-          return;
-        }
       }
 
       if (formData.reportType === 'completed') {

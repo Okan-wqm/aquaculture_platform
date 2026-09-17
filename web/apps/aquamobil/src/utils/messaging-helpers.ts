@@ -183,3 +183,48 @@ export function isSafeUrl(url: string): boolean {
     return false;
   }
 }
+
+/**
+ * Flatten infinite-query message pages into an OLDEST-FIRST view array.
+ * Pages stack newest-page-first AND each page's items arrive NEWEST-FIRST
+ * from the subgraph — BOTH levels must be reversed. The old mobile flatten
+ * skipped the per-page reversal, so the conversation rendered inverted and
+ * refetched fresh messages jumped to the top edge (user-reported 2026-09-17).
+ */
+export function flattenMessagePages<M>(pages: readonly {
+  items: readonly M[];
+}[] | undefined): M[] {
+  if (!pages?.length) return [];
+  const out: M[] = [];
+  for (let i = pages.length - 1; i >= 0; i -= 1) {
+    const page = pages[i];
+    if (!page) continue;
+    for (let j = page.items.length - 1; j >= 0; j -= 1) {
+      out.push(page.items[j] as M);
+    }
+  }
+  return out;
+}
+
+/**
+ * Insert `message` into a NEWEST-FIRST items array at its createdAt position
+ * (descending; ISO-8601 strings compare chronologically). Live socket
+ * messages land at the FRONT; reconnect-sync messages older than the head
+ * land at their chronological slot. Dedupes by id defensively.
+ */
+export function insertNewestFirst<M extends { id: string; createdAt: string }>(
+  items: readonly M[],
+  message: M,
+): M[] {
+  if (items.some((m) => m.id === message.id)) {
+    return items.map((m) => (m.id === message.id ? message : m));
+  }
+  const next = [...items];
+  let at = next.length;
+  for (let i = next.length - 1; i >= 0; i -= 1) {
+    if (message.createdAt <= next[i]!.createdAt) break;
+    at = i;
+  }
+  next.splice(at, 0, message);
+  return next;
+}

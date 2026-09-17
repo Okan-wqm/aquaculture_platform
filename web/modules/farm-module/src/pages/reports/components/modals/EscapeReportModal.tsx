@@ -21,8 +21,8 @@ interface EscapeReportModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (report: Partial<EscapeReport>) => Promise<void>;
-  siteId: string;
-  siteName: string;
+  siteId?: string;
+  siteName?: string;
   siteCode?: string;
   gpsCoordinates?: { lat: number; lng: number };
 }

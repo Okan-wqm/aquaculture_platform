@@ -5,7 +5,7 @@
  */
 
 import React from 'react';
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi, type MockInstance } from 'vitest';
 import { render, fireEvent, screen } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { ScadaBuilderToolbar } from '../ScadaBuilderToolbar';
@@ -49,7 +49,7 @@ function renderToolbar(isDirty: boolean) {
 }
 
 describe('ScadaBuilderToolbar Back link guard', () => {
-  let confirmSpy: ReturnType<typeof vi.spyOn>;
+  let confirmSpy: MockInstance<(message?: string) => boolean>;
 
   beforeEach(() => {
     confirmSpy = vi.spyOn(window, 'confirm');
@@ -104,7 +104,7 @@ describe('SceneTreePanel delete guard', () => {
   const store = createScadaStore();
   // Swap the singleton's state for an isolated test store (restore after)
   let originalState: ReturnType<typeof useScadaPackageStore.getState>;
-  let confirmSpy: ReturnType<typeof vi.spyOn>;
+  let confirmSpy: MockInstance<(message?: string) => boolean>;
 
   beforeEach(() => {
     originalState = useScadaPackageStore.getState();

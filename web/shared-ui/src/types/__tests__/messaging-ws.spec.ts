@@ -27,12 +27,6 @@ import {
 } from '../messaging-ws';
 import {
   MESSAGING_SOCKET_EVENT_NAMES,
-  type MessageDeletedEnvelope as EcMessageDeletedEnvelope,
-  type MessageEnvelope as EcMessageEnvelope,
-  type MessageUpdatedEnvelope as EcMessageUpdatedEnvelope,
-  type PresenceEnvelope as EcPresenceEnvelope,
-  type ReadReceiptEnvelope as EcReadReceiptEnvelope,
-  type TypingEnvelope as EcTypingEnvelope,
   type WsMessage as EcWsMessage,
 } from '../../../../../libs/event-contracts/src/websocket-envelopes';
 

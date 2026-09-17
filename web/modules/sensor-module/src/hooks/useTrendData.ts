@@ -17,7 +17,6 @@ import type {
   DaqAggregation,
   HistoricalDataPoint,
 } from '../types/scada-runtime.types';
-import { onTenantChange, registerLogoutCleanup } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                               */

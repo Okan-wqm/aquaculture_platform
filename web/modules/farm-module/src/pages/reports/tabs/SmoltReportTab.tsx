@@ -1026,14 +1026,11 @@ export const SmoltReportTab: React.FC<SmoltReportTabProps> = ({ siteId }) => {
 
       await submitSmoltMutation.mutateAsync(input);
 
-      if (result.success) {
-        // FARM-HIGH-126: rotate the stable client reference only on success.
-        clientRef.reset();
-        setIsWizardOpen(false);
-        setFormData(getInitialFormData());
-      } else {
-        setError(result.feilmelding || 'Submission failed');
-      }
+      // Success path: the mutation throws on failure, so reaching here means
+      // the server accepted the report.
+      clientRef.reset();
+      setIsWizardOpen(false);
+      setFormData(getInitialFormData());
     } catch (err) {
       console.error('Smolt report submission error:', err);
       setError((err as Error).message);

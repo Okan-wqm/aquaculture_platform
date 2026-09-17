@@ -25,7 +25,7 @@ import {
 
 import { PhotoCaptureField } from '@/components/PhotoCaptureField';
 import { useTanks } from '@/hooks/useTanks';
-import type { QueuedPayload } from '@/types';
+import type { LiceCountInput } from '@/types';
 
 /**
  * v4: the violet gradient is gone. It was page identity, not meaning — and a
@@ -96,7 +96,7 @@ export function LiceCountPage(): JSX.Element {
     fishSampled,
   ]);
 
-  const buildPayload = (): QueuedPayload<'recordLiceCount'> => {
+  const buildPayload = (): LiceCountInput => {
     const siteId = selectedTank?.siteId;
     if (!siteId) {
       throw new Error('Cannot record lice count: selected tank has no site');
@@ -120,7 +120,7 @@ export function LiceCountPage(): JSX.Element {
   };
 
   return (
-    <RecordEntityPage<'recordLiceCount', LiceFormErrors>
+    <RecordEntityPage<LiceCountInput, LiceFormErrors>
       theme={LICE_THEME}
       entryTitle="Lice Count"
       confirmTitle="Confirm Lice Count"

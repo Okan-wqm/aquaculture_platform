@@ -1,26 +1,9 @@
-import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
-import { print } from 'graphql';
+import { type DocumentNode, print } from 'graphql';
 import { gql } from 'graphql-tag';
 import { useState, useCallback, useEffect } from 'react';
 
 import { useAuth } from './useAuth';
 
-import type {
-  HasWebAuthnCredentialsQuery,
-  HasWebAuthnCredentialsQueryVariables,
-  MyWebAuthnCredentialsQuery,
-  MyWebAuthnCredentialsQueryVariables,
-  RegisterWebAuthnCredentialMutation,
-  RegisterWebAuthnCredentialMutationVariables,
-  RemoveWebAuthnCredentialMutation,
-  RemoveWebAuthnCredentialMutationVariables,
-  VerifyWebAuthnLoginMutation,
-  VerifyWebAuthnLoginMutationVariables,
-  WebAuthnLoginChallengeMutation,
-  WebAuthnLoginChallengeMutationVariables,
-  WebAuthnRegistrationChallengeMutation,
-  WebAuthnRegistrationChallengeMutationVariables,
-} from '@/generated/graphql';
 import { readGraphQLResponse, firstGraphQLError } from '@/utils/graphql-response';
 
 // SEC-06: CSRF defense-in-depth header
@@ -59,10 +42,7 @@ export async function isPlatformAuthenticatorAvailable(): Promise<boolean> {
 // GraphQL Operations
 // ============================================================================
 
-const REGISTRATION_CHALLENGE_MUTATION: TypedDocumentNode<
-  WebAuthnRegistrationChallengeMutation,
-  WebAuthnRegistrationChallengeMutationVariables
-> = gql`
+const REGISTRATION_CHALLENGE_MUTATION = gql`
   mutation WebAuthnRegistrationChallenge($input: WebAuthnRegistrationChallengeInput) {
     webAuthnRegistrationChallenge(input: $input) {
       challenge
@@ -74,10 +54,7 @@ const REGISTRATION_CHALLENGE_MUTATION: TypedDocumentNode<
   }
 `;
 
-const REGISTER_CREDENTIAL_MUTATION: TypedDocumentNode<
-  RegisterWebAuthnCredentialMutation,
-  RegisterWebAuthnCredentialMutationVariables
-> = gql`
+const REGISTER_CREDENTIAL_MUTATION = gql`
   mutation RegisterWebAuthnCredential($input: WebAuthnRegisterCredentialInput!) {
     registerWebAuthnCredential(input: $input) {
       success
@@ -87,10 +64,7 @@ const REGISTER_CREDENTIAL_MUTATION: TypedDocumentNode<
   }
 `;
 
-const LOGIN_CHALLENGE_MUTATION: TypedDocumentNode<
-  WebAuthnLoginChallengeMutation,
-  WebAuthnLoginChallengeMutationVariables
-> = gql`
+const LOGIN_CHALLENGE_MUTATION = gql`
   mutation WebAuthnLoginChallenge($input: WebAuthnLoginChallengeInput!) {
     webAuthnLoginChallenge(input: $input) {
       challenge
@@ -100,10 +74,7 @@ const LOGIN_CHALLENGE_MUTATION: TypedDocumentNode<
   }
 `;
 
-const VERIFY_LOGIN_MUTATION: TypedDocumentNode<
-  VerifyWebAuthnLoginMutation,
-  VerifyWebAuthnLoginMutationVariables
-> = gql`
+const VERIFY_LOGIN_MUTATION = gql`
   mutation VerifyWebAuthnLogin($input: WebAuthnVerifyLoginInput!) {
     verifyWebAuthnLogin(input: $input) {
       accessToken
@@ -120,10 +91,7 @@ const VERIFY_LOGIN_MUTATION: TypedDocumentNode<
   }
 `;
 
-const MY_CREDENTIALS_QUERY: TypedDocumentNode<
-  MyWebAuthnCredentialsQuery,
-  MyWebAuthnCredentialsQueryVariables
-> = gql`
+const MY_CREDENTIALS_QUERY = gql`
   query MyWebAuthnCredentials {
     myWebAuthnCredentials {
       credentialId
@@ -134,19 +102,13 @@ const MY_CREDENTIALS_QUERY: TypedDocumentNode<
   }
 `;
 
-const HAS_CREDENTIALS_QUERY: TypedDocumentNode<
-  HasWebAuthnCredentialsQuery,
-  HasWebAuthnCredentialsQueryVariables
-> = gql`
+const HAS_CREDENTIALS_QUERY = gql`
   query HasWebAuthnCredentials {
     hasWebAuthnCredentials
   }
 `;
 
-const REMOVE_CREDENTIAL_MUTATION: TypedDocumentNode<
-  RemoveWebAuthnCredentialMutation,
-  RemoveWebAuthnCredentialMutationVariables
-> = gql`
+const REMOVE_CREDENTIAL_MUTATION = gql`
   mutation RemoveWebAuthnCredential($credentialId: String!) {
     removeWebAuthnCredential(credentialId: $credentialId) {
       success
@@ -190,11 +152,72 @@ export interface WebAuthnCredentialInfo {
   lastUsedAt: string;
 }
 
-/** Result of a successful biometric login — the generated verifyWebAuthnLogin payload (MOB-HIGH-022). */
-export type BiometricLoginResult = VerifyWebAuthnLoginMutation['verifyWebAuthnLogin'];
-
 /** Authenticated user payload returned by the verifyWebAuthnLogin mutation. */
-export type BiometricLoginUser = BiometricLoginResult['user'];
+export interface BiometricLoginUser {
+  id: string;
+  email: string;
+  firstName?: string;
+  lastName?: string;
+  role: string;
+  tenantId: string | null;
+}
+
+/** Result of a successful biometric login. */
+export interface BiometricLoginResult {
+  accessToken: string;
+  refreshToken?: string;
+  user: BiometricLoginUser;
+}
+
+// ----------------------------------------------------------------------------
+// GraphQL operation result shapes — typed end-to-end so the local request
+// helper returns a concrete payload instead of `any` (no-unsafe-* discipline).
+// ----------------------------------------------------------------------------
+
+interface RegistrationChallengeData {
+  webAuthnRegistrationChallenge: {
+    challenge: string;
+    rpId: string;
+    rpName: string;
+    userId: string;
+    userName: string;
+  };
+}
+
+interface RegisterCredentialData {
+  registerWebAuthnCredential: {
+    success: boolean;
+    message: string | null;
+    credentialId: string;
+  };
+}
+
+interface LoginChallengeData {
+  webAuthnLoginChallenge: {
+    challenge: string;
+    rpId: string;
+    allowedCredentialIds: string[];
+  };
+}
+
+interface VerifyLoginData {
+  verifyWebAuthnLogin: BiometricLoginResult;
+}
+
+interface MyCredentialsData {
+  myWebAuthnCredentials: WebAuthnCredentialInfo[] | null;
+}
+
+interface HasCredentialsData {
+  hasWebAuthnCredentials: boolean | null;
+}
+
+interface RemoveCredentialData {
+  removeWebAuthnCredential: {
+    success: boolean;
+    message: string | null;
+  };
+}
 
 // ============================================================================
 // Error Sanitization
@@ -255,7 +278,7 @@ export interface UseWebAuthnReturn {
   /** Clear the current error. */
   clearError: () => void;
   /** Register a new biometric credential; resolves true on success. */
-  registerCredential: (deviceName: string | undefined, currentPassword: string) => Promise<boolean>;
+  registerCredential: (deviceName?: string) => Promise<boolean>;
   /** Authenticate with biometrics; resolves the auth payload or null. */
   biometricLogin: (email: string) => Promise<BiometricLoginResult | null>;
   /** Remove a credential by id; resolves true on success. */
@@ -303,15 +326,12 @@ export function useWebAuthn(): UseWebAuthnReturn {
    * store / readiness barrier is populated, so it must use its own fetch with the
    * in-scope accessToken to avoid a circular dependency.
    *
-   * S1-CODEGEN / MOB-HIGH-022: `document` is a codegen TypedDocumentNode, so the
-   * result AND variable types flow from the document exactly as they do for the
-   * shared helper; it is `print()`ed to the wire string.
+   * S1-CODEGEN: `document` is a `gql` DocumentNode (the bare query strings were
+   * promoted to gql so the bare-graphql lint stays clean and pluck can fold these
+   * in once promoted into the codegen set); it is `print()`ed to the wire string.
    */
   const graphqlRequest = useCallback(
-    async <TData, TVars>(
-      document: TypedDocumentNode<TData, TVars>,
-      variables?: TVars,
-    ): Promise<TData> => {
+    async <TData>(document: DocumentNode, variables?: Record<string, unknown>): Promise<TData> => {
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
         ...CSRF_HEADER,
@@ -347,7 +367,7 @@ export function useWebAuthn(): UseWebAuthnReturn {
    */
   const fetchCredentials = useCallback(async (): Promise<void> => {
     try {
-      const data = await graphqlRequest(MY_CREDENTIALS_QUERY);
+      const data = await graphqlRequest<MyCredentialsData>(MY_CREDENTIALS_QUERY);
       setCredentials(data.myWebAuthnCredentials ?? []);
     } catch {
       // Silently fail — not critical
@@ -359,7 +379,7 @@ export function useWebAuthn(): UseWebAuthnReturn {
    */
   const checkHasCredentials = useCallback(async (): Promise<void> => {
     try {
-      const data = await graphqlRequest(HAS_CREDENTIALS_QUERY);
+      const data = await graphqlRequest<HasCredentialsData>(HAS_CREDENTIALS_QUERY);
       setHasCredentials(data.hasWebAuthnCredentials ?? false);
     } catch {
       setHasCredentials(false);
@@ -372,22 +392,12 @@ export function useWebAuthn(): UseWebAuthnReturn {
    * Flow:
    * 1. Request challenge from backend
    * 2. Call navigator.credentials.create() with challenge
-   * 3. Send the attestation to the backend, which derives the public key
-   *    from the attestation object server-side (proof-of-possession) —
-   *    the client never asserts its own key material.
-   *
-   * SEC-CRITICAL-001/002: registration requires password re-authentication
-   * (`currentPassword`) so a stolen access token alone cannot plant a
-   * biometric credential.
+   * 3. Send credential back to backend for storage
    */
   const registerCredential = useCallback(
-    async (deviceName: string | undefined, currentPassword: string): Promise<boolean> => {
+    async (deviceName?: string): Promise<boolean> => {
       if (!isSupported) {
         setError('Biometric authentication not supported on this device');
-        return false;
-      }
-      if (!currentPassword) {
-        setError('Enter your password to confirm biometric setup');
         return false;
       }
 
@@ -396,9 +406,12 @@ export function useWebAuthn(): UseWebAuthnReturn {
 
       try {
         // Step 1: Get registration challenge
-        const challengeData = await graphqlRequest(REGISTRATION_CHALLENGE_MUTATION, {
-          input: deviceName ? { deviceName } : undefined,
-        });
+        const challengeData = await graphqlRequest<RegistrationChallengeData>(
+          REGISTRATION_CHALLENGE_MUTATION,
+          {
+            input: deviceName ? { deviceName } : undefined,
+          },
+        );
         const challengeResponse = challengeData.webAuthnRegistrationChallenge;
 
         // Step 2: Call WebAuthn API
@@ -424,7 +437,7 @@ export function useWebAuthn(): UseWebAuthnReturn {
               residentKey: 'preferred',
             },
             timeout: 60000, // 60 seconds
-            attestation: 'none',
+            attestation: 'none', // We don't need attestation for biometric login
           },
         })) as PublicKeyCredential | null;
 
@@ -435,42 +448,41 @@ export function useWebAuthn(): UseWebAuthnReturn {
 
         const attestationResponse = credential.response as AuthenticatorAttestationResponse;
 
-        // COSE algorithm the authenticator chose (server-side key derivation input)
-        const publicKeyAlgorithm = attestationResponse.getPublicKeyAlgorithm?.();
-        if (typeof publicKeyAlgorithm !== 'number') {
-          setError('Authenticator did not report a supported key algorithm');
+        // Extract public key in SPKI format
+        const publicKey = attestationResponse.getPublicKey?.();
+        if (!publicKey) {
+          setError('Failed to extract public key from credential');
           return false;
         }
 
         // Get transports if available
         const transports = attestationResponse.getTransports?.() || [];
 
-        // Step 3: Send the attestation to the backend
-        const registerData = await graphqlRequest(REGISTER_CREDENTIAL_MUTATION, {
-          input: {
-            credentialId: bufferToBase64url(credential.rawId),
-            attestationObject: bufferToBase64url(attestationResponse.attestationObject),
-            clientDataJSON: bufferToBase64url(attestationResponse.clientDataJSON),
-            publicKeyAlgorithm,
-            challenge: challengeResponse.challenge,
-            currentPassword,
-            deviceName: deviceName || 'Biometric Device',
-            transports,
+        // Step 3: Send to backend
+        const registerData = await graphqlRequest<RegisterCredentialData>(
+          REGISTER_CREDENTIAL_MUTATION,
+          {
+            input: {
+              credentialId: bufferToBase64url(credential.rawId),
+              publicKey: bufferToBase64url(publicKey),
+              clientDataJSON: bufferToBase64url(attestationResponse.clientDataJSON),
+              challenge: challengeResponse.challenge,
+              origin: window.location.origin,
+              deviceName: deviceName || 'Biometric Device',
+              transports,
+            },
           },
-        });
+        );
 
-        const { success, credentialId, message } = registerData.registerWebAuthnCredential;
-        // WHY both checks: the schema types credentialId as nullable; a success
-        // without an id is a contract violation, reported instead of stored.
-        if (success && credentialId) {
+        if (registerData.registerWebAuthnCredential.success) {
           // Save credential ID locally for quick lookup
-          saveCredentialIdLocally(credentialId);
+          saveCredentialIdLocally(registerData.registerWebAuthnCredential.credentialId);
           // Refresh credentials list
           await fetchCredentials();
           await checkHasCredentials();
           return true;
         } else {
-          setError(message || 'Registration failed');
+          setError(registerData.registerWebAuthnCredential.message || 'Registration failed');
           return false;
         }
       } catch (err) {
@@ -505,7 +517,7 @@ export function useWebAuthn(): UseWebAuthnReturn {
 
       try {
         // Step 1: Get login challenge
-        const challengeData = await graphqlRequest(LOGIN_CHALLENGE_MUTATION, {
+        const challengeData = await graphqlRequest<LoginChallengeData>(LOGIN_CHALLENGE_MUTATION, {
           input: { email },
         });
         const challengeResponse = challengeData.webAuthnLoginChallenge;
@@ -535,18 +547,15 @@ export function useWebAuthn(): UseWebAuthnReturn {
 
         const assertionResponse = assertion.response as AuthenticatorAssertionResponse;
 
-        // Step 3: Send assertion to backend (origin is verified server-side
-        // from the signed clientDataJSON — never a client-declared field)
-        const verifyData = await graphqlRequest(VERIFY_LOGIN_MUTATION, {
+        // Step 3: Send assertion to backend
+        const verifyData = await graphqlRequest<VerifyLoginData>(VERIFY_LOGIN_MUTATION, {
           input: {
             credentialId: bufferToBase64url(assertion.rawId),
             authenticatorData: bufferToBase64url(assertionResponse.authenticatorData),
             clientDataJSON: bufferToBase64url(assertionResponse.clientDataJSON),
             signature: bufferToBase64url(assertionResponse.signature),
-            ...(assertionResponse.userHandle
-              ? { userHandle: bufferToBase64url(assertionResponse.userHandle) }
-              : {}),
             challenge: challengeResponse.challenge,
+            origin: window.location.origin,
           },
         });
 
@@ -576,7 +585,9 @@ export function useWebAuthn(): UseWebAuthnReturn {
   const removeCredential = useCallback(
     async (credentialId: string): Promise<boolean> => {
       try {
-        const data = await graphqlRequest(REMOVE_CREDENTIAL_MUTATION, { credentialId });
+        const data = await graphqlRequest<RemoveCredentialData>(REMOVE_CREDENTIAL_MUTATION, {
+          credentialId,
+        });
         if (data.removeWebAuthnCredential.success) {
           removeCredentialIdLocally(credentialId);
           await fetchCredentials();

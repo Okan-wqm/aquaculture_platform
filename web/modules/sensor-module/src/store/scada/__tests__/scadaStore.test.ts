@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { createScadaStore } from '../createScadaStore';
 import type { ScadaStore } from '../types';
 import { generateId } from '../types';
-import type { ScreenWidget, WidgetPosition } from '../types';
+import type { HistoryEntry, ScreenWidget, WidgetPosition } from '../types';
 import type { ScadaEdge } from '../types';
 import type { AlarmRuleDef, ControlPermissionsDef, TrendConfigDef, ScadaPackageJSON } from '../types';
 

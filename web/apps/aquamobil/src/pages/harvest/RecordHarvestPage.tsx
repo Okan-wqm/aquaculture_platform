@@ -15,7 +15,7 @@ import {
 
 import { Card } from '@/components/ui';
 import { useTanks } from '@/hooks/useTanks';
-import type { QualityClass, QueuedPayload } from '@/types';
+import type { HarvestInput, QualityClass } from '@/types';
 
 interface HarvestFormErrors extends BaseFormErrors {
   avgWeight?: string;
@@ -101,7 +101,7 @@ export function RecordHarvestPage(): JSX.Element {
     return Object.keys(next).length === 0;
   }, [selectedTankId, metrics, quantityNum, avgWeightNum, maxQuantity]);
 
-  const buildPayload = (): QueuedPayload<'createHarvestRecord'> => {
+  const buildPayload = (): HarvestInput => {
     // Contract: the shell only invokes buildPayload after validate() passes AND
     // it has re-checked `metrics?.batchId` (RecordEntityPage.handleSubmit guard),
     // so batchId is present here. The guard narrows BatchMetrics['batchId']
@@ -127,7 +127,7 @@ export function RecordHarvestPage(): JSX.Element {
   const classLabel = QUALITY_CLASSES.find((g) => g.value === qualityClass)?.label ?? qualityClass;
 
   return (
-    <RecordEntityPage<'createHarvestRecord', HarvestFormErrors>
+    <RecordEntityPage<HarvestInput, HarvestFormErrors>
       theme={HARVEST_THEME}
       entryTitle="Record Harvest"
       confirmTitle="Confirm Harvest"

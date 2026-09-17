@@ -25,7 +25,7 @@ import {
 
 import { PhotoCaptureField } from '@/components/PhotoCaptureField';
 import { useTanks } from '@/hooks/useTanks';
-import type { QueuedPayload } from '@/types';
+import type { WelfareAssessmentInput } from '@/types';
 
 /**
  * v4: the emerald gradient is gone. Green is the token layer's "confirms" colour
@@ -117,7 +117,7 @@ export function WelfareScorePage(): JSX.Element {
     return Object.keys(next).length === 0;
   }, [selectedTankId, selectedTank, metrics, fishSampled]);
 
-  const buildPayload = (): QueuedPayload<'recordWelfareAssessment'> => {
+  const buildPayload = (): WelfareAssessmentInput => {
     const siteId = selectedTank?.siteId;
     if (!siteId) {
       throw new Error('Cannot record welfare assessment: selected tank has no site');
@@ -138,7 +138,7 @@ export function WelfareScorePage(): JSX.Element {
   };
 
   return (
-    <RecordEntityPage<'recordWelfareAssessment'>
+    <RecordEntityPage<WelfareAssessmentInput>
       theme={WELFARE_THEME}
       entryTitle="Welfare Scores"
       confirmTitle="Confirm Welfare Scores"

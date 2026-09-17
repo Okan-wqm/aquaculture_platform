@@ -43,6 +43,7 @@ function makeMessage(
     senderId,
     content,
     contentType: 'TEXT',
+    metadata: null,
     isDeleted: false,
     isAiGenerated: false,
     createdAt,
@@ -60,7 +61,9 @@ function makeThreadCacheKey(): readonly unknown[] {
  * — no silent undefined in assertions.
  */
 function threadData(queryClient: QueryClient): Message[] {
-  const data = queryClient.getQueryData<{ pages: ChannelMessagesPage[] }>(makeThreadCacheKey());
+  const data = queryClient.getQueryData<{ pages: ChannelMessagesPage[]; pageParams: (string | null)[] }>(
+    makeThreadCacheKey(),
+  );
   if (!data) throw new Error('thread cache missing under the tenant-scoped key');
   return flattenChannelMessages(data);
 }

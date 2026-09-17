@@ -5,7 +5,6 @@
  * hover-expand opens the drawer, section labels only render while open,
  * leaf items navigate, module groups auto-open when a child route is active.
  */
-import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 

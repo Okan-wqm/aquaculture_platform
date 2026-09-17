@@ -27,7 +27,7 @@ describe('T7h deriveNavItems', () => {
   it('maps screens → navItems with label/icon from the screen definition', () => {
     const nav = deriveNavItems([
       screen({ id: 'main', name: 'Main View', icon: 'dashboard' }),
-      screen({ id: 'tanks', name: 'Tanks', screenType: 'overview', icon: '' }),
+      screen({ id: 'tanks', name: 'Tanks', screenType: 'dashboard', icon: '' }),
     ]);
 
     expect(nav).toEqual([

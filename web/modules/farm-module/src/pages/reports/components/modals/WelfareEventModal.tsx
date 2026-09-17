@@ -18,8 +18,8 @@ interface WelfareEventModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (report: Partial<WelfareEventReport>) => Promise<void>;
-  siteId: string;
-  siteName: string;
+  siteId?: string;
+  siteName?: string;
 }
 
 interface FormData {

@@ -24,7 +24,7 @@ import {
 } from '../_shared/RecordEntityPage';
 
 import { useTanks } from '@/hooks/useTanks';
-import type { CullReason, QueuedPayload } from '@/types';
+import type { CullReason, CullInput } from '@/types';
 
 const CULL_REASONS: ReadonlyArray<{ value: CullReason; label: string; emoji: string }> = [
   { value: 'SMALL_SIZE', label: 'Small Size', emoji: '📏' },
@@ -85,7 +85,7 @@ export function RecordCullPage(): JSX.Element {
     return Object.keys(next).length === 0;
   }, [selectedTankId, metrics, quantity, maxQuantity]);
 
-  const buildPayload = (): QueuedPayload<'recordCull'> => {
+  const buildPayload = (): CullInput => {
     // Contract: the shell only invokes buildPayload after validate() passes AND
     // it has re-checked `metrics?.batchId` (RecordEntityPage.handleSubmit guard),
     // so batchId is present here. The guard narrows BatchMetrics['batchId']
@@ -106,7 +106,7 @@ export function RecordCullPage(): JSX.Element {
   };
 
   return (
-    <RecordEntityPage<'recordCull'>
+    <RecordEntityPage<CullInput>
       theme={CULL_THEME}
       entryTitle="Record Cull"
       confirmTitle="Confirm Cull"

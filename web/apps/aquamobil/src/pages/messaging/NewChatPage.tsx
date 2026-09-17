@@ -210,7 +210,7 @@ export function NewChatPage(): JSX.Element {
   const { data: aiPersonas = [] } = useQuery({
     queryKey: createTenantQueryKey(tenantId, 'messaging', 'aiPersonas'),
     queryFn: async () => {
-      const result = await graphqlRequest(
+      const result = await graphqlRequest<{ availableAiPersonas: AiPersona[] }>(
         AVAILABLE_AI_PERSONAS,
       );
       return result.availableAiPersonas ?? [];

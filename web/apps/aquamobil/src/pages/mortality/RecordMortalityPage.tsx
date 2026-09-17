@@ -24,12 +24,11 @@ import {
 } from '../_shared/RecordEntityPage';
 
 import { useTanks } from '@/hooks/useTanks';
-import type { MortalityReason, QueuedPayload } from '@/types';
+import type { MortalityReason, MortalityInput } from '@/types';
 
-// WHY: exactly the backend's MortalityReason enum (10 members). `value` is the
-// GENERATED enum union, so a member the server lacks is a compile error here —
-// the hand-written union this page used to import carried AMMONIA, STARVATION
-// and GENETIC, which the server rejects at enum coercion (MOB-HIGH-022).
+// WHY: All 13 MortalityReason enum values from the backend schema are present
+// (BUG-14 regression guard — AMMONIA/PREDATION/CANNIBALISM/STARVATION/GENETIC
+// were missing from an earlier revision).
 const MORTALITY_REASONS: ReadonlyArray<{ value: MortalityReason; label: string; emoji: string }> = [
   { value: 'DISEASE', label: 'Disease', emoji: '🦠' },
   { value: 'WATER_QUALITY', label: 'Water Quality', emoji: '💧' },
@@ -37,8 +36,11 @@ const MORTALITY_REASONS: ReadonlyArray<{ value: MortalityReason; label: string; 
   { value: 'HANDLING', label: 'Handling', emoji: '🤲' },
   { value: 'TEMPERATURE', label: 'Temperature', emoji: '🌡️' },
   { value: 'OXYGEN', label: 'Low Oxygen', emoji: '💨' },
+  { value: 'AMMONIA', label: 'Ammonia', emoji: '⚗️' },
   { value: 'PREDATION', label: 'Predation', emoji: '🦅' },
   { value: 'CANNIBALISM', label: 'Cannibalism', emoji: '🐟' },
+  { value: 'STARVATION', label: 'Starvation', emoji: '🍽️' },
+  { value: 'GENETIC', label: 'Genetic', emoji: '🧬' },
   { value: 'UNKNOWN', label: 'Unknown', emoji: '❓' },
   { value: 'OTHER', label: 'Other', emoji: '📝' },
 ];
@@ -94,7 +96,7 @@ export function RecordMortalityPage(): JSX.Element {
     return Object.keys(next).length === 0;
   }, [selectedTankId, metrics, quantity, maxQuantity]);
 
-  const buildPayload = (): QueuedPayload<'recordMortality'> => {
+  const buildPayload = (): MortalityInput => {
     // Contract: the shell only invokes buildPayload after validate() passes AND
     // it has re-checked `metrics?.batchId` (RecordEntityPage.handleSubmit guard),
     // so batchId is present here. The guard narrows BatchMetrics['batchId']
@@ -114,7 +116,7 @@ export function RecordMortalityPage(): JSX.Element {
   };
 
   return (
-    <RecordEntityPage<'recordMortality'>
+    <RecordEntityPage<MortalityInput>
       theme={MORTALITY_THEME}
       entryTitle="Record Mortality"
       confirmTitle="Confirm Record"

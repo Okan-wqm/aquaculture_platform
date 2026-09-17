@@ -14,7 +14,7 @@ import { useMemo, useState } from 'react';
 import { useRegulatorySettings } from '../../../hooks/useRegulatory';
 
 export interface SiteLocalityMapping {
-  siteId: string;
+  siteId?: string;
   lokalitetsnummer: number;
   siteName?: string;
 }

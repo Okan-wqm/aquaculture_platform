@@ -73,7 +73,7 @@ export interface PostConditionAwareMigration {
    * after `executeMigration()` returns successfully but before the
    * wrapper transaction commits. Return `false` or throw to abort.
    */
-  postCondition?(queryRunner: QueryRunner): Promise<unknown>;
+  postCondition?(queryRunner: QueryRunner, schema?: string): Promise<unknown>;
 }
 
 /**
@@ -703,7 +703,7 @@ export function createMigrationRunnerService(
 
       let result: unknown;
       try {
-        result = await candidate.postCondition(queryRunner);
+        result = await candidate.postCondition(queryRunner, schema);
       } catch (probeErr) {
         const msg =
           probeErr instanceof Error ? probeErr.message : String(probeErr);

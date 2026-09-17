@@ -181,12 +181,19 @@ export class AddMessagesContentSearchGinIndex1802300000000 implements MigrationI
    * marked valid (all partition indexes attached), and carries the expected
    * expression. Runs per fanned-out schema via current_schema().
    */
-  public async postCondition(queryRunner: QueryRunner): Promise<boolean> {
-    const schemaRows: unknown = await queryRunner.query(`SELECT current_schema() AS schema`);
-    const schemaRow = (Array.isArray(schemaRows) ? schemaRows[0] : undefined) as
-      | { schema?: string | null }
-      | undefined;
-    const schema = schemaRow?.schema;
+  public async postCondition(queryRunner: QueryRunner, targetSchema?: string): Promise<boolean> {
+    // The orchestrator passes the schema it is migrating (transaction=false
+    // migrations run WITHOUT the search_path pin, so current_schema() is the
+    // role default — the original probe validated the wrong namespace and
+    // rolled back a DDL that had actually succeeded).
+    let schema = targetSchema;
+    if (typeof schema !== 'string') {
+      const schemaRows: unknown = await queryRunner.query(`SELECT current_schema() AS schema`);
+      const schemaRow = (Array.isArray(schemaRows) ? schemaRows[0] : undefined) as
+        | { schema?: string | null }
+        | undefined;
+      schema = schemaRow?.schema ?? undefined;
+    }
     if (typeof schema !== 'string') {
       return false;
     }
@@ -212,7 +219,9 @@ export class AddMessagesContentSearchGinIndex1802300000000 implements MigrationI
     return (
       row.def.includes('to_tsvector') &&
       row.def.includes('english') &&
-      row.def.includes('"content"')
+      // pg_get_indexdef only quotes identifiers when necessary — the plain
+      // lowercase `content` column renders UNQUOTED, so match it bare.
+      row.def.includes('content')
     );
   }
 

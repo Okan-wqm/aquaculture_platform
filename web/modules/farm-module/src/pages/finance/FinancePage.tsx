@@ -85,7 +85,7 @@ const FinancePage: React.FC = () => {
 
   if (!canView) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50">
+      <div className="sd-page sd-f2 flex min-h-screen items-center justify-center">
         <div role="alert" className="max-w-md rounded-md bg-white p-8 text-center shadow">
           <h2 className="text-lg font-semibold text-gray-900">Finance is restricted</h2>
           <p className="mt-2 text-sm text-gray-600">
@@ -97,21 +97,18 @@ const FinancePage: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white shadow">
-        <div className="px-4 sm:px-6 py-6">
-          <div className="md:flex md:items-center md:justify-between">
-            <div className="flex-1 min-w-0">
-              <h1 className="text-2xl font-bold leading-7 text-gray-900 sm:text-3xl sm:truncate">
-                Farm Finance
-              </h1>
-              <p className="mt-1 text-sm text-gray-500">
-                Operational costs, revenue and budgeting — feed, fingerlings, maintenance and
-                treatments flow in automatically from their source records
-              </p>
-            </div>
-            <div className="mt-4 flex md:mt-0 md:ml-4 items-center space-x-3">
+    <div className="sd-page sd-f2">
+      {/* Page Header (SUDERRA pattern; 'Farm Finance' text is load-bearing —
+          FinancePage.spec asserts it) */}
+      <div className="sd-pagehead">
+        <span className="sd-eyebrow">Finance</span>
+        <h1 className="sd-page-title">Farm Finance</h1>
+        <span className="sd-page-sub">
+          Operational costs, revenue and budgeting — feed, fingerlings, maintenance and
+          treatments flow in automatically from their source records
+        </span>
+      </div>
+      <div className="sd-actions">
               <label htmlFor="finance-period" className="text-sm text-gray-600">
                 Period:
               </label>
@@ -127,33 +124,24 @@ const FinancePage: React.FC = () => {
                   </option>
                 ))}
               </select>
-            </div>
-          </div>
-        </div>
-
-        {/* Tab bar */}
-        <div className="px-4 sm:px-6">
-          <nav className="-mb-px flex space-x-6 overflow-x-auto" aria-label="Finance tabs">
-            {TABS.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setTab(tab.id)}
-                className={`whitespace-nowrap border-b-2 py-3 px-1 text-sm font-medium ${
-                  activeTab === tab.id
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
-                }`}
-                aria-current={activeTab === tab.id ? 'page' : undefined}
-              >
-                {tab.name}
-              </button>
-            ))}
-          </nav>
-        </div>
       </div>
 
+      {/* Tab bar */}
+      <nav className="sd-tabs" aria-label="Finance tabs">
+        {TABS.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setTab(tab.id)}
+            className={`sd-tab${activeTab === tab.id ? ' sd-tab--active' : ''}`}
+            aria-current={activeTab === tab.id ? 'page' : undefined}
+          >
+            {tab.name}
+          </button>
+        ))}
+      </nav>
+
       {/* Tab content */}
-      <div className="px-4 sm:px-6 py-6">
+      <div>
         {activeTab === 'overview' && (
           <OverviewTab
             summary={summaryQuery.data}

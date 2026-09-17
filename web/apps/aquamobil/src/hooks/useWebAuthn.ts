@@ -406,9 +406,12 @@ export function useWebAuthn(): UseWebAuthnReturn {
 
       try {
         // Step 1: Get registration challenge
-        const challengeData = await graphqlRequest<RegistrationChallengeData>(REGISTRATION_CHALLENGE_MUTATION, {
-          input: deviceName ? { deviceName } : undefined,
-        });
+        const challengeData = await graphqlRequest<RegistrationChallengeData>(
+          REGISTRATION_CHALLENGE_MUTATION,
+          {
+            input: deviceName ? { deviceName } : undefined,
+          },
+        );
         const challengeResponse = challengeData.webAuthnRegistrationChallenge;
 
         // Step 2: Call WebAuthn API
@@ -425,8 +428,8 @@ export function useWebAuthn(): UseWebAuthnReturn {
               displayName: challengeResponse.userName,
             },
             pubKeyCredParams: [
-              { alg: -7, type: 'public-key' },   // ES256 (ECDSA P-256)
-              { alg: -257, type: 'public-key' },  // RS256 (RSASSA-PKCS1-v1_5)
+              { alg: -7, type: 'public-key' }, // ES256 (ECDSA P-256)
+              { alg: -257, type: 'public-key' }, // RS256 (RSASSA-PKCS1-v1_5)
             ],
             authenticatorSelection: {
               authenticatorAttachment: 'platform', // Only platform authenticators (Touch ID, Face ID)
@@ -456,17 +459,20 @@ export function useWebAuthn(): UseWebAuthnReturn {
         const transports = attestationResponse.getTransports?.() || [];
 
         // Step 3: Send to backend
-        const registerData = await graphqlRequest<RegisterCredentialData>(REGISTER_CREDENTIAL_MUTATION, {
-          input: {
-            credentialId: bufferToBase64url(credential.rawId),
-            publicKey: bufferToBase64url(publicKey),
-            clientDataJSON: bufferToBase64url(attestationResponse.clientDataJSON),
-            challenge: challengeResponse.challenge,
-            origin: window.location.origin,
-            deviceName: deviceName || 'Biometric Device',
-            transports,
+        const registerData = await graphqlRequest<RegisterCredentialData>(
+          REGISTER_CREDENTIAL_MUTATION,
+          {
+            input: {
+              credentialId: bufferToBase64url(credential.rawId),
+              publicKey: bufferToBase64url(publicKey),
+              clientDataJSON: bufferToBase64url(attestationResponse.clientDataJSON),
+              challenge: challengeResponse.challenge,
+              origin: window.location.origin,
+              deviceName: deviceName || 'Biometric Device',
+              transports,
+            },
           },
-        });
+        );
 
         if (registerData.registerWebAuthnCredential.success) {
           // Save credential ID locally for quick lookup
@@ -500,9 +506,7 @@ export function useWebAuthn(): UseWebAuthnReturn {
    * Returns auth data on success, or null on failure.
    */
   const biometricLogin = useCallback(
-    async (
-      email: string,
-    ): Promise<BiometricLoginResult | null> => {
+    async (email: string): Promise<BiometricLoginResult | null> => {
       if (!isSupported) {
         setError('Biometric authentication not supported on this device');
         return null;
@@ -558,7 +562,11 @@ export function useWebAuthn(): UseWebAuthnReturn {
         return verifyData.verifyWebAuthnLogin;
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Biometric login failed';
-        if (message.includes('AbortError') || message.includes('cancelled') || message.includes('NotAllowedError')) {
+        if (
+          message.includes('AbortError') ||
+          message.includes('cancelled') ||
+          message.includes('NotAllowedError')
+        ) {
           setError('Biometric login was cancelled');
         } else {
           setError(message);
@@ -577,7 +585,9 @@ export function useWebAuthn(): UseWebAuthnReturn {
   const removeCredential = useCallback(
     async (credentialId: string): Promise<boolean> => {
       try {
-        const data = await graphqlRequest<RemoveCredentialData>(REMOVE_CREDENTIAL_MUTATION, { credentialId });
+        const data = await graphqlRequest<RemoveCredentialData>(REMOVE_CREDENTIAL_MUTATION, {
+          credentialId,
+        });
         if (data.removeWebAuthnCredential.success) {
           removeCredentialIdLocally(credentialId);
           await fetchCredentials();

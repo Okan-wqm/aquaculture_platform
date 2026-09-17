@@ -205,7 +205,7 @@ export const DeleteConfirmationDialog: React.FC<DeleteConfirmationDialogProps> =
       {isLoading && (
         <div className="flex items-center justify-center py-12">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-          <span className="ml-3 text-gray-600">Yükleniyor...</span>
+          <span className="ml-3 text-gray-600">Loading...</span>
         </div>
       )}
 
@@ -217,10 +217,10 @@ export const DeleteConfirmationDialog: React.FC<DeleteConfirmationDialogProps> =
             <WarningIcon className="w-6 h-6 text-red-600 flex-shrink-0 mt-0.5" />
             <div className="ml-3">
               <h3 className="text-sm font-medium text-red-800">
-                {entityType} Silme Onayı
+                Confirm {entityType} Deletion
               </h3>
               <p className="mt-1 text-sm text-red-700">
-                <strong>"{entityName}"</strong> {entityType.toLowerCase()}'ını silmek istediğinizden emin misiniz?
+                Are you sure you want to delete <strong>"{entityName}"</strong> ({entityType.toLowerCase()})?
               </p>
             </div>
           </div>
@@ -249,13 +249,13 @@ export const DeleteConfirmationDialog: React.FC<DeleteConfirmationDialogProps> =
             <div className="border border-gray-200 rounded-lg overflow-hidden">
               <div className="px-4 py-3 bg-gray-50 border-b border-gray-200">
                 <h4 className="text-sm font-medium text-gray-900">
-                  Etkilenecek Öğeler
+                  Affected Items
                   <span className="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-200 text-gray-800">
                     {totalAffected}
                   </span>
                 </h4>
                 <p className="mt-1 text-xs text-gray-500">
-                  Aşağıdaki öğeler de silinecektir (soft delete)
+                  The following items will also be deleted (soft delete)
                 </p>
               </div>
 
@@ -321,7 +321,7 @@ export const DeleteConfirmationDialog: React.FC<DeleteConfirmationDialogProps> =
           {totalAffected === 0 && !hasBlockers && (
             <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
               <p className="text-sm text-green-700">
-                Bu {entityType.toLowerCase()} silindığında başka hiçbir öğe etkilenmeyecektir.
+                Deleting this {entityType.toLowerCase()} will not affect any other items.
               </p>
             </div>
           )}
@@ -329,8 +329,8 @@ export const DeleteConfirmationDialog: React.FC<DeleteConfirmationDialogProps> =
           {/* Warning message */}
           <div className="p-3 bg-gray-50 rounded-lg">
             <p className="text-xs text-gray-500">
-              <strong>Not:</strong> Silme işlemi soft delete olarak yapılacaktır.
-              Veriler tamamen silinmez, sadece gizlenir ve gerektiğinde geri alınabilir.
+              <strong>Note:</strong> Deletion is performed as a soft delete.
+              Data is not permanently removed — it is only hidden and can be restored if needed.
             </p>
           </div>
         </div>
@@ -343,7 +343,7 @@ export const DeleteConfirmationDialog: React.FC<DeleteConfirmationDialogProps> =
           onClick={onClose}
           disabled={isDeleting}
         >
-          İptal
+          Cancel
         </Button>
         <Button
           variant="danger"
@@ -351,7 +351,7 @@ export const DeleteConfirmationDialog: React.FC<DeleteConfirmationDialogProps> =
           disabled={!canDelete || isDeleting}
           isLoading={isDeleting}
         >
-          {hasBlockers ? 'Silinemez' : 'Sil'}
+          {hasBlockers ? 'Cannot delete' : 'Delete'}
         </Button>
       </div>
     </Modal>

@@ -32,10 +32,7 @@ import { createTenantQueryKey } from '@/utils/tenant-query-keys';
  * @returns Full channel object with members array
  */
 async function fetchChannel(channelId: string): Promise<Channel> {
-  const result = await graphqlRequest<{ channel: Channel }>(
-    GET_CHANNEL,
-    { id: channelId },
-  );
+  const result = await graphqlRequest<{ channel: Channel }>(GET_CHANNEL, { id: channelId });
 
   if (!result.channel) {
     throw new Error('Channel not found');

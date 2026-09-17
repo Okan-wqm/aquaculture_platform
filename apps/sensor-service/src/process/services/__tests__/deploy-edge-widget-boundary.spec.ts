@@ -6,6 +6,7 @@ import { BadRequestException } from '@nestjs/common';
 import { ScadaPackage, ScadaPackageStatus } from '../../entities/scada-package.entity';
 import { Process } from '../../entities/process.entity';
 import { ScadaPackageService } from '../scada-package.service';
+import { ArtifactService } from '../../../deploy-artifact/artifact.service';
 import { MqttClientService } from '../../../shared-mqtt/mqtt-client.service';
 import { EdgeDeviceService } from '../../../edge-device/edge-device.service';
 
@@ -19,6 +20,10 @@ import { EdgeDeviceService } from '../../../edge-device/edge-device.service';
  * with every violator named; decorative/display-only widgets are STRIPPED
  * from the shipped payload (the stored row keeps them) and the success
  * message says so.
+ *
+ * M1 additionally made the deploy fail-closed on snapshots: every success
+ * path below ships a content-addressed artifact, and (with no signing key
+ * configured platform-wide) the result message carries the UNSIGNED marker.
  */
 
 const TENANT = 'tenant-uuid-1';
@@ -53,6 +58,7 @@ describe('deploy edge-widget boundary (CONTRACT-H-002)', () => {
   let service: ScadaPackageService;
   let repo: { findOne: jest.Mock; save: jest.Mock };
   let publish: jest.Mock;
+  let snapshot: jest.Mock;
 
   beforeEach(async () => {
     repo = {
@@ -60,6 +66,7 @@ describe('deploy edge-widget boundary (CONTRACT-H-002)', () => {
       save: jest.fn().mockImplementation((e) => Promise.resolve(e)),
     };
     publish = jest.fn().mockResolvedValue(undefined);
+    snapshot = jest.fn().mockResolvedValue({ id: 'art-1', contentSha256: 'a'.repeat(64) });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -67,6 +74,7 @@ describe('deploy edge-widget boundary (CONTRACT-H-002)', () => {
         { provide: EventEmitter2, useValue: { emit: jest.fn() } },
         { provide: getRepositoryToken(ScadaPackage), useValue: repo },
         { provide: getRepositoryToken(Process), useValue: { findOne: jest.fn() } },
+        { provide: ArtifactService, useValue: { snapshot } },
         {
           provide: MqttClientService,
           useValue: { isConnectedToBroker: () => true, publish },
@@ -124,7 +132,7 @@ describe('deploy edge-widget boundary (CONTRACT-H-002)', () => {
     expect(storedScreens[0]!.widgets).toHaveLength(3);
   });
 
-  it('a fully-supported package deploys with no strip note', async () => {
+  it('a fully-supported package deploys with no strip note (but the UNSIGNED marker, M1)', async () => {
     repo.findOne.mockResolvedValue(
       pkgRow([widget('w-gauge', 'gauge'), widget('w-toggle', 'toggleSwitch')]),
     );
@@ -132,8 +140,11 @@ describe('deploy edge-widget boundary (CONTRACT-H-002)', () => {
     const result = await service.deployScadaPackageToEdge('pkg-1', 'dev-1', TENANT, 'user-1');
 
     expect(result.success).toBe(true);
-    expect(result.message).toBe('SCADA package deployed successfully');
-    const [, payload] = publish.mock.calls[0] as [string, { params: { screens: Array<{ widgets: unknown[] }> } }];
+    expect(result.message).toContain('SCADA package deployed successfully');
+    expect(result.message).not.toMatch(/stripped/);
+    expect(result.message).toContain('UNSIGNED'); // no signing key configured platform-wide
+    expect(snapshot).toHaveBeenCalledTimes(1); // fail-closed: every deploy is snapshotted
+    const [, payload] = publish.mock.calls[0] as [string, { params: { screens: Array<{ widgets: Array<{ id: string }> }> } }];
     expect(payload.params.screens[0]!.widgets).toHaveLength(2);
   });
 });

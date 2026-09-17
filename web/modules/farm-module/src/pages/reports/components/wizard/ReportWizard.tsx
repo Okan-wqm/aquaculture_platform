@@ -159,6 +159,7 @@ export const ReportWizard: React.FC<ReportWizardProps> = ({
 
   return (
     <Modal
+      className="sd-f2"
       isOpen={isOpen}
       onClose={handleClose}
       title={title}

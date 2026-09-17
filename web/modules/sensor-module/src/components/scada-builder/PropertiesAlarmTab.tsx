@@ -5,21 +5,13 @@
 
 import React from 'react';
 import { Plus, Trash2 } from 'lucide-react';
+import type { AlarmRuleDef } from '../../store/scada/types';
 
 // ---------------------------------------------------------------------------
-// Types
+// Types — canonical definitions live in the store (no duplicate shapes)
 // ---------------------------------------------------------------------------
 
-export interface AlarmRule {
-  id: string;
-  tag: string;
-  condition: string;
-  value: number;
-  severity: 'critical' | 'high' | 'warning' | 'info';
-  message: string;
-  deadband?: number;
-  delay?: number;
-}
+export type AlarmRule = AlarmRuleDef;
 
 interface PropertiesAlarmTabProps {
   alarmRules: AlarmRule[];

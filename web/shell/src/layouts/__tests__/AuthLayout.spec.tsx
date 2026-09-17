@@ -64,7 +64,9 @@ describe('AuthLayout', () => {
 
     expect(screen.getByRole('region', { name: 'Suderra authentication' })).toBeTruthy();
     expect(screen.getByText('Real auth route')).toBeTruthy();
-    expect(screen.getAllByText('Authorized access only')).toHaveLength(1);
+    // Card chrome: server-region chip + zero-trust security strip (mockup copy).
+    expect(screen.getByText('eu-west · 24ms')).toBeTruthy();
+    expect(screen.getAllByText('End-to-end encrypted · Zero-trust session')).toHaveLength(1);
   });
 
   it('redirects only when React auth state, lifecycle, user, and token all agree', async () => {

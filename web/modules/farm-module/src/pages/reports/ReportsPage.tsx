@@ -11,6 +11,20 @@
  * - Welfare Events (IMMEDIATE)
  * - Disease Outbreak (IMMEDIATE)
  * - Escape Report (IMMEDIATE)
+ *
+ * DATA SOURCES (all real backend - no mocked data in this tree):
+ * - Submission summary counts: useRegulatoryReportSummary (GraphQL, FARM-HIGH-125)
+ * - Per-tab data: each tab queries real GraphQL hooks (see tab file headers)
+ * - Deadline math: utils/thresholds (client-side calendar - legitimate)
+ * - ReportsDueSection: regulatory draft approvals (RPT-003, real mutations)
+ *
+ * SUDERRA restyle - shell only; tab bodies, wizard and modals are themed via
+ * the `.sd-f2` compat layer (page-family scoped remaps in shell index.css,
+ * compat I-V). Modals opt in by passing className="sd-f2" to shared-ui Modal
+ * (portals land outside .sd-page, so the class travels with the panel).
+ *
+ * Norwegian regulatory terms (lakselus, Planlagt Slakt, lokalitetsnummer...)
+ * are intentional Mattilsynet/Fiskeridirektoratet vocabulary - keep them.
  */
 import React, { useMemo, useState } from 'react';
 import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
@@ -352,114 +366,120 @@ export const ReportsPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Warning Banner */}
+    <div className="sd-page sd-f2">
+      {/* Failed / due-soon warning (copy is load-bearing: ReportsPage.spec
+          matches /N failed submissions/) */}
       <WarningBanner failedCount={totals.failed} dueSoonCount={dueSoonCount} />
 
-      {/* Page Header */}
-      <div className="bg-white border-b border-gray-200">
-        <div className="px-4 sm:px-6 py-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Regulatory Reports</h1>
-              <p className="mt-1 text-sm text-gray-500">
-                Norwegian aquaculture compliance reports for Mattilsynet and Fiskeridirektoratet
-              </p>
-            </div>
-            <div className="flex items-center space-x-3">
-              {/* Summary Stats */}
-              <div className="hidden sm:flex items-center space-x-4 mr-4">
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-gray-900">{totals.pending}</div>
-                  <div className="text-xs text-gray-500">Pending</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-red-600">{totals.failed}</div>
-                  <div className="text-xs text-gray-500">Failed</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-green-600">{totals.submitted}</div>
-                  <div className="text-xs text-gray-500">Submitted</div>
-                </div>
-              </div>
+      {/* Page header (SUDERRA pattern: eyebrow + serif title + subtitle).
+          'Regulatory Reports' text is load-bearing (spec findByText). */}
+      <div className="sd-pagehead">
+        <span className="sd-eyebrow">Compliance</span>
+        <h1 className="sd-page-title">Regulatory Reports</h1>
+        <span className="sd-page-sub">
+          Norwegian aquaculture compliance reports for Mattilsynet and Fiskeridirektoratet
+        </span>
+      </div>
 
-              {/* Report Settings Button */}
-              <button
-                type="button"
-                onClick={() => setShowSettingsModal(true)}
-                className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                title="Report Settings"
-              >
-                <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-                Report Settings
-              </button>
+      {/* Actions row */}
+      <div className="sd-actions">
+        <button
+          type="button"
+          onClick={() => setShowSettingsModal(true)}
+          className="sd-btn-ghost"
+          title="Report Settings"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+          Report Settings
+        </button>
 
-              {/* Export (FARM-LOW-119) — CSV of the active tab's persisted
-                  submissions. Biomass keeps its own draft table and has no
-                  regulatory_reports rows, so no export renders there. */}
-              {activeExportTypes && (
-                <ExportSubmissionsButton
-                  primaryType={activeExportTypes[0]}
-                  secondaryType={activeExportTypes[1]}
-                  filename={`regulatory-submissions-${activeTab}.csv`}
-                />
-              )}
-            </div>
+        {/* Export (FARM-LOW-119) - CSV of the active tab's persisted
+            submissions. Biomass keeps its own draft table and has no
+            regulatory_reports rows, so no export renders there. */}
+        {activeExportTypes && (
+          <ExportSubmissionsButton
+            primaryType={activeExportTypes[0]}
+            secondaryType={activeExportTypes[1]}
+            filename={`regulatory-submissions-${activeTab}.csv`}
+          />
+        )}
+      </div>
+
+      {/* Submission summary - SUDERRA serif stat cards (real GraphQL counts) */}
+      <div className="sd-stat-grid">
+        <div className="sd-card sd-card--dash sd-stat-card">
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+            <span className="sd-stat-title">Pending</span>
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#0b4f60" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
           </div>
+          <div>
+            <span className="sd-stat-value" style={{ fontSize: 24 }}>{totals.pending}</span>
+          </div>
+          <div className="sd-stat-change"><span className="sd-dot sd-dot--cyan" />Awaiting submission</div>
+        </div>
+        <div className={`sd-card sd-card--dash sd-stat-card${totals.failed > 0 ? ' sd-stat-card--danger' : ''}`}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+            <span className="sd-stat-title">Failed</span>
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#b04a28" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" />
+            </svg>
+          </div>
+          <div>
+            <span className="sd-stat-value" style={{ fontSize: 24 }}>{totals.failed}</span>
+          </div>
+          <div className="sd-stat-change">
+            <span className={`sd-dot ${totals.failed > 0 ? 'sd-dot--red' : 'sd-dot--mint'}`} />
+            {totals.failed > 0 ? 'Resubmission needed' : 'No failures'}
+          </div>
+        </div>
+        <div className="sd-card sd-card--dash sd-stat-card">
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+            <span className="sd-stat-title">Submitted</span>
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#166f5a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <div>
+            <span className="sd-stat-value" style={{ fontSize: 24 }}>{totals.submitted}</span>
+          </div>
+          <div className="sd-stat-change"><span className="sd-dot sd-dot--mint" />Delivered to authorities</div>
         </div>
       </div>
 
-      {/* Scheduled report drafts due (RPT-003) — assembled each period by the
+      {/* Scheduled report drafts due (RPT-003) - assembled each period by the
           scheduler; approve & submit / refresh / dismiss from here. */}
       <ReportsDueSection />
 
-      {/* Tab Navigation */}
-      <div className="bg-white border-b border-gray-200">
-        <div className="px-4 sm:px-6">
-          <nav className="-mb-px flex space-x-8 overflow-x-auto" aria-label="Report tabs">
-            {reportTabs.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => handleTabChange(tab.path)}
-                className={`
-                  group inline-flex items-center py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap
-                  ${
-                    activeTab === tab.id
-                      ? 'border-blue-500 text-blue-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }
-                `}
-                title={tab.description}
-              >
-                <span
-                  className={`mr-2 ${
-                    activeTab === tab.id
-                      ? 'text-blue-500'
-                      : 'text-gray-400 group-hover:text-gray-500'
-                  }`}
-                >
-                  {tab.icon}
-                </span>
-                {tab.label}
-                {/* Deadline indicator */}
-                {tab.deadline === 'immediate' && (
-                  <span className="ml-1.5 w-2 h-2 rounded-full bg-red-500" title="Immediate reporting required" />
-                )}
-                {/* Badge */}
-                {tab.badge && tab.badgeVariant && (
-                  <Badge count={tab.badge} variant={tab.badgeVariant} />
-                )}
-              </button>
-            ))}
-          </nav>
-        </div>
-      </div>
+      {/* Tab Navigation - SUDERRA underline tabs. Real <button> with the
+          count Badge INSIDE the button is load-bearing (spec:
+          getByRole('button', { name: /Sea Lice/ }).toHaveTextContent('4')). */}
+      <nav className="sd-tabs" aria-label="Report tabs">
+        {reportTabs.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => handleTabChange(tab.path)}
+            className={`sd-tab${activeTab === tab.id ? ' sd-tab--active' : ''}`}
+            title={tab.description}
+          >
+            {tab.icon}
+            {tab.label}
+            {tab.deadline === 'immediate' && (
+              <span className="ml-1.5 w-2 h-2 rounded-full bg-red-500" title="Immediate reporting required" />
+            )}
+            {tab.badge && tab.badgeVariant && (
+              <Badge count={tab.badge} variant={tab.badgeVariant} />
+            )}
+          </button>
+        ))}
+      </nav>
 
       {/* Tab Content */}
-      <div className="px-4 sm:px-6 py-6">
+      <div>
         <Routes>
           <Route path="sea-lice" element={<SeaLiceReportTab />} />
           <Route path="biomass" element={<BiomassReportTab />} />

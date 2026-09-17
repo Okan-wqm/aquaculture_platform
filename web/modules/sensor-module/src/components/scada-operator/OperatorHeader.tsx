@@ -11,6 +11,14 @@
  *
  * The alarm badge reflects the worst-severity active count and toggles the
  * alarm panel in the shell when clicked.
+ *
+ * ISA-18.2 annunciation (T2): the badge FLASHES while the worst active alarm
+ * is UNACKNOWLEDGED and goes STEADY once acknowledged. Severity is carried by
+ * COLOR only. Shelving is a known deviation (not implemented — see the note
+ * on AlarmStatusSummary).
+ *
+ * T4: the role chip displays the server-authoritative role from the socket
+ * AUTH handshake. There is no client-side role switching.
  */
 
 import React, { useState, useEffect, useCallback, memo } from 'react';
@@ -20,12 +28,10 @@ import {
   Bell,
   Clock,
   User,
-  ChevronDown,
   AlertTriangle,
-  Shield,
 } from 'lucide-react';
 
-import { useOperatorStore } from '../../store/scada/operatorStore';
+import { useScadaPackageStore } from '../../store/scada/createScadaStore';
 import { useRealtimeData } from '../../hooks/useRealtimeData';
 import type {
   OperatorLayoutConfig,
@@ -64,7 +70,22 @@ const ROLE_BADGE: Record<HmiRole, string> = {
   viewer:     'bg-gray-600 text-gray-200',
 };
 
-const ALL_ROLES: HmiRole[] = ['viewer', 'operator', 'engineer', 'supervisor', 'admin'];
+/* ------------------------------------------------------------------ */
+/*  ISA-18.2 flash keyframes (injected once)                            */
+/* ------------------------------------------------------------------ */
+
+let flashStyleInjected = false;
+
+function injectFlashStyle(): void {
+  if (flashStyleInjected || typeof document === 'undefined') return;
+  const style = document.createElement('style');
+  style.textContent = `
+@keyframes scada-alarm-flash { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0.15; } }
+.scada-alarm-flash { animation: scada-alarm-flash 0.75s step-end infinite; }
+`;
+  document.head.appendChild(style);
+  flashStyleInjected = true;
+}
 
 /* ------------------------------------------------------------------ */
 /*  LiveClock — isolated so only this subtree re-renders on tick       */
@@ -181,29 +202,49 @@ HeaderItemRenderer.displayName = 'HeaderItemRenderer';
 /* ------------------------------------------------------------------ */
 
 const AlarmBadge = memo(() => {
-  const { toggleAlarmPanel, alarmPanelOpen } = useOperatorStore(
+  const { toggleAlarmPanel, alarmPanelOpen } = useScadaPackageStore(
     useShallow((s) => ({
       toggleAlarmPanel: s.toggleAlarmPanel,
       alarmPanelOpen:   s.alarmPanelOpen,
     })),
   );
 
-  // Read alarm summary from the store (alarmRuntimeSlice merged in).
-  const summary = useOperatorStore(
-    (s) =>
-      (
-        s as unknown as {
-          alarmStatusSummary: { critical: number; high: number; warning: number; info: number } | null;
-        }
-      ).alarmStatusSummary,
-  );
+  useEffect(() => {
+    injectFlashStyle();
+  }, []);
+
+  // T1: alarm summary + active alarms are read from the unified package
+  // store's alarmRuntimeSlice — no cast-reads against a foreign store.
+  const summary = useScadaPackageStore((s) => s.alarmStatusSummary);
+  const activeAlarms = useScadaPackageStore((s) => s.activeAlarms);
 
   const badge = (() => {
     if (!summary) return null;
-    if (summary.critical > 0) return { count: summary.critical, severity: 'critical' as AlarmSeverity };
-    if (summary.high     > 0) return { count: summary.high,     severity: 'high'     as AlarmSeverity };
-    if (summary.warning  > 0) return { count: summary.warning,  severity: 'warning'  as AlarmSeverity };
-    if (summary.info     > 0) return { count: summary.info,     severity: 'info'     as AlarmSeverity };
+
+    // ISA-18.2: unacknowledged counts drive the FLASH state. Until the
+    // backend lands the additive `unacked` field, derive it from the
+    // 4-state model: status 'active' === ON and not yet acknowledged.
+    const unackedFromInstances = (sev: AlarmSeverity): number =>
+      // Mirror the backend's unacked definition: active OR cleared-unacked
+      // (no ackTime yet) — acknowledged alarms stop flashing.
+      activeAlarms.filter(
+        (a) => a.severity === sev && (a.status === 'active' || (a.status === 'cleared' && a.ackTime == null)),
+      ).length;
+    const unackedCount = (sev: AlarmSeverity): number =>
+      summary.unacked ? summary.unacked[sev] : unackedFromInstances(sev);
+    const activeCount = (sev: AlarmSeverity): number => summary[sev];
+
+    const severities: AlarmSeverity[] = ['critical', 'high', 'warning', 'info'];
+    for (const sev of severities) {
+      if (unackedCount(sev) > 0) {
+        return { count: activeCount(sev), severity: sev, flashing: true };
+      }
+    }
+    for (const sev of severities) {
+      if (activeCount(sev) > 0) {
+        return { count: activeCount(sev), severity: sev, flashing: false };
+      }
+    }
     return null;
   })();
 
@@ -215,7 +256,7 @@ const AlarmBadge = memo(() => {
       onClick={handleClick}
       aria-label={
         badge
-          ? `${badge.count} active ${badge.severity} alarm${badge.count !== 1 ? 's' : ''} — click to ${alarmPanelOpen ? 'close' : 'open'} alarm panel`
+          ? `${badge.count} active ${badge.severity} alarm${badge.count !== 1 ? 's' : ''}${badge.flashing ? ' (unacknowledged)' : ''} — click to ${alarmPanelOpen ? 'close' : 'open'} alarm panel`
           : `No active alarms — click to ${alarmPanelOpen ? 'close' : 'open'} alarm panel`
       }
       aria-pressed={alarmPanelOpen}
@@ -228,7 +269,17 @@ const AlarmBadge = memo(() => {
       {badge ? (
         <AlertTriangle
           size={16}
-          className={badge.severity === 'critical' ? 'text-red-400 animate-pulse' : 'text-yellow-400'}
+          // ISA-18.2: FLASH while unacknowledged, STEADY once acked.
+          // Severity is communicated by the badge color, not the animation.
+          className={`${badge.flashing ? 'scada-alarm-flash ' : ''}${
+            badge.severity === 'critical'
+              ? 'text-red-400'
+              : badge.severity === 'high'
+                ? 'text-orange-400'
+                : badge.severity === 'warning'
+                  ? 'text-yellow-400'
+                  : 'text-blue-400'
+          }`}
           aria-hidden="true"
         />
       ) : (
@@ -241,6 +292,7 @@ const AlarmBadge = memo(() => {
             flex items-center justify-center rounded-full
             text-[10px] font-bold leading-none pointer-events-none
             ${SEVERITY_BADGE[badge.severity]}
+            ${badge.flashing ? 'scada-alarm-flash' : ''}
           `}
           aria-hidden="true"
         >
@@ -253,96 +305,34 @@ const AlarmBadge = memo(() => {
 AlarmBadge.displayName = 'AlarmBadge';
 
 /* ------------------------------------------------------------------ */
-/*  UserRoleMenu                                                        */
+/*  UserRoleChip — server-authoritative role display (T4)               */
 /* ------------------------------------------------------------------ */
 
-const UserRoleMenu = memo(() => {
-  const { currentUserRole, setCurrentUserRole } = useOperatorStore(
-    useShallow((s) => ({
-      currentUserRole:    s.currentUserRole,
-      setCurrentUserRole: s.setCurrentUserRole,
-    })),
-  );
-
-  const [open, setOpen] = useState(false);
+/**
+ * Displays the role the SERVER granted on the socket AUTH handshake.
+ * The previous free "Switch Role" menu let any browser session escalate to
+ * admin with no authentication — the menu is removed outright; the role can
+ * only change by re-authenticating (JWT) server-side.
+ */
+const UserRoleChip = memo(() => {
+  const currentUserRole = useScadaPackageStore((s) => s.currentUserRole);
   const roleClass = ROLE_BADGE[currentUserRole] ?? ROLE_BADGE.viewer;
 
   return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="
-          flex items-center gap-1.5 px-2 py-1.5 rounded text-xs
-          text-gray-300 hover:bg-gray-700 transition-colors
-          focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500
-        "
-        aria-label="User role menu"
-        aria-expanded={open}
-        aria-haspopup="listbox"
+    <div
+      className="flex items-center gap-1.5 px-2 py-1.5 rounded text-xs text-gray-300"
+      title={`Role assigned by the server (${currentUserRole}) — switching requires re-authentication`}
+    >
+      <User size={14} className="text-gray-400 shrink-0" aria-hidden="true" />
+      <span
+        className={`px-1.5 py-0.5 rounded text-[11px] font-semibold uppercase tracking-wide ${roleClass}`}
       >
-        <User size={14} className="text-gray-400 shrink-0" aria-hidden="true" />
-        <span
-          className={`px-1.5 py-0.5 rounded text-[11px] font-semibold uppercase tracking-wide ${roleClass}`}
-          title={`Current role: ${currentUserRole}`}
-        >
-          {currentUserRole}
-        </span>
-        <ChevronDown size={12} className="text-gray-500 shrink-0" aria-hidden="true" />
-      </button>
-
-      {open && (
-        <>
-          {/* Dismiss backdrop */}
-          <div
-            className="fixed inset-0 z-50"
-            onClick={() => setOpen(false)}
-            aria-hidden="true"
-          />
-          <ul
-            className="absolute right-0 top-full mt-1 w-44 bg-gray-800 border border-gray-700 rounded-lg shadow-2xl z-50 overflow-hidden py-1"
-            role="listbox"
-            aria-label="Switch HMI role"
-          >
-            <li className="px-3 pt-2 pb-1">
-              <span className="text-[10px] text-gray-500 uppercase font-semibold tracking-wider">
-                Switch Role
-              </span>
-            </li>
-            {ALL_ROLES.map((role) => (
-              <li key={role} role="option" aria-selected={role === currentUserRole}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCurrentUserRole(role);
-                    setOpen(false);
-                  }}
-                  className={`
-                    w-full flex items-center gap-2 px-3 py-2 text-xs text-left transition-colors
-                    ${role === currentUserRole
-                      ? 'bg-gray-700 text-gray-100'
-                      : 'text-gray-300 hover:bg-gray-700/60 hover:text-gray-100'}
-                  `}
-                >
-                  <Shield
-                    size={12}
-                    className={`shrink-0 ${ROLE_BADGE[role].split(' ')[1] ?? 'text-gray-400'}`}
-                    aria-hidden="true"
-                  />
-                  <span className="capitalize flex-1">{role}</span>
-                  {role === currentUserRole && (
-                    <span className="text-[10px] text-blue-400" aria-hidden="true">active</span>
-                  )}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
+        {currentUserRole}
+      </span>
     </div>
   );
 });
-UserRoleMenu.displayName = 'UserRoleMenu';
+UserRoleChip.displayName = 'UserRoleChip';
 
 /* ------------------------------------------------------------------ */
 /*  OperatorHeader                                                      */
@@ -350,7 +340,7 @@ UserRoleMenu.displayName = 'UserRoleMenu';
 
 export const OperatorHeader = memo<OperatorHeaderProps>(
   ({ config, projectName }) => {
-    const { sidenavOpen, toggleSidenav, operatorLayout } = useOperatorStore(
+    const { sidenavOpen, toggleSidenav, operatorLayout } = useScadaPackageStore(
       useShallow((s) => ({
         sidenavOpen:     s.sidenavOpen,
         toggleSidenav:   s.toggleSidenav,
@@ -435,8 +425,8 @@ export const OperatorHeader = memo<OperatorHeaderProps>(
 
           <div className="w-px h-5 bg-gray-700" aria-hidden="true" />
 
-          {/* User / role */}
-          <UserRoleMenu />
+          {/* User / role — server-authoritative display only (T4) */}
+          <UserRoleChip />
         </div>
       </header>
     );

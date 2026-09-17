@@ -31,14 +31,17 @@
 
 import { clientsClaim } from 'workbox-core';
 import { ExpirationPlugin } from 'workbox-expiration';
-import { precacheAndRoute, cleanupOutdatedCaches, PrecacheFallbackPlugin } from 'workbox-precaching';
+import {
+  precacheAndRoute,
+  cleanupOutdatedCaches,
+  PrecacheFallbackPlugin,
+} from 'workbox-precaching';
 import { registerRoute } from 'workbox-routing';
 import { NetworkFirst, CacheFirst, StaleWhileRevalidate } from 'workbox-strategies';
 
 import { logger } from '../utils/logger';
 
 import { handleBackgroundSyncEvent } from './sw-replay';
-
 
 declare const self: ServiceWorkerGlobalScope & typeof globalThis;
 
@@ -197,11 +200,10 @@ function handleNotificationClick(event: NotificationEvent): void {
 
   if (event.action === 'dismiss') return;
 
-  const rawNotificationRef = (event.notification.data as { notificationRef?: string })?.notificationRef;
+  const rawNotificationRef = (event.notification.data as { notificationRef?: string })
+    ?.notificationRef;
   const notificationRef =
-    rawNotificationRef && UUID_PATTERN.test(rawNotificationRef)
-      ? rawNotificationRef
-      : undefined;
+    rawNotificationRef && UUID_PATTERN.test(rawNotificationRef) ? rawNotificationRef : undefined;
   // WHY: openWindow() operates on absolute browser paths, not React Router
   // relative paths. The APP_BASENAME prefix ensures the URL resolves to the
   // AquaMobil SPA so React Router can handle the /messages/* route.
@@ -299,15 +301,17 @@ async function staleWhileRevalidateStrategy(request: Request): Promise<Response>
   const cache = await caches.open(cacheName);
   const cached = await cache.match(request);
 
-  const fetchPromise = fetch(request.clone()).then((networkResponse) => {
-    if (networkResponse.ok) {
-      void cache.put(request, networkResponse.clone());
-    }
-    return networkResponse;
-  }).catch((error: unknown) => {
-    logger.error('[sw-revalidate] background cache revalidation failed', error);
-    return undefined;
-  });
+  const fetchPromise = fetch(request.clone())
+    .then((networkResponse) => {
+      if (networkResponse.ok) {
+        void cache.put(request, networkResponse.clone());
+      }
+      return networkResponse;
+    })
+    .catch((error: unknown) => {
+      logger.error('[sw-revalidate] background cache revalidation failed', error);
+      return undefined;
+    });
 
   if (cached) {
     // Serve from cache immediately, revalidate in background
@@ -345,9 +349,5 @@ self.addEventListener('message', ((event: ExtendableMessageEvent) => {
 
 async function clearMessagingCaches(): Promise<void> {
   const keys = await caches.keys();
-  await Promise.all(
-    keys
-      .filter((k) => k.startsWith('messaging-'))
-      .map((k) => caches.delete(k)),
-  );
+  await Promise.all(keys.filter((k) => k.startsWith('messaging-')).map((k) => caches.delete(k)));
 }

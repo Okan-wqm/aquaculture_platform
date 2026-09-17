@@ -156,7 +156,11 @@ export const EscapeReportTab: React.FC<EscapeReportTabProps> = ({ siteId }) => {
 
   // The escape varsling is incident-triggered; the period is nominal (the
   // assembler reads the latest open, unreported incident for the site).
-  const { effectiveSiteId } = useEffectiveReportSite(siteId);
+  const { effectiveSiteId, siteMappings } = useEffectiveReportSite(siteId);
+  // Mapping name is optional; neutral fallback keeps titles non-fabricated.
+  const effectiveSiteName =
+    siteMappings.find((m) => m.siteId === effectiveSiteId)?.siteName ?? 'Unknown site';
+
   const prefillPeriod = useMemo(() => ({ year: new Date().getFullYear() }), []);
   const { data: prefill } = useReportPrefill<EscapePrefillPayload>(
     'ESCAPE',
@@ -172,7 +176,13 @@ export const EscapeReportTab: React.FC<EscapeReportTabProps> = ({ siteId }) => {
     // Resolve the Mattilsynet identity block — throws RegulatoryConfigError if
     // the tenant is not configured. The modal surfaces the thrown message and
     // stays open (it only closes when this promise RESOLVES).
-    const reportSiteId = data.siteId || siteId || 'site-001';
+    // Behavior fix: this previously fell through to the placeholder 'site-001',
+    // which never matches a locality mapping, so buildRegulatoryIdentity always
+    // threw and immediate reports could not be submitted. effectiveSiteId
+    // resolves prop > operator selection > first configured mapping; when no
+    // mapping exists it stays undefined and identity resolution still fails
+    // closed with the configuration error.
+    const reportSiteId = data.siteId || effectiveSiteId;
     const identity = buildRegulatoryIdentity(regulatorySettings, reportSiteId);
 
     const result = await submitEscapeReport.mutateAsync({
@@ -180,7 +190,7 @@ export const EscapeReportTab: React.FC<EscapeReportTabProps> = ({ siteId }) => {
       organisasjonsnummer: identity.organisasjonsnummer,
       lokalitetsnummer: identity.lokalitetsnummer,
       siteId: reportSiteId,
-      siteName: data.siteName || 'Unknown site',
+      siteName: data.siteName || effectiveSiteName,
       kontaktperson: identity.kontaktperson,
       siteManagerEmail: identity.siteManagerEmail,
       detectedAt: (data.detectedAt ?? new Date()).toISOString(),
@@ -236,7 +246,7 @@ export const EscapeReportTab: React.FC<EscapeReportTabProps> = ({ siteId }) => {
       <EscapeAssembledReview prefill={prefill} />
 
       {/* Submission History */}
-      <SubmissionHistorySection reportType="ESCAPE" siteId={siteId} />
+      <SubmissionHistorySection reportType="ESCAPE" siteId={effectiveSiteId} />
 
       {/* Modal */}
       <EscapeReportModal
@@ -245,8 +255,8 @@ export const EscapeReportTab: React.FC<EscapeReportTabProps> = ({ siteId }) => {
           setIsModalOpen(false);
         }}
         onSubmit={handleModalSubmit}
-        siteId={siteId || 'site-001'}
-        siteName="Default Site"
+        siteId={effectiveSiteId}
+        siteName={effectiveSiteName}
       />
     </div>
   );

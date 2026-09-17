@@ -770,9 +770,9 @@ export function getSourceLabel(source: MeasurementSource): string {
     case 'MANUAL':
       return 'Manuel';
     case 'SENSOR_AUTOMATIC':
-      return 'Otomatik Sensör';
+      return 'Automatic Sensor';
     case 'SENSOR_TRIGGERED':
-      return 'Tetiklenmiş Sensör';
+      return 'Triggered Sensor';
     case 'LAB_ANALYSIS':
       return 'Laboratuvar';
     case 'CALIBRATION':

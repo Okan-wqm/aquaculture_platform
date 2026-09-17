@@ -195,33 +195,40 @@ export const Modal: React.FC<ModalProps> = ({
       aria-labelledby={title ? 'modal-title' : undefined}
       aria-describedby={description ? 'modal-description' : undefined}
     >
-      {/* Overlay */}
+      {/* Overlay — SUDERRA deep-water blur */}
       <div
-        className="fixed inset-0 bg-black/50 transition-opacity"
+        className="fixed inset-0 transition-opacity"
+        style={{ background: 'rgba(5,21,35,.45)', backdropFilter: 'blur(6px)' }}
         onClick={handleOverlayClick}
         aria-hidden="true"
       />
 
-      {/* Modal içeriği */}
+      {/* Modal içeriği — SUDERRA parchment panel */}
       <div
         ref={modalRef}
         tabIndex={-1}
         className={`
           relative w-full ${sizeStyles[size]}
-          bg-white rounded-lg shadow-xl
           transform transition-all
           my-8
           ${className}
         `}
+        style={{
+          background: '#fffdf8',
+          border: '1px solid rgba(10,31,43,.09)',
+          borderRadius: 18,
+          boxShadow: '0 24px 70px rgba(5,21,35,.35)',
+        }}
       >
         {/* Header */}
         {(title || showCloseButton) && (
-          <div className="flex items-start justify-between p-4 border-b border-gray-200">
+          <div className="flex items-start justify-between p-4 border-b" style={{ borderColor: 'rgba(10,31,43,.08)' }}>
             <div>
               {title && (
                 <h2
                   id="modal-title"
-                  className="text-lg font-semibold text-gray-900"
+                  className="text-lg font-semibold"
+                  style={{ fontFamily: 'var(--font-display, inherit)', color: '#0a1f2b', margin: 0 }}
                 >
                   {title}
                 </h2>
@@ -229,7 +236,8 @@ export const Modal: React.FC<ModalProps> = ({
               {description && (
                 <p
                   id="modal-description"
-                  className="mt-1 text-sm text-gray-500"
+                  className="mt-1 text-sm"
+                  style={{ color: '#5c7783' }}
                 >
                   {description}
                 </p>
@@ -239,7 +247,8 @@ export const Modal: React.FC<ModalProps> = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="p-1 text-gray-500 hover:text-gray-500 hover:bg-gray-100 rounded-lg transition-colors"
+                className="p-1 rounded-lg transition-colors"
+                style={{ color: '#8aa0aa' }}
                 aria-label="Close"
               >
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -302,6 +311,8 @@ export interface ConfirmModalProps {
    * Undefined bırakırsan eski davranış korunur — tek-tık onay.
    */
   requireTypedConfirmation?: string;
+  /** Optional class for the underlying Modal panel (e.g. "sd-f2" for compat theming). */
+  className?: string;
 }
 
 /**
@@ -325,12 +336,13 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   onConfirm,
   title,
   message,
-  confirmText = 'Onayla',
-  cancelText = 'İptal',
+  confirmText = 'Confirm',
+  cancelText = 'Cancel',
   variant: variantProp = 'info',
   confirmVariant,
   isLoading = false,
   requireTypedConfirmation,
+  className,
 }) => {
   // isOpen ve open birleştir
   const isOpen = isOpenProp ?? open ?? false;
@@ -386,6 +398,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
       onClose={onClose}
       size="sm"
       showCloseButton={false}
+      className={className}
     >
       <div className="text-center">
         {/* İkon */}
@@ -405,15 +418,15 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
           <div className="mt-2 text-sm text-gray-500">{message}</div>
         )}
 
-        {/* Yazı-ile-onay gate — yalnızca requireTypedConfirmation verilmişse */}
+        {/* Typed-confirmation gate — only when requireTypedConfirmation is given */}
         {requireTypedConfirmation && (
           <div className="mt-4 text-left">
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Devam etmek için aşağıya{' '}
+              To continue, type{' '}
               <code className="font-mono font-semibold">
                 {requireTypedConfirmation}
               </code>{' '}
-              yazın
+              below
             </label>
             <input
               type="text"

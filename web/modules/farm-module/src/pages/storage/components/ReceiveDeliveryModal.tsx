@@ -84,6 +84,7 @@ export const ReceiveDeliveryModal: React.FC<Props> = ({ isOpen, onClose, purchas
 
   return (
     <Modal
+      className="sd-f2"
       isOpen={isOpen}
       onClose={onClose}
       title={`Receive Delivery - ${purchaseOrder.orderNumber}`}

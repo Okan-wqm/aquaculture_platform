@@ -19,6 +19,7 @@ export interface BulkActionsProps {
  * Bulk action bar for user list.
  * FIX (HIGH-05): Uses Promise.allSettled instead of Promise.all for resilient bulk operations.
  * Shows per-item results (success/failure) after bulk operation.
+ * SUDERRA restyle — mint selection band; behavior unchanged.
  */
 export const BulkActions: React.FC<BulkActionsProps> = ({
   selectedUsers,
@@ -61,34 +62,39 @@ export const BulkActions: React.FC<BulkActionsProps> = ({
   const successCount = results.filter((r) => r.status === 'fulfilled').length;
 
   return (
-    <div className="bg-tenant-50 rounded-xl p-4 space-y-2">
-      <div className="flex items-center justify-between">
-        <span className="text-sm text-tenant-700">{selectedUsers.length} user(s) selected</span>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleBulkDeactivate}
-            disabled={isDeactivating || running}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-red-700 bg-red-100 rounded-lg hover:bg-red-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isDeactivating || running ? (
-              <>
-                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                Deactivating...
-              </>
-            ) : (
-              <>
-                <UserMinus className="w-3.5 h-3.5" />
-                Deactivate
-              </>
-            )}
-          </button>
-        </div>
+    <div
+      className="sd-banner"
+      style={{ background: 'rgba(110,231,199,.16)', borderColor: 'rgba(74,187,162,.38)', display: 'flex', flexDirection: 'column', gap: 8 }}
+      role="status"
+    >
+      <div className="sd-toolbar" style={{ justifyContent: 'space-between' }}>
+        <span style={{ fontSize: 13.5, fontWeight: 600, color: '#166f5a' }}>
+          {selectedUsers.length} user(s) selected
+        </span>
+        <button
+          onClick={handleBulkDeactivate}
+          disabled={isDeactivating || running}
+          className="sd-btn-danger"
+          style={{ padding: '7px 14px', fontSize: 12.5 }}
+        >
+          {isDeactivating || running ? (
+            <>
+              <RefreshCw size={14} className="animate-spin" aria-hidden="true" />
+              Deactivating…
+            </>
+          ) : (
+            <>
+              <UserMinus size={14} aria-hidden="true" />
+              Deactivate
+            </>
+          )}
+        </button>
       </div>
       {results.length > 0 && failedCount > 0 && (
-        <div className="text-sm space-y-1">
-          <p className="text-green-700">{successCount} user(s) deactivated successfully.</p>
-          <p className="text-red-600">{failedCount} user(s) failed to deactivate:</p>
-          <ul className="list-disc list-inside text-red-600 text-xs">
+        <div style={{ fontSize: 13, display: 'grid', gap: 4 }}>
+          <p style={{ margin: 0, color: '#166f5a' }}>{successCount} user(s) deactivated successfully.</p>
+          <p style={{ margin: 0, color: '#8e3a1e', fontWeight: 600 }}>{failedCount} user(s) failed to deactivate:</p>
+          <ul style={{ margin: 0, paddingLeft: 18, color: '#8e3a1e', fontSize: 12 }}>
             {results
               .filter((r) => r.status === 'rejected')
               .map((r) => (

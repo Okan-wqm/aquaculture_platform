@@ -148,7 +148,7 @@ if (!root) {
 
 ReactDOM.createRoot(root).render(
   <React.StrictMode>
-    <I18nProvider>
+    <I18nProvider locale="en">
       <QueryClientProvider client={queryClient}>
         <ConfiguredBrowserRouter>
           <AuthProvider>

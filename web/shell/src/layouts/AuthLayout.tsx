@@ -15,8 +15,7 @@ import {
   useI18n,
   I18nProvider,
 } from '@aquaculture/shared-ui';
-import FishBackground from '../components/FishBackground';
-
+import ReefScene from '../components/ReefScene';
 const CURRENT_YEAR = new Date().getFullYear();
 
 const SecureLockIcon: React.FC = () => (
@@ -61,9 +60,9 @@ const AuthLayout: React.FC = () => {
     return <Navigate to="/" replace />;
   }
 
-  // The login/auth surface is presented in ENGLISH regardless of the app's
-  // browser-detected locale — a nested provider overrides it for this subtree
-  // only, so the rest of the app keeps its auto-detected language.
+  // The login/auth surface is presented in ENGLISH. The app-wide default is
+  // also pinned to English at the bootstrap provider, so this nested pin is
+  // now redundant-but-harmless (kept for standalone/auth-only mounts).
   return (
     <I18nProvider locale="en">
       <AuthChrome />
@@ -80,7 +79,7 @@ const AuthChrome: React.FC = () => {
 
   return (
     <div className="industrial-auth">
-      <FishBackground fishCount={20} />
+      <ReefScene density="high" />
 
       <main className="industrial-auth-main">
         {/* Single top-level landmark heading for the auth routes (visually hidden;
@@ -97,10 +96,11 @@ const AuthChrome: React.FC = () => {
           <div className="industrial-auth-card-header">
             <div
               className="industrial-auth-security-chip"
-              aria-label={t('auth.authorizedAccess')}
+              title="Server region"
+              aria-label="Server region"
             >
               <span className="industrial-auth-security-dot" />
-              access
+              eu-west · 24ms
             </div>
 
             <div className="industrial-auth-brand">
@@ -115,7 +115,7 @@ const AuthChrome: React.FC = () => {
 
           <div className="industrial-auth-card-security">
             <SecureLockIcon />
-            <span>{t('auth.authorizedAccess')}</span>
+            <span>{t('auth.secureSession')}</span>
           </div>
         </section>
       </main>
@@ -125,6 +125,13 @@ const AuthChrome: React.FC = () => {
           &copy; {CURRENT_YEAR} {BRAND.name}
         </span>
         <a href={BRAND.supportUrl}>{t('auth.support')}</a>
+        <a
+          href="#"
+          onClick={(e) => e.preventDefault()}
+          title={t('auth.systemStatus')}
+        >
+          {t('auth.systemStatus')}
+        </a>
       </footer>
     </div>
   );

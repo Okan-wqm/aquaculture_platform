@@ -10,6 +10,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { onTenantChange, registerLogoutCleanup } from '@aquaculture/shared-ui';
 import { useDataProvider } from '../providers';
 import type {
   ChartTimeRange,
@@ -53,14 +54,58 @@ const PRESET_MS: Record<ChartTimeRange, number | null> = {
 /*  Module-scope query cache                                            */
 /* ------------------------------------------------------------------ */
 
+/** Result cache entry — value plus the time it was fetched (for TTL). */
+interface CacheEntry {
+  data: Record<string, HistoricalDataPoint[]>;
+  fetchedAt: number;
+}
+
+/** Entries older than this are treated as absent (TTL). */
+const CACHE_TTL_MS = 60_000;
+
+/** Hard cap on cached queries; oldest entries evicted first. */
+const CACHE_MAX_ENTRIES = 100;
+
 /** Finished query results shared across hook instances. */
-const resultCache = new Map<string, Record<string, HistoricalDataPoint[]>>();
+const resultCache = new Map<string, CacheEntry>();
+
+/** Read a cache entry, enforcing TTL (expired entries are evicted lazily). */
+function cacheGet(key: string): Record<string, HistoricalDataPoint[]> | undefined {
+  const entry = resultCache.get(key);
+  if (!entry) return undefined;
+  if (Date.now() - entry.fetchedAt > CACHE_TTL_MS) {
+    resultCache.delete(key);
+    return undefined;
+  }
+  return entry.data;
+}
+
+/** Insert with size-bounded FIFO eviction. */
+function cacheSet(key: string, data: Record<string, HistoricalDataPoint[]>): void {
+  if (resultCache.has(key)) {
+    // Refresh LRU position + timestamp.
+    resultCache.delete(key);
+  } else if (resultCache.size >= CACHE_MAX_ENTRIES) {
+    const oldest = resultCache.keys().next().value;
+    if (oldest !== undefined) resultCache.delete(oldest);
+  }
+  resultCache.set(key, { data, fetchedAt: Date.now() });
+}
 
 /** In-flight promises so concurrent hooks with the same query share one fetch. */
 const inflightPromises = new Map<
   string,
   Promise<Record<string, HistoricalDataPoint[]>>
 >();
+
+/**
+ * SECURITY: trend results are tenant-scoped data. On logout / tenant switch
+ * the whole cache is purged (mirrors the store-reset pattern in
+ * createScadaStore.ts) so tenant A's history can never be served into
+ * tenant B's charts.
+ */
+registerLogoutCleanup(() => resultCache.clear());
+onTenantChange(() => resultCache.clear());
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                             */
@@ -143,7 +188,7 @@ export function useTrendData(
     const cacheKey = buildCacheKey(currentTagIds, resolved.from, resolved.to, aggregation);
 
     // Return cached result immediately (still show it while refreshing).
-    const cached = resultCache.get(cacheKey);
+    const cached = cacheGet(cacheKey);
     if (cached) {
       setData(cached);
       setError(null);
@@ -154,9 +199,11 @@ export function useTrendData(
     if (!promise) {
       setIsLoading(true);
       promise = provider
-        .queryHistory(currentTagIds, resolved.from, resolved.to)
+        // T8: the aggregation parameter reaches the provider (and from there
+        // the DAQ_QUERY payload) — the cache key already included it.
+        .queryHistory(currentTagIds, resolved.from, resolved.to, aggregation)
         .then((result) => {
-          resultCache.set(cacheKey, result.data);
+          cacheSet(cacheKey, result.data);
           return result.data;
         })
         .finally(() => {

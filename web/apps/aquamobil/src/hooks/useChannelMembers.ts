@@ -17,7 +17,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 
-
 import { useAuth } from './useAuth';
 
 import { GET_CHANNEL } from '@/graphql/messaging-operations';
@@ -32,10 +31,7 @@ import { createTenantQueryKey } from '@/utils/tenant-query-keys';
  * @returns Array of active (non-left) channel members
  */
 async function fetchChannelMembers(channelId: string): Promise<ChannelMember[]> {
-  const result = await graphqlRequest<{ channel: Channel }>(
-    GET_CHANNEL,
-    { id: channelId },
-  );
+  const result = await graphqlRequest<{ channel: Channel }>(GET_CHANNEL, { id: channelId });
 
   if (!result.channel?.members) {
     throw new Error('Invalid response: no channel members data');

@@ -45,9 +45,9 @@ describe('useMediaUpload — MIME allowlist (MSG-MEDIUM-057)', () => {
 
   it('rejects an arbitrary disallowed MIME client-side', async () => {
     const { result } = renderHook(() => useMediaUpload('channel-1'));
-    await expect(
-      result.current.uploadMedia(fakeFile('application/x-msdownload')),
-    ).rejects.toThrow(/not allowed/i);
+    await expect(result.current.uploadMedia(fakeFile('application/x-msdownload'))).rejects.toThrow(
+      /not allowed/i,
+    );
     expect(mockGraphqlRequest).not.toHaveBeenCalled();
   });
 

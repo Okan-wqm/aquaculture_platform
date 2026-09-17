@@ -261,7 +261,7 @@ export const EquipmentTab: React.FC = () => {
     if (deletePreview.affectedItems.childEquipment.length > 0) {
       affectedItems.push({
         type: 'childEquipment',
-        label: 'Alt Ekipmanlar',
+        label: 'Sub-Equipment',
         items: deletePreview.affectedItems.childEquipment.map((e) => ({
           id: e.id,
           name: e.name,
@@ -274,7 +274,7 @@ export const EquipmentTab: React.FC = () => {
     if (deletePreview.affectedItems.subEquipment.length > 0) {
       affectedItems.push({
         type: 'subEquipment',
-        label: 'Alt Parçalar',
+        label: 'Sub Parts',
         items: deletePreview.affectedItems.subEquipment.map((e) => ({
           id: e.id,
           name: e.name,
@@ -318,11 +318,13 @@ export const EquipmentTab: React.FC = () => {
     return selectedEquipmentType.specificationSchema;
   }, [selectedEquipmentType]);
 
-  // Check if current type is a feeder (for calibration section)
-  const isFeederType = useMemo(() => {
-    if (!selectedEquipmentType?.code) return false;
-    return selectedEquipmentType.code.startsWith('feeder-');
-  }, [selectedEquipmentType]);
+  // Feeder check for the calibration section: read the catalogue's own
+  // classification (category FEEDING), not the type-code shape — keeps the
+  // UI gate in agreement with the backend calibration sink.
+  const isFeederType = useMemo(
+    () => normalizeCategory(selectedEquipmentType?.category) === 'FEEDING',
+    [selectedEquipmentType],
+  );
 
   // Get equipment list from API or empty array. Memoized so the
   // filtered-list useMemo below keeps a stable dependency instead of a
@@ -1290,12 +1292,12 @@ export const EquipmentTab: React.FC = () => {
                     >
                       <option value="">
                         {deptError
-                          ? 'Departmanlar yüklenemedi'
+                          ? 'Failed to load departments'
                           : !formData.siteId
-                            ? 'Önce site seçin...'
+                            ? 'Select a site first...'
                             : departments.length === 0
-                              ? 'Bu site için departman bulunamadı'
-                              : 'Departman seçin...'}
+                              ? 'No departments found for this site'
+                              : 'Select a department...'}
                       </option>
                       {departments.map((dept) => (
                         <option key={dept.id} value={dept.id}>
@@ -1305,7 +1307,7 @@ export const EquipmentTab: React.FC = () => {
                     </select>
                     {deptError && (
                       <p className="text-xs text-red-500 mt-1">
-                        Departmanlar yüklenirken hata oluştu
+                        Error loading departments
                       </p>
                     )}
                   </div>
@@ -1592,9 +1594,9 @@ export const EquipmentTab: React.FC = () => {
         isOpen={deleteDialogOpen}
         onClose={handleCloseDeleteDialog}
         onConfirm={handleConfirmDelete}
-        title="Ekipman Silme Onayı"
+        title="Confirm Equipment Deletion"
         entityName={equipmentToDelete?.name ?? ''}
-        entityType="Ekipman"
+        entityType="Equipment"
         preview={dialogPreview}
         isLoading={isPreviewLoading}
         isDeleting={deleteEquipmentMutation.isPending}

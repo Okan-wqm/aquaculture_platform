@@ -150,7 +150,7 @@ describe('deleteScadaPackage — undeploy on delete (WF-011)', () => {
     expect(publish).not.toHaveBeenCalled();
     expect(result.archived).toBe(true);
     expect(result.undeploy).toEqual([
-      { deviceId: 'dev-offline', sent: false, message: expect.stringContaining('çevrimdışı') },
+      { deviceId: 'dev-offline', sent: false, message: expect.stringContaining('offline') },
     ]);
     expect(repo.save).toHaveBeenCalledWith(
       expect.objectContaining({ status: ScadaPackageStatus.ARCHIVED }),

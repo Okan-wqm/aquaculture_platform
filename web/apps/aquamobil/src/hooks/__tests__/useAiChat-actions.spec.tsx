@@ -57,7 +57,9 @@ describe('useAiChat action wiring (MOB-HIGH-001)', () => {
   it('shows a confirmed proposal message as a completed card (server truth)', () => {
     const { result } = renderHook(() =>
       useAiChat('chan-1', 'ai', [
-        proposalMessage({ metadata: { status: 'confirmed', actionDescription: 'create_task: "x"' } }),
+        proposalMessage({
+          metadata: { status: 'confirmed', actionDescription: 'create_task: "x"' },
+        }),
       ]),
     );
 
@@ -72,10 +74,9 @@ describe('useAiChat action wiring (MOB-HIGH-001)', () => {
       await result.current.confirmAction('msg-proposal-1');
     });
 
-    expect(mockGraphqlRequest).toHaveBeenCalledWith(
-      expect.anything(),
-      { actionId: 'msg-proposal-1' },
-    );
+    expect(mockGraphqlRequest).toHaveBeenCalledWith(expect.anything(), {
+      actionId: 'msg-proposal-1',
+    });
     await waitFor(() => expect(result.current.actions[0]?.status).toBe('completed'));
   });
 

@@ -2,7 +2,7 @@
  * BatchDetailPage specs (FARM-MEDIUM-120 batch 2).
  *
  * Exercises the REAL useBatch hook against the routed graphqlClient seam:
- * header + overview render from the backend batch, the Tanklar tab shows the
+ * header + overview render from the backend batch, the Tanks tab shows the
  * allocation summary and opens the real AllocateBatchToTankModal, and an
  * unknown batch id renders the honest not-found state (no fake page).
  */
@@ -74,20 +74,20 @@ describe('BatchDetailPage', () => {
     ).toBe(true);
   });
 
-  it('shows the tank-allocation summary on the Tanklar tab and opens the allocate modal', async () => {
+  it('shows the tank-allocation summary on the Tanks tab and opens the allocate modal', async () => {
     const user = userEvent.setup();
     renderPage();
     await waitFor(() => {
       expect(screen.getByText('B-2026-001')).toBeInTheDocument();
     });
 
-    await user.click(screen.getByRole('link', { name: 'Tanklar' }));
+    await user.click(screen.getByRole('link', { name: 'Tanks' }));
 
     expect(await screen.findByText('Tank Tahsisleri')).toBeInTheDocument();
     expect(screen.getByText((10500).toLocaleString('tr-TR'))).toBeInTheDocument();
     expect(screen.getByText('2625.5 kg')).toBeInTheDocument();
 
-    const allocateButton = screen.getByRole('button', { name: 'Tanka Tahsis Et' });
+    const allocateButton = screen.getByRole('button', { name: 'Allocate to Tank' });
     expect(allocateButton).toBeEnabled();
     await user.click(allocateButton);
     await waitFor(() => {
@@ -102,7 +102,7 @@ describe('BatchDetailPage', () => {
   it('renders the honest not-found state for an unknown batch id', async () => {
     renderPage('batch-unknown');
 
-    expect(await screen.findByText('Parti bulunamadı')).toBeInTheDocument();
+    expect(await screen.findByText('Batch not found')).toBeInTheDocument();
     expect(screen.getByText(/batch-unknown/)).toBeInTheDocument();
   });
 });

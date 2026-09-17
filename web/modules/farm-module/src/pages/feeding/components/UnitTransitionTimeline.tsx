@@ -12,7 +12,7 @@ import { useI18n } from '@aquaculture/shared-ui';
 
 import type { ProtocolFeedForecastView } from '../../../hooks/useProtocolFeeding';
 
-const SEGMENT_COLORS = ['#2563eb', '#16a34a', '#d97706', '#dc2626', '#7c3aed', '#0891b2'];
+const SEGMENT_COLORS = ['#146f84', '#4abba2', '#c89a3c', '#b04a28', '#6d5ac8', '#2e7d8c'];
 
 interface Props {
   forecast: ProtocolFeedForecastView;
@@ -85,7 +85,7 @@ export function UnitTransitionTimeline({ forecast }: Props): React.ReactElement 
                         width: `${widthPercent}%`,
                         backgroundColor: SEGMENT_COLORS[index % SEGMENT_COLORS.length],
                       }}
-                      title={`${code}: gün ${start}–${end}`}
+                      title={`${code}: day ${start}–${end}`}
                     >
                       {widthPercent > 8 ? code : ''}
                       {hasGap && (

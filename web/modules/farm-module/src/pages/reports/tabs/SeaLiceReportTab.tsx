@@ -9,7 +9,6 @@ import { useTanksList } from '../../../hooks/useTanks';
 import { useRegulatorySettings, useSubmitSeaLiceReport } from '../../../hooks/useRegulatory';
 import type {
   SubmitSeaLiceReportInput,
-  ReportSubmissionResult,
 } from '../../../hooks/useRegulatory';
 import { SeaLiceCounts, CleanerFishEntry, SeaLiceTreatment } from '../types/reports.types';
 import { SEA_LICE_THRESHOLDS, REGULATORY_CONTACTS } from '../utils/thresholds';
@@ -1410,7 +1409,6 @@ export const SeaLiceReportTab: React.FC<SeaLiceReportTabProps> = ({ siteId }) =>
   const clientRef = useStableClientReference();
   const { effectiveSiteId, siteMappings, setSelectedSiteId, showSelector } =
     useEffectiveReportSite(siteId);
-  const [submissionResult, setSubmissionResult] = useState<ReportSubmissionResult | null>(null);
 
   // Server-assembled draft: water temperature from the platform's one
   // temperature path (sensor projection vs manual measurement, newest wins),
@@ -1467,7 +1465,6 @@ export const SeaLiceReportTab: React.FC<SeaLiceReportTabProps> = ({ siteId }) =>
   const handleSubmit = useCallback(async () => {
     setIsSubmitting(true);
     setError(null);
-    setSubmissionResult(null);
     try {
       // Map frontend non-medicated type values to Mattilsynet enum values
       const nonMedTypeMap: Record<string, string> = {
@@ -1559,8 +1556,7 @@ export const SeaLiceReportTab: React.FC<SeaLiceReportTabProps> = ({ siteId }) =>
         delete input.ikkeMedikamentelleBehandlinger;
       if (input.medikamentelleBehandlinger?.length === 0) delete input.medikamentelleBehandlinger;
 
-      const result = await submitSeaLiceMutation.mutateAsync(input);
-      setSubmissionResult(result);
+      await submitSeaLiceMutation.mutateAsync(input);
 
       if (result.success) {
         // FARM-HIGH-126: rotate the stable client reference only on success.

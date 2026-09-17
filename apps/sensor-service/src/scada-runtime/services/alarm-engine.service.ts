@@ -656,12 +656,30 @@ export class AlarmEngineService implements OnModuleInit, OnModuleDestroy {
     const activeAlarms = this.getActiveAlarms(tenantId);
     const actions = state.pendingActions.splice(0);
 
+    // Additive ISA-18.2 fields (M2): `unacked` counts only UNACKNOWLEDGED
+    // alarms (active or cleared with no ack yet) per severity — the badge
+    // flashes while these are > 0 — and `totalActive` counts strictly-active
+    // alarms. The legacy severity fields above keep their historical meaning
+    // (acked + cleared included) so live old clients see no change.
+    const isUnacked = (a: AlarmInstance): boolean =>
+      (a.status === 'active' || a.status === 'cleared') &&
+      a.ackTime == null &&
+      a.ackUserId == null;
+    const unackedAlarms = activeAlarms.filter(isUnacked);
+
     const summary: AlarmStatusSummary = {
       critical: activeAlarms.filter((a) => a.severity === 'critical').length,
       high: activeAlarms.filter((a) => a.severity === 'high').length,
       warning: activeAlarms.filter((a) => a.severity === 'warning').length,
       info: activeAlarms.filter((a) => a.severity === 'info').length,
       activeAlarms,
+      unacked: {
+        critical: unackedAlarms.filter((a) => a.severity === 'critical').length,
+        high: unackedAlarms.filter((a) => a.severity === 'high').length,
+        warning: unackedAlarms.filter((a) => a.severity === 'warning').length,
+        info: unackedAlarms.filter((a) => a.severity === 'info').length,
+      },
+      totalActive: activeAlarms.filter((a) => a.status === 'active').length,
       pendingActions: actions.length > 0 ? actions : undefined,
     };
 

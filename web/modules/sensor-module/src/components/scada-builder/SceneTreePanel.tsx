@@ -103,12 +103,22 @@ const TreeNodeRow: React.FC<TreeNodeRowProps> = ({
   return (
     <>
       <div
+        role="treeitem"
+        aria-selected={isActive}
+        tabIndex={0}
         draggable={!isRenaming}
         onDragStart={(e) => onDragStart(e, screen.id)}
         onDragOver={(e) => onDragOver(e, screen.id)}
         onDragLeave={onDragLeave}
         onDrop={(e) => onDrop(e, screen.id)}
         onClick={() => onSelect(screen.id)}
+        onKeyDown={(e) => {
+          // Keyboard selection parity with click
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onSelect(screen.id);
+          }
+        }}
         onContextMenu={(e) => onContextMenu(e, screen.id)}
         className={`
           flex items-center gap-1 py-1.5 px-2 text-xs cursor-pointer select-none
@@ -213,6 +223,8 @@ export const SceneTreePanel: React.FC = () => {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [dragOverId, setDragOverId] = useState<string | null>(null);
+  /** Import failure surfaced to the user instead of console-only. */
+  const [importError, setImportError] = useState<string | null>(null);
 
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -327,6 +339,8 @@ export const SceneTreePanel: React.FC = () => {
   const handleDelete = useCallback(
     (screenId: string) => {
       if (screens.length <= 1) return;
+      // Parity with ScreenTabBar: confirm before destructive delete
+      if (!window.confirm('Are you sure you want to delete this screen?')) return;
       removeScreen(screenId);
       setContextMenu(null);
     },
@@ -410,6 +424,7 @@ export const SceneTreePanel: React.FC = () => {
       const file = e.target.files?.[0];
       if (!file) return;
       try {
+        setImportError(null);
         const text = await file.text();
         const json = JSON.parse(text);
         const { importScreen } = await import('../../store/scada/screenIO');
@@ -422,6 +437,13 @@ export const SceneTreePanel: React.FC = () => {
         });
       } catch (err) {
         console.error('Screen import failed:', err);
+        // Visible error toast — a silent console.error hides failures from users
+        setImportError(
+          err instanceof Error
+            ? `Screen import failed: ${err.message}`
+            : 'Screen import failed: invalid file.',
+        );
+        setTimeout(() => setImportError(null), 6000);
       }
       // Reset file input so re-selecting the same file triggers onChange
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -486,6 +508,16 @@ export const SceneTreePanel: React.FC = () => {
           Move to root
         </div>
       </div>
+
+      {/* Import error toast */}
+      {importError && (
+        <div
+          role="alert"
+          className="mx-2 mb-1 px-2 py-1.5 text-[11px] text-red-700 bg-red-50 border border-red-200 rounded"
+        >
+          {importError}
+        </div>
+      )}
 
       {/* Import button at bottom */}
       <div className="border-t border-gray-200 px-2 py-1.5">

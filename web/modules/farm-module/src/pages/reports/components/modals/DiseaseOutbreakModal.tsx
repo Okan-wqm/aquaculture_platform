@@ -381,6 +381,7 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
 
   return (
     <Modal
+      className="sd-f2"
       isOpen={isOpen}
       onClose={onClose}
       title="Report Disease Outbreak"
@@ -627,7 +628,7 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
                     </div>
                     {tank.batchMetrics?.pieces && (
                       <span className="text-xs text-gray-400">
-                        {tank.batchMetrics.pieces.toLocaleString()} fish
+                        {tank.batchMetrics.pieces.toLocaleString('en-GB')} fish
                       </span>
                     )}
                   </label>
@@ -665,7 +666,7 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
                         <>
                           <span className="text-gray-500">|</span>
                           <span className="text-gray-600">
-                            {tank.batchMetrics.pieces.toLocaleString()} fish
+                            {tank.batchMetrics.pieces.toLocaleString('en-GB')} fish
                           </span>
                         </>
                       )}

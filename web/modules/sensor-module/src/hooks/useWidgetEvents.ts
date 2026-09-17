@@ -19,7 +19,7 @@
  */
 
 import { useCallback } from 'react';
-import { useOperatorStore } from '../store/scada/operatorStore';
+import { useScadaPackageStore } from '../store/scada/createScadaStore';
 import { useTagWrite } from './useTagWrite';
 import { useDataProvider } from '../providers';
 import { useClientScript } from './useClientScript';
@@ -45,8 +45,10 @@ export function useWidgetEvents(
   events: WidgetEventBinding[] | undefined,
   onNavigate?: (screenId: string) => void,
 ): WidgetEventsResult {
-  const openOverlay    = useOperatorStore((s) => s.openOverlay);
-  const closeAllOverlays = useOperatorStore((s) => s.closeAllOverlays);
+  // Operator overlay stack lives in operatorSlice inside the unified
+  // package store (renamed *ViewOverlay to compose with ViewManagerSlice).
+  const openOverlay      = useScadaPackageStore((s) => s.openViewOverlay);
+  const closeAllOverlays = useScadaPackageStore((s) => s.closeAllViewOverlays);
   const { writeTag, toggleTag } = useTagWrite();
   const provider                = useDataProvider();
   const { runScript }           = useClientScript();

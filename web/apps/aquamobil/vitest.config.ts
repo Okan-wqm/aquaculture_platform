@@ -24,6 +24,9 @@ export default defineConfig({
       // allowlist SSoT resolves under vitest too (this config has its own alias
       // block, separate from vite.config.ts).
       '@aquaculture/shared-contracts': resolve(__dirname, '../../../libs/shared-contracts/src'),
+    // Single-catalog i18n SSoT — mirror of the vite.config.ts alias.
+    '@aquaculture/shared-ui/i18n': resolve(__dirname, '../../shared-ui/src/i18n'),
+    '@aquaculture/shared-ui/brand': resolve(__dirname, '../../shared-ui/src/config/brand.ts'),
       'react': resolve(rootNodeModules, 'react'),
       'react-dom': resolve(rootNodeModules, 'react-dom'),
       'react/jsx-runtime': resolve(rootNodeModules, 'react/jsx-runtime'),

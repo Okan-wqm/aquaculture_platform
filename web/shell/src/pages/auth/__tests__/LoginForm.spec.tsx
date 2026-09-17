@@ -48,7 +48,7 @@ describe('LoginForm', () => {
     verifyMfaLogin.mockResolvedValue({ redirectPath: '/' });
   });
 
-  it('renders the industrial sign-in surface with real auth controls only', () => {
+  it('renders the industrial sign-in surface with the mockup alternative controls', () => {
     const { container } = renderForm();
 
     expect(container.querySelector('.industrial-login-form')).not.toBeNull();
@@ -57,10 +57,12 @@ describe('LoginForm', () => {
     expect(screen.getByText('Sign in to your Suderra workspace')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Continue' })).toBeTruthy();
 
-    // The DesignCanvas sample shows non-functional Passkey/SSO controls. They
-    // must not be exposed until a real frontend ceremony is wired.
-    expect(screen.queryByRole('button', { name: /passkey/i })).toBeNull();
-    expect(screen.queryByRole('button', { name: /sso/i })).toBeNull();
+    // Passkey/SSO are part of the approved login design. They are visual-only
+    // (type="button", no handler) until their backend ceremonies land.
+    expect(screen.getByRole('button', { name: /passkey/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'SSO' })).toBeTruthy();
+    expect(screen.getByText('or')).toBeTruthy();
+    expect(screen.getByText('No account yet?')).toBeTruthy();
   });
 
   it('passes rememberMe=true to login() when the checkbox is checked', async () => {
@@ -141,6 +143,14 @@ describe('LoginForm', () => {
     );
   });
 
+  const fillMfaDigits = (container: HTMLElement, code: string): void => {
+    const boxes = container.querySelectorAll<HTMLInputElement>('.industrial-mfa-digit');
+    if (boxes.length !== 6) throw new Error(`expected 6 MFA digit boxes, got ${boxes.length}`);
+    code.split('').forEach((digit, i) => {
+      fireEvent.change(boxes[i], { target: { value: digit } });
+    });
+  };
+
   it('uses the real MFA challenge token and only enables verification for a valid code', async () => {
     login.mockResolvedValueOnce({
       mfaRequired: true,
@@ -155,12 +165,10 @@ describe('LoginForm', () => {
     fireEvent.change(password, { target: { value: 'password123' } });
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
 
-    const verifyButton = await screen.findByRole('button', { name: 'Verify Code' });
+    const verifyButton = await screen.findByRole('button', { name: 'Verify & continue' });
     expect((verifyButton as HTMLButtonElement).disabled).toBe(true);
 
-    const code = container.querySelector<HTMLInputElement>('input[name="mfaCode"]');
-    if (!code) throw new Error('MFA code field not found');
-    fireEvent.change(code, { target: { value: '123456' } });
+    fillMfaDigits(container, '123456');
     expect((verifyButton as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(verifyButton);
 
@@ -187,10 +195,8 @@ describe('LoginForm', () => {
     fireEvent.change(password, { target: { value: 'password123' } });
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
 
-    const verifyButton = await screen.findByRole('button', { name: 'Verify Code' });
-    const code = container.querySelector<HTMLInputElement>('input[name="mfaCode"]');
-    if (!code) throw new Error('MFA code field not found');
-    fireEvent.change(code, { target: { value: '123456' } });
+    const verifyButton = await screen.findByRole('button', { name: 'Verify & continue' });
+    fillMfaDigits(container, '123456');
     fireEvent.click(verifyButton);
 
     await waitFor(() => expect(navigate).toHaveBeenCalledWith('/'));

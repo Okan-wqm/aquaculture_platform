@@ -36,6 +36,8 @@ vi.mock('@xyflow/react', () => ({
   Handle: ({ children }: { children?: React.ReactNode }) =>
     React.createElement('div', { 'data-testid': 'handle' }, children),
   Position: { Top: 'top', Right: 'right', Bottom: 'bottom', Left: 'left' },
+  // Resize gesture reads the zoom once at pointer-down via the instance
+  useReactFlow: () => ({ getZoom: () => 1, getZoomLevel: () => 1 }),
 }));
 
 // Mock lucide-react Lock icon

@@ -10,9 +10,11 @@ import {
   AlertCircle,
   CheckCircle,
   Clock,
-  ArrowUpRight,
-  MoreVertical,
+  UserPlus,
   RefreshCw,
+  Shield,
+  HardDrive,
+  LifeBuoy,
 } from 'lucide-react';
 import { getMyModules, getTenantUsers, getMySubscription } from '../lib/api';
 import type { User, MyModule } from '../lib/types';
@@ -20,121 +22,83 @@ import { useTenantStats } from '../hooks/useTenantData';
 import { formatRelativeTime, formatDate } from '../utils/date-utils';
 
 /**
- * Stat card data type
+ * TenantDashboard Page — SUDERRA Tenant Console design.
+ *
+ * All data fetching uses TanStack Query for caching, deduplication, and
+ * automatic background refetching. No manual useState/useEffect/fetch.
+ * Presentation classes (sd-*) live in the shell stylesheet — the host
+ * document styles the federated page.
+ *
+ * DATA SOURCES (all real backend — no mocked data on this page):
+ * - useTenantStats()     → auth-service `tenantStats` (totalUsers/activeUsers/
+ *                          totalModules/activeModules/activeSessions/
+ *                          monthlyGrowthPercent — genuine resolvers).
+ * - getMyModules()       → real module assignments incl. isEnabled.
+ * - getTenantUsers()     → real users incl. lastLoginAt (feeds "Team activity").
+ * - getMySubscription()  → billing-service (basePriceDecimal/planName/
+ *                          billingCycle/currentPeriodEnd/status).
+ *
+ * MOCK-ONLY PARTS (backend equivalent missing — labels kept for design
+ * parity; do NOT read them as measured values):
+ * - "of seats": licensed seat total is NOT in the subscription payload
+ *   (SubscriptionInfo has no seats/quantity field). Needs billing-service
+ *   support before the number is meaningful.
+ * - "active this week": backend activeUsers = count of isActive-flag users;
+ *   there is no weekly activity window.
+ * - "online now" (Active sessions): backend activeSessions = count of
+ *   unexpired, non-revoked refresh tokens — a session proxy, not live sockets.
+ * - Mockup cards "Telemetry" and "Needs attention" are intentionally NOT
+ *   rendered: no backend feed exists for either yet.
  */
-interface StatCard {
-  id: string;
-  title: string;
-  value: string | number;
-  change?: number;
-  changeLabel?: string;
-  icon: React.ReactNode;
-  color: 'green' | 'blue' | 'yellow' | 'purple';
-}
 
-/**
- * Module status type
- */
 interface ModuleStatus {
   id: string;
   name: string;
   code: string;
-  status: 'active' | 'inactive' | 'pending';
-  users: number;
-  lastActivity: string;
+  status: 'active' | 'inactive';
   icon: string;
 }
 
-/**
- * Recent activity type
- */
 interface RecentActivity {
   id: string;
-  type: 'user_added' | 'module_assigned' | 'setting_changed' | 'login';
   description: string;
   timestamp: string;
-  user: string;
+  initials: string;
 }
 
-// User and SubscriptionInfo types imported from lib/types
-
-/**
- * Module icon mapping
- */
+/** Module icon mapping (kept from the legacy dashboard) */
 const moduleIconMap: Record<string, string> = {
-  'farm': '🐟',
-  'sensor': '📊',
-  'hr': '👥',
+  farm: '🐟',
+  sensor: '📊',
+  hr: '👥',
 };
 
 /**
- * Color mapping for stat cards
+ * MOCK-ADJACENT: getMyModules() returns no `code` field, so the tile tint is
+ * inferred from the module NAME (keyword heuristic below). If the backend
+ * later exposes module.code, replace this inference with the real field.
  */
-const colorClasses = {
-  green: {
-    bg: 'bg-tenant-50',
-    icon: 'bg-tenant-100 text-tenant-600',
-    text: 'text-tenant-600',
-  },
-  blue: {
-    bg: 'bg-blue-50',
-    icon: 'bg-blue-100 text-blue-600',
-    text: 'text-blue-600',
-  },
-  yellow: {
-    bg: 'bg-amber-50',
-    icon: 'bg-amber-100 text-amber-600',
-    text: 'text-amber-600',
-  },
-  purple: {
-    bg: 'bg-purple-50',
-    icon: 'bg-purple-100 text-purple-600',
-    text: 'text-purple-600',
-  },
+
+/** Rail-style icon tile tint per module code (mockup module tints). */
+const moduleTileClass = (code: string, enabled: boolean): string => {
+  if (!enabled) return 'sd-mod-tile--off';
+  if (code === 'farm') return 'sd-mod-tile--farm';
+  if (code === 'sensor') return 'sd-mod-tile--sensor';
+  if (code === 'hr') return 'sd-mod-tile--hr';
+  return 'sd-mod-tile--sensor';
 };
 
-/**
- * Status badge component
- */
-const StatusBadge: React.FC<{ status: ModuleStatus['status'] }> = ({
-  status,
-}) => {
-  const statusConfig = {
-    active: {
-      bg: 'bg-green-100',
-      text: 'text-green-700',
-      icon: <CheckCircle className="w-3 h-3" />,
-    },
-    inactive: {
-      bg: 'bg-gray-100',
-      text: 'text-gray-700',
-      icon: <Clock className="w-3 h-3" />,
-    },
-    pending: {
-      bg: 'bg-yellow-100',
-      text: 'text-yellow-700',
-      icon: <AlertCircle className="w-3 h-3" />,
-    },
-  };
+const initialsOf = (u: User): string =>
+  `${(u.firstName || '?')[0] ?? ''}${(u.lastName || '')[0] ?? ''}`.toUpperCase() || '·';
 
-  const config = statusConfig[status];
+/** Quick links ("Jump to") — real routes only. */
+const JUMP_LINKS = [
+  { to: '/tenant/users', label: 'Invite a user', desc: 'Send an email invitation with a role', icon: <UserPlus size={16} /> },
+  { to: '/tenant/roles', label: 'Define a role', desc: 'Delegate panel access to your team', icon: <Shield size={16} /> },
+  { to: '/tenant/devices', label: 'Register a device', desc: 'Provision an edge gateway with a key', icon: <HardDrive size={16} /> },
+  { to: '/tenant/support', label: 'Open a ticket', desc: 'Reach platform support directly', icon: <LifeBuoy size={16} /> },
+] as const;
 
-  return (
-    <span
-      className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${config.bg} ${config.text}`}
-    >
-      {config.icon}
-      {status.charAt(0).toUpperCase() + status.slice(1)}
-    </span>
-  );
-};
-
-/**
- * TenantDashboard Page
- *
- * All data fetching uses TanStack Query for caching, deduplication, and
- * automatic background refetching. No manual useState/useEffect/fetch.
- */
 const TenantDashboard: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -157,8 +121,6 @@ const TenantDashboard: React.FC = () => {
           name: m.name,
           code,
           status: m.isEnabled ? 'active' : 'inactive',
-          users: 0,
-          lastActivity: 'Active',
           icon: moduleIconMap[code] || m.icon || '📦',
         };
       });
@@ -189,9 +151,10 @@ const TenantDashboard: React.FC = () => {
   const users = usersQuery.data ?? [];
   const subscription = subscriptionQuery.data ?? null;
   const loading = modulesQuery.isLoading || usersQuery.isLoading;
+  const refreshing = modulesQuery.isFetching || usersQuery.isFetching;
   const error = modulesQuery.error ?? usersQuery.error;
 
-  // Generate recent activity from users
+  // Recent activity derived from user logins (legacy rule, mockup styling)
   const activities = useMemo((): RecentActivity[] =>
     users
       .filter((u: User) => u.lastLoginAt)
@@ -201,10 +164,9 @@ const TenantDashboard: React.FC = () => {
       .slice(0, 5)
       .map((u: User, idx: number) => ({
         id: `activity-${idx}`,
-        type: 'login' as const,
         description: `${u.firstName || ''} ${u.lastName || ''} (${u.email}) logged in`,
         timestamp: u.lastLoginAt ? formatRelativeTime(u.lastLoginAt) : 'Unknown',
-        user: u.email,
+        initials: initialsOf(u),
       })),
     [users],
   );
@@ -213,51 +175,62 @@ const TenantDashboard: React.FC = () => {
     queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(getTenantId(), 'dashboard') });
   };
 
-  // Calculate stats -- prefer TanStack Query stats if available (PERF-001)
+  // Stats — prefer TanStack Query stats if available (PERF-001)
   const activeUsers = tenantStats?.activeUsers ?? users.filter(u => u.isActive).length;
   const totalUsers = tenantStats?.totalUsers ?? users.length;
   const activeModules = tenantStats?.activeModules ?? modules.filter(m => m.status === 'active').length;
   const totalModules = tenantStats?.totalModules ?? modules.length;
 
-  // MED-06: Fix "This Month" card — use monthlyGrowthPercent instead of totalUsers
-  // Also memoize statsData to avoid recreating on every render
+  // MED-06: "This Month" must use monthlyGrowthPercent, not totalUsers
   const monthlyGrowth = tenantStats?.monthlyGrowthPercent ?? 0;
 
-  const statsData: StatCard[] = useMemo(() => [
+  const stats = useMemo(() => [
     {
       id: 'users',
-      title: 'Total Users',
-      value: totalUsers,
-      changeLabel: `${activeUsers} active`,
-      icon: <Users className="w-6 h-6" />,
-      color: 'green',
+      title: 'Team members',
+      value: String(totalUsers),
+      // MOCK LABEL: real value is totalUsers; seat total is not exposed by
+      // billing yet, so "of seats" / "active this week" are design-parity
+      // copy, not measured values.
+      unit: 'of seats',
+      change: `${activeUsers} active this week`,
+      dot: 'sd-dot--mint',
+      icon: <Users size={17} style={{ color: '#166f5a' }} />,
     },
     {
       id: 'modules',
-      title: 'Active Modules',
-      value: activeModules,
-      changeLabel: `of ${totalModules} assigned`,
-      icon: <Package className="w-6 h-6" />,
-      color: 'blue',
+      title: 'Active modules',
+      value: String(activeModules),
+      unit: `of ${totalModules} assigned`,
+      change: totalModules > activeModules ? 'Some modules not enabled' : 'All modules enabled',
+      dot: 'sd-dot--cyan',
+      icon: <Package size={17} style={{ color: '#0b4f60' }} />,
     },
     {
-      id: 'activity',
-      title: 'Active Sessions',
-      value: tenantStats?.activeSessions ?? activeUsers,
-      changeLabel: 'users online',
-      icon: <Activity className="w-6 h-6" />,
-      color: 'yellow',
+      id: 'sessions',
+      title: 'Active sessions',
+      // REAL field, PROXY semantics: activeSessions counts unexpired
+      // non-revoked refresh tokens, not live sockets.
+      value: String(tenantStats?.activeSessions ?? activeUsers),
+      unit: 'online now',
+      change: `${activeUsers} users this week`,
+      dot: 'sd-dot--cyan',
+      icon: <Activity size={17} style={{ color: '#0b4f60' }} />,
     },
     {
       id: 'growth',
-      title: 'This Month',
+      title: 'This month',
       value: monthlyGrowth > 0 ? `+${monthlyGrowth}%` : '0%',
-      change: monthlyGrowth,
-      changeLabel: 'user growth',
-      icon: <TrendingUp className="w-6 h-6" />,
-      color: 'purple',
+      unit: 'growth',
+      change: 'User growth (MED-06)',
+      dot: monthlyGrowth > 0 ? 'sd-dot--mint' : 'sd-dot--faint',
+      icon: <TrendingUp size={17} style={{ color: monthlyGrowth > 0 ? '#166f5a' : '#3d5c69' }} />,
     },
   ], [totalUsers, activeUsers, activeModules, totalModules, tenantStats?.activeSessions, monthlyGrowth]);
+
+  // Seat usage — active share of the team (licensed-seat totals are not in the
+  // subscription payload yet; wired when the backend exposes them).
+  const seatPct = totalUsers > 0 ? Math.min(100, Math.round((activeUsers / totalUsers) * 100)) : 0;
 
   if (loading) {
     return (
@@ -269,271 +242,175 @@ const TenantDashboard: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Welcome back! Here's what's happening with your tenant.
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handleRefresh}
-            className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
-            title="Refresh"
-          >
-            <RefreshCw className="w-5 h-5 text-gray-500" />
-          </button>
-          <button
-            onClick={() => navigate('/tenant/users')}
-            className="px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors"
-          >
-            Add User
-          </button>
-        </div>
+    <div className="sd-page">
+      {/* Actions row */}
+      <div className="sd-actions">
+        <button onClick={handleRefresh} className={`sd-iconbtn${refreshing ? ' sd-iconbtn--spin' : ''}`} title="Refresh" aria-label="Refresh">
+          <RefreshCw size={16} />
+        </button>
+        <button onClick={() => navigate('/tenant/users')} className="sd-btn-deep">
+          <UserPlus size={16} />
+          Invite user
+        </button>
       </div>
 
-      {/* Error Message */}
+      {/* Error banner */}
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3">
-          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
-          <div>
-            <p className="text-sm font-medium text-red-800">Failed to load data</p>
-            <p className="text-sm text-red-600">{(error as Error).message}</p>
-          </div>
-          <button
-            onClick={handleRefresh}
-            className="ml-auto px-3 py-1 text-sm font-medium text-red-700 hover:bg-red-100 rounded-lg transition-colors"
-          >
+        <div className="sd-banner sd-banner--error" role="alert">
+          <AlertCircle size={19} style={{ color: '#b04a28', flexShrink: 0 }} />
+          <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: '#8e3a1e' }}>Failed to load data</p>
+          <p style={{ margin: 0, flex: 1, fontSize: 13.5, color: '#3d5c69' }}>{(error as Error).message}</p>
+          <button onClick={handleRefresh} style={{ fontSize: 13, fontWeight: 600, color: '#8e3a1e', background: 'transparent', border: '1px solid rgba(176,74,40,.3)', padding: '7px 14px', borderRadius: 999, cursor: 'pointer' }}>
             Retry
           </button>
         </div>
       )}
 
-      {/* Subscription Banner */}
-      {subscription && (
-        <div className="bg-gradient-to-r from-tenant-50 via-blue-50 to-purple-50 rounded-xl border border-tenant-200 p-6">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <div className="p-3 rounded-xl bg-tenant-100">
-                <Package className="w-6 h-6 text-tenant-600" />
+      {/* Stat cards */}
+      <div className="sd-stat-grid">
+        {stats.map((stat) => (
+          <div key={stat.id} className="sd-card sd-card--dash sd-stat-card">
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+              <span className="sd-stat-title">{stat.title}</span>
+              {stat.icon}
+            </div>
+            <div>
+              <span className="sd-stat-value">{stat.value}</span>{' '}
+              <span className="sd-stat-unit">{stat.unit}</span>
+            </div>
+            <div className="sd-stat-change">
+              <span className={`sd-dot ${stat.dot}`} />
+              {stat.change}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Two-column body */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
+        {/* Left column */}
+        <div style={{ flex: '2 1 540px', display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}>
+          {/* Assigned modules */}
+          <div className="sd-card sd-card--flush">
+            <div className="sd-card-head">
+              <span className="sd-card-label">Assigned modules</span>
+              <button onClick={() => navigate('/tenant/modules')} className="sd-textlink">Manage →</button>
+            </div>
+            {modules.length === 0 ? (
+              <div className="sd-empty">
+                <strong>No modules assigned</strong>
+                Contact your platform administrator to enable modules.
               </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h3 className="text-lg font-semibold text-gray-900">{subscription.planName}</h3>
-                  <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${
-                    subscription.status === 'active' ? 'bg-green-100 text-green-700' :
-                    subscription.status === 'trial' ? 'bg-blue-100 text-blue-700' :
-                    subscription.status === 'past_due' ? 'bg-red-100 text-red-700' :
-                    'bg-gray-100 text-gray-700'
-                  }`}>
-                    {subscription.status === 'trial' ? 'Trial' :
-                     subscription.status === 'active' ? 'Active' :
-                     subscription.status === 'past_due' ? 'Past Due' :
-                     subscription.status.charAt(0).toUpperCase() + subscription.status.slice(1)}
+            ) : (
+              modules.map((module) => (
+                <div key={module.id} className="sd-mod-row">
+                  <span className={`sd-mod-tile ${moduleTileClass(module.code, module.status === 'active')}`}>{module.icon}</span>
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span className="sd-mod-name" style={{ display: 'block' }}>{module.name}</span>
+                    <span className="sd-mod-meta" style={{ display: 'block' }}>
+                      {module.status === 'active' ? 'Enabled' : 'Not enabled for this tenant'}
+                    </span>
+                  </span>
+                  <span className={`sd-pill ${module.status === 'active' ? 'sd-pill--active' : 'sd-pill--inactive'}`}>
+                    {module.status === 'active' ? <CheckCircle size={13} /> : <Clock size={13} />}
+                    {module.status === 'active' ? 'Active' : 'Inactive'}
                   </span>
                 </div>
-                <p className="text-sm text-gray-500 mt-0.5">
-                  {subscription.billingCycle === 'monthly' ? 'Monthly' :
-                   subscription.billingCycle === 'quarterly' ? 'Quarterly' :
-                   subscription.billingCycle === 'annual' ? 'Annual' : subscription.billingCycle} billing
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-6">
-              <div className="text-right">
-                <p className="text-2xl font-bold text-tenant-600">
-                  ${parseMoney(subscription.pricing.basePriceDecimal)}
-                  <span className="text-sm font-normal text-gray-500">/mo</span>
-                </p>
-                <p className="text-xs text-gray-500">
-                  Next billing: {formatDate(subscription.currentPeriodEnd)}
-                </p>
-              </div>
-              {subscription.status === 'trial' && subscription.trialEndDate && (
-                <div className="px-4 py-2 bg-blue-100 rounded-lg">
-                  <p className="text-xs font-medium text-blue-700">Trial ends</p>
-                  <p className="text-sm font-semibold text-blue-800">
-                    {formatDate(subscription.trialEndDate)}
-                  </p>
+              ))
+            )}
+          </div>
+
+          {/* Subscription + Seat usage */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
+            {subscription && (
+              <div className="sd-card" style={{ flex: '0 1 300px', padding: '17px 19px', minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 11 }}>
+                  <Package size={16} style={{ color: '#0b4f60' }} />
+                  <span className="sd-card-label" style={{ fontSize: 12.5 }}>Subscription</span>
                 </div>
-              )}
+                <div>
+                  <span className="sd-stat-value" style={{ fontSize: 32 }}>${parseMoney(subscription.pricing.basePriceDecimal)}</span>{' '}
+                  <span className="sd-stat-unit">/ month</span>
+                </div>
+                <div style={{ marginTop: 8 }}>
+                  <div className="sd-def-row">
+                    <span className="sd-def-label">Plan</span>
+                    <span className="sd-def-value">{subscription.planName}</span>
+                  </div>
+                  <div className="sd-def-row">
+                    <span className="sd-def-label">Billing cycle</span>
+                    <span className="sd-def-value" style={{ textTransform: 'capitalize' }}>{subscription.billingCycle}</span>
+                  </div>
+                  <div className="sd-def-row">
+                    <span className="sd-def-label">Next invoice</span>
+                    <span className="sd-def-value">{formatDate(subscription.currentPeriodEnd)}</span>
+                  </div>
+                  <div className="sd-def-row">
+                    <span className="sd-def-label">Status</span>
+                    <span className={`sd-pill ${subscription.status === 'active' ? 'sd-pill--active' : subscription.status === 'trial' ? 'sd-pill--pending' : 'sd-pill--inactive'}`}>
+                      {subscription.status === 'trial' ? 'Trial' : subscription.status.charAt(0).toUpperCase() + subscription.status.slice(1)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+            <div className="sd-card" style={{ flex: '0 1 300px', padding: '17px 19px', minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 11 }}>
+                <Users size={16} style={{ color: '#0b4f60' }} />
+                <span className="sd-card-label" style={{ fontSize: 12.5 }}>Seat usage</span>
+              </div>
+              <div>
+                <span className="sd-stat-value" style={{ fontSize: 32 }}>{totalUsers}</span>{' '}
+                <span className="sd-stat-unit">team members</span>
+              </div>
+              <div className="sd-progress" style={{ margin: '12px 0 7px' }}>
+                <span style={{ width: `${seatPct}%` }} />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, fontWeight: 500, color: '#3d5c69' }}>
+                <span>{seatPct}% active</span>
+                <span>{Math.max(0, totalUsers - activeUsers)} inactive</span>
+              </div>
             </div>
           </div>
-        </div>
-      )}
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {statsData.map((stat) => {
-          const colors = colorClasses[stat.color];
-          return (
-            <div
-              key={stat.id}
-              className="bg-white rounded-xl border border-gray-100 p-6 hover:shadow-md transition-shadow"
-            >
-              <div className="flex items-start justify-between">
-                <div className={`p-3 rounded-xl ${colors.icon}`}>
-                  {stat.icon}
-                </div>
-                {stat.change !== undefined && stat.change > 0 && (
-                  <div className="flex items-center gap-1 text-sm font-medium text-green-600">
-                    <ArrowUpRight className="w-4 h-4" />
-                    {stat.change}%
-                  </div>
-                )}
-              </div>
-              <div className="mt-4">
-                <h3 className="text-sm font-medium text-gray-500">
-                  {stat.title}
-                </h3>
-                <p className="text-2xl font-bold text-gray-900 mt-1">
-                  {stat.value}
-                </p>
-                {stat.changeLabel && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    {stat.changeLabel}
-                  </p>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Main Content Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Modules Status - Takes 2 columns */}
-        <div className="lg:col-span-2 bg-white rounded-xl border border-gray-100">
-          <div className="p-6 border-b border-gray-100">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-gray-900">
-                Module Status
-              </h2>
-              <button
-                onClick={() => navigate('/tenant/modules')}
-                className="text-sm text-tenant-600 hover:text-tenant-700 font-medium"
-              >
-                View All
-              </button>
-            </div>
-          </div>
-          {modules.length === 0 ? (
-            <div className="p-8 text-center">
-              <Package className="w-12 h-12 text-gray-500 mx-auto" />
-              <p className="text-sm text-gray-500 mt-3">No modules assigned yet</p>
-              <p className="text-xs text-gray-500 mt-1">Contact your administrator to get modules assigned</p>
-            </div>
-          ) : (
-            <div className="divide-y divide-gray-100">
-              {modules.map((module) => (
-                <div
-                  key={module.id}
-                  className="p-4 hover:bg-gray-50 transition-colors"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 rounded-lg bg-tenant-100 flex items-center justify-center text-xl">
-                        {module.icon}
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-medium text-gray-900">
-                          {module.name}
-                        </h3>
-                        <p className="text-xs text-gray-500 mt-0.5">
-                          {module.users} users • Activated: {module.lastActivity}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <StatusBadge status={module.status} />
-                      <button className="p-1 rounded hover:bg-gray-100 transition-colors">
-                        <MoreVertical className="w-4 h-4 text-gray-500" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Recent Activity - Takes 1 column */}
-        <div className="bg-white rounded-xl border border-gray-100">
-          <div className="p-6 border-b border-gray-100">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-gray-900">
-                Recent Activity
-              </h2>
-            </div>
-          </div>
-          {activities.length === 0 ? (
-            <div className="p-8 text-center">
-              <Activity className="w-12 h-12 text-gray-500 mx-auto" />
-              <p className="text-sm text-gray-500 mt-3">No recent activity</p>
-            </div>
-          ) : (
-            <div className="p-4 space-y-4 max-h-[400px] overflow-y-auto">
-              {activities.map((activity) => (
-                <div key={activity.id} className="flex gap-3">
-                  <div
-                    className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
-                      activity.type === 'user_added'
-                        ? 'bg-green-100 text-green-600'
-                        : activity.type === 'module_assigned'
-                        ? 'bg-blue-100 text-blue-600'
-                        : activity.type === 'login'
-                        ? 'bg-purple-100 text-purple-600'
-                        : 'bg-gray-100 text-gray-600'
-                    }`}
-                  >
-                    {activity.type === 'user_added' ? (
-                      <Users className="w-4 h-4" />
-                    ) : activity.type === 'module_assigned' ? (
-                      <Package className="w-4 h-4" />
-                    ) : (
-                      <Activity className="w-4 h-4" />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-gray-900 line-clamp-2">
-                      {activity.description}
-                    </p>
-                    <p className="text-xs text-gray-500 mt-1">
-                      {activity.timestamp}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Quick Actions */}
-      <div className="bg-gradient-to-r from-tenant-600 to-tenant-700 rounded-xl p-6 text-white">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          {/* Jump to */}
           <div>
-            <h3 className="text-lg font-semibold">Need to add more users?</h3>
-            <p className="text-tenant-100 text-sm mt-1">
-              Invite team members to collaborate on your aquaculture operations.
-            </p>
+            <span className="sd-card-label">Jump to</span>
+            <div className="sd-jump-grid" style={{ marginTop: 11 }}>
+              {JUMP_LINKS.map((link) => (
+                <button key={link.to} type="button" className="sd-jump-card" onClick={() => navigate(link.to)}>
+                  <span className="sd-jump-tile">{link.icon}</span>
+                  <div className="sd-jump-label">{link.label}</div>
+                  <div className="sd-jump-desc">{link.desc}</div>
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => navigate('/tenant/modules')}
-              className="px-4 py-2 text-sm font-medium text-tenant-600 bg-white rounded-lg hover:bg-tenant-50 transition-colors"
-            >
-              View Modules
-            </button>
-            <button
-              onClick={() => navigate('/tenant/users')}
-              className="px-4 py-2 text-sm font-medium text-white bg-tenant-800 rounded-lg hover:bg-tenant-900 transition-colors"
-            >
-              Invite Users
-            </button>
+        </div>
+
+        {/* Right column */}
+        <div style={{ flex: '1 1 330px', display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}>
+          {/* Team activity */}
+          <div className="sd-card" style={{ padding: '17px 19px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 6 }}>
+              <Activity size={16} style={{ color: '#0b4f60' }} />
+              <span className="sd-card-label" style={{ fontSize: 12.5 }}>Team activity</span>
+            </div>
+            {activities.length === 0 ? (
+              <div className="sd-empty" style={{ padding: '28px 12px' }}>No recent activity</div>
+            ) : (
+              <div className="sd-activity-list">
+                {activities.map((activity) => (
+                  <div key={activity.id} className="sd-activity-row">
+                    <span className="sd-avatar">{activity.initials}</span>
+                    <span style={{ minWidth: 0 }}>
+                      <span className="sd-activity-desc" style={{ display: 'block' }}>{activity.description}</span>
+                      <span className="sd-activity-time" style={{ display: 'block' }}>{activity.timestamp}</span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>

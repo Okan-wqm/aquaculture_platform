@@ -67,6 +67,17 @@ function transformUser(apiUser: ApiUser): DisplayUser {
  * - Only TENANT_ADMIN (or higher) can see Add User, Edit, Delete, and Deactivate buttons.
  * - The route-level guard in Module.tsx already blocks unauthorized access, but
  *   this page-level filtering provides defense-in-depth for individual actions.
+ *
+ * SUDERRA restyle — sd-page/sd-pagehead/sd-banner + the restyled child
+ * components (UserFilters, BulkActions, UserListSection, badges). Every
+ * label, aria attribute, handler, and RBAC gate is unchanged.
+ *
+ * DATA SOURCES (all real backend — no mocked data on this page):
+ * - useTenantUsersRaw → auth-service users (paginated, server-side role/status
+ *   filters; client-side debounced search).
+ * - useTenantRoles → real custom roles (feeds the Add/Edit modal).
+ * - Mutations: create (with invitation email), update, deactivate, delete —
+ *   all real endpoints; error paths surface server messages.
  */
 const TenantUsers: React.FC = () => {
   // RBAC-HIGH-004 (FE-HIGH-001): gate each control on the SAME granular capability
@@ -216,62 +227,58 @@ const TenantUsers: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <RefreshCw className="w-8 h-8 animate-spin text-tenant-600" />
+      <div className="flex items-center justify-center h-64" role="status" aria-live="polite">
+        <RefreshCw className="w-8 h-8 animate-spin" style={{ color: '#146f84' }} aria-hidden="true" />
+        <span className="sr-only">Loading users…</span>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Users</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Manage users and their access to modules and farm sites
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
+    <div className="sd-page">
+      {/* Page header (mockup pattern: eyebrow + serif title + actions) */}
+      <div className="sd-pagehead">
+        <span className="sd-eyebrow">People &amp; access</span>
+        <h1 className="sd-page-title">Users</h1>
+        <span className="sd-page-sub">Manage users and their access to modules and farm sites</span>
+      </div>
+
+      {/* Actions row */}
+      <div className="sd-actions">
+        <button
+          onClick={handleRefresh}
+          className="sd-iconbtn"
+          title="Refresh"
+          aria-label="Refresh"
+        >
+          <RefreshCw size={16} />
+        </button>
+        {/* RBAC-L6: the previous "Export" button was UNWIRED (no onClick, no
+            export backend) yet rendered ungated to every users:view delegate —
+            a false affordance. Removed; reintroduce only together with a real
+            export path AND a capability gate. */}
+        {canInviteUsers && (
           <button
-            onClick={handleRefresh}
-            className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
-            title="Refresh"
+            onClick={() => {
+              setSaveError(null);
+              setEditingUser(null);
+              setIsModalOpen(true);
+            }}
+            className="sd-btn-deep"
           >
-            <RefreshCw className="w-5 h-5 text-gray-500" />
+            <UserPlus size={16} />
+            Add User
           </button>
-          {/* RBAC-L6: the previous "Export" button was UNWIRED (no onClick, no
-              export backend) yet rendered ungated to every users:view delegate —
-              a false affordance. Removed; reintroduce only together with a real
-              export path AND a capability gate. */}
-          {canInviteUsers && (
-            <button
-              onClick={() => {
-                setSaveError(null);
-                setEditingUser(null);
-                setIsModalOpen(true);
-              }}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors"
-            >
-              <UserPlus className="w-4 h-4" />
-              Add User
-            </button>
-          )}
-        </div>
+        )}
       </div>
 
       {/* Error */}
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3">
-          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
-          <div>
-            <p className="text-sm font-medium text-red-800">Failed to load users</p>
-            <p className="text-sm text-red-600">{error}</p>
-          </div>
-          <button
-            onClick={handleRefresh}
-            className="ml-auto px-3 py-1 text-sm font-medium text-red-700 hover:bg-red-100 rounded-lg transition-colors"
-          >
+        <div className="sd-banner sd-banner--error" role="alert">
+          <AlertCircle size={19} style={{ color: '#b04a28', flexShrink: 0 }} />
+          <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: '#8e3a1e' }}>Failed to load users</p>
+          <p style={{ margin: 0, flex: 1, fontSize: 13.5, color: '#3d5c69' }}>{error}</p>
+          <button onClick={handleRefresh} className="sd-btn-ghost" style={{ padding: '6px 13px', fontSize: 12.5, color: '#8e3a1e', borderColor: 'rgba(176,74,40,.35)' }}>
             Retry
           </button>
         </div>

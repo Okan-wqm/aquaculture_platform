@@ -51,7 +51,7 @@ const CATEGORIES: PurchaseOrderCategory[] = [
 ];
 
 const formatCurrency = (amount: number, currency: string) =>
-  new Intl.NumberFormat('nb-NO', { style: 'currency', currency }).format(amount);
+  new Intl.NumberFormat('en-GB', { style: 'currency', currency }).format(amount);
 
 export const PurchaseOrdersTab: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<string>('');
@@ -186,7 +186,7 @@ export const PurchaseOrdersTab: React.FC = () => {
                     {po.totalAmountDecimal != null ? formatCurrency(parseMoney(po.totalAmountDecimal), po.currency) : '-'}
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-500">
-                    {po.expectedDeliveryDate ? new Date(po.expectedDeliveryDate).toLocaleDateString('nb-NO') : '-'}
+                    {po.expectedDeliveryDate ? new Date(po.expectedDeliveryDate).toLocaleDateString('en-GB') : '-'}
                   </td>
                   <td className="px-6 py-4">
                     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[po.status] || 'bg-gray-100 text-gray-800'}`}>
@@ -198,7 +198,7 @@ export const PurchaseOrdersTab: React.FC = () => {
                       <div>
                         <div className="text-xs text-gray-700">{po.approvedByName || po.approvedBy}</div>
                         {po.approvedAt && (
-                          <div className="text-xs text-gray-400">{new Date(po.approvedAt).toLocaleDateString('nb-NO')}</div>
+                          <div className="text-xs text-gray-400">{new Date(po.approvedAt).toLocaleDateString('en-GB')}</div>
                         )}
                       </div>
                     ) : <span className="text-gray-400">-</span>}

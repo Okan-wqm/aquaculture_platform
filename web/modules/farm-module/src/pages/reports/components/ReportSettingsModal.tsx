@@ -336,6 +336,7 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
 
   return (
     <Modal
+      className="sd-f2"
       isOpen={open}
       onClose={onClose}
       title="Report Settings"

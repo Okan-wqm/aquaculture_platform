@@ -1,18 +1,23 @@
 /**
  * useAlarmRuntime — Connects the alarm engine backend to the React UI.
  *
+ * ONE STORE / ONE TRANSPORT (T1):
+ *  - Store: reads/writes the alarmRuntimeSlice inside the unified
+ *    useScadaPackageStore. The old standalone `useAlarmRuntimeStore`
+ *    (a second Zustand store that nothing else ever wrote to) is deleted.
+ *  - Transport: ScadaSocketService exclusively. The old path went through
+ *    the socketFactory pool with the DEFAULT '/socket.io/' path, which
+ *    nginx routes to the gateway — an instance that serves no /scada
+ *    namespace — so alarm traffic was silently dead.
+ *
  * Responsibilities:
- *  - Listens for ALARM_STATUS WebSocket events from the /scada namespace.
- *  - Updates the alarmRuntimeSlice (activeAlarms, summary, pendingActions).
- *  - Dispatches alarm ACK commands to the server (individual + all).
+ *  - (Optionally) register the ALARM_STATUS listener → alarmRuntimeSlice.
+ *    OperatorBootstrap is the canonical dispatcher; pass `listen: true` only
+ *    when the hook is mounted OUTSIDE the operator bootstrap tree.
+ *  - Dispatches alarm ACK commands to the server (individual + all) —
+ *    never mutates local state; state updates arrive via ALARM_STATUS.
  *  - Handles pending alarm actions (toast, popup, setView) via callbacks.
  *  - Exposes queryHistory() for loading chronicle records.
- *
- * Socket strategy:
- *  Uses the socketFactory pool (same pattern as useScadaLiveData) to get
- *  a raw Socket.IO connection to the /scada namespace. This avoids any
- *  dependency on the ScadaSocketService typed-listener layer while still
- *  sharing the underlying connection.
  *
  * The hook is side-effect-free when unmounted: listeners are cleaned up.
  */
@@ -26,45 +31,8 @@ import {
   type AlarmHistoryFilter,
 } from '../types/scada-runtime.types';
 
-import { createAlarmRuntimeSlice } from '../store/scada/alarmRuntimeSlice';
-import type { AlarmRuntimeSlice } from '../store/scada/alarmRuntimeSlice';
-import { getSocket, releaseSocket } from './socketFactory';
-
-// ── Standalone Zustand store for alarm runtime state ─────────────────────────
-// A dedicated small store keeps alarm runtime state self-contained and avoids
-// modifying the existing OperatorStore.
-import { create } from 'zustand';
-import type { StateCreator } from 'zustand';
-import { immer } from 'zustand/middleware/immer';
-
-export type AlarmRuntimeStore = AlarmRuntimeSlice;
-const createStandaloneAlarmRuntimeSlice = createAlarmRuntimeSlice as unknown as StateCreator<
-  AlarmRuntimeStore,
-  [['zustand/immer', never]],
-  [],
-  AlarmRuntimeStore
->;
-
-export const useAlarmRuntimeStore = create<AlarmRuntimeStore>()(
-  immer((...args) => ({
-    ...createStandaloneAlarmRuntimeSlice(...args),
-  })),
-);
-
-// ── SCADA WebSocket URL (mirrors other hooks) ─────────────────────────────────
-const SCADA_WS_URL: string =
-  (() => {
-    const base =
-      (typeof import.meta !== 'undefined' &&
-        (import.meta as unknown as Record<string, unknown>).env != null
-        ? (import.meta as unknown as { env: Record<string, string> }).env.VITE_WS_URL
-        : undefined) ??
-      (typeof window !== 'undefined'
-        ? (window as Window & { __RUNTIME_CONFIG__?: { WS_URL?: string } }).__RUNTIME_CONFIG__?.WS_URL
-        : undefined) ??
-      '';
-    return base ? `${base}/scada` : '/scada';
-  })();
+import { useScadaPackageStore } from '../store/scada/createScadaStore';
+import { getScadaSocketService } from '../services/ScadaSocketService';
 
 /* ------------------------------------------------------------------ */
 /*  Hook return type                                                    */
@@ -90,48 +58,74 @@ export interface AlarmRuntimeCallbacks {
   onSetView?: (viewId: string) => void;
 }
 
+export interface UseAlarmRuntimeOptions {
+  callbacks?: AlarmRuntimeCallbacks;
+  /**
+   * Register an ALARM_STATUS listener on the socket service. Defaults to
+   * false: inside the operator tree OperatorBootstrap already dispatches
+   * ALARM_STATUS into the store, and a second dispatcher would double-enqueue
+   * pendingActions (toasts/popups). Enable only for mounts outside the
+   * bootstrap (stories/tests).
+   */
+  listen?: boolean;
+  /**
+   * Consume queued alarm actions (toast/popup/setView) and dispatch them to
+   * `callbacks`. Defaults to FALSE — a mount without this flag never drains
+   * the queue (A2/Plan 2: passive consumers like AlarmPanel/AlarmSummaryBar
+   * used to swallow the server's alarm commands). Exactly ONE mount in the
+   * operator tree (OperatorBootstrap) should enable this.
+   */
+  processActions?: boolean;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Hook                                                                */
 /* ------------------------------------------------------------------ */
 
 export function useAlarmRuntime(
-  callbacks?: AlarmRuntimeCallbacks,
+  callbacksOrOptions?: AlarmRuntimeCallbacks | UseAlarmRuntimeOptions,
 ): UseAlarmRuntimeResult {
+  // Backwards-compatible call shape: useAlarmRuntime(callbacks) — treat a
+  // bare callbacks object as { callbacks }.
+  const options: UseAlarmRuntimeOptions =
+    callbacksOrOptions && 'callbacks' in callbacksOrOptions
+      ? (callbacksOrOptions as UseAlarmRuntimeOptions)
+      : { callbacks: callbacksOrOptions as AlarmRuntimeCallbacks | undefined };
+
   const [isLoading, setIsLoading] = useState(false);
 
-  // Zustand store selectors
-  const activeAlarms = useAlarmRuntimeStore((s) => s.activeAlarms);
-  const summary = useAlarmRuntimeStore((s) => s.alarmStatusSummary);
-  const history = useAlarmRuntimeStore((s) => s.alarmHistory);
-  const pendingActions = useAlarmRuntimeStore((s) => s.pendingActions);
+  // Unified package store selectors (alarmRuntimeSlice lives here).
+  const activeAlarms = useScadaPackageStore((s) => s.activeAlarms);
+  const summary = useScadaPackageStore((s) => s.alarmStatusSummary);
+  const history = useScadaPackageStore((s) => s.alarmHistory);
+  const pendingActions = useScadaPackageStore((s) => s.pendingActions);
 
-  const updateAlarmStatus = useAlarmRuntimeStore((s) => s.updateAlarmStatus);
-  const consumeAllPendingActions = useAlarmRuntimeStore((s) => s.consumeAllPendingActions);
+  const submitAlarmAck = useScadaPackageStore((s) => s.submitAlarmAck);
+  const submitAlarmAckAll = useScadaPackageStore((s) => s.submitAlarmAckAll);
+  const setAlarmHistory = useScadaPackageStore((s) => s.setAlarmHistory);
+  const consumeAllPendingActions = useScadaPackageStore((s) => s.consumeAllPendingActions);
 
   // Keep callbacks in a ref so event handlers always have the latest version
-  const callbacksRef = useRef<AlarmRuntimeCallbacks | undefined>(callbacks);
-  callbacksRef.current = callbacks;
+  const callbacksRef = useRef(options.callbacks);
+  callbacksRef.current = options.callbacks;
 
-  // ── Socket listener ──────────────────────────────────────────────────────
+  // ── Optional ALARM_STATUS listener (outside-bootstrap mounts only) ──────
   useEffect(() => {
-    const socket = getSocket(SCADA_WS_URL);
-    if (!socket) return;
-
-    const handleAlarmStatus = (payload: AlarmStatusSummary) => {
+    if (!options.listen) return;
+    const socket = getScadaSocketService();
+    const updateAlarmStatus = useScadaPackageStore.getState().updateAlarmStatus;
+    const handler = (payload: AlarmStatusSummary): void => {
       updateAlarmStatus(payload);
     };
-
-    socket.on(ScadaSocketEvent.ALARM_STATUS, handleAlarmStatus);
-
+    socket.on(ScadaSocketEvent.ALARM_STATUS, handler);
     return () => {
-      socket.off(ScadaSocketEvent.ALARM_STATUS, handleAlarmStatus);
-      releaseSocket(socket);
+      socket.off(ScadaSocketEvent.ALARM_STATUS, handler);
     };
-  }, [updateAlarmStatus]);
+  }, [options.listen]);
 
-  // ── Pending action processor ─────────────────────────────────────────────
+  // ── Pending action processor (single consumer: processActions only) ─────
   useEffect(() => {
-    if (pendingActions.length === 0) return;
+    if (!options.processActions || pendingActions.length === 0) return;
 
     // Atomically consume all pending actions in a single store mutation,
     // then process the returned snapshot. This avoids O(n) individual
@@ -164,70 +158,30 @@ export function useAlarmRuntime(
         console.error('[useAlarmRuntime] action handler error:', err);
       }
     }
-  }, [pendingActions, consumeAllPendingActions]);
+  }, [options.processActions, pendingActions, consumeAllPendingActions]);
 
-  // ── ACK single alarm ─────────────────────────────────────────────────────
+  // ── ACK single alarm (socket only — server pushes the new state) ────────
   const acknowledgeAlarm = useCallback((alarmId: string) => {
-    const socket = getSocket(SCADA_WS_URL);
-    if (!socket) {
-      console.warn('[useAlarmRuntime] acknowledgeAlarm: no socket available');
-      return;
-    }
-    socket.emit(ScadaSocketEvent.ALARM_ACK, { alarmInstanceId: alarmId });
-    releaseSocket(socket);
-  }, []);
+    submitAlarmAck(alarmId);
+  }, [submitAlarmAck]);
 
-  // ── ACK all alarms ───────────────────────────────────────────────────────
+  // ── ACK all alarms (socket only) ────────────────────────────────────────
   const acknowledgeAll = useCallback(() => {
-    const socket = getSocket(SCADA_WS_URL);
-    if (!socket) {
-      console.warn('[useAlarmRuntime] acknowledgeAll: no socket available');
-      return;
-    }
-    socket.emit(ScadaSocketEvent.ALARM_ACK_ALL, {});
-    releaseSocket(socket);
-  }, []);
+    submitAlarmAckAll();
+  }, [submitAlarmAckAll]);
 
   // ── History query ────────────────────────────────────────────────────────
   const queryHistory = useCallback(async (filter: AlarmHistoryFilter): Promise<void> => {
     setIsLoading(true);
-    const socket = getSocket(SCADA_WS_URL);
-    if (!socket) {
-      console.warn('[useAlarmRuntime] queryHistory: no socket available');
-      setIsLoading(false);
-      return;
-    }
-
     try {
-      await new Promise<void>((resolve, reject) => {
-        const TIMEOUT_MS = 15_000;
-        const timer = setTimeout(() => {
-          socket.off(ScadaSocketEvent.ALARM_HISTORY_RESULT, handler);
-          reject(new Error('[useAlarmRuntime] History query timed out'));
-        }, TIMEOUT_MS);
-
-        const handler = (payload: { alarms?: AlarmInstance[] }) => {
-          clearTimeout(timer);
-          socket.off(ScadaSocketEvent.ALARM_HISTORY_RESULT, handler);
-
-          if (payload?.alarms) {
-            useAlarmRuntimeStore.setState((state) => {
-              state.alarmHistory = payload.alarms!;
-            });
-          }
-          resolve();
-        };
-
-        socket.on(ScadaSocketEvent.ALARM_HISTORY_RESULT, handler);
-        socket.emit(ScadaSocketEvent.ALARM_HISTORY_QUERY, filter);
-      });
+      const alarms = await getScadaSocketService().queryAlarmHistory(filter);
+      setAlarmHistory(alarms);
     } catch (err) {
       console.error('[useAlarmRuntime] queryHistory error:', err);
     } finally {
-      releaseSocket(socket);
       setIsLoading(false);
     }
-  }, []);
+  }, [setAlarmHistory]);
 
   return {
     activeAlarms,

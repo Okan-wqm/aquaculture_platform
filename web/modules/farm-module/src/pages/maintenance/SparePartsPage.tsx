@@ -41,11 +41,11 @@ const statusColors: Record<SparePartStatus, string> = {
 
 // Status labels
 const statusLabels: Record<SparePartStatus, string> = {
-  IN_STOCK: 'Stokta',
+  IN_STOCK: 'In Stock',
   LOW_STOCK: 'Az Stok',
   OUT_OF_STOCK: 'Stok Yok',
-  ON_ORDER: 'Siparişte',
-  DISCONTINUED: 'Üretilmiyor',
+  ON_ORDER: 'On Order',
+  DISCONTINUED: 'Discontinued',
 };
 
 interface SparePartFormData {
@@ -78,9 +78,9 @@ const defaultFormData: SparePartFormData = {
   minStock: 5,
   maxStock: 100,
   reorderPoint: 10,
-  unit: 'adet',
+  unit: 'pcs',
   unitPrice: 0,
-  currency: 'TRY',
+  currency: 'NOK',
   leadTimeDays: 7,
   warehouseLocation: '',
   shelfLocation: '',
@@ -160,7 +160,7 @@ export const SparePartsPage: React.FC = () => {
       reorderPoint: part.reorderPoint,
       unit: part.unit,
       unitPrice: part.unitPrice || 0,
-      currency: part.currency || 'TRY',
+      currency: part.currency || 'NOK',
       leadTimeDays: part.leadTimeDays || 7,
       warehouseLocation: part.location?.warehouse || '',
       shelfLocation: part.location?.shelf || '',
@@ -252,7 +252,7 @@ export const SparePartsPage: React.FC = () => {
   };
 
   const handleDelete = async (id: string) => {
-    if (window.confirm('Bu yedek parçayı silmek istediğinizden emin misiniz?')) {
+    if (window.confirm('Are you sure you want to delete this spare part?')) {
       try {
         await deleteMutation.mutateAsync(id);
         refetch();
@@ -285,7 +285,7 @@ export const SparePartsPage: React.FC = () => {
   if (isBlockingError(error, (data?.items?.length ?? 0) > 0)) {
     return (
       <div className="p-6">
-        <Alert type="error">Yedek parçalar yüklenirken bir hata oluştu.</Alert>
+        <Alert type="error">An error occurred while loading spare parts.</Alert>
       </div>
     );
   }
@@ -298,26 +298,26 @@ export const SparePartsPage: React.FC = () => {
           type="warning"
           action={{ label: 'Yeniden Dene', onClick: () => refetch() }}
         >
-          Yedek parçalar yenilenemedi — son yüklenen veriler gösteriliyor.
+          Could not refresh spare parts — showing the last loaded data.
         </Alert>
       )}
 
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Yedek Parçalar</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Spare Parts</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Yedek parça envanterini görüntüleyin ve yönetin
+            View and manage the spare parts inventory
           </p>
         </div>
-        <Button onClick={handleOpenCreate}>Yeni Yedek Parça</Button>
+        <Button onClick={handleOpenCreate}>New Spare Part</Button>
       </div>
 
       {/* Summary Cards */}
       {stockSummary && (
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <Card className="p-4">
-            <div className="text-sm text-gray-500">Toplam Parça</div>
+            <div className="text-sm text-gray-500">Total Parts</div>
             <div className="text-2xl font-bold text-gray-900">{stockSummary.totalParts}</div>
           </Card>
           <Card className="p-4">
@@ -333,7 +333,7 @@ export const SparePartsPage: React.FC = () => {
             <div className="text-2xl font-bold text-red-600">{stockSummary.outOfStockCount}</div>
           </Card>
           <Card className="p-4">
-            <div className="text-sm text-gray-500">Toplam Değer</div>
+            <div className="text-sm text-gray-500">Total Value</div>
             <div className="text-2xl font-bold text-blue-600">{formatCurrency(parseMoney(stockSummary.totalValueDecimal))}</div>
           </Card>
         </div>
@@ -343,7 +343,7 @@ export const SparePartsPage: React.FC = () => {
       <Card className="p-4">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <Input
-            placeholder="Ara..."
+            placeholder="Search…"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
@@ -351,7 +351,7 @@ export const SparePartsPage: React.FC = () => {
             value={filter.status?.[0] || ''}
             onChange={(e) => handleFilterChange('status', e.target.value)}
             options={[
-              { value: '', label: 'Tüm Durumlar' },
+              { value: '', label: 'All Statuses' },
               ...Object.entries(statusLabels).map(([value, label]) => ({
                 value,
                 label,
@@ -373,10 +373,10 @@ export const SparePartsPage: React.FC = () => {
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Kod / İsim
+                    Code / Name
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Parça No
+                    Part No.
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Durum
@@ -391,7 +391,7 @@ export const SparePartsPage: React.FC = () => {
                     Birim Fiyat
                   </th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    İşlemler
+                    Actions
                   </th>
                 </tr>
               </thead>
@@ -399,7 +399,7 @@ export const SparePartsPage: React.FC = () => {
                 {filteredItems.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
-                      Henüz yedek parça bulunmuyor
+                      No spare parts yet
                     </td>
                   </tr>
                 ) : (
@@ -449,7 +449,7 @@ export const SparePartsPage: React.FC = () => {
                           onClick={() => handleOpenEdit(item)}
                           className="text-indigo-600 hover:text-indigo-900 mr-3"
                         >
-                          Düzenle
+                          Edit
                         </button>
                         <button
                           onClick={() => handleDelete(item.id)}
@@ -470,7 +470,7 @@ export const SparePartsPage: React.FC = () => {
         {data && data.totalPages > 1 && (
           <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
             <div className="text-sm text-gray-500">
-              Toplam {data.total} kayıt, Sayfa {data.page} / {data.totalPages}
+              {data.total} records total, Page {data.page} / {data.totalPages}
             </div>
             <div className="flex gap-2">
               <Button
@@ -479,7 +479,7 @@ export const SparePartsPage: React.FC = () => {
                 disabled={page === 1}
                 onClick={() => setPage((p) => p - 1)}
               >
-                Önceki
+                Previous
               </Button>
               <Button
                 variant="secondary"
@@ -487,7 +487,7 @@ export const SparePartsPage: React.FC = () => {
                 disabled={!data.hasNextPage}
                 onClick={() => setPage((p) => p + 1)}
               >
-                Sonraki
+                Next
               </Button>
             </div>
           </div>
@@ -496,38 +496,39 @@ export const SparePartsPage: React.FC = () => {
 
       {/* Create/Edit Modal */}
       <Modal
+        className="sd-f2"
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        title={editingId ? 'Yedek Parça Düzenle' : 'Yeni Yedek Parça'}
+        title={editingId ? 'Edit Spare Part' : 'New Spare Part'}
       >
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <Input
-              label="Parça Kodu"
+              label="Part Code"
               value={formData.code}
               onChange={(e) => setFormData({ ...formData, code: e.target.value })}
               required
             />
             <Input
-              label="Parça Numarası"
+              label="Part Number"
               value={formData.partNumber}
               onChange={(e) => setFormData({ ...formData, partNumber: e.target.value })}
               required
             />
           </div>
           <Input
-            label="Parça Adı"
+            label="Part Name"
             value={formData.name}
             onChange={(e) => setFormData({ ...formData, name: e.target.value })}
             required
           />
           <Input
-            label="Açıklama"
+            label="Description"
             value={formData.description}
             onChange={(e) => setFormData({ ...formData, description: e.target.value })}
           />
           <Input
-            label="Üretici"
+            label="Manufacturer"
             value={formData.manufacturer}
             onChange={(e) => setFormData({ ...formData, manufacturer: e.target.value })}
           />
@@ -560,7 +561,7 @@ export const SparePartsPage: React.FC = () => {
               required
             />
             <Input
-              label="Sipariş Noktası"
+              label="Reorder Point"
               type="number"
               value={formData.reorderPoint}
               onChange={(e) =>
@@ -614,7 +615,7 @@ export const SparePartsPage: React.FC = () => {
             />
           </div>
           <Input
-            label="Tedarik Süresi (gün)"
+            label="Lead Time (days)"
             type="number"
             value={formData.leadTimeDays}
             onChange={(e) =>
@@ -628,7 +629,7 @@ export const SparePartsPage: React.FC = () => {
           />
           <div className="flex justify-end gap-2 pt-4">
             <Button variant="secondary" onClick={() => setIsModalOpen(false)}>
-              İptal
+              Cancel
             </Button>
             <Button
               type="submit"
@@ -644,6 +645,7 @@ export const SparePartsPage: React.FC = () => {
 
       {/* Stock Movement Modal */}
       <Modal
+        className="sd-f2"
         isOpen={isStockModalOpen}
         onClose={() => setIsStockModalOpen(false)}
         title={`Stok Hareketi - ${selectedPartForStock?.name || ''}`}
@@ -667,9 +669,9 @@ export const SparePartsPage: React.FC = () => {
               })
             }
             options={[
-              { value: 'in', label: 'Stok Girişi' },
-              { value: 'out', label: 'Stok Çıkışı' },
-              { value: 'adjustment', label: 'Düzeltme' },
+              { value: 'in', label: 'Stock In' },
+              { value: 'out', label: 'Stock Out' },
+              { value: 'adjustment', label: 'Adjustment' },
             ]}
           />
           <Input
@@ -701,7 +703,7 @@ export const SparePartsPage: React.FC = () => {
           />
           <div className="flex justify-end gap-2 pt-4">
             <Button variant="secondary" onClick={() => setIsStockModalOpen(false)}>
-              İptal
+              Cancel
             </Button>
             <Button type="submit" disabled={stockMovementMutation.isPending}>
               {stockMovementMutation.isPending ? 'Kaydediliyor...' : 'Kaydet'}

@@ -1487,11 +1487,6 @@ interface ReviewStepProps {
 
 const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
   // Estimated FCR - show raw ratio only, label as estimated
-  const estimatedFcr =
-    formData.feedConsumption.totalKg > 0 && formData.currentBiomass.totalKg > 0
-      ? 'N/A (insufficient data for accurate calculation)'
-      : 'N/A';
-
   // Simple display FCR if we have both feed and biomass
   const fcrDisplay =
     formData.feedConsumption.totalKg > 0 && formData.currentBiomass.totalKg > 0
@@ -1742,7 +1737,7 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
   const effectiveMapping = siteMappings.find((m) => m.siteId === effectiveSiteId);
   const effectiveSiteName =
     effectiveMapping?.siteName ??
-    (effectiveMapping ? `Lokalitet ${effectiveMapping.lokalitetsnummer}` : 'Default Site');
+    (effectiveMapping ? `Lokalitet ${effectiveMapping.lokalitetsnummer}` : 'Unknown site');
 
   // Persisted report history (FARM-HIGH-125) — real rows, no mock.
   const {

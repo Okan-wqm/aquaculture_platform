@@ -43,8 +43,6 @@ export function messagesQueryKey(
  * would place it in the `userId` slot and fail to prefix-match the reader — the
  * exact ChatRoomPage online-delete miss under MSG-CRITICAL-055.
  */
-export function messagesFamilyKey(
-  tenantId: string | null | undefined,
-): readonly unknown[] {
+export function messagesFamilyKey(tenantId: string | null | undefined): readonly unknown[] {
   return createTenantQueryKey(tenantId, 'messaging', 'messages');
 }

@@ -1,18 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
   <head>
-    <!-- Dark mode flash prevention: synchronously applies the stored theme
-         preference before any CSS is parsed, preventing a visible flash of
-         the wrong theme. This MUST be inline and synchronous -- external
-         scripts load asynchronously and would cause FOUC (Flash of Unstyled Content). -->
-    <script>
-      (function() {
-        var pref = localStorage.getItem('aquamobil_dark_mode') || 'system';
-        var isDark = pref === 'dark' || (pref === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-        if (isDark) document.documentElement.classList.add('dark');
-        document.querySelector('meta[name="theme-color"]')?.setAttribute('content', isDark ? '#030712' : '#0073e6');
-      })();
-    </script>
+    <!-- Theme + density pre-paint. EXTERNAL and same-origin ON PURPOSE:
+         production nginx serves `script-src 'self'` with no 'unsafe-inline'
+         (D14-SC-02), so an inline script here is blocked in production and the
+         whole theme + touch-density layer silently never applies. Blocking
+         <script src> keeps it ahead of first paint. Logic lives in
+         public/theme-init.js; keep it in step with useTheme/useDensity. -->
+    <script src="/mobile/theme-init.js"></script>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/icons/icon-192x192.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />

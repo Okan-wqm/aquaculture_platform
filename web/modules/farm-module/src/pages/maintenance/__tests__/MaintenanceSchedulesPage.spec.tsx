@@ -35,7 +35,7 @@ describe('MaintenanceSchedulesPage', () => {
   it('renders the schedules page from the backend list query', async () => {
     renderWithProviders(<MaintenanceSchedulesPage />);
 
-    expect(await screen.findByText('Bakım Planları')).toBeInTheDocument();
+    expect(await screen.findByText('Maintenance Schedules')).toBeInTheDocument();
     await waitFor(() => {
       expect(
         requestMock.mock.calls.some(([q]) => (q as string).includes('query MaintenanceSchedules')),

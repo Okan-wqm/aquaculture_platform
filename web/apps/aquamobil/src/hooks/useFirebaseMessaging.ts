@@ -40,7 +40,12 @@ interface ForegroundPushPayload {
 }
 
 function isFirebaseConfigured(): boolean {
-  return !!(FIREBASE_CONFIG.apiKey && FIREBASE_CONFIG.projectId && FIREBASE_CONFIG.messagingSenderId && FIREBASE_CONFIG.appId);
+  return !!(
+    FIREBASE_CONFIG.apiKey &&
+    FIREBASE_CONFIG.projectId &&
+    FIREBASE_CONFIG.messagingSenderId &&
+    FIREBASE_CONFIG.appId
+  );
 }
 
 /** Custom event name dispatched when a foreground push notification arrives. */
@@ -75,9 +80,7 @@ export function useFirebaseMessaging(): void {
       data,
     };
 
-    window.dispatchEvent(
-      new CustomEvent(PUSH_NOTIFICATION_EVENT, { detail }),
-    );
+    window.dispatchEvent(new CustomEvent(PUSH_NOTIFICATION_EVENT, { detail }));
   }, []);
 
   // Reset registration when user changes (logout or different user login).
@@ -105,7 +108,9 @@ export function useFirebaseMessaging(): void {
     void (async () => {
       try {
         const { initializeApp, getApps } = await import('firebase/app');
-        const { getMessaging, getToken, onMessage, deleteToken } = await import('firebase/messaging');
+        const { getMessaging, getToken, onMessage, deleteToken } = await import(
+          'firebase/messaging'
+        );
 
         // Reuse the already-initialized Firebase app if present (a second
         // initializeApp with the same name throws). Destructure rather than

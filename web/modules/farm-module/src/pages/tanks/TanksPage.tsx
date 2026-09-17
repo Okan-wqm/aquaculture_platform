@@ -1,6 +1,19 @@
 /**
  * Tanks Page Component
  * Lists all tanks with their batch metrics
+ *
+ * SUDERRA restyle — page shell only (pagehead / quick actions / toolbar /
+ * tabs); the data tables, cell renderers and every production & cleaner-fish
+ * modal keep their markup and are themed via the scoped legacy-palette
+ * compatibility layer (`.sd-page …` rules in the shell stylesheet).
+ *
+ * DATA SOURCES (all real backend — no mocked data on this page):
+ * - useTanksList → farm-service tanks incl. current batch metrics.
+ * - useCleanerFishBatches / useCleanerFishSpecies → real cleaner-fish data.
+ * - Quick actions are REAL mutations (mortality / transfer / cull / grading /
+ *   water temperature / new batch) against farm-service.
+ * - Row click-to-select: clicking a table row (either tab) selects that tank
+ *   in the quick-actions bar; keyboard Enter/Space does the same.
  */
 import React, { useState, useMemo, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -906,7 +919,7 @@ export const TanksPage: React.FC = () => {
   // Loading state
   if (isLoading) {
     return (
-      <div className="p-6">
+      <div className="sd-page" aria-busy="true">
         <div className="animate-pulse">
           <div className="h-8 bg-gray-200 rounded w-48 mb-4" />
           <div className="h-4 bg-gray-200 rounded w-96 mb-6" />
@@ -926,7 +939,7 @@ export const TanksPage: React.FC = () => {
   // the main view below instead of blanking the page.
   if (isBlockingError(error, data != null)) {
     return (
-      <div className="p-6">
+      <div className="sd-page">
         <div className="bg-red-50 border border-red-200 rounded-lg p-4">
           <h3 className="text-red-800 font-medium">Error loading tanks</h3>
           <p className="text-red-600 text-sm mt-1">{(error as Error).message}</p>
@@ -942,41 +955,44 @@ export const TanksPage: React.FC = () => {
   }
 
   return (
-    <div className="p-6">
+    <div className="sd-page">
       {/* Non-blocking refresh error — shown while keeping the last-loaded data
           visible, so a failed background refetch never blanks the table. */}
       {error && (
-        <div className="mb-4 flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 p-3">
-          <p className="text-sm text-amber-800">
+        <div
+          className="sd-banner"
+          style={{ background: '#fbf3dc', borderColor: 'rgba(146,97,10,.3)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}
+          role="status"
+        >
+          <p style={{ margin: 0, fontSize: 13.5, color: '#92610a' }}>
             Couldn&apos;t refresh tanks — showing the last loaded data.{' '}
-            <span className="text-amber-700">{(error as Error).message}</span>
+            <span>{(error as Error).message}</span>
           </p>
-          <button
-            onClick={() => refetch()}
-            className="ml-3 shrink-0 rounded bg-amber-100 px-3 py-1 text-sm text-amber-800 hover:bg-amber-200"
-          >
+          <button onClick={() => refetch()} className="sd-btn-ghost" style={{ padding: '6px 13px', fontSize: 12.5, color: '#92610a', borderColor: 'rgba(146,97,10,.4)', flexShrink: 0 }}>
             Retry
           </button>
         </div>
       )}
 
-      {/* Page Header with Quick Actions */}
-      <div className="flex items-start justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Tanks, Ponds & Cages</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            View all tanks, ponds and sea cages with their current batch metrics
-          </p>
-        </div>
+      {/* Page header (mockup pattern: eyebrow + serif title + subtitle) */}
+      <div className="sd-pagehead">
+        <span className="sd-eyebrow">Environment</span>
+        <h1 className="sd-page-title">Tanks, Ponds &amp; Cages</h1>
+        <span className="sd-page-sub">View all tanks, ponds and sea cages with their current batch metrics</span>
+      </div>
 
-        {/* Quick Actions - Top Right */}
-        <div className="flex items-center gap-2 bg-gray-50 rounded-lg p-2 border border-gray-200">
+      {/* Quick Actions — real production mutations (farm-service) */}
+      <div className="sd-card sd-toolbar" style={{ padding: '9px 11px', flexWrap: 'wrap' }}>
           <select
             value={selectedTankId || ''}
             onChange={(e) => setSelectedTankId(e.target.value || null)}
-            className="px-2 py-1.5 border border-gray-300 rounded text-sm min-w-[160px] bg-white focus:ring-1 focus:ring-blue-500"
+            className="sd-select"
+            style={{ flex: '0 1 190px', padding: '8px 34px 8px 12px' }}
           >
             <option value="">Select Tank...</option>
+            {selectedTank && !selectedTank.batchNumber && !selectedTank.hasCleanerFish && (
+              <option value={selectedTank.id}>{selectedTank.name}</option>
+            )}
             {tableData
               .filter((t) => t.batchNumber || t.hasCleanerFish)
               .map((tank) => (
@@ -991,7 +1007,7 @@ export const TanksPage: React.FC = () => {
           <button
             onClick={handleMortalityClick}
             disabled={!selectedTankId}
-            className="p-1.5 text-red-600 hover:bg-red-100 rounded disabled:opacity-40 disabled:cursor-not-allowed"
+            className="sd-iconbtn text-red-600"
             title="Record Mortality"
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1007,7 +1023,7 @@ export const TanksPage: React.FC = () => {
           <button
             onClick={handleTransferClick}
             disabled={!selectedTankId}
-            className="p-1.5 text-blue-600 hover:bg-blue-100 rounded disabled:opacity-40 disabled:cursor-not-allowed"
+            className="sd-iconbtn text-blue-600"
             title="Transfer Fish"
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1023,7 +1039,7 @@ export const TanksPage: React.FC = () => {
           <button
             onClick={handleCullClick}
             disabled={!selectedTankId || !selectedTank?.batchNumber}
-            className="p-1.5 text-orange-600 hover:bg-orange-100 rounded disabled:opacity-40 disabled:cursor-not-allowed"
+            className="sd-iconbtn text-orange-600"
             title="Record Cull"
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1039,7 +1055,7 @@ export const TanksPage: React.FC = () => {
           <button
             onClick={handleGradingClick}
             disabled={!selectedTankId || !selectedTank?.batchNumber}
-            className="p-1.5 text-purple-600 hover:bg-purple-100 rounded disabled:opacity-40 disabled:cursor-not-allowed"
+            className="sd-iconbtn text-purple-600"
             title="Grade Fish"
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1055,7 +1071,7 @@ export const TanksPage: React.FC = () => {
           <button
             onClick={handleWaterTempClick}
             disabled={!selectedTankId}
-            className="p-1.5 text-cyan-600 hover:bg-cyan-100 rounded disabled:opacity-40 disabled:cursor-not-allowed"
+            className="sd-iconbtn text-cyan-600"
             title="Record Water Temperature"
           >
             {/* Water-drop icon — records the manual water temperature the feed-rate uses */}
@@ -1073,7 +1089,8 @@ export const TanksPage: React.FC = () => {
 
           <button
             onClick={() => setShowBatchModal(true)}
-            className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded"
+            className="sd-btn-teal"
+            style={{ padding: '9px 26px', fontSize: 13.5, fontWeight: 600 }}
             title="New Batch"
           >
             <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1087,31 +1104,22 @@ export const TanksPage: React.FC = () => {
             New Batch
           </button>
         </div>
-      </div>
 
       {/* Toolbar */}
-      <div className="flex flex-wrap gap-4 mb-6 items-center">
+      <div className="sd-toolbar" style={{ marginBottom: 20 }}>
         {/* Search */}
-        <div className="relative flex-1 min-w-[200px] max-w-md">
-          <svg
-            className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-            />
+        <div className="sd-search" style={{ flex: '1 1 230px', maxWidth: 430 }}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="11" cy="11" r="7" />
+            <path d="m21 21-4.3-4.3" />
           </svg>
           <input
             type="text"
-            placeholder="Search tanks..."
+            className="sd-input"
+            placeholder="Search tanks…"
+            aria-label="Search tanks"
             value={filters.search}
             onChange={(e) => handleFilterChange('search', e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           />
         </div>
 
@@ -1119,7 +1127,8 @@ export const TanksPage: React.FC = () => {
         <select
           value={filters.category}
           onChange={(e) => handleFilterChange('category', e.target.value)}
-          className="px-4 py-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          className="sd-select"
+          style={{ flex: '0 1 160px' }}
         >
           <option value="all">All Categories</option>
           <option value="TANK">Tanks</option>
@@ -1131,7 +1140,8 @@ export const TanksPage: React.FC = () => {
         <select
           value={filters.status}
           onChange={(e) => handleFilterChange('status', e.target.value)}
-          className="px-4 py-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          className="sd-select"
+          style={{ flex: '0 1 150px' }}
         >
           <option value="all">All Status</option>
           <option value="ACTIVE">Active</option>
@@ -1148,7 +1158,8 @@ export const TanksPage: React.FC = () => {
         <select
           value={filters.hasBatch}
           onChange={(e) => handleFilterChange('hasBatch', e.target.value)}
-          className="px-4 py-2 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          className="sd-select"
+          style={{ flex: '0 1 130px' }}
         >
           <option value="all">All</option>
           <option value="yes">With Batch</option>
@@ -1179,8 +1190,9 @@ export const TanksPage: React.FC = () => {
         {/* Refresh Button */}
         <button
           onClick={() => refetch()}
-          className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg"
+          className="sd-iconbtn"
           title="Refresh"
+          aria-label="Refresh"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path
@@ -1193,35 +1205,27 @@ export const TanksPage: React.FC = () => {
         </button>
       </div>
 
-      {/* Tabs */}
-      <div className="flex border-b border-gray-200 mb-6">
+      {/* Tabs — SUDERRA underline tabs with live counts */}
+      <nav className="sd-tabs" style={{ marginBottom: 20 }} aria-label="Tank views">
         <button
           onClick={() => setActiveTab('production')}
-          className={`px-6 py-3 font-medium text-sm border-b-2 transition-colors ${
-            activeTab === 'production'
-              ? 'border-blue-500 text-blue-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-          }`}
+          className={`sd-tab${activeTab === 'production' ? ' sd-tab--active' : ''}`}
         >
           Production Batches
-          <span className="ml-2 px-2 py-0.5 text-xs rounded-full bg-blue-100 text-blue-700">
+          <span className="sd-rolepill sd-rolepill--tenant" style={{ fontSize: 11, padding: '1px 8px' }}>
             {filteredData.filter((t) => t.batchNumber).length}
           </span>
         </button>
         <button
           onClick={() => setActiveTab('cleanerFish')}
-          className={`px-6 py-3 font-medium text-sm border-b-2 transition-colors ${
-            activeTab === 'cleanerFish'
-              ? 'border-green-500 text-green-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-          }`}
+          className={`sd-tab${activeTab === 'cleanerFish' ? ' sd-tab--active' : ''}`}
         >
           Cleaner Fish
-          <span className="ml-2 px-2 py-0.5 text-xs rounded-full bg-green-100 text-green-700">
+          <span className="sd-rolepill sd-rolepill--manager" style={{ fontSize: 11, padding: '1px 8px' }}>
             {filteredData.filter((t) => t.hasCleanerFish).length}
           </span>
         </button>
-      </div>
+      </nav>
 
       {/* Data Table - Production Tab */}
       {activeTab === 'production' && (
@@ -1257,8 +1261,24 @@ export const TanksPage: React.FC = () => {
                     </td>
                   </tr>
                 ) : (
-                  filteredData.map((tank) => (
-                    <tr key={tank.id} className="hover:bg-gray-50">
+                  filteredData.map((tank) => {
+                    const isSelected = selectedTankId === tank.id;
+                    return (
+                    <tr
+                      key={tank.id}
+                      className="hover:bg-gray-50"
+                      onClick={() => setSelectedTankId(tank.id)}
+                      tabIndex={0}
+                      aria-selected={isSelected}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          setSelectedTankId(tank.id);
+                        }
+                      }}
+                      style={isSelected ? { background: 'rgba(110,231,199,.16)', boxShadow: 'inset 3px 0 0 #146f84' } : { cursor: 'pointer' }}
+                      title="Select tank for quick actions"
+                    >
                       {activeColumns.map((col) => (
                         <td
                           key={col.key}
@@ -1274,7 +1294,8 @@ export const TanksPage: React.FC = () => {
                         </td>
                       ))}
                     </tr>
-                  ))
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -1368,12 +1389,24 @@ export const TanksPage: React.FC = () => {
                         const isFirstRow = batchIdx === 0;
                         const rowKey = `${tank.id}-${batchIdx}`;
 
+                        const tankSelected = selectedTankId === tank.id;
                         return (
                           <tr
                             key={rowKey}
                             className={`hover:bg-gray-50 ${
                               !isFirstRow ? 'border-t border-gray-100' : ''
                             } ${batchIdx === rowCount - 1 ? 'border-b border-gray-200' : ''}`}
+                            onClick={() => setSelectedTankId(tank.id)}
+                            tabIndex={0}
+                            aria-selected={tankSelected}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                setSelectedTankId(tank.id);
+                              }
+                            }}
+                            style={tankSelected ? { background: 'rgba(110,231,199,.16)', boxShadow: 'inset 3px 0 0 #146f84' } : { cursor: 'pointer' }}
+                            title="Select tank for quick actions"
                           >
                             {activeCleanerFishColumns.map((col) => {
                               // Tank-level columns: only render on first row with rowSpan

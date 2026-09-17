@@ -207,6 +207,9 @@ export function driveCommandRefusal(
     case 'FEEDER_AMBIGUOUS':
     case 'FEEDER_UNIT':
       return null;
+    default:
+      // Total-return arm for future outcome members (see drivenUnitSummary).
+      return null;
   }
 }
 

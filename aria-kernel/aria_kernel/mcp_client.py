@@ -27,7 +27,14 @@ from .ledger import append_declared_jsonl, load_declared_jsonl
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
 
 MCP_REGISTRY_RELPATH = ("data", "mcp_registry.json")
-MCP_TRANSPORTS: tuple[str, ...] = ("stdio", "http")
+# ARIA-HIGH-124 — `kernel_socket` is the kernel's own server, served OUTSIDE
+# the sandbox by the executor (``mcp_broker``) and reached from inside
+# through the stdlib relay (``mcp_relay``, run by path). It renders as a
+# stdio entry whose command is the relay, never as a server spawned inside
+# against a store that is not there.
+MCP_TRANSPORTS: tuple[str, ...] = ("stdio", "http", "kernel_socket")
+KERNEL_SOCKET_TRANSPORT = "kernel_socket"
+MCP_RELAY_RELPATH: tuple[str, ...] = ("aria_kernel", "mcp_relay.py")
 _SERVER_KEYS: frozenset[str] = frozenset({"transport", "command", "args", "url", "env_passthrough", "tools", "timeout_seconds", "manifest_version", "description"})
 _NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{1,31}$")
 _ENV_NAME_RE = re.compile(r"^[A-Z][A-Z0-9_]{1,63}$")
@@ -85,6 +92,10 @@ def _validate_server(name: str, raw: Mapping[str, Any]) -> McpServerSpec:
         raise GovernanceError(f"mcp_server_command:{name}")
     if transport == "http" and not (isinstance(url, str) and url.startswith("https://")):
         raise GovernanceError(f"mcp_server_url:{name}:https_required")
+    if transport == KERNEL_SOCKET_TRANSPORT and (command or raw.get("args") or url or raw.get("env_passthrough")):
+        # The relay's command and socket are the kernel's per-spawn facts;
+        # a registry entry that spelled them would be a second definition.
+        raise GovernanceError(f"mcp_server_kernel_socket_carries_spawn_facts:{name}")
     names = tuple(str(n) for n in (raw.get("env_passthrough") or []))
     for env_name in names:
         if not _ENV_NAME_RE.match(env_name):
@@ -133,16 +144,46 @@ def quarantined_servers(base_dir: str | Path | None = None) -> frozenset[str]:
     return frozenset(state)
 
 
+@dataclass(frozen=True)
+class McpRelayContext:
+    """ARIA-HIGH-124 — how a spawn reaches the kernel's own MCP server:
+    the interpreter and the relay script (under the workspace's read-only
+    kernel tree) the CLI spawns as the server's stdio end. The broker
+    socket is NOT in the document: the relay reads
+    ``ARIA_MCP_BROKER_SOCKET`` from the environment it inherits from the
+    CLI (read in the 2.1.269 binary's stdio transport: a stdio server's
+    env is the CLI's own plus the document's ``env``), which the spawner sets to the host path and
+    bwrap overrides with the bound path (``SANDBOX_MCP_BROKER_SOCKET``)
+    inside — exactly as the hook broker's socket is handled. A document
+    that spelled the host path would override the bound one inside."""
+
+    python: str
+    kernel_root: Path
+
+    @property
+    def relay_path(self) -> Path:
+        return Path(self.kernel_root).joinpath(*MCP_RELAY_RELPATH)
+
+
 def mcp_config_for_profile(
     profile: Any,
     *,
     registry: McpRegistry | None = None,
     base_dir: str | Path | None = None,
     environ: Mapping[str, str] | None = None,
+    relay: McpRelayContext | None = None,
 ) -> dict[str, Any]:
     """The `--mcp-config` document: ONLY the profile's servers, minus quarantined.
     A profile without `mcp_servers` (or no profile) gets an EMPTY document — with
-    `--strict-mcp-config` that means no MCP server at all."""
+    `--strict-mcp-config` that means no MCP server at all.
+
+    ARIA-HIGH-124 — a `kernel_socket` server renders as the RELAY (a stdio
+    entry running ``mcp_relay.py`` by path with the broker socket in its
+    environment) and needs ``relay``: the spawn that carries no served
+    broker cannot carry the kernel's view, and asking for one is refused by
+    name (``mcp_kernel_socket_requires_relay``) rather than answered with a
+    server spawned inside against a store that is not there.
+    """
     reg = registry or load_mcp_registry()
     env = os.environ if environ is None else environ
     wanted = tuple(getattr(profile, "mcp_servers", ()) or ())
@@ -160,10 +201,31 @@ def mcp_config_for_profile(
             passthrough = {n: env[n] for n in spec.env_passthrough if n in env}
             if passthrough:
                 entry["env"] = passthrough
+        elif spec.transport == KERNEL_SOCKET_TRANSPORT:
+            if relay is None:
+                raise GovernanceError(f"mcp_kernel_socket_requires_relay:{name}")
+            # Isolated interpreter (`-I`, the hook client's flags): the
+            # relay imports nothing but the standard library, and the
+            # agent-writable tree on the spawn's PYTHONPATH must not be
+            # able to shadow it (ARIA-HIGH-124, round 2).
+            from .claude_settings import ISOLATED_INTERPRETER_FLAGS
+
+            entry.update({"type": "stdio", "command": relay.python,
+                          "args": [*ISOLATED_INTERPRETER_FLAGS, str(relay.relay_path)]})
         else:
             entry.update({"type": "http", "url": spec.url})
         servers[name] = entry
     return {"mcpServers": servers}
+
+
+def kernel_socket_servers(profile: Any, *, registry: McpRegistry | None = None) -> tuple[str, ...]:
+    """The profile's servers the kernel serves itself (`kernel_socket`):
+    the spawner serves one broker when this is non-empty."""
+    reg = registry or load_mcp_registry()
+    return tuple(
+        name for name in (getattr(profile, "mcp_servers", ()) or ())
+        if name in reg.servers and reg.servers[name].transport == KERNEL_SOCKET_TRANSPORT
+    )
 
 
 def mcp_tool_rules(profile: Any, *, registry: McpRegistry | None = None) -> tuple[str, ...]:
@@ -269,9 +331,11 @@ def release_quarantine(server: str, *, base_dir: str | Path | None, operator_ref
 
 
 __all__ = [
-    "MCP_QUARANTINED_EVENT", "MCP_REGISTRY_RELPATH", "MCP_RELEASED_EVENT", "MCP_TOOL_PREFIX", "MCP_TRANSPORTS",
+    "KERNEL_SOCKET_TRANSPORT", "MCP_QUARANTINED_EVENT", "MCP_REGISTRY_RELPATH", "MCP_RELAY_RELPATH", "MCP_RELEASED_EVENT",
+    "MCP_TOOL_PREFIX", "MCP_TRANSPORTS",
     "QUARANTINE_ERROR_RATE", "QUARANTINE_MIN_CALLS", "QUARANTINE_RELPATH", "QUARANTINE_SURFACE", "QUARANTINE_WINDOW",
-    "TOOL_CALLS_RELPATH", "TOOL_CALLS_SURFACE", "McpRegistry", "McpServerSpec", "evaluate_mcp_health", "load_mcp_registry",
+    "TOOL_CALLS_RELPATH", "TOOL_CALLS_SURFACE", "McpRegistry", "McpRelayContext", "McpServerSpec", "evaluate_mcp_health",
+    "kernel_socket_servers", "load_mcp_registry",
     "mcp_config_for_profile", "mcp_tool_rules", "quarantined_servers", "record_mcp_call", "registry_path",
     "release_quarantine", "split_mcp_tool", "write_mcp_config_file",
 ]

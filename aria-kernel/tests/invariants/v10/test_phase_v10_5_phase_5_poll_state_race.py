@@ -99,8 +99,11 @@ class PollStateRaceInvariants(unittest.TestCase):
                             {"paths": ["aria-kernel/aria_kernel/plan_convergence.py"]},
                         ],
                         "key_changes": ["x"],
+                        # The seed's suite must be one the plan contract admits
+                        # (ARIA-HIGH-104): the drainer refuses a seed it cannot
+                        # converge before opening the plan.
                         "validation_commands": [
-                            {"cmd": "python3 -m unittest discover aria-kernel -p '*test*.py'"},
+                            {"cmd": "nx affected --target=test"},
                         ],
                         "evidence_refs": ["docs/aria/SPEC.md"],
                     },

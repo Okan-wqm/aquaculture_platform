@@ -53,6 +53,7 @@ from .agent_invocations import (
     derive_request_state,
 )
 from .agent_surface import TERMINAL_REQUEST_STATES
+from .must_satisfy import must_satisfy_item
 from .tool_registry import ensure_tools_dir
 
 _SPECIALIST_ROLE = "specialist_domain_review"
@@ -422,6 +423,46 @@ def _classify_claim_type(agent_name: str) -> str:
     return "specialist_observation"
 
 
+def _specialist_plan_context(
+    *, plan_id: str, cycle_id: str, workspace_root: str | Path, base_dir: Path,
+) -> tuple[dict[str, Any], str]:
+    """Bind plan review to the native adopted body and observed source.
+
+    This describes a review before implementation. It does not assert that the
+    reviewer examined a completed change, or that a model delivered a verdict.
+    """
+    import json as _json
+
+    from .plan_convergence import affected_surface_paths, plan_body_from_state, plan_status
+    from .state_store import _git
+    from .tool_registry import GovernanceError, ensure_tools_binding
+
+    workspace = Path(workspace_root).resolve()
+    ensure_tools_binding(base_dir, workspace_root=workspace)
+    state = plan_status(plan_id=plan_id, base_dir=base_dir)
+    body = plan_body_from_state(state)
+    content = body["plan_content"]
+    paths = affected_surface_paths(content.get("affected_surfaces", []))
+    if not paths:
+        raise GovernanceError("specialist_plan_affected_paths_unavailable")
+    target_sha = _git(workspace, "rev-parse", "--verify", "HEAD^{commit}").strip()
+    context = {
+        "allowed_scope": paths,
+        "evidence_refs": list(content.get("evidence_refs") or []),
+        "plan_revision_hash": body["content_hash"],
+        "target_sha": target_sha,
+        "context_repo_root": workspace,
+        "context_source_paths": paths,
+        "cycle_id": cycle_id,
+    }
+    prompt = "\nPlan review context (before implementation):\n" + _json.dumps({
+        "plan_id": plan_id, "revision_id": body["revision_id"],
+        "content_hash": body["content_hash"], "plan_content": content,
+        "target_sha": target_sha,
+    }, sort_keys=True)
+    return context, prompt
+
+
 def run_specialist_review_runner(
     *,
     cycle_id: str,
@@ -474,6 +515,17 @@ def run_specialist_review_runner(
             profile=profile,
         )
 
+    request_context: dict[str, Any] = {
+        "allowed_scope": [f"cycle/{cycle_id}"],
+        "evidence_refs": [f"cycle:{cycle_id}"],
+    }
+    plan_prompt = ""
+    if workspace_root is not None:
+        request_context, plan_prompt = _specialist_plan_context(
+            plan_id=plan_id, cycle_id=cycle_id,
+            workspace_root=workspace_root, base_dir=root,
+        )
+
     request_ids: list[str] = []
     request_id_by_agent: dict[str, str] = {}
     for agent_name in selected:
@@ -488,19 +540,22 @@ def run_specialist_review_runner(
                     f"file:line evidence_refs. Operator vision: "
                     f"plans are reviewed by domain specialists before "
                     f"worker dispatch."
-                ),
-                must_satisfy=[{
-                    "id": f"specialist-review-{agent_name}",
-                    "description": (
-                        f"Specialist {agent_name} reviewed the converged "
-                        f"plan and emitted findings with verified "
-                        f"evidence_refs."
+                ) + plan_prompt,
+                # The agent's name is roster data (a file under
+                # .claude/agents), not the kernel's statement: it rides as
+                # `specialist_agent` so the scanned description stays the
+                # kernel's own whatever the roster names a specialist.
+                must_satisfy=[must_satisfy_item(
+                    id=f"specialist-review-{agent_name}",
+                    description=(
+                        "The specialist named by this obligation's `specialist_agent` reviewed "
+                        "the converged plan and emitted findings with verified evidence_refs."
                     ),
-                }],
-                allowed_scope=[f"cycle/{cycle_id}"],
-                evidence_refs=[f"cycle:{cycle_id}"],
+                    specialist_agent=agent_name,
+                )],
                 convergence_id=convergence_id,
                 base_dir=base_dir,
+                **request_context,
             )
             request_ids.append(req["request_id"])
             request_id_by_agent[agent_name] = str(req["request_id"])

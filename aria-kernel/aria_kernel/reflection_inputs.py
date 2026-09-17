@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from .pedagogy_lint import run_pedagogy_lint
+from .runtime_artifacts import _memory_learning_projection
 
 __all__ = ["pedagogy_lint_snapshot", "producer_reflection_kwargs"]
 
@@ -87,4 +88,5 @@ def producer_reflection_kwargs(
         "skill_genesis_result": cycle_summary.get("skill_genesis") or None,
         "cycle_runner_result": cycle_summary.get("cycle") or None,
         "pedagogy_lint_result": pedagogy_lint_result,
+        "memory_learning_result": _memory_learning_projection([cycle_summary]),
     }

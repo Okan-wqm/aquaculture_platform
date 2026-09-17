@@ -13,10 +13,10 @@ The four invariants snapshot per round:
    (Plan 019 Phase 5 commit `aa9dc9d2`) when available; falls back to
    a static repo-wide grep when the adapter is QUARANTINED or
    un-bound.
-2. **event_contracts** — count of `interface XEvent extends BaseEvent`
-   declarations missing JSON Schema validators (CLAUDE.md §Event
-   Contract Rules). Backed by event-contracts-adapter; static-grep
-   fallback walks libs/event-contracts/src/**/*.ts.
+2. **event_contracts** — counts and source-file/symbol identities of
+   exported event interfaces without a matching JSON Schema filename
+   (CLAUDE.md §Event Contract Rules). The default static check walks
+   libs/event-contracts/src/**/*.ts; it does not validate schema contents.
 3. **schema_entity** — count of @Entity decorators violating ADR-011
    (missing schema option, public schema, non-canonical shared schema).
    Pure static check via _TYPEORM_ENTITY_RE.
@@ -165,7 +165,7 @@ def _check_tenant_scoping(workspace_root: Path) -> InvariantMeasurement:
 
 
 def _check_event_contracts(workspace_root: Path) -> InvariantMeasurement:
-    """Count event interfaces missing JSON Schema validators."""
+    """Measure event interfaces without matching JSON Schema filenames."""
     contracts_dir = workspace_root / "libs" / "event-contracts" / "src"
     schemas_dir = contracts_dir / "schemas"
     schema_stems = (
@@ -173,6 +173,7 @@ def _check_event_contracts(workspace_root: Path) -> InvariantMeasurement:
         if schemas_dir.exists() else set()
     )
     missing = 0
+    missing_identities: set[str] = set()
     declared = 0
     if contracts_dir.exists():
         for path in contracts_dir.rglob("*.ts"):
@@ -192,12 +193,14 @@ def _check_event_contracts(workspace_root: Path) -> InvariantMeasurement:
                 )
                 if event_name.lower() not in schema_stems and snake not in schema_stems:
                     missing += 1
+                    missing_identities.add(f"{rel}::{event_name}")
     return InvariantMeasurement(
         invariant="event_contracts",
         measured_at=utc_now(),
         measurements={
             "declared_event_count": declared,
             "missing_schema_count": missing,
+            "missing_schema_identities": sorted(missing_identities),
         },
         source="static:_check_event_contracts",
     )
@@ -492,6 +495,100 @@ def take_baseline(
     return details
 
 
+def _take_cycle_baseline(
+    *, plan_id: str, cycle_id: str, workspace_root: str | Path,
+    base_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Keep a failed plan's baseline until a native clean postcheck resolves it.
+
+    Explicit ``take_baseline`` remains a fresh-capture operation. The cycle
+    phase cannot silently replace an unresolved comparison obligation merely
+    because a later cycle has started. Reuse keeps the selected observation's
+    cycle and hash; an equivalent explicit capture can have the same hash.
+    The sidecar identifies the current consumer without relabeling that row.
+    """
+    if not plan_id.strip():
+        raise GovernanceError("plan_id is required")
+    if not cycle_id.strip():
+        raise GovernanceError("cycle_id is required")
+    root = ensure_tools_dir(base_dir)
+    latest_postcheck = _latest_plan_postcheck(root, plan_id)
+    if latest_postcheck is None or latest_postcheck["kind"] == "architecture_spine_postcheck":
+        return take_baseline(
+            plan_id=plan_id, cycle_id=cycle_id,
+            workspace_root=workspace_root, base_dir=root,
+        )
+    previous = latest_postcheck["details"]
+    baseline = _latest_baseline_for_plan(root, plan_id)
+    if (baseline is None or not previous.get("baseline_hash")
+            or baseline.get("baseline_hash") != previous["baseline_hash"]):
+        raise GovernanceError("architecture_spine_unresolved_baseline_unavailable")
+    return {
+        **baseline,
+        "baseline_reuse": {
+            "cycle_id": cycle_id,
+            "previous_postcheck_cycle_id": previous.get("cycle_id"),
+            "reason": "unresolved_regression",
+        },
+    }
+
+
+def _latest_plan_postcheck(root: Path, plan_id: str) -> dict[str, Any] | None:
+    """Read the existing plan's most recent native comparison row."""
+    for row in read_governance_rows(root / "governance.jsonl", reverse=True, base_dir=root):
+        if row.get("kind") not in {"architecture_spine_postcheck", "architecture_spine_regression"}:
+            continue
+        if (row.get("details") or {}).get("plan_id") == plan_id:
+            return row
+    return None
+
+
+def _plan_comparison_obligation(root: Path, plan_id: str) -> dict[str, Any] | None:
+    """Project native comparison evidence for the existing planning decision.
+
+    Absence preserves unenrolled historical plans. An enrolled plan without
+    a completed, anchored comparison is unavailable, not observed clean.
+    The caller carries this one captured descriptor to its planner request.
+    """
+    row = _latest_plan_postcheck(root, plan_id)
+    baseline = _latest_baseline_for_plan(root, plan_id)
+    if row is None and baseline is None:
+        return None
+    observation = {
+        "plan_id": plan_id,
+        "postcheck_ledger_hash": row.get("ledger_hash") if row else None,
+        "baseline_hash": (row.get("details") or {}).get("baseline_hash") if row else None,
+    }
+    if row is None:
+        return {**observation, "status": "unavailable", "reason": "postcheck_missing"}
+    details = row.get("details") or {}
+    if (baseline is None or not observation["baseline_hash"]
+            or baseline.get("baseline_hash") != observation["baseline_hash"]):
+        return {**observation, "status": "unavailable", "reason": "baseline_anchor_unavailable"}
+    drifts, count = details.get("drifts"), details.get("regression_count")
+    if (not isinstance(drifts, list) or not all(isinstance(drift, dict) for drift in drifts)
+            or type(count) is not int or count < 0
+            or type(details.get("drift_count")) is not int
+            or details["drift_count"] != len(drifts)
+            or not observation["postcheck_ledger_hash"]):
+        return {**observation, "status": "unavailable", "reason": "comparison_shape_unavailable"}
+    if any(drift.get("direction") not in {"regression", "improvement"}
+           or drift.get("invariant") not in INVARIANT_KINDS
+           or not isinstance(drift.get("field"), str) or not drift["field"]
+           or "baseline_value" not in drift or "postcheck_value" not in drift
+           for drift in drifts):
+        return {**observation, "status": "unavailable", "reason": "comparison_shape_unavailable"}
+    regressions = [drift for drift in drifts if drift.get("direction") == "regression"]
+    if (count != len(regressions)
+            or (row["kind"] == "architecture_spine_regression") != bool(count)):
+        return {**observation, "status": "unavailable", "reason": "comparison_shape_unavailable"}
+    return {
+        **observation,
+        "status": "regression" if count else "clean",
+        "regressions": regressions,
+    }
+
+
 def detect_drift(
     *,
     baseline_measurements: dict[str, dict[str, Any]],
@@ -505,6 +602,11 @@ def detect_drift(
         unchanged   — values equal
     Non-numeric fields (e.g. pending=True stub) compare by equality only;
     pending==pending is NOT treated as drift.
+
+    Paired event-schema identity observations report removed and introduced
+    issues separately, replacing the corresponding count drift. If either
+    observation lacks identities, retain the historical count comparison;
+    absent identity evidence is not an observed empty set.
     """
     drifts: list[DriftReport] = []
     for invariant in INVARIANT_KINDS:
@@ -513,6 +615,34 @@ def detect_drift(
         b_meas = b_block.get("measurements") or {}
         p_meas = p_block.get("measurements") or {}
         all_fields = sorted(set(b_meas.keys()) | set(p_meas.keys()))
+        if invariant == "event_contracts":
+            identity_field = "missing_schema_identities"
+            b_ids = b_meas.get(identity_field)
+            p_ids = p_meas.get(identity_field)
+            paired_identities = (
+                isinstance(b_ids, list) and isinstance(p_ids, list)
+                and all(isinstance(value, str) for value in b_ids)
+                and all(isinstance(value, str) for value in p_ids)
+            )
+            # A historical missing field cannot identify an introduced or
+            # removed issue. Only paired observations replace the count.
+            all_fields = [name for name in all_fields if name != identity_field]
+            if paired_identities:
+                removed = sorted(set(b_ids) - set(p_ids))
+                introduced = sorted(set(p_ids) - set(b_ids))
+                if removed:
+                    drifts.append(DriftReport(
+                        invariant=invariant, field=identity_field,
+                        baseline_value=removed, postcheck_value=[],
+                        direction="improvement",
+                    ))
+                if introduced:
+                    drifts.append(DriftReport(
+                        invariant=invariant, field=identity_field,
+                        baseline_value=[], postcheck_value=introduced,
+                        direction="regression",
+                    ))
+                all_fields = [name for name in all_fields if name != "missing_schema_count"]
         for field_name in all_fields:
             b_val = b_meas.get(field_name)
             p_val = p_meas.get(field_name)

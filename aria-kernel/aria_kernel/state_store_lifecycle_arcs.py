@@ -108,11 +108,18 @@ METADATA_SCALED_GIT_OPERATIONS: frozenset[str] = frozenset({
     "config",
     "worktree list",
     "worktree prune",
+    # An index edit: `git rm --cached` unstages entries and touches nothing
+    # on disk or on the remote, however many the publish preamble drops
+    # (`state_tree_contract.drop_inherited_unclaimed_entries`, in pathspec
+    # slices). `rm` without `--cached` removes a tree and stays priced.
+    "rm --cached",
 })
 
 # Git verbs whose cost depends on the subcommand: `worktree add` writes a
 # whole tree, `worktree list` reads one file.
 _SUBCOMMAND_SCOPED_GIT_VERBS: frozenset[str] = frozenset({"worktree"})
+# Git verbs whose cost depends on a mode flag rather than a subcommand.
+_MODE_SCOPED_GIT_VERBS: dict[str, tuple[str, ...]] = {"rm": ("--cached",)}
 
 
 def git_operation(args: tuple[str, ...]) -> str:
@@ -130,6 +137,14 @@ def git_operation(args: tuple[str, ...]) -> str:
     verb = args[index] if index < len(args) else ""
     if verb in _SUBCOMMAND_SCOPED_GIT_VERBS and index + 1 < len(args):
         return f"{verb} {args[index + 1]}"
+    if verb in _MODE_SCOPED_GIT_VERBS:
+        # The mode flag decides the cost class (`rm --cached` edits the index;
+        # `rm` removes a tree): the flag is part of the name wherever it
+        # sits among the options, so a static call site and a runtime argv
+        # classify alike.
+        for mode in _MODE_SCOPED_GIT_VERBS[verb]:
+            if mode in args[index + 1:]:
+                return f"{verb} {mode}"
     return verb
 
 

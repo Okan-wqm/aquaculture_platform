@@ -37,10 +37,13 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import MISSING, asdict, dataclass, field, fields
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator
+from typing import TYPE_CHECKING, Any, Iterator
+
+if TYPE_CHECKING:
+    from .ledger import StateTransaction
 
 
 # Plan ARIA-V9.0-F — schema versioning. Per-row schema_version
@@ -83,6 +86,10 @@ class KnowledgeGraphSignatureMissing(Exception):
 
 class KnowledgeGraphSchemaError(Exception):
     """Raised when a record violates the schema-frozen field set."""
+
+
+class KnowledgeGraphObservationConflict(KnowledgeGraphSchemaError):
+    """An existing Pattern identity has different immutable content."""
 
 
 # ============================================================================
@@ -215,73 +222,168 @@ def _quarantine(path: Path, *, reason: str) -> None:
 # Append-only writers
 # ============================================================================
 
-def _append_row(path: Path, row: dict[str, Any]) -> None:
-    """Append a single row to ``path``, computing prev_row_hash from
-    the existing tail (or GENESIS_PREV_HASH on empty).
-
-    The read-tail→derive-native-link→declared-append sequence owns the
-    declared ledger's state-transaction lock.  Recovery and contention replay
-    use that same lock domain, so neither can replace the ledger after this
-    writer has observed a tail but before it appends the derived link.
-    """
-    # M11/E12-b — the declared-surface resolver refuses a tools root that
-    # lacks the repo-identity binding (`/tmp/rogue/aria-tools` must never
-    # resolve as canonical state). The kg writers used to mkdir their way
-    # to an identity-less root; ensure_tools_dir is idempotent and stamps
-    # the binding the resolver requires.
+def _prepare_append(path: Path) -> str:
+    """Bind the tools root and resolve the canonical append surface."""
     from .tool_registry import ensure_tools_dir
+    from .state_manifest import surface_for_relative_path
 
     if path.parent.name == "knowledge-graph":
         ensure_tools_dir(path.parent.parent)
     path.parent.mkdir(parents=True, exist_ok=True)
-    from .ledger import state_transaction
-    from .state_manifest import surface_for_relative_path
-
-    rel = Path("knowledge-graph") / path.name
-    surface = surface_for_relative_path(rel)
+    surface = surface_for_relative_path(Path("knowledge-graph") / path.name)
     if surface is None:
-        # A knowledge-graph file with no declared surface is a NEW file
-        # someone forgot to roster — refuse rather than silently re-opening
-        # the durability hole this migration closed.
         raise KnowledgeGraphSchemaError(
             f"knowledge-graph file has no declared surface: {path.name}"
         )
+    return surface.name
+
+
+CONVENTIONS_SURFACE = "kg_conventions"
+
+
+def _append_row_locked(
+    transaction: StateTransaction,
+    path: Path,
+    row: dict[str, Any],
+    surface: str,
+    previous: dict[str, Any] | None,
+) -> None:
+    """Continue the native chain through the declared writer under its lock.
+
+    A conventions row states its ``schema_version`` BEFORE the ledger sees
+    it: the ledger stamps a silent row with its own format version (2,
+    ``ledger.stamp_row_format``), which is not the Pattern schema (1) and
+    would make every reader refuse the row as an unknown schema. The writer
+    is the one place that can tell "a Pattern row that did not say" from "a
+    row under a schema this kernel does not know", so it says it here and
+    the readers keep refusing the latter.
+    """
+    stamped = dict(row)
+    if surface == CONVENTIONS_SURFACE:
+        stamped.setdefault("schema_version", KNOWLEDGE_GRAPH_SCHEMA_VERSION)
+    transaction.append_declared_jsonl(
+        path,
+        {**stamped, "prev_row_hash": _row_hash(previous) if previous else GENESIS_PREV_HASH},
+        expected_surface=surface,
+    )
+
+
+def _append_row(path: Path, row: dict[str, Any]) -> None:
+    """Intentionally append, sharing replay/recovery's state-transaction lock."""
+    from .ledger import state_transaction
+
+    surface = _prepare_append(path)
     with state_transaction([path]) as transaction:
-        if path.exists() and path.stat().st_size > 0:
-            # Find the last non-empty line + compute its hash
-            last_row: dict[str, Any] | None = None
-            for parsed in _read_jsonl_strict(path):
-                last_row = parsed
-            prev = _row_hash(last_row) if last_row else GENESIS_PREV_HASH
-        else:
-            prev = GENESIS_PREV_HASH
-        row_with_chain = {**row, "prev_row_hash": prev}
-        # M11/E12-b — the append goes through the declared-surface writer,
-        # not a raw file handle. The raw open("a") bypassed the ledger
-        # discipline AND kept these files out of the aria/state publish
-        # allowlist, so every night's learning evaporated at job teardown.
-        # prev_row_hash stays IN the payload: the knowledge-graph's own
-        # chain (verify_chain_or_quarantine) is unchanged and still spans
-        # pre-migration rows; new rows carry both chains.
-        transaction.append_declared_jsonl(
-            path,
-            row_with_chain,
-            expected_surface=surface.name,
-        )
+        previous = None
+        for parsed in _read_jsonl_strict(path):
+            previous = parsed
+        _append_row_locked(transaction, path, row, surface, previous)
+
+
+def _pattern_from_row(row: dict[str, Any]) -> Pattern:
+    """Project a stored observation row onto ``Pattern`` and validate it.
+
+    One projection for every reader of the observation history: a row that
+    does not satisfy the current schema (an unknown ``schema_version``, a
+    missing provenance field, a confidence out of range) is a
+    ``KnowledgeGraphSchemaError`` wherever it is read, never a row that is
+    silently skipped or matched on its surviving fields.
+    """
+    pattern_fields = {definition.name for definition in fields(Pattern)}
+    values = {key: value for key, value in row.items() if key in pattern_fields}
+    if isinstance(values.get("evidence_refs"), list):
+        values["evidence_refs"] = tuple(values["evidence_refs"])
+    try:
+        pattern = Pattern(**values)
+    except TypeError as exc:
+        raise KnowledgeGraphSchemaError(f"invalid convention Pattern: {exc}") from exc
+    _validate_pattern(pattern)
+    return pattern
+
+
+def _observation_rows(path: Path) -> list[dict[str, Any]]:
+    """Verify both chains AND every row's schema before an observation decision.
+
+    read_jsonl verifies transport envelopes, but plain dual-chain rows need
+    explicit outer verification. Native-only history remains valid; any outer
+    links present must follow the stored predecessor, including replay wrappers.
+    Each row is then projected through :func:`_pattern_from_row`: a decision
+    about one pattern is only sound over a history whose every row the
+    current schema can read — a row under an unknown ``schema_version`` could
+    otherwise hide a conflicting observation behind fields the projection
+    happens to keep. No quarantine/rewrite is performed by this writer.
+    """
+    from .ledger import LedgerIntegrityError, _read_jsonl_stored, _record_hash
+
+    rows = list(_read_jsonl_strict(path))
+    previous_native = GENESIS_PREV_HASH
+    for row in rows:
+        if not isinstance(row, dict) or row.get("prev_row_hash") != previous_native:
+            raise KnowledgeGraphTamper("observation native chain mismatch")
+        previous_native = _row_hash(row)
+    try:
+        previous_outer = None
+        for row in _read_jsonl_stored(path):
+            if "ledger_hash" in row or "previous_ledger_hash" in row:
+                if (row.get("previous_ledger_hash") != previous_outer
+                        or row.get("ledger_hash") != _record_hash(row, previous_outer)):
+                    raise KnowledgeGraphTamper("observation outer chain mismatch")
+            elif previous_outer is not None:
+                raise KnowledgeGraphTamper("observation outer chain missing")
+            previous_outer = row.get("ledger_hash")
+    except (LedgerIntegrityError, OSError, UnicodeError) as exc:
+        raise KnowledgeGraphTamper(str(exc)) from exc
+    for row in rows:
+        _pattern_from_row(row)
+    return rows
+
+
+def _observation_content(row: dict[str, Any]) -> dict[str, Any]:
+    """Project immutable Pattern fields using schema defaults, never wildcards."""
+    content = {}
+    for definition in fields(Pattern):
+        if definition.name in {"observed_at", "signer_key_fp"}:
+            continue
+        value = row.get(definition.name, definition.default)
+        if value is MISSING:
+            raise KnowledgeGraphObservationConflict(
+                f"observation conflict: missing {definition.name}"
+            )
+        if definition.name == "evidence_refs" and isinstance(value, (tuple, list)):
+            value = list(value)
+        content[definition.name] = value
+    return content
 
 
 # ============================================================================
 # Public API
 # ============================================================================
 
+def _knowledge_tools_root(
+    *, base_dir: str | Path | None, workspace_root: str | Path | None,
+) -> Path:
+    """Select storage through its owner, preserving workspace-only callers."""
+    from .tool_registry import tools_dir
+
+    if base_dir is not None:
+        return tools_dir(base_dir)
+    if workspace_root is not None:
+        return tools_dir(Path(workspace_root) / "aria-tools")
+    return tools_dir()
+
+
 def record_convention(
     pattern: Pattern,
     *,
-    workspace_root: str | Path,
+    workspace_root: str | Path | None = None,
+    base_dir: str | Path | None = None,
     signer_key_fp: str,
 ) -> Path:
-    """Append a convention row to
-    ``aria-tools/knowledge-graph/conventions.jsonl``.
+    """Record a persisted Pattern observation, or return its path on exact retry.
+
+    Identity is pattern_id; immutable Pattern content must match every existing
+    row with that ID. Timestamp and signer metadata retain their first values.
+    Signer validation checks the fingerprint format, not authentication.
 
     Validates:
       * pattern.pattern_type is non-empty string
@@ -299,17 +401,221 @@ def record_convention(
         raise KnowledgeGraphSchemaError(
             f"signer_key_fp must be SHA256:<base64> got {signer_key_fp!r}"
         )
-    path = Path(workspace_root) / "aria-tools" / "knowledge-graph" / "conventions.jsonl"
+    path = _knowledge_tools_root(base_dir=base_dir, workspace_root=workspace_root) / "knowledge-graph/conventions.jsonl"
     row = asdict(pattern)
     row["signer_key_fp"] = signer_key_fp
-    _append_row(path, row)
+    from .ledger import state_transaction
+
+    surface = _prepare_append(path)
+    with state_transaction([path]) as transaction:
+        rows = _observation_rows(path)
+        content = _observation_content(row)
+        found = False
+        for existing in rows:
+            if existing.get("pattern_id") != pattern.pattern_id:
+                continue
+            if _observation_content(existing) != content:
+                raise KnowledgeGraphObservationConflict(
+                    f"observation conflict: {pattern.pattern_id}"
+                )
+            found = True
+        if not found:
+            _append_row_locked(transaction, path, row, surface, rows[-1] if rows else None)
     return path
+
+
+# ============================================================================
+# B7 — signer registry: the public half of every key that signed a row
+# ============================================================================
+
+# OpenSSH public-key line: "<key_type> <base64 blob>[ <comment>]". Only the
+# first two fields are identity; the comment is not stored.
+_OPENSSH_PUBLIC_KEY_TYPES: frozenset[str] = frozenset({"ssh-ed25519"})
+
+
+def fingerprint_of_public_key(public_key: str) -> str:
+    """The ``SHA256:<base64>`` fingerprint of an OpenSSH public key line.
+
+    Pure Python, the same value ``ssh-keygen -lf`` prints (SHA-256 over
+    the decoded key blob, base64 without padding), so a reader with no
+    ssh-keygen on PATH can still re-derive a fingerprint from a registered
+    key. Raises ``KnowledgeGraphSchemaError`` on anything that is not an
+    ed25519 OpenSSH public key.
+    """
+    import base64
+    import binascii
+
+    if not isinstance(public_key, str):
+        raise KnowledgeGraphSchemaError("public_key must be an OpenSSH public key line")
+    parts = public_key.split()
+    if len(parts) < 2 or parts[0] not in _OPENSSH_PUBLIC_KEY_TYPES:
+        raise KnowledgeGraphSchemaError(
+            f"public_key must be one of {sorted(_OPENSSH_PUBLIC_KEY_TYPES)} followed by a key blob"
+        )
+    try:
+        blob = base64.b64decode(parts[1], validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise KnowledgeGraphSchemaError("public_key blob is not valid base64") from exc
+    if not blob:
+        raise KnowledgeGraphSchemaError("public_key blob is empty")
+    digest = base64.b64encode(hashlib.sha256(blob).digest()).decode("ascii").rstrip("=")
+    return f"SHA256:{digest}"
+
+
+def _signer_registry_path(
+    *, base_dir: str | Path | None, workspace_root: str | Path | None,
+) -> Path:
+    return _knowledge_tools_root(base_dir=base_dir, workspace_root=workspace_root) / "knowledge-graph/signers.jsonl"
+
+
+def _signer_registry_rows(path: Path) -> list[dict[str, Any]]:
+    from .ledger import load_declared_jsonl
+
+    if not path.exists():
+        return []
+    return load_declared_jsonl(path, expected_surface="kg_signers")
+
+
+def register_convention_signer(
+    *,
+    cycle_id: str,
+    signer_key_fp: str,
+    public_key: str,
+    base_dir: str | Path | None = None,
+    workspace_root: str | Path | None = None,
+) -> Path:
+    """Record the PUBLIC key behind a fingerprint before any row carries it.
+
+    ``record_convention`` stamps ``signer_key_fp`` on a row; the private
+    key is revoked when the cycle ends and its ``.pub`` file goes with it.
+    Without this registry the fingerprint named a key nobody could ever
+    look at again, and "signed by the cycle key" was a claim no later
+    reader could check. The knowledge seam registers the key at mint, so
+    a fingerprint that reaches the memory hook is one whose key is on the
+    ledger.
+
+    Tier-1 at the registry: the fingerprint MUST be the key's own —
+    ``fingerprint_of_public_key(public_key)`` — or nothing is written. The
+    same fingerprint registered twice with the same key is a no-op; with a
+    different key it is a conflict. Only the identity fields of the key
+    line are stored (type + blob), never the comment or the private half.
+    """
+    if not isinstance(cycle_id, str) or not cycle_id:
+        raise KnowledgeGraphSchemaError("cycle_id must be a non-empty string")
+    if not isinstance(signer_key_fp, str) or not signer_key_fp.startswith("SHA256:"):
+        raise KnowledgeGraphSchemaError(
+            f"signer_key_fp must be SHA256:<base64> got {signer_key_fp!r}"
+        )
+    derived = fingerprint_of_public_key(public_key)
+    if derived != signer_key_fp:
+        raise KnowledgeGraphSchemaError(
+            f"signer_key_fp {signer_key_fp!r} is not the fingerprint of the supplied public key ({derived!r})"
+        )
+    key_type, key_blob = public_key.split()[:2]
+    path = _signer_registry_path(base_dir=base_dir, workspace_root=workspace_root)
+    from .ledger import state_transaction
+
+    surface = _prepare_append(path)
+    with state_transaction([path]) as transaction:
+        for existing in _signer_registry_rows(path):
+            if existing.get("signer_key_fp") != signer_key_fp:
+                continue
+            if (existing.get("key_type"), existing.get("public_key")) != (key_type, key_blob):
+                raise KnowledgeGraphObservationConflict(
+                    f"signer registry conflict: {signer_key_fp} is already registered with a different key"
+                )
+            return path
+        transaction.append_declared_jsonl(
+            path,
+            {
+                "schema_version": KNOWLEDGE_GRAPH_SCHEMA_VERSION,
+                "cycle_id": cycle_id,
+                "signer_key_fp": signer_key_fp,
+                "key_type": key_type,
+                "public_key": key_blob,
+                "registered_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            },
+            expected_surface=surface,
+        )
+    return path
+
+
+def lookup_convention_signer(
+    signer_key_fp: str,
+    *,
+    base_dir: str | Path | None = None,
+    workspace_root: str | Path | None = None,
+) -> dict[str, Any] | None:
+    """The registered public key for a fingerprint, or None when unregistered."""
+    path = _signer_registry_path(base_dir=base_dir, workspace_root=workspace_root)
+    for row in _signer_registry_rows(path):
+        if row.get("signer_key_fp") == signer_key_fp:
+            return row
+    return None
+
+
+def verify_convention_signer(
+    row: dict[str, Any],
+    *,
+    base_dir: str | Path | None = None,
+    workspace_root: str | Path | None = None,
+) -> bool:
+    """Whether a knowledge-graph row's ``signer_key_fp`` names a real key.
+
+    True exactly when the fingerprint is registered AND re-deriving it from
+    the registered public key gives the same value — the check a later
+    reader could not make while the only copy of the key was the revoked
+    cycle's ``.pub`` file. A row with no fingerprint, an unregistered one,
+    or a registered key that does not hash to it is False.
+    """
+    signer_key_fp = row.get("signer_key_fp")
+    if not isinstance(signer_key_fp, str) or not signer_key_fp:
+        return False
+    registered = lookup_convention_signer(signer_key_fp, base_dir=base_dir, workspace_root=workspace_root)
+    if registered is None:
+        return False
+    try:
+        derived = fingerprint_of_public_key(f"{registered.get('key_type')} {registered.get('public_key')}")
+    except KnowledgeGraphSchemaError:
+        return False
+    return derived == signer_key_fp
+
+
+def _has_recorded_convention(
+    pattern: Pattern, *, base_dir: str | Path | None = None,
+    workspace_root: str | Path | None = None,
+) -> bool:
+    """Verify an immutable original observation, regardless of serving status.
+
+    This lookup cannot reserve an append; record_convention remains the
+    serialized check-and-append owner if another callback wins the race.
+    """
+    _validate_pattern(pattern)
+    path = _knowledge_tools_root(base_dir=base_dir, workspace_root=workspace_root) / "knowledge-graph/conventions.jsonl"
+    try:
+        path.stat()
+    except FileNotFoundError:
+        return False
+    from .ledger import state_transaction
+
+    with state_transaction([path]):
+        rows = _observation_rows(path)
+        content = _observation_content(asdict(pattern))
+        found = False
+        for row in rows:
+            if row.get("pattern_id") != pattern.pattern_id:
+                continue
+            if _observation_content(row) != content:
+                raise KnowledgeGraphObservationConflict(f"observation conflict: {pattern.pattern_id}")
+            found = True
+        return found
 
 
 def record_anti_pattern(
     pattern: Pattern,
     *,
-    workspace_root: str | Path,
+    workspace_root: str | Path | None = None,
+    base_dir: str | Path | None = None,
     reason_class: str,
     operator_signature: str,
 ) -> Path:
@@ -341,10 +647,11 @@ def record_anti_pattern(
     # ack-env:<VAR>); a plausible-looking bare string refuses.
     from .operator_approval import OperatorApprovalUnrecorded, verify_operator_approval_ref
 
+    root = _knowledge_tools_root(base_dir=base_dir, workspace_root=workspace_root)
     try:
         verify_operator_approval_ref(
             operator_signature,
-            base_dir=Path(workspace_root) / "aria-tools",
+            base_dir=root,
             surface="knowledge_graph_anti_pattern",
         )
     except OperatorApprovalUnrecorded as exc:
@@ -354,7 +661,7 @@ def record_anti_pattern(
             f"anti-pattern pattern_type MUST be 'anti_pattern', got {pattern.pattern_type!r}"
         )
     _validate_pattern(pattern)
-    path = Path(workspace_root) / "aria-tools" / "knowledge-graph" / "anti-patterns.jsonl"
+    path = root / "knowledge-graph/anti-patterns.jsonl"
     row = asdict(pattern)
     row["reason_class"] = reason_class
     row["operator_signature"] = operator_signature
@@ -365,7 +672,8 @@ def record_anti_pattern(
 def lookup_pattern(
     pattern_id: str,
     *,
-    workspace_root: str | Path,
+    workspace_root: str | Path | None = None,
+    base_dir: str | Path | None = None,
     min_confidence: float = MIN_PATTERN_CONFIDENCE,
 ) -> dict[str, Any] | None:
     """Return the latest convention row matching ``pattern_id`` with
@@ -380,7 +688,7 @@ def lookup_pattern(
     is correct at any size; index is a perf optimization deferred to
     the dedicated invariant gate in Phase 10.1 / 10.5.
     """
-    path = Path(workspace_root) / "aria-tools" / "knowledge-graph" / "conventions.jsonl"
+    path = _knowledge_tools_root(base_dir=base_dir, workspace_root=workspace_root) / "knowledge-graph/conventions.jsonl"
     ok, _ = verify_chain_or_quarantine(path)
     if not ok:
         return None
@@ -418,7 +726,8 @@ def _paths_related(a: str, b: str) -> bool:
 
 def anti_patterns_for_paths(
     *,
-    workspace_root: str | Path,
+    workspace_root: str | Path | None = None,
+    base_dir: str | Path | None = None,
     paths: list[str],
     limit: int = 5,
 ) -> list[dict[str, Any]]:
@@ -435,7 +744,7 @@ def anti_patterns_for_paths(
     wanted = [p for p in wanted if p]
     if not wanted:
         return []
-    path = Path(workspace_root) / "aria-tools" / "knowledge-graph" / "anti-patterns.jsonl"
+    path = _knowledge_tools_root(base_dir=base_dir, workspace_root=workspace_root) / "knowledge-graph/anti-patterns.jsonl"
     ok, _ = verify_chain_or_quarantine(path)
     if not ok or not path.exists():
         return []
@@ -464,7 +773,8 @@ def anti_patterns_for_paths(
 
 def conventions_for_paths(
     *,
-    workspace_root: str | Path,
+    workspace_root: str | Path | None = None,
+    base_dir: str | Path | None = None,
     paths: list[str],
     min_confidence: float = MIN_PATTERN_CONFIDENCE,
     limit: int = 5,
@@ -483,7 +793,7 @@ def conventions_for_paths(
     wanted = [p for p in wanted if p]
     if not wanted:
         return []
-    path = Path(workspace_root) / "aria-tools" / "knowledge-graph" / "conventions.jsonl"
+    path = _knowledge_tools_root(base_dir=base_dir, workspace_root=workspace_root) / "knowledge-graph/conventions.jsonl"
     ok, _ = verify_chain_or_quarantine(path)
     if not ok or not path.exists():
         return []
@@ -512,18 +822,85 @@ def conventions_for_paths(
     return related[: max(0, int(limit))]
 
 
-def _effectiveness_path(workspace_root: str | Path) -> Path:
+def effectiveness_ledger_path(*, base_dir: str | Path) -> Path:
+    """Where the effectiveness ledger lives: under the TOOLS root, named.
+
+    ``state_manifest`` declares ``kg_pressure_source_effectiveness`` a
+    tools-root surface, exactly like ``conventions.jsonl``. Until 2026-09-12
+    this helper resolved ``<workspace_root>/aria-tools/...`` only, which is
+    the tools root on a developer checkout and nowhere else: the live lane
+    binds ``ARIA_TOOLS_DIR=<store>/tools`` and passes the checkout as
+    workspace root, so a row written there would have landed in the
+    checkout that dies with the runner. The readers split between two
+    paths — ``<checkout>/aria-tools`` (doctor, cycle phase, MCP server,
+    self-improvement) and ``<store>/aria-tools`` (pressure, mission
+    scheduler, via ``root.parent``) — and neither was the store's
+    ``<store>/tools``. No row was lost on the live lane: the orchestrator's
+    writer sat on the converged path and no cycle had converged, so it had
+    never fired — the layout was wrong before the first row existed, and
+    origin/aria/state never carried the ledger for both reasons at once.
+
+    ``base_dir`` is the tools root and is REQUIRED. Every production caller
+    holds it (the orchestrator's ``root``, ``PhaseContext.base_dir``, the
+    scheduler's and pressure's ``root``, the doctor's ``tools_dir``, the MCP
+    server's ``self.root``); a workspace-derived fallback would only ever
+    re-open the shadow path above, so the signature does not offer one.
+    """
+    from .tool_registry import tools_dir
+
     return (
-        Path(workspace_root)
-        / "aria-tools"
+        tools_dir(base_dir)
         / "knowledge-graph"
         / "pressure-source-effectiveness.jsonl"
     )
 
 
+def effectiveness_reader_faults() -> tuple[type[BaseException], ...]:
+    """The closed set a ``rank_pressure_sources`` caller may treat as a runtime fault.
+
+    WHY (B1, 2026-09-12): the readers in ``pressure.run_pressure`` and
+    ``cycle._phase_calibration_recommendation`` wrapped this read in
+    ``except Exception`` / ``except (OSError, ValueError, KeyError,
+    TypeError)`` and substituted ``[]`` — the same laundering the
+    orchestrator's memory-hook guard did, where a caller/callee signature
+    drift (TypeError) read as an unreadable ledger for weeks. A programming
+    error must raise; only a fault outside the code is a fault to absorb.
+
+    WHAT: ``KnowledgeGraphTamper`` — the strict row reader, and a chain break
+    the quarantine could not rename away; ``OSError`` — the file system and
+    the lock; ``LedgerIntegrityError`` and ``KnowledgeGraphSchemaError`` —
+    the ledger primitives underneath (``_read_jsonl_strict`` folds the first
+    into a Tamper today; the append side raises the second for an undeclared
+    surface). ``TypeError``, ``KeyError``, ``ValueError``, ``AttributeError``
+    are defects in the kernel and are deliberately absent. Resolved lazily:
+    ``ledger`` imports are late everywhere in this module.
+    """
+    from .ledger import LedgerIntegrityError
+
+    return (
+        KnowledgeGraphTamper,
+        KnowledgeGraphSchemaError,
+        LedgerIntegrityError,
+        OSError,
+    )
+
+
+def effectiveness_writer_faults() -> tuple[type[BaseException], ...]:
+    """The reader's set plus what binding the tools root for an append can raise.
+
+    ``record_pressure_source_outcome`` goes through ``ensure_tools_dir`` and
+    the state transaction, which refuse an ambiguous or locked tools root
+    with ``GovernanceError``. That is a fault of the store, not of the code,
+    so a writer's guard absorbs it the way it absorbs a corrupt ledger.
+    """
+    from .tool_registry import GovernanceError
+
+    return (GovernanceError, *effectiveness_reader_faults())
+
+
 def record_pressure_source_outcome(
     *,
-    workspace_root: str | Path,
+    base_dir: str | Path,
     source_type: str,
     minted: int = 0,
     converged: int = 0,
@@ -540,11 +917,15 @@ def record_pressure_source_outcome(
     lives next to the reader (one schema owner) and appends CUMULATIVE
     per-source counters: the newest row per source_type is that source's
     standing, so the reader folds latest-per-source instead of trusting
-    row order.
+    row order. One call records one funnel fact (a mint, a rejection, a
+    convergence, a merge) as it becomes true; the orchestrator therefore
+    appends more than one row per cycle, and the fold makes that free.
+
+    ``base_dir`` is the tools root (see ``effectiveness_ledger_path``).
     """
     if not source_type:
         raise ValueError("source_type must be non-empty")
-    path = _effectiveness_path(workspace_root)
+    path = effectiveness_ledger_path(base_dir=base_dir)
     prior: dict[str, Any] = {}
     if path.exists():
         for parsed in _read_jsonl_strict(path):
@@ -566,59 +947,96 @@ def record_pressure_source_outcome(
 VERIFIED_CONVENTION_CONFIDENCE = 0.75  # above MIN_PATTERN_CONFIDENCE: served
 
 
+def reconcile_convention_promotion(
+    *,
+    plan_id: str,
+    workspace_root: str | Path | None = None,
+    base_dir: str | Path | None = None,
+    promoted_by_cycle_id: str | None = None,
+) -> dict[str, Any]:
+    """Reconcile a convention after the caller verifies the plan's merge.
+
+    Promotion records merge-backed evidence, not measured improvement.
+    It appends a superseding row with outcome_status="verified" and
+    confidence 0.75. History validation, the existing-success check and
+    append share one transaction so concurrent retries cannot duplicate
+    promotion. Missing hypotheses remain retryable on a later cycle.
+
+    Returns status "promoted", "already_verified" or "no_hypothesis".
+    Only "promoted" includes the appended convention row.
+    """
+    from .ledger import state_transaction
+
+    path = _knowledge_tools_root(base_dir=base_dir, workspace_root=workspace_root) / "knowledge-graph/conventions.jsonl"
+    if not path.exists():
+        return {"status": "no_hypothesis"}
+    surface = _prepare_append(path)
+    with state_transaction([path]) as transaction:
+        rows = _observation_rows(path)
+        hypothesis: dict[str, Any] | None = None
+        verified: dict[str, Any] | None = None
+        pattern_fields = {item.name for item in fields(Pattern)}
+        for parsed in rows:
+            if parsed.get("plan_id") != plan_id:
+                continue
+            _pattern_from_row(parsed)
+            if parsed.get("outcome_status") == "verified" and verified is None:
+                verified = parsed
+            hypothesis = parsed
+        # Validate every matching row before acknowledging an earlier success.
+        if verified is not None:
+            return {"status": "already_verified", "pattern_id": verified["pattern_id"]}
+        if hypothesis is None:
+            return {"status": "no_hypothesis"}
+        # B7 — promotion is where a signature is READ. The hypothesis was
+        # signed by the cycle that converged the plan and that key is gone;
+        # its public half is in the signer registry (`kg_signers`), and a row
+        # whose fingerprint names no registered key — or a key that does not
+        # hash to it — is not the kernel's word and is not promoted. Named,
+        # not raised: the reconciler records the status beside the plan and
+        # the operator sees which row was refused.
+        if not verify_convention_signer(hypothesis, base_dir=base_dir, workspace_root=workspace_root):
+            return {
+                "status": "signer_unverified",
+                "pattern_id": hypothesis["pattern_id"],
+                "signer_key_fp": hypothesis.get("signer_key_fp"),
+            }
+        promoted = dict(hypothesis)
+        promoted.pop("prev_row_hash", None)
+        promoted.update({
+            "pattern_id": f"{hypothesis['pattern_id']}-verified",
+            "supersedes_pattern_id": hypothesis["pattern_id"],
+            "outcome_status": "verified",
+            "confidence": VERIFIED_CONVENTION_CONFIDENCE,
+            "observed_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "promoted_by_cycle_id": promoted_by_cycle_id,
+        })
+        _append_row_locked(transaction, path, promoted, surface, rows[-1] if rows else None)
+        return {"status": "promoted", "pattern_id": promoted["pattern_id"], "convention": promoted}
+
+
 def promote_convention_for_plan(
     *,
     plan_id: str,
-    workspace_root: str | Path,
+    workspace_root: str | Path | None = None,
+    base_dir: str | Path | None = None,
     promoted_by_cycle_id: str | None = None,
 ) -> dict[str, Any] | None:
-    """M2/E12 — the promotion producer the hypothesis rows waited for.
-
-    A convention is recorded at CONVERGENCE with confidence 0.5 and
-    outcome_status="hypothesis" — deliberately below the 0.7 serving
-    floor, so ARIA does not teach itself its own predictions as facts.
-    The comment at the write site promised "promotion on a VERIFIED
-    outcome"; nothing ever delivered it, so no convention could EVER be
-    served: the ledger was write-only in effect. The verified outcome IS
-    the plan's merge, so the merge reconciler calls this with the plan
-    id the row now carries.
-
-    Appends a NEW row (append-only ledger) superseding the hypothesis:
-    outcome_status="verified", confidence above the serving floor.
-    Idempotent: an already-verified row for the plan is a no-op.
-    """
-    path = Path(workspace_root) / "aria-tools" / "knowledge-graph" / "conventions.jsonl"
-    if not path.exists():
-        return None
-    hypothesis: dict[str, Any] | None = None
-    for parsed in _read_jsonl_strict(path):
-        if parsed.get("plan_id") != plan_id:
-            continue
-        if parsed.get("outcome_status") == "verified":
-            return None  # already promoted
-        hypothesis = parsed
-    if hypothesis is None:
-        return None
-    promoted = dict(hypothesis)
-    promoted.pop("prev_row_hash", None)
-    promoted.update({
-        "pattern_id": f"{hypothesis.get('pattern_id')}-verified",
-        "supersedes_pattern_id": hypothesis.get("pattern_id"),
-        "outcome_status": "verified",
-        "confidence": VERIFIED_CONVENTION_CONFIDENCE,
-        "observed_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "promoted_by_cycle_id": promoted_by_cycle_id,
-    })
-    _append_row(path, promoted)
-    return promoted
+    """Return the newly appended convention, or None when no append was needed."""
+    result = reconcile_convention_promotion(
+        plan_id=plan_id,
+        workspace_root=workspace_root,
+        base_dir=base_dir,
+        promoted_by_cycle_id=promoted_by_cycle_id,
+    )
+    return result.get("convention")
 
 
-def rank_pressure_sources(
-    *,
-    workspace_root: str | Path,
-) -> list[dict[str, Any]]:
+def rank_pressure_sources(*, base_dir: str | Path) -> list[dict[str, Any]]:
     """Read pressure-source-effectiveness.jsonl + return a
     sorted-by-effectiveness list.
+
+    ``base_dir`` is the tools root (see ``effectiveness_ledger_path``).
 
     Each row schema:
       {source_type, cycles_minted, cycles_converged, cycles_merged,
@@ -637,7 +1055,7 @@ def rank_pressure_sources(
     counted any source with history — invisible only because the ledger
     had no writer and was therefore always empty.
     """
-    path = _effectiveness_path(workspace_root)
+    path = effectiveness_ledger_path(base_dir=base_dir)
     ok, _ = verify_chain_or_quarantine(path)
     if not ok or not path.exists():
         return []
@@ -695,9 +1113,14 @@ __all__ = (
     "KnowledgeGraphTamper",
     "KnowledgeGraphSignatureMissing",
     "KnowledgeGraphSchemaError",
+    "KnowledgeGraphObservationConflict",
     "verify_chain_or_quarantine",
     "record_convention",
     "record_anti_pattern",
     "lookup_pattern",
     "rank_pressure_sources",
+    "fingerprint_of_public_key",
+    "register_convention_signer",
+    "lookup_convention_signer",
+    "verify_convention_signer",
 )

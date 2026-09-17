@@ -100,6 +100,63 @@ class CliAutonomyRunTests(unittest.TestCase):
             ])
         self.assertEqual(rc, 3)
 
+    def test_full_artifact_path_is_budgeted_without_truncating_artifact(self) -> None:
+        from aria_kernel.runtime_artifacts import SUMMARY_STDOUT_MAX_BYTES, autonomy_output_summary
+
+        result = {"cycles_completed": 1, "exits_clean": True, "exit_reason": "", "per_cycle": [{
+            "cycle_id": "current", "cycle": {"status": "ok"},
+            "memory_hook": {"status": "needs_signing", "convention_recorded": False},
+            "memory_completion": {"status": "completed", "attempted": 0, "already_recorded": 4,
+                "observations": [{"cycle_id": f"original-{i}", "status": "already_recorded",
+                                  "convention_recorded": True, "chain_verified": True} for i in range(4)]},
+        }], "full_only_detail": "artifact-content-" * 5000}
+        before = autonomy_output_summary(result, result_detail="full", base_dir=self.base, workspace_root=self.tmp)
+        before.pop("full_result")
+        padding = SUMMARY_STDOUT_MAX_BYTES - len(json.dumps(before, indent=2, sort_keys=True).encode()) - 16
+        result["exit_reason"] = "x" * padding
+        artifact = self.tmp.joinpath(*[f"segment-{i}-" + "p" * 180 for i in range(5)], "full.json")
+        before = autonomy_output_summary(result, result_detail="full", base_dir=self.base, workspace_root=self.tmp)
+        before.pop("full_result")
+        before["full_result_artifact"] = str(artifact)
+        self.assertGreater(len(json.dumps(before, indent=2, sort_keys=True).encode()), SUMMARY_STDOUT_MAX_BYTES)
+
+        with patch("aria_kernel.autonomy_orchestrator.run_autonomy_orchestrator", return_value=result), redirect_stdout(io.StringIO()) as output:
+            rc = cli_main(["--tools-dir", str(self.base), "autonomy", "run", "--workspace-root", str(self.tmp),
+                           "--max-cycles", "1", "--output", "full", "--artifact", str(artifact)])
+
+        self.assertEqual(rc, 0)
+        self.assertLessEqual(len(output.getvalue().encode("utf-8")), SUMMARY_STDOUT_MAX_BYTES)
+        payload = json.loads(output.getvalue())
+        self.assertEqual(payload["full_result_artifact"], str(artifact))
+        self.assertNotIn("full_result", payload)
+        self.assertEqual(payload["memory_learning"]["reported_observation_counts"]["already_recorded_receipts"], 4)
+        self.assertGreater(payload["memory_learning"]["omitted_observation_count"], 0)
+        self.assertEqual(artifact.read_bytes(), (json.dumps(result, indent=2, sort_keys=True) + "\n").encode())
+
+    def test_stdout_ceiling_includes_printed_newline(self) -> None:
+        from aria_kernel.runtime_artifacts import SUMMARY_STDOUT_MAX_BYTES, autonomy_output_summary
+
+        result = {"per_cycle": [], "exits_clean": True, "exit_reason": ""}
+        summary = autonomy_output_summary(result, base_dir=self.base, workspace_root=self.tmp)
+        result["exit_reason"] = "x" * (SUMMARY_STDOUT_MAX_BYTES - len(json.dumps(summary, indent=2, sort_keys=True).encode()))
+        with patch("aria_kernel.autonomy_orchestrator.run_autonomy_orchestrator", return_value=result), redirect_stdout(io.StringIO()) as output:
+            rc = cli_main(["--tools-dir", str(self.base), "autonomy", "run", "--workspace-root", str(self.tmp), "--max-cycles", "1"])
+        self.assertEqual(rc, 4)
+        self.assertEqual(json.loads(output.getvalue())["error"], "summary_stdout_exceeds_32kb")
+        self.assertLessEqual(len(output.getvalue().encode("utf-8")), SUMMARY_STDOUT_MAX_BYTES)
+
+    def test_essential_memory_summary_overflow_remains_explicit_contract_error(self) -> None:
+        from aria_kernel.runtime_artifacts import SUMMARY_STDOUT_MAX_BYTES
+
+        result = {"per_cycle": [{"memory_hook": {"status": "needs_signing"}}],
+                  "exits_clean": True, "exit_reason": "x" * SUMMARY_STDOUT_MAX_BYTES}
+        with patch("aria_kernel.autonomy_orchestrator.run_autonomy_orchestrator", return_value=result), redirect_stdout(io.StringIO()) as output:
+            rc = cli_main(["--tools-dir", str(self.base), "autonomy", "run", "--workspace-root", str(self.tmp), "--max-cycles", "1"])
+        self.assertEqual(rc, 4)
+        self.assertEqual(json.loads(output.getvalue())["overall_status"], "contract_error")
+        self.assertEqual(json.loads(output.getvalue())["error"], "summary_stdout_exceeds_32kb")
+        self.assertLessEqual(len(output.getvalue().encode("utf-8")), SUMMARY_STDOUT_MAX_BYTES)
+
     def test_autonomy_status_prints_canonical_state(self) -> None:
         with redirect_stdout(io.StringIO()) as buf:
             rc = cli_main([

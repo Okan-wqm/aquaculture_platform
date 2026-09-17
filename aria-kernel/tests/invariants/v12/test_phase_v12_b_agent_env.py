@@ -9,8 +9,11 @@ Invariants:
                  decision without a value.
   I-V12-ENV-02   the managed-login directory is made explicit (`CLAUDE_CONFIG_DIR`)
                  when the runner relied on the real `$HOME/.claude`.
-  I-V12-ENV-03   `run_claude_exec` spawns with the BUILT environment and hands the
-                 login directory to the sandbox as a read-only bind.
+  I-V12-ENV-03   `run_claude_exec` spawns with the BUILT environment, runs the CLI
+                 it resolved on that environment's PATH by absolute path, and hands
+                 containment the login directory (one credential file goes into the
+                 private home), the settings and MCP documents it wrote, and that
+                 executable (ARIA-HIGH-077).
   I-V12-ENV-04   `wrap_bash_in_sandbox(write_scope=...)` mounts the workspace
                  read-only and only the scope writable; `**` keeps the legacy
                  whole-workspace bind; a scope escaping the workspace refuses.
@@ -85,6 +88,25 @@ class EnvIsBuiltNotCopied(unittest.TestCase):
                 cleanup_synthetic_home(report.home)
             self.assertFalse(Path(report.home).exists())
 
+    def test_I_V12_ENV_01_the_operators_session_identity_never_nests_the_agent(self) -> None:
+        # A dispatch from an operator's interactive Claude Code shell carries
+        # that session's own child exports under the configuration prefix.
+        # The agent's identity is the kernel's `--session-id`; none of these
+        # reach it, while a genuine configuration knob still does.
+        from aria_kernel.agent_env import CLAUDE_INSTANCE_ENV_NAMES
+
+        with tempfile.TemporaryDirectory() as tmp:
+            base = {"PATH": "/bin", "CLAUDE_CODE_MAX_OUTPUT_TOKENS": "4096",
+                    **{name: "operator-session-PLAINVALUE" for name in CLAUDE_INSTANCE_ENV_NAMES}}
+            built = build_agent_env(base, tmp_root=tmp)
+            try:
+                for name in CLAUDE_INSTANCE_ENV_NAMES:
+                    self.assertTrue(name.startswith("CLAUDE_CODE_"), name)
+                    self.assertNotIn(name, built.env, name)
+                self.assertEqual(built.env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"], "4096")
+            finally:
+                cleanup_synthetic_home(built.report.home)
+
     def test_I_V12_ENV_01_extra_is_added_after_the_filter(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             built = build_agent_env({"PATH": "/bin"}, extra={"ANTHROPIC_BASE_URL": "https://x", "IS_SANDBOX": "1"}, tmp_root=tmp)
@@ -128,7 +150,16 @@ class TheSpawnUsesTheBuiltEnv(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             real_home = Path(tmp) / "home"
             (real_home / ".claude").mkdir(parents=True)
-            with mock.patch.dict(os.environ, {"HOME": str(real_home), "GH_TOKEN": "ghp", "ARIA_LEASE_TOKEN": "l", "TMPDIR": tmp}, clear=False), \
+            # The CLI the spawn runs is the one on the BUILT environment's
+            # PATH, resolved to its real file — a fixture here, so the
+            # invariant does not depend on the host's installation.
+            binaries = Path(tmp) / "bin"
+            binaries.mkdir()
+            (binaries / "claude.real").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            (binaries / "claude.real").chmod(0o755)
+            (binaries / "claude").symlink_to(binaries / "claude.real")
+            with mock.patch.dict(os.environ, {"HOME": str(real_home), "GH_TOKEN": "ghp", "ARIA_LEASE_TOKEN": "l", "TMPDIR": tmp,
+                                              "PATH": str(binaries)}, clear=False), \
                  mock.patch.object(claude_runtime, "preflight_claude_auth"), \
                  mock.patch.object(claude_runtime, "assert_write_runner_ok"), \
                  mock.patch.object(claude_runtime, "_assert_budget_before_spawn"), \
@@ -157,8 +188,17 @@ class TheSpawnUsesTheBuiltEnv(unittest.TestCase):
         self.assertTrue(Path(env["HOME"]).name.startswith(SYNTHETIC_HOME_PREFIX))
         self.assertEqual(captured["cwd"], tmp)
         self.assertEqual(captured["containment"]["write_scope"], ("**",))
-        self.assertEqual(captured["containment"]["extra_ro_binds"], (str(real_home / ".claude"),))
+        containment = captured["containment"]
+        self.assertEqual(containment["managed_login_dir"], real_home / ".claude")
+        self.assertEqual(containment["executable"], (binaries / "claude.real").resolve())
+        self.assertEqual([path.name.split("-")[0] for path in containment["spawn_files"]], ["aria", "aria"])
+        self.assertEqual({path.parent.name for path in containment["spawn_files"]},
+                         {"aria-spawn-settings", "aria-spawn-mcp"})
         argv = captured["argv"]
+        self.assertEqual(argv[argv.index("--") + 1], str((binaries / "claude.real").resolve()),
+                         "the spawn runs the executable it resolved, by absolute path")
+        for path in containment["spawn_files"]:
+            self.assertIn(str(path), argv)
         self.assertIn("--disallowedTools", argv)
         # Faz 032d: the implementer is the ONE profile holding the external-write grant,
         # so the push rule is NOT projected for it (I-V12-DLV-01 pins the singularity).

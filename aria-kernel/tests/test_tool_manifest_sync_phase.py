@@ -62,8 +62,19 @@ class ToolManifestSyncPhaseTest(unittest.TestCase):
         )
 
     def _write_manifest(self, tool_id: str, status: str = "SHADOW") -> None:
+        manifest = _manifest(tool_id, status)
         path = self.workspace / "tools" / "aria-adapters" / f"{tool_id}.tool.json"
-        path.write_text(json.dumps(_manifest(tool_id, status)))
+        path.write_text(json.dumps(manifest))
+        # ARIA-HIGH-098 — the sync door registers only a fixture-backed
+        # adapter: the shipped manifest's fixture_set is repo-relative, so
+        # the case lives at that path inside THIS workspace.
+        cases = self.workspace / f"tools/aria-adapters/fixtures/{tool_id}" / "cases"
+        cases.mkdir(parents=True, exist_ok=True)
+        (cases / "baseline.json").write_text(
+            json.dumps({"input": {}, "expected": {"status": "ok"}}), encoding="utf-8",
+        )
+        manifest["fixture_set"] = f"tools/aria-adapters/fixtures/{tool_id}"
+        path.write_text(json.dumps(manifest))
 
     def test_the_phase_exists_before_anything_reads_the_registry(self) -> None:
         names = [p.name for p in cycle_mod.CYCLE_PHASES]

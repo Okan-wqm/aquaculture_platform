@@ -6,8 +6,10 @@ from pathlib import Path
 from typing import Any
 
 from .agent_invocations import create_agent_invocation_request, list_agent_invocation_requests
+from .plan_contract import render_plan_contract
 from .plan_convergence import (
     content_hash,
+    _planning_source_context,
     evaluate_plan,
     fold_plan_state,
     force_plan_human_required,
@@ -56,10 +58,10 @@ def advance_plan_rounds(
             "actions": actions,
         }
     if current in {"DRAFT", "REVISED"}:
-        actions.append(_ensure_planner_request(root, state, role="challenger_plan"))
+        actions.append(_ensure_planner_request(root, state, role="challenger_plan", workspace_root=workspace_root))
         return _result(plan_id, state, "challenger_request_opened", actions)
     if current == "CHALLENGER_DRAFTED":
-        actions.extend(_ensure_cross_review_round(root, state))
+        actions.extend(_ensure_cross_review_round(root, state, workspace_root=workspace_root))
         return _result(plan_id, fold_plan_state(plan_id=plan_id, base_dir=root), "cross_review_opened", actions)
     if current in {"CRITIQUED", "CROSS_REVIEWED"}:
         round_number = int(state.get("current_round") or 1)
@@ -80,7 +82,9 @@ def advance_plan_rounds(
                 actions.append({"kind": "human_required", "result": forced})
                 return _result(plan_id, fold_plan_state(plan_id=plan_id, base_dir=root), "human_required", actions)
             actions.append({"kind": "evaluate_plan", "result": evaluation})
-            actions.append(_ensure_planner_request(root, state, role="primary_plan", round_number=round_number + 1))
+            actions.append(_ensure_planner_request(root, state, role="primary_plan", round_number=round_number + 1,
+                                                   workspace_root=workspace_root,
+                                                   architecture_spine=evaluation.get("architecture_spine")))
             return _result(plan_id, fold_plan_state(plan_id=plan_id, base_dir=root), "primary_revision_requested", actions)
         actions.append({"kind": "evaluate_plan", "result": evaluation})
         return _result(plan_id, fold_plan_state(plan_id=plan_id, base_dir=root), "evaluated", actions)
@@ -90,7 +94,9 @@ def advance_plan_rounds(
     return _result(plan_id, state, "blocked", actions)
 
 
-def _ensure_planner_request(root: Path, state: dict[str, Any], *, role: str, round_number: int | None = None) -> dict[str, Any]:
+def _ensure_planner_request(root: Path, state: dict[str, Any], *, role: str, round_number: int | None = None,
+                            workspace_root: str | Path | None = None,
+                            architecture_spine: dict[str, Any] | None = None) -> dict[str, Any]:
     plan_id = str(state["plan_id"])
     revision = state.get("latest_revision") or {}
     revision_id = str(revision.get("revision_id") or "unknown")
@@ -136,12 +142,15 @@ def _ensure_planner_request(root: Path, state: dict[str, Any], *, role: str, rou
             )
             return {"kind": "planner_request_remint_exhausted", "role": role, "request_id": latest.get("request_id")}
         remint_of = str(latest.get("request_id"))
+    from .convergence_drainer import _resolve_workspace_head_sha
+    source_refs, revision_hash, context_paths = _planning_source_context(state, [revision_id])
+    target_sha = _resolve_workspace_head_sha(workspace_root) if workspace_root is not None else None
     request = create_agent_invocation_request(
         target_agent=DEFAULT_PLANNER_AGENTS[role],
         role=role,
         convergence_id=plan_id,
         round_number=request_round,
-        suggested_prompt=_prompt_for_role(role, state),
+        suggested_prompt=_prompt_for_role(role, state, architecture_spine=architecture_spine),
         must_satisfy=[
             {
                 "id": f"{role}_material_risk_review",
@@ -150,15 +159,21 @@ def _ensure_planner_request(root: Path, state: dict[str, Any], *, role: str, rou
             }
         ],
         allowed_scope=["aria-kernel/**", "aria-tools/**", ".claude/**"],
-        evidence_refs=[revision_id],
+        evidence_refs=source_refs,
+        plan_revision_hash=revision_hash,
+        context_source_paths=context_paths,
+        context_repo_root=workspace_root,
+        target_sha=target_sha,
         remint_of=remint_of,
         base_dir=root,
+        plan_contract=render_plan_contract(root),
     )
     kind = "planner_request_reminted" if remint_of else "planner_request_created"
     return {"kind": kind, "role": role, "request_id": request.get("request_id"), "remint_of": remint_of}
 
 
-def _ensure_cross_review_round(root: Path, state: dict[str, Any]) -> list[dict[str, Any]]:
+def _ensure_cross_review_round(root: Path, state: dict[str, Any], *,
+                              workspace_root: str | Path | None = None) -> list[dict[str, Any]]:
     plan_id = str(state["plan_id"])
     round_number = int(state.get("current_round") or 1)
     latest = state.get("latest_revision") or {}
@@ -189,6 +204,9 @@ def _ensure_cross_review_round(root: Path, state: dict[str, Any]) -> list[dict[s
     }
     event = request_cross_review(plan_id=plan_id, request=payload, base_dir=root)
     actions = [{"kind": "cross_review_event", "event_appended": event.get("event_appended")}]
+    from .convergence_drainer import _resolve_workspace_head_sha
+    source_refs, revision_hash, context_paths = _planning_source_context(state, [target_revision_id])
+    target_sha = _resolve_workspace_head_sha(workspace_root) if workspace_root is not None else None
     for task in payload["tasks"]:
         request = create_agent_invocation_request(
             target_agent=DEFAULT_PLANNER_AGENTS["cross_review"],
@@ -204,8 +222,13 @@ def _ensure_cross_review_round(root: Path, state: dict[str, Any]) -> list[dict[s
                 }
             ],
             allowed_scope=["aria-kernel/**", "aria-tools/**", ".claude/**"],
-            evidence_refs=[target_revision_id],
+            evidence_refs=source_refs,
+            plan_revision_hash=revision_hash,
+            context_source_paths=context_paths,
+            context_repo_root=workspace_root,
+            target_sha=target_sha,
             base_dir=root,
+            plan_contract=render_plan_contract(root),
         )
         actions.append({
             "kind": "cross_review_request_created",
@@ -236,10 +259,13 @@ def submit_synthetic_challenger_for_tests(
             "summary": "synthetic challenger for controller tests",
             "affected_surfaces": [{"paths": ["aria-kernel/**"]}],
             "key_changes": ["challenge primary assumptions"],
+            # A body the plan contract accepts: a declared command and a
+            # tier claim, as `submit_challenger_plan` now requires.
             "validation_commands": [
-                {"cmd": "python3 -m compileall -q aria-kernel/aria_kernel", "expected_exit": 0, "timeout_ms": 60000}
+                {"cmd": "npx nx affected --target=test", "expected_exit": 0, "timeout_ms": 1_800_000}
             ],
             "evidence_refs": ["aria-kernel/aria_kernel/plan_round_controller.py"],
+            "architectural_tier": 3,
             "risks": [],
         },
     }
@@ -255,6 +281,8 @@ def _cross_task(
     target_revision_id: str,
     target_hash: str,
 ) -> dict[str, Any]:
+    from datetime import datetime, timedelta, timezone
+
     raw = f"{plan_id}:{round_number}:{direction}:{target_revision_id}:{target_hash}"
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
     task_id = f"cross-{direction}-{digest[:10]}"
@@ -265,7 +293,10 @@ def _cross_task(
         "target_revision_id": target_revision_id,
         "target_plan_content_hash": target_hash,
         "status_after": "PENDING",
-        "sla_deadline": f"round-{round_number}-operator-policy",
+        # Match the existing native cross-review task producer's 30-minute
+        # deadline. A round label is not an ISO timestamp accepted by the
+        # task owner, so it cannot open a normal controller review round.
+        "sla_deadline": (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat(),
     }
     packet["task_packet_hash"] = "sha256:" + hashlib.sha256(
         json.dumps(packet, sort_keys=True, separators=(",", ":")).encode("utf-8"),
@@ -273,15 +304,23 @@ def _cross_task(
     return packet
 
 
-def _prompt_for_role(role: str, state: dict[str, Any]) -> str:
+def _prompt_for_role(role: str, state: dict[str, Any], *,
+                     architecture_spine: dict[str, Any] | None = None) -> str:
+    latest = state.get("latest_revision")
+    if role == "challenger_plan" and isinstance(latest, dict):
+        # The challenger receives common source context, never the primary
+        # proposal that a normal revision stores beside its identity.
+        latest = {key: latest[key] for key in ("revision_id", "content_hash", "source", "round") if key in latest}
     payload = {
         "$schema": "aria/plan-round-request/v1",
         "role": role,
         "plan_id": state.get("plan_id"),
         "state": state.get("state"),
-        "latest_revision": state.get("latest_revision"),
+        "latest_revision": latest,
         "current_round": state.get("current_round") or 1,
     }
+    if role == "primary_plan" and architecture_spine is not None:
+        payload["architecture_spine"] = architecture_spine
     return json.dumps(payload, indent=2, sort_keys=True)
 
 

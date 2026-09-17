@@ -119,6 +119,7 @@ EXPECTED_SPECIFIC_AUTHORITY = {
         f"{KERNEL}evidence_validator.py",
         f"{KERNEL}plan_convergence.py",
         f"{KERNEL}state_manifest.py",
+        f"{KERNEL}budget.py",
         "tools/aria-poc/dispatch_failure.py",
         "tools/aria-poc/claude_runtime.py",
         "tools/aria-poc/ci_executor.py",
@@ -164,6 +165,8 @@ EXPECTED_SPECIFIC_AUTHORITY = {
         f"{KERNEL}plan_coverage.py",
         f"{KERNEL}budget.py",
         f"{KERNEL}cost_budget.py",
+        f"{KERNEL}turn_budget.py",
+        f"{KERNEL}turn_budget_policy.py",
         f"{KERNEL}state_manifest.py",
         ".github/workflows/aria-merge-authority.yml",
     ),
@@ -231,6 +234,7 @@ EXPECTED_PRODUCERS = {
         f"{KERNEL}file_claims.py", f"{KERNEL}operator_feedback_signature.py",
         f"{KERNEL}expert_review_gate.py", f"{KERNEL}plan_coverage.py",
         f"{KERNEL}budget.py", f"{KERNEL}cost_budget.py",
+        f"{KERNEL}turn_budget.py", f"{KERNEL}turn_budget_policy.py",
         ".github/workflows/aria-merge-authority.yml",
     ),
     "enterprise_readiness": (
@@ -266,6 +270,10 @@ EXPECTED_CONSUMERS = {
         f"{KERNEL}convergence_drainer.py", f"{KERNEL}evidence_validator.py",
         f"{KERNEL}genesis_lifecycle.py",
         f"{KERNEL}plan_convergence.py",
+        # Native runtime attempts read results to bind (budget.py) and to
+        # reconcile (ci_executor.py) an attempt — decisions, not observations.
+        f"{KERNEL}budget.py",
+        "tools/aria-poc/ci_executor.py",
     ),
     "finding_funnel": (
         f"{KERNEL}finding_promotion.py", f"{KERNEL}funnel_health.py",
@@ -1484,12 +1492,19 @@ def alias_factory(root):
                 "runner attestation reports readiness without authorizing it",
             ("cycle_runtime", f"{KERNEL}integrity.py", "consumer"):
                 "integrity verification observes cycle chain bytes only",
+            ("cycle_runtime", f"{KERNEL}tool_sit_out.py", "consumer"):
+                "the sat-out reader counts the cycles a quarantined tool missed; it cannot start or seal one",
             ("executor", f"{KERNEL}shadow_eval_bridge.py", "consumer"):
                 "shadow bridge consumes execution to authorize genesis evidence",
             ("executor", f"{KERNEL}tool_registry.py", "consumer"):
                 "registry reads governance history for inventory reporting",
             ("executor", f"{KERNEL}worker_dispatch.py", "consumer"):
                 "worker dispatch consumes requests but cannot validate results",
+            # ARIA-HIGH-092 — the self-improvement dispatcher derives a
+            # request's state to avoid re-asking a mission still in flight;
+            # it reads the verdict, it cannot render one.
+            ("executor", f"{KERNEL}mission_dispatch.py", "consumer"):
+                "mission dispatch reads request state to skip an in-flight mission; it cannot accept a result",
             ("finding_funnel", f"{KERNEL}belief_escalation.py", "consumer"):
                 "belief escalation observes feedback for a separate belief lane",
             ("finding_funnel", f"{KERNEL}calibration.py", "consumer"):
@@ -1686,6 +1701,19 @@ def alias_factory(root):
                     "executor",
                     "agent_invocation_results",
                     f"{KERNEL}external_outage_reaper.py",
+                    "consumer",
+                ),
+            },
+            "publish_integrity_gate": {
+                # ARIA-HIGH-117 — the one publish path runs
+                # verify_runtime_artifacts on the store before its first
+                # mutation, which reads the cycle chain bytes the way
+                # integrity.py does (already observational above): it
+                # refuses an unverifiable store and authorizes no cycle.
+                (
+                    "cycle_runtime",
+                    "cycles",
+                    f"{KERNEL}state_store.py",
                     "consumer",
                 ),
             },

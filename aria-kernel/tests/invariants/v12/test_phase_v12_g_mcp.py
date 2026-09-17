@@ -10,7 +10,10 @@ Invariants:
                 ALWAYS carries --strict-mcp-config + --mcp-config, so the repository's
                 .mcp.json never reaches an autonomous agent; unnamed servers are also
                 closed as `mcp__<server>` in --disallowedTools; excluded write tools
-                are closed by name.
+                are closed by name. ARIA-HIGH-124: the kernel's own server is
+                `kernel_socket` — rendered as the stdlib RELAY run by path, never as a
+                server spawned inside against the store; a spawn that serves no broker
+                is refused the server by name.
   I-V12-MCP-03  the PostToolUse hook journals `mcp__*` calls (server + tool + input
                 hash, never arguments) and feeds mcp/tool-calls.jsonl; ≥10 calls with
                 error rate ≥ 0.5 quarantine the server (governance row); release needs
@@ -98,10 +101,26 @@ class RegistryAndProfiles(_Store):
 class SpawnConfigIsStrict(_Store):
     def test_I_V12_MCP_02_only_the_profile_servers_and_always_strict(self) -> None:
         impl = profile_by_id("implementer")
-        cfg = mc.mcp_config_for_profile(impl, environ={"PYTHONPATH": "aria-kernel", "GH_TOKEN": "never"})
+        relay = mc.McpRelayContext(python="/usr/bin/python3", kernel_root=self.ws / "aria-kernel")
+        cfg = mc.mcp_config_for_profile(impl, environ={"PYTHONPATH": "aria-kernel", "GH_TOKEN": "never"}, relay=relay)
         self.assertEqual(list(cfg["mcpServers"]), ["aria"])
-        self.assertEqual(cfg["mcpServers"]["aria"]["env"], {"PYTHONPATH": "aria-kernel"})
+        # ARIA-HIGH-124 — the relay, by path, under the workspace's kernel
+        # tree; no env in the document (the socket is inherited from the
+        # CLI's environment, which the sandbox sets to the bound path).
+        self.assertEqual(cfg["mcpServers"]["aria"], {
+            "type": "stdio", "command": "/usr/bin/python3", "args": ["-I", str(self.ws / "aria-kernel" / "aria_kernel" / "mcp_relay.py")],
+        })
         self.assertNotIn("never", json.dumps(cfg))
+        self.assertNotIn("mcp serve", json.dumps(cfg))
+        with self.assertRaises(GovernanceError) as refused:
+            mc.mcp_config_for_profile(impl, environ={})
+        self.assertIn("mcp_kernel_socket_requires_relay:aria", str(refused.exception))
+        self.assertEqual(mc.kernel_socket_servers(impl), ("aria",))
+        self.assertEqual(mc.kernel_socket_servers(profile_by_id("judge_opus")), ())
+        shipped = mc.load_mcp_registry().servers["aria"]
+        self.assertEqual((shipped.transport, shipped.command, shipped.args, shipped.env_passthrough), ("kernel_socket", None, (), ()))
+        with self.assertRaises(GovernanceError):
+            self._registry({"aria": {"transport": "kernel_socket", "command": "python3"}})
         self.assertEqual(mc.mcp_config_for_profile(profile_by_id("judge_opus")), {"mcpServers": {}})
         self.assertEqual(mc.mcp_config_for_profile(None), {"mcpServers": {}})
         self.assertEqual(mc.mcp_tool_rules(profile_by_id("judge_opus")), ("mcp__aria",))
@@ -193,6 +212,37 @@ class ServerSpeaksTheProtocol(_Store):
                               env={**os.environ, "PYTHONPATH": str(_REPO_ROOT / "aria-kernel")})
         self.assertEqual(proc.returncode, 0, proc.stderr[-300:])
         self.assertEqual(json.loads(proc.stdout.splitlines()[0])["id"], 1)
+
+
+class PlanVerifyAnswersAuthenticity(_Store):
+    def test_I_V12_MCP_plan_verify_recomputes_from_the_ledger(self) -> None:
+        # ARIA-HIGH-147 — the implementer's first obligation, answered by the
+        # kernel from its own hash-verified ledger body: the sandbox has no
+        # interpreter for a hand recomputation, and two live spawns spent
+        # their whole budgets attempting one.
+        from tests._helpers.git_fixtures import make_repo_with_initial_commit
+        from tests._helpers.production_shaped import production_converged_plan
+
+        repo = make_repo_with_initial_commit(self.root / "src", {"apps/farm-service/src/sample.ts": "export const one = 1;\n"})
+        (repo / ".claude" / "agents").mkdir(parents=True)
+        (repo / ".claude" / "agents" / "farm-expert.md").write_text(
+            "---\nname: farm-expert\ndescription: Fixture reviewer.\n---\n\nOwns `apps/farm-service/**`.\n", encoding="utf-8")
+        plan = production_converged_plan(tools_dir=self.tools, workspace_root=repo, plan_id="plan-147-verify",
+                                         affected_paths=["apps/farm-service/src/sample.ts"])
+        server = AriaMcpServer(base_dir=self.tools, workspace_root=repo)
+        self.assertIn("plan_verify", READ_TOOLS)
+        self.assertIn("plan_verify", [t["name"] for t in server.tools()])
+        ok = server.call_tool("plan_verify", {"plan_id": plan.plan_id, "content_hash": plan.content_hash})
+        self.assertFalse(ok["isError"], ok)
+        answer = json.loads(ok["content"][0]["text"])
+        self.assertEqual((answer["verdict"], answer["revision_id"], answer["content_hash"], answer["state"]),
+                         ("verified", plan.revision_id, plan.content_hash, "CONVERGED"))
+        self.assertEqual(answer["plan_content"]["affected_surfaces"][0]["paths"], ["apps/farm-service/src/sample.ts"])
+        bad = server.call_tool("plan_verify", {"plan_id": plan.plan_id, "content_hash": "sha256:" + "0" * 64})
+        self.assertFalse(bad["isError"], bad)
+        self.assertEqual(json.loads(bad["content"][0]["text"])["verdict"], "mismatch")
+        unknown = server.call_tool("plan_verify", {"plan_id": "plan-nowhere", "content_hash": plan.content_hash})
+        self.assertTrue(unknown["isError"], "an unknown plan is an error result, not a verdict")
 
 
 class FloorAndSurfaces(_Store):

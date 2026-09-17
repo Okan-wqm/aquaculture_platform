@@ -435,31 +435,40 @@ class TheExecutorSubmitWallClockCoversTheBound(unittest.TestCase):
             len(NOTIFY_CHANNELS) * SENDER_WALL_CLOCK_SECONDS + STATE_LOCK_LIVENESS_SECONDS,
         )
         self.assertEqual(
-            ci_executor.HUMAN_REQUIRED_RECORD_TIMEOUT_SECONDS,
+            ci_executor.HUMAN_REQUIRED_RECORD_WORST_CASE_SECONDS,
             int(HUMAN_REQUIRED_RECORD_WAIT_SECONDS + ci_executor.KERNEL_CHILD_WORK_SECONDS),
         )
-        self.assertGreater(ci_executor.HUMAN_REQUIRED_RECORD_TIMEOUT_SECONDS, STATE_LOCK_LIVENESS_SECONDS)
+        self.assertGreater(ci_executor.HUMAN_REQUIRED_RECORD_WORST_CASE_SECONDS, STATE_LOCK_LIVENESS_SECONDS)
         # 900 (the governance transaction) + 4 x 120 + 900 (the channels,
-        # then the outbox transaction) + 120 (the child's own work).
-        self.assertEqual(ci_executor.HUMAN_REQUIRED_RECORD_TIMEOUT_SECONDS, 2400)
-        # Both record children run at that wall clock — read from the
-        # executor's AST: every `subprocess.run` whose argv names the
-        # `human-required` command passes the derived constant.
+        # then the outbox transaction) + 120 (the kernel's own work).
+        self.assertEqual(ci_executor.HUMAN_REQUIRED_RECORD_WORST_CASE_SECONDS, 2400)
+        # ARIA-HIGH-124 (round 3) — the record is written IN-PROCESS through
+        # the kernel's own recorder, never as a `human-required record`
+        # child: the operator CLI's free-text `--reason` validator refused
+        # any kernel-minted id carrying ten consecutive digits as a phone
+        # number, and the escalation was lost. Read from the executor's AST:
+        # no `subprocess.run` names the `human-required` command, and the
+        # one recorder calls the kernel function.
         tree = ast.parse(Path(ci_executor.__file__).read_text(encoding="utf-8"))
         record_children = 0
+        recorder_calls = 0
         for node in ast.walk(tree):
-            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+            if not isinstance(node, ast.Call):
                 continue
-            if node.func.attr != "run" or not node.args or not isinstance(node.args[0], ast.List):
+            callee = node.func
+            if isinstance(callee, ast.Attribute) and callee.attr == "run" and node.args and isinstance(node.args[0], ast.List):
+                literals = [e.value for e in node.args[0].elts if isinstance(e, ast.Constant)]
+                if "human-required" in literals:
+                    record_children += 1
+            if isinstance(callee, ast.Call):
                 continue
-            literals = [e.value for e in node.args[0].elts if isinstance(e, ast.Constant)]
-            if "human-required" not in literals:
-                continue
-            record_children += 1
-            timeout = next(kw.value for kw in node.keywords if kw.arg == "timeout")
-            self.assertIsInstance(timeout, ast.Name)
-            self.assertEqual(timeout.id, "HUMAN_REQUIRED_RECORD_TIMEOUT_SECONDS")
-        self.assertEqual(record_children, 2)
+            if getattr(callee, "id", None) == "record_human_required" or (
+                isinstance(callee, ast.Attribute) and callee.attr == "record_human_required"
+            ):
+                recorder_calls += 1
+        self.assertEqual(record_children, 0, "the executor spawns no `human-required record` child")
+        self.assertEqual(recorder_calls, 1, "one in-process recorder (`_record_human_required`)")
+        self.assertNotIn('"human-required", "record"', Path(ci_executor.__file__).read_text(encoding="utf-8"))
 
     def test_a_childs_worst_case_prices_the_whole_child(self) -> None:
         # Claim (one lock wait + work) and its pre-claim probe, the CLI run,
@@ -475,7 +484,7 @@ class TheExecutorSubmitWallClockCoversTheBound(unittest.TestCase):
         self.assertEqual(worst_case, ci_executor.child_worst_case_seconds(1800))
         self.assertEqual(
             ci_executor.TERMINAL_WRITER_TIMEOUT_SECONDS,
-            max(ci_executor.SUBMIT_RESULT_TIMEOUT_SECONDS, ci_executor.HUMAN_REQUIRED_RECORD_TIMEOUT_SECONDS),
+            max(ci_executor.SUBMIT_RESULT_TIMEOUT_SECONDS, ci_executor.HUMAN_REQUIRED_RECORD_WORST_CASE_SECONDS),
         )
         self.assertEqual(
             worst_case,
@@ -512,6 +521,155 @@ class TheExecutorSubmitWallClockCoversTheBound(unittest.TestCase):
                 worst_case + ci_executor.REQUEST_WORKTREE_WORST_CASE_SECONDS,
             )
 
+    def test_an_implementation_childs_worst_case_prices_its_delivery(self) -> None:
+        # ARIA-HIGH-124 (round 3) — the executor runs a whole phase AFTER an
+        # implementation spawn: the quarantine's publication, the contained
+        # apply gate at the staged ceiling per command, the push, the PR.
+        # The derivation used to sum claim + probe + CLI + terminal writer +
+        # release and price none of it, so its own invariant ("neither
+        # branch can run past what the drain loop checked") was untrue for
+        # every implementation request: a child admitted at the window's
+        # edge could legally run ~3 h past it. The term is the kernel's ONE
+        # derivation off the suite and its ceiling.
+        from aria_kernel.delivery_credentials import DELIVERY_CREDENTIAL_WORST_CASE_SECONDS
+        from aria_kernel.git_containment import QUARANTINE_PUBLICATION_WORST_CASE_SECONDS
+        from aria_kernel.evidence_probe import EVIDENCE_VERIFICATION_LIVENESS_SECONDS
+        from aria_kernel.implementation_delivery import (
+            DELIVERY_COMMIT_IDENTITY_SECONDS,
+            DELIVERY_GIT_CALLS,
+            DELIVERY_RESULT_ADMISSIBLE_SECONDS,
+            DELIVERY_WORK_ALLOWANCE_SECONDS,
+            IMPLEMENTATION_DELIVERY_WORST_CASE_SECONDS,
+            IMPLEMENTATION_TERM_BESIDE_DELIVERY_SECONDS,
+            delivery_worst_case_seconds,
+        )
+        from aria_kernel.implementation_safety import (
+            CANONICAL_VALIDATION_TIMEOUT_MS,
+            COMMIT_SIGNATURE_VERIFY_TIMEOUT_SECONDS,
+        )
+        from aria_kernel.pr_manager import GH_PR_CREATE_TIMEOUT_SECONDS
+        from aria_kernel.validation_suite import CANONICAL_VALIDATION_COMMANDS_EXECUTABLE
+
+        canonical = delivery_worst_case_seconds(
+            validation_commands=CANONICAL_VALIDATION_COMMANDS_EXECUTABLE,
+            validation_timeout_ms=CANONICAL_VALIDATION_TIMEOUT_MS,
+        )
+        self.assertEqual(
+            canonical,
+            len(CANONICAL_VALIDATION_COMMANDS_EXECUTABLE) * (CANONICAL_VALIDATION_TIMEOUT_MS // 1000)
+            + DELIVERY_GIT_CALLS * state_store.GIT_TIMEOUT_SECONDS
+            + DELIVERY_COMMIT_IDENTITY_SECONDS
+            + DELIVERY_RESULT_ADMISSIBLE_SECONDS
+            + DELIVERY_CREDENTIAL_WORST_CASE_SECONDS
+            + GH_PR_CREATE_TIMEOUT_SECONDS
+            + DELIVERY_WORK_ALLOWANCE_SECONDS,
+        )
+        # (round 4) the `commit_identity` stage's own `git verify-commit`
+        # is priced too: the delivery verifies the tip against the held key
+        # before it pushes anything.
+        self.assertEqual(DELIVERY_COMMIT_IDENTITY_SECONDS, COMMIT_SIGNATURE_VERIFY_TIMEOUT_SECONDS)
+        # (round 5) and the `result_admissible` stage's decision — the
+        # submit's own chain, run before the push — at ONE decision's probe
+        # clock, the same term the submit wall clock is derived from.
+        self.assertEqual(DELIVERY_RESULT_ADMISSIBLE_SECONDS, int(EVIDENCE_VERIFICATION_LIVENESS_SECONDS))
+        # (round 6) and the credential's mint and revoke at their bounds:
+        # the lease is minted INSIDE the delivery, after the gate, so the
+        # delivery pays for the mint — and the implementation child pays
+        # once more for the pre-spawn admission (a lease minted and revoked
+        # to prove the lane can mint before a turn is spent).
+        self.assertEqual(DELIVERY_CREDENTIAL_WORST_CASE_SECONDS, 40)
+        # 4 x 2700 + 4 x 300 + 10 + 300 + 40 + 300 + 120, then the publication's
+        # 5 x 120 and the admission's 40.
+        self.assertEqual(canonical, 12770)
+        self.assertEqual(IMPLEMENTATION_TERM_BESIDE_DELIVERY_SECONDS,
+                         QUARANTINE_PUBLICATION_WORST_CASE_SECONDS + DELIVERY_CREDENTIAL_WORST_CASE_SECONDS)
+        self.assertEqual(IMPLEMENTATION_DELIVERY_WORST_CASE_SECONDS, canonical + IMPLEMENTATION_TERM_BESIDE_DELIVERY_SECONDS)
+        self.assertEqual(IMPLEMENTATION_DELIVERY_WORST_CASE_SECONDS, 13410)
+        self.assertEqual(ci_executor.IMPLEMENTATION_DELIVERY_WORST_CASE_SECONDS, IMPLEMENTATION_DELIVERY_WORST_CASE_SECONDS)
+        # A plan's recipes make the request's own term larger; the executor
+        # and the drain price a request off its staged action, never off
+        # the canonical constant.
+        self.assertGreater(
+            delivery_worst_case_seconds(
+                validation_commands=[*CANONICAL_VALIDATION_COMMANDS_EXECUTABLE, "python3 -m unittest tests.x"],
+                validation_timeout_ms=CANONICAL_VALIDATION_TIMEOUT_MS,
+            ),
+            canonical,
+        )
+        # The implementation child: the same sum with the delivery term
+        # between the CLI and the terminal writer.
+        implementation_child = ci_executor.child_worst_case_seconds(
+            1800, worktree_per_request=True,
+            implementation_delivery_seconds=IMPLEMENTATION_DELIVERY_WORST_CASE_SECONDS,
+        )
+        self.assertEqual(
+            implementation_child,
+            ci_executor.child_worst_case_seconds(1800, worktree_per_request=True) + IMPLEMENTATION_DELIVERY_WORST_CASE_SECONDS,
+        )
+        self.assertEqual(implementation_child, 6933 + 13410)
+        with mock.patch.dict("os.environ", {"MAX_TIMEOUT_SECONDS": "1800"}):
+            self.assertEqual(
+                ci_executor._child_worst_case_seconds(
+                    worktree_per_request=True, implementation_delivery_seconds=IMPLEMENTATION_DELIVERY_WORST_CASE_SECONDS,
+                ),
+                implementation_child,
+            )
+        # The bound the delivery itself refuses under is the same derivation.
+        from aria_kernel.implementation_delivery import deadline_refusal
+
+        self.assertIsNone(deadline_refusal(job_deadline_epoch=None, worst_case_seconds=canonical, now=0.0))
+        self.assertIsNone(deadline_refusal(job_deadline_epoch=1000.0 + canonical, worst_case_seconds=canonical, now=1000.0))
+        self.assertEqual(
+            deadline_refusal(job_deadline_epoch=1000.0 + canonical - 1, worst_case_seconds=canonical, now=1000.0),
+            f"deadline_insufficient:remaining={canonical - 1}s:worst_case={canonical}s",
+        )
+
+    def test_the_claim_argv_leases_the_priced_worst_case_not_the_kernel_default(self) -> None:
+        # ARIA-HIGH-124 (round 4) — the structural half of the lease pins
+        # (the rows themselves: `test_executor_implementation_identity`,
+        # `test_ci_executor_live_path_smoke`). Read from the executor's
+        # AST: the `agent claim` argv carries `--lease-seconds`, and the
+        # value is `_child_worst_case_seconds(...)` over this request's
+        # delivery term — never a literal and never the kernel's
+        # `DEFAULT_LEASE_SECONDS` (1800, which equals MAX_TIMEOUT_SECONDS,
+        # so a full-length CLI run's submit was refused `lease_expired`).
+        from aria_kernel.agent_invocations import DEFAULT_LEASE_SECONDS
+
+        tree = ast.parse(Path(ci_executor.__file__).read_text(encoding="utf-8"))
+        claim_argvs = [
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and getattr(node.func, "id", None) == "_kernel_cli_argv"
+            and [arg.value for arg in node.args[:2] if isinstance(arg, ast.Constant)] == ["agent", "claim"]
+        ]
+        self.assertEqual(len(claim_argvs), 1, "one claim argv")
+        literals = [arg.value for arg in claim_argvs[0].args if isinstance(arg, ast.Constant)]
+        self.assertIn("--lease-seconds", literals)
+        # The value beside the flag is `str(_lease_seconds)`.
+        flag_index = next(i for i, arg in enumerate(claim_argvs[0].args)
+                          if isinstance(arg, ast.Constant) and arg.value == "--lease-seconds")
+        value = claim_argvs[0].args[flag_index + 1]
+        self.assertIsInstance(value, ast.Call)
+        self.assertEqual(getattr(value.func, "id", None), "str")
+        self.assertEqual(getattr(value.args[0], "id", None), "_lease_seconds")
+        # And `_lease_seconds` is the priced bound with the request's own
+        # delivery term.
+        assignment = next(
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.Assign)
+            and any(getattr(target, "id", None) == "_lease_seconds" for target in node.targets)
+        )
+        self.assertIsInstance(assignment.value, ast.Call)
+        self.assertEqual(getattr(assignment.value.func, "id", None), "_child_worst_case_seconds")
+        self.assertEqual(
+            [keyword.arg for keyword in assignment.value.keywords], ["implementation_delivery_seconds"],
+        )
+        self.assertEqual(
+            getattr(assignment.value.keywords[0].value.func, "id", None), "_request_delivery_seconds",
+        )
+        with mock.patch.dict("os.environ", {"MAX_TIMEOUT_SECONDS": str(DEFAULT_LEASE_SECONDS)}):
+            self.assertGreater(ci_executor._child_worst_case_seconds(), DEFAULT_LEASE_SECONDS)
+
     def test_the_drain_loop_starts_a_child_only_when_that_worst_case_fits(self) -> None:
         # Source pin: the budget check names the worst-case accessor — with
         # the run's own worktree policy — not the CLI timeout alone (the
@@ -522,6 +680,13 @@ class TheExecutorSubmitWallClockCoversTheBound(unittest.TestCase):
             "_engine._child_worst_case_seconds(worktree_per_request=worktree_per_request)", source,
         )
         self.assertNotIn("elapsed + _engine._max_timeout_seconds()", source)
+        # ARIA-HIGH-124 (round 3) — once the request is known, ITS worst
+        # case (an implementation's delivery off the staged action) is
+        # checked against what remains, and a request that does not fit is
+        # skipped without a claim rather than started.
+        self.assertIn("implementation_delivery_seconds=_engine._request_delivery_seconds(", source)
+        self.assertIn("elapsed + request_worst_case > _drain_budget_seconds()", source)
+        self.assertIn("window_excluded.add(request_id)", source)
 
     def test_the_scheduled_lane_fits_a_whole_child_and_keeps_the_jobs_reserve(self) -> None:
         # The workflow's arithmetic, read from the workflow, and the
@@ -549,15 +714,46 @@ class TheExecutorSubmitWallClockCoversTheBound(unittest.TestCase):
         child_worst_case = ci_executor.child_worst_case_seconds(max_timeout, worktree_per_request=True)
         self.assertLessEqual(child_worst_case, drain_budget)
         self.assertLessEqual(ci_executor.child_worst_case_seconds(max_timeout), drain_budget)
+        # ARIA-HIGH-124 (round 3) — and with the implementation child's
+        # delivery ON (the canonical shape): a window that cannot hold an
+        # implementation child never delivers one.
+        implementation_child = ci_executor.child_worst_case_seconds(
+            max_timeout, worktree_per_request=True,
+            implementation_delivery_seconds=ci_executor.IMPLEMENTATION_DELIVERY_WORST_CASE_SECONDS,
+        )
+        self.assertLessEqual(implementation_child, drain_budget)
         # The figures the comment beside the window states, so a re-derived
         # bound that moves them is a visible change in the YAML too.
         self.assertEqual(child_worst_case, 6933)
-        self.assertIn("1020 + 93 + 1800 + 2400 + 1020 = 6333 s", workflow_text)
-        self.assertIn(f"{drain_budget - 6333} s", workflow_text)
-        self.assertIn(f"({drain_budget - 6933} s with worktrees)", workflow_text)
+        self.assertEqual(implementation_child, 20343)
+        self.assertIn("1020 + 93 + 1800 + 2400 + 1020 =\n          # 6333 s", workflow_text)
+        self.assertIn("= 13410 s in the canonical shape, so 20343 s", workflow_text)
+        self.assertIn(f"with {drain_budget - 20343} s of start", workflow_text)
+        self.assertIn(f"(a judge child: {drain_budget - 6333} s, {drain_budget - 6933} s with", workflow_text)
         self.assertLessEqual(drain_budget + ci_executor_drain.JOB_RESERVE_SECONDS, job_seconds)
-        self.assertEqual(int(job["timeout-minutes"]), 280)
+        self.assertEqual(int(job["timeout-minutes"]), 510)
+        # Round 6: the start window before an implementation child is a
+        # measured figure, not a remainder — 657 s clears the >40 s first
+        # `next-pending` seen under load with the same margin the judge
+        # child always had.
+        self.assertGreaterEqual(drain_budget - 20343, 600)
         self.assertEqual(ci_executor_drain.JOB_RESERVE_SECONDS, 9000)
+        # The job exports the absolute deadline every spawn and delivery
+        # runs under: its own ceiling anchored at launch, minus what it must
+        # still run after the drain (the publish arc and the steps
+        # allowance) — the pre-spawn reservation, the pre-publication
+        # admission and the delivery's `deadline_insufficient` all read it.
+        self.assertEqual(ci_executor_drain.JOB_RESERVE_AFTER_DRAIN_SECONDS,
+                         state_store.STATE_STORE_LIFECYCLE_LIVENESS_SECONDS + ci_executor_drain.JOB_STEPS_ALLOWANCE_SECONDS)
+        self.assertIn(f"JOB_TIMEOUT_MINUTES={int(job['timeout-minutes'])}\n", step["run"])
+        self.assertIn(f"POST_DRAIN_RESERVE_SECONDS={ci_executor_drain.JOB_RESERVE_AFTER_DRAIN_SECONDS}\n", step["run"])
+        self.assertIn("export ARIA_JOB_DEADLINE_EPOCH=$(( ANCHOR_EPOCH + JOB_TIMEOUT_MINUTES * 60 - POST_DRAIN_RESERVE_SECONDS ))", step["run"])
+        self.assertTrue(any(step.get("name") == "Anchor the job launch epoch" for step in job["steps"]))
+        # The window's end at the worst-case restore stays inside the deadline.
+        self.assertLessEqual(
+            ci_executor_drain.STATE_RESTORE_WORST_CASE_SECONDS + drain_budget,
+            job_seconds - ci_executor_drain.JOB_RESERVE_AFTER_DRAIN_SECONDS,
+        )
         # The comment beside the window must state the check the loop makes.
         # It said `elapsed + MAX_TIMEOUT_SECONDS <= budget` for two rounds
         # after the loop had stopped pricing the CLI cap alone.
@@ -586,6 +782,7 @@ class TheExecutorSubmitWallClockCoversTheBound(unittest.TestCase):
             ci_executor_drain.DEFAULT_DRAIN_BUDGET_SECONDS,
             ci_executor.child_worst_case_seconds(
                 ci_executor.DEFAULT_TIMEOUT_SECONDS, worktree_per_request=True,
+                implementation_delivery_seconds=ci_executor.IMPLEMENTATION_DELIVERY_WORST_CASE_SECONDS,
             )
             + ci_executor_drain.DRAIN_WINDOW_MARGIN_SECONDS,
         )

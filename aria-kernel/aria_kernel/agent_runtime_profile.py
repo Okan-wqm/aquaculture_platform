@@ -16,9 +16,15 @@ which tier each agent runs on. Two backends consume it:
 
 This module is the only reader, so both consumers can never drift from the
 frontmatter. Fail-safe by design: an unknown agent or a missing/invalid field
-resolves to the most expensive tier (``fable`` / ``max``). A silent cost
+resolves to the strongest SELECTED tier (``opus`` / ``max``). A silent cost
 downgrade can therefore never be introduced by omission — only by an explicit,
-reviewable frontmatter edit.
+reviewable frontmatter edit. Operator decision 2026-09-12: ``fable`` stays a
+named tier (ordering, pricing) and is selected by nothing — no profile, no
+frontmatter, no default; ``tests/invariants`` pins it. The same decision
+made every tier a credit LEAF: an exhausted provider is requeued under its
+cooldown (``provider_cooldown``), never retried on a weaker tier, and the
+only ladder left (``claude_runtime.AUTH_FAILOVER_TIER``) serves AUTH
+failures across vendors.
 """
 from __future__ import annotations
 
@@ -38,7 +44,7 @@ from pathlib import Path
 VALID_MODELS: frozenset[str] = frozenset({"opus", "sonnet", "haiku", "fable", "glm-5.3"})
 VALID_EFFORTS: frozenset[str] = frozenset({"low", "medium", "high", "xhigh", "max"})
 
-DEFAULT_MODEL: str = "fable"
+DEFAULT_MODEL: str = "opus"
 
 # E16 (ORPHAN-673) — model-tier write protection SSoT (operator rule
 # 2026-08-13): a weaker model must never delete or overwrite what a
@@ -160,6 +166,7 @@ class AgentRuntimeProfile:
     external_writes: bool = False
     budget_usd_per_run: float | None = None
     max_concurrent: int | None = None
+    runtime: str = "claude"
 
     @property
     def write_capable(self) -> bool:
@@ -231,6 +238,7 @@ def _read_profile_cached(agent_name: str, repo_root_str: str | None) -> AgentRun
             external_writes=kernel.external_writes,
             budget_usd_per_run=kernel.budget_usd_per_run,
             max_concurrent=kernel.max_concurrent,
+            runtime=kernel.runtime,
         )
     model = raw_model if raw_model in VALID_MODELS else DEFAULT_MODEL
     effort = raw_effort if raw_effort in VALID_EFFORTS else DEFAULT_EFFORT

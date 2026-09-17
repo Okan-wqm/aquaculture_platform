@@ -59,7 +59,7 @@ class DualChainRowTests(unittest.TestCase):
             workspace = Path(tmp)
             ensure_tools_dir(workspace / "aria-tools")
             record_pressure_source_outcome(
-                workspace_root=workspace, source_type="git_diff", minted=1,
+                base_dir=workspace / "aria-tools", source_type="git_diff", minted=1,
             )
             path = (
                 workspace / "aria-tools" / "knowledge-graph"
@@ -98,7 +98,7 @@ class DualChainRowTests(unittest.TestCase):
             path.write_text(json.dumps(legacy, sort_keys=True, separators=(",", ":")) + "\n")
             # New-format append continues the SAME prev chain.
             record_pressure_source_outcome(
-                workspace_root=workspace, source_type="finding", minted=1,
+                base_dir=workspace / "aria-tools", source_type="finding", minted=1,
             )
             ok, count = verify_chain_or_quarantine(path)
         self.assertTrue(ok)

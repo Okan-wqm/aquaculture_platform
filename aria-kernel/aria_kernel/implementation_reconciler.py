@@ -7,9 +7,9 @@ cycle, every plan resting in IMPLEMENTATION_RECORDED is checked against
 GitHub's own answer for its recorded PR; a merged PR becomes the
 `implementation_merged` terminal event with the V9.6 idempotency 5-tuple.
 
-Deterministic and ledger-derived: the inputs are the plan fold (pr_url,
-diff_hash, branch_tip_sha) and the reader's answer; re-running against a
-merged plan is a no-op (terminal state + idempotent _mutate).
+Merge and learning completion are separate. Persisted terminal merges remain
+eligible for convention reconciliation even when the remote reader is offline.
+The existing ledgers are the retry source; a merge is never reopened or repeated.
 
 Small on purpose — operator preference: files stay short.
 """
@@ -21,11 +21,12 @@ from pathlib import Path
 from typing import Any
 
 from .plan_convergence import (
+    events_path,
     fold_plan_state,
-    list_active_plans,
     record_implementation_merged,
 )
-from .tool_registry import GovernanceError
+from .ledger import LedgerIntegrityError, state_transaction
+from .tool_registry import GovernanceError, ensure_tools_dir
 
 _PR_NUMBER_RE = re.compile(r"/pull/(\d+)")
 
@@ -42,28 +43,96 @@ def _idempotency_key_hash(
     return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def _implementation_states(root: Path) -> dict[str, dict[str, Any]]:
+    """Verify persisted evidence before consulting even a warm plan-fold cache."""
+    path = events_path(root)
+    with state_transaction([path]) as transaction:
+        events = transaction.load_declared_jsonl(
+            path, expected_surface="plan_convergence_events",
+        )
+        plan_ids = sorted({
+            str(row["plan_id"]) for row in events
+            if row.get("event_type") in {"implementation_outcome_recorded", "implementation_merged"}
+        })
+    return {
+        plan_id: fold_plan_state(plan_id=plan_id, base_dir=root)
+        for plan_id in plan_ids
+    }
+
+
+def _reconcile_promotion(plan_id: str, root: Path) -> dict[str, Any]:
+    from .knowledge_graph import (
+        KnowledgeGraphSchemaError,
+        KnowledgeGraphTamper,
+        reconcile_convention_promotion,
+    )
+
+    try:
+        outcome = reconcile_convention_promotion(
+            plan_id=plan_id, base_dir=root,
+        )
+        return {"plan_id": plan_id, **{k: v for k, v in outcome.items() if k != "convention"}}
+    except (KnowledgeGraphTamper, LedgerIntegrityError) as exc:
+        # The knowledge reader preserves I/O errors as chained causes. An
+        # unavailable read is not evidence that persisted history is corrupt.
+        if isinstance(exc.__cause__, OSError):
+            status = "retryable_error"
+            error = exc.__cause__
+        else:
+            status = "integrity_error"
+            error = exc
+    except KnowledgeGraphSchemaError as exc:
+        status = "schema_error"
+        error = exc
+    except GovernanceError as exc:
+        status = "authority_error"
+        error = exc
+    except OSError as exc:
+        status = "retryable_error"
+        error = exc
+    return {
+        "plan_id": plan_id, "status": status,
+        "error_type": type(error).__name__, "reason": str(error)[:500],
+    }
+
+
 def reconcile_recorded_implementations(
     *,
     base_dir: str | Path | None,
     reader: Any,
     base_branch: str = "main",
 ) -> dict[str, Any]:
-    """Fold every RECORDED plan forward if its PR is merged on GitHub."""
+    """Observe new merges and resume learning from durable merge evidence.
+
+    ``merged`` and ``checked`` describe this call's new merge events and remote
+    checks. ``promotions`` independently reports learning progress or failure.
+    Existing merge-backed convention status is not a measured-gain verdict.
+    """
+    root = ensure_tools_dir(base_dir)
+    states = _implementation_states(root)
+    result: dict[str, Any] = {
+        "status": "reconciled", "merged": [], "checked": 0,
+        "promotions": [], "merge_errors": [],
+    }
+    for plan_id, state in states.items():
+        if state.get("state") == "IMPLEMENTATION_MERGED":
+            result["promotions"].append(_reconcile_promotion(plan_id, root))
+
+    # Local recovery above does not depend on credentials or network health.
+    # Neither this call nor pr_merge_state below runs inside a state lock.
     readable, reason = reader.readable()
     if not readable:
-        return {"status": "unreadable", "reason": reason, "merged": [], "checked": 0}
+        result.update(status="unreadable", reason=reason)
+        return result
 
-    merged: list[dict[str, Any]] = []
-    checked = 0
-    for plan_id in list_active_plans(base_dir=base_dir):
-        state = fold_plan_state(plan_id=plan_id, base_dir=base_dir)
-        if not isinstance(state, dict) or state.get("state") != "IMPLEMENTATION_RECORDED":
+    for plan_id, state in states.items():
+        if state.get("state") != "IMPLEMENTATION_RECORDED":
             continue
         impl = state.get("implementation") or {}
         pr_number = _pr_number_from_url(str(impl.get("pr_url") or ""))
         if pr_number is None:
             continue
-        checked += 1
+        result["checked"] += 1
         remote = reader.pr_merge_state(pr_number)
         if not isinstance(remote, dict):
             continue
@@ -73,7 +142,7 @@ def reconcile_recorded_implementations(
         if str(remote.get("state") or "").upper() != "MERGED" or not merged_at or not merge_sha:
             continue
         try:
-            record_implementation_merged(
+            event = record_implementation_merged(
                 plan_id=plan_id,
                 merge_sha=merge_sha,
                 merged_at=str(merged_at),
@@ -84,26 +153,15 @@ def reconcile_recorded_implementations(
                     base_branch,
                     str(impl.get("branch_tip_sha") or ""),
                 ),
-                base_dir=base_dir,
+                base_dir=root,
             )
-        except GovernanceError:
-            # A concurrent fold already moved the plan; terminal states are
-            # idempotent, anything else is visible on the next cycle.
+        except GovernanceError as exc:
+            # Contention or a refused transition is observable. The next pass
+            # discovers any concurrently persisted merge from its own ledger.
+            result["merge_errors"].append({"plan_id": plan_id, "reason": str(exc)[:500]})
             continue
-        # M2/E12 — the merge IS the verified outcome the convention row
-        # has waited for since convergence: promote its hypothesis to
-        # verified so lookup can finally serve it. Advisory — a promotion
-        # failure must not cost the merge record above.
-        try:
-            from .knowledge_graph import promote_convention_for_plan
-            from .tool_registry import ensure_tools_dir
+        if event["event_appended"]:
+            result["merged"].append({"plan_id": plan_id, "pr_number": pr_number, "merge_sha": merge_sha})
+        result["promotions"].append(_reconcile_promotion(plan_id, root))
 
-            promote_convention_for_plan(
-                plan_id=plan_id,
-                workspace_root=ensure_tools_dir(base_dir).parent,
-            )
-        except (OSError, ValueError, KeyError, TypeError):
-            pass
-        merged.append({"plan_id": plan_id, "pr_number": pr_number, "merge_sha": merge_sha})
-
-    return {"status": "reconciled", "merged": merged, "checked": checked}
+    return result

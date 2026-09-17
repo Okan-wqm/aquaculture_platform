@@ -54,7 +54,9 @@ def session_fingerprint(
 
 def _model_family(model: str | None) -> str:
     text = str(model or "")
-    return "glm" if text.startswith("glm") else ("codex" if "codex" in text else "anthropic")
+    return "glm" if text.startswith("glm") else (
+        "codex" if "codex" in text or text == "gpt-6-astra" else "anthropic"
+    )
 
 
 def bind_session(

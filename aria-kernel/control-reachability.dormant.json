@@ -23,12 +23,6 @@
     "owner": "okan",
     "reason": "Skill-genesis adapter validation. The adapter authoring loop is dispatched through the convergent drafting agents, and the kernel-side validation of their output is not yet on that path - which is precisely the shape of defect this gate exists to surface, on a lane that is not live."
   },
-  "validate_request": {
-    "expires_on": "2026-10-09",
-    "finding_id": "ORPHAN-MEDIUM-572",
-    "owner": "okan",
-    "reason": "Date replaced 2026-09-09; the reason was RE-VERIFIED and stands. The request half of the aria/agent-request/v1 contract. Its counterpart validate_response is live with 11 production callsites; this one has none, because no production code produces that envelope -- the live dispatch path mints aria/agent-invocation-request/v1 instead. Wiring a validator to a vocabulary nothing speaks would enforce a shape against zero traffic and read as coverage. The blocked work is ORPHAN-MEDIUM-572's own: reconcile the two envelope vocabularies against their real producers FIRST, then enforce. Deliberately not deleted -- unlike the duplicate entry points removed today, this one has no live sibling answering its question; it is the only validator for a contract half."
-  },
   "verify_adapter_imports": {
     "expires_on": "2026-09-20",
     "finding_id": "ORPHAN-HIGH-573",

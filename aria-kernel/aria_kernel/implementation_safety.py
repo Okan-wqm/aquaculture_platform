@@ -44,12 +44,21 @@ import subprocess
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from . import command_policy as _command_policy
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
+from .git_containment import GitContainment
+from .hook_broker import HOOK_BROKER_SOCKET_ENV, SANDBOX_HOOK_BROKER_SOCKET
+from .mcp_broker import MCP_BROKER_SOCKET_ENV, SANDBOX_MCP_BROKER_SOCKET
 from .text_safety import contains_bidi_or_control
+from .validation_suite import (
+    CANONICAL_VALIDATION_COMMANDS,
+    CANONICAL_VALIDATION_COMMANDS_EXECUTABLE,
+    canonical_command_satisfied_by,
+    executable_spelling,
+)
 
 
 # =============================================================================
@@ -81,9 +90,34 @@ READONLY_PATHS: tuple[str, ...] = (
     # mount layer (wrap_bash_in_sandbox iterates READONLY_PATHS).
     "tools/aria-poc/",          # ci_executor + canonical envelopes
     "tools/aria-adapters/",     # adapter trust boundary
-    ".git/",                    # git plumbing self-mod (refs, objects, hooks)
+    # ARIA-HIGH-123 — `.git/` here is the SCOPE and HOOK unit: a plan may
+    # not declare a surface under it and the Edit/Write hook refuses a path
+    # under it. It is NOT the unit of the mount layer any more: a linked
+    # worktree's `.git` is a pointer file whose git dirs live outside the
+    # workspace, and a blanket ro-bind of `.git/` in a main checkout made
+    # `git add` die on `index.lock`. The sandbox derives what git needs
+    # writable (objects, refs/heads, logs/refs/heads, the worktree's own git
+    # dir) and what stays read-only (config, config.worktree, hooks — the
+    # EFFECTIVE hooks dir —, info, packed-refs, the signers file, the
+    # signing snapshots, every existing loose ref) from the checkout's shape
+    # (`git_containment.derive_git_containment`); the ro-bind loop below
+    # still binds this entry, which in a linked worktree is the pointer
+    # file and in a main checkout the whole directory (read-only git).
+    ".git/",                    # git plumbing self-mod: scope + hook unit
+    # ARIA-HIGH-123 — ro-bound for the debt JSONs it carries; `keys/` under
+    # it is MASKED by the sandbox (a fresh tmpfs with only the held
+    # identity's public key bound back in), because read-only is readable
+    # and the private key must not enter the sandbox at all — git signs
+    # through the kernel-held ssh-agent's socket (`signing_agent`).
     "aria-debts/",              # signing keys + installation tokens
     "aria-kernel/tests/",       # broaden from invariants/ — kernel tests read-only
+    # ARIA-MEDIUM-087 — operator policy. The kernel reads
+    # <workspace>/aria-config/genesis_policy.json for admission, cost caps,
+    # breaker thresholds and anchor ages (through bound_workspace_root since
+    # ARIA-HIGH-079); a write-capable spawn with scope ** could rewrite it
+    # in its own tree and the next dispatch would obey. The trust boundary
+    # of a policy is that the agent it governs cannot author it.
+    "aria-config/",
 )
 
 # Plan ARIA-V9.0-D — ALLOWED_BASH_COMMANDS regex allowlist (NOT
@@ -108,21 +142,12 @@ ARIA_IMPL_BRANCH_FRAGMENT: str = _command_policy.ARIA_IMPL_BRANCH_FRAGMENT
 # have one home that also compiles to the Claude permission layer and to
 # the PreToolUse hook, and proves on examples that the enforcers agree.
 ALLOWED_BASH_COMMANDS: frozenset[re.Pattern[str]] = _command_policy.allowed_regexes()
-# Wave 0 §0.7 transition row — the raw `gh pr create` path the kernel CLI
-# replaces. Not in ALLOWED_BASH_COMMANDS any more: it is honoured only
-# while ARIA_EXECUTOR_PR_VIA_KERNEL is unset, so a lane that sets the
-# flag (the scheduled executor lane does) accepts kernel-CLI PR opening
-# ONLY. The flag and this pattern are deleted together after one green
-# scheduled run — the two-step is tracked in
-# docs/plans/2026-08-02-aria-full-autonomy-program/PLAN.md (Wave 0 §0.7).
-LEGACY_GH_PR_CREATE_PATTERN: re.Pattern[str] = re.compile(
-    r"^gh\s+pr\s+create\s+--base\s+main(\s+\S+)*\s*$"
-)
-
-
-def executor_pr_via_kernel() -> bool:
-    """Whether the lane has cut over to kernel-CLI-only PR opening."""
-    return os.environ.get("ARIA_EXECUTOR_PR_VIA_KERNEL") == "1"
+# ARIA-HIGH-124 — the Wave 0 §0.7 transition row (raw `gh pr create`,
+# honoured while `ARIA_EXECUTOR_PR_VIA_KERNEL` was unset) and the flag are
+# gone together: no PR is opened from inside the sandbox by any path. The
+# executor opens it after the spawn (`implementation_delivery`), and
+# `command_policy` refuses `gh pr create` (allowlist miss) and the kernel
+# CLI (`kernel_authority`) inside by name.
 
 
 TRUSTED_PYTHON_SCRIPT_PREFIXES: tuple[str, ...] = (
@@ -300,15 +325,30 @@ def verify_no_secret_in_envelope(envelope: dict[str, Any]) -> None:
 
 
 _GIT_VERIFY_COMMIT_FP_RE = re.compile(r"\bSHA256:[A-Za-z0-9+/]+={0,2}")
+# The wall clock of ONE `git verify-commit` — a local object read plus an
+# ssh-keygen verify. Named (ARIA-HIGH-124 round 4) because the executor's
+# delivery prices its `commit_identity` stage with it.
+COMMIT_SIGNATURE_VERIFY_TIMEOUT_SECONDS = 10
 
 
-def verify_commit_signature(commit_sha: str, expected_signer_fp: str, *, repo: str | Path | None = None) -> bool:
+def verify_commit_signature(
+    commit_sha: str, expected_signer_fp: str, *,
+    repo: str | Path | None = None, allowed_signers: str | Path | None = None,
+) -> bool:
     """Hard-fail check 1 — kernel-side commit signature verification.
 
     Runs ``git verify-commit --raw <sha>`` (or ``git -C <repo>``), parses
     output for the signer fingerprint, asserts equality with
     ``expected_signer_fp`` (the per-cycle ephemeral key minted by
     ``gh_token_factory.mint_signing_key``).
+
+    ARIA-HIGH-115 — ``allowed_signers`` names the trust anchor for THIS
+    verification (``-c gpg.ssh.allowedSignersFile=``): the bridge builds it
+    from the public key registered in ``kg_signers``, so the answer depends
+    on the registry and the commit, never on whatever signing config the
+    checkout the command runs in happens to carry. Without it git reads the
+    checkout's own config, which is the mint's wiring while the key is held
+    and nothing once it is revoked.
 
     Returns True on match, False on absence/mismatch (kernel-side
     raises ``CommitSignatureMismatch`` via the caller, not this
@@ -319,9 +359,11 @@ def verify_commit_signature(commit_sha: str, expected_signer_fp: str, *, repo: s
     args = ["git"]
     if repo is not None:
         args.extend(["-C", str(repo)])
+    if allowed_signers is not None:
+        args.extend(["-c", f"gpg.ssh.allowedSignersFile={allowed_signers}"])
     args.extend(["verify-commit", "--raw", commit_sha])
     try:
-        proc = subprocess.run(args, capture_output=True, text=True, timeout=10)
+        proc = subprocess.run(args, capture_output=True, text=True, timeout=COMMIT_SIGNATURE_VERIFY_TIMEOUT_SECONDS)
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return False
     if proc.returncode != 0:
@@ -463,21 +505,22 @@ def verify_bash_command_allowed(argv: list[str], *, cwd: str | Path | None = Non
             f"argv0={argv[0]!r}"
         )
     line = " ".join(str(a) for a in argv)
-    for denied in DENIED_BASH_COMMANDS:
-        if denied.search(line):
-            raise BashDenylistHit(
-                f"DENY rule hit: pattern={denied.pattern!r} argv0={argv[0]!r}"
-            )
+    # The rules in policy order, so the refusal NAMES the rule (its family
+    # and name) that refused: a hook verdict reading
+    # `kernel_authority:kernel_cli` tells the agent — and the decision
+    # ledger — that the command is the executor's, not merely that some
+    # pattern matched (ARIA-HIGH-124). The frozenset stays the closed set
+    # every other reader pins; the two are derived from the same rules. A
+    # token rule (round 4: `commit_identity:git_commit_foreign_option`)
+    # reads the argv, which is why the walk is the policy's own.
+    refused = _command_policy.deny_refusal(line, argv)
+    if refused is not None:
+        rule, detail = refused
+        raise BashDenylistHit(f"DENY rule hit: {rule.family}:{rule.name} {detail} argv0={argv[0]!r}")
     _verify_python_script_target(argv, cwd=cwd)
     for allowed in ALLOWED_BASH_COMMANDS:
         if allowed.match(line):
             return
-    # Wave 0 §0.7 — the legacy raw-PR path survives ONLY while the lane
-    # has not cut over; under ARIA_EXECUTOR_PR_VIA_KERNEL=1 it falls
-    # through to the allowlist miss, making kernel-CLI PR opening the
-    # single reachable path in that lane.
-    if not executor_pr_via_kernel() and LEGACY_GH_PR_CREATE_PATTERN.match(line):
-        return
     raise BashAllowlistMiss(
         f"argv0={argv[0]!r} matches no ALLOWED_BASH_COMMANDS pattern; "
         f"see implementation_safety.ALLOWED_BASH_COMMANDS"
@@ -577,6 +620,16 @@ _SANDBOX_SYSTEM_ROOTS: tuple[str, ...] = (
     "/lib",
     "/lib64",
     "/bin",
+    # ARIA-HIGH-123 — the account database, read-only. `ssh-keygen -Y sign`
+    # (what a signed `git commit` runs) resolves its own uid BEFORE it
+    # signs and dies `No user exists for uid N?` when it cannot; git then
+    # reports `failed to write commit object`. Measured on this host as the
+    # runner's uid (1000): without these two binds no commit lands inside
+    # the sandbox — a root shell passed only because nss-systemd
+    # synthesizes root when `/etc/nsswitch.conf` is bound (network on),
+    # which the runner's uid is not. Existence-guarded like the rest.
+    "/etc/passwd",
+    "/etc/group",
 )
 
 # Name resolution. Bound ONLY when the caller asked for network, because these
@@ -610,10 +663,42 @@ def _system_ro_binds() -> list[str]:
     for root in _SANDBOX_SYSTEM_ROOTS:
         if Path(root).exists():
             flags.extend(["--ro-bind", root, root])
+    flags.extend(_interpreter_ro_binds())
     return flags
 
 
+def _interpreter_ro_binds(base_prefix: str | None = None) -> list[str]:
+    """``--ro-bind`` for the kernel's OWN interpreter when it lives outside
+    the system roots.
+
+    ARIA-MEDIUM-134 (measured on the hosted lane, run 34910051620): the
+    executor's Python was ``/opt/hostedtoolcache/Python/3.12.14/x64`` —
+    setup-python's toolcache, not ``/usr`` — so every program the sandbox
+    runs by that interpreter (the hook client, the MCP relay, a fixture CLI
+    whose shebang names ``sys.executable``) died ``execvp: No such file or
+    directory`` inside, and the lane reported thirteen unrelated failures.
+    A venv, pyenv or uv-managed interpreter on a production host has the
+    same shape. The prefix is bound read-only as itself; ``/usr`` and the
+    other roots already cover the distribution's interpreter, so this adds
+    nothing there.
+    """
+    import sys
+
+    prefix = Path(base_prefix or sys.base_prefix).resolve()
+    for root in _SANDBOX_SYSTEM_ROOTS:
+        if prefix == Path(root) or Path(root) in prefix.parents:
+            return []
+    if not prefix.is_dir():
+        return []
+    return ["--ro-bind", str(prefix), str(prefix)]
+
+
 def _bwrap_probe_argv() -> list[str]:
+    # The probe mirrors the wrapper, and is as strict as the STRICTEST of
+    # them: the validation sandbox needs its own PID namespace and a
+    # die-with-parent init (`VALIDATION_SANDBOX_CONTAINMENT_FLAGS`), so a
+    # host that cannot build those is refused HERE — before a claim — and
+    # not at the delivery's gate, hours into a child.
     return [
         "bwrap",
         *_system_ro_binds(),
@@ -621,6 +706,8 @@ def _bwrap_probe_argv() -> list[str]:
         "--dev", "/dev",
         "--tmpfs", "/tmp",
         "--unshare-net",
+        *VALIDATION_SANDBOX_CONTAINMENT_FLAGS,
+        *(flag for flag in MANAGED_SPAWN_ISOLATION_FLAGS if flag not in VALIDATION_SANDBOX_CONTAINMENT_FLAGS),
         "--", "/bin/true",
     ]
 
@@ -628,7 +715,9 @@ def _bwrap_probe_argv() -> list[str]:
 _SANDBOX_PROBE_TIMEOUT_SECONDS = 15
 
 
-def _sandbox_probe_succeeds(argv: Sequence[str]) -> bool:
+def _sandbox_probe_succeeds(
+    argv: Sequence[str], *, environ: dict[str, str] | None = None,
+) -> bool:
     """True when the backend can actually build the namespaces we rely on."""
     try:
         completed = subprocess.run(
@@ -636,17 +725,65 @@ def _sandbox_probe_succeeds(argv: Sequence[str]) -> bool:
             capture_output=True,
             timeout=_SANDBOX_PROBE_TIMEOUT_SECONDS,
             check=False,
+            **({"env": environ} if environ is not None else {}),
         )
     except (OSError, subprocess.SubprocessError):
         return False
     return completed.returncode == 0
 
 
+# The network setting of the one route that hosts a commit-capable spawn
+# (`wrap_managed_claude_in_sandbox`): the Claude CLI talks to its provider,
+# so the managed sandbox shares the host's network namespace and binds the
+# name-resolution files. The containment probe builds with the SAME value,
+# so what it proves is the argv the implementer gets — not a smaller one.
+MANAGED_SPAWN_ALLOW_NETWORK = True
+
+
+def _git_containment_probe_reason() -> str | None:
+    """ARIA-HIGH-123 — why the sandbox cannot host the implementer's git
+    contract, or ``None``. The probe builds its argv through the SAME
+    builder the wrapper uses (``_sandbox_argv``) with the managed route's
+    network setting, so what it proves is what a commit-capable spawn gets;
+    recorded on the process for the refusal message
+    (``_LAST_CONTAINMENT_PROBE_REASON``)."""
+    from .containment_probe import probe_git_containment
+
+    def build(command: list[str], workspace: Path, containment: Any) -> list[str]:
+        return _sandbox_argv(
+            command, workspace_root=workspace, allow_network=MANAGED_SPAWN_ALLOW_NETWORK, git=containment,
+        )
+
+    return probe_git_containment(build)
+
+
+# The last reason the git containment probe refused with, for the refusal
+# message a caller raises; a process-level cell because the probe result
+# itself is a cached bool.
+_LAST_CONTAINMENT_PROBE_REASON: list[str | None] = [None]
+
+
 @lru_cache(maxsize=1)
 def _bwrap_available() -> bool:
+    """bwrap is usable when it builds its namespaces AND hosts a git commit.
+
+    ORPHAN-CRITICAL-439 made "available" mean "builds the namespaces the
+    wrapper uses" (``/bin/true`` under the system binds). ARIA-HIGH-123
+    extends the meaning to the property the implementer lane depends on: a
+    commit-capable containment derived from a linked worktree lets git
+    status, switch and commit run — and refuses the control writes — inside
+    the real argv (``containment_probe``). A runner that fails either probe
+    reports no backend, so the pre-claim gate refuses to claim
+    (``sandbox_unavailable``; the request stays PENDING) instead of
+    spending a turn on a commit the sandbox cannot make.
+    """
     if shutil.which("bwrap") is None:
         return False
-    return _sandbox_probe_succeeds(_bwrap_probe_argv())
+    if not _sandbox_probe_succeeds(_bwrap_probe_argv()):
+        return False
+    reason = _git_containment_probe_reason()
+    _LAST_CONTAINMENT_PROBE_REASON[0] = reason
+    return reason is None
 
 
 class SandboxUnavailable(RuntimeError):
@@ -658,6 +795,70 @@ class SandboxUnavailable(RuntimeError):
     one forgotten check away from spawning an unconfined process. Callers
     that genuinely may proceed unconfined must catch this explicitly.
     """
+
+
+# ARIA-HIGH-143 — the egress boundary the managed spawn is handed. The spawn
+# shares the host's network namespace so the CLI can reach its provider;
+# what keeps a prompt-injected agent from sending `.env` anywhere is the
+# allowlist CONNECT proxy in HTTPS_PROXY (`aria_kernel.egress_proxy`, the
+# host's `aria-egress-proxy.service`). A boundary that is configured but
+# not answering, or answering but admitting everything, is no boundary: the
+# probe asks the proxy for a tunnel to a TEST-NET address (RFC 5737, never
+# routable, never allowlisted) and accepts only a refusal BY NAME.
+EGRESS_PROXY_ENV = "HTTPS_PROXY"
+EGRESS_PROBE_TARGET = "203.0.113.1:443"
+EGRESS_REFUSAL_MARKER = b"egress_refused:target_not_allowlisted"
+_EGRESS_PROBE_TIMEOUT_SECONDS = 5.0
+
+
+def egress_boundary_probe(environ: Mapping[str, str] | None = None) -> str | None:
+    """Why the egress boundary is absent for a spawn built from ``environ``
+    (the executor's environment by default), or ``None`` when the proxy it
+    names refuses an off-allowlist tunnel by name."""
+    import socket
+    from urllib.parse import urlsplit
+
+    env = os.environ if environ is None else environ
+    proxy = env.get(EGRESS_PROXY_ENV) or env.get(EGRESS_PROXY_ENV.lower())
+    if not proxy:
+        return f"{EGRESS_PROXY_ENV} is unset; the spawn would have the host's whole network"
+    parts = urlsplit(proxy if "//" in proxy else f"http://{proxy}")
+    if parts.scheme not in ("http", "") or not parts.hostname or not parts.port:
+        return f"{EGRESS_PROXY_ENV}={proxy!r} is not an http://host:port proxy"
+    try:
+        with socket.create_connection((parts.hostname, parts.port), timeout=_EGRESS_PROBE_TIMEOUT_SECONDS) as sock:
+            sock.settimeout(_EGRESS_PROBE_TIMEOUT_SECONDS)
+            sock.sendall(f"CONNECT {EGRESS_PROBE_TARGET} HTTP/1.1\r\nHost: {EGRESS_PROBE_TARGET}\r\n\r\n".encode())
+            answer = b""
+            while len(answer) < 4096 and EGRESS_REFUSAL_MARKER not in answer:
+                # A tunnel that opens never closes on its own: stop at the
+                # status line. A refusal carries its reason in the body and
+                # closes, so read to the marker or to EOF.
+                if b"\r\n" in answer and answer.startswith(b"HTTP/1.1 200"):
+                    break
+                chunk = sock.recv(1024)
+                if not chunk:
+                    break
+                answer += chunk
+    except OSError as exc:
+        return f"egress proxy {parts.hostname}:{parts.port} did not answer: {exc}"
+    if answer.startswith(b"HTTP/1.1 200"):
+        return f"egress proxy {parts.hostname}:{parts.port} admits {EGRESS_PROBE_TARGET}; it is not an allowlist"
+    if EGRESS_REFUSAL_MARKER not in answer:
+        return f"egress proxy {parts.hostname}:{parts.port} did not refuse by name: {answer[:120]!r}"
+    return None
+
+
+def sandbox_unavailable_detail() -> str:
+    """Why ``sandbox_backend()`` answers None on this host, for the refusal
+    record: the git containment probe's reason when it refused
+    (ARIA-HIGH-123), else the namespace probe's shape."""
+    if shutil.which("bwrap") is None:
+        return "bwrap is not on PATH"
+    reason = _LAST_CONTAINMENT_PROBE_REASON[0]
+    if reason is not None:
+        return f"git containment probe refused: {reason}"
+    return "bwrap cannot build the namespaces the wrapper uses"
 
 
 def sandbox_backend() -> str | None:
@@ -692,6 +893,9 @@ def sandbox_backend() -> str | None:
 # Ephemeral HOME handed to a sandboxed agent runtime. Under the sandbox's own
 # /tmp tmpfs, so it is created empty per run and discarded with the sandbox.
 SANDBOX_HOME = "/tmp/aria-agent-home"
+# The sandbox's temp directory: the /tmp tmpfs it mounts itself, exported as
+# TMPDIR so no host value can point the agent's temp files off the sandbox.
+SANDBOX_TMPDIR = "/tmp"
 
 
 
@@ -719,6 +923,60 @@ def scope_directories(workspace: Path, write_scope: Sequence[str]) -> list[Path]
     return dirs
 
 
+# ARIA-HIGH-123 — the dependency tree a nested worktree resolves. Node walks
+# UP from the cwd for `node_modules`; a per-request worktree
+# (`<checkout>/aria-worktrees/req-<id>`) carries none of its own and resolves
+# the checkout's — the pre-claim gate asserts exactly that resolution
+# (`ci_executor._node_modules_resolvable_from`) — and the sandbox hid it:
+# inside, the walk found nothing and the canonical validation suite
+# (`nx affected …`) could not start. The nearest ancestor `node_modules`
+# outside the workspace is bound read-only, so the walk inside answers what
+# the gate proved outside.
+DEPENDENCY_TREE_DIRNAME = "node_modules"
+
+
+def _is_socket(path: Path) -> bool:
+    try:
+        return path.is_socket()
+    except OSError:
+        return False
+
+
+def kernel_root_ro_binds(workspace: Path) -> list[str]:
+    """``--ro-bind`` for the running kernel's ``aria-kernel/`` when it lies
+    outside the workspace (ARIA-HIGH-142).
+
+    The in-sandbox clients — the hook client the CLI runs on every event
+    and the MCP relay the ``aria`` server renders as — are served from the
+    kernel that spawned the sandbox (``claude_settings.kernel_code_root``),
+    so that tree has to be visible inside. A workspace that IS the kernel's
+    checkout already carries it under READONLY_PATHS; a workspace that is
+    another checkout (a per-request worktree of a different tree, a trial
+    task source) does not, and a client path that resolves outside every
+    bind is a silent ``execvp`` failure inside. Under a system root the
+    interpreter binds already cover it; otherwise the directory is bound
+    read-only at its own path.
+    """
+    kernel_root = Path(__file__).resolve().parents[1]
+    workspace = Path(workspace).resolve()
+    if kernel_root == workspace or workspace in kernel_root.parents:
+        return []
+    for root in _SANDBOX_SYSTEM_ROOTS:
+        if kernel_root == Path(root) or Path(root) in kernel_root.parents:
+            return []
+    if not kernel_root.is_dir():
+        return []
+    return ["--ro-bind", str(kernel_root), str(kernel_root)]
+
+
+def _dependency_tree_binds(workspace: Path) -> list[str]:
+    for ancestor in workspace.parents:
+        candidate = ancestor / DEPENDENCY_TREE_DIRNAME
+        if candidate.is_dir():
+            return ["--ro-bind", str(candidate), str(candidate)]
+    return []
+
+
 def _workspace_binds(workspace: Path, write_scope: Sequence[str] | None) -> list[str]:
     if write_scope is None:
         return ["--bind", str(workspace), str(workspace)]
@@ -738,8 +996,28 @@ def wrap_bash_in_sandbox(
     allow_network: bool = False,
     write_scope: Sequence[str] | None = None,
     extra_ro_binds: Sequence[str | Path] = (),
+    git: GitContainment | None = None,
+    hook_broker_socket: str | Path | None = None,
+    mcp_broker_socket: str | Path | None = None,
 ) -> list[str]:
     """Hard-fail check 8c — Bash sandbox wrapper.
+
+    ARIA-HIGH-123 — ``git`` is the checkout-derived git containment
+    (``git_containment.derive_git_containment``): the binds git needs to
+    read (and, for a commit-capable one, to add/commit/switch/push against
+    the worktree's quarantine) in a LINKED worktree, appended after the
+    READONLY_PATHS loop so its read-only overlays are the last word.
+    Without it, git in a linked worktree fails ``not a git repository`` —
+    the pre-fix production shape. ``hook_broker_socket`` is the host socket
+    of the kernel-side hook broker (``hook_broker.serve_hook_broker``),
+    bound in at ``SANDBOX_HOOK_BROKER_SOCKET`` with its environment name set
+    by bwrap: the hooks inside decide and journal THROUGH it, so the durable
+    store is never mounted in the sandbox — not writable (the first cut
+    handed the agent every kernel surface), not at all. ``mcp_broker_socket``
+    (ARIA-HIGH-124) is the kernel-side MCP broker's socket
+    (``mcp_broker.serve_mcp_broker``), bound in at
+    ``SANDBOX_MCP_BROKER_SOCKET`` the same way: the `aria` MCP view is
+    served outside and relayed in, never spawned inside against the store.
 
     Plan 032 Faz 032b — ``write_scope`` narrows the writable tree: when given,
     the workspace is mounted READ-ONLY and only the scope's directories are
@@ -769,75 +1047,446 @@ def wrap_bash_in_sandbox(
     fails with EROFS at the syscall level rather than by the agent
     choosing to obey.
     """
-    workspace = Path(workspace_root).resolve()
     if _bwrap_available():
-        # The system ro-binds come from the same helper the probe uses, so
-        # the two argvs cannot drift (ORPHAN-MEDIUM-452).
-        wrap = [
-            "bwrap",
-            *_system_ro_binds(),
-            "--proc", "/proc",
-            "--dev", "/dev",
-            "--tmpfs", "/tmp",
-            *_workspace_binds(workspace, write_scope),
-            "--chdir", str(workspace),
-            # The agent runtime needs a HOME it can WRITE.
-            #
-            # Without this the sandbox left $HOME resolvable but read-only — it
-            # survives only as an implicit parent of the workspace bind, on the
-            # read-only root — so the Claude CLI blocked trying to write its own
-            # state and the executor reported a bare `claude exec exited 1`.
-            # Every nightly agent dispatch died there; measured 2026-08-08 by
-            # reproducing the exact bwrap argv, where the CLI hung until the
-            # timeout and returned `OK` the moment HOME became writable.
-            #
-            # An EPHEMERAL home rather than a bind of the real one, and that is
-            # the stronger choice: the agent gets a fresh empty directory each
-            # run, so it can neither read the operator's real ~/.claude.json nor
-            # leave anything behind in it. Credentials arrive through
-            # CLAUDE_CODE_OAUTH_TOKEN in the environment, which is the
-            # documented mechanism and does not require the config file.
-            #
-            # It lives under the /tmp tmpfs mounted just above, so it costs no
-            # extra mount and cannot shadow the workspace bind the way a tmpfs
-            # over the real home directory could when the workspace sits
-            # beneath it.
-            # `--tmpfs` rather than only `--setenv`: bwrap creates the mount
-            # point, so the directory is guaranteed to EXIST. Setting HOME to a
-            # path that does not exist reproduces the same hang by a different
-            # route.
-            "--tmpfs", SANDBOX_HOME,
-            "--setenv", "HOME", SANDBOX_HOME,
-        ]
-        # READONLY_PATHS mounted ro-bind on top of the writable
-        # workspace — ANY mutation under these paths gets EROFS.
-        for ro in READONLY_PATHS:
-            full = workspace / ro
-            if full.exists():
-                wrap.extend(["--ro-bind", str(full), str(full)])
-        for extra in extra_ro_binds:
-            extra_path = Path(extra)
-            if extra_path.exists():
-                wrap.extend(["--ro-bind", str(extra_path), str(extra_path)])
-        if allow_network:
-            # Existence-guarded for the same reason _system_ro_binds is: bwrap
-            # aborts on a bind source it cannot find, so an unconditional bind
-            # would turn a container without /etc/nsswitch.conf into a total
-            # failure rather than a smaller sandbox.
-            for network_file in _SANDBOX_NETWORK_FILES:
-                if Path(network_file).exists():
-                    wrap.extend(["--ro-bind", network_file, network_file])
-        else:
-            wrap.append("--unshare-net")
-        wrap.append("--")
-        return wrap + list(argv)
+        return _sandbox_argv(
+            argv, workspace_root=workspace_root, allow_network=allow_network, write_scope=write_scope,
+            extra_ro_binds=extra_ro_binds, git=git, hook_broker_socket=hook_broker_socket,
+            mcp_broker_socket=mcp_broker_socket,
+        )
+    probe_reason = _LAST_CONTAINMENT_PROBE_REASON[0]
     raise SandboxUnavailable(
         "sandbox_backend_unavailable: bwrap is not usable on this host, so "
         "READONLY_PATHS cannot be enforced at the syscall level. Note that "
         "'installed' is not enough — bwrap is probed for the namespaces the "
         "wrapper actually builds, and a container without unprivileged user "
         "namespaces will install it cleanly and fail every invocation."
+        + (f" The git containment probe refused: {probe_reason}." if probe_reason else "")
     )
+
+
+def _sandbox_argv(
+    argv: list[str],
+    *,
+    workspace_root: str | Path,
+    allow_network: bool,
+    write_scope: Sequence[str] | None = None,
+    extra_ro_binds: Sequence[str | Path] = (),
+    git: GitContainment | None = None,
+    hook_broker_socket: str | Path | None = None,
+    mcp_broker_socket: str | Path | None = None,
+) -> list[str]:
+    """The bwrap argv, built without consulting availability — the one
+    builder the wrapper AND the containment probe use, so the probe proves
+    the argv a spawn gets (ORPHAN-MEDIUM-452 for the system binds; the
+    same rule for the git binds, ARIA-HIGH-123)."""
+    workspace = Path(workspace_root).resolve()
+    if git is not None and git.workspace_root != workspace:
+        raise SandboxUnavailable(
+            f"git_containment_workspace_mismatch: derived for {git.workspace_root}, spawning in {workspace}"
+        )
+    # The system ro-binds come from the same helper the probe uses, so
+    # the two argvs cannot drift (ORPHAN-MEDIUM-452).
+    wrap = [
+        "bwrap",
+        *_system_ro_binds(),
+        "--proc", "/proc",
+        "--dev", "/dev",
+        "--tmpfs", "/tmp",
+        *_workspace_binds(workspace, write_scope),
+        *_dependency_tree_binds(workspace),
+        "--chdir", str(workspace),
+        # The agent runtime needs a HOME it can WRITE.
+        #
+        # Without this the sandbox left $HOME resolvable but read-only — it
+        # survives only as an implicit parent of the workspace bind, on the
+        # read-only root — so the Claude CLI blocked trying to write its own
+        # state and the executor reported a bare `claude exec exited 1`.
+        # Every nightly agent dispatch died there; measured 2026-08-08 by
+        # reproducing the exact bwrap argv, where the CLI hung until the
+        # timeout and returned `OK` the moment HOME became writable.
+        #
+        # An EPHEMERAL home rather than a bind of the real one, and that is
+        # the stronger choice: the agent gets a fresh empty directory each
+        # run, so it can neither read the operator's real ~/.claude.json nor
+        # leave anything behind in it. Credentials arrive through
+        # CLAUDE_CODE_OAUTH_TOKEN in the environment, which is the
+        # documented mechanism and does not require the config file.
+        #
+        # It lives under the /tmp tmpfs mounted just above, so it costs no
+        # extra mount and cannot shadow the workspace bind the way a tmpfs
+        # over the real home directory could when the workspace sits
+        # beneath it.
+        # `--tmpfs` rather than only `--setenv`: bwrap creates the mount
+        # point, so the directory is guaranteed to EXIST. Setting HOME to a
+        # path that does not exist reproduces the same hang by a different
+        # route.
+        "--tmpfs", SANDBOX_HOME,
+        "--setenv", "HOME", SANDBOX_HOME,
+        # ARIA-HIGH-123 — the temp dir is the sandbox's own /tmp tmpfs, by
+        # name. `TMPDIR` is in the spawn's baseline environment, and a host
+        # value naming a directory the sandbox does not mount (`/dev/shm`
+        # on the test host; any operator-set path) made `git commit`
+        # inside the sandbox die `could not create temporary file: No such
+        # file or directory` — git writes the buffer it signs there.
+        "--setenv", "TMPDIR", SANDBOX_TMPDIR,
+    ]
+    # ARIA-HIGH-142 — the in-sandbox clients (hook client, MCP relay) are the
+    # RUNNING kernel's code; a route that serves them (a broker socket handed
+    # in) needs that tree visible read-only, wherever it lives. A route with
+    # no broker — the validation sandbox, a plain bash spawn — runs no client,
+    # so it never sees the code root (HIGH-124 round 3 keeps it out).
+    if hook_broker_socket is not None or mcp_broker_socket is not None:
+        wrap.extend(kernel_root_ro_binds(workspace))
+    if hook_broker_socket is not None:
+        # ARIA-HIGH-123 — the hooks' only way out: one socket, at a fixed
+        # path under the sandbox's own /tmp, named to the hook client by
+        # the environment bwrap sets. No store is mounted.
+        broker = Path(hook_broker_socket)
+        if not _is_socket(broker):
+            raise SandboxUnavailable(f"hook_broker_socket_missing: {broker} is not a listening socket")
+        wrap.extend([
+            "--bind", str(broker), SANDBOX_HOOK_BROKER_SOCKET,
+            "--setenv", HOOK_BROKER_SOCKET_ENV, SANDBOX_HOOK_BROKER_SOCKET,
+        ])
+    if mcp_broker_socket is not None:
+        # ARIA-HIGH-124 — the `aria` MCP view's only way in: the relay
+        # inside connects to this one socket; the server behind it runs
+        # outside against the real store, read tools only.
+        mcp_socket = Path(mcp_broker_socket)
+        if not _is_socket(mcp_socket):
+            raise SandboxUnavailable(f"mcp_broker_socket_missing: {mcp_socket} is not a listening socket")
+        wrap.extend([
+            "--bind", str(mcp_socket), SANDBOX_MCP_BROKER_SOCKET,
+            "--setenv", MCP_BROKER_SOCKET_ENV, SANDBOX_MCP_BROKER_SOCKET,
+        ])
+    # READONLY_PATHS mounted ro-bind on top of the writable
+    # workspace — ANY mutation under these paths gets EROFS.
+    for ro in READONLY_PATHS:
+        full = workspace / ro
+        if full.exists():
+            wrap.extend(["--ro-bind", str(full), str(full)])
+    for extra in extra_ro_binds:
+        extra_path = Path(extra)
+        if extra_path.exists():
+            wrap.extend(["--ro-bind", str(extra_path), str(extra_path)])
+    if git is not None:
+        # ARIA-HIGH-123 — after READONLY_PATHS: the git binds are the
+        # last mounts, so their read-only overlays (config, hooks, the
+        # signers file, existing refs) shadow anything bound above them,
+        # and the keys-dir mask sits on top of the `aria-debts/` ro-bind.
+        wrap.extend(git.bwrap_flags())
+    if allow_network:
+        # Existence-guarded for the same reason _system_ro_binds is: bwrap
+        # aborts on a bind source it cannot find, so an unconditional bind
+        # would turn a container without /etc/nsswitch.conf into a total
+        # failure rather than a smaller sandbox.
+        for network_file in _SANDBOX_NETWORK_FILES:
+            if Path(network_file).exists():
+                wrap.extend(["--ro-bind", network_file, network_file])
+    else:
+        wrap.append("--unshare-net")
+    wrap.append("--")
+    return wrap + list(argv)
+
+
+def _wrap_runtime_state_in_sandbox(
+    argv: list[str], *, workspace_root: Path, runtime_directory: Path,
+    managed_auth_directory: Path, executable: Path, environment: dict[str, str],
+) -> list[str]:
+    """Bind only the managed auth file into a writable private Codex home.
+
+    The existing sandbox still owns system, network and workspace containment.
+    A private runtime directory is mounted after its /tmp tmpfs, so output and
+    SQLite files have the same identity inside and outside the process. The
+    original auth directory's sessions, history and configuration stay hidden.
+    """
+    workspace = workspace_root.resolve(strict=True)
+    runtime = runtime_directory.resolve(strict=True)
+    auth = managed_auth_directory.resolve(strict=True)
+    binary = executable.resolve(strict=True)
+    private_home = Path(environment["CODEX_HOME"]).resolve(strict=True)
+    if (not runtime.is_dir() or not auth.is_dir() or not binary.is_file()
+            or not (auth / "auth.json").is_file() or not private_home.is_dir()
+            or not private_home.is_relative_to(runtime)
+            or runtime.is_relative_to(workspace) or workspace.is_relative_to(runtime)
+            or runtime.is_relative_to(auth) or auth.is_relative_to(runtime)):
+        raise SandboxUnavailable("native_runtime_mount_identity_invalid")
+    command = wrap_bash_in_sandbox(
+        argv, workspace_root=workspace, allow_network=True, write_scope=(),
+        # Preserve the system requirements and managed configuration. The
+        # existing wrapper conditionally binds existing paths without reading
+        # their contents; conflicting requirements remain the CLI's refusal.
+        extra_ro_binds=(binary, Path("/etc/codex")),
+    )
+    separator = command.index("--")
+    # The outer limiter needs control-plane plumbing that the model must not
+    # inherit. Clear it at the namespace boundary, then restore the complete
+    # caller-built model environment (including its synthetic HOME).
+    child_environment = ["--clearenv"]
+    for name, value in environment.items():
+        child_environment.extend(["--setenv", name, value])
+    # procfs must describe only this runtime's PID namespace. A mount
+    # namespace alone still exposes host processes and their root handles.
+    return (command[:separator] + [*MANAGED_SPAWN_ISOLATION_FLAGS, "--bind", str(runtime), str(runtime),
+                                  "--ro-bind", str(auth / "auth.json"), str(private_home / "auth.json")]
+            + child_environment + command[separator:])
+
+
+CLAUDE_LOGIN_CREDENTIALS_FILENAME = ".credentials.json"
+"""The one file of the managed login directory a contained Claude spawn receives."""
+
+
+def wrap_managed_claude_in_sandbox(
+    argv: list[str], *, workspace_root: Path, write_scope: Sequence[str] | None,
+    executable: Path, spawn_files: Sequence[Path], managed_login_dir: Path | None,
+    git: GitContainment | None = None, hook_broker_socket: str | Path | None = None,
+    mcp_broker_socket: str | Path | None = None,
+) -> list[str]:
+    """Contain a Claude CLI spawn so that what the attempt names is what runs.
+
+    ``git`` and ``hook_broker_socket`` are the checkout-derived git binds
+    and the kernel-side hook broker's socket (ARIA-HIGH-123), and
+    ``mcp_broker_socket`` the kernel-side MCP broker's (ARIA-HIGH-124) —
+    handed straight to :func:`wrap_bash_in_sandbox`, so both routes derive
+    one set of binds.
+
+    On top of :func:`wrap_bash_in_sandbox` (system, network, workspace,
+    READONLY_PATHS, private /tmp and home) this binds exactly three things
+    the spawn depends on and the sandbox would otherwise hide:
+
+    * ``executable`` — the CLI resolved OUTSIDE the sandbox, bound read-only
+      and run by that absolute path. Measured 2026-09-11 (ARIA-HIGH-077):
+      the managed route's first live attempt ran ``claude`` by name; the
+      installation the executor had probed lives under ``~/.local``, which
+      the sandbox does not bind, so ``PATH`` inside it resolved a different,
+      older installation under ``/usr/local``.
+    * the parent directories of ``spawn_files`` — the settings and MCP
+      documents the spawn wrote for THIS run. They lived under ``/tmp``, and
+      the sandbox mounts a fresh tmpfs there: ``Settings file not found``.
+    * ``managed_login_dir/.credentials.json`` alone, into the private home's
+      ``.claude``, which becomes the CLI's config dir. The mirror of the
+      Codex lane's single auth-file mount: the operator's sessions, history
+      and ``.claude.json`` stay hidden, and the CLI writes its own state into
+      the ephemeral home instead of stalling on a read-only login directory
+      (37 s against 2.7 s for the same one-turn run, measured the same day).
+      A login carried by ``CLAUDE_CODE_OAUTH_TOKEN`` needs no file; nothing
+      is bound then.
+    """
+    workspace = Path(workspace_root).resolve(strict=True)
+    binary = Path(executable).resolve(strict=True)
+    if not binary.is_file():
+        raise SandboxUnavailable("claude_executable_unavailable")
+    documents = tuple(dict.fromkeys(Path(path).resolve(strict=True).parent for path in spawn_files))
+    if any(directory.is_relative_to(workspace) or workspace.is_relative_to(directory) for directory in documents):
+        raise SandboxUnavailable("spawn_document_directory_overlaps_workspace")
+    command = wrap_bash_in_sandbox(
+        [str(binary), *argv[1:]], workspace_root=workspace, allow_network=MANAGED_SPAWN_ALLOW_NETWORK,
+        write_scope=write_scope, extra_ro_binds=(binary, *documents), git=git,
+        hook_broker_socket=hook_broker_socket, mcp_broker_socket=mcp_broker_socket,
+    )
+    separator = command.index("--")
+    private_config_dir = f"{SANDBOX_HOME}/.claude"
+    mounts = [*MANAGED_SPAWN_ISOLATION_FLAGS, "--setenv", "CLAUDE_CONFIG_DIR", private_config_dir]
+    if managed_login_dir is not None:
+        credentials = Path(managed_login_dir) / CLAUDE_LOGIN_CREDENTIALS_FILENAME
+        if credentials.is_file():
+            mounts.extend(["--ro-bind", str(credentials.resolve(strict=True)),
+                           f"{private_config_dir}/{CLAUDE_LOGIN_CREDENTIALS_FILENAME}"])
+    return command[:separator] + mounts + command[separator:]
+
+
+# ARIA-HIGH-124 (round 3) — the validation sandbox.
+#
+# The executor's apply gate runs the canonical suite and the plan's recipes
+# at the AGENT's committed tip: `npx nx affected --target=test`, `--target=
+# lint`, `npm run type-check`, `npm run format:check`. Every one of them is
+# repository code — jest specs, the nx/eslint/jest configs, `package.json`
+# scripts — and until round 3 `run_validation_commands` spawned them as a
+# plain subprocess in the request worktree, as the executor's own uid,
+# unconfined: a `package.json` script committed by the agent ran with the
+# store, the shared repository's `.git/refs/heads` and `config`, the CODE
+# ROOT's `aria-kernel/aria_kernel/` (the tree the executor's next
+# `-P` kernel command resolves from), `$HOME` (the runner's gh config) and
+# the kernel-held signing agent's socket dir all writable to it. The lane's
+# headline — the agent produces evidence, the executor exercises authority —
+# was inverted at that one seam.
+#
+# `wrap_validation_in_sandbox` is the containment `deliver_implementation`
+# puts around every command of that gate, built by the SAME argv builder the
+# containment probe and the agent's spawn use (`_sandbox_argv`), so what the
+# probe proved about this host holds for the suite:
+#
+# * the request worktree writable (nx, jest and eslint write their caches
+#   under it), READONLY_PATHS ro-bound on top — the kernel tree, the agent
+#   files, the workflows, `.git/`, `aria-config/`, `aria-debts/`, the
+#   operator tooling — EROFS at the syscall level;
+# * the checkout's git dirs in the READ-ONLY shape
+#   (`git_containment.derive_git_containment(commit_capable=False)`): the
+#   common dir read-only as a whole, sibling worktrees hidden, this
+#   worktree's private git dir read-only — `nx affected` reads its base
+#   ref, nothing under either git dir can be written;
+# * the nearest ancestor `node_modules` read-only (the tree a nested
+#   worktree's suite resolves, as the agent's spawn sees it);
+# * the executables the commands resolve to on the runner's PATH, read-only
+#   — resolved OUTSIDE (`shutil.which` over the validation environment's
+#   PATH, the way the managed Claude spawn resolves its binary), each bound
+#   as its toolchain prefix when it sits in a `bin/` directory (an
+#   `actions/setup-node` install at `<tool-cache>/node/<v>/<arch>/bin/npx`
+#   is a symlink into `../lib/node_modules/npm`, so the `bin/` alone would
+#   not run) and as its own directory otherwise; a resolution that would
+#   bind the store or an ancestor of the workspace is refused by name;
+# * NO network (`--unshare-net`), NO hook broker, NO MCP broker, the
+#   sandbox's own /tmp and an ephemeral HOME — the suite reaches no kernel
+#   surface and no credential;
+# * the workspace's keys dir (`<workspace>/aria-debts/keys/`) masked with an
+#   EMPTY tmpfs, unconditionally (round 5) — the same mask the agent's
+#   commit-capable containment applies, minus the public key it shows.
+#   The read-only git shape carries no `SandboxSigning`, so until round 5
+#   the validation sandbox bound the workspace with that directory inside:
+#   the delivery token (0600, the executor's own uid, written there by the
+#   mint until round 5) and the held private signing key were READABLE by
+#   the agent's committed suite, and the gate recorded what it read on the
+#   validation-runs ledger — reproduced through the real executor child
+#   under real bwrap. The token now lives outside the workspace
+#   (`delivery_credentials.private_token_dir`) and the identity is retired
+#   before the delivery; this mask is the wall that stands whatever the
+#   directory holds;
+# * the durable store, the code root and the runner's home are not mounted
+#   at all.
+#
+# The evidence stays the kernel's: the executor captures stdout/stderr and
+# the exit code from the contained child and records them on the
+# validation-runs ledger itself; the promotion to `ready_for_pr`, the push
+# and the PR stay outside, exactly as before.
+VALIDATION_SANDBOX_ALLOW_NETWORK = False
+# ARIA-HIGH-124 (round 4) — the flags that make a contained validation
+# command STOPPABLE, and its `/proc` its own:
+#
+# * `--unshare-pid` — the command runs in its own PID namespace, with
+#   bwrap's own init as pid 1: when that init dies every process in the
+#   namespace dies with it, and `/proc/<host pid>/root` of a process
+#   outside is not reachable from inside (as uid 0, where bwrap builds no
+#   user namespace, it was — the host root filesystem through a pid the
+#   sandbox could see);
+# * `--die-with-parent` — the init gets SIGKILL when the executor's child
+#   handle goes away, so a killed gate takes the whole tree with it.
+#
+# Measured on this host (bwrap 0.9.0) with a command that backgrounds a
+# sleeper and a one-second timeout: with neither flag, and with
+# `--die-with-parent` alone, the sleeper SURVIVES the kill — the gate
+# recorded `timed_out`, moved to the next command at its own 45-minute
+# ceiling, and the agent's `nx affected` jest workers kept running
+# unbounded on the shared runner; with both, nothing survives.
+# `validation._run_one` kills the process GROUP for the same reason, which
+# is what covers an UNwrapped command (the cycle's baseline at the trusted
+# checkout HEAD).
+VALIDATION_SANDBOX_CONTAINMENT_FLAGS: tuple[str, ...] = ("--unshare-pid", "--die-with-parent")
+# ARIA-HIGH-143 — what the AGENT's own spawn is isolated from, beyond the
+# mount layer: the host's PID namespace (`/proc` inside describes only this
+# spawn — the managed Claude route had `--die-with-parent` alone, so the
+# agent could list the executor, the brokers and the signing agent by PID),
+# System V IPC and the UTS names, and the controlling terminal's session
+# (`--new-session` calls setsid(): no TIOCSTI injection into the executor's
+# terminal, the classic sandbox escape when a tty is inherited). Every flag
+# is free — none of them the CLI or its tools can miss — and the probe
+# mirrors them so a host that cannot build these namespaces is refused
+# before a claim (ORPHAN-MEDIUM-452's rule). The network namespace is NOT
+# here: the CLI reaches its provider through it, and the egress boundary is
+# the allowlist proxy the spawn is handed (`egress_boundary_probe`).
+MANAGED_SPAWN_ISOLATION_FLAGS: tuple[str, ...] = (
+    "--unshare-pid", "--unshare-ipc", "--unshare-uts", "--new-session", "--die-with-parent",
+)
+# ARIA-HIGH-124 (round 4) — the ONE kernel file a contained validation
+# command can be spawned with: the private unittest-observation child
+# (`validation._run_one` composes `[<python>, <this file>, …]` when a
+# registered recipe's `input_scope` carries an execution profile, resolving
+# it as `Path(validation.__file__).with_name(...)` — the CODE root, which
+# the validation sandbox binds nothing of). Without this bind such a recipe
+# dies inside with `can't open file`, the gate blocks and the delivery
+# escalates a HUMAN_REQUIRED for a missing mount. Bound READ-ONLY and
+# alone: it imports no aria_kernel module by design, so the kernel package
+# stays outside.
+VALIDATION_OBSERVATION_CHILD = Path(__file__).with_name("_validation_unittest_child.py")
+# The one directory name under which a toolchain prefix keeps its
+# executables (`<prefix>/bin/<name>`); an executable found elsewhere is
+# bound as its own directory.
+_TOOLCHAIN_BIN_DIRNAME = "bin"
+
+
+def _under_system_root(path: Path) -> bool:
+    return any(path == Path(root) or path.is_relative_to(root) for root in _SANDBOX_SYSTEM_ROOTS)
+
+
+def validation_executable_binds(
+    executable: str, *, environment: Mapping[str, str], workspace: Path, store: Path | None,
+) -> tuple[Path, ...]:
+    """The host paths to ro-bind so ``executable`` runs inside the validation
+    sandbox: the toolchain prefix its PATH entry sits in (``<prefix>/bin``)
+    or that entry itself, plus the real file's own directory when a
+    symlink leads out of the prefix; empty when the system binds already
+    cover it. Raises :class:`SandboxUnavailable` by name when the command
+    does not resolve on the validation environment's PATH, or when a bind
+    would mount the store or an ancestor of the workspace."""
+    found = executable if os.path.isabs(executable) else shutil.which(
+        executable, path=environment.get("PATH", os.defpath),
+    )
+    if found is None:
+        raise SandboxUnavailable(f"validation_executable_unresolvable:{executable}")
+    entry = Path(found).parent
+    resolved = Path(found).resolve()
+    if _under_system_root(entry) and _under_system_root(resolved):
+        # `/usr/bin/npx` (`/usr/local/bin` included): the system binds
+        # carry it and everything it links to; nothing to add.
+        return ()
+    prefix = entry.parent if entry.name == _TOOLCHAIN_BIN_DIRNAME else entry
+    candidates = [prefix] if resolved.is_relative_to(prefix) else [prefix, resolved.parent]
+    binds: list[Path] = []
+    for candidate in candidates:
+        if workspace == candidate or workspace.is_relative_to(candidate):
+            raise SandboxUnavailable(f"validation_toolchain_prefix_contains_workspace:{candidate}")
+        if store is not None and (store == candidate or store.is_relative_to(candidate)):
+            raise SandboxUnavailable(f"validation_toolchain_prefix_contains_store:{candidate}")
+        if not _under_system_root(candidate) and candidate not in binds:
+            binds.append(candidate)
+    return tuple(binds)
+
+
+def wrap_validation_in_sandbox(
+    argv: list[str], *, workspace_root: str | Path, git: GitContainment | None,
+    environment: Mapping[str, str], store: str | Path | None = None,
+) -> list[str]:
+    """Contain ONE validation command of a tree an agent wrote (see above).
+
+    ``git`` is the READ-ONLY containment derived for ``workspace_root``
+    (``derive_git_containment(commit_capable=False)``; None in a main
+    checkout, where the READONLY_PATHS `.git/` bind already makes git
+    reads work and writes EROFS); ``environment`` is the validation
+    child's built environment (``validation_env.build_validation_env``),
+    read for the PATH the command's executable resolves on; ``store`` is
+    the durable store's root, which no bind may reach. The argv carries
+    ``VALIDATION_SANDBOX_CONTAINMENT_FLAGS`` (round 4), so a command that
+    hits its ceiling dies with the sandbox instead of orphaning its workers
+    on the runner, and an empty ``--tmpfs`` over the workspace's keys dir
+    (round 5), so nothing the directory holds is a file inside. Raises
+    :class:`SandboxUnavailable` by name — the caller refuses the gate, it
+    never runs the command unconfined.
+    """
+    from .gh_token_factory import signing_keys_dir
+
+    workspace = Path(workspace_root).resolve()
+    store_root = Path(store).resolve() if store is not None else None
+    binds = validation_executable_binds(argv[0], environment=environment, workspace=workspace, store=store_root)
+    command = wrap_bash_in_sandbox(
+        argv, workspace_root=workspace, allow_network=VALIDATION_SANDBOX_ALLOW_NETWORK,
+        write_scope=None, extra_ro_binds=(*binds, VALIDATION_OBSERVATION_CHILD), git=git,
+    )
+    separator = command.index("--")
+    # (round 5) the keys-dir mask, AFTER every workspace bind (a later mount
+    # shadows an earlier one) and unconditionally: `signing_keys_dir` makes
+    # the directory when it is absent, because bwrap cannot create a
+    # mountpoint under the read-only `aria-debts/` bind.
+    keys_mask = ["--tmpfs", str(signing_keys_dir(workspace))]
+    return command[:separator] + keys_mask + list(VALIDATION_SANDBOX_CONTAINMENT_FLAGS) + command[separator:]
 
 
 class ResourceLimitsUnavailable(RuntimeError):
@@ -879,7 +1528,10 @@ def _systemd_run_available() -> bool:
     return _sandbox_probe_succeeds(_systemd_run_probe_argv())
 
 
-def apply_resource_limits(argv: list[str], *, timeout_seconds: int = 120) -> list[str]:
+def apply_resource_limits(
+    argv: list[str], *, timeout_seconds: int = 120, environ: dict[str, str] | None = None,
+    control_environment: dict[str, str] | None = None,
+) -> list[str]:
     """Hard-fail check ancillary — per-command resource limits.
 
     Wraps argv in ``systemd-run --user --scope`` with cgroup limits when that
@@ -903,17 +1555,75 @@ def apply_resource_limits(argv: list[str], *, timeout_seconds: int = 120) -> lis
     3. The no-limiter tail returned argv unchanged, spawning unbounded — while
        the caller's own docstring says a write-capable agent must not be
        spawned unbounded on the strength of a missing perimeter.
+
+    ``environ`` is the environment the limited command will be launched
+    with and ``control_environment`` the user-bus plumbing the limiter alone
+    may use (see :data:`LIMITER_CONTROL_ENV_NAMES`); both omitted keeps the
+    cached host selection.
     """
-    if _systemd_run_available():
-        return [
+    return _apply_resource_limits(
+        argv, timeout_seconds=timeout_seconds, environ=environ, control_environment=control_environment,
+    )
+
+
+LIMITER_CONTROL_ENV_NAMES: tuple[str, ...] = ("DBUS_SESSION_BUS_ADDRESS", "XDG_RUNTIME_DIR")
+"""The user-bus plumbing `systemd-run --user` needs to reach the user manager.
+
+It belongs to the limiter alone. Every lane BUILDS its spawn environment
+from an allowlist these two names are not on, so a limiter selected by a
+probe in the host's environment and then launched in the child's failed
+with "Failed to connect to bus: No medium found" — measured on the managed
+Claude route's first live attempt (2026-09-11, ARIA-HIGH-076). The plumbing
+is handed to the limiter through a leading `env NAME=VALUE` and stripped
+again by a trailing `env -u NAME` before the limited command starts, so the
+child sees exactly the environment its lane built, whichever limiter ran.
+"""
+
+
+def limiter_control_environment(environ: Mapping[str, str]) -> dict[str, str]:
+    """The bus plumbing present in ``environ``, by name — nothing else."""
+    return {name: environ[name] for name in LIMITER_CONTROL_ENV_NAMES if name in environ}
+
+
+def _apply_resource_limits(
+    argv: list[str], *, timeout_seconds: int, environ: dict[str, str] | None = None,
+    control_environment: dict[str, str] | None = None,
+) -> list[str]:
+    """Select and probe the limiter in the environment that will launch it.
+
+    Omitted environment preserves the public legacy cached host selection.
+    Explicit environments are probed directly; host cache results cannot
+    establish capability for a different child control environment. The
+    control environment reaches the limiter and is unset again for the
+    command it limits.
+    """
+    plumbing = dict(control_environment or {})
+    if environ is None:
+        systemd_available = _systemd_run_available()
+        search_path = None
+    else:
+        launch_environ = {**environ, **plumbing}
+        search_path = launch_environ.get("PATH", os.defpath)
+        systemd_available = (shutil.which("systemd-run", path=search_path) is not None
+                             and _sandbox_probe_succeeds(_systemd_run_probe_argv(), environ=launch_environ))
+    if systemd_available:
+        limited = [
             "systemd-run",
             "--user", "--scope", "--quiet",
             "--property=MemoryMax=2G",
             "--property=CPUQuota=200%",
             "--property=TasksMax=50",
             f"--property=RuntimeMaxSec={timeout_seconds}",
-        ] + list(argv)
-    if shutil.which("timeout") is not None:
+        ]
+        if plumbing:
+            return [
+                "/usr/bin/env", *(name + "=" + value for name, value in plumbing.items()),
+                *limited,
+                "/usr/bin/env", *(flag for name in plumbing for flag in ("-u", name)),
+                *argv,
+            ]
+        return limited + list(argv)
+    if (shutil.which("timeout") if environ is None else shutil.which("timeout", path=search_path)) is not None:
         # Wall clock only — no memory/CPU/task ceiling. Weaker than the cgroup
         # path and deliberately still accepted: an unbounded-runtime agent is
         # the failure actually observed, and refusing every container host
@@ -974,6 +1684,107 @@ HARD_FAIL_GATES: frozenset[str] = frozenset({GATE_PRE_PR_OPEN, GATE_PRE_MERGE})
 
 
 @dataclass(frozen=True)
+class _PreMergeEvidence:
+    """Immutable native identities; an incomplete join stays unavailable.
+
+    These are observations, not check verdicts. The merge owner captures
+    them from verified native prefixes and the repository snapshot.
+    """
+
+    unavailable_reasons: tuple[str, ...]
+    pr_number: int | None = None
+    change_id: str | None = None
+    pr_row_hash: str | None = None
+    planned_row_hash: str | None = None
+    committed_row_hash: str | None = None
+    plan_id: str | None = None
+    plan_revision_id: str | None = None
+    plan_content_hash: str | None = None
+    request_id: str | None = None
+    claim_id: str | None = None
+    request_row_hash: str | None = None
+    claim_row_hash: str | None = None
+    result_row_hash: str | None = None
+    implementation_event_hash: str | None = None
+    implementation_base_sha: str | None = None
+    implementation_head_sha: str | None = None
+    request_plan_hash: str | None = None
+    implementation_plan_hash: str | None = None
+    implementation_diff_hash: str | None = None
+    branch: str | None = None
+    repo_identity: str | None = None
+    base_sha: str | None = None
+    head_sha: str | None = None
+    snapshot_hash: str | None = None
+    scope_observed_at: str | None = None
+    scope_ledger_tips: tuple[str, ...] = ()
+    scope_conflicting_claim_id: str | None = None
+    scope_conflicting_claim_hash: str | None = None
+    coverage_required: bool | None = None
+    coverage_event_hash: str | None = None
+    coverage_manifest_hash: str | None = None
+    coverage_revision_id: str | None = None
+    coverage_plan_hash: str | None = None
+    coverage_computed_at_sha: str | None = None
+    coverage_verdict: str | None = None
+    coverage_unavailable_reason: str | None = None
+    # Fifth predicate (expert_consensus_evidence_verified): the accepted
+    # specialist_domain_review results bound to THIS implementation's exact
+    # request/result/commit/plan-revision identity, evaluated by the existing
+    # expert_review_gate.evaluate_expert_consensus at capture time. Request
+    # ids and result hashes are in ledger order; a missing panel is a
+    # named reason, never an empty pass.
+    expert_request_ids: tuple[str, ...] = ()
+    expert_result_hashes: tuple[str, ...] = ()
+    expert_target_sha: str | None = None
+    expert_distinct_reviewers: tuple[str, ...] = ()
+    expert_consensus_approved: bool | None = None
+    expert_consensus_reason: str | None = None
+    expert_unavailable_reason: str | None = None
+    # Sixth predicate (operator_feedback_signature, V9.5 check 12): the
+    # merge owner walks plan_started.content_hash → the synthesis_bound row
+    # the provider wrote → the ingestion row that scan recorded → every
+    # consumed operator-feedback row, re-verifying each signature against
+    # the store's key file at capture time
+    # (operator_feedback_ingestion.observe_operator_feedback_for_plan). A
+    # plan with no binding, a binding with no ingestion, a consumed row the
+    # ingestion never admitted, or a signature the store cannot vouch for
+    # now is a named reason; ``verified`` is True only when the whole walk
+    # closed.
+    operator_feedback_plan_started_hash: str | None = None
+    operator_feedback_binding_hash: str | None = None
+    operator_feedback_bound_content_hash: str | None = None
+    operator_feedback_ingestion_hash: str | None = None
+    operator_feedback_dropped_count: int | None = None
+    operator_feedback_consumed_row_hashes: tuple[str, ...] = ()
+    operator_feedback_consumed_signer_kids: tuple[str, ...] = ()
+    operator_feedback_verified: bool | None = None
+    operator_feedback_unavailable_reason: str | None = None
+    # Seventh predicate (cycle_and_turn_budget_cap): the hook_decisions rows
+    # bound to THIS implementation's request, reduced by
+    # turn_budget.turn_budget_evidence at capture time. ``cap`` is the cap
+    # every bound verdict was admitted under, ``policy_cap`` the
+    # implementer_turn_budget.budgeted_turns the merged store's policy says
+    # at capture time (turn_budget_policy.implementer_turn_budget_for_store),
+    # ``used`` the number of admitted Edit/Write/Bash turns,
+    # ``refusal_reason`` the first cycle_budget_exhausted /
+    # implementer_turn_budget_exhausted verdict if the hook ever had to
+    # refuse, ``ledger_tip`` the hash of the last bound row. No rows, no
+    # observation, an invalid policy, or a recorded cap other than the
+    # policy's is a named reason.
+    turn_budget_cap: int | None = None
+    turn_budget_policy_cap: int | None = None
+    turn_budget_used: int | None = None
+    turn_budget_refusal_reason: str | None = None
+    turn_budget_ledger_tip: str | None = None
+    turn_budget_unavailable_reason: str | None = None
+
+    @property
+    def available(self) -> bool:
+        return not self.unavailable_reasons
+
+
+@dataclass(frozen=True)
 class HardFailContext:
     """Everything a hard-fail check may inspect about a pending action.
 
@@ -994,6 +1805,15 @@ class HardFailContext:
     validation_commands: tuple[str, ...] = ()
     base_branch: str | None = None
     pr_body: str | None = None
+    pre_merge_evidence: _PreMergeEvidence | None = None
+    # ARIA-HIGH-104 (4) — the commit contract the plan's origin admits
+    # (`plan_origin.commit_contract_for_plan`; None on the operator lane,
+    # whose commits the commit-msg gate judges directly) and the commits
+    # base_sha..head on the branch being opened, `{sha, subject, body}` in
+    # branch order. Both are stage inputs: a preview without a branch
+    # reports the check as not evaluable rather than as a refusal.
+    commit_contract: dict[str, Any] | None = None
+    branch_commits: tuple[dict[str, str], ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -1086,9 +1906,10 @@ class HardFailCheck:
     perimeter read as CI success. Requiring the callable makes a
     non-executable entry unconstructable.
 
-    A check that is declared but not yet implemented binds
-    :func:`_not_implemented`, which FAILS. Unimplemented work therefore
-    shows up as a blocking check rather than as a silent gap.
+    Every registered check answers from the action or from native
+    implementation evidence; a check that cannot see what it needs FAILS by
+    name (``native_implementation_binding_unavailable``), so a gap in the
+    perimeter shows up as a blocking check rather than as a silent pass.
     """
 
     name: str
@@ -1116,20 +1937,201 @@ def _failed(name: str, reason: str) -> HardFailResult:
     return HardFailResult(name=name, passed=False, reason=reason)
 
 
-def _not_implemented(name: str) -> Callable[[HardFailContext], HardFailResult]:
-    """Bind a declared-but-unbuilt check to an explicit failure.
+def _native_implementation_is_bound(context: HardFailContext) -> bool:
+    evidence = context.pre_merge_evidence
+    return evidence is not None and all((
+        evidence.repo_identity, evidence.snapshot_hash, evidence.pr_row_hash,
+        evidence.planned_row_hash, evidence.committed_row_hash, evidence.request_id,
+        evidence.claim_id, evidence.request_row_hash, evidence.claim_row_hash,
+        evidence.result_row_hash, evidence.implementation_event_hash,
+    ))
 
-    This is deliberately not a pass-through. The check is named in the
-    policy document as part of the pre-PR-open and pre-merge perimeter, so
-    until it has an implementation the honest answer to "did the perimeter
-    hold?" is no.
+
+def _check_branch_tip_lock_and_recheck(context: HardFailContext) -> HardFailResult:
+    name = "branch_tip_lock_and_recheck"
+    evidence = context.pre_merge_evidence
+    if not _native_implementation_is_bound(context) or context.workspace_root is None:
+        return _failed(name, "native_implementation_binding_unavailable")
+    if (
+        not evidence.head_sha or not evidence.base_sha or not evidence.branch
+        or not context.base_branch
+        or evidence.implementation_head_sha != evidence.head_sha
+        or evidence.implementation_base_sha != evidence.base_sha
+    ):
+        return _failed(name, "native_implementation_commit_mismatch")
+    from .state_store import StateStoreError as _StateStoreError
+    from .state_store import _git
+
+    try:
+        for ref, expected in (("HEAD", evidence.head_sha),
+                              ("refs/heads/" + evidence.branch, evidence.head_sha),
+                              ("refs/heads/" + context.base_branch, evidence.base_sha)):
+            if _git(context.workspace_root, "rev-parse", "--verify", ref + "^{commit}").strip() != expected:
+                return _failed(name, "native_branch_tip_changed")
+    except (OSError, _StateStoreError):
+        return _failed(name, "native_branch_tip_unavailable")
+    # This local observation supplements the existing fresh PR evaluation
+    # and adapter expected_head_sha CAS; it does not replace remote CAS.
+    return _passed(name, "native_implementation_and_current_branch_tips_match")
+
+
+def _check_per_file_mutual_exclusion(context: HardFailContext) -> HardFailResult:
+    name = "per_file_mutual_exclusion"
+    evidence = context.pre_merge_evidence
+    if not _native_implementation_is_bound(context):
+        return _failed(name, "native_implementation_binding_unavailable")
+    if (
+        not evidence.scope_observed_at or len(evidence.scope_ledger_tips) != 3
+        or not all(evidence.scope_ledger_tips)
+    ):
+        return _failed(name, "implementation_scope_observation_unavailable")
+    if evidence.scope_conflicting_claim_id or evidence.scope_conflicting_claim_hash:
+        if not evidence.scope_conflicting_claim_id or not evidence.scope_conflicting_claim_hash:
+            return _failed(name, "implementation_scope_observation_unavailable")
+        return _failed(name, "implementation_scope_locked")
+    # The capture owner used the same native scope/lifecycle helper as claim
+    # admission, after rechecking the exact request/claim/result prefixes.
+    # This is a state observation, not a lock across the remote merge call.
+    return _passed(name, "native_implementation_scope_clear")
+
+
+def _check_plan_coverage_witness_verified(context: HardFailContext) -> HardFailResult:
+    name = "plan_coverage_witness_verified"
+    evidence = context.pre_merge_evidence
+    if not _native_implementation_is_bound(context):
+        return _failed(name, "native_implementation_binding_unavailable")
+    if evidence.coverage_unavailable_reason:
+        return _failed(name, evidence.coverage_unavailable_reason)
+    if evidence.coverage_required is False:
+        return _passed(name, "coverage_not_required_by_native_plan_version")
+    if evidence.coverage_required is not True or not all((
+        evidence.coverage_event_hash, evidence.coverage_manifest_hash,
+        evidence.coverage_revision_id, evidence.coverage_plan_hash,
+        evidence.coverage_computed_at_sha,
+    )):
+        return _failed(name, "native_coverage_binding_unavailable")
+    if (
+        evidence.coverage_revision_id != evidence.plan_revision_id
+        or evidence.coverage_plan_hash != evidence.plan_content_hash
+    ):
+        return _failed(name, "coverage_target_revision_mismatch")
+    if evidence.coverage_verdict != "covered":
+        return _failed(name, "native_coverage_verdict_unavailable")
+    return _passed(name, "native_current_plan_coverage_manifest_verified")
+
+
+def _check_expert_consensus_evidence_verified(context: HardFailContext) -> HardFailResult:
+    name = "expert_consensus_evidence_verified"
+    evidence = context.pre_merge_evidence
+    if not _native_implementation_is_bound(context):
+        return _failed(name, "native_implementation_binding_unavailable")
+    if evidence.expert_unavailable_reason:
+        return _failed(name, evidence.expert_unavailable_reason)
+    if (
+        not evidence.expert_request_ids or not evidence.expert_target_sha
+        or evidence.expert_target_sha != evidence.head_sha
+        or evidence.expert_target_sha != evidence.implementation_head_sha
+    ):
+        return _failed(name, "native_expert_binding_unavailable")
+    if evidence.expert_consensus_approved is not True:
+        # The evaluator's own vocabulary: insufficient_reviewers,
+        # not_unanimous_satisfied, low_confidence, evidence_not_repo_verified.
+        return _failed(name, evidence.expert_consensus_reason or "native_expert_consensus_unavailable")
+    # Declared results through the real claim/submission owners are what this
+    # observes; it is not a model opinion and not an operator endorsement.
+    return _passed(name, "native_final_expert_consensus_verified")
+
+
+def _check_operator_feedback_signature(context: HardFailContext) -> HardFailResult:
+    name = "operator_feedback_signature"
+    evidence = context.pre_merge_evidence
+    if not _native_implementation_is_bound(context):
+        return _failed(name, "native_implementation_binding_unavailable")
+    if evidence.operator_feedback_unavailable_reason:
+        # The capture's own vocabulary: plan_start / synthesis_binding /
+        # ingestion unavailable, consumption_mismatch, consumed_row_unsigned.
+        return _failed(name, evidence.operator_feedback_unavailable_reason)
+    if (
+        not evidence.operator_feedback_plan_started_hash
+        or not evidence.operator_feedback_binding_hash
+        or not evidence.operator_feedback_ingestion_hash
+        or evidence.operator_feedback_bound_content_hash != evidence.operator_feedback_plan_started_hash
+        or evidence.operator_feedback_dropped_count is None
+    ):
+        return _failed(name, "native_operator_feedback_binding_unavailable")
+    if (
+        evidence.operator_feedback_verified is not True
+        or len(evidence.operator_feedback_consumed_row_hashes)
+        != len(evidence.operator_feedback_consumed_signer_kids)
+    ):
+        return _failed(name, "native_operator_feedback_signature_unverified")
+    # The synthesizer applied the rule to THIS plan's synthesis: unsigned
+    # rows were dropped with their governance events, and every row the
+    # plan consumed still verifies under the store's key material.
+    return _passed(name, "native_operator_feedback_ingestion_verified")
+
+
+def _check_cycle_and_turn_budget_cap(context: HardFailContext) -> HardFailResult:
+    """Both caps held at every turn boundary of the implementation's run.
+
+    The cycle cap is the run-scoped job deadline and the turn cap is the
+    policy's ``implementer_turn_budget.budgeted_turns`` for the workspace the
+    merged store is bound to (``turn_budget_policy``); the hook admitted each
+    Edit/Write/Bash turn against both and recorded the verdict, and the
+    capture resolved the policy cap the same way the spawn did. Dollars are
+    not read here: under managed_subscription they are telemetry, under
+    metered they are cost_budget.assert_within_budget's own admission
+    (ORPHAN-HIGH-472, ARIA-HIGH-074/079).
     """
+    from .turn_budget import refusal_class
 
-    def _check(context: HardFailContext) -> HardFailResult:
-        del context
-        return _failed(name, "check_not_implemented")
+    name = "cycle_and_turn_budget_cap"
+    evidence = context.pre_merge_evidence
+    if not _native_implementation_is_bound(context):
+        return _failed(name, "native_implementation_binding_unavailable")
+    if evidence.turn_budget_unavailable_reason:
+        return _failed(name, evidence.turn_budget_unavailable_reason)
+    if (
+        type(evidence.turn_budget_cap) is not int
+        or type(evidence.turn_budget_policy_cap) is not int
+        or type(evidence.turn_budget_used) is not int
+        or not evidence.turn_budget_ledger_tip
+    ):
+        return _failed(name, "native_turn_budget_binding_unavailable")
+    if evidence.turn_budget_cap != evidence.turn_budget_policy_cap:
+        # The verdicts were admitted under one number and the policy of the
+        # store being merged says another — a spawn compiled against a
+        # different workspace's policy, or a policy changed since the spawn.
+        # The capture refuses this by name too; re-checking here keeps a
+        # hand-assembled evidence from passing on the recorded cap alone.
+        return _failed(name, "native_turn_budget_cap_mismatch")
+    refusal = refusal_class(evidence.turn_budget_refusal_reason)
+    if refusal is not None:
+        # The hook's own vocabulary: cycle_budget_exhausted or
+        # implementer_turn_budget_exhausted — the attempt hit a cap and was
+        # stopped at the boundary; what it produced is not mergeable.
+        return _failed(name, refusal)
+    if evidence.turn_budget_used > evidence.turn_budget_cap:
+        # More turns admitted than the cap allows means the hook that
+        # recorded them was not enforcing; that is a perimeter failure, not
+        # a budget one.
+        return _failed(name, "implementer_turn_budget_exceeded_unrefused")
+    return _passed(name, "native_cycle_and_turn_budget_respected")
 
-    return _check
+
+def _check_content_hash_recheck(context: HardFailContext) -> HardFailResult:
+    name = "content_hash_recheck"
+    evidence = context.pre_merge_evidence
+    if not _native_implementation_is_bound(context):
+        return _failed(name, "native_implementation_binding_unavailable")
+    if (
+        not evidence.plan_revision_id or not evidence.plan_content_hash
+        or not evidence.implementation_diff_hash
+        or evidence.request_plan_hash != evidence.plan_content_hash
+        or evidence.implementation_plan_hash != evidence.plan_content_hash
+    ):
+        return _failed(name, "native_plan_revision_hash_mismatch")
+    return _passed(name, "native_request_implementation_and_recomputed_plan_hash_match")
 
 
 def _check_secret_scan_diff_clean(context: HardFailContext) -> HardFailResult:
@@ -1221,42 +2223,14 @@ _HOOK_BYPASS_FLAGS: frozenset[str] = frozenset({
 })
 _HOOKS_PATH_KEY = "core.hookspath"
 
-# The canonical validation suite an implementation MUST declare.
-#
-# CLAUDE.md mandates `nx affected --target=test` + `nx affected
-# --target=lint` before any commit, and `npm run type-check` is the
-# platform-wide type gate. The registry description for this check also
-# named "mutation" and "coverage"; this repository has no mutation-
-# testing and no coverage target (there is no such npm script and no nx
-# target), so requiring them would make the gate permanently
-# unsatisfiable and S0 unexitable. Requiring what does not exist is not
-# strictness, it is a gate that can only ever be bypassed.
-#
-# The absence is tracked as ORPHAN-MEDIUM-436 (owner okan, deadline
-# 2026-09-06) rather than silently dropped, and the registry description
-# is corrected to match what is enforced.
-CANONICAL_VALIDATION_COMMANDS: tuple[str, ...] = (
-    "nx affected --target=test",
-    "nx affected --target=lint",
-    "npm run type-check",
-)
-
-# ORPHAN-CRITICAL-727 — the same suite, spelled the way a lane can RUN it.
-#
-# Two gates read the suite and they disagreed on the spelling. The
-# pre-PR-open perimeter accepts the bare `nx ...` form above (or that form
-# behind an `npx` prefix); `validation.parse_allowed_command` admits
-# `npx nx` and refuses a bare `nx`, because argv-0 is what it pins. A lane
-# that staged the perimeter's spelling therefore declared a suite its own
-# validation runner would refuse to execute — the change would carry a
-# declaration nobody could produce evidence for.
-#
-# Derived rather than retyped so the two tuples cannot drift: the executable
-# form IS the canonical form with the runner prefix the allowlist requires.
-CANONICAL_VALIDATION_COMMANDS_EXECUTABLE: tuple[str, ...] = tuple(
-    f"npx {command}" if command.startswith("nx ") else command
-    for command in CANONICAL_VALIDATION_COMMANDS
-)
+# The canonical validation suite an implementation MUST declare lives in
+# ``validation_suite`` (ARIA-HIGH-104 (2)): below this module AND below
+# ``command_policy``, so the Bash allowlist derives its admission of the
+# suite from the same tuple the plan contract, staging, the pre-PR-open
+# perimeter and the merge gate read. Re-exported from the import block at
+# the top of this module under the names every importer has always used;
+# the history of the tuple (ORPHAN-MEDIUM-436, ORPHAN-CRITICAL-461,
+# ORPHAN-CRITICAL-727) is documented beside it.
 
 # ORPHAN-CRITICAL-728 — how long the canonical suite is allowed to take.
 #
@@ -1496,31 +2470,38 @@ def _check_test_gate_canonical_suite(context: HardFailContext) -> HardFailResult
     if not context.validation_commands:
         return _failed(name, "validation_commands_absent")
     # ORPHAN-CRITICAL-461 — WHOLE-ENTRY membership, not substring over the
-    # concatenation. The previous body joined every declared command into one
-    # string and asked whether each canonical command appeared ANYWHERE in
-    # it, so a single entry that merely mentions them cleared the gate:
-    #
-    #   validation_commands=("echo 'nx affected --target=test nx affected
-    #                         --target=lint npm run type-check'",)   -> PASSED
-    #
-    # An echo of a comment is not a test run. Each canonical command must be
-    # a declared entry in its own right; leading `npx`/`npm exec` wrappers are
-    # tolerated because they are the same invocation, and a trailing argument
-    # is allowed because narrowing a suite is legitimate while replacing it
-    # with prose is not.
-    entries = [" ".join(str(command).split()) for command in context.validation_commands]
-    missing: list[str] = []
-    for required in CANONICAL_VALIDATION_COMMANDS:
-        if not any(
-            entry == required
-            or entry.startswith(required + " ")
-            or entry.endswith(" " + required)
-            and entry.split(required)[0].strip() in {"npx", "npm exec"}
-            for entry in entries
-        ):
-            missing.append(required)
+    # concatenation (the rule lives in `canonical_command_satisfied_by`,
+    # shared with the merge gate's hygiene battery).
+    missing: list[str] = [
+        required for required in CANONICAL_VALIDATION_COMMANDS
+        if not any(canonical_command_satisfied_by(entry, required) for entry in context.validation_commands)
+    ]
     if missing:
         return _failed(name, "missing_canonical_commands:" + ",".join(missing))
+    return _passed(name)
+
+
+def _check_commit_contract_honoured(context: HardFailContext) -> HardFailResult:
+    """ARIA-HIGH-104 (4) — the branch's commits carry exactly the trailer the
+    plan's origin admits, or none when the origin admits none.
+
+    The contract is derived twice from the same function — once onto the
+    envelope the agent read, once here from the staged action's plan — so the
+    agent cannot have been told one thing and judged by another. An action
+    with no plan (the operator lane) has no kernel-derived contract; its
+    commits are the operator's and the commit-msg gate (husky + CI range
+    check) judges them, which this check records rather than re-implements.
+    """
+    from .plan_origin import verify_commits_honour_contract
+
+    name = "commit_contract_honoured"
+    if context.branch_commits is None:
+        return _failed(name, "branch_commits_absent")
+    if context.commit_contract is None:
+        return _passed(name, "operator_lane:commit_msg_gate_judges_these_commits")
+    verdict = verify_commits_honour_contract(list(context.branch_commits), context.commit_contract)
+    if not verdict.honoured:
+        return _failed(name, "commit_contract_violated:" + ";".join(verdict.violations))
     return _passed(name)
 
 
@@ -1679,6 +2660,7 @@ _STAGE_ONLY_CONTEXT_FIELDS: tuple[str, ...] = (
     "envelope",
     "validation_commands",
     "pr_body",
+    "branch_commits",
 )
 
 
@@ -1768,12 +2750,12 @@ HARD_FAIL_CHECKS: tuple[HardFailCheck, ...] = (
         name="test_gate_canonical_suite",
         description=(
             "validation_commands[] MUST include the canonical suite "
-            "(nx affected --target=test, nx affected --target=lint, "
-            "npm run type-check). Mutation + coverage were named in this "
-            "description before the check had an implementation; neither "
-            "target exists in this repository, so requiring them would "
-            "make the gate unsatisfiable rather than strict. Tracked as "
-            "ORPHAN-MEDIUM-436, not dropped."
+            "(CANONICAL_VALIDATION_COMMANDS: " + ", ".join(CANONICAL_VALIDATION_COMMANDS) + "). "
+            "Mutation + coverage were named in this description before the "
+            "check had an implementation; neither target exists in this "
+            "repository, so requiring them would make the gate "
+            "unsatisfiable rather than strict. Tracked as ORPHAN-MEDIUM-436, "
+            "not dropped."
         ),
         closes_findings=("ai-HIGH-008",),
         check=_check_test_gate_canonical_suite,
@@ -1784,6 +2766,21 @@ HARD_FAIL_CHECKS: tuple[HardFailCheck, ...] = (
         description="verify_no_secret_in_diff BEFORE gh pr create",
         closes_findings=("ai-CRIT-004", "sec-HIGH-005"),
         check=_check_secret_scan_diff_clean,
+        gate=GATE_PRE_PR_OPEN,
+    ),
+    # ARIA-HIGH-104 (4) — the 18th check. The trailer on an ARIA commit is
+    # derived from the plan's origin by the kernel (plan_origin), printed on
+    # the implementation envelope, and verified here against the branch's
+    # commits before `gh pr create`; the agent never invents one.
+    HardFailCheck(
+        name="commit_contract_honoured",
+        description=(
+            "every commit base_sha..head carries exactly the Closes: trailer "
+            "plan_origin.commit_contract_for_plan derives for the staged plan "
+            "(or none, with a trailer-free commit type, when its origin admits none)"
+        ),
+        closes_findings=("ARIA-HIGH-104",),
+        check=_check_commit_contract_honoured,
         gate=GATE_PRE_PR_OPEN,
     ),
     HardFailCheck(
@@ -1804,21 +2801,31 @@ HARD_FAIL_CHECKS: tuple[HardFailCheck, ...] = (
         name="branch_tip_lock_and_recheck",
         description="branch_tip_sha captured; auto-merge re-verifies headRefOid pre-merge",
         closes_findings=("ai-HIGH-007", "sec-HIGH-002"),
-        check=_not_implemented("branch_tip_lock_and_recheck"),
+        check=_check_branch_tip_lock_and_recheck,
         gate=GATE_PRE_MERGE,
     ),
     HardFailCheck(
         name="per_file_mutual_exclusion",
-        description="_validate_implementation_request rejects locked affected_surfaces",
+        description="native lease scope exclusion at claim admission and the captured pre-merge view",
         closes_findings=("ai-HIGH-009",),
-        check=_not_implemented("per_file_mutual_exclusion"),
+        check=_check_per_file_mutual_exclusion,
         gate=GATE_PRE_MERGE,
     ),
+    # V9.5 check 12 — the synthesizer drops rows whose keyed-HMAC signature
+    # / signer_kid is missing or invalid (one unsigned_operator_feedback
+    # governance row per drop) and records what it admitted; the merge
+    # owner captures that ingestion for the plan being merged and this
+    # predicate refuses unless every consumed row re-verifies.
     HardFailCheck(
         name="operator_feedback_signature",
-        description="plan_synthesizer rejects unsigned operator-feedback rows",
+        description=(
+            "operator_feedback_ingestion: keyed-HMAC verification at "
+            "ingestion, unsigned rows dropped with governance events, and "
+            "the merged plan's synthesis bound to an ingestion whose "
+            "consumed rows re-verify at merge time"
+        ),
         closes_findings=("ai-HIGH-010",),
-        check=_not_implemented("operator_feedback_signature"),
+        check=_check_operator_feedback_signature,
         gate=GATE_PRE_MERGE,
     ),
     HardFailCheck(
@@ -1828,18 +2835,37 @@ HARD_FAIL_CHECKS: tuple[HardFailCheck, ...] = (
         check=_check_pr_body_templating,
         gate=GATE_PRE_PR_OPEN,
     ),
+    # Policy §14 as amended by ORPHAN-HIGH-472 and ARIA-HIGH-074/079: the
+    # per-cycle cap is WALL CLOCK (the run-scoped job deadline,
+    # cycle.job_deadline_epoch, read at the turn boundary by the hook), the
+    # per-implementer cap is the policy's implementer_turn_budget.budgeted_turns
+    # Edit+Write+Bash turns (kernel default 120, operator decision 2026-09-16;
+    # turn_budget_policy owns the block, counted and refused inside the
+    # hook_decisions transaction), and dollars are telemetry under the
+    # managed-subscription policy — cost_budget keeps them as admission under
+    # metered. Refusals: cycle_budget_exhausted / implementer_turn_budget_
+    # exhausted, always between turns.
     HardFailCheck(
         name="cycle_and_turn_budget_cap",
-        description="per-cycle budget cap (budget.DEFAULT_MAX_BUDGET_USD_PER_CYCLE) + per-implementer-turn N=10 caps with reservation-reconcile",
+        description=(
+            "hooks.admit_budgeted_turn admits each Edit/Write/Bash turn against "
+            "the job deadline (ARIA_JOB_DEADLINE_EPOCH) and the policy's "
+            "implementer_turn_budget.budgeted_turns for the store's bound "
+            "workspace (turn_budget_policy, default 120); pre-merge reads the "
+            "request's hook_decisions rows and fails on any "
+            "cycle_budget_exhausted / implementer_turn_budget_exhausted "
+            "refusal, on more admitted turns than the cap, on a recorded cap "
+            "other than the policy's, or on absent evidence"
+        ),
         closes_findings=("ai-HIGH-013", "perf-CRIT-001"),
-        check=_not_implemented("cycle_and_turn_budget_cap"),
+        check=_check_cycle_and_turn_budget_cap,
         gate=GATE_PRE_MERGE,
     ),
     HardFailCheck(
         name="content_hash_recheck",
         description="implementer recomputes SHA256 of CONVERGED plan vs envelope.content_hash",
         closes_findings=("ai-MED-019",),
-        check=_not_implemented("content_hash_recheck"),
+        check=_check_content_hash_recheck,
         gate=GATE_PRE_MERGE,
     ),
     # Plan 031 Faz 031e — the autonomous fix's reviewer is ≥2 independent
@@ -1855,7 +2881,7 @@ HARD_FAIL_CHECKS: tuple[HardFailCheck, ...] = (
             "repo-verified at base SHA (hallucinated approval blocks + escalates)"
         ),
         closes_findings=("aria-031e-expert-consensus",),
-        check=_not_implemented("expert_consensus_evidence_verified"),
+        check=_check_expert_consensus_evidence_verified,
         gate=GATE_PRE_MERGE,
     ),
     # Plan-coverage gate (ORPHAN-HIGH-310) — the 17th check. Enforcement
@@ -1873,7 +2899,7 @@ HARD_FAIL_CHECKS: tuple[HardFailCheck, ...] = (
             "before implementation_requested"
         ),
         closes_findings=("ORPHAN-HIGH-310",),
-        check=_not_implemented("plan_coverage_witness_verified"),
+        check=_check_plan_coverage_witness_verified,
         gate=GATE_PRE_MERGE,
     ),
 )
@@ -1883,6 +2909,9 @@ __all__ = (
     # constants
     "READONLY_PATHS",
     "ALLOWED_BASH_COMMANDS",
+    "COMMIT_SIGNATURE_VERIFY_TIMEOUT_SECONDS",
+    "VALIDATION_OBSERVATION_CHILD",
+    "VALIDATION_SANDBOX_CONTAINMENT_FLAGS",
     "DENIED_BASH_COMMANDS",
     "FORBIDDEN_GH_API_PATHS",
     "MAX_VALIDATION_RESULT_BYTES",
@@ -1895,6 +2924,8 @@ __all__ = (
     "CANONICAL_VALIDATION_COMMANDS",
     "CANONICAL_VALIDATION_COMMANDS_EXECUTABLE",
     "CANONICAL_VALIDATION_TIMEOUT_MS",
+    "canonical_command_satisfied_by",
+    "executable_spelling",
     # exceptions
     "SecretLeakDetected",
     "PathEscape",
@@ -1915,10 +2946,16 @@ __all__ = (
     "implementation_allowed_scope",
     "is_gh_api_path_forbidden",
     "SandboxUnavailable",
+    "MANAGED_SPAWN_ALLOW_NETWORK",
     "sandbox_backend",
+    "sandbox_unavailable_detail",
     "wrap_bash_in_sandbox",
     "ResourceLimitsUnavailable",
     "apply_resource_limits",
+    "CLAUDE_LOGIN_CREDENTIALS_FILENAME",
+    "wrap_managed_claude_in_sandbox",
+    "LIMITER_CONTROL_ENV_NAMES",
+    "limiter_control_environment",
     "truncate_validation_result",
     # registry
     "HardFailCheck",

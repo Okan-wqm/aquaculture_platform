@@ -64,7 +64,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, NamedTuple
 
-from .autonomy_state import AutonomyStateReducer
+from .autonomy_state import FUNNEL_RECORDED_DETAIL, PLAN_MINTED_PHASE, AutonomyStateReducer
 from .cycle import job_deadline_epoch
 from .file_lock import with_exclusive_lock
 from .next_cycle_queue import mark_consumed, read_pending
@@ -301,17 +301,31 @@ def _drain_next_cycle_queue(
         evidence_refs: list[str] = []
         source_cycle = str(item.get("source_cycle_id") or "")
         pressure_id = str(item.get("pressure_id") or "")
+        # The contract the mint declares. The generic queue projection is the
+        # default; a mission whose `next_action` is a kernel-owned pointer
+        # (`mission_dispatch.NEXT_ACTION_CONTRACTS`) mints ITS contract
+        # instead — a self_improvement mission asks for evidence_paths /
+        # problem / proposed_change so the accepted answer can reach
+        # `propose_self_change`. Before this, the pointer travelled as free
+        # prompt text and no kernel path ever read it (confirmed live
+        # 2026-09-12; the ORPHAN-694 class).
+        must_satisfy: list[dict[str, Any]] = [{
+            "id": "queue_item_projected",
+            "description": "Resolve the queued next-cycle item or produce a concrete blocked reason.",
+            "required": True,
+        }]
+        allowed_scope: list[str] = ["aria-kernel/**", "aria-tools/**", ".claude/**"]
         if pressure_id.startswith("mission:"):
             # A mission-selection item: the queue key is the mission marker,
             # and the mission row itself carries the evidence refs its work
             # accumulated. Resolving here keeps the drain's rule uniform —
             # refs come from the SOURCE record, never from the identifier.
             from .mission import fold_mission
+            from .mission_dispatch import contract_for_mission, in_flight_mission_request
 
+            mission_id = pressure_id.split(":", 1)[1]
             try:
-                mission_row = fold_mission(
-                    mission_id=pressure_id.split(":", 1)[1], base_dir=base_dir,
-                )
+                mission_row = fold_mission(mission_id=mission_id, base_dir=base_dir)
             except GovernanceError:
                 mission_row = None
             if mission_row:
@@ -319,6 +333,47 @@ def _drain_next_cycle_queue(
                     str(ref) for ref in (mission_row.get("evidence_refs") or [])
                     if isinstance(ref, str) and ref
                 ]
+                try:
+                    contract = contract_for_mission(
+                        mission_row=mission_row, queue_item_id=qid, source_cycle_id=source_cycle or None,
+                    )
+                except GovernanceError as exc:
+                    append_tools_governance(
+                        base_dir,
+                        "next_cycle_queue_projection_failed",
+                        {"queue_item_id": qid, "error": str(exc)},
+                    )
+                    continue
+                if contract is not None:
+                    # A kernel contract is asked once per MISSION, not once
+                    # per queue item: the scheduler re-selects a DISCOVERED
+                    # mission every cycle (nothing moves it until the answer
+                    # lands), and `append_pending` de-duplicates only among
+                    # pending rows, so the second cycle's item is a routine
+                    # duplicate of a question still in flight. The item is
+                    # consumed against the standing request — its answer is
+                    # the answer this item was queued for.
+                    standing = in_flight_mission_request(
+                        mission_id=mission_id, contract=contract, base_dir=base_dir,
+                    )
+                    if standing is not None:
+                        mark_consumed(base_dir, queue_item_id=qid, consumed_by=daemon_agent_id)
+                        append_tools_governance(
+                            base_dir,
+                            "next_cycle_queue_item_mission_request_in_flight",
+                            {
+                                "queue_item_id": qid,
+                                "mission_id": mission_id,
+                                "request_id": standing.get("request_id"),
+                                "request_state": standing.get("request_state"),
+                                "contract_ids": sorted(contract.contract_ids),
+                            },
+                        )
+                        consumed += 1
+                        continue
+                    prompt = contract.prompt
+                    must_satisfy = contract.must_satisfy
+                    allowed_scope = contract.allowed_scope
         elif source_cycle and pressure_id:
             try:
                 pressure_record = explain_pressure(
@@ -339,12 +394,8 @@ def _drain_next_cycle_queue(
                 target_agent="aria-autonomy-planner",
                 role="maintenance_utility",
                 suggested_prompt=json.dumps(prompt, indent=2, sort_keys=True),
-                must_satisfy=[{
-                    "id": "queue_item_projected",
-                    "description": "Resolve the queued next-cycle item or produce a concrete blocked reason.",
-                    "required": True,
-                }],
-                allowed_scope=["aria-kernel/**", "aria-tools/**", ".claude/**"],
+                must_satisfy=must_satisfy,
+                allowed_scope=allowed_scope,
                 target_sha=target_sha,
                 evidence_refs=evidence_refs,
                 pressure_event_id=pressure_id or None,
@@ -409,6 +460,20 @@ _CYCLE_MARKER_KEYS: tuple[str, ...] = (
 )
 
 
+def _outer_cycle_status(projected: str) -> str:
+    """The orchestrator's verdict on a cycle: ``ok``, ``degraded`` or ``failed``.
+
+    ``projected`` is ``runtime_artifacts._cycle_result_status``'s word. The
+    autonomy-state row and the continue/fail-closed decision both read this
+    one mapping, so they cannot disagree about what a degraded night is.
+    """
+    if projected in {"ok", "completed"}:
+        return "ok"
+    if projected == "degraded":
+        return "degraded"
+    return "failed"
+
+
 def _bounded_cycle_summary(cycle_result: dict[str, Any]) -> dict[str, Any]:
     tool_runs = cycle_result.get("tool_run_summary") if isinstance(cycle_result.get("tool_run_summary"), list) else []
     artifact_refs = [
@@ -430,8 +495,17 @@ def _bounded_cycle_summary(cycle_result: dict[str, Any]) -> dict[str, Any]:
         "artifact_refs": artifact_refs,
         "artifact_integrity": cycle_result.get("artifact_integrity"),
         "non_ok_tools": cycle_result.get("non_ok_tools", []),
+        # ARIA-HIGH-098 — the degraded tools by class, so the autonomy-state
+        # row (and the doctor reading it) names the tool without resolving
+        # the run artifact.
+        "degraded_tools": cycle_result.get("degraded_tools", []),
         "failed_phases": failed_phases,
         "incomplete_lifecycle_count": cycle_result.get("incomplete_lifecycle_count", 0),
+        # ARIA-HIGH-140 — the phase outcome ledger (ran / skipped / failed /
+        # interrupted, with the reason) reaches the store: before this it
+        # lived only in the cycle's in-memory state, and an operator could
+        # not tell from any ledger which phase a deadline cut.
+        "phases": cycle_result.get("phases") if isinstance(cycle_result.get("phases"), dict) else {},
     }
     # ORPHAN-HIGH-456 — this literal is CLOSED, so any key it does not name
     # is deleted on the way to the publisher. Two consumers were reading
@@ -655,6 +729,83 @@ def _apply_preflight_verdict(root: Path, profile: str, verdict: Any) -> None:
         )
 
 
+def _record_funnel_counter(
+    root: Path,
+    *,
+    cycle_id: str,
+    cycle_summary: dict[str, Any],
+    minted: int = 0,
+    converged: int = 0,
+    merged: int = 0,
+    rejected: int = 0,
+) -> None:
+    """One funnel fact for this cycle's pressure source, in the effectiveness ledger.
+
+    WHY (B4, 2026-09-12): the ledger's only writer sat on the converged
+    path, after auto_merge. On the live lane no cycle had converged, so the
+    writer never fired, ``knowledge-graph/pressure-source-effectiveness.jsonl``
+    never existed, and the funnel detector — whose whole purpose is to name
+    a pipeline that mints plans and converges none — had nothing to count:
+    the one stall the store exhibited was structurally invisible, and a
+    doctor organ judging the ledger's absence could only guess whether it
+    was bootstrap or loss.
+
+    WHAT: each counter is recorded at the ONE point where its fact becomes
+    true, not at the exits — ``minted`` when the synthesizer yields a plan
+    (before the ``cycle_runner_synthesized_plan`` transition, so the state
+    ledger's own row implies this one), ``rejected`` on the two exits where
+    the plan does not converge (invalid plan, blocked verdict),
+    ``converged`` the moment the arbiter says so (before the memory hook,
+    so a specialist-blocked or review-blocked converged plan still counts as
+    converged and the merge-stage stall stays countable), ``merged`` after
+    auto_merge reports one. Rows are cumulative per source and the reader
+    folds latest-per-source, so several rows per cycle cost nothing.
+
+    Advisory: a fault of the store (an unbindable tools root, a corrupt or
+    tampered ledger the reader quarantines, an undeclared surface, the file
+    system) is a governance row and the night goes on; a programming error
+    raises. The set is the ledger's own declaration
+    (``effectiveness_writer_faults``), never ``Exception`` — the previous
+    tuple caught TypeError and KeyError while a tampered ledger cost the
+    night (same defect class as the memory-hook guard, B1).
+
+    Bound to ``root`` (the tools root), never to a workspace: the live lane
+    binds ARIA_TOOLS_DIR=<store>/tools and passes the checkout as workspace
+    root, so a workspace-derived path names the checkout that dies with the
+    runner. The manifest declares the ledger a tools-root surface.
+    """
+    from .knowledge_graph import effectiveness_writer_faults, record_pressure_source_outcome
+    from .tool_registry import append_tools_governance
+
+    source_type = str(cycle_summary.get("_pressure_source_type") or "git_diff")
+    try:
+        record_pressure_source_outcome(
+            base_dir=root,
+            source_type=source_type,
+            minted=minted,
+            converged=converged,
+            merged=merged,
+            rejected=rejected,
+        )
+    except effectiveness_writer_faults() as exc:
+        append_tools_governance(
+            root, "pressure_source_outcome_failed",
+            {
+                "cycle_id": cycle_id,
+                "source_type": source_type,
+                "counters": {
+                    "minted": minted, "converged": converged,
+                    "merged": merged, "rejected": rejected,
+                },
+                "error_class": type(exc).__name__,
+                "error_message": str(exc)[:500],
+            },
+            # The row that discloses a refused write must not itself be
+            # refused by the profile gate.
+            bypass_profile_gate=True,
+        )
+
+
 def _calibration_reporter_and_auto_promotion(
     root: Path,
     cycle_id: str,
@@ -844,6 +995,7 @@ def run_autonomy_orchestrator(
     # which is the correct boundary for action-level gating (it
     # captures the CLI override + audit row in the same read).
     from .runtime_profile import enforce_profile_for_action
+    from .runtime_artifacts import _cycle_result_status
     from .tool_registry import (
         GovernanceError,
         append_tools_governance,
@@ -1190,6 +1342,96 @@ def run_autonomy_orchestrator(
                         bypass_profile_gate=True,
                     )
 
+                # B7 — orphan signing-key reaper, the Tier-3 net under the
+                # Tier-1 try/finally. The knowledge seam mints a per-cycle
+                # key into `<workspace>/aria-debts/keys/` on EVERY converged
+                # cycle under the default `standard` profile, and revokes it
+                # in `finally`; a process killed outright never reaches that
+                # `finally`, so the key files stay behind and the git
+                # signing config snapshot the mint took into the checkout's
+                # private git dir (`aria-signing-config-snapshots/`, under
+                # `.git/` or `.git/worktrees/<name>/`) still describes the
+                # operator's config. Same shape as the implementation-orphan
+                # reaper above: key files are age-bounded (24h), so a cycle
+                # still running in another process keeps its key; a snapshot
+                # whose key file is gone — pruned here, or wiped by the
+                # lane's `git clean -ffdx` pre-clean, which never touches
+                # `.git/` — is an orphan by definition and is unwound at
+                # once; per-startup; a `keys_pruned` row names what was
+                # pruned, which snapshots were unwound and which cycles' git
+                # config was restored; nothing pruned or unwound, nothing
+                # said (zero-noise floor). Failures surface as
+                # `keys_prune_failed` rather than blocking startup.
+                try:
+                    from .gh_token_factory import prune_stale_signing_keys
+                    _keys_pruned = prune_stale_signing_keys(
+                        workspace_root=Path(workspace_root) if workspace_root else root,
+                    )
+                except Exception as _prune_exc:
+                    append_tools_governance(
+                        root, "keys_prune_failed",
+                        {
+                            "error_class": type(_prune_exc).__name__,
+                            "error_message": str(_prune_exc)[:500],
+                        },
+                        bypass_profile_gate=True,
+                    )
+                else:
+                    if (
+                        _keys_pruned["pruned"]
+                        or _keys_pruned["snapshots_unwound"]
+                        or _keys_pruned["errors"]
+                    ):
+                        append_tools_governance(
+                            root, "keys_pruned",
+                            {
+                                "scanned_count": _keys_pruned["scanned"],
+                                "pruned": _keys_pruned["pruned"],
+                                "snapshots_unwound": _keys_pruned["snapshots_unwound"],
+                                "git_signing_config_restored":
+                                    _keys_pruned["git_signing_config_restored"],
+                                "errors": _keys_pruned["errors"],
+                            },
+                            bypass_profile_gate=True,
+                        )
+                # ARIA-HIGH-123 — the same net for the sockets the executor
+                # holds for an implementer's window: the ssh-agent that
+                # signs for the sandbox (`signing_agent`) and the hook
+                # broker the sandbox's hooks talk to (`hook_broker`). Each
+                # dies with its holder (PR_SET_PDEATHSIG; a daemon thread of
+                # the executor), but the socket directory a killed holder
+                # left behind stays until swept; a directory whose socket
+                # still answers belongs to a live holder and is left alone.
+                # Nothing swept, nothing said.
+                try:
+                    from .delivery_credentials import prune_stale_delivery_credential_dirs
+                    from .hook_broker import prune_stale_hook_brokers
+                    from .mcp_broker import prune_stale_mcp_brokers
+                    from .signing_agent import prune_stale_signing_agents
+                    _sockets_pruned = {
+                        "signing_agents": prune_stale_signing_agents(),
+                        "hook_brokers": prune_stale_hook_brokers(),
+                        # ARIA-HIGH-124 — the MCP broker's socket, the same class.
+                        "mcp_brokers": prune_stale_mcp_brokers(),
+                        # ARIA-HIGH-124 (round 6) — the delivery credential's
+                        # private directory: a killed executor leaves it
+                        # (with the token file, if the kill fell between the
+                        # mint's write and the hold's read); older than the
+                        # provider's hour it is nobody's.
+                        "delivery_credential_dirs": prune_stale_delivery_credential_dirs(),
+                    }
+                except Exception as _sweep_exc:
+                    append_tools_governance(
+                        root, "sockets_prune_failed",
+                        {"error_class": type(_sweep_exc).__name__, "error_message": str(_sweep_exc)[:500]},
+                        bypass_profile_gate=True,
+                    )
+                else:
+                    if any(summary["swept"] or summary["errors"] for summary in _sockets_pruned.values()):
+                        append_tools_governance(
+                            root, "sockets_pruned", _sockets_pruned, bypass_profile_gate=True,
+                        )
+
             for cycle_n in range(max_cycles):
                 # Plan ARIA-V7 §3 V7.7 — per-cycle watchdog.
                 # ``_cycle_started_at`` captures monotonic time at
@@ -1323,8 +1565,19 @@ def run_autonomy_orchestrator(
                         defer_reflection=True,
                     )
                     cycle_summary["cycle"] = _bounded_cycle_summary(cycle_result)
-                    raw_status = str(cycle_result.get("runtime_status") or cycle_result.get("status") or "failed")
-                    cycle_status = "ok" if raw_status in {"ok", "completed"} and not cycle_result.get("non_ok_tools") else "failed"
+                    # ARIA-HIGH-098 — three verdicts, not two. ``degraded``
+                    # (one or more tools non-ok, artifact index valid) is a
+                    # completed cycle whose degraded tools are named in the
+                    # summary; the drainers, the planner, convergence and
+                    # the post-CONVERGED phases run on it exactly as on
+                    # ``ok``. Fail-closed is reserved for ``failed`` and
+                    # ``integrity_failed`` — the cycle did not finish, or the
+                    # store cannot be trusted. Trial eleven's night ended
+                    # here on ``integrity_failed`` for one adapter's
+                    # ``evidence_error`` with 10/10 artifacts verified.
+                    cycle_status = _outer_cycle_status(
+                        _cycle_result_status(cycle_result, default="failed"),
+                    )
                 except Exception as exc:
                     # Plan 032 Faz 032e — a failed cycle is an operator event.
                     _notify_cycle_failed(root, cycle_id, exc)
@@ -1361,7 +1614,7 @@ def run_autonomy_orchestrator(
                         "summary": cycle_summary.get("cycle"),
                     },
                 )
-                if cycle_status == "ok":
+                if cycle_status in {"ok", "degraded"}:
                     cycles_completed += 1
                 elif fail_closed_on_cycle_failure:
                     per_cycle_results.append(cycle_summary)
@@ -1655,10 +1908,19 @@ def run_autonomy_orchestrator(
                     per_cycle_results.append(cycle_summary)
                     continue
                 # Plan ARIA-V7 §2i v2 — synthesizer produced real plan.
+                # The funnel's entry: the plan is minted. Recorded BEFORE
+                # the state transition below so that a
+                # cycle_runner_synthesized_plan row in autonomy_state.jsonl
+                # implies a row in the effectiveness ledger — the doctor's
+                # funnel organ judges the ledger's absence against exactly
+                # that row (B4, 2026-09-12).
+                _record_funnel_counter(
+                    root, cycle_id=cycle_id, cycle_summary=cycle_summary, minted=1,
+                )
                 AutonomyStateReducer.transition(
                     root,
                     cycle_id=cycle_id,
-                    phase="cycle_runner_synthesized_plan",
+                    phase=PLAN_MINTED_PHASE,
                     status="ok",
                     profile=profile_snapshot,
                     details={
@@ -1669,6 +1931,9 @@ def run_autonomy_orchestrator(
                         "key_changes_count": len(
                             _v7_plan_content.get("key_changes", [])
                         ),
+                        # The claim the doctor's funnel organ counts: this
+                        # row was written after its effectiveness row.
+                        FUNNEL_RECORDED_DETAIL: True,
                     },
                 )
                 cycle_summary["plan_synthesizer"] = {
@@ -1711,19 +1976,36 @@ def run_autonomy_orchestrator(
                 # the actual work surface (evidence_refs +
                 # allowed_scope from synthesized plan; must_satisfy
                 # derived from key_changes clusters).
+                # ARIA-HIGH-104 (3)/(5) — one key-change shape (a string step
+                # or {id?, description, paths?}) read through its accessors,
+                # one obligation shape built through its constructor; a
+                # string entry no longer crashes on `.get` and an obligation
+                # the request contract refuses cannot be assembled here. The
+                # plan's wording rides as `plan_description` data: the
+                # obligation text is the kernel's, so a planner's word choice
+                # cannot fail the mint's banned-phrase scan, and the
+                # obligation id is positional so two plan entries sharing an
+                # id cannot collide at the mint either.
+                from .must_satisfy import key_change_obligation, must_satisfy_item
+                from .plan_convergence import key_change_description, key_change_id, key_change_paths
+
                 _v7_must_satisfy = [
-                    {
-                        "id": str(kc.get("id", f"key-change-{i}")),
-                        "description": str(kc.get("description", "")),
-                    }
+                    key_change_obligation(
+                        id=f"key-change-{i}",
+                        index=i,
+                        plan_description=key_change_description(kc) or str(kc),
+                        paths=key_change_paths(kc),
+                        key_change_id=key_change_id(kc),
+                    )
                     for i, kc in enumerate(_v7_plan_content.get("key_changes") or [])
-                ] or [{
-                    "id": "cycle-impl-satisfies-scope",
-                    "description":
+                ] or [must_satisfy_item(
+                    id="cycle-impl-satisfies-scope",
+                    description=(
                         "Implementation must satisfy the cycle's "
                         "must_satisfy contract derived from "
-                        "discovery + planner output.",
-                }]
+                        "discovery + planner output."
+                    ),
+                )]
                 _v7_evidence_refs = list(
                     _v7_plan_content.get("evidence_refs") or [f"cycle:{cycle_id}"]
                 )
@@ -1786,6 +2068,10 @@ def run_autonomy_orchestrator(
                         "error_class": type(_v7_exc).__name__,
                         "error_message": str(_v7_exc)[:1000],
                     }
+                    # The minted plan left the funnel without converging.
+                    _record_funnel_counter(
+                        root, cycle_id=cycle_id, cycle_summary=cycle_summary, rejected=1,
+                    )
                     # ORPHAN-HIGH-782 — an invalid plan must not cost the
                     # night its precision history; the cycle itself ran.
                     _calibration_reporter_and_auto_promotion(
@@ -1847,6 +2133,13 @@ def run_autonomy_orchestrator(
                                 convergence_result.get("rounds_count"),
                         },
                     )
+                    # The minted plan left the funnel without converging.
+                    # This is the exit the live lane took every night
+                    # (0 converged cycles); counting it here is what makes
+                    # the convergence-stage stall countable (B4).
+                    _record_funnel_counter(
+                        root, cycle_id=cycle_id, cycle_summary=cycle_summary, rejected=1,
+                    )
                     # ORPHAN-HIGH-782 — the calibration reporter and the V6.4
                     # auto-promote attempt run on convergence-blocked nights
                     # too. This branch used to `continue` straight to
@@ -1885,156 +2178,237 @@ def run_autonomy_orchestrator(
                     per_cycle_results.append(cycle_summary)
                     continue
 
-                # Plan ARIA-V3.1-C2 — post-CONVERGED MemoryHook wire.
-                # Fires the bounded governance read → stability check
-                # → record_convention → verify_chain_or_quarantine →
-                # skill_genesis_human_required_dispatch pipeline.
-                # NoOp variant (default) preserves V8 behavior; the
-                # MemoryHookImpl production variant activates the V10
-                # memory pillar per cycle (closes V31-C2 follow-up).
-                #
-                # Placed BEFORE specialist_review_started so the V10
-                # memory contribution lands per CONVERGED cycle even
-                # when specialist_review rejects. The MemoryHook is
-                # idempotent for crash recovery — the convention row
-                # is keyed by pattern_signature.
-                try:
-                    _v31c2_memory_result = memory_hook.record(
-                        cycle_id=cycle_id,
-                        plan_id=convergence_result.get("plan_id") or active_plan_id,
-                        workspace_root=Path(workspace_root) if workspace_root else root,
-                        base_dir=root,
-                        plan_envelope_metadata={
-                            "_pressure_source_type": cycle_summary.get(
-                                "_pressure_source_type", "git_diff",
-                            ),
-                        },
-                        profile=str(profile_snapshot or "standard"),
-                        signer_key_fp=None,  # V31-D2 will thread the cycle key fp here
-                    )
-                    cycle_summary["memory_hook"] = _v31c2_memory_result
-                    AutonomyStateReducer.transition(
-                        root, cycle_id=cycle_id,
-                        phase="memory_hook_recorded",
-                        status=str(_v31c2_memory_result.get("status") or "ok"),
-                        profile=profile_snapshot,
-                        details={
-                            "convention_recorded": _v31c2_memory_result.get("convention_recorded"),
-                            "stability_fired": _v31c2_memory_result.get(
-                                "stability_result", {},
-                            ).get("stable"),
-                            "skill_genesis_dispatched": _v31c2_memory_result.get(
-                                "skill_genesis_dispatched",
-                            ),
-                        },
-                    )
-                except Exception as _v31c2_exc:
-                    # Best-effort — V10 memory pillar failure must not
-                    # block specialist_review + worker_drainer +
-                    # auto_merge. The exception is surfaced via
-                    # governance event for operator visibility.
-                    append_tools_governance(
-                        root, "memory_hook_failed",
-                        {
-                            "cycle_id": cycle_id,
-                            "error_class": type(_v31c2_exc).__name__,
-                            "error_message": str(_v31c2_exc)[:500],
-                        },
-                        bypass_profile_gate=True,
-                    )
-
-                # Plan ARIA-V10.5 Phase 7 — F-027 closure. V9
-                # implementation phase. Per cycle_phases/implementer.py
-                # contract: "V9 closes the value gap CONVERGED plans
-                # never become real code. v3.1-B wires the
-                # implementation phase between CONVERGED and
-                # specialist_review." Pre-F-027 the runner was plumbed
-                # via the v9_implementation_runner parameter (defaulted
-                # to NoOpV9ImplementationRunner at line 368-370) but
-                # .run() was never invoked — F-024+F-025+F-026 trinity
-                # delivered CONVERGED cycles in production
-                # (v10-5-f-026-validation cycle 3 at 21:24:46) but the
-                # downstream pipeline was structurally absent.
-                #
-                # The signal-typed V9ImplementationResult lets the
-                # orchestrator pick the next specialist_review behavior
-                # without inspecting terminal_state heuristically.
-                # ORPHAN-HIGH-728 — TWO variants, selected by authority:
-                # the NoOp returns IMPLEMENTATION_REQUEST_REFUSED with
-                # specialist_review_signal=review_converged_plan (V8
-                # behaviour) for every profile without `pr_create`, and
-                # AutonomousV9ImplementationRunner mints the
-                # aria-implementer subprocess + polls + records outcome for
-                # every profile that holds it. The third, `Strict`, refused
-                # under a profile the table grants `pr_create` and is
-                # deleted.
-                AutonomyStateReducer.transition(
-                    root,
-                    cycle_id=cycle_id,
-                    phase="v9_implementation_phase_started",
-                    status="ok",
-                    profile=profile_snapshot,
-                    details={
-                        "plan_id": convergence_result.get("plan_id"),
-                        "runner_class": type(v9_implementation_runner).__name__,
-                    },
+                # The plan converged. Recorded here, at the verdict, rather
+                # than after auto_merge: a converged plan that specialist
+                # review or Gate B later blocks is still a converged plan,
+                # and the merge-stage stall (converged in, nothing merged)
+                # is only countable if convergence is counted on every
+                # converged exit (B4, 2026-09-12).
+                _record_funnel_counter(
+                    root, cycle_id=cycle_id, cycle_summary=cycle_summary, converged=1,
                 )
-                try:
-                    v9_result = v9_implementation_runner.run(
-                        cycle_id=cycle_id,
-                        plan_id=str(
-                            convergence_result.get("plan_id") or active_plan_id
-                        ),
-                        workspace_root=Path(workspace_root) if workspace_root else root,
-                        base_dir=root,
-                        cross_review_summary={
-                            "revision_id": convergence_result.get("convergence_id")
-                            or convergence_result.get("plan_id"),
-                            "rounds_count": convergence_result.get("rounds_count"),
-                            "request_ids": convergence_result.get("request_ids", []),
-                        },
-                        profile=str(profile_snapshot or "standard"),
-                    )
-                    cycle_summary["v9_implementation"] = {
-                        "terminal_state": v9_result.terminal_state,
-                        "pr_url": v9_result.pr_url,
-                        "rejection_class": v9_result.rejection_class,
-                        "specialist_review_signal": v9_result.specialist_review_signal,
-                    }
+
+                # B7 — the cycle knowledge signer. Everything from here to the
+                # end of the V9 implementation phase runs under ONE per-cycle
+                # signing identity, derived from the `knowledge_record` cell of
+                # ACTION_PERMISSIONS (cycle_phases.knowledge_signer). The memory
+                # hook signs the CONVERGED plan's hypothesis row with it in THIS
+                # cycle; the V9 runner, when the profile holds `pr_create`, re-mints
+                # the same identity idempotently for the implementation. Before
+                # this seam the hook was handed signer_key_fp=None and the only
+                # signer lived inside the V9 runner, so every `standard` run (all
+                # of them, live) disclosed needs_signing and nothing ever completed
+                # it: knowledge-graph/conventions.jsonl was never created.
+                from .cycle_phases.knowledge_signer import cycle_knowledge_signer
+                from .cycle_phases.memory import memory_hook_runtime_faults
+
+                with cycle_knowledge_signer(
+                    profile=str(profile_snapshot or "standard"),
+                    cycle_id=cycle_id,
+                    workspace_root=Path(workspace_root) if workspace_root else root,
+                    base_dir=root,
+                ) as knowledge_signer:
+                    cycle_summary["knowledge_signer"] = knowledge_signer.receipt()
+                    # Plan ARIA-V3.1-C2 — post-CONVERGED MemoryHook wire.
+                    # Fires the bounded governance read → stability check
+                    # → record_convention → verify_chain_or_quarantine →
+                    # skill_genesis_human_required_dispatch pipeline.
+                    # NoOp variant (default) preserves V8 behavior; the
+                    # MemoryHookImpl production variant activates the V10
+                    # memory pillar per cycle (closes V31-C2 follow-up).
+                    #
+                    # Placed BEFORE specialist_review_started so the V10
+                    # memory observation lands per CONVERGED cycle even
+                    # when specialist_review rejects. With the cycle signer
+                    # the hook appends the signed hypothesis row now; without
+                    # one (profile lacks `knowledge_record`, or the mint
+                    # failed) it discloses needs_signing once per plan
+                    # revision, and replay does not append another identical
+                    # observation.
+                    #
+                    # The keyword set below is pinned to every hook variant's
+                    # keyword-only signature by I-V31-C2-07: a parameter added
+                    # on one side only is a red test, not a swallowed TypeError.
+                    try:
+                        _v31c2_memory_result = memory_hook.record(
+                            cycle_id=cycle_id,
+                            plan_id=convergence_result.get("plan_id") or active_plan_id,
+                            workspace_root=Path(workspace_root) if workspace_root else root,
+                            base_dir=root,
+                            plan_envelope_metadata={
+                                "_pressure_source_type": cycle_summary.get(
+                                    "_pressure_source_type", "git_diff",
+                                ),
+                            },
+                            profile=str(profile_snapshot or "standard"),
+                            # The cycle's own ephemeral key, or None when the
+                            # profile holds no `knowledge_record` authority or
+                            # the mint failed. The hook never substitutes a
+                            # placeholder for an absent signer.
+                            signer_key_fp=knowledge_signer.fingerprint,
+                        )
+                        cycle_summary["memory_hook"] = _v31c2_memory_result
+                        AutonomyStateReducer.transition(
+                            root, cycle_id=cycle_id,
+                            phase="memory_hook_recorded",
+                            status=str(_v31c2_memory_result.get("status") or "ok"),
+                            profile=profile_snapshot,
+                            details={
+                                "convention_recorded": _v31c2_memory_result.get("convention_recorded"),
+                                "knowledge_signer": knowledge_signer.status,
+                                "signer_key_fp": knowledge_signer.fingerprint,
+                                "stability_fired": _v31c2_memory_result.get(
+                                    "stability_result", {},
+                                ).get("stable"),
+                                "skill_genesis_dispatched": _v31c2_memory_result.get(
+                                    "skill_genesis_dispatched",
+                                ),
+                            },
+                        )
+                    except memory_hook_runtime_faults() as _v31c2_exc:
+                        # A RUNTIME fault of the memory pillar (unwritable or
+                        # corrupt ledger, plan not CONVERGED, locked tools
+                        # root) must not block specialist_review +
+                        # worker_drainer + auto_merge; it is surfaced as a
+                        # governance row for the operator. The set is the
+                        # hook's own declaration, deliberately NOT
+                        # ``Exception``: a TypeError from a caller/callee
+                        # signature drift was laundered into this row for
+                        # weeks (B1, 2026-09-12). Programming errors raise.
+                        append_tools_governance(
+                            root, "memory_hook_failed",
+                            {
+                                "cycle_id": cycle_id,
+                                "error_class": type(_v31c2_exc).__name__,
+                                "error_message": str(_v31c2_exc)[:500],
+                            },
+                            bypass_profile_gate=True,
+                        )
+
+                    # B7 — the replay path. Rows an earlier cycle disclosed as
+                    # needs_signing (a profile without `knowledge_record`, a
+                    # failed mint, or any run before this seam existed) are
+                    # completed under THIS cycle's signer, in every profile
+                    # that holds one. This used to ride the V9 runner's
+                    # on_signer_ready callback and therefore fired only under
+                    # `pr_create`; the seam owns the signer now, so it owns
+                    # the replay too, and the runner is no longer asked to
+                    # call back.
+                    observation_completion_report: dict[str, Any] = {"status": "not_attempted"}
+                    cycle_summary["memory_completion"] = observation_completion_report
+                    if knowledge_signer.fingerprint is not None:
+                        try:
+                            observation_completion_report.update(
+                                memory_hook.complete_pending_observations(
+                                    base_dir=root,
+                                    signer_cycle_id=knowledge_signer.cycle_id,
+                                    signer_key_fp=knowledge_signer.fingerprint,
+                                    report=observation_completion_report,
+                                ),
+                            )
+                        except Exception as _replay_exc:
+                            # The completion batch's own verdict, kept apart
+                            # from the initial observation's status — the
+                            # same shape the V9 callback wrapper reported.
+                            observation_completion_report.update({
+                                "status": "callback_error",
+                                "error_class": type(_replay_exc).__name__,
+                            })
+
+                    # Plan ARIA-V10.5 Phase 7 — F-027 closure. V9
+                    # implementation phase. Per cycle_phases/implementer.py
+                    # contract: "V9 closes the value gap CONVERGED plans
+                    # never become real code. v3.1-B wires the
+                    # implementation phase between CONVERGED and
+                    # specialist_review." Pre-F-027 the runner was plumbed
+                    # via the v9_implementation_runner parameter (defaulted
+                    # to NoOpV9ImplementationRunner at line 368-370) but
+                    # .run() was never invoked — F-024+F-025+F-026 trinity
+                    # delivered CONVERGED cycles in production
+                    # (v10-5-f-026-validation cycle 3 at 21:24:46) but the
+                    # downstream pipeline was structurally absent.
+                    #
+                    # The signal-typed V9ImplementationResult lets the
+                    # orchestrator pick the next specialist_review behavior
+                    # without inspecting terminal_state heuristically.
+                    # ORPHAN-HIGH-728 — TWO variants, selected by authority:
+                    # the NoOp returns IMPLEMENTATION_REQUEST_REFUSED with
+                    # specialist_review_signal=review_converged_plan (V8
+                    # behaviour) for every profile without `pr_create`, and
+                    # AutonomousV9ImplementationRunner mints the
+                    # aria-implementer subprocess + polls + records outcome for
+                    # every profile that holds it. The third, `Strict`, refused
+                    # under a profile the table grants `pr_create` and is
+                    # deleted.
                     AutonomyStateReducer.transition(
                         root,
                         cycle_id=cycle_id,
-                        phase="v9_implementation_phase_resolved",
-                        status=str(v9_result.terminal_state),
+                        phase="v9_implementation_phase_started",
+                        status="ok",
                         profile=profile_snapshot,
                         details={
-                            "specialist_review_signal": v9_result.specialist_review_signal,
+                            "plan_id": convergence_result.get("plan_id"),
+                            "runner_class": type(v9_implementation_runner).__name__,
+                        },
+                    )
+                    try:
+                        v9_result = v9_implementation_runner.run(
+                            cycle_id=cycle_id,
+                            plan_id=str(
+                                convergence_result.get("plan_id") or active_plan_id
+                            ),
+                            workspace_root=Path(workspace_root) if workspace_root else root,
+                            base_dir=root,
+                            cross_review_summary={
+                                "revision_id": convergence_result.get("convergence_id")
+                                or convergence_result.get("plan_id"),
+                                "rounds_count": convergence_result.get("rounds_count"),
+                                "request_ids": convergence_result.get("request_ids", []),
+                            },
+                            profile=str(profile_snapshot or "standard"),
+                        )
+                        cycle_summary["v9_implementation"] = {
+                            "terminal_state": v9_result.terminal_state,
                             "pr_url": v9_result.pr_url,
                             "rejection_class": v9_result.rejection_class,
-                        },
-                    )
-                except Exception as _v9_exc:
-                    # Best-effort: a V9 phase failure must not block
-                    # specialist_review + worker_drainer. The failure
-                    # surfaces via governance event for operator
-                    # visibility, and the orchestrator falls back to
-                    # review_converged_plan signal (the V8 default).
-                    append_tools_governance(
-                        root, "v9_implementation_phase_failed",
-                        {
-                            "cycle_id": cycle_id,
-                            "plan_id": convergence_result.get("plan_id"),
-                            "error_class": type(_v9_exc).__name__,
-                            "error_message": str(_v9_exc)[:500],
-                        },
-                        bypass_profile_gate=True,
-                    )
-                    cycle_summary["v9_implementation"] = {
-                        "terminal_state": "IMPLEMENTATION_REQUEST_REFUSED",
-                        "pr_url": None,
-                        "rejection_class": f"runner_exception:{type(_v9_exc).__name__}",
-                        "specialist_review_signal": "review_converged_plan",
-                    }
+                            "specialist_review_signal": v9_result.specialist_review_signal,
+                        }
+                        AutonomyStateReducer.transition(
+                            root,
+                            cycle_id=cycle_id,
+                            phase="v9_implementation_phase_resolved",
+                            status=str(v9_result.terminal_state),
+                            profile=profile_snapshot,
+                            details={
+                                "specialist_review_signal": v9_result.specialist_review_signal,
+                                "pr_url": v9_result.pr_url,
+                                "rejection_class": v9_result.rejection_class,
+                            },
+                        )
+                    except Exception as _v9_exc:
+                        # Best-effort: a V9 phase failure must not block
+                        # specialist_review + worker_drainer. The failure
+                        # surfaces via governance event for operator
+                        # visibility, and the orchestrator falls back to
+                        # review_converged_plan signal (the V8 default).
+                        cycle_summary["v9_implementation"] = {
+                            "terminal_state": "IMPLEMENTATION_REQUEST_REFUSED",
+                            "pr_url": None,
+                            "rejection_class": f"runner_exception:{type(_v9_exc).__name__}",
+                            "specialist_review_signal": "review_converged_plan",
+                        }
+                        try:
+                            append_tools_governance(
+                                root, "v9_implementation_phase_failed",
+                                {
+                                    "cycle_id": cycle_id,
+                                    "plan_id": convergence_result.get("plan_id"),
+                                    "error_class": type(_v9_exc).__name__,
+                                },
+                                bypass_profile_gate=True,
+                            )
+                        except Exception as audit_exc:
+                            cycle_summary["v9_implementation"]["audit_error_class"] = type(audit_exc).__name__
 
                 # Plan ARIA-V6 §2c V6.1 Phase 6.1 — Gate C Lane-A
                 # specialist dispatch. Inserted between Gate A's
@@ -2323,31 +2697,17 @@ def run_autonomy_orchestrator(
                     details={},
                 )
 
-                # M3/E8 — the effectiveness ledger's first writer fires
-                # here because this is the one point where all three
-                # outcome signals for the cycle's pressure source are in
-                # scope: the plan was minted (we are past the synthesizer),
-                # convergence's arbiter verdict is folded, and auto_merge
-                # just reported. Without this row the mission scheduler's
+                # M3/E8 — the funnel's last fact: auto_merge reported. A
+                # cycle counts as merged once however many PRs it landed;
+                # a converged cycle that merged nothing has nothing new to
+                # record here (its convergence is already counted at the
+                # verdict). Without this row the mission scheduler's
                 # Thompson bandit drew from the uninformative prior forever
-                # — exploration-aware scheduling was decoration. Advisory:
-                # a ledger failure must not cost the night.
-                try:
-                    from .knowledge_graph import record_pressure_source_outcome
-
-                    record_pressure_source_outcome(
-                        workspace_root=workspace_root,
-                        source_type=str(
-                            cycle_summary.get("_pressure_source_type")
-                            or "git_diff",
-                        ),
-                        minted=1,
-                        converged=1 if arbiter_verdict == "converged" else 0,
-                        merged=1 if extra_merges else 0,
-                        rejected=0 if arbiter_verdict == "converged" else 1,
+                # — exploration-aware scheduling was decoration.
+                if extra_merges:
+                    _record_funnel_counter(
+                        root, cycle_id=cycle_id, cycle_summary=cycle_summary, merged=1,
                     )
-                except (OSError, ValueError, KeyError, TypeError):
-                    pass
 
                 # Plan ARIA-V7 §3 Phase 7.6 — calibration_reporter +
                 # the V6.4 auto-promote first caller, via the extracted

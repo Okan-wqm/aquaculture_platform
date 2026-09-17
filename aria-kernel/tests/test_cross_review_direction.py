@@ -64,8 +64,11 @@ class CrossReviewDirectionTests(unittest.TestCase):
                 {"paths": ["aria-kernel/aria_kernel/plan_convergence.py"]}
             ],
             "key_changes": ["change"],
-            "validation_commands": [{"cmd": "true"}],
+            # The challenger below is judged by the plan contract at submit:
+            # a declared command and a tier claim, as production bodies carry.
+            "validation_commands": [{"cmd": "nx affected --target=test"}],
             "evidence_refs": ["docs/aria/SPEC.md"],
+            "architectural_tier": 2,
         }
         start_plan(
             plan_id="plan-dir",

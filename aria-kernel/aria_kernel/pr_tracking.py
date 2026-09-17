@@ -231,7 +231,7 @@ def dispatch_change_intelligence(
             suggested_prompt=prompt,
             must_satisfy=[{
                 "id": "impact-map",
-                "criterion": (
+                "description": (
                     "details.impact_map classifies every impacted belief, "
                     "finding and fixture with evidence from the merge commit"
                 ),

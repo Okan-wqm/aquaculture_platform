@@ -97,7 +97,7 @@ def default_dispatcher_config() -> DispatcherConfig:
         "subprocess_timeout_seconds": 1800.0,
         "claude_auth_mode": "managed_session",
         "claude_cli_binary": "claude",
-        "claude_model": "fable",
+        "claude_model": "opus",
         "api_key_mode_allowed": False,
     })
     for key, env_var, cast in (

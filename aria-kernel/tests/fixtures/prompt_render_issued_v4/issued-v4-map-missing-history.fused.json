@@ -1,0 +1,134 @@
+{
+  "allowed_scope": [
+    "src/**",
+    "apps/svc/**"
+  ],
+  "context_hash": "sha256:96036cafcf74bfc9c2c5b449a856614d797428043772715204ccd64ce5c87b71",
+  "context_ledger_hash": "sha256:42ba6b6fbae869af9ddfdf697afc79140a159f27560001c7a0b29a698db7a719",
+  "convergence_id": "s3-v4-original",
+  "cycle_id": "s3-v4-original",
+  "established_knowledge": {
+    "anti_patterns": [],
+    "beliefs": [],
+    "conventions": [],
+    "past_failed_attempts": [],
+    "past_failed_attempts_state": {
+      "matching_count": null,
+      "reason": "results_absent",
+      "returned_count": 0,
+      "schema_version": 1,
+      "source_snapshot": {
+        "agent_invocation_claims": {
+          "present": false,
+          "row_count": 0,
+          "tail_ledger_hash": null
+        },
+        "agent_invocation_requests": {
+          "present": false,
+          "row_count": 0,
+          "tail_ledger_hash": null
+        },
+        "agent_invocation_results": {
+          "present": false,
+          "row_count": 0,
+          "tail_ledger_hash": null
+        }
+      },
+      "status": "missing",
+      "truncated": null
+    }
+  },
+  "evidence_excerpts": [
+    {
+      "content": "rate = 1\n",
+      "content_hash": "sha256:c66c763adc538fb5f4671ffe8a162893c7d9b76985d3de734a23fdae640acb5d",
+      "end_line": 1,
+      "path": "src/feed.py",
+      "start_line": 1,
+      "truncated": false
+    },
+    {
+      "content": "export const a = 1;\n",
+      "content_hash": "sha256:037ecd1db38c230c248787e60fd7bfc0cb0101b187b59535b6e7483be762d350",
+      "end_line": 1,
+      "path": "apps/svc/src/a.ts",
+      "start_line": 1,
+      "truncated": false
+    }
+  ],
+  "evidence_refs": [
+    "src/feed.py:1",
+    "apps/svc/src/a.ts:1"
+  ],
+  "expected_output_path": "/tmp/codex-aria-s3-20260910-jkaa_1c4/v4-issued-baseline-fixture/store/tools/agent-invocations/outputs/s3-v4-original/round-na-evidence_judgment-AIR-aria-evidence-judge-718e2ec75c07.md",
+  "must_satisfy": [
+    {
+      "criterion": "cite the feed rate source",
+      "id": "feed-evidence"
+    }
+  ],
+  "plan_revision_hash": null,
+  "prompt_hash": "sha256:9a4b2c3db2f5fe17217ca27b0abe5fe7ee5267a852ca22b02f71c2049f560447",
+  "prompt_ledger_hash": "sha256:fc78e5245b8fce9ac59b8b962c9a59bc8a76d8b8da4db935f5c2cf0d43ddc30e",
+  "prompt_render_version": 4,
+  "recent_intent": {
+    "files": [
+      {
+        "commits": [
+          {
+            "sha": "cb5cdcae5928",
+            "subject": "fixture: mapped source and test"
+          }
+        ],
+        "file": "apps/svc/src/a.ts"
+      },
+      {
+        "commits": [
+          {
+            "sha": "e93fc2b6fde8",
+            "subject": "fixture: seed 5 files"
+          }
+        ],
+        "file": "src/feed.py"
+      }
+    ],
+    "head_sha": "cb5cdcae59282f1e1cfc0383c9d43f73691c7a85",
+    "source": "git-log"
+  },
+  "repository_map": {
+    "files": [
+      {
+        "churn_commits": 0,
+        "co_changes_with": [],
+        "file": "apps/svc/src/a.ts",
+        "project": "svc",
+        "tests": [
+          "apps/svc/src/a.spec.ts"
+        ]
+      },
+      {
+        "churn_commits": 0,
+        "co_changes_with": [],
+        "file": "src/feed.py",
+        "project": null,
+        "tests": []
+      }
+    ],
+    "impacted_projects": [
+      [
+        "svc",
+        {
+          "dependents": [],
+          "depends_on": [],
+          "layer": 0
+        }
+      ]
+    ],
+    "indexed_sha": "cb5cdcae59282f1e1cfc0383c9d43f73691c7a85",
+    "schema_version": 1
+  },
+  "request_id": "AIR-aria-evidence-judge-718e2ec75c07",
+  "role": "evidence_judgment",
+  "suggested_prompt": "Check the feed rate using repository evidence.",
+  "target_agent": "aria-evidence-judge"
+}

@@ -68,11 +68,49 @@ class DetectionRuleTests(unittest.TestCase):
         self.assertTrue(any(f["label"] == "aws_access_key" for f in findings))
 
     def test_findings_include_contract_evidence(self) -> None:
+        # ARIA-HIGH-098 — the contract is the kernel validator's, not a `ref`
+        # string: per-finding `evidence: [{path, line?}]`, `path`/`line`
+        # split, plain paths in `evidence_sources`, and every evidence path
+        # declared in `read_paths`. The previous form of this test pinned
+        # `evidence_sources == [".github/workflows/perm.yml:2"]` — the exact
+        # shape the validator rejected on trial eleven.
         _write(self.repo, ".github/workflows/perm.yml",
                "name: x\npermissions: write-all\njobs:\n  build:\n    runs-on: ubuntu-latest\n")
         result = scan(self.repo)
         self.assertTrue(result["findings"])
-        self.assertEqual(result["evidence_sources"], [".github/workflows/perm.yml:2"])
+        finding = result["findings"][0]
+        self.assertEqual(finding["path"], ".github/workflows/perm.yml")
+        self.assertEqual(finding["line"], 2)
+        self.assertEqual(finding["evidence"], [{"path": ".github/workflows/perm.yml", "line": 2}])
+        self.assertEqual(finding["id"], "broad_shell_permission:.github/workflows/perm.yml:2")
+        self.assertTrue(finding["message"])
+        self.assertNotIn("ref", finding)
+        self.assertEqual(result["evidence_sources"], [".github/workflows/perm.yml"])
+        self.assertIn(".github/workflows/perm.yml", result["read_paths"])
+
+    def test_scan_output_passes_the_kernel_evidence_validator(self) -> None:
+        # The validator the runner applies to every production run
+        # (`tool_runner.run_tool` → `validate_tool_output_evidence`), applied
+        # to the adapter's output under its own manifest scope. This is the
+        # check no fixture case ever ran for this adapter before trial
+        # eleven, and the reason its 48 findings were `finding_evidence_missing`.
+        from aria_kernel.evidence_validator import validate_tool_output_evidence
+
+        _write(self.repo, ".github/workflows/perm.yml",
+               "name: x\npermissions: write-all\njobs:\n  build:\n    runs-on: ubuntu-latest\n")
+        _write(self.repo, ".claude/agents/edit-agent.md",
+               "---\nname: x\ntools: [Edit, Write, Bash]\n---\nbody\n")
+        _write(self.repo, "tools/aria-poc/leak.py",
+               "import sys\nprint(f'token: {lease_token}')\n")
+        manifest = json.loads(
+            (Path(__file__).resolve().parents[2] / "tools" / "aria-adapters"
+             / "agent-harness-security-adapter.tool.json").read_text(encoding="utf-8"),
+        )
+        result = scan(self.repo)
+        self.assertGreaterEqual(len(result["findings"]), 3)
+        verdict = validate_tool_output_evidence(manifest, result, self.repo)
+        self.assertEqual(verdict["errors"], [])
+        self.assertTrue(verdict["valid"])
 
     def test_untrusted_checkout_fires_only_on_workflow_run(self) -> None:
         _write(self.repo, ".github/workflows/safe.yml", """

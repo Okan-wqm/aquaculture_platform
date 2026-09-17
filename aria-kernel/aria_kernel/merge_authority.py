@@ -38,6 +38,7 @@ def merge_pr_if_ready(
     cycle_id: str | None = None,
     diff_text: str | None = None,
     readiness_claim_id: str | None = None,
+    workspace_root: str | Path | None = None,
 ) -> dict[str, Any]:
     """Single real-merge authority for ARIA-governed PRs.
 
@@ -198,29 +199,23 @@ def merge_pr_if_ready(
                 )
                 _append_decision(base_dir, result)
             else:
-                # ORPHAN-HIGH-764 — ADR-041 decision 3's "fresh pre-merge
-                # re-check", as code instead of prose. The hard-fail perimeter
-                # runs at the freshest point that exists: after the live
-                # re-evaluation and the head-SHA stability check, immediately
-                # before adapter.merge_pr. Every GATE_PRE_MERGE check currently
-                # binds _not_implemented, which FAILS by design — so this gate
-                # refuses every merge until each declared check is built. That
-                # is fail-closed, not a regression: the lane is inactive
-                # regardless (profile, unlock and master switch all refuse
-                # first), and the moment a check gains an implementation it is
-                # load-bearing here without anyone remembering to wire it.
-                # Context fields the merge-authority stage genuinely does not
-                # have (workspace_root, pr_body) stay absent: a check that
-                # needs one fails on its absence rather than passing vacuously.
-                perimeter_context = HardFailContext(
+                # Bind the final live PR observation to native implementation
+                # evidence after head re-evaluation. Missing roots or joins
+                # remain explicit gaps; the existing registry owns refusal.
+                perimeter_context = _capture_pre_merge_context(
+                    workspace_root=workspace_root,
+                    base_dir=base_dir,
+                    pr=fresh_pr,
                     diff_text=fresh_diff,
-                    envelope={
-                        "affected_surfaces": list(fresh_pr.get("changed_files") or []),
-                    },
-                    base_branch=_base_branch(fresh_pr),
                 )
                 hard_fail_report = run_hard_fail_checks(
                     perimeter_context, gate=GATE_PRE_MERGE,
+                )
+                from .expert_review_gate import _ensure_implementation_expert_requests
+
+                _ensure_implementation_expert_requests(
+                    perimeter_context, hard_fail_report,
+                    base_dir=base_dir, cycle_id=cycle_id,
                 )
                 if not hard_fail_report.passed:
                     result = dict(decision)
@@ -333,6 +328,694 @@ def _base_branch(pr: dict[str, Any]) -> str | None:
         if isinstance(value, str) and value.strip():
             return value
     return None
+
+
+def _capture_pre_merge_context(
+    *,
+    workspace_root: str | Path | None,
+    base_dir: str | Path | None,
+    pr: dict[str, Any],
+    diff_text: str | None,
+) -> HardFailContext:
+    """Capture native pre-merge identities without manufacturing missing joins.
+
+    Host binding and Git work run outside state transactions. Exact native
+    prefixes are captured together and rechecked after the existing plan and
+    snapshot owners finish; a changed source makes the context unavailable.
+    This reader neither repairs historical rows nor qualifies an absent
+    implementation request. The registry still owns all check verdicts.
+    """
+    import re as _re
+    from dataclasses import replace as _replace
+
+    from . import agent_invocations as _invocations
+    from . import plan_convergence as _plans
+    from .implementation_safety import _PreMergeEvidence
+    from .ledger import LedgerIntegrityError as _LedgerIntegrityError
+    from .ledger import _verify_jsonl_from_text
+    from .ledger import load_jsonl_verified_text as _load_verified_text
+    from .ledger import state_transaction as _state_transaction
+    from .snapshot import build_repo_snapshot as _build_snapshot
+    from .state_store import StateStoreError as _StateStoreError
+    from .state_store import _git, _read_bounded_regular_file, _valid_host_identity
+    from .tool_registry import ensure_tools_dir_readonly as _existing_tools
+    from .workspace import canonical_identity as _canonical_identity
+
+    context = HardFailContext(
+        diff_text=diff_text,
+        base_branch=_base_branch(pr),
+        pr_body=pr.get("body") if isinstance(pr.get("body"), str) else None,
+        pre_merge_evidence=_PreMergeEvidence(("workspace_root_unavailable",)),
+    )
+    if workspace_root is None:
+        return context
+    reason = "workspace_root_unavailable"
+    try:
+        workspace = Path(workspace_root).resolve()
+        context = _replace(context, workspace_root=workspace)
+        reason = "tools_root_unavailable"
+        tools = _existing_tools(base_dir)
+        if tools is None:
+            raise GovernanceError("tools_root_unavailable")
+        reason = "repository_binding_unavailable"
+        identity_path = tools / "repo_identity.json"
+        contract_path = tools / "tools_contract.json"
+        identity_bytes = _read_bounded_regular_file(identity_path)[0]
+        contract_bytes = _read_bounded_regular_file(contract_path)[0]
+        repo_identity = _canonical_identity(workspace)
+        if not _valid_host_identity(
+            tools, repo_identity, workspace,
+            identity_payload=identity_bytes, contract_payload=contract_bytes,
+        ):
+            raise GovernanceError(reason)
+
+        reason = "pr_commit_identity_unavailable"
+        number = pr.get("number")
+        head_sha = _head_sha(pr)
+        base_sha = pr.get("base_sha") or pr.get("baseRefOid")
+        if (
+            type(number) is not int or number <= 0
+            or not isinstance(base_sha, str)
+            or _re.fullmatch(r"[0-9a-f]{40}", base_sha) is None
+            or _re.fullmatch(r"[0-9a-f]{40}", head_sha) is None
+            or _git(workspace, "rev-parse", "--verify", base_sha + "^{commit}").strip() != base_sha
+            or _git(workspace, "rev-parse", "--verify", head_sha + "^{commit}").strip() != head_sha
+        ):
+            raise GovernanceError(reason)
+
+        sources = {
+            "pr_lifecycle": tools / "pr-lifecycle.jsonl",
+            "change_planned": tools / "change-ledger" / "planned.jsonl",
+            "change_committed": tools / "change-ledger" / "committed.jsonl",
+            "plan_convergence_events": tools / "plans" / "events.jsonl",
+        }
+        optional_sources = {
+            "agent_invocation_requests": tools / "agent-invocations" / "requests.jsonl",
+            "agent_invocation_claims": tools / "agent-invocations" / "claims.jsonl",
+            "agent_invocation_results": tools / "agent-invocations" / "results.jsonl",
+            "agent_invocation_contexts": tools / "agent-invocations" / "contexts.jsonl",
+            "agent_invocation_prompts": tools / "agent-invocations" / "prompts.jsonl",
+            "agent_result_bridge_status": tools / "agent-invocations" / "agent-result-bridge-status.jsonl",
+            # V9.5 check 12 — the synthesizer's ingestion evidence and the
+            # feedback ledger it admitted rows from. Optional because a
+            # store that never mined operator feedback has neither file;
+            # their absence becomes a named predicate reason, not a pass.
+            "operator_feedback_ingestion": tools / "operator-feedback-ingestion.jsonl",
+            "operator_feedback": tools / "operator-feedback.jsonl",
+            # cycle_and_turn_budget_cap — the hook verdicts the seventh
+            # predicate reads. Optional at the file level (an older store
+            # has none) so the join stays available; the budget capture
+            # below names the absence.
+            "hook_decisions": tools / "hooks" / "decisions.jsonl",
+        }
+        sources.update(optional_sources)
+
+        def read_prefix(surface: str, path: Path) -> bytes | None:
+            if surface in optional_sources and not path.exists():
+                return None
+            return _read_bounded_regular_file(path)[0]
+
+        paths = [identity_path, contract_path, *sources.values()]
+        reason = "native_context_prefix_unavailable"
+        with _state_transaction(paths):
+            if (
+                _read_bounded_regular_file(identity_path)[0] != identity_bytes
+                or _read_bounded_regular_file(contract_path)[0] != contract_bytes
+            ):
+                raise GovernanceError("repository_binding_changed")
+            prefixes = {
+                surface: read_prefix(surface, path)
+                for surface, path in sources.items()
+            }
+        rows = {
+            surface: _load_verified_text(
+                prefixes[surface].decode("utf-8"), source=path,
+                expected_surface=surface,
+            ) if prefixes[surface] is not None else []
+            for surface, path in sources.items()
+            if surface != "operator_feedback"
+        }
+        # The feedback ledger is judged row by row, like the synthesizer
+        # judged it: rows are trusted up to the first chain break, so one
+        # hand-appended line makes the consumed row unavailable to check 12
+        # instead of making the whole native context unreadable.
+        rows["operator_feedback"] = _verify_jsonl_from_text(
+            sources["operator_feedback"], prefixes["operator_feedback"].decode("utf-8"),
+            expected_surface="operator_feedback",
+        )[1] if prefixes["operator_feedback"] is not None else []
+        reason = "pr_change_join_unavailable"
+        observations = [row for row in rows["pr_lifecycle"] if row.get("pr_number") == number]
+        change_ids = {row.get("change_id") for row in observations if row.get("change_id")}
+        if len(change_ids) != 1 or not observations:
+            raise GovernanceError(reason)
+        observed = observations[-1]
+        change_id = next(iter(change_ids))
+        if (
+            observed.get("change_id") != change_id
+            or observed.get("head_sha") != head_sha
+            or observed.get("base_branch") != context.base_branch
+            or (pr.get("change_id") is not None and pr["change_id"] != change_id)
+        ):
+            raise GovernanceError(reason)
+        planned_rows = [row for row in rows["change_planned"] if row.get("change_id") == change_id]
+        committed_rows = [row for row in rows["change_committed"] if row.get("change_id") == change_id]
+        if len(planned_rows) != 1 or len(committed_rows) != 1:
+            raise GovernanceError(reason)
+        planned, committed = planned_rows[0], committed_rows[0]
+        if committed.get("commit_sha") != head_sha:
+            raise GovernanceError(reason)
+
+        reason = "plan_revision_unavailable"
+        plan_id = planned["plan_id"]
+        # Reuse the native reducer on the verified immutable prefix. Calling
+        # the cached file reader here could select a different source view.
+        state = _plans._initial_state(plan_id)
+        for event in rows["plan_convergence_events"]:
+            if event.get("plan_id") == plan_id:
+                _plans._validate_event(event)
+                _plans._apply_event(state, event)
+        _plans._derive_state(state)
+        body = _plans.plan_body_from_state(state)
+        _plans.resolve_converged_plan_observation(
+            plan_id=plan_id, revision_id=body["revision_id"],
+            expected_content_hash=body["content_hash"], base_dir=tools,
+        )
+
+        reason = "committed_snapshot_unavailable"
+        snapshot = _build_snapshot(workspace_root=workspace, mode="committed")
+        if snapshot.get("base_commit_sha") != head_sha or snapshot.get("unknown_count") != 0:
+            raise GovernanceError(reason)
+        reason = "committed_paths_unavailable"
+        changed_paths = sorted(filter(None, _git(
+            workspace, "diff", "--name-only", "-z", base_sha, head_sha,
+        ).split("\0")))
+        if changed_paths != sorted(committed.get("actual_affected_files") or []):
+            raise GovernanceError(reason)
+
+        implementation, gaps = _join_pre_merge_implementation(
+            tools=tools, workspace=workspace, rows=rows, state=state,
+            body=body, planned=planned, committed=committed, observed=observed,
+            pr=pr, base_sha=base_sha, head_sha=head_sha, diff_text=diff_text,
+        )
+        coverage_observation: dict[str, Any] = {}
+        coverage_files: dict[Path, bytes | None] = {}
+        expert_observation: dict[str, Any] = {}
+        expert_files: dict[Path, bytes | None] = {}
+        feedback_observation: dict[str, Any] = {}
+        feedback_files: dict[Path, bytes | None] = {}
+        budget_observation: dict[str, Any] = {}
+        if implementation.get("request_id"):
+            coverage_observation, coverage_files = _capture_pre_merge_coverage(
+                tools=tools, workspace=workspace, state=state, body=body,
+                events=rows["plan_convergence_events"], base_sha=base_sha,
+            )
+            expert_observation, expert_files = _capture_pre_merge_expert_consensus(
+                tools=tools, workspace=workspace, rows=rows, implementation=implementation,
+                plan_id=plan_id, body=body, head_sha=head_sha,
+            )
+            feedback_observation, feedback_files = _capture_pre_merge_operator_feedback(
+                tools=tools, state=state, rows=rows,
+            )
+            budget_observation = _capture_pre_merge_turn_budget(
+                tools=tools, rows=rows, implementation=implementation,
+            )
+
+        scope_observation: dict[str, Any] = {}
+        reason = "native_context_changed_during_capture"
+        with _state_transaction(paths):
+            if (
+                _read_bounded_regular_file(identity_path)[0] != identity_bytes
+                or _read_bounded_regular_file(contract_path)[0] != contract_bytes
+                or any(read_prefix(surface, path) != prefixes[surface]
+                       for surface, path in sources.items())
+                or any(_read_pre_merge_coverage_file(path) != data
+                       for path, data in coverage_files.items())
+                or any(_read_pre_merge_coverage_file(path) != data
+                       for path, data in expert_files.items())
+                or any(_read_pre_merge_coverage_file(path) != data
+                       for path, data in feedback_files.items())
+            ):
+                raise GovernanceError(reason)
+            if implementation.get("request_id"):
+                reason = "implementation_scope_observation_unavailable"
+                request = next(row for row in rows["agent_invocation_requests"]
+                               if row["request_id"] == implementation["request_id"])
+                observed_at = _invocations._utc_now_dt()
+                conflict = _invocations._implementation_scope_conflict(
+                    request, requests=rows["agent_invocation_requests"],
+                    claims=rows["agent_invocation_claims"],
+                    results=rows["agent_invocation_results"], now=observed_at,
+                )
+                scope_observation = {
+                    "scope_observed_at": observed_at.isoformat(),
+                    "scope_ledger_tips": tuple(rows[surface][-1]["ledger_hash"] for surface in (
+                        "agent_invocation_requests", "agent_invocation_claims", "agent_invocation_results",
+                    )),
+                    "scope_conflicting_claim_id": conflict["claim_id"] if conflict else None,
+                    "scope_conflicting_claim_hash": conflict["claim_row_hash"] if conflict else None,
+                }
+
+        return _replace(
+            context,
+            affected_paths=tuple(changed_paths),
+            envelope={"affected_surfaces": list(changed_paths)},
+            pre_merge_evidence=_PreMergeEvidence(
+                unavailable_reasons=gaps, pr_number=number, change_id=change_id,
+                pr_row_hash=observed["ledger_hash"], planned_row_hash=planned["ledger_hash"],
+                committed_row_hash=committed["ledger_hash"], plan_id=plan_id,
+                plan_revision_id=body["revision_id"], plan_content_hash=body["content_hash"],
+                repo_identity=repo_identity, base_sha=base_sha, head_sha=head_sha,
+                snapshot_hash=snapshot["snapshot_hash"],
+                **implementation, **scope_observation, **coverage_observation,
+                **expert_observation, **feedback_observation, **budget_observation,
+            ),
+        )
+    except (OSError, ValueError, KeyError, TypeError, _LedgerIntegrityError, _StateStoreError):
+        return _replace(context, pre_merge_evidence=_PreMergeEvidence((reason,)))
+
+
+def _read_pre_merge_coverage_file(path: Path) -> bytes | None:
+    from .state_store import StateStoreError as _StateStoreError
+    from .state_store import _read_bounded_regular_file
+
+    try:
+        return _read_bounded_regular_file(path)[0]
+    except (OSError, _StateStoreError):
+        return None
+
+
+def _capture_pre_merge_coverage(
+    *, tools: Path, workspace: Path, state: dict[str, Any], body: dict[str, Any],
+    events: list[dict[str, Any]], base_sha: str,
+) -> tuple[dict[str, Any], dict[Path, bytes | None]]:
+    """Observe the native plan-time witness, retaining local availability gaps.
+
+    This verifies the adopted plan/event/artifact join and planning commit's
+    ancestry. It does not rerun the dependency graph at the implementation tip.
+    All Git and artifact decoding precede the caller's final prefix recheck.
+    """
+    import hashlib as _hashlib
+    import json as _json
+    import re as _re
+
+    from . import plan_convergence as _plans
+    from . import plan_coverage as _coverage
+    from .state_store import StateStoreError as _StateStoreError
+    from .state_store import _git
+
+    observation: dict[str, Any] = {"coverage_required": _plans._plan_requires_coverage(state)}
+    files: dict[Path, bytes | None] = {}
+    if not observation["coverage_required"]:
+        return observation, files
+    reason = "native_coverage_event_unavailable"
+    try:
+        plan_id = state["plan_id"]
+        round_number = state["current_round"]
+        candidates = [event for event in events if event.get("plan_id") == plan_id
+                      and event.get("event_type") == "coverage_computed"
+                      and event["payload"].get("round_number") == round_number]
+        if not candidates:
+            raise GovernanceError(reason)
+        event = candidates[-1]
+        payload = event["payload"]
+        observation.update(
+            coverage_event_hash=event["ledger_hash"],
+            coverage_revision_id=payload["target_revision_id"],
+            coverage_plan_hash=payload["target_plan_content_hash"],
+            coverage_computed_at_sha=payload["computed_at_sha"],
+            coverage_verdict=payload["verdict"],
+        )
+        reason = "coverage_target_revision_mismatch"
+        if (
+            payload != state["coverage_by_round"][round_number]
+            or payload["target_revision_id"] != body["revision_id"]
+            or payload["target_plan_content_hash"] != body["content_hash"]
+        ):
+            raise GovernanceError(reason)
+        reason = "native_coverage_verdict_unavailable"
+        _plans._require_coverage_for_implementation(state)
+        if payload["verdict"] not in {"covered", "covered_with_waivers"}:
+            raise GovernanceError(reason)
+        reason = "coverage_manifest_identity_mismatch"
+        manifest_name = f"{plan_id}-r{round_number}.json"
+        manifest_relpath = f"{tools.name}/{_coverage.COVERAGE_DIR}/{manifest_name}"
+        if payload["closure_manifest_path"] != manifest_relpath:
+            raise GovernanceError(reason)
+        manifest_path = tools / _coverage.COVERAGE_DIR / manifest_name
+        input_path = tools / _coverage.COVERAGE_DIR / f"{plan_id}-r{round_number}-input.json"
+        files[manifest_path] = _read_pre_merge_coverage_file(manifest_path)
+        files[input_path] = _read_pre_merge_coverage_file(input_path)
+        reason = "coverage_manifest_unavailable"
+        manifest_bytes = files[manifest_path]
+        if manifest_bytes is None:
+            raise GovernanceError(reason)
+        reason = "coverage_manifest_hash_mismatch"
+        manifest_hash = "sha256:" + _hashlib.sha256(manifest_bytes).hexdigest()
+        if manifest_hash != payload["closure_manifest_hash"]:
+            raise GovernanceError(reason)
+        observation["coverage_manifest_hash"] = manifest_hash
+        reason = "coverage_input_unavailable"
+        if files[input_path] is None:
+            raise GovernanceError(reason)
+        reason = "coverage_input_plan_mismatch"
+        if _json.loads(files[input_path]) != _coverage._coverage_witness_input(body["plan_content"]):
+            raise GovernanceError(reason)
+        reason = "coverage_manifest_invalid"
+        report = _json.loads(manifest_bytes)
+        if not isinstance(report, dict) or report.get("schema_version") != 1:
+            raise GovernanceError(reason)
+        closure = report.get("closure")
+        if (
+            not isinstance(closure, dict)
+            or any(not isinstance(closure.get(name), list)
+                   for name in ("projects", "event_consumers", "migration_couplings"))
+            or any(not isinstance(report.get(name), list)
+                   for name in ("uncovered", "waived", "unmapped_paths"))
+            or _re.fullmatch(r"[0-9a-f]{64}", str(report.get("inputs_hash") or "")) is None
+        ):
+            raise GovernanceError(reason)
+        fields = _coverage._coverage_report_fields(
+            report, round_number=round_number, manifest_relpath=manifest_relpath,
+        )
+        reason = "coverage_manifest_payload_mismatch"
+        if report.get("verdict") != fields["verdict"] or any(payload.get(key) != value for key, value in fields.items()):
+            raise GovernanceError(reason)
+        reason = "coverage_waiver_adjudication_unavailable"
+        if payload["waived"] or payload["verdict"] != "covered":
+            # A flag in witness metadata cannot replace the critic's actual
+            # accepted request/result/artifact chain. Keep this branch closed.
+            raise GovernanceError(reason)
+        reason = "coverage_witness_execution_unavailable"
+        witness = payload["witness"]
+        if witness.get("tool") != _coverage.WITNESS_RELPATH or type(witness.get("exit_code")) is not int or witness["exit_code"] != 0:
+            raise GovernanceError(reason)
+        reason = "coverage_planning_commit_unavailable"
+        computed_sha = payload["computed_at_sha"]
+        if (
+            _re.fullmatch(r"[0-9a-f]{40}", computed_sha) is None
+            or _git(workspace, "rev-parse", "--verify", computed_sha + "^{commit}").strip() != computed_sha
+            or _git(workspace, "merge-base", computed_sha, base_sha).strip() != computed_sha
+        ):
+            raise GovernanceError(reason)
+        return observation, files
+    except (OSError, ValueError, TypeError, KeyError, _StateStoreError):
+        observation["coverage_unavailable_reason"] = reason
+        return observation, files
+
+
+def _capture_pre_merge_operator_feedback(
+    *, tools: Path, state: dict[str, Any], rows: dict[str, list[dict[str, Any]]],
+) -> tuple[dict[str, Any], dict[Path, bytes | None]]:
+    """Observe the synthesizer's operator-feedback ingestion for THIS plan.
+
+    The join is by ``plan_started.content_hash``: the provider bound the
+    synthesized content to its ingestion under exactly that hash, so the
+    walk starts from a value the plan ledger already carries. The reader
+    lives with the ingestion owner (``operator_feedback_ingestion``); this
+    wrapper only hands it the verified prefixes captured above and returns
+    the key-file bytes it read so the final recheck covers them too.
+    """
+    from .operator_feedback_ingestion import observe_operator_feedback_for_plan
+
+    return observe_operator_feedback_for_plan(
+        tools=tools, plan_started=state.get("plan_started"),
+        ingestion_rows=rows["operator_feedback_ingestion"],
+        feedback_rows=rows["operator_feedback"],
+    )
+
+
+def _capture_pre_merge_expert_consensus(
+    *, tools: Path, workspace: Path, rows: dict[str, list[dict[str, Any]]],
+    implementation: dict[str, Any], plan_id: str, body: dict[str, Any], head_sha: str,
+) -> tuple[dict[str, Any], dict[Path, bytes | None]]:
+    """Join the accepted specialist panel bound to THIS implementation.
+
+    The producer (expert_review_gate.mint_expert_requests) mints one
+    specialist_domain_review request per selected expert, bound to the
+    implementation's request/claim/result/commit/plan identity inside its
+    must_satisfy entry. This consumer reads those requests back by that
+    binding — not by role alone — takes each request's ACCEPTED result
+    through the same request/claim/artifact/response verification the
+    implementation join uses, and hands the panel's verdicts to the existing
+    evaluator. Anything short of a fully bound, fully verified panel is a
+    named reason; the check never passes on absence.
+    """
+    import hashlib as _hashlib
+    import json as _json
+
+    from . import agent_invocations as _invocations
+    from .agent_contract import validate_response as _validate_response
+    from .expert_review_gate import evaluate_expert_consensus
+    from .state_store import StateStoreError as _StateStoreError
+
+    observation: dict[str, Any] = {}
+    files: dict[Path, bytes | None] = {}
+    reason = "native_expert_requests_unavailable"
+    try:
+        binding_result_hash = implementation["result_row_hash"]
+        requests = []
+        for row in rows["agent_invocation_requests"]:
+            if row.get("role") != "specialist_domain_review":
+                continue
+            must = row.get("must_satisfy") or []
+            binding = (must[0].get("implementation_binding") or {}) if must and isinstance(must[0], dict) else {}
+            if (
+                row.get("convergence_id") == plan_id
+                and row.get("plan_revision_hash") == body["content_hash"]
+                and row.get("target_sha") == head_sha
+                and binding.get("result_row_hash") == binding_result_hash
+                and binding.get("request_id") == implementation["request_id"]
+                and binding.get("claim_id") == implementation["claim_id"]
+                and binding.get("head_sha") == head_sha
+                and binding.get("plan_content_hash") == body["content_hash"]
+            ):
+                requests.append(row)
+        if not requests:
+            raise GovernanceError(reason)
+        observation["expert_request_ids"] = tuple(row["request_id"] for row in requests)
+        observation["expert_target_sha"] = head_sha
+        reason = "native_expert_result_join_unavailable"
+        verdicts: list[dict[str, Any]] = []
+        result_hashes: list[str] = []
+        for request in requests:
+            _invocations._strict_request_view(request)
+            _invocations._assert_envelope_reproduces_binding(request)
+            results = [row for row in _invocations._result_rows_for(rows["agent_invocation_results"], request["request_id"])
+                       if row.get("status") == "accepted"]
+            if not results:
+                continue  # an unanswered expert is an insufficient panel, not a broken join
+            result = results[-1]
+            claims = [row for row in rows["agent_invocation_claims"]
+                      if row.get("claim_id") == result.get("claim_id") and row.get("event") == "claimed"
+                      and row.get("request_id") == request["request_id"]]
+            if (
+                len(claims) != 1 or result.get("role") != "specialist_domain_review"
+                or result.get("agent_id") != claims[0].get("agent_id")
+                or result.get("context_hash") != request["context_hash"]
+                or result.get("prompt_hash") != request["prompt_hash"]
+            ):
+                raise GovernanceError(reason)
+            path = _invocations.resolve_output_artifact_path(tools, result["output_path"])
+            path.resolve().relative_to(tools.resolve())
+            data = _invocations._read_stable_submission_artifact(path)
+            if "sha256:" + _hashlib.sha256(data).hexdigest() != result["output_hash"]:
+                raise GovernanceError(reason)
+            files[path] = data
+            response = _json.loads(data)
+            _validate_response(response, request=_invocations._strict_request_view(request),
+                               lease={"claim_id": result["claim_id"], "agent_id": result["agent_id"]})
+            matrix = response.get("satisfaction_matrix") or []
+            entry = matrix[0] if matrix and isinstance(matrix[0], dict) else {}
+            if entry.get("id") != request["must_satisfy"][0]["id"]:
+                raise GovernanceError(reason)
+            verdicts.append({
+                "expert": request["target_agent"], "verdict": entry.get("verdict"),
+                "confidence": entry.get("confidence", 1.0),
+                "evidence_refs": list(entry.get("evidence_refs") or response.get("evidence_refs") or []),
+            })
+            result_hashes.append(result["ledger_hash"])
+        observation["expert_result_hashes"] = tuple(result_hashes)
+        # Evidence is re-verified at the implementation HEAD: the producer asks
+        # each expert to judge the final source at target_sha, not the base.
+        consensus = evaluate_expert_consensus(
+            verdicts=verdicts, workspace_root=workspace, base_dir=tools, base_sha=head_sha,
+        )
+        observation["expert_consensus_approved"] = bool(consensus["approved"])
+        observation["expert_consensus_reason"] = str(consensus.get("reason") or "")
+        observation["expert_distinct_reviewers"] = tuple(consensus.get("distinct_reviewers") or ())
+        return observation, files
+    except (OSError, ValueError, KeyError, TypeError, GovernanceError, _StateStoreError):
+        observation["expert_unavailable_reason"] = reason
+        return observation, files
+
+
+def _capture_pre_merge_turn_budget(
+    *, tools: Path, rows: dict[str, list[dict[str, Any]]], implementation: dict[str, Any],
+) -> dict[str, Any]:
+    """Reduce the hook verdicts bound to THIS implementation's request.
+
+    The producer is the kernel hook (``hooks.admit_budgeted_turn``), invoked
+    by the CLI inside the agent's sandbox with the request id and the cap the
+    executor compiled into the spawn settings; the rows are bound to the
+    implementation by that id. The cap they are compared against is the
+    policy of the workspace the merged store is bound to
+    (``turn_budget_policy.implementer_turn_budget_for_store`` — the same read
+    the spawn made), so evidence recorded under any other cap is refused by
+    name and a policy the store's workspace refuses is a named reason rather
+    than a capture that dies with an unrelated one. The verified prefix was
+    read under the same transaction as every other source, so the final
+    recheck covers it. The reduction (``turn_budget.turn_budget_evidence``)
+    is pure and names absence and malformation; the registry still owns the
+    verdict.
+    """
+    from .turn_budget import turn_budget_evidence
+    from .turn_budget_policy import implementer_turn_budget_for_store
+
+    try:
+        policy_cap = implementer_turn_budget_for_store(tools)
+    except GovernanceError:
+        return {"turn_budget_unavailable_reason": "native_turn_budget_policy_invalid"}
+    return turn_budget_evidence(
+        rows["hook_decisions"], request_id=implementation["request_id"], policy_cap=policy_cap,
+    )
+
+
+def _join_pre_merge_implementation(
+    *, tools: Path, workspace: Path, rows: dict[str, list[dict[str, Any]]],
+    state: dict[str, Any], body: dict[str, Any], planned: dict[str, Any],
+    committed: dict[str, Any], observed: dict[str, Any], pr: dict[str, Any],
+    base_sha: str, head_sha: str, diff_text: str | None,
+) -> tuple[dict[str, Any], tuple[str, ...]]:
+    """Join native implementation evidence; retain explicit historical gaps."""
+    import hashlib as _hashlib
+    import json as _json
+
+    from . import agent_invocations as _invocations
+    from .agent_contract import validate_response as _validate_response
+    from .bridge_status_ledger import derive_bridge_state as _derive_bridge_state
+    from .state_store import _git
+
+    claim_id = committed.get("claim_id")
+    if not claim_id:
+        return {}, (
+            "implementation_request_unverified" if planned.get("intended_request_id")
+            else "implementation_request_unavailable",
+            "implementation_claim_unavailable", "implementation_result_unavailable",
+        )
+    reason = "implementation_claim_join_unavailable"
+    try:
+        claims = [row for row in rows["agent_invocation_claims"]
+                  if row.get("claim_id") == claim_id and row.get("event") == "claimed"]
+        if len(claims) != 1:
+            raise GovernanceError(reason)
+        claim = claims[0]
+        reason = "implementation_request_join_unavailable"
+        requests = [row for row in rows["agent_invocation_requests"]
+                    if row.get("request_id") == claim.get("request_id")]
+        if len(requests) != 1:
+            raise GovernanceError(reason)
+        request = requests[0]
+        request_id = request["request_id"]
+        ids = request.get("implementation_ids") or {}
+        implementation = state.get("implementation") or {}
+        if (
+            request.get("role") != "implementation"
+            or request.get("convergence_id") != planned["plan_id"]
+            or ids.get("change_id") != planned["change_id"]
+            or not observed.get("proposal_id")
+            or ids.get("proposal_id") != observed["proposal_id"]
+            or (pr.get("proposal_id") is not None and pr["proposal_id"] != ids["proposal_id"])
+            or ids.get("base_sha") != base_sha
+            or ids.get("branch") != (pr.get("head_ref") or pr.get("headRefName"))
+            or (planned.get("intended_request_id") is not None
+                and planned["intended_request_id"] != request_id)
+            or request.get("plan_revision_hash") != body["content_hash"]
+            or implementation.get("converged_plan_revision_id") != body["revision_id"]
+            or implementation.get("converged_plan_content_hash") != body["content_hash"]
+            or implementation.get("claim_id") != claim_id
+        ):
+            raise GovernanceError(reason)
+        _invocations._strict_request_view(request)
+        _invocations._assert_envelope_reproduces_binding(request)
+        context_row = next((row for row in reversed(rows["agent_invocation_contexts"])
+                            if row.get("request_id") == request_id), None)
+        binding = _invocations._verify_invocation_context_binding_rows(
+            request_id=request_id, context_hash=request["context_hash"],
+            prompt_hash=request["prompt_hash"], context=context_row,
+            prompts=rows["agent_invocation_prompts"],
+        )
+        for field, surface in (("context", "agent_invocation_contexts"),
+                               ("prompt", "agent_invocation_prompts")):
+            if not any(row.get("ledger_hash") == binding[field].get("ledger_hash")
+                       for row in rows[surface]):
+                raise GovernanceError("implementation_prompt_source_changed")
+
+        reason = "implementation_result_join_unavailable"
+        results = _invocations._result_rows_for(rows["agent_invocation_results"], request_id)
+        if not results:
+            raise GovernanceError(reason)
+        result = results[-1]
+        if (
+            result.get("status") != "accepted" or result.get("role") != "implementation"
+            or result.get("claim_id") != claim_id or result.get("agent_id") != claim.get("agent_id")
+            or result.get("context_hash") != request["context_hash"]
+            or result.get("prompt_hash") != request["prompt_hash"]
+        ):
+            raise GovernanceError(reason)
+        artifact_bytes = {}
+        for name, hash_field in (("output_path", "output_hash"),
+                                 ("transcript_artifact_ref", "transcript_hash")):
+            path = _invocations.resolve_output_artifact_path(tools, result[name])
+            path.resolve().relative_to(tools.resolve())
+            data = _invocations._read_stable_submission_artifact(path)
+            if "sha256:" + _hashlib.sha256(data).hexdigest() != result[hash_field]:
+                raise GovernanceError(reason)
+            artifact_bytes[name] = data
+        response = _json.loads(artifact_bytes["output_path"])
+        _validate_response(response, request=_invocations._strict_request_view(request),
+                           lease={"claim_id": claim_id, "agent_id": claim["agent_id"]})
+        outcome = (response.get("details") or {}).get("implementation") or {}
+        recorded = [event for event in state["events"]
+                    if event.get("event_type") == "implementation_outcome_recorded"
+                    and event.get("payload", {}).get("claim_id") == claim_id]
+        if len(recorded) != 1 or state.get("state") != "IMPLEMENTATION_RECORDED":
+            raise GovernanceError(reason)
+        event = recorded[0]
+        for field in ("claim_id", "pr_url", "diff_hash", "branch_tip_sha", "base_branch_sha",
+                      "validation_results", "signer_key_fp", "completed_at"):
+            if outcome.get(field) != event["payload"].get(field):
+                raise GovernanceError(reason)
+        if (
+            outcome.get("branch_tip_sha") != head_sha or outcome.get("base_branch_sha") != base_sha
+            or not pr.get("url") or outcome.get("pr_url") != pr["url"]
+            or _git(workspace, "merge-base", base_sha, head_sha).strip() != base_sha
+        ):
+            raise GovernanceError(reason)
+        bridge = _derive_bridge_state(base_dir=tools, result_row=result)
+        bridge_rows = [row for row in rows["agent_result_bridge_status"]
+                       if row.get("result_row_ledger_hash") == result["ledger_hash"]
+                       and row.get("envelope_evidence_hash") == result.get("envelope_evidence_hash")]
+        if not bridge_rows or bridge_rows[-1].get("transition") != "ok" or bridge["state"] != "ok":
+            raise GovernanceError(reason)
+        actual_diff = _git(workspace, "diff", base_sha, head_sha).strip()
+        if diff_text is None or diff_text.strip() != actual_diff:
+            raise GovernanceError("implementation_diff_unavailable")
+        actual_diff_hash = "sha256:" + _hashlib.sha256(actual_diff.encode("utf-8")).hexdigest()
+        if outcome.get("diff_hash") != actual_diff_hash:
+            raise GovernanceError("implementation_diff_hash_mismatch")
+        return {
+            "request_id": request_id, "claim_id": claim_id,
+            "request_row_hash": request["ledger_hash"], "claim_row_hash": claim["ledger_hash"],
+            "result_row_hash": result["ledger_hash"], "implementation_event_hash": event["ledger_hash"],
+            "implementation_base_sha": outcome["base_branch_sha"],
+            "implementation_head_sha": outcome["branch_tip_sha"],
+            "request_plan_hash": request["plan_revision_hash"],
+            "implementation_plan_hash": implementation["converged_plan_content_hash"],
+            "implementation_diff_hash": actual_diff_hash,
+            "branch": ids["branch"],
+        }, ("remaining_pre_merge_evidence_unavailable",)
+    except (OSError, ValueError, KeyError, TypeError):
+        return {}, (reason,)
 
 
 __all__ = ["merge_pr_if_ready"]

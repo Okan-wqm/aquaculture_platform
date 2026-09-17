@@ -450,15 +450,29 @@ def run_pressure(
     # out. Conservative by construction: a stage with little upstream
     # volume is idle, not stalled (MIN_UPSTREAM_FOR_STALL).
     from .funnel_health import detect_funnel_stalls
-    from .knowledge_graph import rank_pressure_sources
+    from .knowledge_graph import effectiveness_reader_faults, rank_pressure_sources
+    from .tool_registry import append_tools_governance
 
     try:
-        # The effectiveness ledger lives under <workspace>/aria-tools/, and
-        # `root` IS that tools directory — deriving the workspace from it
-        # keeps one resolution rule instead of threading a second root
-        # through a function that already knows where the store is.
-        _funnel_rows = rank_pressure_sources(workspace_root=root.parent)
-    except Exception:  # noqa: BLE001 — an unreadable ledger is not a stall
+        # The effectiveness ledger is a tools-root surface and `root` IS the
+        # tools root, so it is named directly. Deriving a workspace from
+        # `root.parent` assumed the tools root is `<workspace>/aria-tools`;
+        # on the live lane it is `<store>/tools`, so this reader looked at
+        # `<store>/aria-tools/...` — a path nothing writes (B4, 2026-09-12).
+        _funnel_rows = rank_pressure_sources(base_dir=root)
+    except effectiveness_reader_faults() as exc:
+        # An unreadable ledger is not a stall, but it is a fact: disclosed
+        # as a governance row, then the detector sees no rows. The set is
+        # the reader's own declaration, never ``Exception`` — a broad
+        # except here laundered programming errors into "no stall" (B1,
+        # 2026-09-12); a TypeError now raises.
+        append_tools_governance(
+            root, "pressure_source_effectiveness_unreadable",
+            {"cycle_id": cycle_id, "reader": "run_pressure",
+             "error_class": type(exc).__name__, "error_message": str(exc)[:500]},
+            # The disclosure of a refused read must not itself be refused.
+            bypass_profile_gate=True,
+        )
         _funnel_rows = []
     for stall in detect_funnel_stalls(_funnel_rows):
         pressures.append(

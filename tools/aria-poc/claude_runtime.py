@@ -16,7 +16,8 @@ dependency-light shape of the previous Codex contract so both
   runner) ``--dangerously-skip-permissions`` so the agent can edit its
   assigned worktree autonomously, the way ``codex exec`` did.
 * The per-agent model comes from the agent frontmatter (resolved by
-  ``aria_kernel.agent_runtime_profile``); ARIA's fail-safe default is Fable.
+  ``aria_kernel.agent_runtime_profile``); ARIA's fail-safe default is opus
+  (operator decision 2026-09-12 — fable is selected by nothing).
 * Raw stream-json stays in memory; callers persist only sanitized envelopes.
 """
 from __future__ import annotations
@@ -29,19 +30,21 @@ import subprocess
 import sys
 import threading
 import time
+from contextlib import ExitStack as _ExitStack
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Callable, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 
 CLAUDE_BINARY_ENV_VAR = "CLAUDE_CLI_BINARY"
 CLAUDE_MOCK_ENV_VAR = "CLAUDE_CLI_MOCK"
 # ARIA's default model tier. The Claude Code CLI accepts a model alias
-# ("fable") or a full id; the alias resolves to Claude Fable 5 on the
-# runner, keeping ARIA's fail-safe on the most capable tier (K5 tier
-# flip, operator policy 2026-07-01). Per-agent overrides flow in via
+# ("opus") or a full id; the alias resolves on the runner. Operator decision
+# 2026-09-12 ("sadece opus"): every selection is opus — the K5-era fable
+# default is gone, and `tests/invariants/test_fable_is_selected_by_nothing`
+# pins this constant. Per-agent overrides flow in via
 # build_claude_exec_argv(model=...).
-CLAUDE_DEFAULT_MODEL = "fable"
+CLAUDE_DEFAULT_MODEL = "opus"
 # The Claude Code CLI selects capability by model alias AND, since CLI 2.1.x,
 # by an explicit ``--effort`` flag (low|medium|high|xhigh|max). These are the
 # model aliases and effort levels ARIA may target; the agent-runtime-profile
@@ -70,78 +73,86 @@ def __getattr__(name: str):  # noqa: ANN202 - PEP 562 module hook
 
 VALID_EFFORTS: tuple[str, ...] = ("low", "medium", "high", "xhigh", "max")
 
-# ORPHAN-HIGH-473 — the fallback topology, as data rather than a literal string
-# test. The policy was `if model != "fable": return completed`, so moving the
-# primary tier off fable would have silently disabled the whole credit and
-# refusal fallback with nothing failing. Expressed as a map, adding or moving a
-# tier is an edit to the topology, not an invisible behaviour change.
+# Operator decision 2026-09-12 ("sadece opus", and the same day's delegation):
+# ARIA never downgrades a decision or an implementation to a weaker tier. A
+# credit exhaustion is a PROVIDER-level fact, not a tier-level one, so the
+# in-vendor credit rungs that used to live here (``fable -> opus``,
+# ``opus -> sonnet``, retried at CREDIT_FALLBACK_EFFORT) are gone: every tier
+# is a credit LEAF, and an exhausted run RAISES ClaudeCreditExhausted. What
+# the executors do with that is a queue decision, not a model decision — the
+# claim is released for retry (REQUEUED) and, on the native lane, the
+# provider is cooled (aria_kernel.provider_cooldown) so the next admission
+# skips it for `provider_cooldown_seconds` and admits the next vendor for the
+# roles it can serve. Nothing here ever selects sonnet, haiku or fable.
 #
-# The value is the tier that owns a SEPARATE credit pool, which is the entire
-# reason a credit fallback can work at all.
-MODEL_FALLBACK_TIER: dict[str, str] = {
-    # Planning tier: fable is the most capable and most expensive pool.
-    "fable": "opus",
-    # Implementation tier (operator decision): opus, falling back to sonnet.
-    # Before this entry opus was a LEAF — an implementer that exhausted its
-    # quota had nowhere to go, and since ORPHAN-HIGH-475 that raises terminally
-    # rather than silently returning the usage-limit notice as an answer. The
-    # ladder is what makes running the write tier on opus safe.
-    "opus": "sonnet",
-    # ARIA-HIGH-023 — cross-provider rungs. Every Anthropic tier's chain now
-    # terminates at a DIFFERENT vendor: an absent subscription is a
-    # credential-level failure no same-vendor rung can cure, so auth failures
-    # walk the ladder to the first cross-provider tier (see
-    # run_with_model_fallback). Bidirectional: a dead Z.ai key falls glm-5.3
-    # back to the Anthropic pool at the strongest authoring tier.
-    "sonnet": "glm-5.3",
+# What survives is the cross-vendor AUTH failover (ARIA-HIGH-023): a dead
+# credential is a fact about the vendor, so the first tier authenticating
+# through a DIFFERENT vendor is a genuinely different attempt. Bidirectional
+# on purpose — a dead Z.ai key falls glm-5.3 back to the Anthropic pool.
+# The walk is role-conditioned IN CODE (see _cross_provider_auth_fallback):
+# the fleet row says which providers admit writes, and a write-scope profile
+# is never retried on a provider whose runtime is read-only.
+AUTH_FAILOVER_TIER: dict[str, str] = {
+    "opus": "glm-5.3",
     "glm-5.3": "opus",
 }
-
-# The effort a credit retry escalates to ("ultra code" retry).
-CREDIT_FALLBACK_EFFORT: str = "max"
 
 
 def _model_provider(model: str | None) -> str:
     """The vendor a tier authenticates through (ARIA-HIGH-023).
 
-    Models listed in PROVIDER_REDIRECTS reach their vendor through that
-    redirect's credential; everything else authenticates through the managed
-    Anthropic session. The provider, not the tier name, is what an auth
-    failure is a fact ABOUT: a dead credential cannot be cured by any rung
-    inside the same vendor, and can be by the first rung outside it.
+    The fleet (aria_kernel.model_fleet) is the one place a model is bound to
+    its provider; the runtime that serves the provider is the fleet row's
+    business, not this module's. The provider, not the tier name, is what an
+    auth failure is a fact ABOUT: a dead credential cannot be cured by any
+    rung inside the same vendor, and can be by the first rung outside it.
+    Unlisted models are the managed Anthropic session's — the fleet's
+    `dispatching_provider_for_model` states that convention once.
     """
-    redirect = PROVIDER_REDIRECTS.get(str(model or ""))
-    return redirect["provider"] if redirect is not None else "anthropic"
+    from aria_kernel.model_fleet import dispatching_provider_for_model
+
+    return dispatching_provider_for_model(model)
 
 
-def _cross_provider_auth_fallback(model: str | None) -> str | None:
+def _provider_admits_writes(provider: str) -> bool:
+    """Whether a provider's runtime can host a write-scope spawn (fleet fact).
+
+    Read from the fleet row rather than restated here: the managed Claude CLI
+    runs under the write-containment sandbox, while the Codex read-only
+    sandbox and the Z.ai HTTP transport cannot edit a workspace at all. An
+    unlisted provider admits nothing — the fail-closed direction.
+    """
+    from aria_kernel.model_fleet import provider_admits_writes
+
+    return provider_admits_writes(provider)
+
+
+def _cross_provider_auth_fallback(model: str | None, *, write_capable: bool) -> str | None:
     """First ladder tier authenticating through a DIFFERENT vendor (ARIA-HIGH-023).
 
-    Walks ``MODEL_FALLBACK_TIER`` from ``model``, skipping same-vendor rungs
-    (they share the dead credential), and returns the first cross-vendor tier.
-    Cycle-bounded: the cross-provider rungs make the ladder cyclic
-    (``opus -> sonnet -> glm-5.3 -> opus``), so the walk tracks visited tiers
-    and gives up at the first repeat. Returns ``None`` when no cross-vendor
-    tier is reachable — the caller then treats the auth failure as terminal.
+    Walks ``AUTH_FAILOVER_TIER`` from ``model``, skipping same-vendor rungs
+    (they share the dead credential), and returns the first cross-vendor tier
+    whose provider can serve THIS role: ``write_capable`` is the profile's
+    own fact (``AgentRuntimeProfile.write_capable``), and a rung whose
+    provider is a read-only runtime is skipped for a write-scope profile
+    rather than handed a request it cannot execute. Cycle-bounded: the map
+    is cyclic (``opus -> glm-5.3 -> opus``), so the walk tracks visited tiers
+    and gives up at the first repeat. Returns ``None`` when no admissible
+    cross-vendor tier is reachable — the caller then treats the auth failure
+    as terminal.
     """
     origin_provider = _model_provider(model)
     visited: set[str] = set()
-    current = MODEL_FALLBACK_TIER.get(str(model or ""))
+    current = AUTH_FAILOVER_TIER.get(str(model or ""))
     while current is not None and current not in visited:
         visited.add(current)
-        if _model_provider(current) != origin_provider:
+        provider = _model_provider(current)
+        if provider != origin_provider and (not write_capable or _provider_admits_writes(provider)):
             return current
-        current = MODEL_FALLBACK_TIER.get(current)
+        current = AUTH_FAILOVER_TIER.get(current)
     return None
 
 
-# NOTE: a `has_fallback_tier(model)` predicate was added here alongside the
-# ladder and removed in the same branch (ORPHAN-HIGH-481). It had zero
-# production callers — run_with_model_fallback does its own
-# `MODEL_FALLBACK_TIER.get(model)` because it needs the TARGET, not a boolean —
-# so the predicate was speculative API in the one branch whose whole purpose is
-# deleting controls that are written, tested and never called. The map is the
-# SSoT; read it directly.
 ALLOW_API_KEY_MODE_ENV_VAR = "ARIA_ALLOW_CLAUDE_API_KEY_MODE"
 REQUIRE_USAGE_ENV_VAR = "ARIA_CLAUDE_REQUIRE_USAGE"
 AUTH_PREFLIGHT_SKIP_ENV_VAR = "ARIA_CLAUDE_AUTH_PREFLIGHT_SKIP"
@@ -164,109 +175,14 @@ API_KEY_ENV_VARS = ("ANTHROPIC_API_KEY", "CLAUDE_API_KEY")
 # API key does, so they are gated under the same policy switch.
 UNSAFE_BILLING_ENV_VARS = ("ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL")
 
-# ORPHAN-HIGH-764 — per-spawn provider redirect.
-#
-# WHY NOT A GLOBAL EXPORT. Z.ai serves GLM behind an Anthropic-shaped
-# endpoint, so the documented setup is to export ANTHROPIC_BASE_URL +
-# ANTHROPIC_AUTH_TOKEN. Doing that HERE would redirect every dispatch — judges,
-# planners, implementer — to one vendor, silently, because this process
-# dispatches many models. The redirect therefore binds to a single spawn's
-# `run_env` and never to `os.environ`.
-#
-# WHY THIS IS NOT ROUTING AROUND THE GATE. `assert_claude_policy_environment`
-# reads `os.environ`, so a run_env-only injection would never trip it — which
-# is precisely why it must not be left implicit. A redirect is a NEW mode, so
-# it gets its own named authorisation and its own named refusals, and it is
-# recorded rather than inferred. The gate guards managed-auth BILLING bypass;
-# this guards WHICH VENDOR a spawn reaches. Two questions, two gates.
-PROVIDER_REDIRECT_POLICY_ENV_VAR = "ARIA_PROVIDER_REDIRECT_POLICY_REF"
-
-# THE BASE URL IS CONFIGURABLE ON PURPOSE, and the reason is money.
-#
-# Z.ai documents THREE endpoints and they bill differently: the Coding-Plan
-# route (`/api/coding/paas/v4`) draws the subscription quota, the general route
-# (`/api/paas/v4`) draws the prepaid wallet, and the Anthropic-compatible route
-# (`/api/anthropic`) is listed as a third protocol whose billing the docs do
-# not settle — they warn only that the Anthropic base URL "does not apply to
-# resource packages / prepaid balance" and that swapping Coding for general
-# charges the wallet instead of the plan. A published bug in another harness is
-# exactly this: a Coding-Plan key routed to the generic endpoint and billed
-# against balance while the paid subscription sat unused.
-#
-# Which of those a given plan+key actually consumes is an EMPIRICAL question
-# (make one call, read the vendor dashboard), so it must not be frozen into a
-# constant. The default is the documented Anthropic-compatible route because
-# that is the one Claude Code speaks; the operator overrides it in one env var
-# once the billing side is measured, with no code change and no redeploy.
-PROVIDER_REDIRECT_BASE_URL_ENV_TEMPLATE = "ARIA_{provider}_BASE_URL"
-PROVIDER_REDIRECTS: dict[str, dict[str, str]] = {
-    "glm-5.3": {
-        "provider": "zai",
-        "default_base_url": "https://api.z.ai/api/anthropic",
-        "token_env_var": "ARIA_ZAI_API_KEY",
-    },
-}
-
-
-class ProviderRedirectUnavailable(RuntimeError):
-    """A model needs a vendor redirect that is not authorised or not configured."""
-
-
-def provider_redirect_env(model: str | None) -> dict[str, str]:
-    """The env a spawn on ``model`` needs to reach its vendor, or ``{}``.
-
-    Fail-closed in both directions, and NAMED in both: an unauthorised
-    redirect and a missing credential are different operator problems, and a
-    single "it didn't work" would send the reader to the wrong one. Silence is
-    the failure this repository keeps paying for — a missing key must not
-    degrade into a dispatch that quietly reaches the wrong vendor, or none.
-    """
-    redirect = PROVIDER_REDIRECTS.get(str(model or ""))
-    if redirect is None:
-        return {}
-    policy_ref = os.environ.get(PROVIDER_REDIRECT_POLICY_ENV_VAR, "").strip()
-    if not policy_ref:
-        raise ProviderRedirectUnavailable(
-            f"provider_redirect_unauthorised: model {model!r} routes to "
-            f"{redirect['provider']!r}; set {PROVIDER_REDIRECT_POLICY_ENV_VAR} "
-            "to the operator policy reference that authorises it"
-        )
-    token = os.environ.get(redirect["token_env_var"], "").strip()
-    if not token:
-        raise ProviderRedirectUnavailable(
-            f"provider_redirect_token_missing: model {model!r} needs "
-            f"{redirect['token_env_var']} in the runner environment"
-        )
-    override_var = PROVIDER_REDIRECT_BASE_URL_ENV_TEMPLATE.format(
-        provider=redirect["provider"].upper(),
-    )
-    base_url = os.environ.get(override_var, "").strip() or redirect["default_base_url"]
-    return {
-        "ANTHROPIC_BASE_URL": base_url,
-        "ANTHROPIC_AUTH_TOKEN": token,
-    }
-
-
-def provider_redirect_disclosure(model: str | None) -> dict[str, str]:
-    """What a spawn on ``model`` should RECORD about where it was sent.
-
-    Never the token. The endpoint is the fact that answers "did this night
-    consume the subscription we paid for, or the wallet?" — and today that
-    question cannot be answered from ARIA's own ledgers at all, which is how a
-    paid plan sits unused while a balance drains.
-    """
-    redirect = PROVIDER_REDIRECTS.get(str(model or ""))
-    if redirect is None:
-        return {}
-    override_var = PROVIDER_REDIRECT_BASE_URL_ENV_TEMPLATE.format(
-        provider=redirect["provider"].upper(),
-    )
-    return {
-        "provider": redirect["provider"],
-        "base_url": os.environ.get(override_var, "").strip() or redirect["default_base_url"],
-        "base_url_source": "operator_override" if os.environ.get(override_var, "").strip() else "default",
-    }
-
+# There is NO per-spawn provider redirect any more. ORPHAN-HIGH-764 had
+# taught this module to point the claude binary at another vendor through
+# ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN in a single spawn's environment;
+# the operator policy of 2026-09-11 forbids handing any other vendor's
+# credential to this CLI at all. A model that belongs to another provider is
+# refused by name at the spawn seam (see run_claude_exec) and served by that
+# provider's own runtime (tools/aria-poc/zai_runtime.py for Z.ai, codex_runtime
+# for OpenAI); the fleet (aria_kernel.model_fleet) is the one binding.
 
 class ClaudeCliUnavailable(RuntimeError):
     """Claude Code CLI is not installed or cannot satisfy ARIA's contract."""
@@ -292,7 +208,7 @@ class ClaudeAuthFailure(RuntimeError):
 
 
 class ClaudeCreditExhausted(RuntimeError):
-    """A quota/credit exhaustion that no fallback tier can recover.
+    """A quota/credit exhaustion of one PROVIDER — terminal for this attempt.
 
     ORPHAN-HIGH-473 — raised instead of returning the run result. Per
     extract_credit_exhaustion, the CLI delivers its usage-limit notice as
@@ -302,7 +218,21 @@ class ClaudeCreditExhausted(RuntimeError):
     limit. Run /usage-credits..." was flowing downstream as the agent's answer
     and being persisted as a real envelope. A result that cannot be told apart
     from an answer must not be returned at all.
+
+    Operator decision 2026-09-12: there is no weaker tier to retry on. The
+    exception names the exhausted ``provider`` and ``model`` because the
+    executor's release and the provider cooldown are keyed on the PROVIDER —
+    a run that failed over to another vendor for auth and then hit that
+    vendor's quota names that vendor, not the primary. ``detail`` is the
+    detection record (which marker matched, on which stream), carried so the
+    audit row is written once, at the release site, with the claim identity.
     """
+
+    def __init__(self, message: str, *, provider: str, model: str, detail: dict[str, Any]) -> None:
+        super().__init__(message)
+        self.provider = provider
+        self.model = model
+        self.detail = detail
 
 
 class ClaudePolicyViolation(RuntimeError):
@@ -318,11 +248,13 @@ class ClaudeRunResult:
     usage: dict[str, Any] | None
     events: tuple[dict[str, Any], ...]
     # K2 (ORPHAN-HIGH-284) — model-safety refusal record extracted from the
-    # stream-json events, or None. Callers own the fallback policy; the
-    # runtime only detects and reports.
+    # stream-json events, or None. The runtime only detects and reports;
+    # run_with_model_fallback returns it on the result and the executors
+    # escalate it (`model_safety_refusal_unresolved`) — no tier retries it.
     refusal: dict[str, Any] | None = None
-    # Credit/quota-exhaustion record (fable primary → opus fallback sibling of
-    # the K2 refusal path), or None. Detection only; executors own the policy.
+    # Credit/quota-exhaustion record (sibling of the K2 refusal detection), or
+    # None. Detection only; run_with_model_fallback turns it into the terminal
+    # ClaudeCreditExhausted — no tier retries it (operator decision 2026-09-12).
     credit_exhaustion: dict[str, Any] | None = None
     # Authentication failure record, or None. Detection only; executors own the
     # policy. Not recoverable by any SAME-vendor rung — ARIA-HIGH-023 lets
@@ -345,6 +277,22 @@ def is_mock_mode() -> bool:
 
 def claude_binary() -> str:
     return os.environ.get(CLAUDE_BINARY_ENV_VAR, "claude")
+
+
+def _resolve_claude_executable(environ: Mapping[str, str]) -> Path:
+    """The real file behind the CLI name, found on the SPAWN environment's PATH.
+
+    A name is resolved again by whoever executes it, and a sandbox that does
+    not bind the operator's installation resolves it to another one: the
+    managed route's first live attempt probed 2.1.269 under ``~/.local`` and
+    ran 2.1.233 under ``/usr/local`` (ARIA-HIGH-077). Symlinks are followed
+    so the attempt names the installation itself.
+    """
+    name = claude_binary()
+    found = name if os.path.isabs(name) else shutil.which(name, path=environ.get("PATH", os.defpath))
+    if found is None or not Path(found).is_file():
+        raise ClaudeCliUnavailable(f"`{name}` binary not on the spawn environment's PATH")
+    return Path(found).resolve(strict=True)
 
 
 def assert_claude_policy_environment() -> None:
@@ -457,6 +405,78 @@ def preflight_claude_auth(*, timeout_seconds: int = 20) -> dict[str, Any]:
             "ARIA_CLAUDE_AUTH_PREFLIGHT_SKIP=1 for a dry-run"
         )
     return {"status": "ok", "version": version}
+
+
+# The managed session's own status command. `claude auth status --json` is a
+# non-model call that reports the login state the CLI will actually use:
+# authMethod "claude.ai" is the managed subscription; an API-key or console
+# login is the billing bypass ARIA refuses. It is the Anthropic mirror of
+# `codex login status` and, like it, proves the session at admission time —
+# not remaining quota, and not the result of a later model turn. The
+# document is classified by `status_answers` (the one reader of the
+# vendor's answer for both CLIs; `MANAGED_AUTH_METHOD_CLAUDE_AI` lives
+# there), imported where the probe runs like every other kernel-side
+# import in this module.
+
+
+@dataclass(frozen=True)
+class ManagedClaudeContext:
+    """What native admission holds for the managed Anthropic route.
+
+    The spawn itself stays the existing `run_claude_exec` (agent_env build,
+    containment, cancel polling); this records the identity the attempt row
+    binds to and the status facts the fleet admission read.
+    """
+
+    auth_method: str
+    subscription_type: str | None
+    config_dir: str | None
+    settings_hash: str
+
+
+def _probe_claude_auth_status(
+    *, environ: dict[str, str], timeout_seconds: float, binary: str | None = None,
+) -> Any:
+    """Observe `claude auth status --json`, retaining only its type.
+
+    Returned as the fleet's `_RuntimeStatusObservation`, each row naming its
+    `StatusDecision` at the site that saw the answer. This owner runs the
+    spawn (the environment boundary, the per-attempt cap) and names what
+    never produced an answer: no CLI on PATH → `cli_unavailable` (DECIDED —
+    the host, not the vendor, said so); slow or unspawnable → UNDECIDED.
+    The bytes the CLI wrote go to `status_answers.classify_claude_status_answer`,
+    which reads the DOCUMENT before the exit code: the installed CLI exits
+    1 on a logged-out session while still printing `{"loggedIn": false}`,
+    and that is a DECIDED refusal, not a stall. Only when no document was
+    read does the exit code name the undecided reason. Raw output never
+    leaves this owner; the email/org fields are not recorded.
+    """
+    from status_answers import classify_claude_status_answer
+    from aria_kernel.status_probe import StatusDecision, _RuntimeStatusObservation
+
+    name = binary or environ.get(CLAUDE_BINARY_ENV_VAR, "claude")
+    executable = name if os.path.isabs(name) else shutil.which(name, path=environ.get("PATH", os.defpath))
+    command = (name, "auth", "status", "--json")
+    if executable is None:
+        return _RuntimeStatusObservation("unavailable", reason="cli_unavailable", command=command,
+                                         decision=StatusDecision.UNAVAILABLE)
+    if timeout_seconds <= 0:
+        return _RuntimeStatusObservation("unknown", reason="status_deadline_elapsed", command=command,
+                                         decision=StatusDecision.UNDECIDED)
+    allowed = {"PATH", "HOME", "CLAUDE_CONFIG_DIR", "LANG", "LC_ALL", "TMPDIR", "XDG_CONFIG_HOME"}
+    status_env = {name: value for name, value in environ.items() if name in allowed}
+    try:
+        completed = subprocess.run(
+            [executable, "auth", "status", "--json"], capture_output=True, text=True,
+            timeout=min(20.0, float(timeout_seconds)), env=status_env, check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return _RuntimeStatusObservation("unknown", reason="status_timeout", command=command,
+                                         decision=StatusDecision.UNDECIDED)
+    except OSError:
+        return _RuntimeStatusObservation("unknown", reason="status_command_unavailable", command=command,
+                                         decision=StatusDecision.UNDECIDED)
+    return classify_claude_status_answer(completed.stdout, completed.returncode, command=command)
 
 
 def _managed_auth_present() -> bool:
@@ -619,9 +639,34 @@ def _apply_write_containment(
     permission_mode: str | None,
     workspace_root: str | Path | None,
     write_scope: Sequence[str] | None = None,
-    extra_ro_binds: Sequence[str] = (),
+    executable: Path | None = None,
+    spawn_files: Sequence[Path] = (),
+    managed_login_dir: Path | None = None,
+    git_containment: Any | None = None,
+    hook_broker_socket: Path | None = None,
+    mcp_broker_socket: Path | None = None,
 ) -> list[str]:
     """Wrap a write-capable spawn so READONLY_PATHS are enforced by the OS.
+
+    ``executable`` is the CLI resolved outside the sandbox (run by absolute
+    path inside it), ``spawn_files`` the documents this spawn wrote for the
+    CLI, ``managed_login_dir`` the login directory whose one credential file
+    is mounted into the private home — see the kernel's
+    ``wrap_managed_claude_in_sandbox`` (ARIA-HIGH-077).
+
+    ARIA-HIGH-123 — ``git_containment`` is the commit-capable git
+    containment the executor derived when it held the implementer's
+    identity (``implementation_identity``: the worktree's git dirs bound
+    the way a commit needs, the private key masked, the kernel-held
+    signing agent's socket bound in). Without one, the workspace's git
+    binds are derived here READ-ONLY (``derive_git_containment(...,
+    commit_capable=False)``): git reads work in a linked worktree and
+    nothing under either git dir is writable. ``hook_broker_socket`` is the
+    kernel-side hook broker's socket (``hook_broker.serve_hook_broker``),
+    bound into the sandbox so the hooks decide and journal OUTSIDE it; the
+    durable store is never mounted in the sandbox. ``mcp_broker_socket``
+    is the kernel-side MCP broker's (ARIA-HIGH-124): the `aria` view is
+    served outside and relayed in through it.
 
     Fail-closed: with no sandbox backend the spawn is REFUSED unless the
     operator has set ``ARIA_ALLOW_UNCONFINED_WRITE``. Pre-fix
@@ -641,19 +686,36 @@ def _apply_write_containment(
         return argv
     workspace = Path(workspace_root) if workspace_root is not None else Path.cwd()
     try:
+        from aria_kernel.git_containment import GitContainmentRefusal, derive_git_containment
         from aria_kernel.implementation_safety import (
             SandboxUnavailable,
             wrap_bash_in_sandbox,
+            wrap_managed_claude_in_sandbox,
         )
     except ImportError as exc:  # pragma: no cover - kernel always importable here
         raise ClaudePolicyViolation(
             f"claude_write_containment_unavailable: cannot import the sandbox "
             f"helper ({exc}); refusing to spawn a write-capable agent unconfined"
         ) from exc
+    git = git_containment
+    if git is None:
+        try:
+            git = derive_git_containment(workspace, commit_capable=False)
+        except GitContainmentRefusal as exc:
+            raise ClaudePolicyViolation(
+                f"claude_write_containment_git_refused: {exc.reason}; refusing to spawn a "
+                f"write-capable agent whose git binds cannot be derived from {workspace}"
+            ) from exc
     try:
-        return wrap_bash_in_sandbox(
-            argv, workspace_root=workspace, allow_network=True,
-            write_scope=write_scope, extra_ro_binds=extra_ro_binds,
+        if executable is None:
+            return wrap_bash_in_sandbox(
+                argv, workspace_root=workspace, allow_network=True, write_scope=write_scope,
+                git=git, hook_broker_socket=hook_broker_socket, mcp_broker_socket=mcp_broker_socket,
+            )
+        return wrap_managed_claude_in_sandbox(
+            argv, workspace_root=workspace, write_scope=write_scope, executable=executable,
+            spawn_files=spawn_files, managed_login_dir=managed_login_dir, git=git,
+            hook_broker_socket=hook_broker_socket, mcp_broker_socket=mcp_broker_socket,
         )
     except SandboxUnavailable as exc:
         if _parse_bool(
@@ -675,8 +737,20 @@ def _apply_write_containment(
         ) from exc
 
 
-def _apply_resource_limits(argv: list[str], *, timeout_seconds: int) -> list[str]:
+def _apply_resource_limits(
+    argv: list[str], *, timeout_seconds: int, environ: dict[str, str] | None = None,
+    control_source: Mapping[str, str] | None = None,
+) -> list[str]:
     """Bound the spawned agent's memory, CPU, task count and wall clock.
+
+    ``environ`` is the BUILT spawn environment the limited command launches
+    with; ``control_source`` (normally ``os.environ``) is where the user-bus
+    plumbing the limiter alone may use is read from, by name. The kernel
+    helper probes the limiter in that launch environment and unsets the
+    plumbing again before the agent starts (ARIA-HIGH-076: a limiter
+    selected in the executor's environment and launched in the agent's
+    failed with "Failed to connect to bus" on the managed Claude route's
+    first live attempt).
 
     ORPHAN-MEDIUM-459 — the kernel half of this shipped with the sandbox
     work and had no production caller; the only instruction to run it was a
@@ -712,14 +786,18 @@ def _apply_resource_limits(argv: list[str], *, timeout_seconds: int) -> list[str
         from aria_kernel.implementation_safety import (
             ResourceLimitsUnavailable,
             apply_resource_limits,
+            limiter_control_environment,
         )
     except ImportError as exc:  # pragma: no cover - kernel always importable here
         raise ClaudePolicyViolation(
             f"claude_resource_limits_unavailable: cannot import the limit "
             f"helper ({exc}); refusing to spawn an unbounded agent"
         ) from exc
+    control_environment = limiter_control_environment(control_source) if control_source is not None else None
     try:
-        return apply_resource_limits(argv, timeout_seconds=timeout_seconds)
+        return apply_resource_limits(
+            argv, timeout_seconds=timeout_seconds, environ=environ, control_environment=control_environment,
+        )
     except ResourceLimitsUnavailable as exc:
         raise ClaudePolicyViolation(
             f"claude_resource_limits_required: {exc}. Install coreutils "
@@ -863,19 +941,74 @@ def spawn_settings_hash(*, agent_profile: Any | None, usage_recording: UsageReco
     from aria_kernel.claude_settings import build_settings, settings_hash
     from aria_kernel.runtime_profiles import profile_by_id
 
-    hook_context = None
-    if usage_recording is not None and workspace_root is not None:
-        hook_context = {
-            "python": sys.executable or "python3",
-            "kernel_root": str(Path(workspace_root).resolve() / "aria-kernel"),
-            "tools_dir": str(Path(usage_recording.base_dir).resolve()),
-            "workspace_root": str(Path(workspace_root).resolve()),
-            "request_id": usage_recording.request_id,
-        }
+    hook_context = _hook_context(usage_recording=usage_recording, workspace_root=workspace_root)
     return settings_hash(build_settings(profile_by_id(str(profile_id)), hook_context=hook_context))
 
-def _write_spawn_mcp_config(*, agent_profile: Any | None, base_dir: Any | None) -> Path:
-    """Plan 032 Faz 032g — the `--mcp-config` document for this spawn."""
+def _hook_context(*, usage_recording: UsageRecording | None, workspace_root: str | Path | None) -> dict[str, str] | None:
+    """The kernel facts the spawn's hooks and MCP relay are served with, or
+    None for a spawn without a ledger or a workspace.
+
+    ARIA-HIGH-142 — ``kernel_root`` is the RUNNING kernel's ``aria-kernel/``
+    (``claude_settings.kernel_code_root``), not ``<workspace>/aria-kernel``:
+    the clients are the kernel's, and a workspace checked out at a commit
+    without them (trial eleven's task source) gave every hook and the relay
+    a path that did not exist inside the sandbox. Both clients are checked
+    HERE, before a settings document names them, so a kernel tree that
+    lacks one refuses by name instead of a hook dying silently by path.
+    """
+    if usage_recording is None or workspace_root is None:
+        return None
+    from aria_kernel.claude_settings import hook_client_path, kernel_code_root
+    from aria_kernel.mcp_client import MCP_RELAY_RELPATH
+
+    kernel_root = kernel_code_root()
+    for client in (hook_client_path(kernel_root), kernel_root.joinpath(*MCP_RELAY_RELPATH)):
+        if not client.is_file():
+            raise ClaudePolicyViolation(f"kernel_client_missing:{client}")
+    return {
+        "python": _spawn_interpreter(),
+        "kernel_root": str(kernel_root),
+        "tools_dir": str(Path(usage_recording.base_dir).resolve()),
+        "workspace_root": str(Path(workspace_root).resolve()),
+        "request_id": usage_recording.request_id,
+    }
+
+
+def _spawn_interpreter() -> str:
+    """The interpreter the in-sandbox hook client and MCP relay run under:
+    this process's, by its REAL path. The sandbox binds the system tree,
+    not the directory a symlink named on PATH (ARIA-HIGH-124: a symlinked
+    ``python3`` outside the binds gave the relay no interpreter inside),
+    so the resolved binary is what exists on both sides."""
+    executable = sys.executable or "python3"
+    try:
+        return os.path.realpath(executable)
+    except OSError:
+        return executable
+
+
+def _kernel_profile(agent_profile: Any | None) -> Any | None:
+    """The kernel runtime profile behind a spawn's agent profile, or None
+    for the profile-less legacy shape."""
+    profile_id = getattr(agent_profile, "profile_id", None)
+    if not profile_id:
+        return None
+    from aria_kernel.runtime_profiles import profile_by_id
+
+    return profile_by_id(str(profile_id))
+
+
+def _write_spawn_mcp_config(*, agent_profile: Any | None, base_dir: Any | None, relay: Any | None = None) -> Path:
+    """Plan 032 Faz 032g — the `--mcp-config` document for this spawn.
+
+    ARIA-HIGH-124 — ``relay`` (an ``mcp_client.McpRelayContext``) is how the
+    document reaches the kernel's own `aria` server: served OUTSIDE by this
+    process (``mcp_broker``), relayed in by ``mcp_relay.py`` run by path
+    under the workspace's read-only kernel tree. A profile that names the
+    kernel's server on a spawn that serves no broker is refused by the
+    kernel (``mcp_kernel_socket_requires_relay``), never handed a server
+    spawned inside against a store that is not there.
+    """
     from aria_kernel.mcp_client import mcp_config_for_profile, write_mcp_config_file
 
     profile_id = getattr(agent_profile, "profile_id", None)
@@ -884,8 +1017,24 @@ def _write_spawn_mcp_config(*, agent_profile: Any | None, base_dir: Any | None) 
     from aria_kernel.runtime_profiles import profile_by_id
 
     kernel = profile_by_id(str(profile_id))
-    config = mcp_config_for_profile(kernel, base_dir=base_dir)
+    config = mcp_config_for_profile(kernel, base_dir=base_dir, relay=relay)
     return write_mcp_config_file(config, label=str(profile_id))
+
+
+@dataclass(frozen=True)
+class SpawnSettings:
+    """The `--settings` document of one spawn and the kernel facts its hooks
+    are served with (ARIA-HIGH-123): ``hook_context`` is None for a document
+    without hooks (then no broker is served), ``turn_budget`` is the cap the
+    document records (``_aria.turn_budget``) and the broker admits turns
+    against — one number, read from the document the CLI carries."""
+
+    path: Path | None
+    hook_context: dict[str, str] | None = None
+    turn_budget: int | None = None
+
+
+_NO_SPAWN_SETTINGS = SpawnSettings(path=None)
 
 
 def _write_spawn_settings(
@@ -894,13 +1043,14 @@ def _write_spawn_settings(
     usage_recording: UsageRecording | None,
     workspace_root: str | Path | None,
     write_capable: bool,
-) -> Path | None:
-    """The `--settings` document for this spawn, or None for the profile-less
-    legacy shape. Fail-closed: a write-capable spawn under a kernel profile
-    without a settings file is refused rather than run on prose."""
+) -> SpawnSettings:
+    """The `--settings` document for this spawn (``path`` None for the
+    profile-less legacy shape). Fail-closed: a write-capable spawn under a
+    kernel profile without a settings file is refused rather than run on
+    prose."""
     profile_id = getattr(agent_profile, "profile_id", None)
     if not profile_id:
-        return None
+        return _NO_SPAWN_SETTINGS
     try:
         from aria_kernel.claude_settings import build_settings, write_settings_file
         from aria_kernel.runtime_profiles import profile_by_id
@@ -909,16 +1059,8 @@ def _write_spawn_settings(
             f"claude_settings_builder_unavailable: {exc}; refusing a profiled spawn without its settings"
         ) from exc
     kernel = profile_by_id(str(profile_id))
-    hook_context = None
-    if usage_recording is not None and workspace_root is not None:
-        hook_context = {
-            "python": sys.executable or "python3",
-            "kernel_root": str(Path(workspace_root).resolve() / "aria-kernel"),
-            "tools_dir": str(Path(usage_recording.base_dir).resolve()),
-            "workspace_root": str(Path(workspace_root).resolve()),
-            "request_id": usage_recording.request_id,
-        }
-    elif write_capable:
+    hook_context = _hook_context(usage_recording=usage_recording, workspace_root=workspace_root)
+    if hook_context is None and write_capable:
         raise ClaudePolicyViolation(
             "claude_write_spawn_without_hook_context: a write-capable spawn needs a "
             "ledger (usage_recording.base_dir) and a workspace so its hooks can decide and journal"
@@ -927,9 +1069,14 @@ def _write_spawn_settings(
     import tempfile
 
     directory = Path(os.environ.get("RUNNER_TEMP") or tempfile.gettempdir()) / "aria-spawn-settings"
-    return write_settings_file(
+    path = write_settings_file(
         settings, directory=directory,
         request_id=(usage_recording.request_id if usage_recording is not None else f"preview-{os.getpid()}"),
+    )
+    turn_budget = settings["_aria"]["turn_budget"]
+    return SpawnSettings(
+        path=path, hook_context=hook_context,
+        turn_budget=int(turn_budget) if turn_budget is not None else None,
     )
 
 def _build_spawn_env(*, passthrough: Sequence[str], extra: dict[str, str]) -> tuple[dict[str, str], Any | None]:
@@ -1081,6 +1228,24 @@ def _run_spawn(
     return subprocess.CompletedProcess(argv, proc.returncode, "".join(out_lines), "".join(err_chunks))
 
 
+def assert_model_served_by_claude_runtime(model: str | None) -> None:
+    """Refuse, by name, a model that belongs to another provider.
+
+    Operator policy 2026-09-11: this runtime spawns the managed Anthropic
+    session and nothing else. Before this check the fleet's Z.ai tier reached
+    the claude binary through a per-spawn base-URL redirect carrying the Z.ai
+    key; that route is gone, and a caller that still asks this runtime for a
+    foreign tier gets a policy refusal here instead of a confusing vendor
+    error (or, worse, a spend on the wrong account) later.
+    """
+    provider = _model_provider(model)
+    if provider != "anthropic":
+        raise ClaudePolicyViolation(
+            f"model_not_served_by_claude_runtime: {model!r} belongs to provider "
+            f"{provider!r}; dispatch it through that provider's runtime"
+        )
+
+
 def run_claude_exec(
     *,
     prompt_text: str,
@@ -1101,7 +1266,12 @@ def run_claude_exec(
     extra_env: dict[str, str] | None = None,
     # Plan 032 Faz 032e — cancel polling + live progress observer.
     spawn_control: SpawnControl | None = None,
+    # ARIA-HIGH-123 — the commit-capable git containment the executor
+    # derived while holding the implementer's identity; None for every
+    # spawn that holds no identity (its git binds are derived read-only).
+    git_containment: Any | None = None,
 ) -> ClaudeRunResult:
+    assert_model_served_by_claude_runtime(model)
     preflight_claude_auth()
     assert_write_runner_ok(skip_permissions=skip_permissions, permission_mode=permission_mode)
     _assert_budget_before_spawn()
@@ -1124,83 +1294,149 @@ def run_claude_exec(
     # compiled from the command policy + the kernel hooks. A write-capable
     # spawn under a kernel profile MUST carry it (I-V12-HOOK-01); a spawn
     # with no profile or no ledger context carries permission rules only.
-    settings_path = _write_spawn_settings(
+    spawn_settings = _write_spawn_settings(
         agent_profile=agent_profile,
         usage_recording=usage_recording,
         workspace_root=cwd,
         write_capable=_is_write_capable(skip_permissions=skip_permissions, permission_mode=permission_mode),
     )
+    settings_path = spawn_settings.path
     if settings_path is not None:
         argv.extend(["--settings", str(settings_path)])
-    # Plan 032 Faz 032g — MCP config per spawn, ALWAYS strict: only the kernel
-    # registry servers the profile names (minus quarantined); a profile-less
-    # spawn gets an empty document, i.e. no MCP server at all.
-    mcp_config_path = _write_spawn_mcp_config(agent_profile=agent_profile, base_dir=getattr(usage_recording, "base_dir", None))
-    argv.extend(["--strict-mcp-config", "--mcp-config", str(mcp_config_path)])
     # ORPHAN-CRITICAL-427 — containment is applied HERE, by the code that
     # spawns the process, not by prose in the agent's own instruction file.
     # A write-capable shape (full permission bypass or acceptEdits) gets
     # wrapped so READONLY_PATHS are ro-bind: a write under aria-kernel/ or
     # .github/ then fails with EROFS at the syscall level instead of
     # depending on the agent choosing to obey.
-    # The spawn environment is BUILT (agent_env), never copied: baseline +
-    # CLI auth + profile passthrough, secrets dropped by name. Built before
-    # containment so the managed-login directory it derived can be ro-bound.
-    spawn_env, env_report = _build_spawn_env(
-        passthrough=passthrough,
-        extra={**({"IS_SANDBOX": "1"} if _sandbox_acknowledged() else {}),
-               **provider_redirect_env(model),
-               # The hooks run `python3 -m aria_kernel` inside the sandbox;
-               # the kernel rides PYTHONPATH there exactly as in the lanes.
-               **({"PYTHONPATH": str(Path(cwd).resolve() / "aria-kernel")} if cwd is not None else {}),
-               **(dict(extra_env) if extra_env else {})},
-    )
-    config_dir = env_report.claude_config_dir if env_report is not None else None
-    argv = _apply_write_containment(
-        argv,
-        skip_permissions=skip_permissions,
-        permission_mode=permission_mode,
-        workspace_root=cwd,
-        write_scope=write_scope,
-        extra_ro_binds=(config_dir,) if config_dir else (),
-    )
-    # ORPHAN-MEDIUM-459 — resource limits, applied by the spawner for the same
-    # reason containment is. `apply_resource_limits` shipped with the sandbox
-    # work, was exported, was name-pinned by a test, and had ZERO production
-    # callers: its only instruction to actually run it lived in
-    # `.claude/agents/aria-implementer.md`, addressed to the process being
-    # limited. A fork bomb or a runaway allocation in a write-capable agent
-    # was bounded by nothing.
-    #
-    # OUTSIDE the sandbox wrapper on purpose: `timeout` and `systemd-run`
-    # must own the whole process tree including bwrap, not run inside it.
-    #
-    # The caller's `timeout_seconds`, not the helper's 120s default — an
-    # agent run is minutes, and a 120s cap would kill every real invocation.
-    # The subprocess timeout below stays 30s looser so the cgroup/`timeout`
-    # limit fires first and its exit status is what the caller sees.
-    argv = _apply_resource_limits(argv, timeout_seconds=timeout_seconds)
-    # IS_SANDBOX (root bypass acknowledgement) and the vendor redirect
-    # (ORPHAN-HIGH-764, scoped to THIS spawn) were folded into the built
-    # environment above; nothing else from the runner's environment reaches
-    # the agent. Names only are recorded, best-effort, next to usage.
-    if usage_recording is not None and env_report is not None:
-        _record_env_report_best_effort(recording=usage_recording, report=env_report)
-    run_env = spawn_env
-    try:
-        # Plan 032 Faz 032e — one seam: buffered without a control, streamed
-        # and cancellable (process group) with one.
-        proc = _run_spawn(
-            argv,
-            input_text=prompt_text,
-            timeout_seconds=timeout_seconds + 30,
-            cwd=str(cwd) if cwd is not None else None,
-            env=run_env,
-            control=spawn_control,
+    # ARIA-HIGH-123 — the hooks the settings compile are served by a broker
+    # in THIS process (`hook_broker`), on a socket the sandbox is handed:
+    # the store, the workspace, the request id and the turn cap are the
+    # broker's own facts, read from the document the CLI carries; nothing
+    # of the store is mounted in the sandbox. One broker per spawn, alive
+    # exactly as long as the spawn.
+    from aria_kernel.hook_broker import HOOK_BROKER_SOCKET_ENV, serve_hook_broker
+    from aria_kernel.mcp_broker import MCP_BROKER_SOCKET_ENV, serve_mcp_broker
+    from aria_kernel.mcp_client import McpRelayContext, kernel_socket_servers
+
+    with _ExitStack() as spawn_stack:
+        broker = None
+        mcp_broker = None
+        if spawn_settings.hook_context is not None:
+            broker = spawn_stack.enter_context(serve_hook_broker(
+                base_dir=spawn_settings.hook_context["tools_dir"],
+                workspace_root=spawn_settings.hook_context["workspace_root"],
+                request_id=spawn_settings.hook_context["request_id"],
+                turn_budget=spawn_settings.turn_budget,
+            ))
+            # ARIA-HIGH-124 — the kernel's own MCP server is served HERE,
+            # outside the sandbox, against the store the hooks journal
+            # into, for the spawn's life; the relay the document names is
+            # its only way in. A profile that names no kernel server gets
+            # no broker.
+            if kernel_socket_servers(_kernel_profile(agent_profile)):
+                mcp_broker = spawn_stack.enter_context(serve_mcp_broker(
+                    base_dir=spawn_settings.hook_context["tools_dir"],
+                    workspace_root=spawn_settings.hook_context["workspace_root"],
+                    request_id=spawn_settings.hook_context["request_id"],
+                ))
+        # Plan 032 Faz 032g — MCP config per spawn, ALWAYS strict: only the
+        # kernel registry servers the profile names (minus quarantined); a
+        # profile-less spawn gets an empty document, i.e. no MCP server at
+        # all. Written after the brokers exist, because the kernel's server
+        # renders as the relay to this spawn's broker socket.
+        mcp_config_path = _write_spawn_mcp_config(
+            agent_profile=agent_profile, base_dir=getattr(usage_recording, "base_dir", None),
+            relay=(McpRelayContext(
+                python=_spawn_interpreter(),
+                kernel_root=Path(spawn_settings.hook_context["kernel_root"]),
+            ) if mcp_broker is not None else None),
         )
-    finally:
-        if env_report is not None:
-            _cleanup_spawn_home(env_report.home)
+        argv.extend(["--strict-mcp-config", "--mcp-config", str(mcp_config_path)])
+        # The spawn environment is BUILT (agent_env), never copied: baseline +
+        # CLI auth + profile passthrough, secrets dropped by name. Built before
+        # containment so the managed-login directory it derived can be ro-bound.
+        spawn_env, env_report = _build_spawn_env(
+            passthrough=passthrough,
+            extra={**({"IS_SANDBOX": "1"} if _sandbox_acknowledged() else {}),
+                   # PYTHONPATH names the workspace's kernel tree exactly as
+                   # in the lanes, for the agent's own validation runs
+                   # (`python3 -m unittest …` over kernel tests). No kernel
+                   # CLI runs inside any more: `python3 -m aria_kernel …` is
+                   # refused by the command policy (ARIA-HIGH-124), and the
+                   # hook client and the MCP relay are run by path and
+                   # import nothing from the package.
+                   **({"PYTHONPATH": str(Path(cwd).resolve() / "aria-kernel")} if cwd is not None else {}),
+                   # The broker's HOST socket: what an unconfined spawn's
+                   # hooks connect to; the sandbox overrides the name with
+                   # the bound path.
+                   **({HOOK_BROKER_SOCKET_ENV: str(broker.socket_path)} if broker is not None else {}),
+                   # ARIA-HIGH-124 — the MCP broker's HOST socket, the same
+                   # way: the relay inherits it from the CLI; the sandbox
+                   # overrides the name with the bound path.
+                   **({MCP_BROKER_SOCKET_ENV: str(mcp_broker.socket_path)} if mcp_broker is not None else {}),
+                   **(dict(extra_env) if extra_env else {})},
+        )
+        config_dir = env_report.claude_config_dir if env_report is not None else None
+        # The binary the attempt names is the binary that runs: resolved ONCE,
+        # here, in the built environment's PATH, and run by that absolute path
+        # inside and outside the sandbox (ARIA-HIGH-077).
+        executable = _resolve_claude_executable(spawn_env)
+        argv[0] = str(executable)
+        argv = _apply_write_containment(
+            argv,
+            skip_permissions=skip_permissions,
+            permission_mode=permission_mode,
+            workspace_root=cwd,
+            write_scope=write_scope,
+            executable=executable,
+            spawn_files=tuple(path for path in (settings_path, mcp_config_path) if path is not None),
+            managed_login_dir=Path(config_dir) if config_dir else None,
+            git_containment=git_containment,
+            hook_broker_socket=broker.socket_path if broker is not None else None,
+            mcp_broker_socket=mcp_broker.socket_path if mcp_broker is not None else None,
+        )
+        # ORPHAN-MEDIUM-459 — resource limits, applied by the spawner for the same
+        # reason containment is. `apply_resource_limits` shipped with the sandbox
+        # work, was exported, was name-pinned by a test, and had ZERO production
+        # callers: its only instruction to actually run it lived in
+        # `.claude/agents/aria-implementer.md`, addressed to the process being
+        # limited. A fork bomb or a runaway allocation in a write-capable agent
+        # was bounded by nothing.
+        #
+        # OUTSIDE the sandbox wrapper on purpose: `timeout` and `systemd-run`
+        # must own the whole process tree including bwrap, not run inside it.
+        #
+        # The caller's `timeout_seconds`, not the helper's 120s default — an
+        # agent run is minutes, and a 120s cap would kill every real invocation.
+        # The subprocess timeout below stays 30s looser so the cgroup/`timeout`
+        # limit fires first and its exit status is what the caller sees.
+        # Probed in the environment the agent launches with, plus the bus
+        # plumbing only the limiter receives (it is unset again for the agent).
+        argv = _apply_resource_limits(
+            argv, timeout_seconds=timeout_seconds, environ=spawn_env, control_source=os.environ,
+        )
+        # IS_SANDBOX (root bypass acknowledgement) and the vendor redirect
+        # (ORPHAN-HIGH-764, scoped to THIS spawn) were folded into the built
+        # environment above; nothing else from the runner's environment reaches
+        # the agent. Names only are recorded, best-effort, next to usage.
+        if usage_recording is not None and env_report is not None:
+            _record_env_report_best_effort(recording=usage_recording, report=env_report)
+        run_env = spawn_env
+        try:
+            # Plan 032 Faz 032e — one seam: buffered without a control, streamed
+            # and cancellable (process group) with one.
+            proc = _run_spawn(
+                argv,
+                input_text=prompt_text,
+                timeout_seconds=timeout_seconds + 30,
+                cwd=str(cwd) if cwd is not None else None,
+                env=run_env,
+                control=spawn_control,
+            )
+        finally:
+            if env_report is not None:
+                _cleanup_spawn_home(env_report.home)
     events = parse_claude_jsonl(proc.stdout)
     final_message = extract_final_message(events)
     usage = extract_usage(events)
@@ -1271,24 +1507,42 @@ def parse_claude_jsonl(raw: str) -> tuple[dict[str, Any], ...]:
 
 
 def extract_final_message(events: tuple[dict[str, Any], ...]) -> str:
-    """Return the agent's final text.
+    """Return the agent's final text — the whole final turn, not its last frame.
 
     Claude Code stream-json terminates with a ``{"type":"result",...}`` event
-    whose ``result`` field is the final assistant text. We prefer that; if it
-    is absent (e.g. an error-typed result) we fall back to the last
-    ``assistant`` message's concatenated text blocks.
+    whose ``result`` field is the text of the LAST assistant message. A long
+    answer is streamed as several consecutive ``assistant`` events: trial
+    nine's challenger (2026-09-12, ARIA-HIGH-083) hit the CLI's output token
+    limit; the CLI injected a synthetic user turn ("Output token limit hit.
+    Resume directly …", ``isSynthetic: true``), the model resumed mid-JSON,
+    and ``result`` carried only the resumed frame (3,795 of 42,661 chars) —
+    the executor saw a JSON tail, found no ``plan_content`` and refused a
+    complete, valid plan. The final turn is every assistant text frame after
+    the last REAL user event (a tool result); a synthetic continuation joins
+    the frames it separates. ``result`` is used when it is not a suffix of
+    that turn (an error-typed result, a shape this reader does not know) and
+    as the fallback when no frame was seen.
     """
-    final = ""
+    turn: list[str] = []
+    result_text = ""
     for event in events:
-        if event.get("type") == "result":
-            result_text = event.get("result")
-            if isinstance(result_text, str):
-                final = result_text
-        elif event.get("type") == "assistant":
+        kind = event.get("type")
+        if kind == "user":
+            if event.get("isSynthetic") is True:
+                continue
+            turn = []
+        elif kind == "assistant":
             text = _assistant_text(event.get("message"))
             if text:
-                final = text
-    return final
+                turn.append(text)
+        elif kind == "result":
+            value = event.get("result")
+            if isinstance(value, str):
+                result_text = value
+    joined = "".join(turn)
+    if joined and (not result_text or joined.endswith(result_text)):
+        return joined
+    return result_text or joined
 
 
 def _assistant_text(message: Any) -> str:
@@ -1322,9 +1576,13 @@ def extract_refusal(events: tuple[dict[str, Any], ...]) -> dict[str, Any] | None
 
     Returns a record naming which shape fired (``source``) plus the
     ``category``/``explanation`` from ``stop_details`` when present, or
-    ``None`` when no refusal marker exists. Detection only — the fallback
-    policy (single audited retry on the fallback tier, HUMAN_REQUIRED on a
-    second refusal) lives in the executors.
+    ``None`` when no refusal marker exists. Detection only — what happens
+    next is fixed by the operator decision of 2026-09-12: a refusal is never
+    retried on another tier. ``run_with_model_fallback`` returns it on the
+    result and each executor escalates it to HUMAN_REQUIRED under
+    ``model_safety_refusal_unresolved`` (ci_executor writes the
+    unresolved-result row; worker_executor exits non-zero with that line on
+    stderr).
     """
     for event in events:
         if event.get("type") == "assistant":
@@ -1371,8 +1629,9 @@ USAGE_LIMIT_MARKERS: tuple[str, ...] = (
 # Transient signals ("overloaded", a bare per-minute rate limit / HTTP 429,
 # network/timeout) are in NEITHER set — they stay on the EXTERNAL_OUTAGE
 # requeue path (retry on the SAME model clears them), whereas credit exhaustion
-# is deterministic and model-pool specific (only a different tier's pool
-# resolves it), exactly like a refusal.
+# is deterministic and provider-wide: it clears only when the provider's
+# quota comes back, which is why the executors requeue the request under a
+# provider cooldown instead of retrying it on any tier.
 CREDIT_ERROR_MARKERS: tuple[str, ...] = (
     "credit balance",          # "Your credit balance is too low"
     "insufficient credit",
@@ -1387,17 +1646,22 @@ CREDIT_ERROR_MARKERS: tuple[str, ...] = (
     "usage limit reached",
 )
 # Union kept under the original name for external/test references. The operator
-# tunes these from production: every credit fallback emits a governance row
-# carrying the real matched marker.
+# tunes these from production evidence: every exhaustion is audited with the
+# real matched marker — the executor's `model_credit_exhausted` row (ci) or
+# stderr line (worker) at detection, and the `provider_quota_cooldown`
+# governance row (`aria_kernel.provider_cooldown`), whose `detection` field
+# carries the same record, when the provider is cooled.
 CREDIT_EXHAUSTION_MARKERS: tuple[str, ...] = USAGE_LIMIT_MARKERS + CREDIT_ERROR_MARKERS
 
 # (3) AUTHENTICATION FAILURE — the runtime cannot start at all.
 #
 # Distinct from both sets above, and the distinction is not cosmetic. A credit
-# exhaustion is model-pool specific, so dropping a tier can clear it; a refusal
-# is content specific, so a different model can clear it. An expired session
-# clears on NEITHER — every tier authenticates through the same credential, so
-# the fallback ladder just burns two attempts and reports the second failure.
+# exhaustion is a quota fact about one provider and clears with time (the
+# request waits it out under the provider cooldown); a refusal is content
+# specific and is escalated to a human. An expired session is a CREDENTIAL
+# fact: every tier of the same vendor shares it, so the only honest retry is
+# on another vendor (ARIA-HIGH-023), and only for a role that vendor's
+# read-only runtime can serve.
 #
 # This class cost five silent nights of autonomy (2026-08-04 → 08): the CI
 # executor claimed a request, the CLI exited 1 with
@@ -1447,115 +1711,86 @@ def run_with_model_fallback(
     run: Callable[[str, str], ClaudeRunResult],
     model: str,
     effort: str,
-    on_credit: Callable[[dict[str, Any]], None] | None = None,
-    on_refusal: Callable[[dict[str, Any]], None] | None = None,
+    write_capable: bool,
+    on_credit: Callable[[str, dict[str, Any]], None] | None = None,
 ) -> ClaudeRunResult:
-    """Run one dispatch and apply the model fallback ladder.
+    """Run one dispatch and apply the cross-vendor auth failover.
 
     ``run(model, effort)`` executes a single attempt. This is the SSoT for the
-    fallback behaviour both executors share (extracted so it is unit-testable
-    without a full lease/dispatch environment).
+    failover behaviour both executors share (extracted so it is unit-testable
+    without a full lease/dispatch environment). ``write_capable`` is the
+    profile's own fact (``AgentRuntimeProfile.write_capable``) and is what
+    conditions the failover on the role, in code rather than prose.
 
-    ORPHAN-HIGH-480 — this docstring described the pre-ladder single-hop policy
-    on five counts after the code had moved on, which is the same stale-prose
-    defect as the jest tier comments (ORPHAN-MEDIUM-477). Corrected to match:
+    Operator decision 2026-09-12 — what this helper does and does NOT do:
 
-    * Fallback fires for any tier present in ``MODEL_FALLBACK_TIER`` — the
-      in-vendor credit ladder (``fable -> opus``, ``opus -> sonnet``) plus the
-      cross-provider rungs (``sonnet -> glm-5.3``, ``glm-5.3 -> opus``). It is
-      NOT keyed to one model name.
-    * A credit/quota exhaustion retries once on the mapped tier at
-      ``CREDIT_FALLBACK_EFFORT`` — a separate credit pool at ultracode depth.
-    * A refusal retries once on the mapped tier at the ORIGINAL effort (K2).
-    * ARIA-HIGH-023 — an AUTH failure walks the ladder (same-vendor rungs
-      skipped, cycle-bounded) to the first CROSS-provider tier and retries
-      there at the original effort: a dead credential is a vendor-level fact,
-      and the other vendor's credential is genuinely different. Both vendors
-      failing auth raises :class:`ClaudeAuthFailure`; no mock verdict is ever
-      produced on this path.
-    * Credit and refusal retries are bounded to exactly ONE rung per call,
-      never chained. Credit takes precedence over refusal.
-    * A credit exhaustion that cannot be recovered — the tier has no mapped
-      fallback, or the fallback tier is ALSO exhausted — RAISES
-      :class:`ClaudeCreditExhausted`. It is not returned. The earlier claim that
-      the caller escalates such a result was false: no caller inspects
-      ``credit_exhaustion`` on the returned value, so returning it silently
-      published a usage-limit notice as the agent's answer (ORPHAN-HIGH-475).
-
-    The ``on_credit`` / ``on_refusal`` hooks receive the detection record so the
-    caller can emit its own audit (ci_executor: governance rows; worker_executor:
-    stderr). Hooks never alter control flow, and on_credit fires BEFORE a raise
-    so an unrecoverable exhaustion is still recorded.
+    * A CREDIT/QUOTA exhaustion is terminal for the attempt on EVERY tier:
+      ``on_credit(model, record)`` fires with the tier that ran out and the
+      detection record (the executor's audit — the tier is passed because
+      it may be the failover rung, not the primary), then
+      :class:`ClaudeCreditExhausted` is raised naming the exhausted provider
+      and model. There is no in-vendor downgrade rung any more —
+      ``opus`` is a leaf, and sonnet/haiku/fable are selected by nothing.
+      The executor releases the claim as REQUEUED and, on the native lane,
+      cools the provider so the next admission skips it; the request is
+      retried when the provider is back, never on a weaker tier.
+    * A REFUSAL is returned on the result (``.refusal``), not retried: the
+      executors escalate it to HUMAN_REQUIRED (``model_safety_refusal_unresolved``).
+    * ARIA-HIGH-023 — an AUTH failure walks ``AUTH_FAILOVER_TIER`` (same-vendor
+      rungs skipped, cycle-bounded) to the first CROSS-provider tier whose
+      runtime can serve this role and retries there at the original effort:
+      a dead credential is a vendor-level fact, and the other vendor's
+      credential is genuinely different. A write-scope profile has no such
+      rung — the other vendors' runtimes are read-only — so its auth failure
+      is terminal at once. Both vendors failing auth raises
+      :class:`ClaudeAuthFailure`; no mock verdict is ever produced here. The
+      failover attempt's own credit exhaustion is the same terminal raise,
+      naming the vendor that ran out.
+    * Exactly ONE retry per call, never chained.
     """
     completed = run(model, effort)
-    # Checked FIRST and never retried: a different tier authenticates through
-    # the same credential, so the ladder would burn a second attempt to learn
-    # the same thing, and then report the second failure as if it were the
-    # cause.
     if completed.auth_failure is not None:
-        # ARIA-HIGH-023 — an auth failure is a fact about the PROVIDER's
-        # credential, not the tier: every same-vendor rung would burn a spawn
-        # to relearn the same dead credential. Walk the ladder (cycle-bounded)
-        # to the first CROSS-provider tier and retry there at the original
-        # effort; only when that also fails auth — both vendors unavailable —
-        # is the failure terminal. This is what lets the lane keep working
-        # with real providers while one subscription is absent; there is no
-        # mock verdict anywhere on this path.
-        cross = _cross_provider_auth_fallback(model)
+        cross = _cross_provider_auth_fallback(model, write_capable=write_capable)
         if cross is not None:
             retried = run(cross, effort)
-            if retried.auth_failure is None:
-                return retried
-            raise ClaudeAuthFailure(
-                f"claude_auth_failure: {completed.auth_failure.get('marker')} on "
-                f"{model!r}, and the cross-provider rung {cross!r} failed auth "
-                f"too ({retried.auth_failure.get('marker')}) — both providers "
-                f"are unavailable; remedy: {completed.auth_failure.get('remedy')}"
-            )
+            if retried.auth_failure is not None:
+                raise ClaudeAuthFailure(
+                    f"claude_auth_failure: {completed.auth_failure.get('marker')} on "
+                    f"{model!r}, and the cross-provider rung {cross!r} failed auth "
+                    f"too ({retried.auth_failure.get('marker')}) — both providers "
+                    f"are unavailable; remedy: {completed.auth_failure.get('remedy')}"
+                )
+            return _raise_if_exhausted(retried, model=cross, on_credit=on_credit)
         raise ClaudeAuthFailure(
-            f"claude_auth_failure: {completed.auth_failure.get('marker')} — "
-            f"{completed.auth_failure.get('remedy')}"
+            f"claude_auth_failure: {completed.auth_failure.get('marker')} on {model!r}"
+            + (" — a write-scope profile has no cross-vendor rung (the other "
+               "runtimes are read-only)" if write_capable else " — no cross-vendor rung")
+            + f"; {completed.auth_failure.get('remedy')}"
         )
-    fallback_model = MODEL_FALLBACK_TIER.get(model)
-    if fallback_model is None:
-        # No alternate credit pool. A credit exhaustion here is TERMINAL, and
-        # returning it would hand the caller a usage-limit notice shaped like
-        # an answer — see ClaudeCreditExhausted. The hook still fires so the
-        # audit records the exhaustion before we refuse.
-        if completed.credit_exhaustion is not None:
-            if on_credit is not None:
-                on_credit(completed.credit_exhaustion)
-            raise ClaudeCreditExhausted(
-                f"claude_credit_exhausted: model={model!r} has no fallback tier "
-                f"({completed.credit_exhaustion})"
-            )
-        return completed
-    if completed.credit_exhaustion is not None:
-        if on_credit is not None:
-            on_credit(completed.credit_exhaustion)
-        return _reject_exhausted(run(fallback_model, CREDIT_FALLBACK_EFFORT), fallback_model)
-    if completed.refusal is not None:
-        if on_refusal is not None:
-            on_refusal(completed.refusal)
-        return _reject_exhausted(run(fallback_model, effort), fallback_model)
-    return completed
+    return _raise_if_exhausted(completed, model=model, on_credit=on_credit)
 
 
-def _reject_exhausted(result: ClaudeRunResult, model: str) -> ClaudeRunResult:
-    """ORPHAN-HIGH-473 — the retry's own exhaustion is terminal too.
+def _raise_if_exhausted(
+    result: ClaudeRunResult, *, model: str, on_credit: Callable[[str, dict[str, Any]], None] | None,
+) -> ClaudeRunResult:
+    """A credit-exhausted result is never returned (ORPHAN-HIGH-473/475).
 
-    The single-retry budget is deliberate, but the pre-fix docstring claimed the
-    caller escalates a credit signal on the retry result. It does not: neither
-    executor reads ``.credit_exhaustion`` off the value it gets back. So an
-    exhausted retry was the same silent-answer path as an exhausted primary,
-    one call further down.
+    The audit hook fires BEFORE the raise so the exhaustion is recorded even
+    though the attempt ends here. The exception carries the provider the
+    fleet binds the model to: that is the key the executor's release reason
+    and the native cooldown are written under.
     """
-    if result.credit_exhaustion is not None:
-        raise ClaudeCreditExhausted(
-            f"claude_credit_exhausted: fallback tier {model!r} is also exhausted "
-            f"({result.credit_exhaustion})"
-        )
-    return result
+    if result.credit_exhaustion is None:
+        return result
+    if on_credit is not None:
+        on_credit(model, result.credit_exhaustion)
+    provider = _model_provider(model)
+    raise ClaudeCreditExhausted(
+        f"claude_credit_exhausted: provider={provider!r} model={model!r} — no tier "
+        f"retries a quota exhaustion; the request is requeued for when the provider "
+        f"is back ({result.credit_exhaustion})",
+        provider=provider, model=model, detail=dict(result.credit_exhaustion),
+    )
 
 
 def extract_credit_exhaustion(
@@ -1566,8 +1801,8 @@ def extract_credit_exhaustion(
     final_message: str = "",
 ) -> dict[str, Any] | None:
     """Detect a credit/quota-exhaustion failure (detection only — sibling of
-    :func:`extract_refusal`; the fable→opus fallback policy lives in the
-    executors).
+    :func:`extract_refusal`; what happens next is run_with_model_fallback's
+    terminal raise and the executors' requeue-under-cooldown).
 
     Two shapes are matched over the FULL response text (stderr + final message
     + assistant content + the terminal ``result`` event):

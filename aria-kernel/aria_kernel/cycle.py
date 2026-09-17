@@ -16,12 +16,14 @@ from .ledger import verify_index_hashes, write_index
 from .learning import run_learning_pass, run_learning_post_evidence_closure, run_learning_pre_cycle
 from .github_adapters import select_github_adapter
 from .mission import adopt_task_candidates, assert_cycle_closure
+from .mission_retired_sources import supersede_retired_source_missions
 from .mission_reconcile import reconcile_missions
 from .worker_dispatch import reap_expired_assignment_claims
 from .workspace import WorkspacePaths, ensure_workspace, repo_hash, workspace_paths
 from .discovery import run_discovery
 from .cycle_diff import run_cycle_diff
 from .cycle_progress import emit_progress
+from .cycle_runtime_status import RUNTIME_OK, RUNTIME_DEGRADED, degraded_tool_records, non_ok_runs, runtime_status
 from .impact_graph import cycle_service_examination
 from .memory import decay_beliefs_by_head_distance, decay_stale_beliefs_by_age, update_memory
 from .observability import generate_observability_dashboard, record_cycle_metrics
@@ -42,6 +44,12 @@ from .proactive_priority import compute_proactive_priorities
 from .runtime_profile import ACTION_PERMISSIONS, get_profile
 from .tool_registry import GovernanceError, append_tools_governance, append_tools_governance_once, ensure_tools_binding, ensure_tools_dir, list_tools, register_tool, utc_now, update_tools_index
 from .tool_runner import run_tool
+from .turn_budget import (
+    JOB_DEADLINE_CLOSE_OUT_MARGIN_SECONDS as _JOB_DEADLINE_PHASE_MARGIN_SECONDS,
+    JOB_DEADLINE_EPOCH_ENV,
+    job_deadline_reached as _deadline_inside_margin,
+    parse_deadline_epoch as _parse_deadline_epoch,
+)
 from .ledger import append_declared_jsonl
 
 
@@ -475,6 +483,10 @@ class CyclePhase:
     # newly added phase can never leak into the burn-in lane by omission —
     # joining burn_in is an explicit declaration reviewed on this table.
     modes: frozenset[str] = frozenset({"standard"})
+    # ARIA-HIGH-140 — a close-out phase runs even when the job deadline has
+    # been reached and never under the alarm: it seals the cycle rather
+    # than doing the cycle's work, and it is cheap by contract.
+    closeout: bool = False
 
 
 def build_phase_context(
@@ -751,8 +763,8 @@ def run_enterprise_cycle(
         ),
     }
     artifact_integrity = context.result("artifact_integrity")
-    non_ok_runs = _non_ok_runs(context)
-    runtime_status = _runtime_status(context)
+    non_ok_tool_runs = _non_ok_runs(context)
+    cycle_runtime_status = _runtime_status(context)
     post_tool_failure = _first_phase_failure(context)
 
     # Plan 025 §C — cycle status propagation. A phase whose payload
@@ -814,7 +826,12 @@ def run_enterprise_cycle(
                 violations=len(closure["violations"]),
             )
 
-    if phase_failures or runtime_status != "ok":
+    # ARIA-HIGH-098 — ``degraded`` completes: the store is whole, every phase
+    # ran, one or more tools did not. The terminal row says ``completed``
+    # (a cycle that finished, finished), and the verdict rides the state's
+    # ``runtime_status``, the metrics row and the ``tool_degradation`` phase
+    # result — the readers that name the tool.
+    if phase_failures or cycle_runtime_status not in (RUNTIME_OK, RUNTIME_DEGRADED):
         event = _failed_event(
             cycle_id,
             decision_count=len(decisions),
@@ -831,7 +848,7 @@ def run_enterprise_cycle(
         update_tools_index(root)
         state_status = "completed"
     emit_progress("cycle_completed", cycle_id=cycle_id, status=state_status,
-                  runtime_status=runtime_status, failed_phases=[f.get("phase") for f in failed_phases])
+                  runtime_status=cycle_runtime_status, failed_phases=[f.get("phase") for f in failed_phases])
     # ORPHAN-HIGH-424 — read AFTER this cycle's terminal row is appended
     # (both branches above write one), so the snapshot counts only cycles
     # that were genuinely abandoned. Carried whole, not just as a count:
@@ -844,7 +861,7 @@ def run_enterprise_cycle(
         "cycle_id": cycle_id,
         "git_head_sha_at_cycle": git_head_sha_at_cycle,
         "status": state_status,
-        "runtime_status": runtime_status,
+        "runtime_status": cycle_runtime_status,
         "phase_failures": phase_failures,
         "failed_phases": failed_phases,
         "event": event,
@@ -853,7 +870,10 @@ def run_enterprise_cycle(
         "cycle_metrics": context.result("metrics"),
         "artifact_integrity": artifact_integrity,
         "artifact_refs": [run["artifact_ref"] for run in run_summary if isinstance(run.get("artifact_ref"), dict)],
-        "non_ok_tools": non_ok_runs,
+        "non_ok_tools": non_ok_tool_runs,
+        # ARIA-HIGH-098 — the degraded tools by class, the shape the
+        # orchestrator's bounded summary and the exit-history reader carry.
+        "degraded_tools": degraded_tool_records(non_ok_tool_runs),
         # ORPHAN-HIGH-424 — derived, not pinned. Pre-fix this was the
         # literal 0 that runtime_artifacts then summed across cycles, so a
         # cycle killed mid-run stayed invisible in every operator-facing
@@ -1049,12 +1069,14 @@ def _phase_twin_refresh(context: PhaseContext) -> dict[str, Any]:
 
     The refresh re-parses only what changed since ``indexed_sha`` and falls
     back to a full build when there is no prior map or its anchor commit is
-    unknown to this clone — and it SAYS WHICH in ``refresh.mode``, so "the
-    cycle did no full scan" is an observation rather than an assumption.
+    unknown to this clone. ``refresh.mode`` describes the overall strategy;
+    source membership changes can still rebuild the whole test-association
+    layer. The separate pilot projection consumes the existing discovery.
     """
     from .twin import refresh_twin_map
 
-    return refresh_twin_map(workspace_root=context.workspace_root, base_dir=context.base_dir)
+    return refresh_twin_map(workspace_root=context.workspace_root, base_dir=context.base_dir,
+                            discovery=context.result("discovery"))
 
 
 def _phase_experiment_author(context: PhaseContext) -> dict[str, Any]:
@@ -1326,6 +1348,31 @@ def _phase_tools(context: PhaseContext) -> dict[str, Any]:
     return {"decisions": decisions, "run_summary": run_summary}
 
 
+def _phase_tool_degradation(context: PhaseContext) -> dict[str, Any]:
+    """ARIA-HIGH-098 — name every degraded tool, escalate the ones that stay so.
+
+    Reads the tools phase's run summary through the same classifier the
+    cycle verdict uses, appends one ``tool_run_degraded`` governance row per
+    degraded tool with its class and its consecutive-cycle streak, and opens
+    a HUMAN_REQUIRED record at ``TOOL_DEGRADATION_HUMAN_REQUIRED_STREAK``
+    (``tool_degradation``). Recording is what lets the cycle CONTINUE past a
+    broken adapter without the adapter disappearing from view.
+
+    Always consulted, never short-circuited on an all-ok run summary: a
+    QUARANTINED tool is skipped by ``_phase_tools`` and so has no run to be
+    non-ok — its degradation is the cycle it sat out, and only
+    ``record_cycle_degradation`` (``tool_sit_out``) can see that.
+    """
+    from .tool_degradation import record_cycle_degradation
+
+    outcome = record_cycle_degradation(
+        cycle_id=context.cycle_id,
+        degraded=degraded_tool_records(_non_ok_runs(context)),
+        base_dir=context.base_dir,
+    )
+    return {"status": "completed", **outcome}
+
+
 def _phase_triage(context: PhaseContext) -> dict[str, Any]:
     from .triage import triage_policy_apply
 
@@ -1468,12 +1515,27 @@ def _phase_mission_ingest(context: PhaseContext) -> dict[str, Any]:
     action is refused and disclosed, and re-adoption HEALS the rows this phase
     wrote before the rule existed. The result reports ``healed`` because a
     night that repaired a stuck mission did real work.
+
+    Missions of a RETIRED producer are superseded first
+    (`mission_retired_sources`): re-adoption is the only heal path and a
+    retired producer never re-adopts, so without this step the six
+    ``shadow_run_summary`` rows on the live store would stay open,
+    contract-less and un-schedulable forever. ``retired_superseded`` reports
+    how many closed tonight — zero on every night after the first — and
+    ``retired_declined`` how many the sweep left alone because closing them
+    would abandon something (a branch, a human's question, a wake path).
     """
-    return adopt_task_candidates(
+    retired = supersede_retired_source_missions(base_dir=context.base_dir)
+    adoption = adopt_task_candidates(
         cycle_id=context.cycle_id,
         repo_hash=repo_hash(context.workspace_root),
         base_dir=context.base_dir,
     )
+    return {
+        **adoption,
+        "retired_superseded": retired["superseded"],
+        "retired_declined": retired["declined"],
+    }
 
 
 def _phase_agent_claim_reap(context: PhaseContext) -> dict[str, Any]:
@@ -1866,11 +1928,21 @@ def _phase_fixture_refresh(context: PhaseContext) -> dict[str, Any]:
 
     refreshed: list[dict[str, Any]] = []
     skipped_no_fixture_set: list[str] = []
+    # ARIA-HIGH-140 — each suite is a subprocess run over the real
+    # checkout (minutes each under load: 3.5 min per adapter on 2026-09-15,
+    # ten adapters), so the remaining wall-clock is asked BETWEEN suites.
+    # A suite that would start inside the close-out margin is recorded as
+    # skipped rather than begun and cut, which is how two trial-eleven
+    # cycles died inside this phase with the store never sealed.
+    skipped_deadline: list[str] = []
     for tool in list_tools(base_dir=context.base_dir):
         tool_id = str(tool.get("tool_id") or "")
         if not tool_id or not tool.get("fixture_set"):
             if tool_id:
                 skipped_no_fixture_set.append(tool_id)
+            continue
+        if _job_deadline_reached():
+            skipped_deadline.append(tool_id)
             continue
         try:
             result = refresh_fixture_suite(
@@ -1905,11 +1977,18 @@ def _phase_fixture_refresh(context: PhaseContext) -> dict[str, Any]:
                 "skipped_no_fixture_set": skipped_no_fixture_set,
             },
         )
+    if skipped_deadline:
+        append_tools_governance(
+            context.base_dir,
+            "fixture_refresh_deadline_skipped",
+            {"cycle_id": context.cycle_id, "skipped": skipped_deadline, "refreshed": len(refreshed)},
+        )
     return {
         "status": "completed",
         "tools": refreshed,
         "blocked_count": len(blocked),
         "skipped_no_fixture_set": skipped_no_fixture_set,
+        "skipped_deadline": skipped_deadline,
     }
 
 
@@ -1976,15 +2055,23 @@ def _phase_calibration_recommendation(context: PhaseContext) -> dict[str, Any]:
     # FAZ 4c — rank_pressure_sources' first caller. The effectiveness ledger
     # (converged/minted per pressure source) is exactly the context an
     # operator needs to judge a weight recommendation, and the ranking
-    # function had zero callers since V9.0-F. Advisory data: its absence or
-    # failure must not cost the recommendation.
-    try:
-        from .knowledge_graph import rank_pressure_sources
+    # function had zero callers since V9.0-F. Advisory data: a fault of the
+    # ledger must not cost the recommendation — it is disclosed as a
+    # governance row and the ranking is empty. The set is the reader's own
+    # declaration; the previous tuple caught TypeError and KeyError, which
+    # are programming errors and now raise (B1, 2026-09-12).
+    from .knowledge_graph import effectiveness_reader_faults, rank_pressure_sources
 
-        result["source_effectiveness"] = rank_pressure_sources(
-            workspace_root=context.workspace_root
+    try:
+        result["source_effectiveness"] = rank_pressure_sources(base_dir=context.base_dir)
+    except effectiveness_reader_faults() as exc:
+        append_tools_governance(
+            context.base_dir, "pressure_source_effectiveness_unreadable",
+            {"cycle_id": context.cycle_id, "reader": "calibration_recommendation",
+             "error_class": type(exc).__name__, "error_message": str(exc)[:500]},
+            # The disclosure of a refused read must not itself be refused.
+            bypass_profile_gate=True,
         )
-    except (OSError, ValueError, KeyError, TypeError):
         result["source_effectiveness"] = []
     return result
 
@@ -2539,7 +2626,11 @@ def _phase_metrics(context: PhaseContext) -> dict[str, Any]:
         cycle_id=context.cycle_id,
         phase_durations_ms={"cycle": int((time.monotonic() - context.started_monotonic) * 1000)},
         artifact_count=len(run_summary) + 4,
-        status="ok" if _runtime_status(context) == "ok" else "failed",
+        # ARIA-HIGH-098 — the verdict itself, not a two-valued projection of
+        # it: ``record_cycle_metrics`` has admitted ``degraded`` and
+        # ``integrity_failed`` all along, and the funnel/doctor readers of
+        # this row need to tell a degraded night from a failed one.
+        status=_runtime_status(context),
         phase_digests=phase_digests or None,
         cost_units=sum(
             float((decision.get("envelope") or {}).get("cost_units") or 0)
@@ -2579,7 +2670,18 @@ def _phase_tool_manifest_sync(context: PhaseContext) -> dict[str, Any]:
     a quarantined tool must stay quarantined until the audited unquarantine
     path clears it. A manifest that the matrix refuses is reported, not
     escalated: the refusal IS the governance working.
+
+    ARIA-HIGH-098 — a manifest is refused here, before `register_tool`, when
+    its `fixture_set` holds no case expecting an `ok` run
+    (`adapter_fixture_contract.assert_fixture_backed`). The fixture runner is
+    where an adapter's output meets the evidence validator; an adapter with
+    no case was never validated, and the first night it ran for real
+    (trial eleven, agent-harness-security-adapter) it was quarantined on 48
+    `finding_evidence_missing` findings. This phase sees the checkout, so it
+    is the door that can ask.
     """
+    from .adapter_fixture_contract import assert_fixture_backed
+
     manifest_dir = Path(context.workspace_root) / "tools" / "aria-adapters"
     # The manifest's `status` is the tool's BIRTH status; after registration
     # the live lifecycle (transition_tool, quarantine, calibration) owns it.
@@ -2601,6 +2703,7 @@ def _phase_tool_manifest_sync(context: PhaseContext) -> dict[str, Any]:
     for manifest_path in sorted(manifest_dir.glob("*.tool.json")):
         try:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            assert_fixture_backed(manifest, context.workspace_root)
             live_status = live_status_by_id.get(str(manifest.get("tool_id")))
             if live_status is not None:
                 manifest = {**manifest, "status": live_status}
@@ -2656,9 +2759,9 @@ def _phase_tool_manifest_sync(context: PhaseContext) -> dict[str, Any]:
 
 
 def _phase_architecture_baseline(context: PhaseContext) -> dict[str, Any]:
-    from .architecture_spine_gate import take_baseline
+    from .architecture_spine_gate import _take_cycle_baseline
 
-    return take_baseline(
+    return _take_cycle_baseline(
         plan_id=_required_plan_id(context),
         cycle_id=context.cycle_id,
         workspace_root=context.workspace_root,
@@ -2669,12 +2772,18 @@ def _phase_architecture_baseline(context: PhaseContext) -> dict[str, Any]:
 def _phase_architecture_postcheck(context: PhaseContext) -> dict[str, Any]:
     from .architecture_spine_gate import take_postcheck
 
-    return take_postcheck(
+    result = take_postcheck(
         plan_id=_required_plan_id(context),
         cycle_id=context.cycle_id,
         workspace_root=context.workspace_root,
         base_dir=context.base_dir,
     )
+    # The native producer returns evidence, not a phase verdict. Project
+    # regressions into the existing cycle failure contract without changing
+    # persisted details or the status vocabulary of other phases.
+    if result["regression_count"] > 0:
+        return {**result, "status": "fail"}
+    return result
 
 
 def _required_plan_id(context: PhaseContext) -> str:
@@ -3053,6 +3162,20 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
     ),
 
     # --- post_tool: everything that reads what the tools produced ---
+    # ARIA-HIGH-098 — first reader of the run summary: a non-ok tool is
+    # recorded by name and class before anything downstream consumes the
+    # cycle, and a standing streak reaches an operator. Writes governance
+    # rows and HUMAN_REQUIRED records, so writes-permitted. record_and_
+    # continue, the policy of every other escalation phase: a degraded
+    # TOOL never raises here (the classifier is pure), and a ledger or
+    # profile that refuses the degradation row is a fault of the store
+    # the night must report as its own — not `swallow`, which is reserved
+    # for operator convenience.
+    CyclePhase(
+        "tool_degradation", "post_tool", _phase_tool_degradation,
+        precondition=WRITES_PERMITTED, on_error="record_and_continue",
+        state_key="tool_degradation",
+    ),
     CyclePhase(
         "memory", "post_tool", _phase_memory, state_key="memory",
         modes=frozenset({"standard", "burn_in"}),
@@ -3276,7 +3399,7 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
     ),
     CyclePhase(
         "artifact_integrity", "post_tool", _phase_artifact_integrity,
-        on_error="propagate", state_key="artifact_integrity",
+        on_error="propagate", state_key="artifact_integrity", closeout=True,
         # In burn_in too: `_runtime_status` reads this phase's verdict, and
         # a per-cycle integrity read is a strengthening the observe lane
         # was missing — verification is read-only, so the no-action
@@ -3286,7 +3409,7 @@ CYCLE_PHASES: tuple[CyclePhase, ...] = (
     CyclePhase(
         "metrics", "post_tool", _phase_metrics,
         on_error="record_and_continue", state_key="cycle_metrics",
-        error_payload=_observability_error_payload,
+        error_payload=_observability_error_payload, closeout=True,
     ),
     CyclePhase(
         "observability_dashboard", "post_tool", _phase_observability_dashboard,
@@ -3444,7 +3567,7 @@ def _run_phase_stage(
         # wall-clock is inside the close-out margin, the remaining phases
         # are SKIPPED (recorded, not silent) so the cycle seals, the store
         # verifies, and the night PUBLISHES.
-        if _job_deadline_reached():
+        if _job_deadline_reached() and not phase.closeout:
             _record_skip(context, phase, "job_deadline_reached")
             continue
         if context.mode not in phase.modes:
@@ -3465,14 +3588,14 @@ def _run_phase_stage(
             # the way out so the store stays verifiable and publishable
             # instead of being quarantined whole. See _seal_cycle_on_escape.
             try:
-                context.results[phase.name] = _run_phase_with_deadline(phase.runner, context)
+                context.results[phase.name] = _run_phase(phase, context)
             except BaseException as exc:
                 _seal_cycle_on_escape(context, phase=phase.name, exc=exc)
                 raise
             context.outcomes[phase.name] = {"outcome": "ran"}
             continue
         try:
-            context.results[phase.name] = _run_phase_with_deadline(phase.runner, context)
+            context.results[phase.name] = _run_phase(phase, context)
         except PhaseDeadlineExceeded as exc:
             context.results[phase.name] = phase.absent()
             context.outcomes[phase.name] = {
@@ -3495,16 +3618,19 @@ def _run_phase_stage(
             context.outcomes[phase.name] = {"outcome": "ran"}
 
 
-# The margin mirrors claude_runtime's close-out margin: enough for the
-# reflection/seal work that must still run after the last skipped phase.
-_JOB_DEADLINE_PHASE_MARGIN_SECONDS = 120
-
 # ARIA-HIGH-064 — the name of the cross-process deadline contract, in one place.
 # It is an ENV var rather than a parameter on purpose: the readers are in other
 # PROCESSES (tools/aria-poc/claude_runtime.py clamps a spawn against it,
-# ci_executor_drain.py stops the drain, ci_executor.py reports it, and
-# agent_env.py passes it through to an agent). A parameter cannot cross a fork.
-JOB_DEADLINE_EPOCH_ENV = "ARIA_JOB_DEADLINE_EPOCH"
+# ci_executor_drain.py stops the drain, ci_executor.py reports it, agent_env.py
+# passes it through to an agent, and the kernel hook refuses a write turn
+# against it inside the agent's sandbox). A parameter cannot cross a fork.
+#
+# The name, the parser and the "inside the close-out margin" predicate live in
+# turn_budget (cycle_and_turn_budget_cap): the between-phases skip below and
+# the hook's ``cycle_budget_exhausted`` refusal read the same margin from the
+# same function, so the two cannot disagree about when the night is over.
+# This module stays the ONLY writer (job_deadline_epoch); the names are
+# imported at the top of the module with the rest of the kernel imports.
 
 
 @contextlib.contextmanager
@@ -3549,21 +3675,6 @@ def job_deadline_epoch(seconds: float | None) -> Iterator[float | None]:
             _os.environ[JOB_DEADLINE_EPOCH_ENV] = inherited
 
 
-def _parse_deadline_epoch(raw: str | None) -> float | None:
-    """A malformed epoch is NOT a deadline — the same tolerance the readers use.
-
-    ``_remaining_wallclock_seconds`` returns inf on garbage rather than
-    crashing a cycle; the binder must agree, or a typo in the workflow would
-    become a hard failure here and an ignored value there.
-    """
-    if not raw:
-        return None
-    try:
-        return float(raw)
-    except ValueError:
-        return None
-
-
 def _job_deadline_reached() -> bool:
     """True when ARIA_JOB_DEADLINE_EPOCH says the job is out of runway.
 
@@ -3571,18 +3682,17 @@ def _job_deadline_reached() -> bool:
     autonomy workflows export the absolute deadline; local dev and tests
     have no env and never trigger. Malformed values return False here (the
     spawn clamp already refuses them loudly at the spawn boundary; the
-    phase loop must not crash a cycle over the same garbage twice).
+    phase loop must not crash a cycle over the same garbage twice). The
+    predicate itself is turn_budget.job_deadline_reached, shared with the
+    hook's turn-boundary refusal.
     """
     import os as _os
 
-    raw = _os.environ.get("ARIA_JOB_DEADLINE_EPOCH")
-    if not raw:
-        return False
-    try:
-        deadline = float(raw)
-    except ValueError:
-        return False
-    return time.time() >= deadline - _JOB_DEADLINE_PHASE_MARGIN_SECONDS
+    return _deadline_inside_margin(
+        now=time.time(),
+        deadline_epoch=_parse_deadline_epoch(_os.environ.get(JOB_DEADLINE_EPOCH_ENV)),
+        margin_seconds=_JOB_DEADLINE_PHASE_MARGIN_SECONDS,
+    )
 
 
 class PhaseDeadlineExceeded(Exception):
@@ -3618,6 +3728,19 @@ def _deadline_alarm(signum: Any, frame: Any) -> None:
         "the remaining wall-clock entered the close-out margin mid-phase; "
         "interrupting to seal the cycle"
     )
+
+
+def _run_phase(phase: "CyclePhase", context: "PhaseContext") -> Any:
+    """A work phase runs under the deadline alarm; a CLOSE-OUT phase runs
+    without it (ARIA-HIGH-140). The close-out phases are the ones that seal
+    the cycle — the artifact-integrity verdict and the metrics row — and
+    they are exactly what the deadline exists to protect time for: a cycle
+    cut inside a work phase still verifies its store and records itself,
+    instead of reporting the store it never checked as untrustworthy.
+    """
+    if phase.closeout:
+        return phase.runner(context)
+    return _run_phase_with_deadline(phase.runner, context)
 
 
 def _run_phase_with_deadline(
@@ -3700,12 +3823,7 @@ def _first_blocking_pre_phase(context: PhaseContext) -> str | None:
 
 
 def _non_ok_runs(context: PhaseContext) -> list[dict[str, Any]]:
-    run_summary = (context.result("tools") or {}).get("run_summary") or []
-    return [
-        run for run in run_summary
-        if run.get("status") != "ok"
-        or run.get("artifact_status") in {"missing", "hash_mismatch", "write_failed"}
-    ]
+    return non_ok_runs((context.result("tools") or {}).get("run_summary") or [])
 
 
 def _runtime_status(context: PhaseContext) -> str:
@@ -3715,13 +3833,35 @@ def _runtime_status(context: PhaseContext) -> str:
     state assembly reports it. Pre-collapse those were two expressions of
     the same rule evaluated at different points in one function, which is
     how the metrics row could disagree with the cycle it described.
+
+    ARIA-HIGH-098 — the rule itself is ``cycle_runtime_status.runtime_status``,
+    shared with the orchestrator's projection: a non-ok TOOL run with a
+    valid artifact index is ``degraded`` (the tool is named, its findings
+    are already quarantined, the cycle completes); ``integrity_failed`` is
+    reserved for the store — an index that did not verify or a run whose
+    own artifact is missing. Before this, one adapter's ``evidence_error``
+    (trial eleven) or a 651 ms budget overrun (2026-09-04) was priced as an
+    untrustworthy store and the orchestrator failed the night closed.
     """
-    if _first_phase_failure(context) is not None:
-        return "failed"
     integrity = context.result("artifact_integrity") or {}
-    if _non_ok_runs(context) or not integrity.get("valid"):
-        return "integrity_failed"
-    return "ok"
+    integrity_outcome = context.outcomes.get("artifact_integrity", {}).get("outcome")
+    # ARIA-HIGH-140 — "not verified" is not "failed verification": the
+    # phase's verdict counts only when the phase ran.
+    integrity_valid = bool(integrity.get("valid")) if integrity_outcome == "ran" else None
+    return runtime_status(
+        phase_failed=_first_phase_failure(context) is not None,
+        integrity_valid=integrity_valid,
+        non_ok=_non_ok_runs(context),
+        phase_interrupted=_first_interrupted_phase(context) is not None,
+    )
+
+
+def _first_interrupted_phase(context: PhaseContext) -> str | None:
+    """The first phase the deadline alarm cut short, or None."""
+    for name, outcome in context.outcomes.items():
+        if outcome.get("outcome") == "interrupted":
+            return name
+    return None
 
 
 def _cycle_lifecycle_snapshot(root: Path) -> dict[str, Any]:

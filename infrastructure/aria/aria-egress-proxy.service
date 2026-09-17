@@ -1,0 +1,47 @@
+# ARIA-HIGH-143 — the implementer sandbox's one road out: an allowlist
+# CONNECT proxy (aria_kernel/egress_proxy.py) the kernel runs on the host.
+# The managed spawn is handed HTTPS_PROXY=http://127.0.0.1:3128 (and, once
+# the spawn is network-isolated, the unix socket bound into it); every
+# other destination is refused by name and logged. Install:
+#   cp infrastructure/aria/aria-egress-proxy.service /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now aria-egress-proxy.service
+# The allowlist below IS the policy: a new provider endpoint is a reviewed
+# change to this file, never an environment variable.
+[Unit]
+Description=ARIA egress allowlist proxy (CONNECT only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+# The socket the sandbox is handed lives here, group-readable to nobody in
+# particular: whoever reaches it already runs on this host, and every
+# admitted tunnel ends at a provider that authenticates the caller itself.
+RuntimeDirectory=aria-egress
+RuntimeDirectoryMode=0755
+ExecStart=/usr/bin/python3 -I /var/lib/aria/code/aria-kernel/aria_kernel/egress_proxy.py \
+  --listen 127.0.0.1:3128 \
+  --unix /run/aria-egress/proxy.sock \
+  --allow api.anthropic.com:443 \
+  --allow api.z.ai:443 \
+  --allow api.openai.com:443 \
+  --allow chatgpt.com:443 \
+  --allow auth.openai.com:443
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target

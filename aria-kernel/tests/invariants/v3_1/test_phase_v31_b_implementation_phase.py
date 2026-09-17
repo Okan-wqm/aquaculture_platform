@@ -9,8 +9,12 @@ Closes 6-validator audit findings:
   commit.gpgsign + allowed-signers file).
 * C-10 (Exception specificity — BridgeContractViolation catch arm
   precedes GovernanceError).
-* C-11 + H-4 (key/token lifecycle — try/finally cleanup wraps the
-  whole pipeline; orphan reaper catches what try/finally misses).
+* C-11 + H-4 (key/token lifecycle — each credential is minted where it
+  is used and revoked there: the signing identity by the executor child
+  in the request worktree (`implementation_identity`, ARIA-HIGH-115),
+  the delivery token by the spawn (`delivery_credentials`); the runner
+  itself mints nothing. The orchestrator's startup prune catches what a
+  crashed holder's `finally` missed).
 * H-13 (poll budget — --implementer-poll-seconds distinct).
 
 Invariants:
@@ -29,9 +33,9 @@ Invariants:
 * I-V31-B-05 — BridgeContractViolation catch arm precedes
   GovernanceError catch arm inside
   AutonomousV9ImplementationRunner.run.
-* I-V31-B-07 — signing_key + installation_token cleaned via
-  try/finally on every exit path (behavioral test exercises
-  exception + happy-path).
+* I-V31-B-07 — the runner calls no credential factory (ARIA-HIGH-115:
+  the bracket it used to hold was revoked before any commit could be
+  made with it; the pin is now the absence, read from the AST).
 * I-V31-B-09 — V9ImplementationResult terminal_state Literal
   union exhaustive over the 4 known terminal codes.
 """
@@ -201,21 +205,39 @@ class ExceptionOrderingTests(unittest.TestCase):
         )
 
 
-class TryFinallyCleanupTests(unittest.TestCase):
-    """Plan ARIA-V3.1-B-7 — signing_key + installation_token cleaned
-    via try/finally."""
+class RunnerMintsNoCredentialTests(unittest.TestCase):
+    """ARIA-HIGH-115 — the runner mints nothing; each credential is minted
+    where it is used.
 
-    def test_i_v31_b_07_run_uses_try_finally_cleanup(self) -> None:
+    Plan ARIA-V3.1-B-7 pinned the opposite: a `mint_signing_key` +
+    `mint_installation_token` bracket in this method with revocations in
+    `finally`. Nothing in the bracket's window consumed either (staging and
+    the envelope mint make no commit and no GitHub call), the delivery
+    token is minted by the spawn (`delivery_credentials`), and the signing
+    identity by the executor child in the request worktree
+    (`implementation_identity`) — so the key minted here was revoked before
+    any commit could be made with it, and every executor-lane result was
+    refused for lacking it. The pin is now the absence, read from the AST:
+    no call into `gh_token_factory` from the runner's body."""
+
+    def test_the_runner_calls_no_credential_factory(self) -> None:
+        import ast
+        import textwrap
+
         from aria_kernel.cycle_phases import implementer
-        src = inspect.getsource(implementer.AutonomousV9ImplementationRunner.run)
-        self.assertIn("try:", src)
-        self.assertIn("finally:", src)
-        self.assertIn("revoke_signing_key", src)
-        self.assertIn("revoke_installation_token", src)
-        # signing_key + lease cleanup gated on non-None (avoid
-        # double-cleanup or NoneType access).
-        self.assertIn("signing_key is not None", src)
-        self.assertIn("installation_lease is not None", src)
+        src = textwrap.dedent(inspect.getsource(implementer.AutonomousV9ImplementationRunner.run))
+        called = {
+            node.func.id if isinstance(node.func, ast.Name) else getattr(node.func, "attr", None)
+            for node in ast.walk(ast.parse(src)) if isinstance(node, ast.Call)
+        }
+        for name in ("mint_signing_key", "mint_installation_token", "revoke_signing_key", "revoke_installation_token"):
+            self.assertNotIn(name, called, f"the runner must not mint or revoke credentials ({name})")
+        imported = {
+            alias.name for node in ast.walk(ast.parse(src))
+            if isinstance(node, ast.ImportFrom) and node.module and "gh_token_factory" in node.module
+            for alias in node.names
+        }
+        self.assertEqual(imported, set(), "the runner imports nothing from gh_token_factory")
 
 
 class TerminalStateExhaustivenessTests(unittest.TestCase):

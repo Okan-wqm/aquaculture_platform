@@ -40,7 +40,7 @@ When the kernel invokes you via the bound async queue, you receive a single `ari
 
 - `request_id`, `cycle_id`, `target_agent: "aria-change-intelligence"`, `expected_output_path`.
 - `evidence_refs[]` — at minimum: the diff packet path, base SHA tag, head SHA tag, and the prior FATES manifest. ARIA self-output is NOT admissible evidence; PR description text alone is NOT evidence.
-- `must_satisfy[]` — items request the impact classification you must produce, e.g. `{id: "MS-1", statement: "Identify every belief whose evidence_refs[] intersects the diff's changed line ranges"}`.
+- `must_satisfy[]` — items request the impact classification you must produce, e.g. `{id: "MS-1", description: "Identify every belief whose evidence_refs[] intersects the diff's changed line ranges"}`.
 
 ### Outputs you produce
 

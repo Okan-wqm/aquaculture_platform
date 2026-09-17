@@ -9,11 +9,15 @@ from aria_kernel.genesis_policy import (
     DEFAULT_FILENAME,
     OVERRIDE_RELPATH,
     POLICY_KEYS,
+    SOURCE_QUALIFICATION_DEFAULTS,
+    SOURCE_QUALIFICATION_MAX_DEADLINE_SECONDS,
     default_policy,
     genesis_lifecycle_policy,
     load_policy,
     merge_with_override,
+    source_qualification_policy,
 )
+from aria_kernel.tool_registry import GovernanceError
 
 
 class GenesisPolicyTests(unittest.TestCase):
@@ -148,6 +152,19 @@ class GenesisPolicyTests(unittest.TestCase):
                 # feed + detector thresholds, consumed by
                 # aria_watchdog.run_watchdog_sweep.
                 "watchdog_pull",
+                # ARIA-MEDIUM-082 — source_qualification.deadline_seconds:
+                # the scoped-source qualification allowance (twin projection,
+                # per-mint twin re-observation, pinned excerpt reads),
+                # consumed via source_qualification_policy. Was a literal
+                # in snapshot._ScopedSourceBudget.
+                "source_qualification",
+                # Operator decision 2026-09-12 —
+                # implementer_turn_budget.budgeted_turns: the implementer
+                # turn cap (cycle_and_turn_budget_cap), consumed via
+                # turn_budget_policy.implementer_turn_budget_for_store by
+                # the spawn settings and the pre-merge capture. Was the
+                # literal 10 in turn_budget.IMPLEMENTER_TURN_BUDGET.
+                "implementer_turn_budget",
             },
         )
 
@@ -162,6 +179,73 @@ class GenesisPolicyTests(unittest.TestCase):
         # check and read no policy). "operator" remains a valid override.
         self.assertEqual(policy["request_approval_mode"], "panel")
         self.assertNotIn("request_requires_signed_operator_feedback", policy)
+
+
+
+
+class SourceQualificationPolicyTests(unittest.TestCase):
+    """ARIA-MEDIUM-082 — the qualification allowance is policy, not a literal."""
+
+    @staticmethod
+    def _override(tmp: str, block: object) -> None:
+        path = Path(tmp) / OVERRIDE_RELPATH
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"source_qualification": block}), encoding="utf-8")
+
+    def test_default_is_the_former_literal_two_seconds_and_ships_in_the_default_file(self) -> None:
+        self.assertEqual(SOURCE_QUALIFICATION_DEFAULTS, {"deadline_seconds": 2.0})
+        # The default file is the operator-visible authority: a key absent
+        # there is a value the operator cannot see and a KeyError on a
+        # pristine deployment.
+        shipped = json.loads(
+            (Path(__file__).resolve().parents[1] / "aria_kernel" / "data" / DEFAULT_FILENAME).read_text(encoding="utf-8")
+        )
+        self.assertEqual(shipped["source_qualification"]["deadline_seconds"], 2.0)
+        self.assertIn("source_qualification", POLICY_KEYS)
+        block = source_qualification_policy()
+        self.assertEqual(block, {"deadline_seconds": 2.0})
+        self.assertIs(type(block["deadline_seconds"]), float)
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(source_qualification_policy(tmp), {"deadline_seconds": 2.0})
+
+    def test_override_widens_the_allowance_through_the_merge(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            self._override(tmp, {"deadline_seconds": 120})
+            self.assertEqual(source_qualification_policy(tmp), {"deadline_seconds": 120.0})
+            # A shallow merge replaces the block; an empty block keeps the default.
+            self._override(tmp, {})
+            self.assertEqual(source_qualification_policy(tmp), {"deadline_seconds": 2.0})
+
+    def test_zero_and_the_ceiling_are_the_honest_bounds(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            self._override(tmp, {"deadline_seconds": 0})
+            self.assertEqual(source_qualification_policy(tmp)["deadline_seconds"], 0.0)
+            self._override(tmp, {"deadline_seconds": SOURCE_QUALIFICATION_MAX_DEADLINE_SECONDS})
+            self.assertEqual(source_qualification_policy(tmp)["deadline_seconds"],
+                             SOURCE_QUALIFICATION_MAX_DEADLINE_SECONDS)
+
+    def test_out_of_contract_values_are_refused_with_the_bound_named(self) -> None:
+        cases = (
+            (-1, "genesis_policy_source_qualification_deadline_negative"),
+            (SOURCE_QUALIFICATION_MAX_DEADLINE_SECONDS + 1, "genesis_policy_source_qualification_deadline_above_ceiling"),
+            (True, "genesis_policy_source_qualification_deadline_not_a_number"),
+            ("2", "genesis_policy_source_qualification_deadline_not_a_number"),
+            (None, "genesis_policy_source_qualification_deadline_not_a_number"),
+            (float("nan"), "genesis_policy_source_qualification_deadline_not_a_number"),
+            (float("inf"), "genesis_policy_source_qualification_deadline_not_a_number"),
+        )
+        for raw, reason in cases:
+            with self.subTest(raw=raw), tempfile.TemporaryDirectory() as tmp:
+                # json.dumps writes NaN/Infinity literals; the loader's parser
+                # accepts them, which is exactly why the accessor must not.
+                self._override(tmp, {"deadline_seconds": raw})
+                with self.assertRaises(GovernanceError) as caught:
+                    source_qualification_policy(tmp)
+                message = str(caught.exception)
+                self.assertTrue(message.startswith(reason), message)
+                # RC-4 discipline: the refusal names the bound, so the
+                # operator learns the contract from the error itself.
+                self.assertIn(f"{SOURCE_QUALIFICATION_MAX_DEADLINE_SECONDS:g}", message)
 
 
 if __name__ == "__main__":

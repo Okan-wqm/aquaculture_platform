@@ -25,15 +25,16 @@ class EffectivenessWriterTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        (self.root / "aria-tools").mkdir()
+        self.tools = self.root / "aria-tools"
+        self.tools.mkdir()
 
     def test_rows_accumulate_per_source(self) -> None:
         record_pressure_source_outcome(
-            workspace_root=self.root, source_type="git_diff",
+            base_dir=self.tools, source_type="git_diff",
             minted=1, converged=1, merged=0,
         )
         row = record_pressure_source_outcome(
-            workspace_root=self.root, source_type="git_diff",
+            base_dir=self.tools, source_type="git_diff",
             minted=1, converged=0, merged=1, rejected=1,
         )
         self.assertEqual(row["cycles_minted"], 2)
@@ -44,12 +45,12 @@ class EffectivenessWriterTests(unittest.TestCase):
     def test_reader_folds_latest_per_source(self) -> None:
         for _ in range(3):
             record_pressure_source_outcome(
-                workspace_root=self.root, source_type="git_diff", minted=1, converged=1,
+                base_dir=self.tools, source_type="git_diff", minted=1, converged=1,
             )
         record_pressure_source_outcome(
-            workspace_root=self.root, source_type="finding", minted=1,
+            base_dir=self.tools, source_type="finding", minted=1,
         )
-        rows = rank_pressure_sources(workspace_root=self.root)
+        rows = rank_pressure_sources(base_dir=self.tools)
         # Two sources, ONE row each — cumulative snapshots never
         # double-count, and the effective source ranks first.
         self.assertEqual(len(rows), 2)
@@ -65,23 +66,52 @@ class EffectivenessWriterTests(unittest.TestCase):
         tools = ensure_tools_dir(self.root / "aria-tools")
         for _ in range(4):
             record_pressure_source_outcome(
-                workspace_root=self.root, source_type="git_diff",
+                base_dir=self.tools, source_type="git_diff",
                 minted=1, converged=1, merged=1,
             )
         draws = _thompson_source_draws(tools, "2026-08-12T00:00:00Z")
         self.assertIn("git_diff", draws)
         self.assertGreater(draws["git_diff"], 0.0)
 
+    def test_base_dir_binds_the_ledger_to_the_tools_root(self) -> None:
+        """B4 root cause (2026-09-12) — state_manifest declares
+        kg_pressure_source_effectiveness a TOOLS-ROOT surface, but this
+        writer/reader pair resolved it under <workspace_root>/aria-tools
+        only. The live lane binds ARIA_TOOLS_DIR=<store>/tools and passes
+        the checkout as workspace root, so a row written there would have
+        landed in the checkout (dies with the runner); origin/aria/state
+        never carried the ledger. The pair now names the tools root and
+        nothing else: there is no workspace parameter to fall back to, so
+        the shadow path cannot be re-opened by a caller holding the wrong
+        root."""
+        import inspect
+        from aria_kernel.knowledge_graph import effectiveness_ledger_path
+
+        store_tools = self.root / "store" / "tools"
+        checkout = self.root / "checkout"
+        checkout.mkdir()
+        record_pressure_source_outcome(base_dir=store_tools, source_type="finding", minted=1)
+        self.assertTrue((store_tools / "knowledge-graph" / "pressure-source-effectiveness.jsonl").is_file())
+        self.assertFalse((checkout / "aria-tools").exists())
+        self.assertEqual(
+            [row["source_type"] for row in rank_pressure_sources(base_dir=store_tools)], ["finding"],
+        )
+        for api in (effectiveness_ledger_path, record_pressure_source_outcome, rank_pressure_sources):
+            parameters = inspect.signature(api).parameters
+            self.assertNotIn("workspace_root", parameters, api.__name__)
+            self.assertIs(parameters["base_dir"].default, inspect.Parameter.empty, api.__name__)
+            self.assertIs(parameters["base_dir"].kind, inspect.Parameter.KEYWORD_ONLY, api.__name__)
+
     def test_chain_is_hash_linked(self) -> None:
         record_pressure_source_outcome(
-            workspace_root=self.root, source_type="git_diff", minted=1,
+            base_dir=self.tools, source_type="git_diff", minted=1,
         )
         record_pressure_source_outcome(
-            workspace_root=self.root, source_type="git_diff", minted=1,
+            base_dir=self.tools, source_type="git_diff", minted=1,
         )
-        from aria_kernel.knowledge_graph import verify_chain_or_quarantine, _effectiveness_path
+        from aria_kernel.knowledge_graph import verify_chain_or_quarantine, effectiveness_ledger_path
 
-        ok, count = verify_chain_or_quarantine(_effectiveness_path(self.root))
+        ok, count = verify_chain_or_quarantine(effectiveness_ledger_path(base_dir=self.tools))
         self.assertTrue(ok)
         self.assertEqual(count, 2)
 

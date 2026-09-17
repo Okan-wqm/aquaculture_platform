@@ -41,28 +41,24 @@ One-time consumption (locked by I-V3-19):
 
 from __future__ import annotations
 
-import base64
-import hashlib
 import hmac
 import json
-import os
-import secrets
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from .ack_row import ACK_ACTOR_KINDS, AckLedgerRow
+from .hmac_keyring import (
+    HmacKeyring,
+    hmac_sign as _hmac_sign,
+    mint_key_entry as _mint_key_entry,
+    utc_now_stamp as _utc_now,
+)
 from .ledger import append_declared_jsonl, load_declared_jsonl, state_transaction
 from .tool_registry import GovernanceError, ensure_tools_dir
 
 _LEDGER_RELATIVE = ("acks", "acks.jsonl")
 _KEY_FILE_RELATIVE = ("secrets", "ack_hmac.key")
-_MAX_ROLLING_KEYS: int = 5
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def _ledger_path(base_dir: str | Path) -> Path:
@@ -71,6 +67,18 @@ def _ledger_path(base_dir: str | Path) -> Path:
 
 def _key_file_path(base_dir: str | Path) -> Path:
     return Path(base_dir).joinpath(*_KEY_FILE_RELATIVE)
+
+
+def _keyring(base_dir: str | Path) -> HmacKeyring:
+    """The ack key file bound to the shared custody primitive.
+
+    WHY: the 0600 atomic write, the rolling list and the key_id lookup
+    used to live here as private helpers; ``hmac_keyring`` is now the
+    single owner (operator-feedback signing shares it), and this module
+    keeps only the ack-specific lifecycle — the operator init/rotate
+    ceremony and its governance rows.
+    """
+    return HmacKeyring(path=_key_file_path(base_dir), purpose="ack")
 
 
 _HASH_SUBJECT_BASE_EXCLUDE: frozenset[str] = frozenset({
@@ -96,47 +104,12 @@ def _canonical_row_bytes(row: dict[str, Any]) -> bytes:
     return json.dumps(subject, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
-def _hmac_sign(secret_b64: str, payload: bytes) -> str:
-    secret = base64.b64decode(secret_b64.encode("ascii"))
-    return hmac.new(secret, payload, hashlib.sha256).hexdigest()
-
-
-def _atomic_write_secret(path: Path, content: str) -> None:
-    """Plan ARIA-V3 §A5 — write the HMAC key file with 0600 perms
-    via a temp-file + rename for atomicity. ``os.fchmod`` runs
-    BEFORE the rename so the final file never exists with looser
-    perms (even briefly).
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.tmp.{os.getpid()}")
-    with tmp.open("w", encoding="utf-8") as handle:
-        os.fchmod(handle.fileno(), 0o600)
-        handle.write(content)
-        handle.flush()
-        os.fsync(handle.fileno())
-    tmp.replace(path)
-    os.chmod(path, 0o600)
-
-
 def _load_keys(base_dir: str | Path) -> list[dict[str, Any]]:
-    path = _key_file_path(base_dir)
-    if not path.exists():
-        return []
-    data = json.loads(path.read_text(encoding="utf-8"))
-    keys = data.get("keys")
-    if not isinstance(keys, list):
-        return []
-    return keys
+    return _keyring(base_dir).load()
 
 
 def _persist_keys(base_dir: str | Path, keys: list[dict[str, Any]]) -> None:
-    path = _key_file_path(base_dir)
-    payload = json.dumps(
-        {"schema_version": 1, "keys": keys},
-        sort_keys=True,
-        indent=2,
-    )
-    _atomic_write_secret(path, payload)
+    _keyring(base_dir).persist(keys)
 
 
 def _resolve_key(
@@ -144,20 +117,19 @@ def _resolve_key(
     *,
     key_id: str | None = None,
 ) -> dict[str, Any]:
-    keys = _load_keys(base_dir)
-    if not keys:
+    try:
+        return _keyring(base_dir).resolve(key_id=key_id)
+    except GovernanceError as exc:
+        # The ack key is operator-minted, so a miss carries the ceremony
+        # pointer the shared primitive cannot know about.
+        if str(exc).startswith("hmac_key_missing"):
+            raise GovernanceError(
+                "hmac_key_missing: run `aria-kernel ack init` first "
+                "(see docs/runbooks/aria-ack-key-rotation.md)"
+            ) from exc
         raise GovernanceError(
-            "hmac_key_missing: run `aria-kernel ack init` first "
-            "(see docs/runbooks/aria-ack-key-rotation.md)"
-        )
-    if key_id is None:
-        return keys[0]
-    for entry in keys:
-        if entry.get("key_id") == key_id:
-            return entry
-    raise GovernanceError(
-        f"hmac_key_unknown: signed_key_id={key_id!r} not in rolling list"
-    )
+            f"hmac_key_unknown: signed_key_id={key_id!r} not in rolling list"
+        ) from exc
 
 
 def init_ack_ledger(
@@ -181,12 +153,7 @@ def init_ack_ledger(
             "ack_init_existing_key_present: pass --force to DR-regenerate "
             "(see docs/runbooks/aria-ack-key-rotation.md §4)"
         )
-    new_key = {
-        "key_id": str(uuid.uuid4()),
-        "secret": base64.b64encode(secrets.token_bytes(32)).decode("ascii"),
-        "minted_at": _utc_now(),
-        "retired_at": None,
-    }
+    new_key = _mint_key_entry()
     _persist_keys(root, [new_key])
     from .tool_registry import append_tools_governance
     append_tools_governance(
@@ -222,28 +189,17 @@ def rotate_key(
     incident timeline is reconstructable).
     """
     root = ensure_tools_dir(base_dir)
-    keys = _load_keys(root)
-    if not keys:
+    if not _load_keys(root):
         raise GovernanceError(
             "ack_rotate_no_existing_key: run `aria-kernel ack init` first"
         )
-    new_key = {
-        "key_id": str(uuid.uuid4()),
-        "secret": base64.b64encode(secrets.token_bytes(32)).decode("ascii"),
-        "minted_at": _utc_now(),
-        "retired_at": None,
-    }
-    # Mark previous head as retired (for historical verification).
-    previous_head = dict(keys[0])
-    previous_head["retired_at"] = _utc_now()
-    rotated = [new_key, previous_head] + keys[1:]
-    retired_keys = []
-    if len(rotated) > _MAX_ROLLING_KEYS:
-        retired_keys = [
-            entry["key_id"] for entry in rotated[_MAX_ROLLING_KEYS:]
-        ]
-        rotated = rotated[:_MAX_ROLLING_KEYS]
-    _persist_keys(root, rotated)
+    # The shared primitive retires the previous head (historical rows stay
+    # verifiable) and drops anything past the five-entry window.
+    rotation = _keyring(root).rotate()
+    new_key = rotation["new_key"]
+    previous_head = rotation["previous_head"]
+    retired_keys = rotation["retired_keys"]
+    rotated = rotation["keys"]
     from .tool_registry import append_tools_governance
     append_tools_governance(
         root,
@@ -272,15 +228,7 @@ def list_keys(*, base_dir: str | Path) -> list[dict[str, Any]]:
     CLI output is safe to share). Each entry retains ``key_id``,
     ``minted_at``, ``retired_at``.
     """
-    keys = _load_keys(base_dir)
-    return [
-        {
-            "key_id": k.get("key_id"),
-            "minted_at": k.get("minted_at"),
-            "retired_at": k.get("retired_at"),
-        }
-        for k in keys
-    ]
+    return _keyring(base_dir).redacted()
 
 
 def mint_operator_ack(

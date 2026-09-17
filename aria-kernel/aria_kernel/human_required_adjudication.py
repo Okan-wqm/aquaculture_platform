@@ -66,6 +66,7 @@ from .human_required import (
 )
 from .independence_check import RoundDispatch, verify_principal_disjointness
 from .ledger import append_declared_jsonl, load_declared_jsonl
+from .must_satisfy import upcast_sealed_items
 from .tool_registry import GovernanceError, append_tools_governance, ensure_tools_dir, utc_now
 
 
@@ -357,7 +358,7 @@ def open_adjudication(
             ),
             must_satisfy=[{
                 "id": f"adjudicate-{escalation_request_id}",
-                "criterion": (
+                "description": (
                     "verdict is one of resolve/refuse/insufficient_evidence and "
                     "cites the evidence it relied on"
                 ),
@@ -679,11 +680,29 @@ def _execute_panel_disposition(
         )
         _stamp_escalated_to_operator(root, request_id, record, reason="remint_budget_exhausted")
         return {"action": "escalated", "reason": "remint_budget_exhausted"}
+    # ARIA-HIGH-104 (5) — the dead row's obligations were sealed under the
+    # shape of their day (``{id, criterion}`` before ``must_satisfy`` owned
+    # the shape); the successor is a FRESH mint and is held to the one
+    # shape, so the sealed items are upcast rather than copied verbatim —
+    # copied, every legacy row was refused ("description is required") and
+    # the sweep re-asked the same escalation forever. An obligation the
+    # contract still refuses after the upcast (its own text defers) is not
+    # the panel's to reword: the record is handed to the operator, stamped,
+    # instead of failing into the sweep's `skipped` every night.
+    try:
+        must_satisfy = upcast_sealed_items(dead.get("must_satisfy") or [])
+    except GovernanceError as exc:
+        append_tools_governance(
+            root, "human_required_remint_obligations_unmintable",
+            {"escalation_request_id": request_id, "error": str(exc)[:300]},
+        )
+        _stamp_escalated_to_operator(root, request_id, record, reason="dead_request_obligations_unmintable")
+        return {"action": "escalated", "reason": "dead_request_obligations_unmintable"}
     successor = create_agent_invocation_request(
         target_agent=str(dead.get("target_agent") or ""),
         role=str(dead.get("role") or ""),
         suggested_prompt=str(dead.get("suggested_prompt") or ""),
-        must_satisfy=list(dead.get("must_satisfy") or []),
+        must_satisfy=must_satisfy,
         allowed_scope=list(dead.get("allowed_scope") or []),
         evidence_refs=list(dead.get("evidence_refs") or []) + (
             [adjudication_ref] if adjudication_ref else []

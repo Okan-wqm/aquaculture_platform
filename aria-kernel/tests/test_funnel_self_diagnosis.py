@@ -8,13 +8,16 @@ preference. A human found it by reading ledgers.
 """
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
 from aria_kernel.funnel_health import (
     MIN_UPSTREAM_FOR_STALL,
     detect_funnel_stalls,
 )
-from aria_kernel.pressure import DRIFT_CLASS_BY_SOURCE, SOURCE_WEIGHTS
+from aria_kernel.pressure import DRIFT_CLASS_BY_SOURCE, SOURCE_WEIGHTS, run_pressure
 
 
 def _row(source: str, minted: int, converged: int, merged: int) -> dict:
@@ -79,6 +82,79 @@ class TheSourceIsRegisteredEverywhere(unittest.TestCase):
         self.assertEqual(
             SOURCE_WEIGHTS["pipeline_stalled"], max(SOURCE_WEIGHTS.values())
         )
+
+
+class TheReaderGuardIsNarrow(unittest.TestCase):
+    """B1 (2026-09-12) — ``run_pressure`` wrapped ``rank_pressure_sources`` in
+    ``except Exception`` and read every escape as "no stall". The same class
+    as the orchestrator's memory-hook guard, where a signature-drift
+    TypeError was laundered into a governance row for weeks. The guard is
+    the reader's own declared fault set: a fault of the ledger is disclosed
+    and the detector sees no rows; a programming error raises."""
+
+    def setUp(self) -> None:
+        from aria_kernel.tool_registry import ensure_tools_dir
+
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.tools = Path(self._tmp.name) / "aria-tools"
+        ensure_tools_dir(self.tools)
+        self.ledger = self.tools / "knowledge-graph" / "pressure-source-effectiveness.jsonl"
+
+    def _governance(self, kind: str) -> list[dict]:
+        from aria_kernel.ledger import load_jsonl
+
+        path = self.tools / "governance.jsonl"
+        rows = load_jsonl(path) if path.exists() else []
+        return [row for row in rows if row.get("kind") == kind]
+
+    def test_a_tampered_ledger_is_quarantined_and_the_run_continues(self) -> None:
+        self.ledger.parent.mkdir(parents=True, exist_ok=True)
+        self.ledger.write_text("{not json\n", encoding="utf-8")
+        result = run_pressure(cycle_id="c-tamper", base_dir=self.tools)
+        self.assertEqual([p for p in result["pressures"] if p["source"] == "pipeline_stalled"], [])
+        self.assertFalse(self.ledger.exists(), "the reader quarantines the tampered file")
+        self.assertEqual(len(list(self.ledger.parent.glob("pressure-source-effectiveness.jsonl.quarantined.*"))), 1)
+
+    def test_a_reader_fault_is_a_governance_row_not_silence(self) -> None:
+        from aria_kernel.knowledge_graph import KnowledgeGraphTamper
+
+        with patch("aria_kernel.knowledge_graph.rank_pressure_sources",
+                   side_effect=KnowledgeGraphTamper("chain mismatch mid-read")):
+            result = run_pressure(cycle_id="c-fault", base_dir=self.tools)
+        self.assertEqual([p for p in result["pressures"] if p["source"] == "pipeline_stalled"], [])
+        rows = self._governance("pressure_source_effectiveness_unreadable")
+        self.assertEqual(
+            [(row["details"]["reader"], row["details"]["error_class"], row["details"]["cycle_id"]) for row in rows],
+            [("run_pressure", "KnowledgeGraphTamper", "c-fault")],
+        )
+
+    def test_a_programming_error_in_the_reader_propagates(self) -> None:
+        with patch("aria_kernel.knowledge_graph.rank_pressure_sources",
+                   side_effect=TypeError("rank_pressure_sources() got an unexpected keyword argument")):
+            with self.assertRaises(TypeError):
+                run_pressure(cycle_id="c-drift", base_dir=self.tools)
+        self.assertEqual(self._governance("pressure_source_effectiveness_unreadable"), [])
+
+    def test_the_declared_fault_set_excludes_programming_errors(self) -> None:
+        from aria_kernel.knowledge_graph import (
+            KnowledgeGraphSchemaError, KnowledgeGraphTamper,
+            effectiveness_reader_faults, effectiveness_writer_faults,
+        )
+        from aria_kernel.ledger import LedgerIntegrityError
+        from aria_kernel.tool_registry import GovernanceError
+
+        reader = effectiveness_reader_faults()
+        writer = effectiveness_writer_faults()
+        for programming_error in (TypeError, KeyError, ValueError, AttributeError, NameError, IndexError):
+            self.assertFalse(issubclass(programming_error, reader), programming_error.__name__)
+            self.assertFalse(issubclass(programming_error, writer), programming_error.__name__)
+        for fault in (KnowledgeGraphTamper, KnowledgeGraphSchemaError, LedgerIntegrityError, OSError,
+                      PermissionError, TimeoutError):
+            self.assertTrue(issubclass(fault, reader), fault.__name__)
+            self.assertTrue(issubclass(fault, writer), fault.__name__)
+        self.assertTrue(issubclass(GovernanceError, writer))
+        self.assertFalse(issubclass(GovernanceError, reader), "the reader never binds a tools root")
 
 
 if __name__ == "__main__":

@@ -23,7 +23,7 @@ SERVER_NAME = "aria"
 SERVER_VERSION = "032g"
 READ_TOOLS: tuple[str, ...] = (
     "aria_status", "missions_list", "findings_query", "pressure_top", "governance_tail", "handoff_read",
-    "daily_report", "search", "delivery_status", "progress_tail",
+    "daily_report", "search", "delivery_status", "progress_tail", "plan_verify",
 )
 WRITE_TOOLS: tuple[str, ...] = ("human_required_resolve", "runtime_signal_ingest")
 MCP_WRITE_TOOL_EVENT = "mcp_write_tool_used"
@@ -44,16 +44,30 @@ TOOL_MANIFEST: dict[str, dict[str, Any]] = {
     "search": {"description": "Full-text search over the derived ledger index.", "inputSchema": _schema({"query": {"type": "string"}, "kinds": {"type": "array", "items": {"type": "string"}}, "limit": {"type": "integer", "minimum": 1, "maximum": 100}}, ["query"])},
     "delivery_status": {"description": "Delivery closure summary (Faz 032d SLO).", "inputSchema": _schema({})},
     "progress_tail": {"description": "Sanitized progress rows of a request.", "inputSchema": _schema({"request_id": {"type": "string"}, "last": {"type": "integer", "minimum": 1, "maximum": 200}}, ["request_id"])},
+    # ARIA-HIGH-147 — the implementer's first obligation (the converged
+    # plan's authenticity) answered by the kernel from its own ledger: the
+    # sandbox's command policy has no interpreter for a hand recomputation,
+    # and two live spawns spent their whole budgets attempting one.
+    "plan_verify": {"description": "Verify a CONVERGED plan's authenticity: the kernel recomputes plan_convergence.content_hash from its own hash-verified ledger body and compares it with the hash the envelope names (must_satisfy authenticity item). Returns verdict verified|mismatch, the revision id and the FULL plan body (the envelope's inline copy may be truncated). Call this instead of recomputing by hand.", "inputSchema": _schema({"plan_id": {"type": "string"}, "content_hash": {"type": "string"}}, ["plan_id", "content_hash"])},
     "human_required_resolve": {"description": "OPERATOR: resolve a HUMAN_REQUIRED request (needs --allow-writes and operator_approval_ref).", "inputSchema": _schema({"request_id": {"type": "string"}, "resolution_note": {"type": "string"}, "verdict": {"type": "string"}, "operator_approval_ref": {"type": "string"}}, ["request_id", "resolution_note", "operator_approval_ref"])},
     "runtime_signal_ingest": {"description": "OPERATOR: record a runtime signal lead (needs --allow-writes and operator_approval_ref).", "inputSchema": _schema({"source": {"type": "string"}, "service": {"type": "string"}, "summary": {"type": "string"}, "code_refs": {"type": "array", "items": {"type": "string"}}, "severity": {"type": "string"}, "operator_approval_ref": {"type": "string"}}, ["source", "service", "summary", "code_refs", "operator_approval_ref"])},
 }
 
 
 class AriaMcpServer:
-    def __init__(self, *, base_dir: str | Path | None, workspace_root: str | Path, allow_writes: bool = False) -> None:
+    def __init__(
+        self, *, base_dir: str | Path | None, workspace_root: str | Path, allow_writes: bool = False,
+        request_id: str | None = None,
+    ) -> None:
         self.root = ensure_tools_dir(base_dir)
         self.workspace = Path(workspace_root).resolve()
         self.allow_writes = allow_writes
+        # ARIA-HIGH-124 (round 4) — the request this view is served FOR
+        # (the executor's broker names it): every `mcp/tool-calls.jsonl` row
+        # this server records carries it, so a call can be attributed to
+        # the request whose sandbox made it. None for an operator's own
+        # `mcp serve`.
+        self.request_id = request_id
         self.initialized = False
 
     # ---- tool implementations (read) ----
@@ -79,24 +93,27 @@ class AriaMcpServer:
     def _pressure_top(self, args: dict[str, Any]) -> Any:
         from .knowledge_graph import rank_pressure_sources
 
-        return rank_pressure_sources(workspace_root=self.workspace)[: int(args.get("limit") or 20)]
+        return rank_pressure_sources(base_dir=self.root)[: int(args.get("limit") or 20)]
 
     def _governance_tail(self, args: dict[str, Any]) -> Any:
-        from .governance_reader import read_governance_rows
+        # ARIA-HIGH-124 — the bounded seek-to-end reader (V3.1-C-1), with
+        # the kind filter applied before the parse. The previous body asked
+        # `read_governance_rows` for `on_corruption="skip"`, a mode the
+        # reader refuses at entry (`strict` / `tolerant` only), so this
+        # tool answered every call with an error — invisible while the
+        # server ran inside the sandbox against a phantom store, measured
+        # the moment it was served against the real one.
+        from .governance_reader import read_governance_rows_reverse
 
-        path = self.root / "governance.jsonl"
-        if not path.exists():
-            return []
-        rows = read_governance_rows(path, on_corruption="skip", reverse=True, base_dir=self.root)
         kind = args.get("kind")
-        out = []
-        for row in rows:
-            if kind and row.get("kind") != kind:
-                continue
-            out.append({"recorded_at": row.get("recorded_at") or row.get("timestamp"), "kind": row.get("kind"), "details": row.get("details")})
-            if len(out) >= int(args.get("limit") or 50):
-                break
-        return out
+        rows = read_governance_rows_reverse(
+            base_dir=self.root, limit=int(args.get("limit") or 50),
+            kind_filter=(str(kind),) if kind else None,
+        )
+        return [
+            {"recorded_at": row.get("recorded_at") or row.get("timestamp"), "kind": row.get("kind"), "details": row.get("details")}
+            for row in rows
+        ]
 
     def _handoff_read(self, args: dict[str, Any]) -> Any:
         from .handoff_ledger import read_handoff
@@ -124,6 +141,23 @@ class AriaMcpServer:
         from .progress import read_progress
 
         return read_progress(str(args["request_id"]), base_dir=self.root, last=int(args.get("last") or 20))
+
+    def _plan_verify(self, args: dict[str, Any]) -> Any:
+        from .plan_convergence import converged_plan_body, fold_plan_state
+
+        plan_id = str(args["plan_id"])
+        claimed = str(args["content_hash"]).strip()
+        state = fold_plan_state(plan_id=plan_id, base_dir=self.root)
+        # The ledger's own hash-verified body (ORPHAN-CRITICAL-728): a body
+        # that does not reproduce the recorded hash is never returned.
+        body = converged_plan_body(plan_id=plan_id, base_dir=self.root)
+        recorded = str(body["content_hash"])
+        return {
+            "plan_id": plan_id, "state": state.get("state"), "revision_id": body["revision_id"],
+            "content_hash": recorded, "claimed_content_hash": claimed,
+            "verdict": "verified" if recorded == claimed else "mismatch",
+            "plan_content": body["plan_content"],
+        }
 
     # ---- tool implementations (write, operator-only) ----
     def _write_gate(self, tool: str, args: dict[str, Any]) -> None:
@@ -162,17 +196,19 @@ class AriaMcpServer:
         args = dict(arguments or {})
         started = time.monotonic()
         if name not in TOOL_MANIFEST or (name in WRITE_TOOLS and not self.allow_writes):
-            record_mcp_call(tool_name=f"{SERVER_NAME}/{name}", ok=False, base_dir=self.root, side="server", error_class="UnknownTool")
+            record_mcp_call(tool_name=f"{SERVER_NAME}/{name}", ok=False, base_dir=self.root, side="server",
+                            request_id=self.request_id, error_class="UnknownTool")
             return {"content": [{"type": "text", "text": f"unknown tool {name!r}"}], "isError": True}
         try:
             result = self._impl(name)(args)
             text = json.dumps(result, sort_keys=True, default=str)
             record_mcp_call(tool_name=f"{SERVER_NAME}/{name}", ok=True, base_dir=self.root, side="server",
-                            duration_ms=int((time.monotonic() - started) * 1000))
+                            request_id=self.request_id, duration_ms=int((time.monotonic() - started) * 1000))
             return {"content": [{"type": "text", "text": text}], "isError": False}
         except Exception as exc:  # noqa: BLE001 — a tool failure is an error result, never a dead server
             record_mcp_call(tool_name=f"{SERVER_NAME}/{name}", ok=False, base_dir=self.root, side="server",
-                            duration_ms=int((time.monotonic() - started) * 1000), error_class=type(exc).__name__)
+                            request_id=self.request_id, duration_ms=int((time.monotonic() - started) * 1000),
+                            error_class=type(exc).__name__)
             return {"content": [{"type": "text", "text": f"{type(exc).__name__}: {str(exc)[:500]}"}], "isError": True}
 
     def handle(self, message: dict[str, Any]) -> dict[str, Any] | None:

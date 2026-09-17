@@ -87,22 +87,72 @@ permissions:
   actions: read
 
 jobs:
+  # B8 (2026-09-12) — a run that cannot get its runner fails by name. The
+  # only runner carrying [self-hosted, linux, claude] went offline on
+  # 2026-09-08 09:48Z; every scheduled run since queued with zero jobs and
+  # was CANCELLED ~12h later by the next schedule taking this concurrency
+  # group's single pending slot (cancel-in-progress: false keeps ONE pending
+  # run). No red, no error, no notification: green by absence. This hosted
+  # job refuses the run with a named reason unless an ONLINE runner carries
+  # every label the self-hosted job needs; the self-hosted job `needs` it,
+  # so a run is either dispatched or red within a minute. One definition
+  # for every self-hosted lane: .github/actions/require-self-hosted-runner
+  # (decision logic: aria-kernel/aria_kernel/runner_availability.py; wiring
+  # pinned by aria-kernel/tests/test_runner_availability.py).
+  runner-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+
+      - uses: ./.github/actions/require-self-hosted-runner
+        with:
+          # Verbatim the self-hosted job's runs-on; the invariant test
+          # compares the two so they cannot drift apart.
+          required-labels: self-hosted,linux,claude
+          app-id: ${{ secrets.ARIA_GH_APP_ID }}
+          app-installation-id: ${{ secrets.ARIA_GH_APP_INSTALLATION_ID }}
+          app-private-key: ${{ secrets.ARIA_GH_APP_PRIVATE_KEY }}
+
   executor:
+    needs: runner-preflight
     runs-on: [self-hosted, linux, claude]
-    # The drain window (ARIA_DRAIN_BUDGET_SECONDS below, 7200 s) plus the
+    # The drain window (ARIA_DRAIN_BUDGET_SECONDS below, 21000 s) plus the
     # reserve the job needs outside it — the state restore before the loop
     # (the checkout arc, 2700 s), the publish after it (the lifecycle
     # holder's longest arc, 5400 s) and the unbounded setup/verification
     # steps around them (900 s), every arc a sum over the registered git
     # steps of `state_store_lifecycle_arcs` at the store's git cap, as
-    # `ci_executor_drain.JOB_RESERVE_SECONDS` (9000 s) — is 16200 s = 270
-    # minutes; 280 keeps ten minutes of margin. The pairing is pinned by
+    # `ci_executor_drain.JOB_RESERVE_SECONDS` (9000 s) — is 30000 s = 500
+    # minutes; 510 keeps ten minutes of margin. The pairing is pinned by
     # `aria-kernel/tests/test_state_lock_liveness_bound.py`, which reads
     # this file, and mirrored in `workflow_contract_registry` (150 → 200
     # with the child pricing of 2026-09-12; 200 → 280 once the lifecycle
-    # arcs were derived from the code instead of typed).
-    timeout-minutes: 280
+    # arcs were derived from the code instead of typed; 280 → 500 when
+    # ARIA-HIGH-124 round 3 priced the implementation child's delivery —
+    # the contained apply gate at the canonical ceiling per command, the
+    # publication, the push and the PR, 13410 s with round 4's commit
+    # verification, round 5's pre-push result decision and round 6's
+    # credential mints (the delivery's own, after the gate, and the
+    # pre-spawn admission's) — into the window: a window
+    # that cannot hold an implementation child never delivers one, and a
+    # child admitted without that term ran three hours past the window into
+    # the reserve; 500 → 510 with round 6's start window, below). Legal on
+    # a self-hosted runner, where the platform's job ceiling is days, not
+    # the hosted six hours.
+    timeout-minutes: 510
     steps:
+      # ARIA-HIGH-124 (round 3) — the absolute deadline every spawn and every
+      # delivery in this job runs under is anchored HERE, at launch (the
+      # auto-cycle's ARIA-HIGH-019 lesson: a fresh-store restore measured
+      # 17m41s, which an anchor taken at the executor step would not see).
+      - name: Anchor the job launch epoch
+        run: echo "ARIA_JOB_LAUNCH_EPOCH=$(date +%s)" >> "$GITHUB_ENV"
       # ORPHAN-HIGH-802 — reset the persistent workspace HERE, so checkout
       # does not have to. actions/checkout's `clean` runs `git clean -ffdx`,
       # and `-x` deletes gitignored paths — including node_modules, which the
@@ -127,6 +177,20 @@ jobs:
         with:
           ref: main
           persist-credentials: false
+          # The anchor gate (`agent_invocations._anchor_refusal_reason`)
+          # refuses a request whose `target_sha` this checkout does not
+          # hold, and that refusal is terminal (ANCHOR_STALE). It is only a
+          # FACT on a whole clone: on the depth-1 default the producer's
+          # commit was absent here as a matter of course, and the gate had
+          # to be softened with a shallow-clone probe to keep the queue
+          # alive. The full history makes absence evidence again, and the
+          # gate no longer judges a shallow clone at all: an anchor absent
+          # from one is refused by name (`anchor_history_unavailable_shallow`)
+          # with nothing recorded, so the executor fails loudly instead of
+          # writing a guess as ANCHOR_STALE. See aria-auto-cycle.yml for the
+          # twin layers the same depth killed.
+          # Pinned by aria-kernel/tests/invariants/test_kernel_lanes_check_out_full_history.py.
+          fetch-depth: 0
           # See the reset step above: checkout's default clean is the flag
           # that deleted node_modules before every executor dispatch.
           clean: false
@@ -506,12 +570,12 @@ jobs:
           CLAUDE_CLI_MOCK: ${{ steps.preflight.outputs.effective_mock }}
           CLAUDE_CLI_MOCK_SOURCE: ${{ steps.preflight.outputs.mock_source }}
           ARIA_CLAUDE_REQUIRE_USAGE: '1'
-          # Wave 0 §0.7 — executor-lane PRs open through the kernel CLI
-          # (pr_manager gate + breaker producer) only; the raw
-          # `gh pr create` allowlist row is refused under this flag. The
-          # flag and the legacy row are deleted together after one green
-          # scheduled run (docs/plans/2026-08-02-aria-full-autonomy-program).
-          ARIA_EXECUTOR_PR_VIA_KERNEL: '1'
+          # ARIA-HIGH-124 — no PR is opened from inside the agent's sandbox
+          # by any path: the executor child pushes the published branch,
+          # runs the apply gate and opens the PR after the spawn, with its
+          # own authority (aria_kernel.implementation_delivery). The former
+          # ARIA_EXECUTOR_PR_VIA_KERNEL flag and the raw `gh pr create`
+          # transition row it gated are gone together.
           MAX_TURNS_PER_RUN: '12'
           MAX_REQUESTS_PER_RUN: '30'
           MAX_TIMEOUT_SECONDS: '1800'
@@ -523,23 +587,61 @@ jobs:
           # state-lock wait plus its work) and the pre-claim git probe, the
           # Claude CLI at MAX_TIMEOUT_SECONDS, the terminal writer at the
           # longer of its two wall clocks (the submit: evidence probes, one
-          # state-lock wait, its work = 1320 s; the human-required record
-          # on a refusal exit: its governance transaction, the notification's
-          # channels and outbox transaction, its work = 2400 s) and the
-          # release child: 1020 + 93 + 1800 + 2400 + 1020 = 6333 s, plus the
-          # per-request worktree bracket (600 s) when the executor policy
-          # turns it on. The state-lock wait in each of those is the
-          # pending-recovery transaction arc (three git steps at the store's
-          # cap, 900 s), derived in `state_store_lifecycle_arcs`. 7200 s of
-          # loop therefore holds one child at its worst case with 867 s
-          # (267 s with worktrees) of start window before it, and leaves
-          # the job's reserve
+          # state-lock wait, its work = 1320 s; the in-process human-required
+          # record on a refusal exit: its governance transaction, the
+          # notification's channels and outbox transaction, its work =
+          # 2400 s) and the release child: 1020 + 93 + 1800 + 2400 + 1020 =
+          # 6333 s, plus the per-request worktree bracket (600 s) when the
+          # executor policy turns it on, plus — for an IMPLEMENTATION child
+          # (ARIA-HIGH-124 round 3) — the delivery the executor runs after
+          # the spawn, priced off the request's staged action: the
+          # quarantine's publication (600 s), the contained apply gate at
+          # the staged ceiling per command (four canonical commands at
+          # 2700 s), the delivery's four git calls at the store's cap
+          # (1200 s), the tip's identity verification before any external
+          # effect (10 s, round 4), the kernel's own decision on the result
+          # envelope before the push (one decision's evidence-probe clock,
+          # 300 s, round 5), the delivery credential's mint and revoke where
+          # it is consumed — after the gate, for the push and the PR alone
+          # (40 s, round 6) — the `gh pr create` bound (300 s) and its
+          # work (120 s), plus the pre-spawn credential admission (one lease
+          # minted and revoked to prove the lane can mint, 40 s, round 6)
+          # = 13410 s in the canonical shape, so 20343 s for the
+          # whole implementation child with worktrees. The state-lock wait in
+          # each of those is the pending-recovery transaction arc (three git
+          # steps at the store's cap, 900 s), derived in
+          # `state_store_lifecycle_arcs`. 21000 s of loop therefore holds
+          # one implementation child at its worst case with 657 s of start
+          # window before it (a judge child: 14667 s, 14067 s with
+          # worktrees) — round 6 measured the first `next-pending` of a
+          # drain at over 40 s on the loaded droplet and the restore before
+          # it at 17 minutes, so the 57 s the previous window left skipped
+          # the implementation child by name every night — and leaves the job's reserve
           # (`ci_executor_drain.JOB_RESERVE_SECONDS`, see timeout-minutes)
           # untouched by any child — the first live night (run 31542485896)
           # was reaped mid-child by the old 45-minute timeout and its two
-          # submitted results died unpublished with the runner.
-          ARIA_DRAIN_BUDGET_SECONDS: '7200'
+          # submitted results died unpublished with the runner. A request
+          # whose own worst case (a plan with recipes) does not fit what
+          # remains is skipped by name without a claim
+          # (`executor_drain_window_skip`), never started.
+          ARIA_DRAIN_BUDGET_SECONDS: '21000'
         run: |
+          # ARIA-HIGH-124 (round 3) — the ABSOLUTE deadline every spawn and
+          # every delivery in this job runs under: the job's own ceiling
+          # anchored at launch, minus what the job must still run after the
+          # drain (the publish arc 5400 s + the steps allowance 900 s =
+          # `ci_executor_drain.JOB_RESERVE_AFTER_DRAIN_SECONDS`). The spawn
+          # clamp reads it (claude_runtime), the executor reserves the
+          # delivery out of it before an implementation spawn and again
+          # before it publishes the quarantine, and the delivery refuses by
+          # name (`deadline_insufficient`) when what remains cannot hold its
+          # worst case — nothing pushed, nothing opened. The pin in
+          # `test_state_lock_liveness_bound.py` reads both numbers here.
+          JOB_TIMEOUT_MINUTES=510
+          POST_DRAIN_RESERVE_SECONDS=6300
+          ANCHOR_EPOCH="${ARIA_JOB_LAUNCH_EPOCH:-$(date +%s)}"
+          export ARIA_JOB_DEADLINE_EPOCH=$(( ANCHOR_EPOCH + JOB_TIMEOUT_MINUTES * 60 - POST_DRAIN_RESERVE_SECONDS ))
+          echo "job deadline: $(date -u -d @${ARIA_JOB_DEADLINE_EPOCH} +%H:%M:%SZ) (job cap ${JOB_TIMEOUT_MINUTES}m - ${POST_DRAIN_RESERVE_SECONDS}s post-drain reserve, anchored at job launch)"
           # ORPHAN-722 — PR identity. PRs opened with the job token are
           # authored by github-actions[bot], and GitHub parks bot-PR
           # workflows in action_required (anti-recursion, not a repo

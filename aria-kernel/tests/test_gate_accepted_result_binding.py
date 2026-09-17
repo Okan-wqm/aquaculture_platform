@@ -73,7 +73,7 @@ def _seed_review_request(tools: Path) -> str:
         target_agent="aria-adversarial-judge",
         role=_ADVERSARIAL_ROLE,
         suggested_prompt="audit the implementation against must_satisfy",
-        must_satisfy=[{"id": "gate-binding-test", "criterion": "gate needs evidence"}],
+        must_satisfy=[{"id": "gate-binding-test", "description": "gate needs evidence"}],
         allowed_scope=["aria-kernel/**"],
         convergence_id="conv-gate-001",
         base_dir=tools,
@@ -109,7 +109,7 @@ def _run_review(tools: Path, **overrides: object) -> ReviewResult:
         "convergence_id": "conv-gate-001",
         "impl_artifacts_ref": "",
         "worker_artifact_hash": "",
-        "must_satisfy": [{"id": "gate-binding-test", "statement": "gate needs evidence"}],
+        "must_satisfy": [{"id": "gate-binding-test", "description": "gate needs evidence"}],
         "max_review_rounds": 1,
         "judge_timeout_seconds": 0.4,
     }
@@ -573,6 +573,94 @@ class SpecialistGateEvidenceBinding(unittest.TestCase):
             imported_names,
             msg="the orchestrator no longer delegates to the extracted policy",
         )
+
+
+class NativeSpecialistPlanBinding(unittest.TestCase):
+    def test_native_specialist_requests_bind_the_adopted_plan_and_source(self) -> None:
+        import hashlib
+        import json
+        import os
+        import subprocess
+
+        from aria_kernel.agent_invocations import (
+            list_agent_invocation_requests,
+            verify_invocation_context_binding,
+        )
+        from aria_kernel.plan_convergence import plan_status
+        from aria_kernel.runtime_profile import set_profile
+        from aria_kernel.tool_registry import ensure_tools_binding
+        from tests._helpers.git_fixtures import make_repo_with_initial_commit
+        from tests._helpers.production_shaped import production_converged_plan
+
+        fixture_directory = tempfile.TemporaryDirectory(prefix="aria-native-specialist-")
+        self.addCleanup(fixture_directory.cleanup)
+        root = Path(fixture_directory.name)
+        environment = unittest.mock.patch.dict(os.environ, {
+            "ARIA_REPO_STATE_ROOT": str(root / "repo-state"),
+            "ARIA_STATE_STORE_ROOT": str(root / "state-store"),
+            "ARIA_WORKSPACE_BASE": str(root / "workspaces"),
+            "ARIA_TOOLS_DIR": str(root / "tools"),
+        })
+        environment.start()
+        self.addCleanup(environment.stop)
+        source_path = "apps/auth-service/src/session-duration.ts"
+        repo = make_repo_with_initial_commit(root, {
+            source_path: "export const sessionDurationSeconds = 900;\n",
+        })
+        tools = root / "tools"
+        set_profile("strict", operator_approval_ref="test:native-specialist", base_dir=tools)
+        ensure_tools_binding(tools, workspace_root=repo)
+        plan = production_converged_plan(
+            tools_dir=tools, workspace_root=repo,
+            plan_id="plan-native-specialist-source", reviewer="auth-security-expert",
+            affected_paths=[source_path], evidence_refs=[source_path + ":1"],
+        )
+        subprocess.run(["git", "add", ".claude/agents/auth-security-expert.md"], cwd=repo, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "fixture: record the plan reviewer"], cwd=repo, check=True)
+        target_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
+        state = plan_status(plan_id=plan.plan_id, base_dir=tools)
+        self.assertEqual(state["state"], "CONVERGED")
+        self.assertEqual(state["latest_revision"]["content_hash"], plan.content_hash)
+        self.assertEqual(subprocess.check_output(["git", "status", "--porcelain"], cwd=repo, text=True), "")
+        arguments = {
+            "cycle_id": "cycle-native-specialist-source",
+            "base_dir": tools,
+            "workspace_root": repo,
+            "plan_id": plan.plan_id,
+            "convergence_id": plan.plan_id,
+            "touched_services": [source_path],
+            "pressures": [],
+            "profile": "strict",
+            "max_specialists_per_cycle": 2,
+            "specialist_timeout_seconds": 0,
+        }
+        result = run_specialist_review_runner(**arguments)
+        self.assertEqual(result["specialists_dispatched"], ["auth-security-expert", "compliance-expert"])
+        self.assertEqual(result["consolidated_verdict"], "specialists_unavailable")
+        requests = list_agent_invocation_requests(base_dir=tools, role="specialist_domain_review")
+        self.assertEqual(len(requests), 2)
+        self.assertEqual({row["request_id"] for row in requests}, set(result["request_ids"]))
+        for row in requests:
+            self.assertRegex(row["ledger_hash"], r"^sha256:[0-9a-f]{64}$")
+            bound = verify_invocation_context_binding(
+                request_id=row["request_id"], context_hash=row["context_hash"],
+                prompt_hash=row["prompt_hash"], base_dir=tools,
+            )
+            self.assertEqual(bound["context"]["request_id"], row["request_id"])
+            self.assertEqual(row["plan_revision_hash"], plan.content_hash)
+            self.assertEqual(row["cycle_id"], arguments["cycle_id"])
+            self.assertEqual(row["target_sha"], target_sha)
+            self.assertEqual(row["allowed_scope"], [source_path])
+            self.assertEqual(row["evidence_refs"], [source_path + ":1"])
+            self.assertEqual(row["context_source_paths"], [source_path])
+            prompt = bound["prompt"]["prompt_text"]
+            self.assertEqual("sha256:" + hashlib.sha256(prompt.encode()).hexdigest(), row["prompt_hash"])
+            self.assertIn(json.dumps(plan.plan_content, sort_keys=True), prompt)
+            self.assertEqual(bound["context"]["target_sha"], target_sha)
+        request_bytes = (tools / "agent-invocations/requests.jsonl").read_bytes()
+        repeated = run_specialist_review_runner(**arguments)
+        self.assertEqual(repeated["request_ids"], result["request_ids"])
+        self.assertEqual((tools / "agent-invocations/requests.jsonl").read_bytes(), request_bytes)
 
 
 if __name__ == "__main__":

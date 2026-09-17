@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import hashlib as _hashlib
+import math as _math
+from dataclasses import dataclass as _dataclass
 from pathlib import Path
 from typing import Any
 
@@ -67,6 +70,21 @@ POLICY_KEYS = {
     # genesis_candidate panel escalations. Consumed by
     # agent_genesis.sweep_candidate_gaps_for_adjudication.
     "genesis_panel",
+    # ARIA-MEDIUM-082 — wall-clock allowance for one bounded scoped-source
+    # qualification (twin self-feature projection, per-mint twin
+    # re-observation, pinned evidence-excerpt blob reads). It was the
+    # literal ``+ 2`` inside snapshot._ScopedSourceBudget, so host load
+    # decided what the map answered and neither an operator override nor
+    # a fixture could widen it. Consumed via source_qualification_policy.
+    "source_qualification",
+    # Operator decision 2026-09-12 — the implementer turn cap
+    # (cycle_and_turn_budget_cap, policy §14) is a policy value, not the
+    # literal 10 that turn_budget.IMPLEMENTER_TURN_BUDGET carried. Defaults,
+    # ceiling, validation and the store-bound accessor live in
+    # ``turn_budget_policy`` (implementer_turn_budget_policy /
+    # implementer_turn_budget_for_store); the key joins the contract here so
+    # an operator override is merged rather than silently dropped.
+    "implementer_turn_budget",
 }
 
 JUDGMENT_PIPELINE_DEFAULTS: dict[str, Any] = {
@@ -168,6 +186,207 @@ def executor_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
     block["max_concurrent"] = max(1, min(8, int(block["max_concurrent"])))
     block["worktree_per_request"] = bool(block["worktree_per_request"])
     return block
+
+
+SOURCE_QUALIFICATION_DEFAULTS: dict[str, Any] = {
+    # ARIA-MEDIUM-082 — seconds one scoped-source qualification may spend
+    # before every reader answers "qualification_deadline". 2 is the value
+    # the literal carried; the map's honesty past the deadline is unchanged,
+    # only the number's authority moved from a constructor default to here.
+    "deadline_seconds": 2.0,
+}
+# The deadline exists so a mint-time qualification stays BOUNDED — a request
+# must never wait on source re-observation indefinitely. Five minutes keeps
+# that promise while leaving two orders of magnitude over the default for a
+# loaded host or a fixture that needs an ample allowance.
+SOURCE_QUALIFICATION_MAX_DEADLINE_SECONDS: float = 300.0
+
+
+def source_qualification_policy(repo_root: str | Path | None = None) -> dict[str, Any]:
+    """ARIA-MEDIUM-082 — typed accessor for the source_qualification block
+    (circuit_breaker_policy pattern: the accessor is what makes the block
+    real configuration).
+
+    ``deadline_seconds`` is returned as a float. Zero is an honest setting:
+    nothing is qualified and every answer is ``qualification_deadline``.
+    A negative, non-numeric, non-finite, or above-ceiling value is REFUSED
+    with both the value and the bound named (RC-4 discipline: silently
+    correcting an operator's number teaches them something false about
+    their own system).
+    """
+    merged = load_policy(repo_root) if repo_root is not None else default_policy()
+    block = dict(SOURCE_QUALIFICATION_DEFAULTS)
+    raw_block = merged.get("source_qualification")
+    if isinstance(raw_block, dict):
+        block.update({k: raw_block[k] for k in SOURCE_QUALIFICATION_DEFAULTS if k in raw_block})
+    block["deadline_seconds"] = _validated_qualification_deadline(block["deadline_seconds"])
+    return block
+
+
+def _validated_qualification_deadline(raw: Any) -> float:
+    """One gate for the deadline: a real finite number in [0, ceiling]."""
+    from .tool_registry import GovernanceError
+
+    # bool is an int subclass; ``true`` is not a number of seconds.
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)) or not _math.isfinite(raw):
+        raise GovernanceError(
+            "genesis_policy_source_qualification_deadline_not_a_number: "
+            f"deadline_seconds={raw!r}. Write a finite number of seconds "
+            f"between 0 and {SOURCE_QUALIFICATION_MAX_DEADLINE_SECONDS:g}."
+        )
+    seconds = float(raw)
+    if seconds < 0:
+        raise GovernanceError(
+            "genesis_policy_source_qualification_deadline_negative: "
+            f"deadline_seconds={raw!r}. A qualification cannot expire before "
+            "it starts; write a number of seconds between 0 and "
+            f"{SOURCE_QUALIFICATION_MAX_DEADLINE_SECONDS:g}."
+        )
+    if seconds > SOURCE_QUALIFICATION_MAX_DEADLINE_SECONDS:
+        raise GovernanceError(
+            "genesis_policy_source_qualification_deadline_above_ceiling: "
+            f"deadline_seconds={raw!r} exceeds "
+            f"{SOURCE_QUALIFICATION_MAX_DEADLINE_SECONDS:g}. The deadline keeps a "
+            "mint-time qualification bounded; lower the value to at most the "
+            "ceiling."
+        )
+    return seconds
+
+
+@_dataclass(frozen=True)
+class _AdaptiveRuntimePolicy:
+    policy_id: str
+    policy_digest: str
+    default_sha256: str
+    override_sha256: str | None
+    provider_cooldown_seconds: int = 900
+    recheck_timeout_seconds: int = 20
+    max_attempts_per_dispatch: int = 2
+    scarcity_judgment_mode: str = "independent_sessions"
+    monetary_admission: str = "metered"
+
+
+def _adaptive_runtime_policy(repo_root: str | Path) -> _AdaptiveRuntimePolicy | None:
+    """Use legacy admission semantics, then capture strict adaptive policy bytes.
+
+    The existing loader owns optional-override behavior and has no read-size
+    limit. The later strict capture is bounded; the complete classification
+    path is not. Only that fresh capture supplies the adaptive byte receipt.
+    """
+    from .tool_registry import GovernanceError
+
+    selected_executor = load_policy(repo_root).get("executor")
+    if not isinstance(selected_executor, dict) or "adaptive_runtime" not in selected_executor:
+        return None
+    selected_block = selected_executor["adaptive_runtime"]
+    if isinstance(selected_block, dict) and selected_block.get("enabled") is False:
+        return None
+
+    sources: list[bytes | None] = []
+    paths = (Path(__file__).resolve().parent / "data" / DEFAULT_FILENAME,
+             Path(repo_root) / OVERRIDE_RELPATH)
+    for index, path in enumerate(paths):
+        try:
+            with path.open("rb") as stream:
+                content = stream.read(65_537)
+        except FileNotFoundError:
+            if index == 1:
+                sources.append(None)
+                continue
+            raise GovernanceError("adaptive_runtime_policy_default_missing")
+        except OSError as exc:
+            raise GovernanceError("adaptive_runtime_policy_unreadable") from exc
+        if len(content) > 65_536:
+            raise GovernanceError("adaptive_runtime_policy_size_limit")
+        sources.append(content)
+    documents: list[dict[str, Any]] = []
+    for content in sources:
+        if content is None:
+            documents.append({})
+            continue
+        try:
+            document = json.loads(content)
+        except (ValueError, UnicodeError) as exc:
+            raise GovernanceError("adaptive_runtime_policy_invalid_json") from exc
+        if not isinstance(document, dict):
+            raise GovernanceError("adaptive_runtime_policy_document_invalid")
+        documents.append(document)
+    merged = merge_with_override(documents[0], documents[1])
+    executor = merged.get("executor")
+    if not isinstance(executor, dict) or "adaptive_runtime" not in executor:
+        return None
+    block = executor["adaptive_runtime"]
+    if not isinstance(block, dict) or type(block.get("enabled")) is not bool:
+        raise GovernanceError("adaptive_runtime_policy_invalid")
+    if not block["enabled"]:
+        return None
+    expected = {
+        "schema_version": 1, "enabled": True, "policy_id": "aria/adaptive-runtime/v1",
+        "provider_cooldown_seconds": 900, "recheck_timeout_seconds": 20,
+        "max_attempts_per_dispatch": 2, "scarcity_judgment_mode": "independent_sessions",
+    }
+    monetary_admission = block.get("monetary_admission", "metered")
+    if (set(block) - {"monetary_admission"} != set(expected)
+            or type(monetary_admission) is not str
+            or monetary_admission not in ("metered", "managed_subscription")) or any(
+        type(block[key]) is not type(value) or block[key] != value
+        for key, value in expected.items()
+    ):
+        raise GovernanceError("adaptive_runtime_policy_invalid")
+    hashes = ["sha256:" + _hashlib.sha256(content).hexdigest() if content is not None else None
+              for content in sources]
+    identity = json.dumps({"schema_version": 1, "default_sha256": hashes[0],
+                           "override_sha256": hashes[1]}, sort_keys=True, separators=(",", ":"))
+    return _AdaptiveRuntimePolicy(
+        policy_id=block["policy_id"], policy_digest="sha256:" + _hashlib.sha256(identity.encode()).hexdigest(),
+        default_sha256=str(hashes[0]), override_sha256=hashes[1],
+        monetary_admission=monetary_admission,
+    )
+
+
+@_dataclass(frozen=True)
+class _RuntimeMonetaryAdmission:
+    mode: str
+    subscription_applies: bool
+    reason: str
+    policy_id: str | None
+    policy_digest: str | None
+    default_sha256: str | None
+    override_sha256: str | None
+
+
+def _runtime_monetary_admission(
+    repo_root: str | Path, *, provider: str, runtime: str, auth_method: str,
+    expected_policy_digest: str | None = None,
+) -> _RuntimeMonetaryAdmission:
+    """One fresh monetary-policy decision for reservation, runtime and merge.
+
+    Managed subscription estimates remain telemetry. A missing managed auth
+    binding is unavailable evidence; it does not switch that policy to metered.
+    This accessor does not itself establish the caller's native auth evidence.
+    """
+    from .tool_registry import GovernanceError
+
+    policy = _adaptive_runtime_policy(repo_root)
+    digest = policy.policy_digest if policy is not None else None
+    if expected_policy_digest is not None and expected_policy_digest != digest:
+        raise GovernanceError("runtime_monetary_policy_digest_mismatch")
+    mode = policy.monetary_admission if policy is not None else "metered"
+    # The managed-subscription bindings: each is (provider, runtime, auth
+    # method) exactly as the runtime's own status probe reports it. Z.ai's
+    # binding is its subscription (Coding Plan) API key on the kernel's own
+    # HTTP transport — never a CLI runtime (operator policy 2026-09-11).
+    applies = mode == "managed_subscription" and (provider, runtime, auth_method) in (
+        ("openai", "codex", "chatgpt"), ("anthropic", "claude", "subscription"),
+        ("zai", "zai", "subscription_api_key"),
+    )
+    reason = ("managed_subscription" if applies else
+              "managed_auth_binding_unavailable" if mode == "managed_subscription" else "metered")
+    return _RuntimeMonetaryAdmission(
+        mode, applies, reason, policy.policy_id if policy is not None else None,
+        digest, policy.default_sha256 if policy is not None else None,
+        policy.override_sha256 if policy is not None else None,
+    )
 
 
 def rhythm_policy(repo_root: str | Path | None = None) -> dict[str, Any]:

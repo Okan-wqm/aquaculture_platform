@@ -15,9 +15,20 @@ the executor hands to ``--settings``. The document is deterministic for a
 given profile + hook context, so its hash is part of the session fingerprint
 (Faz 032c).
 
-Hook commands invoke the kernel CLI (``python3 -m aria_kernel hook ...``)
-with the tools dir and request id spelled out — the hook runs inside the
-agent's sandbox, where nothing but argv tells it who it is working for.
+Hook commands run the kernel's hook CLIENT by path
+(``<python> <kernel_root>/aria_kernel/hook_client.py <verb>``, ARIA-HIGH-123):
+inside the agent's sandbox the command ships the verb and the CLI's payload
+to the kernel-side broker (:mod:`hook_broker`) over the socket the wrapper
+binds in, and the broker decides and journals OUTSIDE the sandbox with the
+kernel's own facts — the store, the workspace, the request id and the turn
+cap are the broker's, never argv the agent can read or a store the agent
+can reach. The command therefore names no store, no request and no cap. A
+profile with a write scope is still BUDGETED (cycle_and_turn_budget_cap,
+:mod:`turn_budget`): N is the ``implementer_turn_budget.budgeted_turns`` of
+the policy of the workspace the spawn's store (``hook_context["tools_dir"]``)
+is bound to (:mod:`turn_budget_policy`), recorded in the settings document
+(``_aria.turn_budget``) so it is part of the session fingerprint, and handed
+to the broker by the spawner (``claude_runtime``) from that same document.
 """
 from __future__ import annotations
 
@@ -27,38 +38,82 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .command_policy import claude_permission_rules
+from .hook_client import HOOK_VERBS as HOOK_CLIENT_VERBS
 from .runtime_profiles import RuntimeProfile, disallowed_tools_for
+from .turn_budget import BUDGETED_TOOL_NAMES, turn_budget_for
 
 SETTINGS_SCHEMA_NOTE = "aria/claude-settings/v1"
 HOOK_TIMEOUT_SECONDS = 60
 # Every hook event ARIA wires. Closed on purpose: a new event is a policy
 # change, not a config edit.
 HOOK_EVENTS: tuple[str, ...] = ("PreToolUse", "PostToolUse", "SessionStart", "SessionEnd", "PreCompact")
-_PRE_TOOL_MATCHER = "Bash|Edit|Write|MultiEdit|NotebookEdit"
-_POST_TOOL_MATCHER = "Bash|Edit|Write|MultiEdit|NotebookEdit|Read|Grep|Glob|Agent"
+# The PreToolUse matcher IS the budgeted set: a tool the budget counts is a
+# tool the hook is consulted about, and vice versa, by construction.
+_PRE_TOOL_MATCHER = "|".join(BUDGETED_TOOL_NAMES)
+_POST_TOOL_MATCHER = _PRE_TOOL_MATCHER + "|Read|Grep|Glob|Agent"
 _ENV_READ_DENIES: tuple[str, ...] = ("Read(./.env)", "Read(./.env.*)", "Read(**/.env)", "Read(**/.env.*)")
+
+
+HOOK_CLIENT_RELPATH = ("aria_kernel", "hook_client.py")
+# The flags the in-sandbox stdlib clients (the hook client here, the MCP
+# relay in `mcp_client`) run their interpreter with: isolated mode, so the
+# agent-writable tree named by the spawn's PYTHONPATH cannot shadow the
+# standard library or plant a `sitecustomize` in a process whose output
+# the CLI trusts (ARIA-HIGH-124, round 2).
+ISOLATED_INTERPRETER_FLAGS: tuple[str, ...] = ("-I",)
+
+
+def kernel_code_root() -> Path:
+    """The ``aria-kernel/`` directory of the kernel that is RUNNING — the
+    one root the in-sandbox clients (the hook client, the MCP relay) are
+    served from (ARIA-HIGH-142).
+
+    Until this, ``kernel_root`` was ``<workspace>/aria-kernel``: the tree
+    the implementer is changing, not the tree the executor runs. A trial
+    workspace checked out at an older commit (trial eleven's task source,
+    ``6652139901``) carried no ``hook_client.py`` and no ``mcp_relay.py``
+    at all, so every hook and the MCP relay died inside the sandbox by
+    path, silently, while the kernel that spawned them had both. The
+    clients belong to the kernel, so their root is the kernel's own —
+    and the sandbox binds it read-only when it lies outside the workspace
+    (``implementation_safety.kernel_root_ro_binds``).
+    """
+    return Path(__file__).resolve().parent.parent
+
+
+def hook_client_path(kernel_root: str | Path) -> Path:
+    """The in-sandbox hook client under ``kernel_root`` — the running
+    kernel's ``aria-kernel/`` (:func:`kernel_code_root`), read-only inside
+    the sandbox whether it lies in the workspace or beside it."""
+    return Path(kernel_root).joinpath(*HOOK_CLIENT_RELPATH)
 
 
 def hook_command(
     *,
     python: str,
     kernel_root: str | Path,
-    tools_dir: str | Path,
-    workspace_root: str | Path,
-    request_id: str,
     verb: str,
 ) -> str:
-    """The shell line the CLI runs for one hook event. Quoted for /bin/sh."""
+    """The shell line the CLI runs for one hook event. Quoted for /bin/sh.
+
+    The client is run BY PATH, not as ``-m aria_kernel …``: it imports
+    nothing from the kernel package, so no kernel code runs inside the
+    sandbox for a hook, and the line carries nothing but the verb — the
+    store, the request id and the cap are the broker's.
+
+    ARIA-HIGH-124 (round 2) — the interpreter runs ISOLATED (``-I``: no
+    ``PYTHONPATH``, no user site, no script directory on ``sys.path``). The
+    spawn's ``PYTHONPATH`` names ``<workspace>/aria-kernel`` for the agent's
+    own test runs, and everything under it but ``aria_kernel/`` is
+    agent-writable: a ``json.py`` or a ``sitecustomize.py`` written there
+    ran inside every hook client and could print the ``allow`` verdict the
+    CLI trusts. The client needs nothing but the standard library.
+    """
     import shlex
 
-    parts = [
-        "env", f"PYTHONPATH={shlex.quote(str(kernel_root))}", shlex.quote(python), "-m", "aria_kernel",
-        "hook", verb,
-        "--tools-dir", shlex.quote(str(tools_dir)),
-        "--workspace-root", shlex.quote(str(workspace_root)),
-        "--request-id", shlex.quote(request_id),
-    ]
-    return " ".join(parts)
+    if verb not in HOOK_CLIENT_VERBS:
+        raise ValueError(f"unknown hook verb {verb!r}")
+    return " ".join([shlex.quote(python), *ISOLATED_INTERPRETER_FLAGS, shlex.quote(str(hook_client_path(kernel_root))), verb])
 
 
 def build_settings(
@@ -70,15 +125,25 @@ def build_settings(
 
     ``hook_context`` = {python, kernel_root, tools_dir, workspace_root,
     request_id}; when None the document carries permission rules only (a
-    read-only preview spawn with no ledger to journal into).
+    read-only preview spawn with no ledger to journal into). Raises
+    ``GovernanceError`` when the bound workspace's policy carries an invalid
+    turn cap: a write-scope spawn is not compiled under a number the policy
+    refuses.
     """
     allow, deny = claude_permission_rules(external_writes=profile.external_writes)
     deny_tools = [rule for rule in disallowed_tools_for(profile)]
+    # The cap is read from the policy of the store this spawn journals into;
+    # a document without hooks compiles no cap, because nothing would admit
+    # turns against it (such a spawn is refused upstream when write-capable).
+    turn_budget = (
+        turn_budget_for(profile, base_dir=hook_context["tools_dir"]) if hook_context is not None else None
+    )
     settings: dict[str, Any] = {
         "_aria": {
             "schema": SETTINGS_SCHEMA_NOTE,
             "profile": profile.profile_id,
             "external_writes": profile.external_writes,
+            "turn_budget": turn_budget,
         },
         "permissions": {
             "allow": list(allow),
@@ -90,7 +155,9 @@ def build_settings(
             row: dict[str, Any] = {
                 "hooks": [{
                     "type": "command",
-                    "command": hook_command(verb=verb, **hook_context),
+                    "command": hook_command(
+                        verb=verb, python=str(hook_context["python"]), kernel_root=hook_context["kernel_root"],
+                    ),
                     "timeout": HOOK_TIMEOUT_SECONDS,
                 }],
             }
@@ -131,10 +198,14 @@ def write_settings_file(settings: Mapping[str, Any], *, directory: str | Path, r
 
 
 __all__ = [
+    "HOOK_CLIENT_RELPATH",
+    "kernel_code_root",
     "HOOK_EVENTS",
     "HOOK_TIMEOUT_SECONDS",
     "SETTINGS_SCHEMA_NOTE",
     "build_settings",
+    "hook_client_path",
+    "ISOLATED_INTERPRETER_FLAGS",
     "hook_command",
     "settings_hash",
     "write_settings_file",

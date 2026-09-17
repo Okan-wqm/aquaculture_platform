@@ -153,7 +153,10 @@ class CiExecutorFrozenMockSentinelTests(unittest.TestCase):
             "ci_executor missing _MOCK_MODE_AT_ENTRY sentinel",
         )
         # main() source captures the sentinel at entry.
-        main_src = inspect.getsource(ci_executor.main)
+        # The entry point is a two-layer function since ARIA-HIGH-095: `main`
+        # holds the ExitStack that releases a held claim on every exit and
+        # `_main` holds the body this invariant reads.
+        main_src = inspect.getsource(ci_executor._main)
         self.assertIn("_MOCK_MODE_AT_ENTRY", main_src,
                       "ci_executor.main() does not capture the sentinel")
         self.assertIn("_MOCK_MODE_AT_ENTRY = _is_mock_mode()", main_src,

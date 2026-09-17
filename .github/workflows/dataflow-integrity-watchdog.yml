@@ -29,7 +29,33 @@ concurrency:
   group: dataflow-integrity-watchdog
   cancel-in-progress: false
 jobs:
+  # B8 (2026-09-12) — this hourly probe runs on the self-hosted runner: with
+  # the runner offline each run queues in this group until the next hour's
+  # run evicts it — cancelled, never red, every hour. This hosted job refuses
+  # the run by name unless an ONLINE runner carries the labels the probe
+  # runs on; the probe `needs` it. One definition for every self-hosted
+  # lane: .github/actions/require-self-hosted-runner.
+  runner-preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/require-self-hosted-runner
+        with:
+          # Verbatim the self-hosted job's runs-on; the invariant test
+          # compares the two so they cannot drift apart.
+          required-labels: self-hosted,linux,claude
+          app-id: ${{ secrets.ARIA_GH_APP_ID }}
+          app-installation-id: ${{ secrets.ARIA_GH_APP_INSTALLATION_ID }}
+          app-private-key: ${{ secrets.ARIA_GH_APP_PRIVATE_KEY }}
+
   probe:
+    needs: runner-preflight
     runs-on: [self-hosted, linux, claude]
     timeout-minutes: 10
     steps:

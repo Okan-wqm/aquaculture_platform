@@ -35,7 +35,7 @@ class BatchDerivationTests(unittest.TestCase):
                 target_agent=agent,
                 role=role,
                 suggested_prompt=f"judge {role}",
-                must_satisfy=[{"id": "verdict", "criterion": "verdict"}],
+                must_satisfy=[{"id": "verdict", "description": "verdict"}],
                 allowed_scope=["**"],
                 finding_id=f"F-{role}",
                 finding_fingerprint=f"fp-{role}",

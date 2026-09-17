@@ -160,12 +160,11 @@ class AutoMergeTests(unittest.TestCase):
         )
         log_path = Path(self.tmp.name) / f"log-{pr_number}.txt"
         log_path.write_text("ok\n", encoding="utf-8")
-        # ORPHAN-717 Gate 4 — passing chains carry the hygiene battery.
-        for battery_cmd in (
-            "npm run format:check",
-            "npm run type-check",
-            "nx affected --target=test",
-        ):
+        # ORPHAN-717 Gate 4 — passing chains carry the hygiene battery, which
+        # IS the canonical suite (ARIA-HIGH-104 (2)): read from its tuple.
+        from aria_kernel.implementation_safety import CANONICAL_VALIDATION_COMMANDS
+
+        for battery_cmd in CANONICAL_VALIDATION_COMMANDS:
             record_validation_run(
                 change_id=change_id,
                 cmd=battery_cmd,
@@ -529,10 +528,10 @@ class AutoMergeTests(unittest.TestCase):
 
     # ORPHAN-HIGH-764 — merge_pr_if_ready now runs the GATE_PRE_MERGE
     # hard-fail perimeter immediately before the merge side effect. Every
-    # pre-merge check binds _not_implemented by design, so these
-    # merge-path tests stub the perimeter as passing: the gate's wiring and
-    # its refusal semantics are pinned separately in
-    # test_merge_authority_pre_merge_perimeter.py.
+    # pre-merge check answers from native implementation evidence these
+    # snapshot fixtures do not carry, so these merge-path tests stub the
+    # perimeter as passing: the gate's wiring and its refusal semantics are
+    # pinned separately in test_merge_authority_pre_merge_perimeter.py.
     @patch(
         "aria_kernel.merge_authority.run_hard_fail_checks",
         return_value=SimpleNamespace(passed=True, failures=()),

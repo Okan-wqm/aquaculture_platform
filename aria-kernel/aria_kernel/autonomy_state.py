@@ -35,9 +35,30 @@ __all__ = [
     "AutonomyState",
     "AutonomyStateAccumulator",
     "AutonomyStateReducer",
+    "FUNNEL_RECORDED_DETAIL",
+    "PLAN_MINTED_PHASE",
     "autonomy_state_path",
     "fold_autonomy_state_rows",
 ]
+
+
+# The transition the orchestrator emits once its synthesizer has yielded a
+# plan — the funnel's entry. Named here, not as a literal at each user,
+# because two readers depend on it being the SAME row: the orchestrator
+# records the plan in the effectiveness ledger immediately before emitting
+# it, and the doctor's funnel organ counts these rows to decide whether an
+# absent effectiveness ledger is bootstrap (no plan ever minted) or a fault
+# (plans minted, ledger gone). A drift between the two names would make
+# that judgement silently wrong (B4, 2026-09-12).
+PLAN_MINTED_PHASE = "cycle_runner_synthesized_plan"
+# The detail key the orchestrator stamps on that row AFTER it recorded the
+# mint in the effectiveness ledger. The doctor counts only rows carrying it:
+# a row written before the ledger's introduction (the live store holds
+# twenty, 2026-08 → 09-04) says a plan was minted, not that a ledger row was
+# due — counting it would report data loss for a ledger that never existed.
+# The implication "state row ⇒ effectiveness row" therefore holds by
+# construction for exactly the rows that claim it.
+FUNNEL_RECORDED_DETAIL = "funnel_recorded"
 
 
 # Phase transitions emitted by §F.1.
@@ -91,7 +112,7 @@ AUTONOMY_PHASES: tuple[str, ...] = (
     # to reflection (Gate A + downstream phases skipped). The
     # constant is a discoverability hint; the reducer accepts any
     # phase string.
-    "cycle_runner_synthesized_plan",
+    PLAN_MINTED_PHASE,
     "cycle_runner_no_pressure",
     # Plan ARIA-V7 §2g v2 Phase 7.2 — orchestrator try/except
     # envelope around convergence_runner. ``convergence_invalid_plan``

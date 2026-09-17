@@ -90,6 +90,7 @@ class _DrainHarness:
         self.summaries = summaries
         self.child_returncodes = child_returncodes or {}
         self.dispatched: list[tuple[str, str]] = []
+        self.child_envs: dict[str, dict[str, str]] = {}
         self.exclude_sets: list[set[str]] = []
         self.governance_rows: list[tuple[str, dict]] = []
         self.breaker_records: list[dict] = []
@@ -112,6 +113,7 @@ class _DrainHarness:
         request_id = argv[2]
         target = argv[3] if len(argv) > 3 else ""
         self.dispatched.append((request_id, target))
+        self.child_envs[request_id] = dict(kwargs["env"])
         summary = self.summaries.get(request_id)
         child_output = Path(kwargs["env"]["GITHUB_OUTPUT"])
         rc = self.child_returncodes.get(request_id, 0 if summary and summary["outcome"] == "succeeded" else 1)
@@ -138,6 +140,15 @@ class _DrainHarness:
         ), patch.object(
             ci_executor_drain._engine, "_append_tools_governance",
             side_effect=lambda _tools, event, payload: gov((event, payload)),
+        ), patch.object(
+            # The classification under test is independent of the operator's
+            # live executor block (aria-config/genesis_policy.json turns
+            # worktree_per_request on since B8); the serial shared-checkout
+            # lane keeps every subprocess a next-pending or a child, and the
+            # worktree provisioning has its own tests
+            # (test_executor_request_worktree.py).
+            ci_executor_drain, "_executor_policy",
+            return_value={"max_concurrent": 1, "worktree_per_request": False},
         ):
             return ci_executor_drain.drain_pending(
                 tools_dir=tools_dir, repo_root=_REPO_ROOT,
@@ -253,8 +264,8 @@ class GovernanceAggregateTests(unittest.TestCase):
             summaries={
                 "AIR-1": _summary(
                     request_id="AIR-1", outcome="failed",
-                    failure_class="provider_redirect_unavailable", retryable=False,
-                    detail_code="provider_redirect_token_missing",
+                    failure_class="policy_violation", retryable=False,
+                    detail_code="model_not_served_by_claude_runtime",
                 ),
             },
         )
@@ -262,13 +273,13 @@ class GovernanceAggregateTests(unittest.TestCase):
             h.run_drain()
             payload = h.payload()
             self.assertEqual(payload["schema_version"], 2)
-            self.assertEqual(payload["failure_counts"], {"provider_redirect_unavailable": 1})
+            self.assertEqual(payload["failure_counts"], {"policy_violation": 1})
             self.assertEqual(payload["stop_reason"], "queue_empty")
             self.assertEqual(payload["breaker_state"], "ok")
             self.assertEqual(len(payload["failure_details"]), 1)
             detail = payload["failure_details"][0]
             self.assertEqual(detail["request_id"], "AIR-1")
-            self.assertEqual(detail["failure_class"], "provider_redirect_unavailable")
+            self.assertEqual(detail["failure_class"], "policy_violation")
             self.assertEqual(detail["provider"], "anthropic")
             self.assertEqual(detail["model"], _IMPL_MODEL)
         finally:
@@ -345,6 +356,94 @@ class PersistentBreakerTests(unittest.TestCase):
             self.assertEqual(kinds, ["subprocess_timeout"])
         finally:
             h.close()
+
+
+class SummaryIsTheOnlyEvidenceOfSuccess(unittest.TestCase):
+    """B8 (2026-09-12) — a child that exited 0 WITHOUT a dispatch summary was
+    counted as succeeded and drained. Under managed_subscription the native
+    admission's target_revision_mismatch refusal exits 0 with no summary
+    whenever main has moved past a request's target_sha — a routine outcome
+    — so a night of orphaned requests read as a green drain (verified:
+    child (0, no output) -> succeeded=1, drained=1, rc 0). The child now
+    NAMES that refusal in its summary; the drain counts nothing but a
+    ``succeeded`` summary as drained and names a summary-less child."""
+
+    def test_an_exit_zero_child_without_a_summary_is_a_named_failure_not_a_success(self) -> None:
+        h = _DrainHarness(queue=[_row("AIR-1")], summaries={}, child_returncodes={"AIR-1": 0})
+        try:
+            rc = h.run_drain()
+            payload = h.payload()
+            self.assertEqual((payload["attempted"], payload["succeeded"], payload["failed"]), (1, 0, 1))
+            self.assertEqual(payload["failure_counts"], {ci_executor_drain.CHILD_WITHOUT_SUMMARY_FAILURE_CLASS: 1})
+            detail = payload["failure_details"][0]
+            self.assertEqual(detail["failure_class"], "child_without_summary")
+            self.assertEqual(detail["detail_code"], "exit_0")
+            self.assertEqual(rc, 1, "silence is not success; the drain is red and says why")
+            # Not an environment condition: no circuit, no persistent breaker row.
+            self.assertEqual(payload["circuit_breakers"], [])
+            self.assertEqual(h.breaker_records, [])
+        finally:
+            h.close()
+
+    def test_a_target_mismatch_refusal_is_neither_drained_nor_red(self) -> None:
+        # The child's own summary for the routine managed_subscription
+        # outcome: refused, policy_violation, detail target_revision_mismatch,
+        # exit 0 (a refusal is a legitimate terminal, not a build failure).
+        h = _DrainHarness(
+            queue=[_row("AIR-1"), _row("AIR-2")],
+            summaries={
+                "AIR-1": _summary(request_id="AIR-1", outcome="refused", failure_class="policy_violation",
+                                  detail_code="target_revision_mismatch", exit_code=0),
+                "AIR-2": _summary(request_id="AIR-2", outcome="succeeded"),
+            },
+            child_returncodes={"AIR-1": 0},
+        )
+        try:
+            rc = h.run_drain()
+            payload = h.payload()
+            self.assertEqual((payload["attempted"], payload["succeeded"], payload["failed"]), (2, 1, 0))
+            self.assertEqual(rc, 0)
+            bucket = payload["by_provider_model_role"][f"anthropic/{_IMPL_MODEL}/implementation"]
+            self.assertEqual((bucket["attempted"], bucket["succeeded"], bucket["failed"]), (2, 1, 0))
+            self.assertEqual(payload["circuit_breakers"], [])
+            self.assertEqual(h.breaker_records, [])
+        finally:
+            h.close()
+
+    def test_the_drain_hands_the_child_the_summary_channel(self) -> None:
+        # RUNNER_TEMP is where the child writes its summary; the drain passes
+        # the same base it reads the child's GITHUB_OUTPUT from, so a local
+        # drain (no RUNNER_TEMP in the environment) cannot make every child
+        # summary-less by construction.
+        h = _DrainHarness(queue=[_row("AIR-1")], summaries={"AIR-1": _summary(request_id="AIR-1", outcome="succeeded")})
+        try:
+            with patch.dict(os.environ, {"RUNNER_TEMP": str(h.tmp)}):
+                h.run_drain()
+            env = h.child_envs["AIR-1"]
+            self.assertEqual(env["RUNNER_TEMP"], str(h.tmp))
+            self.assertEqual(Path(env["GITHUB_OUTPUT"]).parent, h.tmp)
+            # ... and the store: a worktree child's `<cwd>/aria-tools` would be
+            # the tracked skeleton at target_sha, not the drain's store.
+            self.assertEqual(env["ARIA_TOOLS_DIR"], str(h.tmp / "aria-tools"))
+        finally:
+            h.close()
+
+    def test_a_summary_less_child_with_a_nonzero_exit_names_the_same_class(self) -> None:
+        h = _DrainHarness(queue=[_row("AIR-1")], summaries={}, child_returncodes={"AIR-1": 3})
+        try:
+            rc = h.run_drain()
+            self.assertEqual(rc, 1)
+            detail = h.payload()["failure_details"][0]
+            self.assertEqual((detail["failure_class"], detail["detail_code"]), ("child_without_summary", "exit_3"))
+        finally:
+            h.close()
+
+    def test_the_drain_source_never_reads_an_exit_code_as_success(self) -> None:
+        # The pre-fix expression, pinned absent: `outcome is None and
+        # child.returncode == 0` was the false green.
+        source = Path(ci_executor_drain.__file__).read_text(encoding="utf-8")
+        self.assertNotIn("child.returncode == 0", source)
+        self.assertIn('elif outcome == "succeeded":', source)
 
 
 class TargetShaJoinTests(unittest.TestCase):

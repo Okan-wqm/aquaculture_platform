@@ -21,19 +21,96 @@ from dataclasses import dataclass
 
 # Closed vocabulary. Adding a code is a one-way door (ledger-anchored).
 RELEASE_REASON_CODES: tuple[str, ...] = (
+    "NATIVE_RUNTIME_ADMISSION_UNAVAILABLE", "NATIVE_RUNTIME_EXECUTION_UNAVAILABLE",
+    "NATIVE_RUNTIME_TASK_BINDING_UNAVAILABLE",
+    # ARIA-HIGH-107 — the fleet's first provider in contention never
+    # answered its status probe inside the liveness bound. Not the fleet
+    # declining (that is ADMISSION_UNAVAILABLE): a stalled probe is not an
+    # auth fact, so nothing behind it ran and the request waits for a
+    # later tick. Harness-class: the host's state, not the request's.
+    "NATIVE_RUNTIME_PROVIDER_UNDECIDED",
+    # ARIA-HIGH-107 (verifier, 2026-09-12) — the fleet's first provider in
+    # contention was not refused by its vendor, but THIS host could not
+    # bind the controls its route runs under (write containment, managed
+    # Codex context, limiter bus). A host fault is not an auth reason
+    # either, so nothing behind it ran. Harness-class, its own name: an
+    # operator reading the ledger must tell a broken host from a stalled
+    # probe and from a vendor's refusal.
+    "NATIVE_RUNTIME_CONTROL_UNAVAILABLE",
     "CLAUDE_CLI_AUTH_FAILURE", "CLAUDE_SPAWN_REFUSED", "CLAUDE_CLI_EXIT", "DISPATCH_BUDGET_REFUSED",
     "EVIDENCE_VERIFICATION_UNAVAILABLE",
-    "JUDGE_VERDICT_CONTRACT_VIOLATION", "KERNEL_PROMPT_RENDERER_UNAVAILABLE",
+    "JUDGE_VERDICT_CONTRACT_VIOLATION", "SELF_CHANGE_CONTRACT_VIOLATION", "KERNEL_PROMPT_RENDERER_UNAVAILABLE",
     "PLANNER_DISPATCH_EXECUTOR_TIMEOUT", "PLANNER_DISPATCH_EXECUTOR_EXIT_NONZERO",
-    "PROMPT_HASH_BINDING_MISMATCH", "SUBMIT_TIMEOUT",
+    "PROMPT_HASH_BINDING_MISMATCH", "SUBMIT_TIMEOUT", "PROVIDER_QUOTA_UNAVAILABLE",
     "LEASE_EXPIRED", "REQUEST_ENVELOPE_MISSING_EXPECTED_OUTPUT_PATH", "REQUEST_ENVELOPE_MISSING_ROLE",
     "SUBMIT_REJECTED", "PLAN_CONTENT_INVALID", "AGENT_REFUSED",
     "OPERATOR_CANCELLED", "RECOVERY_UNRESOLVED_EXTERNAL_EFFECT",
+    # The executor's lease guard released a claim its body abandoned
+    # (uncaught exception / return without release); detail names the exit.
+    "EXECUTOR_UNCAUGHT_EXIT",
+    # ARIA-HIGH-115 — the executor could not hold the implementer's signing
+    # identity in the tree it runs in (`implementation_identity`): the
+    # shared checkout instead of a per-request worktree, an unwirable git,
+    # no ssh-keygen, a refused registry write. The lane's or the host's
+    # state, never the request's; the governance row of the same name
+    # carries the cause. Harness-class.
+    "IMPLEMENTATION_SIGNING_UNAVAILABLE",
+    # ARIA-HIGH-124 — the executor delivers the implementation (gate, push,
+    # PR) after the spawn, outside the sandbox. Three ways that stops:
+    # * the delivery credential could not be minted (no GH App, no PAT, a
+    #   refused installation) — the lane's state, harness-class: decided
+    #   before the spawn by the credential admission (no turn spent) and
+    #   again where the lease is consumed (round 6: the delivery's
+    #   `credential` stage, after the gate);
+    # * the shared repository already holds this request's `aria-impl-*`
+    #   branch (an earlier attempt published it) — refused before a turn,
+    #   request-class: a retry cannot stand on it, a person decides;
+    # * the delivery itself refused (gate blocked, push failed, PR opener
+    #   refused) — request-class, detail names the stage; the published
+    #   branch makes a retry collide, so the request is escalated.
+    "IMPLEMENTATION_DELIVERY_UNAVAILABLE",
+    "IMPLEMENTATION_BRANCH_COLLISION",
+    "IMPLEMENTATION_DELIVERY_REFUSED",
+    # (round 2) the request row's `implementation_ids` cannot stand a
+    # sandbox (no `aria-impl-*` branch name, no object id for base_sha):
+    # the REQUEST's facts, request-class — a harness-class release had the
+    # daemon re-claim it after every back-off without bound.
+    "IMPLEMENTATION_REQUEST_INVALID",
+    # (round 3) the executor escalated a request — a branch collision, an
+    # invalid row, a delivery refusal, the agent's refusal — and the
+    # kernel's HUMAN_REQUIRED recorder did not land the record (a refused
+    # governance write, a dying disk, an unimportable kernel). The STORE's
+    # fault, never the request's: released harness-class under this name
+    # with the escalation's own reason as the detail, so the request keeps
+    # its budget and escalates again once the recorder answers; the
+    # executor's summary is a failed harness dispatch, never a by-design
+    # refusal that reads as if the escalation happened.
+    "HUMAN_REQUIRED_RECORD_UNAVAILABLE",
     "UNCLASSIFIED",
 )
 FAULT_DOMAINS: tuple[str, ...] = ("harness", "request", "operator", "unclassified")
 
+# The one spelling of each halted-admission release, read by the executor
+# (its refusal table) and the planner dispatch hook (its back-off statuses).
+NATIVE_RUNTIME_PROVIDER_UNDECIDED = "native_runtime_provider_undecided"
+NATIVE_RUNTIME_CONTROL_UNAVAILABLE = "native_runtime_control_unavailable"
+# The one spelling of the executor's identity refusal, read by
+# `implementation_identity` (its release reason) and the executor.
+IMPLEMENTATION_SIGNING_UNAVAILABLE = "implementation_signing_unavailable"
+# The one spelling of each ARIA-HIGH-124 delivery release, read by the
+# executor's refusal table and `implementation_delivery`.
+IMPLEMENTATION_DELIVERY_UNAVAILABLE = "implementation_delivery_unavailable"
+IMPLEMENTATION_BRANCH_COLLISION = "implementation_branch_collision"
+IMPLEMENTATION_REQUEST_INVALID = "implementation_request_invalid"
+IMPLEMENTATION_DELIVERY_REFUSED_PREFIX = "implementation_delivery_refused:"
+HUMAN_REQUIRED_RECORD_UNAVAILABLE_PREFIX = "human_required_record_unavailable:"
+
 _LITERALS: dict[str, tuple[str, str]] = {
+    "native_runtime_admission_unavailable": ("NATIVE_RUNTIME_ADMISSION_UNAVAILABLE", "harness"),
+    NATIVE_RUNTIME_PROVIDER_UNDECIDED: ("NATIVE_RUNTIME_PROVIDER_UNDECIDED", "harness"),
+    NATIVE_RUNTIME_CONTROL_UNAVAILABLE: ("NATIVE_RUNTIME_CONTROL_UNAVAILABLE", "harness"),
+    "native_runtime_execution_unavailable": ("NATIVE_RUNTIME_EXECUTION_UNAVAILABLE", "harness"),
+    "native_runtime_task_binding_unavailable": ("NATIVE_RUNTIME_TASK_BINDING_UNAVAILABLE", "harness"),
     "claude_cli_auth_failure": ("CLAUDE_CLI_AUTH_FAILURE", "harness"),
     "claude_spawn_refused": ("CLAUDE_SPAWN_REFUSED", "harness"),
     "dispatch_budget_refused": ("DISPATCH_BUDGET_REFUSED", "harness"),
@@ -41,10 +118,15 @@ _LITERALS: dict[str, tuple[str, str]] = {
     # inside its bound); nothing is known about the work — harness.
     "evidence_verification_unavailable": ("EVIDENCE_VERIFICATION_UNAVAILABLE", "harness"),
     "judge_verdict_contract_violation": ("JUDGE_VERDICT_CONTRACT_VIOLATION", "harness"),
+    "self_change_contract_violation": ("SELF_CHANGE_CONTRACT_VIOLATION", "harness"),
     "kernel_prompt_renderer_unavailable": ("KERNEL_PROMPT_RENDERER_UNAVAILABLE", "harness"),
     "planner_dispatch_executor_timeout": ("PLANNER_DISPATCH_EXECUTOR_TIMEOUT", "harness"),
     "planner_dispatch_executor_exit_nonzero": ("PLANNER_DISPATCH_EXECUTOR_EXIT_NONZERO", "harness"),
     "prompt_hash_binding_mismatch": ("PROMPT_HASH_BINDING_MISMATCH", "harness"),
+    IMPLEMENTATION_SIGNING_UNAVAILABLE: ("IMPLEMENTATION_SIGNING_UNAVAILABLE", "harness"),
+    IMPLEMENTATION_DELIVERY_UNAVAILABLE: ("IMPLEMENTATION_DELIVERY_UNAVAILABLE", "harness"),
+    IMPLEMENTATION_BRANCH_COLLISION: ("IMPLEMENTATION_BRANCH_COLLISION", "request"),
+    IMPLEMENTATION_REQUEST_INVALID: ("IMPLEMENTATION_REQUEST_INVALID", "request"),
     "lease_expired": ("LEASE_EXPIRED", "request"),
     "request_envelope_missing_expected_output_path": ("REQUEST_ENVELOPE_MISSING_EXPECTED_OUTPUT_PATH", "request"),
     "request_envelope_missing_role": ("REQUEST_ENVELOPE_MISSING_ROLE", "request"),
@@ -55,8 +137,15 @@ _LITERALS: dict[str, tuple[str, str]] = {
 _PREFIXES: tuple[tuple[str, str, str], ...] = (
     ("claude_cli_exit_", "CLAUDE_CLI_EXIT", "harness"),
     ("submit_timeout_", "SUBMIT_TIMEOUT", "harness"),
+    # The detail is the exhausted PROVIDER (operator decision 2026-09-12).
+    ("provider_quota_unavailable:", "PROVIDER_QUOTA_UNAVAILABLE", "harness"),
+    ("executor_uncaught_exit:", "EXECUTOR_UNCAUGHT_EXIT", "harness"),
     ("plan_content_invalid:", "PLAN_CONTENT_INVALID", "request"),
     ("agent_refused:", "AGENT_REFUSED", "request"),
+    # The detail is the delivery stage (`implementation_delivery.DELIVERY_STAGES`).
+    (IMPLEMENTATION_DELIVERY_REFUSED_PREFIX, "IMPLEMENTATION_DELIVERY_REFUSED", "request"),
+    # The detail is the escalation's own reason (round 3).
+    (HUMAN_REQUIRED_RECORD_UNAVAILABLE_PREFIX, "HUMAN_REQUIRED_RECORD_UNAVAILABLE", "harness"),
 )
 
 
@@ -86,4 +175,7 @@ def parse_release_reason(reason: str | None) -> ReleaseReason:
     return ReleaseReason("UNCLASSIFIED", text[:200], "unclassified")
 
 
-__all__ = ["FAULT_DOMAINS", "RELEASE_REASON_CODES", "ReleaseReason", "parse_release_reason"]
+__all__ = [
+    "FAULT_DOMAINS", "NATIVE_RUNTIME_CONTROL_UNAVAILABLE", "NATIVE_RUNTIME_PROVIDER_UNDECIDED",
+    "RELEASE_REASON_CODES", "ReleaseReason", "parse_release_reason",
+]

@@ -6,7 +6,7 @@
 
 # ARIA Judge Contract Digest
 
-source_hash: sha256:8a76d3e4b5ac0d6aea6fb17565787f93df6d83d54110723c94b2eaee8a263fa0
+source_hash: sha256:333698b58660e5fcf5f41c711f06be4f3255241d18f99ca92f56acda1c436406
 
 Preamble digest for the four runtime-dispatched judge/worker agents. Every
 passage below is extracted VERBATIM from the `judge-digest` marked sections
@@ -19,7 +19,7 @@ the anchor you need — and cite the anchor you followed:
 - `docs/aria/SPEC.md#l3--operational-safety--data-boundary`
 - `docs/aria/SPEC.md#94--banned-phrases-claudemd-alignment`
 - `docs/aria/CONTRACTS.md#5--evidence-chain-schema`
-- `docs/aria/CONTRACTS.md#claim_type-allowlist-semantics`
+- `docs/aria/CONTRACTS.md#6--finding--recommendation-schema`
 - `docs/aria/PIPELINES.md#1-dispatch-surfaces`
 - `docs/aria/PIPELINES.md#5-judge-and-consensus-flow`
 - `docs/aria/PIPELINES.md#7-maintenance-lanes`
@@ -93,24 +93,24 @@ ARIA's own PR descriptions, finding texts, and proposal bodies are scanned for C
 `git_history`, `trusted_config_file`, `trusted_prior_doc` (CLAUDE.md, ADRs, knowledge layers per
 SPEC §5.1). Anything else = L1 violation, claim rejected at the gate.
 
-> Source: `docs/aria/CONTRACTS.md#claim_type-allowlist-semantics`
+> Source: `docs/aria/CONTRACTS.md#6--finding--recommendation-schema`
 
 ### `claim_type` allowlist (semantics)
 
 The kernel rejects any finding emitted with a claim_type outside this list. New types require an ADR.
 
-| Claim type | What it captures | Min severity floor | Min evidence count |
+|Claim type|What it captures|Min severity floor|Min evidence count|
 |---|---|---|---|
-| `spine_drift` | Same domain concept differs across layers (DB vs entity vs DTO vs frontend). | MEDIUM | 2 (one per drifted layer) |
-| `naming_drift` | Same concept named with different conventions across layers (`tenant_id` vs `tenantId` for the same column). | LOW | 2 |
-| `convention_inconsistency` | A convention used uniformly in N places, broken in M places, no documented reason. | LOW | 3 (consistent samples + violator) |
-| `wrong_code` | Bug — dead branch, unreachable return, swapped argument, missing await, swallowed exception, off-by-one, type-coerced equality with security implication. | MEDIUM | 1 (single code ref + reasoning) — this is the **bug note** category |
-| `absence_in_scope` | Capability expected to exist but evidence not found in searched scope. Confidence cap 0.7 per L1 absence-claim discipline. | INFORMATIONAL | searched-scope record + synonym list |
-| `currency_gap` | Dependency / pattern / library is N versions behind current stable. Informational only — recommendation requires L1 five-criteria gate. | INFORMATIONAL | 1 (registry + repo usage ref) |
-| `duplication` | Identical-or-near-identical code structure repeated ≥3 times. May be intentional. | LOW | 3 |
-| `contradiction` | Two evidences disagree (test asserts X, code does Y). | MEDIUM | 2 |
-| `test_disagreement` | Test name suggests behavior, test body asserts different behavior. | MEDIUM | 1 (test ref) |
-| `regression` | ARIA's own action's baseline comparison failed — emergency. | HIGH | baseline + comparison artifact |
+|`spine_drift`|Same domain concept differs across layers (DB vs entity vs DTO vs frontend).|MEDIUM|2 (one per drifted layer)|
+|`naming_drift`|Same concept named with different conventions across layers (`tenant_id` vs `tenantId` for the same column).|LOW|2|
+|`convention_inconsistency`|A convention used uniformly in N places, broken in M places, no documented reason.|LOW|3 (consistent samples + violator)|
+|`wrong_code`|Bug — dead branch, unreachable return, swapped argument, missing await, swallowed exception, off-by-one, type-coerced equality with security implication.|MEDIUM|1 (single code ref + reasoning) — this is the **bug note** category|
+|`absence_in_scope`|Capability expected to exist but evidence not found in searched scope. Confidence cap 0.7 per L1 absence-claim discipline.|INFORMATIONAL|searched-scope record + synonym list|
+|`currency_gap`|Dependency / pattern / library is N versions behind current stable. Informational only — recommendation requires L1 five-criteria gate.|INFORMATIONAL|1 (registry + repo usage ref)|
+|`duplication`|Identical-or-near-identical code structure repeated ≥3 times. May be intentional.|LOW|3|
+|`contradiction`|Two evidences disagree (test asserts X, code does Y).|MEDIUM|2|
+|`test_disagreement`|Test name suggests behavior, test body asserts different behavior.|MEDIUM|1 (test ref)|
+|`regression`|ARIA's own action's baseline comparison failed — emergency.|HIGH|baseline + comparison artifact|
 
 ---
 

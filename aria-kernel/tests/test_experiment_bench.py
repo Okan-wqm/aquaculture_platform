@@ -13,6 +13,8 @@ goes red.
 from __future__ import annotations
 
 import ast
+import json
+import hashlib
 import re
 import shutil
 import subprocess
@@ -35,7 +37,7 @@ from aria_kernel.implementation_safety import (
     verify_bash_command_allowed,
 )
 from aria_kernel.runtime_profile import set_profile
-from aria_kernel.tool_registry import GovernanceError
+from aria_kernel.tool_registry import GovernanceError, ensure_tools_binding
 from aria_kernel.validation import (
     ALLOWED_CARGO_SUBCOMMANDS,
     parse_allowed_command,
@@ -171,6 +173,157 @@ class ExperimentBenchTests(unittest.TestCase):
         return run_experiment(**payload)
 
     # ---- the production producer -------------------------------------
+
+    def _ordinary_environment_recipe(self):
+        source = (
+            "import os, unittest\nclass BenchTest(unittest.TestCase):\n"
+            "    def test_arithmetic(self):\n        self.assertEqual(sum([2, 3]), 5)\n"
+            "        print('BENCH_CHILD:' + str(os.getpid()))\n"
+        )
+        (self.root / "test_env_bench.py").write_text(source)
+        (self.root / ".gitignore").write_text("__pycache__/\n")
+        _git(self.root, ["add", "."])
+        _git(self.root, ["commit", "-q", "-m", "ordinary environment bench"])
+        self.commit_sha = _git(self.root, ["rev-parse", "HEAD"])
+        command = "python3 -m unittest -v test_env_bench.BenchTest.test_arithmetic"
+        planned = emit_change_planned(plan_id="plan-env-bench", finding_id="F-env-bench",
+                                      intended_affected_files=["test_env_bench.py", ".gitignore"], intended_validation_refs=[command],
+                                      architectural_tier=1, base_dir=self.base)
+        self.change_id = planned["change_id"]
+        emit_change_committed(change_id=self.change_id, commit_sha=self.commit_sha,
+                              actual_affected_files=["test_env_bench.py", ".gitignore"], base_dir=self.base)
+        ensure_tools_binding(self.base, workspace_root=self.root)
+        self._recipe(command=command)
+        self._experiment()
+        return {"schema_version": 2, "files": {"source": [], "test": ["test_env_bench.py"], "config": [], "dependency": []},
+                "execution_profile": {"kind": "python_unittest_public_v1", "modules": []}}
+
+    def test_scoped_environment_profile_reaches_native_validation_run(self):
+        descriptor = self._ordinary_environment_recipe()
+        observation = self._run(input_scope=descriptor)
+        self.assertEqual((observation["observed"], observation["matched"], observation["run_status"]), (0, True, "ok"))
+        row = verify_validation_run(observation["validation_run_id"], base_dir=self.base)
+        self.assertEqual(row["commit_sha"], self.commit_sha)
+        self.assertEqual(row["change_id"], self.change_id)
+        log = Path(row["log_path"]).read_text()
+        self.assertIn("Ran 1 test", log)
+        pid = int(next(line.split(":", 1)[1] for line in log.splitlines() if line.startswith("BENCH_CHILD:")))
+        manifest = json.loads(next(line.removeprefix("input_manifest: ") for line in log.splitlines() if line.startswith("input_manifest: ")))
+        env = manifest["environment"]
+        self.assertEqual(env["observation"]["child_pid"], pid)
+        self.assertEqual(row["input_binding"]["runner_environment_digest"], "sha256:" + hashlib.sha256(json.dumps(env["stable"], sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()).hexdigest())
+        self.assertNotIn("input_binding", observation)
+        self.assertFalse((self.root / "aria-tools").exists())
+
+    def test_recipe_retains_optional_canonical_input_scope(self):
+        descriptor = self._ordinary_environment_recipe()
+        recipe_path = experiment.recipes_path(self.base)
+        legacy_bytes = recipe_path.read_bytes()
+        legacy = get_recipe("recipe-help", base_dir=self.base)
+        self.assertNotIn("input_scope", legacy)
+        descriptor["files"]["test"] = ["test_env_bench.py", "test_env_bench.py"]
+        descriptor["execution_profile"]["modules"] = ["test_env_bench", "test_env_bench"]
+
+        row = register_recipe(
+            recipe_id="recipe-scoped", command=legacy["command"],
+            timeout_ms=legacy["timeout_ms"], deterministic=True,
+            input_scope=descriptor, base_dir=self.base,
+        )
+
+        expected = {
+            "schema_version": 2,
+            "files": {"source": [], "test": ["test_env_bench.py"], "config": [], "dependency": []},
+            "execution_profile": {"kind": "python_unittest_public_v1", "modules": ["test_env_bench"]},
+        }
+        self.assertEqual(row["input_scope"], expected)
+        self.assertEqual(row["schema_version"], 1)
+        self.assertRegex(row["ledger_hash"], r"^sha256:[0-9a-f]{64}$")
+        self.assertEqual(get_recipe("recipe-scoped", base_dir=self.base), row)
+        self.assertEqual(experiment.list_recipes(base_dir=self.base), [legacy, row])
+        self.assertTrue(recipe_path.read_bytes().startswith(legacy_bytes))
+        descriptor["files"]["test"].clear()
+        descriptor["execution_profile"]["modules"].clear()
+        self.assertEqual(row["input_scope"], expected)
+        self.assertEqual(get_recipe("recipe-scoped", base_dir=self.base)["input_scope"], expected)
+        self.assertEqual(get_recipe("recipe-help", base_dir=self.base), legacy)
+
+    def test_omitted_environment_scope_preserves_legacy_native_run(self):
+        self._ordinary_environment_recipe()
+        real_runner = experiment.run_validation_commands
+        supplied = []
+        def run(**kwargs):
+            supplied.append(kwargs)
+            return real_runner(**kwargs)
+        with patch.object(experiment, "run_validation_commands", run):
+            for kwargs in ({}, {"input_scope": None}):
+                observation = self._run(**kwargs)
+                row = verify_validation_run(observation["validation_run_id"], base_dir=self.base)
+                self.assertEqual((row["exit_code"], row["timed_out"]), (0, False))
+                self.assertIn("BENCH_CHILD:", Path(row["log_path"]).read_text())
+                self.assertNotIn("input_binding", row)
+                self.assertNotIn("log_ref", row)
+        self.assertEqual(len(supplied), 2)
+        self.assertTrue(all("input_scope" not in kwargs for kwargs in supplied))
+
+    def test_recipe_scope_metadata_limit_preserves_native_history(self):
+        legacy = self._recipe()
+        none_row = self._recipe(recipe_id="recipe-none", input_scope=None)
+        self.assertNotIn("input_scope", none_row)
+        self.assertEqual(set(legacy), set(none_row))
+        def descriptor(count):
+            return {"schema_version": 1, "files": {
+                "source": ["scope/" + "a" * 250 + "/" + f"{n:03d}-" + "b" * 220 + ".py" for n in range(count)],
+                "test": [], "config": [], "dependency": [],
+            }}
+        under, over = descriptor(128), descriptor(140)
+        encode = lambda value: json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
+        self.assertLessEqual(len(encode(under)), 65_536)
+        self.assertGreater(len(encode(over)), 65_536)
+        accepted = self._recipe(recipe_id="recipe-under-cap", input_scope=under)
+        self.assertEqual(get_recipe("recipe-under-cap", base_dir=self.base)["input_scope"], under)
+        recipe_path = experiment.recipes_path(self.base)
+        before = recipe_path.read_bytes()
+        with self.assertRaisesRegex(GovernanceError, "^experiment_recipe_input_scope_metadata_limit$"):
+            self._recipe(recipe_id="recipe-over-cap", input_scope=over)
+        self.assertEqual(recipe_path.read_bytes(), before)
+        self.assertEqual(get_recipe("recipe-help", base_dir=self.base), legacy)
+        self.assertEqual(get_recipe("recipe-under-cap", base_dir=self.base), accepted)
+
+    def test_opted_in_recipe_selects_scope_for_omitted_and_none(self):
+        descriptor = self._ordinary_environment_recipe()
+        old = get_recipe("recipe-help", base_dir=self.base)
+        recipe = self._recipe(command=old["command"], input_scope=descriptor)
+        for kwargs in ({}, {"input_scope": None}):
+            observation = self._run(**kwargs)
+            row = verify_validation_run(observation["validation_run_id"], base_dir=self.base)
+            self.assertEqual((row["exit_code"], row["timed_out"]), (0, False))
+            self.assertIn("Ran 1 test", Path(row["log_path"]).read_text())
+            selection = observation["validation_input_selection"]
+            self.assertEqual(selection["input_scope"], descriptor)
+            self.assertEqual(selection["recipe_sources"], [{"recipe_id": recipe["recipe_id"],
+                              "ledger_hash": recipe["ledger_hash"], "command": recipe["command"]}])
+            self.assertEqual(row["input_binding"]["scope_paths"], ["test_env_bench.py"])
+            self.assertTrue(row["input_binding"]["runner_environment_digest"].startswith("sha256:"))
+
+    def test_explicit_scope_preserves_precedence_over_recipe(self):
+        descriptor = self._ordinary_environment_recipe()
+        old = get_recipe("recipe-help", base_dir=self.base)
+        recipe = self._recipe(command=old["command"], input_scope=descriptor)
+        explicit = {"schema_version": 1, "files": {"source": ["seed.txt"], "test": [], "config": [], "dependency": []}}
+        observation = self._run(input_scope=explicit)
+        row = verify_validation_run(observation["validation_run_id"], base_dir=self.base)
+        self.assertEqual((row["exit_code"], row["timed_out"]), (0, False))
+        text = Path(row["log_path"]).read_text()
+        self.assertIn("BENCH_CHILD:", text)
+        self.assertIn("Ran 1 test", text)
+        manifest = json.loads(next(line.removeprefix("input_manifest: ") for line in text.splitlines()
+                                   if line.startswith("input_manifest: ")))
+        self.assertEqual(manifest["roles"], explicit["files"])
+        self.assertNotIn("environment", manifest)
+        self.assertEqual(row["input_binding"]["scope_paths"], ["seed.txt"])
+        self.assertIsNone(row["input_binding"]["runner_environment_digest"])
+        self.assertNotIn("validation_input_selection", observation)
+        self.assertEqual(get_recipe("recipe-help", base_dir=self.base), recipe)
 
     def test_running_an_experiment_satisfies_the_merge_gate_read(self) -> None:
         self._recipe()

@@ -35,8 +35,15 @@ def quarantine_tool(
         reason=reason,
         base_dir=base_dir,
     )
+    # One quarantine, one stamp: the ledger row carries the transition's
+    # own `at`, so the two records of the same event agree to the byte and
+    # `tool_sit_out.standing_quarantine` reads either one as the anchor
+    # (the nightly manifest re-sync drops the registry row's transition; the
+    # ledger row is what survives). A second utc_now() here sat ~35 ms
+    # after the first and crossed the second boundary ~4% of the time.
     append_quarantine_event(
         {
+            "at": updated["last_transition"]["at"],
             "tool_id": tool_id,
             "run_id": run_id,
             "reason": reason,

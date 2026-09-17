@@ -23,6 +23,7 @@ import unittest
 from pathlib import Path
 
 from aria_kernel import human_required_adjudication as hra
+from aria_kernel.draft_intent import BANNED_PHRASES_DEFAULT
 from aria_kernel.human_required import (
     ANCHOR_STALE_SWEEP_CAP,
     record_human_required,
@@ -75,6 +76,10 @@ class _PanelCase(unittest.TestCase):
     def tearDown(self) -> None:
         self._tmp.cleanup()
 
+    # The obligation shape the dead row was SEALED with; the legacy class
+    # below overrides it with the judge lanes' pre-``must_satisfy`` spelling.
+    SEALED_MUST_SATISFY = [{"id": "S1", "description": "satisfy S1"}]
+
     def _seed_dead_work_request(self, request_id: str) -> None:
         requests_path = self.tools / "agent-invocations" / "requests.jsonl"
         requests_path.parent.mkdir(parents=True, exist_ok=True)
@@ -87,7 +92,7 @@ class _PanelCase(unittest.TestCase):
                 "role": "challenger_plan",
                 "target_agent": "aria-challenger-planner",
                 "suggested_prompt": "plan the thing",
-                "must_satisfy": [{"id": "S1"}],
+                "must_satisfy": [dict(item) for item in self.SEALED_MUST_SATISFY],
                 "evidence_refs": ["rev-1"],
                 "allowed_scope": ["aria-kernel/**"],
                 "expected_output_path": str(self.tools / f"out-{request_id}.json"),
@@ -225,6 +230,67 @@ class ReMintDisposition(_PanelCase):
         self.assertIn("panel_incomplete", verdict.reason)
 
 
+class LegacySealedRowReMint(_PanelCase):
+    """ARIA-HIGH-104 round 3 (R2) — a dead request sealed under the judge
+    lanes' ``{id, criterion}`` spelling is re-minted, not refused.
+
+    Pre-fix the disposition copied ``dead["must_satisfy"]`` verbatim into a
+    fresh mint that requires ``description``; the GovernanceError fell into
+    the sweep's ``skipped`` on every sweep and the escalation never resolved.
+    """
+
+    SEALED_MUST_SATISFY = [{"id": "verdict", "criterion": "Return true_positive or false_positive with file:line evidence"}]
+
+    def _resolve_with_re_mint(self) -> None:
+        for rid, agent in zip(self._open(), ("judge-a", "judge-b", "judge-c")):
+            self._seed_opinion(rid, agent_id=agent, verdict=hra.RESOLVE_VERDICT, disposition=hra.DISPOSITION_RE_MINT)
+
+    def test_the_legacy_row_re_mints_with_the_upcast_obligation(self) -> None:
+        from aria_kernel.agent_invocations import _find_request_by_id
+
+        self._resolve_with_re_mint()
+        verdict = hra.adjudicate_human_required(escalation_request_id=self.escalation_id, base_dir=self.tools)
+        self.assertTrue(verdict.clears_escalation)
+        successors = self._successors()
+        self.assertEqual(len(successors), 1)
+        self.assertEqual(successors[0]["must_satisfy"],
+                         [{"id": "verdict", "description": "Return true_positive or false_positive with file:line evidence"}])
+        self.assertEqual(self._record()["status"], "resolved")
+        # The dead row's own bytes — and the prompt hash sealed over its
+        # `criterion` text — are untouched.
+        self.assertEqual(_find_request_by_id(self.tools, self.escalation_id)["must_satisfy"], self.SEALED_MUST_SATISFY)
+
+    def test_the_disposition_itself_reports_the_re_mint(self) -> None:
+        self._resolve_with_re_mint()
+        verdict = hra.fold_adjudication(escalation_request_id=self.escalation_id, base_dir=self.tools)
+        execution = hra._execute_panel_disposition(root=self.tools, record=self._record(), verdict=verdict)
+        self.assertEqual(execution["action"], "reminted")
+        self.assertFalse(execution["existing"])
+        self.assertEqual([row["request_id"] for row in self._successors()], [execution["successor"]])
+
+
+class UnmintableSealedObligationHandsToOperator(_PanelCase):
+    """An obligation the contract refuses even after the upcast — its own
+    sealed text defers — is not the panel's to reword: the record is stamped
+    for the operator instead of failing into `skipped` every night."""
+
+    # The phrase is read from the SSoT the mint scans, never spelled here.
+    SEALED_MUST_SATISFY = [{"id": "S1", "criterion": "patch it " + BANNED_PHRASES_DEFAULT[0]}]
+
+    def test_the_record_is_stamped_not_re_asked(self) -> None:
+        for rid, agent in zip(self._open(), ("judge-a", "judge-b", "judge-c")):
+            self._seed_opinion(rid, agent_id=agent, verdict=hra.RESOLVE_VERDICT, disposition=hra.DISPOSITION_RE_MINT)
+        hra.adjudicate_human_required(escalation_request_id=self.escalation_id, base_dir=self.tools)
+        record = self._record()
+        self.assertEqual(record["status"], "open")
+        self.assertEqual(record["panel_disposition"], hra.DISPOSITION_ESCALATE_OPERATOR)
+        self.assertEqual(record["panel_escalation_reason"], "dead_request_obligations_unmintable")
+        self.assertIn("human_required_remint_obligations_unmintable", self._governance_kinds())
+        self.assertEqual(self._successors(), [])
+        summary = hra.sweep_human_required_adjudications(base_dir=self.tools)
+        self.assertIn("panel_escalated_to_operator", {s.get("reason") for s in summary["skipped"]})
+
+
 class DropAndRefuse(_PanelCase):
     def test_drop_with_reason_resolves_and_discloses(self) -> None:
         for rid, agent in zip(self._open(), ("judge-a", "judge-b", "judge-c")):
@@ -275,7 +341,7 @@ class AnchorStaleProducer(unittest.TestCase):
             "role": "challenger_plan",
             "target_agent": "aria-challenger-planner",
             "suggested_prompt": "stale work",
-            "must_satisfy": [{"id": "S1"}],
+            "must_satisfy": [{"id": "S1", "description": "satisfy S1"}],
             "evidence_refs": [],
             "allowed_scope": ["aria-kernel/**"],
             "expected_output_path": str(self.tools / f"out-{request_id}.json"),

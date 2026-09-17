@@ -200,18 +200,90 @@ def _check_habitat(workspace_root: Path) -> DoctorCheck:
     return DoctorCheck("habitat", "ok", detail=facts)
 
 
-def _check_funnel(workspace_root: Path) -> DoctorCheck:
-    from .funnel_health import detect_funnel_stalls
-    from .knowledge_graph import rank_pressure_sources
+def _requests_are_live(tools_dir: Path) -> bool:
+    """Producers have written: the store is past bootstrap, so a ledger the
+    producers feed cannot be legitimately absent."""
+    requests = tools_dir / "agent-invocations" / "requests.jsonl"
+    return requests.is_file() and requests.stat().st_size > 0
 
-    rows = rank_pressure_sources(workspace_root=workspace_root)
+
+def _plans_minted(tools_dir: Path) -> int:
+    """How many plans the orchestrator has minted, from its own state ledger.
+
+    One ``PLAN_MINTED_PHASE`` transition per minted plan. Only rows that
+    carry ``FUNNEL_RECORDED_DETAIL`` count: the orchestrator stamps it after
+    writing the effectiveness ledger and immediately before emitting the
+    row, so for those rows a count above zero with no effectiveness rows is
+    a ledger that existed and is gone, or a write that failed and was
+    disclosed as a ``pressure_source_outcome_failed`` governance row. A row
+    without the stamp predates the ledger (the live store holds twenty from
+    2026-08 → 09-04, written when the writer sat on the converged path):
+    it says a plan was minted, not that a ledger row was due. Read by the
+    path the store keeps it at, not ``autonomy_state_path`` (which binds and
+    refreshes the tools root — a write the doctor must not make)."""
+    from .autonomy_state import FUNNEL_RECORDED_DETAIL, PLAN_MINTED_PHASE
+    from .ledger import load_declared_jsonl
+
+    path = tools_dir / "autonomy_state.jsonl"
+    if not path.is_file():
+        return 0
+    rows = load_declared_jsonl(path, expected_surface="autonomy_state", verify=True)
+    return sum(
+        1 for row in rows
+        if row.get("phase") == PLAN_MINTED_PHASE
+        and (row.get("details") or {}).get(FUNNEL_RECORDED_DETAIL) is True
+    )
+
+
+def _check_funnel(tools_dir: Path) -> DoctorCheck:
+    """The funnel's counters, read where the store keeps them.
+
+    A STORE organ (B4, 2026-09-12): the effectiveness ledger is a
+    tools-root surface (``state_manifest`` kg_pressure_source_effectiveness)
+    and the state ledger it is judged against lives under the same root.
+    Reading ``<workspace>/aria-tools/...`` instead — as this organ did — is
+    right on a developer checkout and blind on the live lane, where
+    ARIA_TOOLS_DIR=<store>/tools and the workspace is the checkout: on
+    2026-09-12 the store held 807 requests, no effectiveness ledger, and
+    the organ said ok with sources=0.
+
+    The absence is judged against the orchestrator's OWN evidence of a
+    minted plan, not against the requests ledger: requests are minted by a
+    dozen producers (judge fan-out, expert review, cross-review) that run
+    with no plan in the funnel, so "requests live" does not imply "a plan
+    was minted" — a store with only those would have been a false fault.
+    A ``PLAN_MINTED_PHASE`` transition does imply it: the orchestrator
+    records the mint in the effectiveness ledger immediately before
+    emitting that transition, on every exit (invalid plan, blocked verdict,
+    converged), so the implication "plan minted => effectiveness ledger
+    exists" holds by construction, and a store of blocked-only cycles is
+    ok — or warn once the convergence stage has taken ten plans and
+    released none — with its counters in the detail, never a fault."""
+    from .funnel_health import detect_funnel_stalls
+    from .knowledge_graph import effectiveness_ledger_path, rank_pressure_sources
+
+    rows = rank_pressure_sources(base_dir=tools_dir)
+    ledger = effectiveness_ledger_path(base_dir=tools_dir)
+    plans_minted = _plans_minted(tools_dir)
+    detail: dict[str, Any] = {
+        "sources": len(rows),
+        "effectiveness_ledger_present": ledger.is_file() and ledger.stat().st_size > 0,
+        "plans_minted": plans_minted,
+        "counters": {
+            str(row.get("source_type")): {
+                field: int(row.get(field, 0) or 0)
+                for field in ("cycles_minted", "cycles_converged", "cycles_merged", "cycles_rejected")
+            }
+            for row in rows
+        },
+    }
+    if not rows and plans_minted:
+        return DoctorCheck("funnel", "fail", "funnel_ledger_missing_with_minted_plans", detail)
     stalls = detect_funnel_stalls(rows)
     if stalls:
-        return DoctorCheck(
-            "funnel", "warn", f"funnel_stalled:{len(stalls)}",
-            {"stalls": [asdict(stall) for stall in stalls]},
-        )
-    return DoctorCheck("funnel", "ok", detail={"sources": len(rows)})
+        detail["stalls"] = [asdict(stall) for stall in stalls]
+        return DoctorCheck("funnel", "warn", f"funnel_stalled:{len(stalls)}", detail)
+    return DoctorCheck("funnel", "ok", detail=detail)
 
 
 def _check_plan_ledger(tools_dir: Path) -> DoctorCheck:
@@ -219,14 +291,13 @@ def _check_plan_ledger(tools_dir: Path) -> DoctorCheck:
     ledger did not, and the drainer re-started the same plan every night.
     A write-driving ledger that vanished while its producers kept writing
     is a FAIL, not a bootstrap."""
-    requests = tools_dir / "agent-invocations" / "requests.jsonl"
     plans_dir = tools_dir / "plans"
     plan_ledgers = sorted(plans_dir.glob("*.jsonl")) if plans_dir.is_dir() else []
     detail = {
-        "requests_ledger_present": requests.is_file(),
+        "requests_ledger_present": (tools_dir / "agent-invocations" / "requests.jsonl").is_file(),
         "plan_ledgers": [path.name for path in plan_ledgers],
     }
-    if requests.is_file() and requests.stat().st_size > 0 and not plan_ledgers:
+    if _requests_are_live(tools_dir) and not plan_ledgers:
         return DoctorCheck("plan_ledger", "fail", "plan_ledger_missing_with_live_requests", detail)
     return DoctorCheck("plan_ledger", "ok", detail=detail)
 
@@ -288,9 +359,11 @@ def _check_notifications(tools_dir: Path) -> DoctorCheck:
     return DoctorCheck("notifications", "ok", "" if detail["configured_channels"] else "no_channel_configured", detail)
 
 
-def _check_gateway(tools_dir: Path, *, stale_after_seconds: float = 300.0) -> DoctorCheck:
-    """Plan 032 Faz 032f — the droplet daemon's heartbeat. Absent = not
-    deployed on this host (ok, informational); stale = it died quietly."""
+def _check_gateway(tools_dir: Path) -> DoctorCheck:
+    """Plan 032 Faz 032f — the droplet daemon's inbox and last beat, as
+    information. Absent = not deployed on this host. Freshness is NOT judged
+    here: `gateway_heartbeat_fresh` owns it, with a FAIL — this organ's
+    `warn` on a four-day-old beat is how the dead daemon went unnoticed."""
     import json
     from datetime import datetime, timezone
 
@@ -308,11 +381,119 @@ def _check_gateway(tools_dir: Path, *, stale_after_seconds: float = 300.0) -> Do
         return DoctorCheck("gateway", "warn", "heartbeat_unreadable", {"inbox": inbox})
     age = (datetime.now(timezone.utc) - stamp).total_seconds()
     detail = {"heartbeat_age_seconds": int(age), "inbox": inbox, "last_ran": beat.get("ran")}
-    if age > stale_after_seconds:
-        return DoctorCheck("gateway", "warn", "gateway_heartbeat_stale", detail)
     if inbox["pending"] > 50:
         return DoctorCheck("gateway", "warn", f"inbox_backlog:{inbox['pending']}", detail)
     return DoctorCheck("gateway", "ok", "", detail)
+
+
+# How many consecutive beats the daemon may miss before the doctor calls it
+# dead. Five: one beat is a loaded host, two a slow tick; five in a row at
+# the 60 s default is the same 300 s the first gateway organ warned at —
+# except this organ FAILS, because a dead daemon is not information.
+HEARTBEAT_STALE_AFTER_BEATS = 5
+
+
+def _check_gateway_heartbeat_fresh(tools_dir: Path, *, stale_after_beats: int = HEARTBEAT_STALE_AFTER_BEATS) -> DoctorCheck:
+    """B6 — the gateway daemon is alive, or the doctor is unhealthy.
+
+    CONFIRMED LIVE 2026-09-12: aria-gateway.service last beat 2026-09-08 and
+    sat disabled/dead for four days while the doctor stayed healthy (the
+    `gateway` organ warned, `healthy` counts only fails, and
+    `self_improvement.scan_signals` lifts only fails). Staleness is counted
+    in BEATS of the cadence the heartbeat itself declares
+    (`poll_interval_seconds`, written by `scheduler.tick`); a beat from
+    before that field existed is judged at the daemon default. An ABSENT
+    heartbeat fails exactly when a schedule table exists — the table is what
+    says a daemon is expected on this store; with no table this host never
+    ran one, which is a fact rather than an illness.
+    """
+    import json
+    from datetime import datetime, timezone
+
+    from .gateway.daemon import DEFAULT_POLL_INTERVAL_SECONDS
+    from .gateway.scheduler import fold_schedules
+    from .gateway.server import HEARTBEAT_RELPATH
+
+    schedules = sorted(fold_schedules(tools_dir))
+    path = tools_dir.joinpath(*HEARTBEAT_RELPATH)
+    if not path.exists():
+        if schedules:
+            return DoctorCheck("gateway_heartbeat_fresh", "fail", "gateway_heartbeat_absent_with_schedules", {"schedules": schedules})
+        return DoctorCheck("gateway_heartbeat_fresh", "ok", "gateway_not_deployed_here", {"schedules": []})
+    try:
+        beat = json.loads(path.read_text(encoding="utf-8"))
+        stamp = datetime.fromisoformat(str(beat.get("recorded_at")).replace("Z", "+00:00"))
+        interval = float(beat.get("poll_interval_seconds") or DEFAULT_POLL_INTERVAL_SECONDS)
+    except (OSError, ValueError, TypeError, AttributeError):
+        status = "fail" if schedules else "warn"
+        return DoctorCheck("gateway_heartbeat_fresh", status, "gateway_heartbeat_unreadable", {"schedules": schedules})
+    age = (datetime.now(timezone.utc) - stamp).total_seconds()
+    missed = age / interval if interval > 0 else float("inf")
+    detail = {"heartbeat_age_seconds": int(age), "poll_interval_seconds": interval, "missed_beats": round(missed, 1),
+              "stale_after_beats": stale_after_beats, "schedules": schedules}
+    if missed > stale_after_beats:
+        return DoctorCheck("gateway_heartbeat_fresh", "fail", f"gateway_heartbeat_stale:{int(age)}s>{stale_after_beats}x{interval:g}s", detail)
+    return DoctorCheck("gateway_heartbeat_fresh", "ok", "", detail)
+
+
+def _check_orchestrator(tools_dir: Path) -> DoctorCheck:
+    """A streak of ``cycle_failed`` exits is a FAULT, not a series of bad
+    nights. The orchestrator fails closed on a failed cycle — nothing behind
+    it (planner dispatch, the convergence drainer) runs — so a store whose
+    last runs all died that way has not planned anything, whatever the other
+    organs say. Four such runs in a row on the live store (2026-08-21 →
+    2026-09-04) read as healthy here before this organ existed."""
+    from .orchestrator_exit_history import read_orchestrator_exit_streak
+
+    streak = read_orchestrator_exit_streak(tools_dir)
+    detail = streak.to_dict()
+    if streak.all_failed:
+        return DoctorCheck(
+            "orchestrator", "fail",
+            f"orchestrator_exits_all_cycle_failed:{len(streak.exits)}", detail,
+        )
+    if streak.last_failed:
+        return DoctorCheck("orchestrator", "warn", "last_orchestrator_exit_cycle_failed", detail)
+    if len(streak.exits) < 2:
+        return DoctorCheck("orchestrator", "ok", "insufficient_history", detail)
+    return DoctorCheck("orchestrator", "ok", "", detail)
+
+
+def _check_tools(tools_dir: Path) -> DoctorCheck:
+    """ARIA-HIGH-098 — the adapters that are not answering, by name and class.
+
+    A non-ok tool run no longer fails the night (``cycle_runtime_status``),
+    which is exactly why it needs an organ: a degraded tool used to announce
+    itself by killing the cycle, and now announces itself here. A streak that
+    reached ``TOOL_DEGRADATION_HUMAN_REQUIRED_STREAK`` is a FAIL (a record is
+    open for an operator); a shorter streak is a WARN naming the class and
+    the count. A QUARANTINED tool's streak counts the cycles it has sat out
+    (``tool_sit_out``: class ``quarantined``), so a tool ``tool_health``
+    benched reaches FAIL on the same third night as one that crashes —
+    quarantine is ``tool_health`` doing its job, but a tool out of the roster
+    until an operator un-quarantines it is not something a healthy readout
+    may be silent about; a quarantine with no cycle behind it yet is still
+    named (``tools_quarantined``)."""
+    from .tool_degradation import degradation_report
+
+    report = degradation_report(tools_dir)
+    detail = {
+        "degraded": report["degraded"],
+        "quarantined": report["quarantined"],
+        "human_required_streak": report["human_required_streak"],
+    }
+    escalated = [entry["tool_id"] for entry in report["degraded"] if entry["human_required"]]
+    if escalated:
+        return DoctorCheck("tools", "fail", f"tools_degraded_human_required:{','.join(escalated)}", detail)
+    if report["degraded"]:
+        named = ",".join(
+            f"{entry['tool_id']}={entry['degradation_class']}x{entry['consecutive_cycles']}"
+            for entry in report["degraded"]
+        )
+        return DoctorCheck("tools", "warn", f"tools_degraded:{named}", detail)
+    if report["quarantined"]:
+        return DoctorCheck("tools", "warn", f"tools_quarantined:{','.join(report['quarantined'])}", detail)
+    return DoctorCheck("tools", "ok", "", detail)
 
 
 def _check_economy(tools_dir: Path) -> DoctorCheck:
@@ -327,6 +508,45 @@ def _check_economy(tools_dir: Path) -> DoctorCheck:
     if starved:
         return DoctorCheck("economy", "warn", f"spawns_without_accepted_result:{len(starved)}", detail)
     return DoctorCheck("economy", "ok", "" if stats else "no_usage_rows", detail)
+
+
+def _check_deadlines(tools_dir: Path, workspace_root: Path) -> DoctorCheck:
+    """ARIA-MEDIUM-128 — a deadline the kernel will enforce is announced here
+    `DEADLINE_WARNING_DAYS` ahead, named, with days left.
+
+    FAIL when a source could not be read (`deadlines_undecided:<source>` —
+    an organ that cannot see a clock must not say the clock is fine) or when
+    a deadline whose lapse is a fault has lapsed (a waiver: the kernel lanes
+    are red; a HUMAN_REQUIRED SLA: the operator's promise is broken). WARN
+    when anything is due inside the window, or when a registry deadline has
+    lapsed — the daily sweep plans that into BLOCKED through a sweep PR that
+    lands when merged, so the doctor names it without declaring the store
+    ill (132 such rows on the day this was written). OK otherwise. One reader
+    (`deadlines.read_deadlines`) feeds this organ, the daily report and
+    the `deadline_due` signal, so the three cannot name different dates."""
+    from .deadlines import name_rows, read_deadlines
+
+    readout = read_deadlines(tools_dir=tools_dir, workspace_root=workspace_root)
+    detail = readout.to_dict()
+    now = readout.now
+    faults: list[str] = []
+    if readout.undecided:
+        faults.append("deadlines_undecided:" + ",".join(readout.undecided))
+    if readout.lapsed_faults:
+        faults.append(f"deadlines_lapsed:{len(readout.lapsed_faults)}:" + name_rows(readout.lapsed_faults, now))
+    warnings: list[str] = []
+    if readout.due_soon:
+        warnings.append(f"deadlines_due:{len(readout.due_soon)}:" + name_rows(readout.due_soon, now))
+    swept = tuple(row for row in readout.lapsed if not row.lapse_is_fault)
+    if swept:
+        warnings.append(f"deadlines_lapsed_swept:{len(swept)}:" + name_rows(swept, now))
+    # The strongest verdict first; every part is named so the one-line
+    # readout carries the whole picture and the detail carries every row.
+    if faults:
+        return DoctorCheck("deadlines", "fail", ";".join((*faults, *warnings)), detail)
+    if warnings:
+        return DoctorCheck("deadlines", "warn", ";".join(warnings), detail)
+    return DoctorCheck("deadlines", "ok", "", detail)
 
 
 def run_doctor(
@@ -345,7 +565,6 @@ def run_doctor(
         _guarded("sandbox_backend", _check_sandbox),
         _guarded("claude_cli", lambda: _check_claude_cli(floor=claude_version_floor)),
         _guarded("habitat", lambda: _check_habitat(workspace)),
-        _guarded("funnel", lambda: _check_funnel(workspace)),
     )
     if tools_dir is None:
         checks = (
@@ -362,12 +581,17 @@ def run_doctor(
         _guarded("breakers", lambda: _check_breakers(tools_dir)),
         _guarded("host_lease", lambda: _check_host_lease(tools_dir)),
         _guarded("plan_ledger", lambda: _check_plan_ledger(tools_dir)),
+        _guarded("funnel", lambda: _check_funnel(tools_dir)),
         _guarded("delivery_closure", lambda: _check_delivery(tools_dir)),
         _guarded("queue", lambda: _check_queue(tools_dir)),
         _guarded("control", lambda: _check_control(tools_dir)),
         _guarded("notifications", lambda: _check_notifications(tools_dir)),
         _guarded("gateway", lambda: _check_gateway(tools_dir)),
+        _guarded("gateway_heartbeat_fresh", lambda: _check_gateway_heartbeat_fresh(tools_dir)),
         _guarded("economy", lambda: _check_economy(tools_dir)),
+        _guarded("orchestrator", lambda: _check_orchestrator(tools_dir)),
+        _guarded("tools", lambda: _check_tools(tools_dir)),
+        _guarded("deadlines", lambda: _check_deadlines(tools_dir, workspace)),
     )
     return DoctorReport(
         checks=(*store_checks, *host_checks),
@@ -387,6 +611,7 @@ def render_doctor_text(report: DoctorReport) -> str:
 
 __all__ = [
     "CLAUDE_CLI_VERSION_FLOOR",
+    "HEARTBEAT_STALE_AFTER_BEATS",
     "DOCTOR_EXIT_HEALTHY",
     "DOCTOR_EXIT_UNHEALTHY",
     "DoctorCheck",

@@ -17,12 +17,12 @@ reverse-engineering review lanes. The initial Wave 0 finding truth table is
 ## Registry Snapshot
 
 - Base commit: `2de67e4a5a6ffdcf675be0fcd4322854fcecd62f`
-- Registry entries: 1976
-- Registry tip hash: `6dac2567d433016caaad971673451bb9b48f103de23e913ad4e3b1f3455c7ade`
-- OPEN findings: 339
+- Registry entries: 2054
+- Registry tip hash: `756a9c51d03a590134439c3448317afec5530508a159105908a4f0ac7bb172b9`
+- OPEN findings: 417
 - IN-PROGRESS findings: 63
 - Active CRITICAL findings: 28
-- `npm run findings:verify`: passing against registry tip `6dac2567d433016caaad971673451bb9b48f103de23e913ad4e3b1f3455c7ade`
+- `npm run findings:verify`: passing against registry tip `756a9c51d03a590134439c3448317afec5530508a159105908a4f0ac7bb172b9`
 - Worktree state at plan creation: dirty before this plan was written; existing
   source changes are treated as user work and are not part of this plan artifact.
 
@@ -243,4 +243,3 @@ These are not optional work items. They block normal domain execution:
   The stale raw partition creation query builders were removed, and
   `tests/invariants/single-partition-creator.spec.ts` is active in the registry
   invariant shard.
-- retrigger

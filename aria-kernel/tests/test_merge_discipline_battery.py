@@ -24,6 +24,10 @@ from aria_kernel.auto_merge import (
     _hygiene_battery_result,
     evaluate_auto_merge,
 )
+from aria_kernel.implementation_safety import (
+    CANONICAL_VALIDATION_COMMANDS,
+    CANONICAL_VALIDATION_COMMANDS_EXECUTABLE,
+)
 from aria_kernel.own_pr_ci import (
     load_post_merge_reds,
     merge_outcomes_path,
@@ -102,36 +106,39 @@ class FullBatteryGateTests(unittest.TestCase):
 
 
 class HygieneBatteryTests(unittest.TestCase):
+    """ARIA-HIGH-104 (2) — the battery IS the canonical validation suite,
+    keyed by each command's own spelling; the hand-named format / typecheck /
+    test dimensions (one of which no other contract admitted) are gone."""
+
     @staticmethod
     def _run(cmd: str, *, status: str = "ok", run_id: str = "vr-1") -> dict:
         return {"validation_run_id": run_id, "cmd": cmd, "status": status}
 
     def test_full_battery_satisfies_all_dimensions(self) -> None:
-        result = _hygiene_battery_result([
-            self._run("npm run format:check", run_id="vr-f"),
-            self._run("npm run type-check", run_id="vr-t"),
-            self._run("npx nx affected --target=test --base=main", run_id="vr-x"),
-        ])
+        runs = [self._run(spelling, run_id=f"vr-{index}")
+                for index, spelling in enumerate(CANONICAL_VALIDATION_COMMANDS_EXECUTABLE)]
+        runs[0] = self._run("npx nx affected --target=test --base=main", run_id="vr-0")
+        result = _hygiene_battery_result(runs)
         self.assertEqual(result["missing"], [])
         self.assertEqual(
             result["satisfied"],
-            {"format": "vr-f", "typecheck": "vr-t", "test": "vr-x"},
+            {command: f"vr-{index}" for index, command in enumerate(CANONICAL_VALIDATION_COMMANDS)},
         )
 
     def test_each_missing_dimension_is_named(self) -> None:
         result = _hygiene_battery_result([self._run("npm run test:all")])
-        self.assertEqual(result["missing"], ["format", "typecheck"])
+        self.assertEqual(result["missing"], list(CANONICAL_VALIDATION_COMMANDS))
 
     def test_failed_run_does_not_satisfy(self) -> None:
         result = _hygiene_battery_result([
-            self._run("npm run format:check", status="failed"),
+            self._run("node tools/quality/quality.mjs format check-changed", status="failed"),
         ])
-        self.assertIn("format", result["missing"])
+        self.assertIn("node tools/quality/quality.mjs format check-changed", result["missing"])
 
     def test_empty_runs_miss_everything(self) -> None:
         self.assertEqual(
             _hygiene_battery_result([])["missing"],
-            ["format", "typecheck", "test"],
+            list(CANONICAL_VALIDATION_COMMANDS),
         )
 
 

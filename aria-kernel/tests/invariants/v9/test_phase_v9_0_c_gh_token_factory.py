@@ -243,7 +243,7 @@ class TestV9InstallationTokenFactory(unittest.TestCase):
 class TestV9TokenFactoryPublicApi(unittest.TestCase):
 
     def test_i_v9_token_factory_all_exports(self):
-        """__all__ MUST contain the 7 canonical symbols.
+        """__all__ MUST contain the 12 canonical symbols.
 
         Plan ARIA-V9.0-C baseline pinned 5 symbols
         (SigningKey, InstallationTokenLease, mint_signing_key,
@@ -254,10 +254,45 @@ class TestV9TokenFactoryPublicApi(unittest.TestCase):
         keypair cleanup) + prune_stale_signing_keys (orchestrator
         startup orphan reaper). The V3.1-P-extended contract is the
         new SSoT.
+
+        ARIA-HIGH-114 extends it by 2 — ``SigningCheckout`` (where the
+        transaction lives: git dir + config scope) and
+        ``GitSigningWiring`` (the mint's receipt the executor's identity
+        seam reads).
+
+        ARIA-HIGH-115 extends it by 3 — ``signing_checkout`` (the one
+        reading of a workspace's checkout shape, which the executor's
+        identity seam consults BEFORE minting so a shared-scope workspace
+        is refused without a config write) and the two scope constants
+        it answers with, ``CONFIG_SCOPE_LOCAL`` / ``CONFIG_SCOPE_WORKTREE``.
+
+        ARIA-HIGH-124 (round 5) extends it by 3 — ``signing_keys_dir`` and
+        ``SIGNING_KEYS_RELATIVE_PATH`` (the ONE spelling of the workspace
+        keys dir, which the validation sandbox's mask and the mint share)
+        and ``TokenDirectoryUnusable`` (the mint's refusal of a token
+        directory that is not private: the delivery hold mints the token
+        outside the workspace).
+
+        ARIA-HIGH-124 (round 6) extends it by 3 — the provider's own
+        installation-token lifetime (``PROVIDER_INSTALLATION_TOKEN_LIFETIME_SECONDS``,
+        the horizon every local TTL is bounded by) and the mint's and the
+        revoke's own bounds (``INSTALLATION_TOKEN_MINT_TIMEOUT_SECONDS``,
+        ``INSTALLATION_TOKEN_REVOKE_TIMEOUT_SECONDS``), which the delivery
+        prices now that it mints the lease where it consumes it.
         """
         self.assertEqual(
             set(_tf.__all__),
             {
+                "CONFIG_SCOPE_LOCAL",
+                "CONFIG_SCOPE_WORKTREE",
+                "GitSigningWiring",
+                "INSTALLATION_TOKEN_MINT_TIMEOUT_SECONDS",
+                "INSTALLATION_TOKEN_REVOKE_TIMEOUT_SECONDS",
+                "PROVIDER_INSTALLATION_TOKEN_LIFETIME_SECONDS",
+                "SIGNING_KEYS_RELATIVE_PATH",
+                "SigningCheckout",
+                "TokenDirectoryUnusable",
+                "signing_keys_dir",
                 "SigningKey",
                 "InstallationTokenLease",
                 "mint_signing_key",
@@ -265,6 +300,7 @@ class TestV9TokenFactoryPublicApi(unittest.TestCase):
                 "prune_stale_signing_keys",
                 "revoke_installation_token",
                 "revoke_signing_key",
+                "signing_checkout",
             },
             "gh_token_factory.__all__ drifted",
         )

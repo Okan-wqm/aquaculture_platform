@@ -46,6 +46,16 @@ def _manifest(timeout_ms: int) -> dict:
     }
 
 
+def _write_fixture_case(workspace: Path, manifest: dict) -> None:
+    """The fixture case the sync door requires (ARIA-HIGH-098): a registered
+    adapter carries at least one case expecting an ``ok`` run."""
+    cases = workspace / manifest["fixture_set"] / "cases"
+    cases.mkdir(parents=True, exist_ok=True)
+    (cases / "baseline.json").write_text(
+        json.dumps({"input": {}, "expected": {"status": "ok"}}), encoding="utf-8",
+    )
+
+
 class ManifestSyncPreservesLifecycleTest(unittest.TestCase):
     def _sync(self, workspace: Path, tools: Path) -> dict:
         ctx = cycle_mod.build_phase_context(
@@ -64,6 +74,7 @@ class ManifestSyncPreservesLifecycleTest(unittest.TestCase):
             adapters.mkdir(parents=True)
             path = adapters / "sync-lifecycle-probe.tool.json"
             path.write_text(json.dumps(_manifest(180000)), encoding="utf-8")
+            _write_fixture_case(workspace, _manifest(180000))
 
             first = self._sync(workspace, tools)
             self.assertIn("sync-lifecycle-probe", first["synced_tool_ids"])
@@ -103,6 +114,7 @@ class ManifestSyncPreservesLifecycleTest(unittest.TestCase):
             adapters.mkdir(parents=True)
             path = adapters / "sync-lifecycle-probe.tool.json"
             path.write_text(json.dumps(_manifest(180000)), encoding="utf-8")
+            _write_fixture_case(workspace, _manifest(180000))
             self._sync(workspace, tools)
             transition_tool(
                 "sync-lifecycle-probe",

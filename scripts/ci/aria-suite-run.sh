@@ -17,7 +17,7 @@
 # never silently drops the pytest-owned half of a selected module. Without
 # arguments the full suite runs (CI lanes, release pushes).
 #
-# Consumers: aria-kernel.yml, aria-kernel-fast.yml, `npm run aria:test:unit`,
+# Consumers: aria-kernel.yml, `npm run aria:test:unit`,
 # and scripts/ci/aria-suite-changed.mjs (pre-push). Change the suite HERE,
 # never in a copy.
 

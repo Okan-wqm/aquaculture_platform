@@ -29,11 +29,24 @@ EXECUTOR = Path(__file__).resolve().parents[2] / "tools" / "aria-poc" / "ci_exec
 
 
 def _main_function() -> ast.FunctionDef:
+    """The executor's entry body.
+
+    The runtime lane (2026-09-11) split `main` into a two-line wrapper that
+    owns the native runtime's ExitStack and `_main`, which carries the body
+    this test reasons about. The body is what must build the envelope via the
+    kernel fusion; the wrapper is followed to it rather than asserted on.
+    """
     tree = ast.parse(EXECUTOR.read_text(encoding="utf-8"))
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == "main":
-            return node
-    raise AssertionError("ci_executor.main not found")
+    functions = {node.name: node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)}
+    if "main" not in functions:
+        raise AssertionError("ci_executor.main not found")
+    main = functions["main"]
+    delegated = [
+        node.func.id for node in ast.walk(main)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in functions
+        and node.func.id.startswith("_main")
+    ]
+    return functions[delegated[0]] if delegated else main
 
 
 class ExecutorUsesTheKernelProjectionTest(unittest.TestCase):
@@ -94,7 +107,7 @@ class ExecutorUsesTheKernelProjectionTest(unittest.TestCase):
             "target_agent": "aria-autonomy-planner",
             "expected_output_path": "aria-tools/out/x.json",
             "suggested_prompt": "close the loop",
-            "must_satisfy": [{"id": "M1", "criterion": "hash reproduces"}],
+            "must_satisfy": [{"id": "M1", "description": "hash reproduces"}],
             "allowed_scope": ["aria-kernel/**"],
             "evidence_refs": ["docs/x.md:1"],
             "repository_map": {"projects": ["aria-kernel"]},

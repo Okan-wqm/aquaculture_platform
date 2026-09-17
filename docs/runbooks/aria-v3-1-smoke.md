@@ -393,21 +393,198 @@ If the rate of cycle_budget_exhausted exceeds 30% of cycles, the per-cycle budge
 
 ### Recovery R-3: Signed commit verification failure
 
-Symptom: governance shows `commit_signature_unverified` rejections.
+Symptom: governance shows `commit_signature_unverified` rejections — since ARIA-HIGH-124
+round 4 as `implementation_delivery_refused` with `stage=commit_identity` and
+`reason=commit_unverified:commit_signature_unverified…` (the executor's delivery verifies the
+published tip against the key it holds BEFORE it pushes; nothing was pushed, no PR exists, the
+request is HUMAN_REQUIRED), or on the bridge's replay path as an `agent_bridge_warning`.
 
-This means the V3.1-B-2 base64 delimiter encoding OR the V3.1-B-3 mint_signing_key git config wire is broken for some reason. STOP the run. Verify:
+The verifier (`plan_convergence_bridge.verify_implementation_commit`, the one both sites run)
+checks `branch_tip_sha` against the public key registered in `kg_signers` for the fingerprint
+the executor holds for the request (ARIA-HIGH-115); the message names which step refused — no
+fingerprint, a fingerprint the registry does not hold, one registered under another cycle, or a
+commit that does not verify against the registered key in the named checkout. The command
+policy refuses every `git commit` option that could select another key or author by name
+(`commit_identity:git_commit_foreign_option`), so a refusal here means the agent made the commit
+outside the Bash tool (a unittest module, a script) — read the transcript. STOP the run. Verify:
 
 ```bash
-# Check the cycle's signing key on disk:
-ls /var/aqua-saas/aria-debts/keys/
-# Check git config:
-git -C /var/aqua-saas config --local --get commit.gpgsign
-# Expected: "true"
-git -C /var/aqua-saas config --local --get gpg.ssh.allowedSignersFile
-# Expected: path to .git/aria-allowed-signers
+# The executor's identity is minted in the REQUEST WORKTREE while the agent runs
+# (<checkout>/aria-worktrees/req-<id>/aria-debts/keys/<cycle_id>), registered in
+# knowledge-graph/signers.jsonl (surface kg_signers) before the agent starts, and
+# RETIRED right after the quarantine's publication — before the executor's gate,
+# push and PR (`implementation_identity_retired`, ARIA-HIGH-124 round 5) — so look
+# at the ledgers, not the (removed) worktree:
+grep '"cycle_id"' <tools-dir>/knowledge-graph/signers.jsonl
+grep 'implementation_signing_unavailable\|implementation_signer_fp_overridden\|implementation_identity_retired' <tools-dir>/governance.jsonl
+# While a request worktree still exists, its config is `--worktree` scoped:
+git -C <worktree> config --worktree --get commit.gpgsign   # Expected: "true"
+git -C <worktree> config --worktree --get gpg.ssh.allowedSignersFile
+# Expected: <git rev-parse --absolute-git-dir>/aria-allowed-signers
 ```
 
-If the git config is missing, `mint_signing_key` failed silently. Re-run with `PYTHONPATH=aria-kernel:. python3 -c "from aria_kernel.gh_token_factory import mint_signing_key; print(mint_signing_key(cycle_id='diagnostic', workspace_root='.'))"` and trace.
+An `implementation_signing_unavailable` release (harness-class; the request stays queued) names why
+the identity could not be held in that tree: `shared_checkout_scope:--local` means the child ran
+in the shared checkout — turn `executor.worktree_per_request` on; `identity_already_held` means
+another holder owns this cycle's key in that tree; `signing_agent_unavailable:<reason>` means the
+kernel could not hold the ssh-agent that signs for the sandbox (`ssh_agent_missing`,
+`socket_path_too_long` — the host's temp root is too long for a unix socket);
+`git_containment_refused:<reason>` means the worktree cannot host a commit-capable sandbox
+(`hooks_dir_unresolvable:<why>` — git did not name the effective hooks directory).
+
+### Recovery R-3b: The sandbox cannot host a commit (ARIA-HIGH-123)
+
+Symptom: the pre-claim gate refuses `sandbox_unavailable` with `git containment probe refused:
+<reason>` in the governance row's `detail`, and the request stays PENDING with no claim.
+
+The containment probe (`aria_kernel.containment_probe`) mints a throwaway key into a throwaway
+linked worktree, holds the kernel-side ssh-agent, derives a commit-capable sandbox, stands it on
+the probe's `aria-impl-*` branch the way the executor stands the implementer's (ARIA-HIGH-124), and
+runs `git status`, the branch check and a SIGNED `git commit` inside the real bwrap argv (the
+managed route's network setting), then publishes the worktree's quarantine the way the executor
+does and verifies the commit from outside. The reason names what failed:
+
+```bash
+# Reproduce the probe by hand (no request, no claim, no key of yours):
+PYTHONPATH=aria-kernel python3 -c "
+from aria_kernel.implementation_safety import _git_containment_probe_reason
+print(_git_containment_probe_reason())"   # Expected: None
+# `git_in_sandbox_failed:rc=128:error: No user exists for uid N?` — the account database is not
+#   bound (`/etc/passwd`, `/etc/group` are system binds; ssh-keygen resolves its uid before it
+#   signs). Runs as the runner's uid what a root shell hides (nss-systemd synthesizes root).
+# `git_in_sandbox_failed:rc=128:...Read-only file system` — a bind the sandbox needs is missing
+#   (the replica over the worktree's git dir, the quarantine's refs dirs at the common paths);
+#   read the wrapper's argv.
+# `sandbox_commit_did_not_reach_repository` / `sandbox_publication_refused:<why>` — the branch
+#   never reached the quarantine the kernel publishes from, or the publication refused it.
+# `sandbox_lock_reached_repository` — a ref lock planted inside landed on the host: the shared
+#   `refs/heads` is bound writable somewhere.
+# `git_in_sandbox_failed:rc=41` / `rc=42` / `rc=43` — the common config, the hooks dir or the
+#   PRIVATE KEY is reachable inside: the read-only overlays / the keys-dir mask are not the last
+#   mounts.
+# `git_in_sandbox_failed:rc=44` — the sandbox did not start on the branch the kernel stood it on
+#   (the replica's HEAD is shadowed inside); `probe_branch_refused:<why>` — the kernel could not
+#   stand it there at all (`git_containment.stand_on_implementation_branch`'s reasons).
+# `probe_containment_refused:loose_refs_exceed_overlay_bound:<n>` — the checkout carries more
+#   loose branches than the sandbox overlays one by one; run `git pack-refs --all` in it.
+```
+
+Inside a request worktree's sandbox the implementer starts ON its `aria-impl-*` branch at the
+staged base (the executor stood it there before the spawn — ARIA-HIGH-124) and can `git add` and
+`git commit` (signed through the kernel-held ssh-agent — the private key is not mounted). Its git
+writes go to the worktree's QUARANTINE (`<private git dir>/aria-sandbox/`: objects, refs,
+reflogs), never to the shared repository; the executor publishes the quarantine after the spawn
+(`implementation_quarantine_published` on governance: objects migrated, packs unpacked, the
+`aria-impl-*` ref published, everything else discarded by name), then DELIVERS it itself (R-3c).
+`git push` and every `python3 -m aria_kernel …` are refused inside by name (`kernel_authority` in
+the hook's verdict) and `gh pr create` is admitted nowhere: that is the policy working, not a
+fault. The executor's OWN kernel commands after the spawn run with `-P` (`kernel_cli.py`): a
+kernel package or a `json.py` the agent wrote at its worktree root never resolves as the
+executor's kernel. `.git/hooks` (the
+EFFECTIVE hooks dir — `.husky` when `core.hooksPath` says so), `config`, `config.worktree`,
+`aria-allowed-signers`, existing loose refs, the shared packs, `objects/info/alternates`, sibling
+worktrees and the main checkout's working tree are read-only or absent. A write there fails with
+`Read-only file system`; that is the sandbox working, not a fault. The state store is not mounted
+at all: the hooks reach the kernel through the broker's socket (`/tmp/aria-hook-broker.sock`); a
+hook that prints `hook_broker_unreachable:<why>` means the executor's broker is not being served
+around the spawn — read the executor's stderr for the spawn that ran. The `aria` MCP view is
+served the same way (`/tmp/aria-mcp-broker.sock`, relayed in by `mcp_relay.py`); a tool that
+answers `mcp_broker_unreachable:<why>` means the same thing for the MCP broker.
+
+### Recovery R-3c: The executor's delivery refused (ARIA-HIGH-124)
+
+Symptom: governance shows `implementation_delivery_refused` (`stage`, `reason`), the request is in
+HUMAN_REQUIRED (`aria-tools/human-required/<request_id>.json` names the stage; the claim event
+of the same release is `human_required`, so `agent next-pending` never hands it out again) and
+the claim was released under `implementation_delivery_refused:<stage>`; or, before any turn,
+`implementation_branch_collision` with `git_containment_refused:implementation_branch_exists`,
+or `implementation_request_invalid` with
+`git_containment_refused:implementation_branch_name_invalid` / `base_sha_not_an_object_id` (the
+request row's `implementation_ids` cannot stand a sandbox — re-stage the plan).
+
+The executor delivers the published branch after the spawn — apply gate at the branch tip in
+the request worktree, push with the credential it holds, PR through `open_pr_for_action` — and
+stamps the result (`implementation_delivered`). Each stage refuses by name:
+
+```bash
+grep 'implementation_delivered\|implementation_delivery_refused\|implementation_branch_collision' \
+  <tools-dir>/governance.jsonl | tail -5
+# stage=branch_publication reason=branch_not_published:…=branch_unadvanced — the agent committed
+#   nothing on the branch: the kernel's seed was discarded, no branch exists in the checkout.
+#   The plan's key_changes were not applied; read the transcript, then requeue.
+# stage=branch_publication reason=branch_not_published:… (other discards) — the agent's commit
+#   was on a branch of its own naming (discarded by the publication) or an object was refused.
+# stage=commit_identity reason=commit_unverified:commit_signature_unverified… (round 4) — the
+#   published tip does not verify against the key the executor held for this request: unsigned,
+#   signed with a key of the agent's own, or with another cycle's. Decided BEFORE the admission,
+#   the gate, the push and the PR — nothing left the runner. See Recovery R-3.
+# stage=apply_gate reason=gate_blocked:<blocked_by> — the canonical suite regressed at the tip or
+#   the diff carries a suppression pattern; the action is `blocked` on apply/actions.jsonl.
+# stage=apply_gate reason=gate_refused:… — the gate could not run (dirty worktree, unresolved
+#   change id); read the reason, it is the kernel's own GovernanceError. `validation requires a
+#   clean git worktree` means the agent left an untracked, non-ignored file in the request
+#   worktree (scratch output, a build artefact not in .gitignore): the commit is good but the
+#   gate refuses a tree that is not the commit — fail-closed by design; the plan's intended
+#   surfaces or the repository's .gitignore is where such a path belongs.
+# stage=change_ledger reason=change_committed_refused:scope_drift_requires_human:… — the tip
+#   touches a file the plan did not intend. Decided BEFORE the tip's suite runs (round 3): the
+#   action stays `staged_for_implementation`, no candidate validation group exists.
+# stage=admission — NOT escalated: released harness-class (`implementation_delivery_unavailable`,
+#   the request stays queued). `deadline_insufficient:remaining=…:worst_case=…` — the job's
+#   remaining window (ARIA_JOB_DEADLINE_EPOCH) could not hold the delivery's worst case; decided
+#   before the spawn (no turn spent) and again before the quarantine is published
+#   (`implementation_quarantine_discarded`: the agent's commit is discarded, no branch exists,
+#   the retry stands on it again). `sandbox_unavailable:…` — the validation sandbox could not be
+#   built for a staged command (bwrap unusable, an executable not on the validation
+#   environment's PATH, a bind that would reach the store); read the executor's stderr.
+# The gate's suite runs CONTAINED (round 3): every recorded run's log names the bwrap argv.
+#   A suite that needs the network, the runner's home caches or a toolchain outside
+#   `/usr`/`/usr/local` and the resolved PATH entry's prefix fails inside — that is the sandbox
+#   working, not a fault; the recipe belongs in the registered experiment recipes with what it
+#   needs declared. A command that hits its ceiling is recorded `timed_out` and its whole tree
+#   is gone with it (round 4: `--unshare-pid --die-with-parent` on the wrapper, the process
+#   group killed by the runner) — a `sleep`/`jest` survivor on the runner after such a refusal
+#   is a defect, not a leftover to clean.
+# stage=push reason=push_failed:rc=<n>:<git's first line> — the remote refused (credential,
+#   network, a non-fast-forward against an earlier attempt's push); the intent/receipt rows are
+#   on recovery/external-effects.jsonl.
+# stage=pr_open reason=pr_open_refused:… — GATE_PRE_PR_OPEN or the opener refused (commit
+#   contract, secret scan, `gh` itself).
+# A published branch (the agent DID commit) survives in the checkout:
+#   `git -C <checkout> branch --list 'aria-impl-*'`. A retry of the SAME request is refused
+#   before any turn (`implementation_branch_collision`) while that branch exists — deliver it by
+#   hand or delete it, then requeue. A spawn that ended before any commit (a timeout, a provider
+#   outage, a cancel) leaves NO branch: its harness-class retry stands on the branch again.
+```
+
+`implementation_delivery_unavailable` (harness-class, the request stays queued) means the
+executor could not mint the delivery credential before the spawn — no GH App installation and no
+operator PAT (`docs/runbooks/aria-github-app-setup.md`) — or, since round 3, that the delivery's
+admission refused (the governance row of that name carries `reason`: `deadline_insufficient` /
+`sandbox_unavailable`, and `decided`: `before_spawn` / `before_publication`).
+
+`human_required_record_unavailable:<escalation reason>` (harness-class, a job error
+`::error::aria executor could not record HUMAN_REQUIRED …`, governance row of the same name)
+means the executor escalated the request but the kernel's recorder did not land the record (a
+refused store write, a dying disk): the request stays queued with its budget intact and the retry
+escalates again once the recorder answers; fix the store, then requeue.
+
+`executor_drain_window_skip` (governance, `worst_case_seconds`, `remaining_seconds`) means the
+drain selected a request whose own worst case — an implementation's staged suite at its ceiling,
+recipes included — no longer fit tonight's remaining window: skipped without a claim, PENDING for
+a drain with the room. A request skipped every night has a staged suite the window can never
+hold; `ARIA_DRAIN_BUDGET_SECONDS` and the job's `timeout-minutes` move together
+(`tests/test_state_lock_liveness_bound.py`).
+
+A `sockets_pruned` governance row at orchestrator startup names `aria-sa-*` / `aria-hb-*` socket
+directories a killed executor left behind (their listener is gone; the agent itself died with
+its holder). Nothing to do.
+
+If the git config is missing, read the mint's receipt: `PYTHONPATH=aria-kernel:. python3 -c "from
+aria_kernel.gh_token_factory import mint_signing_key; print(mint_signing_key(cycle_id='diagnostic',
+workspace_root='.').git_signing)"` — `configured=False` names the reason (`not_a_checkout`,
+`git_unavailable`, `worktree_scope_unavailable:<why>`, `git_config_failed:<key>:rc=<n>`); revoke the
+diagnostic key afterwards (`revoke_signing_key`).
 
 ## Rollback procedure
 

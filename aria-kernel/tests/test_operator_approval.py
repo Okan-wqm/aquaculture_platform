@@ -95,6 +95,64 @@ class TypedOperatorApprovalTests(unittest.TestCase):
                 operator_signature="looks-legit-signature-16chars",
             )
 
+    def test_anti_pattern_approval_and_append_use_the_same_explicit_root(self) -> None:
+        from aria_kernel import knowledge_graph as kg
+        from aria_kernel.tool_registry import append_tools_governance
+
+        tools = ensure_tools_dir(self._tmp / "store/tools")
+        workspace = self._tmp / "checkout"
+        legacy = ensure_tools_dir(workspace / "aria-tools")
+        append_tools_governance(legacy, "operator_action", {"event_id": "legacy-only", "action": "approve"})
+        pattern = kg.Pattern(
+            pattern_id="avoid-duplicate-store", pattern_type="anti_pattern", confidence=1.0,
+            evidence_refs=("docs/aria/SPEC.md:1",), discovered_by_cycle_id="approval-root",
+            observed_at="2026-09-10T00:00:00Z",
+        )
+        with self.assertRaises(kg.KnowledgeGraphSignatureMissing):
+            kg.record_anti_pattern(
+                pattern, base_dir=tools, workspace_root=workspace,
+                reason_class="architecture_class", operator_signature="gov:legacy-only",
+            )
+        self.assertFalse((tools / "knowledge-graph/anti-patterns.jsonl").exists())
+        append_tools_governance(tools, "operator_action", {"event_id": "canonical-only", "action": "approve"})
+        path = kg.record_anti_pattern(
+            pattern, base_dir=tools, workspace_root=workspace,
+            reason_class="architecture_class", operator_signature="gov:canonical-only",
+        )
+        self.assertEqual(path, tools / "knowledge-graph/anti-patterns.jsonl")
+        self.assertEqual(
+            [r["pattern_id"] for r in kg.anti_patterns_for_paths(
+                base_dir=tools, workspace_root=workspace, paths=["docs/aria/SPEC.md"],
+            )], [pattern.pattern_id],
+        )
+        self.assertFalse((legacy / "knowledge-graph/anti-patterns.jsonl").exists())
+
+    def test_anti_pattern_cli_forwards_the_resolved_tools_root(self) -> None:
+        import io
+        from contextlib import redirect_stdout
+        from aria_kernel import cli
+        from aria_kernel.ledger import load_declared_jsonl
+        from aria_kernel.tool_registry import append_tools_governance
+
+        tools = ensure_tools_dir(self._tmp / "store/tools")
+        workspace = self._tmp / "checkout"
+        workspace.mkdir()
+        append_tools_governance(tools, "operator_action", {"event_id": "cli-approval", "action": "approve"})
+        self.assertEqual(verify_operator_approval_ref("gov:cli-approval", base_dir=tools, surface="test")["kind"], "gov")
+        output = io.StringIO()
+        with redirect_stdout(output):
+            code = cli.main([
+                "anti-pattern", "record", "--tools-dir", str(tools),
+                "--workspace-root", str(workspace), "--pattern-id", "avoid-shadow-state",
+                "--reason-class", "architecture_class", "--evidence-ref", "docs/aria/SPEC.md:1",
+                "--cycle-id", "cli-root", "--operator-signature", "gov:cli-approval",
+            ])
+        self.assertEqual(code, 0)
+        path = tools / "knowledge-graph/anti-patterns.jsonl"
+        self.assertEqual(json.loads(output.getvalue())["written"], str(path))
+        self.assertEqual([r["pattern_id"] for r in load_declared_jsonl(path, expected_surface="kg_anti_patterns")], ["avoid-shadow-state"])
+        self.assertFalse((workspace / "aria-tools").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

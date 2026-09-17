@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import unittest
 
+from aria_kernel.agent_genesis import BANNED_PHRASES
 from aria_kernel.agent_contract import (
     DEFAULT_TARGET_AGENT_WHITELIST,
     REQUEST_ROLES,
@@ -29,8 +30,8 @@ def _good_request(**overrides):
         "allowed_scope": ["aria-kernel/**"],
         "forbidden_scope": ["aria-tools/**"],
         "must_satisfy": [
-            {"id": "MS-1", "statement": "Plan must list the affected adapter."},
-            {"id": "MS-2", "statement": "Plan must include validation commands."},
+            {"id": "MS-1", "description": "Plan must list the affected adapter."},
+            {"id": "MS-2", "description": "Plan must include validation commands."},
         ],
         "validation_commands": ["nx affected --target=test"],
         "expected_output_path": "aria-tools/agent-invocations/results/req-2026-05-07-001.json",
@@ -60,6 +61,18 @@ class RequestValidationTests(unittest.TestCase):
     def test_minimal_good_request_passes(self) -> None:
         validate_request(_good_request())
 
+    def test_plan_contract_block_is_an_optional_non_empty_object(self) -> None:
+        from aria_kernel.agent_contract import REQUEST_OPTIONAL_FIELDS
+
+        self.assertIn("plan_contract", REQUEST_OPTIONAL_FIELDS)
+        request = _good_request()
+        request["plan_contract"] = {"schema_version": 1, "architectural_tier": {"allowed": [1, 2, 3, 4]}}
+        validate_request(request)
+        for bad in ({}, [], "rules"):
+            request["plan_contract"] = bad
+            with self.assertRaises(GovernanceError):
+                validate_request(request)
+
     def test_missing_must_satisfy_rejected(self) -> None:
         envelope = _good_request()
         del envelope["must_satisfy"]
@@ -77,17 +90,18 @@ class RequestValidationTests(unittest.TestCase):
     def test_duplicate_must_satisfy_id_rejected(self) -> None:
         env = _good_request(
             must_satisfy=[
-                {"id": "MS-1", "statement": "first"},
-                {"id": "MS-1", "statement": "second"},
+                {"id": "MS-1", "description": "first"},
+                {"id": "MS-1", "description": "second"},
             ]
         )
         with self.assertRaisesRegex(GovernanceError, "must_satisfy.*duplicate"):
             validate_request(env)
 
-    def test_banned_phrase_in_must_satisfy_statement_rejected(self) -> None:
+    def test_banned_phrase_in_must_satisfy_description_rejected(self) -> None:
         env = _good_request(
             must_satisfy=[
-                {"id": "MS-1", "statement": "Ship this for now and revisit later."},
+                # The phrase is read from the SSoT the validator scans with.
+                {"id": "MS-1", "description": "Ship this " + BANNED_PHRASES[0] + " and revisit later."},
             ]
         )
         with self.assertRaisesRegex(GovernanceError, "banned phrase"):

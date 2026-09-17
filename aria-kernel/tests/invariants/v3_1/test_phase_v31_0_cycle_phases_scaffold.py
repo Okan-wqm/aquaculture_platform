@@ -62,6 +62,12 @@ class CyclePhasesScaffoldTests(unittest.TestCase):
             # ORPHAN-HIGH-728 — the action kind the factory derives its
             # choice from, exported so the derivation is inspectable.
             "IMPLEMENTATION_ACTION_KIND",
+            # B7 — the action kind the post-CONVERGED knowledge seam
+            # derives its signer from, plus the seam itself.
+            "KNOWLEDGE_RECORD_ACTION_KIND",
+            "KnowledgeSigner",
+            "cycle_knowledge_signer",
+            "knowledge_record_permitted",
             "CostAttributionEnvelope",
             "CostTelemetryHook",
             # Plan ARIA-V3.1-D2 — production CostTelemetryHookImpl
@@ -238,7 +244,7 @@ class CyclePhasesScaffoldTests(unittest.TestCase):
         out = memory.record(
             cycle_id="cyc-test", plan_id="plan-test",
             workspace_root=repo, base_dir=tools,
-            converged_plan={}, plan_envelope_metadata={},
+            plan_envelope_metadata={},
             profile="standard", signer_key_fp=None,
         )
         self.assertFalse(out["convention_recorded"])

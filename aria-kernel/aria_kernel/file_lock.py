@@ -40,8 +40,8 @@ import os
 import stat
 import sys
 import time
-from pathlib import Path
-from typing import Iterator
+from pathlib import Path, PurePosixPath
+from typing import Iterator, overload
 
 
 _DEFAULT_TIMEOUT_SECONDS: float = 5.0
@@ -86,10 +86,45 @@ def _locked_handle(lock_path: Path, fd: int) -> ExclusiveLockHandle:
     return handle
 
 
-def lock_sidecar_path(path: Path | str) -> Path:
-    """Return the one canonical sidecar used for an exclusive target lock."""
-    target = Path(path)
-    return target.with_suffix(target.suffix + ".lock")
+# The side-car shape, declared once. ``lock_sidecar_path`` produces it and
+# ``lock_sidecar_target`` decodes it; a consumer that must keep side-cars
+# out of a published tree (``state_tree_contract``) asks this module rather
+# than restating the suffix, so the naming cannot drift in two places.
+LOCK_SIDECAR_SUFFIX = ".lock"
+
+
+@overload
+def lock_sidecar_path(path: PurePosixPath) -> PurePosixPath: ...
+@overload
+def lock_sidecar_path(path: Path | str) -> Path: ...
+def lock_sidecar_path(path: Path | PurePosixPath | str) -> Path | PurePosixPath:
+    """Return the one canonical sidecar used for an exclusive target lock.
+
+    The input's path flavour is preserved, exactly as ``lock_sidecar_target``
+    preserves it: a store-relative pure POSIX key (``state_manifest``'s
+    group-lock shape) encodes to a pure POSIX side-car, a concrete ``Path``
+    to a concrete one, so the encoder and the decoder are inverses on both.
+    """
+    target = path if isinstance(path, PurePosixPath) else Path(path)
+    return target.with_suffix(target.suffix + LOCK_SIDECAR_SUFFIX)
+
+
+def lock_sidecar_target(path: Path | PurePosixPath | str) -> Path | PurePosixPath | None:
+    """The target whose exclusive lock ``path`` is the side-car of, or None.
+
+    Exact inverse of ``lock_sidecar_path``: ``path`` is a side-car only when
+    re-deriving the side-car from the decoded target yields ``path`` again.
+    A bare ``.lock`` (no target name) and a name whose last suffix is not
+    the side-car suffix decode to nothing. The input's path flavour is
+    preserved so a store-relative POSIX path stays POSIX.
+    """
+    candidate = path if isinstance(path, PurePosixPath) else Path(path)
+    if candidate.suffix != LOCK_SIDECAR_SUFFIX or candidate.name == LOCK_SIDECAR_SUFFIX:
+        return None
+    target = candidate.with_suffix("")
+    if target.with_suffix(target.suffix + LOCK_SIDECAR_SUFFIX) != candidate:
+        return None
+    return target
 
 
 @contextlib.contextmanager
@@ -189,6 +224,8 @@ def with_exclusive_lock(
 
 __all__ = [
     "ExclusiveLockHandle",
+    "LOCK_SIDECAR_SUFFIX",
     "lock_sidecar_path",
+    "lock_sidecar_target",
     "with_exclusive_lock",
 ]

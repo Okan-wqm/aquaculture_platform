@@ -771,12 +771,6 @@
     {
       "class": "agent_contract_docs",
       "owner": "agent-governance",
-      "path": ".claude/settings.local.json",
-      "prettier_managed": true
-    },
-    {
-      "class": "agent_contract_docs",
-      "owner": "agent-governance",
       "path": ".claude/shared/_conversion-template.md",
       "prettier_managed": true
     },
@@ -47452,6 +47446,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/session-state-single-source.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/settings-deny-anchoring.spec.ts",
       "prettier_managed": true
     },
     {

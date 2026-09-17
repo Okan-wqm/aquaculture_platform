@@ -39,7 +39,14 @@
  * beyond `node:*`.
  */
 
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+} from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
 const REPO_ROOT = resolve(process.cwd());
@@ -131,9 +138,20 @@ function main(): number {
   try {
     payload = stdinRaw.trim() === '' ? {} : (JSON.parse(stdinRaw) as HookPayload);
   } catch {
-    // Shape drift — approve + log WARNING rather than hard-block.
-    console.error('agent-dispatch-gate: unparseable stdin, approving with WARNING');
-    return 0;
+    // Shape drift — fail CLOSED. The six-agent era makes "approve what we
+    // cannot parse" an unbounded dispatch surface; an unparseable payload is
+    // denied and logged so the shape drift is visible in the audit trail.
+    console.error('agent-dispatch-gate: unparseable stdin, DENYING (fail-closed)');
+    writeLog({
+      ts: new Date().toISOString(),
+      session_id: 'unknown',
+      cwd: REPO_ROOT,
+      agent: 'unknown',
+      cycle_id: process.env.AGENT_CYCLE_ID ?? 'unknown',
+      approved: false,
+      reason: 'unparseable_stdin',
+    });
+    return 1;
   }
 
   const toolName = payload.tool_name ?? '';
@@ -188,8 +206,12 @@ function main(): number {
     return 1;
   }
 
-  const cap = Number(process.env.AGENT_FANOUT_CAP ?? DEFAULT_FANOUT_CAP);
-  if (cap > 0) {
+  const capRaw = Number(process.env.AGENT_FANOUT_CAP ?? DEFAULT_FANOUT_CAP);
+  // Fail-closed cap: "unset" and any non-positive/non-numeric override both
+  // resolve to the default. There is no log-only escape hatch — disabling
+  // the fan-out gate is a code change with a review, not an env var.
+  const cap = Number.isFinite(capRaw) && capRaw > 0 ? Math.floor(capRaw) : DEFAULT_FANOUT_CAP;
+  {
     const recent = recentDispatchCount(sessionId);
     if (recent >= cap) {
       console.error(

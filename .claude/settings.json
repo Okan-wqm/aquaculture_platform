@@ -1,8 +1,12 @@
 {
   "permissions": {
     "deny": [
-      "Read(./.env)",
-      "Read(./.env.*)"
+      "Read(//.env)",
+      "Read(//.env.*)",
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(//.claude/settings.local.json)",
+      "Read(**/.claude/settings.local.json)"
     ]
   },
   "hooks": {

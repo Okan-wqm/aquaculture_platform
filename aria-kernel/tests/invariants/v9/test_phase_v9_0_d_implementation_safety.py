@@ -682,7 +682,14 @@ class TestPhaseAPrePrOpenChecks(unittest.TestCase):
         description before the check had an implementation; neither
         exists here, and encoding them would have made S0 unexitable.
         """
+        repo = Path(__file__).resolve().parents[4]
         for command in _is.CANONICAL_VALIDATION_COMMANDS:
+            # ARIA-HIGH-149 — the format entry is the repository's own quality
+            # runner (`node tools/quality/quality.mjs format check-changed`);
+            # runnable means the runner script is in the tree.
+            if command.startswith("node tools/quality/quality.mjs "):
+                self.assertTrue((repo / "tools" / "quality" / "quality.mjs").is_file(), command)
+                continue
             self.assertTrue(
                 command.startswith("nx affected --target=")
                 or command.startswith("npm run "),

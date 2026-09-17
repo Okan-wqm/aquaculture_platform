@@ -3,6 +3,15 @@
  *
  * Manages custom tenant roles with permissions.
  * Allows creating, editing, and deleting roles with granular permission control.
+ *
+ * SUDERRA restyle — sd-page/sd-modal primitives; every capability gate,
+ * mutation, focus trap, and aria attribute is unchanged.
+ *
+ * DATA SOURCES (all real backend — no mocked data on this page):
+ * - useTenantRoles / usePermissionCategories → auth-service tenant roles +
+ *   permission catalogue (role.color/icon/level/userCount are stored values).
+ * - Mutations: create / update / delete / seed-defaults — real endpoints;
+ *   delete is hard-blocked server-side while users hold the role (RBAC-M8).
  */
 
 import React, { useState, useCallback, useMemo, memo, useId } from 'react';
@@ -200,16 +209,12 @@ const RoleModal = memo<RoleModalProps>(({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="sd-modal-backdrop"
       role="presentation"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
     >
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-        onClick={onClose}
-        aria-hidden="true"
-      />
-
       {/* Modal */}
       <div
         ref={containerRef}
@@ -218,169 +223,156 @@ const RoleModal = memo<RoleModalProps>(({
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={descriptionId}
-        className="relative bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col"
+        className="sd-modal"
+        style={{ maxWidth: '56rem', width: '100%' }}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gradient-to-r from-tenant-50 to-white">
+        <div className="sd-modal-head">
           <div>
-            <h2 id={titleId} className="text-xl font-bold text-gray-900">
+            <h2 id={titleId} className="sd-modal-title">
               {isEditing ? 'Edit Role' : 'Create New Role'}
             </h2>
-            <p id={descriptionId} className="text-sm text-gray-500 mt-0.5">
+            <p id={descriptionId} className="sd-modal-sub">
               {isEditing
                 ? `Editing "${role.name}" role`
                 : 'Define a new role with custom permissions'}
             </p>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-            aria-label="Close modal"
-          >
-            <X className="w-5 h-5 text-gray-500" />
+          <button onClick={onClose} className="sd-iconbtn" aria-label="Close modal">
+            <X size={16} />
           </button>
         </div>
 
         {/* Content */}
-        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
-          <div className="p-6 space-y-6">
-            {/* Basic Info */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  Role Name *
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', minHeight: 0, flex: 1 }}>
+          <div className="sd-modal-body">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+              {/* Basic Info */}
+              <div className="sd-fieldgrid">
+                <label className="sd-field">
+                  <span>Role Name *</span>
+                  <input
+                    type="text"
+                    className="sd-input"
+                    value={formData.name}
+                    onChange={handleNameChange}
+                    placeholder="e.g., Supervisor, Technician"
+                    required
+                    disabled={role?.isSystem}
+                  />
                 </label>
-                <input
-                  type="text"
-                  value={formData.name}
-                  onChange={handleNameChange}
-                  placeholder="e.g., Supervisor, Technician"
-                  required
-                  disabled={role?.isSystem}
-                  className="w-full px-4 py-2 rounded-lg border border-gray-200 focus:outline-hidden focus:ring-2 focus:ring-tenant-500 disabled:bg-gray-100"
-                />
+
+                <label className="sd-field">
+                  <span>Priority Level</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={100}
+                    className="sd-input"
+                    value={formData.level}
+                    onChange={handleLevelChange}
+                  />
+                  <small style={{ fontSize: 11.5, color: '#8aa0aa' }}>
+                    Higher = more authority (1-100)
+                  </small>
+                </label>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  Priority Level
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  max="100"
-                  value={formData.level}
-                  onChange={handleLevelChange}
-                  className="w-full px-4 py-2 rounded-lg border border-gray-200 focus:outline-hidden focus:ring-2 focus:ring-tenant-500"
+              <label className="sd-field">
+                <span>Description</span>
+                <textarea
+                  className="sd-input"
+                  value={formData.description}
+                  onChange={handleDescriptionChange}
+                  placeholder="Describe what this role is for…"
+                  rows={2}
+                  style={{ resize: 'none' }}
                 />
-                <p className="text-xs text-gray-500 mt-1">
-                  Higher = more authority (1-100)
-                </p>
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                Description
               </label>
-              <textarea
-                value={formData.description}
-                onChange={handleDescriptionChange}
-                placeholder="Describe what this role is for..."
-                rows={2}
-                className="w-full px-4 py-2 rounded-lg border border-gray-200 focus:outline-hidden focus:ring-2 focus:ring-tenant-500 resize-none"
-              />
-            </div>
 
-            {/* Color Selection */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                <Palette className="w-4 h-4 inline mr-1" />
-                Role Color
-              </label>
-              <ColorPicker
-                value={formData.color}
-                onChange={handleColorChange}
-              />
-            </div>
-
-            {/* Default Role Toggle */}
-            <div className="flex items-center gap-3 p-4 bg-yellow-50 rounded-xl border border-yellow-100">
-              <input
-                type="checkbox"
-                id="isDefault"
-                checked={formData.isDefault}
-                onChange={handleIsDefaultChange}
-                className="rounded border-gray-300 text-tenant-600 focus:ring-tenant-500"
-              />
-              <label htmlFor="isDefault" className="flex-1">
-                <span className="text-sm font-medium text-gray-900">
-                  Set as default role
+              {/* Color Selection */}
+              <div>
+                <span className="sd-field" style={{ display: 'block', marginBottom: 8 }}>
+                  <span>
+                    <Palette size={13} style={{ display: 'inline', verticalAlign: '-2px', marginRight: 5 }} />
+                    Role Color
+                  </span>
                 </span>
-                <p className="text-xs text-gray-500">
-                  New users will be assigned this role by default
-                </p>
-              </label>
-              <Star className="w-5 h-5 text-yellow-500" />
-            </div>
-
-            {/* Permissions */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-3">
-                Permissions
-              </label>
-              {categories.length > 0 ? (
-                <PermissionCheckboxGroup
-                  categories={categories}
-                  value={formData.panelPermissions}
-                  onChange={handlePermissionsChange}
-                  disabled={role?.isSystem}
-                  readOnly={role?.isSystem}
+                <ColorPicker
+                  value={formData.color}
+                  onChange={handleColorChange}
                 />
-              ) : (
-                <div className="p-8 text-center bg-gray-50 rounded-xl">
-                  <RefreshCw className="w-6 h-6 animate-spin text-gray-500 mx-auto" />
-                  <p className="mt-2 text-sm text-gray-500">
-                    Loading permission categories...
-                  </p>
-                </div>
-              )}
+              </div>
+
+              {/* Default Role Toggle */}
+              <div className="sd-checkrow">
+                <input
+                  type="checkbox"
+                  id="isDefault"
+                  checked={formData.isDefault}
+                  onChange={handleIsDefaultChange}
+                />
+                <label htmlFor="isDefault" style={{ flex: 1, cursor: 'pointer' }}>
+                  <span style={{ display: 'block', fontSize: 13.5, fontWeight: 600, color: '#0a1f2b' }}>
+                    Set as default role
+                  </span>
+                  <span style={{ display: 'block', fontSize: 12, color: '#5c7783' }}>
+                    New users will be assigned this role by default
+                  </span>
+                </label>
+                <Star size={16} style={{ color: '#92610a' }} aria-hidden="true" />
+              </div>
+
+              {/* Permissions */}
+              <div>
+                <span style={{ display: 'block', fontSize: 11.5, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: '#5c7783', marginBottom: 10 }}>
+                  Permissions
+                </span>
+                {categories.length > 0 ? (
+                  <PermissionCheckboxGroup
+                    categories={categories}
+                    value={formData.panelPermissions}
+                    onChange={handlePermissionsChange}
+                    disabled={role?.isSystem}
+                    readOnly={role?.isSystem}
+                  />
+                ) : (
+                  <div className="sd-empty">
+                    <RefreshCw className="animate-spin" size={18} style={{ color: '#8aa0aa', display: 'block', margin: '0 auto 8px' }} aria-hidden="true" />
+                    Loading permission categories…
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
           {/* Footer */}
-          <div className="px-6 py-4 border-t border-gray-100 bg-gray-50 flex items-center justify-between">
+          <div className="sd-modal-foot">
             {role?.isSystem && (
-              <p className="text-xs text-amber-600">
+              <p style={{ margin: 0, marginRight: 'auto', fontSize: 12, color: '#92610a' }}>
                 System roles cannot be modified
               </p>
             )}
-            <div className="flex items-center gap-3 ml-auto">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={isSubmitDisabled}
-                className="px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-              >
-                {isLoading ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    Saving...
-                  </>
-                ) : (
-                  <>
-                    <Check className="w-4 h-4" />
-                    {isEditing ? 'Update Role' : 'Create Role'}
-                  </>
-                )}
-              </button>
-            </div>
+            <button type="button" onClick={onClose} className="sd-btn-ghost">
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isSubmitDisabled}
+              className="sd-btn-teal"
+            >
+              {isLoading ? (
+                <>
+                  <RefreshCw size={15} className="animate-spin" aria-hidden="true" />
+                  Saving…
+                </>
+              ) : (
+                <>
+                  <Check size={15} />
+                  {isEditing ? 'Update Role' : 'Create Role'}
+                </>
+              )}
+            </button>
           </div>
         </form>
       </div>
@@ -433,14 +425,12 @@ const DeleteModal = memo<DeleteModalProps>(({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="sd-modal-backdrop"
       role="presentation"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
     >
-      <div
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-        onClick={onClose}
-        aria-hidden="true"
-      />
       <div
         ref={containerRef}
         onKeyDown={handleKeyDown}
@@ -448,56 +438,67 @@ const DeleteModal = memo<DeleteModalProps>(({
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={descriptionId}
-        className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full p-6"
+        className="sd-modal"
+        style={{ maxWidth: '26rem', width: '100%' }}
       >
-        <div className="flex items-center gap-4">
-          <div className="p-3 rounded-full bg-red-100" aria-hidden="true">
-            <Trash2 className="w-6 h-6 text-red-600" />
-          </div>
-          <div>
-            <h3 id={titleId} className="text-lg font-bold text-gray-900">Delete Role</h3>
-            <p id={descriptionId} className="text-sm text-gray-500">
-              Are you sure you want to delete "{role.name}"?
-            </p>
+        <div className="sd-modal-head">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 13 }}>
+            <div
+              style={{ display: 'grid', placeItems: 'center', width: 40, height: 40, borderRadius: 999, background: 'rgba(176,74,40,.12)', flexShrink: 0 }}
+              aria-hidden="true"
+            >
+              <Trash2 size={18} style={{ color: '#b04a28' }} />
+            </div>
+            <div>
+              <h3 id={titleId} className="sd-modal-title" style={{ fontSize: 17 }}>Delete Role</h3>
+              <p id={descriptionId} className="sd-modal-sub">
+                Are you sure you want to delete "{role.name}"?
+              </p>
+            </div>
           </div>
         </div>
 
-        {hasActiveHolders && (
-          <div className="mt-4 p-3 bg-amber-50 rounded-lg border border-amber-100">
-            <p className="text-sm text-amber-700">
-              <AlertCircle className="w-4 h-4 inline mr-1" />
-              This role cannot be deleted while it is assigned to{' '}
-              {role.userCount ?? 0} user(s). Reassign those users to another
-              role first.
-            </p>
-          </div>
-        )}
+        <div className="sd-modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {hasActiveHolders && (
+            <div
+              className="sd-banner"
+              style={{ background: '#fbf3dc', borderColor: 'rgba(146,97,10,.28)', fontSize: 13, color: '#92610a', display: 'flex', gap: 8, alignItems: 'flex-start' }}
+              role="status"
+            >
+              <AlertCircle size={15} style={{ color: '#92610a', flexShrink: 0, marginTop: 2 }} />
+              <span>
+                This role cannot be deleted while it is assigned to{' '}
+                {role.userCount ?? 0} user(s). Reassign those users to another
+                role first.
+              </span>
+            </div>
+          )}
 
-        {errorMessage && (
-          <div className="mt-4 p-3 bg-red-50 rounded-lg border border-red-100">
-            <p className="text-sm text-red-700">
-              <AlertCircle className="w-4 h-4 inline mr-1" />
-              {errorMessage}
-            </p>
-          </div>
-        )}
+          {errorMessage && (
+            <div
+              className="sd-banner"
+              style={{ background: 'rgba(176,74,40,.10)', borderColor: 'rgba(176,74,40,.32)', fontSize: 13, color: '#8e3a1e', display: 'flex', gap: 8, alignItems: 'flex-start' }}
+              role="alert"
+            >
+              <AlertCircle size={15} style={{ color: '#8e3a1e', flexShrink: 0, marginTop: 2 }} />
+              <span>{errorMessage}</span>
+            </div>
+          )}
+        </div>
 
-        <div className="mt-6 flex items-center justify-end gap-3">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
-          >
+        <div className="sd-modal-foot">
+          <button onClick={onClose} className="sd-btn-ghost">
             Cancel
           </button>
           <button
             onClick={onConfirm}
             disabled={isLoading || hasActiveHolders}
-            className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            className="sd-btn-danger"
           >
             {isLoading ? (
               <>
-                <RefreshCw className="w-4 h-4 animate-spin" />
-                Deleting...
+                <RefreshCw size={15} className="animate-spin" aria-hidden="true" />
+                Deleting…
               </>
             ) : (
               'Delete Role'
@@ -619,76 +620,62 @@ const TenantRolesPage: React.FC = () => {
   // Loading state
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <RefreshCw className="w-8 h-8 animate-spin text-tenant-600" />
+      <div className="flex items-center justify-center h-64" role="status" aria-live="polite">
+        <RefreshCw className="w-8 h-8 animate-spin" style={{ color: '#146f84' }} aria-hidden="true" />
+        <span className="sr-only">Loading roles…</span>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Roles & Permissions</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Define custom roles with granular permission control
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handleRefresh}
-            className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
-            title="Refresh"
-          >
-            <RefreshCw className="w-5 h-5 text-gray-500" />
-          </button>
-          {/* RBAC-HIGH-004: seed + create require the roles:create capability.
-              RBAC-M14: the seed offer only renders on a CONFIRMED empty list —
-              on a query error `roles` is just the [] default, and offering a
-              seed there invites a duplicate seed against unknown server state. */}
-          {canCreateRoles && (
-            <>
-              {!error && roles.length === 0 && (
-                <button
-                  onClick={handleSeedRoles}
-                  disabled={seedMutation.isPending}
-                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-                >
-                  {seedMutation.isPending ? (
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Shield className="w-4 h-4" />
-                  )}
-                  Seed Default Roles
-                </button>
-              )}
+    <div className="sd-page">
+      {/* Page header (mockup pattern: eyebrow + serif title + subtitle) */}
+      <div className="sd-pagehead">
+        <span className="sd-eyebrow">People &amp; access</span>
+        <h1 className="sd-page-title">Roles &amp; Permissions</h1>
+        <span className="sd-page-sub">Define custom roles with granular permission control</span>
+      </div>
+
+      {/* Actions row */}
+      <div className="sd-actions">
+        <button onClick={handleRefresh} className="sd-iconbtn" title="Refresh" aria-label="Refresh">
+          <RefreshCw size={16} />
+        </button>
+        {/* RBAC-HIGH-004: seed + create require the roles:create capability.
+            RBAC-M14: the seed offer only renders on a CONFIRMED empty list —
+            on a query error `roles` is just the [] default, and offering a
+            seed there invites a duplicate seed against unknown server state. */}
+        {canCreateRoles && (
+          <>
+            {!error && roles.length === 0 && (
               <button
-                onClick={handleOpenCreate}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors"
+                onClick={handleSeedRoles}
+                disabled={seedMutation.isPending}
+                className="sd-btn-ghost"
               >
-                <Plus className="w-4 h-4" />
-                Create Role
+                {seedMutation.isPending ? (
+                  <RefreshCw size={15} className="animate-spin" aria-hidden="true" />
+                ) : (
+                  <Shield size={15} />
+                )}
+                Seed Default Roles
               </button>
-            </>
-          )}
-        </div>
+            )}
+            <button onClick={handleOpenCreate} className="sd-btn-deep">
+              <Plus size={16} />
+              Create Role
+            </button>
+          </>
+        )}
       </div>
 
       {/* Error Message */}
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3">
-          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
-          <div>
-            <p className="text-sm font-medium text-red-800">
-              Failed to load roles
-            </p>
-            <p className="text-sm text-red-600">{(error as Error).message}</p>
-          </div>
-          <button
-            onClick={() => refetch()}
-            className="ml-auto px-3 py-1 text-sm font-medium text-red-700 hover:bg-red-100 rounded-lg transition-colors"
-          >
+        <div className="sd-banner sd-banner--error" role="alert">
+          <AlertCircle size={19} style={{ color: '#b04a28', flexShrink: 0 }} />
+          <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: '#8e3a1e' }}>Failed to load roles</p>
+          <p style={{ margin: 0, flex: 1, fontSize: 13.5, color: '#3d5c69' }}>{(error as Error).message}</p>
+          <button onClick={() => refetch()} className="sd-btn-ghost" style={{ padding: '6px 13px', fontSize: 12.5, color: '#8e3a1e', borderColor: 'rgba(176,74,40,.35)' }}>
             Retry
           </button>
         </div>
@@ -699,7 +686,7 @@ const TenantRolesPage: React.FC = () => {
           is only the [] default, not a confirmed empty list; the error banner
           above (with Retry) is the whole content. */}
       {roles.length > 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(290px, 1fr))', gap: 16 }}>
           {roles.map((role) => (
             <RoleCard
               key={role.id}
@@ -711,35 +698,28 @@ const TenantRolesPage: React.FC = () => {
         </div>
       ) : error ? null : (
         // Empty State (confirmed empty — the query succeeded with zero roles)
-        <div className="bg-white rounded-xl border border-gray-100 py-16 text-center">
-          <Shield className="w-16 h-16 text-gray-200 mx-auto" />
-          <h3 className="mt-4 text-lg font-semibold text-gray-900">
-            No roles defined
-          </h3>
-          <p className="mt-2 text-sm text-gray-500 max-w-md mx-auto">
-            Create custom roles to manage user permissions. You can also seed
-            default roles to get started quickly.
-          </p>
+        <div className="sd-card sd-empty" style={{ padding: '48px 22px' }}>
+          <Shield size={30} style={{ color: '#8aa0aa', marginBottom: 10 }} aria-hidden="true" />
+          <strong style={{ display: 'block', marginBottom: 6 }}>No roles defined</strong>
+          Create custom roles to manage user permissions. You can also seed
+          default roles to get started quickly.
           {/* RBAC-HIGH-004: seed + create require the roles:create capability. */}
           {canCreateRoles && (
-            <div className="mt-6 flex items-center justify-center gap-3">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, marginTop: 18, flexWrap: 'wrap' }}>
               <button
                 onClick={handleSeedRoles}
                 disabled={seedMutation.isPending}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                className="sd-btn-ghost"
               >
                 {seedMutation.isPending ? (
-                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <RefreshCw size={15} className="animate-spin" aria-hidden="true" />
                 ) : (
-                  <Shield className="w-4 h-4" />
+                  <Shield size={15} />
                 )}
                 Seed Default Roles
               </button>
-              <button
-                onClick={handleOpenCreate}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors"
-              >
-                <Plus className="w-4 h-4" />
+              <button onClick={handleOpenCreate} className="sd-btn-teal">
+                <Plus size={15} />
                 Create Role
               </button>
             </div>

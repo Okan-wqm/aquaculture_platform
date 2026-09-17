@@ -164,73 +164,74 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="sd-modal-backdrop"
       onKeyDown={handleKeyDown}
+      onClick={handleBackdropClick}
     >
-      {/* Backdrop */}
+      {/* Modal — SUDERRA parchment panel */}
       <div
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-        onClick={handleBackdropClick}
-        aria-hidden="true"
-      />
-
-      {/* Modal */}
-      <div
-        className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full p-6"
+        className="sd-modal"
+        style={{ maxWidth: '26rem', width: '100%' }}
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="delete-confirm-title"
         aria-describedby="delete-confirm-description"
       >
-        {/* Header with Icon */}
-        <div className="flex items-center gap-4">
-          <div
-            className={`p-3 rounded-full ${variantStyles.iconBg}`}
-            aria-hidden="true"
-          >
-            {icon || (
-              <IconComponent className={`w-6 h-6 ${variantStyles.iconColor}`} />
-            )}
-          </div>
-          <div>
-            <h3
-              id="delete-confirm-title"
-              className="text-lg font-bold text-gray-900"
+        <div className="sd-modal-body">
+          {/* Header with Icon */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            <div
+              className={variantStyles.iconBg}
+              style={{ display: 'grid', placeItems: 'center', padding: 11, borderRadius: 999 }}
+              aria-hidden="true"
             >
-              {title}
-            </h3>
-            <p
-              id="delete-confirm-description"
-              className="text-sm text-gray-500"
-            >
-              {message}
-            </p>
+              {icon || (
+                <IconComponent className={`w-5 h-5 ${variantStyles.iconColor}`} />
+              )}
+            </div>
+            <div>
+              <h3
+                id="delete-confirm-title"
+                className="sd-modal-title"
+                style={{ fontSize: 17 }}
+              >
+                {title}
+              </h3>
+              <p
+                id="delete-confirm-description"
+                style={{ margin: '3px 0 0', fontSize: 13, color: '#5c7783' }}
+              >
+                {message}
+              </p>
+            </div>
           </div>
+
+          {/* Warning Message */}
+          {warningMessage && (
+            <div
+              className="sd-banner"
+              style={{ marginTop: 14, background: '#fbf3dc', borderColor: 'rgba(146,97,10,.28)' }}
+              role="alert"
+            >
+              <p style={{ margin: 0, fontSize: 13, color: '#92610a', display: 'flex', gap: 7, alignItems: 'flex-start' }}>
+                <AlertTriangle
+                  size={14}
+                  aria-hidden="true"
+                  style={{ flexShrink: 0, marginTop: 2 }}
+                />
+                {warningMessage}
+              </p>
+            </div>
+          )}
         </div>
 
-        {/* Warning Message */}
-        {warningMessage && (
-          <div
-            className="mt-4 p-3 bg-amber-50 rounded-lg border border-amber-100"
-            role="alert"
-          >
-            <p className="text-sm text-amber-700">
-              <AlertTriangle
-                className="w-4 h-4 inline mr-1"
-                aria-hidden="true"
-              />
-              {warningMessage}
-            </p>
-          </div>
-        )}
-
         {/* Actions */}
-        <div className="mt-6 flex items-center justify-end gap-3">
+        <div className="sd-modal-foot">
           <button
             type="button"
             onClick={onClose}
             disabled={isLoading}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
+            className="sd-btn-ghost"
           >
             {cancelLabel}
           </button>
@@ -238,12 +239,12 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
             type="button"
             onClick={onConfirm}
             disabled={isLoading}
-            className={`px-4 py-2 text-sm font-medium text-white ${variantStyles.buttonBg} rounded-lg disabled:opacity-50 flex items-center gap-2 transition-colors`}
+            className="sd-btn-danger"
           >
             {isLoading ? (
               <>
-                <RefreshCw className="w-4 h-4 animate-spin" />
-                Processing...
+                <RefreshCw size={15} className="animate-spin" aria-hidden="true" />
+                Processing…
               </>
             ) : (
               confirmLabel

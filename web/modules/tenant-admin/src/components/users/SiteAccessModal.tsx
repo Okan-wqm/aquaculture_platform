@@ -319,13 +319,15 @@ export const SiteAccessModal: React.FC<SiteAccessModalProps> = ({ isOpen, onClos
   const confirmationIsAssignment = visiblePendingAction?.kind === 'assign';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="presentation">
-      <div
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-        onClick={handleClose}
-        aria-hidden="true"
-      />
-
+    <div
+      className="sd-modal-backdrop"
+      role="presentation"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) handleClose();
+      }}
+    >
+      {/* SUDERRA wrapper re-skin — body internals intentionally untouched
+          (complex session-boundary logic; visual pass only on chrome). */}
       <div
         ref={containerRef}
         onKeyDown={handleKeyDown}
@@ -333,14 +335,15 @@ export const SiteAccessModal: React.FC<SiteAccessModalProps> = ({ isOpen, onClos
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={descriptionId}
-        className="relative flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+        className="sd-modal"
+        style={{ maxWidth: '42rem' }}
       >
-        <div className="flex items-start justify-between gap-4 border-b border-gray-100 px-6 py-5">
+        <div className="sd-modal-head">
           <div>
-            <h2 id={titleId} className="text-lg font-semibold text-gray-900">
+            <h2 id={titleId} className="sd-modal-title">
               Site access for {user.name}
             </h2>
-            <p id={descriptionId} className="mt-1 text-sm text-gray-500">
+            <p id={descriptionId} className="sd-modal-sub">
               Choose which active farm sites this user can access.
             </p>
           </div>
@@ -349,9 +352,9 @@ export const SiteAccessModal: React.FC<SiteAccessModalProps> = ({ isOpen, onClos
             onClick={handleClose}
             disabled={operationPending}
             aria-label="Close site access dialog"
-            className="rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className="sd-iconbtn"
           >
-            <X className="h-5 w-5" aria-hidden="true" />
+            <X size={16} aria-hidden="true" />
           </button>
         </div>
 

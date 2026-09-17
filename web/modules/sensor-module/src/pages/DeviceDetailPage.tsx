@@ -104,7 +104,12 @@ const GET_SENSOR_QUERY = `
       description
       siteId
       departmentId
-      connectionStatus
+      connectionStatus {
+        isConnected
+        lastTestedAt
+        lastError
+        latency
+      }
       protocolConfiguration
       firmwareVersion
       lastCalibratedAt

@@ -1,15 +1,15 @@
 /**
  * Norwegian Regulatory Reports - Type Definitions
  *
- * 8 rapor tipi için TypeScript interface'leri:
- * 1. Sea Lice (Lakselus) - Haftalık
- * 2. Biomass - Aylık
- * 3. Smolt (Settefisk) - Aylık
- * 4. Cleaner Fish (Rensefisk) - Aylık
- * 5. Slaughter (Slakt) - Event-based
- * 6. Welfare Events - ACİL
- * 7. Disease Outbreak - ACİL
- * 8. Escape Report - ACİL
+ * TypeScript interfaces for the 8 report types:
+ * 1. Sea Lice (Lakselus) - weekly
+ * 2. Biomass - monthly
+ * 3. Smolt (Settefisk) - monthly
+ * 4. Cleaner Fish (Rensefisk) - monthly
+ * 5. Slaughter (Slakt) - event-based
+ * 6. Welfare Events - IMMEDIATE
+ * 7. Disease Outbreak - IMMEDIATE
+ * 8. Escape Report - IMMEDIATE
  */
 
 // ============================================================================

@@ -139,6 +139,32 @@
   --animate-fade-in: fadeIn 0.2s ease-out;
   --animate-slide-up: slideUp 0.2s ease-out;
   --animate-slide-down: slideDown 0.2s ease-out;
+
+  /* ============ SUDERRA console tokens (tenant console design port) ============
+     WHAT: the SUDERRA LABS visual language — warm paper surfaces, deep-water
+     rail, teal/mint accents, Instrument Serif display type. Prefixed `sd-` so
+     they ADD to (not replace) the legacy Ocean Blue scale: pages still on the
+     old tokens keep rendering identically while they are migrated one by one.
+     Values are the approved Tenant Console mockup's exact constants. */
+  --color-sd-paper: #f7f4ea;          /* console page background (warm cream) */
+  --color-sd-parchment: #fffdf8;      /* raised surfaces (cards, dropdowns) */
+  --color-sd-ink: #0a1f2b;            /* primary text on paper */
+  --color-sd-ink-soft: #3d5c69;       /* secondary text */
+  --color-sd-ink-muted: #5c7783;      /* tertiary/hint text */
+  --color-sd-ink-faint: #9cbcc6;      /* faint labels on dark rail */
+  --color-sd-teal: #146f84;           /* accent (links, active tabs) */
+  --color-sd-teal-deep: #0b4f60;      /* accent hover/deep */
+  --color-sd-mint: #6ee7c7;           /* live/active accent on dark */
+  --color-sd-mint-soft: #a7e8dc;      /* active rail label color */
+  --color-sd-rail-top: #0b324a;       /* rail gradient stop 1 */
+  --color-sd-rail-mid: #082134;       /* rail gradient stop 2 */
+  --color-sd-rail-bottom: #051523;    /* rail gradient stop 3 */
+  --color-sd-rail-item: #c6dde4;      /* rail item label */
+  --color-sd-rail-icon: #8fb6c2;      /* rail item icon */
+  --color-sd-rail-child: #9cbcc6;     /* rail child label */
+  --color-sd-rail-child-icon: #7fa2ad;/* rail child icon */
+  --color-sd-danger: #b04a28;         /* unread badge / destructive accent */
+  --font-display: 'Instrument Serif', ui-serif, Georgia, serif;
 }
 
 /* Custom keyframes (v4 keeps keyframes in the stylesheet, not the config). */

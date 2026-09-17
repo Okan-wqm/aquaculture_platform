@@ -19,6 +19,7 @@ import {
   IsIn,
   IsNotEmpty,
   Min,
+  MinLength,
   ArrayMinSize,
   ArrayMaxSize,
   ValidateNested,
@@ -51,6 +52,46 @@ export const ALLOWED_DAQ_AGGREGATION_FUNCTIONS = ['min', 'max', 'avg', 'sum'] as
 export const ALLOWED_DAQ_AGGREGATION_INTERVALS = [
   '1min', '5min', '10min', '30min', '1h', '1d',
 ] as const;
+
+/* ------------------------------------------------------------------ */
+/*  DAQ query safety limits (M7)                                       */
+/* ------------------------------------------------------------------ */
+
+/** Raw (unaggregated) queries may span at most 7 days. */
+export const DAQ_RAW_MAX_SPAN_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Aggregated queries may span at most 365 days. */
+export const DAQ_AGG_MAX_SPAN_MS = 365 * 24 * 60 * 60 * 1000;
+
+/**
+ * Hard cap on the total data points a single query may request
+ * (`tagIds × buckets`) — reject with guidance to aggregate instead.
+ */
+export const DAQ_MAX_TOTAL_POINTS = 200_000;
+
+/**
+ * Conservative planning estimate of the raw ingest cadence (one sample per
+ * tag per 10 s) used ONLY to bound a raw query's worst-case point count
+ * before it hits the database; the storage layer's SQL LIMIT stays the hard
+ * bound on what is actually read.
+ */
+export const DAQ_RAW_ASSUMED_SAMPLE_INTERVAL_MS = 10_000;
+
+/** Aggregation interval → bucket width in ms. */
+export const DAQ_INTERVAL_MS: Record<DaqAggregation['interval'], number> = {
+  '1min': 60_000,
+  '5min': 5 * 60_000,
+  '10min': 10 * 60_000,
+  '30min': 30 * 60_000,
+  '1h': 60 * 60_000,
+  '1d': 24 * 60 * 60_000,
+};
+
+/** Per-socket DAQ_QUERY token bucket: sustained rate. */
+export const DAQ_RATE_REFILL_PER_SEC = 5;
+
+/** Per-socket DAQ_QUERY token bucket: burst capacity. */
+export const DAQ_RATE_BURST = 10;
 
 /* ------------------------------------------------------------------ */
 /*  TAG_SUBSCRIBE / TAG_UNSUBSCRIBE                                     */
@@ -167,6 +208,7 @@ export class PinVerifyDto {
 
   @IsString()
   @IsNotEmpty()
+  @MinLength(6)
   @MaxLength(32)
   pin!: string;
 }
@@ -232,6 +274,8 @@ export const SCADA_ERROR_CODES = {
   FORBIDDEN: 'FORBIDDEN',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
   NOT_SUBSCRIBED: 'NOT_SUBSCRIBED',
+  /** Additive (M7): per-socket token-bucket exhaustion on DAQ_QUERY. */
+  RATE_LIMITED: 'RATE_LIMITED',
 } as const;
 
 export type ScadaErrorCode = (typeof SCADA_ERROR_CODES)[keyof typeof SCADA_ERROR_CODES];

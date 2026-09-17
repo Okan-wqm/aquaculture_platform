@@ -44,10 +44,10 @@ const statusColors: Record<MaintenanceScheduleStatus, string> = {
 
 // Status labels
 const statusLabels: Record<MaintenanceScheduleStatus, string> = {
-  ACTIVE: 'Aktif',
-  PAUSED: 'Duraklatıldı',
-  COMPLETED: 'Tamamlandı',
-  EXPIRED: 'Süresi Doldu',
+  ACTIVE: 'Active',
+  PAUSED: 'Paused',
+  COMPLETED: 'Completed',
+  EXPIRED: 'Expired',
 };
 
 // Category labels
@@ -55,26 +55,26 @@ const categoryLabels: Record<MaintenanceCategory, string> = {
   MECHANICAL: 'Mekanik',
   ELECTRICAL: 'Elektrik',
   PLUMBING: 'Tesisat',
-  CLEANING: 'Temizlik',
-  LUBRICATION: 'Yağlama',
-  INSPECTION: 'Muayene',
-  CALIBRATION: 'Kalibrasyon',
-  FILTER_CHANGE: 'Filtre Değişimi',
-  SAFETY: 'Güvenlik',
-  GENERAL: 'Genel',
+  CLEANING: 'Cleaning',
+  LUBRICATION: 'Lubrication',
+  INSPECTION: 'Inspection',
+  CALIBRATION: 'Calibration',
+  FILTER_CHANGE: 'Filter Change',
+  SAFETY: 'Safety',
+  GENERAL: 'General',
 };
 
 // Recurrence type labels
 const recurrenceLabels: Record<RecurrenceType, string> = {
-  DAILY: 'Günlük',
-  WEEKLY: 'Haftalık',
-  BIWEEKLY: 'İki Haftada Bir',
-  MONTHLY: 'Aylık',
-  QUARTERLY: 'Üç Ayda Bir',
-  SEMIANNUALLY: 'Altı Ayda Bir',
-  ANNUALLY: 'Yıllık',
-  CUSTOM: 'Özel',
-  METER_BASED: 'Sayaç Bazlı',
+  DAILY: 'Daily',
+  WEEKLY: 'Weekly',
+  BIWEEKLY: 'Bi-weekly',
+  MONTHLY: 'Monthly',
+  QUARTERLY: 'Quarterly',
+  SEMIANNUALLY: 'Semi-annually',
+  ANNUALLY: 'Yearly',
+  CUSTOM: 'Custom',
+  METER_BASED: 'Meter-based',
 };
 
 interface ScheduleFormData {
@@ -122,7 +122,7 @@ export const MaintenanceSchedulesPage: React.FC = () => {
   const [formData, setFormData] = useState<ScheduleFormData>(defaultFormData);
   const [editingId, setEditingId] = useState<string | null>(null);
 
-  // Bakım Kapanışı (completeMaintenance) modal state — separate from the
+  // Maintenance completion (completeMaintenance) modal state — separate from the
   // edit modal because the surfaces don't overlap in semantics.
   const [completingSchedule, setCompletingSchedule] =
     useState<MaintenanceSchedule | null>(null);
@@ -229,7 +229,7 @@ export const MaintenanceSchedulesPage: React.FC = () => {
   };
 
   const handleDelete = async (id: string) => {
-    if (window.confirm('Bu bakım planını silmek istediğinizden emin misiniz?')) {
+    if (window.confirm('Are you sure you want to delete this maintenance schedule?')) {
       try {
         await deleteMutation.mutateAsync(id);
         refetch();
@@ -273,7 +273,7 @@ export const MaintenanceSchedulesPage: React.FC = () => {
   // Format date
   const formatDate = (dateStr?: string) => {
     if (!dateStr) return '-';
-    return new Date(dateStr).toLocaleDateString('tr-TR');
+    return new Date(dateStr).toLocaleDateString('en-GB');
   };
 
   // Check if overdue
@@ -288,7 +288,7 @@ export const MaintenanceSchedulesPage: React.FC = () => {
   if (isBlockingError(error, (data?.items?.length ?? 0) > 0)) {
     return (
       <div className="p-6">
-        <Alert type="error">Bakım planları yüklenirken bir hata oluştu.</Alert>
+        <Alert type="error">An error occurred while loading maintenance schedules.</Alert>
       </div>
     );
   }
@@ -301,21 +301,21 @@ export const MaintenanceSchedulesPage: React.FC = () => {
           type="warning"
           action={{ label: 'Yeniden Dene', onClick: () => refetch() }}
         >
-          Bakım planları yenilenemedi — son yüklenen veriler gösteriliyor.
+          Could not refresh schedules — showing the last loaded data.
         </Alert>
       )}
 
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Bakım Planları</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Maintenance Schedules</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Önleyici bakım planlarını görüntüleyin ve yönetin
+            View and manage preventive maintenance schedules
           </p>
         </div>
         <div className="flex items-center gap-2">
           <ProcessAutoGenerateButton />
-          <Button onClick={handleOpenCreate}>Yeni Bakım Planı</Button>
+          <Button onClick={handleOpenCreate}>New Schedule</Button>
         </div>
       </div>
 
@@ -323,7 +323,7 @@ export const MaintenanceSchedulesPage: React.FC = () => {
       <Card className="p-4">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <Input
-            placeholder="Ara..."
+            placeholder="Search…"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
@@ -331,7 +331,7 @@ export const MaintenanceSchedulesPage: React.FC = () => {
             value={filter.status?.[0] || ''}
             onChange={(e) => handleFilterChange('status', e.target.value)}
             options={[
-              { value: '', label: 'Tüm Durumlar' },
+              { value: '', label: 'All Statuses' },
               ...Object.entries(statusLabels).map(([value, label]) => ({
                 value,
                 label,
@@ -342,7 +342,7 @@ export const MaintenanceSchedulesPage: React.FC = () => {
             value={filter.category?.[0] || ''}
             onChange={(e) => handleFilterChange('category', e.target.value)}
             options={[
-              { value: '', label: 'Tüm Kategoriler' },
+              { value: '', label: 'All Categories' },
               ...Object.entries(categoryLabels).map(([value, label]) => ({
                 value,
                 label,
@@ -364,7 +364,7 @@ export const MaintenanceSchedulesPage: React.FC = () => {
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Kod / İsim
+                    Code / Name
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Kategori
@@ -376,13 +376,13 @@ export const MaintenanceSchedulesPage: React.FC = () => {
                     Durum
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Sonraki Tarih
+                    Next Tarih
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Çalıştırma
+                    Next Run
                   </th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    İşlemler
+                    Actions
                   </th>
                 </tr>
               </thead>
@@ -390,7 +390,7 @@ export const MaintenanceSchedulesPage: React.FC = () => {
                 {filteredItems.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
-                      Henüz bakım planı bulunmuyor
+                      No schedules yet
                     </td>
                   </tr>
                 ) : (
@@ -420,7 +420,7 @@ export const MaintenanceSchedulesPage: React.FC = () => {
                           }`}
                         >
                           {formatDate(item.nextDueDate)}
-                          {isOverdue(item.nextDueDate) && ' (Gecikmiş)'}
+                          {isOverdue(item.nextDueDate) && ' (Overdue)'}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
@@ -432,7 +432,7 @@ export const MaintenanceSchedulesPage: React.FC = () => {
                             onClick={() => handleOpenEdit(item)}
                             className="text-indigo-600 hover:text-indigo-900"
                           >
-                            Düzenle
+                            Edit
                           </button>
                           {item.status === 'ACTIVE' && (
                             <button
@@ -456,9 +456,9 @@ export const MaintenanceSchedulesPage: React.FC = () => {
                             <button
                               onClick={() => setCompletingSchedule(item)}
                               className="text-emerald-700 hover:text-emerald-900"
-                              title="Bu plan döngüsünü kapat (sayaç + notlar)"
+                              title="Complete this cycle (meter + notes)"
                             >
-                              Bakımı Kapat
+                              Complete Cycle
                             </button>
                           )}
                           <button
@@ -481,7 +481,7 @@ export const MaintenanceSchedulesPage: React.FC = () => {
         {data && data.totalPages > 1 && (
           <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
             <div className="text-sm text-gray-500">
-              Toplam {data.total} kayıt, Sayfa {data.page} / {data.totalPages}
+              {data.total} records total, Page {data.page} / {data.totalPages}
             </div>
             <div className="flex gap-2">
               <Button
@@ -490,7 +490,7 @@ export const MaintenanceSchedulesPage: React.FC = () => {
                 disabled={page === 1}
                 onClick={() => setPage((p) => p - 1)}
               >
-                Önceki
+                Previous
               </Button>
               <Button
                 variant="secondary"
@@ -498,7 +498,7 @@ export const MaintenanceSchedulesPage: React.FC = () => {
                 disabled={!data.hasNextPage}
                 onClick={() => setPage((p) => p + 1)}
               >
-                Sonraki
+                Next
               </Button>
             </div>
           </div>
@@ -507,19 +507,20 @@ export const MaintenanceSchedulesPage: React.FC = () => {
 
       {/* Create/Edit Modal */}
       <Modal
+        className="sd-f2"
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        title={editingId ? 'Bakım Planı Düzenle' : 'Yeni Bakım Planı'}
+        title={editingId ? 'Edit Schedule' : 'New Schedule'}
       >
         <form onSubmit={handleSubmit} className="space-y-4">
           <Input
-            label="Plan Adı"
+            label="Schedule Name"
             value={formData.name}
             onChange={(e) => setFormData({ ...formData, name: e.target.value })}
             required
           />
           <Input
-            label="Açıklama"
+            label="Description"
             value={formData.description}
             onChange={(e) => setFormData({ ...formData, description: e.target.value })}
           />
@@ -549,14 +550,14 @@ export const MaintenanceSchedulesPage: React.FC = () => {
           </div>
           <div className="grid grid-cols-2 gap-4">
             <Input
-              label="Başlangıç Tarihi"
+              label="Start Date"
               type="date"
               value={formData.startDate}
               onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
               required
             />
             <Input
-              label="Bitiş Tarihi"
+              label="End Date"
               type="date"
               value={formData.endDate}
               onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
@@ -564,7 +565,7 @@ export const MaintenanceSchedulesPage: React.FC = () => {
           </div>
           <div className="grid grid-cols-2 gap-4">
             <Input
-              label="Tahmini Süre (dk)"
+              label="Estimated Time (min)"
               type="number"
               value={formData.estimatedDurationMinutes}
               onChange={(e) =>
@@ -603,11 +604,11 @@ export const MaintenanceSchedulesPage: React.FC = () => {
                 className="mr-2"
               />
               <label htmlFor="autoGenerate" className="text-sm text-gray-700">
-                Otomatik İş Emri Oluştur
+                Auto-generate Work Order
               </label>
             </div>
             <Input
-              label="Kaç Gün Önce"
+              label="Days Before"
               type="number"
               value={formData.generateDaysBefore}
               onChange={(e) =>
@@ -626,7 +627,7 @@ export const MaintenanceSchedulesPage: React.FC = () => {
           />
           <div className="flex justify-end gap-2 pt-4">
             <Button variant="secondary" onClick={() => setIsModalOpen(false)}>
-              İptal
+              Cancel
             </Button>
             <Button
               type="submit"

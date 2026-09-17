@@ -75,7 +75,7 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
 
   const weekDays = getWeekDays(currentDate);
   const monthDays = getMonthDays(currentDate);
-  const dayNames = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'];
+  const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
   const getCategoryDot = (category: string) => {
     const colors: Record<string, string> = {
@@ -119,8 +119,8 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
           </button>
           <h3 className="text-lg font-semibold text-gray-900">
             {viewMode === 'week'
-              ? `${weekDays[0].toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' })} - ${weekDays[6].toLocaleDateString('tr-TR', { day: 'numeric', month: 'short', year: 'numeric' })}`
-              : currentDate.toLocaleDateString('tr-TR', { month: 'long', year: 'numeric' })}
+              ? `${weekDays[0].toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} - ${weekDays[6].toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`
+              : currentDate.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}
           </h3>
           <button
             onClick={() => (viewMode === 'week' ? navigateWeek(1) : navigateMonth(1))}
@@ -139,7 +139,7 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
             onClick={() => setCurrentDate(new Date())}
             className="px-3 py-1 text-sm text-blue-600 hover:bg-blue-50 rounded-lg"
           >
-            Bugün
+            Today
           </button>
         </div>
 
@@ -149,13 +149,13 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
             onClick={() => setViewMode('week')}
             className={`px-3 py-1.5 text-sm rounded-md transition-colors ${viewMode === 'week' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
           >
-            Hafta
+            Week
           </button>
           <button
             onClick={() => setViewMode('month')}
             className={`px-3 py-1.5 text-sm rounded-md transition-colors ${viewMode === 'month' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
           >
-            Ay
+            Month
           </button>
         </div>
       </div>
@@ -181,7 +181,7 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
                       {day.getDate()}
                     </p>
                     {dayTasks.length > 0 && (
-                      <span className="text-xs text-gray-500">{dayTasks.length} görev</span>
+                      <span className="text-xs text-gray-500">{dayTasks.length} tasks</span>
                     )}
                   </div>
                   <div className="space-y-1">
@@ -211,7 +211,7 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
                     ))}
                     {dayTasks.length > 4 && (
                       <p className="text-xs text-gray-400 text-center">
-                        +{dayTasks.length - 4} daha
+                        +{dayTasks.length - 4} more
                       </p>
                     )}
                   </div>
@@ -281,9 +281,10 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
       {/* Day Tasks Panel */}
       {selectedDayTasks && (
         <Modal
+          className="sd-f2"
           isOpen
           onClose={() => setSelectedDayTasks(null)}
-          title={`${selectedDayTasks[0]?.dueDate} - ${selectedDayTasks.length} Görev`}
+          title={`${selectedDayTasks[0]?.dueDate} - ${selectedDayTasks.length} Tasks`}
           size="md"
         >
           <div className="space-y-2">

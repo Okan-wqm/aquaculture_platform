@@ -21,7 +21,6 @@ import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { useQuery } from '@tanstack/react-query';
 import { gql } from 'graphql-tag';
 
-
 import { useAuth } from './useAuth';
 
 import type {

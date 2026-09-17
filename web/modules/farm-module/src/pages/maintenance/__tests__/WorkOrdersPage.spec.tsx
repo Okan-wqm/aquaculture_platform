@@ -105,7 +105,7 @@ describe('WorkOrdersPage', () => {
     renderWithProviders(<WorkOrdersPage />);
     await screen.findByText('Pump bearing replacement');
 
-    await user.type(screen.getByPlaceholderText('Ara...'), 'bearing');
+    await user.type(screen.getByPlaceholderText('Search…'), 'bearing');
 
     expect(screen.getByText('Pump bearing replacement')).toBeInTheDocument();
     expect(screen.queryByText('Net cleaning')).not.toBeInTheDocument();

@@ -94,7 +94,7 @@ describe('TasksPage', () => {
     renderWithProviders(<TasksPage />, { route: '/tasks', path: 'tasks' });
     await screen.findAllByText(/Morning oxygen check/);
 
-    const autoRulesTab = screen.getByRole('button', { name: /Oto\. Kurallar/ });
+    const autoRulesTab = screen.getByRole('button', { name: /Auto Rules/ });
     await user.click(autoRulesTab);
 
     await waitFor(() => {

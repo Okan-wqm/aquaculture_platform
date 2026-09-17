@@ -14,7 +14,7 @@ import {
   useRegulatorySettings,
   useSubmitCleanerFishReport,
 } from '../../../hooks/useRegulatory';
-import type { SubmitCleanerFishReportInput, ReportSubmissionResult } from '../../../hooks/useRegulatory';
+import type { SubmitCleanerFishReportInput } from '../../../hooks/useRegulatory';
 import {
   CleanerFishSpecies,
   CleanerFishSpeciesCount,
@@ -1122,7 +1122,9 @@ export const CleanerFishReportTab: React.FC<CleanerFishReportTabProps> = ({ site
   const clientRef = useStableClientReference();
   const { effectiveSiteId, siteMappings, setSelectedSiteId, showSelector } =
     useEffectiveReportSite(siteId);
-  const [submissionResult, setSubmissionResult] = useState<ReportSubmissionResult | null>(null);
+  // Mapping name is optional; neutral fallback keeps titles non-fabricated.
+  const effectiveSiteName =
+    siteMappings.find((m) => m.siteId === effectiveSiteId)?.siteName ?? 'Unknown site';
 
   // Form handlers
   const handleFormChange = useCallback((updates: Partial<CleanerFishFormData>) => {
@@ -1159,7 +1161,6 @@ export const CleanerFishReportTab: React.FC<CleanerFishReportTabProps> = ({ site
   const handleSubmit = useCallback(async () => {
     setIsSubmitting(true);
     setError(null);
-    setSubmissionResult(null);
     try {
       // FARM-HIGH-128: fail-closed identity — never ship a silent lokalitetsnummer 0.
       const identity = buildRegulatoryIdentity(regulatorySettings, effectiveSiteId ?? '');
@@ -1215,8 +1216,7 @@ export const CleanerFishReportTab: React.FC<CleanerFishReportTabProps> = ({ site
         })),
       };
 
-      const result = await submitCleanerFishMutation.mutateAsync(input);
-      setSubmissionResult(result);
+      await submitCleanerFishMutation.mutateAsync(input);
 
       if (result.success) {
         // FARM-HIGH-126: rotate the stable client reference only on success.
@@ -1267,10 +1267,10 @@ export const CleanerFishReportTab: React.FC<CleanerFishReportTabProps> = ({ site
         id: 'review',
         title: 'Review',
         description: 'Verify and submit',
-        content: <ReviewStep formData={formData} siteName={"Default Site"} />,
+        content: <ReviewStep formData={formData} siteName={effectiveSiteName} />,
       },
     ],
-    [formData, handleFormChange, tanks, tankOptions]
+    [formData, handleFormChange, tanks, tankOptions, effectiveSiteName]
   );
 
   return (

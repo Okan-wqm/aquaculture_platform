@@ -34,7 +34,7 @@ import React, {
 import { useShallow } from 'zustand/react/shallow';
 import { X, GripHorizontal, Maximize2, Minimize2 } from 'lucide-react';
 
-import { useOperatorStore } from '../../store/scada/operatorStore';
+import { useScadaPackageStore } from '../../store/scada/createScadaStore';
 import type { ViewOverlay } from '../../types/scada-runtime.types';
 
 /* ------------------------------------------------------------------ */
@@ -474,15 +474,81 @@ const IframeOverlay = memo<OverlayItemProps>(
 IframeOverlay.displayName = 'IframeOverlay';
 
 /* ------------------------------------------------------------------ */
+/*  ToastOverlay — transient message with severity styling (T7i)       */
+/* ------------------------------------------------------------------ */
+
+const TOAST_AUTO_DISMISS_MS = 6_000;
+
+const TOAST_SEVERITY_STYLES: Record<string, { bar: string; icon: string; text: string }> = {
+  error:   { bar: 'bg-red-600',    icon: 'text-red-400',    text: 'text-gray-100' },
+  warning: { bar: 'bg-orange-500', icon: 'text-orange-400', text: 'text-gray-100' },
+  success: { bar: 'bg-green-600',  icon: 'text-green-400',  text: 'text-gray-100' },
+  info:    { bar: 'bg-blue-600',   icon: 'text-blue-400',   text: 'text-gray-100' },
+};
+
+/**
+ * Renders the ACTUAL toast message text (the old flow put the severity
+ * string into the dialog title and dropped the message entirely).
+ * Auto-dismisses after TOAST_AUTO_DISMISS_MS.
+ */
+const ToastOverlay = memo<{ overlay: ViewOverlay; onClose: (id: string) => void }>(
+  ({ overlay, onClose }) => {
+    const severity = (overlay.severity ?? 'info').toLowerCase();
+    const styles = TOAST_SEVERITY_STYLES[severity] ?? TOAST_SEVERITY_STYLES.info;
+    const handleClose = useCallback(() => onClose(overlay.id), [onClose, overlay.id]);
+
+    useEffect(() => {
+      const timer = setTimeout(handleClose, TOAST_AUTO_DISMISS_MS);
+      return () => clearTimeout(timer);
+    }, [handleClose]);
+
+    return (
+      <div
+        role="status"
+        aria-live="polite"
+        className="fixed bottom-16 right-4 flex items-stretch overflow-hidden rounded-lg shadow-2xl bg-gray-900 border border-gray-700 min-w-[280px] max-w-[420px]"
+        style={{ zIndex: OVERLAY_Z_BASE + overlay.zIndex }}
+      >
+        <div className={`w-1.5 shrink-0 ${styles.bar}`} aria-hidden="true" />
+        <div className="flex items-start gap-2 px-3 py-2.5">
+          <span className={`text-xs font-bold uppercase tracking-wide mt-0.5 ${styles.icon}`}>
+            {severity}
+          </span>
+          <div className="flex-1 min-w-0">
+            {overlay.title && (
+              <div className="text-xs font-semibold text-gray-300 truncate">
+                {overlay.title}
+              </div>
+            )}
+            <div className={`text-sm break-words ${styles.text}`}>
+              {overlay.message ?? overlay.title ?? ''}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleClose}
+            className="text-gray-500 hover:text-gray-200 transition-colors shrink-0"
+            aria-label="Dismiss notification"
+          >
+            <X size={12} aria-hidden="true" />
+          </button>
+        </div>
+      </div>
+    );
+  },
+);
+ToastOverlay.displayName = 'ToastOverlay';
+
+/* ------------------------------------------------------------------ */
 /*  ViewOverlayManager                                                  */
 /* ------------------------------------------------------------------ */
 
 export const ViewOverlayManager = memo(() => {
   const { activeOverlays, closeOverlay, bringOverlayToFront } =
-    useOperatorStore(
+    useScadaPackageStore(
       useShallow((s) => ({
         activeOverlays:     s.activeOverlays,
-        closeOverlay:       s.closeOverlay,
+        closeOverlay:       s.closeViewOverlay,
         bringOverlayToFront: s.bringOverlayToFront,
       })),
     );
@@ -509,6 +575,14 @@ export const ViewOverlayManager = memo(() => {
                 overlay={overlay}
                 onClose={closeOverlay}
                 onBringToFront={bringOverlayToFront}
+              />
+            );
+          case 'toast':
+            return (
+              <ToastOverlay
+                key={overlay.id}
+                overlay={overlay}
+                onClose={closeOverlay}
               />
             );
           case 'iframe':

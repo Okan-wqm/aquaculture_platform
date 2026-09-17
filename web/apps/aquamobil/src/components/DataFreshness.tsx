@@ -9,9 +9,15 @@ import type { ReactElement } from 'react';
  * age stamp. Every surface that shows operational values (tank readings, tank
  * cards, the last-synced clock) renders age through THIS component so the
  * staleness tiers mean the same thing everywhere:
- *   - fresh  (< 2 min): green — actionable as "now"
- *   - aging  (< 15 min): amber — usable, but check the connection
- *   - stale  (older): red — do NOT treat as current
+ *   - fresh  (< 2 min): ok token — actionable as "now"
+ *   - aging  (< 15 min): warn token — usable, but check the connection
+ *   - stale  (older): crit token — do NOT treat as current
+ *
+ * v4: the tiers wear the semantic tokens rather than a green/amber/red ramp
+ * with a per-theme twin each, so one class per tier is correct in night, day
+ * and colour. The tier MEANINGS are unchanged — this stamp is the only place
+ * the app says how old a number is, and softening it would be a safety
+ * regression.
  */
 
 const FRESH_CEILING_MS = 2 * 60 * 1000;
@@ -38,21 +44,16 @@ function formatAge(ageMs: number, dateStr: string): string {
 
 export function DataFreshness({ timestamp, label, className }: DataFreshnessProps): ReactElement {
   if (!timestamp) {
-    return (
-      <span className={clsx('text-xs font-medium text-gray-400 dark:text-gray-500', className)}>
-        No data
-      </span>
-    );
+    return <span className={clsx('text-meta font-medium text-ink-3', className)}>No data</span>;
   }
 
   const ageMs = Date.now() - new Date(timestamp).getTime();
-  const tier =
-    ageMs < FRESH_CEILING_MS ? 'fresh' : ageMs < AGING_CEILING_MS ? 'aging' : 'stale';
+  const tier = ageMs < FRESH_CEILING_MS ? 'fresh' : ageMs < AGING_CEILING_MS ? 'aging' : 'stale';
 
   const tierClass = {
-    fresh: 'text-green-600 dark:text-green-400',
-    aging: 'text-amber-600 dark:text-amber-400',
-    stale: 'text-red-600 dark:text-red-400',
+    fresh: 'text-ok',
+    aging: 'text-warn',
+    stale: 'text-crit',
   }[tier];
 
   const ageText = formatAge(ageMs, timestamp);
@@ -62,7 +63,7 @@ export function DataFreshness({ timestamp, label, className }: DataFreshnessProp
     <span
       title={exact}
       aria-label={`${label ? `${label} ` : ''}${ageText} (${exact})`}
-      className={clsx('text-xs font-medium tabular-nums', tierClass, className)}
+      className={clsx('text-meta font-medium font-mono tabular-nums', tierClass, className)}
     >
       {label ? `${label} ` : ''}
       {ageText}

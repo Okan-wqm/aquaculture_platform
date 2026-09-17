@@ -10,9 +10,11 @@ import {
   ADMIN_BILLING_NAV_ITEMS,
   Header,
   Sidebar,
+  SuderraSidebar,
   createTenantInvalidationKey,
   type NavigationItem,
   type SidebarTheme,
+  type SuderraNavSection,
   useAuthContext,
   useAuth,
   useTenantContext,
@@ -260,7 +262,6 @@ const MODULE_NAV_CONFIG: Record<string, NavigationItem> = {
       { id: 'sites-setup', label: 'Setup', path: '/sites/setup' },
       { id: 'sites-tanks', label: 'Tanks & Ponds', path: '/sites/tanks' },
       { id: 'sites-feeding', label: 'Feeding', path: '/sites/feeding' },
-      { id: 'sites-feeding-records', label: 'Feed Records & Inventory', path: '/sites/feeding/records' },
       { id: 'sites-water-chemistry', label: 'Water Chemistry', path: '/sites/water-chemistry' },
       { id: 'sites-storage', label: 'Storage & Stock', path: '/sites/storage' },
       { id: 'sites-tasks', label: 'Tasks', path: '/sites/tasks' },
@@ -361,6 +362,172 @@ const moduleUserBaseNavigation: NavigationItem[] = [
 ];
 
 // ============================================================================
+// SUDERRA tenant console rail — section grouping + icon mapping
+// ============================================================================
+
+/**
+ * Rail icons for top-level items. The SUDERRA sidebar renders its own stroke
+ * icon registry; existing nav data carries legacy icon names, so key items are
+ * re-keyed to the mockup's icon set by nav id.
+ */
+const RAIL_ITEM_ICONS: Record<string, string> = {
+  company: 'building',
+  'tenant-dashboard': 'gauge',
+  dashboard: 'gauge',
+  messaging: 'chat',
+  'tenant-users': 'users',
+  'tenant-roles': 'shield',
+  'tenant-activity': 'pulse',
+  'tenant-modules': 'blocks',
+  'tenant-communication': 'comms',
+  'tenant-messages': 'mail',
+  'tenant-support': 'lifebuoy',
+  'tenant-announcements': 'megaphone',
+  'tenant-devices': 'drive',
+  'tenant-database': 'database',
+  'tenant-audit-log': 'scroll',
+  'tenant-billing': 'card',
+  'tenant-settings': 'sliders',
+  'farm-module': 'waves',
+  'sensor-module': 'signal',
+  'hr-module': 'contact',
+  'hydroponics-module': 'wheat',
+  analytics: 'linechart',
+  reports: 'report',
+};
+
+/** Rail icons for module children (nav child ids → mockup icon names). */
+const RAIL_CHILD_ICONS: Record<string, string> = {
+  'sites-environment': 'thermo',
+  'sites-setup': 'wrench',
+  'sites-tanks': 'droplet',
+  'sites-feeding': 'wheat',
+  'sites-water-chemistry': 'ph',
+  'sites-storage': 'warehouse',
+  'sites-tasks': 'checks',
+  'sites-health': 'lifebuoy',
+  'sites-maintenance': 'wrench',
+  'sites-harvest': 'basket',
+  'sites-reports': 'bars',
+  'sites-finance': 'card',
+  'sites-analytics': 'linechart',
+  'sensor-dashboard': 'gauge',
+  'sensor-devices': 'chip',
+  'sensor-readings': 'linechart',
+  'sensor-alerts': 'bell',
+  'sensor-automation': 'workflow',
+  'sensor-water-chemistry': 'ph',
+  'sensor-plc': 'chip',
+  'sensor-plc-connections': 'network',
+  'sensor-plc-feeding': 'wheat',
+  'sensor-plc-alarms': 'bell',
+  'sensor-processes': 'network',
+  'sensor-scada': 'expand',
+  'hr-dashboard': 'gauge',
+  'hr-employees': 'users',
+  'hr-departments': 'contact',
+  'hr-scheduling': 'calendar',
+  'hr-crew': 'users',
+  'hr-attendance': 'clock',
+  'hr-leaves': 'calendar',
+  'hr-training': 'contact',
+  'hr-payroll': 'banknote',
+  'hr-finance': 'card',
+  'hydroponics-setup': 'wrench',
+  'hydroponics-general': 'sliders',
+  'hydroponics-water': 'droplet',
+  'hydroponics-user': 'user',
+  'hydroponics-result': 'linechart',
+  'hydroponics-pid-sim': 'workflow',
+};
+
+/** Edge devices entry (page + route exist; surfaced in the Account section). */
+const EDGE_DEVICES_ITEM: NavigationItem = {
+  id: 'tenant-devices',
+  label: 'Edge devices',
+  path: '/tenant/devices',
+  icon: 'drive',
+};
+
+const withRailIcons = (items: NavigationItem[]): NavigationItem[] =>
+  items.map((item) => ({
+    ...item,
+    icon: RAIL_ITEM_ICONS[item.id] ?? item.icon,
+    children: item.children?.map((child) => ({
+      ...child,
+      icon: RAIL_CHILD_ICONS[child.id] ?? child.icon,
+    })),
+  }));
+
+/**
+ * Compose the grouped rail sections for tenant-side roles (TENANT_ADMIN and
+ * module users). Structure follows the approved Tenant Console mockup:
+ * Overview / People & access / Modules / Communication / Account. Every REAL
+ * nav item keeps its route — the mockup's curated subset only decides the
+ * grouping, items it omitted (Environment, PLC submenu, Hydroponics…) are
+ * kept under their module parent so nothing is lost.
+ */
+const buildTenantSections = (
+  userRole: string | undefined,
+  moduleNavigationItems: NavigationItem[],
+  delegatedItems: NavigationItem[],
+): SuderraNavSection[] => {
+  const base =
+    userRole === 'TENANT_ADMIN' ? tenantAdminBaseNavigation : moduleUserBaseNavigation;
+  const pool: NavigationItem[] = [
+    ...base,
+    ...delegatedItems.filter((d) => !base.some((b) => b.id === d.id)),
+  ];
+  const byId = (id: string): NavigationItem | undefined => pool.find((i) => i.id === id);
+  const pick = (ids: string[]): NavigationItem[] =>
+    ids.map(byId).filter((item): item is NavigationItem => !!item);
+
+  const moduleItems = moduleNavigationItems.filter(
+    (item) => item.id !== 'divider-modules' && item.path !== '',
+  );
+  const comms = byId('tenant-communication');
+
+  const sections: SuderraNavSection[] = [
+    {
+      id: 'sec-overview',
+      label: 'Overview',
+      items: pick(
+        userRole === 'TENANT_ADMIN'
+          ? ['company', 'tenant-dashboard', 'messaging']
+          : ['company', 'dashboard', 'messaging', 'analytics', 'reports'],
+      ),
+    },
+    {
+      id: 'sec-people',
+      label: 'People & access',
+      items: pick(['tenant-users', 'tenant-roles', 'tenant-activity']),
+    },
+    {
+      id: 'sec-modules',
+      label: 'Modules',
+      items: [...pick(['tenant-modules']), ...moduleItems],
+    },
+    {
+      id: 'sec-comms',
+      label: 'Communication',
+      items: comms?.children ?? pick(['tenant-messages', 'tenant-support', 'tenant-announcements']),
+    },
+    {
+      id: 'sec-account',
+      label: 'Account',
+      items: [
+        ...(userRole === 'TENANT_ADMIN' ? [EDGE_DEVICES_ITEM] : []),
+        ...pick(['tenant-database', 'tenant-audit-log', 'tenant-billing', 'tenant-settings']),
+      ],
+    },
+  ];
+
+  return sections
+    .map((section) => ({ ...section, items: withRailIcons(section.items) }))
+    .filter((section) => section.items.length > 0);
+};
+
+// ============================================================================
 // Layout Component
 // ============================================================================
 
@@ -411,6 +578,22 @@ const MainLayout: React.FC = () => {
   }, [modules]);
 
   /**
+   * MT-HIGH-060 delegation: a non-admin tenant user whose custom role grants a
+   * delegatable panel capability sees just those tenant items (Users/Roles/
+   * Settings) alongside their normal module nav. hasPermission bypasses
+   * admins and is fail-closed for everyone else.
+   */
+  const delegatedTenantItems = useMemo(() => {
+    if (userRole === 'TENANT_ADMIN' || userRole === 'SUPER_ADMIN') {
+      return [];
+    }
+    return tenantAdminBaseNavigation.filter((item) => {
+      const cap = DELEGATABLE_TENANT_NAV[item.id];
+      return cap !== undefined && hasPermission(cap);
+    });
+  }, [userRole, hasPermission]);
+
+  /**
    * Role-based navigation menu with dynamic modules.
    * Depends on primitive userRole string, not function references.
    */
@@ -421,16 +604,16 @@ const MainLayout: React.FC = () => {
     if (userRole === 'TENANT_ADMIN') {
       return [...tenantAdminBaseNavigation, ...moduleNavigationItems];
     }
-    // MT-HIGH-060 delegation: a non-admin tenant user whose custom role grants a
-    // delegatable panel capability sees just those tenant items (Users/Roles/
-    // Settings) appended to their normal module nav. hasPermission bypasses
-    // admins (handled above) and is fail-closed for everyone else.
-    const delegatedTenantItems = tenantAdminBaseNavigation.filter((item) => {
-      const cap = DELEGATABLE_TENANT_NAV[item.id];
-      return cap !== undefined && hasPermission(cap);
-    });
     return [...moduleUserBaseNavigation, ...delegatedTenantItems, ...moduleNavigationItems];
-  }, [userRole, moduleNavigationItems, hasPermission]);
+  }, [userRole, moduleNavigationItems, delegatedTenantItems]);
+
+  /**
+   * SUDERRA rail sections for tenant-side roles (TENANT_ADMIN + module users).
+   */
+  const tenantSections = useMemo(
+    () => buildTenantSections(userRole, moduleNavigationItems, delegatedTenantItems),
+    [userRole, moduleNavigationItems, delegatedTenantItems],
+  );
 
   /**
    * Logo text based on role
@@ -582,22 +765,41 @@ const MainLayout: React.FC = () => {
     </button>
   ), [handleSidebarToggle]);
 
+  // Tenant-side roles get the SUDERRA rail; SUPER_ADMIN keeps the legacy
+  // Sidebar until its own console redesign lands.
+  const isSuperAdmin = userRole === 'SUPER_ADMIN';
+
   return (
-    <div className="min-h-screen bg-gray-50 flex">
+    <div className={`min-h-screen flex ${isSuperAdmin ? 'bg-gray-50' : 'bg-sd-paper'}`}>
       {/* Sidebar */}
-      <Sidebar
-        items={navigationItems}
-        activePath={location.pathname}
-        collapsed={sidebarCollapsed}
-        onNavigate={handleNavigate}
-        onCollapsedChange={handleSidebarToggle}
-        theme={theme}
-        logo={logoElement}
-        userRoles={userRole ? [userRole] : []}
-      />
+      {isSuperAdmin ? (
+        <Sidebar
+          items={navigationItems}
+          activePath={location.pathname}
+          collapsed={sidebarCollapsed}
+          onNavigate={handleNavigate}
+          onCollapsedChange={handleSidebarToggle}
+          theme={theme}
+          logo={logoElement}
+          userRoles={userRole ? [userRole] : []}
+        />
+      ) : (
+        <SuderraSidebar
+          sections={tenantSections}
+          activePath={location.pathname}
+          onNavigate={handleNavigate}
+          // brandName/brandSub are real (tenant?.name + role); statusText is a
+          // STATIC chip — there is no live platform-status endpoint yet.
+          brandName={tenant?.name || 'Suderra Aqua'}
+          brandSub={userRole === 'TENANT_ADMIN' ? 'Tenant console' : 'Workspace'}
+          logoSrc="/logo4-mark.png"
+          statusText="Live"
+          userRoles={userRole ? [userRole] : []}
+        />
+      )}
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-h-screen">
+      <div className="flex-1 flex flex-col min-h-screen sd-content">
         {/* Header */}
         <Header
           user={user}
@@ -613,7 +815,7 @@ const MainLayout: React.FC = () => {
         />
 
         {/* Page Content */}
-        <main className="flex-1 p-6 overflow-auto">
+        <main className="flex-1 overflow-auto sd-main">
           <Outlet />
         </main>
       </div>

@@ -14,7 +14,7 @@
  */
 
 import { useMemo } from 'react';
-import { useOperatorStore } from '../store/scada/operatorStore';
+import { useScadaPackageStore } from '../store/scada/createScadaStore';
 import type {
   HmiRole,
   WidgetPermission,
@@ -38,7 +38,9 @@ function roleIndex(role: HmiRole): number {
 export function useOperatorPermission(
   permission?: WidgetPermission,
 ): WidgetPermissionResult {
-  const currentUserRole = useOperatorStore((s) => s.currentUserRole);
+  // T4: the role is server-authoritative — operatorSlice.currentUserRole is
+  // written from the socket AUTH handshake (JWT role), never switched locally.
+  const currentUserRole = useScadaPackageStore((s) => s.currentUserRole);
 
   return useMemo<WidgetPermissionResult>(() => {
     // Admin always has full access.

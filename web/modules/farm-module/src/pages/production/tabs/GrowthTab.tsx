@@ -57,7 +57,7 @@ function getGrowthStatus(variancePercent: number): string {
 const LoadingSpinner: React.FC = () => (
   <div className="flex items-center justify-center py-12">
     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
-    <span className="ml-3 text-gray-500">Yukleniyor...</span>
+    <span className="ml-3 text-gray-500">Loading...</span>
   </div>
 );
 
@@ -105,11 +105,11 @@ const BatchAnalysisCard: React.FC<{ analysis: GrowthAnalysis }> = ({ analysis })
         {/* Metrics Grid */}
         <div className="grid grid-cols-2 gap-4 mb-4">
           <div>
-            <p className="text-xs text-gray-500">Mevcut Agirlik</p>
+            <p className="text-xs text-gray-500">Current Weight</p>
             <p className="text-lg font-semibold text-gray-900">{metrics.currentAvgWeightG.toFixed(1)} g</p>
           </div>
           <div>
-            <p className="text-xs text-gray-500">Teorik Agirlik</p>
+            <p className="text-xs text-gray-500">Theoretical Weight</p>
             <p className="text-lg font-semibold text-gray-900">{metrics.theoreticalWeightG.toFixed(1)} g</p>
           </div>
           <div>
@@ -258,15 +258,15 @@ const GrowthChart: React.FC<{ batchId: string }> = ({ batchId }) => {
       {/* Summary row */}
       <div className="mt-4 grid grid-cols-4 gap-4 text-center text-sm border-t pt-3">
         <div>
-          <p className="text-xs text-gray-500">Toplam Olcum</p>
+          <p className="text-xs text-gray-500">Total Measurements</p>
           <p className="font-medium">{sortedHistory.length}</p>
         </div>
         <div>
-          <p className="text-xs text-gray-500">Ilk Agirlik</p>
+          <p className="text-xs text-gray-500">First Weight</p>
           <p className="font-medium">{sortedHistory[0]?.averageWeight.toFixed(1)} g</p>
         </div>
         <div>
-          <p className="text-xs text-gray-500">Son Agirlik</p>
+          <p className="text-xs text-gray-500">Latest Weight</p>
           <p className="font-medium">{sortedHistory[sortedHistory.length - 1]?.averageWeight.toFixed(1)} g</p>
         </div>
         <div>
@@ -355,7 +355,7 @@ export const GrowthTab: React.FC = () => {
             onChange={(e) => setSelectedBatchId(e.target.value)}
             className="block w-48 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
           >
-            <option value="">Tum Batch'ler</option>
+            <option value="">All Batches</option>
             {activeBatches.map((batch) => (
               <option key={batch.id} value={batch.id}>
                 {batch.batchNumber}
@@ -369,7 +369,7 @@ export const GrowthTab: React.FC = () => {
             <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
             </svg>
-            Ornekleme Ekle
+            Add Sampling
           </button>
         </div>
       </div>
@@ -404,11 +404,11 @@ export const GrowthTab: React.FC = () => {
                         </span>
                       </div>
                       <div className="flex justify-between items-center">
-                        <span className="text-sm text-gray-500">Son 7 Gun ADG</span>
+                        <span className="text-sm text-gray-500">Last 7 Days ADG</span>
                         <span className="text-sm font-medium">{analysisData.trend.avgDailyGrowthLast7Days.toFixed(2)} g/gun</span>
                       </div>
                       <div className="flex justify-between items-center">
-                        <span className="text-sm text-gray-500">Son 30 Gun ADG</span>
+                        <span className="text-sm text-gray-500">Last 30 Days ADG</span>
                         <span className="text-sm font-medium">{analysisData.trend.avgDailyGrowthLast30Days.toFixed(2)} g/gun</span>
                       </div>
                       <div className="flex justify-between items-center">
@@ -428,7 +428,7 @@ export const GrowthTab: React.FC = () => {
                         <h4 className="text-sm font-medium text-gray-700 mb-2">Projeksiyon</h4>
                         <div className="space-y-2">
                           <div className="flex justify-between items-center">
-                            <span className="text-xs text-gray-500">30 Gun Sonra Agirlik</span>
+                            <span className="text-xs text-gray-500">Weight After 30 Days</span>
                             <span className="text-xs font-medium">{analysisData.projection.projectedWeightIn30Days.toFixed(1)} g</span>
                           </div>
                           <div className="flex justify-between items-center">
@@ -436,7 +436,7 @@ export const GrowthTab: React.FC = () => {
                             <span className="text-xs font-medium">{formatDate(analysisData.projection.estimatedHarvestDate)}</span>
                           </div>
                           <div className="flex justify-between items-center">
-                            <span className="text-xs text-gray-500">Hasata Kalan Gun</span>
+                            <span className="text-xs text-gray-500">Days to Harvest</span>
                             <span className="text-xs font-medium">{analysisData.projection.daysToHarvest} gun</span>
                           </div>
                         </div>
@@ -478,7 +478,7 @@ export const GrowthTab: React.FC = () => {
         measurementsLoading ? (
           <LoadingSpinner />
         ) : measurementsError ? (
-          <ErrorMessage message={`Olcumler yuklenemedi: ${measurementsError instanceof Error ? measurementsError.message : 'Bilinmeyen hata'}`} />
+          <ErrorMessage message={`Failed to load measurements: ${measurementsError instanceof Error ? measurementsError.message : 'Unknown error'}`} />
         ) : measurements.length === 0 ? (
           <EmptyState message="Henuz buyume olcumu bulunmuyor" />
         ) : (
@@ -487,7 +487,7 @@ export const GrowthTab: React.FC = () => {
               <thead className="bg-gray-50">
                 <tr>
                   <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Tarih
+                    Date
                   </th>
                   <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Batch / Tank
@@ -496,7 +496,7 @@ export const GrowthTab: React.FC = () => {
                     Ornek
                   </th>
                   <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Ort. Agirlik
+                    Avg. Weight
                   </th>
                   <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Ort. Boy
@@ -571,7 +571,7 @@ export const GrowthTab: React.FC = () => {
             {measurementsData && (
               <div className="px-6 py-3 border-t border-gray-200 flex items-center justify-between bg-gray-50">
                 <p className="text-sm text-gray-500">
-                  Toplam {measurementsData.total} olcum
+                  Total {measurementsData.total} measurements
                 </p>
                 {measurementsData.hasNextPage && (
                   <p className="text-sm text-gray-500">

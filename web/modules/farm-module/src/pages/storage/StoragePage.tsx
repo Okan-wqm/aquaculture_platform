@@ -119,13 +119,24 @@ const tabs: Tab[] = [
   },
 ];
 
+// UI language is English (platform directive): dates/numbers use en-GB while
+// currency stays NOK (Norwegian market).
 const formatCurrency = (amount: number, currency: string) =>
-  new Intl.NumberFormat('nb-NO', { style: 'currency', currency }).format(amount);
+  new Intl.NumberFormat('en-GB', { style: 'currency', currency }).format(amount);
 
 // ============================================================================
 // COMPONENT
 // ============================================================================
 
+/**
+ * DATA SOURCES (all real backend — no mocked data on this page):
+ * - useStorageOverview → farm-service storage overview (BUG-5 replaced old
+ *   mock imports); per-tab hooks (inventory/locations/movements/POs/counts)
+ *   and every mutation are real farm-service GraphQL.
+ * SUDERRA restyle — shell only; tab bodies themed via the `.sd-f2` compat
+ * layer (page-family scoped to avoid colliding with intentional category
+ * colors on already-ported setup/tanks pages).
+ */
 const StoragePage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = (searchParams.get('tab') as TabId) || 'overview';
@@ -153,103 +164,95 @@ const StoragePage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white border-b border-gray-200">
-        <div className="px-4 sm:px-6 py-6">
-          <h1 className="text-2xl font-bold text-gray-900">Storage & Stock Management</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Manage warehouses, inventory, stock movements and procurement
-          </p>
+    <div className="sd-page sd-f2">
+      {/* Page header (mockup pattern: eyebrow + serif title + subtitle) */}
+      <div className="sd-pagehead">
+        <span className="sd-eyebrow">Environment</span>
+        <h1 className="sd-page-title">Storage &amp; Stock Management</h1>
+        <span className="sd-page-sub">Manage warehouses, inventory, stock movements and procurement</span>
+      </div>
+
+      {/* Summary stat cards — SUDERRA serif values (see header for sources) */}
+      <div className="sd-stat-grid">
+        <div className="sd-card sd-card--dash sd-stat-card">
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+            <span className="sd-stat-title">Total Stock Value</span>
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#0b4f60" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <div>
+            <span className="sd-stat-value" style={{ fontSize: 24 }}>
+              {overviewLoading ? '…' : formatCurrency(parseMoney(overview?.totalStockValueDecimal), 'NOK')}
+            </span>
+          </div>
+          <div className="sd-stat-change"><span className="sd-dot sd-dot--cyan" />Live inventory valuation</div>
+        </div>
+        <div className={`sd-card sd-card--dash sd-stat-card${(overview?.lowStockAlertCount ?? 0) > 0 ? ' sd-stat-card--danger' : ''}`}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+            <span className="sd-stat-title">Low Stock Alerts</span>
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#b04a28" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" />
+            </svg>
+          </div>
+          <div>
+            <span className="sd-stat-value" style={{ fontSize: 24 }}>
+              {overviewLoading ? '…' : (overview?.lowStockAlertCount ?? 0)}
+            </span>
+          </div>
+          <div className="sd-stat-change">
+            <span className={`sd-dot ${(overview?.lowStockAlertCount ?? 0) > 0 ? 'sd-dot--red' : 'sd-dot--mint'}`} />
+            {(overview?.lowStockAlertCount ?? 0) > 0 ? 'Action required' : 'All good'}
+          </div>
+        </div>
+        <div className="sd-card sd-card--dash sd-stat-card">
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+            <span className="sd-stat-title">Total Items</span>
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#92610a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z" />
+            </svg>
+          </div>
+          <div>
+            <span className="sd-stat-value" style={{ fontSize: 24 }}>
+              {overviewLoading ? '…' : (overview?.totalItems ?? 0)}
+            </span>
+          </div>
+          <div className="sd-stat-change"><span className="sd-dot sd-dot--amber" />Tracked inventory items</div>
+        </div>
+        <div className="sd-card sd-card--dash sd-stat-card">
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+            <span className="sd-stat-title">Recent Movements</span>
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#166f5a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+            </svg>
+          </div>
+          <div>
+            <span className="sd-stat-value" style={{ fontSize: 24 }}>
+              {overviewLoading ? '…' : (overview?.recentMovementsCount ?? 0)}
+            </span>
+          </div>
+          <div className="sd-stat-change"><span className="sd-dot sd-dot--mint" />Latest stock movements</div>
         </div>
       </div>
 
-      {/* Summary Cards */}
-      <div className="px-4 sm:px-6 py-4">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="bg-white rounded-lg border border-gray-200 p-4 flex items-center gap-4">
-            <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
-              <svg className="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-            <div>
-              <div className="text-xs text-gray-500">Total Stock Value</div>
-              <div className="text-lg font-bold text-gray-900">
-                {overviewLoading ? '...' : formatCurrency(parseMoney(overview?.totalStockValueDecimal), 'NOK')}
-              </div>
-            </div>
-          </div>
-          <div className="bg-white rounded-lg border border-gray-200 p-4 flex items-center gap-4">
-            <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-red-100 flex items-center justify-center">
-              <svg className="w-5 h-5 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" />
-              </svg>
-            </div>
-            <div>
-              <div className="text-xs text-gray-500">Low Stock Alerts</div>
-              <div className="text-lg font-bold text-red-600">
-                {overviewLoading ? '...' : (overview?.lowStockAlertCount ?? 0)}
-              </div>
-            </div>
-          </div>
-          <div className="bg-white rounded-lg border border-gray-200 p-4 flex items-center gap-4">
-            <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center">
-              <svg className="w-5 h-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z" />
-              </svg>
-            </div>
-            <div>
-              <div className="text-xs text-gray-500">Total Items</div>
-              <div className="text-lg font-bold text-amber-600">
-                {overviewLoading ? '...' : (overview?.totalItems ?? 0)}
-              </div>
-            </div>
-          </div>
-          <div className="bg-white rounded-lg border border-gray-200 p-4 flex items-center gap-4">
-            <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-green-100 flex items-center justify-center">
-              <svg className="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
-              </svg>
-            </div>
-            <div>
-              <div className="text-xs text-gray-500">Recent Movements</div>
-              <div className="text-lg font-bold text-gray-900">
-                {overviewLoading ? '...' : (overview?.recentMovementsCount ?? 0)}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Tab Navigation */}
-      <div className="bg-white border-b border-gray-200">
-        <div className="px-4 sm:px-6">
-          <nav className="-mb-px flex space-x-1 overflow-x-auto" aria-label="Tabs">
-            {tabs.map(tab => (
-              <button
-                key={tab.id}
-                onClick={() => handleTabChange(tab.id)}
-                className={`
-                  inline-flex items-center gap-2 py-3 px-4 border-b-2 font-medium text-sm whitespace-nowrap transition-colors
-                  ${activeTab === tab.id
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }
-                `}
-              >
-                <span className={activeTab === tab.id ? 'text-blue-500' : 'text-gray-400'}>
-                  {tab.icon}
-                </span>
-                {tab.name}
-              </button>
-            ))}
-          </nav>
-        </div>
-      </div>
+      {/* Tab Navigation — SUDERRA underline tabs ('Locations' label is
+          load-bearing: StoragePage.spec matches /Locations|Depolar/i) */}
+      <nav className="sd-tabs" aria-label="Tabs">
+        {tabs.map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => handleTabChange(tab.id)}
+            className={`sd-tab${activeTab === tab.id ? ' sd-tab--active' : ''}`}
+            aria-current={activeTab === tab.id ? 'page' : undefined}
+          >
+            {tab.icon}
+            {tab.name}
+          </button>
+        ))}
+      </nav>
 
       {/* Tab Content */}
-      <div className="px-4 sm:px-6 py-6">
+      <div>
         {renderTab()}
       </div>
     </div>

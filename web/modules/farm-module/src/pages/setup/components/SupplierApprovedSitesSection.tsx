@@ -84,11 +84,11 @@ const SupplierApprovedSitesSection: React.FC<SupplierApprovedSitesSectionProps> 
   if (!supplierId) {
     return (
       <div className="mt-6 p-4 bg-gray-50 border border-dashed border-gray-300 rounded-lg">
-        <h3 className="text-sm font-semibold text-gray-700">Onaylı Siteler</h3>
+        <h3 className="text-sm font-semibold text-gray-700">Approved Sites</h3>
         <p className="mt-1 text-xs text-gray-500">
-          Tedarikçi oluşturulduktan sonra onaylı site listesi
-          düzenlenebilir. Önce yukarıdaki "Kaydet" butonu ile
-          tedarikçiyi oluşturun.
+          The approved site list can be edited after the supplier is
+          created. Create the supplier first using the "Save" button
+          above.
         </p>
       </div>
     );
@@ -98,11 +98,11 @@ const SupplierApprovedSitesSection: React.FC<SupplierApprovedSitesSectionProps> 
     // Read-only render for users without edit permission.
     return (
       <div className="mt-6">
-        <h3 className="text-sm font-semibold text-gray-700">Onaylı Siteler</h3>
+        <h3 className="text-sm font-semibold text-gray-700">Approved Sites</h3>
         {approvalsQuery.isLoading ? (
-          <p className="mt-1 text-xs text-gray-500">Yükleniyor…</p>
+          <p className="mt-1 text-xs text-gray-500">Loading…</p>
         ) : (approvalsQuery.data ?? []).length === 0 ? (
-          <p className="mt-1 text-xs text-gray-500">Onaylı site yok.</p>
+          <p className="mt-1 text-xs text-gray-500">No approved sites.</p>
         ) : (
           <ul className="mt-2 space-y-1 text-sm">
             {(approvalsQuery.data ?? []).map((a) => {
@@ -170,13 +170,13 @@ const SupplierApprovedSitesSection: React.FC<SupplierApprovedSitesSectionProps> 
         preferredSiteId,
       });
       toast({
-        title: 'Onaylı siteler güncellendi',
-        description: `${selectedSiteIds.size} site kayıtlı.`,
+        title: 'Approved sites updated',
+        description: `${selectedSiteIds.size} sites saved.`,
         variant: 'success',
       });
     } catch (err) {
       toast({
-        title: 'Onay listesi kaydedilemedi',
+        title: 'Failed to save approval list',
         description: formatErrorForToast(err),
         variant: 'error',
       });
@@ -186,21 +186,21 @@ const SupplierApprovedSitesSection: React.FC<SupplierApprovedSitesSectionProps> 
   return (
     <div className="mt-6 border-t border-gray-200 pt-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-gray-700">Onaylı Siteler</h3>
+        <h3 className="text-sm font-semibold text-gray-700">Approved Sites</h3>
         <p className="text-xs text-gray-500">
-          {selectedSiteIds.size} / {allSites.length} site seçili
+          {selectedSiteIds.size} / {allSites.length} sites selected
         </p>
       </div>
       <p className="mt-1 text-xs text-gray-500">
-        Bu tedarikçinin teslimat yapabileceği siteler. En fazla bir
-        site "tercih edilen" olarak işaretlenebilir.
+        Sites this supplier can deliver to. At most one site can be
+        marked as "preferred".
       </p>
 
       {sitesQuery.isLoading || approvalsQuery.isLoading ? (
-        <p className="mt-3 text-sm text-gray-500">Yükleniyor…</p>
+        <p className="mt-3 text-sm text-gray-500">Loading…</p>
       ) : allSites.length === 0 ? (
         <div className="mt-3 p-3 bg-gray-50 border border-dashed border-gray-300 rounded text-sm text-gray-500 text-center">
-          Aktif site yok. Önce Sites sekmesinden bir site oluşturun.
+          No active sites. Create a site from the Sites tab first.
         </div>
       ) : (
         <div className="mt-3 max-h-64 overflow-y-auto border border-gray-200 rounded">
@@ -259,7 +259,7 @@ const SupplierApprovedSitesSection: React.FC<SupplierApprovedSitesSectionProps> 
           disabled={preferredSiteId === null}
           className="text-xs text-gray-600 hover:text-gray-800 disabled:opacity-40"
         >
-          Tercihten kaldır
+          Remove preference
         </button>
         <Button
           type="button"
@@ -269,7 +269,7 @@ const SupplierApprovedSitesSection: React.FC<SupplierApprovedSitesSectionProps> 
           disabled={setApprovalsMutation.isPending}
           isLoading={setApprovalsMutation.isPending}
         >
-          Onayları Kaydet
+          Save Approvals
         </Button>
       </div>
     </div>

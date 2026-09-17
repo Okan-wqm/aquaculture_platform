@@ -142,7 +142,7 @@ const FarmModule: React.FC = () => {
         <Route path="production/feeding" element={<Navigate to="/sites/feeding" replace />} />
         <Route
           path="production/growth"
-          element={<Navigate to="/sites/feeding?tab=sampling" replace />}
+          element={<Navigate to="/sites/feeding?tab=growth" replace />}
         />
         <Route path="production/*" element={<Navigate to="/sites/tanks" replace />} />
 

@@ -152,7 +152,11 @@ export const DiseaseOutbreakTab: React.FC<DiseaseOutbreakTabProps> = ({ siteId }
 
   // Event-triggered varsling; the period is nominal (the assembler reads the
   // site's latest disease_outbreak health event).
-  const { effectiveSiteId } = useEffectiveReportSite(siteId);
+  const { effectiveSiteId, siteMappings } = useEffectiveReportSite(siteId);
+  // Mapping name is optional; neutral fallback keeps titles non-fabricated.
+  const effectiveSiteName =
+    siteMappings.find((m) => m.siteId === effectiveSiteId)?.siteName ?? 'Unknown site';
+
   const prefillPeriod = useMemo(() => ({ year: new Date().getFullYear() }), []);
   const { data: prefill } = useReportPrefill<DiseasePrefillPayload>(
     'DISEASE_OUTBREAK',
@@ -174,7 +178,13 @@ export const DiseaseOutbreakTab: React.FC<DiseaseOutbreakTabProps> = ({ siteId }
     // Resolve the Mattilsynet identity block — throws RegulatoryConfigError if
     // the tenant is not configured. The modal surfaces the thrown message and
     // stays open (it only closes when this promise RESOLVES).
-    const reportSiteId = data.siteId || siteId || 'site-001';
+    // Behavior fix: this previously fell through to the placeholder 'site-001',
+    // which never matches a locality mapping, so buildRegulatoryIdentity always
+    // threw and immediate reports could not be submitted. effectiveSiteId
+    // resolves prop > operator selection > first configured mapping; when no
+    // mapping exists it stays undefined and identity resolution still fails
+    // closed with the configuration error.
+    const reportSiteId = data.siteId || effectiveSiteId;
     const identity = buildRegulatoryIdentity(regulatorySettings, reportSiteId);
 
     const result = await submitDiseaseOutbreak.mutateAsync({
@@ -182,7 +192,7 @@ export const DiseaseOutbreakTab: React.FC<DiseaseOutbreakTabProps> = ({ siteId }
       organisasjonsnummer: identity.organisasjonsnummer,
       lokalitetsnummer: identity.lokalitetsnummer,
       siteId: reportSiteId,
-      siteName: data.siteName || 'Unknown site',
+      siteName: data.siteName || effectiveSiteName,
       kontaktperson: identity.kontaktperson,
       siteManagerEmail: identity.siteManagerEmail,
       detectedAt: (data.detectedAt ?? new Date()).toISOString(),
@@ -252,7 +262,7 @@ export const DiseaseOutbreakTab: React.FC<DiseaseOutbreakTabProps> = ({ siteId }
       {/* Submission History */}
       <DiseaseAssembledReview prefill={prefill} />
 
-      <SubmissionHistorySection reportType="DISEASE_OUTBREAK" siteId={siteId} />
+      <SubmissionHistorySection reportType="DISEASE_OUTBREAK" siteId={effectiveSiteId} />
 
       {/* Modal */}
       <DiseaseOutbreakModal
@@ -261,8 +271,8 @@ export const DiseaseOutbreakTab: React.FC<DiseaseOutbreakTabProps> = ({ siteId }
           setIsModalOpen(false);
         }}
         onSubmit={handleModalSubmit}
-        siteId={siteId || 'site-001'}
-        siteName="Default Site"
+        siteId={effectiveSiteId}
+        siteName={effectiveSiteName}
         showHealthEventLink={showHealthEventLink}
       />
     </div>

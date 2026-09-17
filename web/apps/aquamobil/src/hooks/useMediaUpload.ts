@@ -213,10 +213,7 @@ export function useMediaUpload(channelId: string | undefined): UseMediaUploadRet
       try {
         // Step 0: Compress images > 2MB
         let uploadBlob: Blob = file;
-        if (
-          file.size > COMPRESSION_THRESHOLD &&
-          file.type.startsWith('image/')
-        ) {
+        if (file.size > COMPRESSION_THRESHOLD && file.type.startsWith('image/')) {
           uploadBlob = await compressImage(file);
         }
 
@@ -243,8 +240,7 @@ export function useMediaUpload(channelId: string | undefined): UseMediaUploadRet
 
         return storageKey;
       } catch (err) {
-        const uploadError =
-          err instanceof Error ? err : new Error('Upload failed');
+        const uploadError = err instanceof Error ? err : new Error('Upload failed');
         setError(uploadError);
         throw uploadError;
       } finally {

@@ -3,6 +3,7 @@ import { devtools, subscribeWithSelector } from 'zustand/middleware';
 import { immer } from 'zustand/middleware/immer';
 import { registerLogoutCleanup, onTenantChange } from '@aquaculture/shared-ui';
 import type { ScadaStore } from './types';
+import { purgeWidgetTemplateStorage } from './templateSlice';
 
 import { createSceneSlice } from './sceneSlice';
 import { createWidgetSlice } from './widgetSlice';
@@ -57,5 +58,11 @@ export const useScadaPackageStore = createScadaStore();
 // design can never surface in — or be saved into — tenant B's session.
 // onTenantChange fires only on an actual A->B change, never on first login.
 // Registered against the singleton only; test-created stores stay isolated.
-registerLogoutCleanup(() => useScadaPackageStore.getState().reset());
-onTenantChange(() => useScadaPackageStore.getState().reset());
+registerLogoutCleanup(() => {
+  useScadaPackageStore.getState().reset();
+  purgeWidgetTemplateStorage();
+});
+onTenantChange(() => {
+  useScadaPackageStore.getState().reset();
+  purgeWidgetTemplateStorage();
+});

@@ -48,12 +48,7 @@ import type {
   RequestMediaUploadMutation,
 } from '@/generated/graphql';
 
-export type {
-  MessageContentType,
-  ReceiptStatus,
-  ChannelMemberRole,
-  NotificationPreference,
-};
+export type { MessageContentType, ReceiptStatus, ChannelMemberRole, NotificationPreference };
 
 /** Channel type determines UI layout and membership rules (internal lowercase form). */
 export type ChannelType = 'direct' | 'group' | 'ai';

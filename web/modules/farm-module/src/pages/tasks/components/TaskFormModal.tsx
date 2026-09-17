@@ -110,12 +110,12 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
   };
 
   return (
-    <Modal isOpen onClose={onClose} title={isEdit ? 'Görevi Düzenle' : 'Yeni Görev'} size="lg">
+    <Modal className="sd-f2" isOpen onClose={onClose} title={isEdit ? 'Edit Task' : 'New Task'} size="lg">
       <form onSubmit={handleSubmit}>
         <div className="space-y-4">
           {/* Title */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Görev Adı *</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Task Name *</label>
             <input
               type="text"
               value={formData.title}
@@ -127,7 +127,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
 
           {/* Description */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Açıklama</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
             <textarea
               value={formData.description}
               onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
@@ -139,7 +139,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
           {/* Category + Priority */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Kategori</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
               <select
                 value={formData.category}
                 onChange={(e) =>
@@ -155,7 +155,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Öncelik</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
               <select
                 value={formData.priority}
                 onChange={(e) =>
@@ -174,14 +174,14 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
 
           {/* Assignee */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Atanan Kişi *</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Assignee *</label>
             <select
               value={formData.assignedTo}
               onChange={(e) => handleAssigneeChange(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
               required
             >
-              <option value="">{users.length === 0 ? 'Yükleniyor...' : 'Seçin...'}</option>
+              <option value="">{users.length === 0 ? 'Loading…' : 'Select…'}</option>
               {users.map((a) => (
                 <option key={a.id} value={a.id}>
                   {a.name}
@@ -193,7 +193,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
           {/* Due Date + Time */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Bitiş Tarihi *</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Due Date *</label>
               <input
                 type="date"
                 value={formData.dueDate}
@@ -203,7 +203,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Saat</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Time</label>
               <input
                 type="time"
                 value={formData.dueTime}
@@ -216,7 +216,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
           {/* Location + Estimated Minutes */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Konum</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Location</label>
               <input
                 type="text"
                 value={formData.location}
@@ -227,7 +227,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Tahmini Süre (dk)
+                Estimated Time (min)
               </label>
               <input
                 type="number"
@@ -246,7 +246,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
 
           {/* Checklist */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Kontrol Listesi</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Checklist</label>
             {formData.checklistItems.map((item) => (
               <div key={item.id} className="flex items-center gap-2 mb-1">
                 <span className="flex-1 text-sm text-gray-700 bg-gray-50 px-3 py-1.5 rounded">
@@ -275,14 +275,14 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                 onClick={addChecklistItem}
                 className="px-3 py-1.5 bg-gray-100 text-gray-700 text-sm rounded-lg hover:bg-gray-200"
               >
-                Ekle
+                Add
               </button>
             </div>
           </div>
 
           {/* Tags */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Etiketler</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Tags</label>
             <div className="flex flex-wrap gap-1 mb-2">
               {formData.tags.map((tag) => (
                 <span
@@ -306,7 +306,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                 value={newTag}
                 onChange={(e) => setNewTag(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addTag())}
-                placeholder="Etiket ekle..."
+                placeholder="Add tag…"
                 className="flex-1 px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
               />
               <button
@@ -314,7 +314,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                 onClick={addTag}
                 className="px-3 py-1.5 bg-gray-100 text-gray-700 text-sm rounded-lg hover:bg-gray-200"
               >
-                Ekle
+                Add
               </button>
             </div>
           </div>
@@ -327,14 +327,14 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
             onClick={onClose}
             className="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-100"
           >
-            İptal
+            Cancel
           </button>
           <button
             type="submit"
             disabled={submitting}
             className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {submitting ? 'Kaydediliyor...' : isEdit ? 'Güncelle' : 'Oluştur'}
+            {submitting ? 'Saving…' : isEdit ? 'Update' : 'Create'}
           </button>
         </div>
       </form>

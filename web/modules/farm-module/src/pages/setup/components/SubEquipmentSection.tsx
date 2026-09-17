@@ -88,13 +88,13 @@ export const SubEquipmentSection: React.FC<SubEquipmentSectionProps> = ({
       await deleteMutation.mutateAsync(deleting.id);
       toast({
         title: 'Alt ekipman silindi',
-        description: `${deleting.name} (${deleting.code}) kaldırıldı.`,
+        description: `${deleting.name} (${deleting.code}) removed.`,
         variant: 'success',
       });
       setDeleting(null);
     } catch (err) {
       toast({
-        title: 'Silme başarısız',
+        title: 'Delete failed',
         description: formatErrorForToast(err),
         variant: 'error',
       });
@@ -105,7 +105,7 @@ export const SubEquipmentSection: React.FC<SubEquipmentSectionProps> = ({
     <div className="mt-4">
       <div className="flex items-center justify-between mb-2">
         <label className="block text-sm font-medium text-gray-700">
-          Alt Ekipmanlar
+          Sub-Equipment
         </label>
         {canCreate && (
           <button
@@ -113,21 +113,21 @@ export const SubEquipmentSection: React.FC<SubEquipmentSectionProps> = ({
             onClick={() => setCreateOpen(true)}
             className="text-sm text-blue-600 hover:text-blue-800"
           >
-            + Yeni Alt Ekipman
+            + New Sub-Equipment
           </button>
         )}
       </div>
 
       <div className="border border-gray-200 rounded-md overflow-hidden">
         {subEquipmentQuery.isLoading ? (
-          <div className="p-3 text-sm text-gray-500">Yükleniyor…</div>
+          <div className="p-3 text-sm text-gray-500">Loading…</div>
         ) : subEquipmentQuery.isError ? (
           <div className="p-3 text-sm text-red-700">
-            Alt ekipmanlar yüklenemedi.
+            Failed to load sub-equipment.
           </div>
         ) : items.length === 0 ? (
           <div className="p-3 text-sm text-gray-500">
-            Bu ekipmana bağlı alt ekipman yok.
+            No sub-equipment linked to this equipment.
           </div>
         ) : (
           <table className="min-w-full divide-y divide-gray-200">
@@ -137,13 +137,13 @@ export const SubEquipmentSection: React.FC<SubEquipmentSectionProps> = ({
                   Ad
                 </th>
                 <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">
-                  Tür
+                  Type
                 </th>
                 <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">
-                  Durum
+                  Status
                 </th>
                 <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">
-                  İşlem
+                  Action
                 </th>
               </tr>
             </thead>
@@ -176,7 +176,7 @@ export const SubEquipmentSection: React.FC<SubEquipmentSectionProps> = ({
                           onClick={() => setEditing(item)}
                           className="text-indigo-600 hover:text-indigo-900"
                         >
-                          Düzenle
+                          Edit
                         </button>
                       )}
                       {canDelete && (
@@ -186,7 +186,7 @@ export const SubEquipmentSection: React.FC<SubEquipmentSectionProps> = ({
                           className="text-red-600 hover:text-red-800"
                           disabled={deleteMutation.isPending}
                         >
-                          Sil
+                          Delete
                         </button>
                       )}
                     </div>
@@ -230,16 +230,16 @@ export const SubEquipmentSection: React.FC<SubEquipmentSectionProps> = ({
           deleting ? (
             <span>
               <strong className="font-semibold">{deleting.name}</strong>{' '}
-              ({deleting.code}) kaydı arşivlenir. Bu işlem soft-delete
-              uygular — gerekirse veri tabanından geri yüklenebilir,
-              ancak UI üzerinden listede görünmez.
+              ({deleting.code}) will be archived. This applies a soft-delete —
+              it can be restored from the database if needed, but it
+              disappears from the UI list.
             </span>
           ) : (
             ''
           )
         }
-        confirmText="Sil"
-        cancelText="İptal"
+        confirmText="Delete"
+        cancelText="Cancel"
         variant="danger"
         isLoading={deleteMutation.isPending}
       />

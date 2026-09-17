@@ -113,7 +113,7 @@ const TrendIndicator: React.FC<{
 // PERF-009: Wrap in React.memo — sparkline re-renders are expensive due to SVG coordinate math
 const MiniSparkline = React.memo(function MiniSparkline({
   data,
-  color = '#3B82F6',
+  color = '#177e94',
   height = 32,
 }: { data: number[]; color?: string; height?: number }) {
   // BUG-009: useId() ensures gradient ID is unique per instance — prevents collision when
@@ -233,60 +233,20 @@ const KpiCardInner: React.FC<KpiCardProps> = ({
   footer,
 }) => {
   const sizeClasses = {
-    sm: {
-      padding: 'p-4',
-      title: 'text-xs',
-      value: 'text-xl',
-      subtitle: 'text-xs',
-      icon: 'w-8 h-8',
-    },
-    md: {
-      padding: 'p-5',
-      title: 'text-sm',
-      value: 'text-2xl',
-      subtitle: 'text-sm',
-      icon: 'w-10 h-10',
-    },
-    lg: {
-      padding: 'p-6',
-      title: 'text-base',
-      value: 'text-3xl',
-      subtitle: 'text-base',
-      icon: 'w-12 h-12',
-    },
+    sm: { icon: 'w-8 h-8', valueFont: 20 },
+    md: { icon: 'w-10 h-10', valueFont: 26 },
+    lg: { icon: 'w-12 h-12', valueFont: 32 },
   };
 
+  // SUDERRA accents: the card surface/border come from .sd-card/.sd-stat-card;
+  // variants only tint the border and the icon chip.
   const variantColors = {
-    default: {
-      border: 'border-gray-200',
-      iconBg: iconBackground,
-      iconText: 'text-gray-600',
-    },
-    primary: {
-      border: 'border-blue-200',
-      iconBg: 'bg-blue-100',
-      iconText: 'text-blue-600',
-    },
-    success: {
-      border: 'border-green-200',
-      iconBg: 'bg-green-100',
-      iconText: 'text-green-600',
-    },
-    warning: {
-      border: 'border-yellow-200',
-      iconBg: 'bg-yellow-100',
-      iconText: 'text-yellow-600',
-    },
-    danger: {
-      border: 'border-red-200',
-      iconBg: 'bg-red-100',
-      iconText: 'text-red-600',
-    },
-    info: {
-      border: 'border-cyan-200',
-      iconBg: 'bg-cyan-100',
-      iconText: 'text-cyan-600',
-    },
+    default: { border: undefined, iconBg: iconBackground, iconText: 'text-gray-600' },
+    primary: { border: 'rgba(20, 111, 132, 0.3)', iconBg: 'bg-blue-100', iconText: 'text-blue-600' },
+    success: { border: 'rgba(74, 187, 162, 0.42)', iconBg: 'bg-green-100', iconText: 'text-green-600' },
+    warning: { border: 'rgba(200, 154, 60, 0.42)', iconBg: 'bg-yellow-100', iconText: 'text-yellow-600' },
+    danger: { border: 'rgba(176, 74, 40, 0.32)', iconBg: 'bg-red-100', iconText: 'text-red-600' },
+    info: { border: 'rgba(46, 125, 140, 0.32)', iconBg: 'bg-cyan-100', iconText: 'text-cyan-600' },
   };
 
   const sizes = sizeClasses[size];
@@ -295,11 +255,12 @@ const KpiCardInner: React.FC<KpiCardProps> = ({
   return (
     <div
       className={`
-        bg-white rounded-xl shadow-sm border ${colors.border}
-        ${sizes.padding}
-        ${onClick ? 'cursor-pointer hover:shadow-md hover:border-blue-300 transition-all duration-200' : ''}
+        sd-card sd-card--dash sd-stat-card
+        ${variant === 'danger' ? 'sd-stat-card--danger' : ''}
+        ${onClick ? 'cursor-pointer transition-all duration-200' : ''}
         ${className}
       `}
+      style={colors.border ? { borderColor: colors.border } : undefined}
       onClick={onClick}
     >
       {loading ? (
@@ -309,10 +270,10 @@ const KpiCardInner: React.FC<KpiCardProps> = ({
           {/* Header */}
           <div className="flex items-start justify-between">
             <div className="flex-1 min-w-0">
-              <h3 className={`${sizes.title} font-medium text-gray-500 truncate`}>{title}</h3>
+              <h3 className="sd-stat-title truncate">{title}</h3>
               <div className="flex items-baseline gap-2 mt-1">
-                <span className={`${sizes.value} font-bold text-gray-900`}>{value}</span>
-                {subtitle && <span className={`${sizes.subtitle} text-gray-500`}>{subtitle}</span>}
+                <span className="sd-stat-value" style={{ fontSize: sizes.valueFont }}>{value}</span>
+                {subtitle && <span className="text-xs text-gray-500">{subtitle}</span>}
               </div>
             </div>
 
@@ -327,12 +288,12 @@ const KpiCardInner: React.FC<KpiCardProps> = ({
                   data={sparklineData}
                   color={
                     variant === 'success'
-                      ? '#10B981'
+                      ? '#1f9d78'
                       : variant === 'danger'
-                      ? '#EF4444'
+                      ? '#b04a28'
                       : variant === 'warning'
-                      ? '#F59E0B'
-                      : '#3B82F6'
+                      ? '#c89a3c'
+                      : '#177e94'
                   }
                 />
               </div>

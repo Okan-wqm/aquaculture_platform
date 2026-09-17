@@ -260,6 +260,7 @@ export const InventoryCountDetailModal: React.FC<Props> = ({ isOpen, onClose, co
 
   return (
     <Modal
+      className="sd-f2"
       isOpen={isOpen && !!countId}
       onClose={onClose}
       title={isLoading ? 'Loading...' : count?.countNumber || 'Inventory Count'}
@@ -272,7 +273,7 @@ export const InventoryCountDetailModal: React.FC<Props> = ({ isOpen, onClose, co
             {count && (
               <p className="text-sm text-gray-500">
                 {count.locationName}
-                {count.startedAt && ` — ${new Date(count.startedAt).toLocaleDateString('nb-NO')}`}
+                {count.startedAt && ` — ${new Date(count.startedAt).toLocaleDateString('en-GB')}`}
               </p>
             )}
           </div>
@@ -312,7 +313,7 @@ export const InventoryCountDetailModal: React.FC<Props> = ({ isOpen, onClose, co
               <div>
                 <span className="text-gray-500">Approved at:</span>
                 <span className="ml-1 text-gray-900">
-                  {new Date(count.approvedAt).toLocaleDateString('nb-NO')}
+                  {new Date(count.approvedAt).toLocaleDateString('en-GB')}
                 </span>
               </div>
             )}

@@ -20,7 +20,7 @@ if (typeof window !== 'undefined' && typeof window.matchMedia !== 'function') {
   });
 }
 
-// jsdom does not implement ResizeObserver (used by FishBackground). A no-op class
+// jsdom does not implement ResizeObserver (used by the reef scene custom element). A no-op class
 // satisfies the constructor + observe/unobserve/disconnect surface.
 if (typeof globalThis.ResizeObserver === 'undefined') {
   class ResizeObserverMock {

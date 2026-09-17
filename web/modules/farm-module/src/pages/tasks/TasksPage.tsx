@@ -2,7 +2,7 @@
  * Task Management Page
  * 6-tab page for farm task management: today, all tasks, recurring, auto rules, calendar, completed
  */
-import React, { useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { TaskStats } from './types/task.types';
 import { TaskFormData } from './components/TaskFormModal';
@@ -39,6 +39,9 @@ interface Tab {
   icon: React.ReactNode;
 }
 
+import { RecurringTemplateFormModal, type RecurringTemplateFormData } from './components/RecurringTemplateFormModal';
+import { AutoRuleFormModal, type AutoRuleFormData } from './components/AutoRuleFormModal';
+
 // ============================================================================
 // TABS CONFIG
 // ============================================================================
@@ -46,7 +49,7 @@ interface Tab {
 const tabs: Tab[] = [
   {
     id: 'today',
-    name: 'Bugün',
+    name: 'Today',
     icon: (
       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -55,7 +58,7 @@ const tabs: Tab[] = [
   },
   {
     id: 'all-tasks',
-    name: 'Tüm Görevler',
+    name: 'All Tasks',
     icon: (
       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
@@ -64,7 +67,7 @@ const tabs: Tab[] = [
   },
   {
     id: 'recurring',
-    name: 'Tekrarlayan',
+    name: 'Recurring',
     icon: (
       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -73,7 +76,7 @@ const tabs: Tab[] = [
   },
   {
     id: 'auto-rules',
-    name: 'Oto. Kurallar',
+    name: 'Auto Rules',
     icon: (
       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
@@ -82,7 +85,7 @@ const tabs: Tab[] = [
   },
   {
     id: 'calendar',
-    name: 'Takvim',
+    name: 'Calendar',
     icon: (
       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -91,7 +94,7 @@ const tabs: Tab[] = [
   },
   {
     id: 'completed',
-    name: 'Tamamlanan',
+    name: 'Completed',
     icon: (
       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -104,6 +107,21 @@ const tabs: Tab[] = [
 // COMPONENT
 // ============================================================================
 
+/**
+ * DATA SOURCES (all real backend — no mocked data): useTasks / useTenantUsers
+ * / useRecurringTemplates / useAutoRules hit farm-service GraphQL; every
+ * mutation (create/complete/start/update/delete/checklist/note/toggle) is real.
+ * `defaultStats` below is only the loading-zero fallback, not mock data.
+ *
+ * UI LANGUAGE: English (platform directive). Strings are hardcoded English —
+ * a deliberate trade-off vs the feedingV2 i18n-key pattern (FE-HIGH-020);
+ * key migration is a separate task if Turkish is ever re-enabled.
+ *
+ * WIRED THIS PASS: the previously-dead '+ New Template' / '+ New Rule'
+ * buttons now open their (create-only) modals against real mutations.
+ * UNWIRED (no entry point yet): template/rule EDIT + DELETE — the update
+ * mutations exist but no row affordance renders them.
+ */
 const TasksPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = (searchParams.get('tab') as TabId) || 'today';
@@ -128,12 +146,18 @@ const TasksPage: React.FC = () => {
   const {
     templates,
     toggleActive: toggleTemplateActive,
+    createTemplate,
   } = useRecurringTemplates(activeTab === 'recurring');
 
   const {
     autoRules,
     toggleActive: toggleRuleActive,
+    createRule,
   } = useAutoRules(activeTab === 'auto-rules');
+
+  // Create-only modal state (edit path deliberately unwired — see docblock)
+  const [templateModalOpen, setTemplateModalOpen] = useState(false);
+  const [ruleModalOpen, setRuleModalOpen] = useState(false);
 
   const handleTabChange = (tabId: TabId) => {
     setSearchParams({ tab: tabId });
@@ -195,6 +219,40 @@ const TasksPage: React.FC = () => {
     toggleRuleActive(ruleId);
   }, [toggleRuleActive]);
 
+  const handleCreateTemplate = useCallback(async (data: RecurringTemplateFormData) => {
+    await createTemplate({
+      title: data.title,
+      description: data.description || undefined,
+      category: data.category,
+      priority: data.priority,
+      frequency: data.frequency,
+      frequencyDetail: data.frequencyDetail || undefined,
+      assignedTo: data.assignedTo || undefined,
+      assignedToName: data.assignedToName || undefined,
+      location: data.location || undefined,
+      estimatedMinutes: data.estimatedMinutes || undefined,
+      // Modal items carry local ids; the create input accepts {text,isCompleted} only
+      checklistItems: data.checklistItems.map(c => ({ text: c.text, isCompleted: c.isCompleted })),
+      tags: data.tags,
+    });
+    setTemplateModalOpen(false);
+  }, [createTemplate]);
+
+  const handleCreateRule = useCallback(async (data: AutoRuleFormData) => {
+    await createRule({
+      name: data.name,
+      description: data.description || undefined,
+      trigger: data.trigger,
+      triggerCondition: data.triggerCondition,
+      taskTitle: data.taskTitle,
+      taskDescription: data.taskDescription || undefined,
+      taskCategory: data.taskCategory,
+      taskPriority: data.taskPriority,
+      assignTo: data.assignTo || undefined,
+    });
+    setRuleModalOpen(false);
+  }, [createRule]);
+
   // Render active tab
   const renderTab = () => {
     if (loading) {
@@ -202,7 +260,7 @@ const TasksPage: React.FC = () => {
         <div className="flex items-center justify-center py-20">
           <div className="flex flex-col items-center gap-3">
             <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
-            <p className="text-sm text-gray-500">Görevler yükleniyor...</p>
+            <p className="text-sm text-gray-500">Loading tasks…</p>
           </div>
         </div>
       );
@@ -237,6 +295,7 @@ const TasksPage: React.FC = () => {
           <RecurringTab
             templates={templates}
             onToggleActive={handleToggleTemplateActive}
+            onCreateTemplate={() => setTemplateModalOpen(true)}
           />
         );
       case 'auto-rules':
@@ -244,6 +303,7 @@ const TasksPage: React.FC = () => {
           <AutoRulesTab
             rules={autoRules}
             onToggleActive={handleToggleRuleActive}
+            onCreateRule={() => setRuleModalOpen(true)}
           />
         );
       case 'calendar':
@@ -269,54 +329,51 @@ const TasksPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Page Header */}
-      <div className="bg-white border-b border-gray-200">
-        <div className="px-4 sm:px-6 py-6">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-              <svg className="w-6 h-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-              </svg>
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Görev Yönetimi</h1>
-              <p className="mt-1 text-sm text-gray-500">
-                Günlük operasyonlar, tekrarlayan görevler ve otomatik kurallarla çiftlik yönetimi
-              </p>
-            </div>
-          </div>
-        </div>
+    <div className="sd-page sd-f2">
+      {/* Page header (mockup pattern: eyebrow + serif title + subtitle) */}
+      <div className="sd-pagehead">
+        <span className="sd-eyebrow">Environment</span>
+        <h1 className="sd-page-title">Task Management</h1>
+        <span className="sd-page-sub">Daily operations, recurring tasks and automation rules</span>
       </div>
 
-      {/* Tab Navigation */}
-      <div className="bg-white border-b border-gray-200">
-        <div className="px-4 sm:px-6">
-          <nav className="-mb-px flex space-x-1 overflow-x-auto">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => handleTabChange(tab.id)}
-                className={`
-                  flex items-center gap-2 px-4 py-3 border-b-2 text-sm font-medium whitespace-nowrap transition-colors
-                  ${activeTab === tab.id
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }
-                `}
-              >
-                {tab.icon}
-                {tab.name}
-              </button>
-            ))}
-          </nav>
-        </div>
-      </div>
+      {/* Tab Navigation — SUDERRA underline tabs */}
+      <nav className="sd-tabs" aria-label="Tabs">
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => handleTabChange(tab.id)}
+            className={`sd-tab${activeTab === tab.id ? ' sd-tab--active' : ''}`}
+            aria-current={activeTab === tab.id ? 'page' : undefined}
+          >
+            {tab.icon}
+            {tab.name}
+          </button>
+        ))}
+      </nav>
 
       {/* Tab Content */}
-      <div className="px-4 sm:px-6 py-6">
+      <div>
         {renderTab()}
       </div>
+
+      {/* Create-only modals (edit path unwired — see docblock) */}
+      {templateModalOpen && (
+        <RecurringTemplateFormModal
+          isOpen={templateModalOpen}
+          onClose={() => setTemplateModalOpen(false)}
+          onSubmit={handleCreateTemplate}
+          users={tenantUsers}
+        />
+      )}
+      {ruleModalOpen && (
+        <AutoRuleFormModal
+          rule={null}
+          onClose={() => setRuleModalOpen(false)}
+          onSave={handleCreateRule}
+          users={tenantUsers}
+        />
+      )}
     </div>
   );
 };

@@ -5,6 +5,7 @@
 
 import React, { type JSX, useState } from 'react';
 import { CONNECTION_TYPES, type ConnectionType } from '../../config/connectionTypes';
+import { EDGE_TYPE_OPTIONS } from './edgeTypeLabels';
 import type { ScadaEdgeType } from '../../types/scada-edge.types';
 
 interface EdgeToolbarProps {
@@ -15,35 +16,24 @@ interface EdgeToolbarProps {
   hasSelectedEdge: boolean;
 }
 
-const EDGE_TYPE_OPTIONS: { type: ScadaEdgeType; label: string; icon: JSX.Element }[] = [
-  {
-    type: 'orthogonal',
-    label: '90°',
-    icon: (
-      <svg width="28" height="16" viewBox="0 0 28 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-        <path d="M2 14 L2 4 L26 4 L26 2" />
-      </svg>
-    ),
-  },
-  {
-    type: 'multiHandle',
-    label: 'Poly',
-    icon: (
-      <svg width="28" height="16" viewBox="0 0 28 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-        <path d="M2 14 L10 4 L18 12 L26 2" />
-      </svg>
-    ),
-  },
-  {
-    type: 'draggable',
-    label: 'Curve',
-    icon: (
-      <svg width="28" height="16" viewBox="0 0 28 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-        <path d="M2 14 Q2 0 26 4" />
-      </svg>
-    ),
-  },
-];
+/** Toolbar icons keyed by geometry type (labels come from edgeTypeLabels). */
+const EDGE_TYPE_ICONS: Record<ScadaEdgeType, JSX.Element> = {
+  orthogonal: (
+    <svg width="28" height="16" viewBox="0 0 28 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M2 14 L2 4 L26 4 L26 2" />
+    </svg>
+  ),
+  multiHandle: (
+    <svg width="28" height="16" viewBox="0 0 28 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M2 14 L10 4 L18 12 L26 2" />
+    </svg>
+  ),
+  draggable: (
+    <svg width="28" height="16" viewBox="0 0 28 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M2 14 Q2 0 26 4" />
+    </svg>
+  ),
+};
 
 // Connection type categories for the dropdown
 const PROCESS_LINE_IDS: ConnectionType[] = ['process-pipe', 'steam', 'hydraulic', 'drain-vent', 'capillary'];
@@ -80,8 +70,8 @@ export const EdgeToolbar: React.FC<EdgeToolbarProps> = ({
               }`}
               title={opt.label}
             >
-              {opt.icon}
-              <span>{opt.label}</span>
+              {EDGE_TYPE_ICONS[opt.type]}
+              <span>{opt.shortLabel}</span>
             </button>
           ))}
         </div>

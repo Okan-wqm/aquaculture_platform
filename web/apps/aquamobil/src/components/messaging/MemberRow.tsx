@@ -18,26 +18,29 @@ import { getInitials, getUserDisplayName } from '@/utils/messaging-helpers';
  */
 
 // S1-CODEGEN: ChannelMemberRole wire form is the UPPERCASE GraphQL enum NAME.
-const ROLE_BADGES: Record<
-  ChannelMemberRole,
-  { icon: typeof Crown; label: string; color: string }
-> = {
-  OWNER: {
-    icon: Crown,
-    label: 'Owner',
-    color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
-  },
-  ADMIN: {
-    icon: Shield,
-    label: 'Admin',
-    color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
-  },
-  MEMBER: {
-    icon: User,
-    label: 'Member',
-    color: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
-  },
-};
+//
+// Privilege reads as a step up the emphasis ladder rather than as three
+// unrelated hues: Owner takes the watch token (the one role whose actions are
+// unrecoverable), Admin the accent, Member the plain surface. The MEMBER entry
+// is never rendered (see the guard below) but stays for exhaustiveness.
+const ROLE_BADGES: Record<ChannelMemberRole, { icon: typeof Crown; label: string; color: string }> =
+  {
+    OWNER: {
+      icon: Crown,
+      label: 'Owner',
+      color: 'bg-warn-dim text-warn',
+    },
+    ADMIN: {
+      icon: Shield,
+      label: 'Admin',
+      color: 'bg-acc-dim text-acc',
+    },
+    MEMBER: {
+      icon: User,
+      label: 'Member',
+      color: 'bg-surface-2 text-ink-2',
+    },
+  };
 
 interface MemberRowProps {
   /** The channel member to display. */
@@ -65,25 +68,26 @@ export function MemberRow({ member }: MemberRowProps): ReactElement {
             className="w-10 h-10 rounded-full object-cover"
           />
         ) : (
-          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-ocean-400 to-ocean-600 flex items-center justify-center text-xs font-bold text-white">
+          // The brand gradient becomes a flat accent: the token layer has one
+          // accent value per theme and no gradient pair, and a two-stop gradient
+          // built from the same variable would just BE the flat colour.
+          <div className="w-10 h-10 rounded-full bg-acc flex items-center justify-center text-meta font-bold text-acc-on">
             {getInitials(memberName)}
           </div>
         )}
         {memberOnline && (
-          <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 border-2 border-white dark:border-gray-900 rounded-full" />
+          <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-ok border-2 border-surface-1 rounded-full" />
         )}
       </div>
 
       <div className="flex-1 min-w-0">
-        <h3 className="text-sm font-semibold text-gray-900 dark:text-white truncate">
-          {memberName}
-        </h3>
+        <h3 className="text-body font-semibold text-ink-1 truncate">{memberName}</h3>
       </div>
 
       {member.role !== 'MEMBER' && (
         <span
           className={clsx(
-            'flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full',
+            'flex items-center gap-1 text-meta font-semibold px-2 py-0.5 rounded-full',
             roleBadge.color,
           )}
         >

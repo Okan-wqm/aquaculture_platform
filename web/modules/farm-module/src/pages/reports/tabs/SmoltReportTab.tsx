@@ -6,7 +6,7 @@
  */
 import React, { useState, useMemo, useCallback } from 'react';
 import { useRegulatorySettings, useSubmitSmoltReport } from '../../../hooks/useRegulatory';
-import type { SubmitSmoltReportInput, ReportSubmissionResult } from '../../../hooks/useRegulatory';
+import type { SubmitSmoltReportInput } from '../../../hooks/useRegulatory';
 import {
   SmoltUnitCount,
   SmoltStageWeight,
@@ -976,6 +976,9 @@ export const SmoltReportTab: React.FC<SmoltReportTabProps> = ({ siteId }) => {
   const clientRef = useStableClientReference();
   const { effectiveSiteId, siteMappings, setSelectedSiteId, showSelector } =
     useEffectiveReportSite(siteId);
+  // Mapping name is optional; neutral fallback keeps titles non-fabricated.
+  const effectiveSiteName =
+    siteMappings.find((m) => m.siteId === effectiveSiteId)?.siteName ?? 'Unknown site';
 
   // Server-assembled draft (plan Phase 1b): per-unit stock, weights, species
   // and the month's mortality/cull splits computed from the operational SSoTs.
@@ -989,7 +992,6 @@ export const SmoltReportTab: React.FC<SmoltReportTabProps> = ({ siteId }) => {
     prefillPeriod,
   );
   const unitsMeta = findFieldMeta(prefill?.fields, '/produksjonsenheter');
-  const [submissionResult, setSubmissionResult] = useState<ReportSubmissionResult | null>(null);
 
   // Form handlers
   const handleFormChange = useCallback((updates: Partial<SmoltFormData>) => {
@@ -1004,7 +1006,6 @@ export const SmoltReportTab: React.FC<SmoltReportTabProps> = ({ siteId }) => {
   const handleSubmit = useCallback(async () => {
     setIsSubmitting(true);
     setError(null);
-    setSubmissionResult(null);
     try {
       // FARM-HIGH-128: fail-closed identity — never ship a silent lokalitetsnummer 0.
       const identity = buildRegulatoryIdentity(regulatorySettings, effectiveSiteId ?? '');
@@ -1023,8 +1024,7 @@ export const SmoltReportTab: React.FC<SmoltReportTabProps> = ({ siteId }) => {
         ),
       };
 
-      const result = await submitSmoltMutation.mutateAsync(input);
-      setSubmissionResult(result);
+      await submitSmoltMutation.mutateAsync(input);
 
       if (result.success) {
         // FARM-HIGH-126: rotate the stable client reference only on success.
@@ -1053,7 +1053,7 @@ export const SmoltReportTab: React.FC<SmoltReportTabProps> = ({ siteId }) => {
           <BasicInfoStep
             formData={formData}
             onChange={handleFormChange}
-            siteName={'Default Smolt Facility'}
+            siteName={effectiveSiteName}
           />
         ),
       },
@@ -1082,10 +1082,10 @@ export const SmoltReportTab: React.FC<SmoltReportTabProps> = ({ siteId }) => {
         id: 'review',
         title: 'Review',
         description: 'Verify and submit',
-        content: <ReviewStep formData={formData} siteName={'Default Smolt Facility'} />,
+        content: <ReviewStep formData={formData} siteName={effectiveSiteName} />,
       },
     ],
-    [formData, handleFormChange, tanks],
+    [formData, handleFormChange, tanks, effectiveSiteName],
   );
 
   return (

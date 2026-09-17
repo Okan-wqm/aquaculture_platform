@@ -162,21 +162,21 @@ const BulkRowEditor: React.FC<BulkRowEditorProps> = ({
           type="button"
           onClick={onRemove}
           className="text-red-600 hover:text-red-800 text-sm"
-          aria-label={`${equipment.name} ekipmanını gruptan çıkar`}
+          aria-label={`Remove ${equipment.name} from the group`}
         >
-          Çıkar
+          Remove
         </button>
       </div>
 
       {configsQuery.isLoading ? (
-        <p className="text-sm text-gray-500">Parametre yapılandırması yükleniyor…</p>
+        <p className="text-sm text-gray-500">Loading parameter configuration…</p>
       ) : configsQuery.isError ? (
         <p className="text-sm text-red-600">
-          Parametre yapılandırması yüklenemedi.
+          Failed to load parameter configuration.
         </p>
       ) : parameters.length === 0 ? (
         <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
-          Bu ekipmana atanmış parametre yok — Parametreler sekmesinden bir konfigürasyon eşlemesi yapın.
+          No parameters assigned to this equipment — map a configuration from the Parameters tab.
         </p>
       ) : (
         <DynamicParameterFields
@@ -194,7 +194,7 @@ const BulkRowEditor: React.FC<BulkRowEditorProps> = ({
           htmlFor={`bulk-notes-${row.idempotencyKey}`}
           className="block text-sm font-medium text-gray-700 mb-1"
         >
-          Notlar
+          Notes
         </label>
         <textarea
           id={`bulk-notes-${row.idempotencyKey}`}
@@ -320,14 +320,14 @@ export const BulkRecordTab: React.FC = () => {
   // type-safety boundary.
   const buildPayload = useCallback((): CreateBatchWaterQualityInput | string => {
     if (rows.length === 0) {
-      return 'En az bir ekipman seçin.';
+      return 'Select at least one equipment.';
     }
     if (rows.length > MAX_BATCH_SIZE) {
-      return `Tek seferde en fazla ${MAX_BATCH_SIZE} ekipman gönderilebilir (şu an ${rows.length}).`;
+      return `At most ${MAX_BATCH_SIZE} equipment can be submitted at once (currently ${rows.length}).`;
     }
     const measuredAt = new Date(measuredAtLocal);
     if (Number.isNaN(measuredAt.getTime())) {
-      return 'Ölçüm tarihi geçersiz.';
+      return 'Invalid measurement date.';
     }
 
     const measurements: BatchMeasurementItemInput[] = rows.map((row) => {
@@ -364,7 +364,7 @@ export const BulkRecordTab: React.FC = () => {
     const payload = buildPayload();
     if (typeof payload === 'string') {
       toast({
-        title: 'Gönderim engellendi',
+        title: 'Submission blocked',
         description: payload,
         variant: 'error',
       });
@@ -373,14 +373,14 @@ export const BulkRecordTab: React.FC = () => {
     try {
       const created = await createBatch.mutateAsync(payload);
       toast({
-        title: 'Toplu ölçüm kaydedildi',
-        description: `${created.length} ölçüm tek transaction'da yazıldı.`,
+        title: 'Bulk measurements recorded',
+        description: `${created.length} measurements written in a single transaction.`,
         variant: 'success',
       });
       setRows([]);
     } catch (err) {
       toast({
-        title: 'Toplu kayıt başarısız',
+        title: 'Bulk save failed',
         description: formatErrorForToast(err),
         variant: 'error',
       });
@@ -404,7 +404,7 @@ export const BulkRecordTab: React.FC = () => {
             onChange={(e) => setSelectedSystemId(e.target.value || null)}
             className="block w-full rounded-md border-gray-300 shadow-sm sm:text-sm"
           >
-            <option value="">Tümü</option>
+            <option value="">All</option>
             {(systemsQuery.data?.items ?? []).map((sys) => (
               <option key={sys.id} value={sys.id}>
                 {sys.name}
@@ -414,7 +414,7 @@ export const BulkRecordTab: React.FC = () => {
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            Ölçüm Tarihi/Saati
+            Measurement Date/Time
           </label>
           <input
             type="datetime-local"
@@ -434,8 +434,8 @@ export const BulkRecordTab: React.FC = () => {
           >
             <option value="MANUAL">Manuel</option>
             <option value="LAB_ANALYSIS">Laboratuvar</option>
-            <option value="SENSOR_AUTOMATIC">Sensör (otomatik)</option>
-            <option value="SENSOR_TRIGGERED">Sensör (tetikli)</option>
+            <option value="SENSOR_AUTOMATIC">Sensor (automatic)</option>
+            <option value="SENSOR_TRIGGERED">Sensor (triggered)</option>
             <option value="CALIBRATION">Kalibrasyon</option>
           </select>
         </div>
@@ -446,7 +446,7 @@ export const BulkRecordTab: React.FC = () => {
         <div className="flex flex-wrap items-end gap-3">
           <div className="flex-1 min-w-[260px]">
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Ekipman ekle
+              Add equipment
             </label>
             <select
               value=""
@@ -457,7 +457,7 @@ export const BulkRecordTab: React.FC = () => {
               <option value="">
                 {availableEquipment.length === 0
                   ? 'Eklenebilecek ekipman yok'
-                  : 'Bir ekipman seç…'}
+                  : 'Select an equipment…'}
               </option>
               {availableEquipment.map((eq) => (
                 <option key={eq.id} value={eq.id}>
@@ -472,7 +472,7 @@ export const BulkRecordTab: React.FC = () => {
             disabled={availableEquipment.length === 0 || rows.length >= MAX_BATCH_SIZE}
             className="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 border border-gray-300 rounded-md disabled:opacity-50"
           >
-            Görünür hepsini ekle
+            Add all visible
           </button>
           <button
             type="button"
@@ -484,7 +484,7 @@ export const BulkRecordTab: React.FC = () => {
           </button>
         </div>
         <p className="text-xs text-gray-500">
-          {rows.length} / {MAX_BATCH_SIZE} ekipman seçildi · Tüm satırlar tek transaction'da yazılır.
+          {rows.length} / {MAX_BATCH_SIZE} equipment selected · All rows are written in a single transaction.
         </p>
       </section>
 
@@ -498,13 +498,13 @@ export const BulkRecordTab: React.FC = () => {
                 key={row.equipmentId}
                 className="border border-amber-200 bg-amber-50 rounded-lg p-3 text-sm text-amber-800"
               >
-                Ekipman bulunamadı: {row.equipmentId} —{' '}
+                Equipment not found: {row.equipmentId} —{' '}
                 <button
                   type="button"
                   onClick={() => handleRowRemove(row.equipmentId)}
                   className="underline hover:no-underline"
                 >
-                  satırı çıkar
+                  remove row
                 </button>
               </div>
             );
@@ -530,8 +530,8 @@ export const BulkRecordTab: React.FC = () => {
           className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white rounded-md text-sm font-medium"
         >
           {isSubmitting
-            ? `Kaydediliyor… (${rows.length})`
-            : `${rows.length} Ölçümü Tek Transaction'da Gönder`}
+            ? `Saving… (${rows.length})`
+            : `Submit ${rows.length} Measurements in One Transaction`}
         </button>
       </section>
     </div>

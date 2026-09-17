@@ -263,8 +263,8 @@ function CurrentValueCard({
     <Card padding="md" className="min-w-0">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="truncate text-sm font-medium text-gray-600">{label}</p>
-          <p className="mt-2 text-2xl font-bold text-gray-950">
+          <p className="sd-stat-title truncate">{label}</p>
+          <p className="mt-2 sd-stat-value" style={{ fontSize: 26 }}>
             {formatValue(value.value)}{' '}
             <span className="text-base font-medium text-gray-600">{value.unit}</span>
           </p>
@@ -639,7 +639,7 @@ const EnvironmentPage: React.FC = () => {
 
   if (sitesQuery.isPending) {
     return (
-      <div className="min-h-screen bg-gray-50 p-4 sm:p-6">
+      <div className="sd-page sd-f2 p-4 sm:p-6">
         <LoadingState label="Loading your authorized sea-cage sites…" />
       </div>
     );
@@ -647,7 +647,7 @@ const EnvironmentPage: React.FC = () => {
 
   if (sitesQuery.isError && !hasSiteListData) {
     return (
-      <div className="min-h-screen bg-gray-50 p-4 sm:p-6">
+      <div className="sd-page sd-f2 p-4 sm:p-6">
         <ErrorState message="Your authorized sites could not be loaded." />
       </div>
     );
@@ -655,7 +655,7 @@ const EnvironmentPage: React.FC = () => {
 
   if (eligibleSites.length === 0) {
     return (
-      <div className="min-h-screen bg-gray-50 p-4 sm:p-6">
+      <div className="sd-page sd-f2 p-4 sm:p-6">
         <div className="mx-auto max-w-3xl">
           {sitesQuery.isError && (
             <div className="mb-4">
@@ -691,7 +691,7 @@ const EnvironmentPage: React.FC = () => {
 
   if (!selectedSite) {
     return (
-      <div className="min-h-screen bg-gray-50 p-4 sm:p-6">
+      <div className="sd-page sd-f2 p-4 sm:p-6">
         <LoadingState label="Opening an authorized sea-cage site…" />
       </div>
     );
@@ -705,20 +705,16 @@ const EnvironmentPage: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="border-b border-gray-200 bg-white">
-        <div className="px-4 py-6 sm:px-6">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-widest text-blue-700">
-                Site-specific
-              </p>
-              <h1 className="mt-1 text-2xl font-bold text-gray-950">Environmental monitoring</h1>
-              <p className="mt-1 max-w-3xl text-sm text-gray-600">
-                Weather, Copernicus Marine model values and exact Sentinel-2 scenes for your
-                authorized sea-cage sites.
-              </p>
-            </div>
+    <div className="sd-page sd-f2">
+      <div className="sd-pagehead">
+        <span className="sd-eyebrow">Environment</span>
+        <h1 className="sd-page-title">Environmental monitoring</h1>
+        <span className="sd-page-sub">
+          Weather, Copernicus Marine model values and exact Sentinel-2 scenes for your
+          authorized sea-cage sites.
+        </span>
+      </div>
+      <div className="sd-actions">
             <label className="block min-w-64 text-sm font-medium text-gray-700">
               Sea-cage site
               <select
@@ -736,23 +732,18 @@ const EnvironmentPage: React.FC = () => {
                 ))}
               </select>
             </label>
-          </div>
-          <div className="mt-4 flex flex-wrap gap-x-5 gap-y-1 text-xs text-gray-600">
-            <span>
-              Coordinates: {selectedSite.location.latitude.toFixed(5)},{' '}
-              {selectedSite.location.longitude.toFixed(5)}
-            </span>
-            <span>Monitoring radius: {selectedSite.monitoringRadiusM} m</span>
-            <span>Location revision: {selectedSite.monitoringLocationRevision}</span>
-          </div>
-        </div>
-      </header>
+      </div>
+      <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-gray-600">
+        <span>
+          Coordinates: {selectedSite.location.latitude.toFixed(5)},{' '}
+          {selectedSite.location.longitude.toFixed(5)}
+        </span>
+        <span>Monitoring radius: {selectedSite.monitoringRadiusM} m</span>
+        <span>Location revision: {selectedSite.monitoringLocationRevision}</span>
+      </div>
 
-      <nav
-        className="border-b border-gray-200 bg-white px-4 sm:px-6"
-        aria-label="Environment views"
-      >
-        <div className="-mb-px flex gap-6 overflow-x-auto">
+      <nav className="sd-tabs" aria-label="Environment views">
+        <div>
           {(
             [
               ['current', 'Current'],
@@ -766,11 +757,7 @@ const EnvironmentPage: React.FC = () => {
               type="button"
               onClick={() => setActiveView(view)}
               aria-current={activeView === view ? 'page' : undefined}
-              className={`whitespace-nowrap border-b-2 px-1 py-4 text-sm font-semibold ${
-                activeView === view
-                  ? 'border-blue-600 text-blue-700'
-                  : 'border-transparent text-gray-600 hover:border-gray-300 hover:text-gray-900'
-              }`}
+              className={`sd-tab${activeView === view ? ' sd-tab--active' : ''}`}
             >
               {label}
             </button>

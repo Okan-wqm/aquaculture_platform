@@ -98,6 +98,19 @@ function formatTime(ms: number): string {
   });
 }
 
+/**
+ * Guarded numeric format (T1f): AlarmInstance.currentValue arrives from the
+ * server and is typed `number`, but string/boolean tag values have surfaced
+ * in the wild — `.toFixed(2)` on those threw and unmounted the whole panel.
+ */
+function formatNumeric(value: number | string | boolean | undefined | null): string {
+  const n = typeof value === 'number' ? value : Number(value);
+  if (value === undefined || value === null || value === '' || isNaN(n)) {
+    return String(value ?? '—');
+  }
+  return n.toFixed(2);
+}
+
 function exportCsv(alarms: AlarmInstance[], filename: string): void {
   const headers = [
     'Time',
@@ -173,7 +186,7 @@ const AlarmRow = memo(({ alarm, onAck, isHistory }: AlarmRowProps) => {
 
       {/* Value vs Threshold */}
       <td className="px-3 py-2 text-xs text-gray-700 dark:text-gray-300 whitespace-nowrap font-mono">
-        {alarm.currentValue.toFixed(2)} / {alarm.threshold.toFixed(2)}
+        {formatNumeric(alarm.currentValue)} / {formatNumeric(alarm.threshold)}
       </td>
 
       {/* Status */}
@@ -191,6 +204,18 @@ const AlarmRow = memo(({ alarm, onAck, isHistory }: AlarmRowProps) => {
         >
           {STATUS_LABELS[alarm.status] ?? alarm.status}
         </span>
+      </td>
+
+      {/* ACK audit trail (T1f): who acknowledged and when */}
+      <td className="px-3 py-2 text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">
+        {alarm.ackTime ? (
+          <span title={alarm.ackUserId ?? undefined}>
+            {alarm.ackUserId ? `${alarm.ackUserId} · ` : ''}
+            {formatTime(alarm.ackTime)}
+          </span>
+        ) : (
+          <span className="text-gray-400 dark:text-gray-600">—</span>
+        )}
       </td>
 
       {/* ACK button */}
@@ -242,17 +267,9 @@ export const AlarmPanel = memo(({ onClose, className = '' }: AlarmPanelProps) =>
   const [historyFrom, setHistoryFrom] = useState('');
   const [historyTo, setHistoryTo] = useState('');
 
-  // ── Auto-refresh (active tab only) ──────────────────────────────────────
-  useEffect(() => {
-    if (tab !== 'active') return;
-
-    const interval = setInterval(() => {
-      // The hook already listens for ALARM_STATUS pushes;
-      // nothing extra needed — the server pushes at 1 Hz.
-    }, 2_000);
-
-    return () => clearInterval(interval);
-  }, [tab]);
+  // NOTE (T1f): the old 2 s "auto-refresh" interval was removed — its body
+  // was empty (the hook already listens for the server's ALARM_STATUS pushes
+  // at 1 Hz), so it only burned a timer per mounted panel.
 
   // ── Available groups ─────────────────────────────────────────────────────
   const availableGroups = useMemo(() => {
@@ -341,7 +358,7 @@ export const AlarmPanel = memo(({ onClose, className = '' }: AlarmPanelProps) =>
     <div
       className={`flex flex-col bg-white dark:bg-gray-900 rounded-lg shadow-xl border
                   border-gray-200 dark:border-gray-700 ${className}`}
-      style={{ minWidth: 720, maxHeight: '80vh' }}
+      style={{ minWidth: 'min(720px, 100%)', maxWidth: '100%', maxHeight: '80vh' }}
     >
       {/* ── Header ─────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
@@ -563,6 +580,9 @@ export const AlarmPanel = memo(({ onClose, className = '' }: AlarmPanelProps) =>
                 </th>
                 <th className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
                   Status
+                </th>
+                <th className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+                  Acknowledged
                 </th>
                 {tab === 'active' && (
                   <th className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">

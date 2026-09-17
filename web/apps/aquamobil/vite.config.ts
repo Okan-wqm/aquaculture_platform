@@ -91,6 +91,13 @@ export default defineConfig({
       // bare-specifier resolution hazard the farm-shared dedupe comment below
       // documents.
       '@aquaculture/shared-contracts': resolve(__dirname, '../../../libs/shared-contracts/src'),
+    // Single-catalog i18n SSoT (2026-09-17): the field app CONSUMES shared-ui's
+    // i18n module instead of carrying a cloned provider+catalog. Path-aliased
+    // (farm-shared/shared-contracts precedent) — the module imports only React
+    // + its own locale files, so the standalone bundle stays lean.
+    '@aquaculture/shared-ui/i18n': resolve(__dirname, '../../shared-ui/src/i18n'),
+    // Brand identity SSoT — same narrow-alias pattern as the i18n one.
+    '@aquaculture/shared-ui/brand': resolve(__dirname, '../../shared-ui/src/config/brand.ts'),
     },
     // Dedupe React across the aliased farm-shared boundary.
     //

@@ -1,7 +1,7 @@
 /**
  * UpdateMeterReadingButton — Tier 3 #8 (Scope C PR-8)
  *
- * Per-row "Sayaç Güncelle" affordance for METER_BASED schedules on
+ * Per-row "Update Meter" affordance for METER_BASED schedules on
  * `MaintenanceSchedulesPage`. Distinct from the meter capture inside
  * `CompleteMaintenanceModal` (which closes a cycle) — this surface
  * exists for walk-around meter readings between maintenance events,
@@ -74,14 +74,14 @@ const UpdateMeterReadingButton: React.FC<UpdateMeterReadingButtonProps> = ({
   const errors: string[] = useMemo(() => {
     const errs: string[] = [];
     if (meterParsed === null) {
-      errs.push('Sayaç okuması zorunlu.');
+      errs.push('A meter reading is required.');
     } else if (Number.isNaN(meterParsed)) {
-      errs.push('Sayaç okuması geçerli bir sayı olmalı.');
+      errs.push('The meter reading must be a valid number.');
     } else if (meterParsed < 0) {
-      errs.push('Sayaç okuması negatif olamaz.');
+      errs.push('The meter reading cannot be negative.');
     } else if (lastMeter != null && meterParsed < lastMeter) {
       errs.push(
-        `Yeni okuma (${meterParsed}) son bakım okumasından (${lastMeter}) küçük olamaz.`,
+        `The new reading (${meterParsed}) cannot be lower than the last one (${lastMeter}).`,
       );
     }
     return errs;
@@ -104,14 +104,14 @@ const UpdateMeterReadingButton: React.FC<UpdateMeterReadingButtonProps> = ({
         meterReading: meterParsed,
       });
       toast({
-        title: 'Sayaç güncellendi',
-        description: `${schedule.scheduleCode} için sayaç ${meterParsed} olarak kaydedildi.`,
+        title: 'Meter updated',
+        description: `Meter for ${schedule.scheduleCode} saved as ${meterParsed}.`,
         variant: 'success',
       });
       setIsOpen(false);
     } catch (err) {
       toast({
-        title: 'Sayaç güncellenemedi',
+        title: 'Could not update the meter',
         description: formatErrorForToast(err),
         variant: 'error',
       });
@@ -124,15 +124,16 @@ const UpdateMeterReadingButton: React.FC<UpdateMeterReadingButtonProps> = ({
         type="button"
         onClick={() => setIsOpen(true)}
         className="text-cyan-700 hover:text-cyan-900"
-        title="Sayaç okumasını güncelle (METER_BASED)"
+        title="Update the meter reading (METER_BASED)"
       >
-        Sayaç Güncelle
+        Update Meter
       </button>
 
       <Modal
+        className="sd-f2"
         isOpen={isOpen}
         onClose={() => setIsOpen(false)}
-        title="Sayaç Okumasını Güncelle"
+        title="Update Meter Reading"
         size="sm"
       >
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -145,13 +146,13 @@ const UpdateMeterReadingButton: React.FC<UpdateMeterReadingButtonProps> = ({
               {currentMeter != null ? (
                 <>Mevcut: {currentMeter}</>
               ) : (
-                <>Mevcut: kayıtlı okuma yok</>
+                <>Current: no recorded reading</>
               )}
               {lastMeter != null && (
-                <> · son bakım okuması: {lastMeter}</>
+                <> · last reading: {lastMeter}</>
               )}
               {schedule.nextMaintenanceMeterReading != null && (
-                <> · sonraki bakım: {schedule.nextMaintenanceMeterReading}</>
+                <> · next maintenance: {schedule.nextMaintenanceMeterReading}</>
               )}
             </p>
           </div>
@@ -161,7 +162,7 @@ const UpdateMeterReadingButton: React.FC<UpdateMeterReadingButtonProps> = ({
               htmlFor="meter-reading-input"
               className="block text-sm font-medium text-gray-700"
             >
-              Yeni Sayaç Okuması{' '}
+              New Meter Reading{' '}
               <span className="text-red-600">*</span>
             </label>
             <input
@@ -192,7 +193,7 @@ const UpdateMeterReadingButton: React.FC<UpdateMeterReadingButtonProps> = ({
               onClick={() => setIsOpen(false)}
               disabled={isSubmitting}
             >
-              İptal
+              Cancel
             </Button>
             <Button
               type="submit"
@@ -200,7 +201,7 @@ const UpdateMeterReadingButton: React.FC<UpdateMeterReadingButtonProps> = ({
               disabled={!isFormValid || isSubmitting}
               isLoading={isSubmitting}
             >
-              Kaydet
+              Save
             </Button>
           </div>
         </form>

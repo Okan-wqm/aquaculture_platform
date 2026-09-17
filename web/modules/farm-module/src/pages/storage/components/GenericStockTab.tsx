@@ -324,7 +324,7 @@ function renderCell(
     case 'expiry':
       return (
         <>
-          {item.expiryDate ? new Date(item.expiryDate).toLocaleDateString('nb-NO') : '-'}
+          {item.expiryDate ? new Date(item.expiryDate).toLocaleDateString('en-GB') : '-'}
           {/* Visual badge indicates urgency level for warehouse staff scanning
               the inventory list. Red = must be disposed/used immediately.
               Amber = plan to use within 30 days or risk waste. */}

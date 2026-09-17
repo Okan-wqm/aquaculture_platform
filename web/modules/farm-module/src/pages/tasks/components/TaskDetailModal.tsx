@@ -35,6 +35,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
 
   return (
     <Modal
+      className="sd-f2"
       isOpen
       onClose={onClose}
       title={task.title}
@@ -52,7 +53,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
               onClick={() => onComplete(task.id)}
               className="px-4 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700"
             >
-              Tamamlandı
+              Completed
             </button>
           )}
         </>
@@ -90,18 +91,18 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
 
         {/* Description */}
         <div>
-          <h4 className="text-sm font-medium text-gray-700 mb-1">Açıklama</h4>
+          <h4 className="text-sm font-medium text-gray-700 mb-1">Description</h4>
           <p className="text-sm text-gray-600">{task.description}</p>
         </div>
 
         {/* Details Grid */}
         <div className="grid grid-cols-2 gap-4 text-sm">
           <div>
-            <span className="text-gray-500">Atanan:</span>
+            <span className="text-gray-500">Assigned to:</span>
             <span className="ml-2 font-medium text-gray-900">{task.assignedToName}</span>
           </div>
           <div>
-            <span className="text-gray-500">Bitiş:</span>
+            <span className="text-gray-500">Due:</span>
             <span className="ml-2 font-medium text-gray-900">
               {task.dueDate}
               {task.dueTime ? ` ${task.dueTime}` : ''}
@@ -109,25 +110,25 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
           </div>
           {task.location && (
             <div>
-              <span className="text-gray-500">Konum:</span>
+              <span className="text-gray-500">Location:</span>
               <span className="ml-2 font-medium text-gray-900">{task.location}</span>
             </div>
           )}
           {task.estimatedMinutes && (
             <div>
-              <span className="text-gray-500">Tahmini Süre:</span>
+              <span className="text-gray-500">Estimated Time:</span>
               <span className="ml-2 font-medium text-gray-900">{task.estimatedMinutes} dk</span>
             </div>
           )}
           {task.completedAt && (
             <div>
-              <span className="text-gray-500">Tamamlanma:</span>
+              <span className="text-gray-500">Completed at:</span>
               <span className="ml-2 font-medium text-gray-900">{task.completedAt}</span>
             </div>
           )}
           {task.completedBy && (
             <div>
-              <span className="text-gray-500">Tamamlayan:</span>
+              <span className="text-gray-500">Completed by:</span>
               <span className="ml-2 font-medium text-gray-900">{task.completedBy}</span>
             </div>
           )}
@@ -136,7 +137,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
         {/* Tags */}
         {task.tags.length > 0 && (
           <div>
-            <h4 className="text-sm font-medium text-gray-700 mb-2">Etiketler</h4>
+            <h4 className="text-sm font-medium text-gray-700 mb-2">Tags</h4>
             <div className="flex flex-wrap gap-1">
               {task.tags.map((tag) => (
                 <span
@@ -155,7 +156,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
           <div>
             <div className="flex items-center justify-between mb-2">
               <h4 className="text-sm font-medium text-gray-700">
-                Kontrol Listesi ({completedChecklist}/{totalChecklist})
+                Checklist ({completedChecklist}/{totalChecklist})
               </h4>
               <div className="w-32 h-2 bg-gray-200 rounded-full overflow-hidden">
                 <div
@@ -224,7 +225,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                 disabled={!noteText.trim()}
                 className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Ekle
+                Add
               </button>
             </div>
           )}

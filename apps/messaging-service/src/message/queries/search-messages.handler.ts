@@ -78,12 +78,19 @@ export class SearchMessagesHandler implements IQueryHandler<SearchMessagesQuery,
           `to_tsvector('english', m."content") @@ plainto_tsquery('english', :searchQuery)`,
           { searchQuery },
         )
-        .orderBy(
+        .addSelect(
           `ts_rank(to_tsvector('english', m."content"), plainto_tsquery('english', :searchQuery))`,
-          'DESC',
+          'search_rank',
         )
+        .orderBy('"search_rank"', 'DESC')
         .addOrderBy('m.createdAt', 'DESC')
-        .take(limit)
+        // LIMIT, not take(): the attachments join makes TypeORM's take() emit
+        // SELECT DISTINCT id, which Postgres rejects because the ts_rank ORDER
+        // BY expression is not in the select list (live-discovered — the search
+        // path had never been exercised). limit() paginates without DISTINCT;
+        // the rank ordering already bounds the candidate set before the join
+        // fans out attachments.
+        .limit(limit)
         .getMany();
 
       this.logger.debug(

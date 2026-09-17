@@ -254,6 +254,11 @@ export function drivenUnitSummary(resolution: DrivenUnitResolution): string {
       return resolution.units.length === 1
         ? `Feeder for ${resolution.units[0]?.unitCode ?? 'one unit'}`
         : 'Feeder';
+    default:
+      // Exhaustiveness is enforced by the outcome union; this arm exists so
+      // the function total-returns even if a new outcome is added upstream
+      // before its client wording lands.
+      return 'Drive';
   }
 }
 

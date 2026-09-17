@@ -938,6 +938,9 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
           role: Role.TENANT_ADMIN,
           tenantId: VALID_TENANT_ID,
           isActive: true,
+          // MSGFIX-FAZ2 cherry-pick forward-fix: the issuance fence pins the
+          // exact credentialVersion integer in the re-read predicate too.
+          credentialVersion: 1,
         },
         lock: { mode: 'pessimistic_write' },
       });
@@ -997,6 +1000,8 @@ describe('TokenService — generateTokens security surface (AUDIT-HIGH-009)', ()
           role: Role.MODULE_USER,
           tenantId: VALID_TENANT_ID,
           isActive: true,
+          // MSGFIX-FAZ2 cherry-pick forward-fix: issuance fence integer pin.
+          credentialVersion: 1,
         },
         lock: { mode: 'pessimistic_write' },
       });
@@ -1201,6 +1206,8 @@ describe('TokenService — assignedSiteIds + mobileFeatures claims (SEC-HIGH-051
         role: Role.MODULE_USER,
         tenantId: TENANT,
         isActive: true,
+        // MSGFIX-FAZ2 cherry-pick forward-fix: issuance fence integer pin.
+        credentialVersion: 1,
       },
       lock: { mode: 'pessimistic_write' },
     });

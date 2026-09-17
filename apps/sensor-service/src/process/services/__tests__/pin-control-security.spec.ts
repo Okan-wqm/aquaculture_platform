@@ -1,4 +1,4 @@
-import { ScadaPackageStatus } from '../../entities/scada-package.entity';
+import { ScadaPackage, ScadaPackageStatus } from '../../entities/scada-package.entity';
 import { ScadaPackageService } from '../scada-package.service';
 import { hashPin, isPinHash, verifyPin } from '../pin-hash.util';
 

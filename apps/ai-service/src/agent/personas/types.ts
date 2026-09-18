@@ -14,6 +14,33 @@ export interface AgentPersona {
   defaultToolNames: string[];
   actuationPolicy: ActuationPolicy;
   maxTokensPerTurn: number;
+  /**
+   * FARM-AI Sprint 1.2 (persona-tool-ceiling): may the tenant's
+   * additionalToolNames expand this persona's toolset? Service-facing
+   * personas (narrator) set false — their tool ceiling is part of the
+   * platform contract, not tenant configuration.
+   */
+  allowAdditionalTools: boolean;
+  /**
+   * FARM-AI Sprint 1.2: who may drive this persona.
+   * - 'user-tier'    — user chat; authorized by the caller's ALL-OF
+   *                    requiredCapabilities set (`ai_personas:<tier>` ∧
+   *                    `ai_specialties:<module>` for farm specialists).
+   * - 'service-grant'— platform service paths only (e.g. action_watch
+   *                    narratives); authorized EXCLUSIVELY by the
+   *                    server-side service→persona grant map. No user
+   *                    capability can reach these personas.
+   */
+  permissionModel: 'user-tier' | 'service-grant';
+}
+
+/**
+ * A hand-defined SERVICE persona (service-grant permission model) — outside
+ * the composed catalogue: no tier/specialty axes, unreachable by user chat,
+ * authorized only through SERVICE_PERSONA_GRANTS. narrator-v1 today.
+ */
+export interface ServicePersona extends AgentPersona {
+  permissionModel: 'service-grant';
 }
 
 /**

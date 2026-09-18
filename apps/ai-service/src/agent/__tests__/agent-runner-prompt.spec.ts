@@ -162,7 +162,14 @@ describe('AgentRunnerService prompt assembly + persona resolution', () => {
   it('a request naming no persona resolves the tenant default persona', async () => {
     await runner.chat(request({ persona: null }));
 
-    expect(resolveProfile).toHaveBeenCalledWith(tenantId, 'operator-v1', expect.anything());
+    expect(resolveProfile).toHaveBeenCalledWith(
+      tenantId,
+      'operator-v1',
+      expect.anything(),
+      // FARM-AI Sprint 1.2: the runner always declares the (possibly absent)
+      // calling-service identity for the service→persona grant map.
+      { serviceId: undefined },
+    );
   });
 
   it('persists the RESOLVED persona id on the conversation, the ledger and the response', async () => {

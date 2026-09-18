@@ -82,6 +82,10 @@ export function composePersona(
     defaultToolNames: specialty.toolNames.filter(tierAllowsTool),
     actuationPolicy: mostRestrictivePolicy(tier.actuationCeiling, specialty.actuationCap),
     maxTokensPerTurn: tier.maxTokensPerTurn,
+    // FARM-AI Sprint 1.2: user-chat personas stay tenant-configurable within
+    // their tier/specialty bounds; only service personas pin the ceiling.
+    allowAdditionalTools: true,
+    permissionModel: 'user-tier',
     tier: tier.id,
     specialty: specialty.id,
     requiredCapabilities: entry.requiredCapabilities,

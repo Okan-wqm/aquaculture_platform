@@ -38,6 +38,20 @@ export interface AiChatNatsRequest {
   /** Faz 7c: the caller's tenant-RBAC grants — authorizes the persona tier. */
   resourcePermissions?: string[];
   correlationId?: string;
+  /**
+   * FARM-AI Sprint 1.2: ephemeral run — no conversation is created or read;
+   * the response carries conversationId=null. Service paths (narratives,
+   * routines) use this.
+   */
+  ephemeral?: boolean;
+  /**
+   * FARM-AI Sprint 1.2: identity of the calling service, checked against the
+   * server-side SERVICE_PERSONA_GRANTS map in AgentProfileService. Authority
+   * is never taken from the payload.
+   */
+  serviceId?: string;
+  /** FARM-AI Sprint 1.2: allowlisted rate-limit namespace ('routine'). */
+  rateNamespace?: string;
   // ── messaging-bridge-only context (ignored by the assistant path) ──
   channelId?: string;
   messageId?: string;
@@ -133,6 +147,12 @@ export class AiChatResponder {
       resourcePermissions: payload.resourcePermissions ?? [],
       schemaName: `tenant_${cleanId}`,
       correlationId: payload.correlationId ?? randomUUID(),
+      // FARM-AI Sprint 1.2: service-path fields — identity for the grant map,
+      // conversation-less runs, and the namespaced rate counter. All three
+      // are ignored (undefined) by the user-chat surfaces.
+      ephemeral: payload.ephemeral === true,
+      serviceId: payload.serviceId,
+      rateNamespace: payload.rateNamespace,
       // MSGFIX-FAZ2 2.3: the bridge's consent-filtered channel context —
       // becomes the model's prior turns (previously ignored, so AI channels
       // had zero memory). Only used when no conversationId rides the request.

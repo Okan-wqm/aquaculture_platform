@@ -17,6 +17,9 @@ const DEFAULT_CONFIG: Partial<TenantAgentConfig> = {
   applicableRoles: ['operator'],
   isEnabled: true,
   proactiveMonitoringEnabled: false,
+  // FARM-AI Sprint 1.2: routine orchestrator opt-in — OFF until the tenant
+  // turns it on (first reader is the Faz-5 routine orchestrator).
+  routineAiEnabled: false,
   autonomousActionsEnabled: false,
   monthlyTokenBudget: 1_000_000,
   hourlyRequestLimit: 60,

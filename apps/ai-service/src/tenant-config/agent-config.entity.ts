@@ -97,6 +97,14 @@ export class TenantAgentConfig {
   @Column({ type: 'boolean', default: false })
   proactiveMonitoringEnabled!: boolean;
 
+  /**
+   * FARM-AI Sprint 1.2: tenant opt-in for the routine orchestrator (Faz 5).
+   * Ships OFF — nothing machine-driven runs until the tenant turns it on.
+   * First reader is the Faz-5 routine orchestrator.
+   */
+  @Column({ type: 'boolean', default: false })
+  routineAiEnabled!: boolean;
+
   @Column({ type: 'boolean', default: false })
   autonomousActionsEnabled!: boolean;
 

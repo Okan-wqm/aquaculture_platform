@@ -32,7 +32,10 @@ export const PERMISSION_CATEGORIES = {
   batch: {
     name: 'Batch & Production',
     resources: {
-      batches: { name: 'Batches', actions: ['view', 'create', 'edit', 'delete', 'transfer', 'split', 'merge'] },
+      batches: {
+        name: 'Batches',
+        actions: ['view', 'create', 'edit', 'delete', 'transfer', 'split', 'merge'],
+      },
       species: { name: 'Species', actions: ['view', 'create', 'edit', 'delete'] },
       mortality: { name: 'Mortality Records', actions: ['view', 'record'] },
       growth: { name: 'Growth Measurements', actions: ['view', 'record', 'analyze'] },
@@ -42,9 +45,15 @@ export const PERMISSION_CATEGORIES = {
   operations: {
     name: 'Operations',
     resources: {
-      feeding: { name: 'Feeding', actions: ['view', 'record', 'manage_schedules', 'manage_inventory'] },
+      feeding: {
+        name: 'Feeding',
+        actions: ['view', 'record', 'manage_schedules', 'manage_inventory'],
+      },
       sensors: { name: 'Sensors', actions: ['view', 'configure', 'calibrate', 'manage_alerts'] },
-      maintenance: { name: 'Maintenance', actions: ['view', 'create_work_orders', 'complete', 'manage_schedules'] },
+      maintenance: {
+        name: 'Maintenance',
+        actions: ['view', 'create_work_orders', 'complete', 'manage_schedules'],
+      },
       water_quality: { name: 'Water Quality', actions: ['view', 'record'] },
     },
   },
@@ -106,6 +115,20 @@ export const PERMISSION_CATEGORIES = {
         name: 'AI Personas',
         actions: ['operator', 'manager', 'expert', 'supervisor'],
       },
+    },
+  },
+  // Module-scoped AI specialists (RBAC-MEDIUM-016). A specialist persona
+  // (e.g. `expert-farm-production-v1`, see @aquaculture/shared-contracts
+  // AI_PERSONA_CATALOGUE) needs the caller's tier capability above AND the
+  // specialty capability here; the category is gated on BOTH the AI module and
+  // the specialty's own module (CATEGORY_MODULE_REQUIREMENTS), so a tenant
+  // lacking either never holds it and the role editor hides the category.
+  // Resource key `ai_specialties` is globally unique; the wire form is
+  // `ai_specialties:<module>`.
+  ai_specialists: {
+    name: 'AI Specialists',
+    resources: {
+      ai_specialties: { name: 'Specialist modules', actions: ['farm'] },
     },
   },
 };
@@ -174,30 +197,34 @@ export function isKnownCapability(capability: string): boolean {
  *   - `reports` / `admin` — platform surfaces every tenant has;
  *   - `messaging` — no licensable `ModuleCode` exists yet, so it stays core
  *     (a dedicated messaging module gate is separate future work).
- * Only the two categories that map 1:1 to an OPTIONAL module are gated:
+ * Only the categories that map to OPTIONAL modules are gated:
  *   - `hr` → the HR module;
  *   - `ai` → the AI module (this is the audit's headline over-grant vector:
- *     a STARTER tenant granting itself `ai_settings:manage`).
+ *     a STARTER tenant granting itself `ai_settings:manage`);
+ *   - `ai_specialists` → the AI module AND the specialty's module (all-of).
  * Keying by category (not individual capability) keeps this aligned with the
  * UI's category-grouped editor and avoids splitting a mixed category.
  */
-export const CATEGORY_MODULE_REQUIREMENTS: Readonly<Record<string, string>> = {
-  hr: 'hr',
-  ai: 'ai',
+export const CATEGORY_MODULE_REQUIREMENTS: Readonly<Record<string, readonly string[]>> = {
+  hr: ['hr'],
+  ai: ['ai'],
+  // ALL-OF: a farm specialist persona is an AI feature over farm data, so the
+  // tenant must hold both modules (RBAC-MEDIUM-016).
+  ai_specialists: ['ai', 'farm'],
 };
 
 /**
- * capability (`resource:action`) → required module code, precomputed from
- * CATEGORY_MODULE_REQUIREMENTS. Absent key ⇒ core capability (no module gate).
+ * capability (`resource:action`) → required module codes (all-of), precomputed
+ * from CATEGORY_MODULE_REQUIREMENTS. Absent key ⇒ core capability (no module gate).
  */
-const CAPABILITY_REQUIRED_MODULE: ReadonlyMap<string, string> = (() => {
-  const map = new Map<string, string>();
+const CAPABILITY_REQUIRED_MODULES: ReadonlyMap<string, readonly string[]> = (() => {
+  const map = new Map<string, readonly string[]>();
   for (const [categoryKey, category] of Object.entries(PERMISSION_CATEGORIES)) {
-    const requiredModule = CATEGORY_MODULE_REQUIREMENTS[categoryKey];
-    if (!requiredModule) continue;
+    const requiredModules = CATEGORY_MODULE_REQUIREMENTS[categoryKey];
+    if (!requiredModules || requiredModules.length === 0) continue;
     for (const [resource, definition] of Object.entries(category.resources)) {
       for (const action of definition.actions) {
-        map.set(`${resource}:${action}`, requiredModule);
+        map.set(`${resource}:${action}`, requiredModules);
       }
     }
   }
@@ -205,10 +232,11 @@ const CAPABILITY_REQUIRED_MODULE: ReadonlyMap<string, string> = (() => {
 })();
 
 /**
- * The module code a capability requires, or `undefined` if it is core (no gate).
+ * The module codes a capability requires (every one must be enabled), or
+ * `undefined` if it is core (no gate).
  */
-export function requiredModuleFor(capability: string): string | undefined {
-  return CAPABILITY_REQUIRED_MODULE.get(capability);
+export function requiredModulesFor(capability: string): readonly string[] | undefined {
+  return CAPABILITY_REQUIRED_MODULES.get(capability);
 }
 
 /**
@@ -219,13 +247,11 @@ export function requiredModuleFor(capability: string): string | undefined {
  * a non-entitled capability into the JWT, so a stale grant from a plan
  * downgrade or the MT-HIGH-057 backfill has zero runtime effect) consume.
  */
-export function entitledCapabilities(
-  enabledModuleCodes: ReadonlySet<string>,
-): ReadonlySet<string> {
+export function entitledCapabilities(enabledModuleCodes: ReadonlySet<string>): ReadonlySet<string> {
   const result = new Set<string>();
   for (const capability of CATALOGUE_CAPABILITIES) {
-    const requiredModule = CAPABILITY_REQUIRED_MODULE.get(capability);
-    if (!requiredModule || enabledModuleCodes.has(requiredModule)) {
+    const requiredModules = CAPABILITY_REQUIRED_MODULES.get(capability);
+    if (!requiredModules || requiredModules.every((module) => enabledModuleCodes.has(module))) {
       result.add(capability);
     }
   }

@@ -1821,6 +1821,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/__tests__/backfill-ai-specialty-role-capabilities.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/admin-api-service/src/migrations/__tests__/backfill-messaging-ai-role-capabilities.spec.ts",
       "prettier_managed": true
     },
@@ -2196,6 +2202,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/admin-api-service/src/migrations/1808200000000-RestoreAuditImmutabilityContract.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/admin-api-service/src/migrations/1808600000000-BackfillAiSpecialtyRoleCapabilities.ts",
       "prettier_managed": true
     },
     {

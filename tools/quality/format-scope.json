@@ -3508,6 +3508,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/src/safety/__tests__/tool-schema-validator.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/src/safety/ai-safety.middleware.ts",
       "prettier_managed": true
     },
@@ -33908,6 +33914,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/claude/2026-09-02-aria-runner-oom-ledger-row-cap.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/claude/2026-09-18-ai-farm-specialists.md",
       "prettier_managed": true
     },
     {

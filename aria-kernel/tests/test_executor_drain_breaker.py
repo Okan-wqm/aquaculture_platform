@@ -478,3 +478,60 @@ class TargetShaJoinTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AnOpenRouteEndsTheDrainByName(unittest.TestCase):
+    """ARIA-HIGH-158 — an open circuit skipped every remaining request one
+    selection at a time (~30 s each on the live store): the first production
+    drain walked the 800-row backlog for hours after two failures. A streak
+    of skips ends the drain by name; the queue stays pending."""
+
+    def test_a_streak_of_circuit_skips_stops_instead_of_walking_the_queue(self) -> None:
+        from ci_executor_drain import CIRCUIT_SKIP_STREAK_STOP
+
+        queue = [_row("AIR-0")] + [_row(f"AIR-{i}") for i in range(1, CIRCUIT_SKIP_STREAK_STOP + 4)]
+        h = _DrainHarness(
+            queue=queue,
+            summaries={
+                "AIR-0": _summary(
+                    request_id="AIR-0", outcome="failed",
+                    failure_class="credit_exhausted", retryable=False,
+                ),
+            },
+        )
+        try:
+            h.run_drain()
+            self.assertEqual([r for r, _ in h.dispatched], ["AIR-0"])
+            payload = h.payload()
+            self.assertEqual(payload["stop_reason"], "circuit_open_streak")
+            self.assertEqual(payload["attempted"], 1)
+            # The drain asked the kernel for work once per skip and no more:
+            # the queue beyond the streak was never walked.
+            self.assertLessEqual(len(h.exclude_sets), CIRCUIT_SKIP_STREAK_STOP + 2)
+        finally:
+            h.close()
+
+    def test_a_dispatch_between_skips_resets_the_streak(self) -> None:
+        from ci_executor_drain import CIRCUIT_SKIP_STREAK_STOP
+
+        # Two open-route requests, then a request on another route, repeated:
+        # the streak never reaches the stop and every other-route request runs.
+        queue, summaries = [_row("AIR-0")], {
+            "AIR-0": _summary(request_id="AIR-0", outcome="failed",
+                              failure_class="credit_exhausted", retryable=False),
+        }
+        for i in range(1, 7):
+            queue.append(_row(f"AIR-{i}"))
+            if i % 3 == 0:
+                queue[-1] = _row(f"AIR-{i}", target="aria-adversarial-judge", role="adversarial_judgment")
+                summaries[f"AIR-{i}"] = _summary(
+                    request_id=f"AIR-{i}", outcome="succeeded", model=_ADV_MODEL, provider="zai",
+                    target_agent="aria-adversarial-judge", role="adversarial_judgment",
+                )
+        h = _DrainHarness(queue=queue, summaries=summaries)
+        try:
+            h.run_drain()
+            self.assertEqual([r for r, _ in h.dispatched], ["AIR-0", "AIR-3", "AIR-6"])
+            self.assertNotEqual(h.payload()["stop_reason"], "circuit_open_streak")
+        finally:
+            h.close()

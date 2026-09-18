@@ -113,20 +113,28 @@ class TheSpawnDocumentsAreVisible(_Fixture):
 
 
 class OnlyTheCredentialFileEntersThePrivateHome(_Fixture):
-    def test_the_credential_file_lands_in_the_private_config_dir(self) -> None:
+    def test_the_credential_file_lands_in_the_private_config_dir_writable(self) -> None:
+        # ARIA-HIGH-157 — writable, so the CLI's OAuth refresh persists where
+        # the next spawn reads it; read-only, one refresh inside the sandbox
+        # retired the host's refresh token and every later run failed auth.
         command = self._wrap()
         private = f"{SANDBOX_HOME}/.claude"
-        self.assertIn((str(self.login / CLAUDE_LOGIN_CREDENTIALS_FILENAME), f"{private}/{CLAUDE_LOGIN_CREDENTIALS_FILENAME}"),
-                      _pairs(command, "--ro-bind"))
+        credential = (str(self.login / CLAUDE_LOGIN_CREDENTIALS_FILENAME), f"{private}/{CLAUDE_LOGIN_CREDENTIALS_FILENAME}")
+        self.assertIn(credential, _pairs(command, "--bind"))
+        self.assertNotIn(credential, _pairs(command, "--ro-bind"))
         self.assertIn(("CLAUDE_CONFIG_DIR", private), _pairs(command, "--setenv"))
-        self.assertNotIn(str(self.login), [target for _, target in _pairs(command, "--ro-bind")],
-                         "the login directory itself never enters the sandbox")
+        for flag in ("--ro-bind", "--bind"):
+            self.assertNotIn(str(self.login), [target for _, target in _pairs(command, flag)],
+                             "the login directory itself never enters the sandbox")
         self.assertNotIn(str(self.login / ".claude.json"), command)
+        # Still the ONE file: nothing else under the login directory is bound.
+        bound_from_login = [src for src, _ in _pairs(command, "--bind") + _pairs(command, "--ro-bind") if str(self.login) in src]
+        self.assertEqual(bound_from_login, [credential[0]])
 
     def test_a_login_without_a_credential_file_binds_nothing(self) -> None:
         (self.login / CLAUDE_LOGIN_CREDENTIALS_FILENAME).unlink()
         command = self._wrap()
-        self.assertFalse([pair for pair in _pairs(command, "--ro-bind") if str(self.login) in pair[0]])
+        self.assertFalse([pair for pair in _pairs(command, "--ro-bind") + _pairs(command, "--bind") if str(self.login) in pair[0]])
         self.assertIn(("CLAUDE_CONFIG_DIR", f"{SANDBOX_HOME}/.claude"), _pairs(command, "--setenv"))
         self.assertIn(("CLAUDE_CONFIG_DIR", f"{SANDBOX_HOME}/.claude"), _pairs(self._wrap(managed_login_dir=None), "--setenv"))
 
@@ -165,7 +173,11 @@ class TheBaseSandboxIsKept(_Fixture):
                 extra_ro_binds=(self.root / "claude", self.documents, self.mcp_dir),
                 git=containment, hook_broker_socket=broker_socket,
             )
-        self.assertEqual([pair for pair in _pairs(managed, "--bind")], [pair for pair in _pairs(base, "--bind")])
+        # ARIA-HIGH-157 — the one writable mount the managed route adds of
+        # its own is the login file; every other --bind is the base's.
+        credential = f"{SANDBOX_HOME}/.claude/{CLAUDE_LOGIN_CREDENTIALS_FILENAME}"
+        self.assertEqual([pair for pair in _pairs(managed, "--bind") if pair[1] != credential],
+                         [pair for pair in _pairs(base, "--bind")])
         self.assertIn((str(broker_socket), SANDBOX_HOOK_BROKER_SOCKET), _pairs(managed, "--bind"))
         common = (repo / ".git").resolve()
         replica = containment.sandbox_git_dir

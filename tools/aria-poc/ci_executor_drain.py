@@ -109,6 +109,12 @@ def _breaker_state(tools_dir: Path) -> str:
         return "unknown"
 
 
+# ARIA-HIGH-158 — how many consecutive open-circuit skips end the drain.
+# Five is above any plausible interleaving of routes in a healthy queue and
+# below a minute of selection cost on the live store.
+CIRCUIT_SKIP_STREAK_STOP = 5
+
+
 def _circuit_label(key: tuple[str, str, str]) -> str:
     return "/".join(key)
 
@@ -610,6 +616,14 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
     # remaining window: skipped without a claim, excluded from selection.
     window_excluded: set[str] = set()
     open_circuits: set[tuple[str, str, str]] = set()
+    # ARIA-HIGH-158 — consecutive circuit skips with nothing dispatched
+    # between them. Each skip re-runs the queue selection (a kernel
+    # subprocess over the whole request ledger, ~30 s on the live store), so
+    # an open route walked the 800-row backlog for hours on the first
+    # production drain (run 35369756222) after two failures. A streak of
+    # skips says the route is the problem, not the request: the drain stops
+    # by name and the queue stays pending for the next healthy drain.
+    circuit_skip_streak = 0
     failure_counts: dict[str, int] = {}
     by_provider_model_role: dict[str, dict] = {}
     failure_details: list[dict] = []
@@ -886,7 +900,16 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
                 f"drain_circuit_skip request_id={request_id} "
                 f"route={route.provider}/{route.model}"
             )
+            circuit_skip_streak += 1
+            if circuit_skip_streak >= CIRCUIT_SKIP_STREAK_STOP:
+                stop_reason = "circuit_open_streak"
+                _engine._stage(
+                    f"drain_circuit_open_streak skips={circuit_skip_streak} "
+                    f"open={','.join(sorted(_circuit_label(key) for key in open_circuits))}"
+                )
+                break
             continue
+        circuit_skip_streak = 0
         # ARIA-HIGH-124 (round 3) — THIS request's whole worst case, now that
         # the request is known: an implementation child runs the quarantine's
         # publication, the contained apply gate at the STAGED suite's ceiling

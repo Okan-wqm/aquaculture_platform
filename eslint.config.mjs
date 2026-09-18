@@ -483,6 +483,18 @@ export default [
     rules: { 'aquaculture/no-unsandboxed-html-frame': 'error' },
   },
 
+  // ── override 8d: no-alert (web, EVERY tree incl. per-project) ──
+  // 'error' from the first commit: all 87 browser confirm()/alert()/prompt()
+  // call sites were migrated in the same change — shell + remotes to the
+  // promise-based useConfirm()/usePrompt() (ConfirmProvider, one dialog surface
+  // like ToastProvider) and useToast(); AquaMobil's SW "new version" confirm to
+  // the UpdatePrompt banner. A native dialog cannot be styled, ignores dark
+  // mode, blocks the tab and is invisible to the design system.
+  {
+    files: ['web/**/*.ts', 'web/**/*.tsx', 'web/**/*.js', 'web/**/*.jsx'],
+    rules: { 'no-alert': 'error' },
+  },
+
   // ── override 8b: no-actor-in-input-dto (admin-api, NON-project only) ──
   // 'error' from the first commit: every existing violation (terminatedBy,
   // requestedBy, createdBy*/changedBy* on ticket and messaging bodies, the

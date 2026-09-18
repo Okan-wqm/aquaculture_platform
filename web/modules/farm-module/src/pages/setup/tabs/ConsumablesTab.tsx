@@ -14,7 +14,7 @@ import {
   CreateConsumableInput,
 } from '../../../hooks/useConsumables';
 import { useSupplierList } from '../../../hooks/useSuppliers';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, useConfirm, useToast } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // CONSTANTS
@@ -217,13 +217,15 @@ export const ConsumablesTab: React.FC = () => {
     setIsModalOpen(true);
   };
 
+  const confirm = useConfirm();
+  const { toast } = useToast();
   const handleDelete = async (id: string) => {
-    if (confirm('Are you sure you want to delete this item?')) {
+    if (await confirm({ title: 'Delete this item?', confirmText: 'Delete', cancelText: 'Cancel', variant: 'danger' })) {
       try {
         await deleteConsumableMutation.mutateAsync(id);
       } catch (err) {
         console.error('Failed to delete consumable:', err);
-        alert('Failed to delete consumable. Please try again.');
+        toast({ title: 'Failed to delete consumable. Please try again.', variant: 'error' });
       }
     }
   };
@@ -231,7 +233,7 @@ export const ConsumablesTab: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name || !formData.code || !formData.category) {
-      alert('Name, code, and category are required.');
+      toast({ title: 'Name, code, and category are required.', variant: 'warning' });
       return;
     }
 
@@ -275,7 +277,7 @@ export const ConsumablesTab: React.FC = () => {
       setEditingId(null);
     } catch (err) {
       console.error('Failed to save consumable:', err);
-      alert('Failed to save consumable. Please try again.');
+      toast({ title: 'Failed to save consumable. Please try again.', variant: 'error' });
     } finally {
       setIsSaving(false);
     }

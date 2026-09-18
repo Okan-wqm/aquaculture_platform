@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
+import { useConfirm } from '@aquaculture/shared-ui';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Plus,
@@ -35,6 +36,7 @@ const statusConfig: Record<string, { label: string; color: string }> = {
 };
 
 const ScadaPackageListPage: React.FC = () => {
+  const confirm = useConfirm();
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -73,7 +75,7 @@ const ScadaPackageListPage: React.FC = () => {
 
   const handleDelete = useCallback(
     async (pkg: ScadaPackage) => {
-      if (!window.confirm(`Are you sure you want to delete this package "${pkg.name}"?`)) {
+      if (!(await confirm({ title: `Delete package "${pkg.name}"?`, message: 'Its screens and deployments history are removed.', confirmText: 'Delete', cancelText: 'Cancel', variant: 'danger' }))) {
         return;
       }
       setActiveDropdown(null);
@@ -84,7 +86,7 @@ const ScadaPackageListPage: React.FC = () => {
         console.error('Failed to delete package:', err);
       }
     },
-    [deleteMutation, refetch],
+    [deleteMutation, refetch, confirm],
   );
 
   // Loading state

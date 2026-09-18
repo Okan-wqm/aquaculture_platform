@@ -13,6 +13,7 @@ import {
   Badge,
   Spinner,
   Alert,
+  useConfirm,
 } from '@aquaculture/shared-ui';
 import {
   useWorkOrders,
@@ -410,8 +411,9 @@ export const WorkOrdersPage: React.FC = () => {
     }
   };
 
+  const confirm = useConfirm();
   const handleDelete = async (id: string) => {
-    if (window.confirm('Bu iş emrini silmek istediğinizden emin misiniz?')) {
+    if (await confirm({ title: 'İş emrini sil?', message: 'Bu işlem geri alınamaz.', confirmText: 'Sil', cancelText: 'Vazgeç', variant: 'danger' })) {
       try {
         await deleteMutation.mutateAsync(id);
         if (selectedWorkOrder?.id === id) {

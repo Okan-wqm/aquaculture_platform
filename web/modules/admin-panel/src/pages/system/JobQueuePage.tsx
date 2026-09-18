@@ -6,7 +6,7 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { Card, Button, Badge, Input, Select } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, Input, Select, useConfirm } from '@aquaculture/shared-ui';
 
 import { systemSettingsApi } from '../../services/adminApi';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../../hooks';
@@ -46,6 +46,7 @@ const EMPTY_JOBS: readonly BackgroundJob[] = [];
 const EMPTY_QUEUES: JobQueue[] = [];
 
 export const JobQueuePage: React.FC = () => {
+  const confirm = useConfirm();
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [filterQueue, setFilterQueue] = useState<string>('all');
@@ -136,7 +137,7 @@ export const JobQueuePage: React.FC = () => {
   };
 
   const handleCancelJob = async (job: BackgroundJob): Promise<void> => {
-    if (!confirm(`Are you sure you want to cancel "${job.name}"?`)) return;
+    if (!(await confirm({ title: `Cancel job "${job.name}"?`, confirmText: 'Cancel job', cancelText: 'Keep', variant: 'danger' }))) return;
     try {
       await cancelJob.mutateAsync(job.id);
     } catch {
@@ -147,7 +148,7 @@ export const JobQueuePage: React.FC = () => {
   const handleRetryAllFailed = async (): Promise<void> => {
     const failedJobs = safeJobs.filter((job) => job.status === 'failed');
     if (failedJobs.length === 0) return;
-    if (!confirm(`Retry all ${failedJobs.length} failed jobs?`)) return;
+    if (!(await confirm({ title: `Retry all ${failedJobs.length} failed jobs?`, confirmText: 'Retry all', cancelText: 'Cancel', variant: 'warning' }))) return;
 
     for (const job of failedJobs) {
       await handleRetryJob(job);

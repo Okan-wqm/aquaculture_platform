@@ -4,6 +4,7 @@
  * Only shown in edit mode (when equipmentId exists)
  */
 import React, { useState, useEffect } from 'react';
+import { useToast } from '@aquaculture/shared-ui';
 import {
   useFeederCalibrations,
   useSaveFeederCalibrations,
@@ -77,6 +78,7 @@ export const FeederCalibrationSection: React.FC<FeederCalibrationSectionProps> =
     setIsDirty(true);
   };
 
+  const { toast } = useToast();
   const handleSave = async () => {
     const items: FeederCalibrationItemInput[] = rows.map(({ _key, ...rest }) => ({
       ...rest,
@@ -92,7 +94,7 @@ export const FeederCalibrationSection: React.FC<FeederCalibrationSectionProps> =
       setIsDirty(false);
     } catch (err) {
       console.error('Failed to save calibrations:', err);
-      alert('Failed to save calibrations. Please try again.');
+      toast({ title: 'Failed to save calibrations. Please try again.', variant: 'error' });
     }
   };
 

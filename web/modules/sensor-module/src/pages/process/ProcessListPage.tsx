@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
+import { useConfirm } from '@aquaculture/shared-ui';
 import { Link } from 'react-router-dom';
 import {
   Plus,
@@ -33,6 +34,7 @@ const statusConfig: Record<string, { label: string; color: string }> = {
 };
 
 const ProcessListPage: React.FC = () => {
+  const confirm = useConfirm();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
@@ -83,7 +85,7 @@ const ProcessListPage: React.FC = () => {
 
   // Handle delete process
   const handleDelete = useCallback(async (process: Process) => {
-    if (!window.confirm(`Are you sure you want to delete "${process.name}"?`)) {
+    if (!(await confirm({ title: `Delete "${process.name}"?`, message: 'The process and its diagram are removed.', confirmText: 'Delete', cancelText: 'Cancel', variant: 'danger' }))) {
       return;
     }
     setActionLoading(process.id);
@@ -100,7 +102,7 @@ const ProcessListPage: React.FC = () => {
     } finally {
       setActionLoading(null);
     }
-  }, [deleteProcess, refetch]);
+  }, [deleteProcess, refetch, confirm]);
 
   // Handle status change (activate/pause)
   const handleStatusChange = useCallback(async (process: Process, newStatus: 'active' | 'inactive') => {

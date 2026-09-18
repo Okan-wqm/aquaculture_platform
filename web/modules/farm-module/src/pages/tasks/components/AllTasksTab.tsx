@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useConfirm } from '@aquaculture/shared-ui';
 import {
   Task,
   TaskCategory,
@@ -70,8 +71,9 @@ export const AllTasksTab: React.FC<AllTasksTabProps> = ({
     }
   };
 
+  const confirm = useConfirm();
   const handleBulkComplete = async () => {
-    if (!window.confirm(`${selectedIds.size} görevi tamamlamak istediğinize emin misiniz?`)) return;
+    if (!(await confirm({ title: `${selectedIds.size} görevi tamamla?`, confirmText: 'Tamamla', cancelText: 'Vazgeç', variant: 'info' }))) return;
     for (const id of selectedIds) {
       await onToggleComplete(id);
     }
@@ -79,7 +81,7 @@ export const AllTasksTab: React.FC<AllTasksTabProps> = ({
   };
 
   const handleBulkDelete = async () => {
-    if (!window.confirm(`${selectedIds.size} görevi silmek istediğinize emin misiniz?`)) return;
+    if (!(await confirm({ title: `${selectedIds.size} görevi sil?`, message: 'Bu işlem geri alınamaz.', confirmText: 'Sil', cancelText: 'Vazgeç', variant: 'danger' }))) return;
     for (const id of selectedIds) {
       await onDeleteTask(id);
     }

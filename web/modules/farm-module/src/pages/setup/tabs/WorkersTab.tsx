@@ -11,7 +11,7 @@ import {
   Worker,
   CreateWorkerInput,
 } from '../../../hooks/useWorkers';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, useConfirm, useToast } from '@aquaculture/shared-ui';
 
 const statusColors: Record<string, string> = {
   active: 'bg-green-100 text-green-800',
@@ -91,13 +91,15 @@ export const WorkersTab: React.FC = () => {
     setIsModalOpen(true);
   };
 
+  const confirm = useConfirm();
+  const { toast } = useToast();
   const handleDelete = async (id: string) => {
-    if (confirm('Are you sure you want to delete this worker?')) {
+    if (await confirm({ title: 'Delete this worker?', confirmText: 'Delete', cancelText: 'Cancel', variant: 'danger' })) {
       try {
         await deleteWorkerMutation.mutateAsync(id);
       } catch (err) {
         console.error('Failed to delete worker:', err);
-        alert('Failed to delete worker. Please try again.');
+        toast({ title: 'Failed to delete worker. Please try again.', variant: 'error' });
       }
     }
   };
@@ -105,7 +107,7 @@ export const WorkersTab: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.firstName || !formData.lastName || !formData.email || !formData.position) {
-      alert('First name, last name, email, and position are required.');
+      toast({ title: 'First name, last name, email, and position are required.', variant: 'warning' });
       return;
     }
 
@@ -138,7 +140,7 @@ export const WorkersTab: React.FC = () => {
       setEditingId(null);
     } catch (err) {
       console.error('Failed to save worker:', err);
-      alert('Failed to save worker. Please try again.');
+      toast({ title: 'Failed to save worker. Please try again.', variant: 'error' });
     } finally {
       setIsSaving(false);
     }

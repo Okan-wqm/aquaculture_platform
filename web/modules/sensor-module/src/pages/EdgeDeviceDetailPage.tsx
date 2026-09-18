@@ -9,6 +9,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useConfirm } from '@aquaculture/shared-ui';
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -1759,6 +1760,7 @@ const LoRaSection: React.FC<LoRaSectionProps> = ({ device }) => {
 // ============================================================================
 
 const EdgeDeviceDetailPage: React.FC = () => {
+  const confirm = useConfirm();
   const { deviceId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
@@ -1799,8 +1801,8 @@ const EdgeDeviceDetailPage: React.FC = () => {
   const health = getHealthStatus(device);
   const healthColor = health === 'critical' ? 'text-red-600' : health === 'warning' ? 'text-yellow-600' : 'text-green-600';
 
-  const handleApprove = () => {
-    if (window.confirm('Bu cihazi onaylamak istediginizden emin misiniz?')) {
+  const handleApprove = async (): Promise<void> => {
+    if (await confirm({ title: 'Cihazı onayla?', message: 'Cihaz filoya alınır ve veri kabulü başlar.', confirmText: 'Onayla', cancelText: 'Vazgeç' })) {
       approveMutation.mutate(device.id, { onSuccess: () => refetch() });
     }
   };
@@ -1813,8 +1815,8 @@ const EdgeDeviceDetailPage: React.FC = () => {
     );
   };
 
-  const handleDecommission = () => {
-    if (window.confirm('Bu cihazi devre disi birakmak istediginizden emin misiniz? Bu islem geri alinamaz.')) {
+  const handleDecommission = async (): Promise<void> => {
+    if (await confirm({ title: 'Cihazı devre dışı bırak?', message: 'Bu işlem geri alınamaz; cihaz filodan çıkarılır.', confirmText: 'Devre dışı bırak', cancelText: 'Vazgeç', variant: 'danger' })) {
       decommissionMutation.mutate(
         { id: device.id, reason: 'User initiated decommission' },
         { onSuccess: () => navigate('/sensor/devices') },
@@ -1869,7 +1871,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
           </button>
           {device.lifecycleState === DeviceLifecycleState.PENDING_APPROVAL && (
             <button
-              onClick={handleApprove}
+              onClick={() => void handleApprove()}
               disabled={approveMutation.isPending}
               className="flex items-center gap-2 px-3 py-2 text-sm text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors disabled:opacity-50"
             >
@@ -2035,7 +2037,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
                 )}
               </button>
               <button
-                onClick={handleDecommission}
+                onClick={() => void handleDecommission()}
                 disabled={decommissionMutation.isPending || device.lifecycleState === DeviceLifecycleState.DECOMMISSIONED}
                 className="flex items-center gap-2 px-4 py-2 bg-red-100 text-red-700 hover:bg-red-200 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
               >

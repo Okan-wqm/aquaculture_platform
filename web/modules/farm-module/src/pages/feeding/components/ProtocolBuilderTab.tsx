@@ -10,7 +10,7 @@
  * devam eder — bu sekme YALNIZ v2 modelini düzenler.
  */
 import React, { useState } from 'react';
-import { Modal, useCanMutate, useI18n, type MessageKey } from '@aquaculture/shared-ui';
+import { Modal, useCanMutate, useI18n, type MessageKey, useConfirm } from '@aquaculture/shared-ui';
 import {
   useFeedingProtocolsV2,
   useCreateFeedingProtocolV2,
@@ -943,8 +943,9 @@ export const ProtocolBuilderTab: React.FC = () => {
 
   const protocols = data?.items ?? [];
 
+  const confirm = useConfirm();
   const handleArchive = async (protocol: FeedingProtocolV2) => {
-    if (!window.confirm(t('feedingV2.archiveConfirm', { name: protocol.name }))) return;
+    if (!(await confirm({ title: t('feedingV2.archiveConfirm', { name: protocol.name }), variant: 'warning' }))) return;
     await archiveMutation.mutateAsync(protocol.id);
   };
 

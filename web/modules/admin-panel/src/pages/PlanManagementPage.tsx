@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Badge, Input } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, Input, useConfirm } from '@aquaculture/shared-ui';
 import {
   billingApi,
   PlanCyclePrice,
@@ -45,6 +45,7 @@ const CYCLE_LABELS: Readonly<Record<PlanCyclePrice['billingCycle'], string>> = {
 // ============================================================================
 
 const PlanManagementPage: React.FC = () => {
+  const confirm = useConfirm();
   const [plans, setPlans] = useState<PlanDefinition[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -71,7 +72,7 @@ const PlanManagementPage: React.FC = () => {
   };
 
   const handleDeprecatePlan = async (planId: string) => {
-    if (!confirm('Are you sure you want to deprecate this plan?')) return;
+    if (!(await confirm({ title: 'Deprecate this plan?', message: 'Tenants on it keep their subscription; new sign-ups can no longer pick it.', confirmText: 'Deprecate', cancelText: 'Cancel', variant: 'warning' }))) return;
 
     try {
       await billingApi.deprecatePlan(planId);

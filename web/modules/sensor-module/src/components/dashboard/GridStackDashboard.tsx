@@ -7,6 +7,7 @@
  */
 
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { useConfirm } from '@aquaculture/shared-ui';
 import { GridStack, GridStackWidget } from 'gridstack';
 import 'gridstack/dist/gridstack.min.css';
 
@@ -212,6 +213,7 @@ const SaveLayoutModal: React.FC<SaveLayoutModalProps> = ({
 export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
   className = '',
 }) => {
+  const confirm = useConfirm();
   const gridRef = useRef<HTMLDivElement>(null);
   const gridInstanceRef = useRef<GridStack | null>(null);
   // Bug #6 fix: Prevent race conditions during GridStack state updates
@@ -479,16 +481,14 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
   const handleLayoutSelect = useCallback(
     async (layoutId: string) => {
       if (hasUnsavedChanges) {
-        const confirm = window.confirm(
-          'You have unsaved changes. Do you want to continue?'
-        );
-        if (!confirm) return;
+        const proceed = await confirm({ title: 'Discard unsaved changes?', message: 'Switching layouts drops the edits you have not saved.', confirmText: 'Discard and switch', cancelText: 'Stay', variant: 'warning' });
+        if (!proceed) return;
       }
       await loadLayout(layoutId);
       setShowLayoutDropdown(false);
       setIsEditMode(false);
     },
-    [loadLayout, hasUnsavedChanges]
+    [loadLayout, hasUnsavedChanges, confirm]
   );
 
   // Handle set as default
@@ -503,14 +503,12 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
   // Handle delete layout
   const handleDeleteLayout = useCallback(
     async (layoutId: string) => {
-      const confirm = window.confirm(
-        'This layout will be deleted. Are you sure?'
-      );
-      if (!confirm) return;
+      const proceed = await confirm({ title: 'Delete this layout?', confirmText: 'Delete', cancelText: 'Cancel', variant: 'danger' });
+      if (!proceed) return;
       await deleteLayout(layoutId);
       setShowLayoutDropdown(false);
     },
-    [deleteLayout]
+    [deleteLayout, confirm]
   );
 
   // Loading state

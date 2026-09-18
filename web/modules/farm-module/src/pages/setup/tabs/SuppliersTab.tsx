@@ -14,7 +14,7 @@ import {
   CreateSupplierInput,
 } from '../../../hooks/useSuppliers';
 import SupplierApprovedSitesSection from '../components/SupplierApprovedSitesSection';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, useConfirm, useToast } from '@aquaculture/shared-ui';
 
 // Keys must be UPPERCASE to match GraphQL enum values
 const typeColors: Record<string, string> = {
@@ -218,15 +218,17 @@ export const SuppliersTab: React.FC = () => {
     }));
   };
 
+  const confirm = useConfirm();
+  const { toast } = useToast();
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!formData.name) {
-      alert('Please enter a supplier name.');
+      toast({ title: 'Please enter a supplier name.', variant: 'warning' });
       return;
     }
     if (!formData.type) {
-      alert('Please select a supplier type.');
+      toast({ title: 'Please select a supplier type.', variant: 'warning' });
       return;
     }
 
@@ -270,7 +272,7 @@ export const SuppliersTab: React.FC = () => {
       setEditingId(null);
     } catch (err) {
       console.error('Failed to save supplier:', err);
-      alert('Failed to save supplier. Please try again.');
+      toast({ title: 'Failed to save supplier. Please try again.', variant: 'error' });
     }
   };
 
@@ -305,12 +307,12 @@ export const SuppliersTab: React.FC = () => {
   };
 
   const handleDelete = async (id: string) => {
-    if (confirm('Are you sure you want to delete this supplier?')) {
+    if (await confirm({ title: 'Delete this supplier?', confirmText: 'Delete', cancelText: 'Cancel', variant: 'danger' })) {
       try {
         await deleteSupplierMutation.mutateAsync(id);
       } catch (err) {
         console.error('Failed to delete supplier:', err);
-        alert('Failed to delete supplier. Please try again.');
+        toast({ title: 'Failed to delete supplier. Please try again.', variant: 'error' });
       }
     }
   };

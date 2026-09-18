@@ -15,6 +15,7 @@ import {
   formatCurrency as sharedFormatCurrency,
   parseMoney,
   DEFAULT_CURRENCY,
+  useConfirm,
 } from '@aquaculture/shared-ui';
 import {
   useSpareParts,
@@ -251,8 +252,9 @@ export const SparePartsPage: React.FC = () => {
     }
   };
 
+  const confirm = useConfirm();
   const handleDelete = async (id: string) => {
-    if (window.confirm('Bu yedek parçayı silmek istediğinizden emin misiniz?')) {
+    if (await confirm({ title: 'Yedek parçayı sil?', confirmText: 'Sil', cancelText: 'Vazgeç', variant: 'danger' })) {
       try {
         await deleteMutation.mutateAsync(id);
         refetch();

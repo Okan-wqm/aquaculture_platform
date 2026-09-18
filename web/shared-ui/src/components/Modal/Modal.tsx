@@ -4,8 +4,10 @@
  * Portal, animasyon ve erişilebilirlik desteği
  */
 
-import React, { useEffect, useCallback, useRef } from 'react';
+import React, { useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
+
+import { useDialogBehavior } from './useDialogBehavior';
 
 // ============================================================================
 // Tip Tanımlamaları
@@ -95,14 +97,9 @@ export const Modal: React.FC<ModalProps> = ({
   className = '',
 }) => {
   const modalRef = useRef<HTMLDivElement>(null);
-  const previousActiveElement = useRef<HTMLElement | null>(null);
-  // BUG-001/PERF-007: Store listener ref so removal always targets same identity
-  const listenerRef = useRef<((e: KeyboardEvent) => void) | null>(null);
-  // Store latest props in refs so the stable listener can access current values
-  const closeOnEscapeRef = useRef(closeOnEscape);
-  const onCloseRef = useRef(onClose);
-  useEffect(() => { closeOnEscapeRef.current = closeOnEscape; }, [closeOnEscape]);
-  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
+  // Escape, odak tuzağı, scroll kilidi, odak geri verme — Drawer ile ortak
+  // davranış useDialogBehavior'da (BUG-001/PERF-007, BUG-005, FE-HIGH-017).
+  useDialogBehavior({ isOpen, onClose, closeOnEscape, containerRef: modalRef });
 
   // Overlay tıklaması
   const handleOverlayClick = useCallback(
@@ -113,75 +110,6 @@ export const Modal: React.FC<ModalProps> = ({
     },
     [closeOnOverlayClick, onClose]
   );
-
-  // Focus trap helper: cycle focus within modal (BUG-005)
-  const trapFocus = useCallback((event: KeyboardEvent) => {
-    if (!modalRef.current) return;
-    const focusable = modalRef.current.querySelectorAll<HTMLElement>(
-      'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
-    );
-    if (focusable.length === 0) return;
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    if (event.key === 'Tab') {
-      if (event.shiftKey) {
-        if (document.activeElement === first) {
-          event.preventDefault();
-          last.focus();
-        }
-      } else {
-        if (document.activeElement === last) {
-          event.preventDefault();
-          first.focus();
-        }
-      }
-    }
-  }, []);
-
-  // Modal açıldığında/kapandığında
-  useEffect(() => {
-    if (isOpen) {
-      // Önceki aktif elementi kaydet
-      previousActiveElement.current = document.activeElement as HTMLElement;
-
-      // Scroll'u engelle
-      document.body.style.overflow = 'hidden';
-
-      // BUG-001/PERF-007: Create stable listener using refs — avoids accumulating stale listeners
-      listenerRef.current = (event: KeyboardEvent) => {
-        if (event.key === 'Escape' && closeOnEscapeRef.current) {
-          onCloseRef.current();
-        }
-        trapFocus(event);
-      };
-      document.addEventListener('keydown', listenerRef.current);
-
-      // Modal'a focus
-      setTimeout(() => {
-        modalRef.current?.focus();
-      }, 0);
-    } else {
-      // Scroll'u geri aç
-      document.body.style.overflow = '';
-
-      // Remove by stable ref — guaranteed identity match
-      if (listenerRef.current) {
-        document.removeEventListener('keydown', listenerRef.current);
-        listenerRef.current = null;
-      }
-
-      // Önceki elemente focus
-      previousActiveElement.current?.focus();
-    }
-
-    return () => {
-      document.body.style.overflow = '';
-      if (listenerRef.current) {
-        document.removeEventListener('keydown', listenerRef.current);
-        listenerRef.current = null;
-      }
-    };
-  }, [isOpen, trapFocus]);
 
   // Modal kapalıysa render etme
   if (!isOpen) return null;

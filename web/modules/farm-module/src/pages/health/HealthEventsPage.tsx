@@ -12,6 +12,7 @@ import {
   Badge,
   Spinner,
   Alert,
+  useConfirm,
 } from '@aquaculture/shared-ui';
 import {
   Activity,
@@ -332,8 +333,9 @@ export const HealthEventsPage: React.FC = () => {
     }
   };
 
+  const confirm = useConfirm();
   const handleDelete = async (id: string) => {
-    if (window.confirm('Are you sure you want to delete this health event?')) {
+    if (await confirm({ title: 'Delete this health event?', confirmText: 'Delete', cancelText: 'Cancel', variant: 'danger' })) {
       try {
         await deleteMutation.mutateAsync(id);
         refetch();
@@ -387,7 +389,7 @@ export const HealthEventsPage: React.FC = () => {
   };
 
   const handleEndTreatment = async (event: HealthEvent) => {
-    if (window.confirm('Are you sure you want to end the treatment?')) {
+    if (await confirm({ title: 'End the treatment?', confirmText: 'End treatment', cancelText: 'Cancel', variant: 'warning' })) {
       try {
         await endTreatmentMutation.mutateAsync({ id: event.id });
         refetch();
@@ -424,7 +426,7 @@ export const HealthEventsPage: React.FC = () => {
   };
 
   const handleEndQuarantine = async (event: HealthEvent) => {
-    if (window.confirm('Are you sure you want to end the quarantine?')) {
+    if (await confirm({ title: 'End the quarantine?', confirmText: 'End quarantine', cancelText: 'Cancel', variant: 'warning' })) {
       try {
         await endQuarantineMutation.mutateAsync(event.id);
         refetch();

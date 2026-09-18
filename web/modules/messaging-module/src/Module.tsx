@@ -15,6 +15,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 
 const ChannelListPage = React.lazy(() => import('./pages/ChannelListPage'));
 const ChatRoomPage = React.lazy(() => import('./pages/ChatRoomPage'));
+const NewAiChatPage = React.lazy(() => import('./pages/NewAiChatPage'));
 
 const RequireAuth: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isAuthenticated, isLoading } = useAuthContext();
@@ -41,14 +42,15 @@ const MessagingModule: React.FC = () => {
           </div>
         }
       >
-      <Routes>
-        <Route path="/" element={<ChannelListPage />} />
-        <Route path="/:channelId" element={<ChatRoomPage />} />
-        <Route path="*" element={<Navigate to="/messaging" replace />} />
-      </Routes>
+        <Routes>
+          <Route path="/" element={<ChannelListPage />} />
+          <Route path="/new-ai" element={<NewAiChatPage />} />
+          <Route path="/:channelId" element={<ChatRoomPage />} />
+          <Route path="*" element={<Navigate to="/messaging" replace />} />
+        </Routes>
       </Suspense>
     </RequireAuth>
-    );
+  );
 };
 
 export default MessagingModule;

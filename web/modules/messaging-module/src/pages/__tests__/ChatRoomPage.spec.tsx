@@ -428,12 +428,16 @@ describe('ChatRoomPage — FAZ 2.4 AI visibility', () => {
   const AI_CHANNEL: Channel = {
     ...CHANNEL_FIXTURE,
     type: 'AI',
-    name: 'AI — Farm Expert',
-    aiPersona: 'expert-v1',
+    name: 'AI — Production Specialist',
+    aiPersona: 'expert-farm-production-v1',
   };
 
   /** Route a static thread (custom channel) through the mocked transport. */
-  function routeAiThread(messages: Message[], channel: Channel = AI_CHANNEL): void {
+  function routeAiThread(
+    messages: Message[],
+    channel: Channel = AI_CHANNEL,
+    aiSettings = { tenantAiEnabled: true, userAiConsent: true },
+  ): void {
     routeGraphql([
       {
         match: 'query MyChannels',
@@ -446,18 +450,57 @@ describe('ChatRoomPage — FAZ 2.4 AI visibility', () => {
         }),
       },
       { match: 'mutation MarkMessagesRead', result: { markMessagesRead: true } },
+      { match: 'query AiSettings', result: { aiSettings } },
+      { match: 'mutation UpdateUserAiConsent', result: { updateUserAiConsent: true } },
     ]);
   }
 
-  it('credits AI messages to the channel persona, not a hard-coded name', async () => {
+  it('credits AI messages to the channel persona (shared catalogue name), not a hard-coded name', async () => {
     routeAiThread([makeMessage('ai-1', 'hello from ai', AI_SENDER_ID, { isAiGenerated: true })]);
     renderRoom(newQueryClient());
 
     expect(await screen.findByText('hello from ai')).toBeVisible();
-    // aiPersona 'expert-v1' maps to the display name…
-    expect(screen.getByText('Farm Expert')).toBeVisible();
+    // aiPersona 'expert-farm-production-v1' maps to the catalogue display name…
+    expect(screen.getByText('Production Specialist (Expert)')).toBeVisible();
     // …and the generic label does NOT appear alongside it.
     expect(screen.queryByText('AI Assistant')).not.toBeInTheDocument();
+  });
+
+  it('shows the consent switch in an AI room and sends the opt-in (FE-MEDIUM-065)', async () => {
+    routeAiThread([], AI_CHANNEL, { tenantAiEnabled: true, userAiConsent: false });
+    renderRoom(newQueryClient());
+
+    const consent = await screen.findByRole('switch');
+    expect(consent).not.toBeChecked();
+
+    fireEvent.click(consent);
+    await waitFor(() =>
+      expect(requestMock).toHaveBeenCalledWith(
+        expect.stringContaining('mutation UpdateUserAiConsent'),
+        { consent: true },
+      ),
+    );
+  });
+
+  it('does not mount the consent switch (or its query) in a human channel', async () => {
+    routeGraphql([
+      {
+        match: 'query MyChannels',
+        result: () => ({ myChannels: { total: 1, items: [CHANNEL_FIXTURE] } }),
+      },
+      {
+        match: 'query ChannelMessages',
+        result: () => ({ messages: { hasMore: false, cursor: null, items: [] } }),
+      },
+    ]);
+    renderRoom(newQueryClient());
+
+    await screen.findByText(OTHER_NAME);
+    expect(screen.queryByRole('switch')).not.toBeInTheDocument();
+    expect(requestMock).not.toHaveBeenCalledWith(
+      expect.stringContaining('query AiSettings'),
+      expect.anything(),
+    );
   });
 
   it('falls back to the generic AI Assistant label when the channel has no persona', async () => {
@@ -495,7 +538,7 @@ describe('ChatRoomPage — FAZ 2.4 AI visibility', () => {
     // Distinct from a normal AI answer: no AI bubble, no raw notice payload.
     expect(document.querySelector('.sd-msg--ai')).toBeNull();
     expect(screen.queryByText('AI upstream failed')).not.toBeInTheDocument();
-    expect(screen.queryByText('Farm Expert')).not.toBeInTheDocument();
+    expect(screen.queryByText('Production Specialist (Expert)')).not.toBeInTheDocument();
   });
 
   it('ignores a user-forged metadata.error on a TEXT message (no system notice)', async () => {

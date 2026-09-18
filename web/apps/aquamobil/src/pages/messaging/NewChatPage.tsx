@@ -11,6 +11,12 @@
  * @see ADR-012 Phase 4 (AI Persona-Based Messaging Channels)
  */
 
+import {
+  AI_SPECIALTY_CATALOGUE,
+  parseAiPersonaId,
+  type AiPersonaIcon,
+  type AiSpecialtyId,
+} from '@aquaculture/shared-contracts';
 import { useQuery } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import {
@@ -26,6 +32,8 @@ import {
   Fish,
   BarChart,
   Cpu,
+  HeartPulse,
+  Wrench,
   Sparkles,
 } from 'lucide-react';
 import { useState, useCallback, useMemo, type JSX } from 'react';
@@ -47,14 +55,30 @@ import { createTenantQueryKey } from '@/utils/tenant-query-keys';
 // AI Persona Helpers
 // ---------------------------------------------------------------------------
 
-/** Map persona icon name to Lucide component. */
-const PERSONA_ICONS: Record<string, typeof Bot> = {
+/** Map the catalogue icon vocabulary to Lucide components. */
+const PERSONA_ICONS: Record<AiPersonaIcon, typeof Bot> = {
   bot: Bot,
   droplets: Droplets,
   fish: Fish,
   'bar-chart': BarChart,
   cpu: Cpu,
+  'heart-pulse': HeartPulse,
+  wrench: Wrench,
 };
+
+function isAiPersonaIcon(icon: string): icon is AiPersonaIcon {
+  return icon in PERSONA_ICONS;
+}
+
+/**
+ * The picker groups personas by specialty (general assistants, then each farm
+ * specialist at every tier the user holds). The specialty is read from the id
+ * grammar; an unparseable id (or the `id: null` tenant default) files under
+ * `general`.
+ */
+function specialtyOf(persona: AiPersona): AiSpecialtyId {
+  return (persona.id ? parseAiPersonaId(persona.id)?.specialty : undefined) ?? 'general';
+}
 
 /**
  * Map the persona's server-side colour name onto the v4 decorative hues.
@@ -90,7 +114,7 @@ function AiPersonaCard({
   onPress: () => void;
   disabled: boolean;
 }): JSX.Element {
-  const IconComponent = PERSONA_ICONS[persona.icon] ?? Bot;
+  const IconComponent = isAiPersonaIcon(persona.icon) ? PERSONA_ICONS[persona.icon] : Bot;
   const colors = PERSONA_COLORS[persona.color] ?? PERSONA_COLORS['purple'];
 
   return (
@@ -198,10 +222,10 @@ export function NewChatPage(): JSX.Element {
   // entry point (admins bypass). DM + AI stay available to everyone. The
   // backend re-checks the capability on create — this is UI visibility only.
   const canCreateGroup = hasPermission('channels:create_group');
-  // Tenant-RBAC (Faz 7c): the AI assistant needs `ai_assistant:use`, and each
-  // persona is shown only if the user may drive its tier (`ai_personas:<tier>`).
-  // Mirrors the ai-service backend gates (ai_assistant:use + ai_personas:<tier>);
-  // this is UI visibility only — the backend re-checks on chat.
+  // Tenant-RBAC: the AI assistant needs `ai_assistant:use` (surface gate).
+  // Which personas the user may drive (`ai_personas:<tier>` ∧
+  // `ai_specialties:<module>`) is decided SERVER-side by availableAiPersonas
+  // (FE-MEDIUM-065) — the page renders that list as given.
   const canUseAi = hasPermission('ai_assistant:use');
   const { users, isLoading: usersLoading, error: usersError } = useTenantUsers();
   const { createDM, createGroup, createAiChannel, isCreating } = useCreateChannel();
@@ -216,21 +240,25 @@ export function NewChatPage(): JSX.Element {
       return result.availableAiPersonas ?? [];
     },
     staleTime: 5 * 60 * 1000, // Cache for 5 minutes
-    enabled: !!tenantId,
+    enabled: !!tenantId && canUseAi,
   });
 
-  // Tenant-RBAC (Faz 7c): show only personas whose tier the user may drive.
-  // Tier is the persona id prefix ('expert-v1' → 'expert'); an id-less/unknown
-  // persona defaults to the operator tier (the base every granted role has).
-  // Empty when the user lacks ai_assistant:use, so the whole section hides.
-  const visibleAiPersonas = useMemo(() => {
+  /**
+   * Persona groups in catalogue order (general first, then the farm
+   * specialists), each holding the server-offered personas of that specialty.
+   * Empty groups are skipped so a user without the farm specialty sees only
+   * the general assistants.
+   */
+  const aiPersonaGroups = useMemo(() => {
     if (!canUseAi) return [];
-    const tierOf = (id: string | null | undefined): string => {
-      const prefix = (id ?? '').split('-')[0];
-      return ['operator', 'manager', 'expert', 'supervisor'].includes(prefix) ? prefix : 'operator';
-    };
-    return aiPersonas.filter((p) => hasPermission(`ai_personas:${tierOf(p.id)}`));
-  }, [aiPersonas, canUseAi, hasPermission]);
+    return (Object.keys(AI_SPECIALTY_CATALOGUE) as AiSpecialtyId[])
+      .map((specialty) => ({
+        specialty,
+        title: specialty === 'general' ? 'AI Assistants' : AI_SPECIALTY_CATALOGUE[specialty].name,
+        personas: aiPersonas.filter((p) => specialtyOf(p) === specialty),
+      }))
+      .filter((group) => group.personas.length > 0);
+  }, [aiPersonas, canUseAi]);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [isGroupMode, setIsGroupMode] = useState(false);
@@ -451,27 +479,29 @@ export function NewChatPage(): JSX.Element {
             </div>
           </div>
 
-          {/* AI Assistants section — gated on ai_assistant:use + per-persona ai_personas:<tier> */}
-          {!isGroupMode && visibleAiPersonas.length > 0 && (
-            <div className="px-4 pt-3">
-              <h2 className="text-meta font-semibold text-ink-3 uppercase tracking-wider px-1 mb-2 flex items-center gap-1.5">
-                <Sparkles size={12} />
-                AI Assistants
-              </h2>
-              <div className="grid grid-cols-2 gap-2">
-                {visibleAiPersonas.map((persona) => (
-                  <AiPersonaCard
-                    key={persona.id ?? 'general'}
-                    persona={persona}
-                    onPress={() => {
-                      void handleAiPersonaPress(persona);
-                    }}
-                    disabled={isCreating}
-                  />
-                ))}
+          {/* AI Assistants — gated on ai_assistant:use; the list itself is
+              server-filtered by tier × specialty capabilities, grouped by specialty. */}
+          {!isGroupMode &&
+            aiPersonaGroups.map((group) => (
+              <div key={group.specialty} className="px-4 pt-3">
+                <h2 className="text-meta font-semibold text-ink-3 uppercase tracking-wider px-1 mb-2 flex items-center gap-1.5">
+                  <Sparkles size={12} />
+                  {group.title}
+                </h2>
+                <div className="grid grid-cols-2 gap-2">
+                  {group.personas.map((persona) => (
+                    <AiPersonaCard
+                      key={persona.id ?? 'general'}
+                      persona={persona}
+                      onPress={() => {
+                        void handleAiPersonaPress(persona);
+                      }}
+                      disabled={isCreating}
+                    />
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            ))}
 
           {/* New Group button — gated on the channels:create_group capability */}
           {!isGroupMode && canCreateGroup && (

@@ -3,6 +3,7 @@ import { ArrowLeft, ChevronDown, Send, Sparkles, RefreshCw, AlertCircle } from '
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 
+import AiConsentSwitch from '../components/AiConsentSwitch';
 import {
   useChannelMessages,
   useSendMessage,
@@ -181,10 +182,7 @@ const ChatRoomPage: React.FC = () => {
     if (pagesLen > prevPagesLenRef.current && prevPagesLenRef.current > 0) {
       // Older page(s) prepended above the current viewport.
       el.scrollTop = el.scrollTop + (el.scrollHeight - prevScrollHeightRef.current);
-    } else if (
-      lastVisibleId !== prevLastVisibleIdRef.current &&
-      lastVisibleId !== null
-    ) {
+    } else if (lastVisibleId !== prevLastVisibleIdRef.current && lastVisibleId !== null) {
       if (nearBottomRef.current) {
         el.scrollTo({ top: el.scrollHeight });
         setUnseenCount(0);
@@ -212,12 +210,7 @@ const ChatRoomPage: React.FC = () => {
     if (!el) return;
     nearBottomRef.current = isNearBottom(el);
     if (nearBottomRef.current && unseenCount !== 0) setUnseenCount(0);
-    if (
-      isAtTopEdge(el) &&
-      !isLoading &&
-      hasNextPage &&
-      !isFetchingNextPage
-    ) {
+    if (isAtTopEdge(el) && !isLoading && hasNextPage && !isFetchingNextPage) {
       void fetchNextPage();
     }
   }, [isLoading, hasNextPage, isFetchingNextPage, fetchNextPage, unseenCount]);
@@ -269,14 +262,33 @@ const ChatRoomPage: React.FC = () => {
         <div className="sd-chat-head">
           <button
             onClick={() => navigate('/messaging')}
-            style={{ display: 'flex', border: 0, background: 'transparent', color: '#8aa0aa', cursor: 'pointer', padding: 0 }}
+            style={{
+              display: 'flex',
+              border: 0,
+              background: 'transparent',
+              color: '#8aa0aa',
+              cursor: 'pointer',
+              padding: 0,
+            }}
             aria-label={t('messaging.backToChannels')}
           >
             <ArrowLeft size={17} />
           </button>
-          <span style={{ fontSize: 13.5, fontWeight: 600, color: '#0a1f2b' }}>{t('messaging.conversation')}</span>
+          <span style={{ fontSize: 13.5, fontWeight: 600, color: '#0a1f2b' }}>
+            {t('messaging.conversation')}
+          </span>
           <span className="sd-chat-head-divider" />
-          <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12.5, color: '#5c7783' }}>
+          <span
+            style={{
+              flex: 1,
+              minWidth: 0,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              fontSize: 12.5,
+              color: '#5c7783',
+            }}
+          >
             {heading}
           </span>
           {channelId && !isConnected && (
@@ -291,6 +303,17 @@ const ChatRoomPage: React.FC = () => {
           )}
         </div>
 
+        {/* FE-MEDIUM-065: the bridge answers in an AI room only for members who
+            opted in — the switch lives where the refusal would otherwise show. */}
+        {currentChannel?.type === 'AI' && (
+          <div
+            data-testid="ai-consent"
+            style={{ padding: '10px 16px', borderBottom: '1px solid rgba(10,31,43,.09)' }}
+          >
+            <AiConsentSwitch />
+          </div>
+        )}
+
         {/* Messages — polite live log: new rows are announced without stealing focus. */}
         <div
           ref={scrollRef}
@@ -302,25 +325,49 @@ const ChatRoomPage: React.FC = () => {
           {isFetchingNextPage && (
             <div
               data-testid="loading-older"
-              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, color: '#8aa0aa', fontSize: 12, padding: '4px 0' }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+                color: '#8aa0aa',
+                fontSize: 12,
+                padding: '4px 0',
+              }}
             >
               <RefreshCw size={12} className="animate-spin" aria-hidden />
               {t('messaging.loadingOlder')}
             </div>
           )}
           {isLoading && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#8aa0aa', fontSize: 13 }}>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                color: '#8aa0aa',
+                fontSize: 13,
+              }}
+            >
               <RefreshCw size={14} className="animate-spin" /> {t('messaging.loadingMessages')}
             </div>
           )}
           {!isLoading && isError && (
-            <div className="sd-banner sd-banner--error" role="alert" data-testid="messages-error-banner">
+            <div
+              className="sd-banner sd-banner--error"
+              role="alert"
+              data-testid="messages-error-banner"
+            >
               <AlertCircle size={17} style={{ color: '#b04a28' }} />
-              <span style={{ fontSize: 13.5, fontWeight: 600, color: '#8e3a1e' }}>{t('messaging.errorMessages')}</span>
+              <span style={{ fontSize: 13.5, fontWeight: 600, color: '#8e3a1e' }}>
+                {t('messaging.errorMessages')}
+              </span>
             </div>
           )}
           {!isLoading && !isError && visibleMessages.length === 0 && (
-            <p style={{ margin: 'auto', fontSize: 13, color: '#8aa0aa' }}>{t('messaging.noMessages')}</p>
+            <p style={{ margin: 'auto', fontSize: 13, color: '#8aa0aa' }}>
+              {t('messaging.noMessages')}
+            </p>
           )}
           {visibleMessages.map((m) => {
             const mine = m.senderId === myId;
@@ -368,10 +415,14 @@ const ChatRoomPage: React.FC = () => {
                   {!mine && (
                     <div className="sd-msg-author">
                       {m.isAiGenerated && <Sparkles size={12} />}
-                      {m.isAiGenerated ? aiAuthorName : senderName(m, t('messaging.memberFallback'))}
+                      {m.isAiGenerated
+                        ? aiAuthorName
+                        : senderName(m, t('messaging.memberFallback'))}
                     </div>
                   )}
-                  <div className={`sd-msg${mine ? ' sd-msg--mine' : m.isAiGenerated ? ' sd-msg--ai' : ''}`}>
+                  <div
+                    className={`sd-msg${mine ? ' sd-msg--mine' : m.isAiGenerated ? ' sd-msg--ai' : ''}`}
+                  >
                     {bodyKind === 'text' ? (
                       m.content
                     ) : (
@@ -386,7 +437,10 @@ const ChatRoomPage: React.FC = () => {
                     )}
                     <span className="sd-msg-time">
                       {m.createdAt
-                        ? new Date(m.createdAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+                        ? new Date(m.createdAt).toLocaleTimeString('en-GB', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })
                         : ''}
                     </span>
                   </div>
@@ -397,11 +451,20 @@ const ChatRoomPage: React.FC = () => {
         </div>
 
         {/* Composer */}
-        <div className="sd-composer-wrap" style={{ padding: '11px 12px', borderTop: '1px solid rgba(10,31,43,.09)' }}>
+        <div
+          className="sd-composer-wrap"
+          style={{ padding: '11px 12px', borderTop: '1px solid rgba(10,31,43,.09)' }}
+        >
           {bannerKey && (
-            <div className="sd-banner sd-banner--error" role="alert" data-testid="send-error-banner">
+            <div
+              className="sd-banner sd-banner--error"
+              role="alert"
+              data-testid="send-error-banner"
+            >
               <AlertCircle size={17} style={{ color: '#b04a28' }} />
-              <span style={{ fontSize: 13.5, fontWeight: 600, color: '#8e3a1e' }}>{t(bannerKey)}</span>
+              <span style={{ fontSize: 13.5, fontWeight: 600, color: '#8e3a1e' }}>
+                {t(bannerKey)}
+              </span>
             </div>
           )}
           {unseenCount > 0 && (

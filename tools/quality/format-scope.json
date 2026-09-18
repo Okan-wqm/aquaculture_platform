@@ -19142,6 +19142,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/gateway-api/src/websocket/__tests__/ai-chat.gateway.persona.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/gateway-api/src/websocket/__tests__/messaging.gateway.hydration.spec.ts",
       "prettier_managed": true
     },
@@ -22634,6 +22640,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/messaging-service/src/ai/services/__tests__/ai-personas-registry.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/messaging-service/src/ai/services/__tests__/ai-privacy.service.spec.ts",
       "prettier_managed": true
     },
@@ -22784,6 +22796,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/messaging-service/src/channel/dto/__tests__/is-known-ai-persona-id.validator.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/messaging-service/src/channel/dto/channel-filter.input.ts",
       "prettier_managed": true
     },
@@ -22797,6 +22815,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/messaging-service/src/channel/dto/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/messaging-service/src/channel/dto/is-known-ai-persona-id.validator.ts",
       "prettier_managed": true
     },
     {
@@ -49707,6 +49731,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/pages/messaging/__tests__/MessagingAiPersonasPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/pages/messaging/MessagingAiDashboardPage.tsx",
       "prettier_managed": true
     },
@@ -53307,6 +53337,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/messaging-module/src/components/AiConsentSwitch.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/messaging-module/src/graphql/messaging-operations.ts",
       "prettier_managed": true
     },
@@ -53332,6 +53368,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/messaging-module/src/hooks/__tests__/useSendMessage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/hooks/useAiChannels.ts",
       "prettier_managed": true
     },
     {
@@ -53493,6 +53535,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/messaging-module/src/pages/__tests__/NewAiChatPage.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/messaging-module/src/pages/ChannelListPage.tsx",
       "prettier_managed": true
     },
@@ -53500,6 +53548,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/messaging-module/src/pages/ChatRoomPage.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/messaging-module/src/pages/NewAiChatPage.tsx",
       "prettier_managed": true
     },
     {
@@ -59335,6 +59389,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shell/src/components/ai/__tests__/AiAssistantDrawer.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shell/src/components/ai/AiAssistantDrawer.tsx",
       "prettier_managed": true
     },
@@ -59384,6 +59444,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shell/src/graphql/settings.operations.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shell/src/hooks/__tests__/useAiAssistantSocket.spec.ts",
       "prettier_managed": true
     },
     {

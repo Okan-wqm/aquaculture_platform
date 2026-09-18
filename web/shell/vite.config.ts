@@ -26,14 +26,46 @@ export default defineConfig(({ command }) => {
         dts: false,
         name: 'shell',
         remotes: {
-          dashboard: { type: 'module', name: 'dashboard', entry: `${remoteBase}/dashboard/remoteEntry.js` },
-          farmModule: { type: 'module', name: 'farmModule', entry: `${remoteBase}/farm-module/remoteEntry.js` },
-          hrModule: { type: 'module', name: 'hrModule', entry: `${remoteBase}/hr-module/remoteEntry.js` },
-          sensorModule: { type: 'module', name: 'sensorModule', entry: `${remoteBase}/sensor-module/remoteEntry.js` },
-          hydroponicsModule: { type: 'module', name: 'hydroponicsModule', entry: `${remoteBase}/hydroponics-module/remoteEntry.js` },
-          messagingModule: { type: 'module', name: 'messagingModule', entry: `${remoteBase}/messaging-module/remoteEntry.js` },
-          adminPanel: { type: 'module', name: 'adminPanel', entry: `${remoteBase}/admin-panel/remoteEntry.js` },
-          tenantAdmin: { type: 'module', name: 'tenantAdmin', entry: `${remoteBase}/tenant-admin/remoteEntry.js` },
+          dashboard: {
+            type: 'module',
+            name: 'dashboard',
+            entry: `${remoteBase}/dashboard/remoteEntry.js`,
+          },
+          farmModule: {
+            type: 'module',
+            name: 'farmModule',
+            entry: `${remoteBase}/farm-module/remoteEntry.js`,
+          },
+          hrModule: {
+            type: 'module',
+            name: 'hrModule',
+            entry: `${remoteBase}/hr-module/remoteEntry.js`,
+          },
+          sensorModule: {
+            type: 'module',
+            name: 'sensorModule',
+            entry: `${remoteBase}/sensor-module/remoteEntry.js`,
+          },
+          hydroponicsModule: {
+            type: 'module',
+            name: 'hydroponicsModule',
+            entry: `${remoteBase}/hydroponics-module/remoteEntry.js`,
+          },
+          messagingModule: {
+            type: 'module',
+            name: 'messagingModule',
+            entry: `${remoteBase}/messaging-module/remoteEntry.js`,
+          },
+          adminPanel: {
+            type: 'module',
+            name: 'adminPanel',
+            entry: `${remoteBase}/admin-panel/remoteEntry.js`,
+          },
+          tenantAdmin: {
+            type: 'module',
+            name: 'tenantAdmin',
+            entry: `${remoteBase}/tenant-admin/remoteEntry.js`,
+          },
         },
         // FE-HIGH-004: Single source of truth — includes reactflow for SCADA
         shared: getSharedConfigWithReactFlow(),
@@ -43,6 +75,9 @@ export default defineConfig(({ command }) => {
       alias: {
         '@': resolve(__dirname, 'src'),
         '@aquaculture/shared-ui': resolve(__dirname, '../shared-ui/dist'),
+        // Zero-dependency cross-stack constants (AI persona catalogue) — path-
+        // aliased, not npm-installed, exactly as aquamobil does (MSG-MEDIUM-057).
+        '@aquaculture/shared-contracts': resolve(__dirname, '../../libs/shared-contracts/src'),
       },
     },
     server: {

@@ -128,3 +128,15 @@ coverage") were red on the base. Fix: admit `\$JS\.ACK\.` in the schema,
 declare the 29 grants in `services.yaml` exactly where the live conf had them,
 grant `request.auth.user.resolveCallerCapabilities` to `messaging_service.publish`,
 regenerate — 85/85 invariants; no overlay needed.
+
+## FE-HIGH-067 — MessagingAiPersonasPage was dead on arrival
+
+Found while adding the tier / specialty column for FE-MEDIUM-065. The page's
+only fetch is the "Load Personas" button handler, its mount effect is empty
+("Don't auto-fetch without a tenant ID"), and the button is disabled while
+`loadState.loading` — but the initial state was `{ loading: true }`. Nothing
+ever cleared it, so the button rendered "Loading..." and disabled forever and
+the inventory could never be loaded. The page had no spec, so the wrong state
+was undetectable. Fix: start idle (`loading: false`), delete the empty effect,
+and add the page's first spec, which drives the button and asserts the
+catalogue-derived tier / specialty column.

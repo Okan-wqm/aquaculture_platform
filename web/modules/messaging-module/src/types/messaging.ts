@@ -62,8 +62,24 @@ export interface Channel {
   members: ChannelMember[] | null;
 }
 
+/**
+ * `availableAiPersonas` wire shape (messaging-service AiPersonaType). The
+ * server filters by the caller's tenant-RBAC capabilities and always leads
+ * with the tenant-default entry (`id: null`).
+ */
 export interface AiPersona {
-  id: string;
+  /** Catalogue persona id; null = the tenant's default persona. */
+  id: string | null;
   name: string;
   description: string;
+  /** Lucide icon name from the shared catalogue vocabulary. */
+  icon: string;
+  color: string;
+  capabilities: string[];
+}
+
+/** `aiSettings` wire shape — the dual-consent model (tenant switch ∧ user opt-in). */
+export interface AiSettings {
+  tenantAiEnabled: boolean;
+  userAiConsent: boolean;
 }

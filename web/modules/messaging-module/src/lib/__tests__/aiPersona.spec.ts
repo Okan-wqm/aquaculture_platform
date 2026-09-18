@@ -3,12 +3,14 @@ import { describe, expect, it } from 'vitest';
 import { aiPersonaDisplayName } from '../aiPersona';
 
 describe('aiPersonaDisplayName', () => {
-  it('maps known persona ids to their display names', () => {
-    expect(aiPersonaDisplayName('expert-v1')).toBe('Farm Expert');
-    expect(aiPersonaDisplayName('operator-v1')).toBe('Water Quality Specialist');
-    expect(aiPersonaDisplayName('manager-v1')).toBe('Management Assistant');
-    expect(aiPersonaDisplayName('supervisor-v1')).toBe('SCADA AI');
-    expect(aiPersonaDisplayName('general')).toBe('General AI Assistant');
+  it('maps catalogue persona ids to their shared display names', () => {
+    expect(aiPersonaDisplayName('expert-v1')).toBe('Aquaculture Expert (General)');
+    expect(aiPersonaDisplayName('operator-v1')).toBe('Operations Assistant (General)');
+    expect(aiPersonaDisplayName('manager-v1')).toBe('Management Assistant (General)');
+    expect(aiPersonaDisplayName('supervisor-v1')).toBe('SCADA Supervisor (General)');
+    expect(aiPersonaDisplayName('expert-farm-production-v1')).toBe(
+      'Production Specialist (Expert)',
+    );
   });
 
   it('passes unknown persona ids through verbatim (never hides the persona)', () => {

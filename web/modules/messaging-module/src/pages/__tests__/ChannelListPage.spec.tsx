@@ -105,6 +105,17 @@ describe('ChannelListPage', () => {
     expect(ioSpy).toHaveBeenCalledWith('/messaging', expect.anything());
   });
 
+  it('offers the AI entry point (the stub session holds ai_assistant:use)', async () => {
+    routeGraphql([
+      {
+        match: 'query MyChannels',
+        result: () => ({ myChannels: { total: 0, items: [] } }),
+      },
+    ]);
+    renderList();
+    expect(await screen.findByRole('button', { name: 'New AI conversation' })).toBeVisible();
+  });
+
   it('renders a TEXT lastMessage as the preview', async () => {
     routeGraphql([
       {

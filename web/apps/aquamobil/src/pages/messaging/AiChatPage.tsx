@@ -13,6 +13,11 @@
  * but adds AI-specific hooks (useAiChat, useAiConsent) and components.
  */
 
+import {
+  AI_GENERAL_ASSISTANT_PICKER_ENTRY,
+  findAiPersona,
+  type AiPersonaIcon,
+} from '@aquaculture/shared-contracts';
 import { clsx } from 'clsx';
 import {
   ArrowLeft,
@@ -23,6 +28,8 @@ import {
   Fish,
   BarChart,
   Cpu,
+  HeartPulse,
+  Wrench,
   Info,
   AlertCircle,
   Sparkles,
@@ -95,13 +102,15 @@ function isAiMessage(msg: Message): boolean {
 // Persona Helpers
 // ---------------------------------------------------------------------------
 
-/** Map persona icon name to Lucide component. */
-const PERSONA_ICONS: Record<string, typeof Bot> = {
+/** Map the catalogue icon vocabulary to Lucide components. */
+const PERSONA_ICONS: Record<AiPersonaIcon, typeof Bot> = {
   bot: Bot,
   droplets: Droplets,
   fish: Fish,
   'bar-chart': BarChart,
   cpu: Cpu,
+  'heart-pulse': HeartPulse,
+  wrench: Wrench,
 };
 
 /**
@@ -146,42 +155,20 @@ const PERSONA_HEADER_COLORS: Record<
   },
 };
 
-/** Known persona metadata keyed by persona ID. Used for header enrichment. */
-const PERSONA_METADATA: Record<
-  string,
-  { name: string; icon: string; color: string; capabilities: string[] }
-> = {
-  general: {
-    name: 'General AI Assistant',
-    icon: 'bot',
-    color: 'purple',
-    capabilities: ['General questions', 'Basic guidance', 'Platform help'],
-  },
-  'operator-v1': {
-    name: 'Water Quality Specialist',
-    icon: 'droplets',
-    color: 'cyan',
-    capabilities: ['Water quality parameters', 'Sensor readings', 'Ammonia/H2S/CO2 toxicity'],
-  },
-  'expert-v1': {
-    name: 'Farm Expert',
-    icon: 'fish',
-    color: 'blue',
-    capabilities: ['Growth analytics', 'Feed optimization', 'Reagent dosing', 'Risk assessment'],
-  },
-  'manager-v1': {
-    name: 'Management Assistant',
-    icon: 'bar-chart',
-    color: 'green',
-    capabilities: ['Report generation', 'Analytics', 'Trend analysis', 'Feed management'],
-  },
-  'supervisor-v1': {
-    name: 'SCADA AI',
-    icon: 'cpu',
-    color: 'orange',
-    capabilities: ['Autonomous monitoring', 'Equipment actuation', 'PLC control', 'Safety limits'],
-  },
-};
+/**
+ * Header enrichment for the channel's persona — read from the shared persona
+ * catalogue (`@aquaculture/shared-contracts`), the SSoT every surface uses, so
+ * a farm specialist opened from NewChatPage is named and coloured the same
+ * here. An unpinned channel (`aiPersona: null`) is the tenant default.
+ */
+function personaMetadata(personaId: string | null | undefined): {
+  name: string;
+  icon: AiPersonaIcon;
+  color: string;
+  capabilities: readonly string[];
+} {
+  return (personaId ? findAiPersona(personaId) : undefined) ?? AI_GENERAL_ASSISTANT_PICKER_ENTRY;
+}
 
 // ---------------------------------------------------------------------------
 // AiAvatarHeader Sub-component
@@ -200,9 +187,9 @@ function AiChannelHeader({
   onSettings: () => void;
 }): JSX.Element {
   const [showCapabilities, setShowCapabilities] = useState(false);
-  const meta = PERSONA_METADATA[personaId ?? 'general'] ?? PERSONA_METADATA['general'];
+  const meta = personaMetadata(personaId);
   const colors = PERSONA_HEADER_COLORS[meta.color] ?? PERSONA_HEADER_COLORS['purple'];
-  const IconComponent = PERSONA_ICONS[meta.icon] ?? Bot;
+  const IconComponent = PERSONA_ICONS[meta.icon];
 
   return (
     // NOT the shared AppHeader: this header carries the persona avatar, its hue
@@ -513,8 +500,7 @@ export function AiChatPage(): JSX.Element {
     [messages],
   );
 
-  const personaMeta =
-    PERSONA_METADATA[channel?.aiPersona ?? 'general'] ?? PERSONA_METADATA['general'];
+  const personaMeta = personaMetadata(channel?.aiPersona);
   const channelName = channel?.name ?? personaMeta.name;
   const loading = messagesLoading || channelLoading;
   const errorMsg = messagesError
@@ -567,7 +553,7 @@ export function AiChatPage(): JSX.Element {
           // assistant the worker is about to talk to.
           <div className="flex flex-col items-center justify-center py-16 px-4">
             {(() => {
-              const EmptyIcon = PERSONA_ICONS[personaMeta.icon] ?? Bot;
+              const EmptyIcon = PERSONA_ICONS[personaMeta.icon];
               const emptyColors =
                 PERSONA_HEADER_COLORS[personaMeta.color] ?? PERSONA_HEADER_COLORS['purple'];
               return (

@@ -38,6 +38,9 @@ export default defineConfig({
     alias: {
       '@': resolve(__dirname, 'src'),
       '@aquaculture/shared-ui': resolve(__dirname, '../../shared-ui/dist'),
+      // Zero-dependency cross-stack constants (AI persona catalogue) — path-
+      // aliased, not npm-installed, exactly as aquamobil does (MSG-MEDIUM-057).
+      '@aquaculture/shared-contracts': resolve(__dirname, '../../../libs/shared-contracts/src'),
     },
   },
   base: '/remotes/messaging-module/',

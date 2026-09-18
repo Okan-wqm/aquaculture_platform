@@ -1,5 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Sparkles, X, Send, RefreshCw, AlertCircle } from 'lucide-react';
+import { useAuth } from '@aquaculture/shared-ui';
+import {
+  AI_GENERAL_ASSISTANT_PICKER_ENTRY,
+  AI_PERSONA_CATALOGUE,
+  type AiPersonaCatalogueEntry,
+} from '@aquaculture/shared-contracts';
 import { useAiAssistantSocket, type AiAssistantStatus } from '../../hooks/useAiAssistantSocket';
 
 interface AiAssistantDrawerProps {
@@ -14,16 +20,34 @@ const STATUS_LABEL: Record<AiAssistantStatus, string> = {
   offline: 'Offline',
 };
 
+/** The `<select>` value for "no persona pinned" (the tenant default). */
+const DEFAULT_PERSONA_VALUE = '';
+
 /**
  * Shell-level AI assistant drawer. Opens over any module; talks to ai-service
  * through the gateway `/ai` socket.io bridge. Only mounts a live socket while
  * open. A key_missing / FORBIDDEN error steers the user to AI settings rather
  * than showing a raw failure.
+ *
+ * The persona picker offers the tenant default plus every catalogue persona
+ * whose required capabilities the signed-in user holds — the same rule
+ * ai-service enforces per turn, so nothing offered here is later refused.
  */
 const AiAssistantDrawer: React.FC<AiAssistantDrawerProps> = ({ open, onClose }) => {
-  const { messages, status, sendMessage, reset } = useAiAssistantSocket(open);
+  const { hasPermission } = useAuth();
+  const { messages, status, persona, setPersona, sendMessage, reset } = useAiAssistantSocket(open);
   const [draft, setDraft] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  const permittedPersonas = useMemo<readonly AiPersonaCatalogueEntry[]>(
+    () =>
+      AI_PERSONA_CATALOGUE.filter((entry) =>
+        entry.requiredCapabilities.every((capability) => hasPermission(capability)),
+      ),
+    [hasPermission],
+  );
+  const selected =
+    permittedPersonas.find((entry) => entry.id === persona) ?? AI_GENERAL_ASSISTANT_PICKER_ENTRY;
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
@@ -40,11 +64,7 @@ const AiAssistantDrawer: React.FC<AiAssistantDrawerProps> = ({ open, onClose }) 
   return (
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-label="AI assistant">
       {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/20"
-        onClick={onClose}
-        aria-hidden="true"
-      />
+      <div className="absolute inset-0 bg-black/20" onClick={onClose} aria-hidden="true" />
 
       <aside className="relative flex h-full w-full max-w-md flex-col bg-white shadow-xl">
         {/* Header */}
@@ -72,6 +92,30 @@ const AiAssistantDrawer: React.FC<AiAssistantDrawerProps> = ({ open, onClose }) 
               <X className="h-5 w-5" />
             </button>
           </div>
+        </div>
+
+        {/* Persona picker — switching starts a new conversation. */}
+        <div className="border-b border-gray-100 px-4 py-2">
+          <label htmlFor="ai-assistant-persona" className="sr-only">
+            Assistant
+          </label>
+          <select
+            id="ai-assistant-persona"
+            value={persona ?? DEFAULT_PERSONA_VALUE}
+            onChange={(e) =>
+              setPersona(e.target.value === DEFAULT_PERSONA_VALUE ? null : e.target.value)
+            }
+            disabled={status === 'thinking'}
+            className="w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm text-gray-800 focus:border-transparent focus:outline-hidden focus:ring-2 focus:ring-tenant-500 disabled:bg-gray-100"
+          >
+            <option value={DEFAULT_PERSONA_VALUE}>{AI_GENERAL_ASSISTANT_PICKER_ENTRY.name}</option>
+            {permittedPersonas.map((entry) => (
+              <option key={entry.id} value={entry.id}>
+                {entry.name}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-xs text-gray-400">{selected.description}</p>
         </div>
 
         {/* Messages */}

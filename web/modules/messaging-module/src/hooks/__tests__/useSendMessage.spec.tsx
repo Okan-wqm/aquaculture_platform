@@ -13,7 +13,7 @@
  * through the same flatten/invert convention the hook uses.
  */
 import { createTenantInvalidationKey, createTenantQueryKey } from '@aquaculture/shared-ui';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, type InfiniteData } from '@tanstack/react-query';
 import { renderHook, waitFor } from '@testing-library/react';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -47,6 +47,7 @@ function makeMessage(
     isAiGenerated: false,
     createdAt,
     editedAt: null,
+    metadata: null,
     sender: null,
   };
 }
@@ -60,7 +61,10 @@ function makeThreadCacheKey(): readonly unknown[] {
  * — no silent undefined in assertions.
  */
 function threadData(queryClient: QueryClient): Message[] {
-  const data = queryClient.getQueryData<{ pages: ChannelMessagesPage[] }>(makeThreadCacheKey());
+  const data =
+    queryClient.getQueryData<InfiniteData<ChannelMessagesPage, string | null>>(
+      makeThreadCacheKey(),
+    );
   if (!data) throw new Error('thread cache missing under the tenant-scoped key');
   return flattenChannelMessages(data);
 }
@@ -73,13 +77,13 @@ function primeThread(queryClient: QueryClient, oldestFirst: Message[]): void {
   });
 }
 
-/** Deferred for controlling a mutation/query resolution from the test body. */
-interface Deferred<T> {
+/** Externally settled promise for controlling a mutation/query resolution from the test body. */
+interface SettlablePromise<T> {
   promise: Promise<T>;
   resolve: (value: T) => void;
   reject: (reason?: unknown) => void;
 }
-function deferred<T>(): Deferred<T> {
+function settlable<T>(): SettlablePromise<T> {
   let resolve!: (value: T) => void;
   let reject!: (reason?: unknown) => void;
   const promise = new Promise<T>((res, rej) => {
@@ -132,25 +136,24 @@ describe('useSendMessage', () => {
   });
 
   it('optimistically appends a temp row (sender = me) and replaces it with the server row on success', async () => {
-    const pending = deferred<Record<string, unknown>>();
-    routeGraphql([
-      { match: 'mutation SendMessage', result: () => pending.promise },
-    ]);
+    const pending = settlable<Record<string, unknown>>();
+    routeGraphql([{ match: 'mutation SendMessage', result: () => pending.promise }]);
     const queryClient = newQueryClient();
     primeThread(queryClient, [makeMessage('srv-0', 'earlier')]);
 
     const { result } = renderHook(() => useSendMessage(CHANNEL), {
       wrapper: makeWrapper(queryClient),
     });
-    const sent = result.current.mutateAsync({ content: 'optimistic!', idempotencyKey: IDEMPOTENCY_KEY });
+    const sent = result.current.mutateAsync({
+      content: 'optimistic!',
+      idempotencyKey: IDEMPOTENCY_KEY,
+    });
 
     // Before the server answers: the temp row is already in the thread.
     await waitFor(() => {
       expect(threadData(queryClient)).toHaveLength(2);
     });
-    const tempRow = threadData(queryClient).find(
-      (m) => m.id === `temp-${IDEMPOTENCY_KEY}`,
-    );
+    const tempRow = threadData(queryClient).find((m) => m.id === `temp-${IDEMPOTENCY_KEY}`);
     expect(tempRow).toMatchObject({
       channelId: CHANNEL,
       senderId: TEST_USER_ID,
@@ -169,7 +172,7 @@ describe('useSendMessage', () => {
   });
 
   it('rolls the thread back when the send fails (no lingering delivered-looking bubble)', async () => {
-    const failure = deferred<Record<string, unknown>>();
+    const failure = settlable<Record<string, unknown>>();
     routeGraphql([{ match: 'mutation SendMessage', result: () => failure.promise }]);
     const queryClient = newQueryClient();
     primeThread(queryClient, [makeMessage('srv-0', 'earlier')]);
@@ -177,7 +180,10 @@ describe('useSendMessage', () => {
     const { result } = renderHook(() => useSendMessage(CHANNEL), {
       wrapper: makeWrapper(queryClient),
     });
-    const sent = result.current.mutateAsync({ content: 'will fail', idempotencyKey: IDEMPOTENCY_KEY });
+    const sent = result.current.mutateAsync({
+      content: 'will fail',
+      idempotencyKey: IDEMPOTENCY_KEY,
+    });
     await waitFor(() => {
       expect(threadData(queryClient)).toHaveLength(2);
     });
@@ -201,7 +207,10 @@ describe('useSendMessage', () => {
     const { result } = renderHook(() => useSendMessage(CHANNEL), {
       wrapper: makeWrapper(queryClient),
     });
-    await result.current.mutateAsync({ content: 'earlier', idempotencyKey: 'eeeeeeee-5555-4666-8777-888888888888' });
+    await result.current.mutateAsync({
+      content: 'earlier',
+      idempotencyKey: 'eeeeeeee-5555-4666-8777-888888888888',
+    });
 
     const thread = threadData(queryClient);
     expect(thread.filter((m) => m.id === 'srv-0')).toHaveLength(1);
@@ -233,7 +242,7 @@ describe('useSendMessage', () => {
     // Mount the real thread query so the success invalidation triggers an
     // ACTIVE refetch, exactly like the socket newMessage handler does — then
     // assert the message settles in the cache exactly once.
-    const sendDeferred = deferred<Record<string, unknown>>();
+    const sendSettlable = settlable<Record<string, unknown>>();
     let refetchCount = 0;
     routeGraphql([
       {
@@ -241,14 +250,14 @@ describe('useSendMessage', () => {
         result: () => {
           refetchCount += 1;
           // Newest-first from the subgraph; the flatten reverses to oldest-first.
-          const items = refetchCount === 1 ? [makeMessage('srv-0', 'earlier')] : [
-            makeMessage('srv-1', 'fresh', TEST_USER_ID),
-            makeMessage('srv-0', 'earlier'),
-          ];
+          const items =
+            refetchCount === 1
+              ? [makeMessage('srv-0', 'earlier')]
+              : [makeMessage('srv-1', 'fresh', TEST_USER_ID), makeMessage('srv-0', 'earlier')];
           return { messages: { hasMore: false, cursor: null, items } };
         },
       },
-      { match: 'mutation SendMessage', result: () => sendDeferred.promise },
+      { match: 'mutation SendMessage', result: () => sendSettlable.promise },
     ]);
     const queryClient = newQueryClient();
 
@@ -273,7 +282,7 @@ describe('useSendMessage', () => {
         ),
       ).toBe(true),
     );
-    sendDeferred.resolve({ sendMessage: makeMessage('srv-1', 'fresh', TEST_USER_ID) });
+    sendSettlable.resolve({ sendMessage: makeMessage('srv-1', 'fresh', TEST_USER_ID) });
     await sent;
 
     // The invalidation refetch (active observer) lands with the server truth;
@@ -291,7 +300,7 @@ describe('useSendMessage', () => {
     // server message in the cache. The failed send's snapshot rollback wipes
     // it — onError must re-invalidate so the active observer converges back
     // to server truth instead of hiding that message until the next event.
-    const sendDeferred = deferred<Record<string, unknown>>();
+    const sendSettlable = settlable<Record<string, unknown>>();
     let refetchCount = 0;
     routeGraphql([
       {
@@ -303,14 +312,11 @@ describe('useSendMessage', () => {
           const items =
             refetchCount === 1
               ? [makeMessage('srv-0', 'earlier')]
-              : [
-                  makeMessage('srv-9', 'from someone else'),
-                  makeMessage('srv-0', 'earlier'),
-                ];
+              : [makeMessage('srv-9', 'from someone else'), makeMessage('srv-0', 'earlier')];
           return { messages: { hasMore: false, cursor: null, items } };
         },
       },
-      { match: 'mutation SendMessage', result: () => sendDeferred.promise },
+      { match: 'mutation SendMessage', result: () => sendSettlable.promise },
     ]);
     const queryClient = newQueryClient();
 
@@ -337,7 +343,7 @@ describe('useSendMessage', () => {
     );
 
     // The socket-driven refetch lands mid-flight (active observer refresh).
-    sendDeferred.reject(new Error('boom'));
+    sendSettlable.reject(new Error('boom'));
     await expect(sent).rejects.toThrow('boom');
 
     await waitFor(() => {

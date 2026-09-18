@@ -5,7 +5,6 @@
  * hover-expand opens the drawer, section labels only render while open,
  * leaf items navigate, module groups auto-open when a child route is active.
  */
-import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 
@@ -109,7 +108,9 @@ describe('SuderraSidebar', () => {
     // Child navigation works and the active child is marked.
     fireEvent.click(screen.getByRole('button', { name: 'Setup' }));
     expect(onNavigate).toHaveBeenCalledWith('/sites/setup');
-    expect(screen.getByRole('button', { name: 'Tanks & ponds' }).getAttribute('aria-current')).toBe('page');
+    expect(screen.getByRole('button', { name: 'Tanks & ponds' }).getAttribute('aria-current')).toBe(
+      'page',
+    );
   });
 
   it('toggles a module group closed and back open', () => {
@@ -151,7 +152,12 @@ describe('SuderraSidebar', () => {
       },
     ];
     const { container } = render(
-      <SuderraSidebar sections={gated} onNavigate={() => {}} brandName="T" userRoles={['MODULE_MANAGER']} />,
+      <SuderraSidebar
+        sections={gated}
+        onNavigate={() => {}}
+        brandName="T"
+        userRoles={['MODULE_MANAGER']}
+      />,
     );
     fireEvent.mouseEnter(rail(container));
 

@@ -25,7 +25,6 @@
 import type { WsMessage } from '@aquaculture/shared-ui';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import React from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -101,12 +100,12 @@ const CHANNEL_FIXTURE: Channel = {
   ],
 };
 
-interface Deferred<T> {
+interface SettlablePromise<T> {
   promise: Promise<T>;
   resolve: (value: T) => void;
   reject: (reason?: unknown) => void;
 }
-function deferred<T>(): Deferred<T> {
+function settlable<T>(): SettlablePromise<T> {
   let resolve!: (value: T) => void;
   let reject!: (reason?: unknown) => void;
   const promise = new Promise<T>((res, rej) => {
@@ -251,7 +250,7 @@ describe('ChatRoomPage', () => {
   it('sends with a valid idempotencyKey and shows the message optimistically, settling exactly once', async () => {
     const fx = makeServerFixture();
     fx.routeQueries();
-    const pending = deferred<Record<string, unknown>>();
+    const pending = settlable<Record<string, unknown>>();
     routeGraphql([
       { match: 'query MyChannels', result: fx.channelsResult },
       { match: 'query ChannelMessages', result: fx.messagesResult },
@@ -294,7 +293,10 @@ describe('ChatRoomPage', () => {
       { match: 'query MyChannels', result: fx.channelsResult },
       { match: 'query ChannelMessages', result: fx.messagesResult },
       { match: 'mutation MarkMessagesRead', result: { markMessagesRead: true } },
-      { match: 'mutation SendMessage', result: () => Promise.reject(clientError('TOO_MANY_REQUESTS')) },
+      {
+        match: 'mutation SendMessage',
+        result: () => Promise.reject(clientError('TOO_MANY_REQUESTS')),
+      },
     ]);
     renderRoom(newQueryClient());
     await screen.findByText('latest from other');
@@ -310,9 +312,7 @@ describe('ChatRoomPage', () => {
     // The optimistic bubble was rolled back — the message body shows no
     // phantom send (the composer textarea itself legitimately holds the draft).
     const chatBody = document.querySelector('.sd-chat-body') as HTMLElement;
-    await waitFor(() =>
-      expect(within(chatBody).queryByText('will fail')).not.toBeInTheDocument(),
-    );
+    await waitFor(() => expect(within(chatBody).queryByText('will fail')).not.toBeInTheDocument());
   });
 
   it('the banner clears when the next send is attempted', async () => {
@@ -441,7 +441,9 @@ describe('ChatRoomPage — FAZ 2.4 AI visibility', () => {
       },
       {
         match: 'query ChannelMessages',
-        result: () => ({ messages: { hasMore: false, cursor: null, items: [...messages].reverse() } }),
+        result: () => ({
+          messages: { hasMore: false, cursor: null, items: [...messages].reverse() },
+        }),
       },
       { match: 'mutation MarkMessagesRead', result: { markMessagesRead: true } },
     ]);
@@ -459,20 +461,20 @@ describe('ChatRoomPage — FAZ 2.4 AI visibility', () => {
   });
 
   it('falls back to the generic AI Assistant label when the channel has no persona', async () => {
-    routeAiThread(
-      [makeMessage('ai-1', 'hello from ai', AI_SENDER_ID, { isAiGenerated: true })],
-      { ...AI_CHANNEL, aiPersona: null },
-    );
+    routeAiThread([makeMessage('ai-1', 'hello from ai', AI_SENDER_ID, { isAiGenerated: true })], {
+      ...AI_CHANNEL,
+      aiPersona: null,
+    });
     renderRoom(newQueryClient());
 
     expect(await screen.findByText('AI Assistant')).toBeVisible();
   });
 
   it('renders an unknown persona id verbatim instead of hiding the persona', async () => {
-    routeAiThread(
-      [makeMessage('ai-1', 'hello from ai', AI_SENDER_ID, { isAiGenerated: true })],
-      { ...AI_CHANNEL, aiPersona: 'future-persona-9' },
-    );
+    routeAiThread([makeMessage('ai-1', 'hello from ai', AI_SENDER_ID, { isAiGenerated: true })], {
+      ...AI_CHANNEL,
+      aiPersona: 'future-persona-9',
+    });
     renderRoom(newQueryClient());
 
     expect(await screen.findByText('future-persona-9')).toBeVisible();
@@ -585,7 +587,9 @@ describe('ChatRoomPage — FAZ 3 live cache mutation + UX', () => {
             hasMore: false,
             cursor: null,
             items: [
-              makeMessage('srv-1', 'latest from other', 'u2', { createdAt: '2026-09-16T10:01:00Z' }),
+              makeMessage('srv-1', 'latest from other', 'u2', {
+                createdAt: '2026-09-16T10:01:00Z',
+              }),
               makeMessage('srv-0', 'earlier', 'u2', { createdAt: '2026-09-16T10:00:00Z' }),
             ],
           },
@@ -602,9 +606,7 @@ describe('ChatRoomPage — FAZ 3 live cache mutation + UX', () => {
     await waitFor(() => expect(markReadInputs().length).toBeGreaterThanOrEqual(1));
     requestMock.mockClear();
 
-    act(() =>
-      fireSocketEvent('newMessage', { channelId: CHANNEL, message: makeWsMessage() }),
-    );
+    act(() => fireSocketEvent('newMessage', { channelId: CHANNEL, message: makeWsMessage() }));
 
     // The message renders immediately, credited to the MEMBER (channels-cache
     // enrichment), never the generic 'Member' fallback. The GraphQL-fetched
@@ -694,7 +696,11 @@ describe('ChatRoomPage — FAZ 3 live cache mutation + UX', () => {
     act(() =>
       fireSocketEvent('newMessage', {
         channelId: CHANNEL,
-        message: makeWsMessage({ id: 'ws-2', content: 'while you are up there', createdAt: '2026-09-16T11:01:00Z' }),
+        message: makeWsMessage({
+          id: 'ws-2',
+          content: 'while you are up there',
+          createdAt: '2026-09-16T11:01:00Z',
+        }),
       }),
     );
 
@@ -727,7 +733,9 @@ describe('ChatRoomPage — FAZ 3 live cache mutation + UX', () => {
                 cursor: 'older-window-cursor',
                 items: [
                   makeMessage('new-1', 'recent text', 'u2', { createdAt: '2026-09-16T10:01:00Z' }),
-                  makeMessage('new-0', 'recent older text', 'u2', { createdAt: '2026-09-16T10:00:00Z' }),
+                  makeMessage('new-0', 'recent older text', 'u2', {
+                    createdAt: '2026-09-16T10:00:00Z',
+                  }),
                 ],
               },
             };

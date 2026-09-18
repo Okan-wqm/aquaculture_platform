@@ -70,7 +70,7 @@ describe('INVARIANT (ORPHAN-087): shared-contracts declares no domain enums', ()
     const index = readFileSync(resolve(REPO_ROOT, 'libs/shared-contracts/src/index.ts'), 'utf8');
     const exportFroms = [
       ...index.matchAll(/export\s+(?:type\s+)?\{[^}]*\}\s+from\s+'([^']+)'/g),
-    ].map((m) => m[1]);
+    ].map((m) => m[1] ?? '');
     expect(exportFroms.length).toBeGreaterThan(0);
     for (const from of exportFroms) {
       expect(ALLOWED_MODULES.has(from)).toBe(true);

@@ -297,3 +297,34 @@ temiz HEAD'de de kızıyor; kanonik dal sahibi düzeltsin). Lint: 8 önceden-var
 
 Dal yerel 'integrate/farm-ai' olarak hazır — push kararı ve feat/ai-farm-specialists'e
 merge/fast-forward koordinasyonu kullanıcıda.
+
+
+## CANLI DB / DEPLOY EL KİTABI (merge eden oturum için, 2026-09-18 canlı gerçekleri)
+
+fazai-2 deploy'u sırasında canlı DB'ye elle yapılan ve merge sonrası deploy'ı
+ETKİLEYEN değişiklikler (ayrıntılı günlük messaging-fix-1 dalında DEPLOY-FAZAI2.md §6):
+
+1. **3 main-soyu tablosu DROPLANDI (0 satırdı)**: farm.feeding_job_runs,
+   farm.feeding_record_attribution_quarantine, farm.tenant_localization — bizim
+   soyumuz yetim sanıp fatal veriyordu; main soyu BUNLARI KULLANIYOR (tenant saat
+   dilimi tenant_localization'dan!). Main'in migration ledger'ı 'yaratıldı' sanıyor →
+   main-lineage deploy ÖNCESİ bu üç tablo main migration DDL'lerinden yeniden
+   yaratılmalı (veya ledger'dan düşürülüp migration'a yeniden koşturulmalı).
+2. **farm.sites.timezone**: UTC backfill + SET NOT NULL yapıldı (bizim entity NOT NULL
+   isterdi). Main entity'si nullable/default-UTC istiyor → kanonik deploy'da tek
+   ALTER ile geri alınabilir.
+3. **admin.impersonation_sessions + impersonation_permissions**: elle yaratıldı
+   (entity ile birebir) + admin_service GRANT. Main migration'ı bunları yaratmıyorsa
+   dokunma; yaratıyorsa IF NOT EXISTS uyumluluğu kontrol edilmeli.
+4. **CORS_ORIGINS**: deploy checkout droplet.yml'ye auth/farm/messaging/ai servislerinin
+   env bloklarına eklendi (yedek /tmp/droplet.yml.pre-fazai2.bak) — kanonik compose
+   main'den gelirse bu satırlar orada da olmalı.
+5. **NATS**: canlıda 40 farm-ai subject'li regen conf + `_INBOX.>` (eski desen) çalışıyor;
+   main-lineage servisler YENİ inbox desenini (`_INBOXAQUACULTURE_<SVC>...` gibi,
+   tam desen main services.yaml'da) isteyebilir → kanonik services.yaml regen'i ile
+   swap + acl-drift-probe --update-reference.
+6. **admin-api**: şimdi DURDURULDU (fazai-2 imajı 18 main tablosu bekliyor) — kanonik
+   imajla açılır.
+7. **db-migrate imajı**: nx build sql asset'lerini dist'e TAŞIMIYOR — build sonrası
+   `cp -r apps/db-migrate/src/sql dist/apps/db-migrate/apps/db-migrate/src/sql` şart
+   (Dockerfile.backend.simple yalnız dist kopyalar).

@@ -23,10 +23,10 @@
  */
 
 /**
- * All farm-AI query subjects. PR-3 implements the first 13 (Water & Health
- * specialist); the remaining keys are PR-4/5 placeholders reserved NOW so
- * later PRs extend the space without reshuffling the ACL registry
- * (infrastructure/nats/services.yaml lists every subject explicitly).
+ * All farm-AI query subjects. PR-3 implemented the first 13 (Water & Health
+ * specialist); PR-4 (Production, 17) and PR-5 (Operations, 10) implement the
+ * rest — every key below now has a responder, a request guard, and an
+ * explicit ACL entry in infrastructure/nats/services.yaml.
  */
 export const FARM_AI_QUERY_SUBJECTS = {
   // --- PR-3: Water & Health specialist (implemented) ----------------------
@@ -43,7 +43,7 @@ export const FARM_AI_QUERY_SUBJECTS = {
   FH_TREATMENTS: 'request.farm.ai.listTreatmentApplications',
   FH_WELFARE: 'request.farm.ai.listWelfareAssessments',
   FH_HARVEST_ELIGIBILITY: 'request.farm.ai.checkBatchHarvestEligibility',
-  // --- PR-4/5 placeholders (subjects reserved; responders land later) -----
+  // --- PR-4: Production specialist (implemented) ---------------------------
   BATCH_PERFORMANCE: 'request.farm.ai.getBatchPerformance',
   BATCH_MORTALITY_BY_CAUSE: 'request.farm.ai.getBatchMortalityByCause',
   BATCH_TRANSFERS_SUMMARY: 'request.farm.ai.getBatchTransfersSummary',
@@ -61,6 +61,7 @@ export const FARM_AI_QUERY_SUBJECTS = {
   REG_REPORTS: 'request.farm.ai.listRegulatoryReports',
   FINANCE_SUMMARY: 'request.farm.ai.getFinanceSummary',
   FINANCE_BATCH_TOTALS: 'request.farm.ai.getFinanceBatchTotals',
+  // --- PR-5: Operations specialist (implemented) ---------------------------
   MAINT_OVERDUE_WORK_ORDERS: 'request.farm.ai.listOverdueWorkOrders',
   MAINT_WORK_ORDER_STATS: 'request.farm.ai.getWorkOrderStats',
   MAINT_SCHEDULE_ALERTS: 'request.farm.ai.listMaintenanceScheduleAlerts',
@@ -417,4 +418,438 @@ export function isBatchHarvestEligibilityRequest(
   if (!isRecord(value) || !hasValidTenantId(value)) return false;
   if (!isUuidString(value.batchId)) return false;
   return isIsoDateString(value.harvestDate);
+}
+
+// ============================================================================
+// PR-4 REQUEST GUARDS (Production specialist — batch/growth/feeding/species/
+// tank/harvest/regulatory/finance subjects)
+// ============================================================================
+
+const isReportMonth = isBoundedInt(1, 12);
+const isUpcomingDays = isBoundedInt(1, FARM_AI_QUERY_LIMITS.MAX_UPCOMING_DAYS);
+
+const AI_FINANCE_GRANULARITIES: readonly string[] = ['DAY', 'WEEK', 'MONTH', 'YEAR'];
+const AI_HARVEST_SCOPES: readonly string[] = ['upcoming', 'overdue'];
+const AI_FEEDING_ENTITY_TYPES: readonly string[] = ['batch', 'tank'];
+
+export interface BatchPerformanceRequest extends AiQueryRequest {
+  batchId: string;
+}
+
+/** BATCH_PERFORMANCE: { tenantId, batchId }. */
+export function isBatchPerformanceRequest(
+  value: unknown,
+): value is BatchPerformanceRequest {
+  if (!isRecord(value) || !hasValidTenantId(value)) return false;
+  return isUuidString(value.batchId);
+}
+
+export interface GrowthAnalysisRequest extends AiQueryRequest {
+  batchId: string;
+}
+
+/** GROWTH_ANALYSIS: { tenantId, batchId }. */
+export function isGrowthAnalysisRequest(
+  value: unknown,
+): value is GrowthAnalysisRequest {
+  if (!isRecord(value) || !hasValidTenantId(value)) return false;
+  return isUuidString(value.batchId);
+}
+
+export interface GrowthMeasurementsRequest extends AiQueryRequest {
+  batchId: string;
+  limit?: number;
+}
+
+/** GROWTH_MEASUREMENTS: { tenantId, batchId, limit? }. */
+export function isGrowthMeasurementsRequest(
+  value: unknown,
+): value is GrowthMeasurementsRequest {
+  if (!isRecord(value) || !hasValidTenantId(value)) return false;
+  if (!isUuidString(value.batchId)) return false;
+  return isOptionalListLimit(value);
+}
+
+export interface MortalityByCauseRequest extends AiQueryRequest {
+  siteId: string;
+  fromDate: string;
+  toDate: string;
+}
+
+/** BATCH_MORTALITY_BY_CAUSE: { tenantId, siteId, fromDate, toDate (range ≤ 366d) }. */
+export function isMortalityByCauseRequest(
+  value: unknown,
+): value is MortalityByCauseRequest {
+  if (!isRecord(value) || !hasValidTenantId(value)) return false;
+  if (!isUuidString(value.siteId)) return false;
+  return isValidDateRange(
+    value.fromDate,
+    value.toDate,
+    FARM_AI_QUERY_LIMITS.MAX_RANGE_DAYS,
+  );
+}
+
+export interface TransfersSummaryRequest extends AiQueryRequest {
+  siteId: string;
+  fromDate: string;
+  toDate: string;
+}
+
+/** BATCH_TRANSFERS_SUMMARY: { tenantId, siteId, fromDate, toDate (range ≤ 366d) }. */
+export function isTransfersSummaryRequest(
+  value: unknown,
+): value is TransfersSummaryRequest {
+  if (!isRecord(value) || !hasValidTenantId(value)) return false;
+  if (!isUuidString(value.siteId)) return false;
+  return isValidDateRange(
+    value.fromDate,
+    value.toDate,
+    FARM_AI_QUERY_LIMITS.MAX_RANGE_DAYS,
+  );
+}
+
+export interface DailyFeedingPlanRequest extends AiQueryRequest {
+  siteId: string;
+  date: string;
+  departmentId?: string;
+}
+
+/** FEEDING_DAILY_PLAN: { tenantId, siteId, date (ISO), departmentId? }. */
+export function isDailyFeedingPlanRequest(
+  value: unknown,
+): value is DailyFeedingPlanRequest {
+  if (!isRecord(value) || !hasValidTenantId(value)) return false;
+  if (!isUuidString(value.siteId)) return false;
+  if ('departmentId' in value && !isUuidString(value.departmentId)) return false;
+  return isIsoDateString(value.date);
+}
+
+export interface FeedingSummaryRequest extends AiQueryRequest {
+  entityType: 'batch' | 'tank';
+  entityId: string;
+  fromDate?: string;
+  toDate?: string;
+}
+
+/** FEEDING_SUMMARY: { tenantId, entityType 'batch'|'tank', entityId, fromDate?, toDate? (range ≤ 366d) }. */
+export function isFeedingSummaryRequest(
+  value: unknown,
+): value is FeedingSummaryRequest {
+  if (!isRecord(value) || !hasValidTenantId(value)) return false;
+  if (!AI_FEEDING_ENTITY_TYPES.includes(value.entityType as string)) return false;
+  if (!isUuidString(value.entityId)) return false;
+  if ('fromDate' in value || 'toDate' in value) {
+    if (!isValidDateRange(value.fromDate, value.toDate, FARM_AI_QUERY_LIMITS.MAX_RANGE_DAYS)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+export interface SiteFeedConsumptionRequest extends AiQueryRequest {
+  siteId: string;
+  fromDate: string;
+  toDate: string;
+}
+
+/** FEEDING_SITE_CONSUMPTION: { tenantId, siteId, fromDate, toDate (range ≤ 366d) }. */
+export function isSiteFeedConsumptionRequest(
+  value: unknown,
+): value is SiteFeedConsumptionRequest {
+  if (!isRecord(value) || !hasValidTenantId(value)) return false;
+  if (!isUuidString(value.siteId)) return false;
+  return isValidDateRange(
+    value.fromDate,
+    value.toDate,
+    FARM_AI_QUERY_LIMITS.MAX_RANGE_DAYS,
+  );
+}
+
+export interface FeedProtocolsRequest extends AiQueryRequest {
+  limit?: number;
+}
+
+/**
+ * FEED_PROTOCOLS: { tenantId, limit? }. (No speciesId filter: the underlying
+ * ListFeedingProtocolsQuery filters by species NAME via free-text ILIKE —
+ * deliberately not exposed to the model surface.)
+ */
+export function isFeedProtocolsRequest(
+  value: unknown,
+): value is FeedProtocolsRequest {
+  if (!isRecord(value) || !hasValidTenantId(value)) return false;
+  return isOptionalListLimit(value);
+}
+
+/** SPECIES_LIST request — { tenantId } only. */
+export type SpeciesListRequest = AiQueryRequest;
+
+/** SPECIES_LIST: { tenantId } — no further inputs. */
+export function isSpeciesListRequest(value: unknown): value is SpeciesListRequest {
+  return isRecord(value) && hasValidTenantId(value);
+}
+
+export interface TankCapacityRequest extends AiQueryRequest {
+  tankId: string;
+}
+
+/** TANK_CAPACITY: { tenantId, tankId }. */
+export function isTankCapacityRequest(value: unknown): value is TankCapacityRequest {
+  if (!isRecord(value) || !hasValidTenantId(value)) return false;
+  return isUuidString(value.tankId);
+}
+
+export interface HarvestPlansRequest extends AiQueryRequest {
+  scope: 'upcoming' | 'overdue';
+  days: number;
+  limit?: number;
+}
+
+/** HARVEST_PLANS: { tenantId, scope 'upcoming'|'overdue', days (1..180), limit? }. */
+export function isHarvestPlansRequest(value: unknown): value is HarvestPlansRequest {
+  if (!isRecord(value) || !hasValidTenantId(value)) return false;
+  if (!AI_HARVEST_SCOPES.includes(value.scope as string)) return false;
+  if (!isUpcomingDays(value.days)) return false;
+  return isOptionalListLimit(value);
+}
+
+/** HARVEST_PLAN_STATS request — { tenantId } only. */
+export type HarvestPlanStatsRequest = AiQueryRequest;
+
+/** HARVEST_PLAN_STATS: { tenantId } — no further inputs. */
+export function isHarvestPlanStatsRequest(
+  value: unknown,
+): value is HarvestPlanStatsRequest {
+  return isRecord(value) && hasValidTenantId(value);
+}
+
+export interface BiomassReportRequest extends AiQueryRequest {
+  siteId: string;
+  reportMonth: number;
+  reportYear: number;
+}
+
+/** REG_BIOMASS_REPORT: { tenantId, siteId, reportMonth (1..12), reportYear }. */
+export function isBiomassReportRequest(value: unknown): value is BiomassReportRequest {
+  if (!isRecord(value) || !hasValidTenantId(value)) return false;
+  if (!isUuidString(value.siteId)) return false;
+  if (!isReportMonth(value.reportMonth)) return false;
+  return isReportingYear(value.reportYear);
+}
+
+/**
+ * Regulatory report type vocabulary (mirrors farm-service's
+ * RegulatoryReportType enum) — kept in sync by the SSOT invariant spec.
+ */
+export const AI_REGULATORY_REPORT_TYPES: readonly string[] = [
+  'SEA_LICE',
+  'CLEANER_FISH',
+  'SMOLT',
+  'SLAUGHTER_PLANNED',
+  'SLAUGHTER_EXECUTED',
+  'WELFARE_EVENT',
+  'ESCAPE',
+  'DISEASE_OUTBREAK',
+];
+
+export interface RegulatoryReportsRequest extends AiQueryRequest {
+  reportType: string;
+  siteId?: string;
+  limit?: number;
+}
+
+/** REG_REPORTS: { tenantId, reportType (enum string), siteId?, limit? }. */
+export function isRegulatoryReportsRequest(
+  value: unknown,
+): value is RegulatoryReportsRequest {
+  if (!isRecord(value) || !hasValidTenantId(value)) return false;
+  if (!AI_REGULATORY_REPORT_TYPES.includes(value.reportType as string)) {
+    return false;
+  }
+  if ('siteId' in value && !isUuidString(value.siteId)) return false;
+  return isOptionalListLimit(value);
+}
+
+export interface FinanceSummaryRequest extends AiQueryRequest {
+  fromDate: string;
+  toDate: string;
+  granularity: 'DAY' | 'WEEK' | 'MONTH' | 'YEAR';
+}
+
+/** FINANCE_SUMMARY: { tenantId, fromDate, toDate (range ≤ 366d), granularity }. */
+export function isFinanceSummaryRequest(
+  value: unknown,
+): value is FinanceSummaryRequest {
+  if (!isRecord(value) || !hasValidTenantId(value)) return false;
+  if (!isValidDateRange(value.fromDate, value.toDate, FARM_AI_QUERY_LIMITS.MAX_RANGE_DAYS)) {
+    return false;
+  }
+  return AI_FINANCE_GRANULARITIES.includes(value.granularity as string);
+}
+
+export interface FinanceBatchTotalsRequest extends AiQueryRequest {
+  fromDate: string;
+  toDate: string;
+  limit?: number;
+}
+
+/** FINANCE_BATCH_TOTALS: { tenantId, fromDate, toDate (range ≤ 366d), limit? }. */
+export function isFinanceBatchTotalsRequest(
+  value: unknown,
+): value is FinanceBatchTotalsRequest {
+  if (!isRecord(value) || !hasValidTenantId(value)) return false;
+  if (!isValidDateRange(value.fromDate, value.toDate, FARM_AI_QUERY_LIMITS.MAX_RANGE_DAYS)) {
+    return false;
+  }
+  return isOptionalListLimit(value);
+}
+
+// ============================================================================
+// PR-5 REQUEST GUARDS (Operations specialist — equipment/maintenance/
+// farm-stock/task subjects)
+// ============================================================================
+
+const AI_EQUIPMENT_STATUSES: readonly string[] = [
+  'operational',
+  'maintenance',
+  'repair',
+  'out_of_service',
+  'decommissioned',
+  'standby',
+  'active',
+  'preparing',
+  'cleaning',
+  'harvesting',
+  'fallow',
+  'quarantine',
+];
+
+export interface EquipmentListRequest extends AiQueryRequest {
+  equipmentTypeId?: string;
+  status?: string;
+  isTank?: boolean;
+  limit?: number;
+}
+
+/** EQUIPMENT_LIST: { tenantId, equipmentTypeId?, status?, isTank?, limit? }. */
+export function isEquipmentListRequest(value: unknown): value is EquipmentListRequest {
+  if (!isRecord(value) || !hasValidTenantId(value)) return false;
+  if ('equipmentTypeId' in value && !isUuidString(value.equipmentTypeId)) return false;
+  if ('status' in value && !AI_EQUIPMENT_STATUSES.includes(value.status as string)) {
+    return false;
+  }
+  if ('isTank' in value && typeof value.isTank !== 'boolean') return false;
+  return isOptionalListLimit(value);
+}
+
+export interface FeederCalibrationsRequest extends AiQueryRequest {
+  equipmentId: string;
+  limit?: number;
+}
+
+/** EQUIPMENT_FEEDER_CALIBRATIONS: { tenantId, equipmentId, limit? }. */
+export function isFeederCalibrationsRequest(
+  value: unknown,
+): value is FeederCalibrationsRequest {
+  if (!isRecord(value) || !hasValidTenantId(value)) return false;
+  if (!isUuidString(value.equipmentId)) return false;
+  return isOptionalListLimit(value);
+}
+
+export interface OverdueWorkOrdersRequest extends AiQueryRequest {
+  limit?: number;
+}
+
+/** MAINT_OVERDUE_WORK_ORDERS: { tenantId, limit? }. */
+export function isOverdueWorkOrdersRequest(
+  value: unknown,
+): value is OverdueWorkOrdersRequest {
+  if (!isRecord(value) || !hasValidTenantId(value)) return false;
+  return isOptionalListLimit(value);
+}
+
+export interface WorkOrderStatsRequest extends AiQueryRequest {
+  fromDate?: string;
+  toDate?: string;
+}
+
+/** MAINT_WORK_ORDER_STATS: { tenantId, fromDate?, toDate? (range ≤ 366d) }. */
+export function isWorkOrderStatsRequest(
+  value: unknown,
+): value is WorkOrderStatsRequest {
+  if (!isRecord(value) || !hasValidTenantId(value)) return false;
+  if ('fromDate' in value || 'toDate' in value) {
+    if (!isValidDateRange(value.fromDate, value.toDate, FARM_AI_QUERY_LIMITS.MAX_RANGE_DAYS)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+export interface MaintenanceScheduleAlertsRequest extends AiQueryRequest {
+  limit?: number;
+}
+
+/** MAINT_SCHEDULE_ALERTS: { tenantId, limit? }. */
+export function isMaintenanceScheduleAlertsRequest(
+  value: unknown,
+): value is MaintenanceScheduleAlertsRequest {
+  if (!isRecord(value) || !hasValidTenantId(value)) return false;
+  return isOptionalListLimit(value);
+}
+
+export interface LowStockPartsRequest extends AiQueryRequest {
+  limit?: number;
+}
+
+/** MAINT_LOW_STOCK: { tenantId, limit? }. */
+export function isLowStockPartsRequest(value: unknown): value is LowStockPartsRequest {
+  if (!isRecord(value) || !hasValidTenantId(value)) return false;
+  return isOptionalListLimit(value);
+}
+
+/** SPARE_STOCK_SUMMARY request — { tenantId } only. */
+export type StockSummaryRequest = AiQueryRequest;
+
+/** MAINT_STOCK_SUMMARY: { tenantId } — no further inputs. */
+export function isStockSummaryRequest(value: unknown): value is StockSummaryRequest {
+  return isRecord(value) && hasValidTenantId(value);
+}
+
+export interface FarmStockInventoryRequest extends AiQueryRequest {
+  siteId?: string;
+  status?: string;
+  hasActiveBatch?: boolean;
+  limit?: number;
+}
+
+/** FARM_STOCK_INVENTORY: { tenantId, siteId?, status?, hasActiveBatch?, limit? }. */
+export function isFarmStockInventoryRequest(
+  value: unknown,
+): value is FarmStockInventoryRequest {
+  if (!isRecord(value) || !hasValidTenantId(value)) return false;
+  if ('siteId' in value && !isUuidString(value.siteId)) return false;
+  if ('status' in value && typeof value.status !== 'string') return false;
+  if ('hasActiveBatch' in value && typeof value.hasActiveBatch !== 'boolean') {
+    return false;
+  }
+  return isOptionalListLimit(value);
+}
+
+export interface TodaysTasksRequest extends AiQueryRequest {
+  limit?: number;
+}
+
+/** TASKS_TODAY: { tenantId, limit? }. */
+export function isTodaysTasksRequest(value: unknown): value is TodaysTasksRequest {
+  if (!isRecord(value) || !hasValidTenantId(value)) return false;
+  return isOptionalListLimit(value);
+}
+
+/** TASK_STATS request — { tenantId } only. */
+export type TaskStatsRequest = AiQueryRequest;
+
+/** TASK_STATS: { tenantId } — no further inputs. */
+export function isTaskStatsRequest(value: unknown): value is TaskStatsRequest {
+  return isRecord(value) && hasValidTenantId(value);
 }

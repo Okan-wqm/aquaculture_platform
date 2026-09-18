@@ -23,6 +23,39 @@ import { ListTreatmentApplicationsTool } from './water-health/list-treatment-app
 import { ListWelfareAssessmentsTool } from './water-health/list-welfare-assessments.tool';
 import { CheckBatchHarvestEligibilityTool } from './water-health/check-batch-harvest-eligibility.tool';
 
+// PR-4: Production specialist read-only query tools (farm-ai-query).
+import { GetBatchPerformanceTool } from './production/get-batch-performance.tool';
+import { GetGrowthAnalysisTool } from './production/get-growth-analysis.tool';
+import { ListGrowthMeasurementsTool } from './production/list-growth-measurements.tool';
+import { GetMortalityByCauseTool } from './production/get-mortality-by-cause.tool';
+import { GetTransfersSummaryTool } from './production/get-transfers-summary.tool';
+import { GetDailyFeedingPlanTool } from './production/get-daily-feeding-plan.tool';
+import { GetFeedingSummaryTool } from './production/get-feeding-summary.tool';
+import { GetSiteFeedConsumptionTool } from './production/get-site-feed-consumption.tool';
+import { ListFeedingProtocolsTool } from './production/list-feeding-protocols.tool';
+import { ListSpeciesTool } from './production/list-species.tool';
+import { ListHarvestPlansTool } from './production/list-harvest-plans.tool';
+import { GetHarvestPlanStatsTool } from './production/get-harvest-plan-stats.tool';
+import { GetBiomassReportTool } from './production/get-biomass-report.tool';
+import { ListRegulatoryReportsTool } from './production/list-regulatory-reports.tool';
+import { GetFinanceSummaryTool } from './production/get-finance-summary.tool';
+import { GetFinanceBatchTotalsTool } from './production/get-finance-batch-totals.tool';
+
+// PR-5: Operations specialist read-only query tools (farm-ai-query) —
+// get_tank_capacity lives here per the program plan but is shared with the
+// Production specialist bundle.
+import { GetTankCapacityTool } from './operations/get-tank-capacity.tool';
+import { ListEquipmentTool } from './operations/list-equipment.tool';
+import { ListFeederCalibrationsTool } from './operations/list-feeder-calibrations.tool';
+import { ListOverdueWorkOrdersTool } from './operations/list-overdue-work-orders.tool';
+import { GetWorkOrderStatsTool } from './operations/get-work-order-stats.tool';
+import { ListMaintenanceAlertsTool } from './operations/list-maintenance-alerts.tool';
+import { ListLowStockSparePartsTool } from './operations/list-low-stock-spare-parts.tool';
+import { GetSpareStockSummaryTool } from './operations/get-spare-stock-summary.tool';
+import { GetFarmStockInventoryTool } from './operations/get-farm-stock-inventory.tool';
+import { ListTodaysTasksTool } from './operations/list-todays-tasks.tool';
+import { GetTaskStatsTool } from './operations/get-task-stats.tool';
+
 const TOOLS = [
   CreateTaskTool,
   GetFarmTanksTool,
@@ -44,6 +77,35 @@ const TOOLS = [
   ListTreatmentApplicationsTool,
   ListWelfareAssessmentsTool,
   CheckBatchHarvestEligibilityTool,
+  // PR-4 Production specialist (farm-ai-query contract).
+  GetBatchPerformanceTool,
+  GetGrowthAnalysisTool,
+  ListGrowthMeasurementsTool,
+  GetMortalityByCauseTool,
+  GetTransfersSummaryTool,
+  GetDailyFeedingPlanTool,
+  GetFeedingSummaryTool,
+  GetSiteFeedConsumptionTool,
+  ListFeedingProtocolsTool,
+  ListSpeciesTool,
+  ListHarvestPlansTool,
+  GetHarvestPlanStatsTool,
+  GetBiomassReportTool,
+  ListRegulatoryReportsTool,
+  GetFinanceSummaryTool,
+  GetFinanceBatchTotalsTool,
+  // PR-5 Operations specialist (farm-ai-query contract).
+  GetTankCapacityTool,
+  ListEquipmentTool,
+  ListFeederCalibrationsTool,
+  ListOverdueWorkOrdersTool,
+  GetWorkOrderStatsTool,
+  ListMaintenanceAlertsTool,
+  ListLowStockSparePartsTool,
+  GetSpareStockSummaryTool,
+  GetFarmStockInventoryTool,
+  ListTodaysTasksTool,
+  GetTaskStatsTool,
 ];
 
 /**

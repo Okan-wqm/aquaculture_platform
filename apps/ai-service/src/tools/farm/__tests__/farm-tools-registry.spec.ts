@@ -7,7 +7,7 @@ import { FarmToolsModule } from '../farm-tools.module';
 import { ToolExecutionAudit } from '../../../audit/tool-execution-audit.entity';
 
 /**
- * PR-3 boot-invariant guard: every Water & Health specialist tool must be a
+ * PR-3/PR-4/PR-5 boot-invariant guard: every farm-ai-query tool must be a
  * provider of FarmToolsModule so DiscoveryService registers it — a tool the
  * registry cannot see is a tool the persona can never call (and a specialty
  * referencing it would abort ai-service at boot instead).
@@ -28,10 +28,45 @@ const PR3_TOOL_NAMES = [
   'check_batch_harvest_eligibility',
 ];
 
+const PR4_TOOL_NAMES = [
+  'get_batch_performance',
+  'get_growth_analysis',
+  'list_growth_measurements',
+  'get_mortality_by_cause',
+  'get_transfers_summary',
+  'get_daily_feeding_plan',
+  'get_feeding_summary',
+  'get_site_feed_consumption',
+  'list_feeding_protocols',
+  'list_species',
+  'get_tank_capacity',
+  'list_harvest_plans',
+  'get_harvest_plan_stats',
+  'get_biomass_report',
+  'list_regulatory_reports',
+  'get_finance_summary',
+  'get_finance_batch_totals',
+];
+
+const PR5_TOOL_NAMES = [
+  'list_equipment',
+  'list_feeder_calibrations',
+  'list_overdue_work_orders',
+  'get_work_order_stats',
+  'list_maintenance_alerts',
+  'list_low_stock_spare_parts',
+  'get_spare_stock_summary',
+  'get_farm_stock_inventory',
+  'list_todays_tasks',
+  'get_task_stats',
+];
+
+const ALL_NEW_TOOL_NAMES = [...PR3_TOOL_NAMES, ...PR4_TOOL_NAMES, ...PR5_TOOL_NAMES];
+
 const AUDIT_REPO_STUB = { create: jest.fn(), save: jest.fn(), find: jest.fn() };
 
-describe('FarmToolsModule registry discovery (PR-3 Water & Health tools)', () => {
-  it('registers all 13 farm-ai-query tools', async () => {
+describe('FarmToolsModule registry discovery (PR-3/PR-4/PR-5 tools)', () => {
+  it('registers all 40 farm-ai-query tools', async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [ToolRegistryModule, FarmToolsModule],
     })
@@ -45,15 +80,15 @@ describe('FarmToolsModule registry discovery (PR-3 Water & Health tools)', () =>
 
     const registry = moduleRef.get(ToolRegistryService);
 
-    for (const name of PR3_TOOL_NAMES) {
+    for (const name of ALL_NEW_TOOL_NAMES) {
       expect({ name, registered: registry.hasTool(name) }).toEqual({
         name,
         registered: true,
       });
     }
 
-    // 13 new + the 6 pre-existing farm tools.
-    expect(registry.size).toBe(19);
+    // 40 new + the 6 pre-existing farm tools.
+    expect(registry.size).toBe(46);
 
     await moduleRef.close();
   });
@@ -70,9 +105,9 @@ describe('FarmToolsModule registry discovery (PR-3 Water & Health tools)', () =>
     await moduleRef.init();
 
     const registry = moduleRef.get(ToolRegistryService);
-    const definitions = registry.getClaudeToolDefinitions(PR3_TOOL_NAMES);
+    const definitions = registry.getClaudeToolDefinitions(ALL_NEW_TOOL_NAMES);
 
-    expect(definitions).toHaveLength(PR3_TOOL_NAMES.length);
+    expect(definitions).toHaveLength(ALL_NEW_TOOL_NAMES.length);
     for (const definition of definitions) {
       expect(definition.description.length).toBeGreaterThan(0);
       expect(definition.input_schema).toBeDefined();

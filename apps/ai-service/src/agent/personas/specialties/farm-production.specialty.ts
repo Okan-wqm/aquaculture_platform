@@ -1,25 +1,44 @@
 /**
- * FARM-AI PR-2 Commit A — Production specialty.
+ * FARM-AI PR-4 — Production specialty.
  *
- * Bundle starts from the current general water-chemistry calculators (usable
- * day one); PR-4 replaces it with the specialty's real farm-ai-query tool set
- * as those land. Commit B carries the specialty's prompt fragment; persona-parity.spec
- * freezes the joined legacy prompts. Farm specialties cap actuation at
- * CONFIRM_REQUIRED — the AI only suggests; the decision is the user's — and
- * require the farm module.
+ * The bundle now carries the specialty's real farm-ai-query tool set (PR-4):
+ * the 17 Production subjects of libs/event-contracts/src/farm-ai-queries.ts
+ * (get_tank_capacity included — the tool lives under tools/farm/operations/
+ * per the program plan but is shared with this bundle), plus the existing
+ * ID-resolution reads and the harvest-eligibility check — all verified
+ * registered tools (a name missing from the registry crashes ai-service at
+ * boot by design). Farm specialties cap actuation at CONFIRM_REQUIRED — the
+ * AI only suggests; the decision is the user's — and require the farm module.
  */
 import type { AgentSpecialty } from './general.specialty';
 
 export const FARM_PRODUCTION_SPECIALTY: AgentSpecialty = {
   id: 'farm-production',
   toolNames: [
-    'calculate_ammonia_toxicity',
-    'calculate_h2s_toxicity',
-    'calculate_co2_level',
-    'calculate_carbonate_chemistry',
-    'calculate_reagent_dosing',
-    'get_reagent_list',
-    'simulate_dosing_effect',
+    // PR-4 farm-ai-query tools (Production specialist)
+    'get_batch_performance',
+    'get_growth_analysis',
+    'list_growth_measurements',
+    'get_mortality_by_cause',
+    'get_transfers_summary',
+    'get_daily_feeding_plan',
+    'get_feeding_summary',
+    'get_site_feed_consumption',
+    'list_feeding_protocols',
+    'list_species',
+    'get_tank_capacity',
+    'list_harvest_plans',
+    'get_harvest_plan_stats',
+    'get_biomass_report',
+    'list_regulatory_reports',
+    'get_finance_summary',
+    'get_finance_batch_totals',
+    // ID resolution + grounding reads (registered farm tools)
+    'get_farm_batches',
+    'get_farm_tanks',
+    'get_farm_feeding',
+    'get_farm_harvest',
+    'check_batch_harvest_eligibility',
   ],
   promptFragment: `You are the farm's Production specialist.
 

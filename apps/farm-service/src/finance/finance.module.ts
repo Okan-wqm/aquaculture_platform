@@ -22,11 +22,13 @@ import { ComputedRuleEvaluator } from './services/computed-rule-evaluator';
 import { FinanceCategorySeedService } from './services/finance-category-seed.service';
 import { FinanceLedgerQueryService } from './services/finance-ledger-query.service';
 import { FinanceSettingsService } from './services/finance-settings.service';
+import { FinanceAiQueryResponder } from './responders/finance-ai-query.responder';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([FinanceCategory, FinanceExpenseEntry, FinanceSettings]),
   ],
+  controllers: [FinanceAiQueryResponder],
   providers: [
     FinanceResolver,
     FinanceCategorySeedService,

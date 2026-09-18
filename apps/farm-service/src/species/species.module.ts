@@ -29,12 +29,14 @@ import { SpeciesResolver } from './resolvers/species.resolver';
 import { SpeciesSeederService } from './services/species-seeder.service';
 
 import { RestoreModule } from '../common/services/restore.module';
+import { SpeciesAiQueryResponder } from './responders/species-ai-query.responder';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Species, Batch]),
     RestoreModule,
   ],
+  controllers: [SpeciesAiQueryResponder],
   providers: [
     ...SpeciesHandlers,
     SpeciesResolver,

@@ -27,6 +27,7 @@ import { TankHandlers } from './handlers';
 import { TankResolver } from './resolvers/tank.resolver';
 import { TankCapacityService } from './services/tank-capacity.service';
 import { GetTankRegistryResponder } from './responders/get-tank-registry.responder';
+import { TankAiQueryResponder } from './responders/tank-ai-query.responder';
 
 @Module({
   imports: [
@@ -40,7 +41,7 @@ import { GetTankRegistryResponder } from './responders/get-tank-registry.respond
     ]),
     FarmStockModule,
   ],
-  controllers: [GetTankRegistryResponder],
+  controllers: [GetTankRegistryResponder, TankAiQueryResponder],
   providers: [
     TankCapacityService,
     ...TankHandlers,

@@ -119,6 +119,20 @@ export interface ChatResponse {
   };
 }
 
+/**
+ * AISAFETY-MEDIUM-021 (hotfix): tier from the persona id prefix
+ * ('expert-v1' -> 'expert'). Mirrors agent-profile's tier derivation; the
+ * full tier x specialty refactor (planned PR-2) replaces this with a
+ * catalogue lookup.
+ */
+function personaTierFromId(personaId: string | null | undefined): string | null {
+  if (typeof personaId !== 'string' || !personaId) return null;
+  const tier = personaId.split('-')[0];
+  return tier === 'operator' || tier === 'manager' || tier === 'expert' || tier === 'supervisor'
+    ? tier
+    : null;
+}
+
 @Injectable()
 export class AgentRunnerService {
   private readonly logger = new Logger(AgentRunnerService.name);
@@ -298,6 +312,7 @@ export class AgentRunnerService {
       userRoles: request.userRoles,
       correlationId: request.correlationId,
       persona: request.persona,
+      personaTier: personaTierFromId(profile.persona.id),
       // AISAFETY-MEDIUM-017: the resolved actuation policy (persona ∧ tenant,
       // most-restrictive) gates whether an actuation tool may run autonomously.
       actuationPolicy: profile.actuationPolicy,

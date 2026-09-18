@@ -51,6 +51,15 @@ export interface ToolExecutionContext {
   /** The agent persona executing this tool */
   persona: string;
   /**
+   * AISAFETY-MEDIUM-021 (hotfix): the persona's TIER (operator|manager|
+   * expert|supervisor). Tools declare requiredPermissions in TIER vocabulary,
+   * but userRoles carries JWT roles (TENANT_ADMIN|MODULE_USER…) — the two
+   * never intersect, so every human-originated tool call was denied. The
+   * executor now checks personaTier against requiredPermissions; userRoles
+   * remains for the service-principal/serviceGrant path.
+   */
+  personaTier?: string | null;
+  /**
    * AISAFETY-MEDIUM-017: the resolved actuation policy (persona ∧ tenant, most
    * restrictive wins). REQUIRED so the executor can never fail open — an
    * actuation tool runs autonomously only under 'allowed'. Populated by the

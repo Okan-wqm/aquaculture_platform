@@ -69,9 +69,15 @@ export class ToolExecutorService {
       return denied;
     }
 
-    // Permission check
+    // Permission check (AISAFETY-MEDIUM-021 hotfix): tools require TIER names
+    // (operator/manager/expert/supervisor); userRoles carries JWT role names —
+    // the vocabularies never intersect for human callers. When a persona is
+    // driving (personaTier present), the tier IS the authority dimension.
     const hasPermission =
       serviceGrant ||
+      (ctx.personaTier !== null &&
+        ctx.personaTier !== undefined &&
+        metadata.requiredPermissions.includes(ctx.personaTier)) ||
       metadata.requiredPermissions.some((perm) => ctx.userRoles.includes(perm));
     if (!hasPermission) {
       this.logger.warn(

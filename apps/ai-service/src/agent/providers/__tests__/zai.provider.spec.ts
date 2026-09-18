@@ -51,9 +51,17 @@ describe('ZaiProvider (MSGFIX-ZAI)', () => {
 });
 
 describe('ZaiProvider — GLM-5.x reasoning effort (user preference)', () => {
-  it('injects reasoning_effort=low into chat requests', async () => {
+  it('injects reasoning_effort=low for GLM-5.x models', async () => {
     const zai = new ZaiProvider();
-    const extras = (zai as unknown as { requestExtras: () => Record<string, unknown> }).requestExtras();
-    expect(extras).toEqual({ reasoning_effort: 'low' });
+    const call = (zai as unknown as { requestExtras: (p: { model: string }) => Record<string, unknown> }).requestExtras;
+    expect(call({ model: 'glm-5.3' })).toEqual({ reasoning_effort: 'low' });
+    expect(call({ model: 'GLM-6.0' })).toEqual({ reasoning_effort: 'low' });
+  });
+
+  it('omits reasoning_effort for pre-5.x models (quarterly package switch needs no code)', async () => {
+    const zai = new ZaiProvider();
+    const call = (zai as unknown as { requestExtras: (p: { model: string }) => Record<string, unknown> }).requestExtras;
+    expect(call({ model: 'glm-4.6' })).toEqual({});
+    expect(call({ model: 'glm-4.7-flash' })).toEqual({});
   });
 });

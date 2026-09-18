@@ -153,8 +153,14 @@ def run_validation_commands(
     require_clean_worktree: bool = True,
     input_scope: dict[str, Any] | None = None,
     spawn_wrapper: SpawnWrapper | None = None,
+    room: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Execute allowlisted commands and record each through the ledger.
+
+    ``room`` (ARIA-HIGH-150) is what the caller observed of the contained
+    room through the same wrapper before this suite
+    (``implementation_delivery.probe_validation_room``); it rides the plan
+    row so "validated in the room CI validates in" is a row, not a word.
 
     ``spawn_wrapper`` (ARIA-HIGH-124, round 3) is the containment the
     caller puts around EVERY command's argv — the bwrap builder of
@@ -234,6 +240,8 @@ def run_validation_commands(
         "run_refs": [run["ledger_hash"] for run in runs],
         "validation_run_ids": [run["validation_run_id"] for run in runs],
     }
+    if room is not None:
+        payload["room"] = room
     return append_jsonl(ensure_tools_dir(base_dir) / "validation" / "validation-plans.jsonl", payload)
 
 
@@ -340,7 +348,15 @@ def evaluate_validation_gate(
     base_dir: str | Path | None = None,
     cycle_id: str | None = None,
     require_worktree_ok: bool = True,
+    require_room: bool = False,
 ) -> dict[str, Any]:
+    """The gate verdict over a comparison row.
+
+    ``require_room`` (ARIA-HIGH-150) — a contained candidate suite whose
+    plan row carries no observed room (no ``room``, or a probe that did not
+    exit 0) is ``validation_room_unobserved``: an unmeasured room is not a
+    green one, it is a hole in the evidence, and the gate names it.
+    """
     if not comparison_ref.strip():
         raise GovernanceError("comparison_ref is required")
     comparison = _find_comparison(list_validation_comparisons(base_dir=base_dir), comparison_ref)
@@ -351,6 +367,11 @@ def evaluate_validation_gate(
         blockers.append("validation_regression")
     if require_worktree_ok and comparison.get("worktree_status") != "ok":
         blockers.append("candidate_validation_not_green")
+    if require_room:
+        worktree_plan = _find_plan(list_validation_plans(base_dir=base_dir), str(comparison.get("worktree_ref") or ""))
+        room = (worktree_plan or {}).get("room") if isinstance(worktree_plan, dict) else None
+        if not isinstance(room, dict) or room.get("probe_exit") != 0 or room.get("error"):
+            blockers.append("validation_room_unobserved")
     row = {
         "schema_version": 1,
         "recorded_at": utc_now(),
@@ -361,6 +382,7 @@ def evaluate_validation_gate(
         "baseline_status": comparison.get("baseline_status"),
         "worktree_status": comparison.get("worktree_status"),
         "regression_status": comparison.get("regression_status"),
+        "room_required": require_room,
         "status": "ready_for_pr" if not blockers else "blocked",
         "blocked_by": sorted(set(blockers)),
     }

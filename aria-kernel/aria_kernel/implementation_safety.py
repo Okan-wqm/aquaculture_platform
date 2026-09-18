@@ -704,7 +704,7 @@ def _bwrap_probe_argv() -> list[str]:
         *_system_ro_binds(),
         "--proc", "/proc",
         "--dev", "/dev",
-        "--tmpfs", "/tmp",
+        *SANDBOX_TMP_MOUNT,
         "--unshare-net",
         *VALIDATION_SANDBOX_CONTAINMENT_FLAGS,
         *(flag for flag in MANAGED_SPAWN_ISOLATION_FLAGS if flag not in VALIDATION_SANDBOX_CONTAINMENT_FLAGS),
@@ -713,6 +713,13 @@ def _bwrap_probe_argv() -> list[str]:
 
 
 _SANDBOX_PROBE_TIMEOUT_SECONDS = 15
+
+# ARIA-HIGH-150 — `/tmp` inside every sandbox is the canonical sticky
+# world-writable directory (1777), as on every host and CI runner. A bare
+# `--tmpfs /tmp` mounts 0755: the repository's own invariants refuse that
+# room by name ("test Node authority requires the canonical sticky /tmp
+# boundary") and the apply gate read the refusal as the change's red.
+SANDBOX_TMP_MOUNT: tuple[str, ...] = ("--perms", "1777", "--tmpfs", "/tmp")
 
 
 def _sandbox_probe_succeeds(
@@ -1091,7 +1098,7 @@ def _sandbox_argv(
         *_system_ro_binds(),
         "--proc", "/proc",
         "--dev", "/dev",
-        "--tmpfs", "/tmp",
+        *SANDBOX_TMP_MOUNT,
         *_workspace_binds(workspace, write_scope),
         *_dependency_tree_binds(workspace),
         "--chdir", str(workspace),
@@ -1451,6 +1458,92 @@ def validation_executable_binds(
     return tuple(binds)
 
 
+# ARIA-HIGH-150 — host roots the repository's validation enumerates and CI
+# carries (`deploy-ssot-contract` walks `/opt`): read-only, existence-guarded,
+# validation room only — the agent's spawn does not need them.
+_VALIDATION_HOST_ROOTS: tuple[str, ...] = ("/opt",)
+# Host directories the validation enumerates by SHAPE (the deploy SSOT
+# contract walks `/var/log`): present inside as empty directories, never
+# the host's logs — the suite tests the tool's frontier, not the contents.
+_VALIDATION_HOST_SHAPE_DIRS: tuple[str, ...] = ("/var/log",)
+# The toolchain file rustup reads; its `channel` names the toolchain the
+# room must carry installed, and the room runs THAT toolchain's own binaries
+# (`<RUSTUP_HOME>/toolchains/<name>/bin`) ahead of the rustup proxies: a
+# proxy asked for a pinned channel syncs it from the network, which the
+# room does not have, and died "syncing channel updates" inside.
+_RUST_TOOLCHAIN_FILE = "rust-toolchain.toml"
+_RUSTUP_TOOLCHAIN_ENV = "RUSTUP_TOOLCHAIN"
+# The toolchains a tree declares beyond the command's own executable, by
+# the file that declares them. Each is resolved on the validation PATH and
+# its prefix bound read-only; one that does not resolve is
+# `validation_toolchain_unresolvable:<name>` — the ROOM refused by name at
+# admission, never a red that reads as the change's.
+_DECLARED_TOOLCHAINS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Cargo.toml", ("cargo", "rustc")),
+)
+# rustup's proxies (`~/.cargo/bin/cargo`) find their toolchain through
+# RUSTUP_HOME (default `$HOME/.rustup`); the sandbox's HOME is a tmpfs, so
+# the real home's rustup dir is bound and named.
+_RUSTUP_HOME_ENV = "RUSTUP_HOME"
+_CARGO_HOME_ENV = "CARGO_HOME"
+
+
+def validation_toolchains_for(workspace: Path) -> tuple[str, ...]:
+    """The executables the tree's validation needs beyond the command's own."""
+    names: list[str] = []
+    for marker, tools in _DECLARED_TOOLCHAINS:
+        if (workspace / marker).is_file():
+            names.extend(tool for tool in tools if tool not in names)
+    return tuple(names)
+
+
+def _pinned_rust_channel(workspace: Path) -> str | None:
+    path = workspace / _RUST_TOOLCHAIN_FILE
+    if not path.is_file():
+        return None
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("channel"):
+            _, _, value = stripped.partition("=")
+            return value.strip().strip('"').strip("'") or None
+    return None
+
+
+def _rust_home_binds(environment: Mapping[str, str], workspace: Path) -> tuple[list[Path], list[str]]:
+    """(paths to ro-bind, --setenv flags) so the tree's pinned rust toolchain
+    runs inside: the rustup and cargo homes bound read-only and named, the
+    installed toolchain's own `bin` ahead of the proxies on PATH, and
+    `RUSTUP_TOOLCHAIN` naming it. Refuses by name when the pinned channel is
+    not installed under the rustup home (`validation_toolchain_unresolvable:
+    rust-toolchain:<channel>`): the room is missing it, not the change."""
+    real_home = Path(environment.get("HOME") or os.environ.get("HOME") or "/nonexistent")
+    rustup_home = Path(environment.get(_RUSTUP_HOME_ENV) or (real_home / ".rustup"))
+    cargo_home = Path(environment.get(_CARGO_HOME_ENV) or (real_home / ".cargo"))
+    paths: list[Path] = []
+    flags: list[str] = []
+    for name, home in ((_RUSTUP_HOME_ENV, rustup_home), (_CARGO_HOME_ENV, cargo_home)):
+        if home.is_dir():
+            if not _under_system_root(home) and home not in paths:
+                paths.append(home)
+            flags.extend(["--setenv", name, str(home)])
+    toolchains_dir = rustup_home / "toolchains"
+    installed = sorted(p for p in toolchains_dir.iterdir() if p.is_dir()) if toolchains_dir.is_dir() else []
+    channel = _pinned_rust_channel(workspace)
+    if channel is not None:
+        matching = [p for p in installed if p.name == channel or p.name.startswith(channel + "-")]
+        if not matching:
+            raise SandboxUnavailable(f"validation_toolchain_unresolvable:rust-toolchain:{channel}")
+        toolchain = matching[0]
+    elif len(installed) == 1:
+        toolchain = installed[0]
+    else:
+        toolchain = None
+    if toolchain is not None and (toolchain / "bin").is_dir():
+        flags.extend(["--setenv", _RUSTUP_TOOLCHAIN_ENV, toolchain.name])
+        flags.extend(["--setenv", "PATH", f"{toolchain / 'bin'}:{environment.get('PATH', os.defpath)}"])
+    return paths, flags
+
+
 def wrap_validation_in_sandbox(
     argv: list[str], *, workspace_root: str | Path, git: GitContainment | None,
     environment: Mapping[str, str], store: str | Path | None = None,
@@ -1475,10 +1568,38 @@ def wrap_validation_in_sandbox(
 
     workspace = Path(workspace_root).resolve()
     store_root = Path(store).resolve() if store is not None else None
-    binds = validation_executable_binds(argv[0], environment=environment, workspace=workspace, store=store_root)
+    binds: list[Path] = list(
+        validation_executable_binds(argv[0], environment=environment, workspace=workspace, store=store_root),
+    )
+    # ARIA-HIGH-150 — the toolchains the tree declares, resolved and bound
+    # (or the room refused by name), and the host roots CI carries.
+    toolchain_env: list[str] = []
+    toolchains = validation_toolchains_for(workspace)
+    for tool in toolchains:
+        try:
+            found = validation_executable_binds(tool, environment=environment, workspace=workspace, store=store_root)
+        except SandboxUnavailable as exc:
+            if str(exc).startswith("validation_executable_unresolvable:"):
+                raise SandboxUnavailable(f"validation_toolchain_unresolvable:{tool}") from exc
+            raise
+        binds.extend(path for path in found if path not in binds)
+    if any(tool in ("cargo", "rustc") for tool in toolchains):
+        rust_paths, rust_flags = _rust_home_binds(environment, workspace)
+        for path in rust_paths:
+            if store_root is not None and (store_root == path or store_root.is_relative_to(path)):
+                raise SandboxUnavailable(f"validation_toolchain_prefix_contains_store:{path}")
+            if workspace == path or workspace.is_relative_to(path):
+                raise SandboxUnavailable(f"validation_toolchain_prefix_contains_workspace:{path}")
+            if path not in binds:
+                binds.append(path)
+        toolchain_env.extend(rust_flags)
+    host_roots = [Path(root) for root in _VALIDATION_HOST_ROOTS if Path(root).is_dir()]
+    shape_dirs: list[str] = []
+    for directory in _VALIDATION_HOST_SHAPE_DIRS:
+        shape_dirs.extend(["--dir", directory])
     command = wrap_bash_in_sandbox(
         argv, workspace_root=workspace, allow_network=VALIDATION_SANDBOX_ALLOW_NETWORK,
-        write_scope=None, extra_ro_binds=(*binds, VALIDATION_OBSERVATION_CHILD), git=git,
+        write_scope=None, extra_ro_binds=(*binds, *host_roots, VALIDATION_OBSERVATION_CHILD), git=git,
     )
     separator = command.index("--")
     # (round 5) the keys-dir mask, AFTER every workspace bind (a later mount
@@ -1486,7 +1607,8 @@ def wrap_validation_in_sandbox(
     # the directory when it is absent, because bwrap cannot create a
     # mountpoint under the read-only `aria-debts/` bind.
     keys_mask = ["--tmpfs", str(signing_keys_dir(workspace))]
-    return command[:separator] + keys_mask + list(VALIDATION_SANDBOX_CONTAINMENT_FLAGS) + command[separator:]
+    return (command[:separator] + shape_dirs + keys_mask + toolchain_env
+            + list(VALIDATION_SANDBOX_CONTAINMENT_FLAGS) + command[separator:])
 
 
 class ResourceLimitsUnavailable(RuntimeError):

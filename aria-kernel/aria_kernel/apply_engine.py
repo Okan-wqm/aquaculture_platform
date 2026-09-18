@@ -187,6 +187,7 @@ def gate_apply_action(
     cycle_id: str | None = None,
     diff_text: str | None = None,
     workspace_root: str | Path | None = None,
+    require_room: bool = False,
 ) -> dict[str, Any]:
     """Promote an apply action to `ready_for_pr` after validation gate passes.
 
@@ -209,6 +210,8 @@ def gate_apply_action(
         comparison_ref=validation_comparison_ref,
         base_dir=base_dir,
         cycle_id=cycle_id,
+        # ARIA-HIGH-150 — a contained suite must have its room observed.
+        require_room=require_room,
     )
     # Plan 022 §H-1 — suppression scan fail-closed when diff_text=None.
     # Pre-fix: caller could omit diff_text and the suppression scan
@@ -970,6 +973,16 @@ def run_apply_gate(
             f"(`git switch {branch}`) before running the gate"
         )
     input_selection = action.get("validation_input_selection")
+    # ARIA-HIGH-150 — the room the candidate suite runs in, observed through
+    # the same wrapper before the first command; rides the plan row.
+    room = None
+    if spawn_wrapper is not None:
+        from .implementation_delivery import probe_validation_room
+        from .validation_env import build_validation_env
+
+        room = probe_validation_room(
+            spawn_wrapper, workspace_root=root, environment=build_validation_env(os.environ, declared={}).env,
+        )
     candidate = run_validation_commands(
         commands=list(action.get("validation_commands") or []),
         workspace_root=root,
@@ -986,6 +999,7 @@ def run_apply_gate(
             action.get("validation_timeout_ms") or CANONICAL_VALIDATION_TIMEOUT_MS,
         ),
         spawn_wrapper=spawn_wrapper,
+        room=room,
         **({"input_scope": input_selection["input_scope"]}
            if input_selection is not None and input_selection["status"] == "selected" else {}),
     )
@@ -1004,6 +1018,7 @@ def run_apply_gate(
         # reader keeps its existing worktree_path-first fallback, which the
         # operator's separate-worktree lane depends on.
         workspace_root=workspace_root,
+        require_room=spawn_wrapper is not None,
     )
 
 

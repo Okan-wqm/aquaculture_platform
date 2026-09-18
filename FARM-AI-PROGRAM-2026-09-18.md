@@ -132,7 +132,14 @@ FAZ 2 sonunda (PR-4/5 ile birlikte).
 - FarmAiQueryTool tabanı + 13 somut araç; PII yasağı
 - **SENSOR_AUTOMATIC kısıtı** (v3): create-water-quality GraphQL input MANUAL'e sabit
 
-### Sprint 2.4 — PR-4+5: Üretim (17) + Operasyon (10)
+### Sprint 2.4 — PR-4+5: Üretim (17) + Operasyon (10) ✅ (3cd7d9edf9, 95 dosya/9852 satır)
+
+40 subject'lik kontrat uçtan uca tamam. 11 domain responder'ı, 27 yeni araç
+(registry 46), specialty bundle'ları (production 22 / operations 13 ad —
+hepsi kayıtlı), ACL 27×2 + regen, invariant 40 anahtar. Kapılar: farm
+319/2182, ai 41/225, invariant 11/11, tsc+lint ×3. Sapmalar: FEED_PROTOCOLS
+speciesId'siz (sorgu serbest-metin filtreliyor), FARM_STOCK gerçek filtre
+alanları, REG_REPORTS 8-değer enum. Deploy: DEPLOY-FAZAI2.md runbook'u.
 - Desen birebir Sprint 2.3; finans araçları manager+; ListFeederCalibrations argüman sırası
 
 ---

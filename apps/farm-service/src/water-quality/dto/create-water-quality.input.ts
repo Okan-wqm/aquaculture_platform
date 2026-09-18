@@ -22,6 +22,7 @@ import GraphQLJSON from 'graphql-type-json';
 
 import { MeasurementSource } from '../entities/water-quality-measurement.entity';
 import { ValidateDynamicParameters } from '../validators/dynamic-parameters.validator';
+import { IsHumanMeasurementSource } from '../validators/human-measurement-source.validator';
 
 @InputType()
 export class CreateWaterQualityInput extends MobileCommandEnvelopeInput {
@@ -50,8 +51,9 @@ export class CreateWaterQualityInput extends MobileCommandEnvelopeInput {
   @Type(() => Date)
   measuredAt!: Date;
 
-  @Field(() => MeasurementSource, { description: 'Ölçüm kaynağı' })
+  @Field(() => MeasurementSource, { description: 'Ölçüm kaynağı (makine kaynakları reddedilir)' })
   @IsEnum(MeasurementSource)
+  @IsHumanMeasurementSource()
   source!: MeasurementSource;
 
   @Field(() => ID, { nullable: true, description: 'Ölçümü yapan kullanıcı' })

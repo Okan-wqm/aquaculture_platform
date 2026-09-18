@@ -71,6 +71,32 @@ export interface ChatRequest {
   schemaName: string;
   correlationId: string;
   /**
+   * FARM-AI Sprint 1.2: run WITHOUT any persisted conversation. No
+   * agent_conversations row is created, no user/assistant message is stored,
+   * and the response carries conversationId=null. The turn still hits the
+   * durable cost ledger (with correlationId + servicePrincipal in place of
+   * the conversation reference) and the token budget. Service paths
+   * (action_watch narratives, routine runs) use this so machine-driven calls
+   * never occupy a user's conversation history.
+   */
+  ephemeral?: boolean;
+  /**
+   * FARM-AI Sprint 1.2: identity of the CALLING SERVICE (e.g.
+   * 'messaging_service', 'farm_service'). Enforced against the server-side
+   * SERVICE_PERSONA_GRANTS map in AgentProfileService — never trusted from
+   * payload claims for capability purposes. Absent = user-direct path
+   * (capability check only).
+   */
+  serviceId?: string;
+  /**
+   * FARM-AI Sprint 1.2: rate-limit namespace. Default (undefined) keeps the
+   * legacy user-chat key `ai:ratelimit:{tenant}:{hour}` EXACTLY as-is;
+   * service namespaces get their own counter so machine-driven bursts can
+   * neither consume nor hide behind user quota. Allowlisted in
+   * RateLimitService ('routine' is claimed by the Faz 5 routine orchestrator).
+   */
+  rateNamespace?: string;
+  /**
    * MSGFIX-FAZ2 2.3: externally-supplied conversation history (the messaging
    * AI-channel bridge's consent-filtered channel context). Used INSTEAD of
    * stored conversation rows when the caller sends no conversationId:
@@ -116,7 +142,8 @@ export interface TokenUsageBreakdown {
 }
 
 export interface ChatResponse {
-  conversationId: string;
+  /** Null for ephemeral runs (FARM-AI Sprint 1.2) — no conversation exists. */
+  conversationId: string | null;
   message: string;
   toolCalls: Array<{
     name: string;
@@ -185,11 +212,12 @@ export class AgentRunnerService {
     }
     const provider = this.providerFactory.get(credential.provider);
 
-    // 2. Check rate limit
+    // 2. Check rate limit (namespaced for service paths — FARM-AI Sprint 1.2)
     const config = await this.agentConfig.getConfig(request.tenantId);
     const rateLimitCheck = await this.rateLimit.checkRateLimit(
       request.tenantId,
       config.hourlyRequestLimit,
+      request.rateNamespace,
     );
     if (!rateLimitCheck.allowed) {
       throw new Error(`Rate limit exceeded. Resets at ${rateLimitCheck.resetAt.toISOString()}`);
@@ -202,18 +230,26 @@ export class AgentRunnerService {
 
     // 4. Resolve agent profile (persona authorized against the caller's
     // tenant-RBAC capabilities — roles feed the admin bypass, resourcePermissions
-    // the ai_personas:<tier> ∧ ai_specialties:<module> grants). No persona named
-    // → the tenant default; an unknown id → UnknownPersonaError (no fallback).
+    // the ai_personas:<tier> ∧ ai_specialties:<module> grants; serviceId routes
+    // through the server-side service→persona grant map — FARM-AI Sprint 1.2).
+    // No persona named → the tenant default; an unknown id → UnknownPersonaError
+    // (no fallback).
     const personaId = request.persona ?? config.baseProfileId;
-    const profile = await this.profileService.resolveProfile(request.tenantId, personaId, {
-      roles: request.userRoles,
-      resourcePermissions: request.resourcePermissions,
-    });
+    const profile = await this.profileService.resolveProfile(
+      request.tenantId,
+      personaId,
+      {
+        roles: request.userRoles,
+        resourcePermissions: request.resourcePermissions,
+      },
+      { serviceId: request.serviceId },
+    );
     const resolvedPersonaId = profile.persona.id;
 
-    // 5. Get or create conversation — bound to the resolved persona.
-    let conversationId = request.conversationId;
-    if (!conversationId) {
+    // 5. Get or create conversation — SKIPPED for ephemeral runs (FARM-AI
+    // Sprint 1.2): machine-driven calls never touch conversation storage.
+    let conversationId: string | null = request.conversationId ?? null;
+    if (!request.ephemeral && !conversationId) {
       const conversation = await this.conversationService.create({
         tenantId: request.tenantId,
         userId: request.userId,
@@ -271,13 +307,15 @@ export class AgentRunnerService {
     // Add new user message
     pushAlternating(messages, 'user', request.message);
 
-    // Save user message to conversation
+    // Save user message to conversation — ephemeral runs persist nothing.
     // SECURITY: addMessage now requires tenantId + userId ownership check
-    await this.conversationService.addMessage(conversationId, request.tenantId, request.userId, {
-      role: 'user',
-      content: request.message,
-      timestamp: new Date().toISOString(),
-    });
+    if (conversationId) {
+      await this.conversationService.addMessage(conversationId, request.tenantId, request.userId, {
+        role: 'user',
+        content: request.message,
+        timestamp: new Date().toISOString(),
+      });
+    }
 
     // 7. SECURITY: Pre-process input through the AI safety pipeline (jailbreak
     // filter + prompt assembly). AISAFETY-MEDIUM-025: the composed base prompt
@@ -330,8 +368,10 @@ export class AgentRunnerService {
       correlationId: request.correlationId,
       persona: resolvedPersonaId,
       // AISAFETY-MEDIUM-021: the composed persona's tier is the executor's
-      // authority dimension for a human turn.
-      personaTier: profile.persona.tier,
+      // authority dimension for a human turn. Service personas (narrator)
+      // carry no tier — they run toolless and authorize through the service
+      // grant map instead (FARM-AI Sprint 1.2).
+      personaTier: 'tier' in profile.persona ? profile.persona.tier : null,
       // RBAC-MEDIUM-016: the executor refuses any tool_use outside this list —
       // the module/block-list offer filter becomes binding at execution time.
       offeredToolNames: profile.effectiveToolNames,
@@ -576,7 +616,11 @@ export class AgentRunnerService {
     ];
     await this.turnLedger.recordTurn({
       tenantId: request.tenantId,
+      // Ephemeral runs have no conversation — the ledger row keys on the
+      // correlationId + calling service instead (FARM-AI Sprint 1.2).
       conversationId,
+      correlationId: conversationId ? null : request.correlationId,
+      servicePrincipal: conversationId ? null : (request.serviceId ?? null),
       personaId: resolvedPersonaId,
       model: profile.persona.model,
       usage: {
@@ -588,25 +632,30 @@ export class AgentRunnerService {
       flaggedCategories,
     });
 
-    // 12. Save assistant response to conversation
+    // 12. Save assistant response to conversation — skipped for ephemeral runs
     // SECURITY: addMessage requires tenantId + userId ownership check
-    await this.conversationService.addMessage(conversationId, request.tenantId, request.userId, {
-      role: 'assistant',
-      content: finalMessage,
-      toolUse: toolCalls,
-      timestamp: new Date().toISOString(),
-    });
+    if (conversationId) {
+      await this.conversationService.addMessage(conversationId, request.tenantId, request.userId, {
+        role: 'assistant',
+        content: finalMessage,
+        toolUse: toolCalls,
+        timestamp: new Date().toISOString(),
+      });
+    }
 
     // 13. Update token usage (total = input + output + cacheCreation — see
     // the TokenUsageBreakdown docblock for the budget semantics)
     // SEC-MEDIUM-075: budget accounting happened per call via
-    // reserve/settle — a final addUsage here would double-count.
-    await this.conversationService.updateTokenCount(
-      conversationId,
-      request.tenantId,
-      request.userId,
-      totalTokens.total,
-    );
+    // reserve/settle — a final addUsage here would double-count. Ephemeral
+    // runs (FARM-AI Sprint 1.2) have no conversation aggregate to update.
+    if (conversationId) {
+      await this.conversationService.updateTokenCount(
+        conversationId,
+        request.tenantId,
+        request.userId,
+        totalTokens.total,
+      );
+    }
 
     return {
       conversationId,

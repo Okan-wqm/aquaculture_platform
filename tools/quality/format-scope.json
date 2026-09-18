@@ -3346,7 +3346,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/src/agent/__tests__/agent-profile-service-grants.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/src/agent/__tests__/agent-runner-cost-ledger.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/agent/__tests__/agent-runner-ephemeral.spec.ts",
       "prettier_managed": true
     },
     {
@@ -3419,6 +3431,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/ai-service/src/agent/personas/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/agent/personas/narrator.ts",
       "prettier_managed": true
     },
     {
@@ -3508,6 +3526,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/src/agent/providers/__tests__/provider-timeout.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/src/agent/providers/__tests__/zai.provider.spec.ts",
       "prettier_managed": true
     },
@@ -3556,7 +3580,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/src/agent/service-persona-grants.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/src/app.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/audit/__tests__/audit-service-principal-uuid.spec.ts",
       "prettier_managed": true
     },
     {
@@ -3760,6 +3796,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/ai-service/src/database/migrations/1803200000000-AddZaiApiKey.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/database/migrations/1803300000000-AddRoutineAiEnabled.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/database/migrations/1803300000001-FarmAiEphemeralTurnColumns.ts",
       "prettier_managed": true
     },
     {
@@ -18512,6 +18560,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/water-quality/dto/__tests__/create-water-quality.source.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/water-quality/dto/apply-parameter-template.input.ts",
       "prettier_managed": true
     },
@@ -18969,6 +19023,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/water-quality/validators/dynamic-parameters.validator.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/water-quality/validators/human-measurement-source.validator.ts",
       "prettier_managed": true
     },
     {
@@ -39684,6 +39744,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "FARM-AI-PROGRAM-2026-09-18.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "infra/helm/README.md",
       "prettier_managed": true
     },
@@ -48256,6 +48322,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/migration-spec-quarantine.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/migration-timestamp-uniqueness.spec.ts",
       "prettier_managed": true
     },
     {

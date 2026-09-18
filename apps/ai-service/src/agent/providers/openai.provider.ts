@@ -66,7 +66,11 @@ export class OpenAiProvider implements LlmProvider {
    * and validation behavior is inherited unchanged.
    */
   protected newClient(apiKey: string): OpenAI {
-    return new OpenAI({ apiKey });
+    // FARM-AI-0.1: SDK defaults are 600s timeout + 2 retries — a single hung
+    // Z.ai/OpenAI call could block a cron or watch cadence for 10+ minutes.
+    // 30s / 1 retry matches the platform's LLM latency budget (glm-5.3-low
+    // observed ~20s; validateCredential is a lightweight auth probe).
+    return new OpenAI({ apiKey, timeout: 30_000, maxRetries: 1 });
   }
 
   /**
@@ -74,16 +78,11 @@ export class OpenAiProvider implements LlmProvider {
    * Base: none. OpenAI-compatible relays override to inject their knobs
    * (e.g. Z.ai's reasoning_effort) without duplicating the translation.
    */
-  protected requestExtras(
-    _params: LlmChatParams,
-  ): Record<string, unknown> {
+  protected requestExtras(_params: LlmChatParams): Record<string, unknown> {
     return {};
   }
 
-  async chat(
-    params: LlmChatParams,
-    credential: LlmCredential,
-  ): Promise<LlmChatResult> {
+  async chat(params: LlmChatParams, credential: LlmCredential): Promise<LlmChatResult> {
     const client = this.clientFor(credential.apiKey);
 
     const tools: ChatCompletionTool[] = params.tools.map((t) => ({
@@ -213,9 +212,7 @@ export class OpenAiProvider implements LlmProvider {
     return out;
   }
 
-  private toAssistantMessage(
-    blocks: LlmContentBlock[],
-  ): ChatCompletionMessageParam {
+  private toAssistantMessage(blocks: LlmContentBlock[]): ChatCompletionMessageParam {
     const text: string[] = [];
     const toolCalls: NonNullable<
       Extract<ChatCompletionMessageParam, { role: 'assistant' }>['tool_calls']

@@ -14,6 +14,8 @@ import {
   PROMPT_PREAMBLE,
   type ComposedPersona,
 } from './personas/compose';
+import { NARRATOR_PERSONA } from './personas/narrator';
+import type { ServicePersona } from './personas/types';
 import { SPECIALTIES } from './personas/specialties';
 import { TIERS } from './personas/tiers';
 
@@ -41,7 +43,20 @@ export class AgentPersonaCatalogueService implements OnApplicationBootstrap {
 
   onApplicationBootstrap(): void {
     const catalogue = this.build();
-    this.logger.log(`Composed ${catalogue.size} AI personas from the shared catalogue`);
+    // FARM-AI Sprint 1.2: the narrator is the service-grant persona — it must
+    // boot exactly as contracted (toolless, actuation-blocked, service-grant
+    // only) or the deploy is wrong, exactly like a broken composition.
+    if (
+      NARRATOR_PERSONA.defaultToolNames.length > 0 ||
+      NARRATOR_PERSONA.actuationPolicy !== 'blocked' ||
+      NARRATOR_PERSONA.permissionModel !== 'service-grant' ||
+      NARRATOR_PERSONA.allowAdditionalTools !== false
+    ) {
+      throw new Error('Service persona narrator-v1 violates its platform contract');
+    }
+    this.logger.log(
+      `Composed ${catalogue.size} AI personas from the shared catalogue + narrator-v1`,
+    );
   }
 
   /** The composed persona for a published id; throws for anything else. */
@@ -65,6 +80,15 @@ export class AgentPersonaCatalogueService implements OnApplicationBootstrap {
   /** Every composed persona, in catalogue order. */
   list(): readonly ComposedPersona[] {
     return Array.from(this.build().values());
+  }
+
+  /**
+   * FARM-AI Sprint 1.2: service personas (service-grant permission model) —
+   * outside the user catalogue; authorized exclusively through the
+   * server-side SERVICE_PERSONA_GRANTS map. narrator-v1 today.
+   */
+  resolveServicePersona(personaId: string): ServicePersona | null {
+    return NARRATOR_PERSONA.id === personaId ? NARRATOR_PERSONA : null;
   }
 
   private build(): ReadonlyMap<string, ComposedPersona> {

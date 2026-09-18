@@ -250,6 +250,10 @@ describe('AgentRunnerService cost ledger + budget accounting (ORPHAN-MEDIUM-380)
     expect(harness.recordTurn).toHaveBeenCalledWith({
       tenantId,
       conversationId,
+      // Conversation-backed turns key on the conversation — the ephemeral-run
+      // correlation keys stay null (FARM-AI Sprint 1.2).
+      correlationId: null,
+      servicePrincipal: null,
       // The RESOLVED catalogue id, never the raw request string.
       personaId: 'operator-v1',
       model: 'claude-haiku-4-5',

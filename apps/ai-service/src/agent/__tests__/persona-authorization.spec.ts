@@ -79,8 +79,7 @@ describe('AgentProfileService persona authorization', () => {
       'supervisor-v1',
       caller(['TENANT_ADMIN'], []),
     );
-    expect(profile.persona.id).toBe('supervisor-v1');
-    expect(profile.persona.tier).toBe('supervisor');
+    expect(profile.persona).toMatchObject({ id: 'supervisor-v1', tier: 'supervisor' });
   });
 
   it('a caller granted ai_personas:expert reaches expert but not supervisor', async () => {
@@ -192,7 +191,7 @@ describe('AgentProfileService persona authorization', () => {
         'manager-farm-water-health-v1',
         caller(['TENANT_ADMIN'], []),
       );
-      expect(profile.persona.specialty).toBe('farm-water-health');
+      expect(profile.persona).toMatchObject({ specialty: 'farm-water-health' });
     });
   });
 

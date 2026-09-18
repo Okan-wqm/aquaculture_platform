@@ -30,11 +30,15 @@ function supportsReasoningEffort(model: string): boolean {
 
 @Injectable()
 export class ZaiProvider extends OpenAiProvider {
-  override readonly id: 'zai' = 'zai';
+  override readonly id = 'zai' as const;
   protected override readonly logger = new Logger('ZaiProvider');
 
   protected override newClient(apiKey: string): OpenAI {
-    return new OpenAI({ apiKey, baseURL: ZAI_BASE_URL });
+    // FARM-AI-0.1: the relay client carries the same 30s / 1-retry transport
+    // contract as the base provider — the override only changes the baseURL.
+    // (The Sprint 0.1 port had left this client on the SDK's 600s default and
+    // its spec probed the parent class, so the gap was invisible.)
+    return new OpenAI({ apiKey, baseURL: ZAI_BASE_URL, timeout: 30_000, maxRetries: 1 });
   }
 
   /**
@@ -50,9 +54,7 @@ export class ZaiProvider extends OpenAiProvider {
     // quarterly model switch in the panel (chatModel field) needs NO code
     // change — e.g. dropping back to glm-4.6 for a cheaper package works
     // as-is.
-    return supportsReasoningEffort(params.model)
-      ? { reasoning_effort: 'low' }
-      : {};
+    return supportsReasoningEffort(params.model) ? { reasoning_effort: 'low' } : {};
   }
 
   /**

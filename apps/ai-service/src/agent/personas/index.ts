@@ -6,6 +6,7 @@ export {
   FARM_PRODUCTION_SPECIALTY,
   FARM_OPERATIONS_SPECIALTY,
 } from './specialties';
+export { NARRATOR_PERSONA } from './narrator';
 export { composePersona, mostRestrictivePolicy, PROMPT_PREAMBLE } from './compose';
 export type { ComposedPersona } from './compose';
-export type { AgentPersona, AgentSpecialty, AgentTier } from './types';
+export type { AgentPersona, AgentSpecialty, AgentTier, ServicePersona } from './types';

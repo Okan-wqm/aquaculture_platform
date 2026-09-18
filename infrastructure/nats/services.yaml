@@ -71,11 +71,13 @@ services:
       - 'events.security.events.>'
       - 'request.farm.validateSiteAssignment'
       - '$JS.API.>'
+      - '$JS.ACK.>' # FARM-AI-0.2: JetStream consumer ACK publishes
       - '_INBOX.>'
     subscribe:
       - 'request.auth.user.validateTenantMembership'
       - 'request.auth.>'
       - '$JS.API.>'
+      - '$JS.ACK.>' # FARM-AI-0.2: JetStream consumer ACK publishes
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -185,6 +187,7 @@ services:
       - 'events.security.events.>'
       - 'request.farm.validateSiteAssignment'
       - '$JS.API.>'
+      - '$JS.ACK.>' # FARM-AI-0.2: JetStream consumer ACK publishes
       - '_INBOX.>'
     subscribe:
       # ai-service create_task actuation tool (request-reply responder)
@@ -199,6 +202,7 @@ services:
       # decrypted marine-provider credential replies.
       - '_INBOXFARMMARINECFG.>'
       - '$JS.API.>'
+      - '$JS.ACK.>' # FARM-AI-0.2: JetStream consumer ACK publishes
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -237,12 +241,14 @@ services:
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
       - '$JS.API.>'
+      - '$JS.ACK.>' # FARM-AI-0.2: JetStream consumer ACK publishes
       - '_INBOX.>'
     subscribe:
       - 'request.sensor.>'
       - 'sensor.lookup.by-topic'
       - 'st.language.>'
       - '$JS.API.>'
+      - '$JS.ACK.>' # FARM-AI-0.2: JetStream consumer ACK publishes
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -258,11 +264,13 @@ services:
       - 'events.*.SensorReading'
       - 'sensor.lookup.by-topic'
       - '$JS.API.>'
+      - '$JS.ACK.>' # FARM-AI-0.2: JetStream consumer ACK publishes
       - '_INBOX.>'
     subscribe:
       - 'policy.ingest_backend.>'
       - '_INBOX.>'
       - '$JS.API.>'
+      - '$JS.ACK.>' # FARM-AI-0.2: JetStream consumer ACK publishes
 
   # ---------------------------------------------------------------------------
   # admin-api-service: tenant lifecycle and erasure coordinator
@@ -329,6 +337,7 @@ services:
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
       - '$JS.API.>'
+      - '$JS.ACK.>' # FARM-AI-0.2: JetStream consumer ACK publishes
       - '_INBOX.>'
     subscribe:
       - 'events.*.TenantOnboardingAck'
@@ -336,6 +345,7 @@ services:
       - 'policy.ingest_backend.snapshot'
       - '_INBOX.>'
       - '$JS.API.>'
+      - '$JS.ACK.>' # FARM-AI-0.2: JetStream consumer ACK publishes
 
   # ---------------------------------------------------------------------------
   # gateway-api: public GraphQL edge and request/reply bridge
@@ -353,12 +363,14 @@ services:
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
       - '$JS.API.>'
+      - '$JS.ACK.>' # FARM-AI-0.2: JetStream consumer ACK publishes
       - '_INBOX.>'
     subscribe:
       - 'events.>'
       - 'st.language.>'
       - '_INBOX.>'
       - '$JS.API.>'
+      - '$JS.ACK.>' # FARM-AI-0.2: JetStream consumer ACK publishes
 
   # ---------------------------------------------------------------------------
   # notification-service: outbound push/email command handling
@@ -377,11 +389,13 @@ services:
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
       - '$JS.API.>'
+      - '$JS.ACK.>' # FARM-AI-0.2: JetStream consumer ACK publishes
       - '_INBOX.>'
     subscribe:
       - 'commands.notification.sendEmail'
       - 'commands.notification.sendPush'
       - '$JS.API.>'
+      - '$JS.ACK.>' # FARM-AI-0.2: JetStream consumer ACK publishes
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -404,6 +418,7 @@ services:
       - 'request.farm.getHarvestOverview'
       - 'request.farm.getFeedingOverview'
       - '$JS.API.>'
+      - '$JS.ACK.>' # FARM-AI-0.2: JetStream consumer ACK publishes
       - '_INBOX.>'
     subscribe:
       - 'request.ai.chat'
@@ -415,6 +430,7 @@ services:
       # under the sensor-service service principal). ai-service HANDLES it (subscribe).
       - 'request.ai.sensor.detectChannels'
       - '$JS.API.>'
+      - '$JS.ACK.>' # FARM-AI-0.2: JetStream consumer ACK publishes
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -447,6 +463,7 @@ services:
       - 'config.runtime.get'
       - 'config.runtime.get_secret'
       - '$JS.API.>'
+      - '$JS.ACK.>' # FARM-AI-0.2: JetStream consumer ACK publishes
       - '_INBOX.>'
     subscribe:
       - 'request.billing.admin.>'
@@ -456,6 +473,7 @@ services:
       # Stripe secret never returns on the platform-wide `_INBOX.>` every cert holds.
       - '_INBOXBILLINGCFG.>'
       - '$JS.API.>'
+      - '$JS.ACK.>' # FARM-AI-0.2: JetStream consumer ACK publishes
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -477,9 +495,11 @@ services:
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
       - '$JS.API.>'
+      - '$JS.ACK.>' # FARM-AI-0.2: JetStream consumer ACK publishes
       - '_INBOX.>'
     subscribe:
       - '$JS.API.>'
+      - '$JS.ACK.>' # FARM-AI-0.2: JetStream consumer ACK publishes
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -518,9 +538,11 @@ services:
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
       - '$JS.API.>'
+      - '$JS.ACK.>' # FARM-AI-0.2: JetStream consumer ACK publishes
       - '_INBOX.>'
     subscribe:
       - '$JS.API.>'
+      - '$JS.ACK.>' # FARM-AI-0.2: JetStream consumer ACK publishes
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -562,6 +584,7 @@ services:
       - 'commands.notification.sendPush'
       - 'request.auth.user.validateTenantMembership'
       - 'request.auth.user.listTenantUserIds'
+      - 'request.auth.user.resolveCallerCapabilities' # FARM-AI-0.2: AI bridge caller caps
       - 'request.auth.verifyPassword'
       - 'request.ai.chat'
       - 'request.ai.executeAction'
@@ -572,6 +595,7 @@ services:
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
       - '$JS.API.>'
+      - '$JS.ACK.>' # FARM-AI-0.2: JetStream consumer ACK publishes
       - '_INBOX.>'
     subscribe:
       - 'request.messaging.verifyMembership'
@@ -590,6 +614,7 @@ services:
       - 'request.messaging.admin.getPersonas'
       - 'events.>'
       - '$JS.API.>'
+      - '$JS.ACK.>' # FARM-AI-0.2: JetStream consumer ACK publishes
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -605,9 +630,11 @@ services:
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
       - '$JS.API.>'
+      - '$JS.ACK.>' # FARM-AI-0.2: JetStream consumer ACK publishes
       - '_INBOX.>'
     subscribe:
       - '$JS.API.>'
+      - '$JS.ACK.>' # FARM-AI-0.2: JetStream consumer ACK publishes
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -622,11 +649,13 @@ services:
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
       - '$JS.API.>'
+      - '$JS.ACK.>' # FARM-AI-0.2: JetStream consumer ACK publishes
       - '_INBOX.>'
     subscribe:
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
       - '$JS.API.>'
+      - '$JS.ACK.>' # FARM-AI-0.2: JetStream consumer ACK publishes
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -654,6 +683,7 @@ services:
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
       - '$JS.API.>'
+      - '$JS.ACK.>' # FARM-AI-0.2: JetStream consumer ACK publishes
       - '_INBOX.>'
     subscribe:
       # Faz C (D6): config-runtime request-reply responder subjects. The secret
@@ -663,6 +693,7 @@ services:
       - 'config.marine_credentials.resolve'
       - 'config.marine_credentials.upsert'
       - '$JS.API.>'
+      - '$JS.ACK.>' # FARM-AI-0.2: JetStream consumer ACK publishes
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -682,7 +713,9 @@ services:
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
       - '$JS.API.>'
+      - '$JS.ACK.>' # FARM-AI-0.2: JetStream consumer ACK publishes
       - '_INBOX.>'
     subscribe:
       - '$JS.API.>'
+      - '$JS.ACK.>' # FARM-AI-0.2: JetStream consumer ACK publishes
       - '_INBOX.>'

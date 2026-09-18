@@ -278,13 +278,15 @@ function extractPublishedEventTypes(appDir: string): Set<string> {
  */
 function loadContractSubjectConstants(): Map<string, string> {
   const constants = new Map<string, string>();
+  const missingContractFiles: string[] = [];
   const contractFiles = [
     'billing-admin-commands.ts',
     'notification-commands.ts',
-    'tenant-commands.ts',
+    'tenant-commands.ts', // also carries AUTH_ADMIN_COMMAND_SUBJECTS (auth-admin-commands.ts was merged here)
     'websocket-envelopes.ts',
-    'auth-admin-commands.ts',
     'auth-user-queries.ts',
+    'auth-credential-queries.ts',
+    'farm-site-access-queries.ts',
   ];
   for (const file of contractFiles) {
     const path = join(REPO_ROOT, 'libs', 'event-contracts', 'src', file);
@@ -292,21 +294,29 @@ function loadContractSubjectConstants(): Map<string, string> {
     try {
       text = readFileSync(path, 'utf-8');
     } catch {
-      continue; // contract file split/renamed — literals still covered below
+      // FARM-AI-0.2: silent skip YASAK — collect and report so the invariant
+      // itself surfaces the drift (a stale file list is a bug, not a warning).
+      missingContractFiles.push(file);
+      continue;
     }
+    // FARM-AI-0.2: DOSYA.ÜYE keying — bare KEY segments collide across files
+    // (e.g. SEND_EMAIL in two files silently overwrites). Prefix with the
+    // file stem so `IDENT.KEY` lookups are collision-proof.
+    const stem = file.replace(/\.ts$/, '').replace(/-([a-z])/g, (_, c) => c.toUpperCase());
     // KEY: 'subject.with.dots'  (object members)
     for (const m of text.matchAll(
       /([A-Z][A-Z0-9_]+):\s*'((?:request|commands|events|sensor|st|policy)\.[^']+)'/g,
     )) {
-      constants.set(m[1], m[2]);
+      constants.set(`${stem}.${m[1]}`, m[2]);
     }
     // export const SOME_SUBJECT = 'subject.with.dots'
     for (const m of text.matchAll(
       /export const ([A-Z][A-Z0-9_]+)\s*=\s*'((?:request|commands|events|sensor|st|policy)\.[^']+)'/g,
     )) {
-      constants.set(m[1], m[2]);
+      constants.set(`${stem}.${m[1]}`, m[2]);
     }
   }
+  (constants as { __missingFiles?: string[] }).__missingFiles = missingContractFiles;
   return constants;
 }
 
@@ -343,9 +353,13 @@ function extractRpcUsage(appDir: string, constants: Map<string, string>): RpcUsa
   const resolveRef = (ref: string): string | undefined => {
     const literal = /^'([^']+)'$/.exec(ref);
     if (literal) return literal[1];
+    // FARM-AI-0.2: try full dotted ref first (DOSYA.ÜYE), then bare KEY
+    // (legacy format) — both are stored in the constants map.
     const constRef =
       /^[A-Za-z0-9_$]+\.([A-Z][A-Z0-9_]+)$/.exec(ref) ?? /^([A-Z][A-Z0-9_]+)$/.exec(ref);
-    if (constRef) return constants.get(constRef[1]);
+    if (constRef) {
+      return constants.get(ref) ?? constants.get(constRef[1]);
+    }
     return undefined;
   };
   for (const file of walkAppSources(appDir)) {
@@ -750,6 +764,12 @@ describe('NATS SSoT Invariants (ADR-015 cert-is-identity + ORPHAN-HIGH-317 subje
   describe('RPC coverage — handled patterns have subscribe grants, sent subjects have publish grants', () => {
     const appsDir = join(REPO_ROOT, 'apps');
     const constants = loadContractSubjectConstants();
+
+    it('contract files all exist (no silent skips)', () => {
+      const missing = (constants as { __missingFiles?: string[] }).__missingFiles ?? [];
+      expect(missing).toEqual([]); // FARM-AI-0.2: stale file list is a bug, not a warning
+    });
+
     const appDirs = readdirSync(appsDir).filter(
       (d) => statSync(join(appsDir, d)).isDirectory() && APP_TO_SERVICE[d] !== undefined,
     );

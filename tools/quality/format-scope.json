@@ -44121,7 +44121,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "75715e988ac4f0e9279ba765c2751bd51daff832fdd65e9d353f43672d821a7b",
+      "content_sha256": "8e61f61a3e651d2ad6904c55899fe368fb38136c912abd959d4496ff39fd6e89",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",
@@ -50312,7 +50312,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "9c9e09690577a1fe0e481289845704be929400a9efde265a7e6b61a8a0c60ca7",
+      "content_sha256": "1add8889c8f1d530df2c5155a91569398c06b6c42f938c7212eb00fba922f061",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/apps/aquamobil/src/generated/graphql.ts",
@@ -50361,6 +50361,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/graphql/vfd-operations.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/graphql/vfd-types.ts",
       "prettier_managed": true
     },
     {
@@ -61487,7 +61493,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "5d1b42598af9e1ef3950571b814754cf061dc94d760450e12ce87863b7e4d3a1",
+      "content_sha256": "1ce3b8d9cb829afbea6568427fc5956ea0bed1f1a0067b9823a3f2c198bf20a1",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/shared-ui/src/generated/graphql-types.ts",

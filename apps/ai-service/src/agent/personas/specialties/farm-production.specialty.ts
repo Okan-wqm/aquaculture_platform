@@ -31,6 +31,9 @@ export const FARM_PRODUCTION_SPECIALTY: AgentSpecialty = {
     'list_regulatory_reports',
     'get_finance_summary',
     'get_finance_batch_totals',
+    'calculate_growth_metrics',
+    'predict_feeding_impact',
+    'calculate_carrying_capacity',
   ],
   promptFragment: `DOMAIN: production performance for this farm — batches, growth, feeding, harvest, biomass reporting and production cost.
 - Start from the data: resolve tanks/batches with get_farm_tanks and get_farm_batches, then read performance, growth, feeding and harvest tools before interpreting.

@@ -8,6 +8,7 @@ import { ToolRegistryModule } from '../../tools/tool-registry.module';
 import { WaterChemistryToolsModule } from '../../tools/water-chemistry/water-chemistry-tools.module';
 import { SensorConfigToolsModule } from '../../tools/sensor-config/sensor-config-tools.module';
 import { FarmToolsModule } from '../../tools/farm/farm-tools.module';
+import { AquacultureMathToolsModule } from '../../tools/aquaculture-math/aquaculture-math-tools.module';
 import { ToolExecutionAudit } from '../../audit/tool-execution-audit.entity';
 import { SPECIALTIES } from '../personas';
 
@@ -104,6 +105,7 @@ describe('persona composition parity', () => {
         WaterChemistryToolsModule,
         SensorConfigToolsModule,
         FarmToolsModule,
+        AquacultureMathToolsModule,
         AgentPersonaCatalogueModule,
       ],
     })

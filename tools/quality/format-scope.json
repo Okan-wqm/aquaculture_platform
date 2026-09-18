@@ -3712,6 +3712,48 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/src/tools/aquaculture-math/__tests__/aquaculture-math.tools.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/aquaculture-math/aquaculture-math-tools.module.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/aquaculture-math/aquaculture-math.schema.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/aquaculture-math/calculate-carrying-capacity.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/aquaculture-math/calculate-growth-metrics.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/aquaculture-math/calculate-oxygen-budget.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/aquaculture-math/predict-feeding-impact.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/src/tools/core/__tests__/base-tenant-tool.spec.ts",
       "prettier_managed": true
     },
@@ -37822,7 +37864,85 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/aquaculture-engines/src/feeding/__tests__/feeding-impact.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/aquaculture-engines/src/feeding/feeding-impact.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/aquaculture-engines/src/feeding/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/aquaculture-engines/src/growth/__tests__/growth-metrics.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/aquaculture-engines/src/growth/growth-metrics.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/aquaculture-engines/src/growth/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/aquaculture-engines/src/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/aquaculture-engines/src/oxygen/__tests__/carrying-capacity.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/aquaculture-engines/src/oxygen/__tests__/do-saturation.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/aquaculture-engines/src/oxygen/__tests__/oxygen-budget.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/aquaculture-engines/src/oxygen/carrying-capacity.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/aquaculture-engines/src/oxygen/do-saturation.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/aquaculture-engines/src/oxygen/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/aquaculture-engines/src/oxygen/oxygen-budget.ts",
       "prettier_managed": true
     },
     {
@@ -42259,12 +42379,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "mcp/farm-management/src/__tests__/formulas.test.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "mcp/farm-management/src/__tests__/growth-metrics.test.ts",
       "prettier_managed": true
     },
@@ -42560,12 +42674,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "mcp/farm-management/src/utils/formatters.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "mcp/farm-management/src/utils/formulas.ts",
       "prettier_managed": true
     },
     {

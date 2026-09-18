@@ -27,6 +27,11 @@ export const REGISTERED_TOOLS: readonly FakeToolSpec[] = [
   { name: 'get_reagent_list' },
   { name: 'simulate_dosing_effect', requiredPermissions: MANAGER_UP },
   { name: 'analyze_sensor_data' },
+  // pure aquaculture arithmetic (PR-7, FARM-LOW-329)
+  { name: 'calculate_oxygen_budget' },
+  { name: 'calculate_carrying_capacity' },
+  { name: 'calculate_growth_metrics' },
+  { name: 'predict_feeding_impact' },
   { name: 'suggest_sensor_channels' },
   { name: 'get_farm_tanks', requiresModule: 'farm' },
   { name: 'get_farm_batches', requiresModule: 'farm' },

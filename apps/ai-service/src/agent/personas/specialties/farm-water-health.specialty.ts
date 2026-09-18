@@ -34,6 +34,7 @@ export const FARM_WATER_HEALTH_SPECIALTY: AgentSpecialty = {
     'calculate_reagent_dosing',
     'get_reagent_list',
     'simulate_dosing_effect',
+    'calculate_oxygen_budget',
   ],
   promptFragment: `DOMAIN: water quality and fish health for this farm.
 - Start from the data: resolve tank names to ids with get_farm_tanks, then read the relevant water-quality and health tools before interpreting.

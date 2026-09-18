@@ -6,6 +6,7 @@ import { ToolRegistryService } from '../tool-registry.service';
 import { WaterChemistryToolsModule } from '../water-chemistry/water-chemistry-tools.module';
 import { SensorConfigToolsModule } from '../sensor-config/sensor-config-tools.module';
 import { FarmToolsModule } from '../farm/farm-tools.module';
+import { AquacultureMathToolsModule } from '../aquaculture-math/aquaculture-math-tools.module';
 import { ToolExecutionAudit } from '../../audit/tool-execution-audit.entity';
 
 // The executor (provided by ToolRegistryModule) now depends on AuditService,
@@ -37,6 +38,11 @@ describe('ToolRegistryService discovery (FAZ0-BOOT-01)', () => {
     // sensor-config
     'analyze_sensor_data',
     'suggest_sensor_channels',
+    // aquaculture-math (FARM-LOW-329)
+    'calculate_oxygen_budget',
+    'calculate_carrying_capacity',
+    'calculate_growth_metrics',
+    'predict_feeding_impact',
     // farm (overview reads + the create_task actuation)
     'create_task',
     'get_farm_tanks',
@@ -90,7 +96,12 @@ describe('ToolRegistryService discovery (FAZ0-BOOT-01)', () => {
   ];
 
   /** Every tool feature module the app composes; NATS_SERVICE is stubbed so nothing dials. */
-  const TOOL_MODULES = [WaterChemistryToolsModule, SensorConfigToolsModule, FarmToolsModule];
+  const TOOL_MODULES = [
+    WaterChemistryToolsModule,
+    SensorConfigToolsModule,
+    FarmToolsModule,
+    AquacultureMathToolsModule,
+  ];
 
   it('registers every @Tool()-decorated provider from the feature modules', async () => {
     const moduleRef = await Test.createTestingModule({

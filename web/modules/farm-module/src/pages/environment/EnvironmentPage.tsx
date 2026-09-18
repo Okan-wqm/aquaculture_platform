@@ -12,6 +12,7 @@ import {
   useEnvironmentForecast,
   useEnvironmentHistory,
   useEnvironmentLayerCatalog,
+  useEnvironmentMonitoringStatus,
   useEnvironmentSceneImage,
   useEnvironmentScenes,
   useEnvironmentWindowAnchor,
@@ -233,6 +234,29 @@ function ErrorState({ message }: { message: string }): React.ReactElement {
       className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
     >
       {message}
+    </div>
+  );
+}
+
+/**
+ * The rollout gate is closed for this deployment (ORPHAN-MEDIUM-827). Not an
+ * error and not an empty tenant: nothing the tenant does changes it, so the
+ * panel says exactly that instead of three "could not be loaded" alerts.
+ */
+function MonitoringDisabledState(): React.ReactElement {
+  return (
+    <div
+      role="status"
+      className="rounded-lg border border-blue-200 bg-blue-50 px-6 py-10 text-center"
+    >
+      <h2 className="text-lg font-semibold text-gray-900">
+        Environmental monitoring is not enabled for this deployment
+      </h2>
+      <p className="mx-auto mt-2 max-w-xl text-sm text-gray-700">
+        The platform operator has not switched on the environmental monitoring rollout yet. Your
+        sea-cage sites and their locations are unaffected; weather, Copernicus Marine model values
+        and Sentinel-2 scenes will appear here once it is enabled.
+      </p>
     </div>
   );
 }
@@ -478,6 +502,11 @@ const EnvironmentPage: React.FC = () => {
   const [selectedSceneId, setSelectedSceneId] = useState('');
   const timeAnchor = useEnvironmentWindowAnchor();
 
+  // Read the rollout gate first: while it is closed every site read below is
+  // refused, so none of them is issued until the gate reports open.
+  const monitoringStatusQuery = useEnvironmentMonitoringStatus();
+  const monitoringEnabled = monitoringStatusQuery.data?.enabled === true;
+
   const sitesQuery = useSiteList({ isActive: true });
   const hasSiteListData = sitesQuery.data !== undefined;
   const eligibleSites = useMemo(
@@ -505,7 +534,7 @@ const EnvironmentPage: React.FC = () => {
     }
   }, [eligibleSites, hasSiteListData, navigate, selectedSite]);
 
-  const canQuerySite = selectedSite !== null;
+  const canQuerySite = selectedSite !== null && monitoringEnabled;
   const currentQuery = useEnvironmentCurrent(selectedSite?.id ?? '', canQuerySite);
   const catalogQuery = useEnvironmentLayerCatalog(selectedSite?.id ?? '', canQuerySite);
   const layers = catalogQuery.data ?? [];
@@ -636,6 +665,34 @@ const EnvironmentPage: React.FC = () => {
     sceneId: selectedScene?.sceneId ?? '',
     enabled: canQuerySite && activeView === 'satellite' && sceneCanRender,
   });
+
+  if (monitoringStatusQuery.isPending) {
+    return (
+      <div className="min-h-screen bg-gray-50 p-4 sm:p-6">
+        <LoadingState label="Checking environmental monitoring availability…" />
+      </div>
+    );
+  }
+
+  // A refetch failure with a last-known gate answer keeps that answer, the
+  // same last-known-good rule the site list and layer catalog follow below.
+  if (monitoringStatusQuery.isError && monitoringStatusQuery.data === undefined) {
+    return (
+      <div className="min-h-screen bg-gray-50 p-4 sm:p-6">
+        <ErrorState message="Environmental monitoring availability could not be determined." />
+      </div>
+    );
+  }
+
+  if (!monitoringEnabled) {
+    return (
+      <div className="min-h-screen bg-gray-50 p-4 sm:p-6">
+        <div className="mx-auto max-w-3xl">
+          <MonitoringDisabledState />
+        </div>
+      </div>
+    );
+  }
 
   if (sitesQuery.isPending) {
     return (

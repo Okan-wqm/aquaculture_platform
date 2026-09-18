@@ -9,6 +9,7 @@ import {
 import type {
   EnvironmentAvailabilityStatus as GeneratedEnvironmentAvailabilityStatus,
   EnvironmentLayerResponse,
+  EnvironmentMonitoringStatusResponse,
   EnvironmentProvider as GeneratedEnvironmentProvider,
   EnvironmentQualityStatus as GeneratedEnvironmentQualityStatus,
   EnvironmentSceneCursorConnection,
@@ -21,6 +22,7 @@ import type { UseQueryResult } from '@tanstack/react-query';
 
 import {
   ENVIRONMENT_LAYER_CATALOG_QUERY,
+  ENVIRONMENT_MONITORING_STATUS_QUERY,
   ENVIRONMENT_SCENES_QUERY,
   SITE_ENVIRONMENT_CURRENT_QUERY,
   SITE_ENVIRONMENT_FORECAST_QUERY,
@@ -45,6 +47,7 @@ export type EnvironmentValue = EnvironmentValueResponse;
 export type SiteEnvironmentValues = SiteEnvironmentValuesResponse;
 export type EnvironmentLayer = Omit<EnvironmentLayerResponse, 'sources'>;
 export type EnvironmentScene = EnvironmentSceneResponse;
+export type EnvironmentMonitoringStatus = EnvironmentMonitoringStatusResponse;
 
 async function requestEnvironmentGraphql<TData, TVariables>(
   operation: string,
@@ -93,6 +96,32 @@ export function useEnvironmentWindowAnchor(): Date {
   }, []);
 
   return anchor;
+}
+
+/**
+ * Whether this deployment serves environmental monitoring. Read first, so the
+ * panel can state a closed rollout gate as what it is instead of rendering
+ * the refusals every other read would produce (ORPHAN-MEDIUM-827).
+ */
+export function useEnvironmentMonitoringStatus(): UseQueryResult<
+  EnvironmentMonitoringStatus,
+  Error
+> {
+  return useTenantQuery<EnvironmentMonitoringStatus>(
+    ['environment', 'monitoring-status'],
+    async ({ signal }) => {
+      const data = await requestEnvironmentGraphql<
+        { environmentMonitoringStatus: EnvironmentMonitoringStatus },
+        Record<string, never>
+      >(ENVIRONMENT_MONITORING_STATUS_QUERY, {}, signal);
+      return data.environmentMonitoringStatus;
+    },
+    {
+      keepPreviousData: false,
+      staleTime: ENVIRONMENT_WINDOW_REFRESH_MS,
+      refetchInterval: ENVIRONMENT_WINDOW_REFRESH_MS,
+    },
+  );
 }
 
 export function useEnvironmentCurrent(

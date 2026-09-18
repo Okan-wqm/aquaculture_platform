@@ -7310,6 +7310,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/config-service/src/configuration/__tests__/marine-provider-credential.resolver.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/config-service/src/configuration/commands/create-configuration.command.ts",
       "prettier_managed": true
     },
@@ -7376,6 +7382,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/config-service/src/configuration/dto/marine-provider-credential.dto.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/config-service/src/configuration/entities/configuration.entity.ts",
       "prettier_managed": true
     },
@@ -7383,6 +7395,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/config-service/src/configuration/events/emit-configuration-changed.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/config-service/src/configuration/graphql-principal.ts",
       "prettier_managed": true
     },
     {
@@ -7443,6 +7461,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/config-service/src/configuration/handlers/upsert-configuration.handler.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/config-service/src/configuration/marine-provider-credential.resolver.ts",
       "prettier_managed": true
     },
     {
@@ -18093,6 +18117,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/weather/__tests__/environment-read.service.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/weather/__tests__/environment-resolver-gate.contract.spec.ts",
       "prettier_managed": true
     },
     {
@@ -35572,6 +35602,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/claude/2026-09-18-environment-monitoring-enablement-surface.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/code-reviewer/2026-04-21-raw-sql-audit.md",
       "prettier_managed": true
     },
@@ -51338,6 +51374,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/admin-panel/src/components/settings/__tests__/ProviderCredentialsTab.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/components/settings/ProviderCredentialsTab.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/admin-panel/src/components/TenantMultiSelect.tsx",
       "prettier_managed": true
     },
@@ -51345,6 +51393,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/admin-panel/src/components/TenantSelect.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/graphql/marine-provider-credential-operations.ts",
       "prettier_managed": true
     },
     {
@@ -51423,6 +51477,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/admin-panel/src/hooks/useFilters.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/admin-panel/src/hooks/useMarineProviderCredential.ts",
       "prettier_managed": true
     },
     {
@@ -60785,7 +60845,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "e5ee02cf640eb40691e3bab0a5f08e321aef8ed6d20b7f45b16debe986ae9736",
+      "content_sha256": "b8d4d8a4cde661af73ec6c08839d4fd6c59ddc2289744c7a153feede860a71ae",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/shared-ui/src/generated/graphql-types.ts",

@@ -108,7 +108,6 @@ describe('BackfillParentChannelsFromChildren1819000000000', () => {
   async function runMigrationAgainst(schema: string): Promise<void> {
     const qr = admin!.createQueryRunner();
     try {
-
       // Transaction-LOCAL search_path pin: session-scoped set_config lands on
       // whatever pooled connection served it — under CI parallelism the
       // migration may run on a DIFFERENT connection and silently see public.
@@ -203,7 +202,6 @@ describe('BackfillParentChannelsFromChildren1819000000000', () => {
   it('is a no-op outside tenant schemas (source-schema pass)', async () => {
     const qr = admin!.createQueryRunner();
     try {
-
       await qr.query(`SELECT set_config('search_path', 'public', false)`);
       await expect(
         new BackfillParentChannelsFromChildren1819000000000().up(qr),

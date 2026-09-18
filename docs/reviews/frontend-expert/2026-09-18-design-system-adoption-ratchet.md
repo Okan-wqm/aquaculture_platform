@@ -158,6 +158,17 @@ shell, the ToastProvider pattern; throws without a provider instead of hanging);
 
 683 occurrences (sensor-module 531). Legitimate for canvas geometry and gauges;
 not for colours, spacing and typography. Same ratchet shape as FE-HIGH-066.
+
+**Refined (batch 10, same cycle):** the ratchet counts only _static_ blocks —
+every value a string or number literal, so the block could have been a
+utility class or a token. A runtime value reaching the DOM (a progress bar's
+width, a record's colour, a virtualiser's offset) is data, not a token
+bypass; 528 of the 683 were that. Of the 153 static blocks, the 20 outside
+sensor-module are utility classes now (the login artwork's night-ocean
+gradient moved from the component into `index.css`, which also takes the
+shell's raw hex to 0); the 133 that remain are SCADA symbol geometry
+(absolute positions and sizes inside process-node drawings), pinned as
+sensor-module's ceiling until the symbol layer draws with SVG attributes.
 **Owner:** okan · **Expiry:** 2027-06-30.
 
 ## Enforcement
@@ -168,8 +179,9 @@ not for colours, spacing and typography. Same ratchet shape as FE-HIGH-066.
 
 ## Out of this cycle (tracked above, not done)
 
-- Remaining overlay migrations (see allowlist entries).
-- Hex → token mapping; inline-style reduction.
+- Remaining overlay entries (8 runtime surfaces; see allowlist entries).
+- Hex residues: AquaMobil (9; no shared-ui import) and the pH scale (10).
+- Static inline style in SCADA symbol geometry (133).
 - Wave 2/3 of the design map (messaging to web, admin DataTable, dashboard,
   single palette across web + AquaMobil, dark mode reach, i18n reach) — design
   work with product decisions attached; not gated here.

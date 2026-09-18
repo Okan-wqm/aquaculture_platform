@@ -28,7 +28,7 @@ interface TimeSeriesChartsProps {
 const ChartWrapper: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
   <div className="bg-white rounded-lg border border-gray-200 p-2">
     <h4 className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1">{title}</h4>
-    <div style={{ height: 110 }}>
+    <div className="h-[110px]">
       {children}
     </div>
   </div>

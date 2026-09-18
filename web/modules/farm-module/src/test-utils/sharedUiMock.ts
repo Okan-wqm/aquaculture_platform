@@ -127,6 +127,7 @@ export async function createSharedUiMock(): Promise<Record<string, unknown>> {
     graphqlClient: { request: requestMock },
     useToast: () => ({ toast: toastMock }),
     useConfirm: () => confirmMock,
+    useClickOutside: () => undefined,
     usePrompt: () => promptMock,
     useTenantQuery,
     useTenantMutation,

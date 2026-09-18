@@ -59736,12 +59736,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "web/modules/tenant-admin/src/components/common/DeleteConfirmModal.tsx",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "web/modules/tenant-admin/src/components/common/index.ts",
       "prettier_managed": true
     },
@@ -60851,6 +60845,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/hooks/__tests__/useClickOutside.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/hooks/__tests__/useConfirm.spec.tsx",
       "prettier_managed": true
     },
@@ -60876,6 +60876,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shared-ui/src/hooks/useAuth.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/hooks/useClickOutside.ts",
       "prettier_managed": true
     },
     {

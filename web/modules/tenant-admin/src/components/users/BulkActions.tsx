@@ -1,9 +1,9 @@
 import React, { useState, useCallback } from 'react';
 import { RefreshCw, UserMinus, ShieldCheck } from 'lucide-react';
+import { ConfirmModal } from '@aquaculture/shared-ui';
 
 import type { TenantRole } from '../../lib/types';
 import type { BulkAssignRoleResult } from '../../lib/types';
-import { DeleteConfirmModal } from '../common';
 
 export interface BulkDeactivateResult {
   userId: string;
@@ -175,16 +175,17 @@ export const BulkActions: React.FC<BulkActionsProps> = ({
         </div>
       )}
 
-      <DeleteConfirmModal
+      <ConfirmModal
         isOpen={isAssignConfirmOpen}
         onClose={() => setIsAssignConfirmOpen(false)}
         onConfirm={handleConfirmAssignRole}
         title="Assign Role"
         message={`Assign the role "${selectedRole?.name ?? ''}" to ${selectedUsers.length} selected user(s)? Existing role assignments will be replaced.`}
-        confirmLabel="Assign Role"
-        cancelLabel="Cancel"
+        confirmText="Assign Role"
+        cancelText="Cancel"
         variant="warning"
         isLoading={isAssigningRole}
+        loadingText="Processing..."
       />
     </div>
   );

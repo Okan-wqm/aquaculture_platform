@@ -2,8 +2,8 @@
  * Storage Overview Tab - Dashboard with stats, low stock alerts, recent movements,
  * and interactive pie/donut charts for category distribution and location fill rates.
  */
-import React, { useState, useMemo } from 'react';
-import { DonutChart, formatCurrency, parseMoney, DEFAULT_CURRENCY } from '@aquaculture/shared-ui';
+import React, { useState, useMemo, useRef } from 'react';
+import { DonutChart, formatCurrency, parseMoney, DEFAULT_CURRENCY, useClickOutside } from '@aquaculture/shared-ui';
 import type { PieDataItem } from '@aquaculture/shared-ui';
 import { useStorageOverview, useStockMovements, useStorageInventory, StorageItemType } from '../../../hooks/useStorageInventory';
 import { useStorageLocationList } from '../../../hooks/useStorageLocations';
@@ -45,6 +45,8 @@ export const OverviewTab: React.FC = () => {
   // Storage location filter
   const [selectedLocationIds, setSelectedLocationIds] = useState<Set<string>>(new Set());
   const [locationDropdownOpen, setLocationDropdownOpen] = useState(false);
+  const locationDropdownRef = useRef<HTMLDivElement>(null);
+  useClickOutside(locationDropdownRef, () => setLocationDropdownOpen(false), locationDropdownOpen);
 
   // Drill-down state: when a pie slice is clicked, show that category's items
   const [drillDownCategory, setDrillDownCategory] = useState<string | null>(null);
@@ -421,7 +423,7 @@ export const OverviewTab: React.FC = () => {
 
             {/* Location filter dropdown */}
             {(locations?.items || []).length > 0 && (
-              <div className="relative">
+              <div className="relative" ref={locationDropdownRef}>
                 <button
                   onClick={() => setLocationDropdownOpen(!locationDropdownOpen)}
                   className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center gap-1"
@@ -432,30 +434,27 @@ export const OverviewTab: React.FC = () => {
                   </svg>
                 </button>
                 {locationDropdownOpen && (
-                  <>
-                    <div className="fixed inset-0 z-10" onClick={() => setLocationDropdownOpen(false)} />
-                    <div className="absolute right-0 top-full mt-1 z-20 bg-white rounded-lg border border-gray-200 shadow-lg py-1 min-w-[200px] max-h-60 overflow-y-auto">
-                      {selectedLocationIds.size > 0 && (
-                        <button
-                          onClick={() => { setSelectedLocationIds(new Set()); setLocationDropdownOpen(false); }}
-                          className="w-full text-left px-3 py-1.5 text-xs text-blue-600 hover:bg-blue-50"
-                        >
-                          Clear selection
-                        </button>
-                      )}
-                      {(locations?.items || []).map((loc: any) => (
-                        <label key={loc.id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={selectedLocationIds.has(loc.id)}
-                            onChange={() => toggleLocation(loc.id)}
-                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                          />
-                          <span className="text-xs text-gray-700">{loc.name}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </>
+                  <div className="absolute right-0 top-full mt-1 z-20 bg-white rounded-lg border border-gray-200 shadow-lg py-1 min-w-[200px] max-h-60 overflow-y-auto">
+                    {selectedLocationIds.size > 0 && (
+                      <button
+                        onClick={() => { setSelectedLocationIds(new Set()); setLocationDropdownOpen(false); }}
+                        className="w-full text-left px-3 py-1.5 text-xs text-blue-600 hover:bg-blue-50"
+                      >
+                        Clear selection
+                      </button>
+                    )}
+                    {(locations?.items || []).map((loc: any) => (
+                      <label key={loc.id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={selectedLocationIds.has(loc.id)}
+                          onChange={() => toggleLocation(loc.id)}
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="text-xs text-gray-700">{loc.name}</span>
+                      </label>
+                    ))}
+                  </div>
                 )}
               </div>
             )}

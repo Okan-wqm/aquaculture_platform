@@ -55,7 +55,16 @@ implementation for both; 17 dialogs migrated (12 sensor-module, 5 tenant-admin)
 and tenant-admin's private `useFocusTrap` deleted. Batch 2 (same cycle):
 the super-admin panel — 31 dialogs in 21 files onto `Modal`, and the mobile
 navigation onto `Drawer side="left"`, deleting the third private focus-trap
-implementation with it; overlays 80 → 59. Remaining files are listed
+implementation with it; overlays 80 → 59. Batch 3 (same cycle): tenant-admin
+(10 files, 14 dialogs — its private `DeleteConfirmModal` is deleted in favour
+of the shared `ConfirmModal`, which gains a `warning` slot for inline retry
+errors), hr-module (4) and the farm storage dropdown, whose invisible
+click-away layer is replaced by the new shared `useClickOutside` hook; the
+fourth private focus trap (hr `CopyWeekModal`) goes with it; overlays
+59 → 44. The hr dialogs carried `dark:` classes that follow the OS colour
+scheme rather than the shell's `data-theme`; they now render on the
+design-system surface, and dark-mode reach stays a Wave 2 item of the design
+map. Remaining files are listed
 per-file in `.claude/allowlists/web-design-system-ratchet.yaml` with batch
 (dialog/drawer/mobile/runtime), owner, expiry and reason; the ceiling only
 decreases. **Owner:** okan · **Expiry:** 2027-03-31 (runtime surfaces 2027-06-30).

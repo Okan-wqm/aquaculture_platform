@@ -12,7 +12,6 @@ import {
   Send,
   Search,
   Plus,
-  X,
   Paperclip,
   CheckCheck,
   Clock,
@@ -21,6 +20,7 @@ import {
   Loader2,
   AlertCircle,
 } from 'lucide-react';
+import { Modal } from '@aquaculture/shared-ui';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   useMessageThreads,
@@ -471,48 +471,17 @@ const NewThreadModal: React.FC<{
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-          <h2 className="text-xl font-semibold text-gray-900">New Conversation</h2>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-600">
-            <X size={24} />
-          </button>
-        </div>
-
-        <div className="p-6 space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Subject</label>
-            <input
-              type="text"
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
-              placeholder="Enter subject..."
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Message</label>
-            <textarea
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              rows={5}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-tenant-500 focus:border-transparent resize-none"
-              placeholder="Describe your question or issue..."
-            />
-          </div>
-        </div>
-
-        {submitError && (
-          <div className="px-6 pb-2">
-            <div className="flex items-center gap-2 p-3 bg-red-50 text-red-700 rounded-lg text-sm">
-              <AlertCircle size={16} className="flex-shrink-0" />
-              {submitError}
-            </div>
-          </div>
-        )}
-        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200">
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="md"
+      title="New Conversation"
+      showCloseButton={!submitting}
+      closeOnEscape={!submitting}
+      closeOnOverlayClick={!submitting}
+      bodyClassName="p-6 space-y-4"
+      footer={
+        <>
           <button
             onClick={onClose}
             className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
@@ -531,9 +500,37 @@ const NewThreadModal: React.FC<{
             )}
             {submitting ? 'Creating...' : 'Start Conversation'}
           </button>
-        </div>
+        </>
+      }
+    >
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Subject</label>
+        <input
+          type="text"
+          value={subject}
+          onChange={(e) => setSubject(e.target.value)}
+          className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
+          placeholder="Enter subject..."
+        />
       </div>
-    </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Message</label>
+        <textarea
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          rows={5}
+          className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-tenant-500 focus:border-transparent resize-none"
+          placeholder="Describe your question or issue..."
+        />
+      </div>
+      {submitError && (
+        <div className="flex items-center gap-2 p-3 bg-red-50 text-red-700 rounded-lg text-sm">
+          <AlertCircle size={16} className="flex-shrink-0" />
+          {submitError}
+        </div>
+      )}
+    </Modal>
   );
 };
 

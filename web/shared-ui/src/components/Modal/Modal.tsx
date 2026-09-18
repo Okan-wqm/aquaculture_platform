@@ -228,6 +228,12 @@ export interface ConfirmModalProps {
   confirmVariant?: 'danger' | 'warning' | 'info';
   isLoading?: boolean;
   /**
+   * Mesajın altında `role="alert"` ile gösterilen uyarı ya da hata satırı —
+   * tipik olarak başarısız bir denemenin nedeni. Diyaloğun içinde kalır ki
+   * kullanıcı bağlamı kaybetmeden yeniden deneyebilsin.
+   */
+  warning?: React.ReactNode;
+  /**
    * Yüksek-riskli aksiyonlar için yazı-ile-onay kapısı. Buraya
    * `"ONAYLIYORUM"` gibi bir metin verirsen, kullanıcı onay butonuna
    * bastığında önce bu metni aynen yazmak zorunda kalır — fat-finger
@@ -276,6 +282,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   confirmVariant,
   isLoading = false,
   requireTypedConfirmation,
+  warning,
   loadingText = 'İşleniyor...',
   typedConfirmationLabel,
 }) => {
@@ -350,6 +357,15 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
           <p className="mt-2 text-sm text-gray-500">{message}</p>
         ) : (
           <div className="mt-2 text-sm text-gray-500">{message}</div>
+        )}
+
+        {warning && (
+          <div
+            role="alert"
+            className="mt-4 rounded-lg border border-amber-100 bg-amber-50 p-3 text-left text-sm text-amber-700"
+          >
+            {warning}
+          </div>
         )}
 
         {/* Yazı-ile-onay gate — yalnızca requireTypedConfirmation verilmişse */}

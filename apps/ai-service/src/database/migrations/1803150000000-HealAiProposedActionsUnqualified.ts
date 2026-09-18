@@ -22,8 +22,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * pre-existed with the naive type. Must land BEFORE ai-service deploy
  * activation.
  */
-export class HealAiProposedActionsUnqualified1803100000000 implements MigrationInterface {
-  name = 'HealAiProposedActionsUnqualified1803100000000';
+export class HealAiProposedActionsUnqualified1803150000000 implements MigrationInterface {
+  name = 'HealAiProposedActionsUnqualified1803150000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     // UNQUALIFIED — resolves against current_schema(), so the replay creates it

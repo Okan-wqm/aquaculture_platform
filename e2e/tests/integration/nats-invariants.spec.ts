@@ -285,6 +285,9 @@ function loadContractSubjectConstants(): Map<string, string> {
     'websocket-envelopes.ts',
     'auth-admin-commands.ts',
     'auth-user-queries.ts',
+    // Farm AI specialists read contract (FARM-MEDIUM-328): responders and tools
+    // reference FARM_AI_QUERY_SUBJECTS.KEY, never a literal.
+    'farm-ai-queries.ts',
   ];
   for (const file of contractFiles) {
     const path = join(REPO_ROOT, 'libs', 'event-contracts', 'src', file);

@@ -29,15 +29,27 @@ describe('GetWaterQualityOverviewResponder', () => {
     const measuredAt = new Date('2026-07-06T06:00:00.000Z');
     let findOptions: { order?: Record<string, string>; take?: number } | undefined;
     mockRunInTenantRead.mockImplementation(
-      async (_ds: unknown, schema: string, tenantId: string, fn: (qr: unknown) => Promise<unknown>) => {
+      async (
+        _ds: unknown,
+        schema: string,
+        tenantId: string,
+        fn: (qr: unknown) => Promise<unknown>,
+      ) => {
         expect(schema).toBe('farm');
         expect(tenantId).toBe(TENANT);
         const find = (_entity: unknown, opts: typeof findOptions): Promise<unknown[]> => {
           findOptions = opts;
           return Promise.resolve([
             {
-              id: 'm1', tankId: 't1', pondId: null, measuredAt,
-              temperature: 18.5, dissolvedOxygen: 7.2, pH: 7.8, ammonia: null, nitrite: undefined,
+              id: 'm1',
+              tankId: 't1',
+              pondId: null,
+              measuredAt,
+              temperature: 18.5,
+              dissolvedOxygen: 7.2,
+              pH: 7.8,
+              ammonia: null,
+              nitrite: undefined,
             },
           ]);
         };
@@ -53,8 +65,15 @@ describe('GetWaterQualityOverviewResponder', () => {
 
     expect(result).toEqual([
       {
-        id: 'm1', tankId: 't1', pondId: null, measuredAt: '2026-07-06T06:00:00.000Z',
-        temperature: 18.5, dissolvedOxygen: 7.2, pH: 7.8, ammonia: null, nitrite: null,
+        id: 'm1',
+        tankId: 't1',
+        pondId: null,
+        measuredAt: '2026-07-06T06:00:00.000Z',
+        temperature: 18.5,
+        dissolvedOxygen: 7.2,
+        pH: 7.8,
+        ammonia: null,
+        nitrite: null,
       },
     ]);
   });

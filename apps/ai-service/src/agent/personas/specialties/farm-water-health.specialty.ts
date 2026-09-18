@@ -1,10 +1,11 @@
 import type { AgentSpecialty } from '../types';
 
 /**
- * Water & fish health specialist (farm module). Reads water quality, the
- * chemistry calculators and — as the farm read surface lands — health events,
- * treatments, welfare and harvest eligibility. Advises only: the actuation
- * cap keeps every write behind human confirmation.
+ * Water & fish health specialist (farm module). Reads water quality (critical
+ * readings, per-tank/system statistics, history, tenant thresholds), the
+ * chemistry calculators, and fish health (stats, events, treatments, lice,
+ * welfare, harvest eligibility). Advises only: the actuation cap keeps every
+ * write behind human confirmation.
  */
 export const FARM_WATER_HEALTH_SPECIALTY: AgentSpecialty = {
   id: 'farm-water-health',
@@ -12,6 +13,19 @@ export const FARM_WATER_HEALTH_SPECIALTY: AgentSpecialty = {
     'get_farm_tanks',
     'get_farm_batches',
     'get_farm_water_quality',
+    'list_critical_water_quality',
+    'get_tank_water_quality_stats',
+    'get_system_water_quality_stats',
+    'get_water_quality_history',
+    'get_water_quality_thresholds',
+    'get_fish_health_stats',
+    'list_critical_health_events',
+    'list_health_events',
+    'list_overdue_health_follow_ups',
+    'list_treatment_applications',
+    'list_lice_counts',
+    'list_welfare_assessments',
+    'check_batch_harvest_eligibility',
     'analyze_sensor_data',
     'calculate_ammonia_toxicity',
     'calculate_h2s_toxicity',

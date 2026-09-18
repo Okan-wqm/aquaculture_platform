@@ -7,6 +7,21 @@ import { GetFarmBatchesTool } from './get-farm-batches.tool';
 import { GetFarmWaterQualityTool } from './get-farm-water-quality.tool';
 import { GetFarmHarvestTool } from './get-farm-harvest.tool';
 import { GetFarmFeedingTool } from './get-farm-feeding.tool';
+import {
+  CheckBatchHarvestEligibilityTool,
+  GetFishHealthStatsTool,
+  GetSystemWaterQualityStatsTool,
+  GetTankWaterQualityStatsTool,
+  GetWaterQualityHistoryTool,
+  GetWaterQualityThresholdsTool,
+  ListCriticalHealthEventsTool,
+  ListCriticalWaterQualityTool,
+  ListHealthEventsTool,
+  ListLiceCountsTool,
+  ListOverdueHealthFollowUpsTool,
+  ListTreatmentApplicationsTool,
+  ListWelfareAssessmentsTool,
+} from './water-health';
 
 const TOOLS = [
   CreateTaskTool,
@@ -15,10 +30,24 @@ const TOOLS = [
   GetFarmWaterQualityTool,
   GetFarmHarvestTool,
   GetFarmFeedingTool,
+  // farm-water-health specialist (FARM-MEDIUM-328): contract farm-ai-queries
+  GetTankWaterQualityStatsTool,
+  GetSystemWaterQualityStatsTool,
+  GetWaterQualityHistoryTool,
+  ListCriticalWaterQualityTool,
+  GetWaterQualityThresholdsTool,
+  GetFishHealthStatsTool,
+  ListHealthEventsTool,
+  ListCriticalHealthEventsTool,
+  ListOverdueHealthFollowUpsTool,
+  ListLiceCountsTool,
+  ListTreatmentApplicationsTool,
+  ListWelfareAssessmentsTool,
+  CheckBatchHarvestEligibilityTool,
 ];
 
 /**
- * Farm actuation tools. The tools reach farm-service over NATS request-reply,
+ * Farm tools (read surface + the create_task actuation). They reach farm-service over NATS request-reply,
  * so this module registers a NATS_SERVICE client (shared cert-identity factory,
  * ADR-015). Tool registration itself is automatic — ToolRegistryService
  * discovers every @Tool()-decorated provider via DiscoveryService — so listing

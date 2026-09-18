@@ -32,8 +32,20 @@ describe('GetFarmBatchesTool', () => {
   it('requests the overview for the context tenant and returns the batch list + count', async () => {
     send.mockReturnValue(
       of([
-        { id: 'b1', batchNumber: 'B-2024-001', name: 'Levrek A', status: 'ACTIVE', statusChangedAt: null },
-        { id: 'b2', batchNumber: 'B-2024-002', name: null, status: 'GROWING', statusChangedAt: null },
+        {
+          id: 'b1',
+          batchNumber: 'B-2024-001',
+          name: 'Levrek A',
+          status: 'ACTIVE',
+          statusChangedAt: null,
+        },
+        {
+          id: 'b2',
+          batchNumber: 'B-2024-002',
+          name: null,
+          status: 'GROWING',
+          statusChangedAt: null,
+        },
       ]),
     );
 
@@ -42,8 +54,20 @@ describe('GetFarmBatchesTool', () => {
     expect(result.success).toBe(true);
     expect(result.data).toEqual({
       batches: [
-        { id: 'b1', batchNumber: 'B-2024-001', name: 'Levrek A', status: 'ACTIVE', statusChangedAt: null },
-        { id: 'b2', batchNumber: 'B-2024-002', name: null, status: 'GROWING', statusChangedAt: null },
+        {
+          id: 'b1',
+          batchNumber: 'B-2024-001',
+          name: 'Levrek A',
+          status: 'ACTIVE',
+          statusChangedAt: null,
+        },
+        {
+          id: 'b2',
+          batchNumber: 'B-2024-002',
+          name: null,
+          status: 'GROWING',
+          statusChangedAt: null,
+        },
       ],
       count: 2,
     });

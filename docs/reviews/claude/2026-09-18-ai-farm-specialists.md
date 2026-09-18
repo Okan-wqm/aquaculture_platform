@@ -3,7 +3,7 @@
 **Date:** 2026-09-18 · **Agent:** claude · **Cycle:** 2026-09-18 ai-farm-specialists
 **Plan:** tier × specialty persona composition; three farm-module experts (water & fish health / production / operations); read-only tools over farm-service via NATS request-reply; user-decided actuation (`confirm_required` cap).
 **Branch:** `feat/ai-farm-specialists` (from `messaging-fix-1`).
-**Findings:** AISAFETY-MEDIUM-024, RBAC-MEDIUM-016, AISAFETY-MEDIUM-025, FARM-MEDIUM-328, FE-MEDIUM-065, FARM-LOW-329 — each closed by the PR named in its section; FE-HIGH-066 (base-branch regression found by the pre-push gate, fixed on this branch).
+**Findings:** AISAFETY-MEDIUM-024, RBAC-MEDIUM-016, AISAFETY-MEDIUM-025, FARM-MEDIUM-328, FE-MEDIUM-065, FARM-LOW-329 — each closed by the PR named in its section; FE-HIGH-066 and INFRA-HIGH-174 (base-branch regressions found by this branch's gates, fixed here).
 
 The product ask was "an expert agent per topic, farm module first, agents only
 use the tools they are given and interpret, the decision stays with the user".
@@ -111,3 +111,20 @@ aquamobil documents is separately broken on this base (queries `feederSetup`,
 `VfdDevice.driveBinding/drivenUnit` that the branch's supergraph does not
 have) — not touched here; the hand-written `types/messaging.ts` is what the
 AI pages consume.
+
+## INFRA-HIGH-174 — NATS ACL SSoT drift: hand-edited nats.conf and a missing publish grant
+
+Found when PR-3 regenerated `nats.conf` for the farm AI subjects. The
+MSGFIX-FAZ3 live fix (`ec966ee2a6`) added `$JS.ACK.>` publish grants to 29
+permission lists **directly in the generated `nats.conf`** — the
+`services.schema.json` subject pattern did not admit `$JS.ACK.` so the SSoT
+could not carry it, and an "overlay script re-applies after CI deploys". Any
+regeneration silently dropped every JetStream consumer-ack grant (messages
+redeliver forever). Separately, `messaging_service` had no publish grant for
+`request.auth.user.resolveCallerCapabilities` (MSGFIX-FAZ2 2.3 caller
+capability resolution), so the AI chat bridge's request never left the broker.
+Both `nats-invariants` checks ("identical ACLs", "messaging-service RPC
+coverage") were red on the base. Fix: admit `\$JS\.ACK\.` in the schema,
+declare the 29 grants in `services.yaml` exactly where the live conf had them,
+grant `request.auth.user.resolveCallerCapabilities` to `messaging_service.publish`,
+regenerate — 85/85 invariants; no overlay needed.

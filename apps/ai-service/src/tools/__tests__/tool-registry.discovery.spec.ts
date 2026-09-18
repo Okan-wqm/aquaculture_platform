@@ -5,6 +5,7 @@ import { ToolRegistryModule } from '../tool-registry.module';
 import { ToolRegistryService } from '../tool-registry.service';
 import { WaterChemistryToolsModule } from '../water-chemistry/water-chemistry-tools.module';
 import { SensorConfigToolsModule } from '../sensor-config/sensor-config-tools.module';
+import { FarmToolsModule } from '../farm/farm-tools.module';
 import { ToolExecutionAudit } from '../../audit/tool-execution-audit.entity';
 
 // The executor (provided by ToolRegistryModule) now depends on AuditService,
@@ -36,18 +37,40 @@ describe('ToolRegistryService discovery (FAZ0-BOOT-01)', () => {
     // sensor-config
     'analyze_sensor_data',
     'suggest_sensor_channels',
+    // farm (overview reads + the create_task actuation)
+    'create_task',
+    'get_farm_tanks',
+    'get_farm_batches',
+    'get_farm_water_quality',
+    'get_farm_harvest',
+    'get_farm_feeding',
+    // farm-water-health read surface (FARM-MEDIUM-328, contract farm-ai-queries)
+    'get_tank_water_quality_stats',
+    'get_system_water_quality_stats',
+    'get_water_quality_history',
+    'list_critical_water_quality',
+    'get_water_quality_thresholds',
+    'get_fish_health_stats',
+    'list_health_events',
+    'list_critical_health_events',
+    'list_overdue_health_follow_ups',
+    'list_lice_counts',
+    'list_treatment_applications',
+    'list_welfare_assessments',
+    'check_batch_harvest_eligibility',
   ];
+
+  /** Every tool feature module the app composes; NATS_SERVICE is stubbed so nothing dials. */
+  const TOOL_MODULES = [WaterChemistryToolsModule, SensorConfigToolsModule, FarmToolsModule];
 
   it('registers every @Tool()-decorated provider from the feature modules', async () => {
     const moduleRef = await Test.createTestingModule({
-      imports: [
-        ToolRegistryModule,
-        WaterChemistryToolsModule,
-        SensorConfigToolsModule,
-      ],
+      imports: [ToolRegistryModule, ...TOOL_MODULES],
     })
       .overrideProvider(getRepositoryToken(ToolExecutionAudit))
       .useValue(AUDIT_REPO_STUB)
+      .overrideProvider('NATS_SERVICE')
+      .useValue({ send: jest.fn() })
       .compile();
 
     // onModuleInit (where discovery runs) fires on init, not on compile.
@@ -65,14 +88,12 @@ describe('ToolRegistryService discovery (FAZ0-BOOT-01)', () => {
 
   it('exposes Claude tool definitions for the discovered tools (agent-facing contract)', async () => {
     const moduleRef = await Test.createTestingModule({
-      imports: [
-        ToolRegistryModule,
-        WaterChemistryToolsModule,
-        SensorConfigToolsModule,
-      ],
+      imports: [ToolRegistryModule, ...TOOL_MODULES],
     })
       .overrideProvider(getRepositoryToken(ToolExecutionAudit))
       .useValue(AUDIT_REPO_STUB)
+      .overrideProvider('NATS_SERVICE')
+      .useValue({ send: jest.fn() })
       .compile();
     await moduleRef.init();
 

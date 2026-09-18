@@ -15,7 +15,13 @@ const CTX: ToolExecutionContext = {
 };
 
 const FEEDING = {
-  id: 'f1', batchId: 'b1', tankId: 't1', feedingDate: '2026-07-06', feedingTime: '08:00', plannedAmountKg: 12.5, actualAmountKg: 12.0,
+  id: 'f1',
+  batchId: 'b1',
+  tankId: 't1',
+  feedingDate: '2026-07-06',
+  feedingTime: '08:00',
+  plannedAmountKg: 12.5,
+  actualAmountKg: 12.0,
 };
 
 describe('GetFarmFeedingTool', () => {

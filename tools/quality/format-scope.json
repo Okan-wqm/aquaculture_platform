@@ -3766,6 +3766,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/__tests__/farm-ai-query.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/src/tools/farm/__tests__/get-farm-batches.tool.spec.ts",
       "prettier_managed": true
     },
@@ -3802,6 +3808,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/farm-ai-query.schema.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/farm-ai-query.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/ai-service/src/tools/farm/farm-tools.module.ts",
       "prettier_managed": true
     },
@@ -3833,6 +3851,168 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/ai-service/src/tools/farm/get-farm-water-quality.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/__tests__/check-batch-harvest-eligibility.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/__tests__/get-fish-health-stats.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/__tests__/get-system-water-quality-stats.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/__tests__/get-tank-water-quality-stats.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/__tests__/get-water-quality-history.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/__tests__/get-water-quality-thresholds.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/__tests__/list-critical-health-events.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/__tests__/list-critical-water-quality.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/__tests__/list-health-events.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/__tests__/list-lice-counts.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/__tests__/list-overdue-health-follow-ups.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/__tests__/list-treatment-applications.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/__tests__/list-welfare-assessments.tool.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/check-batch-harvest-eligibility.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/get-fish-health-stats.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/get-system-water-quality-stats.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/get-tank-water-quality-stats.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/get-water-quality-history.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/get-water-quality-thresholds.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/list-critical-health-events.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/list-critical-water-quality.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/list-health-events.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/list-lice-counts.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/list-overdue-health-follow-ups.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/list-treatment-applications.tool.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/ai-service/src/tools/farm/water-health/list-welfare-assessments.tool.ts",
       "prettier_managed": true
     },
     {
@@ -9178,6 +9358,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/common/nats/__tests__/ai-query-responder.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/common/nats/ai-query-responder.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/common/services/__tests__/backdate-policy.service.spec.ts",
       "prettier_managed": true
     },
@@ -12880,6 +13072,24 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "apps/farm-service/src/fish-health/resolvers/health-event.resolver.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/fish-health/responders/__tests__/fish-health-ai-query.responder.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/fish-health/responders/ai-query.projections.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/fish-health/responders/fish-health-ai-query.responder.ts",
       "prettier_managed": true
     },
     {
@@ -16797,6 +17007,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/water-quality/__tests__/integration/water-quality-ai-query.nats.integration.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/water-quality/__tests__/list-param-equipment.handler.spec.ts",
       "prettier_managed": true
     },
@@ -17265,7 +17481,25 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "apps/farm-service/src/water-quality/responders/__tests__/water-quality-ai-query.responder.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/water-quality/responders/ai-query.projections.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "apps/farm-service/src/water-quality/responders/get-water-quality-overview.responder.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "apps/farm-service/src/water-quality/responders/water-quality-ai-query.responder.ts",
       "prettier_managed": true
     },
     {
@@ -39826,6 +40060,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/event-contracts/src/__tests__/farm-ai-queries.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/event-contracts/src/__tests__/ingest-backend-policy.spec.ts",
       "prettier_managed": true
     },
@@ -39977,6 +40217,24 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/event-contracts/src/enums/tenant-status.machine.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/src/farm-ai-queries.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/src/farm-ai-queries/fish-health.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/event-contracts/src/farm-ai-queries/water-quality.ts",
       "prettier_managed": true
     },
     {
@@ -43981,6 +44239,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/event-contract-emit-has-interface.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/farm-ai-query-contract-ssot.spec.ts",
       "prettier_managed": true
     },
     {

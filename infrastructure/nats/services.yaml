@@ -71,11 +71,14 @@ services:
       - 'events.security.events.>'
       - 'request.farm.validateSiteAssignment'
       - '$JS.API.>'
+      # JetStream consumer acks are PUBLISHes to $JS.ACK.<stream>.<consumer> (MSGFIX-FAZ3 live root cause).
+      - '$JS.ACK.>'
       - '_INBOX.>'
     subscribe:
       - 'request.auth.user.validateTenantMembership'
       - 'request.auth.>'
       - '$JS.API.>'
+      - '$JS.ACK.>'
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -185,6 +188,8 @@ services:
       - 'events.security.events.>'
       - 'request.farm.validateSiteAssignment'
       - '$JS.API.>'
+      # JetStream consumer acks are PUBLISHes to $JS.ACK.<stream>.<consumer> (MSGFIX-FAZ3 live root cause).
+      - '$JS.ACK.>'
       - '_INBOX.>'
     subscribe:
       # ai-service create_task actuation tool (request-reply responder)
@@ -195,10 +200,28 @@ services:
       - 'request.farm.getHarvestOverview'
       - 'request.farm.getFeedingOverview'
       - 'request.farm.validateSiteAssignment'
+      # Farm AI specialists read surface (FARM-MEDIUM-328). Contract:
+      # libs/event-contracts/src/farm-ai-queries.ts — one explicit grant per
+      # subject on both sides; tests/invariants/farm-ai-query-contract-ssot.spec.ts
+      # fails when a contract subject is missing here.
+      - 'request.farm.ai.getTankWaterQualityStats'
+      - 'request.farm.ai.getSystemWaterQualityStats'
+      - 'request.farm.ai.getWaterQualityHistory'
+      - 'request.farm.ai.listCriticalWaterQuality'
+      - 'request.farm.ai.getWaterQualityThresholds'
+      - 'request.farm.ai.getFishHealthStats'
+      - 'request.farm.ai.listHealthEvents'
+      - 'request.farm.ai.listCriticalHealthEvents'
+      - 'request.farm.ai.listOverdueHealthFollowUps'
+      - 'request.farm.ai.listLiceCounts'
+      - 'request.farm.ai.listTreatmentApplications'
+      - 'request.farm.ai.listWelfareAssessments'
+      - 'request.farm.ai.checkBatchHarvestEligibility'
       # Dedicated first-token inbox: generic `_INBOX.>` grants cannot read
       # decrypted marine-provider credential replies.
       - '_INBOXFARMMARINECFG.>'
       - '$JS.API.>'
+      - '$JS.ACK.>'
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -237,12 +260,15 @@ services:
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
       - '$JS.API.>'
+      # JetStream consumer acks are PUBLISHes to $JS.ACK.<stream>.<consumer> (MSGFIX-FAZ3 live root cause).
+      - '$JS.ACK.>'
       - '_INBOX.>'
     subscribe:
       - 'request.sensor.>'
       - 'sensor.lookup.by-topic'
       - 'st.language.>'
       - '$JS.API.>'
+      - '$JS.ACK.>'
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -258,6 +284,8 @@ services:
       - 'events.*.SensorReading'
       - 'sensor.lookup.by-topic'
       - '$JS.API.>'
+      # JetStream consumer acks are PUBLISHes to $JS.ACK.<stream>.<consumer> (MSGFIX-FAZ3 live root cause).
+      - '$JS.ACK.>'
       - '_INBOX.>'
     subscribe:
       - 'policy.ingest_backend.>'
@@ -329,6 +357,8 @@ services:
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
       - '$JS.API.>'
+      # JetStream consumer acks are PUBLISHes to $JS.ACK.<stream>.<consumer> (MSGFIX-FAZ3 live root cause).
+      - '$JS.ACK.>'
       - '_INBOX.>'
     subscribe:
       - 'events.*.TenantOnboardingAck'
@@ -353,6 +383,8 @@ services:
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
       - '$JS.API.>'
+      # JetStream consumer acks are PUBLISHes to $JS.ACK.<stream>.<consumer> (MSGFIX-FAZ3 live root cause).
+      - '$JS.ACK.>'
       - '_INBOX.>'
     subscribe:
       - 'events.>'
@@ -377,11 +409,14 @@ services:
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
       - '$JS.API.>'
+      # JetStream consumer acks are PUBLISHes to $JS.ACK.<stream>.<consumer> (MSGFIX-FAZ3 live root cause).
+      - '$JS.ACK.>'
       - '_INBOX.>'
     subscribe:
       - 'commands.notification.sendEmail'
       - 'commands.notification.sendPush'
       - '$JS.API.>'
+      - '$JS.ACK.>'
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -403,7 +438,23 @@ services:
       - 'request.farm.getWaterQualityOverview'
       - 'request.farm.getHarvestOverview'
       - 'request.farm.getFeedingOverview'
+      # Farm AI specialists read surface (FARM-MEDIUM-328) — see farm_service.subscribe.
+      - 'request.farm.ai.getTankWaterQualityStats'
+      - 'request.farm.ai.getSystemWaterQualityStats'
+      - 'request.farm.ai.getWaterQualityHistory'
+      - 'request.farm.ai.listCriticalWaterQuality'
+      - 'request.farm.ai.getWaterQualityThresholds'
+      - 'request.farm.ai.getFishHealthStats'
+      - 'request.farm.ai.listHealthEvents'
+      - 'request.farm.ai.listCriticalHealthEvents'
+      - 'request.farm.ai.listOverdueHealthFollowUps'
+      - 'request.farm.ai.listLiceCounts'
+      - 'request.farm.ai.listTreatmentApplications'
+      - 'request.farm.ai.listWelfareAssessments'
+      - 'request.farm.ai.checkBatchHarvestEligibility'
       - '$JS.API.>'
+      # JetStream consumer acks are PUBLISHes to $JS.ACK.<stream>.<consumer> (MSGFIX-FAZ3 live root cause).
+      - '$JS.ACK.>'
       - '_INBOX.>'
     subscribe:
       - 'request.ai.chat'
@@ -415,6 +466,7 @@ services:
       # under the sensor-service service principal). ai-service HANDLES it (subscribe).
       - 'request.ai.sensor.detectChannels'
       - '$JS.API.>'
+      - '$JS.ACK.>'
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -447,6 +499,8 @@ services:
       - 'config.runtime.get'
       - 'config.runtime.get_secret'
       - '$JS.API.>'
+      # JetStream consumer acks are PUBLISHes to $JS.ACK.<stream>.<consumer> (MSGFIX-FAZ3 live root cause).
+      - '$JS.ACK.>'
       - '_INBOX.>'
     subscribe:
       - 'request.billing.admin.>'
@@ -456,6 +510,7 @@ services:
       # Stripe secret never returns on the platform-wide `_INBOX.>` every cert holds.
       - '_INBOXBILLINGCFG.>'
       - '$JS.API.>'
+      - '$JS.ACK.>'
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -477,9 +532,12 @@ services:
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
       - '$JS.API.>'
+      # JetStream consumer acks are PUBLISHes to $JS.ACK.<stream>.<consumer> (MSGFIX-FAZ3 live root cause).
+      - '$JS.ACK.>'
       - '_INBOX.>'
     subscribe:
       - '$JS.API.>'
+      - '$JS.ACK.>'
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -518,9 +576,12 @@ services:
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
       - '$JS.API.>'
+      # JetStream consumer acks are PUBLISHes to $JS.ACK.<stream>.<consumer> (MSGFIX-FAZ3 live root cause).
+      - '$JS.ACK.>'
       - '_INBOX.>'
     subscribe:
       - '$JS.API.>'
+      - '$JS.ACK.>'
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -562,6 +623,11 @@ services:
       - 'commands.notification.sendPush'
       - 'request.auth.user.validateTenantMembership'
       - 'request.auth.user.listTenantUserIds'
+      # MSGFIX-FAZ2 2.3: the AI chat bridge resolves the SENDER's roles +
+      # resourcePermissions from auth-service before forwarding to ai-service.
+      # Without this publish grant the request never leaves the broker and
+      # every AI channel turn times out silently.
+      - 'request.auth.user.resolveCallerCapabilities'
       - 'request.auth.verifyPassword'
       - 'request.ai.chat'
       - 'request.ai.executeAction'
@@ -572,6 +638,8 @@ services:
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
       - '$JS.API.>'
+      # JetStream consumer acks are PUBLISHes to $JS.ACK.<stream>.<consumer> (MSGFIX-FAZ3 live root cause).
+      - '$JS.ACK.>'
       - '_INBOX.>'
     subscribe:
       - 'request.messaging.verifyMembership'
@@ -590,6 +658,7 @@ services:
       - 'request.messaging.admin.getPersonas'
       - 'events.>'
       - '$JS.API.>'
+      - '$JS.ACK.>'
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -605,9 +674,12 @@ services:
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
       - '$JS.API.>'
+      # JetStream consumer acks are PUBLISHes to $JS.ACK.<stream>.<consumer> (MSGFIX-FAZ3 live root cause).
+      - '$JS.ACK.>'
       - '_INBOX.>'
     subscribe:
       - '$JS.API.>'
+      - '$JS.ACK.>'
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -622,11 +694,14 @@ services:
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
       - '$JS.API.>'
+      # JetStream consumer acks are PUBLISHes to $JS.ACK.<stream>.<consumer> (MSGFIX-FAZ3 live root cause).
+      - '$JS.ACK.>'
       - '_INBOX.>'
     subscribe:
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
       - '$JS.API.>'
+      - '$JS.ACK.>'
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -654,6 +729,8 @@ services:
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
       - '$JS.API.>'
+      # JetStream consumer acks are PUBLISHes to $JS.ACK.<stream>.<consumer> (MSGFIX-FAZ3 live root cause).
+      - '$JS.ACK.>'
       - '_INBOX.>'
     subscribe:
       # Faz C (D6): config-runtime request-reply responder subjects. The secret
@@ -663,6 +740,7 @@ services:
       - 'config.marine_credentials.resolve'
       - 'config.marine_credentials.upsert'
       - '$JS.API.>'
+      - '$JS.ACK.>'
       - '_INBOX.>'
 
   # ---------------------------------------------------------------------------
@@ -682,7 +760,10 @@ services:
       - 'events.platform.schema-migration.>'
       - 'events.security.events.>'
       - '$JS.API.>'
+      # JetStream consumer acks are PUBLISHes to $JS.ACK.<stream>.<consumer> (MSGFIX-FAZ3 live root cause).
+      - '$JS.ACK.>'
       - '_INBOX.>'
     subscribe:
       - '$JS.API.>'
+      - '$JS.ACK.>'
       - '_INBOX.>'

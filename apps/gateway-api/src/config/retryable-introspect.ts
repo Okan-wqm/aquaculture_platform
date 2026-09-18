@@ -125,7 +125,7 @@ export class RetryableIntrospectAndCompose extends IntrospectAndCompose {
           this.logger.error(
             `All ${this.maxRetries} composition attempts exhausted ` +
             `(total budget: ~${Math.round(totalBudgetMs / 1000)}s). ` +
-            `Gateway startup will fail; Docker will restart the container.`,
+            `The background composer records the reason and starts the next round.`,
           );
           throw lastError;
         }

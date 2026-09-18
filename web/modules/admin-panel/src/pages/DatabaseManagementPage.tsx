@@ -12,6 +12,7 @@
  */
 
 import React, { useState } from 'react';
+import { Modal } from '@aquaculture/shared-ui';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../hooks';
 import { QueryFailureNotice } from '../components/QueryFailureNotice';
 import { databaseApi } from '../services/api/database';
@@ -385,101 +386,87 @@ const SchemasTab: React.FC = () => {
 
       {/* Schema Detail Modal */}
       {selectedSchema && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-            <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-              <h3 className="text-lg font-medium text-gray-900">Schema Details</h3>
-              <button
-                onClick={() => setSelectedSchema(null)}
-                className="text-gray-500 hover:text-gray-600"
-              >
-                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M6 18L18 6M6 6l12 12"
-                  />
-                </svg>
-              </button>
+        <Modal
+          isOpen
+          onClose={() => setSelectedSchema(null)}
+          size="lg"
+          title="Schema Details"
+          bodyClassName="p-6 space-y-4"
+        >
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <div className="text-sm text-gray-500">Schema Name</div>
+              <div className="font-medium">{selectedSchema.schemaName}</div>
             </div>
-            <div className="p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <div className="text-sm text-gray-500">Schema Name</div>
-                  <div className="font-medium">{selectedSchema.schemaName}</div>
-                </div>
-                <div>
-                  <div className="text-sm text-gray-500">Tenant ID</div>
-                  <div className="font-medium">{selectedSchema.tenantId}</div>
-                </div>
-                <div>
-                  <div className="text-sm text-gray-500">Status</div>
-                  <StatusBadge status={selectedSchema.status} />
-                </div>
-                <div>
-                  <div className="text-sm text-gray-500">Version</div>
-                  <div className="font-medium">{selectedSchema.currentVersion}</div>
-                </div>
-                <div>
-                  <div className="text-sm text-gray-500">Size</div>
-                  <div className="font-medium">{formatBytes(selectedSchema.sizeBytes || 0)}</div>
-                </div>
-                <div>
-                  <div className="text-sm text-gray-500">Tables</div>
-                  <div className="font-medium">{selectedSchema.tableCount || 0}</div>
-                </div>
-                <div>
-                  <div className="text-sm text-gray-500">Last Migration</div>
-                  <div className="font-medium">{formatDate(selectedSchema.lastMigrationAt)}</div>
-                </div>
-                <div>
-                  <div className="text-sm text-gray-500">Last Backup</div>
-                  <div className="font-medium">{formatDate(selectedSchema.lastBackupAt)}</div>
-                </div>
-                <div>
-                  <div className="text-sm text-gray-500">Created</div>
-                  <div className="font-medium">{formatDate(selectedSchema.createdAt)}</div>
-                </div>
-              </div>
-              <div className="flex space-x-3 pt-4">
-                <button
-                  onClick={() => validateIsolation.mutate({ tenantId: selectedSchema.tenantId })}
-                  disabled={validateIsolation.isPending}
-                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm disabled:opacity-50"
-                >
-                  {validateIsolation.isPending ? 'Validating…' : 'Validate Isolation'}
-                </button>
-              </div>
-              {validateIsolation.error && (
-                <div
-                  className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700"
-                  role="alert"
-                >
-                  {validateIsolation.error.message}
-                </div>
-              )}
-              {validateIsolation.data &&
-                (validateIsolation.data.valid ? (
-                  <div className="rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-700">
-                    Schema isolation is valid.
-                  </div>
-                ) : (
-                  <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-4 text-sm text-yellow-800">
-                    <div className="font-medium">
-                      {validateIsolation.data.issues.length} isolation issue
-                      {validateIsolation.data.issues.length === 1 ? '' : 's'}
-                    </div>
-                    <ul className="mt-2 list-inside list-disc space-y-1">
-                      {validateIsolation.data.issues.map((issue) => (
-                        <li key={issue}>{issue}</li>
-                      ))}
-                    </ul>
-                  </div>
-                ))}
+            <div>
+              <div className="text-sm text-gray-500">Tenant ID</div>
+              <div className="font-medium">{selectedSchema.tenantId}</div>
+            </div>
+            <div>
+              <div className="text-sm text-gray-500">Status</div>
+              <StatusBadge status={selectedSchema.status} />
+            </div>
+            <div>
+              <div className="text-sm text-gray-500">Version</div>
+              <div className="font-medium">{selectedSchema.currentVersion}</div>
+            </div>
+            <div>
+              <div className="text-sm text-gray-500">Size</div>
+              <div className="font-medium">{formatBytes(selectedSchema.sizeBytes || 0)}</div>
+            </div>
+            <div>
+              <div className="text-sm text-gray-500">Tables</div>
+              <div className="font-medium">{selectedSchema.tableCount || 0}</div>
+            </div>
+            <div>
+              <div className="text-sm text-gray-500">Last Migration</div>
+              <div className="font-medium">{formatDate(selectedSchema.lastMigrationAt)}</div>
+            </div>
+            <div>
+              <div className="text-sm text-gray-500">Last Backup</div>
+              <div className="font-medium">{formatDate(selectedSchema.lastBackupAt)}</div>
+            </div>
+            <div>
+              <div className="text-sm text-gray-500">Created</div>
+              <div className="font-medium">{formatDate(selectedSchema.createdAt)}</div>
             </div>
           </div>
-        </div>
+          <div className="flex space-x-3 pt-4">
+            <button
+              onClick={() => validateIsolation.mutate({ tenantId: selectedSchema.tenantId })}
+              disabled={validateIsolation.isPending}
+              className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm disabled:opacity-50"
+            >
+              {validateIsolation.isPending ? 'Validating…' : 'Validate Isolation'}
+            </button>
+          </div>
+          {validateIsolation.error && (
+            <div
+              className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700"
+              role="alert"
+            >
+              {validateIsolation.error.message}
+            </div>
+          )}
+          {validateIsolation.data &&
+            (validateIsolation.data.valid ? (
+              <div className="rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-700">
+                Schema isolation is valid.
+              </div>
+            ) : (
+              <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-4 text-sm text-yellow-800">
+                <div className="font-medium">
+                  {validateIsolation.data.issues.length} isolation issue
+                  {validateIsolation.data.issues.length === 1 ? '' : 's'}
+                </div>
+                <ul className="mt-2 list-inside list-disc space-y-1">
+                  {validateIsolation.data.issues.map((issue) => (
+                    <li key={issue}>{issue}</li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+        </Modal>
       )}
     </div>
   );

@@ -7,7 +7,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Button, Badge, Input, useConfirm } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, Input, Modal, useConfirm } from '@aquaculture/shared-ui';
 import {
   billingApi,
   CustomPlan,
@@ -146,6 +146,16 @@ const CustomPlansListPage: React.FC = () => {
     } finally {
       setActionLoading(null);
     }
+  };
+
+  const closeRejectModal = (): void => {
+    setRejectModal(null);
+    setRejectReason('');
+  };
+
+  const closeCloneModal = (): void => {
+    setCloneModal(null);
+    setCloneTenantId('');
   };
 
   const handleReject = async () => {
@@ -593,36 +603,20 @@ const CustomPlansListPage: React.FC = () => {
 
       {/* Reject Modal */}
       {rejectModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <Card className="w-full max-w-md p-6">
-            <h3 className="text-lg font-semibold mb-2">Reject Plan</h3>
-            <p className="text-sm text-gray-500 mb-4">
+        <Modal
+          isOpen
+          onClose={closeRejectModal}
+          size="sm"
+          title="Reject Plan"
+          description={
+            <>
               Rejecting: <span className="font-medium text-gray-700">{rejectModal.planName}</span>
-            </p>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Rejection Reason <span className="text-red-500">*</span>
-                </label>
-                <textarea
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500 resize-none"
-                  rows={3}
-                  placeholder="Explain why this plan is being rejected..."
-                  value={rejectReason}
-                  onChange={(e) => setRejectReason(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div className="flex gap-3 justify-end mt-6">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setRejectModal(null);
-                  setRejectReason('');
-                }}
-              >
+            </>
+          }
+          bodyClassName="p-6"
+          footer={
+            <>
+              <Button variant="outline" onClick={closeRejectModal}>
                 Cancel
               </Button>
               <Button
@@ -632,44 +626,42 @@ const CustomPlansListPage: React.FC = () => {
               >
                 {actionLoading === rejectModal.planId ? 'Rejecting...' : 'Reject Plan'}
               </Button>
+            </>
+          }
+        >
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Rejection Reason <span className="text-red-500">*</span>
+              </label>
+              <textarea
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500 resize-none"
+                rows={3}
+                placeholder="Explain why this plan is being rejected..."
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+              />
             </div>
-          </Card>
-        </div>
+          </div>
+        </Modal>
       )}
 
       {/* Clone Modal */}
       {cloneModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <Card className="w-full max-w-md p-6">
-            <h3 className="text-lg font-semibold mb-2">Clone Plan</h3>
-            <p className="text-sm text-gray-500 mb-4">
+        <Modal
+          isOpen
+          onClose={closeCloneModal}
+          size="sm"
+          title="Clone Plan"
+          description={
+            <>
               Cloning: <span className="font-medium text-gray-700">{cloneModal.planName}</span>
-            </p>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Target Tenant ID <span className="text-red-500">*</span>
-                </label>
-                <Input
-                  placeholder="tenant-uuid"
-                  value={cloneTenantId}
-                  onChange={(e) => setCloneTenantId(e.target.value)}
-                />
-                <p className="mt-1 text-xs text-gray-400">
-                  The cloned plan will be created as a draft for this tenant.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex gap-3 justify-end mt-6">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setCloneModal(null);
-                  setCloneTenantId('');
-                }}
-              >
+            </>
+          }
+          bodyClassName="p-6"
+          footer={
+            <>
+              <Button variant="outline" onClick={closeCloneModal}>
                 Cancel
               </Button>
               <Button
@@ -678,9 +670,25 @@ const CustomPlansListPage: React.FC = () => {
               >
                 {actionLoading === cloneModal.planId ? 'Cloning...' : 'Clone Plan'}
               </Button>
+            </>
+          }
+        >
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Target Tenant ID <span className="text-red-500">*</span>
+              </label>
+              <Input
+                placeholder="tenant-uuid"
+                value={cloneTenantId}
+                onChange={(e) => setCloneTenantId(e.target.value)}
+              />
+              <p className="mt-1 text-xs text-gray-400">
+                The cloned plan will be created as a draft for this tenant.
+              </p>
             </div>
-          </Card>
-        </div>
+          </div>
+        </Modal>
       )}
     </div>
   );

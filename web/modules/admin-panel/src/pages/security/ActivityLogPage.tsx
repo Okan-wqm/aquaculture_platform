@@ -27,6 +27,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
+import { Modal } from '@aquaculture/shared-ui';
 
 import { securityApi } from '../../services/adminApi';
 import { adminKeys, useAdminQuery } from '../../hooks';
@@ -275,170 +276,162 @@ const ActivityDetailModal: React.FC<{
   onClose: () => void;
 }> = ({ activity, onClose }) => {
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-        <div className="p-6 border-b border-gray-200">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold text-gray-900">Activity Details</h2>
-            <button
-              onClick={onClose}
-              className="text-gray-500 hover:text-gray-600"
-            >
-              <XCircle className="w-6 h-6" />
-            </button>
-          </div>
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="lg"
+      title="Activity Details"
+      bodyClassName="p-6 space-y-6"
+      footer={
+        <button
+          type="button"
+          onClick={onClose}
+          className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+        >
+          Close
+        </button>
+      }
+    >
+      {/* Basic Info */}
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <span className="text-sm font-medium text-gray-500">ID</span>
+          <p className="text-sm text-gray-900 font-mono">{activity.id}</p>
         </div>
-        <div className="p-6 space-y-6">
-          {/* Basic Info */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <span className="text-sm font-medium text-gray-500">ID</span>
-              <p className="text-sm text-gray-900 font-mono">{activity.id}</p>
-            </div>
-            <div>
-              <span className="text-sm font-medium text-gray-500">Timestamp</span>
-              <p className="text-sm text-gray-900">{formatDate(activity.createdAt)}</p>
-            </div>
-            <div>
-              <span className="text-sm font-medium text-gray-500">Category</span>
-              <span
-                className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getCategoryColor(activity.category)}`}
-              >
-                {getCategoryIcon(activity.category)}
-                {activity.category.replace('_', ' ')}
-              </span>
-            </div>
-            <div>
-              <span className="text-sm font-medium text-gray-500">Severity</span>
-              <span
-                className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(activity.severity)}`}
-              >
-                {getSeverityIcon(activity.severity)}
-                {activity.severity}
-              </span>
-            </div>
-          </div>
-
-          {/* Action */}
-          <div>
-            <span className="text-sm font-medium text-gray-500">Action</span>
-            <p className="text-sm text-gray-900">{activity.action}</p>
-          </div>
-
-          {/* User Info */}
-          <div className="bg-gray-50 rounded-lg p-4">
-            <h3 className="text-sm font-medium text-gray-700 mb-3">User Information</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <span className="text-xs text-gray-500">User</span>
-                <p className="text-sm text-gray-900">{activity.userName || 'N/A'}</p>
-              </div>
-              <div>
-                <span className="text-xs text-gray-500">Email</span>
-                <p className="text-sm text-gray-900">{activity.userEmail || 'N/A'}</p>
-              </div>
-              <div>
-                <span className="text-xs text-gray-500">Tenant</span>
-                <p className="text-sm text-gray-900">{activity.tenantName || 'N/A'}</p>
-              </div>
-              <div>
-                <span className="text-xs text-gray-500">IP Address</span>
-                <p className="text-sm text-gray-900 font-mono">{activity.ipAddress || 'N/A'}</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Location */}
-          {activity.geoLocation && (
-            <div className="bg-gray-50 rounded-lg p-4">
-              <h3 className="text-sm font-medium text-gray-700 mb-3 flex items-center gap-2">
-                <MapPin className="w-4 h-4" />
-                Location
-              </h3>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <span className="text-xs text-gray-500">Country</span>
-                  <p className="text-sm text-gray-900">{activity.geoLocation.country || 'N/A'}</p>
-                </div>
-                <div>
-                  <span className="text-xs text-gray-500">City</span>
-                  <p className="text-sm text-gray-900">{activity.geoLocation.city || 'N/A'}</p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Target Entity */}
-          {activity.entityType && (
-            <div className="bg-gray-50 rounded-lg p-4">
-              <h3 className="text-sm font-medium text-gray-700 mb-3">Target Entity</h3>
-              <div className="grid grid-cols-3 gap-4">
-                <div>
-                  <span className="text-xs text-gray-500">Type</span>
-                  <p className="text-sm text-gray-900">{activity.entityType}</p>
-                </div>
-                <div>
-                  <span className="text-xs text-gray-500">ID</span>
-                  <p className="text-sm text-gray-900 font-mono">{activity.entityId}</p>
-                </div>
-                <div>
-                  <span className="text-xs text-gray-500">Name</span>
-                  <p className="text-sm text-gray-900">{activity.entityName}</p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Status */}
-          <div className="flex items-center gap-4">
-            <div>
-              <span className="text-sm font-medium text-gray-500">Status</span>
-              <span
-                className={`ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                  activity.success
-                    ? 'bg-green-100 text-green-800'
-                    : 'bg-red-100 text-red-800'
-                }`}
-              >
-                {activity.success ? 'Success' : 'Failed'}
-              </span>
-            </div>
-            {activity.duration !== undefined && (
-              <div>
-                <span className="text-sm font-medium text-gray-500">Duration</span>
-                <span className="ml-2 text-sm text-gray-900">{activity.duration}ms</span>
-              </div>
-            )}
-          </div>
-
-          {/* Error Message */}
-          {activity.errorMessage && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-              <h3 className="text-sm font-medium text-red-800 mb-2">Error Message</h3>
-              <p className="text-sm text-red-700">{activity.errorMessage}</p>
-            </div>
-          )}
-
-          {/* User Agent */}
-          {activity.userAgent && (
-            <div>
-              <span className="text-sm font-medium text-gray-500">User Agent</span>
-              <p className="text-xs text-gray-600 font-mono break-all bg-gray-50 p-2 rounded">
-                {activity.userAgent}
-              </p>
-            </div>
-          )}
+        <div>
+          <span className="text-sm font-medium text-gray-500">Timestamp</span>
+          <p className="text-sm text-gray-900">{formatDate(activity.createdAt)}</p>
         </div>
-        <div className="p-6 border-t border-gray-200 flex justify-end">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+        <div>
+          <span className="text-sm font-medium text-gray-500">Category</span>
+          <span
+            className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getCategoryColor(activity.category)}`}
           >
-            Close
-          </button>
+            {getCategoryIcon(activity.category)}
+            {activity.category.replace('_', ' ')}
+          </span>
+        </div>
+        <div>
+          <span className="text-sm font-medium text-gray-500">Severity</span>
+          <span
+            className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(activity.severity)}`}
+          >
+            {getSeverityIcon(activity.severity)}
+            {activity.severity}
+          </span>
         </div>
       </div>
-    </div>
+
+      {/* Action */}
+      <div>
+        <span className="text-sm font-medium text-gray-500">Action</span>
+        <p className="text-sm text-gray-900">{activity.action}</p>
+      </div>
+
+      {/* User Info */}
+      <div className="bg-gray-50 rounded-lg p-4">
+        <h3 className="text-sm font-medium text-gray-700 mb-3">User Information</h3>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <span className="text-xs text-gray-500">User</span>
+            <p className="text-sm text-gray-900">{activity.userName || 'N/A'}</p>
+          </div>
+          <div>
+            <span className="text-xs text-gray-500">Email</span>
+            <p className="text-sm text-gray-900">{activity.userEmail || 'N/A'}</p>
+          </div>
+          <div>
+            <span className="text-xs text-gray-500">Tenant</span>
+            <p className="text-sm text-gray-900">{activity.tenantName || 'N/A'}</p>
+          </div>
+          <div>
+            <span className="text-xs text-gray-500">IP Address</span>
+            <p className="text-sm text-gray-900 font-mono">{activity.ipAddress || 'N/A'}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Location */}
+      {activity.geoLocation && (
+        <div className="bg-gray-50 rounded-lg p-4">
+          <h3 className="text-sm font-medium text-gray-700 mb-3 flex items-center gap-2">
+            <MapPin className="w-4 h-4" />
+            Location
+          </h3>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <span className="text-xs text-gray-500">Country</span>
+              <p className="text-sm text-gray-900">{activity.geoLocation.country || 'N/A'}</p>
+            </div>
+            <div>
+              <span className="text-xs text-gray-500">City</span>
+              <p className="text-sm text-gray-900">{activity.geoLocation.city || 'N/A'}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Target Entity */}
+      {activity.entityType && (
+        <div className="bg-gray-50 rounded-lg p-4">
+          <h3 className="text-sm font-medium text-gray-700 mb-3">Target Entity</h3>
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <span className="text-xs text-gray-500">Type</span>
+              <p className="text-sm text-gray-900">{activity.entityType}</p>
+            </div>
+            <div>
+              <span className="text-xs text-gray-500">ID</span>
+              <p className="text-sm text-gray-900 font-mono">{activity.entityId}</p>
+            </div>
+            <div>
+              <span className="text-xs text-gray-500">Name</span>
+              <p className="text-sm text-gray-900">{activity.entityName}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Status */}
+      <div className="flex items-center gap-4">
+        <div>
+          <span className="text-sm font-medium text-gray-500">Status</span>
+          <span
+            className={`ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+              activity.success
+                ? 'bg-green-100 text-green-800'
+                : 'bg-red-100 text-red-800'
+            }`}
+          >
+            {activity.success ? 'Success' : 'Failed'}
+          </span>
+        </div>
+        {activity.duration !== undefined && (
+          <div>
+            <span className="text-sm font-medium text-gray-500">Duration</span>
+            <span className="ml-2 text-sm text-gray-900">{activity.duration}ms</span>
+          </div>
+        )}
+      </div>
+
+      {/* Error Message */}
+      {activity.errorMessage && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <h3 className="text-sm font-medium text-red-800 mb-2">Error Message</h3>
+          <p className="text-sm text-red-700">{activity.errorMessage}</p>
+        </div>
+      )}
+
+      {/* User Agent */}
+      {activity.userAgent && (
+        <div>
+          <span className="text-sm font-medium text-gray-500">User Agent</span>
+          <p className="text-xs text-gray-600 font-mono break-all bg-gray-50 p-2 rounded">
+            {activity.userAgent}
+          </p>
+        </div>
+      )}
+    </Modal>
   );
 };
 

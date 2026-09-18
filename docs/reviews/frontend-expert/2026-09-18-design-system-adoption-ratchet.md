@@ -52,7 +52,10 @@ sibling, so every side panel rolled its own, (c) nothing detected a new overlay.
 **Fix (this cycle):** `Modal`/`Drawer` accept `ReactNode` title/description and a
 `bodyClassName`; `useDialogBehavior` is the single Escape/focus/scroll-lock
 implementation for both; 17 dialogs migrated (12 sensor-module, 5 tenant-admin)
-and tenant-admin's private `useFocusTrap` deleted. Remaining files are listed
+and tenant-admin's private `useFocusTrap` deleted. Batch 2 (same cycle):
+the super-admin panel — 31 dialogs in 21 files onto `Modal`, and the mobile
+navigation onto `Drawer side="left"`, deleting the third private focus-trap
+implementation with it; overlays 80 → 59. Remaining files are listed
 per-file in `.claude/allowlists/web-design-system-ratchet.yaml` with batch
 (dialog/drawer/mobile/runtime), owner, expiry and reason; the ceiling only
 decreases. **Owner:** okan · **Expiry:** 2027-03-31 (runtime surfaces 2027-06-30).

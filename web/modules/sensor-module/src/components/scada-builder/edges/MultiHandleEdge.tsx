@@ -19,6 +19,7 @@ import { getEdgeStyle, ConnectionType } from '../../../config/connectionTypes';
 import { useEdgeStoreContext } from '../EdgeStoreContext';
 import { useEdgeFlowState } from './useEdgeFlowState';
 import type { EdgeFlowConfig } from '../../../types/scada-edge.types';
+import { colors } from '@aquaculture/shared-ui';
 
 /* -------------------------------------------------- */
 /*  Types                                             */
@@ -92,7 +93,7 @@ const getPointOnPolyline = (
 };
 
 /** P&ID style: animated flow-direction chevron on the line at 50% */
-const renderFlowArrow = (pts: Point[], color: string = '#374151'): JSX.Element | null => {
+const renderFlowArrow = (pts: Point[], color: string = colors.neutral[700]): JSX.Element | null => {
   if (pts.length < 2) return null;
   const mid = getPointOnPolyline(pts, 0.5);
   return (
@@ -364,7 +365,7 @@ const MultiHandleEdge: React.FC<EdgeProps<Edge<MultiHandleEdgeData>>> = (props) 
         <path
           d={edgePath}
           fill="none"
-          stroke="#3b82f6"
+          stroke={colors.info[500]}
           strokeWidth={(edgeStyle.strokeWidth || 2) + 4}
           strokeOpacity={0.3}
           style={{ pointerEvents: 'none' }}
@@ -380,9 +381,9 @@ const MultiHandleEdge: React.FC<EdgeProps<Edge<MultiHandleEdgeData>>> = (props) 
           cx={hoverSegment.x}
           cy={hoverSegment.y}
           r={4}
-          fill="#10b981"
+          fill={colors.success[500]}
           fillOpacity={0.5}
-          stroke="#10b981"
+          stroke={colors.success[500]}
           strokeWidth={1}
           style={{ pointerEvents: 'none' }}
         />
@@ -395,8 +396,8 @@ const MultiHandleEdge: React.FC<EdgeProps<Edge<MultiHandleEdgeData>>> = (props) 
           cx={pt.x}
           cy={pt.y}
           r={hoveredPoint === idx ? POINT_RADIUS_HOVER : POINT_RADIUS}
-          fill={pt.locked ? '#6b7280' : '#f97316'}
-          stroke={pt.locked ? '#374151' : '#ea580c'}
+          fill={pt.locked ? colors.gray[400] : colors.accent[600]}
+          stroke={pt.locked ? colors.neutral[700] : colors.warning[600]}
           strokeWidth={1.5}
           style={{
             pointerEvents: 'all',
@@ -419,8 +420,8 @@ const MultiHandleEdge: React.FC<EdgeProps<Edge<MultiHandleEdgeData>>> = (props) 
             cx={sourceX}
             cy={sourceY}
             r={4}
-            fill="#22c55e"
-            stroke="#16a34a"
+            fill={colors.success[500]}
+            stroke={colors.success[600]}
             strokeWidth={1.5}
             style={{ pointerEvents: 'none' }}
           />
@@ -428,8 +429,8 @@ const MultiHandleEdge: React.FC<EdgeProps<Edge<MultiHandleEdgeData>>> = (props) 
             cx={targetX}
             cy={targetY}
             r={4}
-            fill="#ef4444"
-            stroke="#dc2626"
+            fill={colors.error[500]}
+            stroke={colors.error[600]}
             strokeWidth={1.5}
             style={{ pointerEvents: 'none' }}
           />
@@ -445,7 +446,7 @@ const MultiHandleEdge: React.FC<EdgeProps<Edge<MultiHandleEdgeData>>> = (props) 
             textAnchor="middle"
             style={{
               fontSize: 11,
-              fill: '#374151',
+              fill: colors.neutral[700],
               fontWeight: 500,
             }}
           >

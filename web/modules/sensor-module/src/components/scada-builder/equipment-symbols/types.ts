@@ -1,5 +1,6 @@
 import React from 'react';
 import type { EquipmentState, EquipmentConnectionPoint, ConnectionPointKey } from '../../../types/scada-widget.types';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 // ViewBox dimensions for each equipment subtype (used for handle alignment)
 export const EQUIPMENT_VIEWBOX: Record<string, { width: number; height: number }> = {
@@ -77,19 +78,19 @@ export interface EquipmentSymbolProps {
 
 // State-based color system (P&ID standard)
 export const EQUIPMENT_STATE_COLORS: Record<EquipmentState, { fill: string; stroke: string }> = {
-  running: { fill: '#dcfce7', stroke: '#22c55e' },
-  open:    { fill: '#dcfce7', stroke: '#22c55e' },
-  stopped: { fill: '#f3f4f6', stroke: '#9ca3af' },
-  closed:  { fill: '#f3f4f6', stroke: '#9ca3af' },
-  fault:       { fill: '#fef2f2', stroke: '#ef4444' },
-  maintenance: { fill: '#fefce8', stroke: '#d97706' },
+  running: { fill: themeColors.success[100], stroke: themeColors.success[500] },
+  open:    { fill: themeColors.success[100], stroke: themeColors.success[500] },
+  stopped: { fill: themeColors.neutral[100], stroke: themeColors.neutral[400] },
+  closed:  { fill: themeColors.neutral[100], stroke: themeColors.neutral[400] },
+  fault:       { fill: themeColors.error[50], stroke: themeColors.error[500] },
+  maintenance: { fill: themeColors.warning[50], stroke: themeColors.warning[600] },
 };
 
 // Connection point colors
 export const CONNECTION_POINT_COLORS = {
-  in:    '#3b82f6', // blue for inlet
-  out:   '#f97316', // orange for outlet
-  inout: '#8b5cf6', // purple for bidirectional
+  in:    themeColors.info[500], // blue for inlet
+  out:   themeColors.accent[600], // orange for outlet
+  inout: themeColors.primary[700], // purple for bidirectional
 } as const;
 
 // CONNECTION_POINTS registry - maps each subtype to its connection points
@@ -398,8 +399,8 @@ export const FaultOverlay: React.FC<StateOverlayProps> = ({ state, viewBoxWidth,
   return React.createElement('g', { className: 'fault-overlay' },
     React.createElement('circle', {
       cx, cy, r,
-      fill: '#ef4444',
-      stroke: '#ffffff',
+      fill: themeColors.error[500],
+      stroke: themeColors.white,
       strokeWidth: 1.5,
       opacity: 0.95,
     }),
@@ -409,7 +410,7 @@ export const FaultOverlay: React.FC<StateOverlayProps> = ({ state, viewBoxWidth,
       textAnchor: 'middle',
       fontSize: 12,
       fontWeight: 'bold',
-      fill: '#ffffff',
+      fill: themeColors.white,
       fontFamily: 'sans-serif',
     }, '!'),
   );
@@ -433,8 +434,8 @@ export const MaintenanceOverlay: React.FC<StateOverlayProps> = ({ state, viewBox
   return React.createElement('g', { className: 'maintenance-overlay' },
     React.createElement('circle', {
       cx, cy, r,
-      fill: '#f59e0b',
-      stroke: '#ffffff',
+      fill: themeColors.warning[500],
+      stroke: themeColors.white,
       strokeWidth: 1.5,
       opacity: 0.95,
     }),
@@ -445,7 +446,7 @@ export const MaintenanceOverlay: React.FC<StateOverlayProps> = ({ state, viewBox
       textAnchor: 'middle',
       fontSize: 11,
       fontWeight: 'bold',
-      fill: '#ffffff',
+      fill: themeColors.white,
       fontFamily: 'sans-serif',
     }, '\u2692'), // ⚒ (hammer-and-pick / wrench Unicode symbol)
   );

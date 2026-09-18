@@ -16,6 +16,7 @@ import {
   computeYDomain, niceStep, exportCsv,
 } from './trendChartUtils';
 import type { SimPoint, TimeRangeKey } from './trendChartUtils';
+import { colors, chartChrome, colors as themeColors } from '@aquaculture/shared-ui';
 
 const TrendChartRenderer: React.FC<WidgetRendererProps> = ({ config, width, height, isEditing }) => {
   const label = (config.label as string) ?? 'Trend';
@@ -147,36 +148,36 @@ const TrendChartRenderer: React.FC<WidgetRendererProps> = ({ config, width, heig
         {/* Toolbar */}
         <foreignObject x={0} y={0} width={innerW} height={TOOLBAR_H}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, height: TOOLBAR_H, fontSize: 10 }}>
-            <span style={{ fontWeight: 600, color: '#374151', marginRight: 'auto', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
+            <span style={{ fontWeight: 600, color: colors.neutral[700], marginRight: 'auto', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
             {TIME_RANGES.map((r) => (
               <button key={r.key} onClick={() => setSelectedRange(r.key)} style={{
                 padding: '1px 5px', fontSize: 9, border: '1px solid', lineHeight: '14px', borderRadius: 3, cursor: 'pointer',
-                borderColor: selectedRange === r.key ? '#06b6d4' : '#d1d5db',
-                background: selectedRange === r.key ? '#ecfeff' : '#fff',
-                color: selectedRange === r.key ? '#0e7490' : '#6b7280',
+                borderColor: selectedRange === r.key ? colors.primary[400] : colors.neutral[300],
+                background: selectedRange === r.key ? colors.primary[50] : '#fff',
+                color: selectedRange === r.key ? colors.primary[600] : colors.gray[400],
               }}>{r.label}</button>
             ))}
             <button onClick={() => exportCsv(chartData, tags)} title="Export CSV" style={{
-              padding: '1px 4px', fontSize: 9, border: '1px solid #d1d5db', background: '#fff',
-              color: '#6b7280', borderRadius: 3, cursor: 'pointer', lineHeight: '14px',
+              padding: '1px 4px', fontSize: 9, border: `1px solid ${themeColors.neutral[300]}`, background: '#fff',
+              color: colors.gray[400], borderRadius: 3, cursor: 'pointer', lineHeight: '14px',
             }}>CSV</button>
-            {isEditing && <span style={{ fontSize: 8, color: '#9ca3af', fontStyle: 'italic' }}>demo</span>}
+            {isEditing && <span style={{ fontSize: 8, color: colors.neutral[400], fontStyle: 'italic' }}>demo</span>}
           </div>
         </foreignObject>
 
         {/* Grid */}
-        {showGrid && yTicks.map((v) => <line key={`yg${v}`} x1={ML} y1={sy(v)} x2={endX} y2={sy(v)} stroke="#f3f4f6" strokeWidth={1} />)}
-        {showGrid && xTicks.map((t, i) => <line key={`xg${i}`} x1={sx(t)} y1={MT} x2={sx(t)} y2={MT + chartH} stroke="#f3f4f6" strokeWidth={1} />)}
+        {showGrid && yTicks.map((v) => <line key={`yg${v}`} x1={ML} y1={sy(v)} x2={endX} y2={sy(v)} stroke={chartChrome.grid} strokeWidth={1} />)}
+        {showGrid && xTicks.map((t, i) => <line key={`xg${i}`} x1={sx(t)} y1={MT} x2={sx(t)} y2={MT + chartH} stroke={chartChrome.grid} strokeWidth={1} />)}
 
         {/* Axes */}
-        <line x1={ML} y1={MT} x2={ML} y2={MT + chartH} stroke="#d1d5db" strokeWidth={1} />
-        <line x1={ML} y1={MT + chartH} x2={endX} y2={MT + chartH} stroke="#d1d5db" strokeWidth={1} />
+        <line x1={ML} y1={MT} x2={ML} y2={MT + chartH} stroke={colors.neutral[300]} strokeWidth={1} />
+        <line x1={ML} y1={MT + chartH} x2={endX} y2={MT + chartH} stroke={colors.neutral[300]} strokeWidth={1} />
 
         {/* Y labels */}
-        {yTicks.map((v) => <text key={`yl${v}`} x={ML - 4} y={sy(v) + 3} textAnchor="end" fontSize={8} fill="#9ca3af">{v % 1 === 0 ? v : v.toFixed(1)}</text>)}
+        {yTicks.map((v) => <text key={`yl${v}`} x={ML - 4} y={sy(v) + 3} textAnchor="end" fontSize={8} fill={colors.neutral[400]}>{v % 1 === 0 ? v : v.toFixed(1)}</text>)}
 
         {/* X labels */}
-        {xTicks.map((t, i) => <text key={`xl${i}`} x={sx(t)} y={MT + chartH + 14} textAnchor="middle" fontSize={8} fill="#9ca3af">{formatTimeLabel(t, rangeMs)}</text>)}
+        {xTicks.map((t, i) => <text key={`xl${i}`} x={sx(t)} y={MT + chartH + 14} textAnchor="middle" fontSize={8} fill={colors.neutral[400]}>{formatTimeLabel(t, rangeMs)}</text>)}
 
         {/* Data lines */}
         {polylines.map((pts, i) => pts ? (
@@ -184,18 +185,18 @@ const TrendChartRenderer: React.FC<WidgetRendererProps> = ({ config, width, heig
         ) : null)}
 
         {/* No data */}
-        {chartData.length === 0 && <text x={ML + chartW / 2} y={MT + chartH / 2} textAnchor="middle" fontSize={11} fill="#9ca3af">No trend data available</text>}
+        {chartData.length === 0 && <text x={ML + chartW / 2} y={MT + chartH / 2} textAnchor="middle" fontSize={11} fill={colors.neutral[400]}>No trend data available</text>}
 
         {/* Hover rect */}
         <rect x={ML} y={MT} width={chartW} height={chartH} fill="transparent" onMouseMove={onMouseMove} onMouseLeave={() => setHover(null)} />
 
         {/* Hover tooltip */}
         {hover && chartData[hover.idx] && (<>
-          <line x1={hover.x} y1={MT} x2={hover.x} y2={MT + chartH} stroke="#9ca3af" strokeWidth={0.5} strokeDasharray="3,2" />
+          <line x1={hover.x} y1={MT} x2={hover.x} y2={MT + chartH} stroke={colors.neutral[400]} strokeWidth={0.5} strokeDasharray="3,2" />
           {tags.map((tag, i) => { const v = chartData[hover.idx].values[tag]; return v !== undefined ? <circle key={tag} cx={hover.x} cy={sy(v)} r={3} fill={TRACE_COLORS[i % TRACE_COLORS.length]} stroke="#fff" strokeWidth={1} /> : null; })}
           <foreignObject x={Math.min(hover.x + 8, ML + chartW - 100)} y={MT + 2} width={100} height={14 + tags.length * 12}>
-            <div style={{ background: 'rgba(255,255,255,0.95)', border: '1px solid #e5e7eb', borderRadius: 3, padding: '2px 4px', fontSize: 8, lineHeight: '12px', pointerEvents: 'none' }}>
-              <div style={{ color: '#6b7280' }}>{formatTimeLabel(chartData[hover.idx].t, rangeMs)}</div>
+            <div style={{ background: 'rgba(255,255,255,0.95)', border: `1px solid ${themeColors.neutral[200]}`, borderRadius: 3, padding: '2px 4px', fontSize: 8, lineHeight: '12px', pointerEvents: 'none' }}>
+              <div style={{ color: colors.gray[400] }}>{formatTimeLabel(chartData[hover.idx].t, rangeMs)}</div>
               {tags.map((tag, i) => { const v = chartData[hover.idx].values[tag]; return v !== undefined ? <div key={tag} style={{ color: TRACE_COLORS[i % TRACE_COLORS.length] }}>{tag}: {v.toFixed(2)}</div> : null; })}
             </div>
           </foreignObject>
@@ -204,7 +205,7 @@ const TrendChartRenderer: React.FC<WidgetRendererProps> = ({ config, width, heig
         {/* Legend */}
         {showLegend && tags.length > 1 && (
           <foreignObject x={ML} y={innerH - LEGEND_H} width={chartW} height={LEGEND_H}>
-            <div style={{ display: 'flex', gap: 8, fontSize: 8, color: '#6b7280' }}>
+            <div style={{ display: 'flex', gap: 8, fontSize: 8, color: colors.gray[400] }}>
               {tags.map((tag, i) => (
                 <span key={tag} style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                   <span style={{ width: 8, height: 3, borderRadius: 1, background: TRACE_COLORS[i % TRACE_COLORS.length], display: 'inline-block' }} />{tag}

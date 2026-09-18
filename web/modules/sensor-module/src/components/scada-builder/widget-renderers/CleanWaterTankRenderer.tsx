@@ -5,6 +5,7 @@
 
 import React, { memo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+import { colors } from '@aquaculture/shared-ui';
 
 const CleanWaterTankRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing }) => {
   const raw = isEditing ? (config.demoLevel ?? 70) : Number(value ?? 0);
@@ -13,7 +14,7 @@ const CleanWaterTankRenderer: React.FC<WidgetRendererProps> = ({ config, value, 
 
   const status = (isEditing ? (config.demoStatus ?? 'running') : String(value !== undefined ? 'running' : 'stopped')) as string;
   const isRunning = status === 'running';
-  const statusColor = isRunning ? '#22c55e' : '#9ca3af';
+  const statusColor = isRunning ? colors.success[500] : colors.neutral[400];
   const effectiveLevel = isRunning ? Math.max(level, 90) : 0;
   const pct = effectiveLevel / 100;
 
@@ -26,7 +27,7 @@ const CleanWaterTankRenderer: React.FC<WidgetRendererProps> = ({ config, value, 
   const fillH = tankH * pct;
 
   // Water color
-  const waterColor = '#4FB3F6';
+  const waterColor = colors.primary[300];
 
   return (
     <div style={{ width, height, padding: 8, boxSizing: 'border-box' }}>
@@ -45,9 +46,9 @@ const CleanWaterTankRenderer: React.FC<WidgetRendererProps> = ({ config, value, 
           </linearGradient>
           {/* Tank body gradient */}
           <linearGradient id="cleanTankGrad" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor="#e2e8f0" />
-            <stop offset="50%" stopColor="#f8fafc" />
-            <stop offset="100%" stopColor="#e2e8f0" />
+            <stop offset="0%" stopColor={colors.neutral[200]} />
+            <stop offset="50%" stopColor={colors.neutral[50]} />
+            <stop offset="100%" stopColor={colors.neutral[200]} />
           </linearGradient>
           {/* Clip path for water fill inside tank */}
           <clipPath id="cleanTankClip">
@@ -77,7 +78,7 @@ const CleanWaterTankRenderer: React.FC<WidgetRendererProps> = ({ config, value, 
           cy={tankY + capRy}
           rx={tankW / 2}
           ry={capRy}
-          fill="#e2e8f0"
+          fill={colors.neutral[200]}
           stroke="#333"
           strokeWidth={2}
         />
@@ -88,7 +89,7 @@ const CleanWaterTankRenderer: React.FC<WidgetRendererProps> = ({ config, value, 
           cy={tankY + tankH - capRy}
           rx={tankW / 2}
           ry={capRy}
-          fill="#cfd8dc"
+          fill={colors.neutral[300]}
           stroke="#333"
           strokeWidth={2}
         />
@@ -131,7 +132,7 @@ const CleanWaterTankRenderer: React.FC<WidgetRendererProps> = ({ config, value, 
           textAnchor="middle"
           fontSize={16}
           fontWeight={700}
-          fill="#111827"
+          fill={colors.neutral[900]}
         >
           {Math.round(effectiveLevel)}%
         </text>
@@ -139,7 +140,7 @@ const CleanWaterTankRenderer: React.FC<WidgetRendererProps> = ({ config, value, 
         {/* "Temiz" badge */}
         <rect x={34} y={110} width={52} height={16} rx={8} fill={waterColor} opacity={0.2} />
         <rect x={34} y={110} width={52} height={16} rx={8} fill="none" stroke={waterColor} strokeWidth={1} />
-        <text x={60} y={121} textAnchor="middle" fontSize={9} fill="#2563eb" fontWeight={600}>
+        <text x={60} y={121} textAnchor="middle" fontSize={9} fill={colors.info[600]} fontWeight={600}>
           Clean
         </text>
 

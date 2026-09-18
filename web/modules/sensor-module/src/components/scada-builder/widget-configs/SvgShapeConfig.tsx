@@ -30,6 +30,7 @@ import type { StrokeDashPattern, StrokeLineCap, StrokeLineJoin, GradientConfig, 
 import { DEFAULT_GRADIENT, DEFAULT_FILTER } from '../../../types/scada-svg-properties.types';
 import type { SvgTransform } from '../../../types/scada-transform.types';
 import { DEFAULT_SVG_TRANSFORM } from '../../../types/scada-transform.types';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, unknown>;
@@ -82,7 +83,7 @@ export const SvgRectConfig: React.FC<WidgetConfigProps> = ({ config, onChange, d
     <div className="grid grid-cols-2 gap-2">
       <div className="col-span-2">
         <ColorAlphaInput
-          color={(config.fill as string) || '#3b82f6'}
+          color={(config.fill as string) || themeColors.info[500]}
           alpha={(config.opacity as number) ?? 1}
           onChange={(color, alpha) => onChange({ fill: color, opacity: alpha })}
           label="Fill Color"
@@ -111,7 +112,7 @@ export const SvgRectConfig: React.FC<WidgetConfigProps> = ({ config, onChange, d
 
     {/* Stroke -- delegated to shared StrokeConfig panel */}
     <StrokeConfig
-      stroke={(config.stroke as string) || '#1d4ed8'}
+      stroke={(config.stroke as string) || themeColors.info[700]}
       strokeWidth={(config.strokeWidth as number) ?? 2}
       strokeOpacity={(config.strokeOpacity as number) ?? 1}
       dashPattern={(config.dashPattern as StrokeDashPattern) || 'solid'}
@@ -162,7 +163,7 @@ export const SvgCircleConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
 
     <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Fill</div>
     <ColorAlphaInput
-      color={(config.fill as string) || '#3b82f6'}
+      color={(config.fill as string) || themeColors.info[500]}
       alpha={(config.opacity as number) ?? 1}
       onChange={(color, alpha) => onChange({ fill: color, opacity: alpha })}
       label="Fill Color"
@@ -177,7 +178,7 @@ export const SvgCircleConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
 
     {/* Stroke -- delegated to shared StrokeConfig panel */}
     <StrokeConfig
-      stroke={(config.stroke as string) || '#1d4ed8'}
+      stroke={(config.stroke as string) || themeColors.info[700]}
       strokeWidth={(config.strokeWidth as number) ?? 2}
       strokeOpacity={(config.strokeOpacity as number) ?? 1}
       dashPattern={(config.dashPattern as StrokeDashPattern) || 'solid'}
@@ -244,7 +245,7 @@ export const SvgLineConfig: React.FC<WidgetConfigProps> = ({ config, onChange, d
 
     {/* Stroke -- delegated to shared StrokeConfig panel */}
     <StrokeConfig
-      stroke={(config.stroke as string) || '#1d4ed8'}
+      stroke={(config.stroke as string) || themeColors.info[700]}
       strokeWidth={(config.strokeWidth as number) ?? 3}
       strokeOpacity={(config.strokeOpacity as number) ?? 1}
       dashPattern={(config.dashPattern as StrokeDashPattern) || 'solid'}
@@ -317,7 +318,7 @@ export const SvgTextConfig: React.FC<WidgetConfigProps> = ({ config, onChange, d
       <label className="block text-xs text-gray-500 mb-1">Color</label>
       <input
         type="color"
-        value={(config.color as string) || '#1f2937'}
+        value={(config.color as string) || themeColors.neutral[800]}
         onChange={(e) => onChange({ color: e.target.value })}
         className="w-full h-8 rounded-lg border border-gray-300 cursor-pointer"
         aria-label="Text color"
@@ -350,7 +351,7 @@ export const SvgTextConfig: React.FC<WidgetConfigProps> = ({ config, onChange, d
 
     {/* Stroke -- optional for text outlines */}
     <StrokeConfig
-      stroke={(config.stroke as string) || '#000000'}
+      stroke={(config.stroke as string) || themeColors.black}
       strokeWidth={(config.strokeWidth as number) ?? 0}
       strokeOpacity={(config.strokeOpacity as number) ?? 1}
       dashPattern={(config.dashPattern as StrokeDashPattern) || 'solid'}
@@ -416,9 +417,9 @@ export const SvgPolygonConfig: React.FC<WidgetConfigProps> = ({ config, onChange
       </div>
     )}
     <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Fill</div>
-    <ColorAlphaInput color={(config.fill as string) || '#3b82f6'} alpha={(config.opacity as number) ?? 1} onChange={(color, alpha) => onChange({ fill: color, opacity: alpha })} label="Fill Color" />
+    <ColorAlphaInput color={(config.fill as string) || themeColors.info[500]} alpha={(config.opacity as number) ?? 1} onChange={(color, alpha) => onChange({ fill: color, opacity: alpha })} label="Fill Color" />
     <GradientEditor gradient={getGradient(config)} onChange={(gradient) => onChange({ fillGradient: gradient })} widgetId={(config._widgetId as string) ?? 'polygon-0'} />
-    <StrokeConfig stroke={(config.stroke as string) || '#1d4ed8'} strokeWidth={(config.strokeWidth as number) ?? 2} strokeOpacity={(config.strokeOpacity as number) ?? 1} dashPattern={(config.dashPattern as StrokeDashPattern) || 'solid'} lineCap={(config.lineCap as StrokeLineCap) || 'butt'} lineJoin={(config.lineJoin as StrokeLineJoin) || 'miter'} onChange={(updates) => onChange(updates)} />
+    <StrokeConfig stroke={(config.stroke as string) || themeColors.info[700]} strokeWidth={(config.strokeWidth as number) ?? 2} strokeOpacity={(config.strokeOpacity as number) ?? 1} dashPattern={(config.dashPattern as StrokeDashPattern) || 'solid'} lineCap={(config.lineCap as StrokeLineCap) || 'butt'} lineJoin={(config.lineJoin as StrokeLineJoin) || 'miter'} onChange={(updates) => onChange(updates)} />
     <div><label className="block text-xs text-gray-500 mb-1">Label</label><input type="text" value={(config.label as string) || ''} onChange={(e) => onChange({ label: e.target.value })} placeholder="Optional label" className={INPUT_CLASS} aria-label="Widget label" /></div>
     <SvgFilterEditor filter={getFilter(config)} onChange={(filter) => onChange({ filter })} widgetId={(config._widgetId as string) ?? 'polygon-0'} />
     <TransformConfig transform={getTransform(config)} onChange={makeTransformOnChange(config, onChange)} />
@@ -442,9 +443,9 @@ export const SvgTriangleConfig: React.FC<WidgetConfigProps> = ({ config, onChang
       </select>
     </div>
     <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Fill</div>
-    <ColorAlphaInput color={(config.fill as string) || '#10b981'} alpha={(config.opacity as number) ?? 1} onChange={(color, alpha) => onChange({ fill: color, opacity: alpha })} label="Fill Color" />
+    <ColorAlphaInput color={(config.fill as string) || themeColors.success[500]} alpha={(config.opacity as number) ?? 1} onChange={(color, alpha) => onChange({ fill: color, opacity: alpha })} label="Fill Color" />
     <GradientEditor gradient={getGradient(config)} onChange={(gradient) => onChange({ fillGradient: gradient })} widgetId={(config._widgetId as string) ?? 'triangle-0'} />
-    <StrokeConfig stroke={(config.stroke as string) || '#059669'} strokeWidth={(config.strokeWidth as number) ?? 2} strokeOpacity={(config.strokeOpacity as number) ?? 1} dashPattern={(config.dashPattern as StrokeDashPattern) || 'solid'} lineCap={(config.lineCap as StrokeLineCap) || 'butt'} lineJoin={(config.lineJoin as StrokeLineJoin) || 'miter'} onChange={(updates) => onChange(updates)} />
+    <StrokeConfig stroke={(config.stroke as string) || themeColors.success[600]} strokeWidth={(config.strokeWidth as number) ?? 2} strokeOpacity={(config.strokeOpacity as number) ?? 1} dashPattern={(config.dashPattern as StrokeDashPattern) || 'solid'} lineCap={(config.lineCap as StrokeLineCap) || 'butt'} lineJoin={(config.lineJoin as StrokeLineJoin) || 'miter'} onChange={(updates) => onChange(updates)} />
     <div><label className="block text-xs text-gray-500 mb-1">Label</label><input type="text" value={(config.label as string) || ''} onChange={(e) => onChange({ label: e.target.value })} placeholder="Optional label" className={INPUT_CLASS} aria-label="Widget label" /></div>
     <SvgFilterEditor filter={getFilter(config)} onChange={(filter) => onChange({ filter })} widgetId={(config._widgetId as string) ?? 'triangle-0'} />
     <TransformConfig transform={getTransform(config)} onChange={makeTransformOnChange(config, onChange)} />
@@ -458,9 +459,9 @@ export const SvgTriangleConfig: React.FC<WidgetConfigProps> = ({ config, onChang
 export const SvgDiamondConfig: React.FC<WidgetConfigProps> = ({ config, onChange }) => (
   <div className="space-y-3">
     <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Fill</div>
-    <ColorAlphaInput color={(config.fill as string) || '#f59e0b'} alpha={(config.opacity as number) ?? 1} onChange={(color, alpha) => onChange({ fill: color, opacity: alpha })} label="Fill Color" />
+    <ColorAlphaInput color={(config.fill as string) || themeColors.warning[500]} alpha={(config.opacity as number) ?? 1} onChange={(color, alpha) => onChange({ fill: color, opacity: alpha })} label="Fill Color" />
     <GradientEditor gradient={getGradient(config)} onChange={(gradient) => onChange({ fillGradient: gradient })} widgetId={(config._widgetId as string) ?? 'diamond-0'} />
-    <StrokeConfig stroke={(config.stroke as string) || '#d97706'} strokeWidth={(config.strokeWidth as number) ?? 2} strokeOpacity={(config.strokeOpacity as number) ?? 1} dashPattern={(config.dashPattern as StrokeDashPattern) || 'solid'} lineCap={(config.lineCap as StrokeLineCap) || 'butt'} lineJoin={(config.lineJoin as StrokeLineJoin) || 'miter'} onChange={(updates) => onChange(updates)} />
+    <StrokeConfig stroke={(config.stroke as string) || themeColors.warning[600]} strokeWidth={(config.strokeWidth as number) ?? 2} strokeOpacity={(config.strokeOpacity as number) ?? 1} dashPattern={(config.dashPattern as StrokeDashPattern) || 'solid'} lineCap={(config.lineCap as StrokeLineCap) || 'butt'} lineJoin={(config.lineJoin as StrokeLineJoin) || 'miter'} onChange={(updates) => onChange(updates)} />
     <div><label className="block text-xs text-gray-500 mb-1">Label</label><input type="text" value={(config.label as string) || ''} onChange={(e) => onChange({ label: e.target.value })} placeholder="Optional label" className={INPUT_CLASS} aria-label="Widget label" /></div>
     <SvgFilterEditor filter={getFilter(config)} onChange={(filter) => onChange({ filter })} widgetId={(config._widgetId as string) ?? 'diamond-0'} />
     <TransformConfig transform={getTransform(config)} onChange={makeTransformOnChange(config, onChange)} />
@@ -496,9 +497,9 @@ export const SvgArrowConfig: React.FC<WidgetConfigProps> = ({ config, onChange }
       </div>
     </div>
     <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Fill</div>
-    <ColorAlphaInput color={(config.fill as string) || '#6366f1'} alpha={(config.opacity as number) ?? 1} onChange={(color, alpha) => onChange({ fill: color, opacity: alpha })} label="Fill Color" />
+    <ColorAlphaInput color={(config.fill as string) || themeColors.primary[500]} alpha={(config.opacity as number) ?? 1} onChange={(color, alpha) => onChange({ fill: color, opacity: alpha })} label="Fill Color" />
     <GradientEditor gradient={getGradient(config)} onChange={(gradient) => onChange({ fillGradient: gradient })} widgetId={(config._widgetId as string) ?? 'arrow-0'} />
-    <StrokeConfig stroke={(config.stroke as string) || '#4f46e5'} strokeWidth={(config.strokeWidth as number) ?? 2} strokeOpacity={(config.strokeOpacity as number) ?? 1} dashPattern={(config.dashPattern as StrokeDashPattern) || 'solid'} lineCap={(config.lineCap as StrokeLineCap) || 'butt'} lineJoin={(config.lineJoin as StrokeLineJoin) || 'miter'} onChange={(updates) => onChange(updates)} />
+    <StrokeConfig stroke={(config.stroke as string) || themeColors.primary[600]} strokeWidth={(config.strokeWidth as number) ?? 2} strokeOpacity={(config.strokeOpacity as number) ?? 1} dashPattern={(config.dashPattern as StrokeDashPattern) || 'solid'} lineCap={(config.lineCap as StrokeLineCap) || 'butt'} lineJoin={(config.lineJoin as StrokeLineJoin) || 'miter'} onChange={(updates) => onChange(updates)} />
     <div><label className="block text-xs text-gray-500 mb-1">Label</label><input type="text" value={(config.label as string) || ''} onChange={(e) => onChange({ label: e.target.value })} placeholder="Optional label" className={INPUT_CLASS} aria-label="Widget label" /></div>
     <SvgFilterEditor filter={getFilter(config)} onChange={(filter) => onChange({ filter })} widgetId={(config._widgetId as string) ?? 'arrow-0'} />
     <TransformConfig transform={getTransform(config)} onChange={makeTransformOnChange(config, onChange)} />

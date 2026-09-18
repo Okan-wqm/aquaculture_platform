@@ -8,6 +8,7 @@
 
 import React, { memo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+import { colors } from '@aquaculture/shared-ui';
 
 type TextAnchorValue = 'start' | 'middle' | 'end';
 
@@ -17,7 +18,7 @@ const SvgTextRenderer: React.FC<WidgetRendererProps> = ({
   const text = (config.text ?? 'Text') as string;
   const fontSize = (config.fontSize ?? 16) as number;
   const fontWeight = (config.fontWeight ?? 'normal') as string;
-  const color = (animationState?.fill ?? config.color ?? '#1f2937') as string;
+  const color = (animationState?.fill ?? config.color ?? colors.neutral[800]) as string;
   const textAlign = (config.textAlign ?? 'center') as 'left' | 'center' | 'right';
   const showValue = (config.showValue ?? false) as boolean;
 

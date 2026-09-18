@@ -1,5 +1,6 @@
 import React from 'react';
 import { AlignLeft, AlignCenter, AlignRight } from 'lucide-react';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, any>;
@@ -103,7 +104,7 @@ export const StaticTextConfig: React.FC<WidgetConfigProps> = ({ config, onChange
         <label className="block text-xs text-gray-500 mb-1">Text Color</label>
         <input
           type="color"
-          value={config.color || '#1f2937'}
+          value={config.color || themeColors.neutral[800]}
           onChange={(e) => onChange({ color: e.target.value })}
           className="w-full h-8 rounded-lg border border-gray-300 cursor-pointer"
         />
@@ -116,7 +117,7 @@ export const StaticTextConfig: React.FC<WidgetConfigProps> = ({ config, onChange
             type="checkbox"
             checked={hasBg}
             onChange={(e) =>
-              onChange({ backgroundColor: e.target.checked ? '#ffffff' : 'transparent' })
+              onChange({ backgroundColor: e.target.checked ? themeColors.white : 'transparent' })
             }
             className="rounded border-gray-300 text-cyan-600 focus:ring-cyan-500"
           />
@@ -125,7 +126,7 @@ export const StaticTextConfig: React.FC<WidgetConfigProps> = ({ config, onChange
         {hasBg && (
           <input
             type="color"
-            value={config.backgroundColor || '#ffffff'}
+            value={config.backgroundColor || themeColors.white}
             onChange={(e) => onChange({ backgroundColor: e.target.value })}
             className="w-full h-8 rounded-lg border border-gray-300 cursor-pointer"
           />
@@ -149,7 +150,7 @@ export const StaticTextConfig: React.FC<WidgetConfigProps> = ({ config, onChange
           <label className="block text-xs text-gray-500 mb-1">Border Color</label>
           <input
             type="color"
-            value={config.borderColor || '#d1d5db'}
+            value={config.borderColor || themeColors.neutral[300]}
             onChange={(e) => onChange({ borderColor: e.target.value })}
             className="w-full h-8 rounded-lg border border-gray-300 cursor-pointer"
           />

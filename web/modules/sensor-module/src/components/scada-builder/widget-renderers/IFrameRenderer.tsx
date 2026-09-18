@@ -16,6 +16,7 @@
 
 import React, { memo, useState, useMemo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+import { colors, colors as themeColors } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  URL validation                                                     */
@@ -108,10 +109,10 @@ const IFrameRenderer: React.FC<WidgetRendererProps> = ({
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          background: '#fefce8',
-          border: '1px dashed #d97706',
+          background: colors.warning[50],
+          border: `1px dashed ${themeColors.warning[600]}`,
           borderRadius: borderRadius || 6,
-          color: '#92400e',
+          color: colors.warning[700],
           fontFamily: 'sans-serif',
           fontSize: 12,
           gap: 6,
@@ -122,7 +123,7 @@ const IFrameRenderer: React.FC<WidgetRendererProps> = ({
       >
         <span style={{ fontSize: 22 }}>{'\u26A0'}</span>
         <span style={{ fontWeight: 600 }}>IFrame</span>
-        <span style={{ fontSize: 11, color: '#a16207' }}>{validationError}</span>
+        <span style={{ fontSize: 11, color: colors.warning[700] }}>{validationError}</span>
       </div>
     );
   }
@@ -139,12 +140,12 @@ const IFrameRenderer: React.FC<WidgetRendererProps> = ({
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          background: '#f0f9ff',
-          border: showBorder ? '1px solid #bae6fd' : 'none',
+          background: colors.info[50],
+          border: showBorder ? `1px solid ${themeColors.primary[100]}` : 'none',
           borderRadius,
           fontFamily: 'sans-serif',
           fontSize: 12,
-          color: '#0369a1',
+          color: colors.primary[600],
           gap: 6,
           padding: 16,
           textAlign: 'center',
@@ -153,11 +154,11 @@ const IFrameRenderer: React.FC<WidgetRendererProps> = ({
       >
         <span style={{ fontSize: 24 }}>{'\uD83C\uDF10'}</span>
         <span style={{ fontWeight: 600 }}>IFrame Widget</span>
-        {label && <span style={{ fontSize: 11, color: '#0284c7' }}>{label}</span>}
+        {label && <span style={{ fontSize: 11, color: colors.primary[500] }}>{label}</span>}
         <span
           style={{
             fontSize: 10,
-            color: '#64748b',
+            color: colors.neutral[500],
             maxWidth: '90%',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
@@ -166,7 +167,7 @@ const IFrameRenderer: React.FC<WidgetRendererProps> = ({
         >
           {url}
         </span>
-        <span style={{ fontSize: 10, color: '#94a3b8', marginTop: 4 }}>
+        <span style={{ fontSize: 10, color: colors.neutral[400], marginTop: 4 }}>
           Preview disabled in edit mode
         </span>
       </div>
@@ -181,7 +182,7 @@ const IFrameRenderer: React.FC<WidgetRendererProps> = ({
         position: 'relative',
         borderRadius,
         overflow: 'hidden',
-        border: showBorder ? '1px solid #e2e8f0' : 'none',
+        border: showBorder ? `1px solid ${themeColors.neutral[200]}` : 'none',
       }}
       data-testid="iframe-container"
     >
@@ -194,7 +195,7 @@ const IFrameRenderer: React.FC<WidgetRendererProps> = ({
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            background: '#f8fafc',
+            background: colors.neutral[50],
             zIndex: 1,
           }}
           data-testid="iframe-loading"
@@ -203,8 +204,8 @@ const IFrameRenderer: React.FC<WidgetRendererProps> = ({
             style={{
               width: 28,
               height: 28,
-              border: '3px solid #e2e8f0',
-              borderTopColor: '#06b6d4',
+              border: `3px solid ${themeColors.neutral[200]}`,
+              borderTopColor: colors.primary[400],
               borderRadius: '50%',
               animation: 'widgetSpin 0.7s linear infinite',
             }}

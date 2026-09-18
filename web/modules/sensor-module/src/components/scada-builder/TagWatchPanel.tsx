@@ -30,6 +30,7 @@ import {
   Activity,
 } from 'lucide-react';
 import { TagValueBus } from '../../engine/tags/TagValueBus';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -89,7 +90,7 @@ const MiniSparkline: React.FC<{ values: number[] }> = ({ values }) => {
       <polyline
         points={points}
         fill="none"
-        stroke="#06b6d4"
+        stroke={themeColors.primary[400]}
         strokeWidth={1.5}
         strokeLinejoin="round"
         strokeLinecap="round"

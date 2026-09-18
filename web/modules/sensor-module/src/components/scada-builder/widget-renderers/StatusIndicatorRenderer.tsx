@@ -5,14 +5,15 @@
 
 import React, { memo, useId } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+import { colors } from '@aquaculture/shared-ui';
 
 const STATUS_COLORS: Record<string, string> = {
-  normal: '#22c55e',
-  ok: '#22c55e',
-  warning: '#eab308',
-  alarm: '#ef4444',
-  critical: '#ef4444',
-  offline: '#9ca3af',
+  normal: colors.success[500],
+  ok: colors.success[500],
+  warning: colors.warning[500],
+  alarm: colors.error[500],
+  critical: colors.error[500],
+  offline: colors.neutral[400],
 };
 
 /**
@@ -39,7 +40,7 @@ function getGlowMode(statusKey: string): 'pulse-fast' | 'pulse' | 'steady' | 'no
 const StatusIndicatorRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing }) => {
   const label = (config.label ?? 'Status') as string;
   const activeColor = (config.activeColor as string) || null;
-  const inactiveColor = (config.inactiveColor as string) || '#9ca3af';
+  const inactiveColor = (config.inactiveColor as string) || colors.neutral[400];
   const rawValue = isEditing ? (config.demoStatus ?? 'normal') : (value ?? 'offline');
   const statusKey = resolveStatus(rawValue);
 
@@ -50,7 +51,7 @@ const StatusIndicatorRenderer: React.FC<WidgetRendererProps> = ({ config, value,
   } else if (statusKey === 'offline' && inactiveColor) {
     color = inactiveColor;
   } else {
-    color = STATUS_COLORS[statusKey] ?? '#9ca3af';
+    color = STATUS_COLORS[statusKey] ?? colors.neutral[400];
   }
   const circleR = Math.min(width, height) * 0.22;
   const glowMode = getGlowMode(statusKey);
@@ -137,7 +138,7 @@ const StatusIndicatorRenderer: React.FC<WidgetRendererProps> = ({ config, value,
           opacity={0.18}
         />
       </svg>
-      <span style={{ fontSize: 11, fontWeight: 500, color: '#374151', textAlign: 'center' }}>
+      <span style={{ fontSize: 11, fontWeight: 500, color: colors.neutral[700], textAlign: 'center' }}>
         {label}
       </span>
     </div>

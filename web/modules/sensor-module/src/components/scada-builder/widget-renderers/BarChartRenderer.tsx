@@ -12,6 +12,7 @@
 
 import React, { memo, useMemo, useCallback } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+import { colors, chartChrome } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -28,8 +29,8 @@ interface BarSource {
 /* ------------------------------------------------------------------ */
 
 const DEFAULT_COLORS = [
-  '#06b6d4', '#8b5cf6', '#f59e0b', '#ef4444', '#22c55e',
-  '#ec4899', '#3b82f6', '#14b8a6',
+  colors.primary[400], colors.primary[700], colors.warning[500], colors.error[500], colors.success[500],
+  colors.accent[500], colors.info[500], colors.secondary[600],
 ];
 
 /* ------------------------------------------------------------------ */
@@ -183,7 +184,7 @@ const BarChartRenderer: React.FC<WidgetRendererProps> = ({
           textAnchor="middle"
           fontSize={11}
           fontWeight={600}
-          fill="#374151"
+          fill={colors.neutral[700]}
         >
           {label}
         </text>
@@ -200,7 +201,7 @@ const BarChartRenderer: React.FC<WidgetRendererProps> = ({
                   y1={y}
                   x2={MARGIN_LEFT + chartW}
                   y2={y}
-                  stroke="#f3f4f6"
+                  stroke={chartChrome.grid}
                   strokeWidth={1}
                 />
               );
@@ -213,7 +214,7 @@ const BarChartRenderer: React.FC<WidgetRendererProps> = ({
                 y1={MARGIN_TOP}
                 x2={x}
                 y2={MARGIN_TOP + chartH}
-                stroke="#f3f4f6"
+                stroke={chartChrome.grid}
                 strokeWidth={1}
               />
             );
@@ -227,7 +228,7 @@ const BarChartRenderer: React.FC<WidgetRendererProps> = ({
               y1={MARGIN_TOP}
               x2={MARGIN_LEFT}
               y2={MARGIN_TOP + chartH}
-              stroke="#d1d5db"
+              stroke={colors.neutral[300]}
               strokeWidth={1}
             />
             <line
@@ -235,7 +236,7 @@ const BarChartRenderer: React.FC<WidgetRendererProps> = ({
               y1={MARGIN_TOP + chartH}
               x2={MARGIN_LEFT + chartW}
               y2={MARGIN_TOP + chartH}
-              stroke="#d1d5db"
+              stroke={colors.neutral[300]}
               strokeWidth={1}
             />
           </>
@@ -246,7 +247,7 @@ const BarChartRenderer: React.FC<WidgetRendererProps> = ({
               y1={MARGIN_TOP}
               x2={MARGIN_LEFT}
               y2={MARGIN_TOP + chartH}
-              stroke="#d1d5db"
+              stroke={colors.neutral[300]}
               strokeWidth={1}
             />
             <line
@@ -254,7 +255,7 @@ const BarChartRenderer: React.FC<WidgetRendererProps> = ({
               y1={MARGIN_TOP + chartH}
               x2={MARGIN_LEFT + chartW}
               y2={MARGIN_TOP + chartH}
-              stroke="#d1d5db"
+              stroke={colors.neutral[300]}
               strokeWidth={1}
             />
           </>
@@ -270,7 +271,7 @@ const BarChartRenderer: React.FC<WidgetRendererProps> = ({
                 y={scaleY(tick) + 3}
                 textAnchor="end"
                 fontSize={8}
-                fill="#9ca3af"
+                fill={colors.neutral[400]}
               >
                 {tick % 1 === 0 ? tick : tick.toFixed(1)}
               </text>
@@ -283,7 +284,7 @@ const BarChartRenderer: React.FC<WidgetRendererProps> = ({
               y={MARGIN_TOP + chartH + 14}
               textAnchor="middle"
               fontSize={8}
-              fill="#9ca3af"
+              fill={colors.neutral[400]}
             >
               {tick % 1 === 0 ? tick : tick.toFixed(1)}
             </text>
@@ -320,7 +321,7 @@ const BarChartRenderer: React.FC<WidgetRendererProps> = ({
                     textAnchor="middle"
                     fontSize={8}
                     fontWeight={600}
-                    fill="#374151"
+                    fill={colors.neutral[700]}
                   >
                     {barValues[i].toFixed(1)}
                   </text>
@@ -332,7 +333,7 @@ const BarChartRenderer: React.FC<WidgetRendererProps> = ({
                     y={MARGIN_TOP + chartH + 12}
                     textAnchor="middle"
                     fontSize={7}
-                    fill="#6b7280"
+                    fill={colors.gray[400]}
                   >
                     {source.label.length > 8
                       ? source.label.slice(0, 7) + '...'
@@ -366,7 +367,7 @@ const BarChartRenderer: React.FC<WidgetRendererProps> = ({
                   textAnchor="start"
                   fontSize={8}
                   fontWeight={600}
-                  fill="#374151"
+                  fill={colors.neutral[700]}
                 >
                   {barValues[i].toFixed(1)}
                 </text>
@@ -378,7 +379,7 @@ const BarChartRenderer: React.FC<WidgetRendererProps> = ({
                   y={y + barThickness / 2 + 3}
                   textAnchor="end"
                   fontSize={7}
-                  fill="#6b7280"
+                  fill={colors.gray[400]}
                 >
                   {source.label.length > 8
                     ? source.label.slice(0, 7) + '...'
@@ -396,7 +397,7 @@ const BarChartRenderer: React.FC<WidgetRendererProps> = ({
             y={12}
             textAnchor="end"
             fontSize={8}
-            fill="#9ca3af"
+            fill={colors.neutral[400]}
             fontStyle="italic"
           >
             demo

@@ -9,6 +9,7 @@
 
 import React from 'react';
 import { TagBrowser } from '../TagBrowser';
+import { colors } from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, unknown>;
@@ -51,10 +52,10 @@ export const DataTableConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
   const pageSize = (config.pageSize ?? 10) as number;
   const showPagination = (config.showPagination ?? true) as boolean;
   const showHeader = (config.showHeader ?? true) as boolean;
-  const headerBgColor = (config.headerBgColor ?? '#1e293b') as string;
-  const headerTextColor = (config.headerTextColor ?? '#ffffff') as string;
-  const rowBgColor = (config.rowBgColor ?? '#ffffff') as string;
-  const alternateRowColor = (config.alternateRowColor ?? '#f8fafc') as string;
+  const headerBgColor = (config.headerBgColor ?? colors.neutral[800]) as string;
+  const headerTextColor = (config.headerTextColor ?? colors.white) as string;
+  const rowBgColor = (config.rowBgColor ?? colors.white) as string;
+  const alternateRowColor = (config.alternateRowColor ?? colors.neutral[50]) as string;
   const fontSize = (config.fontSize ?? 12) as number;
   const rowColorRules = (config.rowColorRules ?? []) as RowColorRule[];
 
@@ -83,7 +84,7 @@ export const DataTableConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
   /* ---------------------------------------------------------------- */
 
   const addRule = () => {
-    const newRule: RowColorRule = { tagName: '', min: 0, max: 100, color: '#ef4444' };
+    const newRule: RowColorRule = { tagName: '', min: 0, max: 100, color: colors.error[500] };
     onChange({ rowColorRules: [...rowColorRules, newRule] });
   };
 

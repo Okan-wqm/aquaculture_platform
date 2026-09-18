@@ -17,6 +17,7 @@ import React, { useState, useCallback } from 'react';
 import type { SvgFilterConfig, SvgFilterType } from '../../../types/scada-svg-properties.types';
 import { SVG_FILTER_TYPE_OPTIONS } from '../../../types/scada-svg-properties.types';
 import { ColorAlphaInput } from './ColorAlphaInput';
+import { colors } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                               */
@@ -66,7 +67,7 @@ export const SvgFilterEditor: React.FC<SvgFilterEditorProps> = ({
             blurRadius: filter.blurRadius ?? 4,
             shadowX: filter.shadowX ?? 2,
             shadowY: filter.shadowY ?? 2,
-            shadowColor: filter.shadowColor ?? '#000000',
+            shadowColor: filter.shadowColor ?? colors.black,
             shadowOpacity: filter.shadowOpacity ?? 0.5,
           });
           break;
@@ -74,7 +75,7 @@ export const SvgFilterEditor: React.FC<SvgFilterEditorProps> = ({
           onChange({
             type,
             blurRadius: filter.blurRadius ?? 6,
-            shadowColor: filter.shadowColor ?? '#3b82f6',
+            shadowColor: filter.shadowColor ?? colors.info[500],
             shadowOpacity: filter.shadowOpacity ?? 0.8,
           });
           break;
@@ -223,7 +224,7 @@ export const SvgFilterEditor: React.FC<SvgFilterEditorProps> = ({
                 </div>
               </div>
               <ColorAlphaInput
-                color={filter.shadowColor ?? '#000000'}
+                color={filter.shadowColor ?? colors.black}
                 alpha={filter.shadowOpacity ?? 0.5}
                 onChange={handleShadowColor}
                 label="Shadow Color"
@@ -251,7 +252,7 @@ export const SvgFilterEditor: React.FC<SvgFilterEditorProps> = ({
                 />
               </div>
               <ColorAlphaInput
-                color={filter.shadowColor ?? '#3b82f6'}
+                color={filter.shadowColor ?? colors.info[500]}
                 alpha={filter.shadowOpacity ?? 0.8}
                 onChange={handleShadowColor}
                 label="Glow Color"

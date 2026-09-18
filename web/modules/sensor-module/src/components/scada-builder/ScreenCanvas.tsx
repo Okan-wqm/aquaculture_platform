@@ -60,6 +60,7 @@ import {
   pixelToGrid,
   getWidgetSize,
 } from '../../constants/scada-widget-sizes';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Node type registry                                                 */
@@ -932,7 +933,7 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
           nodesDraggable={!isPreview}
           nodesConnectable={!isPreview}
           elementsSelectable={!isPreview}
-          connectionLineStyle={{ stroke: '#06b6d4', strokeWidth: 2 }}
+          connectionLineStyle={{ stroke: themeColors.primary[400], strokeWidth: 2 }}
           connectionLineType={ConnectionLineType.SmoothStep}
           connectionRadius={20}
           onMove={onMove}
@@ -943,7 +944,7 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
               variant={BackgroundVariant.Dots}
               gap={GRID_CELL_W}
               size={1.5}
-              color="#d1d5db"
+              color={themeColors.neutral[300]}
             />
           )}
           <Controls
@@ -953,16 +954,16 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
           <MiniMap
             nodeColor={(node: Node) => {
               const data = node.data as ScadaWidgetNodeData | undefined;
-              if (!data) return '#06b6d4';
+              if (!data) return themeColors.primary[400];
               const type = data.widgetType;
               // Equipment types get industrial colors
-              if (type === 'equipment') return '#f59e0b'; // amber
-              if (type === 'gauge') return '#10b981'; // emerald
-              if (type === 'alarmBanner' || type === 'alarmList') return '#ef4444'; // red
-              if (type === 'trendChart') return '#8b5cf6'; // violet
-              if (type === 'screenLink') return '#3b82f6'; // blue
-              if (type === 'staticText') return '#6b7280'; // gray
-              return '#06b6d4'; // cyan default
+              if (type === 'equipment') return themeColors.warning[500]; // amber
+              if (type === 'gauge') return themeColors.success[500]; // emerald
+              if (type === 'alarmBanner' || type === 'alarmList') return themeColors.error[500]; // red
+              if (type === 'trendChart') return themeColors.primary[700]; // violet
+              if (type === 'screenLink') return themeColors.info[500]; // blue
+              if (type === 'staticText') return themeColors.gray[400]; // gray
+              return themeColors.primary[400]; // cyan default
             }}
             maskColor="rgba(0,0,0,0.1)"
             position="bottom-left"

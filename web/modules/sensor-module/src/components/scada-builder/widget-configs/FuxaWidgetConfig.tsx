@@ -20,6 +20,7 @@ import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { Upload, Trash2, AlertCircle, Plus, X } from 'lucide-react';
 import { parseFuxaExportVariables } from '../fuxa-bridge/types';
 import type { FuxaExportVariable, FuxaStateRule } from '../fuxa-bridge/types';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                          */
@@ -415,7 +416,7 @@ const VariableInput: React.FC<VariableInputProps> = ({
               value={String(value)}
               onChange={(e) => onChange(variable.id, e.target.value)}
               className={`${INPUT_CLS} flex-1`}
-              placeholder="#000000"
+              placeholder={themeColors.black}
             />
           </div>
         );

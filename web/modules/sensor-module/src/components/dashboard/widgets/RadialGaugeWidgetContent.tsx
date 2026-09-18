@@ -8,6 +8,7 @@ import React, { useState, useEffect } from 'react';
 import { Clock } from 'lucide-react';
 import { WidgetConfig } from '../types';
 import { useWidgetData } from '../../../hooks/useWidgetData';
+import { colors } from '@aquaculture/shared-ui';
 
 interface RadialGaugeWidgetContentProps {
   config: WidgetConfig;
@@ -94,15 +95,15 @@ export const RadialGaugeWidgetContent: React.FC<RadialGaugeWidgetContentProps> =
       (thresholds.critical?.low !== undefined && value < thresholds.critical.low) ||
       (thresholds.critical?.high !== undefined && value > thresholds.critical.high)
     ) {
-      return '#EF4444'; // Critical - Red
+      return colors.error[500]; // Critical - Red
     }
     if (
       (thresholds.warning?.low !== undefined && value < thresholds.warning.low) ||
       (thresholds.warning?.high !== undefined && value > thresholds.warning.high)
     ) {
-      return '#F59E0B'; // Warning - Amber
+      return colors.warning[500]; // Warning - Amber
     }
-    return '#10B981'; // Normal - Green
+    return colors.success[500]; // Normal - Green
   };
 
   const valueColor = getColor();
@@ -130,14 +131,14 @@ export const RadialGaugeWidgetContent: React.FC<RadialGaugeWidgetContentProps> =
           {/* Background gradient — zone positions derived from actual thresholds (BUG-013) */}
           <defs>
             <linearGradient id={`radial-bg-${config.id}`} x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="#EF4444" stopOpacity={0.15} />
-              <stop offset={`${critLowPct}%`} stopColor="#EF4444" stopOpacity={0.15} />
-              <stop offset={`${warnLowPct}%`} stopColor="#F59E0B" stopOpacity={0.15} />
-              <stop offset={`${Math.min(warnLowPct + 5, 50)}%`} stopColor="#10B981" stopOpacity={0.15} />
-              <stop offset={`${Math.max(warnHighPct - 5, 50)}%`} stopColor="#10B981" stopOpacity={0.15} />
-              <stop offset={`${warnHighPct}%`} stopColor="#F59E0B" stopOpacity={0.15} />
-              <stop offset={`${critHighPct}%`} stopColor="#EF4444" stopOpacity={0.15} />
-              <stop offset="100%" stopColor="#EF4444" stopOpacity={0.15} />
+              <stop offset="0%" stopColor={colors.error[500]} stopOpacity={0.15} />
+              <stop offset={`${critLowPct}%`} stopColor={colors.error[500]} stopOpacity={0.15} />
+              <stop offset={`${warnLowPct}%`} stopColor={colors.warning[500]} stopOpacity={0.15} />
+              <stop offset={`${Math.min(warnLowPct + 5, 50)}%`} stopColor={colors.success[500]} stopOpacity={0.15} />
+              <stop offset={`${Math.max(warnHighPct - 5, 50)}%`} stopColor={colors.success[500]} stopOpacity={0.15} />
+              <stop offset={`${warnHighPct}%`} stopColor={colors.warning[500]} stopOpacity={0.15} />
+              <stop offset={`${critHighPct}%`} stopColor={colors.error[500]} stopOpacity={0.15} />
+              <stop offset="100%" stopColor={colors.error[500]} stopOpacity={0.15} />
             </linearGradient>
           </defs>
 

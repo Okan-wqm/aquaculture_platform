@@ -62,8 +62,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
   const baseInfo = BASE_REAGENTS.find(r => r.name === config.baseReagent);
 
   return (
-    <div className="w-[280px] flex-shrink-0 bg-white rounded-lg border border-gray-200 p-3 overflow-y-auto text-sm"
-         style={{ maxHeight: 'calc(100vh - 100px)' }}>
+    <div className="w-[280px] flex-shrink-0 bg-white rounded-lg border border-gray-200 p-3 overflow-y-auto text-sm max-h-[calc(100vh_-_100px)]">
       {/* Tank Values */}
       <div className="mb-4">
         <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Tank Values</h4>

@@ -1,5 +1,6 @@
 import React from 'react';
 import { IconProps } from '../types';
+import { colors } from '@aquaculture/shared-ui';
 
 /**
  * Heater Icon Component
@@ -25,7 +26,7 @@ export const HeaterIcon: React.FC<IconProps> = ({
     <path d="M44 16v-6" stroke={color} strokeWidth="2"/>
     <path d="M20 48v6" stroke={color} strokeWidth="2"/>
     <path d="M44 48v6" stroke={color} strokeWidth="2"/>
-    <path d="M24 32c2-4 4-4 6 0s4 4 6 0" stroke="#ef4444" strokeWidth="2" fill="none"/>
+    <path d="M24 32c2-4 4-4 6 0s4 4 6 0" stroke={colors.error[500]} strokeWidth="2" fill="none"/>
   </svg>
 );
 

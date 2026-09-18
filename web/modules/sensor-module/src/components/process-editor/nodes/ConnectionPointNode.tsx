@@ -6,6 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { Handle, useUpdateNodeInternals, NodeProps, type Node } from '@xyflow/react';
 import { useProcessStore } from '../../../store/processStore';
+import { colors, colors as themeColors } from '@aquaculture/shared-ui';
 
 type HandleType = 'source' | 'target';
 
@@ -46,7 +47,7 @@ const ConnectionPointNode: React.FC<NodeProps<Node<ConnectionPointNodeData>>> = 
     updateNodeInternals(id);
   }, [topType, bottomType, leftType, rightType, id, updateNodeInternals]);
 
-  const getColor = (type: HandleType) => type === 'source' ? '#22c55e' : '#3b82f6';
+  const getColor = (type: HandleType) => type === 'source' ? colors.success[500] : colors.info[500];
 
   return (
     <div
@@ -54,7 +55,7 @@ const ConnectionPointNode: React.FC<NodeProps<Node<ConnectionPointNodeData>>> = 
         position: 'relative',
         width: 30,
         height: 30,
-        border: selected ? '2px solid #3b82f6' : '2px solid transparent',
+        border: selected ? `2px solid ${themeColors.info[500]}` : '2px solid transparent',
         borderRadius: '50%',
       }}
     >
@@ -63,7 +64,7 @@ const ConnectionPointNode: React.FC<NodeProps<Node<ConnectionPointNodeData>>> = 
           cx="15"
           cy="15"
           r="12"
-          fill={data?.fillColor || '#ffcc00'}
+          fill={data?.fillColor || colors.warning[500]}
           stroke={data?.strokeColor || '#333'}
           strokeWidth="2"
         />

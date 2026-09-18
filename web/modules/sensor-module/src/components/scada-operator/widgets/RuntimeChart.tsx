@@ -26,6 +26,7 @@ import React, {
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import type { RuntimeWidgetProps, TagValueChange } from '../../../types/scada-runtime.types';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                           */
@@ -68,14 +69,14 @@ class RingBuffer<T> {
 }
 
 const DEFAULT_COLORS = [
-  '#3b82f6',
-  '#10b981',
-  '#f59e0b',
-  '#ef4444',
-  '#8b5cf6',
-  '#06b6d4',
-  '#f97316',
-  '#84cc16',
+  themeColors.info[500],
+  themeColors.success[500],
+  themeColors.warning[500],
+  themeColors.error[500],
+  themeColors.primary[700],
+  themeColors.primary[400],
+  themeColors.accent[600],
+  themeColors.secondary[500],
 ];
 
 const RANGE_PRESETS: Array<{ label: string; minutes: number }> = [
@@ -175,17 +176,17 @@ const RuntimeChart: React.FC<RuntimeWidgetProps> = ({
         axes: [
           {
             scale: 'x',
-            stroke: '#9ca3af',
+            stroke: themeColors.neutral[400],
             font: '10px system-ui',
             grid: { stroke: 'rgba(0,0,0,0.06)', width: 1 },
-            ticks: { stroke: '#9ca3af', width: 1 },
+            ticks: { stroke: themeColors.neutral[400], width: 1 },
           },
           {
             scale: 'y',
-            stroke: '#9ca3af',
+            stroke: themeColors.neutral[400],
             font: '10px system-ui',
             grid: { stroke: 'rgba(0,0,0,0.06)', width: 1 },
-            ticks: { stroke: '#9ca3af', width: 1 },
+            ticks: { stroke: themeColors.neutral[400], width: 1 },
             size: 50,
           },
         ],

@@ -3,6 +3,7 @@ import type { EquipmentSymbolProps } from '../types';
 import { EQUIPMENT_STATE_COLORS } from '../types';
 import { CONNECTION_POINTS } from '../types';
 import { ConnectionPoints } from '../shared';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 const ServoMotorSymbol: React.FC<EquipmentSymbolProps> = ({
   state,
@@ -111,7 +112,7 @@ const ServoMotorSymbol: React.FC<EquipmentSymbolProps> = ({
         <circle cx={50} cy={18} r={2.5} fill={colors.stroke} fillOpacity={0.5} />
 
         {label && (
-          <text x={60} y={10} textAnchor="middle" fontSize={9} fill="#374151" fontFamily="sans-serif">
+          <text x={60} y={10} textAnchor="middle" fontSize={9} fill={themeColors.neutral[700]} fontFamily="sans-serif">
             {label}
           </text>
         )}

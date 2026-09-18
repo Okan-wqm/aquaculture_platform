@@ -287,6 +287,7 @@ function loadContractSubjectConstants(): Map<string, string> {
     'auth-user-queries.ts',
     'auth-credential-queries.ts',
     'farm-site-access-queries.ts',
+    'farm-ai-queries.ts',
   ];
   for (const file of contractFiles) {
     const path = join(REPO_ROOT, 'libs', 'event-contracts', 'src', file);

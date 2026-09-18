@@ -42,7 +42,7 @@ interface GetHarvestOutput {
   category: 'farm_query',
   runtime: 'cloud',
   requiredPermissions: ['operator', 'manager', 'expert', 'supervisor'],
-  requiresModule: null,
+  requiresModule: 'farm', // FARM-AI PR-3: farm-module tool surface
   inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   requiresConfirmation: false,
 })

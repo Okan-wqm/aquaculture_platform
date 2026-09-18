@@ -58,6 +58,9 @@ import { ListTreatmentApplicationsHandler } from './handlers/list-treatment-appl
 import { ListWelfareAssessmentsHandler } from './handlers/list-welfare-assessments.handler';
 import { ListEscapeIncidentsHandler } from './handlers/list-escape-incidents.handler';
 
+// PR-3: farm-AI read-only query responder (Water & Health specialist).
+import { FishHealthAiQueryResponder } from './responders/fish-health-ai-query.responder';
+
 const HealthEventQueryHandlers = [
   GetHealthEventHandler,
   ListHealthEventsHandler,
@@ -87,6 +90,8 @@ const FieldCaptureQueryHandlers = [
       Tank,
     ]),
   ],
+  // PR-3 farm-AI read-only NATS responder (QueryBus-backed, PII-free).
+  controllers: [FishHealthAiQueryResponder],
   providers: [
     // Services
     HealthEventService,

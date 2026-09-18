@@ -22,6 +22,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 // Entities
 import { WaterQualityMeasurement } from './entities/water-quality-measurement.entity';
 import { GetWaterQualityOverviewResponder } from './responders/get-water-quality-overview.responder';
+// PR-3: farm-AI read-only query responder (Water & Health specialist).
+import { WaterQualityAiQueryResponder } from './responders/water-quality-ai-query.responder';
 import { SensorTemperatureLatest } from './entities/sensor-temperature-latest.entity';
 import { SensorTemperatureDaily } from './entities/sensor-temperature-daily.entity';
 import { WaterQualityParameterConfig } from './entities/water-quality-parameter-config.entity';
@@ -107,7 +109,7 @@ const CommandHandlers = [
     EquipmentModule,
     FinanceModule,
   ],
-  controllers: [GetWaterQualityOverviewResponder],
+  controllers: [GetWaterQualityOverviewResponder, WaterQualityAiQueryResponder],
   providers: [
     WaterQualityService,
     // P-31 sıcaklık tetiklemesi — stateless recalc servisleri doğrudan sağlanır.

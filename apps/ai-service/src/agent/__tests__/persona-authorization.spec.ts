@@ -4,7 +4,6 @@ import { ConfigService } from '@nestjs/config';
 import {
   AgentProfileService,
   PersonaNotPermittedError,
-  UnknownPersonaError,
 } from '../agent-profile.service';
 import { AgentPersonaCatalogueService } from '../agent-persona-catalogue.service';
 import { AgentConfigService } from '../../tenant-config/agent-config.service';

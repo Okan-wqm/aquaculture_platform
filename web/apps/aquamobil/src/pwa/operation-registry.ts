@@ -177,7 +177,11 @@ export const OPERATION_MUTATIONS: Record<
     mutation SetChecklistItem($input: SetChecklistItemInput!) {
       setChecklistItem(input: $input) {
         id
-        checklistItems
+checklistItems {
+          id
+          text
+          isCompleted
+        }
       }
     }
   `,
